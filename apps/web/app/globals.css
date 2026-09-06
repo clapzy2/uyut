@@ -1,1 +1,166 @@
 @import "tailwindcss";
+@source "../../../packages/ui/src";
+
+/* Палитра «Солома и бургунди». Три состояния темы: как в системе, светлая, тёмная. */
+:root {
+  --page: #f6f1e4;
+  --paper: #fcf9f2;
+  --muted: #ece4d2;
+  --line: #d9ceb6;
+  --line-strong: #c4b797;
+  --ink: #262220;
+  --ink-2: #6d6656;
+  --accent: #7c2f3b;
+  --accent-hover: #63242f;
+  --accent-tint: #f0dcdf;
+  --on-accent: #faf2f0;
+  --danger: #9a3b2c;
+  --success: #3f6b4f;
+  --shadow-soft: 0 1px 2px rgb(38 34 32 / 0.06), 0 12px 32px -16px rgb(38 34 32 / 0.25);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #1c1616;
+    --paper: #261e1e;
+    --muted: #2f2626;
+    --line: #3b302f;
+    --line-strong: #56464a;
+    --ink: #f1eae1;
+    --ink-2: #a89a93;
+    --accent: #d68a94;
+    --accent-hover: #e3a4ac;
+    --accent-tint: #3a2528;
+    --on-accent: #1c1616;
+    --danger: #e08a78;
+    --success: #8fbf9f;
+    --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -16px rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --page: #1c1616;
+  --paper: #261e1e;
+  --muted: #2f2626;
+  --line: #3b302f;
+  --line-strong: #56464a;
+  --ink: #f1eae1;
+  --ink-2: #a89a93;
+  --accent: #d68a94;
+  --accent-hover: #e3a4ac;
+  --accent-tint: #3a2528;
+  --on-accent: #1c1616;
+  --danger: #e08a78;
+  --success: #8fbf9f;
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -16px rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+@theme {
+  /* Дефолтная палитра Tailwind выключена целиком: в проекте только собственные цвета */
+  --color-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-full: 9999px;
+
+  --ease-appear: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-ui: cubic-bezier(0.4, 0, 0.2, 1);
+
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-paper: var(--paper);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-tint: var(--accent-tint);
+  --color-on-accent: var(--on-accent);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+
+  --shadow-soft: var(--shadow-soft);
+
+  --font-serif: var(--font-literata), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-onest), system-ui, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, "Cascadia Mono", monospace;
+}
+
+@keyframes dialog-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dialog-appear {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 8px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@layer base {
+  html {
+    background-color: var(--page);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    min-height: 100dvh;
+    line-height: 1.55;
+  }
+  ::selection {
+    background-color: var(--accent-tint);
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

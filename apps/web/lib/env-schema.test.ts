@@ -11,6 +11,9 @@ const complete = {
   S3_BUCKET: 'uyut-dev',
   S3_ACCESS_KEY: 'key',
   S3_SECRET_KEY: 'secret',
+  BETTER_AUTH_SECRET: 'x'.repeat(32),
+  SMTP_URL: 'smtp://localhost:1025',
+  EMAIL_FROM: 'Uyut <hello@uyut.local>',
 }
 
 describe('parseServerEnv', () => {
@@ -18,6 +21,7 @@ describe('parseServerEnv', () => {
     const env = parseServerEnv(complete)
     expect(env.NODE_ENV).toBe('development')
     expect(env.SENTRY_DSN).toBeUndefined()
+    expect(env.MAILPIT_URL).toBeUndefined()
   })
 
   it('treats an empty SENTRY_DSN as not configured', () => {
@@ -31,5 +35,11 @@ describe('parseServerEnv', () => {
   it('rejects a missing required variable', () => {
     const { S3_BUCKET: _omitted, ...withoutBucket } = complete
     expect(() => parseServerEnv(withoutBucket)).toThrow(/S3_BUCKET/)
+  })
+
+  it('rejects a short auth secret', () => {
+    expect(() => parseServerEnv({ ...complete, BETTER_AUTH_SECRET: 'short' })).toThrow(
+      /BETTER_AUTH_SECRET/,
+    )
   })
 })

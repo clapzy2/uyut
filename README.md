@@ -42,7 +42,9 @@ bun run db:migrate
 bun run dev             # http://localhost:4300
 ```
 
-Порт dev-сервера задаётся переменной `PORT` в `.env`. Консоль MinIO: http://localhost:9001, логин и пароль `minioadmin`.
+Порт dev-сервера задаётся переменной `PORT` в `.env`. В `.env` нужно задать `BETTER_AUTH_SECRET`, любую случайную строку от 32 символов. Консоль MinIO: http://localhost:9001, логин и пароль `minioadmin`. Все письма, включая подтверждение почты и сброс пароля, ловит Mailpit: http://localhost:8025.
+
+Как устроена аутентификация: [docs/adr/002-auth.md](docs/adr/002-auth.md).
 
 Фоновые задачи запускаются отдельно: один раз войдите через `bunx trigger.dev login` и выполните `bun run jobs:dev`.
 

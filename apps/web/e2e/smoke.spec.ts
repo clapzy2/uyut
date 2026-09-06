@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test'
 
-test('home page renders the greeting', async ({ page }) => {
+test('home page sends a guest to the login screen', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Hello, Uyut')
+  await expect(page).toHaveURL(/\/login/)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('С возвращением.')
 })
 
 test('health check reports the database', async ({ request }) => {
