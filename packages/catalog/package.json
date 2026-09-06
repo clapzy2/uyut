@@ -10,6 +10,12 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/node": "^24.13.3",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@uyut/db": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "fast-xml-parser": "5.3.5"
   }
 }

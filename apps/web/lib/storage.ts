@@ -44,3 +44,10 @@ export function presignedObjectUrl(key: string, expiresInSeconds = 15 * 60): Pro
     expiresIn: expiresInSeconds,
   })
 }
+
+/** Ключ объекта, если ссылка ведёт в наш bucket: такие картинки наружу отдаём подписанными. */
+export function ownObjectKey(url: string): string | null {
+  const env = getEnv()
+  const prefix = `${env.S3_ENDPOINT.replace(/\/$/, '')}/${env.S3_BUCKET}/`
+  return url.startsWith(prefix) ? decodeURIComponent(url.slice(prefix.length)) : null
+}

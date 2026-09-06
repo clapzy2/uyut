@@ -67,6 +67,9 @@ export function styleTagsFromVector(vector: readonly number[]): string[] {
 
 type VoyageResponse = { data?: Array<{ embedding?: number[] }> }
 
+const MAX_RETRIES = 6
+const RETRY_WAIT_MS = 25_000
+
 /**
  * Voyage Multimodal 3. Нужен для матчинга каталога в следующей фазе; здесь заводится сразу,
  * чтобы ключ подключался в одном месте. Без ключа сервис не используется.
@@ -97,17 +100,27 @@ export function createVoyageEmbedder(
           ],
         })),
       }
-      const response = await fetch('https://api.voyageai.com/v1/multimodalembeddings', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
-      })
-      if (!response.ok) {
-        throw new Error(`voyage: ${response.status} ${(await response.text()).slice(0, 200)}`)
+      // Без привязанной карты Voyage даёт 3 запроса в минуту: на 429 ждём и пробуем снова
+      for (let attempt = 0; ; attempt += 1) {
+        const response = await fetch('https://api.voyageai.com/v1/multimodalembeddings', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(timeoutMs),
+        })
+        if (response.status === 429 && attempt < MAX_RETRIES) {
+          const retryAfter = Number(response.headers.get('retry-after'))
+          const waitMs =
+            Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : RETRY_WAIT_MS
+          await new Promise((resolve) => setTimeout(resolve, waitMs))
+          continue
+        }
+        if (!response.ok) {
+          throw new Error(`voyage: ${response.status} ${(await response.text()).slice(0, 200)}`)
+        }
+        const payload = (await response.json()) as VoyageResponse
+        return (payload.data ?? []).map((item) => item.embedding ?? [])
       }
-      const payload = (await response.json()) as VoyageResponse
-      return (payload.data ?? []).map((item) => item.embedding ?? [])
     },
   }
 }

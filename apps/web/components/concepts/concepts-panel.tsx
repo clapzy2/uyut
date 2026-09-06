@@ -107,6 +107,8 @@ export function ConceptsPanel({
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [run, setRun] = useState<{ runId: string; accessToken: string } | null>(null)
+  const conceptHref = (conceptId: string) =>
+    `/projects/${projectId}/rooms/${roomId}/concepts/${conceptId}`
   const [votes, setVotes] = useState<Record<string, boolean>>({})
 
   const ready = items.filter((item) => item.status === 'ready' && item.renderSrc)
@@ -162,12 +164,18 @@ export function ConceptsPanel({
   return (
     <div className="flex flex-col gap-6">
       {cards.length > 0 ? (
-        <SwipeDeck
-          cards={cards}
-          onVote={vote}
-          likedCount={liked.length}
-          className="mx-auto w-full max-w-xl"
-        />
+        <>
+          <SwipeDeck
+            cards={cards}
+            onVote={vote}
+            onOpen={(card) => router.push(`${conceptHref(card.id)}`)}
+            likedCount={liked.length}
+            className="mx-auto w-full max-w-xl"
+          />
+          <p className="text-center text-[13px] text-ink-2">
+            Тап по картинке открывает концепт с подбором товаров.
+          </p>
+        </>
       ) : null}
 
       {liked.length > 0 ? (
@@ -178,12 +186,14 @@ export function ConceptsPanel({
           <ul className="grid grid-cols-2 gap-3">
             {liked.map((item) => (
               <li key={item.id} className="overflow-hidden border border-line bg-muted">
-                {/* biome-ignore lint/performance/noImgElement: подписанная ссылка живёт час, оптимизатор next/image здесь не нужен */}
-                <img
-                  src={item.renderSrc as string}
-                  alt="Понравившийся концепт"
-                  className="block aspect-[4/3] w-full object-cover"
-                />
+                <a href={conceptHref(item.id)} className="block">
+                  {/* biome-ignore lint/performance/noImgElement: подписанная ссылка живёт час, оптимизатор next/image здесь не нужен */}
+                  <img
+                    src={item.renderSrc as string}
+                    alt="Понравившийся концепт, открыть"
+                    className="block aspect-[4/3] w-full object-cover transition-opacity duration-200 ease-ui hover:opacity-90"
+                  />
+                </a>
               </li>
             ))}
           </ul>

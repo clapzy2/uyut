@@ -25,7 +25,8 @@
     "jobs:dev": "bun run --filter @uyut/jobs dev",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down",
-    "test:integration": "bun run --filter @uyut/web test:integration"
+    "test:integration": "bun run --filter @uyut/web test:integration",
+    "catalog:import": "bun run --filter @uyut/jobs catalog:import"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.12",

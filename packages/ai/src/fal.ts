@@ -1,3 +1,4 @@
+import { downloadFalFile, FalError, falQueue } from './fal-queue'
 import type { ConceptRenderer, RenderRequest, RenderResult } from './types'
 
 // Движки генерации. Выбор проверен на реальной комнате: Nano Banana 2 держит геометрию и лучше
@@ -27,54 +28,11 @@ export function isConceptModelId(value: string): value is ConceptModelId {
   return value in conceptModels
 }
 
-export class RenderError extends Error {
+export class RenderError extends FalError {
   constructor(message: string) {
     super(message)
     this.name = 'RenderError'
   }
-}
-
-type QueueSubmit = { status_url: string; response_url: string }
-type QueueStatus = { status?: string; detail?: unknown }
-
-const TERMINAL_FAILURES = new Set(['FAILED', 'ERROR', 'CANCELLED'])
-
-async function pollQueue(
-  apiKey: string,
-  endpoint: string,
-  body: Record<string, unknown>,
-  timeoutMs: number,
-): Promise<Record<string, unknown>> {
-  const headers = { Authorization: `Key ${apiKey}` }
-  const submit = await fetch(`https://queue.fal.run/${endpoint}`, {
-    method: 'POST',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!submit.ok) {
-    throw new RenderError(`${endpoint}: ${submit.status} ${(await submit.text()).slice(0, 200)}`)
-  }
-  const { status_url, response_url } = (await submit.json()) as QueueSubmit
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const status = (await fetch(status_url, { headers }).then((response) =>
-      response.json(),
-    )) as QueueStatus
-    if (status.status === 'COMPLETED') {
-      const response = await fetch(response_url, { headers })
-      if (!response.ok) {
-        throw new RenderError(
-          `${endpoint}: ${response.status} ${(await response.text()).slice(0, 200)}`,
-        )
-      }
-      return (await response.json()) as Record<string, unknown>
-    }
-    if (status.status && TERMINAL_FAILURES.has(status.status)) {
-      throw new RenderError(`${endpoint}: ${status.status} ${JSON.stringify(status.detail ?? {})}`)
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-  }
-  throw new RenderError(`${endpoint}: не дождались ответа`)
 }
 
 function firstImageUrl(result: Record<string, unknown>): string | null {
@@ -127,18 +85,21 @@ export function createFalRenderer(
     model: modelId,
     async render(request: RenderRequest): Promise<RenderResult> {
       const { endpoint, body } = buildBody(modelId, request)
-      const result = await pollQueue(apiKey, endpoint, body, timeoutMs)
+      let result: Record<string, unknown>
+      try {
+        result = await falQueue(apiKey, endpoint, body, timeoutMs)
+      } catch (error) {
+        throw new RenderError(error instanceof Error ? error.message : String(error))
+      }
       const url = firstImageUrl(result)
       if (!url) {
         throw new RenderError(`${endpoint}: в ответе нет картинки`)
       }
-      const response = await fetch(url)
-      if (!response.ok) {
-        throw new RenderError(`${endpoint}: картинка не скачалась (${response.status})`)
-      }
+      const file = await downloadFalFile(url)
       return {
-        body: Buffer.from(await response.arrayBuffer()),
-        contentType: response.headers.get('content-type') ?? 'image/jpeg',
+        body: file.body,
+        contentType:
+          file.contentType === 'application/octet-stream' ? 'image/jpeg' : file.contentType,
         model: modelId,
         seed: conceptModels[modelId].supportsSeed ? (request.seed ?? null) : null,
       }

@@ -23,6 +23,7 @@ export function SwipeDeck({
   onVote,
   onUndo,
   onFinished,
+  onOpen,
   likedCount,
   className,
 }: {
@@ -30,11 +31,14 @@ export function SwipeDeck({
   onVote: (card: SwipeCard, liked: boolean) => void
   onUndo?: () => void
   onFinished?: () => void
+  /** Тап по карточке без перетаскивания или пробел: открыть карточку целиком */
+  onOpen?: (card: SwipeCard) => void
   likedCount?: number
   className?: string
 }) {
   const [index, setIndex] = useState(0)
   const [leaving, setLeaving] = useState<Leaving | null>(null)
+  const draggedRef = useRef(false)
   const x = useMotionValue(0)
   const rotate = useTransform(x, [-320, 0, 320], [-9, 0, 9])
   const likeOpacity = useTransform(x, [40, 150], [0, 1])
@@ -81,6 +85,10 @@ export function SwipeDeck({
         event.preventDefault()
         commit(true)
       }
+      if (event.key === ' ' && onOpen && cards[index]) {
+        event.preventDefault()
+        onOpen(cards[index] as SwipeCard)
+      }
       if ((event.key === 'z' || event.key === 'я') && onUndo && index > 0) {
         event.preventDefault()
         setIndex((value) => Math.max(0, value - 1))
@@ -89,7 +97,7 @@ export function SwipeDeck({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [commit, index, onUndo])
+  }, [cards, commit, index, onOpen, onUndo])
 
   return (
     <div className={cn('flex flex-col items-center gap-5', className)}>
@@ -116,6 +124,19 @@ export function SwipeDeck({
             drag="x"
             dragConstraints={{ left: 0, right: 0 }}
             dragElastic={0.55}
+            onDragStart={() => {
+              draggedRef.current = true
+            }}
+            onClick={() => {
+              // Клик после перетаскивания — не открытие, а конец жеста
+              if (draggedRef.current) {
+                draggedRef.current = false
+                return
+              }
+              if (onOpen && current) {
+                onOpen(current)
+              }
+            }}
             onDragEnd={(_, info) => {
               const far = Math.abs(info.offset.x) > THRESHOLD_PX
               const fast = Math.abs(info.velocity.x) > THRESHOLD_VELOCITY
@@ -127,6 +148,9 @@ export function SwipeDeck({
             }}
             style={{ x, rotate, zIndex: 2 }}
             className="absolute inset-0 cursor-grab overflow-hidden border border-line bg-muted shadow-soft active:cursor-grabbing"
+            role={onOpen ? 'button' : undefined}
+            tabIndex={onOpen ? 0 : undefined}
+            aria-label={onOpen ? 'Открыть карточку' : undefined}
           >
             {/* biome-ignore lint/performance/noImgElement: подписанные ссылки живут час, оптимизатор next/image здесь не нужен */}
             <img

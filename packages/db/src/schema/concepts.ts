@@ -14,6 +14,9 @@ import { projects, rooms } from './projects'
 export const conceptStatuses = ['pending', 'ready', 'failed'] as const
 export type ConceptStatus = (typeof conceptStatuses)[number]
 
+export const objectsStatuses = ['pending', 'ready', 'failed', 'skipped'] as const
+export type ObjectsStatus = (typeof objectsStatuses)[number]
+
 // Концепты: варианты дизайна одной комнаты. Строки создаются сразу при запуске генерации,
 // чтобы прогресс было видно, и дозаполняются по мере готовности рендеров.
 export const concepts = pgTable(
@@ -37,6 +40,9 @@ export const concepts = pgTable(
     seed: bigint('seed', { mode: 'number' }),
     likedByOwner: boolean('liked_by_owner'),
     likedByPartner: boolean('liked_by_partner'),
+    // Подбор предметов идёт отдельной задачей после рендера
+    objectsStatus: text('objects_status', { enum: objectsStatuses }).notNull().default('pending'),
+    objectsError: text('objects_error'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
