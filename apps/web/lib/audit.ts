@@ -11,6 +11,8 @@ export type AuditAction =
   | 'auth.email_verified'
   | 'profile.updated'
   | 'profile.avatar_changed'
+  | 'project.created'
+  | 'project.deleted'
 
 type AuditInput = {
   action: AuditAction

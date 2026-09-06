@@ -8,7 +8,8 @@
     "start": "bun --env-file=../../.env run next start",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "e2e": "bun --env-file=../../.env run playwright test"
+    "e2e": "bun --env-file=../../.env run playwright test",
+    "test:integration": "bun --env-file=../../.env run vitest run --config vitest.integration.config.mts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1127.0",

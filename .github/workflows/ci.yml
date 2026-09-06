@@ -61,6 +61,9 @@ jobs:
       - name: Migrate test database
         run: bun run db:migrate
 
+      - name: Integration tests
+        run: bun run test:integration
+
       - name: Install Playwright
         run: bunx playwright install --with-deps chromium
 
