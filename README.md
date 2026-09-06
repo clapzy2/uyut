@@ -57,6 +57,7 @@ bun run dev             # http://localhost:4300
 | `bun run lint` | Biome: линтер и форматирование |
 | `bun run typecheck` | проверка типов во всех пакетах |
 | `bun run test` | unit-тесты |
+| `bun run test:integration` | тесты изоляции данных на локальной базе |
 | `bun run e2e` | e2e-тесты поверх production-сборки |
 | `bun run db:generate` | сгенерировать миграцию из схемы |
 | `bun run db:migrate` | применить миграции |

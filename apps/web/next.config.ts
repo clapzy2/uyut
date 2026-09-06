@@ -25,6 +25,8 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // next dev иначе подкладывает в проект служебные md-файлы для сторонних инструментов
   agentRules: false,
+  // Планы до 15 МБ приходят через Server Action одним запросом
+  experimental: { serverActions: { bodySizeLimit: '16mb' } },
   async headers() {
     return [{ source: '/(.*)', headers: securityHeaders }]
   },

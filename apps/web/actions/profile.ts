@@ -5,8 +5,9 @@ import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
 import { recordAudit } from '@/lib/audit'
 import { getAuth } from '@/lib/auth'
-import { detectImageKind, normalizeAvatar } from '@/lib/avatar'
+import { normalizeAvatar } from '@/lib/avatar'
 import { AVATAR_MAX_BYTES } from '@/lib/avatar-rules'
+import { detectFileKind, isImageKind } from '@/lib/files/detect'
 import { getSession } from '@/lib/session'
 import { deleteObject, putObject } from '@/lib/storage'
 import { profileSchema } from '@/lib/validation/auth'
@@ -52,7 +53,7 @@ export async function uploadAvatar(formData: FormData): Promise<ActionResult> {
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer())
-  if (!detectImageKind(bytes)) {
+  if (!isImageKind(detectFileKind(bytes))) {
     return { ok: false, error: 'Это не похоже на JPG, PNG или WebP. Попробуйте другой файл.' }
   }
 

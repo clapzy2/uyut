@@ -56,7 +56,7 @@ test.describe('registration and verification', () => {
 
     await signInViaForm(page, email, PASSWORD)
     await expect(page).toHaveURL(/\/projects/)
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('ваши проекты')
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('первый проект')
   })
 })
 
