@@ -50,6 +50,9 @@ curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
 | `S3_REGION` | `ru-1` |
 | `S3_BUCKET` | имя приватного bucket |
 | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | сервисный пользователь Selectel |
+| `BETTER_AUTH_SECRET` | случайная строка от 32 символов, `openssl rand -base64 32` |
+| `SMTP_URL` | адрес SMTP-сервера для писем, например `smtps://user:pass@smtp.resend.com:465` |
+| `EMAIL_FROM` | отправитель писем, например `Uyut <hello@ваш-домен>` |
 | `SENTRY_DSN` | DSN production-проекта Sentry |
 | `NEXT_PUBLIC_SENTRY_DSN` | тот же DSN, отметить «Available at build time»: значение вшивается в клиентский бандл |
 

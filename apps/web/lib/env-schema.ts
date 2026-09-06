@@ -15,6 +15,10 @@ export const serverEnvSchema = z.object({
   S3_ACCESS_KEY: z.string().min(1),
   S3_SECRET_KEY: z.string().min(1),
   SENTRY_DSN: optionalUrl,
+  BETTER_AUTH_SECRET: z.string().min(32, 'не короче 32 символов'),
+  SMTP_URL: z.url(),
+  EMAIL_FROM: z.string().min(3),
+  MAILPIT_URL: optionalUrl,
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>

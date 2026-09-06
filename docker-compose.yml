@@ -73,6 +73,23 @@ services:
       mc anonymous set none local/uyut-dev
       "
 
+  # Ловит все исходящие письма в dev: SMTP на 1025, веб-интерфейс и API на 8025
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+      # Без обратного DNS: в Docker Desktop он висит секунды на каждом письме
+      MP_SMTP_DISABLE_RDNS: 1
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   postgres-data:
   redis-data:

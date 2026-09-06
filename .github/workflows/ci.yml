@@ -13,31 +13,21 @@ env:
   APP_URL: http://localhost:3000
   DATABASE_URL: postgres://uyut:uyut@localhost:5432/uyut
   UPSTASH_REDIS_REST_URL: http://localhost:8079
-  UPSTASH_REDIS_REST_TOKEN: ci
+  UPSTASH_REDIS_REST_TOKEN: local-dev-token
   S3_ENDPOINT: http://localhost:9000
   S3_REGION: ru-1
-  S3_BUCKET: uyut-ci
-  S3_ACCESS_KEY: ci
-  S3_SECRET_KEY: ci
+  S3_BUCKET: uyut-dev
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  BETTER_AUTH_SECRET: ci-only-secret-not-for-production-0123456789
+  SMTP_URL: smtp://127.0.0.1:1025
+  EMAIL_FROM: Uyut <hello@uyut.local>
+  MAILPIT_URL: http://localhost:8025
 
 jobs:
   checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: pgvector/pgvector:pg17
-        env:
-          POSTGRES_USER: uyut
-          POSTGRES_PASSWORD: uyut
-          POSTGRES_DB: uyut
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U uyut -d uyut"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
 
@@ -63,11 +53,20 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Start services
+        run: |
+          docker compose up -d --wait postgres redis redis-http minio mailpit
+          docker compose up minio-init
+
       - name: Migrate test database
         run: bun run db:migrate
 
       - name: Install Playwright
         run: bunx playwright install --with-deps chromium
 
-      - name: E2E smoke
+      - name: E2E
         run: bun run e2e
+
+      - name: Stop services
+        if: always()
+        run: docker compose down -v

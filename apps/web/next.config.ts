@@ -5,14 +5,29 @@ import type { NextConfig } from 'next'
 // Конфиг может исполняться и как CommonJS, и как ESM: берём то, что доступно
 const configDir = typeof __dirname === 'undefined' ? process.cwd() : __dirname
 
+const securityHeaders = [
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+  ...(process.env.NODE_ENV === 'production'
+    ? [{ key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' }]
+    : []),
+]
+
 const nextConfig: NextConfig = {
   output: process.env.DOCKER_BUILD ? 'standalone' : undefined,
   outputFileTracingRoot: path.resolve(configDir, '../..'),
-  transpilePackages: ['@uyut/db'],
+  transpilePackages: ['@uyut/db', '@uyut/ui'],
+  // Нативные модули не бандлятся, а грузятся из node_modules
+  serverExternalPackages: ['@node-rs/argon2', 'sharp'],
   poweredByHeader: false,
   reactStrictMode: true,
   // next dev иначе подкладывает в проект служебные md-файлы для сторонних инструментов
   agentRules: false,
+  async headers() {
+    return [{ source: '/(.*)', headers: securityHeaders }]
+  },
 }
 
 export default withSentryConfig(nextConfig, {
