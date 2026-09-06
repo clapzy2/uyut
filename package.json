@@ -1,0 +1,34 @@
+{
+  "name": "uyut",
+  "private": true,
+  "packageManager": "bun@1.4.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "jobs"
+  ],
+  "engines": {
+    "node": ">=24",
+    "bun": ">=1.2"
+  },
+  "scripts": {
+    "dev": "turbo run dev --filter=@uyut/web",
+    "build": "turbo run build",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "e2e": "turbo run e2e",
+    "db:generate": "bun run --filter @uyut/db generate",
+    "db:migrate": "bun run --filter @uyut/db migrate",
+    "db:studio": "bun run --filter @uyut/db studio",
+    "jobs:dev": "bun run --filter @uyut/jobs dev",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.12",
+    "turbo": "^2.10.12",
+    "typescript": "^5.9.3"
+  }
+}
