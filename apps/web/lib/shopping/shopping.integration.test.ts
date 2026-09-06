@@ -153,9 +153,7 @@ describe('shopping list in a real database', () => {
     await expect(
       addShoppingItem(strangerId, { projectId, catalogItemId: lampId }),
     ).rejects.toBeInstanceOf(NotFoundError)
-    await expect(removeShoppingItem(strangerId, added.itemId)).rejects.toBeInstanceOf(
-      NotFoundError,
-    )
+    await expect(removeShoppingItem(strangerId, added.itemId)).rejects.toBeInstanceOf(NotFoundError)
     await expect(setShoppingItemQuantity(strangerId, added.itemId, 5)).rejects.toBeInstanceOf(
       NotFoundError,
     )
