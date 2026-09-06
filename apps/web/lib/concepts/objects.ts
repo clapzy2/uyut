@@ -12,6 +12,7 @@ import { asc, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { NotFoundError } from '@/lib/projects/access'
 import { getRoom } from '@/lib/projects/repository'
+import { shoppingQuantities } from '@/lib/shopping/repository'
 import { ownObjectKey, presignedObjectUrl } from '@/lib/storage'
 
 export type MatchView = {
@@ -68,6 +69,8 @@ export type ConceptPageData = {
     budgetKopecks: number | null
   }
   objects: ObjectView[]
+  /** Что уже в списке покупок проекта: количество по товару каталога и общий счётчик */
+  shopping: { byCatalogItem: Record<string, number>; count: number }
 }
 
 const MATCHES = 5
@@ -141,11 +144,14 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
   }
   // Проверка владельца идёт через комнату: чужой концепт неотличим от несуществующего
   const room = await getRoom(userId, concept.roomId)
-  const rows = await db
-    .select()
-    .from(conceptObjects)
-    .where(eq(conceptObjects.conceptId, concept.id))
-    .orderBy(asc(conceptObjects.orderIndex))
+  const [rows, byCatalogItem] = await Promise.all([
+    db
+      .select()
+      .from(conceptObjects)
+      .where(eq(conceptObjects.conceptId, concept.id))
+      .orderBy(asc(conceptObjects.orderIndex)),
+    shoppingQuantities(userId, room.projectId),
+  ])
 
   const objects = await Promise.all(
     rows.map(async (object): Promise<ObjectView> => {
@@ -198,5 +204,9 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
       budgetKopecks: room.project.budgetKopecks,
     },
     objects,
+    shopping: {
+      byCatalogItem,
+      count: Object.values(byCatalogItem).reduce((sum, quantity) => sum + quantity, 0),
+    },
   }
 }

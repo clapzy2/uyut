@@ -7,11 +7,16 @@ import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { DeleteProjectDialog } from '@/components/delete-project-dialog'
 import { FileUploader } from '@/components/file-uploader'
 import { ProjectSettingsDialog } from '@/components/project-settings-dialog'
+import { formatPrice } from '@/lib/concepts/format'
+import { estimateProject } from '@/lib/estimate'
 import { PLAN_ACCEPT, PLAN_LIMIT_TEXT, PLAN_MAX_BYTES } from '@/lib/files/rules'
 import { NotFoundError } from '@/lib/projects/access'
 import { fileNameFromKey, formatArea, projectMeta } from '@/lib/projects/format'
 import { getProject } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
+import { pluralItems } from '@/lib/shopping/format'
+import { getWorksRates } from '@/lib/shopping/rates'
+import { getShoppingList } from '@/lib/shopping/repository'
 import { presignedObjectUrl } from '@/lib/storage'
 
 type Params = Promise<{ id: string }>
@@ -50,6 +55,17 @@ export default async function ProjectPage({ params }: { params: Params }) {
   const planUrl = project.planUrl ? await presignedObjectUrl(project.planUrl) : null
   const planIsPdf = project.planUrl?.endsWith('.pdf') ?? false
   const uploadPlanForProject = uploadPlan.bind(null, project.id)
+  const shopping = await getShoppingList(session.user.id, project.id)
+  const estimate = estimateProject({
+    rooms: project.rooms,
+    items: shopping.items.map((item) => ({
+      priceKopecks: item.priceKopecks,
+      quantity: item.quantity,
+      variantPriceKopecks: item.variant?.priceKopecks ?? null,
+    })),
+    budgetKopecks: project.budgetKopecks,
+    rates: getWorksRates(),
+  })
 
   return (
     <section className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-14 lg:py-20">
@@ -206,6 +222,23 @@ export default async function ProjectPage({ params }: { params: Params }) {
             </>
           )}
         </div>
+      </div>
+
+      <div className="mt-12 flex flex-wrap items-end justify-between gap-4 border-t border-line pt-6">
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">Итоги</p>
+          <p className="mt-2 max-w-md text-[15px] leading-relaxed text-ink-2">
+            {shopping.count > 0
+              ? `В списке покупок ${pluralItems(shopping.count)}, смета ${formatPrice(estimate.totalKopecks)}.`
+              : 'Список покупок пока пуст. Смета работ считается по площади комнат.'}
+          </p>
+        </div>
+        <Link
+          href={`/projects/${project.id}/summary`}
+          className="text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4"
+        >
+          Список покупок и смета
+        </Link>
       </div>
 
       <div className="mt-14 border-t border-line pt-5">

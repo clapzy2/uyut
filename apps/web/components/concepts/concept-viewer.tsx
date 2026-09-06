@@ -1,15 +1,18 @@
 'use client'
 
-import { isApproximate, type Swatch } from '@uyut/ai'
+import { findSwatch, isApproximate, type Swatch } from '@uyut/ai'
 import { cn, toast } from '@uyut/ui'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { setConceptLike } from '@/actions/concepts'
 import { resetRecolor, saveRecolor } from '@/actions/recolor'
+import { addItem } from '@/actions/shopping'
 import { SwatchPicker } from '@/components/concepts/swatch-picker'
 import { categoryLabels, formatPrice, sourceLabel } from '@/lib/concepts/format'
-import type { ConceptPageData, ObjectView } from '@/lib/concepts/objects'
+import type { ConceptPageData, MatchView, ObjectView } from '@/lib/concepts/objects'
 import { applySwatch, prepareRecolor, type RecolorBase } from '@/lib/recolor/client'
+import { pluralItems } from '@/lib/shopping/format'
 
 function ObjectChip({
   object,
@@ -81,7 +84,18 @@ function Highlight({ object, strong }: { object: ObjectView; strong: boolean }) 
   )
 }
 
-function MatchesPanel({ object }: { object: ObjectView | null }) {
+function MatchesPanel({
+  object,
+  quantities,
+  adding,
+  onAdd,
+}: {
+  object: ObjectView | null
+  /** Сколько каждого товара уже в списке покупок проекта */
+  quantities: Record<string, number>
+  adding: string | null
+  onAdd: (match: MatchView, object: ObjectView) => void
+}) {
   if (!object) {
     return (
       <p className="text-[15px] leading-relaxed text-ink-2">
@@ -115,35 +129,38 @@ function MatchesPanel({ object }: { object: ObjectView | null }) {
         ) : null}
       </div>
       <ul className="flex flex-col divide-y divide-line border-y border-line">
-        {object.matches.map((match) => (
-          <li key={match.id}>
-            <a
-              href={match.affiliateUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={cn(
-                'flex items-center gap-3 py-3 transition-colors duration-200 ease-ui hover:bg-muted/60',
-                match.overBudget && 'opacity-75',
-              )}
+        {object.matches.map((match) => {
+          const inList = quantities[match.id] ?? 0
+          return (
+            <li
+              key={match.id}
+              className={cn('flex items-center gap-3 py-3', match.overBudget && 'opacity-75')}
             >
-              <span className="block h-16 w-16 shrink-0 overflow-hidden border border-line bg-muted">
-                {match.imageUrl ? (
-                  // biome-ignore lint/performance/noImgElement: картинка товара живёт у магазина, оптимизатор next/image здесь не нужен
-                  <img
-                    src={match.imageUrl}
-                    alt=""
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                  />
-                ) : null}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[15px] text-ink">{match.title}</span>
-                <span className="block truncate text-[13px] text-ink-2">
-                  {[match.brand, sourceLabel(match.source)].filter(Boolean).join(' · ')}
+              <a
+                href={match.affiliateUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex min-w-0 flex-1 items-center gap-3 transition-colors duration-200 ease-ui hover:bg-muted/60"
+              >
+                <span className="block h-16 w-16 shrink-0 overflow-hidden border border-line bg-muted">
+                  {match.imageUrl ? (
+                    // biome-ignore lint/performance/noImgElement: картинка товара живёт у магазина, оптимизатор next/image здесь не нужен
+                    <img
+                      src={match.imageUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : null}
                 </span>
-              </span>
-              <span className="flex shrink-0 flex-col items-end gap-1">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] text-ink">{match.title}</span>
+                  <span className="block truncate text-[13px] text-ink-2">
+                    {[match.brand, sourceLabel(match.source)].filter(Boolean).join(' · ')}
+                  </span>
+                </span>
+              </a>
+              <span className="flex shrink-0 flex-col items-end gap-1.5">
                 <span className="font-mono text-[14px] text-ink">
                   {formatPrice(match.priceKopecks)}
                 </span>
@@ -156,15 +173,37 @@ function MatchesPanel({ object }: { object: ObjectView | null }) {
                     {formatPrice(match.oldPriceKopecks)}
                   </span>
                 ) : null}
+                <button
+                  type="button"
+                  disabled={adding !== null}
+                  aria-label={
+                    inList > 0
+                      ? `${match.title}: в списке ${inList}, добавить ещё`
+                      : `Добавить в список: ${match.title}`
+                  }
+                  onClick={() => onAdd(match, object)}
+                  className={cn(
+                    'h-7 rounded-full border px-2.5 text-[12px] transition-colors duration-200 ease-ui disabled:opacity-50',
+                    inList > 0
+                      ? 'border-accent bg-accent-tint text-accent'
+                      : 'border-line-strong text-ink-2 hover:border-accent hover:text-accent',
+                  )}
+                >
+                  {adding === match.id
+                    ? 'Добавляем…'
+                    : inList > 0
+                      ? `В списке · ${inList}`
+                      : 'В список'}
+                </button>
               </span>
-            </a>
-          </li>
-        ))}
+            </li>
+          )
+        })}
       </ul>
       <p className="text-[13px] leading-relaxed text-ink-2">
         {object.styleOnly
-          ? 'Точной копии в каталоге нет, это ближайшие по духу. Ссылка открывает магазин в новой вкладке.'
-          : 'Похожие по форме и цвету, не точная копия. Ссылка открывает магазин в новой вкладке.'}
+          ? 'Точной копии в каталоге нет, это ближайшие по духу. Ссылка открывает магазин в новой вкладке, «В список» кладёт товар в покупки проекта.'
+          : 'Похожие по форме и цвету, не точная копия. Ссылка открывает магазин в новой вкладке, «В список» кладёт товар в покупки проекта.'}
       </p>
     </div>
   )
@@ -317,6 +356,35 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
     })
   }
 
+  const [adding, setAdding] = useState<string | null>(null)
+
+  // Перекрашенный предмет уходит в список с выбранным свотчем как вариантом цвета
+  function addToList(match: MatchView, object: ObjectView) {
+    const swatch = object.swatchId ? findSwatch(object.swatchId) : undefined
+    setAdding(match.id)
+    void addItem({
+      projectId: data.room.projectId,
+      catalogItemId: match.id,
+      roomId: data.room.id,
+      conceptObjectId: object.id,
+      ...(swatch ? { variant: { swatchId: swatch.id, color: swatch.ru.toLowerCase() } } : {}),
+    }).then((result) => {
+      setAdding(null)
+      if (!result.ok) {
+        toast({ title: result.error, tone: 'danger' })
+        return
+      }
+      toast({
+        title:
+          result.data.quantity > 1
+            ? `В списке уже ${result.data.quantity}: ${match.title}`
+            : `В списке: ${match.title}`,
+        tone: 'success',
+      })
+      router.refresh()
+    })
+  }
+
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,7fr)_minmax(0,4fr)] lg:gap-12">
       <div>
@@ -436,7 +504,25 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
             ))}
           </div>
         ) : null}
-        <MatchesPanel object={selected} />
+        <MatchesPanel
+          object={selected}
+          quantities={data.shopping.byCatalogItem}
+          adding={adding}
+          onAdd={addToList}
+        />
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-t border-line pt-4 text-[13px] text-ink-2">
+          <span>
+            {data.shopping.count > 0
+              ? `В списке покупок ${pluralItems(data.shopping.count)}.`
+              : 'Список покупок проекта пока пуст.'}
+          </span>
+          <Link
+            href={`/projects/${data.room.projectId}/summary`}
+            className="text-ink underline decoration-accent decoration-1 underline-offset-4"
+          >
+            Итоги проекта
+          </Link>
+        </div>
         {selected?.maskKey && concept.renderKey ? (
           <div className="border-t border-line pt-4">
             <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
