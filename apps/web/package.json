@@ -8,7 +8,7 @@
     "start": "bun --env-file=../../.env run next start",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "bun --env-file=../../.env run playwright test"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.73.0",
