@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "bun --env-file=../.env run trigger dev",
     "deploy": "trigger deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "catalog:import": "bun --env-file=../.env run scripts/import-catalog.ts",
+    "match-concept": "bun --env-file=../.env run scripts/match-concept.ts",
+    "index-now": "bun --env-file=../.env run scripts/index-catalog-now.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1127.0",
@@ -15,7 +18,8 @@
     "@uyut/db": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "sharp": "0.35.4",
-    "zod": "^4.5.4"
+    "zod": "^4.5.4",
+    "@uyut/catalog": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

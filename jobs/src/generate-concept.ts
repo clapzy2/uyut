@@ -1,4 +1,3 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { logger, metadata, task } from '@trigger.dev/sdk'
 import {
   type ConceptBrief,
@@ -12,10 +11,14 @@ import {
   type StyleEntry,
   styleLibrary,
 } from '@uyut/ai'
-import { concepts, createDb, projects, rooms } from '@uyut/db'
+import { concepts, projects, rooms } from '@uyut/db'
 import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { z } from 'zod'
+import { db } from './lib/db'
+import { requireEnv } from './lib/env'
+import { putObject, readObject } from './lib/s3'
+import { segmentAndMatch } from './segment-and-match'
 
 const payloadSchema = z.object({
   roomId: z.uuid(),
@@ -24,60 +27,6 @@ const payloadSchema = z.object({
 })
 
 export type GenerateConceptPayload = z.input<typeof payloadSchema>
-
-function requireEnv(name: string): string {
-  const value = process.env[name]
-  if (!value) {
-    throw new Error(`${name} не задан`)
-  }
-  return value
-}
-
-let cachedDb: ReturnType<typeof createDb> | undefined
-function db() {
-  if (!cachedDb) {
-    cachedDb = createDb(requireEnv('DATABASE_URL'))
-  }
-  return cachedDb
-}
-
-let cachedS3: S3Client | undefined
-function s3(): S3Client {
-  if (!cachedS3) {
-    cachedS3 = new S3Client({
-      endpoint: requireEnv('S3_ENDPOINT'),
-      region: requireEnv('S3_REGION'),
-      forcePathStyle: true,
-      credentials: {
-        accessKeyId: requireEnv('S3_ACCESS_KEY'),
-        secretAccessKey: requireEnv('S3_SECRET_KEY'),
-      },
-    })
-  }
-  return cachedS3
-}
-
-async function readObject(key: string): Promise<{ body: Buffer; contentType: string }> {
-  const result = await s3().send(
-    new GetObjectCommand({ Bucket: requireEnv('S3_BUCKET'), Key: key }),
-  )
-  const bytes = await result.Body?.transformToByteArray()
-  if (!bytes) {
-    throw new Error(`объект ${key} пустой`)
-  }
-  return { body: Buffer.from(bytes), contentType: result.ContentType ?? 'image/jpeg' }
-}
-
-async function putObject(key: string, body: Buffer, contentType: string): Promise<void> {
-  await s3().send(
-    new PutObjectCommand({
-      Bucket: requireEnv('S3_BUCKET'),
-      Key: key,
-      Body: body,
-      ContentType: contentType,
-    }),
-  )
-}
 
 function pickStyles(vector: number[] | null): { primary: StyleEntry; secondary: StyleEntry[] } {
   const nearest = vector ? nearestStyles(vector, 3) : []
@@ -195,6 +144,15 @@ export const generateConcept = task({
             })
             .where(eq(concepts.id, concept.id))
           done += 1
+          // Подбор предметов идёт отдельной задачей; её сбой не должен ронять рендер
+          try {
+            await segmentAndMatch.trigger({ conceptId: concept.id })
+          } catch (error) {
+            logger.warn('segment-and-match not triggered', {
+              conceptId: concept.id,
+              error: String(error),
+            })
+          }
         } catch (error) {
           failed += 1
           logger.error('render failed', { conceptId: concept.id, error: String(error) })

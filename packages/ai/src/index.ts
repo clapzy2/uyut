@@ -1,4 +1,14 @@
 // Клиенты Fal.ai, Anthropic и Voyage, каталог стилей и сборка промптов.
+export { budgetShares, MATCH_CONFIDENCE_THRESHOLD, type PriceWindow, priceWindow } from './budget'
+export {
+  createFalDetector,
+  type DetectedObject,
+  type Detector,
+  detectorCaption,
+  type NormalizedBox,
+  type RoomKind,
+  selectObjects,
+} from './detect'
 export {
   cosine,
   createVoyageEmbedder,
@@ -16,6 +26,7 @@ export {
   isConceptModelId,
   RenderError,
 } from './fal'
+export { downloadFalFile, FalError, falQueue, toDataUri } from './fal-queue'
 export {
   buildTemplatePlan,
   createClaudePromptBuilder,
@@ -25,6 +36,7 @@ export {
   fixedPreamble,
   styleOrDefault,
 } from './prompt'
+export { createFalSegmenter, type Segmenter } from './segment'
 export {
   findStyle,
   type StyleEntry,
