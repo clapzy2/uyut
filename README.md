@@ -44,7 +44,7 @@ bun run dev             # http://localhost:4300
 
 Порт dev-сервера задаётся переменной `PORT` в `.env`. Консоль MinIO: http://localhost:9001, логин и пароль `minioadmin`.
 
-Фоновые задачи запускаются отдельно: укажите `TRIGGER_PROJECT_REF` в `.env`, один раз войдите через `bunx trigger.dev login` и выполните `bun run jobs:dev`.
+Фоновые задачи запускаются отдельно: один раз войдите через `bunx trigger.dev login` и выполните `bun run jobs:dev`.
 
 ## Команды
 
