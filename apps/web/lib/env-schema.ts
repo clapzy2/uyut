@@ -2,6 +2,10 @@ import { z } from 'zod'
 
 // Пустая строка в .env означает «не задано», а не «пустой URL»
 const optionalUrl = z.preprocess((value) => (value === '' ? undefined : value), z.url().optional())
+const optionalText = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string().min(1).optional(),
+)
 
 export const serverEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -19,6 +23,13 @@ export const serverEnvSchema = z.object({
   SMTP_URL: z.url(),
   EMAIL_FROM: z.string().min(3),
   MAILPIT_URL: optionalUrl,
+  // Внешние модели. Пустое значение означает «ключа нет»: приложение поднимается и работает
+  // на запасных вариантах, чтобы разработка и CI не зависели от платных сервисов.
+  FAL_KEY: optionalText,
+  CONCEPT_MODEL: z.enum(['nano-banana-2', 'kontext-pro']).default('nano-banana-2'),
+  ANTHROPIC_API_KEY: optionalText,
+  VOYAGE_API_KEY: optionalText,
+  TRIGGER_SECRET_KEY: optionalText,
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>

@@ -42,13 +42,16 @@ test.describe
     test('owner creates a project, uploads a plan, adds rooms and a photo', async ({ page }) => {
       await registerViaForm(page, uniqueEmail('owner'))
 
-      await page.goto('/projects')
-      await expect(page.getByRole('heading', { level: 1 })).toContainText('первый проект')
-      await page.getByRole('button', { name: 'Создать проект' }).click()
-      await page.getByLabel('Название').fill('Квартира на Ленина')
-      await page.getByRole('button', { name: 'Создать', exact: true }).click()
-      await expect(page).toHaveURL(/\/projects\/[0-9a-f-]{36}$/)
+      // Проект заводится через онбординг; здесь проверяем только первый его шаг
+      await page.goto('/onboarding/step-1')
+      await page.getByLabel('Название проекта').fill('Квартира на Ленина')
+      await page.getByRole('button', { name: 'Убрать' }).last().click()
+      await page.getByRole('button', { name: 'Дальше' }).click()
+      await expect(page).toHaveURL(/\/onboarding\/step-2\?project=[0-9a-f-]{36}/)
+      const projectId = new URL(page.url()).searchParams.get('project')
+      await page.goto(`/projects/${projectId}`)
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Квартира на Ленина')
+      await expect(page.getByText('Расскажите о себе')).toBeVisible()
       projectUrl = page.url()
 
       const source = await jpegWithExif()
@@ -81,7 +84,7 @@ test.describe
       })
       await expect(page.getByText('Это не похоже на PDF, JPG или PNG')).toBeVisible()
 
-      for (const kind of ['Гостиная', 'Спальня', 'Кухня']) {
+      for (const kind of ['Спальня']) {
         await page.getByRole('button', { name: 'Добавить комнату' }).click()
         // Радиокнопки скрыты визуально, кликаем по подписи-чипу внутри диалога
         await page.getByRole('dialog').getByText(kind, { exact: true }).click()
@@ -90,7 +93,7 @@ test.describe
         await expect(page.getByText(`${kind}: комната добавлена`)).toBeVisible()
         await expect(page.getByRole('link', { name: new RegExp(kind) })).toBeVisible()
       }
-      await expect(page.getByText('3 комнаты')).toBeVisible()
+      await expect(page.getByText('2 комнаты')).toBeVisible()
 
       await page.getByRole('link', { name: /Гостиная/ }).click()
       await expect(page).toHaveURL(/\/rooms\/[0-9a-f-]{36}$/)
@@ -113,7 +116,7 @@ test.describe
       await page.getByLabel('Заметки').fill('Батарея под окном, дверь открывается внутрь.')
       await page.getByRole('button', { name: 'Сохранить' }).click()
       await expect(page.getByText('Сохранили')).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Сгенерировать концепты' })).toBeDisabled()
+      await expect(page.getByRole('button', { name: 'Сгенерировать концепты' })).toBeEnabled()
     })
 
     test('a stranger sees neither the project nor the room', async ({
