@@ -10,11 +10,17 @@ import {
   text,
   timestamp,
   uuid,
+  vector,
 } from 'drizzle-orm/pg-core'
+import { EMBEDDING_DIMENSIONS } from './embedding'
 import { users } from './users'
 
 export const roomKinds = ['living', 'bedroom', 'kitchen', 'bath', 'kid'] as const
 export type RoomKind = (typeof roomKinds)[number]
+
+// Черновая отделка или готовый ремонт: от этого зависит, просит ли промпт сделать ремонт
+export const roomConditions = ['bare', 'finished'] as const
+export type RoomCondition = (typeof roomConditions)[number]
 
 export type Household = {
   adults?: number
@@ -25,7 +31,7 @@ export type Household = {
   wfh?: boolean
 }
 
-// Одна квартира = один проект. Поля бюджета, семьи и стиля заполнит онбординг следующей фазы.
+// Одна квартира = один проект. Бюджет, состав семьи и вкус заполняет онбординг.
 export const projects = pgTable(
   'projects',
   {
@@ -38,9 +44,15 @@ export const projects = pgTable(
     totalAreaM2: numeric('total_area_m2', { precision: 6, scale: 2, mode: 'number' }),
     budgetKopecks: bigint('budget_kopecks', { mode: 'number' }),
     styleTags: text('style_tags').array().notNull().default(sql`'{}'::text[]`),
+    // Усреднённый вектор лайкнутых картинок стиля, смешанный с референсом пользователя
+    styleReferenceEmbedding: vector('style_reference_embedding', {
+      dimensions: EMBEDDING_DIMENSIONS,
+    }),
     household: jsonb('household').$type<Household>(),
-    // Ключ объекта в приватном bucket, наружу отдаётся подписанной ссылкой
+    // Ключи объектов в приватном bucket, наружу отдаются подписанной ссылкой
     planUrl: text('plan_url'),
+    referenceUrl: text('reference_url'),
+    onboardedAt: timestamp('onboarded_at', { withTimezone: true }),
     isPaid: boolean('is_paid').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
@@ -62,6 +74,7 @@ export const rooms = pgTable(
     kind: text('kind', { enum: roomKinds }).notNull(),
     name: text('name').notNull(),
     areaM2: numeric('area_m2', { precision: 6, scale: 2, mode: 'number' }),
+    condition: text('condition', { enum: roomConditions }).notNull().default('bare'),
     photoUrl: text('photo_url'),
     planUrl: text('plan_url'),
     notes: text('notes'),

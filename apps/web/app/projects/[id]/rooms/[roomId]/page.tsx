@@ -1,12 +1,13 @@
-import { Button } from '@uyut/ui'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { uploadRoomPhoto } from '@/actions/rooms'
+import { ConceptsPanel } from '@/components/concepts/concepts-panel'
 import { DeleteRoomDialog } from '@/components/delete-room-dialog'
 import { FileUploader } from '@/components/file-uploader'
 import { RoomNotesForm } from '@/components/room-notes-form'
 import { RoomSettingsDialog } from '@/components/room-settings-dialog'
+import { latestBatch } from '@/lib/concepts/repository'
 import { PHOTO_ACCEPT, PHOTO_LIMIT_TEXT, PHOTO_MAX_BYTES } from '@/lib/files/rules'
 import { NotFoundError } from '@/lib/projects/access'
 import { fileNameFromKey, formatArea, roomKindLabels } from '@/lib/projects/format'
@@ -50,6 +51,7 @@ export default async function RoomPage({ params }: { params: Params }) {
     notFound()
   }
 
+  const { items: conceptItems } = await latestBatch(session.user.id, room.id)
   const photoUrl = room.photoUrl ? await presignedObjectUrl(room.photoUrl) : null
   const uploadPhotoForRoom = uploadRoomPhoto.bind(null, room.id)
   const meta = [formatArea(room.areaM2), roomKindLabels[room.kind].toLowerCase()]
@@ -134,10 +136,19 @@ export default async function RoomPage({ params }: { params: Params }) {
             <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
               Концепты
             </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button disabled>Сгенерировать концепты</Button>
-              <span className="text-sm text-ink-2">в Фазе 3</span>
-            </div>
+            <ConceptsPanel
+              roomId={room.id}
+              projectId={room.projectId}
+              hasPhoto={Boolean(room.photoUrl)}
+              onboarded={Boolean(room.project.onboardedAt)}
+              items={conceptItems.map((item) => ({
+                id: item.id,
+                status: item.status,
+                renderSrc: item.renderSrc,
+                likedByOwner: item.likedByOwner,
+                orderIndex: item.orderIndex,
+              }))}
+            />
           </div>
         </div>
       </div>

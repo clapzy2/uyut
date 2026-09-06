@@ -1,5 +1,7 @@
 export * from './audit'
 export * from './auth'
 export * from './billing'
+export * from './concepts'
+export * from './embedding'
 export * from './projects'
 export * from './users'

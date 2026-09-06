@@ -16,6 +16,19 @@ const sizes: Record<Size, string> = {
   sm: 'h-9 px-3.5 text-sm',
 }
 
+// Те же стили нужны ссылкам, которые выглядят кнопкой, поэтому классы вынесены отдельно
+export function buttonClassName(
+  options: { variant?: Variant; size?: Size; className?: string } = {},
+): string {
+  return cn(
+    'inline-flex items-center justify-center gap-2 rounded-sm font-medium tracking-[0.01em] transition-colors duration-200 ease-ui',
+    'disabled:cursor-not-allowed disabled:opacity-60',
+    variants[options.variant ?? 'primary'],
+    sizes[options.size ?? 'md'],
+    options.className,
+  )
+}
+
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: Variant
   size?: Size
@@ -37,13 +50,7 @@ export function Button({
       type={type}
       disabled={disabled || pending}
       aria-busy={pending || undefined}
-      className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-sm font-medium tracking-[0.01em] transition-colors duration-200 ease-ui',
-        'disabled:cursor-not-allowed disabled:opacity-60',
-        variants[variant],
-        sizes[size],
-        className,
-      )}
+      className={buttonClassName({ variant, size, className })}
       {...props}
     >
       {children}

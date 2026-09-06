@@ -61,6 +61,7 @@ export function createAuthStorage(): SecondaryStorage {
 
 let loginByEmailLimiter: Ratelimit | undefined
 let requestsByIpLimiter: Ratelimit | undefined
+let conceptsByUserLimiter: Ratelimit | undefined
 
 // Десять попыток входа в час на один адрес, независимо от IP
 export function getLoginByEmailLimiter(): Ratelimit {
@@ -80,4 +81,14 @@ export function getRequestsByIpLimiter(): Ratelimit {
     prefix: 'rl:ip',
   })
   return requestsByIpLimiter
+}
+
+// Генерация стоит денег: тридцать запусков в час на пользователя
+export function getConceptsByUserLimiter(): Ratelimit {
+  conceptsByUserLimiter ??= new Ratelimit({
+    redis: getRedis(),
+    limiter: Ratelimit.slidingWindow(30, '1 h'),
+    prefix: 'rl:concepts',
+  })
+  return conceptsByUserLimiter
 }

@@ -58,6 +58,18 @@ export default async function ProjectPage({ params }: { params: Params }) {
       >
         Все проекты
       </Link>
+      {project.onboardedAt ? null : (
+        <p className="mt-5 border-l-2 border-accent bg-paper px-4 py-3 text-[15px] leading-relaxed text-ink-2">
+          Расскажите о себе, и концепты станут точнее: состав семьи, бюджет и любимые интерьеры.{' '}
+          <Link
+            href={`/onboarding/step-2?project=${project.id}`}
+            className="text-accent underline decoration-line-strong underline-offset-4"
+          >
+            Пять коротких вопросов
+          </Link>
+          .
+        </p>
+      )}
       <div className="mt-5 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-serif text-[40px] font-normal leading-[1.05] tracking-tight text-ink sm:text-5xl lg:text-[56px]">

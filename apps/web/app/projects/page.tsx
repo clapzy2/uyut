@@ -1,7 +1,7 @@
+import { buttonClassName } from '@uyut/ui'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { CreateProjectDialog } from '@/components/create-project-dialog'
 import { projectMeta } from '@/lib/projects/format'
 import { listProjects } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -38,7 +38,9 @@ export default async function ProjectsPage() {
             названия, остальное добавим по ходу.
           </p>
           <div className="mt-8">
-            <CreateProjectDialog variant="primary" label="Создать проект" />
+            <Link href="/onboarding/step-1" className={buttonClassName()}>
+              Создать проект
+            </Link>
           </div>
         </div>
       </section>
@@ -53,7 +55,9 @@ export default async function ProjectsPage() {
         <h1 className="font-serif text-[40px] font-normal leading-[1.05] tracking-tight text-ink sm:text-5xl lg:text-[56px]">
           Проекты
         </h1>
-        <CreateProjectDialog variant="secondary" label="Новый проект" />
+        <Link href="/onboarding/step-1" className={buttonClassName({ variant: 'secondary' })}>
+          Новый проект
+        </Link>
       </div>
       <ul className="mt-10 border-t border-line">
         {items.map((item, index) => {

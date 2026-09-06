@@ -13,6 +13,8 @@ export type AuditAction =
   | 'profile.avatar_changed'
   | 'project.created'
   | 'project.deleted'
+  | 'onboarding.completed'
+  | 'concepts.requested'
 
 type AuditInput = {
   action: AuditAction

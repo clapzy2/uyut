@@ -2,7 +2,7 @@ import { getSessionCookie } from 'better-auth/cookies'
 import { type NextRequest, NextResponse } from 'next/server'
 import { getRequestsByIpLimiter } from '@/lib/redis'
 
-const protectedPrefixes = ['/profile', '/projects', '/verify-email']
+const protectedPrefixes = ['/profile', '/projects', '/onboarding', '/verify-email']
 const guestOnlyPaths = new Set(['/login', '/register', '/forgot-password'])
 
 function clientIp(request: NextRequest): string {
