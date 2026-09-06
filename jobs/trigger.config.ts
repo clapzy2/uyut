@@ -1,14 +1,8 @@
 import { defineConfig } from '@trigger.dev/sdk'
 
-const project = process.env.TRIGGER_PROJECT_REF
-if (!project) {
-  throw new Error(
-    'TRIGGER_PROJECT_REF is not set: take it from the project settings in Trigger.dev',
-  )
-}
-
 export default defineConfig({
-  project,
+  project: 'proj_uhdwfcktksmvrkwbvrbv',
+  runtime: 'node-24',
   dirs: ['./src'],
   maxDuration: 300,
   retries: {

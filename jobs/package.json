@@ -4,17 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --env-file=../.env run trigger.dev dev",
-    "deploy": "trigger.dev deploy",
+    "dev": "trigger dev",
+    "deploy": "trigger deploy",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@trigger.dev/sdk": "^4.5.16",
+    "@trigger.dev/sdk": "4.5.16",
     "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
-    "trigger.dev": "^4.5.16",
+    "trigger.dev": "4.5.16",
     "typescript": "^5.9.3"
   }
 }
