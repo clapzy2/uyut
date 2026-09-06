@@ -32,7 +32,10 @@ function failure(error: unknown): { ok: false; error: string } {
   return { ok: false, error: GENERIC }
 }
 
-export async function requestConcepts(roomId: string): Promise<ActionResult<ConceptRun>> {
+export async function requestConcepts(
+  roomId: string,
+  revision?: string,
+): Promise<ActionResult<ConceptRun>> {
   const userId = await currentUserId()
   if (!userId) {
     return { ok: false, error: SESSION_EXPIRED }
@@ -52,6 +55,7 @@ export async function requestConcepts(roomId: string): Promise<ActionResult<Conc
       roomId: room.id,
       batchId,
       count: 5,
+      ...(revision ? { revision: revision.slice(0, 500) } : {}),
     })
     await recordAudit({
       action: 'concepts.requested',

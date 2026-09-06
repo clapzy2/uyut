@@ -1,6 +1,20 @@
 // Клиенты Fal.ai, Anthropic и Voyage, каталог стилей и сборка промптов.
 export { budgetShares, MATCH_CONFIDENCE_THRESHOLD, type PriceWindow, priceWindow } from './budget'
 export {
+  type AgentReply,
+  ASSISTANT_PERSONA,
+  buildSystemPrompt,
+  buildTranscript,
+  chatTools,
+  completeFalLlm,
+  looksLikeToolCall,
+  parseAgentReply,
+  RESET_MARK,
+  streamFalLlm,
+  type ToolSpec,
+  type TranscriptTurn,
+} from './chat'
+export {
   createFalDetector,
   type DetectedObject,
   type Detector,
@@ -36,6 +50,7 @@ export {
   fixedPreamble,
   styleOrDefault,
 } from './prompt'
+export { closeMask, maskWeights, meanLightness, type RecolorTarget, recolorPixels } from './recolor'
 export { createFalSegmenter, type Segmenter } from './segment'
 export {
   findStyle,
@@ -47,6 +62,22 @@ export {
   styleLibrary,
   stylesByFamily,
 } from './styles'
+export {
+  APPROXIMATE_LIGHTNESS_DELTA,
+  findSwatch,
+  type Hsl,
+  hexToHsl,
+  hslToRgb,
+  isApproximate,
+  rgbToHsl,
+  type Swatch,
+  type SwatchAvailability,
+  type SwatchClass,
+  swatchAvailability,
+  swatchClasses,
+  swatchClassLabels,
+  swatches,
+} from './swatches'
 export type {
   ConceptBrief,
   ConceptRenderer,

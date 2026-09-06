@@ -34,6 +34,18 @@ export async function putObject(key: string, body: Buffer, contentType: string):
   )
 }
 
+/** Объект целиком: для отдачи через наш домен, когда браузеру нужен доступ к пикселям. */
+export async function getObject(key: string): Promise<{ body: Uint8Array; contentType: string }> {
+  const result = await getClient().send(
+    new GetObjectCommand({ Bucket: getEnv().S3_BUCKET, Key: key }),
+  )
+  const body = await result.Body?.transformToByteArray()
+  if (!body) {
+    throw new Error(`объект ${key} пустой`)
+  }
+  return { body, contentType: result.ContentType ?? 'application/octet-stream' }
+}
+
 export async function deleteObject(key: string): Promise<void> {
   await getClient().send(new DeleteObjectCommand({ Bucket: getEnv().S3_BUCKET, Key: key }))
 }

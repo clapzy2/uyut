@@ -111,6 +111,9 @@ export const conceptObjects = pgTable(
       onDelete: 'set null',
     }),
     matchedConfidence: numeric('matched_confidence', { precision: 3, scale: 2, mode: 'number' }),
+    // Перекраска: какой свотч выбран и вектор вырезки в новом цвете, исходный вектор не трогаем
+    swatchId: text('swatch_id'),
+    editedEmbedding: vector('edited_embedding', { dimensions: EMBEDDING_DIMENSIONS }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
+import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { ConceptViewer } from '@/components/concepts/concept-viewer'
 import { getConceptPage } from '@/lib/concepts/objects'
 import { NotFoundError } from '@/lib/projects/access'
@@ -65,6 +66,12 @@ export default async function ConceptPage({ params }: { params: Params }) {
       <div className="mt-8">
         <ConceptViewer data={data} />
       </div>
+      <ChatDrawer
+        projectId={data.room.projectId}
+        roomId={data.room.id}
+        conceptId={data.concept.id}
+        hasConcepts
+      />
     </section>
   )
 }

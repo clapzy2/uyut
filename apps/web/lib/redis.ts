@@ -62,6 +62,7 @@ export function createAuthStorage(): SecondaryStorage {
 let loginByEmailLimiter: Ratelimit | undefined
 let requestsByIpLimiter: Ratelimit | undefined
 let conceptsByUserLimiter: Ratelimit | undefined
+let chatByUserLimiter: Ratelimit | undefined
 
 // Десять попыток входа в час на один адрес, независимо от IP
 export function getLoginByEmailLimiter(): Ratelimit {
@@ -91,4 +92,14 @@ export function getConceptsByUserLimiter(): Ratelimit {
     prefix: 'rl:concepts',
   })
   return conceptsByUserLimiter
+}
+
+// Помощник платный за каждое сообщение: шестьдесят в час на пользователя
+export function getChatByUserLimiter(): Ratelimit {
+  chatByUserLimiter ??= new Ratelimit({
+    redis: getRedis(),
+    limiter: Ratelimit.slidingWindow(60, '1 h'),
+    prefix: 'rl:chat',
+  })
+  return chatByUserLimiter
 }

@@ -4,6 +4,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -16,6 +17,8 @@ export type ConceptStatus = (typeof conceptStatuses)[number]
 
 export const objectsStatuses = ['pending', 'ready', 'failed', 'skipped'] as const
 export type ObjectsStatus = (typeof objectsStatuses)[number]
+
+export type ConceptEdit = { objectId: string; swatchId: string }
 
 // Концепты: варианты дизайна одной комнаты. Строки создаются сразу при запуске генерации,
 // чтобы прогресс было видно, и дозаполняются по мере готовности рендеров.
@@ -43,6 +46,11 @@ export const concepts = pgTable(
     // Подбор предметов идёт отдельной задачей после рендера
     objectsStatus: text('objects_status', { enum: objectsStatuses }).notNull().default('pending'),
     objectsError: text('objects_error'),
+    // Перекраска: оригинал остаётся в render_url, отредактированная версия и список правок рядом
+    editedRenderUrl: text('edited_render_url'),
+    edits: jsonb('edits').$type<ConceptEdit[]>(),
+    // Две фразы помощника: что за идея и почему подходит семье
+    note: text('note'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

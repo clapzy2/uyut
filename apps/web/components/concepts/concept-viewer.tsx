@@ -1,11 +1,15 @@
 'use client'
 
+import { isApproximate, type Swatch } from '@uyut/ai'
 import { cn, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { setConceptLike } from '@/actions/concepts'
+import { resetRecolor, saveRecolor } from '@/actions/recolor'
+import { SwatchPicker } from '@/components/concepts/swatch-picker'
 import { categoryLabels, formatPrice, sourceLabel } from '@/lib/concepts/format'
 import type { ConceptPageData, ObjectView } from '@/lib/concepts/objects'
+import { applySwatch, prepareRecolor, type RecolorBase } from '@/lib/recolor/client'
 
 function ObjectChip({
   object,
@@ -175,6 +179,118 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
   const selected = objects.find((object) => object.id === selectedId) ?? null
   const hovered = objects.find((object) => object.id === hoveredId) ?? null
   const searching = concept.objectsStatus === 'pending'
+  const [preview, setPreview] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [baseLightness, setBaseLightness] = useState<number | null>(null)
+  // Заготовка перекраски на каждый предмет считается один раз и переиспользуется при наведении
+  const basesRef = useRef(new Map<string, Promise<RecolorBase>>())
+  const previewUrlRef = useRef<string | null>(null)
+
+  function baseFor(object: ObjectView): Promise<RecolorBase> | null {
+    if (!concept.renderKey || !object.maskKey) {
+      return null
+    }
+    let base = basesRef.current.get(object.id)
+    if (!base) {
+      base = prepareRecolor(concept.renderKey, object.maskKey)
+      basesRef.current.set(object.id, base)
+    }
+    return base
+  }
+
+  function showPreview(url: string | null) {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+    }
+    previewUrlRef.current = url
+    setPreview(url)
+  }
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: заготовка зависит только от выбранного предмета
+  useEffect(() => {
+    setBaseLightness(null)
+    if (!selected) {
+      return
+    }
+    const base = baseFor(selected)
+    if (!base) {
+      return
+    }
+    let cancelled = false
+    void base.then((ready) => {
+      if (!cancelled) {
+        setBaseLightness(ready.sourceLightness)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [selected?.id])
+
+  async function previewSwatch(swatch: Swatch | null) {
+    if (!swatch || !selected) {
+      showPreview(null)
+      return
+    }
+    const base = baseFor(selected)
+    if (!base) {
+      return
+    }
+    try {
+      const result = await applySwatch(await base, swatch)
+      showPreview(result.url)
+    } catch (error) {
+      console.error(error)
+      toast({ title: 'Не получилось примерить цвет', tone: 'danger' })
+    }
+  }
+
+  async function commitSwatch(swatch: Swatch) {
+    if (!selected) {
+      return
+    }
+    const base = baseFor(selected)
+    if (!base) {
+      return
+    }
+    setSaving(true)
+    try {
+      const result = await applySwatch(await base, swatch)
+      const formData = new FormData()
+      formData.set('image', new File([result.blob], 'recolor.webp', { type: 'image/webp' }))
+      const saved = await saveRecolor(concept.id, selected.id, swatch.id, formData)
+      if (!saved.ok) {
+        toast({ title: saved.error, tone: 'danger' })
+        return
+      }
+      toast({
+        title: `${categoryLabels[selected.category]}: ${swatch.ru.toLowerCase()}`,
+        tone: 'success',
+      })
+      showPreview(null)
+      basesRef.current.clear()
+      router.refresh()
+    } catch (error) {
+      console.error(error)
+      toast({ title: 'Не получилось сохранить цвет', tone: 'danger' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function reset() {
+    setSaving(true)
+    void resetRecolor(concept.id).then((result) => {
+      setSaving(false)
+      if (!result.ok) {
+        toast({ title: result.error, tone: 'danger' })
+        return
+      }
+      basesRef.current.clear()
+      showPreview(null)
+      router.refresh()
+    })
+  }
 
   // Пока предметы ищутся, страница сама обновляется; дольше минуты ждать нечего
   useEffect(() => {
@@ -207,14 +323,25 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
         <div className="relative overflow-hidden border border-line bg-muted">
           {concept.renderSrc ? (
             // biome-ignore lint/performance/noImgElement: подписанная ссылка живёт час, оптимизатор next/image здесь не нужен
-            <img src={concept.renderSrc} alt="Концепт комнаты" className="block w-full" />
+            <img
+              src={preview ?? concept.renderSrc}
+              alt="Концепт комнаты"
+              className="block w-full"
+            />
           ) : (
             <div className="aspect-video" />
           )}
-          {hovered && hovered.id !== selected?.id ? (
+          {preview ? (
+            <span className="absolute right-3 top-3 z-30 rounded-full bg-paper/90 px-3 py-1 text-[12px] font-medium text-ink shadow-soft">
+              Примерка
+            </span>
+          ) : null}
+          {!preview && hovered && hovered.id !== selected?.id ? (
             <Highlight object={hovered} strong={false} />
           ) : null}
-          {selected ? <Highlight object={selected} strong /> : null}
+          {!preview && selected && !selected.swatchId ? (
+            <Highlight object={selected} strong />
+          ) : null}
           {objects.map((object) => (
             <ObjectChip
               key={object.id}
@@ -266,6 +393,24 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
             </button>
           </div>
         </div>
+        {concept.note ? (
+          <p className="mt-4 border-l-2 border-line-strong pl-4 text-[15px] leading-relaxed text-ink-2">
+            {concept.note}
+          </p>
+        ) : null}
+        {concept.editedRenderKey ? (
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-ink-2">
+            <span>Цвета изменены.</span>
+            <button
+              type="button"
+              onClick={reset}
+              disabled={saving}
+              className="underline decoration-line-strong underline-offset-4 hover:text-ink disabled:opacity-50"
+            >
+              Вернуть исходный
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <aside className="flex flex-col gap-4">
@@ -292,6 +437,23 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
           </div>
         ) : null}
         <MatchesPanel object={selected} />
+        {selected?.maskKey && concept.renderKey ? (
+          <div className="border-t border-line pt-4">
+            <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
+              Материал: {categoryLabels[selected.category].toLowerCase()}
+            </p>
+            <SwatchPicker
+              category={selected.category}
+              currentSwatchId={selected.swatchId}
+              approximateFor={(swatch) =>
+                baseLightness === null ? false : isApproximate(baseLightness, swatch)
+              }
+              busy={saving}
+              onPreview={(swatch) => void previewSwatch(swatch)}
+              onCommit={(swatch) => void commitSwatch(swatch)}
+            />
+          </div>
+        ) : null}
       </aside>
     </div>
   )

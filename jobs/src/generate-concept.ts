@@ -3,6 +3,7 @@ import {
   type ConceptBrief,
   type ConceptModelId,
   type ConceptRenderer,
+  completeFalLlm,
   conceptModels,
   createFalRenderer,
   createPromptBuilder,
@@ -24,6 +25,8 @@ const payloadSchema = z.object({
   roomId: z.uuid(),
   batchId: z.uuid(),
   count: z.number().int().min(1).max(8).default(5),
+  /** Правка из чата после первой генерации, по-английски */
+  revision: z.string().max(500).optional(),
 })
 
 export type GenerateConceptPayload = z.input<typeof payloadSchema>
@@ -41,6 +44,48 @@ function renderer(): { renderer: ConceptRenderer; modelId: ConceptModelId } {
 }
 
 type Progress = { stage: string; done: number; total: number; failed: number }
+
+async function writeNotes(
+  database: ReturnType<typeof db>,
+  conceptIds: string[],
+  brief: ConceptBrief,
+  shared: string,
+): Promise<void> {
+  const key = process.env.FAL_KEY
+  if (!key) {
+    return
+  }
+  const ready = await database
+    .select({ id: concepts.id, prompt: concepts.prompt })
+    .from(concepts)
+    .where(eq(concepts.status, 'ready'))
+  const ours = ready.filter((row) => conceptIds.includes(row.id))
+  for (const concept of ours) {
+    try {
+      const variation = concept.prompt.replace(shared, '').trim()
+      const note = await completeFalLlm(key, {
+        system:
+          'Ты помощник сервиса дизайна интерьера Uyut. Пиши по-русски, на «вы», без восторгов, ровно два коротких предложения: первое — что за идея в этом варианте комнаты, второе — почему это подходит именно этой семье. Без вступлений и без кавычек.',
+        prompt: [
+          `Комната: ${brief.roomName}. Стиль: ${brief.primaryStyle.ru}.`,
+          brief.household
+            ? `Семья: взрослых ${brief.household.adults ?? '?'}, детей ${brief.household.kids ?? 0}, животные ${brief.household.pets ? 'есть' : 'нет'}, работа из дома ${brief.household.wfh ? 'да' : 'нет'}.`
+            : '',
+          brief.notes ? `Пожелания: ${brief.notes}` : '',
+          `Особенность этого варианта (по-английски, переведи смысл): ${variation}`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      })
+      await database
+        .update(concepts)
+        .set({ note: note.trim().slice(0, 400) })
+        .where(eq(concepts.id, concept.id))
+    } catch (error) {
+      logger.warn('note failed', { conceptId: concept.id, error: String(error) })
+    }
+  }
+}
 
 function publish(progress: Progress): void {
   metadata.set('progress', progress)
@@ -74,6 +119,7 @@ export const generateConcept = task({
       areaM2: room.areaM2,
       condition: room.condition,
       notes: room.notes,
+      revision: payload.revision ?? null,
       hasPhoto: Boolean(room.photoUrl),
       budgetKopecks: project.budgetKopecks,
       household: project.household ?? null,
@@ -163,6 +209,14 @@ export const generateConcept = task({
         }
         publish({ stage: 'render', done, total: created.length, failed })
       }),
+    )
+
+    // Две фразы помощника к каждому удачному рендеру: что за идея и почему подходит семье
+    await writeNotes(
+      database,
+      created.map((concept) => concept.id),
+      brief,
+      plan.shared,
     )
 
     publish({ stage: 'done', done, total: created.length, failed })

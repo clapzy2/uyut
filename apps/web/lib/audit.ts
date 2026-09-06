@@ -15,6 +15,9 @@ export type AuditAction =
   | 'project.deleted'
   | 'onboarding.completed'
   | 'concepts.requested'
+  | 'concept.recolored'
+  | 'chat.message'
+  | 'chat.tool'
 
 type AuditInput = {
   action: AuditAction

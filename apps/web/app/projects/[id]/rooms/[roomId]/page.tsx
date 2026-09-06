@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { uploadRoomPhoto } from '@/actions/rooms'
+import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { ConceptsPanel } from '@/components/concepts/concepts-panel'
 import { DeleteRoomDialog } from '@/components/delete-room-dialog'
 import { FileUploader } from '@/components/file-uploader'
@@ -156,6 +157,11 @@ export default async function RoomPage({ params }: { params: Params }) {
       <div className="mt-14 border-t border-line pt-5">
         <DeleteRoomDialog roomId={room.id} name={room.name} />
       </div>
+      <ChatDrawer
+        projectId={room.projectId}
+        roomId={room.id}
+        hasConcepts={conceptItems.length > 0}
+      />
     </section>
   )
 }
