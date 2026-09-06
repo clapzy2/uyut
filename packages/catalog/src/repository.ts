@@ -148,6 +148,8 @@ export type SimilarQuery = {
   maxPriceKopecks?: number
   limit?: number
   excludeIds?: string[]
+  /** По какому вектору искать: вырезка с рендера сравнивается с картинкой, запрос словами — с текстом */
+  by?: 'image' | 'text'
 }
 
 export type SimilarItem = CatalogItem & { similarity: number }
@@ -158,10 +160,11 @@ export type SimilarItem = CatalogItem & { similarity: number }
  */
 export async function findSimilar(db: Database, query: SimilarQuery): Promise<SimilarItem[]> {
   const vector = `[${query.embedding.join(',')}]`
+  const column = query.by === 'text' ? catalogItems.textEmbedding : catalogItems.imageEmbedding
   const conditions = [
     eq(catalogItems.category, query.category),
     eq(catalogItems.inStock, true),
-    sql`${catalogItems.imageEmbedding} is not null`,
+    sql`${column} is not null`,
   ]
   if (query.minPriceKopecks !== undefined) {
     conditions.push(sql`${catalogItems.priceKopecks} >= ${query.minPriceKopecks}`)
@@ -172,7 +175,7 @@ export async function findSimilar(db: Database, query: SimilarQuery): Promise<Si
   if (query.excludeIds && query.excludeIds.length > 0) {
     conditions.push(sql`${catalogItems.id} not in ${query.excludeIds}`)
   }
-  const distance = sql<number>`${catalogItems.imageEmbedding} <=> ${vector}::vector`
+  const distance = sql<number>`${column} <=> ${vector}::vector`
   const rows = await db
     .select({ item: catalogItems, distance })
     .from(catalogItems)

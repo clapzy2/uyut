@@ -34,6 +34,9 @@ export type ObjectView = {
   label: string
   bbox: ConceptBbox
   maskSrc: string | null
+  /** Ключ маски для канвы: пиксели читаются через наш домен */
+  maskKey: string | null
+  swatchId: string | null
   confidence: number | null
   window: PriceWindow | null
   /** Лучшее совпадение ниже порога: панель называется «Похожие по стилю» */
@@ -48,7 +51,12 @@ export type ConceptPageData = {
     objectsStatus: ObjectsStatus
     objectsError: string | null
     likedByOwner: boolean | null
+    /** Что показываем: отредактированный рендер, если он есть */
     renderSrc: string | null
+    /** Ключ исходного рендера для канвы */
+    renderKey: string | null
+    editedRenderKey: string | null
+    note: string | null
     orderIndex: number
     batchId: string
   }
@@ -98,7 +106,8 @@ export async function matchesForObject(
 ): Promise<{ matches: MatchView[]; window: PriceWindow | null; styleOnly: boolean }> {
   const db = getDb()
   const window = priceWindow(budgetKopecks, object.category)
-  const embedding = object.embedding ?? []
+  // После перекраски ищем по вектору вырезки в новом цвете
+  const embedding = object.editedEmbedding ?? object.embedding ?? []
   if (embedding.length === 0) {
     return { matches: [], window, styleOnly: false }
   }
@@ -151,6 +160,8 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
         label: object.label,
         bbox: object.bbox,
         maskSrc,
+        maskKey: object.maskUrl,
+        swatchId: object.swatchId,
         confidence: object.matchedConfidence,
         window,
         styleOnly,
@@ -166,7 +177,16 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
       objectsStatus: concept.objectsStatus,
       objectsError: concept.objectsError,
       likedByOwner: concept.likedByOwner,
-      renderSrc: concept.renderUrl ? await presignedObjectUrl(concept.renderUrl, 60 * 60) : null,
+      renderSrc:
+        (concept.editedRenderUrl ?? concept.renderUrl)
+          ? await presignedObjectUrl(
+              (concept.editedRenderUrl ?? concept.renderUrl) as string,
+              60 * 60,
+            )
+          : null,
+      renderKey: concept.renderUrl,
+      editedRenderKey: concept.editedRenderUrl,
+      note: concept.note,
       orderIndex: concept.orderIndex,
       batchId: concept.batchId,
     },

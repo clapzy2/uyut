@@ -9,6 +9,8 @@ export type ConceptBrief = {
   condition: 'bare' | 'finished'
   /** Заметки пользователя, обычно по-русски */
   notes: string | null
+  /** Правка из чата после первой генерации, по-английски: «darker walls, no rug» */
+  revision?: string | null
   hasPhoto: boolean
   budgetKopecks: number | null
   household: {

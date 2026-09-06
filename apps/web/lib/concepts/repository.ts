@@ -12,7 +12,10 @@ async function withSignedUrls(rows: Concept[]): Promise<ConceptView[]> {
   return Promise.all(
     rows.map(async (row) => ({
       ...row,
-      renderSrc: row.renderUrl ? await presignedObjectUrl(row.renderUrl, 60 * 60) : null,
+      renderSrc:
+        (row.editedRenderUrl ?? row.renderUrl)
+          ? await presignedObjectUrl((row.editedRenderUrl ?? row.renderUrl) as string, 60 * 60)
+          : null,
     })),
   )
 }

@@ -87,8 +87,17 @@ function stylePart(brief: ConceptBrief): string {
   return parts.join(' ')
 }
 
+// Правка из чата идёт отдельной фразой после стиля: так она не теряется, кто бы ни писал стиль
+function revisionPart(brief: ConceptBrief): string {
+  return brief.revision ? ` Client's revision request: ${brief.revision.trim()}.` : ''
+}
+
 function sharedPrompt(brief: ConceptBrief, style?: string): string {
-  return [fixedPreamble(brief), style?.trim() || stylePart(brief), TAIL].join(' ')
+  return [
+    fixedPreamble(brief),
+    (style?.trim() || stylePart(brief)) + revisionPart(brief),
+    TAIL,
+  ].join(' ')
 }
 
 function variationPrompts(brief: ConceptBrief, count: number): string[] {
@@ -193,6 +202,9 @@ function briefForClaude(brief: ConceptBrief, count: number): string {
       ? `Бюджет на всю квартиру: ${Math.round(brief.budgetKopecks / 100).toLocaleString('ru-RU')} ₽.`
       : 'Бюджет не указан.',
     brief.notes ? `Пожелания клиента своими словами: «${brief.notes}»` : '',
+    brief.revision
+      ? `Правка после первой генерации (уже на английском, учти её в стиле): ${brief.revision}`
+      : '',
     `Нужно ${count} вариаций.`,
   ]
   return lines.filter(Boolean).join('\n')

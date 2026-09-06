@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { uploadPlan } from '@/actions/projects'
 import { AddRoomDialog } from '@/components/add-room-dialog'
+import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { DeleteProjectDialog } from '@/components/delete-project-dialog'
 import { FileUploader } from '@/components/file-uploader'
 import { ProjectSettingsDialog } from '@/components/project-settings-dialog'
@@ -210,6 +211,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
       <div className="mt-14 border-t border-line pt-5">
         <DeleteProjectDialog projectId={project.id} title={project.title} />
       </div>
+      <ChatDrawer projectId={project.id} />
     </section>
   )
 }
