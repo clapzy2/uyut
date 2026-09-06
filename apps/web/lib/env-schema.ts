@@ -30,6 +30,9 @@ export const serverEnvSchema = z.object({
   ANTHROPIC_API_KEY: optionalText,
   VOYAGE_API_KEY: optionalText,
   TRIGGER_SECRET_KEY: optionalText,
+  // Ориентировочные ставки работ для сметы, рублей за квадратный метр
+  WORKS_ROUGH_RUB_PER_M2: z.coerce.number().int().positive().default(15_000),
+  WORKS_FINISH_RUB_PER_M2: z.coerce.number().int().positive().default(5_000),
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>
