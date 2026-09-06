@@ -11,6 +11,8 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@uyut/db'],
   poweredByHeader: false,
   reactStrictMode: true,
+  // next dev иначе подкладывает в проект служебные md-файлы для сторонних инструментов
+  agentRules: false,
 }
 
 export default withSentryConfig(nextConfig, {
