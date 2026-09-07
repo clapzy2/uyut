@@ -6,7 +6,7 @@ import { headers } from 'next/headers'
 import { recordAudit } from '@/lib/audit'
 import { canCreateProject, PROJECT_LIMIT } from '@/lib/billing/repository'
 import { preparePlan, UploadError } from '@/lib/files/uploads'
-import { NotFoundError } from '@/lib/projects/access'
+import { AccessError, assertOwner } from '@/lib/projects/access'
 import * as repository from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { deleteObject, putObject } from '@/lib/storage'
@@ -27,7 +27,7 @@ async function currentUserId(): Promise<string | null> {
 }
 
 function failure(error: unknown): { ok: false; error: string } {
-  if (error instanceof NotFoundError || error instanceof UploadError) {
+  if (error instanceof AccessError || error instanceof UploadError) {
     return { ok: false, error: error.message }
   }
   console.error(error)
@@ -117,6 +117,7 @@ export async function uploadPlan(projectId: string, formData: FormData): Promise
     return { ok: false, error: 'Выберите файл с планом.' }
   }
   try {
+    await assertOwner(userId, projectId)
     // Проверяем и пересобираем файл до записи в хранилище, чтобы туда не попало ничего сырого
     const prepared = await preparePlan(file)
     const key = `projects/${projectId}/plan/${randomUUID()}.${prepared.extension}`

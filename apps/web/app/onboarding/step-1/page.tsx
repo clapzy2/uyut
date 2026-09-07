@@ -9,7 +9,7 @@ import { OnboardingShell } from '@/components/onboarding/onboarding-shell'
 import { PLAN_ACCEPT, PLAN_LIMIT_TEXT, PLAN_MAX_BYTES } from '@/lib/files/rules'
 import type { StepParams } from '@/lib/onboarding/guard'
 import { getOnboardingState } from '@/lib/onboarding/repository'
-import { NotFoundError } from '@/lib/projects/access'
+import { AccessError } from '@/lib/projects/access'
 import { fileNameFromKey } from '@/lib/projects/format'
 import { getSession } from '@/lib/session'
 import { presignedObjectUrl } from '@/lib/storage'
@@ -40,7 +40,7 @@ export default async function Step1({ searchParams }: StepParams) {
   try {
     project = await getOnboardingState(session.user.id, projectId)
   } catch (error) {
-    if (error instanceof NotFoundError) {
+    if (error instanceof AccessError) {
       notFound()
     }
     throw error

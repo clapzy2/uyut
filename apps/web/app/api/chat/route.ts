@@ -15,7 +15,7 @@ import { buildProjectContext } from '@/lib/chat/context'
 import { appendChatMessage, listChatMessages } from '@/lib/chat/repository'
 import { runTool } from '@/lib/chat/tools'
 import { getEnv } from '@/lib/env'
-import { NotFoundError } from '@/lib/projects/access'
+import { AccessError } from '@/lib/projects/access'
 import { getChatByUserLimiter } from '@/lib/redis'
 import { getSession } from '@/lib/session'
 
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
     history = await listChatMessages(userId, projectId, 200)
     context = await buildProjectContext(userId, { projectId, roomId, conceptId })
   } catch (error) {
-    if (error instanceof NotFoundError) {
+    if (error instanceof AccessError) {
       return Response.json({ error: 'Проект не найден' }, { status: 404 })
     }
     throw error

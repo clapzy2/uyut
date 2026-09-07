@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { preparePhoto, UploadError } from '@/lib/files/uploads'
-import { NotFoundError } from '@/lib/projects/access'
+import { AccessError, requireOwner } from '@/lib/projects/access'
 import * as repository from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { deleteObject, putObject } from '@/lib/storage'
@@ -20,7 +20,7 @@ async function currentUserId(): Promise<string | null> {
 }
 
 function failure(error: unknown): { ok: false; error: string } {
-  if (error instanceof NotFoundError || error instanceof UploadError) {
+  if (error instanceof AccessError || error instanceof UploadError) {
     return { ok: false, error: error.message }
   }
   console.error(error)
@@ -125,6 +125,7 @@ export async function uploadRoomPhoto(roomId: string, formData: FormData): Promi
   }
   try {
     const room = await repository.getRoom(userId, roomId)
+    requireOwner(room.role)
     const prepared = await preparePhoto(file)
     const key = `projects/${room.projectId}/rooms/${room.id}/photo/${randomUUID()}.${prepared.extension}`
     await putObject(key, prepared.body, prepared.contentType)

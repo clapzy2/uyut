@@ -10,7 +10,12 @@ import { desc, eq } from 'drizzle-orm'
 import { getPlan } from '@/lib/billing/repository'
 import { getDb } from '@/lib/db'
 import { getEnv } from '@/lib/env'
-import { assertOwnerOrCollaborator, isUuid, NotFoundError } from '@/lib/projects/access'
+import {
+  assertOwner,
+  assertOwnerOrCollaborator,
+  isUuid,
+  NotFoundError,
+} from '@/lib/projects/access'
 import { presignedObjectUrl } from '@/lib/storage'
 
 export type ExportView = {
@@ -82,7 +87,7 @@ export async function createExport(
   projectId: string,
   options: ExportOptions,
 ): Promise<{ id: string; kind: ExportKind }> {
-  const project = await assertOwnerOrCollaborator(userId, projectId)
+  const project = await assertOwner(userId, projectId)
   const kind: ExportKind = project.isPaid || (await getPlan(userId)) === 'pro' ? 'paid' : 'free'
   const [row] = await getDb()
     .insert(projectExports)
@@ -111,7 +116,7 @@ export async function saveContact(
   projectId: string,
   contact: ProjectContact,
 ): Promise<void> {
-  const project = await assertOwnerOrCollaborator(userId, projectId)
+  const project = await assertOwner(userId, projectId)
   const merged: ProjectContact = { ...(project.contact ?? {}), ...contact }
   await getDb().update(projects).set({ contact: merged }).where(eq(projects.id, project.id))
 }

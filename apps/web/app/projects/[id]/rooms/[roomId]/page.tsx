@@ -146,7 +146,7 @@ export default async function RoomPage({ params }: { params: Params }) {
                 id: item.id,
                 status: item.status,
                 renderSrc: item.renderSrc,
-                likedByOwner: item.likedByOwner,
+                liked: room.role === 'owner' ? item.likedByOwner : item.likedByPartner,
                 orderIndex: item.orderIndex,
               }))}
             />

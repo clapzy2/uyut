@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { getEnv } from '@/lib/env'
 import { type ExportView, getExport, listExports, saveContact } from '@/lib/exports/repository'
 import { type ExportRun, startExport } from '@/lib/exports/start'
-import { NotFoundError } from '@/lib/projects/access'
+import { AccessError } from '@/lib/projects/access'
 import { getExportsByUserLimiter } from '@/lib/redis'
 import { getSession } from '@/lib/session'
 
@@ -49,7 +49,7 @@ async function currentUserId(): Promise<string | null> {
 }
 
 function failure(error: unknown): { ok: false; error: string } {
-  if (error instanceof NotFoundError) {
+  if (error instanceof AccessError) {
     return { ok: false, error: error.message }
   }
   console.error(error)

@@ -14,7 +14,12 @@ import { recordAudit } from '@/lib/audit'
 import { categoryLabels, formatPrice } from '@/lib/concepts/format'
 import { getDb } from '@/lib/db'
 import { getEnv } from '@/lib/env'
-import { assertOwnerOrCollaborator, NotFoundError } from '@/lib/projects/access'
+import {
+  AccessError,
+  assertOwnerOrCollaborator,
+  NotFoundError,
+  requireOwner,
+} from '@/lib/projects/access'
 import { ownObjectKey, presignedObjectUrl } from '@/lib/storage'
 import type { ChatScope } from './context'
 
@@ -147,6 +152,8 @@ async function replaceMatch(scope: Scope, args: Record<string, unknown>): Promis
     return { text: 'Нужны objectId и catalogItemId.' }
   }
   const { object } = await objectInProject(scope, objectId)
+  const project = await assertOwnerOrCollaborator(scope.userId, scope.projectId)
+  requireOwner(project.role)
   const [item] = await getCatalogItems(getDb(), [catalogItemId])
   if (!item) {
     return { text: 'Такого товара в каталоге нет.' }
@@ -279,7 +286,7 @@ export async function runTool(
         return { text: `Инструмента ${name} нет.` }
     }
   } catch (error) {
-    if (error instanceof NotFoundError) {
+    if (error instanceof AccessError) {
       return { text: error.message }
     }
     console.error(error)

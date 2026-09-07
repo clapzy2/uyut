@@ -7,6 +7,7 @@ import {
   conceptObjects,
   concepts,
   type ObjectsStatus,
+  type ProjectRole,
 } from '@uyut/db'
 import { asc, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
@@ -51,7 +52,8 @@ export type ConceptPageData = {
     status: string
     objectsStatus: ObjectsStatus
     objectsError: string | null
-    likedByOwner: boolean | null
+    /** Оценка того, кто смотрит: у владельца и второго участника они свои */
+    liked: boolean | null
     /** Что показываем: отредактированный рендер, если он есть */
     renderSrc: string | null
     /** Ключ исходного рендера для канвы */
@@ -182,7 +184,7 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
       status: concept.status,
       objectsStatus: concept.objectsStatus,
       objectsError: concept.objectsError,
-      likedByOwner: concept.likedByOwner,
+      liked: room.role === 'owner' ? concept.likedByOwner : concept.likedByPartner,
       renderSrc:
         (concept.editedRenderUrl ?? concept.renderUrl)
           ? await presignedObjectUrl(

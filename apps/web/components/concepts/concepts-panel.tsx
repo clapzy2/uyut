@@ -12,7 +12,8 @@ export type ConceptItem = {
   id: string
   status: 'pending' | 'ready' | 'failed'
   renderSrc: string | null
-  likedByOwner: boolean | null
+  /** Оценка того, кто смотрит: у владельца и второго участника они свои */
+  liked: boolean | null
   orderIndex: number
 }
 
@@ -114,8 +115,8 @@ export function ConceptsPanel({
   const ready = items.filter((item) => item.status === 'ready' && item.renderSrc)
   const failed = items.filter((item) => item.status === 'failed')
   const working = items.some((item) => item.status === 'pending')
-  const unseen = ready.filter((item) => item.likedByOwner === null && votes[item.id] === undefined)
-  const liked = ready.filter((item) => votes[item.id] ?? item.likedByOwner)
+  const unseen = ready.filter((item) => item.liked === null && votes[item.id] === undefined)
+  const liked = ready.filter((item) => votes[item.id] ?? item.liked)
 
   const cards: SwipeCard[] = unseen.map((item) => ({
     id: item.id,

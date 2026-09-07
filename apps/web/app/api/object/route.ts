@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { assertOwnerOrCollaborator, isUuid, NotFoundError } from '@/lib/projects/access'
+import { AccessError, assertOwnerOrCollaborator, isUuid } from '@/lib/projects/access'
 import { getSession } from '@/lib/session'
 import { getObject } from '@/lib/storage'
 
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    if (error instanceof NotFoundError) {
+    if (error instanceof AccessError) {
       return new NextResponse('Not found', { status: 404 })
     }
     throw error

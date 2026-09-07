@@ -214,7 +214,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
   const { concept, objects } = data
   const [selectedId, setSelectedId] = useState<string | null>(objects[0]?.id ?? null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [liked, setLiked] = useState<boolean | null>(concept.likedByOwner)
+  const [liked, setLiked] = useState<boolean | null>(concept.liked)
   const selected = objects.find((object) => object.id === selectedId) ?? null
   const hovered = objects.find((object) => object.id === hoveredId) ?? null
   const searching = concept.objectsStatus === 'pending'

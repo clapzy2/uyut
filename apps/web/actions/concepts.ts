@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { recordAudit } from '@/lib/audit'
 import * as conceptsRepository from '@/lib/concepts/repository'
 import { getEnv } from '@/lib/env'
-import { NotFoundError } from '@/lib/projects/access'
+import { AccessError, requireOwner } from '@/lib/projects/access'
 import { getRoom } from '@/lib/projects/repository'
 import { getConceptsByUserLimiter } from '@/lib/redis'
 import { getSession } from '@/lib/session'
@@ -25,7 +25,7 @@ async function currentUserId(): Promise<string | null> {
 }
 
 function failure(error: unknown): { ok: false; error: string } {
-  if (error instanceof NotFoundError) {
+  if (error instanceof AccessError) {
     return { ok: false, error: error.message }
   }
   console.error(error)
@@ -46,6 +46,7 @@ export async function requestConcepts(
   }
   try {
     const room = await getRoom(userId, roomId)
+    requireOwner(room.role)
     const { success } = await getConceptsByUserLimiter().limit(userId)
     if (!success) {
       return { ok: false, error: 'Сегодня уже много генераций. Попробуйте через час.' }

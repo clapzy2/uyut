@@ -6,7 +6,7 @@ import { recordAudit } from '@/lib/audit'
 import { canCreateProject, PROJECT_LIMIT } from '@/lib/billing/repository'
 import { preparePhoto, UploadError } from '@/lib/files/uploads'
 import * as onboarding from '@/lib/onboarding/repository'
-import { NotFoundError } from '@/lib/projects/access'
+import { AccessError } from '@/lib/projects/access'
 import { getSession } from '@/lib/session'
 import { deleteObject, putObject } from '@/lib/storage'
 import {
@@ -29,7 +29,7 @@ async function currentUserId(): Promise<string | null> {
 }
 
 function failure(error: unknown): { ok: false; error: string } {
-  if (error instanceof NotFoundError || error instanceof UploadError) {
+  if (error instanceof AccessError || error instanceof UploadError) {
     return { ok: false, error: error.message }
   }
   console.error(error)

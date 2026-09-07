@@ -3,7 +3,7 @@
 import type { ChatMessage } from '@uyut/db'
 import { requestConcepts } from '@/actions/concepts'
 import { getChatMessage, listChatMessages, updateChatMeta } from '@/lib/chat/repository'
-import { NotFoundError } from '@/lib/projects/access'
+import { AccessError } from '@/lib/projects/access'
 import { getSession } from '@/lib/session'
 
 export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string }
@@ -31,7 +31,7 @@ export async function loadChatHistory(projectId: string): Promise<ActionResult<C
       })),
     }
   } catch (error) {
-    if (error instanceof NotFoundError) {
+    if (error instanceof AccessError) {
       return { ok: false, error: error.message }
     }
     console.error(error)
@@ -63,7 +63,7 @@ export async function confirmRegeneration(
     })
     return { ok: true, data: { ...run.data, roomId: proposal.roomId } }
   } catch (error) {
-    if (error instanceof NotFoundError) {
+    if (error instanceof AccessError) {
       return { ok: false, error: error.message }
     }
     console.error(error)
@@ -87,7 +87,7 @@ export async function dismissProposal(messageId: string): Promise<ActionResult> 
     }
     return { ok: true, data: undefined }
   } catch (error) {
-    if (error instanceof NotFoundError) {
+    if (error instanceof AccessError) {
       return { ok: false, error: error.message }
     }
     console.error(error)
