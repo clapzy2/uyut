@@ -22,6 +22,15 @@ describe('parseServerEnv', () => {
     expect(env.NODE_ENV).toBe('development')
     expect(env.SENTRY_DSN).toBeUndefined()
     expect(env.MAILPIT_URL).toBeUndefined()
+    // Развёртывание идёт за одним обратным прокси, так что доверяем последней записи
+    expect(env.TRUSTED_PROXY_HOPS).toBe(1)
+  })
+
+  it('rejects a proxy count that is not a whole number of hops', () => {
+    expect(() => parseServerEnv({ ...complete, TRUSTED_PROXY_HOPS: '-1' })).toThrow(
+      /TRUSTED_PROXY_HOPS/,
+    )
+    expect(parseServerEnv({ ...complete, TRUSTED_PROXY_HOPS: '0' }).TRUSTED_PROXY_HOPS).toBe(0)
   })
 
   it('treats an empty SENTRY_DSN as not configured', () => {

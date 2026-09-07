@@ -1,5 +1,6 @@
 import { auditLog } from '@uyut/db'
 import { getDb } from './db'
+import { CLIENT_IP_HEADER } from './security/client-ip'
 
 export type AuditAction =
   | 'auth.register'
@@ -40,12 +41,9 @@ type AuditInput = {
   metadata?: Record<string, unknown>
 }
 
+// Заголовок ставит прокси Next.js, разобрав цепочку X-Forwarded-For: сырым заголовкам веры нет
 export function clientIpFromHeaders(headers: Headers | undefined): string | null {
-  const forwarded = headers?.get('x-forwarded-for')
-  if (forwarded) {
-    return forwarded.split(',')[0]?.trim() ?? null
-  }
-  return headers?.get('x-real-ip') ?? null
+  return headers?.get(CLIENT_IP_HEADER) ?? null
 }
 
 // Аудит не должен ронять пользовательский запрос: ошибка записи только логируется

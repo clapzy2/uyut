@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server'
 import { z } from 'zod'
-import { recordAudit } from '@/lib/audit'
+import { clientIpFromHeaders, recordAudit } from '@/lib/audit'
 import { applyPayment } from '@/lib/billing/apply'
 import { getEnv } from '@/lib/env'
 import { isYooKassaAddress } from '@/lib/payments'
@@ -14,27 +14,15 @@ const notificationSchema = z.object({
   object: z.object({ id: z.string().min(1) }),
 })
 
-function clientIp(request: NextRequest): string {
-  // За туннелем и прокси настоящий адрес лежит в заголовках; первый в цепочке — отправитель
-  const cloudflare = request.headers.get('cf-connecting-ip')
-  if (cloudflare) {
-    return cloudflare.trim()
-  }
-  const forwarded = request.headers.get('x-forwarded-for')
-  if (forwarded) {
-    return forwarded.split(',')[0]?.trim() ?? ''
-  }
-  return request.headers.get('x-real-ip')?.trim() ?? ''
-}
-
 /**
  * У ЮKassa нет подписи уведомлений, поэтому телу не доверяем: по id перечитываем платёж из API,
  * а адрес отправителя сверяем со списком подсетей ЮKassa. В бою чужой адрес отклоняется;
  * в разработке уведомления приходят через туннель, поэтому проверка только пишется в аудит.
  */
 export async function POST(request: NextRequest) {
-  const ip = clientIp(request)
-  const trusted = isYooKassaAddress(ip)
+  // Адрес разобрал прокси по цепочке X-Forwarded-For: сырой заголовок клиент подделает сам
+  const ip = clientIpFromHeaders(request.headers)
+  const trusted = ip !== null && isYooKassaAddress(ip)
   const production = getEnv().NODE_ENV === 'production'
 
   let body: unknown
