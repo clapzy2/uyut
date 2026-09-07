@@ -44,6 +44,8 @@ export const serverEnvSchema = z.object({
   YUKASSA_API_URL: optionalUrl,
   PROJECT_PRICE_KOPECKS: z.coerce.number().int().positive().default(150_000),
   PRO_PRICE_KOPECKS: z.coerce.number().int().positive().default(99_900),
+  // Общий секрет расписания: без него дневной проход по подпискам недоступен снаружи
+  CRON_SECRET: optionalText,
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>
