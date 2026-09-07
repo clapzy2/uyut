@@ -9,7 +9,7 @@ import sharp from 'sharp'
 import { recordAudit } from '@/lib/audit'
 import { getDb } from '@/lib/db'
 import { getEnv } from '@/lib/env'
-import { NotFoundError } from '@/lib/projects/access'
+import { AccessError, NotFoundError, requireOwner } from '@/lib/projects/access'
 import { getRoom } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { deleteObject, putObject } from '@/lib/storage'
@@ -26,6 +26,7 @@ async function conceptForUser(userId: string, conceptId: string) {
     throw new NotFoundError('Концепт не найден')
   }
   const room = await getRoom(userId, concept.roomId)
+  requireOwner(room.role)
   return { concept, room }
 }
 
@@ -137,7 +138,7 @@ export async function saveRecolor(
     revalidate(room.projectId, room.id, concept.id)
     return { ok: true, data: undefined }
   } catch (error) {
-    if (error instanceof NotFoundError) {
+    if (error instanceof AccessError) {
       return { ok: false, error: error.message }
     }
     console.error(error)
@@ -168,7 +169,7 @@ export async function resetRecolor(conceptId: string): Promise<ActionResult> {
     revalidate(room.projectId, room.id, concept.id)
     return { ok: true, data: undefined }
   } catch (error) {
-    if (error instanceof NotFoundError) {
+    if (error instanceof AccessError) {
       return { ok: false, error: error.message }
     }
     console.error(error)

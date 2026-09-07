@@ -27,6 +27,9 @@ export type AuditAction =
   | 'billing.amount_mismatch'
   | 'billing.webhook'
   | 'billing.webhook_rejected'
+  | 'collaborator.invited'
+  | 'collaborator.accepted'
+  | 'collaborator.revoked'
 
 type AuditInput = {
   action: AuditAction

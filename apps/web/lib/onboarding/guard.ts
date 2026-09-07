@@ -1,5 +1,5 @@
 import { notFound, redirect } from 'next/navigation'
-import { NotFoundError } from '@/lib/projects/access'
+import { AccessError } from '@/lib/projects/access'
 import { getSession } from '@/lib/session'
 import { getOnboardingState, type OnboardingState } from './repository'
 
@@ -24,7 +24,7 @@ export async function requireStepProject(
   try {
     return await getOnboardingState(session.user.id, project)
   } catch (error) {
-    if (error instanceof NotFoundError) {
+    if (error instanceof AccessError) {
       notFound()
     }
     throw error

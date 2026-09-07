@@ -65,6 +65,7 @@ let conceptsByUserLimiter: Ratelimit | undefined
 let chatByUserLimiter: Ratelimit | undefined
 let exportsByUserLimiter: Ratelimit | undefined
 let paymentsByUserLimiter: Ratelimit | undefined
+let invitesByUserLimiter: Ratelimit | undefined
 
 // Десять попыток входа в час на один адрес, независимо от IP
 export function getLoginByEmailLimiter(): Ratelimit {
@@ -124,4 +125,14 @@ export function getChatByUserLimiter(): Ratelimit {
     prefix: 'rl:chat',
   })
   return chatByUserLimiter
+}
+
+// Каждое приглашение — письмо на чужой адрес: десять в час на пользователя
+export function getInvitesByUserLimiter(): Ratelimit {
+  invitesByUserLimiter ??= new Ratelimit({
+    redis: getRedis(),
+    limiter: Ratelimit.slidingWindow(10, '1 h'),
+    prefix: 'rl:invites',
+  })
+  return invitesByUserLimiter
 }

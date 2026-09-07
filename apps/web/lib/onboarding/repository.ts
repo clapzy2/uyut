@@ -2,7 +2,7 @@ import { nearestStyles, styleTagsFromVector, styleVector } from '@uyut/ai'
 import { type Project, projects, type Room, rooms, styleVotes } from '@uyut/db'
 import { and, asc, eq, max } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { assertOwnerOrCollaborator } from '@/lib/projects/access'
+import { assertOwner } from '@/lib/projects/access'
 import type {
   ApartmentInput,
   BudgetInput,
@@ -17,7 +17,7 @@ export async function getOnboardingState(
   userId: string,
   projectId: string,
 ): Promise<OnboardingState> {
-  const project = await assertOwnerOrCollaborator(userId, projectId)
+  const project = await assertOwner(userId, projectId)
   const db = getDb()
   const [roomList, votes] = await Promise.all([
     db
@@ -85,7 +85,7 @@ export async function saveHousehold(
   projectId: string,
   input: HouseholdInput,
 ): Promise<void> {
-  const project = await assertOwnerOrCollaborator(userId, projectId)
+  const project = await assertOwner(userId, projectId)
   await getDb().update(projects).set({ household: input }).where(eq(projects.id, project.id))
 }
 
@@ -94,7 +94,7 @@ export async function saveBudget(
   projectId: string,
   input: BudgetInput,
 ): Promise<void> {
-  const project = await assertOwnerOrCollaborator(userId, projectId)
+  const project = await assertOwner(userId, projectId)
   await getDb()
     .update(projects)
     .set({ budgetKopecks: input.budgetKopecks })
@@ -110,7 +110,7 @@ export async function saveStyleVotes(
   projectId: string,
   votes: StyleVoteInput[],
 ): Promise<{ likedCount: number; styleTags: string[] }> {
-  const project = await assertOwnerOrCollaborator(userId, projectId)
+  const project = await assertOwner(userId, projectId)
   const db = getDb()
   await db.delete(styleVotes).where(eq(styleVotes.projectId, project.id))
   if (votes.length > 0) {
@@ -134,13 +134,13 @@ export async function saveReference(
   projectId: string,
   key: string | null,
 ): Promise<{ previousKey: string | null }> {
-  const project = await assertOwnerOrCollaborator(userId, projectId)
+  const project = await assertOwner(userId, projectId)
   await getDb().update(projects).set({ referenceUrl: key }).where(eq(projects.id, project.id))
   return { previousKey: project.referenceUrl }
 }
 
 export async function completeOnboarding(userId: string, projectId: string): Promise<void> {
-  const project = await assertOwnerOrCollaborator(userId, projectId)
+  const project = await assertOwner(userId, projectId)
   await getDb().update(projects).set({ onboardedAt: new Date() }).where(eq(projects.id, project.id))
 }
 

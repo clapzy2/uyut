@@ -12,7 +12,8 @@ export type ConceptItem = {
   id: string
   status: 'pending' | 'ready' | 'failed'
   renderSrc: string | null
-  likedByOwner: boolean | null
+  /** Оценка того, кто смотрит: у владельца и второго участника они свои */
+  liked: boolean | null
   orderIndex: number
 }
 
@@ -96,12 +97,15 @@ export function ConceptsPanel({
   onboarded,
   projectId,
   items,
+  canGenerate = true,
 }: {
   roomId: string
   hasPhoto: boolean
   onboarded: boolean
   projectId: string
   items: ConceptItem[]
+  /** Генерация стоит денег: второй участник только смотрит и отмечает */
+  canGenerate?: boolean
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -114,8 +118,8 @@ export function ConceptsPanel({
   const ready = items.filter((item) => item.status === 'ready' && item.renderSrc)
   const failed = items.filter((item) => item.status === 'failed')
   const working = items.some((item) => item.status === 'pending')
-  const unseen = ready.filter((item) => item.likedByOwner === null && votes[item.id] === undefined)
-  const liked = ready.filter((item) => votes[item.id] ?? item.likedByOwner)
+  const unseen = ready.filter((item) => item.liked === null && votes[item.id] === undefined)
+  const liked = ready.filter((item) => votes[item.id] ?? item.liked)
 
   const cards: SwipeCard[] = unseen.map((item) => ({
     id: item.id,
@@ -173,7 +177,7 @@ export function ConceptsPanel({
             className="mx-auto w-full max-w-xl"
           />
           <p className="text-center text-[13px] text-ink-2">
-            Тап по картинке открывает концепт с подбором товаров.
+            Нажмите на картинку, чтобы открыть концепт с подбором товаров.
           </p>
         </>
       ) : null}
@@ -220,7 +224,15 @@ export function ConceptsPanel({
         </p>
       ) : null}
 
-      {!onboarded ? (
+      {!canGenerate ? (
+        <p className="text-[15px] leading-relaxed text-ink-2">
+          {items.length === 0
+            ? 'Концептов пока нет: их генерирует владелец проекта.'
+            : 'Новые концепты генерирует владелец проекта.'}
+        </p>
+      ) : null}
+
+      {canGenerate && !onboarded ? (
         <p className="border-l-2 border-line-strong pl-4 text-[15px] leading-relaxed text-ink-2">
           Мы ещё не знаем ваш вкус, поэтому возьмём стиль по умолчанию.{' '}
           <a
@@ -233,21 +245,25 @@ export function ConceptsPanel({
         </p>
       ) : null}
 
-      {!hasPhoto ? (
+      {canGenerate && !hasPhoto ? (
         <p className="text-[15px] leading-relaxed text-ink-2">
           Без фото комната рисуется с нуля, по площади и типу. С фото она будет вашей.
         </p>
       ) : null}
 
-      <FormError message={error ?? undefined} />
-      <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" onClick={generate} pending={pending}>
-          {items.length === 0 ? 'Сгенерировать концепты' : 'Сгенерировать ещё 5'}
-        </Button>
-        {items.length === 0 ? (
-          <span className="text-sm text-ink-2">пять вариантов, около тридцати секунд</span>
-        ) : null}
-      </div>
+      {canGenerate ? (
+        <>
+          <FormError message={error ?? undefined} />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" onClick={generate} pending={pending}>
+              {items.length === 0 ? 'Сгенерировать концепты' : 'Сгенерировать ещё 5'}
+            </Button>
+            {items.length === 0 ? (
+              <span className="text-sm text-ink-2">пять вариантов, около тридцати секунд</span>
+            ) : null}
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }

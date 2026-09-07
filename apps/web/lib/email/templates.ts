@@ -34,3 +34,19 @@ export function passwordResetLetter(url: string): Letter {
     'Задать новый пароль',
   )
 }
+
+export function invitationLetter(input: {
+  inviterName: string
+  projectTitle: string
+  url: string
+}): Letter {
+  return letter(
+    `${input.inviterName} зовёт вас в проект «${input.projectTitle}» в Uyut`,
+    [
+      `${input.inviterName} собирает интерьер квартиры в Uyut и хочет выбирать вдвоём: вы будете смотреть те же рендеры, отмечать, что нравится, а сервис покажет, где ваши вкусы совпали.`,
+      'Ссылка работает неделю и открывает проект. Если вы не ждали этого письма, просто не открывайте его.',
+    ],
+    input.url,
+    'Открыть проект',
+  )
+}

@@ -7,7 +7,7 @@ import { attachPayment, createPurchase, getPurchase } from '@/lib/billing/reposi
 import { getEnv } from '@/lib/env'
 import type { ExportRun } from '@/lib/exports/start'
 import { getPaymentProvider } from '@/lib/payments'
-import { assertOwnerOrCollaborator, isUuid, NotFoundError } from '@/lib/projects/access'
+import { AccessError, assertOwner, isUuid } from '@/lib/projects/access'
 import { getPaymentsByUserLimiter } from '@/lib/redis'
 import { getSession } from '@/lib/session'
 
@@ -29,7 +29,7 @@ async function currentUser(): Promise<{ id: string; email: string } | null> {
 }
 
 function failure(error: unknown): { ok: false; error: string } {
-  if (error instanceof NotFoundError) {
+  if (error instanceof AccessError) {
     return { ok: false, error: error.message }
   }
   console.error(error)
@@ -95,7 +95,7 @@ export async function startProjectPurchase(
     return { ok: false, error: SESSION_EXPIRED }
   }
   try {
-    const project = await assertOwnerOrCollaborator(user.id, projectId)
+    const project = await assertOwner(user.id, projectId)
     if (project.isPaid) {
       return { ok: false, error: 'Этот проект уже оплачен.' }
     }

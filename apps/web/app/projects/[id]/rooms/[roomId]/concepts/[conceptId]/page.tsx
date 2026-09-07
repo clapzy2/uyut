@@ -4,7 +4,7 @@ import { notFound, redirect } from 'next/navigation'
 import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { ConceptViewer } from '@/components/concepts/concept-viewer'
 import { getConceptPage } from '@/lib/concepts/objects'
-import { NotFoundError } from '@/lib/projects/access'
+import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
 import { getSession } from '@/lib/session'
 
 type Params = Promise<{ id: string; roomId: string; conceptId: string }>
@@ -34,6 +34,9 @@ export default async function ConceptPage({ params }: { params: Params }) {
   try {
     data = await getConceptPage(session.user.id, conceptId)
   } catch (error) {
+    if (error instanceof ProjectClosedError) {
+      redirect(`/projects/${id}`)
+    }
     if (error instanceof NotFoundError) {
       notFound()
     }
@@ -71,6 +74,7 @@ export default async function ConceptPage({ params }: { params: Params }) {
         roomId={data.room.id}
         conceptId={data.concept.id}
         hasConcepts
+        canRun={data.role === 'owner'}
       />
     </section>
   )

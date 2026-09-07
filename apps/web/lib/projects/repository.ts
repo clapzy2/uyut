@@ -1,21 +1,65 @@
-import { type Project, projects, type Room, type RoomKind, rooms } from '@uyut/db'
-import { and, asc, count, desc, eq, isNull, max } from 'drizzle-orm'
+import {
+  type Project,
+  type ProjectRole,
+  projectCollaborators,
+  projects,
+  type Room,
+  type RoomKind,
+  rooms,
+  users,
+} from '@uyut/db'
+import { and, asc, count, desc, eq, isNull, max, or } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { assertOwnerOrCollaborator, isUuid, NotFoundError } from './access'
+import {
+  assertOwner,
+  assertOwnerOrCollaborator,
+  isUuid,
+  NotFoundError,
+  type ProjectAccess,
+  ProjectClosedError,
+  requireOwner,
+  roleOf,
+} from './access'
 
 // Все функции принимают userId первым аргументом: запросов «без владельца» здесь нет
 
-export type ProjectListItem = Project & { roomCount: number }
+export type ProjectListItem = Project & {
+  roomCount: number
+  role: ProjectRole
+  /** Имя владельца для проектов, куда человека пригласили */
+  ownerName: string | null
+}
 
+// Свои проекты и те, куда пригласили: у второго участника проект в том же списке
 export async function listProjects(userId: string): Promise<ProjectListItem[]> {
   const rows = await getDb()
-    .select({ project: projects, roomCount: count(rooms.id) })
+    .select({
+      project: projects,
+      roomCount: count(rooms.id),
+      collaboratorRole: projectCollaborators.role,
+      ownerName: users.displayName,
+    })
     .from(projects)
+    .innerJoin(users, eq(users.id, projects.ownerId))
     .leftJoin(rooms, eq(rooms.projectId, projects.id))
-    .where(and(eq(projects.ownerId, userId), isNull(projects.deletedAt)))
-    .groupBy(projects.id)
+    .leftJoin(
+      projectCollaborators,
+      and(eq(projectCollaborators.projectId, projects.id), eq(projectCollaborators.userId, userId)),
+    )
+    .where(
+      and(
+        isNull(projects.deletedAt),
+        or(eq(projects.ownerId, userId), eq(projectCollaborators.userId, userId)),
+      ),
+    )
+    .groupBy(projects.id, projectCollaborators.role, users.displayName)
     .orderBy(desc(projects.updatedAt))
-  return rows.map((row) => ({ ...row.project, roomCount: row.roomCount }))
+  return rows.map((row) => ({
+    ...row.project,
+    roomCount: row.roomCount,
+    role: row.project.ownerId === userId ? 'owner' : (row.collaboratorRole ?? 'partner'),
+    ownerName: row.ownerName,
+  }))
 }
 
 export async function createProject(userId: string, input: { title: string }): Promise<Project> {
@@ -29,7 +73,7 @@ export async function createProject(userId: string, input: { title: string }): P
   return project
 }
 
-export type ProjectWithRooms = Project & { rooms: Room[] }
+export type ProjectWithRooms = ProjectAccess & { rooms: Room[] }
 
 export async function getProject(userId: string, projectId: string): Promise<ProjectWithRooms> {
   const project = await assertOwnerOrCollaborator(userId, projectId)
@@ -52,7 +96,7 @@ export async function updateProject(
   projectId: string,
   patch: ProjectPatch,
 ): Promise<Project> {
-  const project = await assertOwnerOrCollaborator(userId, projectId)
+  const project = await assertOwner(userId, projectId)
   const [updated] = await getDb()
     .update(projects)
     .set(patch)
@@ -67,6 +111,7 @@ export async function deleteProject(
   projectId: string,
 ): Promise<{ fileKeys: string[] }> {
   const project = await getProject(userId, projectId)
+  requireOwner(project.role)
   await getDb().update(projects).set({ deletedAt: new Date() }).where(eq(projects.id, project.id))
   const fileKeys = [
     project.planUrl,
@@ -80,7 +125,7 @@ export async function setProjectPlan(
   projectId: string,
   key: string,
 ): Promise<{ previousKey: string | null }> {
-  const project = await assertOwnerOrCollaborator(userId, projectId)
+  const project = await assertOwner(userId, projectId)
   await getDb().update(projects).set({ planUrl: key }).where(eq(projects.id, project.id))
   return { previousKey: project.planUrl }
 }
@@ -95,7 +140,7 @@ export async function createRoom(
   projectId: string,
   input: { kind: RoomKind; name: string; areaM2?: number | null },
 ): Promise<Room> {
-  const project = await assertOwnerOrCollaborator(userId, projectId)
+  const project = await assertOwner(userId, projectId)
   const db = getDb()
   const [last] = await db
     .select({ maxIndex: max(rooms.orderIndex) })
@@ -118,22 +163,33 @@ export async function createRoom(
   return room
 }
 
-export type RoomWithProject = Room & { project: Project }
+export type RoomWithProject = Room & { project: Project; role: ProjectRole }
 
 export async function getRoom(userId: string, roomId: string): Promise<RoomWithProject> {
   if (!isUuid(roomId)) {
     throw new NotFoundError('Комната не найдена')
   }
   const [row] = await getDb()
-    .select({ room: rooms, project: projects })
+    .select({ room: rooms, project: projects, collaborator: projectCollaborators })
     .from(rooms)
     .innerJoin(projects, eq(projects.id, rooms.projectId))
+    .leftJoin(
+      projectCollaborators,
+      and(eq(projectCollaborators.projectId, projects.id), eq(projectCollaborators.userId, userId)),
+    )
     .where(eq(rooms.id, roomId))
     .limit(1)
-  if (!row || row.project.ownerId !== userId || row.project.deletedAt) {
+  const role = row ? roleOf(row.project, row.collaborator, userId) : null
+  if (!row || !role) {
     throw new NotFoundError('Комната не найдена')
   }
-  return { ...row.room, project: row.project }
+  if (row.project.deletedAt) {
+    if (role === 'partner') {
+      throw new ProjectClosedError()
+    }
+    throw new NotFoundError('Комната не найдена')
+  }
+  return { ...row.room, project: row.project, role }
 }
 
 export type RoomPatch = {
@@ -146,6 +202,7 @@ export type RoomPatch = {
 
 export async function updateRoom(userId: string, roomId: string, patch: RoomPatch): Promise<Room> {
   const room = await getRoom(userId, roomId)
+  requireOwner(room.role)
   const [updated] = await getDb().update(rooms).set(patch).where(eq(rooms.id, room.id)).returning()
   await touchProject(room.projectId)
   return updated ?? room
@@ -153,6 +210,7 @@ export async function updateRoom(userId: string, roomId: string, patch: RoomPatc
 
 export async function deleteRoom(userId: string, roomId: string): Promise<{ fileKeys: string[] }> {
   const room = await getRoom(userId, roomId)
+  requireOwner(room.role)
   await getDb().delete(rooms).where(eq(rooms.id, room.id))
   await touchProject(room.projectId)
   return { fileKeys: [room.photoUrl, room.planUrl].filter((key): key is string => Boolean(key)) }
@@ -164,6 +222,7 @@ export async function setRoomPhoto(
   key: string,
 ): Promise<{ previousKey: string | null }> {
   const room = await getRoom(userId, roomId)
+  requireOwner(room.role)
   await getDb().update(rooms).set({ photoUrl: key }).where(eq(rooms.id, room.id))
   await touchProject(room.projectId)
   return { previousKey: room.photoUrl }

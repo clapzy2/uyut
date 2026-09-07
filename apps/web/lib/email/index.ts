@@ -13,4 +13,4 @@ export function getEmailSender(): EmailSender {
 }
 
 export type { EmailMessage, EmailSender } from './sender'
-export { passwordResetLetter, verificationLetter } from './templates'
+export { invitationLetter, passwordResetLetter, verificationLetter } from './templates'

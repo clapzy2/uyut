@@ -9,7 +9,12 @@ import {
 } from '@uyut/db'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { assertOwnerOrCollaborator, isUuid, NotFoundError } from '@/lib/projects/access'
+import {
+  assertOwner,
+  assertOwnerOrCollaborator,
+  isUuid,
+  NotFoundError,
+} from '@/lib/projects/access'
 import { ownObjectKey, presignedObjectUrl } from '@/lib/storage'
 
 export type ShoppingItemView = {
@@ -163,7 +168,7 @@ export async function addShoppingItem(
   userId: string,
   input: AddShoppingItemInput,
 ): Promise<{ itemId: string; quantity: number }> {
-  const project = await assertOwnerOrCollaborator(userId, input.projectId)
+  const project = await assertOwner(userId, input.projectId)
   if (!isUuid(input.catalogItemId)) {
     throw new NotFoundError('Товар не найден')
   }
@@ -244,7 +249,7 @@ async function ownedItem(
   if (!row) {
     throw new NotFoundError('Строка списка не найдена')
   }
-  await assertOwnerOrCollaborator(userId, row.projectId)
+  await assertOwner(userId, row.projectId)
   return row
 }
 

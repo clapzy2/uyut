@@ -138,12 +138,17 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Sea
                     {item.title}
                   </h2>
                   <p className="mt-1.5 font-mono text-[13px] text-ink-2">
-                    {projectMeta({
-                      houseSeries: item.houseSeries,
-                      totalAreaM2: item.totalAreaM2,
-                      roomCount: item.roomCount,
-                      updatedAt: item.updatedAt,
-                    })}
+                    {[
+                      projectMeta({
+                        houseSeries: item.houseSeries,
+                        totalAreaM2: item.totalAreaM2,
+                        roomCount: item.roomCount,
+                        updatedAt: item.updatedAt,
+                      }),
+                      item.role === 'partner' ? `вдвоём с ${item.ownerName ?? 'владельцем'}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </p>
                 </div>
               </Link>

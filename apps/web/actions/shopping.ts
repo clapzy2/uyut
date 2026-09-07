@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { recordAudit } from '@/lib/audit'
-import { NotFoundError } from '@/lib/projects/access'
+import { AccessError } from '@/lib/projects/access'
 import { updateRoom } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import {
@@ -43,7 +43,7 @@ async function currentUserId(): Promise<string | null> {
 }
 
 function failure(error: unknown): { ok: false; error: string } {
-  if (error instanceof NotFoundError) {
+  if (error instanceof AccessError) {
     return { ok: false, error: error.message }
   }
   console.error(error)

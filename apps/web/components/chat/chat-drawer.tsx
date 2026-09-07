@@ -23,6 +23,8 @@ type Scope = {
   roomId?: string | null
   conceptId?: string | null
   hasConcepts?: boolean
+  /** Запуск генерации из предложения помощника: только владелец проекта */
+  canRun?: boolean
 }
 
 const TYPE_INTERVAL_MS = 30
@@ -82,13 +84,22 @@ function ProposalCard({
   messageId,
   proposal,
   onChange,
+  canRun,
 }: {
   messageId: string
   proposal: ChatProposal
   onChange: (proposal: ChatProposal) => void
+  canRun: boolean
 }) {
   const router = useRouter()
   const [pending, setPending] = useState(false)
+  if (!canRun) {
+    return (
+      <p className="mt-2 text-[13px] text-ink-2">
+        Запуск новой генерации доступен владельцу проекта.
+      </p>
+    )
+  }
   if (proposal.status === 'confirmed') {
     return (
       <p className="mt-2 text-[13px] text-success">
@@ -385,6 +396,7 @@ export function ChatDrawer(scope: Scope) {
                       ) : null}
                       {message.proposal && !message.id.startsWith('local-') ? (
                         <ProposalCard
+                          canRun={scope.canRun ?? true}
                           messageId={message.id}
                           proposal={message.proposal}
                           onChange={(proposal) =>

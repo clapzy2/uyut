@@ -90,7 +90,10 @@ export async function setConceptLike(
   }
   // Проверка владельца идёт через комнату: чужой концепт неотличим от несуществующего
   const room = await getRoom(userId, row.roomId)
-  await getDb().update(concepts).set({ likedByOwner: liked }).where(eq(concepts.id, row.id))
+  await getDb()
+    .update(concepts)
+    .set(room.role === 'owner' ? { likedByOwner: liked } : { likedByPartner: liked })
+    .where(eq(concepts.id, row.id))
   return { roomId: room.id, projectId: room.projectId }
 }
 
