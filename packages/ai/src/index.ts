@@ -36,6 +36,21 @@ export {
   selectObjects,
 } from './detect'
 export {
+  buildDuoPrompt,
+  createFalDuoProposer,
+  DUO_BRIDGES,
+  DUO_MODEL,
+  DUO_SYSTEM_PROMPT,
+  type DuoBridge,
+  type DuoConcept,
+  type DuoInput,
+  type DuoProposal,
+  type DuoProposer,
+  type DuoSide,
+  duoHash,
+  parseDuoProposal,
+} from './duo'
+export {
   cosine,
   createVoyageEmbedder,
   EMBEDDING_DIMENSIONS,
