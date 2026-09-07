@@ -17,5 +17,8 @@ export {
   invitationLetter,
   partnerJoinedLetter,
   passwordResetLetter,
+  proChargedLetter,
+  proChargeFailedLetter,
+  proRenewalLetter,
   verificationLetter,
 } from './templates'
