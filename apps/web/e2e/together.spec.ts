@@ -117,7 +117,7 @@ test.describe('together', () => {
     await partnerPage.getByLabel('Ещё раз').fill(PARTNER_PASSWORD)
     await partnerPage.getByRole('button', { name: 'Открыть проект' }).click()
     await expect(partnerPage).toHaveURL(new RegExp(`/projects/${projectId}$`))
-    await expect(partnerPage.getByText(/Вы в проекте/)).toBeVisible()
+    await expect(partnerPage.getByText(/Оплата, файлы и настройки у владельца/)).toBeVisible()
     await expect(partnerPage.getByText('Удалить проект')).toHaveCount(0)
     await expect(partnerPage.getByRole('button', { name: 'Настроить' })).toHaveCount(0)
 
@@ -127,7 +127,7 @@ test.describe('together', () => {
 
     // Владельцу пришло письмо о том, что второй участник в проекте
     const joined = await waitForEmail(ownerEmail, { subjectIncludes: 'теперь в проекте' })
-    expect(joined.text).toContain('Квартира вдвоём')
+    expect(joined.subject).toContain('Квартира вдвоём')
 
     await ownerPage.reload()
     await expect(ownerPage.getByText('Отозвать доступ')).toBeVisible()
