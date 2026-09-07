@@ -11,6 +11,7 @@ import { getEmailSender, invitationLetter, passwordResetLetter, verificationLett
 import { getEnv } from './env'
 import { hashPassword, verifyPassword } from './password'
 import { createAuthStorage, getLoginByEmailLimiter } from './redis'
+import { CLIENT_IP_HEADER } from './security/client-ip'
 
 const MINUTE = 60
 const HOUR = 60 * MINUTE
@@ -98,7 +99,8 @@ function createAuth() {
     },
     advanced: {
       database: { generateId: false },
-      ipAddress: { ipAddressHeaders: ['x-forwarded-for', 'x-real-ip'] },
+      // Прокси Next.js уже разобрал цепочку и положил доверенный адрес в этот заголовок
+      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },
     databaseHooks: {
       user: {
