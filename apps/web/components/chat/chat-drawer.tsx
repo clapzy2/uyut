@@ -322,6 +322,8 @@ export function ChatDrawer(scope: Scope) {
 
   return (
     <>
+      {/* Кнопка висит поверх страницы, поэтому под содержимым нужен запас, иначе она ложится на последнюю строку */}
+      <div aria-hidden="true" className="h-20 sm:h-0" />
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -422,7 +424,7 @@ export function ChatDrawer(scope: Scope) {
                         type="button"
                         onClick={() => void send(chip)}
                         disabled={sending}
-                        className="rounded-full border border-line-strong px-3 py-1 text-[13px] text-ink-2 transition-colors duration-200 ease-ui hover:border-accent hover:text-accent disabled:opacity-50"
+                        className="rounded-full border border-control px-3 py-1.5 text-[13px] text-ink-2 transition-colors duration-200 ease-ui hover:border-accent hover:text-accent disabled:opacity-50"
                       >
                         {chip}
                       </button>
@@ -430,6 +432,7 @@ export function ChatDrawer(scope: Scope) {
                   </div>
                 ) : null}
                 <form
+                  method="post"
                   className="flex items-end gap-2"
                   onSubmit={(event) => {
                     event.preventDefault()

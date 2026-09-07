@@ -53,7 +53,12 @@ export function ProjectSettingsDialog({
         <Button variant="ghost">Настроить</Button>
       </DialogTrigger>
       <DialogContent title="Настройки проекта">
-        <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
+        <form
+          method="post"
+          onSubmit={form.handleSubmit(onSubmit)}
+          noValidate
+          className="flex flex-col gap-5"
+        >
           <Input
             id="title"
             label="Название"

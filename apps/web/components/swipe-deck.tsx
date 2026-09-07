@@ -234,7 +234,7 @@ export function SwipeDeck({
           onClick={() => commit(false)}
           disabled={!current}
           aria-label="Не нравится"
-          className="grid h-12 w-12 place-items-center rounded-full border border-line-strong text-ink-2 transition-colors duration-200 ease-ui hover:border-ink hover:text-ink disabled:opacity-40"
+          className="grid h-12 w-12 place-items-center rounded-full border border-control text-ink-2 transition-colors duration-200 ease-ui hover:border-ink hover:text-ink disabled:opacity-40"
         >
           <span aria-hidden="true" className="text-lg">
             ✕

@@ -23,7 +23,7 @@ export function Checkbox({ id, label, error, className, ...props }: CheckboxProp
             type="checkbox"
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? errorId : undefined}
-            className="peer absolute inset-0 size-full cursor-pointer appearance-none rounded-xs border border-line-strong bg-paper transition-colors duration-200 ease-ui checked:border-accent checked:bg-accent group-hover:border-ink checked:group-hover:border-accent-hover"
+            className="peer absolute inset-0 size-full cursor-pointer appearance-none rounded-xs border border-control bg-paper transition-colors duration-200 ease-ui checked:border-accent checked:bg-accent group-hover:border-ink checked:group-hover:border-accent-hover"
             {...props}
           />
           <Icon

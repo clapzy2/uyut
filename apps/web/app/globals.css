@@ -8,6 +8,7 @@
   --muted: #ece4d2;
   --line: #d9ceb6;
   --line-strong: #c4b797;
+  --control: #8a7f66;
   --ink: #262220;
   --ink-2: #6d6656;
   --accent: #7c2f3b;
@@ -27,6 +28,7 @@
     --muted: #2f2626;
     --line: #3b302f;
     --line-strong: #56464a;
+    --control: #82716f;
     --ink: #f1eae1;
     --ink-2: #a89a93;
     --accent: #d68a94;
@@ -46,6 +48,7 @@
   --muted: #2f2626;
   --line: #3b302f;
   --line-strong: #56464a;
+  --control: #82716f;
   --ink: #f1eae1;
   --ink-2: #a89a93;
   --accent: #d68a94;
@@ -84,6 +87,7 @@
   --color-muted: var(--muted);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
+  --color-control: var(--control);
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-accent: var(--accent);
@@ -156,6 +160,42 @@
   h2,
   h3 {
     text-wrap: balance;
+  }
+  /* Ползунок: полоска остаётся тонкой, а зона захвата пальцем — во всю высоту строки */
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 44px;
+    background: transparent;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: var(--line);
+  }
+  input[type="range"]::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: var(--line);
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    margin-top: -9px;
+    border: 2px solid var(--paper);
+    border-radius: 9999px;
+    background: var(--accent);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--paper);
+    border-radius: 9999px;
+    background: var(--accent);
   }
   @media (prefers-reduced-motion: reduce) {
     *,

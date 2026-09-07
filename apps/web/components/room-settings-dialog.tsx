@@ -46,7 +46,12 @@ export function RoomSettingsDialog({
         <Button variant="ghost">Настроить</Button>
       </DialogTrigger>
       <DialogContent title="Настройки комнаты">
-        <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
+        <form
+          method="post"
+          onSubmit={form.handleSubmit(onSubmit)}
+          noValidate
+          className="flex flex-col gap-5"
+        >
           <KindPicker registration={form.register('kind')} error={errors.kind?.message} />
           <Input
             id="room-name"

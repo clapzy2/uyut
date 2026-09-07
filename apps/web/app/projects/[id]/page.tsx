@@ -108,7 +108,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
     <section className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-14 lg:py-20">
       <Link
         href="/projects"
-        className="text-sm text-ink-2 underline decoration-line-strong decoration-1 underline-offset-4 hover:text-ink"
+        className="inline-block py-1.5 text-sm text-ink-2 underline decoration-line-strong decoration-1 underline-offset-4 hover:text-ink"
       >
         Все проекты
       </Link>
@@ -295,7 +295,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
         </div>
         <Link
           href={`/projects/${project.id}/summary`}
-          className="text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4"
+          className="inline-block py-1.5 text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4"
         >
           Список покупок и смета
         </Link>

@@ -38,7 +38,7 @@ function Choice({
               onChange={() => onChange(option)}
               className="peer sr-only"
             />
-            <span className="inline-flex h-9 w-11 items-center justify-center rounded-full border border-line-strong text-sm text-ink-2 transition-colors duration-200 ease-ui hover:text-ink peer-checked:border-accent peer-checked:text-ink peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
+            <span className="inline-flex h-9 w-11 items-center justify-center rounded-full border border-control text-sm text-ink-2 transition-colors duration-200 ease-ui hover:text-ink peer-checked:border-accent peer-checked:text-ink peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
               {lastIsPlus && index === options.length - 1 ? `${option}+` : option}
             </span>
           </label>
@@ -66,7 +66,7 @@ function Toggle({
         onChange={(event) => onChange(event.target.checked)}
         className="peer sr-only"
       />
-      <span className="relative h-6 w-11 shrink-0 rounded-full border border-line-strong bg-muted transition-colors duration-200 ease-ui peer-checked:border-accent peer-checked:bg-accent peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
+      <span className="relative h-6 w-11 shrink-0 rounded-full border border-control bg-muted transition-colors duration-200 ease-ui peer-checked:border-accent peer-checked:bg-accent peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
         <span className="absolute left-[3px] top-[3px] h-[16px] w-[16px] rounded-full bg-paper transition-transform duration-200 ease-ui peer-checked:translate-x-5" />
       </span>
     </label>

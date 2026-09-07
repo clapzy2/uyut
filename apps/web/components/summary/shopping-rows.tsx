@@ -57,7 +57,12 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
   ].filter(Boolean)
 
   return (
-    <li className={cn('flex items-center gap-3 py-3 sm:gap-4', busy && 'opacity-60')}>
+    <li
+      className={cn(
+        'grid grid-cols-[64px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 py-3 sm:flex sm:gap-4',
+        busy && 'opacity-60',
+      )}
+    >
       <span className="block h-16 w-16 shrink-0 overflow-hidden border border-line bg-muted">
         {item.imageUrl ? (
           // biome-ignore lint/performance/noImgElement: картинка товара живёт у магазина, оптимизатор next/image здесь не нужен
@@ -80,45 +85,47 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
             : null}
         </span>
       </span>
-      {readOnly ? (
-        <span className="shrink-0 font-mono text-[13px] text-ink-2">× {item.quantity}</span>
-      ) : (
-        <span className="inline-flex h-8 shrink-0 items-stretch rounded-full border border-line-strong font-mono text-[13px] text-ink">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void run(() => setItemQuantity(item.id, item.quantity - 1))}
-            aria-label={item.quantity === 1 ? 'Убрать из списка' : 'Меньше на один'}
-            className="w-8 text-ink-2 transition-colors duration-200 ease-ui hover:text-ink disabled:opacity-50"
-          >
-            −
-          </button>
-          <span className="grid min-w-7 place-items-center border-x border-line-strong px-1">
-            {item.quantity}
+      <span className="col-start-2 flex items-center justify-between gap-3 sm:contents">
+        {readOnly ? (
+          <span className="shrink-0 font-mono text-[13px] text-ink-2">× {item.quantity}</span>
+        ) : (
+          <span className="inline-flex h-8 shrink-0 items-stretch rounded-full border border-control font-mono text-[13px] text-ink">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void run(() => setItemQuantity(item.id, item.quantity - 1))}
+              aria-label={item.quantity === 1 ? 'Убрать из списка' : 'Меньше на один'}
+              className="w-8 text-ink-2 transition-colors duration-200 ease-ui hover:text-ink disabled:opacity-50"
+            >
+              −
+            </button>
+            <span className="grid min-w-7 place-items-center border-x border-control px-1">
+              {item.quantity}
+            </span>
+            <button
+              type="button"
+              disabled={busy || item.quantity >= 99}
+              onClick={() => void run(() => setItemQuantity(item.id, item.quantity + 1))}
+              aria-label="Больше на один"
+              className="w-8 text-ink-2 transition-colors duration-200 ease-ui hover:text-ink disabled:opacity-50"
+            >
+              +
+            </button>
           </span>
-          <button
-            type="button"
-            disabled={busy || item.quantity >= 99}
-            onClick={() => void run(() => setItemQuantity(item.id, item.quantity + 1))}
-            aria-label="Больше на один"
-            className="w-8 text-ink-2 transition-colors duration-200 ease-ui hover:text-ink disabled:opacity-50"
-          >
-            +
-          </button>
-        </span>
-      )}
-      <span className="flex shrink-0 flex-col items-end gap-1">
-        <span className="font-mono text-[14px] text-ink">{formatPrice(item.totalKopecks)}</span>
-        {readOnly ? null : (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void run(() => removeItem(item.id))}
-            className="text-[12px] text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent disabled:opacity-50"
-          >
-            убрать
-          </button>
         )}
+        <span className="flex shrink-0 flex-col items-end gap-1">
+          <span className="font-mono text-[14px] text-ink">{formatPrice(item.totalKopecks)}</span>
+          {readOnly ? null : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void run(() => removeItem(item.id))}
+              className="py-1 text-[12px] text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent disabled:opacity-50"
+            >
+              убрать
+            </button>
+          )}
+        </span>
       </span>
     </li>
   )

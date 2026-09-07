@@ -350,7 +350,7 @@ export function ExportCard({
                     href={item.pdfUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-ink underline decoration-accent decoration-1 underline-offset-4"
+                    className="inline-block py-1.5 text-ink underline decoration-accent decoration-1 underline-offset-4"
                   >
                     Скачать
                   </a>

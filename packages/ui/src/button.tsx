@@ -7,7 +7,7 @@ type Size = 'md' | 'sm'
 const variants: Record<Variant, string> = {
   primary:
     'bg-accent text-on-accent border border-accent hover:bg-accent-hover hover:border-accent-hover',
-  secondary: 'bg-transparent text-ink border border-line-strong hover:border-ink',
+  secondary: 'bg-transparent text-ink border border-control hover:border-ink',
   ghost: 'bg-transparent text-ink border border-transparent hover:text-accent',
 }
 

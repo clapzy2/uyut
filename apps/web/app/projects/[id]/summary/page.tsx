@@ -133,7 +133,7 @@ export default async function SummaryPage({
       <nav className="text-sm text-ink-2">
         <Link
           href={`/projects/${project.id}`}
-          className="underline decoration-line-strong decoration-1 underline-offset-4 hover:text-ink"
+          className="inline-block py-1.5 underline decoration-line-strong decoration-1 underline-offset-4 hover:text-ink"
         >
           {project.title}
         </Link>

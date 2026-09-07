@@ -52,7 +52,12 @@ export function InviteDialog({
         title="Выбирать вдвоём"
         description="Пригласите того, с кем выбираете интерьер. Он увидит план, комнаты и концепты, будет отмечать, что нравится, и открывать подбор товаров. Удалить проект, оплатить его или пригласить кого-то ещё сможете только вы."
       >
-        <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
+        <form
+          method="post"
+          onSubmit={form.handleSubmit(onSubmit)}
+          noValidate
+          className="flex flex-col gap-5"
+        >
           <Input
             id="invite-email"
             label="Почта"

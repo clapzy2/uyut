@@ -33,7 +33,12 @@ export function ResetPasswordForm({ token }: { token: string }) {
   }
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
+    <form
+      method="post"
+      onSubmit={form.handleSubmit(onSubmit)}
+      noValidate
+      className="flex flex-col gap-5"
+    >
       <PasswordField
         id="password"
         label="Новый пароль"

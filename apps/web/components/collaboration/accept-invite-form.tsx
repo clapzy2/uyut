@@ -35,7 +35,12 @@ export function AcceptInviteForm({
   }
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
+    <form
+      method="post"
+      onSubmit={form.handleSubmit(onSubmit)}
+      noValidate
+      className="flex flex-col gap-5"
+    >
       {needsPassword ? (
         <>
           <p className="text-[15px] leading-relaxed text-ink-2">

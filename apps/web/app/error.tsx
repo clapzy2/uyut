@@ -30,7 +30,7 @@ export default function ErrorScreen({
           <Button onClick={reset}>Попробовать снова</Button>
           <Link
             href="/projects"
-            className="text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4"
+            className="inline-block py-1.5 text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4"
           >
             К проектам
           </Link>

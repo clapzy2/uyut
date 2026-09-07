@@ -15,7 +15,7 @@ type Search = Promise<{ error?: string }>
 const TOKEN = /^[A-Za-z0-9_-]{16,128}$/
 
 const linkClassName =
-  'text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4'
+  'inline-block py-1.5 text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4'
 
 export default async function InvitePage({
   params,

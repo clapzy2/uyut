@@ -39,7 +39,7 @@ export function ThemeToggle({ initial }: { initial: Theme }) {
             aria-pressed={active}
             title={option.label}
             onClick={() => apply(option.value)}
-            className={`grid size-7 place-items-center rounded-full transition-colors duration-200 ease-ui ${
+            className={`grid size-8 place-items-center rounded-full transition-colors duration-200 ease-ui ${
               active ? 'bg-ink text-page' : 'text-ink-2 hover:text-ink'
             }`}
           >

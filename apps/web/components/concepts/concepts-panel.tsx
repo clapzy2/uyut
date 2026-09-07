@@ -315,7 +315,7 @@ export function ConceptsPanel({
                 'h-8 rounded-full border px-3 text-[13px] transition-colors duration-200 ease-ui',
                 tab === item.key
                   ? 'border-accent bg-accent-tint text-accent'
-                  : 'border-line-strong text-ink-2 hover:text-ink',
+                  : 'border-control text-ink-2 hover:text-ink',
               )}
             >
               {item.label} {item.count}

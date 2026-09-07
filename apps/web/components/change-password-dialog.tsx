@@ -46,7 +46,12 @@ export function ChangePasswordDialog() {
         title="Новый пароль"
         description="Сначала текущий, потом новый. Не короче 8 знаков."
       >
-        <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
+        <form
+          method="post"
+          onSubmit={form.handleSubmit(onSubmit)}
+          noValidate
+          className="flex flex-col gap-5"
+        >
           <PasswordField
             id="current-password"
             label="Текущий пароль"

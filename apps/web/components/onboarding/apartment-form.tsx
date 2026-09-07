@@ -117,7 +117,7 @@ export function ApartmentForm() {
                 onChange={() => setMode(value)}
                 className="peer sr-only"
               />
-              <span className="inline-flex h-9 items-center rounded-full border border-line-strong px-4 text-sm text-ink-2 transition-colors duration-200 ease-ui hover:text-ink peer-checked:border-accent peer-checked:text-ink peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
+              <span className="inline-flex h-9 items-center rounded-full border border-control px-4 text-sm text-ink-2 transition-colors duration-200 ease-ui hover:text-ink peer-checked:border-accent peer-checked:text-ink peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
                 {modeLabels[value]}
               </span>
             </label>
@@ -174,7 +174,7 @@ export function ApartmentForm() {
                       ),
                     )
                   }
-                  className="h-11 w-full border border-line-strong bg-paper px-3 text-[15px] text-ink outline-none transition-colors duration-200 ease-ui focus-visible:border-accent"
+                  className="h-11 w-full border border-control bg-paper px-3 text-[15px] text-ink outline-none transition-colors duration-200 ease-ui focus-visible:border-accent"
                 >
                   {mvpRoomKinds.map((kind) => (
                     <option key={kind} value={kind}>
@@ -205,7 +205,7 @@ export function ApartmentForm() {
                   { key: roomKey(), kind: 'bedroom', name: 'Спальня', area: '' },
                 ])
               }
-              className="self-start text-sm text-accent underline decoration-line-strong underline-offset-4"
+              className="self-start py-1.5 text-sm text-accent underline decoration-line-strong underline-offset-4"
             >
               Добавить комнату
             </button>
@@ -233,7 +233,7 @@ export function ApartmentForm() {
               id="series"
               value={seriesId}
               onChange={(event) => setSeriesId(event.target.value)}
-              className="h-11 w-full border border-line-strong bg-paper px-3 text-[15px] text-ink outline-none transition-colors duration-200 ease-ui focus-visible:border-accent"
+              className="h-11 w-full border border-control bg-paper px-3 text-[15px] text-ink outline-none transition-colors duration-200 ease-ui focus-visible:border-accent"
             >
               {houseSeries.map((series) => (
                 <option key={series.id} value={series.id}>
@@ -259,7 +259,7 @@ export function ApartmentForm() {
                     onChange={() => setRoomCount(count)}
                     className="peer sr-only"
                   />
-                  <span className="inline-flex h-9 w-12 items-center justify-center rounded-full border border-line-strong text-sm text-ink-2 transition-colors duration-200 ease-ui hover:text-ink peer-checked:border-accent peer-checked:text-ink">
+                  <span className="inline-flex h-9 w-12 items-center justify-center rounded-full border border-control text-sm text-ink-2 transition-colors duration-200 ease-ui hover:text-ink peer-checked:border-accent peer-checked:text-ink">
                     {count}
                   </span>
                 </label>
