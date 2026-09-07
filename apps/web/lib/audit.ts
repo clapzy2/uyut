@@ -22,6 +22,11 @@ export type AuditAction =
   | 'shopping.item_updated'
   | 'shopping.item_removed'
   | 'export.requested'
+  | 'billing.purchase_started'
+  | 'billing.paid'
+  | 'billing.amount_mismatch'
+  | 'billing.webhook'
+  | 'billing.webhook_rejected'
 
 type AuditInput = {
   action: AuditAction

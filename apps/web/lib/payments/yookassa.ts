@@ -122,7 +122,6 @@ export function createYooKassaProvider(options: YooKassaOptions): PaymentProvide
           description: input.description.slice(0, 128),
           metadata: input.metadata ?? {},
           ...(input.savePaymentMethod ? { save_payment_method: true } : {}),
-          ...(input.customerEmail ? { receipt_email_hint: input.customerEmail } : {}),
         },
       })
       return mapPayment(raw)

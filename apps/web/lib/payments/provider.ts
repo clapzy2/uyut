@@ -10,8 +10,6 @@ export type CreatePaymentInput = {
   metadata?: Record<string, string>
   /** Сохранить способ оплаты для будущих списаний подписки */
   savePaymentMethod?: boolean
-  /** Почта для чека по 54-ФЗ, когда у магазина включена фискализация */
-  customerEmail?: string
 }
 
 export type Payment = {
