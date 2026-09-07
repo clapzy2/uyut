@@ -141,6 +141,7 @@ export type RoomPatch = {
   kind?: RoomKind
   areaM2?: number | null
   notes?: string | null
+  refreshFinish?: boolean
 }
 
 export async function updateRoom(userId: string, roomId: string, patch: RoomPatch): Promise<Room> {

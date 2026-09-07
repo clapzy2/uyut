@@ -75,6 +75,8 @@ export const rooms = pgTable(
     name: text('name').notNull(),
     areaM2: numeric('area_m2', { precision: 6, scale: 2, mode: 'number' }),
     condition: text('condition', { enum: roomConditions }).notNull().default('bare'),
+    // Для комнаты с готовой отделкой: заказчик всё же хочет обновить чистовую, смета это учитывает
+    refreshFinish: boolean('refresh_finish').notNull().default(false),
     photoUrl: text('photo_url'),
     planUrl: text('plan_url'),
     notes: text('notes'),

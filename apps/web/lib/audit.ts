@@ -18,6 +18,9 @@ export type AuditAction =
   | 'concept.recolored'
   | 'chat.message'
   | 'chat.tool'
+  | 'shopping.item_added'
+  | 'shopping.item_updated'
+  | 'shopping.item_removed'
 
 type AuditInput = {
   action: AuditAction
