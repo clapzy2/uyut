@@ -184,7 +184,12 @@ export function ConceptsPanel({
     if (change) {
       setRecent(change)
     }
-  }, [live.likes, role])
+    // В снимке появились концепты, которых на странице нет: второй запустил генерацию
+    const known = new Set(items.map((item) => item.id))
+    if (Object.keys(live.likes).some((id) => !known.has(id))) {
+      router.refresh()
+    }
+  }, [live.likes, role, items, router])
 
   const ready = current.filter((item) => item.status === 'ready' && item.renderSrc)
   const latest = current.filter((item) => item.batchId === latestBatchId)
