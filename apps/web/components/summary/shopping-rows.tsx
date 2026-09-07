@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { removeItem, setItemQuantity } from '@/actions/shopping'
 import { formatPrice, sourceLabel } from '@/lib/concepts/format'
-import { itemTotalKopecks } from '@/lib/estimate'
 import type { ShoppingItemView } from '@/lib/shopping/repository'
 
 type Group = { key: string; title: string; items: ShoppingItemView[] }
@@ -105,15 +104,7 @@ function Row({ item }: { item: ShoppingItemView }) {
         </button>
       </span>
       <span className="flex shrink-0 flex-col items-end gap-1">
-        <span className="font-mono text-[14px] text-ink">
-          {formatPrice(
-            itemTotalKopecks({
-              priceKopecks: item.priceKopecks,
-              quantity: item.quantity,
-              variantPriceKopecks: item.variant?.priceKopecks ?? null,
-            }),
-          )}
-        </span>
+        <span className="font-mono text-[14px] text-ink">{formatPrice(item.totalKopecks)}</span>
         <button
           type="button"
           disabled={busy}

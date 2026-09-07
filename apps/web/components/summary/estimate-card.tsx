@@ -1,5 +1,6 @@
 'use client'
 
+import type { Estimate, WorksRates } from '@uyut/catalog'
 import type { RoomCondition } from '@uyut/db'
 import { Checkbox, cn, toast } from '@uyut/ui'
 import Link from 'next/link'
@@ -8,7 +9,6 @@ import { useState } from 'react'
 import { setRoomRefreshFinish } from '@/actions/shopping'
 import { BudgetBar } from '@/components/summary/budget-bar'
 import { formatPrice } from '@/lib/concepts/format'
-import type { Estimate, WorksRates } from '@/lib/estimate'
 import { formatArea } from '@/lib/projects/format'
 
 export type EstimateRoomRow = {

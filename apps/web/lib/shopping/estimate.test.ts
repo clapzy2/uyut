@@ -1,5 +1,5 @@
+import { estimateProject, itemTotalKopecks } from '@uyut/catalog'
 import { describe, expect, it } from 'vitest'
-import { estimateProject, itemTotalKopecks } from './estimate'
 
 const rates = { roughRubPerM2: 15_000, finishRubPerM2: 5_000 }
 
