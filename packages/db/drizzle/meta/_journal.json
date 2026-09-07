@@ -71,6 +71,13 @@
       "when": 1788785286376,
       "tag": "0009_collaboration",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788786994801,
+      "tag": "0010_duo-concepts",
+      "breakpoints": true
     }
   ]
 }
