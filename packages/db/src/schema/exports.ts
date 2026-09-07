@@ -12,6 +12,8 @@ export type ExportOptions = {
   includeClientName?: boolean
   includeAddress?: boolean
   includePhone?: boolean
+  /** Куда написать, когда документ готов: заполняется после оплаты проекта */
+  notifyEmail?: string
 }
 
 /** ТЗ мастеру: разделы по комнатам и вопросы заказчику, как их отдала модель */
