@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { recordAudit } from '@/lib/audit'
 import { applyPayment } from '@/lib/billing/apply'
-import { attachPayment, createPurchase, getPurchase } from '@/lib/billing/repository'
+import { attachPayment, createPurchase, getPurchase, setAutoRenew } from '@/lib/billing/repository'
 import { getEnv } from '@/lib/env'
 import type { ExportRun } from '@/lib/exports/start'
 import { getPaymentProvider } from '@/lib/payments'
@@ -177,6 +177,30 @@ export async function settlePurchase(
       return { ok: true, data: { status: 'paid', exportRun: applied.exportRun } }
     }
     return { ok: true, data: { status: applied.status === 'canceled' ? 'canceled' : 'pending' } }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+/** Согласие на ежемесячное списание отзывается так же легко, как даётся: одной кнопкой */
+export async function setProAutoRenew(
+  enabled: boolean,
+): Promise<ActionResult<{ autoRenew: boolean }>> {
+  const user = await currentUser()
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED }
+  }
+  try {
+    const subscription = await setAutoRenew(user.id, enabled)
+    await recordAudit({
+      action: 'billing.autopay_changed',
+      actorId: user.id,
+      targetType: 'subscription',
+      targetId: subscription.id,
+      metadata: { autoRenew: subscription.autoRenew },
+    })
+    revalidatePath('/projects')
+    return { ok: true, data: { autoRenew: subscription.autoRenew } }
   } catch (error) {
     return failure(error)
   }

@@ -2,12 +2,13 @@ import { buttonClassName } from '@uyut/ui'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { AutoRenewNote } from '@/components/billing/auto-renew'
 import { ProRenewal, ProUpsell } from '@/components/billing/pro-upsell'
 import { applyPayment } from '@/lib/billing/apply'
 import { activeProSubscription, getPurchase } from '@/lib/billing/repository'
 import { getEnv } from '@/lib/env'
 import { isUuid, NotFoundError } from '@/lib/projects/access'
-import { formatDate, projectMeta } from '@/lib/projects/format'
+import { projectMeta } from '@/lib/projects/format'
 import { listProjects } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { presignedObjectUrl } from '@/lib/storage'
@@ -61,7 +62,8 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Sea
     pro?.currentPeriodEnd !== undefined &&
     pro?.currentPeriodEnd !== null &&
     pro.currentPeriodEnd.getTime() - Date.now() < RENEW_WINDOW_MS
-  const offerRenewal = pro !== null && (renew === 'pro' || endsSoon)
+  // С включённым автопродлением кнопка ручной оплаты только путает: спишется само
+  const offerRenewal = pro !== null && !pro.autoRenew && (renew === 'pro' || endsSoon)
 
   if (items.length === 0) {
     return (
@@ -94,9 +96,12 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Sea
             Проекты
           </h1>
           {pro?.currentPeriodEnd ? (
-            <p className="mt-2 font-mono text-[13px] text-ink-2">
-              Pro до {formatDate(pro.currentPeriodEnd)}
-            </p>
+            <AutoRenewNote
+              periodEnd={pro.currentPeriodEnd}
+              autoRenew={pro.autoRenew}
+              hasSavedMethod={pro.yukassaSubscriptionId !== null}
+              priceKopecks={getEnv().PRO_PRICE_KOPECKS}
+            />
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-3">
