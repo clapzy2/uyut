@@ -51,14 +51,14 @@ export default async function ConceptPage({ params }: { params: Params }) {
       <nav className="flex flex-wrap gap-x-2 text-sm text-ink-2">
         <Link
           href={`/projects/${data.room.projectId}`}
-          className="underline decoration-line-strong decoration-1 underline-offset-4 hover:text-ink"
+          className="inline-block py-1.5 underline decoration-line-strong decoration-1 underline-offset-4 hover:text-ink"
         >
           {data.room.projectTitle}
         </Link>
         <span aria-hidden="true">·</span>
         <Link
           href={`/projects/${data.room.projectId}/rooms/${data.room.id}`}
-          className="underline decoration-line-strong decoration-1 underline-offset-4 hover:text-ink"
+          className="inline-block py-1.5 underline decoration-line-strong decoration-1 underline-offset-4 hover:text-ink"
         >
           {data.room.name}
         </Link>

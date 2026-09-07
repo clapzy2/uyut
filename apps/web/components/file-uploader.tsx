@@ -75,7 +75,7 @@ export function FileUploader({
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={pending}
-        className="inline-flex items-center gap-2 text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4 transition-colors duration-200 ease-ui hover:text-accent disabled:opacity-60"
+        className="inline-flex items-center gap-2 py-2 text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4 transition-colors duration-200 ease-ui hover:text-accent disabled:opacity-60"
       >
         <Icon name="upload" className="size-4" />
         {pending ? pendingLabel : label}

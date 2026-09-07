@@ -35,7 +35,7 @@ export function VerifyEmailBanner({ email }: { email: string }) {
           type="button"
           onClick={resend}
           disabled={pending}
-          className="text-ink-2 underline decoration-accent decoration-1 underline-offset-4 transition-colors duration-200 ease-ui hover:text-ink disabled:opacity-60"
+          className="inline-flex items-center py-2 text-ink-2 underline decoration-accent decoration-1 underline-offset-4 transition-colors duration-200 ease-ui hover:text-ink disabled:opacity-60"
         >
           {pending ? 'Отправляем…' : 'Отправить ещё раз'}
         </button>
