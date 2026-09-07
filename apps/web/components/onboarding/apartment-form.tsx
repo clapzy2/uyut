@@ -205,7 +205,7 @@ export function ApartmentForm() {
                   { key: roomKey(), kind: 'bedroom', name: 'Спальня', area: '' },
                 ])
               }
-              className="self-start text-sm text-accent underline decoration-line-strong underline-offset-4"
+              className="self-start py-1.5 text-sm text-accent underline decoration-line-strong underline-offset-4"
             >
               Добавить комнату
             </button>

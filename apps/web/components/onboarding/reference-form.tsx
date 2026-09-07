@@ -97,7 +97,7 @@ export function ReferenceForm({
           finish()
         }}
         disabled={pending}
-        className="self-start text-sm text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-ink"
+        className="self-start py-1.5 text-sm text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-ink"
       >
         Пропустить этот шаг
       </button>

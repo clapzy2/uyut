@@ -49,7 +49,7 @@ export function AddRoomDialog({ projectId }: { projectId: string }) {
       <DialogTrigger asChild>
         <button
           type="button"
-          className="text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4 transition-colors duration-200 ease-ui hover:text-accent"
+          className="inline-block py-1.5 text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4 transition-colors duration-200 ease-ui hover:text-accent"
         >
           Добавить комнату
         </button>

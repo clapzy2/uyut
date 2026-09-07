@@ -295,7 +295,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
         </div>
         <Link
           href={`/projects/${project.id}/summary`}
-          className="text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4"
+          className="inline-block py-1.5 text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4"
         >
           Список покупок и смета
         </Link>

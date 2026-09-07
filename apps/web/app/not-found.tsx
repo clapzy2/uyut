@@ -12,7 +12,7 @@ export default function NotFound() {
         </p>
         <Link
           href="/projects"
-          className="mt-8 inline-block text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4"
+          className="mt-8 inline-block py-1.5 text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4"
         >
           К проектам
         </Link>

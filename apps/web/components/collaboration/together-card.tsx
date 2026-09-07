@@ -38,7 +38,7 @@ function RevokeDialog({
       <DialogTrigger asChild>
         <button
           type="button"
-          className="text-sm text-ink-2 underline decoration-line-strong decoration-1 underline-offset-4 transition-colors duration-200 ease-ui hover:text-danger hover:decoration-danger"
+          className="inline-block py-1.5 text-sm text-ink-2 underline decoration-line-strong decoration-1 underline-offset-4 transition-colors duration-200 ease-ui hover:text-danger hover:decoration-danger"
         >
           {pendingOnly ? 'Отозвать приглашение' : 'Отозвать доступ'}
         </button>

@@ -120,7 +120,7 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
               type="button"
               disabled={busy}
               onClick={() => void run(() => removeItem(item.id))}
-              className="text-[12px] text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent disabled:opacity-50"
+              className="py-1 text-[12px] text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent disabled:opacity-50"
             >
               убрать
             </button>

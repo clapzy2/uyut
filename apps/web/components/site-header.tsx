@@ -15,7 +15,7 @@ export function SiteHeader({ theme, user }: { theme: Theme; user: { name: string
         >
           Uyut
         </Link>
-        <nav className="flex items-center gap-5 sm:gap-7" aria-label="Основное меню">
+        <nav className="flex items-center gap-3 sm:gap-7" aria-label="Основное меню">
           {user ? (
             <>
               <Link href="/projects" className={linkClassName}>

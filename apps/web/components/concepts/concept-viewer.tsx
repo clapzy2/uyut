@@ -190,7 +190,7 @@ function MatchesPanel({
                     }
                     onClick={() => onAdd(match, object)}
                     className={cn(
-                      'h-7 rounded-full border px-2.5 text-[12px] transition-colors duration-200 ease-ui disabled:opacity-50',
+                      'h-8 rounded-full border px-3 text-[12px] transition-colors duration-200 ease-ui disabled:opacity-50',
                       inList > 0
                         ? 'border-accent bg-accent-tint text-accent'
                         : 'border-control text-ink-2 hover:border-accent hover:text-accent',
@@ -540,7 +540,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
           </span>
           <Link
             href={`/projects/${data.room.projectId}/summary`}
-            className="text-ink underline decoration-accent decoration-1 underline-offset-4"
+            className="inline-block py-1.5 text-ink underline decoration-accent decoration-1 underline-offset-4"
           >
             Итоги проекта
           </Link>
