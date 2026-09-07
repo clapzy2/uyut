@@ -8,8 +8,9 @@ import { chromium } from 'playwright'
 import { z } from 'zod'
 import { db } from './lib/db'
 import { optionalEnv } from './lib/env'
+import { projectReadyLetter, sendMail } from './lib/mail'
 import { briefInput, buildPdfData, loadSnapshot } from './lib/pdf-data'
-import { putObject } from './lib/s3'
+import { presignedUrl, putObject } from './lib/s3'
 
 const payloadSchema = z.object({ exportId: z.uuid() })
 
@@ -173,6 +174,27 @@ export const exportPdf = task({
         .where(eq(projectExports.id, exportId))
       publish('done')
       logger.info('pdf exported', { exportId, durationMs, pages, bytes: pdf.length })
+
+      // Письмо со ссылкой после оплаты: сборка уже удалась, поэтому сбой почты только логируем
+      const notifyEmail = row.options?.notifyEmail
+      if (notifyEmail && row.kind === 'paid') {
+        try {
+          const ttlHours = Number(optionalEnv('PDF_URL_TTL_HOURS') ?? 168) || 168
+          const appUrl = (optionalEnv('APP_URL') ?? 'https://uyut.ru').replace(/\/$/, '')
+          const sent = await sendMail(
+            notifyEmail,
+            projectReadyLetter({
+              projectTitle: data.project.title,
+              pdfUrl: await presignedUrl(pdfKey, ttlHours * 60 * 60),
+              summaryUrl: `${appUrl}/projects/${row.projectId}/summary`,
+              ttlHours,
+            }),
+          )
+          logger.info('project ready letter', { exportId, sent })
+        } catch (error) {
+          logger.warn('project ready letter failed', { exportId, error: String(error) })
+        }
+      }
       return { exportId, pdfKey, pages, durationMs }
     } catch (error) {
       await database

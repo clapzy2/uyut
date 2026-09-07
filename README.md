@@ -44,7 +44,7 @@ bun run dev             # http://localhost:4300
 
 Порт dev-сервера задаётся переменной `PORT` в `.env`. В `.env` нужно задать `BETTER_AUTH_SECRET`, любую случайную строку от 32 символов. Консоль MinIO: http://localhost:9001, логин и пароль `minioadmin`. Все письма, включая подтверждение почты и сброс пароля, ловит Mailpit: http://localhost:8025.
 
-Как устроена аутентификация: [docs/adr/002-auth.md](docs/adr/002-auth.md). Как генерируются концепты комнат: [docs/adr/003-generation.md](docs/adr/003-generation.md). Как подбираются товары к концепту: [docs/adr/004-matching.md](docs/adr/004-matching.md). Перекраска предметов и помощник: [docs/adr/005-refinement.md](docs/adr/005-refinement.md).
+Как устроена аутентификация: [docs/adr/002-auth.md](docs/adr/002-auth.md). Как генерируются концепты комнат: [docs/adr/003-generation.md](docs/adr/003-generation.md). Как подбираются товары к концепту: [docs/adr/004-matching.md](docs/adr/004-matching.md). Перекраска предметов и помощник: [docs/adr/005-refinement.md](docs/adr/005-refinement.md). Список покупок, смета, PDF и оплата: [docs/adr/006-delivery.md](docs/adr/006-delivery.md).
 
 Фоновые задачи запускаются отдельно: один раз войдите через `bunx trigger.dev login` и выполните `bun run jobs:dev`. Генерация концептов идёт через них, поэтому для неё нужны `FAL_KEY` и `TRIGGER_SECRET_KEY` в `.env`. Без ключей приложение работает, а кнопка генерации сообщает, что движок не подключён.
 

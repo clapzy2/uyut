@@ -4,11 +4,15 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { EstimateCard } from '@/components/summary/estimate-card'
-import { ExportCard } from '@/components/summary/export-card'
+import { ExportCard, type PaymentState } from '@/components/summary/export-card'
 import { ShoppingRows } from '@/components/summary/shopping-rows'
+import { applyPayment } from '@/lib/billing/apply'
+import { getPlan, getPurchase } from '@/lib/billing/repository'
 import { formatPrice } from '@/lib/concepts/format'
+import { getEnv } from '@/lib/env'
 import { listExports } from '@/lib/exports/repository'
-import { NotFoundError } from '@/lib/projects/access'
+import type { ExportRun } from '@/lib/exports/start'
+import { isUuid, NotFoundError } from '@/lib/projects/access'
 import { formatArea, pluralRooms } from '@/lib/projects/format'
 import { getProject } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -17,6 +21,36 @@ import { getWorksRates } from '@/lib/shopping/rates'
 import { getShoppingList } from '@/lib/shopping/repository'
 
 type Params = Promise<{ id: string }>
+type Search = Promise<{ payment?: string }>
+
+/** Возврат с оплаты: перепроверяем платёж у провайдера и показываем результат */
+async function settlePayment(
+  userId: string,
+  purchaseId: string | undefined,
+): Promise<{ state: PaymentState; run: ExportRun | null }> {
+  if (!purchaseId || !isUuid(purchaseId)) {
+    return { state: null, run: null }
+  }
+  try {
+    const purchase = await getPurchase(userId, purchaseId)
+    if (purchase.status === 'paid') {
+      return { state: 'paid', run: null }
+    }
+    if (!purchase.yukassaPaymentId) {
+      return { state: 'pending', run: null }
+    }
+    const applied = await applyPayment(purchase.yukassaPaymentId)
+    if (applied.status === 'succeeded') {
+      return { state: 'paid', run: applied.exportRun ?? null }
+    }
+    return { state: applied.status === 'canceled' ? 'canceled' : 'pending', run: null }
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return { state: null, run: null }
+    }
+    throw error
+  }
+}
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const session = await getSession()
@@ -32,12 +66,21 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   }
 }
 
-export default async function SummaryPage({ params }: { params: Params }) {
+export default async function SummaryPage({
+  params,
+  searchParams,
+}: {
+  params: Params
+  searchParams: Search
+}) {
   const session = await getSession()
   const { id } = await params
   if (!session) {
     redirect(`/login?next=/projects/${id}/summary`)
   }
+  const { payment } = await searchParams
+  // Сначала платёж, потом проект: после успешной оплаты у проекта уже стоит isPaid
+  const settled = await settlePayment(session.user.id, payment)
 
   let project: Awaited<ReturnType<typeof getProject>>
   try {
@@ -49,11 +92,13 @@ export default async function SummaryPage({ params }: { params: Params }) {
     throw error
   }
 
-  const [list, exports] = await Promise.all([
+  const [list, exports, plan] = await Promise.all([
     getShoppingList(session.user.id, project.id),
     listExports(session.user.id, project.id, 4),
+    getPlan(session.user.id),
   ])
   const rates = getWorksRates()
+  const env = getEnv()
   const rooms = project.rooms.map((room) => ({
     id: room.id,
     name: room.name,
@@ -111,7 +156,12 @@ export default async function SummaryPage({ params }: { params: Params }) {
             exports={exports}
             contact={project.contact ?? null}
             isPaid={project.isPaid}
+            plan={plan}
             hasRooms={project.rooms.length > 0}
+            projectPriceKopecks={env.PROJECT_PRICE_KOPECKS}
+            proPriceKopecks={env.PRO_PRICE_KOPECKS}
+            paymentState={settled.state}
+            initialRun={settled.run}
           />
           <EstimateCard estimate={estimate} rooms={rooms} rates={rates} projectId={project.id} />
         </aside>

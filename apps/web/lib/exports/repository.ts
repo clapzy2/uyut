@@ -7,6 +7,7 @@ import {
   projects,
 } from '@uyut/db'
 import { desc, eq } from 'drizzle-orm'
+import { getPlan } from '@/lib/billing/repository'
 import { getDb } from '@/lib/db'
 import { getEnv } from '@/lib/env'
 import { assertOwnerOrCollaborator, isUuid, NotFoundError } from '@/lib/projects/access'
@@ -75,14 +76,14 @@ export async function getExport(userId: string, exportId: string): Promise<Expor
   return toView(row)
 }
 
-/** Оплаченный проект получает чистый документ, остальные — с водяным знаком */
+/** Оплаченный проект или владелец с Pro получают чистый документ, остальные — с водяным знаком */
 export async function createExport(
   userId: string,
   projectId: string,
   options: ExportOptions,
 ): Promise<{ id: string; kind: ExportKind }> {
   const project = await assertOwnerOrCollaborator(userId, projectId)
-  const kind: ExportKind = project.isPaid ? 'paid' : 'free'
+  const kind: ExportKind = project.isPaid || (await getPlan(userId)) === 'pro' ? 'paid' : 'free'
   const [row] = await getDb()
     .insert(projectExports)
     .values({ projectId: project.id, kind, options })

@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { recordAudit } from '@/lib/audit'
+import { canCreateProject, PROJECT_LIMIT } from '@/lib/billing/repository'
 import { preparePhoto, UploadError } from '@/lib/files/uploads'
 import * as onboarding from '@/lib/onboarding/repository'
 import { NotFoundError } from '@/lib/projects/access'
@@ -51,6 +52,9 @@ export async function createApartment(
     return { ok: false, error: firstIssue(parsed.error) }
   }
   try {
+    if (!(await canCreateProject(userId))) {
+      return { ok: false, error: PROJECT_LIMIT }
+    }
     const { project } = await onboarding.createFromApartment(userId, parsed.data)
     await recordAudit({ action: 'project.created', actorId: userId, targetId: project.id })
     revalidatePath('/projects')

@@ -64,6 +64,7 @@ let requestsByIpLimiter: Ratelimit | undefined
 let conceptsByUserLimiter: Ratelimit | undefined
 let chatByUserLimiter: Ratelimit | undefined
 let exportsByUserLimiter: Ratelimit | undefined
+let paymentsByUserLimiter: Ratelimit | undefined
 
 // Десять попыток входа в час на один адрес, независимо от IP
 export function getLoginByEmailLimiter(): Ratelimit {
@@ -103,6 +104,16 @@ export function getExportsByUserLimiter(): Ratelimit {
     prefix: 'rl:exports',
   })
   return exportsByUserLimiter
+}
+
+// Каждая попытка оплаты создаёт покупку и платёж у провайдера: десять в час на пользователя
+export function getPaymentsByUserLimiter(): Ratelimit {
+  paymentsByUserLimiter ??= new Ratelimit({
+    redis: getRedis(),
+    limiter: Ratelimit.slidingWindow(10, '1 h'),
+    prefix: 'rl:payments',
+  })
+  return paymentsByUserLimiter
 }
 
 // Помощник платный за каждое сообщение: шестьдесят в час на пользователя

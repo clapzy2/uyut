@@ -1,19 +1,10 @@
 'use server'
 
-import { tasks, auth as triggerAuth } from '@trigger.dev/sdk'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
-import { recordAudit } from '@/lib/audit'
 import { getEnv } from '@/lib/env'
-import {
-  attachRun,
-  createExport,
-  type ExportView,
-  getExport,
-  listExports,
-  markExportFailed,
-  saveContact,
-} from '@/lib/exports/repository'
+import { type ExportView, getExport, listExports, saveContact } from '@/lib/exports/repository'
+import { type ExportRun, startExport } from '@/lib/exports/start'
 import { NotFoundError } from '@/lib/projects/access'
 import { getExportsByUserLimiter } from '@/lib/redis'
 import { getSession } from '@/lib/session'
@@ -50,12 +41,7 @@ const exportInputSchema = z.object({
 
 export type ExportInput = z.input<typeof exportInputSchema>
 
-export type ExportRun = {
-  exportId: string
-  runId: string
-  accessToken: string
-  kind: 'free' | 'paid'
-}
+export type { ExportRun }
 
 async function currentUserId(): Promise<string | null> {
   const session = await getSession()
@@ -92,30 +78,9 @@ export async function exportProjectPdf(input: ExportInput): Promise<ActionResult
     if (contact) {
       await saveContact(userId, projectId, contact)
     }
-    const created = await createExport(userId, projectId, options)
-    let handle: Awaited<ReturnType<typeof tasks.trigger>>
-    try {
-      handle = await tasks.trigger('export-pdf', { exportId: created.id })
-    } catch (error) {
-      await markExportFailed(created.id, `очередь не приняла задачу: ${String(error)}`)
-      throw error
-    }
-    await attachRun(created.id, handle.id)
-    await recordAudit({
-      action: 'export.requested',
-      actorId: userId,
-      targetType: 'project_export',
-      targetId: created.id,
-      metadata: { projectId, kind: created.kind, runId: handle.id, options },
-    })
-    const accessToken =
-      handle.publicAccessToken ??
-      (await triggerAuth.createPublicToken({ scopes: { read: { runs: [handle.id] } } }))
+    const run = await startExport(userId, projectId, options)
     revalidatePath(`/projects/${projectId}/summary`)
-    return {
-      ok: true,
-      data: { exportId: created.id, runId: handle.id, accessToken, kind: created.kind },
-    }
+    return { ok: true, data: run }
   } catch (error) {
     return failure(error)
   }

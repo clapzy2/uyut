@@ -35,6 +35,12 @@ export const serverEnvSchema = z.object({
   WORKS_FINISH_RUB_PER_M2: z.coerce.number().int().positive().default(5_000),
   // Срок подписанной ссылки на PDF, часов; ссылка из письма должна жить хотя бы неделю
   PDF_URL_TTL_HOURS: z.coerce.number().int().positive().max(168).default(168),
+  // ЮKassa: без ключей магазина платежи идут через фейковый провайдер (успех сразу)
+  YUKASSA_SHOP_ID: optionalText,
+  YUKASSA_SECRET_KEY: optionalText,
+  YUKASSA_API_URL: optionalUrl,
+  PROJECT_PRICE_KOPECKS: z.coerce.number().int().positive().default(150_000),
+  PRO_PRICE_KOPECKS: z.coerce.number().int().positive().default(99_900),
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>

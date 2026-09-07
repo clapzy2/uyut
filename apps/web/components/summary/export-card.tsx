@@ -1,15 +1,20 @@
 'use client'
 
 import { useRealtimeRun } from '@trigger.dev/react-hooks'
-import type { ProjectContact } from '@uyut/db'
-import { Button, buttonClassName, Checkbox, inputClassName, Label, toast } from '@uyut/ui'
+import type { ProjectContact, SubscriptionPlan } from '@uyut/db'
+import { Button, buttonClassName, Checkbox, cn, inputClassName, Label, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { startProjectPurchase, startProSubscription } from '@/actions/billing'
 import { type ExportRun, exportProjectPdf, loadExport } from '@/actions/exports'
+import { CheckoutButton } from '@/components/billing/checkout-button'
+import { formatPrice } from '@/lib/concepts/format'
 import type { ExportView } from '@/lib/exports/repository'
 import { formatDate } from '@/lib/projects/format'
 
 type Progress = { stage?: string }
+
+export type PaymentState = 'paid' | 'pending' | 'canceled' | null
 
 const stageLabels: Array<{ key: string; label: string }> = [
   { key: 'collect', label: 'Собираем данные проекта' },
@@ -89,18 +94,51 @@ function exportMeta(item: ExportView): string {
     .join(' · ')
 }
 
+function PaymentBanner({ state }: { state: PaymentState }) {
+  if (!state) {
+    return null
+  }
+  const text =
+    state === 'paid'
+      ? 'Оплата прошла. Документ без водяного знака собирается, письмо со ссылкой придёт на почту.'
+      : state === 'canceled'
+        ? 'Платёж отменён, деньги не списаны. Можно попробовать ещё раз.'
+        : 'Платёж ещё обрабатывается. Если деньги списались, статус обновится в течение минуты — обновите страницу.'
+  return (
+    <p
+      role="status"
+      className={cn(
+        'mb-4 border-l-2 px-3 py-2 text-[14px] leading-relaxed',
+        state === 'paid' ? 'border-success text-ink' : 'border-accent text-ink-2',
+      )}
+    >
+      {text}
+    </p>
+  )
+}
+
 export function ExportCard({
   projectId,
   exports,
   contact,
   isPaid,
+  plan,
   hasRooms,
+  projectPriceKopecks,
+  proPriceKopecks,
+  paymentState = null,
+  initialRun = null,
 }: {
   projectId: string
   exports: ExportView[]
   contact: ProjectContact | null
   isPaid: boolean
+  plan: SubscriptionPlan
   hasRooms: boolean
+  projectPriceKopecks: number
+  proPriceKopecks: number
+  paymentState?: PaymentState
+  initialRun?: ExportRun | null
 }) {
   const router = useRouter()
   const [includeClientName, setIncludeClientName] = useState(false)
@@ -110,9 +148,12 @@ export function ExportCard({
   const [address, setAddress] = useState(contact?.address ?? '')
   const [phone, setPhone] = useState(contact?.phone ?? '')
   const [busy, setBusy] = useState(false)
-  const [run, setRun] = useState<ExportRun | null>(null)
+  const [run, setRun] = useState<ExportRun | null>(initialRun)
+  const [paid, setPaid] = useState(isPaid)
   const [latest, setLatest] = useState<ExportView | null>(exports[0] ?? null)
   const previous = exports.filter((item) => item.id !== latest?.id).slice(0, 3)
+  // Чистый документ: проект оплачен или у владельца Pro
+  const clean = paid || plan === 'pro'
 
   function start() {
     setBusy(true)
@@ -160,12 +201,18 @@ export function ExportCard({
       <h2 className="mt-2 font-serif text-[24px] leading-tight text-ink">PDF как журнал</h2>
       <p className="mt-2 text-[15px] leading-relaxed text-ink-2">
         Обложка, разворот каждой комнаты, список покупок, смета и техническое задание для бригады.{' '}
-        {isPaid
-          ? 'Проект оплачен, документ выходит без водяного знака.'
-          : 'Без оплаты документ выходит с водяным знаком «Uyut» на каждой странице.'}
+        {clean
+          ? paid
+            ? 'Проект оплачен, документ выходит без водяного знака.'
+            : 'У вас Pro, документ выходит без водяного знака.'
+          : `Без оплаты документ выходит с водяным знаком «Uyut» на каждой странице. Разовая покупка проекта — ${formatPrice(projectPriceKopecks)}.`}
       </p>
 
-      <div className="mt-5 flex flex-col gap-3">
+      <div className="mt-5">
+        <PaymentBanner state={paymentState} />
+      </div>
+
+      <div className="flex flex-col gap-3">
         <Checkbox
           id="export-client-name"
           label={<span className="text-[14px]">Имя заказчика на обложке</span>}
@@ -235,10 +282,28 @@ export function ExportCard({
       <div className="mt-5 flex flex-col gap-4">
         {run ? (
           <RunProgress runId={run.runId} accessToken={run.accessToken} onFinished={finished} />
-        ) : (
+        ) : clean ? (
           <Button onClick={start} pending={busy} disabled={!hasRooms}>
             {busy ? 'Запускаем…' : 'Собрать PDF'}
           </Button>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <CheckoutButton
+              action={() => startProjectPurchase(projectId)}
+              disabled={!hasRooms}
+              onPaid={(result) => {
+                setPaid(true)
+                if (result.exportRun) {
+                  setRun(result.exportRun)
+                }
+              }}
+            >
+              Забрать за {formatPrice(projectPriceKopecks)}
+            </CheckoutButton>
+            <Button variant="secondary" onClick={start} pending={busy} disabled={!hasRooms}>
+              {busy ? 'Запускаем…' : 'Собрать PDF с водяным знаком'}
+            </Button>
+          </div>
         )}
         {!hasRooms ? (
           <p className="text-[13px] text-ink-2">
@@ -295,6 +360,24 @@ export function ExportCard({
               </li>
             ))}
           </ul>
+        ) : null}
+
+        {plan === 'free' ? (
+          <div className="flex flex-wrap items-baseline justify-between gap-2 border-t border-line pt-4 text-[13px] text-ink-2">
+            <span>
+              Pro за {formatPrice(proPriceKopecks)} в месяц: без ограничений на проекты и без
+              водяного знака везде.
+            </span>
+            <CheckoutButton
+              variant="ghost"
+              size="sm"
+              className="px-0 underline decoration-accent decoration-1 underline-offset-4"
+              action={() => startProSubscription(`/projects/${projectId}/summary`)}
+              pendingLabel="Переходим…"
+            >
+              Оформить Pro
+            </CheckoutButton>
+          </div>
         ) : null}
       </div>
     </section>

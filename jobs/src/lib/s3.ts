@@ -1,4 +1,5 @@
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { requireEnv } from './env'
 
 let cached: S3Client | undefined
@@ -29,6 +30,17 @@ export async function readObject(key: string): Promise<StoredFile> {
     throw new Error(`объект ${key} пустой`)
   }
   return { body: Buffer.from(bytes), contentType: result.ContentType ?? 'image/jpeg' }
+}
+
+/** Подписанная ссылка на объект приватного bucket, для письма о готовом документе */
+export function presignedUrl(key: string, expiresInSeconds: number): Promise<string> {
+  return getSignedUrl(
+    client(),
+    new GetObjectCommand({ Bucket: requireEnv('S3_BUCKET'), Key: key }),
+    {
+      expiresIn: expiresInSeconds,
+    },
+  )
 }
 
 export async function putObject(key: string, body: Buffer, contentType: string): Promise<void> {
