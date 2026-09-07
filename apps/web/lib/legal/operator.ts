@@ -20,7 +20,7 @@ const PLACEHOLDER = '[указывается до запуска]'
 
 export const operator: Operator = {
   name: 'Яндукин Илья Александрович',
-  inn: '86010483940',
+  inn: '860104839440',
   email: 'yandukin76@gmail.com',
   city: 'Санкт-Петербург',
   updatedAt: '2026-09-08',
