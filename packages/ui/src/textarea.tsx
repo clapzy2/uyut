@@ -24,7 +24,7 @@ export function Textarea({ id, label, error, hint, className, ...props }: Textar
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy || undefined}
         className={cn(
-          'min-h-32 w-full resize-y rounded-sm border border-control bg-paper px-3.5 py-3 text-[15px] leading-relaxed text-ink placeholder:text-ink-2/70 transition-colors duration-200 ease-ui hover:border-ink focus:border-accent focus:outline-none aria-[invalid=true]:border-danger',
+          'min-h-32 w-full resize-y rounded-sm border border-control bg-paper px-3.5 py-3 text-[15px] leading-relaxed text-ink placeholder:text-ink-2/70 transition-colors duration-200 ease-ui hover:border-ink focus-visible:border-accent aria-[invalid=true]:border-danger',
         )}
         {...props}
       />
