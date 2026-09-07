@@ -183,7 +183,12 @@ export async function findInvite(token: string): Promise<InviteLookup | null> {
   }
 }
 
-export type AcceptResult = { projectId: string; alreadyMember: boolean }
+export type AcceptResult = {
+  projectId: string
+  projectTitle: string
+  ownerEmail: string
+  alreadyMember: boolean
+}
 
 /**
  * Принять приглашение: адрес сессии должен совпасть с адресом из письма, иначе чужая
@@ -229,7 +234,17 @@ export async function acceptInvite(
       .set({ acceptedAt: new Date(), acceptedBy: user.id })
       .where(eq(projectInvites.id, invite.id))
   })
-  return { projectId: invite.projectId, alreadyMember: Boolean(member) }
+  const [owner] = await db
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, invite.invitedBy))
+    .limit(1)
+  return {
+    projectId: invite.projectId,
+    projectTitle: invite.projectTitle,
+    ownerEmail: owner?.email ?? '',
+    alreadyMember: Boolean(member),
+  }
 }
 
 /** Отозвать доступ: убирает и принятого участника, и висящее приглашение */

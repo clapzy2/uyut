@@ -43,7 +43,7 @@ export function SwipeDeck({
   likedCount?: number
   className?: string
 }) {
-  const [index, setIndex] = useState(0)
+  const [voted, setVoted] = useState<string[]>([])
   const [leaving, setLeaving] = useState<Leaving | null>(null)
   const draggedRef = useRef(false)
   const x = useMotionValue(0)
@@ -52,22 +52,32 @@ export function SwipeDeck({
   const skipOpacity = useTransform(x, [-150, -40], [1, 0])
   const finishedRef = useRef(false)
 
-  const current = cards[index]
-  const remaining = cards.length - index
+  const pending = cards.filter((card) => !voted.includes(card.id))
+  const current = pending[0]
+  const remaining = pending.length
+  const canUndo = voted.length > 0
 
   const commit = useCallback(
     (liked: boolean) => {
-      const card = cards[index]
+      const card = current
       if (!card) {
         return
       }
       onVote(card, liked)
       setLeaving({ card, liked })
-      setIndex((value) => value + 1)
+      setVoted((value) => [...value, card.id])
       x.set(0)
     },
-    [cards, index, onVote, x],
+    [current, onVote, x],
   )
+
+  const undo = useCallback(() => {
+    if (!canUndo || !onUndo) {
+      return
+    }
+    setVoted((value) => value.slice(0, -1))
+    onUndo()
+  }, [canUndo, onUndo])
 
   useEffect(() => {
     if (!current && !finishedRef.current && cards.length > 0) {
@@ -92,24 +102,23 @@ export function SwipeDeck({
         event.preventDefault()
         commit(true)
       }
-      if (event.key === ' ' && onOpen && cards[index]) {
+      if (event.key === ' ' && onOpen && current) {
         event.preventDefault()
-        onOpen(cards[index] as SwipeCard)
+        onOpen(current)
       }
-      if ((event.key === 'z' || event.key === 'я') && onUndo && index > 0) {
+      if ((event.key === 'z' || event.key === 'я') && canUndo) {
         event.preventDefault()
-        setIndex((value) => Math.max(0, value - 1))
-        onUndo()
+        undo()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [cards, commit, index, onOpen, onUndo])
+  }, [canUndo, commit, current, onOpen, undo])
 
   return (
     <div className={cn('flex flex-col items-center gap-5', className)}>
       <div className="relative aspect-[4/3] w-full select-none">
-        {cards.slice(index + 1, index + 3).map((card, offset) => (
+        {pending.slice(1, 3).map((card, offset) => (
           <div
             key={card.id}
             className="absolute inset-0 overflow-hidden border border-line bg-muted"
@@ -234,13 +243,8 @@ export function SwipeDeck({
         {onUndo ? (
           <button
             type="button"
-            onClick={() => {
-              if (index > 0) {
-                setIndex((value) => value - 1)
-                onUndo()
-              }
-            }}
-            disabled={index === 0}
+            onClick={undo}
+            disabled={!canUndo}
             aria-label="Вернуть предыдущую"
             className="grid h-10 w-10 place-items-center rounded-full border border-line text-ink-2 transition-colors duration-200 ease-ui hover:border-line-strong hover:text-ink disabled:opacity-30"
           >

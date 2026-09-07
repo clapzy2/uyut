@@ -87,3 +87,35 @@ export function mergeVotes<T extends VotePair & { id: string }>(
     return merged
   })
 }
+
+export const DUO_VOTES_THRESHOLD = 10
+
+export type DuoEligibility = {
+  eligible: boolean
+  ownerVotes: number
+  partnerVotes: number
+  both: number
+  /** Варианты на двоих уже рендерятся: второй раз предлагать рано */
+  pendingDuo: boolean
+}
+
+/**
+ * Когда предлагать варианты на двоих: оба оценили не меньше десяти готовых концептов
+ * комнаты, ни один не понравился обоим, и предыдущий такой запуск уже дорисован.
+ */
+export function duoEligibility(
+  items: Array<VotePair & { status: 'pending' | 'ready' | 'failed'; batchKind: 'regular' | 'duo' }>,
+  threshold = DUO_VOTES_THRESHOLD,
+): DuoEligibility {
+  const ready = items.filter((item) => item.status === 'ready')
+  const counts = voteCounts(ready)
+  const both = ready.filter((item) => item.owner === true && item.partner === true).length
+  const pendingDuo = items.some((item) => item.batchKind === 'duo' && item.status === 'pending')
+  return {
+    eligible: counts.owner >= threshold && counts.partner >= threshold && both === 0 && !pendingDuo,
+    ownerVotes: counts.owner,
+    partnerVotes: counts.partner,
+    both,
+    pendingDuo,
+  }
+}

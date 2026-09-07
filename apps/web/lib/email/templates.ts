@@ -50,3 +50,18 @@ export function invitationLetter(input: {
     'Открыть проект',
   )
 }
+
+export function partnerJoinedLetter(input: {
+  partnerName: string
+  projectTitle: string
+  url: string
+}): Letter {
+  return letter(
+    `${input.partnerName} теперь в проекте «${input.projectTitle}»`,
+    [
+      `${input.partnerName} открыл(а) приглашение и уже может смотреть комнаты и отмечать концепты. Общие совпадения появятся на вкладке «Общие» у каждой комнаты.`,
+    ],
+    input.url,
+    'Открыть проект',
+  )
+}

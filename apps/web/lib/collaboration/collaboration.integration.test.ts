@@ -72,7 +72,7 @@ describe('project invites', () => {
     expect(await hasPassword(partner.id)).toBe(false)
 
     const result = await acceptInvite(partner, token)
-    expect(result).toEqual({ projectId, alreadyMember: false })
+    expect(result).toMatchObject({ projectId, alreadyMember: false, ownerEmail: owner.email })
     expect((await getProject(partner.id, projectId)).role).toBe('partner')
     expect((await listProjects(partner.id)).map((item) => item.ownerName)).toEqual(['Аня'])
     expect((await findInvite(token))?.status).toBe('accepted')

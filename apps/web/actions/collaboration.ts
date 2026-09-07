@@ -7,7 +7,7 @@ import { recordAudit } from '@/lib/audit'
 import { getAuth } from '@/lib/auth'
 import * as collaboration from '@/lib/collaboration/repository'
 import { canInvite, INVITE_NEEDS_PLAN } from '@/lib/collaboration/rules'
-import { getEmailSender, invitationLetter } from '@/lib/email'
+import { getEmailSender, invitationLetter, partnerJoinedLetter } from '@/lib/email'
 import { getEnv } from '@/lib/env'
 import { AccessError, assertOwner } from '@/lib/projects/access'
 import { getInvitesByUserLimiter } from '@/lib/redis'
@@ -134,6 +134,20 @@ export async function acceptInvite(
         targetId: result.projectId,
         headers: requestHeaders,
       })
+      if (result.ownerEmail) {
+        // Владельцу письмо без ожидания: ответ странице не должен зависеть от почты
+        void getEmailSender()
+          .send({
+            to: result.ownerEmail,
+            ...partnerJoinedLetter({
+              partnerName:
+                session.user.name || session.user.email.split('@')[0] || 'Второй участник',
+              projectTitle: result.projectTitle,
+              url: new URL(`/projects/${result.projectId}`, getEnv().APP_URL).toString(),
+            }),
+          })
+          .catch((error) => console.error('partner joined email failed', error))
+      }
     }
     revalidatePath('/projects')
     revalidatePath(`/projects/${result.projectId}`)

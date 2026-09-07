@@ -8,6 +8,7 @@ import { getSession } from '@/lib/session'
 
 const POLL_MS = 2000
 const PRESENCE_EVERY = 10
+const PING_EVERY = 15
 
 type Params = Promise<{ id: string }>
 
@@ -42,62 +43,88 @@ export async function GET(request: NextRequest, { params }: { params: Params }) 
   const userId = session.user.id
   const other = await otherMember(projectId, userId)
 
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      let closed = false
-      let lastVersion = -1
-      let lastPresence = ''
-      let tick = 0
+  let closed = false
+  // Закрываемся при первом признаке ухода клиента: отмена потока, abort запроса или
+  // ошибка записи. Иначе Next ругается на запись в уже закрытый ответ.
+  const stop = async (controller?: ReadableStreamDefaultController<Uint8Array>) => {
+    if (closed) {
+      return
+    }
+    closed = true
+    await clearPresence(projectId, userId).catch(() => undefined)
+    try {
+      controller?.close()
+    } catch {
+      // поток уже закрыт
+    }
+  }
 
-      const stop = async () => {
+  const send = (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+    chunk: Uint8Array,
+  ): boolean => {
+    if (closed) {
+      return false
+    }
+    try {
+      controller.enqueue(chunk)
+      return true
+    } catch {
+      void stop()
+      return false
+    }
+  }
+
+  const loop = async (controller: ReadableStreamDefaultController<Uint8Array>) => {
+    let lastVersion = -1
+    let lastPresence = ''
+    let tick = 0
+    await touchPresence(projectId, userId, roomId)
+    send(controller, sse('hello', { other: other ? { name: other.name } : null }))
+    while (!closed) {
+      try {
+        if (tick > 0 && tick % PRESENCE_EVERY === 0) {
+          await touchPresence(projectId, userId, roomId)
+        }
+        const live = await readLive(projectId, other?.userId ?? null)
         if (closed) {
-          return
+          break
         }
-        closed = true
-        await clearPresence(projectId, userId).catch(() => undefined)
-        try {
-          controller.close()
-        } catch {
-          // поток уже закрыт клиентом
+        const presenceState = JSON.stringify({
+          online: Boolean(live.presence),
+          roomId: live.presence?.roomId ?? null,
+          lastSeenAt: live.presence ? null : live.lastSeenAt,
+        })
+        if (other && presenceState !== lastPresence) {
+          lastPresence = presenceState
+          send(controller, sse('presence', JSON.parse(presenceState)))
+        }
+        if (live.version !== lastVersion) {
+          lastVersion = live.version
+          if (roomId) {
+            send(controller, sse('likes', await roomLikes(projectId, roomId)))
+          }
+        }
+        if (tick % PING_EVERY === 0) {
+          send(controller, encoder.encode(': ping\n\n'))
+        }
+      } catch (error) {
+        if (!closed) {
+          console.error('live channel poll failed', error)
         }
       }
-      request.signal.addEventListener('abort', () => void stop())
+      tick += 1
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+    }
+  }
 
-      await touchPresence(projectId, userId, roomId)
-      controller.enqueue(sse('hello', { other: other ? { name: other.name } : null }))
-
-      while (!closed) {
-        try {
-          if (tick % PRESENCE_EVERY === 0 && tick > 0) {
-            await touchPresence(projectId, userId, roomId)
-          }
-          const live = await readLive(projectId, other?.userId ?? null)
-          const presenceState = JSON.stringify({
-            online: Boolean(live.presence),
-            roomId: live.presence?.roomId ?? null,
-            lastSeenAt: live.presence ? null : live.lastSeenAt,
-          })
-          if (other && presenceState !== lastPresence) {
-            lastPresence = presenceState
-            controller.enqueue(sse('presence', JSON.parse(presenceState)))
-          }
-          if (live.version !== lastVersion) {
-            lastVersion = live.version
-            if (roomId) {
-              controller.enqueue(sse('likes', await roomLikes(projectId, roomId)))
-            }
-          }
-          if (tick % 15 === 0) {
-            controller.enqueue(encoder.encode(': ping\n\n'))
-          }
-        } catch (error) {
-          if (!closed) {
-            console.error('live channel poll failed', error)
-          }
-        }
-        tick += 1
-        await new Promise((resolve) => setTimeout(resolve, POLL_MS))
-      }
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      request.signal.addEventListener('abort', () => void stop(controller))
+      void loop(controller).then(() => stop(controller))
+    },
+    cancel() {
+      void stop()
     },
   })
 

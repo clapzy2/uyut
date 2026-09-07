@@ -20,6 +20,10 @@ export type ObjectsStatus = (typeof objectsStatuses)[number]
 
 export type ConceptEdit = { objectId: string; swatchId: string }
 
+// Обычный запуск или «варианты на двоих»: три рендера на пересечении вкусов двух людей
+export const conceptBatchKinds = ['regular', 'duo'] as const
+export type ConceptBatchKind = (typeof conceptBatchKinds)[number]
+
 // Концепты: варианты дизайна одной комнаты. Строки создаются сразу при запуске генерации,
 // чтобы прогресс было видно, и дозаполняются по мере готовности рендеров.
 export const concepts = pgTable(
@@ -31,7 +35,10 @@ export const concepts = pgTable(
       .references(() => rooms.id, { onDelete: 'cascade' }),
     // Одна кнопка «Сгенерировать» = один batchId на пять концептов
     batchId: uuid('batch_id').notNull(),
+    batchKind: text('batch_kind', { enum: conceptBatchKinds }).notNull().default('regular'),
     orderIndex: integer('order_index').notNull().default(0),
+    // Название варианта на двоих, например «Тёплый сканди с графитовым акцентом»
+    title: text('title'),
     status: text('status', { enum: conceptStatuses }).notNull().default('pending'),
     errorText: text('error_text'),
     // Ключи объектов в приватном bucket, наружу отдаются подписанными ссылками
