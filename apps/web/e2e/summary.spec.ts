@@ -116,5 +116,18 @@ test.describe('project summary', () => {
     await row.getByRole('button', { name: 'убрать' }).click()
     await expect(page.getByText('Список пока пуст.')).toBeVisible()
     await expect(estimate.getByText(/368\s000\s₽/)).toBeVisible()
+
+    // Экспорт PDF: без ключа очереди кнопка честно говорит, что сборка не подключена,
+    // с ключом запускает задачу и показывает шаги сборки
+    const exportCard = page.getByRole('region', { name: 'Забрать проект' })
+    await expect(exportCard.getByText('с водяным знаком «Uyut»')).toBeVisible()
+    await exportCard.getByRole('button', { name: 'Собрать PDF' }).click()
+    if (process.env.TRIGGER_SECRET_KEY) {
+      await expect(exportCard.getByRole('list', { name: 'Сборка PDF' })).toBeVisible({
+        timeout: 20_000,
+      })
+    } else {
+      await expect(page.getByText('Сборка PDF пока не подключена')).toBeVisible()
+    }
   })
 })
