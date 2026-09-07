@@ -2,9 +2,11 @@
 
 import { randomUUID } from 'node:crypto'
 import { tasks, auth as triggerAuth } from '@trigger.dev/sdk'
+import type { DuoProposal } from '@uyut/ai'
 import { revalidatePath } from 'next/cache'
 import { recordAudit } from '@/lib/audit'
 import { bumpProjectVersion } from '@/lib/collaboration/live'
+import { getDuoOffer } from '@/lib/concepts/duo'
 import * as conceptsRepository from '@/lib/concepts/repository'
 import { getEnv } from '@/lib/env'
 import { AccessError, requireOwner } from '@/lib/projects/access'
@@ -85,6 +87,71 @@ export async function setConceptLike(conceptId: string, liked: boolean): Promise
     await bumpProjectVersion(projectId).catch((error) => console.error('live version', error))
     revalidatePath(`/projects/${projectId}/rooms/${roomId}`)
     return { ok: true, data: undefined }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+/** Предложение вариантов на двоих: видят оба, считается один раз на набор отметок */
+export async function loadDuoProposal(roomId: string): Promise<ActionResult<DuoProposal>> {
+  const userId = await currentUserId()
+  if (!userId) {
+    return { ok: false, error: SESSION_EXPIRED }
+  }
+  try {
+    const offer = await getDuoOffer(userId, roomId)
+    if (!offer.proposal) {
+      return {
+        ok: false,
+        error: 'Пока рано: нужны отметки обоих по десяти концептам без совпадений.',
+      }
+    }
+    return { ok: true, data: offer.proposal }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+/** Три рендера на пересечении вкусов: запускает только владелец, платит он же */
+export async function requestDuoConcepts(roomId: string): Promise<ActionResult<ConceptRun>> {
+  const userId = await currentUserId()
+  if (!userId) {
+    return { ok: false, error: SESSION_EXPIRED }
+  }
+  const env = getEnv()
+  if (!env.FAL_KEY || !env.TRIGGER_SECRET_KEY) {
+    return { ok: false, error: NO_KEYS }
+  }
+  try {
+    const room = await getRoom(userId, roomId)
+    requireOwner(room.role)
+    const offer = await getDuoOffer(userId, room.id)
+    if (!offer.proposal) {
+      return { ok: false, error: 'Предложение устарело: отметки изменились. Обновите страницу.' }
+    }
+    const { success } = await getConceptsByUserLimiter().limit(userId)
+    if (!success) {
+      return { ok: false, error: 'Сегодня уже много генераций. Попробуйте через час.' }
+    }
+    const batchId = randomUUID()
+    const handle = await tasks.trigger('generate-concept', {
+      roomId: room.id,
+      batchId,
+      count: offer.proposal.bridges.length,
+      duo: { variations: offer.proposal.bridges },
+    })
+    await recordAudit({
+      action: 'concepts.requested',
+      actorId: userId,
+      targetType: 'room',
+      targetId: room.id,
+      metadata: { batchId, runId: handle.id, kind: 'duo', hash: offer.hash },
+    })
+    await bumpProjectVersion(room.projectId).catch((error) => console.error('live version', error))
+    const accessToken =
+      handle.publicAccessToken ??
+      (await triggerAuth.createPublicToken({ scopes: { read: { runs: [handle.id] } } }))
+    return { ok: true, data: { runId: handle.id, accessToken, batchId } }
   } catch (error) {
     return failure(error)
   }

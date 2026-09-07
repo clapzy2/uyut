@@ -9,7 +9,7 @@ import { FileUploader } from '@/components/file-uploader'
 import { RoomNotesForm } from '@/components/room-notes-form'
 import { RoomSettingsDialog } from '@/components/room-settings-dialog'
 import { otherMember } from '@/lib/collaboration/repository'
-import { latestBatch } from '@/lib/concepts/repository'
+import { latestBatch, listConceptsByRoom } from '@/lib/concepts/repository'
 import { PHOTO_ACCEPT, PHOTO_LIMIT_TEXT, PHOTO_MAX_BYTES } from '@/lib/files/rules'
 import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
 import { fileNameFromKey, formatArea, roomKindLabels } from '@/lib/projects/format'
@@ -57,10 +57,12 @@ export default async function RoomPage({ params }: { params: Params }) {
   }
   const isOwner = room.role === 'owner'
 
-  const [{ items: conceptItems }, other] = await Promise.all([
+  const [allConcepts, { batchId: latestBatchId }, other] = await Promise.all([
+    listConceptsByRoom(session.user.id, room.id),
     latestBatch(session.user.id, room.id),
     otherMember(room.projectId, session.user.id),
   ])
+  const conceptItems = allConcepts
   const photoUrl = room.photoUrl ? await presignedObjectUrl(room.photoUrl) : null
   const uploadPhotoForRoom = uploadRoomPhoto.bind(null, room.id)
   const meta = [formatArea(room.areaM2), roomKindLabels[room.kind].toLowerCase()]
@@ -170,8 +172,12 @@ export default async function RoomPage({ params }: { params: Params }) {
             canGenerate={isOwner}
             role={room.role}
             other={other ? { name: other.name } : null}
+            latestBatchId={latestBatchId}
             items={conceptItems.map((item) => ({
               id: item.id,
+              batchId: item.batchId,
+              batchKind: item.batchKind,
+              title: item.title,
               status: item.status,
               renderSrc: item.renderSrc,
               owner: item.likedByOwner,

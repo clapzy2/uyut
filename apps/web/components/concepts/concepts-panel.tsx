@@ -7,13 +7,24 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { refreshConcepts, requestConcepts, setConceptLike } from '@/actions/concepts'
 import { PresenceChip } from '@/components/collaboration/presence-chip'
+import { DuoCard } from '@/components/concepts/duo-card'
 import { FormError } from '@/components/form-error'
 import { type SwipeCard, SwipeDeck } from '@/components/swipe-deck'
 import { useProjectLive } from '@/lib/collaboration/live-client'
-import { type LikeMap, mergeVotes, myVote, splitVotes, theirVote } from '@/lib/concepts/votes'
+import {
+  duoEligibility,
+  type LikeMap,
+  mergeVotes,
+  myVote,
+  splitVotes,
+  theirVote,
+} from '@/lib/concepts/votes'
 
 export type ConceptItem = {
   id: string
+  batchId: string
+  batchKind: 'regular' | 'duo'
+  title: string | null
   status: 'pending' | 'ready' | 'failed'
   renderSrc: string | null
   owner: boolean | null
@@ -122,6 +133,7 @@ export function ConceptsPanel({
   onboarded,
   projectId,
   items,
+  latestBatchId,
   canGenerate = true,
   role,
   other,
@@ -130,7 +142,9 @@ export function ConceptsPanel({
   hasPhoto: boolean
   onboarded: boolean
   projectId: string
+  /** Все концепты комнаты, свежий запуск первым */
   items: ConceptItem[]
+  latestBatchId: string | null
   /** Генерация стоит денег: второй участник только смотрит и отмечает */
   canGenerate?: boolean
   role: ProjectRole
@@ -173,14 +187,17 @@ export function ConceptsPanel({
   }, [live.likes, role])
 
   const ready = current.filter((item) => item.status === 'ready' && item.renderSrc)
-  const failed = current.filter((item) => item.status === 'failed')
-  const working = current.some((item) => item.status === 'pending')
+  const latest = current.filter((item) => item.batchId === latestBatchId)
+  const failed = latest.filter((item) => item.status === 'failed')
+  const working = latest.some((item) => item.status === 'pending')
   const split = splitVotes(ready, role)
+  const duo = other ? duoEligibility(current) : null
   const unseen = split.unseen.filter((item) => votes[item.id] === undefined)
 
   const cards: SwipeCard[] = unseen.map((item) => ({
     id: item.id,
     src: item.renderSrc as string,
+    caption: item.batchKind === 'duo' ? `На двоих · ${item.title ?? ''}`.trim() : undefined,
     badge: other && theirVote(item, role) === true ? `♥ ${other.name} · нравится` : undefined,
   }))
 
@@ -271,6 +288,15 @@ export function ConceptsPanel({
         </p>
       ) : null}
 
+      {other && duo?.eligible ? (
+        <DuoCard
+          roomId={roomId}
+          canRun={canGenerate}
+          otherName={other.name}
+          onRun={(started) => setRun(started)}
+        />
+      ) : null}
+
       {tabs.length > 0 ? (
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Отметки">
           {tabs.map((item) => (
@@ -326,6 +352,11 @@ export function ConceptsPanel({
                       {mark}
                     </span>
                   ) : null}
+                  {item.batchKind === 'duo' ? (
+                    <span className="pointer-events-none absolute left-2 top-2 rounded-full bg-paper/90 px-2 py-0.5 text-[11px] text-ink-2">
+                      на двоих
+                    </span>
+                  ) : null}
                 </li>
               )
             })}
@@ -356,7 +387,7 @@ export function ConceptsPanel({
 
       {failed.length > 0 ? (
         <p className="text-[15px] text-ink-2">
-          {failed.length} из {items.length} не отрисовались. Это бывает, когда модель отклоняет
+          {failed.length} из {latest.length} не отрисовались. Это бывает, когда модель отклоняет
           картинку. Попробуйте сгенерировать ещё раз.
         </p>
       ) : null}
