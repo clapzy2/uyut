@@ -8,6 +8,7 @@ import { DeleteRoomDialog } from '@/components/delete-room-dialog'
 import { FileUploader } from '@/components/file-uploader'
 import { RoomNotesForm } from '@/components/room-notes-form'
 import { RoomSettingsDialog } from '@/components/room-settings-dialog'
+import { otherMember } from '@/lib/collaboration/repository'
 import { latestBatch } from '@/lib/concepts/repository'
 import { PHOTO_ACCEPT, PHOTO_LIMIT_TEXT, PHOTO_MAX_BYTES } from '@/lib/files/rules'
 import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
@@ -56,7 +57,10 @@ export default async function RoomPage({ params }: { params: Params }) {
   }
   const isOwner = room.role === 'owner'
 
-  const { items: conceptItems } = await latestBatch(session.user.id, room.id)
+  const [{ items: conceptItems }, other] = await Promise.all([
+    latestBatch(session.user.id, room.id),
+    otherMember(room.projectId, session.user.id),
+  ])
   const photoUrl = room.photoUrl ? await presignedObjectUrl(room.photoUrl) : null
   const uploadPhotoForRoom = uploadRoomPhoto.bind(null, room.id)
   const meta = [formatArea(room.areaM2), roomKindLabels[room.kind].toLowerCase()]
@@ -158,25 +162,23 @@ export default async function RoomPage({ params }: { params: Params }) {
               </p>
             </div>
           ) : null}
-          <div>
-            <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
-              Концепты
-            </p>
-            <ConceptsPanel
-              roomId={room.id}
-              projectId={room.projectId}
-              hasPhoto={Boolean(room.photoUrl)}
-              onboarded={Boolean(room.project.onboardedAt)}
-              canGenerate={isOwner}
-              items={conceptItems.map((item) => ({
-                id: item.id,
-                status: item.status,
-                renderSrc: item.renderSrc,
-                liked: room.role === 'owner' ? item.likedByOwner : item.likedByPartner,
-                orderIndex: item.orderIndex,
-              }))}
-            />
-          </div>
+          <ConceptsPanel
+            roomId={room.id}
+            projectId={room.projectId}
+            hasPhoto={Boolean(room.photoUrl)}
+            onboarded={Boolean(room.project.onboardedAt)}
+            canGenerate={isOwner}
+            role={room.role}
+            other={other ? { name: other.name } : null}
+            items={conceptItems.map((item) => ({
+              id: item.id,
+              status: item.status,
+              renderSrc: item.renderSrc,
+              owner: item.likedByOwner,
+              partner: item.likedByPartner,
+              orderIndex: item.orderIndex,
+            }))}
+          />
         </div>
       </div>
 

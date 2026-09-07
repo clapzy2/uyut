@@ -10,6 +10,7 @@ import {
   type ProjectRole,
 } from '@uyut/db'
 import { asc, eq } from 'drizzle-orm'
+import { otherMember } from '@/lib/collaboration/repository'
 import { getDb } from '@/lib/db'
 import { NotFoundError } from '@/lib/projects/access'
 import { getRoom } from '@/lib/projects/repository'
@@ -49,6 +50,8 @@ export type ObjectView = {
 export type ConceptPageData = {
   /** Роль того, кто смотрит: второй участник только смотрит и ставит отметки */
   role: ProjectRole
+  /** Второй человек в проекте и его отметка на этом концепте */
+  other: { name: string; liked: boolean | null } | null
   concept: {
     id: string
     status: string
@@ -148,13 +151,14 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
   }
   // Проверка владельца идёт через комнату: чужой концепт неотличим от несуществующего
   const room = await getRoom(userId, concept.roomId)
-  const [rows, byCatalogItem] = await Promise.all([
+  const [rows, byCatalogItem, other] = await Promise.all([
     db
       .select()
       .from(conceptObjects)
       .where(eq(conceptObjects.conceptId, concept.id))
       .orderBy(asc(conceptObjects.orderIndex)),
     shoppingQuantities(userId, room.projectId),
+    otherMember(room.projectId, userId),
   ])
 
   const objects = await Promise.all(
@@ -182,6 +186,12 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
 
   return {
     role: room.role,
+    other: other
+      ? {
+          name: other.name,
+          liked: room.role === 'owner' ? concept.likedByPartner : concept.likedByOwner,
+        }
+      : null,
     concept: {
       id: concept.id,
       status: concept.status,
