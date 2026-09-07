@@ -67,7 +67,7 @@ const CSS = `
   .band { height: 92mm; overflow: hidden; }
 
   /* комната */
-  .render { height: 108mm; overflow: hidden; background: #efe9dc; }
+  .render { height: 100mm; overflow: hidden; background: #efe9dc; }
   .idea { display: grid; gap: 3mm; align-content: start; }
   .was { display: grid; grid-template-columns: 42mm 1fr; gap: 4mm; align-items: start; }
   .was .img { height: 31mm; overflow: hidden; filter: saturate(0.85); }
@@ -76,7 +76,7 @@ const CSS = `
   .objects .idx { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 7.5pt; color: #7c2f3b; }
   .objects .sub { display: block; font-size: 8pt; color: #6d6656; }
   .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; }
-  .thumbs .img { height: 30mm; overflow: hidden; }
+  .thumbs .img { height: 27mm; overflow: hidden; }
   .thumbs .cap { font-size: 7.5pt; color: #6d6656; margin-top: 1.5mm; }
 
   /* покупки */

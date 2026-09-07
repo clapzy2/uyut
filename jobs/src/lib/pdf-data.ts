@@ -65,6 +65,28 @@ function conditionLabel(room: Room): string {
   return room.condition === 'bare' ? 'Черновая отделка' : 'Отделка есть'
 }
 
+/** Страница комнаты фиксированной высоты: длинная подпись помощника обрезается по границе фразы */
+export function clampText(text: string | null, max: number): string | null {
+  if (!text) {
+    return null
+  }
+  const trimmed = text.trim()
+  if (trimmed.length <= max) {
+    return trimmed
+  }
+  const cut = trimmed.slice(0, max)
+  const sentence = cut.lastIndexOf('. ')
+  if (sentence > max * 0.45) {
+    return cut.slice(0, sentence + 1)
+  }
+  const space = Math.max(cut.lastIndexOf(', '), cut.lastIndexOf(' '))
+  return `${cut
+    .slice(0, space > max * 0.6 ? space : max)
+    .trim()
+    .replace(/[,;:—-]$/, '')
+    .trim()}…`
+}
+
 /** Ключ объекта в нашем bucket, если ссылка ведёт в него; иначе null */
 function ownKey(url: string): string | null {
   const endpoint = optionalEnv('S3_ENDPOINT')
@@ -345,7 +367,7 @@ export async function buildPdfData(input: {
         render,
         before,
         alternates: alternates.filter((alt): alt is PdfImage & { caption: string } => alt !== null),
-        note: entry.main.note,
+        note: clampText(entry.main.note, 330),
         objects: (snapshot.objects.get(room.id) ?? []).map((object) => ({
           ...object,
           category: categoryLabels[object.category],
