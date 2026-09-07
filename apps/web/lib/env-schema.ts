@@ -10,6 +10,9 @@ const optionalText = z.preprocess(
 export const serverEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   APP_URL: z.url(),
+  // Сколько своих обратных прокси стоит перед приложением: столько записей X-Forwarded-For
+  // с конца считаются достоверными. 0 — приложение смотрит в сеть напрямую, заголовку веры нет.
+  TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(4).default(1),
   DATABASE_URL: z.url(),
   UPSTASH_REDIS_REST_URL: z.url(),
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1),
