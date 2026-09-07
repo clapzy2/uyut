@@ -1,5 +1,6 @@
 import { logger, metadata, task } from '@trigger.dev/sdk'
 import {
+  buildTemplatePlan,
   type ConceptBrief,
   type ConceptModelId,
   type ConceptRenderer,
@@ -27,6 +28,21 @@ const payloadSchema = z.object({
   count: z.number().int().min(1).max(8).default(5),
   /** Правка из чата после первой генерации, по-английски */
   revision: z.string().max(500).optional(),
+  /** Варианты на двоих: у каждого рендера своя правка и название, общая часть промпта из шаблона */
+  duo: z
+    .object({
+      variations: z
+        .array(
+          z.object({
+            title: z.string().min(1).max(60),
+            idea: z.string().min(1).max(400),
+            revision: z.string().min(1).max(400),
+          }),
+        )
+        .min(1)
+        .max(3),
+    })
+    .optional(),
 })
 
 export type GenerateConceptPayload = z.input<typeof payloadSchema>
@@ -111,7 +127,8 @@ export const generateConcept = task({
     }
     const { room, project } = row
 
-    publish({ stage: 'brief', done: 0, total: payload.count, failed: 0 })
+    const count = payload.duo ? payload.duo.variations.length : payload.count
+    publish({ stage: 'brief', done: 0, total: count, failed: 0 })
     const { primary, secondary } = pickStyles(project.styleReferenceEmbedding)
     const brief: ConceptBrief = {
       roomKind: room.kind,
@@ -128,11 +145,16 @@ export const generateConcept = task({
       families: [...new Set([primary, ...secondary].map((style) => style.family))],
     }
 
-    publish({ stage: 'prompt', done: 0, total: payload.count, failed: 0 })
-    const plan = await createPromptBuilder({
-      anthropicKey: process.env.ANTHROPIC_API_KEY,
-      falKey: process.env.FAL_KEY,
-    }).build(brief, payload.count)
+    publish({ stage: 'prompt', done: 0, total: count, failed: 0 })
+    const plan = payload.duo
+      ? {
+          ...buildTemplatePlan(brief, count),
+          variations: payload.duo.variations.map((variation) => variation.revision),
+        }
+      : await createPromptBuilder({
+          anthropicKey: process.env.ANTHROPIC_API_KEY,
+          falKey: process.env.FAL_KEY,
+        }).build(brief, count)
     logger.info('prompt plan ready', { source: plan.source, variations: plan.variations.length })
 
     const { renderer: engine, modelId } = renderer()
@@ -142,11 +164,15 @@ export const generateConcept = task({
         plan.variations.map((variation, index) => ({
           roomId: room.id,
           batchId: payload.batchId,
+          batchKind: payload.duo ? ('duo' as const) : ('regular' as const),
           orderIndex: index,
           status: 'pending' as const,
           prompt: `${plan.shared} ${variation}`.trim(),
           styleTags: project.styleTags,
           aiModel: modelId,
+          title: payload.duo?.variations[index]?.title ?? null,
+          // У вариантов на двоих подпись уже есть: это идея из предложения модели
+          note: payload.duo?.variations[index]?.idea ?? null,
         })),
       )
       .returning()
@@ -211,13 +237,15 @@ export const generateConcept = task({
       }),
     )
 
-    // Две фразы помощника к каждому удачному рендеру: что за идея и почему подходит семье
-    await writeNotes(
-      database,
-      created.map((concept) => concept.id),
-      brief,
-      plan.shared,
-    )
+    // Две фразы к каждому удачному рендеру: что за идея и почему подходит семье
+    if (!payload.duo) {
+      await writeNotes(
+        database,
+        created.map((concept) => concept.id),
+        brief,
+        plan.shared,
+      )
+    }
 
     publish({ stage: 'done', done, total: created.length, failed })
     const usd = conceptModels[modelId].usdPerImage * created.length
