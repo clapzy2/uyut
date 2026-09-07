@@ -1,5 +1,5 @@
 import type { PromptPlan } from '@uyut/ai'
-import { type Concept, concepts } from '@uyut/db'
+import { type Concept, concepts, rooms } from '@uyut/db'
 import { and, asc, desc, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { NotFoundError } from '@/lib/projects/access'
@@ -95,6 +95,27 @@ export async function setConceptLike(
     .set(room.role === 'owner' ? { likedByOwner: liked } : { likedByPartner: liked })
     .where(eq(concepts.id, row.id))
   return { roomId: room.id, projectId: room.projectId }
+}
+
+export type RoomLikes = Record<string, { owner: boolean | null; partner: boolean | null }>
+
+/** Отметки обоих по комнате: доступ к проекту вызывающий код уже проверил */
+export async function roomLikes(projectId: string, roomId: string): Promise<RoomLikes> {
+  const rows = await getDb()
+    .select({
+      id: concepts.id,
+      owner: concepts.likedByOwner,
+      partner: concepts.likedByPartner,
+      projectId: rooms.projectId,
+    })
+    .from(concepts)
+    .innerJoin(rooms, eq(rooms.id, concepts.roomId))
+    .where(and(eq(concepts.roomId, roomId), eq(rooms.projectId, projectId)))
+  const likes: RoomLikes = {}
+  for (const row of rows) {
+    likes[row.id] = { owner: row.owner, partner: row.partner }
+  }
+  return likes
 }
 
 export async function countPending(userId: string, roomId: string): Promise<number> {

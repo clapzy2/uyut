@@ -275,3 +275,23 @@ export async function ownerDisplayName(ownerId: string): Promise<string> {
     .limit(1)
   return row?.name ?? row?.email.split('@')[0] ?? 'владельца'
 }
+
+export type Member = { userId: string; name: string }
+
+/** Второй человек в проекте относительно того, кто смотрит: для владельца это участник, для участника — владелец */
+export async function otherMember(projectId: string, userId: string): Promise<Member | null> {
+  const db = getDb()
+  const [project] = await db
+    .select({ ownerId: projects.ownerId })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1)
+  if (!project) {
+    return null
+  }
+  if (project.ownerId === userId) {
+    const current = await getCollaboration(projectId)
+    return current.partner ? { userId: current.partner.userId, name: current.partner.name } : null
+  }
+  return { userId: project.ownerId, name: await ownerDisplayName(project.ownerId) }
+}

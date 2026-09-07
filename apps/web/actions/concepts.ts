@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { tasks, auth as triggerAuth } from '@trigger.dev/sdk'
 import { revalidatePath } from 'next/cache'
 import { recordAudit } from '@/lib/audit'
+import { bumpProjectVersion } from '@/lib/collaboration/live'
 import * as conceptsRepository from '@/lib/concepts/repository'
 import { getEnv } from '@/lib/env'
 import { AccessError, requireOwner } from '@/lib/projects/access'
@@ -81,6 +82,7 @@ export async function setConceptLike(conceptId: string, liked: boolean): Promise
   }
   try {
     const { roomId, projectId } = await conceptsRepository.setConceptLike(userId, conceptId, liked)
+    await bumpProjectVersion(projectId).catch((error) => console.error('live version', error))
     revalidatePath(`/projects/${projectId}/rooms/${roomId}`)
     return { ok: true, data: undefined }
   } catch (error) {
