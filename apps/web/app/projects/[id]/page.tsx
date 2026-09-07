@@ -8,6 +8,7 @@ import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { PartnerBanner } from '@/components/collaboration/partner-banner'
 import { TogetherCard } from '@/components/collaboration/together-card'
 import { DeleteProjectDialog } from '@/components/delete-project-dialog'
+import { EmptyArt } from '@/components/empty-art'
 import { FileUploader } from '@/components/file-uploader'
 import { ProjectSettingsDialog } from '@/components/project-settings-dialog'
 import { getCollaboration, ownerDisplayName } from '@/lib/collaboration/repository'
@@ -229,18 +230,21 @@ export default async function ProjectPage({ params }: { params: Params }) {
         <div>
           <p className={labelClassName}>Комнаты</p>
           {project.rooms.length === 0 ? (
-            <div className="border-y border-line py-7">
-              <h2 className="font-serif text-2xl leading-tight text-ink">Комнат пока нет.</h2>
-              <p className="mt-2 max-w-md text-[15px] text-ink-2">
-                {isOwner
-                  ? 'Добавьте те, что хотите обставить: гостиную, спальню или кухню. Остальные типы появятся позже.'
-                  : 'Комнаты добавляет владелец проекта: как только они появятся, здесь будут концепты.'}
-              </p>
-              {isOwner ? (
-                <div className="mt-4">
-                  <AddRoomDialog projectId={project.id} />
-                </div>
-              ) : null}
+            <div className="flex flex-col gap-5 border-y border-line py-7 sm:flex-row sm:items-start sm:gap-7">
+              <EmptyArt kind="rooms" className="h-[68px] w-[90px] shrink-0 text-line-strong" />
+              <div>
+                <h2 className="font-serif text-2xl leading-tight text-ink">Комнат пока нет.</h2>
+                <p className="mt-2 max-w-md text-[15px] text-ink-2">
+                  {isOwner
+                    ? 'Добавьте те, что хотите обставить: гостиную, спальню или кухню. Остальные типы появятся позже.'
+                    : 'Комнаты добавляет владелец проекта: как только они появятся, здесь будут концепты.'}
+                </p>
+                {isOwner ? (
+                  <div className="mt-4">
+                    <AddRoomDialog projectId={project.id} />
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : (
             <>

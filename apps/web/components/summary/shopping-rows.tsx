@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { removeItem, setItemQuantity } from '@/actions/shopping'
+import { EmptyArt } from '@/components/empty-art'
 import { formatPrice, sourceLabel } from '@/lib/concepts/format'
 import type { ShoppingItemView } from '@/lib/shopping/repository'
 
@@ -143,19 +144,22 @@ export function ShoppingRows({
 }) {
   if (items.length === 0) {
     return (
-      <div className="border-y border-line py-8">
-        <h2 className="font-serif text-2xl leading-tight text-ink">Список пока пуст.</h2>
-        <p className="mt-2 max-w-md text-[15px] leading-relaxed text-ink-2">
-          {readOnly
-            ? 'Владелец проекта собирает его из подбора товаров к концептам. Как только что-то появится, вы увидите это здесь.'
-            : 'Откройте концепт комнаты, нажмите на предмет на рендере и выберите товар из подборки: кнопка «В список» под ценой добавит его сюда.'}
-        </p>
-        <Link
-          href={`/projects/${projectId}`}
-          className="mt-4 inline-block text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4"
-        >
-          К комнатам проекта
-        </Link>
+      <div className="flex flex-col gap-5 border-y border-line py-8 sm:flex-row sm:items-start sm:gap-7">
+        <EmptyArt kind="shopping" className="h-[68px] w-[90px] shrink-0 text-line-strong" />
+        <div>
+          <h2 className="font-serif text-2xl leading-tight text-ink">Список пока пуст.</h2>
+          <p className="mt-2 max-w-md text-[15px] leading-relaxed text-ink-2">
+            {readOnly
+              ? 'Владелец проекта собирает его из подбора товаров к концептам. Как только что-то появится, вы увидите это здесь.'
+              : 'Откройте концепт комнаты, нажмите на предмет на рендере и выберите товар из подборки: кнопка «В список» под ценой добавит его сюда.'}
+          </p>
+          <Link
+            href={`/projects/${projectId}`}
+            className="mt-4 inline-block text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4"
+          >
+            К комнатам проекта
+          </Link>
+        </div>
       </div>
     )
   }

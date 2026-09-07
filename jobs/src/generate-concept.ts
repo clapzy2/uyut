@@ -20,6 +20,7 @@ import { z } from 'zod'
 import { db } from './lib/db'
 import { requireEnv } from './lib/env'
 import { putObject, readObject } from './lib/s3'
+import { clampText } from './lib/text'
 import { segmentAndMatch } from './segment-and-match'
 
 const payloadSchema = z.object({
@@ -95,7 +96,7 @@ async function writeNotes(
       })
       await database
         .update(concepts)
-        .set({ note: note.trim().slice(0, 400) })
+        .set({ note: clampText(note, 400) })
         .where(eq(concepts.id, concept.id))
     } catch (error) {
       logger.warn('note failed', { conceptId: concept.id, error: String(error) })

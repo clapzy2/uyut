@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { refreshConcepts, requestConcepts, setConceptLike } from '@/actions/concepts'
 import { PresenceChip } from '@/components/collaboration/presence-chip'
 import { DuoCard } from '@/components/concepts/duo-card'
+import { EmptyArt } from '@/components/empty-art'
 import { FormError } from '@/components/form-error'
 import { type SwipeCard, SwipeDeck } from '@/components/swipe-deck'
 import { useProjectLive } from '@/lib/collaboration/live-client'
@@ -397,11 +398,18 @@ export function ConceptsPanel({
         </p>
       ) : null}
 
-      {!canGenerate ? (
+      {!canGenerate && items.length === 0 ? (
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-7">
+          <EmptyArt kind="concepts" className="h-[68px] w-[90px] shrink-0 text-line-strong" />
+          <p className="text-[15px] leading-relaxed text-ink-2">
+            Концептов пока нет: их генерирует владелец проекта. Как только они появятся, здесь можно
+            будет отмечать понравившиеся.
+          </p>
+        </div>
+      ) : null}
+      {!canGenerate && items.length > 0 ? (
         <p className="text-[15px] leading-relaxed text-ink-2">
-          {items.length === 0
-            ? 'Концептов пока нет: их генерирует владелец проекта.'
-            : 'Новые концепты генерирует владелец проекта.'}
+          Новые концепты генерирует владелец проекта.
         </p>
       ) : null}
 
