@@ -132,6 +132,53 @@ export function parseDuoProposal(output: string): DuoProposal {
   }
 }
 
+/** Предел fal any-llm на длину промпта; оставляем запас на служебные строки */
+export const DUO_PROMPT_LIMIT = 4600
+
+function shrinkSide(side: DuoSide, keep: number): DuoSide {
+  return { ...side, liked: side.liked.slice(0, keep), disliked: side.disliked.slice(0, keep) }
+}
+
+/**
+ * Ужимает вход под лимит: сначала короче описания, потом меньше концептов с каждой стороны.
+ * Самые свежие отметки важнее, поэтому режем с конца списков, а не с начала.
+ */
+export function compactDuoInput(input: DuoInput, limit = DUO_PROMPT_LIMIT): DuoInput {
+  const shorten = (side: DuoSide, noteMax: number, variationMax: number): DuoSide => ({
+    ...side,
+    liked: side.liked.map((item) => ({
+      ...item,
+      note: item.note?.slice(0, noteMax) ?? null,
+      variation: item.variation.slice(0, variationMax),
+    })),
+    disliked: side.disliked.map((item) => ({
+      ...item,
+      note: item.note?.slice(0, noteMax) ?? null,
+      variation: item.variation.slice(0, variationMax),
+    })),
+  })
+  let current: DuoInput = {
+    ...input,
+    owner: shorten(input.owner, 220, 180),
+    partner: shorten(input.partner, 220, 180),
+  }
+  for (const keep of [8, 6, 5, 4, 3, 2]) {
+    if (buildDuoPrompt(current).length <= limit) {
+      return current
+    }
+    current = {
+      ...current,
+      owner: shrinkSide(current.owner, keep),
+      partner: shrinkSide(current.partner, keep),
+    }
+  }
+  return {
+    ...current,
+    owner: shorten(current.owner, 80, 80),
+    partner: shorten(current.partner, 80, 80),
+  }
+}
+
 export type DuoProposer = { propose(input: DuoInput): Promise<DuoProposal> }
 
 export function createFalDuoProposer(apiKey: string, model = DUO_MODEL): DuoProposer {
@@ -139,7 +186,7 @@ export function createFalDuoProposer(apiKey: string, model = DUO_MODEL): DuoProp
     async propose(input) {
       const text = await completeFalLlm(apiKey, {
         system: DUO_SYSTEM_PROMPT,
-        prompt: buildDuoPrompt(input),
+        prompt: buildDuoPrompt(compactDuoInput(input)),
         model,
       })
       return parseDuoProposal(text)

@@ -1,4 +1,4 @@
-import { buildDuoPrompt, type DuoInput, duoHash, parseDuoProposal } from '@uyut/ai'
+import { buildDuoPrompt, compactDuoInput, type DuoInput, duoHash, parseDuoProposal } from '@uyut/ai'
 import { describe, expect, it } from 'vitest'
 import { duoEligibility } from './votes'
 
@@ -86,5 +86,25 @@ describe('duoEligibility', () => {
       { ...concept(null, null, 'duo'), status: 'pending' as const },
     ]
     expect(duoEligibility(items)).toMatchObject({ eligible: false, pendingDuo: true })
+  })
+})
+
+describe('compactDuoInput', () => {
+  it('fits a long history into the fal prompt limit', () => {
+    const many = Array.from({ length: 12 }, (_, index) => ({
+      index: index + 1,
+      title: null,
+      note: 'Очень длинная подпись концепта. '.repeat(12),
+      variation: 'a very long english variation describing the render in detail '.repeat(8),
+    }))
+    const big: DuoInput = {
+      ...input,
+      owner: { name: 'Аня', liked: many, disliked: many },
+      partner: { name: 'Маша', liked: many, disliked: many },
+    }
+    expect(buildDuoPrompt(big).length).toBeGreaterThan(5000)
+    const compact = compactDuoInput(big)
+    expect(buildDuoPrompt(compact).length).toBeLessThanOrEqual(4600)
+    expect(compact.owner.liked[0]?.index).toBe(1)
   })
 })

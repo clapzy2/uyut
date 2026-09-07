@@ -64,16 +64,28 @@ export function buildDuoInput(
   rows: Concept[],
   names: { owner: string; partner: string },
 ): DuoInput {
-  const shared = sharedPrefix(rows.map((row) => row.prompt))
+  const sharedByBatch = new Map<string, string>()
+  for (const row of rows) {
+    if (!sharedByBatch.has(row.batchId)) {
+      sharedByBatch.set(
+        row.batchId,
+        sharedPrefix(
+          rows.filter((item) => item.batchId === row.batchId).map((item) => item.prompt),
+        ),
+      )
+    }
+  }
   const items = numbered(rows)
+  const describe = (row: Concept & { index: number }) =>
+    describeConcept(row, sharedByBatch.get(row.batchId) ?? '')
   const side = (who: 'owner' | 'partner', name: string) => ({
     name,
     liked: items
       .filter((row) => (who === 'owner' ? row.likedByOwner : row.likedByPartner) === true)
-      .map((row) => describeConcept(row, shared)),
+      .map(describe),
     disliked: items
       .filter((row) => (who === 'owner' ? row.likedByOwner : row.likedByPartner) === false)
-      .map((row) => describeConcept(row, shared)),
+      .map(describe),
   })
   return {
     roomName: room.name,

@@ -37,6 +37,7 @@ export {
 } from './detect'
 export {
   buildDuoPrompt,
+  compactDuoInput,
   createFalDuoProposer,
   DUO_BRIDGES,
   DUO_MODEL,
