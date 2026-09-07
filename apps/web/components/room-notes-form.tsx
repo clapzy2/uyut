@@ -28,7 +28,12 @@ export function RoomNotesForm({ roomId, notes }: { roomId: string; notes: string
   }
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
+    <form
+      method="post"
+      onSubmit={form.handleSubmit(onSubmit)}
+      noValidate
+      className="flex flex-col gap-4"
+    >
       <Textarea
         id="notes"
         label="Заметки"
