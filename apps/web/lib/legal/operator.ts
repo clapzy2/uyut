@@ -19,10 +19,10 @@ export type Operator = {
 const PLACEHOLDER = '[указывается до запуска]'
 
 export const operator: Operator = {
-  name: PLACEHOLDER,
-  inn: PLACEHOLDER,
-  email: 'hello@uyut.ru',
-  city: PLACEHOLDER,
+  name: 'Яндукин Илья Александрович',
+  inn: '86010483940',
+  email: 'yandukin76@gmail.com',
+  city: 'Санкт-Петербург',
   updatedAt: '2026-09-08',
 }
 
