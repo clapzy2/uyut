@@ -1,5 +1,5 @@
+import type { WorksRates } from '@uyut/catalog'
 import { getEnv } from '@/lib/env'
-import type { WorksRates } from '@/lib/estimate'
 
 /** Ставки работ из окружения; по умолчанию 15 000 и 5 000 рублей за м² */
 export function getWorksRates(): WorksRates {

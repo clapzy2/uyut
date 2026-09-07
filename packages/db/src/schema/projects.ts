@@ -31,6 +31,13 @@ export type Household = {
   wfh?: boolean
 }
 
+/** Данные для PDF, вводятся один раз при экспорте и попадают в документ только по галочкам */
+export type ProjectContact = {
+  clientName?: string
+  address?: string
+  phone?: string
+}
+
 // Одна квартира = один проект. Бюджет, состав семьи и вкус заполняет онбординг.
 export const projects = pgTable(
   'projects',
@@ -49,6 +56,7 @@ export const projects = pgTable(
       dimensions: EMBEDDING_DIMENSIONS,
     }),
     household: jsonb('household').$type<Household>(),
+    contact: jsonb('contact').$type<ProjectContact>(),
     // Ключи объектов в приватном bucket, наружу отдаются подписанной ссылкой
     planUrl: text('plan_url'),
     referenceUrl: text('reference_url'),

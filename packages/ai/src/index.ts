@@ -1,4 +1,16 @@
 // Клиенты Fal.ai, Anthropic и Voyage, каталог стилей и сборка промптов.
+export {
+  BRIEF_SECTIONS,
+  BRIEF_SYSTEM_PROMPT,
+  type BriefGenerator,
+  type BriefInput,
+  type BriefProjectInput,
+  type BriefRoomInput,
+  briefHash,
+  buildBriefPrompt,
+  createFalBriefGenerator,
+  parseBrief,
+} from './brief'
 export { budgetShares, MATCH_CONFIDENCE_THRESHOLD, type PriceWindow, priceWindow } from './budget'
 export {
   type AgentReply,

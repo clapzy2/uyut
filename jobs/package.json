@@ -13,15 +13,21 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1127.0",
+    "@fontsource-variable/literata": "5.3.0",
+    "@fontsource-variable/onest": "5.3.1",
+    "@fontsource/jetbrains-mono": "5.3.0",
     "@trigger.dev/sdk": "4.5.16",
     "@uyut/ai": "workspace:*",
+    "@uyut/catalog": "workspace:*",
     "@uyut/db": "workspace:*",
+    "@uyut/pdf": "workspace:*",
     "drizzle-orm": "^0.45.2",
+    "playwright": "1.63.0",
     "sharp": "0.35.4",
-    "zod": "^4.5.4",
-    "@uyut/catalog": "workspace:*"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@trigger.dev/build": "4.5.16",
     "@types/node": "^24.13.3",
     "trigger.dev": "4.5.16",
     "typescript": "^5.9.3"

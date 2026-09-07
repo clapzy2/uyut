@@ -1,3 +1,4 @@
+import { itemTotalKopecks } from '@uyut/catalog'
 import {
   type CatalogCategory,
   catalogItems,
@@ -23,6 +24,8 @@ export type ShoppingItemView = {
   imageUrl: string | null
   inStock: boolean
   quantity: number
+  /** Цена строки: цена варианта или товара, умноженная на количество */
+  totalKopecks: number
   variant: ShoppingVariant | null
   roomId: string | null
   roomName: string | null
@@ -90,6 +93,11 @@ export async function getShoppingList(
         imageUrl: await productImage(product.images[0]?.url),
         inStock: product.inStock,
         quantity: item.quantity,
+        totalKopecks: itemTotalKopecks({
+          priceKopecks: product.priceKopecks,
+          quantity: item.quantity,
+          variantPriceKopecks: item.selectedVariant?.priceKopecks ?? null,
+        }),
         variant: item.selectedVariant ?? null,
         roomId: item.roomId,
         roomName,

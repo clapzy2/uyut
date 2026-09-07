@@ -1,11 +1,13 @@
+import { estimateProject } from '@uyut/catalog'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { EstimateCard } from '@/components/summary/estimate-card'
+import { ExportCard } from '@/components/summary/export-card'
 import { ShoppingRows } from '@/components/summary/shopping-rows'
 import { formatPrice } from '@/lib/concepts/format'
-import { estimateProject } from '@/lib/estimate'
+import { listExports } from '@/lib/exports/repository'
 import { NotFoundError } from '@/lib/projects/access'
 import { formatArea, pluralRooms } from '@/lib/projects/format'
 import { getProject } from '@/lib/projects/repository'
@@ -47,10 +49,11 @@ export default async function SummaryPage({ params }: { params: Params }) {
     throw error
   }
 
-  const [list, rates] = await Promise.all([
+  const [list, exports] = await Promise.all([
     getShoppingList(session.user.id, project.id),
-    Promise.resolve(getWorksRates()),
+    listExports(session.user.id, project.id, 4),
   ])
+  const rates = getWorksRates()
   const rooms = project.rooms.map((room) => ({
     id: room.id,
     name: room.name,
@@ -102,7 +105,14 @@ export default async function SummaryPage({ params }: { params: Params }) {
           </p>
           <ShoppingRows items={list.items} projectId={project.id} />
         </div>
-        <aside>
+        <aside className="flex flex-col gap-8">
+          <ExportCard
+            projectId={project.id}
+            exports={exports}
+            contact={project.contact ?? null}
+            isPaid={project.isPaid}
+            hasRooms={project.rooms.length > 0}
+          />
           <EstimateCard estimate={estimate} rooms={rooms} rates={rates} projectId={project.id} />
         </aside>
       </div>

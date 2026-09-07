@@ -25,6 +25,7 @@
     "@upstash/redis": "1.38.4",
     "@uyut/ai": "workspace:*",
     "@uyut/db": "workspace:*",
+    "@uyut/pdf": "workspace:*",
     "@uyut/ui": "workspace:*",
     "better-auth": "1.7.3",
     "drizzle-orm": "^0.45.2",

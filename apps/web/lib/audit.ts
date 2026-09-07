@@ -21,6 +21,7 @@ export type AuditAction =
   | 'shopping.item_added'
   | 'shopping.item_updated'
   | 'shopping.item_removed'
+  | 'export.requested'
 
 type AuditInput = {
   action: AuditAction

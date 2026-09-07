@@ -2,6 +2,16 @@
 export { categoryFromText, isCatalogCategory } from './categories'
 export { parseCsv, parseCsvDump, parseRubles } from './csv'
 export {
+  type Estimate,
+  type EstimateItem,
+  type EstimateRoom,
+  estimateProject,
+  itemTotalKopecks,
+  type RoomWorks,
+  type RoomWorksKind,
+  type WorksRates,
+} from './estimate'
+export {
   contentHash,
   countItems,
   findSimilar,
