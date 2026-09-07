@@ -34,9 +34,14 @@ function Tracker() {
         api_host: host,
         capture_pageview: false,
         capture_pageleave: true,
-        // Адреса содержат идентификаторы проектов и комнат, поэтому маскируем всё подряд
-        mask_all_text: true,
-        mask_all_element_attributes: true,
+        // Считаем только переходы по экранам. Всё остальное выключено намеренно: запись экрана
+        // сняла бы планы квартир и адреса, а автозахват кликов утащил бы названия проектов —
+        // ни того, ни другого мы людям не обещали, и в политике этого нет.
+        disable_session_recording: true,
+        disable_surveys: true,
+        autocapture: false,
+        capture_dead_clicks: false,
+        capture_exceptions: false,
         person_profiles: 'identified_only',
       })
       client = posthog
