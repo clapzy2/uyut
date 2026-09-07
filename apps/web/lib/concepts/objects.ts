@@ -47,6 +47,8 @@ export type ObjectView = {
 }
 
 export type ConceptPageData = {
+  /** Роль того, кто смотрит: второй участник только смотрит и ставит отметки */
+  role: ProjectRole
   concept: {
     id: string
     status: string
@@ -179,6 +181,7 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
   )
 
   return {
+    role: room.role,
     concept: {
       id: concept.id,
       status: concept.status,

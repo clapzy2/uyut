@@ -3,9 +3,11 @@ import { accounts, sessions, users, verifications } from '@uyut/db'
 import { betterAuth } from 'better-auth'
 import { APIError, createAuthMiddleware } from 'better-auth/api'
 import { nextCookies } from 'better-auth/next-js'
+import { magicLink } from 'better-auth/plugins'
 import { recordAudit } from './audit'
+import { findInvite } from './collaboration/repository'
 import { getDb } from './db'
-import { getEmailSender, passwordResetLetter, verificationLetter } from './email'
+import { getEmailSender, invitationLetter, passwordResetLetter, verificationLetter } from './email'
 import { getEnv } from './env'
 import { hashPassword, verifyPassword } from './password'
 import { createAuthStorage, getLoginByEmailLimiter } from './redis'
@@ -146,7 +148,30 @@ function createAuth() {
         }
       }),
     },
-    plugins: [nextCookies()],
+    plugins: [
+      nextCookies(),
+      // Вход по ссылке нужен только приглашённым без аккаунта: письмо уходит лишь под живое
+      // приглашение на этот адрес, иначе публичный эндпоинт ничего не отправляет
+      magicLink({
+        expiresIn: DAY,
+        storeToken: 'hashed',
+        sendMagicLink: async ({ email, url, metadata }) => {
+          const token = typeof metadata?.inviteToken === 'string' ? metadata.inviteToken : null
+          const invite = token ? await findInvite(token) : null
+          if (invite?.status !== 'pending' || invite.email !== email.toLowerCase()) {
+            return
+          }
+          await getEmailSender().send({
+            to: email,
+            ...invitationLetter({
+              inviterName: invite.inviterName,
+              projectTitle: invite.projectTitle,
+              url,
+            }),
+          })
+        },
+      }),
+    ],
   })
 }
 
