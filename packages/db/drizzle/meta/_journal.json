@@ -64,6 +64,13 @@
       "when": 1788745564651,
       "tag": "0008_billing-kinds",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788785286376,
+      "tag": "0009_collaboration",
+      "breakpoints": true
     }
   ]
 }
