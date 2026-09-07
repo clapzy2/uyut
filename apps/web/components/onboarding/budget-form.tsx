@@ -54,7 +54,7 @@ export function BudgetForm({ projectId, initial }: { projectId: string; initial:
           onChange={(event) => setIndex(Number(event.target.value))}
           aria-label="Бюджет"
           aria-valuetext={`${rubles.format(Math.round(kopecks / 100))} рублей`}
-          className="h-1 w-full cursor-pointer appearance-none rounded-full bg-line accent-accent"
+          className="w-full"
         />
         <div className="mt-2 flex justify-between font-mono text-[12px] text-ink-2">
           <span>100 тыс.</span>

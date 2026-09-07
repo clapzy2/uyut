@@ -125,7 +125,7 @@ function MatchesPanel({
             : `${label}: ${object.matches.length} похожих`}
         </p>
         {object.window ? (
-          <span className="rounded-full border border-line-strong px-2.5 py-0.5 text-[12px] text-ink-2">
+          <span className="rounded-full border border-control px-2.5 py-0.5 text-[12px] text-ink-2">
             до {formatPrice(object.window.maxKopecks)}
           </span>
         ) : null}
@@ -193,7 +193,7 @@ function MatchesPanel({
                       'h-7 rounded-full border px-2.5 text-[12px] transition-colors duration-200 ease-ui disabled:opacity-50',
                       inList > 0
                         ? 'border-accent bg-accent-tint text-accent'
-                        : 'border-line-strong text-ink-2 hover:border-accent hover:text-accent',
+                        : 'border-control text-ink-2 hover:border-accent hover:text-accent',
                     )}
                   >
                     {adding === match.id
@@ -460,7 +460,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
                 'h-9 rounded-full border px-3.5 text-sm transition-colors duration-200 ease-ui',
                 liked === false
                   ? 'border-ink text-ink'
-                  : 'border-line-strong text-ink-2 hover:text-ink',
+                  : 'border-control text-ink-2 hover:text-ink',
               )}
             >
               Не нравится
@@ -517,7 +517,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
                   'h-8 rounded-full border px-3 text-[13px] transition-colors duration-200 ease-ui',
                   object.id === selectedId
                     ? 'border-accent bg-accent-tint text-accent'
-                    : 'border-line-strong text-ink-2 hover:text-ink',
+                    : 'border-control text-ink-2 hover:text-ink',
                 )}
               >
                 {object.orderIndex + 1} {categoryLabels[object.category]}

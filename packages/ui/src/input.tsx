@@ -11,7 +11,7 @@ export type InputProps = InputHTMLAttributes<HTMLInputElement> & {
 }
 
 export const inputClassName =
-  'h-11 w-full rounded-sm border border-line bg-paper px-3.5 text-[15px] text-ink placeholder:text-ink-2/70 transition-colors duration-200 ease-ui hover:border-line-strong focus:border-accent focus:outline-none aria-[invalid=true]:border-danger'
+  'h-11 w-full rounded-sm border border-control bg-paper px-3.5 text-[15px] text-ink placeholder:text-ink-2/70 transition-colors duration-200 ease-ui hover:border-ink focus:border-accent focus:outline-none aria-[invalid=true]:border-danger'
 
 export function Input({ id, label, error, hint, trailing, className, ...props }: InputProps) {
   const errorId = `${id}-error`

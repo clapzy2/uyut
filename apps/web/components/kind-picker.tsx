@@ -22,7 +22,7 @@ export function KindPicker({
         {mvpRoomKinds.map((kind) => (
           <label key={kind} className="cursor-pointer">
             <input type="radio" value={kind} className="peer sr-only" {...registration} />
-            <span className="inline-flex h-9 items-center rounded-full border border-line-strong px-4 text-sm text-ink-2 transition-colors duration-200 ease-ui hover:text-ink peer-checked:border-accent peer-checked:text-ink peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
+            <span className="inline-flex h-9 items-center rounded-full border border-control px-4 text-sm text-ink-2 transition-colors duration-200 ease-ui hover:text-ink peer-checked:border-accent peer-checked:text-ink peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
               {roomKindLabels[kind]}
             </span>
           </label>

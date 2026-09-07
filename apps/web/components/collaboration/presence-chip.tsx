@@ -43,7 +43,7 @@ export function PresenceChip({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-2 rounded-full border border-line-strong bg-paper px-3 py-1 text-[13px] text-ink',
+        'inline-flex items-center gap-2 rounded-full border border-control bg-paper px-3 py-1 text-[13px] text-ink',
         className,
       )}
       aria-live="polite"
