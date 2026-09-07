@@ -166,8 +166,12 @@ test.describe('together', () => {
     await expect(ownerPage.getByRole('tab', { name: /^Общие 0/ })).toBeVisible()
 
     // Десять оценок у каждого без единого совпадения: предложение вариантов на двоих у обоих
-    await expect(ownerPage.getByText('Варианты на двоих', { exact: true })).toBeVisible({ timeout: 10_000 })
-    await expect(partnerPage.getByText('Варианты на двоих', { exact: true })).toBeVisible({ timeout: 10_000 })
+    await expect(ownerPage.getByText('Варианты на двоих', { exact: true })).toBeVisible({
+      timeout: 10_000,
+    })
+    await expect(partnerPage.getByText('Варианты на двоих', { exact: true })).toBeVisible({
+      timeout: 10_000,
+    })
     await expect(partnerPage.getByRole('button', { name: /Сгенерировать три/ })).toHaveCount(0)
 
     // Второй участник передумал на странице концепта: совпадение появляется у владельца
