@@ -47,7 +47,10 @@ describe('contractor brief', () => {
     expect(briefHash(input)).toBe(briefHash(structuredClone(input)))
     expect(briefHash(input)).toHaveLength(32)
     const changed = structuredClone(input)
-    changed.rooms[0].areaM2 = 20
+    const changedRoom = changed.rooms[0]
+    if (changedRoom) {
+      changedRoom.areaM2 = 20
+    }
     expect(briefHash(changed)).not.toBe(briefHash(input))
   })
 

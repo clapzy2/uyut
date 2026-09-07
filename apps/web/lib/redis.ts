@@ -63,6 +63,7 @@ let loginByEmailLimiter: Ratelimit | undefined
 let requestsByIpLimiter: Ratelimit | undefined
 let conceptsByUserLimiter: Ratelimit | undefined
 let chatByUserLimiter: Ratelimit | undefined
+let exportsByUserLimiter: Ratelimit | undefined
 
 // Десять попыток входа в час на один адрес, независимо от IP
 export function getLoginByEmailLimiter(): Ratelimit {
@@ -92,6 +93,16 @@ export function getConceptsByUserLimiter(): Ratelimit {
     prefix: 'rl:concepts',
   })
   return conceptsByUserLimiter
+}
+
+// Сборка PDF занимает воркер на полминуты и ходит в модель: двадцать в час на пользователя
+export function getExportsByUserLimiter(): Ratelimit {
+  exportsByUserLimiter ??= new Ratelimit({
+    redis: getRedis(),
+    limiter: Ratelimit.slidingWindow(20, '1 h'),
+    prefix: 'rl:exports',
+  })
+  return exportsByUserLimiter
 }
 
 // Помощник платный за каждое сообщение: шестьдесят в час на пользователя
