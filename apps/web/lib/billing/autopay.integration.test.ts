@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { purchases, subscriptions, users } from '@uyut/db'
 import { eq } from 'drizzle-orm'
+import { NextRequest } from 'next/server'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { EmailMessage } from '@/lib/email'
 import { createFakePaymentProvider } from '@/lib/payments/fake-provider'
@@ -26,7 +27,14 @@ vi.mock('@/lib/email', async (importOriginal) => {
   }
 })
 
+// Секрет расписания в локальном окружении пуст: подставляем его, чтобы проверить обе двери
+vi.mock('@/lib/env', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/env')>()
+  return { getEnv: () => ({ ...actual.getEnv(), CRON_SECRET: 'it-cron-secret' }) }
+})
+
 const { runSubscriptionCycle } = await import('@/lib/billing/cycle')
+const { POST: cronRoute } = await import('@/app/api/cron/subscriptions/route')
 const { setAutoRenew } = await import('@/lib/billing/repository')
 const { getDb } = await import('@/lib/db')
 
@@ -141,6 +149,22 @@ describe('daily subscription pass in a real database', () => {
       .from(subscriptions)
       .where(eq(subscriptions.id, subscriptionId))
     expect(expired?.status).toBe('past_due')
+  })
+
+  it('opens the daily pass only to the holder of the shared secret', async () => {
+    const call = (secret?: string) =>
+      cronRoute(
+        new NextRequest('http://localhost/api/cron/subscriptions', {
+          method: 'POST',
+          headers: secret ? { 'x-cron-secret': secret } : {},
+        }),
+      )
+    expect((await call()).status).toBe(403)
+    expect((await call('wrong')).status).toBe(403)
+    expect((await call('it-cron-secret-longer')).status).toBe(403)
+    const allowed = await call('it-cron-secret')
+    expect(allowed.status).toBe(200)
+    expect(await allowed.json()).toMatchObject({ ok: true })
   })
 
   it('refuses to turn auto renewal on without a saved card', async () => {
