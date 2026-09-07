@@ -72,6 +72,7 @@
         "zod": "^4.5.4",
       },
       "devDependencies": {
+        "@trigger.dev/build": "4.5.16",
         "@types/node": "^24.13.3",
         "trigger.dev": "4.5.16",
         "typescript": "^5.9.3",
