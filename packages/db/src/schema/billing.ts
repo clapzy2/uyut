@@ -1,4 +1,4 @@
-import { bigint, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { bigint, boolean, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { projects } from './projects'
 import { users } from './users'
 
@@ -14,11 +14,16 @@ export const subscriptions = pgTable('subscriptions', {
     .references(() => users.id, { onDelete: 'cascade' }),
   plan: text('plan', { enum: subscriptionPlans }).notNull(),
   status: text('status', { enum: subscriptionStatuses }).notNull(),
-  // Пока автосписаний нет, здесь лежит сохранённый способ оплаты ЮKassa на будущее
+  // Сохранённый способ оплаты ЮKassa: по нему списывается следующий месяц
   yukassaSubscriptionId: text('yukassa_subscription_id'),
+  // Продлевать самим или ждать ручной оплаты; без сохранённого способа включить нельзя
+  autoRenew: boolean('auto_renew').notNull().default(false),
   currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
   // Письмо о продлении ушло за этот период: повторно не шлём
   remindedAt: timestamp('reminded_at', { withTimezone: true }),
+  // Неудачные попытки списания за текущий период и время последней: защита от повторов в один день
+  chargeAttempts: integer('charge_attempts').notNull().default(0),
+  lastChargeAt: timestamp('last_charge_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
