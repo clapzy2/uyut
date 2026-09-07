@@ -4,7 +4,14 @@ import { cn } from '@uyut/ui'
 import { AnimatePresence, animate, motion, useMotionValue, useTransform } from 'motion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-export type SwipeCard = { id: string; src: string; title?: string; caption?: string }
+export type SwipeCard = {
+  id: string
+  src: string
+  title?: string
+  caption?: string
+  /** Метка в углу: например, что карточка уже понравилась второму участнику */
+  badge?: string
+}
 
 const THRESHOLD_PX = 110
 const THRESHOLD_VELOCITY = 500
@@ -174,6 +181,11 @@ export function SwipeDeck({
             {current.caption ? (
               <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 to-transparent px-4 pb-3 pt-10 text-[13px] text-white">
                 {current.caption}
+              </span>
+            ) : null}
+            {current.badge ? (
+              <span className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-accent px-3 py-1 text-[12px] font-medium text-on-accent shadow-soft">
+                {current.badge}
               </span>
             ) : null}
           </motion.div>

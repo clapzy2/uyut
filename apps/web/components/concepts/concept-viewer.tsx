@@ -442,6 +442,16 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
                     : 'Наведите на номер, чтобы подсветить предмет, нажмите, чтобы увидеть товары.'}
           </p>
           <div className="flex items-center gap-2">
+            {data.other ? (
+              <span className="mr-1 text-[13px] text-ink-2">
+                {data.other.name}:{' '}
+                {data.other.liked === null
+                  ? 'ещё не смотрел(а)'
+                  : data.other.liked
+                    ? 'нравится'
+                    : 'не нравится'}
+              </span>
+            ) : null}
             <button
               type="button"
               onClick={() => like(false)}
