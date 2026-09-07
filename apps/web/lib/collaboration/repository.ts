@@ -10,6 +10,7 @@ import {
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { AccessError, assertOwner, NotFoundError } from '@/lib/projects/access'
+import { personName } from './name'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 export const INVITE_TTL_DAYS = 7
@@ -74,7 +75,7 @@ export async function getCollaboration(projectId: string): Promise<Collaboration
     partner: partnerRow
       ? {
           userId: partnerRow.userId,
-          name: partnerRow.name ?? partnerRow.email.split('@')[0] ?? 'второй участник',
+          name: personName(partnerRow.name, partnerRow.email, 'второй участник'),
           email: partnerRow.email,
           acceptedAt: partnerRow.acceptedAt,
         }
@@ -288,7 +289,7 @@ export async function ownerDisplayName(ownerId: string): Promise<string> {
     .from(users)
     .where(eq(users.id, ownerId))
     .limit(1)
-  return row?.name ?? row?.email.split('@')[0] ?? 'владельца'
+  return personName(row?.name, row?.email, 'владельца')
 }
 
 export type Member = { userId: string; name: string }

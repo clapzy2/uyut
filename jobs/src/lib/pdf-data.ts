@@ -22,6 +22,10 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db } from './db'
 import { optionalEnv } from './env'
+import { clampText } from './text'
+
+export { clampText }
+
 import { readObject } from './s3'
 
 const categoryLabels: Record<CatalogCategory, string> = {
@@ -63,28 +67,6 @@ const sourceLabels: Record<string, string> = {
 
 function conditionLabel(room: Room): string {
   return room.condition === 'bare' ? 'Черновая отделка' : 'Отделка есть'
-}
-
-/** Страница комнаты фиксированной высоты: длинная подпись помощника обрезается по границе фразы */
-export function clampText(text: string | null, max: number): string | null {
-  if (!text) {
-    return null
-  }
-  const trimmed = text.trim()
-  if (trimmed.length <= max) {
-    return trimmed
-  }
-  const cut = trimmed.slice(0, max)
-  const sentence = cut.lastIndexOf('. ')
-  if (sentence > max * 0.45) {
-    return cut.slice(0, sentence + 1)
-  }
-  const space = Math.max(cut.lastIndexOf(', '), cut.lastIndexOf(' '))
-  return `${cut
-    .slice(0, space > max * 0.6 ? space : max)
-    .trim()
-    .replace(/[,;:—-]$/, '')
-    .trim()}…`
 }
 
 /** Ключ объекта в нашем bucket, если ссылка ведёт в него; иначе null */
