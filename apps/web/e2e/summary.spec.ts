@@ -121,7 +121,7 @@ test.describe('project summary', () => {
     // с ключом запускает задачу и показывает шаги сборки
     const exportCard = page.getByRole('region', { name: 'Забрать проект' })
     await expect(exportCard.getByText('с водяным знаком «Uyut»')).toBeVisible()
-    await exportCard.getByRole('button', { name: 'Собрать PDF' }).click()
+    await exportCard.getByRole('button', { name: 'Собрать PDF с водяным знаком' }).click()
     if (process.env.TRIGGER_SECRET_KEY) {
       await expect(exportCard.getByRole('list', { name: 'Сборка PDF' })).toBeVisible({
         timeout: 20_000,
@@ -129,5 +129,34 @@ test.describe('project summary', () => {
     } else {
       await expect(page.getByText('Сборка PDF пока не подключена')).toBeVisible()
     }
+  })
+
+  test('pays for the project through the payment provider and unlocks the clean PDF', async ({
+    page,
+  }) => {
+    test.skip(
+      Boolean(process.env.YUKASSA_SHOP_ID),
+      'с настоящими ключами ЮKassa оплата уводит на внешнюю страницу',
+    )
+    await registerViaForm(page, uniqueEmail('payer'))
+    await page.goto('/onboarding/step-1')
+    await page.getByLabel('Название проекта').fill('Оплата проекта')
+    await page.getByRole('button', { name: 'Дальше' }).click()
+    await expect(page).toHaveURL(/\/onboarding\/step-2\?project=[0-9a-f-]{36}/)
+    const projectId = new URL(page.url()).searchParams.get('project') ?? ''
+
+    await page.goto(`/projects/${projectId}/summary`)
+    const exportCard = page.getByRole('region', { name: 'Забрать проект' })
+    await expect(exportCard.getByText(/Разовая покупка проекта — 1\s500\s₽/)).toBeVisible()
+    await exportCard.getByRole('button', { name: /Забрать за 1\s500\s₽/ }).click()
+    await expect(page.getByText('Оплата прошла')).toBeVisible()
+    await expect(
+      exportCard.getByText('Проект оплачен, документ выходит без водяного знака.'),
+    ).toBeVisible()
+
+    // Второй проект в бесплатном плане закрыт: вместо «Новый проект» предложение Pro
+    await page.goto('/projects')
+    await expect(page.getByRole('link', { name: 'Новый проект' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Оформить Pro/ })).toBeVisible()
   })
 })
