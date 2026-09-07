@@ -8,7 +8,7 @@ import {
   subscriptions,
   users,
 } from '@uyut/db'
-import { and, count, desc, eq, gt, isNull } from 'drizzle-orm'
+import { and, count, desc, eq, gt, isNull, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { isUuid, NotFoundError } from '@/lib/projects/access'
 
@@ -142,6 +142,7 @@ export async function activatePro(
       .set({
         currentPeriodEnd: addMonth(current.currentPeriodEnd ?? new Date()),
         remindedAt: null,
+        chargeAttempts: 0,
         ...(paymentMethodId ? { yukassaSubscriptionId: paymentMethodId } : {}),
       })
       .where(eq(subscriptions.id, current.id))
@@ -156,6 +157,8 @@ export async function activatePro(
       status: 'active',
       currentPeriodEnd: addMonth(new Date()),
       yukassaSubscriptionId: paymentMethodId,
+      // Первая оплата Pro идёт с согласием на ежемесячное списание; отключается в любой момент
+      autoRenew: paymentMethodId !== null,
     })
     .returning()
   if (!created) {
@@ -171,4 +174,50 @@ export async function userEmail(userId: string): Promise<string | null> {
     .where(eq(users.id, userId))
     .limit(1)
   return row?.email ?? null
+}
+
+export type RenewableSubscription = { subscription: Subscription; email: string }
+
+/** Все действующие подписки Pro с почтой владельца: дневной проход решает по каждой сам */
+export async function listRenewableSubscriptions(): Promise<RenewableSubscription[]> {
+  return getDb()
+    .select({ subscription: subscriptions, email: users.email })
+    .from(subscriptions)
+    .innerJoin(users, eq(users.id, subscriptions.userId))
+    .where(and(eq(subscriptions.plan, 'pro'), eq(subscriptions.status, 'active')))
+}
+
+export async function markSubscriptionReminded(id: string, at: Date): Promise<void> {
+  await getDb().update(subscriptions).set({ remindedAt: at }).where(eq(subscriptions.id, id))
+}
+
+/** Попытка списания зафиксирована до обращения к провайдеру: иначе сбой обнулит счётчик */
+export async function markChargeAttempt(id: string, at: Date): Promise<void> {
+  await getDb()
+    .update(subscriptions)
+    .set({ chargeAttempts: sql`${subscriptions.chargeAttempts} + 1`, lastChargeAt: at })
+    .where(eq(subscriptions.id, id))
+}
+
+export async function expireSubscription(id: string): Promise<void> {
+  await getDb().update(subscriptions).set({ status: 'past_due' }).where(eq(subscriptions.id, id))
+}
+
+export const NO_SAVED_METHOD =
+  'Автопродление включится после следующей оплаты: сохранённой карты пока нет.'
+
+export async function setAutoRenew(userId: string, enabled: boolean): Promise<Subscription> {
+  const current = await activeProSubscription(userId)
+  if (!current) {
+    throw new NotFoundError('Подписка не найдена')
+  }
+  if (enabled && !current.yukassaSubscriptionId) {
+    throw new NotFoundError(NO_SAVED_METHOD)
+  }
+  const [updated] = await getDb()
+    .update(subscriptions)
+    .set({ autoRenew: enabled, ...(enabled ? { chargeAttempts: 0 } : {}) })
+    .where(eq(subscriptions.id, current.id))
+    .returning()
+  return updated ?? current
 }

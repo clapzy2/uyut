@@ -33,7 +33,8 @@ export function ProUpsell({
   return (
     <div className="flex flex-wrap items-center gap-3">
       <p className="max-w-xs text-[13px] leading-relaxed text-ink-2">
-        В бесплатном плане один проект. Pro снимает ограничение и убирает водяной знак с PDF.
+        В бесплатном плане один проект. Pro снимает ограничение и убирает водяной знак с PDF. Дальше
+        списываем столько же каждый месяц, отключить можно в любой момент.
       </p>
       <CheckoutButton
         variant="secondary"

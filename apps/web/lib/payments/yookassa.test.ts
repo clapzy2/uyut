@@ -34,6 +34,43 @@ describe('yookassa client', () => {
     expect(fromRublesString('12')).toBe(1_200)
   })
 
+  it('charges a saved method without asking the payer anything', async () => {
+    const { fetchImpl, calls } = fakeFetch(() => ({
+      status: 200,
+      body: {
+        id: 'pay_auto',
+        status: 'succeeded',
+        paid: true,
+        amount: { value: '999.00', currency: 'RUB' },
+        payment_method: { id: 'pm_saved', saved: true, type: 'bank_card' },
+        metadata: { purchaseId: 'p9' },
+      },
+    }))
+    const provider = createYooKassaProvider({
+      shopId: '123',
+      secretKey: 'test_key',
+      apiUrl: 'https://api.test/v3',
+      fetchImpl,
+    })
+    const payment = await provider.chargeSaved({
+      amountKopecks: 99_900,
+      description: 'Uyut Pro, один месяц',
+      paymentMethodId: 'pm_saved',
+      idempotencyKey: 'p9',
+      metadata: { purchaseId: 'p9' },
+    })
+    expect(payment.status).toBe('succeeded')
+    expect(payment.amountKopecks).toBe(99_900)
+    expect(payment.paymentMethodId).toBe('pm_saved')
+
+    const body = JSON.parse(String(calls[0]?.init.body))
+    expect(body.payment_method_id).toBe('pm_saved')
+    expect(body.capture).toBe(true)
+    // Блок confirmation превратил бы списание в обычный платёж со страницей оплаты
+    expect(body.confirmation).toBeUndefined()
+    expect(calls[0]?.init.headers).toMatchObject({ 'idempotence-key': 'p9' })
+  })
+
   it('creates a payment with basic auth, an idempotence key and a redirect confirmation', async () => {
     const { fetchImpl, calls } = fakeFetch(() => ({
       status: 200,

@@ -47,20 +47,6 @@ export function projectReadyLetter(input: {
   )
 }
 
-export function proRenewalLetter(input: { periodEnd: Date; renewUrl: string }): Letter {
-  const date = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(
-    input.periodEnd,
-  )
-  return letter(
-    `Pro в Uyut заканчивается ${date}`,
-    [
-      `Оплаченный месяц Pro заканчивается ${date}. После этого проекты останутся на месте, но новые создать не получится, а PDF будет выходить с водяным знаком.`,
-      'Продление занимает минуту: одна оплата на 999 ₽, автосписаний нет.',
-    ],
-    [{ url: input.renewUrl, text: 'Продлить Pro' }],
-  )
-}
-
 let transport: Transporter | undefined
 
 /** Письмо уходит через тот же SMTP, что и письма о регистрации; без SMTP_URL молча пропускаем */

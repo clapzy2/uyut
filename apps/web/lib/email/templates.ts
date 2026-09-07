@@ -1,3 +1,4 @@
+import { formatPrice } from '@/lib/concepts/format'
 import type { EmailMessage } from './sender'
 
 type Letter = Omit<EmailMessage, 'to'>
@@ -63,5 +64,48 @@ export function partnerJoinedLetter(input: {
     ],
     input.url,
     'Открыть проект',
+  )
+}
+
+const dayMonth = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' })
+
+export function proRenewalLetter(input: { periodEnd: Date; renewUrl: string }): Letter {
+  const date = dayMonth.format(input.periodEnd)
+  return letter(
+    `Pro в Uyut заканчивается ${date}`,
+    [
+      `Оплаченный месяц Pro заканчивается ${date}. После этого проекты останутся на месте, но новые создать не получится, а PDF будет выходить с водяным знаком.`,
+      'Продление занимает минуту: одна оплата, автосписаний по вашей подписке нет.',
+    ],
+    input.renewUrl,
+    'Продлить Pro',
+  )
+}
+
+export function proChargedLetter(input: {
+  periodEnd: Date
+  amountKopecks: number
+  manageUrl: string
+}): Letter {
+  return letter(
+    'Pro в Uyut продлён на месяц',
+    [
+      `Списали ${formatPrice(input.amountKopecks)} по сохранённой карте, Pro работает до ${dayMonth.format(input.periodEnd)}.`,
+      'Если продлевать больше не нужно, отключите автопродление на странице проектов — следующее списание не пройдёт.',
+    ],
+    input.manageUrl,
+    'Открыть проекты',
+  )
+}
+
+export function proChargeFailedLetter(input: { periodEnd: Date; renewUrl: string }): Letter {
+  return letter(
+    'Не получилось продлить Pro',
+    [
+      `Мы трижды пробовали списать оплату по сохранённой карте, и банк её не пропустил. Pro действует до ${dayMonth.format(input.periodEnd)}, дальше проекты останутся на месте, но новые создать не получится, а PDF будет выходить с водяным знаком.`,
+      'Чаще всего помогает оплата заново другой картой — она же станет сохранённой для следующих месяцев.',
+    ],
+    input.renewUrl,
+    'Продлить Pro',
   )
 }
