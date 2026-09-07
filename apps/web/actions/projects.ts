@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
 import { recordAudit } from '@/lib/audit'
+import { canCreateProject, PROJECT_LIMIT } from '@/lib/billing/repository'
 import { preparePlan, UploadError } from '@/lib/files/uploads'
 import { NotFoundError } from '@/lib/projects/access'
 import * as repository from '@/lib/projects/repository'
@@ -43,6 +44,9 @@ export async function createProject(input: unknown): Promise<ActionResult<{ id: 
     return { ok: false, error: parsed.error.issues[0]?.message ?? 'Проверьте поля формы' }
   }
   try {
+    if (!(await canCreateProject(userId))) {
+      return { ok: false, error: PROJECT_LIMIT }
+    }
     const project = await repository.createProject(userId, parsed.data)
     await recordAudit({
       action: 'project.created',
