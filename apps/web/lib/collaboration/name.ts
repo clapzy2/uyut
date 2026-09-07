@@ -11,10 +11,12 @@ export function personName(
   fallback: string,
 ): string {
   const filled = name?.trim()
-  if (filled) {
+  const local = email?.split('@')[0]?.trim()
+  // Better Auth подставляет в профиль часть адреса до собачки, если человек не назвался.
+  // Такое имя не человек придумал, поэтому режем его так же, как сам адрес.
+  if (filled && filled !== local) {
     return filled
   }
-  const local = email?.split('@')[0]?.trim()
   if (!local) {
     return fallback
   }

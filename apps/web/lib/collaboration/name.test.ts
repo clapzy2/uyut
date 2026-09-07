@@ -12,6 +12,18 @@ describe('personName', () => {
     expect(personName('   ', 'petr.ivanov@mail.ru', 'второй участник')).toBe('petr.ivanov')
   })
 
+  it('shortens a name that is just the address itself', () => {
+    // Better Auth кладёт в профиль часть адреса, если человек не назвался
+    expect(
+      personName(
+        'it-partner-1788786232467',
+        'it-partner-1788786232467@example.test',
+        'второй участник',
+      ),
+    ).toBe('it-partner')
+    expect(personName('masha', 'masha@example.ru', 'второй участник')).toBe('masha')
+  })
+
   it('cuts a machine address at its separator', () => {
     expect(personName(null, 'it-partner-1788786232467@example.test', 'второй участник')).toBe(
       'it-partner',
