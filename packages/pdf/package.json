@@ -1,0 +1,23 @@
+{
+  "name": "@uyut/pdf",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@fontsource-variable/literata": "5.3.0",
+    "@fontsource-variable/onest": "5.3.1",
+    "@fontsource/jetbrains-mono": "5.3.0",
+    "@uyut/catalog": "workspace:*",
+    "@uyut/db": "workspace:*"
+  }
+}
