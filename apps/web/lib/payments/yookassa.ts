@@ -1,4 +1,10 @@
-import type { CreatePaymentInput, Payment, PaymentProvider, PaymentStatus } from './provider'
+import type {
+  ChargeSavedInput,
+  CreatePaymentInput,
+  Payment,
+  PaymentProvider,
+  PaymentStatus,
+} from './provider'
 
 export const YOOKASSA_API_URL = 'https://api.yookassa.ru/v3'
 
@@ -122,6 +128,22 @@ export function createYooKassaProvider(options: YooKassaOptions): PaymentProvide
           description: input.description.slice(0, 128),
           metadata: input.metadata ?? {},
           ...(input.savePaymentMethod ? { save_payment_method: true } : {}),
+        },
+      })
+      return mapPayment(raw)
+    },
+    async chargeSaved(input: ChargeSavedInput): Promise<Payment> {
+      // Без блока confirmation ЮKassa считает платёж инициированным магазином и не спрашивает
+      // плательщика; для этого у магазина должны быть включены автоплатежи
+      const raw = await request<YooPayment>('/payments', {
+        method: 'POST',
+        idempotencyKey: input.idempotencyKey,
+        body: {
+          amount: { value: toRublesString(input.amountKopecks), currency: 'RUB' },
+          capture: true,
+          payment_method_id: input.paymentMethodId,
+          description: input.description.slice(0, 128),
+          metadata: input.metadata ?? {},
         },
       })
       return mapPayment(raw)

@@ -12,6 +12,15 @@ export type CreatePaymentInput = {
   savePaymentMethod?: boolean
 }
 
+/** Списание по ранее сохранённому способу оплаты: без участия плательщика и без страницы оплаты */
+export type ChargeSavedInput = {
+  amountKopecks: number
+  description: string
+  paymentMethodId: string
+  idempotencyKey: string
+  metadata?: Record<string, string>
+}
+
 export type Payment = {
   id: string
   status: PaymentStatus
@@ -28,5 +37,6 @@ export type Payment = {
 export interface PaymentProvider {
   readonly name: 'yookassa' | 'fake'
   createPayment(input: CreatePaymentInput): Promise<Payment>
+  chargeSaved(input: ChargeSavedInput): Promise<Payment>
   getPayment(id: string): Promise<Payment | null>
 }
