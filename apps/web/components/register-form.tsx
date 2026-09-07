@@ -11,6 +11,9 @@ import { authClient } from '@/lib/auth-client'
 import { authErrorMessage } from '@/lib/auth-errors'
 import { type RegisterInput, registerSchema } from '@/lib/validation/auth'
 
+const legalLinkClassName =
+  'text-ink underline decoration-accent decoration-1 underline-offset-4 hover:text-accent'
+
 export function RegisterForm() {
   const router = useRouter()
   const form = useForm<RegisterInput>({
@@ -60,7 +63,18 @@ export function RegisterForm() {
       />
       <Checkbox
         id="consent"
-        label="Даю согласие на обработку персональных данных"
+        label={
+          <>
+            Даю{' '}
+            <Link href="/legal/consent" className={legalLinkClassName}>
+              согласие на обработку персональных данных
+            </Link>{' '}
+            и принимаю{' '}
+            <Link href="/legal/terms" className={legalLinkClassName}>
+              пользовательское соглашение
+            </Link>
+          </>
+        }
         error={errors.consent?.message}
         {...form.register('consent')}
       />
