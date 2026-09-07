@@ -10,7 +10,7 @@ import { RoomNotesForm } from '@/components/room-notes-form'
 import { RoomSettingsDialog } from '@/components/room-settings-dialog'
 import { latestBatch } from '@/lib/concepts/repository'
 import { PHOTO_ACCEPT, PHOTO_LIMIT_TEXT, PHOTO_MAX_BYTES } from '@/lib/files/rules'
-import { NotFoundError } from '@/lib/projects/access'
+import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
 import { fileNameFromKey, formatArea, roomKindLabels } from '@/lib/projects/format'
 import { getRoom } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -43,6 +43,9 @@ export default async function RoomPage({ params }: { params: Params }) {
   try {
     room = await getRoom(session.user.id, roomId)
   } catch (error) {
+    if (error instanceof ProjectClosedError) {
+      redirect(`/projects/${id}`)
+    }
     if (error instanceof NotFoundError) {
       notFound()
     }
@@ -51,6 +54,7 @@ export default async function RoomPage({ params }: { params: Params }) {
   if (room.projectId !== id) {
     notFound()
   }
+  const isOwner = room.role === 'owner'
 
   const { items: conceptItems } = await latestBatch(session.user.id, room.id)
   const photoUrl = room.photoUrl ? await presignedObjectUrl(room.photoUrl) : null
@@ -74,9 +78,11 @@ export default async function RoomPage({ params }: { params: Params }) {
           </h1>
           <p className="mt-2 font-mono text-[13px] text-ink-2">{meta}</p>
         </div>
-        <RoomSettingsDialog
-          room={{ id: room.id, name: room.name, kind: room.kind, areaM2: room.areaM2 }}
-        />
+        {isOwner ? (
+          <RoomSettingsDialog
+            room={{ id: room.id, name: room.name, kind: room.kind, areaM2: room.areaM2 }}
+          />
+        ) : null}
       </div>
 
       <div className="mt-10 grid gap-10 lg:grid-cols-[7fr_5fr] lg:gap-14">
@@ -94,45 +100,64 @@ export default async function RoomPage({ params }: { params: Params }) {
                 <span className="font-mono text-[13px] text-ink-2">
                   {fileNameFromKey(room.photoUrl ?? '')}
                 </span>
-                <FileUploader
-                  inputId="photo"
-                  field="photo"
-                  accept={PHOTO_ACCEPT}
-                  maxBytes={PHOTO_MAX_BYTES}
-                  label="Заменить"
-                  pendingLabel="Загружаем…"
-                  successTitle="Фото загружено"
-                  action={uploadPhotoForRoom}
-                />
+                {isOwner ? (
+                  <FileUploader
+                    inputId="photo"
+                    field="photo"
+                    accept={PHOTO_ACCEPT}
+                    maxBytes={PHOTO_MAX_BYTES}
+                    label="Заменить"
+                    pendingLabel="Загружаем…"
+                    successTitle="Фото загружено"
+                    action={uploadPhotoForRoom}
+                  />
+                ) : null}
               </div>
             </>
           ) : (
             <>
               <div className="grid aspect-[3/2] place-items-center border border-dashed border-line-strong p-6 text-center text-[15px] leading-relaxed text-ink-2">
-                <p>
-                  Одно фото от двери, чтобы было видно окно и стены.
-                  <br />
-                  {PHOTO_LIMIT_TEXT}.
-                </p>
+                {isOwner ? (
+                  <p>
+                    Одно фото от двери, чтобы было видно окно и стены.
+                    <br />
+                    {PHOTO_LIMIT_TEXT}.
+                  </p>
+                ) : (
+                  <p>Фото пока нет. Его загружает владелец проекта.</p>
+                )}
               </div>
-              <div className="mt-4">
-                <FileUploader
-                  inputId="photo"
-                  field="photo"
-                  accept={PHOTO_ACCEPT}
-                  maxBytes={PHOTO_MAX_BYTES}
-                  label="Загрузить фото"
-                  pendingLabel="Загружаем…"
-                  successTitle="Фото загружено"
-                  action={uploadPhotoForRoom}
-                />
-              </div>
+              {isOwner ? (
+                <div className="mt-4">
+                  <FileUploader
+                    inputId="photo"
+                    field="photo"
+                    accept={PHOTO_ACCEPT}
+                    maxBytes={PHOTO_MAX_BYTES}
+                    label="Загрузить фото"
+                    pendingLabel="Загружаем…"
+                    successTitle="Фото загружено"
+                    action={uploadPhotoForRoom}
+                  />
+                </div>
+              ) : null}
             </>
           )}
         </div>
 
         <div className="flex flex-col gap-10">
-          <RoomNotesForm roomId={room.id} notes={room.notes} />
+          {isOwner ? (
+            <RoomNotesForm roomId={room.id} notes={room.notes} />
+          ) : room.notes ? (
+            <div>
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
+                Заметки
+              </p>
+              <p className="whitespace-pre-line text-[15px] leading-relaxed text-ink">
+                {room.notes}
+              </p>
+            </div>
+          ) : null}
           <div>
             <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
               Концепты
@@ -142,6 +167,7 @@ export default async function RoomPage({ params }: { params: Params }) {
               projectId={room.projectId}
               hasPhoto={Boolean(room.photoUrl)}
               onboarded={Boolean(room.project.onboardedAt)}
+              canGenerate={isOwner}
               items={conceptItems.map((item) => ({
                 id: item.id,
                 status: item.status,
@@ -154,13 +180,16 @@ export default async function RoomPage({ params }: { params: Params }) {
         </div>
       </div>
 
-      <div className="mt-14 border-t border-line pt-5">
-        <DeleteRoomDialog roomId={room.id} name={room.name} />
-      </div>
+      {isOwner ? (
+        <div className="mt-14 border-t border-line pt-5">
+          <DeleteRoomDialog roomId={room.id} name={room.name} />
+        </div>
+      ) : null}
       <ChatDrawer
         projectId={room.projectId}
         roomId={room.id}
         hasConcepts={conceptItems.length > 0}
+        canRun={isOwner}
       />
     </section>
   )

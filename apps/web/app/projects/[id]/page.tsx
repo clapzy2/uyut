@@ -5,12 +5,16 @@ import { notFound, redirect } from 'next/navigation'
 import { uploadPlan } from '@/actions/projects'
 import { AddRoomDialog } from '@/components/add-room-dialog'
 import { ChatDrawer } from '@/components/chat/chat-drawer'
+import { PartnerBanner } from '@/components/collaboration/partner-banner'
+import { TogetherCard } from '@/components/collaboration/together-card'
 import { DeleteProjectDialog } from '@/components/delete-project-dialog'
 import { FileUploader } from '@/components/file-uploader'
 import { ProjectSettingsDialog } from '@/components/project-settings-dialog'
+import { getCollaboration, ownerDisplayName } from '@/lib/collaboration/repository'
+import { canInvite } from '@/lib/collaboration/rules'
 import { formatPrice } from '@/lib/concepts/format'
 import { PLAN_ACCEPT, PLAN_LIMIT_TEXT, PLAN_MAX_BYTES } from '@/lib/files/rules'
-import { NotFoundError } from '@/lib/projects/access'
+import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
 import { fileNameFromKey, formatArea, projectMeta } from '@/lib/projects/format'
 import { getProject } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -20,6 +24,8 @@ import { getShoppingList } from '@/lib/shopping/repository'
 import { presignedObjectUrl } from '@/lib/storage'
 
 type Params = Promise<{ id: string }>
+
+const labelClassName = 'mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2'
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const session = await getSession()
@@ -35,6 +41,28 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   }
 }
 
+function ClosedProject() {
+  return (
+    <section className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-16 lg:py-24">
+      <div className="max-w-xl">
+        <h1 className="font-serif text-[40px] font-normal leading-[1.05] tracking-tight text-ink sm:text-5xl lg:text-[56px]">
+          Владелец закрыл проект.
+        </h1>
+        <p className="mt-5 text-lg leading-relaxed text-ink-2">
+          Проект удалён, поэтому комнаты и концепты больше не открываются. Если это ошибка, спросите
+          владельца: он может завести проект заново и пригласить вас снова.
+        </p>
+        <Link
+          href="/projects"
+          className="mt-8 inline-block text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4"
+        >
+          К проектам
+        </Link>
+      </div>
+    </section>
+  )
+}
+
 export default async function ProjectPage({ params }: { params: Params }) {
   const session = await getSession()
   const { id } = await params
@@ -46,16 +74,25 @@ export default async function ProjectPage({ params }: { params: Params }) {
   try {
     project = await getProject(session.user.id, id)
   } catch (error) {
+    if (error instanceof ProjectClosedError) {
+      return <ClosedProject />
+    }
     if (error instanceof NotFoundError) {
       notFound()
     }
     throw error
   }
 
+  const isOwner = project.role === 'owner'
   const planUrl = project.planUrl ? await presignedObjectUrl(project.planUrl) : null
   const planIsPdf = project.planUrl?.endsWith('.pdf') ?? false
   const uploadPlanForProject = uploadPlan.bind(null, project.id)
-  const shopping = await getShoppingList(session.user.id, project.id)
+  const [shopping, collaboration, inviteAllowed, ownerName] = await Promise.all([
+    getShoppingList(session.user.id, project.id),
+    isOwner ? getCollaboration(project.id) : Promise.resolve(null),
+    isOwner ? canInvite(session.user.id, project) : Promise.resolve(false),
+    isOwner ? Promise.resolve(null) : ownerDisplayName(project.ownerId),
+  ])
   const estimate = estimateProject({
     rooms: project.rooms,
     items: shopping.items.map((item) => ({
@@ -75,7 +112,8 @@ export default async function ProjectPage({ params }: { params: Params }) {
       >
         Все проекты
       </Link>
-      {project.onboardedAt ? null : (
+      {!isOwner ? <PartnerBanner ownerName={ownerName ?? 'владельца'} /> : null}
+      {isOwner && !project.onboardedAt ? (
         <p className="mt-5 border-l-2 border-accent bg-paper px-4 py-3 text-[15px] leading-relaxed text-ink-2">
           Расскажите о себе, и концепты станут точнее: состав семьи, бюджет и любимые интерьеры.{' '}
           <Link
@@ -86,7 +124,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
           </Link>
           .
         </p>
-      )}
+      ) : null}
       <div className="mt-5 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-serif text-[40px] font-normal leading-[1.05] tracking-tight text-ink sm:text-5xl lg:text-[56px]">
@@ -102,21 +140,21 @@ export default async function ProjectPage({ params }: { params: Params }) {
               : `серия и площадь не указаны · ${projectMeta({ houseSeries: null, totalAreaM2: null, roomCount: project.rooms.length })}`}
           </p>
         </div>
-        <ProjectSettingsDialog
-          projectId={project.id}
-          initial={{
-            title: project.title,
-            houseSeries: project.houseSeries,
-            totalAreaM2: project.totalAreaM2,
-          }}
-        />
+        {isOwner ? (
+          <ProjectSettingsDialog
+            projectId={project.id}
+            initial={{
+              title: project.title,
+              houseSeries: project.houseSeries,
+              totalAreaM2: project.totalAreaM2,
+            }}
+          />
+        ) : null}
       </div>
 
       <div className="mt-10 grid gap-10 lg:grid-cols-[5fr_7fr] lg:gap-14">
         <div>
-          <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
-            План
-          </p>
+          <p className={labelClassName}>План</p>
           {planUrl ? (
             <>
               <div className="overflow-hidden border border-line bg-muted">
@@ -143,57 +181,66 @@ export default async function ProjectPage({ params }: { params: Params }) {
                 <span className="font-mono text-[13px] text-ink-2">
                   {fileNameFromKey(project.planUrl ?? '')}
                 </span>
-                <FileUploader
-                  inputId="plan"
-                  field="plan"
-                  accept={PLAN_ACCEPT}
-                  maxBytes={PLAN_MAX_BYTES}
-                  label="Заменить"
-                  pendingLabel="Загружаем…"
-                  successTitle="План загружен"
-                  action={uploadPlanForProject}
-                />
+                {isOwner ? (
+                  <FileUploader
+                    inputId="plan"
+                    field="plan"
+                    accept={PLAN_ACCEPT}
+                    maxBytes={PLAN_MAX_BYTES}
+                    label="Заменить"
+                    pendingLabel="Загружаем…"
+                    successTitle="План загружен"
+                    action={uploadPlanForProject}
+                  />
+                ) : null}
               </div>
             </>
           ) : (
             <>
               <div className="grid aspect-[4/3] place-items-center border border-dashed border-line-strong p-6 text-center text-[15px] leading-relaxed text-ink-2">
-                <p>
-                  {PLAN_LIMIT_TEXT}.
-                  <br />
-                  Без плана тоже можно: комнаты добавляются вручную.
-                </p>
+                {isOwner ? (
+                  <p>
+                    {PLAN_LIMIT_TEXT}.
+                    <br />
+                    Без плана тоже можно: комнаты добавляются вручную.
+                  </p>
+                ) : (
+                  <p>Плана пока нет. Его загружает владелец проекта.</p>
+                )}
               </div>
-              <div className="mt-4">
-                <FileUploader
-                  inputId="plan"
-                  field="plan"
-                  accept={PLAN_ACCEPT}
-                  maxBytes={PLAN_MAX_BYTES}
-                  label="Загрузить план"
-                  pendingLabel="Загружаем…"
-                  successTitle="План загружен"
-                  action={uploadPlanForProject}
-                />
-              </div>
+              {isOwner ? (
+                <div className="mt-4">
+                  <FileUploader
+                    inputId="plan"
+                    field="plan"
+                    accept={PLAN_ACCEPT}
+                    maxBytes={PLAN_MAX_BYTES}
+                    label="Загрузить план"
+                    pendingLabel="Загружаем…"
+                    successTitle="План загружен"
+                    action={uploadPlanForProject}
+                  />
+                </div>
+              ) : null}
             </>
           )}
         </div>
 
         <div>
-          <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
-            Комнаты
-          </p>
+          <p className={labelClassName}>Комнаты</p>
           {project.rooms.length === 0 ? (
             <div className="border-y border-line py-7">
               <h2 className="font-serif text-2xl leading-tight text-ink">Комнат пока нет.</h2>
               <p className="mt-2 max-w-md text-[15px] text-ink-2">
-                Добавьте те, что хотите обставить: гостиную, спальню или кухню. Остальные типы
-                появятся позже.
+                {isOwner
+                  ? 'Добавьте те, что хотите обставить: гостиную, спальню или кухню. Остальные типы появятся позже.'
+                  : 'Комнаты добавляет владелец проекта: как только они появятся, здесь будут концепты.'}
               </p>
-              <div className="mt-4">
-                <AddRoomDialog projectId={project.id} />
-              </div>
+              {isOwner ? (
+                <div className="mt-4">
+                  <AddRoomDialog projectId={project.id} />
+                </div>
+              ) : null}
             </div>
           ) : (
             <>
@@ -216,13 +263,26 @@ export default async function ProjectPage({ params }: { params: Params }) {
                   </li>
                 ))}
               </ul>
-              <div className="mt-5">
-                <AddRoomDialog projectId={project.id} />
-              </div>
+              {isOwner ? (
+                <div className="mt-5">
+                  <AddRoomDialog projectId={project.id} />
+                </div>
+              ) : null}
             </>
           )}
         </div>
       </div>
+
+      {isOwner && collaboration ? (
+        <div className="mt-12 border-t border-line pt-6">
+          <p className={labelClassName}>Вдвоём</p>
+          <TogetherCard
+            projectId={project.id}
+            collaboration={collaboration}
+            allowed={inviteAllowed}
+          />
+        </div>
+      ) : null}
 
       <div className="mt-12 flex flex-wrap items-end justify-between gap-4 border-t border-line pt-6">
         <div>
@@ -241,10 +301,12 @@ export default async function ProjectPage({ params }: { params: Params }) {
         </Link>
       </div>
 
-      <div className="mt-14 border-t border-line pt-5">
-        <DeleteProjectDialog projectId={project.id} title={project.title} />
-      </div>
-      <ChatDrawer projectId={project.id} />
+      {isOwner ? (
+        <div className="mt-14 border-t border-line pt-5">
+          <DeleteProjectDialog projectId={project.id} title={project.title} />
+        </div>
+      ) : null}
+      <ChatDrawer projectId={project.id} canRun={isOwner} />
     </section>
   )
 }

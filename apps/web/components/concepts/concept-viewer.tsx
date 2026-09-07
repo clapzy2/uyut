@@ -89,12 +89,14 @@ function MatchesPanel({
   quantities,
   adding,
   onAdd,
+  canAdd,
 }: {
   object: ObjectView | null
   /** Сколько каждого товара уже в списке покупок проекта */
   quantities: Record<string, number>
   adding: string | null
   onAdd: (match: MatchView, object: ObjectView) => void
+  canAdd: boolean
 }) {
   if (!object) {
     return (
@@ -173,28 +175,34 @@ function MatchesPanel({
                     {formatPrice(match.oldPriceKopecks)}
                   </span>
                 ) : null}
-                <button
-                  type="button"
-                  disabled={adding !== null}
-                  aria-label={
-                    inList > 0
-                      ? `${match.title}: в списке ${inList}, добавить ещё`
-                      : `Добавить в список: ${match.title}`
-                  }
-                  onClick={() => onAdd(match, object)}
-                  className={cn(
-                    'h-7 rounded-full border px-2.5 text-[12px] transition-colors duration-200 ease-ui disabled:opacity-50',
-                    inList > 0
-                      ? 'border-accent bg-accent-tint text-accent'
-                      : 'border-line-strong text-ink-2 hover:border-accent hover:text-accent',
-                  )}
-                >
-                  {adding === match.id
-                    ? 'Добавляем…'
-                    : inList > 0
-                      ? `В списке · ${inList}`
-                      : 'В список'}
-                </button>
+                {!canAdd ? (
+                  inList > 0 ? (
+                    <span className="font-mono text-[12px] text-ink-2">в списке · {inList}</span>
+                  ) : null
+                ) : (
+                  <button
+                    type="button"
+                    disabled={adding !== null}
+                    aria-label={
+                      inList > 0
+                        ? `${match.title}: в списке ${inList}, добавить ещё`
+                        : `Добавить в список: ${match.title}`
+                    }
+                    onClick={() => onAdd(match, object)}
+                    className={cn(
+                      'h-7 rounded-full border px-2.5 text-[12px] transition-colors duration-200 ease-ui disabled:opacity-50',
+                      inList > 0
+                        ? 'border-accent bg-accent-tint text-accent'
+                        : 'border-line-strong text-ink-2 hover:border-accent hover:text-accent',
+                    )}
+                  >
+                    {adding === match.id
+                      ? 'Добавляем…'
+                      : inList > 0
+                        ? `В списке · ${inList}`
+                        : 'В список'}
+                  </button>
+                )}
               </span>
             </li>
           )
@@ -212,6 +220,7 @@ function MatchesPanel({
 export function ConceptViewer({ data }: { data: ConceptPageData }) {
   const router = useRouter()
   const { concept, objects } = data
+  const canEdit = data.role === 'owner'
   const [selectedId, setSelectedId] = useState<string | null>(objects[0]?.id ?? null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [liked, setLiked] = useState<boolean | null>(concept.liked)
@@ -469,14 +478,16 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
         {concept.editedRenderKey ? (
           <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-ink-2">
             <span>Цвета изменены.</span>
-            <button
-              type="button"
-              onClick={reset}
-              disabled={saving}
-              className="underline decoration-line-strong underline-offset-4 hover:text-ink disabled:opacity-50"
-            >
-              Вернуть исходный
-            </button>
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={reset}
+                disabled={saving}
+                className="underline decoration-line-strong underline-offset-4 hover:text-ink disabled:opacity-50"
+              >
+                Вернуть исходный
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -509,6 +520,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
           quantities={data.shopping.byCatalogItem}
           adding={adding}
           onAdd={addToList}
+          canAdd={canEdit}
         />
         <div className="flex flex-wrap items-baseline justify-between gap-2 border-t border-line pt-4 text-[13px] text-ink-2">
           <span>
@@ -523,7 +535,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
             Итоги проекта
           </Link>
         </div>
-        {selected?.maskKey && concept.renderKey ? (
+        {canEdit && selected?.maskKey && concept.renderKey ? (
           <div className="border-t border-line pt-4">
             <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
               Материал: {categoryLabels[selected.category].toLowerCase()}

@@ -5,6 +5,7 @@ import { notFound, redirect } from 'next/navigation'
 import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { EstimateCard } from '@/components/summary/estimate-card'
 import { ExportCard, type PaymentState } from '@/components/summary/export-card'
+import { PartnerExports } from '@/components/summary/partner-exports'
 import { ShoppingRows } from '@/components/summary/shopping-rows'
 import { applyPayment } from '@/lib/billing/apply'
 import { getPlan, getPurchase } from '@/lib/billing/repository'
@@ -12,7 +13,7 @@ import { formatPrice } from '@/lib/concepts/format'
 import { getEnv } from '@/lib/env'
 import { listExports } from '@/lib/exports/repository'
 import type { ExportRun } from '@/lib/exports/start'
-import { isUuid, NotFoundError } from '@/lib/projects/access'
+import { isUuid, NotFoundError, ProjectClosedError } from '@/lib/projects/access'
 import { formatArea, pluralRooms } from '@/lib/projects/format'
 import { getProject } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -86,11 +87,15 @@ export default async function SummaryPage({
   try {
     project = await getProject(session.user.id, id)
   } catch (error) {
+    if (error instanceof ProjectClosedError) {
+      redirect(`/projects/${id}`)
+    }
     if (error instanceof NotFoundError) {
       notFound()
     }
     throw error
   }
+  const isOwner = project.role === 'owner'
 
   const [list, exports, plan] = await Promise.all([
     getShoppingList(session.user.id, project.id),
@@ -148,25 +153,35 @@ export default async function SummaryPage({
               ? ` · ${pluralPositions(list.items.length)} · ${pluralItems(list.count)}`
               : ''}
           </p>
-          <ShoppingRows items={list.items} projectId={project.id} />
+          <ShoppingRows items={list.items} projectId={project.id} readOnly={!isOwner} />
         </div>
         <aside className="flex flex-col gap-8">
-          <ExportCard
+          {isOwner ? (
+            <ExportCard
+              projectId={project.id}
+              exports={exports}
+              contact={project.contact ?? null}
+              isPaid={project.isPaid}
+              plan={plan}
+              hasRooms={project.rooms.length > 0}
+              projectPriceKopecks={env.PROJECT_PRICE_KOPECKS}
+              proPriceKopecks={env.PRO_PRICE_KOPECKS}
+              paymentState={settled.state}
+              initialRun={settled.run}
+            />
+          ) : (
+            <PartnerExports exports={exports} />
+          )}
+          <EstimateCard
+            estimate={estimate}
+            rooms={rooms}
+            rates={rates}
             projectId={project.id}
-            exports={exports}
-            contact={project.contact ?? null}
-            isPaid={project.isPaid}
-            plan={plan}
-            hasRooms={project.rooms.length > 0}
-            projectPriceKopecks={env.PROJECT_PRICE_KOPECKS}
-            proPriceKopecks={env.PRO_PRICE_KOPECKS}
-            paymentState={settled.state}
-            initialRun={settled.run}
+            readOnly={!isOwner}
           />
-          <EstimateCard estimate={estimate} rooms={rooms} rates={rates} projectId={project.id} />
         </aside>
       </div>
-      <ChatDrawer projectId={project.id} />
+      <ChatDrawer projectId={project.id} canRun={isOwner} />
     </section>
   )
 }

@@ -49,9 +49,11 @@ function Line({
 function RoomWorksRow({
   room,
   works,
+  readOnly,
 }: {
   room: EstimateRoomRow
   works: Estimate['works']['rooms'][number]
+  readOnly: boolean
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
@@ -89,7 +91,11 @@ function RoomWorksRow({
           {formatPrice(works.totalKopecks)}
         </span>
       </div>
-      {room.condition === 'finished' ? (
+      {room.condition === 'finished' && readOnly ? (
+        <span className="text-[13px] text-ink-2">
+          {room.refreshFinish ? 'с обновлением чистовой отделки' : 'без обновления отделки'}
+        </span>
+      ) : room.condition === 'finished' ? (
         <Checkbox
           id={`refresh-${room.id}`}
           label={<span className="text-[13px] text-ink-2">Обновить чистовую отделку</span>}
@@ -107,11 +113,13 @@ export function EstimateCard({
   rooms,
   rates,
   projectId,
+  readOnly = false,
 }: {
   estimate: Estimate
   rooms: EstimateRoomRow[]
   rates: WorksRates
   projectId: string
+  readOnly?: boolean
 }) {
   const remaining = estimate.remainingKopecks
   const freeLabel =
@@ -197,7 +205,9 @@ export function EstimateCard({
           <ul className="mt-2 divide-y divide-line border-y border-line">
             {rooms.map((room) => {
               const works = estimate.works.rooms.find((entry) => entry.id === room.id)
-              return works ? <RoomWorksRow key={room.id} room={room} works={works} /> : null
+              return works ? (
+                <RoomWorksRow key={room.id} room={room} works={works} readOnly={readOnly} />
+              ) : null
             })}
           </ul>
         )}

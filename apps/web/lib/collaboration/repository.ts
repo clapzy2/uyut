@@ -266,3 +266,12 @@ export async function hasPassword(userId: string): Promise<boolean> {
     .limit(1)
   return Boolean(row)
 }
+
+export async function ownerDisplayName(ownerId: string): Promise<string> {
+  const [row] = await getDb()
+    .select({ name: users.displayName, email: users.email })
+    .from(users)
+    .where(eq(users.id, ownerId))
+    .limit(1)
+  return row?.name ?? row?.email.split('@')[0] ?? 'владельца'
+}

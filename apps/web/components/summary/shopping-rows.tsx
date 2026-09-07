@@ -31,7 +31,7 @@ function groupByRoom(items: ShoppingItemView[]): Group[] {
   return ordered
 }
 
-function Row({ item }: { item: ShoppingItemView }) {
+function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
 
@@ -80,39 +80,45 @@ function Row({ item }: { item: ShoppingItemView }) {
             : null}
         </span>
       </span>
-      <span className="inline-flex h-8 shrink-0 items-stretch rounded-full border border-line-strong font-mono text-[13px] text-ink">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void run(() => setItemQuantity(item.id, item.quantity - 1))}
-          aria-label={item.quantity === 1 ? 'Убрать из списка' : 'Меньше на один'}
-          className="w-8 text-ink-2 transition-colors duration-200 ease-ui hover:text-ink disabled:opacity-50"
-        >
-          −
-        </button>
-        <span className="grid min-w-7 place-items-center border-x border-line-strong px-1">
-          {item.quantity}
+      {readOnly ? (
+        <span className="shrink-0 font-mono text-[13px] text-ink-2">× {item.quantity}</span>
+      ) : (
+        <span className="inline-flex h-8 shrink-0 items-stretch rounded-full border border-line-strong font-mono text-[13px] text-ink">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void run(() => setItemQuantity(item.id, item.quantity - 1))}
+            aria-label={item.quantity === 1 ? 'Убрать из списка' : 'Меньше на один'}
+            className="w-8 text-ink-2 transition-colors duration-200 ease-ui hover:text-ink disabled:opacity-50"
+          >
+            −
+          </button>
+          <span className="grid min-w-7 place-items-center border-x border-line-strong px-1">
+            {item.quantity}
+          </span>
+          <button
+            type="button"
+            disabled={busy || item.quantity >= 99}
+            onClick={() => void run(() => setItemQuantity(item.id, item.quantity + 1))}
+            aria-label="Больше на один"
+            className="w-8 text-ink-2 transition-colors duration-200 ease-ui hover:text-ink disabled:opacity-50"
+          >
+            +
+          </button>
         </span>
-        <button
-          type="button"
-          disabled={busy || item.quantity >= 99}
-          onClick={() => void run(() => setItemQuantity(item.id, item.quantity + 1))}
-          aria-label="Больше на один"
-          className="w-8 text-ink-2 transition-colors duration-200 ease-ui hover:text-ink disabled:opacity-50"
-        >
-          +
-        </button>
-      </span>
+      )}
       <span className="flex shrink-0 flex-col items-end gap-1">
         <span className="font-mono text-[14px] text-ink">{formatPrice(item.totalKopecks)}</span>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void run(() => removeItem(item.id))}
-          className="text-[12px] text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent disabled:opacity-50"
-        >
-          убрать
-        </button>
+        {readOnly ? null : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void run(() => removeItem(item.id))}
+            className="text-[12px] text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent disabled:opacity-50"
+          >
+            убрать
+          </button>
+        )}
       </span>
     </li>
   )
@@ -121,17 +127,21 @@ function Row({ item }: { item: ShoppingItemView }) {
 export function ShoppingRows({
   items,
   projectId,
+  readOnly = false,
 }: {
   items: ShoppingItemView[]
   projectId: string
+  /** Второй участник видит список, но не меняет его */
+  readOnly?: boolean
 }) {
   if (items.length === 0) {
     return (
       <div className="border-y border-line py-8">
         <h2 className="font-serif text-2xl leading-tight text-ink">Список пока пуст.</h2>
         <p className="mt-2 max-w-md text-[15px] leading-relaxed text-ink-2">
-          Откройте концепт комнаты, нажмите на предмет на рендере и выберите товар из подборки:
-          кнопка «В список» под ценой добавит его сюда.
+          {readOnly
+            ? 'Владелец проекта собирает его из подбора товаров к концептам. Как только что-то появится, вы увидите это здесь.'
+            : 'Откройте концепт комнаты, нажмите на предмет на рендере и выберите товар из подборки: кнопка «В список» под ценой добавит его сюда.'}
         </p>
         <Link
           href={`/projects/${projectId}`}
@@ -151,7 +161,7 @@ export function ShoppingRows({
           </p>
           <ul className="divide-y divide-line border-y border-line">
             {group.items.map((item) => (
-              <Row key={item.id} item={item} />
+              <Row key={item.id} item={item} readOnly={readOnly} />
             ))}
           </ul>
         </section>
