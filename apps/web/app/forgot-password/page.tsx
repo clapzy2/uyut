@@ -7,6 +7,7 @@ export const metadata: Metadata = { title: 'Восстановление пар�
 export default function ForgotPasswordPage() {
   return (
     <AuthShell
+      eyebrow="Восстановление пароля"
       title="Восстановим доступ."
       lede="Пришлём ссылку, по которой можно задать новый пароль. Она работает полчаса."
     >
