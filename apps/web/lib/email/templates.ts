@@ -98,6 +98,44 @@ export function proChargedLetter(input: {
   )
 }
 
+/**
+ * Письмо о готовом проекте отправляет сайт, а не задача в очереди. Очередь живёт за границей,
+ * и адрес почты туда передавать нельзя — так написано в нашей политике. Задача только сообщает
+ * серверу, что документ собран, а кому писать, сервер выясняет сам.
+ *
+ * Ссылок здесь две, поэтому общий letter() не подходит: он рассчитан на одну.
+ */
+export function projectReadyLetter(input: {
+  projectTitle: string
+  pdfUrl: string
+  summaryUrl: string
+  ttlHours: number
+}): Letter {
+  const days = Math.max(1, Math.round(input.ttlHours / 24))
+  const word = days === 1 ? 'день' : days < 5 ? 'дня' : 'дней'
+  const paragraphs = [
+    'Оплата прошла, и документ собран: обложка, комнаты, список покупок, смета и задание для бригады — без водяного знака.',
+    `Прямая ссылка на PDF работает ${days} ${word}. Позже файл всегда можно скачать заново со страницы итогов проекта.`,
+  ]
+  const links = [
+    { url: input.pdfUrl, text: 'Скачать PDF' },
+    { url: input.summaryUrl, text: 'Открыть итоги проекта' },
+  ]
+  return {
+    subject: `Проект «${input.projectTitle}» готов`,
+    text: [...paragraphs, ...links.map((link) => `${link.text}: ${link.url}`)].join('\n\n'),
+    html: [
+      '<div style="font-family: Georgia, serif; font-size: 17px; line-height: 1.55; color: #262220; max-width: 36em;">',
+      ...paragraphs.map((p) => `<p style="margin: 0 0 1em;">${p}</p>`),
+      ...links.map(
+        (link) =>
+          `<p style="margin: 1.5em 0 0;"><a href="${link.url}" style="color: #7c2f3b;">${link.text}</a></p>`,
+      ),
+      '</div>',
+    ].join(''),
+  }
+}
+
 export function proChargeFailedLetter(input: { periodEnd: Date; renewUrl: string }): Letter {
   return letter(
     'Не получилось продлить Pro',
