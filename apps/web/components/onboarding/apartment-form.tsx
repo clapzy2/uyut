@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { createApartment } from '@/actions/onboarding'
 import { FormError } from '@/components/form-error'
+import { localKey } from '@/lib/local-key'
 import {
   houseSeries,
   type SeriesRoomCount,
@@ -24,7 +25,7 @@ type ManualRoom = {
 }
 
 function roomKey(): string {
-  return crypto.randomUUID()
+  return localKey('room')
 }
 
 const modeLabels: Record<Mode, string> = {
