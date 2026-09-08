@@ -27,6 +27,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 RUN groupadd --system app && useradd --system --gid app --create-home app
 COPY --from=build --chown=app:app /app/apps/web/.next/standalone ./
 COPY --from=build --chown=app:app /app/apps/web/.next/static ./apps/web/.next/static
+# Сборка standalone кладёт в вывод только код: public и static нужно копировать руками,
+# иначе фотографии лендинга и картинки библиотеки стилей отдают 404.
+COPY --from=build --chown=app:app /app/apps/web/public ./apps/web/public
 COPY --from=build --chown=app:app /app/out/migrate.mjs ./migrate.mjs
 COPY --from=build --chown=app:app /app/packages/db/drizzle ./drizzle
 USER app
