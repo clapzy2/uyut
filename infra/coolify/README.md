@@ -49,6 +49,8 @@ curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
 
 **Redis с REST-прокси.** Тип Docker Compose, вставить содержимое `infra/coolify/redis-srh.compose.yml`. Задать переменные `REDIS_PASSWORD` и `SRH_TOKEN` (длинные случайные строки). Включить «Connect to predefined network», чтобы приложение видело сервис по имени `redis-http`.
 
+Короткое имя `redis-http` доступно только внутри самого сервиса. Приложение стоит в общей сети `coolify` и видит контейнер под полным именем — `redis-http-<uuid сервиса>`. Uuid виден в адресе ресурса в панели или командой `docker ps` на сервере. Если оставить короткое имя, приложение поднимется, но каждое обращение к Redis будет падать на разрешении имени.
+
 **Приложение.** Тип Application → Private repository (GitHub App), репозиторий `uyut`, ветка `main`.
 - Build pack: Dockerfile.
 - Base directory: `/`.
@@ -69,7 +71,7 @@ curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
 |---|---|
 | `APP_URL` | `https://<ваш домен>` |
 | `DATABASE_URL` | внутренний URL PostgreSQL из Coolify |
-| `UPSTASH_REDIS_REST_URL` | `http://redis-http:80` |
+| `UPSTASH_REDIS_REST_URL` | `http://redis-http-<uuid сервиса>:80` — полное имя контейнера, см. ниже |
 | `UPSTASH_REDIS_REST_TOKEN` | значение `SRH_TOKEN` |
 | `S3_ENDPOINT` | `https://s3.twcstorage.ru` — адрес хранилища из панели |
 | `S3_REGION` | `ru-1` |

@@ -1,5 +1,6 @@
 # Redis и REST-прокси к нему как один ресурс Coolify (тип Docker Compose).
-# Переменные REDIS_PASSWORD и SRH_TOKEN задаются в Coolify. Приложение ходит на http://redis-http:80.
+# Переменные REDIS_PASSWORD и SRH_TOKEN задаются в Coolify. Адрес для приложения
+# смотри в README: короткое имя redis-http доступно только внутри самого сервиса.
 
 services:
   redis:
@@ -18,7 +19,9 @@ services:
     environment:
       SRH_MODE: env
       SRH_TOKEN: ${SRH_TOKEN}
-      SRH_CONNECTION_STRING: redis://:${REDIS_PASSWORD}@redis:6379
+      # Имя пользователя обязательно: без него клиент шлёт AUTH с пустым именем, и Redis 7
+      # отвечает WRONGPASS, хотя пароль верный.
+      SRH_CONNECTION_STRING: redis://default:${REDIS_PASSWORD}@redis:6379
     depends_on:
       redis:
         condition: service_healthy
