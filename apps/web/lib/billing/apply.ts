@@ -5,7 +5,6 @@ import {
   findPurchaseByPayment,
   markProjectPaid,
   markPurchasePaid,
-  userEmail,
 } from '@/lib/billing/repository'
 import { getEnv } from '@/lib/env'
 import { type ExportRun, startExport } from '@/lib/exports/start'
@@ -77,10 +76,10 @@ export async function applyPayment(paymentId: string): Promise<ApplyResult> {
   let exportRun: ExportRun | undefined
   if (purchase.kind === 'project' && purchase.projectId && getEnv().TRIGGER_SECRET_KEY) {
     try {
-      const email = await userEmail(purchase.userId)
-      exportRun = await startExport(purchase.userId, purchase.projectId, {
-        ...(email ? { notifyEmail: email } : {}),
-      })
+      // Адрес почты в задание не кладём: очередь живёт за границей, а политика обещает, что
+      // адреса туда не уезжают. Задача, собрав документ, позовёт нас обратно, и письмо уйдёт
+      // с нашего сервера — см. app/api/exports/ready.
+      exportRun = await startExport(purchase.userId, purchase.projectId, {})
     } catch (error) {
       console.error('paid export did not start', error)
     }
