@@ -1,5 +1,8 @@
 'use client'
 
+// Панель — не центрированное окно, поэтому DialogContent из @uyut/ui не подходит,
+// но механизм модалок в проекте один: те же примитивы Radix, только со своим скином
+import * as RadixDialog from '@radix-ui/react-dialog'
 import type { ChatCard, ChatProposal } from '@uyut/db'
 import { Button, cn, toast } from '@uyut/ui'
 import { AnimatePresence, motion } from 'motion/react'
@@ -29,6 +32,13 @@ type Scope = {
 
 const TYPE_INTERVAL_MS = 30
 
+// Сдвиг фазы вшит в утилиту целиком, иначе Tailwind не найдёт класс при сборке
+const TYPING_DOTS = [
+  'animate-[typing-dot_1200ms_var(--ease-ui)_0ms_infinite]',
+  'animate-[typing-dot_1200ms_var(--ease-ui)_180ms_infinite]',
+  'animate-[typing-dot_1200ms_var(--ease-ui)_360ms_infinite]',
+]
+
 function suggestions(scope: Scope): string[] {
   if (scope.conceptId) {
     return ['Почему тут такие стены?', 'Подбери диван дешевле', 'Сколько выходит по смете?']
@@ -43,6 +53,25 @@ function suggestions(scope: Scope): string[] {
       : ['С чего начать?', 'Что нужно в эту комнату?', 'Какой стиль мне подойдёт?']
   }
   return ['С чего начать?', 'Сколько выходит по смете?', 'Что ещё нужно в квартиру?']
+}
+
+// Пауза между отправкой и первым символом ответа бывает заметной, и пустой пузырь выглядит как сбой
+function TypingDots() {
+  return (
+    <span
+      role="status"
+      aria-label="Помощник печатает"
+      className="inline-flex items-center gap-1 align-middle"
+    >
+      {TYPING_DOTS.map((animation) => (
+        <span
+          key={animation}
+          aria-hidden="true"
+          className={cn('size-1.5 rounded-full bg-ink-2', animation, 'motion-reduce:animate-none')}
+        />
+      ))}
+    </span>
+  )
 }
 
 function ProductCards({ cards }: { cards: ChatCard[] }) {
@@ -192,18 +221,6 @@ export function ChatDrawer(scope: Scope) {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
   }, [messages])
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setOpen(false)
-      }
-    }
-    if (open) {
-      window.addEventListener('keydown', onKeyDown)
-    }
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open])
-
   const patchLast = useCallback((patch: (message: Message) => Message) => {
     setMessages((current) => {
       const last = current[current.length - 1]
@@ -321,12 +338,10 @@ export function ChatDrawer(scope: Scope) {
   const chips = suggestions(scope)
 
   return (
-    <>
+    <RadixDialog.Root open={open} onOpenChange={setOpen}>
       {/* Кнопка висит поверх страницы, поэтому под содержимым нужен запас, иначе она ложится на последнюю строку */}
       <div aria-hidden="true" className="h-20 sm:h-0" />
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
+      <RadixDialog.Trigger
         className={cn(
           'fixed bottom-5 right-5 z-40 inline-flex h-12 items-center gap-2 rounded-full bg-accent px-5 text-[15px] font-medium text-on-accent shadow-soft transition-colors duration-200 ease-ui hover:bg-accent-hover',
           open && 'pointer-events-none opacity-0',
@@ -334,139 +349,137 @@ export function ChatDrawer(scope: Scope) {
         aria-label="Открыть помощника"
       >
         <span aria-hidden="true">✦</span> Спросить
-      </button>
+      </RadixDialog.Trigger>
 
+      {/* forceMount отдаёт появление и уход панели motion: Radix иначе снимает разметку сразу */}
       <AnimatePresence>
         {open ? (
-          <>
-            <motion.button
-              type="button"
-              aria-label="Закрыть помощника"
-              className="fixed inset-0 z-40 bg-ink/30"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setOpen(false)}
-            />
-            <motion.aside
-              role="dialog"
-              aria-label="Помощник"
-              className="fixed inset-y-0 right-0 z-50 flex w-full flex-col bg-page shadow-soft sm:w-[420px] sm:border-l sm:border-line"
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ type: 'spring', stiffness: 380, damping: 38 }}
-            >
-              <header className="flex items-center justify-between border-b border-line px-5 py-4">
-                <h2 className="font-serif text-2xl text-ink">Помощник</h2>
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="grid h-9 w-9 place-items-center rounded-full text-ink-2 transition-colors duration-200 ease-ui hover:bg-muted hover:text-ink"
-                  aria-label="Закрыть"
-                >
-                  ✕
-                </button>
-              </header>
-
-              <div ref={listRef} className="flex-1 overflow-y-auto px-5 py-4">
-                {!loaded ? (
-                  <p className="text-[15px] text-ink-2">Загружаем разговор…</p>
-                ) : messages.length === 0 ? (
-                  <div className="rounded-md bg-muted px-4 py-3 text-[15px] leading-relaxed text-ink">
-                    Я помощник Uyut. Помогу с интерьером этой квартиры: подобрать мебель, объяснить
-                    концепт, посчитать смету.
-                  </div>
-                ) : null}
-                <ul className="flex flex-col gap-3">
-                  {messages.map((message) => (
-                    <li
-                      key={message.id}
-                      className={cn(
-                        'max-w-[90%] rounded-xl px-3.5 py-2.5 text-[15px] leading-relaxed',
-                        message.role === 'user'
-                          ? 'self-end rounded-br-sm bg-accent-tint text-ink'
-                          : 'self-start rounded-bl-sm bg-muted text-ink',
-                      )}
-                    >
-                      <span className="whitespace-pre-wrap">{message.content}</span>
-                      {message.streaming && message.content === '' ? (
-                        <span className="text-ink-2">…</span>
-                      ) : null}
-                      {message.cards && message.cards.length > 0 ? (
-                        <ProductCards cards={message.cards} />
-                      ) : null}
-                      {message.proposal && !message.id.startsWith('local-') ? (
-                        <ProposalCard
-                          canRun={scope.canRun ?? true}
-                          messageId={message.id}
-                          proposal={message.proposal}
-                          onChange={(proposal) =>
-                            setMessages((current) =>
-                              current.map((item) =>
-                                item.id === message.id ? { ...item, proposal } : item,
-                              ),
-                            )
-                          }
-                        />
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="border-t border-line px-5 pb-5 pt-3">
-                {messages.length < 2 ? (
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    {chips.map((chip) => (
-                      <button
-                        key={chip}
-                        type="button"
-                        onClick={() => void send(chip)}
-                        disabled={sending}
-                        className="rounded-full border border-control px-3 py-1.5 text-[13px] text-ink-2 transition-colors duration-200 ease-ui hover:border-accent hover:text-accent disabled:opacity-50"
-                      >
-                        {chip}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                <form
-                  method="post"
-                  className="flex items-end gap-2"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    void send(input)
-                  }}
-                >
-                  <textarea
-                    value={input}
-                    onChange={(event) => setInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !event.shiftKey) {
-                        event.preventDefault()
-                        void send(input)
-                      }
-                    }}
-                    rows={1}
-                    maxLength={2000}
-                    placeholder="Напишите вопрос…"
-                    aria-label="Сообщение помощнику"
-                    className="max-h-32 min-h-11 flex-1 resize-none rounded-sm border border-line bg-paper px-3.5 py-2.5 text-[15px] text-ink placeholder:text-ink-2/70 focus:border-accent focus:outline-none"
-                  />
-                  <Button
-                    type="submit"
-                    disabled={sending || input.trim() === ''}
-                    aria-label="Отправить"
+          <RadixDialog.Portal forceMount>
+            <RadixDialog.Overlay asChild forceMount>
+              <motion.div
+                className="fixed inset-0 z-40 bg-ink/30"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              />
+            </RadixDialog.Overlay>
+            <RadixDialog.Content asChild forceMount aria-describedby={undefined}>
+              <motion.aside
+                className="fixed inset-y-0 right-0 z-50 flex w-full flex-col bg-page shadow-soft outline-none sm:w-[420px] sm:border-l sm:border-line"
+                initial={{ x: '100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '100%' }}
+                transition={{ type: 'spring', stiffness: 380, damping: 38 }}
+              >
+                <header className="flex items-center justify-between border-b border-line px-5 py-4">
+                  <RadixDialog.Title className="font-serif text-2xl text-ink">
+                    Помощник
+                  </RadixDialog.Title>
+                  <RadixDialog.Close
+                    className="grid h-9 w-9 place-items-center rounded-full text-ink-2 transition-colors duration-200 ease-ui hover:bg-muted hover:text-ink"
+                    aria-label="Закрыть"
                   >
-                    →
-                  </Button>
-                </form>
-              </div>
-            </motion.aside>
-          </>
+                    ✕
+                  </RadixDialog.Close>
+                </header>
+
+                <div ref={listRef} className="flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+                  {!loaded ? (
+                    <p className="text-[15px] text-ink-2">Загружаем разговор…</p>
+                  ) : messages.length === 0 ? (
+                    <div className="rounded-md bg-muted px-4 py-3 text-[15px] leading-relaxed text-ink">
+                      Я помощник Uyut. Помогу с интерьером этой квартиры: подобрать мебель,
+                      объяснить концепт, посчитать смету.
+                    </div>
+                  ) : null}
+                  <ul className="flex flex-col gap-3">
+                    {messages.map((message) => (
+                      <li
+                        key={message.id}
+                        className={cn(
+                          'max-w-[90%] rounded-xl px-3.5 py-2.5 text-[15px] leading-relaxed',
+                          message.role === 'user'
+                            ? 'self-end rounded-br-sm bg-accent-tint text-ink'
+                            : 'self-start rounded-bl-sm bg-muted text-ink',
+                        )}
+                      >
+                        <span className="whitespace-pre-wrap">{message.content}</span>
+                        {message.streaming && message.content === '' ? <TypingDots /> : null}
+                        {message.cards && message.cards.length > 0 ? (
+                          <ProductCards cards={message.cards} />
+                        ) : null}
+                        {message.proposal && !message.id.startsWith('local-') ? (
+                          <ProposalCard
+                            canRun={scope.canRun ?? true}
+                            messageId={message.id}
+                            proposal={message.proposal}
+                            onChange={(proposal) =>
+                              setMessages((current) =>
+                                current.map((item) =>
+                                  item.id === message.id ? { ...item, proposal } : item,
+                                ),
+                              )
+                            }
+                          />
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="border-t border-line px-5 pb-5 pt-3">
+                  {messages.length < 2 ? (
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {chips.map((chip) => (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => void send(chip)}
+                          disabled={sending}
+                          className="rounded-full border border-control px-3 py-1.5 text-[13px] text-ink-2 transition-colors duration-200 ease-ui hover:border-accent hover:text-accent disabled:opacity-50"
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <form
+                    method="post"
+                    className="flex items-end gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      void send(input)
+                    }}
+                  >
+                    <textarea
+                      value={input}
+                      onChange={(event) => setInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !event.shiftKey) {
+                          event.preventDefault()
+                          void send(input)
+                        }
+                      }}
+                      rows={1}
+                      maxLength={2000}
+                      placeholder="Напишите вопрос…"
+                      aria-label="Сообщение помощнику"
+                      className="max-h-32 min-h-11 flex-1 resize-none rounded-sm border border-line bg-paper px-3.5 py-2.5 text-[15px] text-ink placeholder:text-ink-2/70 focus:border-accent focus:outline-none"
+                    />
+                    <Button
+                      type="submit"
+                      disabled={sending || input.trim() === ''}
+                      aria-label="Отправить"
+                    >
+                      →
+                    </Button>
+                  </form>
+                </div>
+              </motion.aside>
+            </RadixDialog.Content>
+          </RadixDialog.Portal>
         ) : null}
       </AnimatePresence>
-    </>
+    </RadixDialog.Root>
   )
 }

@@ -56,7 +56,8 @@ function ToastCard({ item }: { item: ToastItem }) {
 export function Toaster() {
   const items = useToastStore((state) => state.items)
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
+    // Выше подложки и содержимого модалок: тост сообщает об исходе действия, начатого в них
+    <div className="pointer-events-none fixed bottom-4 right-4 z-60 flex flex-col items-end gap-2">
       {items.map((item) => (
         <ToastCard key={item.id} item={item} />
       ))}
