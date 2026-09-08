@@ -7,6 +7,7 @@
     "dev": "bun --env-file=../.env run trigger dev",
     "deploy": "trigger deploy",
     "typecheck": "tsc --noEmit",
+    "catalog:gdeslon": "bun --env-file=../.env run scripts/fetch-gdeslon.ts",
     "catalog:import": "bun --env-file=../.env run scripts/import-catalog.ts",
     "match-concept": "bun --env-file=../.env run scripts/match-concept.ts",
     "index-now": "bun --env-file=../.env run scripts/index-catalog-now.ts"

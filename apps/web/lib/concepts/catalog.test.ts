@@ -7,6 +7,7 @@ describe('categoryFromText', () => {
     expect(categoryFromText('Диван-кровать угловой')).toBe('sofa')
     expect(categoryFromText('Тумба прикроватная')).toBe('storage')
     expect(categoryFromText('Журнальный столик')).toBe('table')
+    expect(categoryFromText('Стол письменный «Сити 4», с тумбой')).toBe('table')
     expect(categoryFromText('Торшер напольный')).toBe('lamp')
     expect(categoryFromText('Ковёр 160×230')).toBe('rug')
   })

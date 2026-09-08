@@ -21,6 +21,7 @@ export const sourceLabels: Record<string, string> = {
   divan: 'Divan.ru',
   hoff: 'Hoff',
   askona: 'Askona',
+  gdeslon: 'Где Слон?',
   dump: 'каталог',
 }
 

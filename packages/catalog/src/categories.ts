@@ -16,12 +16,14 @@ const rules: Array<{ category: CatalogCategory; pattern: RegExp }> = [
     pattern: /светильник|люстр|лампа|торшер|бра\b|подвес|светод|lamp|light|chandelier/i,
   },
   { category: 'rug', pattern: /ков[её]р|ковров|палас|rug|carpet/i },
+  // Стол раньше хранения: «стол письменный с тумбой» — стол, а не тумба.
+  // «Прикроватная тумба» слова «стол» не содержит и остаётся хранением.
+  { category: 'table', pattern: /стол|table|desk/i },
   {
     category: 'storage',
     pattern:
       /стеллаж|шкаф|комод|тумб|полк|этажерк|витрин|консол|shelf|shelving|cabinet|wardrobe|dresser|drawers|sideboard|console/i,
   },
-  { category: 'table', pattern: /стол|table|desk/i },
   {
     category: 'decor',
     pattern:

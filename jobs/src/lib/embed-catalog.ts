@@ -7,8 +7,9 @@ import { readObject } from './s3'
 
 export type EmbedSummary = { processed: number; withImage: number; failedImages: number }
 
-const BATCH = 5
-// Без карты Voyage пропускает три запроса в минуту: между пачками выдерживаем паузу
+// Voyage без привязанной карты пропускает три запроса в минуту, а не три товара: считаем
+// пачками покрупнее, иначе каталог в пару тысяч позиций считался бы половину суток.
+const BATCH = 16
 const PAUSE_BETWEEN_BATCHES_MS = 21_000
 const IMAGE_SIDE = 512
 
@@ -118,5 +119,6 @@ export async function embedPendingCatalog(
 
 export function voyageOrNull(): Embedder | null {
   const key = optionalEnv('VOYAGE_API_KEY')
-  return key ? createVoyageEmbedder(key) : null
+  // В пачке шестнадцать картинок в base64: тридцати секунд на такой запрос не хватает
+  return key ? createVoyageEmbedder(key, { timeoutMs: 120_000 }) : null
 }
