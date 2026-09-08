@@ -20,6 +20,10 @@ RUN bun build packages/db/src/migrate.ts --target=node --outfile=/app/out/migrat
 FROM node:24-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 NEXT_TELEMETRY_DISABLED=1 MIGRATIONS_DIR=/app/drizzle
+# curl нужен не нам, а платформе: Coolify подменяет HEALTHCHECK своей командой и зовёт
+# curl или wget. В node:24-slim нет ни того, ни другого, и контейнер навсегда остаётся
+# нездоровым — трафик на него не пойдёт, хотя приложение отвечает.
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system app && useradd --system --gid app --create-home app
 COPY --from=build --chown=app:app /app/apps/web/.next/standalone ./
 COPY --from=build --chown=app:app /app/apps/web/.next/static ./apps/web/.next/static
