@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { removeItem, setItemQuantity } from '@/actions/shopping'
+import { AdDisclosure } from '@/components/ad-disclosure'
 import { EmptyArt } from '@/components/empty-art'
 import { formatPrice, sourceLabel } from '@/lib/concepts/format'
 import type { ShoppingItemView } from '@/lib/shopping/repository'
@@ -60,7 +61,7 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
   return (
     <li
       className={cn(
-        'grid grid-cols-[64px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 py-3 sm:flex sm:gap-4',
+        'grid grid-cols-[64px_minmax(0,1fr)] items-start gap-x-3 gap-y-2 py-3 sm:flex sm:items-center sm:gap-4',
         busy && 'opacity-60',
       )}
     >
@@ -80,6 +81,7 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
           {item.title}
         </a>
         <span className="block truncate text-[13px] text-ink-2">{meta.join(' · ')}</span>
+        <AdDisclosure text={item.adDisclosure} />
         <span className="mt-1 block font-mono text-[12px] text-ink-2 sm:hidden">
           {item.quantity > 1
             ? `${item.quantity} × ${formatPrice(item.variant?.priceKopecks ?? item.priceKopecks)}`

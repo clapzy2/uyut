@@ -46,6 +46,7 @@ async function cardFor(item: SimilarItem, objectId?: string): Promise<ChatCard> 
     priceKopecks: item.priceKopecks,
     imageUrl: url ? (key ? await presignedObjectUrl(key, 60 * 60) : url) : null,
     affiliateUrl: item.affiliateUrl,
+    adDisclosure: item.attributes?.adDisclosure?.trim() || undefined,
     objectId,
   }
 }

@@ -30,6 +30,11 @@ export type PdfShoppingItem = {
   quantity: number
   priceKopecks: number
   totalKopecks: number
+  /**
+   * Пометка рекламы от партнёрской сети целиком, вместе с erid. Необязательное: у товаров
+   * из источников без партнёрской программы её нет.
+   */
+  adDisclosure?: string
 }
 
 export type PdfShoppingGroup = { roomName: string; items: PdfShoppingItem[] }

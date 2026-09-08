@@ -9,6 +9,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { confirmRegeneration, dismissProposal, loadChatHistory } from '@/actions/chat'
+import { AdDisclosure } from '@/components/ad-disclosure'
 import { formatPrice } from '@/lib/concepts/format'
 
 type Message = {
@@ -103,6 +104,7 @@ function ProductCards({ cards }: { cards: ChatCard[] }) {
               </span>
             </span>
           </a>
+          <AdDisclosure text={card.adDisclosure ?? null} className="px-1.5" />
         </li>
       ))}
     </ul>

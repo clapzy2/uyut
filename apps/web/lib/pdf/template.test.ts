@@ -44,6 +44,7 @@ function sample(kind: PdfData['kind']): PdfData {
             quantity: 1,
             priceKopecks: 67_900_00,
             totalKopecks: 67_900_00,
+            adDisclosure: 'Реклама. Рекламодатель ООО "Мебель" ИНН 6679151160 erid 2SDnjcaRSuF',
           },
         ],
       },
@@ -86,6 +87,23 @@ describe('project PDF template', () => {
     expect(html).toContain('uyut.ru/p/05ec84b4')
     expect(html).toContain('+7 900 000-00-00')
     expect(html).not.toContain('wm-layer"></div>')
+  })
+
+  it('печатает пометку рекламы одним блоком и не теряет erid', () => {
+    const html = renderProjectHtml(sample('paid'), { fontCss: '' })
+    expect(html).toContain('подобрана по партнёрским программам')
+    // Кавычки в названии рекламодателя обязаны быть экранированы, строка приходит извне
+    expect(html).toContain('ООО &quot;Мебель&quot; ИНН 6679151160 erid 2SDnjcaRSuF')
+  })
+
+  it('без пометок блок рекламы не печатается', () => {
+    const data = sample('paid')
+    for (const group of data.shopping) {
+      for (const item of group.items) {
+        item.adDisclosure = undefined
+      }
+    }
+    expect(renderProjectHtml(data, { fontCss: '' })).not.toContain('партнёрским программам')
   })
 
   it('splits the summary into a headline and the rest of the text', () => {
