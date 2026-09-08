@@ -7,7 +7,7 @@ import { and, desc, eq, isNotNull, ne } from 'drizzle-orm'
 import { chromium } from 'playwright'
 import { z } from 'zod'
 import { db } from './lib/db'
-import { optionalEnv } from './lib/env'
+import { optionalEnv, requireEnv } from './lib/env'
 import { projectReadyLetter, sendMail } from './lib/mail'
 import { briefInput, buildPdfData, loadSnapshot } from './lib/pdf-data'
 import { presignedUrl, putObject } from './lib/s3'
@@ -180,7 +180,9 @@ export const exportPdf = task({
       if (notifyEmail && row.kind === 'paid') {
         try {
           const ttlHours = Number(optionalEnv('PDF_URL_TTL_HOURS') ?? 168) || 168
-          const appUrl = (optionalEnv('APP_URL') ?? 'https://uyut.ru').replace(/\/$/, '')
+          // Адрес обязателен: с запасным значением ссылка в письме увела бы покупателя
+          // на чужой домен, и он бы этого даже не заметил
+          const appUrl = requireEnv('APP_URL').replace(/\/$/, '')
           const sent = await sendMail(
             notifyEmail,
             projectReadyLetter({

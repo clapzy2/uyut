@@ -20,5 +20,8 @@ export default defineConfig({
     url: `${baseURL}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
+    // Сборка боевая, ключей магазина нет: без явного разрешения приложение не стартует,
+    // потому что в бою фейковая оплата означала бы раздачу проектов даром.
+    env: { ALLOW_FAKE_PAYMENTS: '1' },
   },
 })

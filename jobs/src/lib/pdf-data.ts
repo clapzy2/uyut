@@ -21,7 +21,7 @@ import { formatArea, formatPrice } from '@uyut/pdf'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db } from './db'
-import { optionalEnv } from './env'
+import { optionalEnv, requireEnv } from './env'
 import { clampText } from './text'
 
 export { clampText }
@@ -311,7 +311,8 @@ export async function buildPdfData(input: {
 }): Promise<PdfData> {
   const { snapshot, kind, options, rates } = input
   const { project } = snapshot
-  const appUrl = optionalEnv('APP_URL') ?? 'https://uyut.ru'
+  // Без адреса ссылки вшились бы в купленный PDF ведущими на чужой домен: лучше упасть
+  const appUrl = requireEnv('APP_URL')
 
   const estimate = estimateProject({
     rooms: snapshot.rooms,
