@@ -4,6 +4,7 @@ import { getEnv } from '@/lib/env'
 import { getRequestsByIpLimiter } from '@/lib/redis'
 import { CLIENT_IP_HEADER, resolveClientIp } from '@/lib/security/client-ip'
 import { contentSecurityPolicy, createNonce } from '@/lib/security/csp'
+import { isAuthCookieName, isStaleSessionBounce } from '@/lib/security/stale-session'
 
 const protectedPrefixes = ['/profile', '/projects', '/onboarding', '/verify-email']
 const guestOnlyPaths = new Set(['/login', '/register', '/forgot-password'])
@@ -54,6 +55,23 @@ export async function proxy(request: NextRequest) {
     const url = new URL('/login', request.url)
     url.searchParams.set('next', pathname)
     return withPolicy(NextResponse.redirect(url))
+  }
+
+  if (
+    isStaleSessionBounce({
+      hasSessionCookie: hasSession,
+      isGuestOnlyPath: guestOnlyPaths.has(pathname),
+      hasNextParam: request.nextUrl.searchParams.has('next'),
+    })
+  ) {
+    // Печенье есть, а сессии за ним нет: разворачивать обратно нельзя, получится круг.
+    const response = withPolicy(NextResponse.next({ request: { headers: requestHeaders } }))
+    for (const cookie of request.cookies.getAll()) {
+      if (isAuthCookieName(cookie.name)) {
+        response.cookies.delete(cookie.name)
+      }
+    }
+    return response
   }
 
   if (hasSession && guestOnlyPaths.has(pathname)) {
