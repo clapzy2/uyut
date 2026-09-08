@@ -73,3 +73,26 @@ jobs:
       - name: Stop services
         if: always()
         run: docker compose down -v
+
+  deploy-jobs:
+    # Задачи собираются в отдельный образ на стороне Trigger.dev и живут не на нашем сервере,
+    # поэтому выкатываются отдельно от приложения. Делаем это здесь, а не с машины разработчика:
+    # сборка идёт минутами и рвётся на нестабильном канале.
+    needs: checks
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - run: bun install --frozen-lockfile
+
+      - name: Deploy tasks
+        working-directory: jobs
+        env:
+          TRIGGER_ACCESS_TOKEN: ${{ secrets.TRIGGER_ACCESS_TOKEN }}
+        run: bunx trigger.dev@4.5.16 deploy --env prod
