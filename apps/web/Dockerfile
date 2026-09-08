@@ -5,7 +5,11 @@ FROM node:24-slim AS build
 COPY --from=oven/bun:1.4 /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1 DOCKER_BUILD=1
+# Значения NEXT_PUBLIC_* попадают в клиентский код на этапе сборки, поэтому их мало
+# передать контейнеру: без ARG они до next build не доходят, и аналитика молча молчит.
 ARG NEXT_PUBLIC_SENTRY_DSN
+ARG NEXT_PUBLIC_POSTHOG_KEY
+ARG NEXT_PUBLIC_POSTHOG_HOST
 COPY . .
 # bun раскладывает бинарники по node_modules каждого workspace, поэтому ставим зависимости
 # уже поверх исходников; кэш загрузок живёт в BuildKit и переживает пересборки
