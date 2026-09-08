@@ -1,6 +1,6 @@
 'use client'
 
-import { Button, chipClassName, cn, FieldHint, Input, Label, toast } from '@uyut/ui'
+import { Button, chipClassName, cn, FieldHint, Input, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { createApartment } from '@/actions/onboarding'
@@ -235,24 +235,39 @@ export function ApartmentForm() {
             её пишут в объявлении о продаже или в документах на квартиру. Не знаете — выберите
             «Впишу комнаты сам», это ничем не хуже.
           </p>
-          <div>
-            <Label htmlFor="series">Серия дома</Label>
-            <select
-              id="series"
-              value={seriesId}
-              onChange={(event) => setSeriesId(event.target.value)}
-              className="h-11 w-full border border-control bg-paper px-3 text-[15px] text-ink outline-none transition-colors duration-200 ease-ui focus-visible:border-accent"
-            >
+          {/* Списком, а не выпадающим: человек как раз и не знает свою серию, и решают тут
+              подсказки про эркеры и маленькую кухню. В выпадающем видна подсказка только уже
+              выбранной — то есть ровно тогда, когда она больше не нужна. */}
+          <fieldset className="m-0 border-0 p-0">
+            <legend className="mb-2 block text-xs font-medium uppercase tracking-[0.1em] text-ink-2">
+              Серия дома
+            </legend>
+            <div className="flex flex-col border-t border-line">
               {houseSeries.map((series) => (
-                <option key={series.id} value={series.id}>
-                  {series.label}
-                </option>
+                <label
+                  key={series.id}
+                  className="cursor-pointer border-b border-line has-[:checked]:border-l-2 has-[:checked]:border-l-accent has-[:checked]:bg-paper has-[:checked]:[&_[data-series-name]]:text-ink"
+                >
+                  <input
+                    type="radio"
+                    name="series"
+                    value={series.id}
+                    checked={seriesId === series.id}
+                    onChange={() => setSeriesId(series.id)}
+                    className="peer sr-only"
+                  />
+                  <span className="block px-3 py-3 transition-colors duration-200 ease-ui peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:-outline-offset-2 peer-focus-visible:outline-accent">
+                    <span data-series-name className="block text-[15px] text-ink-2">
+                      {series.label}
+                    </span>
+                    <span className="mt-0.5 block text-sm leading-snug text-ink-2">
+                      {series.hint}
+                    </span>
+                  </span>
+                </label>
               ))}
-            </select>
-            <FieldHint id="series-hint">
-              {houseSeries.find((series) => series.id === seriesId)?.hint}
-            </FieldHint>
-          </div>
+            </div>
+          </fieldset>
           <fieldset className="m-0 border-0 p-0">
             <legend className="mb-2 block text-xs font-medium uppercase tracking-[0.1em] text-ink-2">
               Сколько жилых комнат
