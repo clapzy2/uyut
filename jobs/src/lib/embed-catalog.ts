@@ -7,9 +7,11 @@ import { readObject } from './s3'
 
 export type EmbedSummary = { processed: number; withImage: number; failedImages: number }
 
-// Voyage без привязанной карты пропускает три запроса в минуту, а не три товара: считаем
-// пачками покрупнее, иначе каталог в пару тысяч позиций считался бы половину суток.
-const BATCH = 16
+// Voyage без привязанной карты ограничивает и число запросов, и объём: три запроса в минуту
+// при десяти тысячах токенов. Узкое место — второе: картинка 512×512 весит около 470 токенов,
+// плюс текст, и пачка из пяти с паузой в 21 секунду выходит примерно на девять тысяч в минуту.
+// Отсюда и размер пачки: больше — и запросы начнут отбиваться по 429.
+const BATCH = 5
 const PAUSE_BETWEEN_BATCHES_MS = 21_000
 const IMAGE_SIDE = 512
 
@@ -119,6 +121,6 @@ export async function embedPendingCatalog(
 
 export function voyageOrNull(): Embedder | null {
   const key = optionalEnv('VOYAGE_API_KEY')
-  // В пачке шестнадцать картинок в base64: тридцати секунд на такой запрос не хватает
-  return key ? createVoyageEmbedder(key, { timeoutMs: 120_000 }) : null
+  // Пять картинок в base64 плюс расчёт: тридцати секунд на такой запрос впритык
+  return key ? createVoyageEmbedder(key, { timeoutMs: 90_000 }) : null
 }

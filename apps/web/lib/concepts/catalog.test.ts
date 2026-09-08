@@ -8,6 +8,7 @@ describe('categoryFromText', () => {
     expect(categoryFromText('Тумба прикроватная')).toBe('storage')
     expect(categoryFromText('Журнальный столик')).toBe('table')
     expect(categoryFromText('Стол письменный «Сити 4», с тумбой')).toBe('table')
+    expect(categoryFromText('Бра настенное')).toBe('lamp')
     expect(categoryFromText('Торшер напольный')).toBe('lamp')
     expect(categoryFromText('Ковёр 160×230')).toBe('rug')
   })
@@ -15,6 +16,14 @@ describe('categoryFromText', () => {
   it('понимает английские названия из фидов и путь категорий', () => {
     expect(categoryFromText('Furniture / Living room / Sofas', 'Oslo 3-seater')).toBe('sofa')
     expect(categoryFromText('Home / Lighting / Floor lamps')).toBe('lamp')
+  })
+
+  it('слово «стол» внутри другого слова столом не считается', () => {
+    expect(categoryFromText('Мебель / Столовая / Шкафы', 'Шкаф-витрина Осло')).toBe('storage')
+    expect(categoryFromText('Комод со столешницей из дуба')).toBe('storage')
+    expect(categoryFromText('Тумба под ТВ со столешницей')).toBe('storage')
+    expect(categoryFromText('Полка настольная для книг')).toBe('storage')
+    expect(categoryFromText('Portable wardrobe')).toBe('storage')
   })
 
   it('не мебель остаётся без категории', () => {
