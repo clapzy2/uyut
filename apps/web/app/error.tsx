@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/nextjs'
 import { Button } from '@uyut/ui'
 import Link from 'next/link'
 import { useEffect } from 'react'
+import { isStaleBuildError, shouldReloadOnce } from '@/lib/errors/stale-build'
 
 export default function ErrorScreen({
   error,
@@ -13,6 +14,12 @@ export default function ErrorScreen({
   reset: () => void
 }) {
   useEffect(() => {
+    // Вкладку, открытую до выкатки, чинит обычная перезагрузка: имена файлов сборки сменились.
+    // Показывать человеку экран ошибки там, где достаточно обновить страницу, — обманывать его.
+    if (isStaleBuildError(error) && shouldReloadOnce()) {
+      window.location.reload()
+      return
+    }
     Sentry.captureException(error)
   }, [error])
 
