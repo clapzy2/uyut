@@ -11,6 +11,7 @@ import { CheckoutButton } from '@/components/billing/checkout-button'
 import { formatPrice } from '@/lib/concepts/format'
 import type { ExportView } from '@/lib/exports/repository'
 import { formatDate } from '@/lib/projects/format'
+import { formatPhoneInput } from '@/lib/projects/phone'
 
 type Progress = { stage?: string }
 
@@ -146,7 +147,7 @@ export function ExportCard({
   const [includePhone, setIncludePhone] = useState(false)
   const [clientName, setClientName] = useState(contact?.clientName ?? '')
   const [address, setAddress] = useState(contact?.address ?? '')
-  const [phone, setPhone] = useState(contact?.phone ?? '')
+  const [phone, setPhone] = useState(formatPhoneInput(contact?.phone ?? ''))
   const [busy, setBusy] = useState(false)
   const [run, setRun] = useState<ExportRun | null>(initialRun)
   const [paid, setPaid] = useState(isPaid)
@@ -272,8 +273,9 @@ export function ExportCard({
               value={phone}
               maxLength={30}
               inputMode="tel"
-              onChange={(event) => setPhone(event.currentTarget.value)}
-              placeholder="+7 900 000-00-00"
+              autoComplete="tel"
+              onChange={(event) => setPhone(formatPhoneInput(event.currentTarget.value))}
+              placeholder="+7 (900) 000-00-00"
             />
           </div>
         ) : null}

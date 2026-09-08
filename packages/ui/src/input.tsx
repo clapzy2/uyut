@@ -13,6 +13,11 @@ export type InputProps = InputHTMLAttributes<HTMLInputElement> & {
 export const inputClassName =
   'h-11 w-full rounded-sm border border-control bg-paper px-3.5 text-[15px] text-ink placeholder:text-ink-2/70 transition-colors duration-200 ease-ui hover:border-ink focus-visible:border-accent aria-[invalid=true]:border-danger'
 
+// Кружок-переключатель: подпись рядом со спрятанным radio, выбранный обведён акцентом.
+// Ширину дописывают на месте через cn, поэтому здесь только общая часть.
+export const chipClassName =
+  'inline-flex h-9 items-center justify-center rounded-full border border-control px-4 text-sm text-ink-2 transition-colors duration-200 ease-ui hover:text-ink peer-checked:border-accent peer-checked:text-ink peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent'
+
 export function Input({ id, label, error, hint, trailing, className, ...props }: InputProps) {
   const errorId = `${id}-error`
   const hintId = `${id}-hint`

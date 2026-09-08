@@ -10,6 +10,7 @@ import { updateRoom } from '@/actions/rooms'
 import { FormError } from '@/components/form-error'
 import { KindPicker } from '@/components/kind-picker'
 import { formatAreaInput } from '@/components/project-settings-dialog'
+import { applyAreaMask } from '@/lib/projects/area'
 import { type RoomInput, type RoomOutput, roomSchema } from '@/lib/validation/projects'
 
 export function RoomSettingsDialog({
@@ -28,6 +29,7 @@ export function RoomSettingsDialog({
     },
   })
   const { errors, isSubmitting } = form.formState
+  const area = form.register('areaM2')
 
   async function onSubmit() {
     const result = await updateRoom(room.id, form.getValues())
@@ -65,7 +67,11 @@ export function RoomSettingsDialog({
             inputMode="decimal"
             placeholder="18,5"
             error={errors.areaM2?.message}
-            {...form.register('areaM2')}
+            {...area}
+            onChange={(event) => {
+              applyAreaMask(event.currentTarget)
+              void area.onChange(event)
+            }}
           />
           <FormError message={errors.root?.message} />
           <Button type="submit" pending={isSubmitting} className="self-start">

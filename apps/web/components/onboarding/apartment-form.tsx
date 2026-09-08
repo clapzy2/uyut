@@ -1,6 +1,6 @@
 'use client'
 
-import { Button, FieldHint, Input, Label, toast } from '@uyut/ui'
+import { Button, chipClassName, cn, FieldHint, Input, Label, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { createApartment } from '@/actions/onboarding'
@@ -12,7 +12,9 @@ import {
   seriesLayout,
   seriesRoomCounts,
 } from '@/lib/onboarding/house-series'
+import { areaError, normalizeAreaInput, parseArea } from '@/lib/projects/area'
 import { formatArea, mvpRoomKinds, roomKindLabels } from '@/lib/projects/format'
+import { autoRoomNames } from '@/lib/projects/room-names'
 
 type Mode = 'manual' | 'plan' | 'series'
 
@@ -41,15 +43,6 @@ function defaultRooms(): ManualRoom[] {
   ]
 }
 
-function parseArea(value: string): number | null {
-  const normalized = value.trim().replace(',', '.')
-  if (normalized === '') {
-    return null
-  }
-  const number = Number(normalized)
-  return Number.isFinite(number) && number > 0 ? Math.round(number * 100) / 100 : null
-}
-
 export function ApartmentForm() {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -62,6 +55,25 @@ export function ApartmentForm() {
   const [roomCount, setRoomCount] = useState<SeriesRoomCount>(2)
 
   const preview = mode === 'series' ? seriesLayout(seriesId, roomCount) : []
+  // Площадь, которую не удалось разобрать, ушла бы на сервер как null и потерялась молча
+  const brokenArea =
+    (mode !== 'series' && areaError(totalArea) !== undefined) ||
+    (mode === 'manual' && rooms.some((room) => areaError(room.area) !== undefined))
+
+  function patchRoom(index: number, patch: Partial<ManualRoom>) {
+    setRooms((list) =>
+      list.map((item, position) => (position === index ? { ...item, ...patch } : item)),
+    )
+  }
+
+  // Смена типа, добавление и удаление меняют нумерацию соседей, поэтому имена пересчитываем
+  // по всему списку: вторая спальня становится «Спальня 2», а после удаления первой — снова
+  // «Спальня». Названия, набранные руками, autoRoomNames не трогает.
+  function chooseKind(index: number, kind: ManualRoom['kind']) {
+    setRooms((list) =>
+      autoRoomNames(list.map((item, position) => (position === index ? { ...item, kind } : item))),
+    )
+  }
 
   function submit() {
     setError(null)
@@ -118,9 +130,7 @@ export function ApartmentForm() {
                 onChange={() => setMode(value)}
                 className="peer sr-only"
               />
-              <span className="inline-flex h-9 items-center rounded-full border border-control px-4 text-sm text-ink-2 transition-colors duration-200 ease-ui hover:text-ink peer-checked:border-accent peer-checked:text-ink peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
-                {modeLabels[value]}
-              </span>
+              <span className={chipClassName}>{modeLabels[value]}</span>
             </label>
           ))}
         </div>
@@ -128,83 +138,80 @@ export function ApartmentForm() {
 
       {mode === 'manual' ? (
         <div className="flex flex-col gap-4">
+          <p className="text-sm leading-snug text-ink-2">
+            Тип нужен, чтобы подобрать мебель по размеру, а название вы увидите в документе и в
+            списке покупок.
+          </p>
           {rooms.map((room, index) => (
             <div
               key={room.key}
-              className="flex flex-wrap items-end gap-3 border-b border-line pb-4 last:border-0"
+              className="flex flex-col gap-3 border-b border-line pb-4 last:border-0"
             >
-              <Input
-                id={`room-name-${index}`}
-                label="Комната"
-                className="min-w-[9rem] flex-1"
-                value={room.name}
-                onChange={(event) =>
-                  setRooms((list) =>
-                    list.map((item, position) =>
-                      position === index ? { ...item, name: event.target.value } : item,
-                    ),
-                  )
-                }
-                maxLength={40}
-              />
-              <Input
-                id={`room-area-${index}`}
-                label="Площадь, м²"
-                className="w-28"
-                inputMode="decimal"
-                value={room.area}
-                onChange={(event) =>
-                  setRooms((list) =>
-                    list.map((item, position) =>
-                      position === index ? { ...item, area: event.target.value } : item,
-                    ),
-                  )
-                }
-              />
-              <div className="w-36">
-                <Label htmlFor={`room-kind-${index}`}>Тип</Label>
-                <select
-                  id={`room-kind-${index}`}
-                  value={room.kind}
-                  onChange={(event) =>
-                    setRooms((list) =>
-                      list.map((item, position) =>
-                        position === index
-                          ? { ...item, kind: event.target.value as ManualRoom['kind'] }
-                          : item,
-                      ),
-                    )
-                  }
-                  className="h-11 w-full border border-control bg-paper px-3 text-[15px] text-ink outline-none transition-colors duration-200 ease-ui focus-visible:border-accent"
-                >
-                  {mvpRoomKinds.map((kind) => (
-                    <option key={kind} value={kind}>
-                      {roomKindLabels[kind]}
-                    </option>
-                  ))}
-                </select>
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <fieldset className="m-0 border-0 p-0">
+                  <legend className="mb-2 block text-xs font-medium uppercase tracking-[0.1em] text-ink-2">
+                    Тип комнаты
+                  </legend>
+                  <div className="flex flex-wrap gap-2">
+                    {mvpRoomKinds.map((kind) => (
+                      <label key={kind} className="cursor-pointer">
+                        <input
+                          type="radio"
+                          name={`room-kind-${index}`}
+                          value={kind}
+                          checked={room.kind === kind}
+                          onChange={() => chooseKind(index, kind)}
+                          className="peer sr-only"
+                        />
+                        <span className={chipClassName}>{roomKindLabels[kind]}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                {rooms.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRooms((list) =>
+                        autoRoomNames(list.filter((_, position) => position !== index)),
+                      )
+                    }
+                    className="h-9 px-2 text-sm text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-danger"
+                  >
+                    Убрать
+                  </button>
+                ) : null}
               </div>
-              {rooms.length > 1 ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setRooms((list) => list.filter((_, position) => position !== index))
+              <div className="flex flex-wrap items-start gap-3">
+                <Input
+                  id={`room-name-${index}`}
+                  label="Название"
+                  className="min-w-[9rem] flex-1"
+                  value={room.name}
+                  onChange={(event) => patchRoom(index, { name: event.target.value })}
+                  maxLength={40}
+                />
+                <Input
+                  id={`room-area-${index}`}
+                  label="Площадь, м²"
+                  className="w-32"
+                  inputMode="decimal"
+                  value={room.area}
+                  onChange={(event) =>
+                    patchRoom(index, { area: normalizeAreaInput(event.target.value) })
                   }
-                  className="h-11 px-2 text-sm text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-danger"
-                >
-                  Убрать
-                </button>
-              ) : null}
+                  error={areaError(room.area)}
+                />
+              </div>
             </div>
           ))}
           {rooms.length < 8 ? (
             <button
               type="button"
               onClick={() =>
-                setRooms((list) => [
-                  ...list,
-                  { key: roomKey(), kind: 'bedroom', name: 'Спальня', area: '' },
-                ])
+                setRooms((list) =>
+                  autoRoomNames([...list, { key: roomKey(), kind: 'bedroom', name: '', area: '' }]),
+                )
               }
               className="self-start py-1.5 text-sm text-accent underline decoration-line-strong underline-offset-4"
             >
@@ -260,9 +267,7 @@ export function ApartmentForm() {
                     onChange={() => setRoomCount(count)}
                     className="peer sr-only"
                   />
-                  <span className="inline-flex h-9 w-12 items-center justify-center rounded-full border border-control text-sm text-ink-2 transition-colors duration-200 ease-ui hover:text-ink peer-checked:border-accent peer-checked:text-ink">
-                    {count}
-                  </span>
+                  <span className={cn(chipClassName, 'w-12')}>{count}</span>
                 </label>
               ))}
             </div>
@@ -290,8 +295,8 @@ export function ApartmentForm() {
           className="w-40"
           inputMode="decimal"
           value={totalArea}
-          onChange={(event) => setTotalArea(event.target.value)}
-          error={totalArea !== '' && parseArea(totalArea) === null ? 'Введите число' : undefined}
+          onChange={(event) => setTotalArea(normalizeAreaInput(event.target.value))}
+          error={areaError(totalArea)}
         />
       ) : null}
 
@@ -302,6 +307,10 @@ export function ApartmentForm() {
           onClick={() => {
             if (title.trim() === '') {
               toast({ title: 'Дайте проекту название', tone: 'danger' })
+              return
+            }
+            if (brokenArea) {
+              toast({ title: 'Проверьте площадь', tone: 'danger' })
               return
             }
             submit()

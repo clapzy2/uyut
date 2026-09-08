@@ -8,6 +8,7 @@ import { useForm } from 'react-hook-form'
 import { createRoom } from '@/actions/rooms'
 import { FormError } from '@/components/form-error'
 import { KindPicker } from '@/components/kind-picker'
+import { applyAreaMask } from '@/lib/projects/area'
 import { roomKindLabels } from '@/lib/projects/format'
 import { type RoomInput, type RoomOutput, roomSchema } from '@/lib/validation/projects'
 
@@ -22,6 +23,7 @@ export function AddRoomDialog({ projectId }: { projectId: string }) {
   })
   const { errors, isSubmitting } = form.formState
   const kind = form.watch('kind')
+  const area = form.register('areaM2')
 
   // Название подставляется по типу, пока пользователь не написал своё
   useEffect(() => {
@@ -75,7 +77,11 @@ export function AddRoomDialog({ projectId }: { projectId: string }) {
             placeholder="18,5"
             hint="Необязательно, но поможет с мебелью по размеру"
             error={errors.areaM2?.message}
-            {...form.register('areaM2')}
+            {...area}
+            onChange={(event) => {
+              applyAreaMask(event.currentTarget)
+              void area.onChange(event)
+            }}
           />
           <FormError message={errors.root?.message} />
           <Button type="submit" pending={isSubmitting} className="self-start">
