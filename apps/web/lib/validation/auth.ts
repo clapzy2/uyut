@@ -16,11 +16,19 @@ export const loginSchema = z.object({
   password: z.string().min(1, { error: 'Введите пароль' }),
 })
 
-export const registerSchema = z.object({
-  email: emailSchema,
-  password: passwordSchema,
-  consent: z.literal(true, { error: 'Без согласия на обработку данных аккаунт создать нельзя' }),
-})
+// Подтверждение пароля живёт только в браузере: серверу уходит одно поле,
+// но опечатка всплывает сразу, а не через день у экрана входа
+export const registerSchema = z
+  .object({
+    email: emailSchema,
+    password: passwordSchema,
+    confirm: z.string(),
+    consent: z.literal(true, { error: 'Без согласия на обработку данных аккаунт создать нельзя' }),
+  })
+  .refine((value) => value.password === value.confirm, {
+    path: ['confirm'],
+    error: 'Пароли не совпадают',
+  })
 
 export const forgotPasswordSchema = z.object({
   email: emailSchema,

@@ -16,13 +16,42 @@ describe('auth validation', () => {
   })
 
   it('requires an 8 character password and consent on registration', () => {
-    const result = registerSchema.safeParse({ email: 'a@b.ru', password: 'short', consent: false })
+    const result = registerSchema.safeParse({
+      email: 'a@b.ru',
+      password: 'short',
+      confirm: 'short',
+      consent: false,
+    })
     expect(result.success).toBe(false)
     if (!result.success) {
       const paths = result.error.issues.map((issue) => issue.path.join('.'))
       expect(paths).toContain('password')
       expect(paths).toContain('consent')
     }
+  })
+
+  it('checks that both passwords match on registration', () => {
+    const result = registerSchema.safeParse({
+      email: 'a@b.ru',
+      password: 'longenough',
+      confirm: 'longenouhg',
+      consent: true,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const mismatch = result.error.issues.find((issue) => issue.path.join('.') === 'confirm')
+      expect(mismatch?.message).toBe('Пароли не совпадают')
+    }
+  })
+
+  it('accepts a registration where the repeated password is the same', () => {
+    const result = registerSchema.safeParse({
+      email: 'a@b.ru',
+      password: 'longenough',
+      confirm: 'longenough',
+      consent: true,
+    })
+    expect(result.success).toBe(true)
   })
 
   it('checks that both passwords match on reset', () => {

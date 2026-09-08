@@ -63,6 +63,7 @@ test.describe('recolor', () => {
     await page.goto('/register')
     await page.getByLabel('Почта').fill(email)
     await page.getByLabel('Пароль', { exact: true }).fill(PASSWORD)
+    await page.getByLabel('Ещё раз').fill(PASSWORD)
     await page.getByLabel(/согласие/).check()
     await page.getByRole('button', { name: 'Создать аккаунт' }).click()
     await expect(page).toHaveURL(/\/verify-email/)

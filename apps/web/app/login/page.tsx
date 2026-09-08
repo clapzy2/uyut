@@ -12,7 +12,11 @@ export default async function LoginPage({
 }) {
   const { next } = await searchParams
   return (
-    <AuthShell title="С возвращением." lede="Ваши проекты и концепты там, где вы их оставили.">
+    <AuthShell
+      eyebrow="Вход"
+      title="С возвращением."
+      lede="Ваши проекты и концепты там, где вы их оставили."
+    >
       <LoginForm next={safeNextPath(next)} />
     </AuthShell>
   )

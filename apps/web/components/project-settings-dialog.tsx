@@ -7,6 +7,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { updateProject } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
+import { applyAreaMask } from '@/lib/projects/area'
 import {
   type ProjectSettingsInput,
   type ProjectSettingsOutput,
@@ -35,6 +36,7 @@ export function ProjectSettingsDialog({
     },
   })
   const { errors, isSubmitting } = form.formState
+  const area = form.register('totalAreaM2')
 
   async function onSubmit() {
     const result = await updateProject(projectId, form.getValues())
@@ -79,7 +81,11 @@ export function ProjectSettingsDialog({
             inputMode="decimal"
             placeholder="54,5"
             error={errors.totalAreaM2?.message}
-            {...form.register('totalAreaM2')}
+            {...area}
+            onChange={(event) => {
+              applyAreaMask(event.currentTarget)
+              void area.onChange(event)
+            }}
           />
           <FormError message={errors.root?.message} />
           <Button type="submit" pending={isSubmitting} className="self-start">

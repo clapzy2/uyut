@@ -1,11 +1,14 @@
 import type { ReactNode } from 'react'
 
-// Редакционная композиция экранов входа: слева крупный заголовок, справа форма
+// Редакционная композиция экранов входа: слева крупный заголовок, справа форма.
+// Ярлык сверху отвечает на «где я» раньше, чем человек дочитает заголовок
 export function AuthShell({
+  eyebrow,
   title,
   lede,
   children,
 }: {
+  eyebrow?: string
   title: string
   lede?: string
   children: ReactNode
@@ -13,6 +16,11 @@ export function AuthShell({
   return (
     <section className="mx-auto grid max-w-6xl gap-10 px-5 py-12 sm:px-8 sm:py-16 lg:grid-cols-[1.1fr_1fr] lg:gap-16 lg:py-24">
       <div>
+        {eyebrow ? (
+          <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-2">
+            {eyebrow}
+          </p>
+        ) : null}
         <h1 className="font-serif text-[40px] font-normal leading-[1.05] tracking-tight text-ink sm:text-5xl lg:text-[56px]">
           {title}
         </h1>
