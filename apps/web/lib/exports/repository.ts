@@ -6,7 +6,7 @@ import {
   projectExports,
   projects,
 } from '@uyut/db'
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt } from 'drizzle-orm'
 import { getPlan } from '@/lib/billing/repository'
 import { getDb } from '@/lib/db'
 import { getEnv } from '@/lib/env'
@@ -16,6 +16,7 @@ import {
   isUuid,
   NotFoundError,
 } from '@/lib/projects/access'
+import { staleBefore } from '@/lib/queue/stale'
 import { presignedObjectUrl } from '@/lib/storage'
 
 export type ExportView = {
@@ -50,12 +51,37 @@ async function toView(row: typeof projectExports.$inferSelect): Promise<ExportVi
   }
 }
 
+/**
+ * Гасит сборки, которые задача так и не довела до конца.
+ *
+ * Делается при чтении: карточка выгрузки всё равно перечитывает список, и заводить ради
+ * этого отдельное расписание незачем. Условие по статусу в самом update, поэтому сборка,
+ * дописавшаяся секундой раньше, не пострадает.
+ */
+async function failStaleExports(projectId: string, now: Date): Promise<void> {
+  await getDb()
+    .update(projectExports)
+    .set({
+      status: 'failed',
+      error: 'Сборка не уложилась в отведённое время',
+      finishedAt: now,
+    })
+    .where(
+      and(
+        eq(projectExports.projectId, projectId),
+        inArray(projectExports.status, ['pending', 'running']),
+        lt(projectExports.createdAt, staleBefore(now)),
+      ),
+    )
+}
+
 export async function listExports(
   userId: string,
   projectId: string,
   limit = 5,
 ): Promise<ExportView[]> {
   const project = await assertOwnerOrCollaborator(userId, projectId)
+  await failStaleExports(project.id, new Date())
   const rows = await getDb()
     .select()
     .from(projectExports)

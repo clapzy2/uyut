@@ -1,9 +1,10 @@
 import type { PromptPlan } from '@uyut/ai'
 import { type Concept, concepts, rooms } from '@uyut/db'
-import { and, asc, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, lt } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { NotFoundError } from '@/lib/projects/access'
 import { getRoom, type RoomWithProject } from '@/lib/projects/repository'
+import { staleBefore } from '@/lib/queue/stale'
 import { presignedObjectUrl } from '@/lib/storage'
 
 export type ConceptView = Concept & { renderSrc: string | null }
@@ -20,8 +21,32 @@ async function withSignedUrls(rows: Concept[]): Promise<ConceptView[]> {
   )
 }
 
+/**
+ * Гасит концепты, которые задача так и не досчитала.
+ *
+ * Делается при чтении, а не отдельным расписанием: экран всё равно перечитывает список,
+ * и лишняя фоновая задача ради этого не нужна. Условие по статусу в самом update, поэтому
+ * живой рендер, дописавшийся секундой раньше, не пострадает.
+ */
+async function failStaleConcepts(roomId: string, now: Date): Promise<void> {
+  await getDb()
+    .update(concepts)
+    .set({
+      status: 'failed',
+      errorText: 'Рендер не досчитался: задача пропала. Попробуйте сгенерировать ещё раз.',
+    })
+    .where(
+      and(
+        eq(concepts.roomId, roomId),
+        eq(concepts.status, 'pending'),
+        lt(concepts.createdAt, staleBefore(now)),
+      ),
+    )
+}
+
 export async function listConceptsByRoom(userId: string, roomId: string): Promise<ConceptView[]> {
   const room = await getRoom(userId, roomId)
+  await failStaleConcepts(room.id, new Date())
   const rows = await getDb()
     .select()
     .from(concepts)
