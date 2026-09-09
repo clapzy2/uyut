@@ -1,10 +1,10 @@
 import type { PromptPlan } from '@uyut/ai'
 import { type Concept, concepts, rooms } from '@uyut/db'
-import { and, asc, desc, eq, lt } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { NotFoundError } from '@/lib/projects/access'
 import { getRoom, type RoomWithProject } from '@/lib/projects/repository'
-import { staleBefore } from '@/lib/queue/stale'
+import { CONCEPT_STALE_AFTER_MS, OBJECTS_STALE_AFTER_MS, staleBefore } from '@/lib/queue/stale'
 import { presignedObjectUrl } from '@/lib/storage'
 
 export type ConceptView = Concept & { renderSrc: string | null }
@@ -21,38 +21,80 @@ async function withSignedUrls(rows: Concept[]): Promise<ConceptView[]> {
   )
 }
 
+const RENDER_LOST = 'Рендер не досчитался: задача пропала. Попробуйте сгенерировать ещё раз.'
+const OBJECTS_LOST = 'Предметы на этом рендере найти не удалось.'
+
 /**
- * Гасит концепты, которые задача так и не досчитала.
+ * Гасит работу, которую задачи так и не досчитали.
  *
  * Делается при чтении, а не отдельным расписанием: экран всё равно перечитывает список,
- * и лишняя фоновая задача ради этого не нужна. Условие по статусу в самом update, поэтому
- * живой рендер, дописавшийся секундой раньше, не пострадает.
+ * и лишняя фоновая задача ради этого не нужна. Но пишем только когда есть что гасить —
+ * иначе каждый просмотр комнаты, а их на одну генерацию десятки, стоил бы двух запросов
+ * на запись. Условие по статусу дублируется в самом update: строка, дописавшаяся между
+ * чтением и записью, не пострадает.
+ *
+ * Рендер и подбор предметов гасятся порознь: это разные задачи с разными сроками, и рендер
+ * бывает готов при намертво зависшем подборе — тогда карточка вечно показывает «ищем предметы».
  */
-async function failStaleConcepts(roomId: string, now: Date): Promise<void> {
-  await getDb()
-    .update(concepts)
-    .set({
-      status: 'failed',
-      errorText: 'Рендер не досчитался: задача пропала. Попробуйте сгенерировать ещё раз.',
-    })
-    .where(
-      and(
-        eq(concepts.roomId, roomId),
-        eq(concepts.status, 'pending'),
-        lt(concepts.createdAt, staleBefore(now)),
-      ),
-    )
+async function failStale(rows: Concept[], now: Date): Promise<Concept[]> {
+  const lostRenders = rows.filter(
+    (row) => row.status === 'pending' && row.createdAt < staleBefore(now, CONCEPT_STALE_AFTER_MS),
+  )
+  const lostObjects = rows.filter(
+    (row) =>
+      row.objectsStatus === 'pending' && row.createdAt < staleBefore(now, OBJECTS_STALE_AFTER_MS),
+  )
+  if (lostRenders.length === 0 && lostObjects.length === 0) {
+    return rows
+  }
+  const db = getDb()
+  if (lostRenders.length > 0) {
+    await db
+      .update(concepts)
+      .set({ status: 'failed', errorText: RENDER_LOST })
+      .where(
+        and(
+          inArray(
+            concepts.id,
+            lostRenders.map((row) => row.id),
+          ),
+          eq(concepts.status, 'pending'),
+        ),
+      )
+  }
+  if (lostObjects.length > 0) {
+    await db
+      .update(concepts)
+      .set({ objectsStatus: 'failed', objectsError: OBJECTS_LOST })
+      .where(
+        and(
+          inArray(
+            concepts.id,
+            lostObjects.map((row) => row.id),
+          ),
+          eq(concepts.objectsStatus, 'pending'),
+        ),
+      )
+  }
+  const renderIds = new Set(lostRenders.map((row) => row.id))
+  const objectIds = new Set(lostObjects.map((row) => row.id))
+  return rows.map((row) => ({
+    ...row,
+    ...(renderIds.has(row.id) ? { status: 'failed' as const, errorText: RENDER_LOST } : {}),
+    ...(objectIds.has(row.id)
+      ? { objectsStatus: 'failed' as const, objectsError: OBJECTS_LOST }
+      : {}),
+  }))
 }
 
 export async function listConceptsByRoom(userId: string, roomId: string): Promise<ConceptView[]> {
   const room = await getRoom(userId, roomId)
-  await failStaleConcepts(room.id, new Date())
   const rows = await getDb()
     .select()
     .from(concepts)
     .where(eq(concepts.roomId, room.id))
     .orderBy(desc(concepts.createdAt), asc(concepts.orderIndex))
-  return withSignedUrls(rows)
+  return withSignedUrls(await failStale(rows, new Date()))
 }
 
 /** Концепты последнего запуска: именно их показывает экран свайпа. */

@@ -20,6 +20,8 @@ const {
   canCreateProject,
   createPurchase,
   getPlan,
+  markPurchaseCanceled,
+  openProPurchase,
   settlePurchasePaid,
 } = await import('@/lib/billing/repository')
 const { POST } = await import('@/app/api/webhooks/yukassa/route')
@@ -155,6 +157,36 @@ describe('billing in a real database', () => {
     } finally {
       await db.delete(purchases).where(eq(purchases.userId, ownId))
       await db.delete(subscriptions).where(eq(subscriptions.userId, ownId))
+      await db.delete(users).where(eq(users.id, ownId))
+    }
+  })
+
+  it('видит незакрытую покупку Pro даже без номера платежа', async () => {
+    const db = getDb()
+    const [own] = await db
+      .insert(users)
+      .values({ email: `billing-open-${run}@example.test` })
+      .returning({ id: users.id })
+    const ownId = own?.id ?? ''
+    try {
+      // Так выглядит обрыв между обращением к банку и записью ответа. Повторить такую попытку
+      // можно только этой же покупкой: её номер — ключ идемпотентности, и по нему банк вернёт
+      // тот же платёж вместо второго списания.
+      const purchase = await createPurchase({
+        userId: ownId,
+        kind: 'pro',
+        projectId: null,
+        amountKopecks: 99_900,
+      })
+      const open = await openProPurchase(ownId)
+      expect(open?.id).toBe(purchase.id)
+      expect(open?.yukassaPaymentId).toBeNull()
+
+      // Отменённая покупка больше не незакрытая: догоняющий проход перестаёт её опрашивать
+      await markPurchaseCanceled(purchase.id)
+      expect(await openProPurchase(ownId)).toBeNull()
+    } finally {
+      await db.delete(purchases).where(eq(purchases.userId, ownId))
       await db.delete(users).where(eq(users.id, ownId))
     }
   })

@@ -9,7 +9,7 @@ import {
   subscriptions,
   users,
 } from '@uyut/db'
-import { and, asc, count, desc, eq, gt, isNotNull, isNull, lt, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gt, isNotNull, isNull, lt, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { isUuid, NotFoundError } from '@/lib/projects/access'
 
@@ -92,6 +92,14 @@ export async function attachPayment(purchaseId: string, paymentId: string): Prom
     .where(eq(purchases.id, purchaseId))
 }
 
+/** Отменённый платёж: покупка становится конечной, и догоняющий проход её больше не берёт */
+export async function markPurchaseCanceled(purchaseId: string): Promise<void> {
+  await getDb()
+    .update(purchases)
+    .set({ status: 'canceled' })
+    .where(and(eq(purchases.id, purchaseId), eq(purchases.status, 'pending')))
+}
+
 export async function getPurchase(userId: string, purchaseId: string): Promise<Purchase> {
   if (!isUuid(purchaseId)) {
     throw new NotFoundError('Платёж не найден')
@@ -135,6 +143,11 @@ export async function settlePurchasePaid(
   paymentMethodId: string | null,
 ): Promise<boolean> {
   return getDb().transaction(async (tx) => {
+    // Замок на человека, а не на строку покупки: две выдачи одному человеку идут по разным
+    // покупкам и друг друга не тормозят, а обе читают подписку и обе пишут ей новый конец
+    // периода — второй апдейт затрёт первый, и за две оплаты будет выдан один месяц.
+    // Заодно это единственная защита от двух вставок подписки: уникального ключа на неё нет.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${purchase.userId}))`)
     const rows = await tx
       .update(purchases)
       .set({ status: 'paid', paidAt: new Date() })
@@ -239,29 +252,30 @@ export async function listStalePendingPurchases(
         gt(purchases.createdAt, new Date(now.getTime() - 3 * 24 * 60 * 60_000)),
       ),
     )
-    .orderBy(asc(purchases.createdAt))
+    .orderBy(desc(purchases.createdAt))
     .limit(limit)
   return rows.flatMap((row) => (row.paymentId ? [{ id: row.id, paymentId: row.paymentId }] : []))
 }
 
-/** Незакрытая покупка Pro этого человека: с неё начинается попытка автосписания */
-export async function pendingProPurchase(
-  userId: string,
-): Promise<{ id: string; paymentId: string } | null> {
+/**
+ * Незакрытая покупка Pro этого человека — та самая, которой продолжается прерванная попытка.
+ *
+ * Возвращается и покупка без номера платежа: именно так выглядит обрыв между обращением
+ * к провайдеру и записью ответа, и повторить такую попытку можно только её же номером —
+ * он служит ключом идемпотентности, а по нему провайдер вернёт тот же платёж, а не спишет
+ * второй раз. Заводить на повтор новую покупку нельзя: у неё другой номер, другой ключ,
+ * и второе списание пройдёт как ни в чём не бывало.
+ */
+export async function openProPurchase(userId: string): Promise<Purchase | null> {
   const [row] = await getDb()
-    .select({ id: purchases.id, paymentId: purchases.yukassaPaymentId })
+    .select()
     .from(purchases)
     .where(
-      and(
-        eq(purchases.userId, userId),
-        eq(purchases.kind, 'pro'),
-        eq(purchases.status, 'pending'),
-        isNotNull(purchases.yukassaPaymentId),
-      ),
+      and(eq(purchases.userId, userId), eq(purchases.kind, 'pro'), eq(purchases.status, 'pending')),
     )
     .orderBy(desc(purchases.createdAt))
     .limit(1)
-  return row?.paymentId ? { id: row.id, paymentId: row.paymentId } : null
+  return row ?? null
 }
 
 export async function userEmail(userId: string): Promise<string | null> {

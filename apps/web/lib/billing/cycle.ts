@@ -18,7 +18,7 @@ import {
   listStalePendingPurchases,
   markChargeAttempt,
   markSubscriptionReminded,
-  pendingProPurchase,
+  openProPurchase,
   type RenewableSubscription,
 } from './repository'
 
@@ -35,8 +35,15 @@ function projectsUrl(): string {
 }
 
 /**
- * Списание за следующий месяц. Попытка отмечается до обращения к провайдеру: если процесс
- * упадёт посередине, счётчик уже увеличен и завтрашний проход не начнёт всё заново без счёта.
+ * Списание за следующий месяц.
+ *
+ * Попытка отмечается до обращения к провайдеру: если процесс упадёт посередине, счётчик уже
+ * увеличен и завтрашний проход не начнёт всё заново без счёта. Удачное списание сбрасывает
+ * счётчик обратно, так что подхваченная попытка ничего не стоит.
+ *
+ * Незакрытая покупка не бросается, а продолжается: её номер служит ключом идемпотентности,
+ * и по нему провайдер вернёт тот же платёж вместо второго списания. Новая покупка на повтор
+ * означала бы новый ключ — и деньги ушли бы дважды.
  */
 async function charge({ subscription, email }: RenewableSubscription, now: Date): Promise<boolean> {
   const method = subscription.yukassaSubscriptionId
@@ -44,39 +51,52 @@ async function charge({ subscription, email }: RenewableSubscription, now: Date)
     return false
   }
   const amountKopecks = getEnv().PRO_PRICE_KOPECKS
+  await markChargeAttempt(subscription.id, now)
 
-  // Прошлая попытка могла списать деньги и не узнать об этом: ответ ЮKassa теряется, покупка
-  // остаётся висеть, период не продлён. Без этой проверки следующий проход списал бы второй раз.
-  const hanging = await pendingProPurchase(subscription.userId)
-  if (hanging) {
-    const settled = await applyPayment(hanging.paymentId)
+  const open = await openProPurchase(subscription.userId)
+  // Ответ прошлой попытки мог потеряться уже после списания: сначала спрашиваем провайдера
+  if (open?.yukassaPaymentId) {
+    const settled = await applyPayment(open.yukassaPaymentId)
     if (settled.applied) {
+      await announceCharge(subscription.userId, email, amountKopecks, open.yukassaPaymentId)
       return true
     }
   }
 
-  await markChargeAttempt(subscription.id, now)
-  const purchase = await createPurchase({
-    userId: subscription.userId,
-    kind: 'pro',
-    projectId: null,
-    amountKopecks,
-  })
+  const purchase =
+    open ??
+    (await createPurchase({
+      userId: subscription.userId,
+      kind: 'pro',
+      projectId: null,
+      amountKopecks,
+    }))
   const payment = await getPaymentProvider().chargeSaved({
     amountKopecks,
     description: 'Домица Pro, один месяц',
     paymentMethodId: method,
-    // Ключ привязан к подписке и оплачиваемому периоду, а не к покупке: у повторной попытки
-    // покупка новая, и на её id ЮKassa не отсекла бы второе списание за тот же месяц.
-    idempotencyKey: `${subscription.id}:${subscription.currentPeriodEnd?.toISOString() ?? 'нет'}`,
+    idempotencyKey: purchase.id,
     metadata: { purchaseId: purchase.id, kind: 'pro', userId: subscription.userId },
   })
-  await attachPayment(purchase.id, payment.id)
+  if (payment.id !== purchase.yukassaPaymentId) {
+    await attachPayment(purchase.id, payment.id)
+  }
   const applied = await applyPayment(payment.id)
   if (!applied.applied) {
     return false
   }
-  const renewed = await activeProSubscription(subscription.userId)
+  await announceCharge(subscription.userId, email, amountKopecks, payment.id)
+  return true
+}
+
+/** Письмо о списании и запись в аудит: общий хвост обоих путей, и обычного, и подхваченного */
+async function announceCharge(
+  userId: string,
+  email: string,
+  amountKopecks: number,
+  paymentId: string,
+): Promise<void> {
+  const renewed = await activeProSubscription(userId)
   if (renewed?.currentPeriodEnd) {
     await getEmailSender().send({
       to: email,
@@ -89,12 +109,11 @@ async function charge({ subscription, email }: RenewableSubscription, now: Date)
   }
   await recordAudit({
     action: 'billing.autopay_charged',
-    actorId: subscription.userId,
+    actorId: userId,
     targetType: 'subscription',
-    targetId: subscription.id,
-    metadata: { paymentId: payment.id, amountKopecks },
+    targetId: renewed?.id ?? userId,
+    metadata: { paymentId, amountKopecks },
   })
-  return true
 }
 
 /** После последней неудачной попытки говорим прямо, что списать не вышло и что делать дальше */

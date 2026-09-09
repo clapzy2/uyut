@@ -12,6 +12,9 @@ export const paymentsSweep = schedules.task({
   id: 'payments-sweep',
   cron: '*/15 * * * *',
   maxDuration: 300,
+  // Без повторов: клиент отваливается по таймауту раньше, чем проход в приложении
+  // закончит работу, и повторный запуск шёл бы поверх ещё живого
+  retry: { maxAttempts: 1 },
   run: async () => {
     const secret = optionalEnv('CRON_SECRET')
     if (!secret) {

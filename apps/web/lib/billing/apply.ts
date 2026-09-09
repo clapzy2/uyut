@@ -1,6 +1,10 @@
 import type { Purchase } from '@uyut/db'
 import { recordAudit } from '@/lib/audit'
-import { findPurchaseByPayment, settlePurchasePaid } from '@/lib/billing/repository'
+import {
+  findPurchaseByPayment,
+  markPurchaseCanceled,
+  settlePurchasePaid,
+} from '@/lib/billing/repository'
 import { getEnv } from '@/lib/env'
 import { type ExportRun, startExport } from '@/lib/exports/start'
 import { getPaymentProvider, type PaymentStatus } from '@/lib/payments'
@@ -30,6 +34,11 @@ export async function applyPayment(paymentId: string): Promise<ApplyResult> {
     return { applied: false, purchase: null, status: payment.status }
   }
   if (payment.status !== 'succeeded' || !payment.paid) {
+    // Отменённый платёж закрываем сразу: иначе догоняющий проход будет спрашивать про него
+    // у провайдера каждые пятнадцать минут до конца окна и вытеснять из выборки живые покупки
+    if (payment.status === 'canceled') {
+      await markPurchaseCanceled(purchase.id)
+    }
     return { applied: false, purchase, status: payment.status }
   }
   if (payment.amountKopecks !== purchase.amountKopecks) {
