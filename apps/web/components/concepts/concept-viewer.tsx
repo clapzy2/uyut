@@ -4,29 +4,32 @@ import { findSwatch, isApproximate, type Swatch } from '@uyut/ai'
 import { cn, toast } from '@uyut/ui'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { setConceptLike } from '@/actions/concepts'
 import { resetRecolor, saveRecolor } from '@/actions/recolor'
 import { addItem } from '@/actions/shopping'
 import { AdDisclosure } from '@/components/ad-disclosure'
 import { SwatchPicker } from '@/components/concepts/swatch-picker'
 import { categoryLabels, formatPrice, sourceLabel } from '@/lib/concepts/format'
+import { spreadMarkers } from '@/lib/concepts/marker-layout'
 import type { ConceptPageData, MatchView, ObjectView } from '@/lib/concepts/objects'
 import { applySwatch, prepareRecolor, type RecolorBase } from '@/lib/recolor/client'
 import { pluralItems } from '@/lib/shopping/format'
 
 function ObjectChip({
   object,
+  point,
   selected,
   onSelect,
   onHover,
 }: {
   object: ObjectView
+  /** Точка на картинке: слипшиеся метки заранее разведены, чтобы не читались как одна */
+  point: { x: number; y: number }
   selected: boolean
   onSelect: () => void
   onHover: (hover: boolean) => void
 }) {
-  const { bbox } = object
   return (
     <button
       type="button"
@@ -37,7 +40,7 @@ function ObjectChip({
       onBlur={() => onHover(false)}
       aria-label={`${object.orderIndex + 1}. ${categoryLabels[object.category]}`}
       aria-pressed={selected}
-      style={{ left: `${(bbox.x + bbox.w / 2) * 100}%`, top: `${(bbox.y + bbox.h / 2) * 100}%` }}
+      style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
       className={cn(
         'absolute z-20 grid h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 px-2 font-mono text-[13px] font-medium shadow-soft transition-transform duration-200 ease-ui hover:scale-110',
         selected
@@ -225,6 +228,11 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
   const [selectedId, setSelectedId] = useState<string | null>(objects[0]?.id ?? null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [liked, setLiked] = useState<boolean | null>(concept.liked)
+  // Считаем один раз на список: метки соседних предметов иначе слипаются в одну точку
+  const markerPoints = useMemo(
+    () => spreadMarkers(objects.map((object) => ({ id: object.id, ...object.bbox }))),
+    [objects],
+  )
   const selected = objects.find((object) => object.id === selectedId) ?? null
   const hovered = objects.find((object) => object.id === hoveredId) ?? null
   const searching = concept.objectsStatus === 'pending'
@@ -420,10 +428,11 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
           {!preview && selected && !selected.swatchId ? (
             <Highlight object={selected} strong />
           ) : null}
-          {objects.map((object) => (
+          {objects.map((object, index) => (
             <ObjectChip
               key={object.id}
               object={object}
+              point={markerPoints[index] ?? { x: 0.5, y: 0.5 }}
               selected={object.id === selectedId}
               onSelect={() => setSelectedId(object.id)}
               onHover={(hover) => setHoveredId(hover ? object.id : null)}

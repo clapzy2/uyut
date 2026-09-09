@@ -11,6 +11,7 @@ import {
 } from '@uyut/db'
 import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import { recordAudit } from '@/lib/audit'
+import { displayImage } from '@/lib/catalog/product-image'
 import { categoryLabels, formatPrice } from '@/lib/concepts/format'
 import { getDb } from '@/lib/db'
 import { getEnv } from '@/lib/env'
@@ -37,7 +38,7 @@ function num(value: unknown): number | undefined {
 }
 
 async function cardFor(item: SimilarItem, objectId?: string): Promise<ChatCard> {
-  const url = item.images[0]?.url
+  const url = displayImage(item.images)
   const key = url ? ownObjectKey(url) : null
   return {
     kind: 'product',

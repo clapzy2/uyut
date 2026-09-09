@@ -63,9 +63,19 @@ export default async function ConceptPage({ params }: { params: Params }) {
           {data.room.name}
         </Link>
       </nav>
-      <h1 className="mt-5 font-serif text-[36px] font-normal leading-[1.05] tracking-tight text-ink sm:text-5xl">
-        Концепт {data.concept.orderIndex + 1}
-      </h1>
+      {/* Хлебные крошки сверху мелкие и серые: владелец их не заметил и спросил, где кнопка
+          назад. Поэтому обратный путь стоит отдельной заметной строкой рядом с заголовком. */}
+      <div className="mt-5 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+        <h1 className="font-serif text-[36px] font-normal leading-[1.05] tracking-tight text-ink sm:text-5xl">
+          Концепт {data.concept.orderIndex + 1}
+        </h1>
+        <Link
+          href={`/projects/${data.room.projectId}/rooms/${data.room.id}`}
+          className="text-[15px] text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent"
+        >
+          ← Ко всем вариантам
+        </Link>
+      </div>
       <div className="mt-8">
         <ConceptViewer data={data} />
       </div>

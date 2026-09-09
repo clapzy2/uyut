@@ -8,6 +8,7 @@ import {
   shoppingLists,
 } from '@uyut/db'
 import { and, asc, eq, sql } from 'drizzle-orm'
+import { displayImage } from '@/lib/catalog/product-image'
 import { getDb } from '@/lib/db'
 import {
   assertOwner,
@@ -98,7 +99,7 @@ export async function getShoppingList(
         priceKopecks: product.priceKopecks,
         affiliateUrl: item.selectedVariant?.affiliateUrl ?? product.affiliateUrl,
         adDisclosure: product.attributes?.adDisclosure?.trim() || null,
-        imageUrl: await productImage(product.images[0]?.url),
+        imageUrl: await productImage(displayImage(product.images)),
         inStock: product.inStock,
         quantity: item.quantity,
         totalKopecks: itemTotalKopecks({

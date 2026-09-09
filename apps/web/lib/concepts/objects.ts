@@ -10,6 +10,7 @@ import {
   type ProjectRole,
 } from '@uyut/db'
 import { asc, eq } from 'drizzle-orm'
+import { displayImage } from '@/lib/catalog/product-image'
 import { otherMember } from '@/lib/collaboration/repository'
 import { getDb } from '@/lib/db'
 import { NotFoundError } from '@/lib/projects/access'
@@ -103,7 +104,7 @@ async function toMatch(item: SimilarItem, window: PriceWindow | null): Promise<M
     oldPriceKopecks: item.oldPriceKopecks,
     affiliateUrl: item.affiliateUrl,
     adDisclosure: item.attributes?.adDisclosure?.trim() || null,
-    imageUrl: await productImage(item.images[0]?.url),
+    imageUrl: await productImage(displayImage(item.images)),
     similarity: item.similarity,
     overBudget: window !== null && item.priceKopecks > window.maxKopecks,
   }
