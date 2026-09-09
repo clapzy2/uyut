@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import { setConceptLike } from '@/actions/concepts'
 import { resetRecolor, saveRecolor } from '@/actions/recolor'
 import { addItem } from '@/actions/shopping'
+import { AdDisclosure } from '@/components/ad-disclosure'
 import { SwatchPicker } from '@/components/concepts/swatch-picker'
 import { categoryLabels, formatPrice, sourceLabel } from '@/lib/concepts/format'
 import type { ConceptPageData, MatchView, ObjectView } from '@/lib/concepts/objects'
@@ -134,76 +135,76 @@ function MatchesPanel({
         {object.matches.map((match) => {
           const inList = quantities[match.id] ?? 0
           return (
-            <li
-              key={match.id}
-              className={cn('flex items-center gap-3 py-3', match.overBudget && 'opacity-75')}
-            >
-              <a
-                href={match.affiliateUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex min-w-0 flex-1 items-center gap-3 transition-colors duration-200 ease-ui hover:bg-muted/60"
-              >
-                <span className="block h-16 w-16 shrink-0 overflow-hidden border border-line bg-muted">
-                  {match.imageUrl ? (
-                    // biome-ignore lint/performance/noImgElement: картинка товара живёт у магазина, оптимизатор next/image здесь не нужен
-                    <img
-                      src={match.imageUrl}
-                      alt=""
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
+            <li key={match.id} className={cn('py-3', match.overBudget && 'opacity-75')}>
+              <div className="flex items-center gap-3">
+                <a
+                  href={match.affiliateUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex min-w-0 flex-1 items-center gap-3 transition-colors duration-200 ease-ui hover:bg-muted/60"
+                >
+                  <span className="block h-16 w-16 shrink-0 overflow-hidden border border-line bg-muted">
+                    {match.imageUrl ? (
+                      // biome-ignore lint/performance/noImgElement: картинка товара живёт у магазина, оптимизатор next/image здесь не нужен
+                      <img
+                        src={match.imageUrl}
+                        alt=""
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : null}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] text-ink">{match.title}</span>
+                    <span className="block truncate text-[13px] text-ink-2">
+                      {[match.brand, sourceLabel(match.source)].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                </a>
+                <span className="flex shrink-0 flex-col items-end gap-1.5">
+                  <span className="font-mono text-[14px] text-ink">
+                    {formatPrice(match.priceKopecks)}
+                  </span>
+                  {match.overBudget ? (
+                    <span className="rounded-full border border-danger px-2 py-0.5 text-[11px] text-danger">
+                      выше бюджета
+                    </span>
+                  ) : match.oldPriceKopecks ? (
+                    <span className="font-mono text-[12px] text-ink-2 line-through">
+                      {formatPrice(match.oldPriceKopecks)}
+                    </span>
                   ) : null}
+                  {!canAdd ? (
+                    inList > 0 ? (
+                      <span className="font-mono text-[12px] text-ink-2">в списке · {inList}</span>
+                    ) : null
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={adding !== null}
+                      aria-label={
+                        inList > 0
+                          ? `${match.title}: в списке ${inList}, добавить ещё`
+                          : `Добавить в список: ${match.title}`
+                      }
+                      onClick={() => onAdd(match, object)}
+                      className={cn(
+                        'h-8 rounded-full border px-3 text-[12px] transition-colors duration-200 ease-ui disabled:opacity-50',
+                        inList > 0
+                          ? 'border-accent bg-accent-tint text-accent'
+                          : 'border-control text-ink-2 hover:border-accent hover:text-accent',
+                      )}
+                    >
+                      {adding === match.id
+                        ? 'Добавляем…'
+                        : inList > 0
+                          ? `В списке · ${inList}`
+                          : 'В список'}
+                    </button>
+                  )}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px] text-ink">{match.title}</span>
-                  <span className="block truncate text-[13px] text-ink-2">
-                    {[match.brand, sourceLabel(match.source)].filter(Boolean).join(' · ')}
-                  </span>
-                </span>
-              </a>
-              <span className="flex shrink-0 flex-col items-end gap-1.5">
-                <span className="font-mono text-[14px] text-ink">
-                  {formatPrice(match.priceKopecks)}
-                </span>
-                {match.overBudget ? (
-                  <span className="rounded-full border border-danger px-2 py-0.5 text-[11px] text-danger">
-                    выше бюджета
-                  </span>
-                ) : match.oldPriceKopecks ? (
-                  <span className="font-mono text-[12px] text-ink-2 line-through">
-                    {formatPrice(match.oldPriceKopecks)}
-                  </span>
-                ) : null}
-                {!canAdd ? (
-                  inList > 0 ? (
-                    <span className="font-mono text-[12px] text-ink-2">в списке · {inList}</span>
-                  ) : null
-                ) : (
-                  <button
-                    type="button"
-                    disabled={adding !== null}
-                    aria-label={
-                      inList > 0
-                        ? `${match.title}: в списке ${inList}, добавить ещё`
-                        : `Добавить в список: ${match.title}`
-                    }
-                    onClick={() => onAdd(match, object)}
-                    className={cn(
-                      'h-8 rounded-full border px-3 text-[12px] transition-colors duration-200 ease-ui disabled:opacity-50',
-                      inList > 0
-                        ? 'border-accent bg-accent-tint text-accent'
-                        : 'border-control text-ink-2 hover:border-accent hover:text-accent',
-                    )}
-                  >
-                    {adding === match.id
-                      ? 'Добавляем…'
-                      : inList > 0
-                        ? `В списке · ${inList}`
-                        : 'В список'}
-                  </button>
-                )}
-              </span>
+              </div>
+              <AdDisclosure text={match.adDisclosure} />
             </li>
           )
         })}

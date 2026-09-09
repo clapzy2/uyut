@@ -146,6 +146,7 @@ export function parseCsvDump(text: string, source: CatalogSource = 'dump'): Feed
         color: row.color || undefined,
         material: row.material || undefined,
         dimensionsCm: width || depth || height ? { width, depth, height } : undefined,
+        adDisclosure: row.ad_disclosure || undefined,
       },
       inStock: parseBoolean(row.in_stock),
     })

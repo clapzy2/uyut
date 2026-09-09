@@ -91,6 +91,8 @@ const CSS = `
   .shop .total { display: flex; justify-content: space-between; align-items: baseline; padding-top: 4mm; break-inside: avoid; }
   .shop .total .price { font-family: 'Literata', Georgia, serif; font-size: 18pt; letter-spacing: -0.01em; }
   .group { margin-top: 6mm; display: grid; gap: 3mm; }
+  .ads { margin-top: 4mm; display: grid; gap: 1mm; }
+  .ads .small { font-size: 7pt; line-height: 1.35; color: #8b8474; word-break: break-word; }
 
   /* смета */
   .estimate { display: grid; gap: 1.5mm; }
@@ -300,7 +302,33 @@ function shopping(data: PdfData, free: boolean): string {
     <div class="shop"><div class="total"><span>Итого по мебели и декору</span><span class="price">${formatPrice(data.estimate.furnitureKopecks)}</span></div></div>`
     }
     <p class="small" style="margin-top:6mm">Цены на ${esc(formatLongDate(data.generatedAt))}. Ссылки на магазины — в проекте на сайте, там же список можно менять, PDF пересобирается за минуту.${data.roomsWithoutConcept.length > 0 ? ` ${esc(data.roomsWithoutConcept.join(', '))}: расстановка не утверждена, покупок пока нет.` : ''}</p>
+    ${adNotice(data)}
   </section>`
+}
+
+/**
+ * Пометки рекламы одним блоком внизу страницы покупок.
+ *
+ * В документе нет кликабельных ссылок, зато товары названы и оценены, поэтому пометку сети
+ * показываем. Строка длинная, и под каждым товаром она разнесла бы список на лишние страницы,
+ * а рекламодателей на весь список обычно два-три — отсюда общий блок без повторов.
+ */
+function adNotice(data: PdfData): string {
+  const notices = [
+    ...new Set(
+      data.shopping.flatMap((group) =>
+        group.items
+          .map((item) => item.adDisclosure?.trim())
+          .filter((text): text is string => Boolean(text)),
+      ),
+    ),
+  ]
+  if (notices.length === 0) {
+    return ''
+  }
+  return `<div class="ads"><p class="small">Часть позиций подобрана по партнёрским программам магазинов:</p>${notices
+    .map((notice) => `<p class="small">${esc(notice)}</p>`)
+    .join('')}</div>`
 }
 
 function estimatePage(data: PdfData, free: boolean): string {

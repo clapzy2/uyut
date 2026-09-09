@@ -37,6 +37,7 @@ export const catalogSources = [
   'divan',
   'hoff',
   'askona',
+  'gdeslon',
   'dump',
 ] as const
 export type CatalogSource = (typeof catalogSources)[number]
@@ -46,6 +47,12 @@ export type CatalogAttributes = {
   color?: string
   material?: string
   dimensionsCm?: { width?: number; depth?: number; height?: number }
+  /**
+   * Пометка рекламы от партнёрской сети: «Реклама. Рекламодатель ООО ... erid ...».
+   * Сеть маркирует объявления сама и отдаёт готовую строку вместе с товаром; закон требует
+   * показывать её рядом со ссылкой, поэтому храним как есть, без разбора на части.
+   */
+  adDisclosure?: string
 }
 export type CatalogVariant = { color?: string; priceKopecks?: number; affiliateUrl?: string }
 

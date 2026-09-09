@@ -13,15 +13,23 @@ const rules: Array<{ category: CatalogCategory; pattern: RegExp }> = [
   { category: 'chair', pattern: /кресл|стул|табурет|банкетк|пуф|armchair|chair|stool|ottoman/i },
   {
     category: 'lamp',
-    pattern: /светильник|люстр|лампа|торшер|бра\b|подвес|светод|lamp|light|chandelier/i,
+    pattern:
+      /светильник|люстр|лампа|торшер|(?<![а-яё])бра(?![а-яё])|подвес|светод|lamp|light|chandelier/i,
   },
   { category: 'rug', pattern: /ков[её]р|ковров|палас|rug|carpet/i },
+  // Стол раньше хранения: «стол письменный с тумбой» — стол, а не тумба.
+  // «Прикроватная тумба» слова «стол» не содержит и остаётся хранением.
+  //
+  // Правило узкое, потому что сюда приходит и путь категории фида: «Мебель / Столовая / Шкафы»
+  // не должно стать столом. Отсекаются «столешница», «столовая», «столовые приборы», «Столбург»,
+  // «настольная» (по левой границе) и английское «portable». Границы слова заданы явно:
+  // в JS \b видит только латиницу и после кириллицы не срабатывает никогда.
+  { category: 'table', pattern: /(?<![а-яё])стол(?!ешн|ов|б)|(?<![a-z])table|(?<![a-z])desk/i },
   {
     category: 'storage',
     pattern:
       /стеллаж|шкаф|комод|тумб|полк|этажерк|витрин|консол|shelf|shelving|cabinet|wardrobe|dresser|drawers|sideboard|console/i,
   },
-  { category: 'table', pattern: /стол|table|desk/i },
   {
     category: 'decor',
     pattern:

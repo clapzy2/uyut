@@ -12,6 +12,11 @@ export type ChatCard = {
   priceKopecks: number
   imageUrl: string | null
   affiliateUrl: string
+  /**
+   * Готовая пометка рекламы от партнёрской сети. Необязательное: карточки старых сообщений
+   * лежат снимком в chat_messages.meta и этого поля не знают.
+   */
+  adDisclosure?: string
   objectId?: string
 }
 export type ChatProposal = {

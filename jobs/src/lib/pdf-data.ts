@@ -377,6 +377,7 @@ export async function buildPdfData(input: {
       quantity: row.item.quantity,
       priceKopecks: price,
       totalKopecks: price * row.item.quantity,
+      adDisclosure: row.product.attributes?.adDisclosure?.trim() || undefined,
     })
     groups.set(key, group)
   }

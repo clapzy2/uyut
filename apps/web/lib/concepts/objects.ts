@@ -25,6 +25,8 @@ export type MatchView = {
   priceKopecks: number
   oldPriceKopecks: number | null
   affiliateUrl: string
+  /** Готовая пометка рекламы от партнёрской сети: показывается целиком, резать нельзя */
+  adDisclosure: string | null
   imageUrl: string | null
   similarity: number
   overBudget: boolean
@@ -100,6 +102,7 @@ async function toMatch(item: SimilarItem, window: PriceWindow | null): Promise<M
     priceKopecks: item.priceKopecks,
     oldPriceKopecks: item.oldPriceKopecks,
     affiliateUrl: item.affiliateUrl,
+    adDisclosure: item.attributes?.adDisclosure?.trim() || null,
     imageUrl: await productImage(item.images[0]?.url),
     similarity: item.similarity,
     overBudget: window !== null && item.priceKopecks > window.maxKopecks,

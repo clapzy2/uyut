@@ -26,6 +26,8 @@ export type ShoppingItemView = {
   category: CatalogCategory
   priceKopecks: number
   affiliateUrl: string
+  /** Готовая пометка рекламы от партнёрской сети: показывается целиком, резать нельзя */
+  adDisclosure: string | null
   imageUrl: string | null
   inStock: boolean
   quantity: number
@@ -95,6 +97,7 @@ export async function getShoppingList(
         category: product.category,
         priceKopecks: product.priceKopecks,
         affiliateUrl: item.selectedVariant?.affiliateUrl ?? product.affiliateUrl,
+        adDisclosure: product.attributes?.adDisclosure?.trim() || null,
         imageUrl: await productImage(product.images[0]?.url),
         inStock: product.inStock,
         quantity: item.quantity,
