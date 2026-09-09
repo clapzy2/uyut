@@ -15,8 +15,10 @@ import {
   createPurchase,
   expireSubscription,
   listRenewableSubscriptions,
+  listStalePendingPurchases,
   markChargeAttempt,
   markSubscriptionReminded,
+  openProPurchase,
   type RenewableSubscription,
 } from './repository'
 
@@ -33,8 +35,15 @@ function projectsUrl(): string {
 }
 
 /**
- * Списание за следующий месяц. Попытка отмечается до обращения к провайдеру: если процесс
- * упадёт посередине, счётчик уже увеличен и завтрашний проход не начнёт всё заново без счёта.
+ * Списание за следующий месяц.
+ *
+ * Попытка отмечается до обращения к провайдеру: если процесс упадёт посередине, счётчик уже
+ * увеличен и завтрашний проход не начнёт всё заново без счёта. Удачное списание сбрасывает
+ * счётчик обратно, так что подхваченная попытка ничего не стоит.
+ *
+ * Незакрытая покупка не бросается, а продолжается: её номер служит ключом идемпотентности,
+ * и по нему провайдер вернёт тот же платёж вместо второго списания. Новая покупка на повтор
+ * означала бы новый ключ — и деньги ушли бы дважды.
  */
 async function charge({ subscription, email }: RenewableSubscription, now: Date): Promise<boolean> {
   const method = subscription.yukassaSubscriptionId
@@ -43,12 +52,25 @@ async function charge({ subscription, email }: RenewableSubscription, now: Date)
   }
   const amountKopecks = getEnv().PRO_PRICE_KOPECKS
   await markChargeAttempt(subscription.id, now)
-  const purchase = await createPurchase({
-    userId: subscription.userId,
-    kind: 'pro',
-    projectId: null,
-    amountKopecks,
-  })
+
+  const open = await openProPurchase(subscription.userId)
+  // Ответ прошлой попытки мог потеряться уже после списания: сначала спрашиваем провайдера
+  if (open?.yukassaPaymentId) {
+    const settled = await applyPayment(open.yukassaPaymentId)
+    if (settled.applied) {
+      await announceCharge(subscription.userId, email, amountKopecks, open.yukassaPaymentId)
+      return true
+    }
+  }
+
+  const purchase =
+    open ??
+    (await createPurchase({
+      userId: subscription.userId,
+      kind: 'pro',
+      projectId: null,
+      amountKopecks,
+    }))
   const payment = await getPaymentProvider().chargeSaved({
     amountKopecks,
     description: 'Домица Pro, один месяц',
@@ -56,12 +78,25 @@ async function charge({ subscription, email }: RenewableSubscription, now: Date)
     idempotencyKey: purchase.id,
     metadata: { purchaseId: purchase.id, kind: 'pro', userId: subscription.userId },
   })
-  await attachPayment(purchase.id, payment.id)
+  if (payment.id !== purchase.yukassaPaymentId) {
+    await attachPayment(purchase.id, payment.id)
+  }
   const applied = await applyPayment(payment.id)
   if (!applied.applied) {
     return false
   }
-  const renewed = await activeProSubscription(subscription.userId)
+  await announceCharge(subscription.userId, email, amountKopecks, payment.id)
+  return true
+}
+
+/** Письмо о списании и запись в аудит: общий хвост обоих путей, и обычного, и подхваченного */
+async function announceCharge(
+  userId: string,
+  email: string,
+  amountKopecks: number,
+  paymentId: string,
+): Promise<void> {
+  const renewed = await activeProSubscription(userId)
   if (renewed?.currentPeriodEnd) {
     await getEmailSender().send({
       to: email,
@@ -74,12 +109,11 @@ async function charge({ subscription, email }: RenewableSubscription, now: Date)
   }
   await recordAudit({
     action: 'billing.autopay_charged',
-    actorId: subscription.userId,
+    actorId: userId,
     targetType: 'subscription',
-    targetId: subscription.id,
-    metadata: { paymentId: payment.id, amountKopecks },
+    targetId: renewed?.id ?? userId,
+    metadata: { paymentId, amountKopecks },
   })
-  return true
 }
 
 /** После последней неудачной попытки говорим прямо, что списать не вышло и что делать дальше */
@@ -168,6 +202,37 @@ export async function runSubscriptionCycle(now = new Date()): Promise<CycleRepor
       if (step === 'charge') {
         await reportChargeFailure(row, now).catch(() => undefined)
       }
+    }
+  }
+  return report
+}
+
+export type SweepReport = { checked: number; settled: number; stillPending: number }
+
+/**
+ * Догоняющий проход по незакрытым покупкам.
+ *
+ * Уведомление от ЮKassa может не дойти — неверный адрес в кабинете, отказ по адресу
+ * отправителя, простой дольше суток, — и тогда человек, закрывший вкладку, останется
+ * без доступа при списанных деньгах. Здесь мы перечитываем такие платежи у провайдера сами.
+ *
+ * Ничего нового не выдаёт: вся работа идёт через ту же applyPayment, а она идемпотентна.
+ */
+export async function sweepPendingPurchases(now = new Date()): Promise<SweepReport> {
+  const stale = await listStalePendingPurchases(now)
+  const report: SweepReport = { checked: stale.length, settled: 0, stillPending: 0 }
+  for (const purchase of stale) {
+    try {
+      const applied = await applyPayment(purchase.paymentId)
+      if (applied.applied) {
+        report.settled += 1
+      } else {
+        report.stillPending += 1
+      }
+    } catch (error) {
+      // Один неотвечающий платёж не должен оставить остальные без проверки
+      console.error('pending purchase sweep failed', purchase.id, error)
+      report.stillPending += 1
     }
   }
   return report

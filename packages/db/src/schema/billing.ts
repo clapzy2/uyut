@@ -4,7 +4,7 @@ import { users } from './users'
 
 export const subscriptionPlans = ['free', 'pro'] as const
 export const subscriptionStatuses = ['active', 'canceled', 'past_due'] as const
-export const purchaseStatuses = ['pending', 'paid', 'refunded'] as const
+export const purchaseStatuses = ['pending', 'paid', 'canceled', 'refunded'] as const
 export const purchaseKinds = ['project', 'pro'] as const
 
 export const subscriptions = pgTable('subscriptions', {

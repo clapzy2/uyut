@@ -1,10 +1,9 @@
 import type { Purchase } from '@uyut/db'
 import { recordAudit } from '@/lib/audit'
 import {
-  activatePro,
   findPurchaseByPayment,
-  markProjectPaid,
-  markPurchasePaid,
+  markPurchaseCanceled,
+  settlePurchasePaid,
 } from '@/lib/billing/repository'
 import { getEnv } from '@/lib/env'
 import { type ExportRun, startExport } from '@/lib/exports/start'
@@ -21,9 +20,9 @@ export type ApplyResult = {
 
 /**
  * Единственное место, где оплата становится фактом. Статус платежа перечитывается из API
- * провайдера, а не берётся из уведомления; переход pending → paid делается одним update
- * с условием, поэтому webhook, возврат на сайт и повторные уведомления безопасно
- * вызывают эту функцию сколько угодно раз.
+ * провайдера, а не берётся из уведомления; отметка об оплате и выдача доступа идут одной
+ * транзакцией, поэтому webhook, возврат на сайт, повторные уведомления и догоняющий проход
+ * безопасно вызывают эту функцию сколько угодно раз.
  */
 export async function applyPayment(paymentId: string): Promise<ApplyResult> {
   const payment = await getPaymentProvider().getPayment(paymentId)
@@ -35,6 +34,11 @@ export async function applyPayment(paymentId: string): Promise<ApplyResult> {
     return { applied: false, purchase: null, status: payment.status }
   }
   if (payment.status !== 'succeeded' || !payment.paid) {
+    // Отменённый платёж закрываем сразу: иначе догоняющий проход будет спрашивать про него
+    // у провайдера каждые пятнадцать минут до конца окна и вытеснять из выборки живые покупки
+    if (payment.status === 'canceled') {
+      await markPurchaseCanceled(purchase.id)
+    }
     return { applied: false, purchase, status: payment.status }
   }
   if (payment.amountKopecks !== purchase.amountKopecks) {
@@ -47,15 +51,9 @@ export async function applyPayment(paymentId: string): Promise<ApplyResult> {
     })
     return { applied: false, purchase, status: payment.status }
   }
-  const changed = await markPurchasePaid(purchase.id)
+  const changed = await settlePurchasePaid(purchase, payment.paymentMethodId ?? null)
   if (!changed) {
     return { applied: false, purchase: { ...purchase, status: 'paid' }, status: 'succeeded' }
-  }
-
-  if (purchase.kind === 'project' && purchase.projectId) {
-    await markProjectPaid(purchase.projectId)
-  } else {
-    await activatePro(purchase.userId, payment.paymentMethodId ?? null)
   }
   await recordAudit({
     action: 'billing.paid',

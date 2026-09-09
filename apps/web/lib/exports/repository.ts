@@ -6,7 +6,7 @@ import {
   projectExports,
   projects,
 } from '@uyut/db'
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { getPlan } from '@/lib/billing/repository'
 import { getDb } from '@/lib/db'
 import { getEnv } from '@/lib/env'
@@ -16,6 +16,7 @@ import {
   isUuid,
   NotFoundError,
 } from '@/lib/projects/access'
+import { EXPORT_STALE_AFTER_MS, staleBefore } from '@/lib/queue/stale'
 import { presignedObjectUrl } from '@/lib/storage'
 
 export type ExportView = {
@@ -50,6 +51,48 @@ async function toView(row: typeof projectExports.$inferSelect): Promise<ExportVi
   }
 }
 
+const EXPORT_LOST = 'Сборка не дошла до конца: задача пропала. Попробуйте собрать заново.'
+
+/**
+ * Гасит сборки, которые задача так и не довела до конца.
+ *
+ * Делается при чтении: карточка выгрузки всё равно перечитывает список, и заводить ради
+ * этого отдельное расписание незачем. Но пишем только когда есть что гасить, иначе каждый
+ * просмотр итогов стоил бы запроса на запись. Условие по статусу дублируется в самом update:
+ * сборка, дописавшаяся между чтением и записью, не пострадает.
+ */
+async function failStale(
+  rows: Array<typeof projectExports.$inferSelect>,
+  now: Date,
+): Promise<Array<typeof projectExports.$inferSelect>> {
+  const lost = rows.filter(
+    (row) =>
+      (row.status === 'pending' || row.status === 'running') &&
+      row.createdAt < staleBefore(now, EXPORT_STALE_AFTER_MS),
+  )
+  if (lost.length === 0) {
+    return rows
+  }
+  await getDb()
+    .update(projectExports)
+    .set({ status: 'failed', error: EXPORT_LOST, finishedAt: now })
+    .where(
+      and(
+        inArray(
+          projectExports.id,
+          lost.map((row) => row.id),
+        ),
+        inArray(projectExports.status, ['pending', 'running']),
+      ),
+    )
+  const lostIds = new Set(lost.map((row) => row.id))
+  return rows.map((row) =>
+    lostIds.has(row.id)
+      ? { ...row, status: 'failed' as const, error: EXPORT_LOST, finishedAt: now }
+      : row,
+  )
+}
+
 export async function listExports(
   userId: string,
   projectId: string,
@@ -62,7 +105,7 @@ export async function listExports(
     .where(eq(projectExports.projectId, project.id))
     .orderBy(desc(projectExports.createdAt))
     .limit(limit)
-  return Promise.all(rows.map(toView))
+  return Promise.all((await failStale(rows, new Date())).map(toView))
 }
 
 export async function getExport(userId: string, exportId: string): Promise<ExportView> {
