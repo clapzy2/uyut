@@ -1,6 +1,5 @@
 'use client'
 
-import { useRealtimeRun } from '@trigger.dev/react-hooks'
 import type { ProjectRole } from '@uyut/db'
 import { Button, cn, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
@@ -20,6 +19,7 @@ import {
   splitVotes,
   theirVote,
 } from '@/lib/concepts/votes'
+import { useRunWatch } from '@/lib/queue/use-run-watch'
 
 export type ConceptItem = {
   id: string
@@ -32,8 +32,6 @@ export type ConceptItem = {
   partner: boolean | null
   orderIndex: number
 }
-
-type Progress = { stage?: string; done?: number; total?: number; failed?: number }
 
 type Tab = 'all' | 'mine' | 'theirs' | 'both'
 
@@ -49,6 +47,12 @@ function stageIndex(stage: string | undefined): number {
   return found === -1 ? 0 : found
 }
 
+// Дольше обычного — это уже втрое против тридцати секунд, на которые мы настроили человека.
+const SLOW_AFTER_MS = 90_000
+// Задача живёт не дольше десяти минут (jobs/src/generate-concept.ts), так что после восьми
+// ждать нечего: либо она уже кончилась молча, либо не начиналась вовсе
+const GIVE_UP_AFTER_MS = 8 * 60_000
+
 function RunProgress({
   runId,
   accessToken,
@@ -56,24 +60,32 @@ function RunProgress({
 }: {
   runId: string
   accessToken: string
-  onFinished: () => void
+  onFinished: (failed: boolean) => void
 }) {
-  const { run, error } = useRealtimeRun(runId, { accessToken })
-  const progress = (run?.metadata?.progress ?? {}) as Progress
+  const { progress, slow, lost } = useRunWatch({
+    runId,
+    accessToken,
+    slowAfterMs: SLOW_AFTER_MS,
+    giveUpAfterMs: GIVE_UP_AFTER_MS,
+    onFinished,
+  })
   const current = stageIndex(progress.stage)
-  const finished = run?.status === 'COMPLETED' || run?.status === 'FAILED'
 
-  useEffect(() => {
-    if (finished) {
-      onFinished()
-    }
-  }, [finished, onFinished])
-
-  if (error) {
+  if (lost) {
     return (
-      <p className="text-[15px] text-ink-2">
-        Связь с очередью потерялась. Концепты всё равно досчитаются, обновите страницу через минуту.
-      </p>
+      <div className="flex flex-col gap-3">
+        <p className="text-[15px] text-ink-2">
+          Связь с очередью потерялась. Концепты всё равно досчитаются, обновите страницу через
+          минуту.
+        </p>
+        <button
+          type="button"
+          onClick={() => onFinished(false)}
+          className="self-start py-1 text-[14px] text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent"
+        >
+          Вернуться к комнате
+        </button>
+      </div>
     )
   }
 
@@ -105,6 +117,12 @@ function RunProgress({
           </li>
         )
       })}
+      {slow ? (
+        <li className="mt-1 text-[14px] leading-relaxed text-ink-2">
+          Идёт дольше обычного. Можно закрыть страницу: концепты доедут и без вас, а вернувшись, вы
+          их увидите.
+        </li>
+      ) : null}
     </ol>
   )
 }
@@ -252,8 +270,14 @@ export function ConceptsPanel({
         <RunProgress
           runId={run.runId}
           accessToken={run.accessToken}
-          onFinished={() => {
+          onFinished={(failed) => {
             setRun(null)
+            if (failed) {
+              toast({
+                title: 'Концепты не собрались. Попробуйте ещё раз.',
+                tone: 'danger',
+              })
+            }
             void refreshConcepts(roomId).then(() => router.refresh())
           }}
         />

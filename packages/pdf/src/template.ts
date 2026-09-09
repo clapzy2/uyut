@@ -11,6 +11,12 @@ import {
 } from './format'
 import type { PdfData, PdfImage, PdfRoom, PdfShoppingGroup } from './types'
 
+/**
+ * Знак продукта на обложке: та же «Д» с дверью, что в интерфейсе и на значке вкладки.
+ * Без подложки и с наследованием цвета — обложка бывает и светлой, и поверх тёмной фотографии.
+ */
+const MARK_SVG = `<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" fill="none"><path d="M 15 10 H 33 L 36 31 H 39 V 36 H 35 V 41 H 30 V 36 H 18 V 41 H 13 V 36 H 9 V 31 H 12 Z" fill="currentColor"/><path d="M 21 36 V 27.5 a 3 3 0 0 1 6 0 V 36 Z" fill="#7c2f3b"/></svg>`
+
 const WATERMARK_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='460' height='320' viewBox='0 0 460 320'><text x='40' y='190' transform='rotate(-22 230 160)' font-family='Georgia, serif' font-size='44' fill='%237c2f3b' fill-opacity='0.11'>Домица · предпросмотр</text></svg>`
 
 // Те же токены, что в продукте: бумага, чернила, бургунди
@@ -47,7 +53,8 @@ const CSS = `
   .cover { position: relative; height: 297mm; overflow: hidden; background: #262220; color: #f6efe4; }
   .cover .photo { position: absolute; inset: 0; }
   .cover .shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(20,14,12,0.12) 0%, rgba(20,14,12,0) 35%, rgba(20,14,12,0.74) 100%); }
-  .cover .mark { position: absolute; left: 16mm; top: 14mm; font-family: 'Literata', Georgia, serif; font-size: 18pt; }
+  .cover .mark { position: absolute; left: 16mm; top: 14mm; display: flex; align-items: center; gap: 2.5mm; font-family: 'Literata', Georgia, serif; font-size: 18pt; }
+  .cover .mark svg { width: 7mm; height: 7mm; }
   .cover .text { position: absolute; left: 16mm; right: 16mm; bottom: 18mm; display: grid; gap: 5mm; }
   .cover .eyebrow { color: rgba(246,239,228,0.78); }
   .cover h1 { font-size: 46pt; color: #f6efe4; }
@@ -147,7 +154,7 @@ function cover(data: PdfData, free: boolean): string {
   <section class="page cover">
     ${data.cover ? `<div class="photo"><img src="${data.cover.src}" alt="${esc(data.cover.alt ?? '')}"></div><div class="shade"></div>` : ''}
     ${ribbon(free)}
-    <div class="mark">Домица</div>
+    <div class="mark">${MARK_SVG}Домица</div>
     <div class="text">
       <p class="eyebrow">Проект интерьера · ${esc(formatMonthYear(data.generatedAt))}</p>
       <h1>${esc(data.project.title)}</h1>

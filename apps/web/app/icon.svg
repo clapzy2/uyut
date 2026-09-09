@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <title>Домица</title>
+  <rect width="48" height="48" rx="10" fill="#262220"/>
+  <path d="M 15 10 H 33 L 36 31 H 39 V 36 H 35 V 41 H 30 V 36 H 18 V 41 H 13 V 36 H 9 V 31 H 12 Z" fill="#fcf9f2"/>
+  <path d="M 20 36 V 27 a 4 4 0 0 1 8 0 V 36 Z" fill="#7c2f3b"/>
+</svg>

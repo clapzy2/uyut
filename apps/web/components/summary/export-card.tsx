@@ -1,10 +1,9 @@
 'use client'
 
-import { useRealtimeRun } from '@trigger.dev/react-hooks'
 import type { ProjectContact, SubscriptionPlan } from '@uyut/db'
 import { Button, buttonClassName, Checkbox, cn, inputClassName, Label, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { startProjectPurchase, startProSubscription } from '@/actions/billing'
 import { type ExportRun, exportProjectPdf, loadExport } from '@/actions/exports'
 import { CheckoutButton } from '@/components/billing/checkout-button'
@@ -12,8 +11,7 @@ import { formatPrice } from '@/lib/concepts/format'
 import type { ExportView } from '@/lib/exports/repository'
 import { formatDate } from '@/lib/projects/format'
 import { formatPhoneInput } from '@/lib/projects/phone'
-
-type Progress = { stage?: string }
+import { useRunWatch } from '@/lib/queue/use-run-watch'
 
 export type PaymentState = 'paid' | 'pending' | 'canceled' | null
 
@@ -31,6 +29,11 @@ function stageIndex(stage: string | undefined): number {
   return found === -1 ? 0 : found
 }
 
+// Сборка обычно укладывается в полминуты, минута — это уже повод сказать человеку хоть что-то
+const SLOW_AFTER_MS = 60_000
+// Задача живёт не дольше пяти минут (jobs/trigger.config.ts), после шести ждать нечего
+const GIVE_UP_AFTER_MS = 6 * 60_000
+
 function RunProgress({
   runId,
   accessToken,
@@ -40,22 +43,29 @@ function RunProgress({
   accessToken: string
   onFinished: (failed: boolean) => void
 }) {
-  const { run, error } = useRealtimeRun(runId, { accessToken })
-  const progress = (run?.metadata?.progress ?? {}) as Progress
+  const { progress, slow, lost } = useRunWatch({
+    runId,
+    accessToken,
+    slowAfterMs: SLOW_AFTER_MS,
+    giveUpAfterMs: GIVE_UP_AFTER_MS,
+    onFinished,
+  })
   const current = stageIndex(progress.stage)
-  const finished = run?.status === 'COMPLETED' || run?.status === 'FAILED'
 
-  useEffect(() => {
-    if (finished) {
-      onFinished(run?.status === 'FAILED')
-    }
-  }, [finished, onFinished, run?.status])
-
-  if (error) {
+  if (lost) {
     return (
-      <p className="text-[13px] leading-relaxed text-ink-2">
-        Связь с очередью потерялась. Файл всё равно соберётся, обновите страницу через минуту.
-      </p>
+      <div className="flex flex-col gap-2">
+        <p className="text-[13px] leading-relaxed text-ink-2">
+          Связь с очередью потерялась. Файл всё равно соберётся, обновите страницу через минуту.
+        </p>
+        <button
+          type="button"
+          onClick={() => onFinished(false)}
+          className="self-start py-1 text-[13px] text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent"
+        >
+          Показать, что получилось
+        </button>
+      </div>
     )
   }
   return (
@@ -81,6 +91,11 @@ function RunProgress({
           </li>
         )
       })}
+      {slow ? (
+        <li className="mt-1 text-[13px] leading-relaxed text-ink-2">
+          Идёт дольше обычного. Можно закрыть страницу: ссылка на готовый файл придёт письмом.
+        </li>
+      ) : null}
     </ol>
   )
 }

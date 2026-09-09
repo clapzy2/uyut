@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { BrandMark } from '@/components/brand-mark'
 import { ThemeToggle } from '@/components/theme-toggle'
 import type { Theme } from '@/lib/theme'
 
@@ -11,8 +12,9 @@ export function SiteHeader({ theme, user }: { theme: Theme; user: { name: string
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-6 px-5 sm:px-8">
         <Link
           href="/"
-          className="inline-block py-2 font-serif text-[26px] leading-none tracking-tight text-ink"
+          className="inline-flex items-center gap-2.5 py-2 font-serif text-[26px] leading-none tracking-tight text-ink"
         >
+          <BrandMark className="h-7 w-7 shrink-0" />
           Домица
         </Link>
         <nav className="flex items-center gap-3 sm:gap-7" aria-label="Основное меню">

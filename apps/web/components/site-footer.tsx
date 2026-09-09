@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { BrandMark } from '@/components/brand-mark'
 import { legalDocuments } from '@/lib/legal/documents'
 import { operator } from '@/lib/legal/operator'
 
@@ -10,7 +11,10 @@ export function SiteFooter() {
     <footer className="border-t border-line">
       <div className="mx-auto flex max-w-6xl flex-col gap-5 px-5 py-8 text-sm text-ink-2 sm:px-8 sm:py-7 md:flex-row md:items-start md:justify-between md:gap-10">
         <div className="flex flex-col gap-1">
-          <span className="font-serif text-base text-ink">Домица</span>
+          <span className="inline-flex items-center gap-2 font-serif text-base text-ink">
+            <BrandMark className="h-5 w-5 shrink-0" />
+            Домица
+          </span>
           <span>Концепты интерьера, список покупок и смета</span>
         </div>
         <nav aria-label="Документы" className="flex flex-col gap-1 md:items-end">
