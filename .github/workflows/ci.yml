@@ -21,7 +21,7 @@ env:
   S3_SECRET_KEY: minioadmin
   BETTER_AUTH_SECRET: ci-only-secret-not-for-production-0123456789
   SMTP_URL: smtp://127.0.0.1:1025
-  EMAIL_FROM: Uyut <hello@uyut.local>
+  EMAIL_FROM: Домица <hello@domitsa.local>
   MAILPIT_URL: http://localhost:8025
 
 jobs:

@@ -38,7 +38,7 @@ test.describe('assistant', () => {
     await page.getByRole('button', { name: 'Открыть помощника' }).click()
     const dialog = page.getByRole('dialog', { name: 'Помощник' })
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('Я помощник Uyut')).toBeVisible()
+    await expect(dialog.getByText('Я помощник Домицы')).toBeVisible()
     // Пока панель открыта, страница под ней не прокручивается: второй полосы рядом с панелью нет
     await expect
       .poll(() => page.evaluate(() => getComputedStyle(document.body).overflow))

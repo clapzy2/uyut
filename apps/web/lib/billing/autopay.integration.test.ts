@@ -103,7 +103,7 @@ describe('daily subscription pass in a real database', () => {
     expect(paid).toHaveLength(1)
     expect(paid[0]?.status).toBe('paid')
     expect(paid[0]?.kind).toBe('pro')
-    expect(lettersFor(email)).toEqual(['Pro в Uyut продлён на месяц'])
+    expect(lettersFor(email)).toEqual(['Pro в Домице продлён на месяц'])
   })
 
   it('does not charge the same subscription twice in one day', async () => {
@@ -134,7 +134,7 @@ describe('daily subscription pass in a real database', () => {
       .from(subscriptions)
       .where(eq(subscriptions.id, subscriptionId))
     expect(reminded?.remindedAt).not.toBeNull()
-    expect(lettersFor(email)).toEqual([expect.stringContaining('Pro в Uyut заканчивается')])
+    expect(lettersFor(email)).toEqual([expect.stringContaining('Pro в Домице заканчивается')])
   })
 
   it('closes a period nobody paid for', async () => {

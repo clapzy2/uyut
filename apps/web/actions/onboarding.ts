@@ -231,7 +231,7 @@ async function fetchReferenceImage(url: string): Promise<File | null> {
   }
   try {
     const page = await fetch(url, {
-      headers: { 'user-agent': 'Mozilla/5.0 (compatible; UyutBot/1.0)' },
+      headers: { 'user-agent': 'Mozilla/5.0 (compatible; DomitsaBot/1.0)' },
       signal: AbortSignal.timeout(8000),
     })
     if (!page.ok) {

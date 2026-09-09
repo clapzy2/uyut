@@ -28,7 +28,7 @@ async function jpegWithExif(): Promise<Buffer> {
   return sharp({ create: { width: 640, height: 480, channels: 3, background: '#d9ceb6' } })
     .jpeg()
     .withMetadata({
-      exif: { IFD0: { Copyright: 'Uyut e2e', ImageDescription: 'plan with metadata' } },
+      exif: { IFD0: { Copyright: 'Домица e2e', ImageDescription: 'plan with metadata' } },
     })
     .toBuffer()
 }

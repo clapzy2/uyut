@@ -44,8 +44,8 @@ export const landingPhotos: Record<string, PhotoSlot> = {
   },
   og: {
     id: 'og',
-    brief: 'Кадр 1200×630 для карточки ссылки в мессенджерах: интерьер и надпись Uyut',
-    alt: 'Uyut',
+    brief: 'Кадр 1200×630 для карточки ссылки в мессенджерах: интерьер и надпись Домица',
+    alt: 'Домица',
     src: '',
   },
   together: {

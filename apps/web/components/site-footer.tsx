@@ -10,7 +10,7 @@ export function SiteFooter() {
     <footer className="border-t border-line">
       <div className="mx-auto flex max-w-6xl flex-col gap-5 px-5 py-8 text-sm text-ink-2 sm:px-8 sm:py-7 md:flex-row md:items-start md:justify-between md:gap-10">
         <div className="flex flex-col gap-1">
-          <span className="font-serif text-base text-ink">Uyut</span>
+          <span className="font-serif text-base text-ink">Домица</span>
           <span>Концепты интерьера, список покупок и смета</span>
         </div>
         <nav aria-label="Документы" className="flex flex-col gap-1 md:items-end">

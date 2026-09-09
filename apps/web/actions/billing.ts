@@ -108,7 +108,7 @@ export async function startProjectPurchase(
       kind: 'project',
       projectId: project.id,
       amountKopecks: getEnv().PROJECT_PRICE_KOPECKS,
-      description: `Uyut: проект «${project.title}»`,
+      description: `Домица: проект «${project.title}»`,
       returnPath: `/projects/${project.id}/summary`,
     })
     revalidatePath(`/projects/${project.id}/summary`)
@@ -138,7 +138,7 @@ export async function startProSubscription(
       kind: 'pro',
       projectId: null,
       amountKopecks: getEnv().PRO_PRICE_KOPECKS,
-      description: 'Uyut Pro, один месяц',
+      description: 'Домица Pro, один месяц',
       returnPath: safePath,
       savePaymentMethod: true,
     })
