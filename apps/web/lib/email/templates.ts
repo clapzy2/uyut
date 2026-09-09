@@ -17,7 +17,7 @@ function letter(subject: string, paragraphs: string[], url: string, linkText: st
 
 export function verificationLetter(url: string): Letter {
   return letter(
-    'Подтвердите почту в Uyut',
+    'Подтвердите почту в Домице',
     ['Осталось подтвердить почту, и можно собирать первый проект. Ссылка работает сутки.'],
     url,
     'Подтвердить почту',
@@ -26,7 +26,7 @@ export function verificationLetter(url: string): Letter {
 
 export function passwordResetLetter(url: string): Letter {
   return letter(
-    'Смена пароля в Uyut',
+    'Смена пароля в Домице',
     [
       'Кто-то попросил сменить пароль от вашего аккаунта. Если это вы, перейдите по ссылке: она работает полчаса.',
       'Если это не вы, просто не открывайте ссылку. Пароль останется прежним.',
@@ -42,9 +42,9 @@ export function invitationLetter(input: {
   url: string
 }): Letter {
   return letter(
-    `${input.inviterName} зовёт вас в проект «${input.projectTitle}» в Uyut`,
+    `${input.inviterName} зовёт вас в проект «${input.projectTitle}» в Домице`,
     [
-      `${input.inviterName} собирает интерьер квартиры в Uyut и хочет выбирать вдвоём: вы будете смотреть те же рендеры, отмечать, что нравится, а сервис покажет, где ваши вкусы совпали.`,
+      `${input.inviterName} собирает интерьер квартиры в Домице и хочет выбирать вдвоём: вы будете смотреть те же рендеры, отмечать, что нравится, а сервис покажет, где ваши вкусы совпали.`,
       'Ссылка работает неделю и открывает проект. Если вы не ждали этого письма, просто не открывайте его.',
     ],
     input.url,
@@ -72,7 +72,7 @@ const dayMonth = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long
 export function proRenewalLetter(input: { periodEnd: Date; renewUrl: string }): Letter {
   const date = dayMonth.format(input.periodEnd)
   return letter(
-    `Pro в Uyut заканчивается ${date}`,
+    `Pro в Домице заканчивается ${date}`,
     [
       `Оплаченный месяц Pro заканчивается ${date}. После этого проекты останутся на месте, но новые создать не получится, а PDF будет выходить с водяным знаком.`,
       'Продление занимает минуту: одна оплата, автосписаний по вашей подписке нет.',
@@ -88,7 +88,7 @@ export function proChargedLetter(input: {
   manageUrl: string
 }): Letter {
   return letter(
-    'Pro в Uyut продлён на месяц',
+    'Pro в Домице продлён на месяц',
     [
       `Списали ${formatPrice(input.amountKopecks)} по сохранённой карте, Pro работает до ${dayMonth.format(input.periodEnd)}.`,
       'Если продлевать больше не нужно, отключите автопродление на странице проектов — следующее списание не пройдёт.',

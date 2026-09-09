@@ -390,7 +390,7 @@ export function ChatDrawer(scope: Scope) {
                     <p className="text-[15px] text-ink-2">Загружаем разговор…</p>
                   ) : messages.length === 0 ? (
                     <div className="rounded-md bg-muted px-4 py-3 text-[15px] leading-relaxed text-ink">
-                      Я помощник Uyut. Помогу с интерьером этой квартиры: подобрать мебель,
+                      Я помощник Домицы. Помогу с интерьером этой квартиры: подобрать мебель,
                       объяснить концепт, посчитать смету.
                     </div>
                   ) : null}

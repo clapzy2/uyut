@@ -33,7 +33,7 @@ async function downloadImage(url: string): Promise<Buffer | null> {
   }
   const response = await fetch(url, {
     signal: AbortSignal.timeout(15_000),
-    headers: { 'user-agent': 'Mozilla/5.0 (compatible; UyutBot/1.0)' },
+    headers: { 'user-agent': 'Mozilla/5.0 (compatible; DomitsaBot/1.0)' },
   })
   return response.ok ? Buffer.from(await response.arrayBuffer()) : null
 }

@@ -22,21 +22,21 @@ const description =
 export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase: new URL(getEnv().APP_URL),
-    title: { default: 'Uyut', template: '%s · Uyut' },
+    title: { default: 'Домица', template: '%s · Домица' },
     description,
-    applicationName: 'Uyut',
+    applicationName: 'Домица',
     openGraph: {
       type: 'website',
       locale: 'ru_RU',
-      siteName: 'Uyut',
-      title: 'Uyut — проект квартиры за вечер',
+      siteName: 'Домица',
+      title: 'Домица — проект квартиры за вечер',
       description,
       // Картинку карточки добавим вместе с фотографиями лендинга
       ...(ogImage ? { images: [{ url: ogImage, width: 1200, height: 630 }] } : {}),
     },
     twitter: {
       card: ogImage ? 'summary_large_image' : 'summary',
-      title: 'Uyut — проект квартиры за вечер',
+      title: 'Домица — проект квартиры за вечер',
       description,
     },
   }

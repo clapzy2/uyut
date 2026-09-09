@@ -11,7 +11,7 @@ import {
 } from './format'
 import type { PdfData, PdfImage, PdfRoom, PdfShoppingGroup } from './types'
 
-const WATERMARK_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='460' height='320' viewBox='0 0 460 320'><text x='40' y='190' transform='rotate(-22 230 160)' font-family='Georgia, serif' font-size='44' fill='%237c2f3b' fill-opacity='0.11'>Uyut · предпросмотр</text></svg>`
+const WATERMARK_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='460' height='320' viewBox='0 0 460 320'><text x='40' y='190' transform='rotate(-22 230 160)' font-family='Georgia, serif' font-size='44' fill='%237c2f3b' fill-opacity='0.11'>Домица · предпросмотр</text></svg>`
 
 // Те же токены, что в продукте: бумага, чернила, бургунди
 const CSS = `
@@ -147,7 +147,7 @@ function cover(data: PdfData, free: boolean): string {
   <section class="page cover">
     ${data.cover ? `<div class="photo"><img src="${data.cover.src}" alt="${esc(data.cover.alt ?? '')}"></div><div class="shade"></div>` : ''}
     ${ribbon(free)}
-    <div class="mark">Uyut</div>
+    <div class="mark">Домица</div>
     <div class="text">
       <p class="eyebrow">Проект интерьера · ${esc(formatMonthYear(data.generatedAt))}</p>
       <h1>${esc(data.project.title)}</h1>
@@ -439,7 +439,7 @@ function finalPage(data: PdfData, free: boolean): string {
       </div>
     </div>
     <div class="rule" style="margin-top:10mm"></div>
-    <p class="small" style="margin-top:4mm">Документ собран сервисом Uyut ${esc(formatLongDate(data.generatedAt))} по концептам, утверждённым заказчиком. Цены магазинов и оценка работ ориентировочные и могут измениться; ссылки на магазины партнёрские.${data.brief ? ' Техническое задание не заменяет проектную документацию и расчёты инженера.' : ''}</p>
+    <p class="small" style="margin-top:4mm">Документ собран сервисом «Домица» ${esc(formatLongDate(data.generatedAt))} по концептам, утверждённым заказчиком. Цены магазинов и оценка работ ориентировочные и могут измениться; ссылки на магазины партнёрские.${data.brief ? ' Техническое задание не заменяет проектную документацию и расчёты инженера.' : ''}</p>
   </section>`
 }
 
@@ -453,7 +453,7 @@ export function renderProjectHtml(data: PdfData, options: { fontCss: string }): 
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>${esc(data.project.title)} · Uyut</title>
+<title>${esc(data.project.title)} · Домица</title>
 <style>
 ${options.fontCss}
 ${CSS}
@@ -474,5 +474,5 @@ ${finalPage(data, free)}
 
 /** Колонтитул для Playwright: название проекта слева, номер страницы справа; на обложке скрыт нулевыми полями */
 export function footerTemplate(title: string): string {
-  return `<div style="width:100%;padding:0 16mm;display:flex;justify-content:space-between;font-family:Georgia,serif;font-size:7.5px;letter-spacing:0.08em;text-transform:uppercase;color:#6d6656"><span>Uyut · ${esc(title)}</span><span class="pageNumber"></span></div>`
+  return `<div style="width:100%;padding:0 16mm;display:flex;justify-content:space-between;font-family:Georgia,serif;font-size:7.5px;letter-spacing:0.08em;text-transform:uppercase;color:#6d6656"><span>Домица · ${esc(title)}</span><span class="pageNumber"></span></div>`
 }

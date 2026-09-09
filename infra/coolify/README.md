@@ -79,7 +79,7 @@ curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
 | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | ключи доступа из карточки бакета |
 | `BETTER_AUTH_SECRET` | случайная строка от 32 символов, `openssl rand -base64 32` |
 | `SMTP_URL` | адрес SMTP-сервера, например `smtps://user:pass@smtp.yandex.ru:465` |
-| `EMAIL_FROM` | отправитель писем, например `Uyut <hello@ваш-домен>` |
+| `EMAIL_FROM` | отправитель писем, например `Домица <hello@ваш-домен>` |
 
 ### Работа за обратным прокси
 

@@ -13,7 +13,7 @@ export function SiteHeader({ theme, user }: { theme: Theme; user: { name: string
           href="/"
           className="inline-block py-2 font-serif text-[26px] leading-none tracking-tight text-ink"
         >
-          Uyut
+          Домица
         </Link>
         <nav className="flex items-center gap-3 sm:gap-7" aria-label="Основное меню">
           {user ? (

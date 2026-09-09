@@ -51,7 +51,7 @@ async function charge({ subscription, email }: RenewableSubscription, now: Date)
   })
   const payment = await getPaymentProvider().chargeSaved({
     amountKopecks,
-    description: 'Uyut Pro, один месяц',
+    description: 'Домица Pro, один месяц',
     paymentMethodId: method,
     idempotencyKey: purchase.id,
     metadata: { purchaseId: purchase.id, kind: 'pro', userId: subscription.userId },

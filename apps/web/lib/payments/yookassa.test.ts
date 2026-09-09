@@ -54,7 +54,7 @@ describe('yookassa client', () => {
     })
     const payment = await provider.chargeSaved({
       amountKopecks: 99_900,
-      description: 'Uyut Pro, один месяц',
+      description: 'Домица Pro, один месяц',
       paymentMethodId: 'pm_saved',
       idempotencyKey: 'p9',
       metadata: { purchaseId: 'p9' },

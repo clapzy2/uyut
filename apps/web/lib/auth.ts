@@ -21,7 +21,7 @@ function createAuth() {
   const env = getEnv()
 
   return betterAuth({
-    appName: 'Uyut',
+    appName: 'Домица',
     baseURL: env.APP_URL,
     secret: env.BETTER_AUTH_SECRET,
     trustedOrigins: [env.APP_URL],

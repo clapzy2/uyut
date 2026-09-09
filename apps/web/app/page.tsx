@@ -9,7 +9,7 @@ import { photo } from '@/lib/landing/photos'
 import { getSession } from '@/lib/session'
 
 export const metadata: Metadata = {
-  title: 'Uyut — проект квартиры за вечер',
+  title: 'Домица — проект квартиры за вечер',
   description:
     'Загрузите план или фотографию комнаты и получите варианты обстановки, список мебели из российских магазинов, смету и задание для мастеров.',
 }

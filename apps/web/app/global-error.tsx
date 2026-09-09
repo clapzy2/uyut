@@ -25,7 +25,7 @@ export default function GlobalError({
       <body className="flex min-h-dvh flex-col font-sans">
         <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-5 py-12 sm:px-8">
           <div className="max-w-xl">
-            <p className="font-serif text-[26px] leading-none tracking-tight text-ink">Uyut</p>
+            <p className="font-serif text-[26px] leading-none tracking-tight text-ink">Домица</p>
             <h1 className="mt-8 font-serif text-[40px] font-normal leading-[1.05] tracking-tight text-ink sm:text-5xl">
               Сервис не отвечает.
             </h1>

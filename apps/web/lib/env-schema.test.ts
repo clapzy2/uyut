@@ -13,7 +13,7 @@ const complete = {
   S3_SECRET_KEY: 'secret',
   BETTER_AUTH_SECRET: 'x'.repeat(32),
   SMTP_URL: 'smtp://localhost:1025',
-  EMAIL_FROM: 'Uyut <hello@uyut.local>',
+  EMAIL_FROM: 'Домица <hello@domitsa.local>',
 }
 
 describe('parseServerEnv', () => {
