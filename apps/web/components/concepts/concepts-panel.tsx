@@ -3,6 +3,7 @@
 import type { ProjectRole } from '@uyut/db'
 import { Button, cn, toast } from '@uyut/ui'
 import { motion } from 'motion/react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import {
@@ -466,6 +467,21 @@ export function ConceptsPanel({
           <span className="text-ink">нажмите на предмет прямо на картинке</span> — сервис подберёт
           похожую мебель из магазинов с ценами. Кнопка «В список» под ценой соберёт из них список
           покупок и смету.
+        </p>
+      ) : null}
+
+      {/* После отметок человек оставался без следующего шага: про концепт сказано, а куда идти
+          с собранными товарами — нет. Ссылка на итоги закрывает маршрут до сметы и PDF. */}
+      {ready.length > 0 ? (
+        <p className="text-[15px] leading-relaxed text-ink-2">
+          Когда наберёте товары —{' '}
+          <Link
+            href={`/projects/${projectId}/summary`}
+            className="text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent"
+          >
+            итоги проекта
+          </Link>
+          : список покупок, смета работ по площади комнат и документ для подрядчика.
         </p>
       ) : null}
 
