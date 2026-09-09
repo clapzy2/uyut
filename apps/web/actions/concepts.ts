@@ -8,6 +8,7 @@ import { recordAudit } from '@/lib/audit'
 import { bumpProjectVersion } from '@/lib/collaboration/live'
 import { getDuoOffer } from '@/lib/concepts/duo'
 import * as conceptsRepository from '@/lib/concepts/repository'
+import { generationStillRunning } from '@/lib/concepts/resume-run'
 import { getEnv } from '@/lib/env'
 import { AccessError, requireOwner } from '@/lib/projects/access'
 import { attachGenerationRun, clearGenerationRun, getRoom } from '@/lib/projects/repository'
@@ -61,7 +62,7 @@ export async function requestConcepts(
       count: 5,
       ...(revision ? { revision: revision.slice(0, 500) } : {}),
     })
-    await attachGenerationRun(room.id, handle.id)
+    await attachGenerationRun(room.id, handle.id, batchId)
     await recordAudit({
       action: 'concepts.requested',
       actorId: userId,
@@ -153,6 +154,24 @@ export async function requestDuoConcepts(roomId: string): Promise<ActionResult<C
       handle.publicAccessToken ??
       (await triggerAuth.createPublicToken({ scopes: { read: { runs: [handle.id] } } }))
     return { ok: true, data: { runId: handle.id, accessToken, batchId } }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+/**
+ * Идёт ли генерация по мнению сервера. Панель спрашивает это, пока ждёт: поток событий из
+ * очереди умеет замолчать без единой ошибки, и тогда экран ожидания висел бы поверх
+ * готовых концептов.
+ */
+export async function checkGeneration(roomId: string): Promise<ActionResult<{ running: boolean }>> {
+  const userId = await currentUserId()
+  if (!userId) {
+    return { ok: false, error: SESSION_EXPIRED }
+  }
+  try {
+    const room = await getRoom(userId, roomId)
+    return { ok: true, data: { running: await generationStillRunning(room) } }
   } catch (error) {
     return failure(error)
   }
