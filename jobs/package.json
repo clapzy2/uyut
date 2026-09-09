@@ -10,6 +10,7 @@
     "catalog:gdeslon": "bun --env-file=../.env run scripts/fetch-gdeslon.ts",
     "catalog:import": "bun --env-file=../.env run scripts/import-catalog.ts",
     "catalog:embed": "bun --env-file=../.env run scripts/embed-catalog.ts",
+    "try-match": "bun --env-file=../.env run scripts/try-match.ts",
     "match-concept": "bun --env-file=../.env run scripts/match-concept.ts",
     "index-now": "bun --env-file=../.env run scripts/index-catalog-now.ts"
   },
