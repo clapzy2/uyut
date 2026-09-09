@@ -39,6 +39,10 @@ function revalidate(projectId: string, roomId: string, conceptId: string): void 
  * Сохранить перекрашенный рендер. Оригинал остаётся, отредактированная версия живёт рядом,
  * а вырезка предмета в новом цвете получает свой вектор, чтобы подбор показывал товары нужного цвета.
  */
+// Сколько ждём вектор перекрашенной вырезки. Это нажатие человека: лучше остаться
+// без вектора, чем держать соединение открытым, пока его не оборвёт шлюз.
+const EMBED_TIMEOUT_MS = 8_000
+
 export async function saveRecolor(
   conceptId: string,
   objectId: string,
@@ -91,6 +95,12 @@ export async function saveRecolor(
       .update(concepts)
       .set({ editedRenderUrl: key, edits })
       .where(eq(concepts.id, concept.id))
+    // Отметку о цвете ставим здесь же, до похода за вектором: тот ходит в чужой сервис
+    // и может не ответить, а картинка уже сохранена — база не должна расходиться сама с собой.
+    await db
+      .update(conceptObjects)
+      .set({ swatchId: swatch.id })
+      .where(eq(conceptObjects.id, object.id))
     if (concept.editedRenderUrl) {
       await deleteObject(concept.editedRenderUrl).catch(() => undefined)
     }
@@ -115,18 +125,30 @@ export async function saveRecolor(
           .resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true })
           .jpeg({ quality: 88 })
           .toBuffer()
-        const [vector] = await createVoyageEmbedder(voyageKey).embed([
-          { image: { body: crop, contentType: 'image/jpeg' } },
+        // Короткий срок и никаких долгих повторов: это нажатие человека, а не ночной счёт.
+        // Настройки по умолчанию ждут до тридцати секунд и повторяют шесть раз — нажатие
+        // висело минутами, шлюз рвал соединение, и человек видел «не получилось сохранить
+        // цвет», хотя цвет уже был сохранён. Вектор здесь приятное дополнение: без него
+        // подбор просто останется прежним.
+        const [vector] = await Promise.race([
+          createVoyageEmbedder(voyageKey, { timeoutMs: EMBED_TIMEOUT_MS }).embed([
+            { image: { body: crop, contentType: 'image/jpeg' } },
+          ]),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('вектор не успел')), EMBED_TIMEOUT_MS),
+          ),
         ])
         editedEmbedding = vector ?? null
       } catch (error) {
         console.error('edited embedding failed', error)
       }
     }
-    await db
-      .update(conceptObjects)
-      .set({ swatchId: swatch.id, editedEmbedding })
-      .where(eq(conceptObjects.id, object.id))
+    if (editedEmbedding) {
+      await db
+        .update(conceptObjects)
+        .set({ editedEmbedding })
+        .where(eq(conceptObjects.id, object.id))
+    }
 
     await recordAudit({
       action: 'concept.recolored',

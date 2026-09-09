@@ -20,7 +20,6 @@ export function SwatchPicker({
   currentSwatchId,
   approximateFor,
   busy,
-  onPreview,
   onCommit,
 }: {
   category: CatalogCategory
@@ -28,7 +27,6 @@ export function SwatchPicker({
   /** Какие свотчи покажутся «приблизительно»: решает родитель по светлоте предмета */
   approximateFor: (swatch: Swatch) => boolean
   busy: boolean
-  onPreview: (swatch: Swatch | null) => void
   onCommit: (swatch: Swatch) => void
 }) {
   const groups = swatchClasses
@@ -39,7 +37,7 @@ export function SwatchPicker({
     .filter((group) => group.items.length > 0)
 
   return (
-    <fieldset className="m-0 flex flex-col gap-3 border-0 p-0" onMouseLeave={() => onPreview(null)}>
+    <fieldset className="m-0 flex flex-col gap-3 border-0 p-0">
       <legend className="sr-only">Материалы для перекраски</legend>
       {groups.map((group) => (
         <div key={group.klass}>
@@ -64,9 +62,6 @@ export function SwatchPicker({
                   aria-label={title}
                   aria-pressed={selected}
                   disabled={!available || busy}
-                  onMouseEnter={() => available && onPreview(swatch)}
-                  onFocus={() => available && onPreview(swatch)}
-                  onBlur={() => onPreview(null)}
                   onClick={() => available && onCommit(swatch)}
                   className={cn(
                     'relative h-8 w-8 rounded-full border-2 transition-transform duration-200 ease-ui',
@@ -91,8 +86,8 @@ export function SwatchPicker({
         </div>
       ))}
       <p className="text-[12px] leading-relaxed text-ink-2">
-        Наведите, чтобы примерить, нажмите, чтобы сохранить. Меняется цвет, не фактура: значок «v2»
-        у материалов, которые появятся с перекраской по маске.
+        Нажмите на цвет: примерка и сохранение одним движением. Меняется цвет, не фактура: значок
+        «v2» у материалов, которые появятся с перекраской по маске.
       </p>
     </fieldset>
   )

@@ -4,29 +4,32 @@ import { findSwatch, isApproximate, type Swatch } from '@uyut/ai'
 import { cn, toast } from '@uyut/ui'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { setConceptLike } from '@/actions/concepts'
 import { resetRecolor, saveRecolor } from '@/actions/recolor'
 import { addItem } from '@/actions/shopping'
 import { AdDisclosure } from '@/components/ad-disclosure'
 import { SwatchPicker } from '@/components/concepts/swatch-picker'
 import { categoryLabels, formatPrice, sourceLabel } from '@/lib/concepts/format'
+import { spreadMarkers } from '@/lib/concepts/marker-layout'
 import type { ConceptPageData, MatchView, ObjectView } from '@/lib/concepts/objects'
 import { applySwatch, prepareRecolor, type RecolorBase } from '@/lib/recolor/client'
 import { pluralItems } from '@/lib/shopping/format'
 
 function ObjectChip({
   object,
+  point,
   selected,
   onSelect,
   onHover,
 }: {
   object: ObjectView
+  /** Точка на картинке: слипшиеся метки заранее разведены, чтобы не читались как одна */
+  point: { x: number; y: number }
   selected: boolean
   onSelect: () => void
   onHover: (hover: boolean) => void
 }) {
-  const { bbox } = object
   return (
     <button
       type="button"
@@ -37,7 +40,7 @@ function ObjectChip({
       onBlur={() => onHover(false)}
       aria-label={`${object.orderIndex + 1}. ${categoryLabels[object.category]}`}
       aria-pressed={selected}
-      style={{ left: `${(bbox.x + bbox.w / 2) * 100}%`, top: `${(bbox.y + bbox.h / 2) * 100}%` }}
+      style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
       className={cn(
         'absolute z-20 grid h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 px-2 font-mono text-[13px] font-medium shadow-soft transition-transform duration-200 ease-ui hover:scale-110',
         selected
@@ -225,6 +228,11 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
   const [selectedId, setSelectedId] = useState<string | null>(objects[0]?.id ?? null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [liked, setLiked] = useState<boolean | null>(concept.liked)
+  // Считаем один раз на список: метки соседних предметов иначе слипаются в одну точку
+  const markerPoints = useMemo(
+    () => spreadMarkers(objects.map((object) => ({ id: object.id, ...object.bbox }))),
+    [objects],
+  )
   const selected = objects.find((object) => object.id === selectedId) ?? null
   const hovered = objects.find((object) => object.id === hoveredId) ?? null
   const searching = concept.objectsStatus === 'pending'
@@ -236,12 +244,16 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
   const previewUrlRef = useRef<string | null>(null)
 
   function baseFor(object: ObjectView): Promise<RecolorBase> | null {
-    if (!concept.renderKey || !object.maskKey) {
+    // От уже перекрашенной картинки, а не от исходной. Иначе покраска второго предмета
+    // стирает первый: заготовка бралась от оригинала, и в сохранённом файле оставался
+    // ровно один перекрашенный предмет.
+    const source = concept.editedRenderKey ?? concept.renderKey
+    if (!source || !object.maskKey) {
       return null
     }
     let base = basesRef.current.get(object.id)
     if (!base) {
-      base = prepareRecolor(concept.renderKey, object.maskKey)
+      base = prepareRecolor(source, object.maskKey)
       basesRef.current.set(object.id, base)
     }
     return base
@@ -276,24 +288,6 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
     }
   }, [selected?.id])
 
-  async function previewSwatch(swatch: Swatch | null) {
-    if (!swatch || !selected) {
-      showPreview(null)
-      return
-    }
-    const base = baseFor(selected)
-    if (!base) {
-      return
-    }
-    try {
-      const result = await applySwatch(await base, swatch)
-      showPreview(result.url)
-    } catch (error) {
-      console.error(error)
-      toast({ title: 'Не получилось примерить цвет', tone: 'danger' })
-    }
-  }
-
   async function commitSwatch(swatch: Swatch) {
     if (!selected) {
       return
@@ -305,6 +299,9 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
     setSaving(true)
     try {
       const result = await applySwatch(await base, swatch)
+      // Показываем сразу, не дожидаясь сервера: цвет должен появиться в тот же миг,
+      // когда человек нажал, иначе нажатие выглядит как «ничего не произошло»
+      showPreview(result.url)
       const formData = new FormData()
       formData.set('image', new File([result.blob], 'recolor.webp', { type: 'image/webp' }))
       const saved = await saveRecolor(concept.id, selected.id, swatch.id, formData)
@@ -316,12 +313,16 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
         title: `${categoryLabels[selected.category]}: ${swatch.ru.toLowerCase()}`,
         tone: 'success',
       })
-      showPreview(null)
       basesRef.current.clear()
       router.refresh()
     } catch (error) {
       console.error(error)
-      toast({ title: 'Не получилось сохранить цвет', tone: 'danger' })
+      // Примерку снимаем: иначе на картинке остаётся цвет, который не сохранился
+      showPreview(null)
+      toast({
+        title: 'Не получилось сохранить цвет. Обновите страницу и посмотрите, применился ли он.',
+        tone: 'danger',
+      })
     } finally {
       setSaving(false)
     }
@@ -420,10 +421,11 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
           {!preview && selected && !selected.swatchId ? (
             <Highlight object={selected} strong />
           ) : null}
-          {objects.map((object) => (
+          {objects.map((object, index) => (
             <ObjectChip
               key={object.id}
               object={object}
+              point={markerPoints[index] ?? { x: 0.5, y: 0.5 }}
               selected={object.id === selectedId}
               onSelect={() => setSelectedId(object.id)}
               onHover={(hover) => setHoveredId(hover ? object.id : null)}
@@ -558,7 +560,6 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
                 baseLightness === null ? false : isApproximate(baseLightness, swatch)
               }
               busy={saving}
-              onPreview={(swatch) => void previewSwatch(swatch)}
               onCommit={(swatch) => void commitSwatch(swatch)}
             />
           </div>
