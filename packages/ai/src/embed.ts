@@ -100,14 +100,27 @@ export function createVoyageEmbedder(
           ],
         })),
       }
-      // Без привязанной карты Voyage даёт 3 запроса в минуту: на 429 ждём и пробуем снова
+      // Без привязанной карты Voyage даёт 3 запроса в минуту: на 429 ждём и пробуем снова.
+      // Обрыв соединения тоже повод повторить, а не падать: канал до Voyage идёт через
+      // полмира и рвётся регулярно, а счёт большого каталога занимает часы.
       for (let attempt = 0; ; attempt += 1) {
-        const response = await fetch('https://api.voyageai.com/v1/multimodalembeddings', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(timeoutMs),
-        })
+        let response: Response
+        try {
+          response = await fetch('https://api.voyageai.com/v1/multimodalembeddings', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(timeoutMs),
+          })
+        } catch (error) {
+          if (attempt >= MAX_RETRIES) {
+            throw error
+          }
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(2_000 * 2 ** attempt, RETRY_WAIT_MS)),
+          )
+          continue
+        }
         if (response.status === 429 && attempt < MAX_RETRIES) {
           const retryAfter = Number(response.headers.get('retry-after'))
           const waitMs =

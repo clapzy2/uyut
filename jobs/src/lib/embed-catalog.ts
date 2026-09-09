@@ -12,8 +12,14 @@ export type EmbedSummary = { processed: number; withImage: number; failedImages:
 // плюс текст, и пачка из пяти с паузой в 21 секунду выходит примерно на девять тысяч в минуту.
 // Отсюда и размер пачки: больше — и запросы начнут отбиваться по 429.
 const BATCH = 5
-const PAUSE_BETWEEN_BATCHES_MS = 21_000
+// Период считается от начала запроса, а не после него: иначе время самого запроса
+// прибавляется к паузе и темп падает почти на четверть.
+const REQUEST_PERIOD_MS = 21_000
 const IMAGE_SIDE = 512
+const IMAGE_ATTEMPTS = 3
+// Удачная загрузка идёт полсекунды, так что восьми секунд с запасом хватает: всё, что дольше,
+// уже повисло, и дешевле оборвать и попросить заново
+const IMAGE_TIMEOUT_MS = 8_000
 
 /** Ссылка на объект в нашем же bucket: он приватный, поэтому читаем через клиент S3. */
 function ownObjectKey(url: string): string | null {
@@ -26,16 +32,34 @@ function ownObjectKey(url: string): string | null {
   return url.startsWith(prefix) ? decodeURIComponent(url.slice(prefix.length)) : null
 }
 
+/**
+ * Картинка товара с чужого CDN. Повторы обязательны: удачная загрузка занимает полсекунды,
+ * но примерно каждая третья попытка виснет до таймаута. Без повтора случайный обрыв
+ * навсегда оставлял товар без вектора картинки — хеш-то записывается в любом случае.
+ */
 async function downloadImage(url: string): Promise<Buffer | null> {
   const key = ownObjectKey(url)
   if (key) {
     return (await readObject(key)).body
   }
-  const response = await fetch(url, {
-    signal: AbortSignal.timeout(15_000),
-    headers: { 'user-agent': 'Mozilla/5.0 (compatible; DomitsaBot/1.0)' },
-  })
-  return response.ok ? Buffer.from(await response.arrayBuffer()) : null
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS),
+        headers: { 'user-agent': 'Mozilla/5.0 (compatible; DomitsaBot/1.0)' },
+      })
+      if (response.ok) {
+        return Buffer.from(await response.arrayBuffer())
+      }
+      // Ответ пришёл: это не обрыв, а «нет такой картинки» — повторять нечего
+      return null
+    } catch {
+      if (attempt >= IMAGE_ATTEMPTS) {
+        return null
+      }
+      await new Promise((resolve) => setTimeout(resolve, 400 * attempt))
+    }
+  }
 }
 
 /** Картинка товара по ссылке из фида, уменьшенная: Voyage считает токены по пикселям. */
@@ -71,12 +95,20 @@ function textOf(item: CatalogItem): string {
 export async function embedPendingCatalog(
   db: Database,
   embedder: Embedder,
-  options: { maxItems?: number; log?: (message: string) => void } = {},
+  options: { maxItems?: number; maxMs?: number; log?: (message: string) => void } = {},
 ): Promise<EmbedSummary> {
   const log = options.log ?? (() => undefined)
   const maxItems = options.maxItems ?? 500
+  // Темп задаёт Voyage, поэтому счёт большого каталога идёт часами. Задача обязана уложиться
+  // в отведённое ей время и уйти по-хорошему: остальное досчитается следующим запуском.
+  const deadline = options.maxMs ? Date.now() + options.maxMs : null
   const summary: EmbedSummary = { processed: 0, withImage: 0, failedImages: 0 }
   while (summary.processed < maxItems) {
+    if (deadline && Date.now() >= deadline) {
+      log(`время вышло, посчитано ${summary.processed}, остальное в следующий раз`)
+      break
+    }
+    const startedAt = Date.now()
     const items = await itemsNeedingEmbedding(db, Math.min(BATCH, maxItems - summary.processed))
     if (items.length === 0) {
       break
@@ -113,7 +145,10 @@ export async function embedPendingCatalog(
     summary.withImage += plan.filter((entry) => entry.imageIndex !== null).length
     log(`векторы: ${summary.processed} записей, без картинки ${summary.failedImages}`)
     if (items.length === BATCH) {
-      await new Promise((resolve) => setTimeout(resolve, PAUSE_BETWEEN_BATCHES_MS))
+      const rest = REQUEST_PERIOD_MS - (Date.now() - startedAt)
+      if (rest > 0) {
+        await new Promise((resolve) => setTimeout(resolve, rest))
+      }
     }
   }
   return summary
