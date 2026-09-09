@@ -10,7 +10,7 @@ import { getDuoOffer } from '@/lib/concepts/duo'
 import * as conceptsRepository from '@/lib/concepts/repository'
 import { getEnv } from '@/lib/env'
 import { AccessError, requireOwner } from '@/lib/projects/access'
-import { getRoom } from '@/lib/projects/repository'
+import { attachGenerationRun, clearGenerationRun, getRoom } from '@/lib/projects/repository'
 import { getConceptsByUserLimiter } from '@/lib/redis'
 import { getSession } from '@/lib/session'
 
@@ -61,6 +61,7 @@ export async function requestConcepts(
       count: 5,
       ...(revision ? { revision: revision.slice(0, 500) } : {}),
     })
+    await attachGenerationRun(room.id, handle.id)
     await recordAudit({
       action: 'concepts.requested',
       actorId: userId,
@@ -165,6 +166,9 @@ export async function refreshConcepts(roomId: string): Promise<ActionResult<{ pe
   try {
     const room = await getRoom(userId, roomId)
     const pending = await conceptsRepository.countPending(userId, room.id)
+    // Зовётся, когда ожидание кончилось: снимаем отметку, иначе обновление страницы
+    // показало бы экран ожидания заново
+    await clearGenerationRun(room.id)
     revalidatePath(`/projects/${room.projectId}/rooms/${room.id}`)
     return { ok: true, data: { pending } }
   } catch (error) {

@@ -10,6 +10,7 @@ import { RoomNotesForm } from '@/components/room-notes-form'
 import { RoomSettingsDialog } from '@/components/room-settings-dialog'
 import { otherMember } from '@/lib/collaboration/repository'
 import { latestBatch, listConceptsByRoom } from '@/lib/concepts/repository'
+import { resumeGenerationRun } from '@/lib/concepts/resume-run'
 import { PHOTO_ACCEPT, PHOTO_LIMIT_TEXT, PHOTO_MAX_BYTES } from '@/lib/files/rules'
 import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
 import { fileNameFromKey, formatArea, roomKindLabels } from '@/lib/projects/format'
@@ -57,10 +58,11 @@ export default async function RoomPage({ params }: { params: Params }) {
   }
   const isOwner = room.role === 'owner'
 
-  const [allConcepts, { batchId: latestBatchId }, other] = await Promise.all([
+  const [allConcepts, { batchId: latestBatchId }, other, runningGeneration] = await Promise.all([
     listConceptsByRoom(session.user.id, room.id),
     latestBatch(session.user.id, room.id),
     otherMember(room.projectId, session.user.id),
+    resumeGenerationRun(room),
   ])
   const conceptItems = allConcepts
   const photoUrl = room.photoUrl ? await presignedObjectUrl(room.photoUrl) : null
@@ -173,6 +175,7 @@ export default async function RoomPage({ params }: { params: Params }) {
             role={room.role}
             other={other ? { name: other.name } : null}
             latestBatchId={latestBatchId}
+            initialRun={runningGeneration}
             items={conceptItems.map((item) => ({
               id: item.id,
               batchId: item.batchId,
