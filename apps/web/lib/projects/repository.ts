@@ -1,4 +1,5 @@
 import {
+  concepts,
   type Project,
   type ProjectRole,
   projectCollaborators,
@@ -8,7 +9,7 @@ import {
   rooms,
   users,
 } from '@uyut/db'
-import { and, asc, count, desc, eq, isNull, max, or } from 'drizzle-orm'
+import { and, asc, count, desc, eq, isNull, max, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   assertOwner,
@@ -73,16 +74,28 @@ export async function createProject(userId: string, input: { title: string }): P
   return project
 }
 
-export type ProjectWithRooms = ProjectAccess & { rooms: Room[] }
+/** Комната со счётчиком готовых концептов: по нему на странице проекта видно, где уже работали */
+export type RoomWithConcepts = Room & { conceptCount: number }
+
+export type ProjectWithRooms = ProjectAccess & { rooms: RoomWithConcepts[] }
 
 export async function getProject(userId: string, projectId: string): Promise<ProjectWithRooms> {
   const project = await assertOwnerOrCollaborator(userId, projectId)
+  // Считаем только готовые: незавершённые и упавшие человеку показывать не за что
   const list = await getDb()
-    .select()
+    .select({
+      room: rooms,
+      conceptCount: sql<number>`count(${concepts.id}) filter (where ${concepts.status} = 'ready')::int`,
+    })
     .from(rooms)
+    .leftJoin(concepts, eq(concepts.roomId, rooms.id))
     .where(eq(rooms.projectId, project.id))
+    .groupBy(rooms.id)
     .orderBy(asc(rooms.orderIndex), asc(rooms.name))
-  return { ...project, rooms: list }
+  return {
+    ...project,
+    rooms: list.map((row) => ({ ...row.room, conceptCount: Number(row.conceptCount) })),
+  }
 }
 
 export type ProjectPatch = {
