@@ -16,7 +16,7 @@ import { canInvite } from '@/lib/collaboration/rules'
 import { formatPrice } from '@/lib/concepts/format'
 import { PLAN_ACCEPT, PLAN_LIMIT_TEXT, PLAN_MAX_BYTES } from '@/lib/files/rules'
 import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
-import { fileNameFromKey, formatArea, projectMeta } from '@/lib/projects/format'
+import { fileNameFromKey, formatArea, pluralConcepts, projectMeta } from '@/lib/projects/format'
 import { getProject } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { pluralItems } from '@/lib/shopping/format'
@@ -248,6 +248,10 @@ export default async function ProjectPage({ params }: { params: Params }) {
             </div>
           ) : (
             <>
+              <p className="mb-3 max-w-lg text-[15px] leading-relaxed text-ink-2">
+                Расстановка живёт внутри комнаты: откройте её, и сервис нарисует варианты обстановки
+                и подберёт мебель из магазинов.
+              </p>
               <ul className="border-t border-line">
                 {project.rooms.map((room) => (
                   <li key={room.id} className="border-b border-line">
@@ -255,13 +259,20 @@ export default async function ProjectPage({ params }: { params: Params }) {
                       href={`/projects/${project.id}/rooms/${room.id}`}
                       className="group flex items-baseline justify-between gap-4 py-4"
                     >
-                      <span className="font-serif text-[22px] leading-tight text-ink decoration-accent decoration-1 underline-offset-[6px] group-hover:underline">
-                        {room.name}
+                      <span className="min-w-0">
+                        <span className="block font-serif text-[22px] leading-tight text-ink decoration-accent decoration-1 underline-offset-[6px] group-hover:underline">
+                          {room.name}
+                        </span>
+                        <span className="mt-1 block font-mono text-[13px] text-ink-2">
+                          {[formatArea(room.areaM2), room.photoUrl ? 'фото есть' : 'без фото']
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
                       </span>
-                      <span className="shrink-0 font-mono text-[13px] text-ink-2">
-                        {[formatArea(room.areaM2), room.photoUrl ? 'фото есть' : 'без фото']
-                          .filter(Boolean)
-                          .join(' · ')}
+                      <span className="shrink-0 text-[14px] text-accent">
+                        {room.conceptCount > 0
+                          ? `${pluralConcepts(room.conceptCount)} →`
+                          : 'Собрать концепты →'}
                       </span>
                     </Link>
                   </li>
