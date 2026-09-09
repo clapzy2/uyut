@@ -80,6 +80,9 @@ export const embedCatalog = task({
     }
     const summary = await embedPendingCatalog(db(), embedder, {
       maxItems: payload.maxItems ?? 500,
+      // Пять минут в запасе от maxDuration: задача должна вернуть отчёт сама,
+      // а не быть убитой на середине пачки
+      maxMs: 25 * 60 * 1000,
       log: (message) => logger.info(message),
     })
     return { ...summary, skipped: false }
