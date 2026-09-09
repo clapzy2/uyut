@@ -244,12 +244,16 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
   const previewUrlRef = useRef<string | null>(null)
 
   function baseFor(object: ObjectView): Promise<RecolorBase> | null {
-    if (!concept.renderKey || !object.maskKey) {
+    // От уже перекрашенной картинки, а не от исходной. Иначе покраска второго предмета
+    // стирает первый: заготовка бралась от оригинала, и в сохранённом файле оставался
+    // ровно один перекрашенный предмет.
+    const source = concept.editedRenderKey ?? concept.renderKey
+    if (!source || !object.maskKey) {
       return null
     }
     let base = basesRef.current.get(object.id)
     if (!base) {
-      base = prepareRecolor(concept.renderKey, object.maskKey)
+      base = prepareRecolor(source, object.maskKey)
       basesRef.current.set(object.id, base)
     }
     return base
@@ -284,24 +288,6 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
     }
   }, [selected?.id])
 
-  async function previewSwatch(swatch: Swatch | null) {
-    if (!swatch || !selected) {
-      showPreview(null)
-      return
-    }
-    const base = baseFor(selected)
-    if (!base) {
-      return
-    }
-    try {
-      const result = await applySwatch(await base, swatch)
-      showPreview(result.url)
-    } catch (error) {
-      console.error(error)
-      toast({ title: 'Не получилось примерить цвет', tone: 'danger' })
-    }
-  }
-
   async function commitSwatch(swatch: Swatch) {
     if (!selected) {
       return
@@ -313,6 +299,9 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
     setSaving(true)
     try {
       const result = await applySwatch(await base, swatch)
+      // Показываем сразу, не дожидаясь сервера: цвет должен появиться в тот же миг,
+      // когда человек нажал, иначе нажатие выглядит как «ничего не произошло»
+      showPreview(result.url)
       const formData = new FormData()
       formData.set('image', new File([result.blob], 'recolor.webp', { type: 'image/webp' }))
       const saved = await saveRecolor(concept.id, selected.id, swatch.id, formData)
@@ -324,12 +313,16 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
         title: `${categoryLabels[selected.category]}: ${swatch.ru.toLowerCase()}`,
         tone: 'success',
       })
-      showPreview(null)
       basesRef.current.clear()
       router.refresh()
     } catch (error) {
       console.error(error)
-      toast({ title: 'Не получилось сохранить цвет', tone: 'danger' })
+      // Примерку снимаем: иначе на картинке остаётся цвет, который не сохранился
+      showPreview(null)
+      toast({
+        title: 'Не получилось сохранить цвет. Обновите страницу и посмотрите, применился ли он.',
+        tone: 'danger',
+      })
     } finally {
       setSaving(false)
     }
@@ -567,7 +560,6 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
                 baseLightness === null ? false : isApproximate(baseLightness, swatch)
               }
               busy={saving}
-              onPreview={(swatch) => void previewSwatch(swatch)}
               onCommit={(swatch) => void commitSwatch(swatch)}
             />
           </div>
