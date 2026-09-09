@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { confirmRegeneration, dismissProposal, loadChatHistory } from '@/actions/chat'
 import { AdDisclosure } from '@/components/ad-disclosure'
+import { TypingDots } from '@/components/typing-dots'
 import { formatPrice } from '@/lib/concepts/format'
 
 type Message = {
@@ -33,13 +34,6 @@ type Scope = {
 
 const TYPE_INTERVAL_MS = 30
 
-// Сдвиг фазы вшит в утилиту целиком, иначе Tailwind не найдёт класс при сборке
-const TYPING_DOTS = [
-  'animate-[typing-dot_1200ms_var(--ease-ui)_0ms_infinite]',
-  'animate-[typing-dot_1200ms_var(--ease-ui)_180ms_infinite]',
-  'animate-[typing-dot_1200ms_var(--ease-ui)_360ms_infinite]',
-]
-
 function suggestions(scope: Scope): string[] {
   if (scope.conceptId) {
     return ['Почему тут такие стены?', 'Подбери диван дешевле', 'Сколько выходит по смете?']
@@ -54,25 +48,6 @@ function suggestions(scope: Scope): string[] {
       : ['С чего начать?', 'Что нужно в эту комнату?', 'Какой стиль мне подойдёт?']
   }
   return ['С чего начать?', 'Сколько выходит по смете?', 'Что ещё нужно в квартиру?']
-}
-
-// Пауза между отправкой и первым символом ответа бывает заметной, и пустой пузырь выглядит как сбой
-function TypingDots() {
-  return (
-    <span
-      role="status"
-      aria-label="Помощник печатает"
-      className="inline-flex items-center gap-1 align-middle"
-    >
-      {TYPING_DOTS.map((animation) => (
-        <span
-          key={animation}
-          aria-hidden="true"
-          className={cn('size-1.5 rounded-full bg-ink-2', animation, 'motion-reduce:animate-none')}
-        />
-      ))}
-    </span>
-  )
 }
 
 function ProductCards({ cards }: { cards: ChatCard[] }) {
@@ -350,7 +325,11 @@ export function ChatDrawer(scope: Scope) {
         )}
         aria-label="Открыть помощника"
       >
-        <span aria-hidden="true">✦</span> Спросить
+        {/* Робот вместо звёздочки: сразу видно, что за кнопкой помощник, а не украшение */}
+        <span aria-hidden="true" className="text-[17px] leading-none">
+          🤖
+        </span>{' '}
+        Спросить
       </RadixDialog.Trigger>
 
       {/* forceMount отдаёт появление и уход панели motion: Radix иначе снимает разметку сразу */}
@@ -406,7 +385,9 @@ export function ChatDrawer(scope: Scope) {
                         )}
                       >
                         <span className="whitespace-pre-wrap">{message.content}</span>
-                        {message.streaming && message.content === '' ? <TypingDots /> : null}
+                        {message.streaming && message.content === '' ? (
+                          <TypingDots label="Помощник печатает" />
+                        ) : null}
                         {message.cards && message.cards.length > 0 ? (
                           <ProductCards cards={message.cards} />
                         ) : null}

@@ -89,6 +89,10 @@ export const rooms = pgTable(
     planUrl: text('plan_url'),
     notes: text('notes'),
     orderIndex: integer('order_index').notNull().default(0),
+    // Идущая генерация концептов. Живёт у комнаты, а не в состоянии страницы: иначе обновление
+    // теряет ожидание целиком, и человек видит экран так, будто ничего не запускал.
+    generationRunId: text('generation_run_id'),
+    generationStartedAt: timestamp('generation_started_at', { withTimezone: true }),
   },
   (table) => [index('rooms_project_idx').on(table.projectId)],
 )

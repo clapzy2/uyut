@@ -2,6 +2,7 @@
 
 import type { ProjectRole } from '@uyut/db'
 import { Button, cn, toast } from '@uyut/ui'
+import { motion } from 'motion/react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { refreshConcepts, requestConcepts, setConceptLike } from '@/actions/concepts'
@@ -10,6 +11,7 @@ import { DuoCard } from '@/components/concepts/duo-card'
 import { EmptyArt } from '@/components/empty-art'
 import { FormError } from '@/components/form-error'
 import { type SwipeCard, SwipeDeck } from '@/components/swipe-deck'
+import { TypingDots } from '@/components/typing-dots'
 import { useProjectLive } from '@/lib/collaboration/live-client'
 import {
   duoEligibility,
@@ -89,8 +91,24 @@ function RunProgress({
     )
   }
 
+  // Доля пройденного: шаги плюс отдельно посчитанные рендеры внутри третьего шага —
+  // иначе полоса стоит на месте почти всю генерацию, а рендер и есть самое долгое
+  const rendered = progress.total && progress.total > 0 ? (progress.done ?? 0) / progress.total : 0
+  const filled =
+    progress.stage === 'done'
+      ? 1
+      : Math.min(1, (current + (current === 2 ? rendered : 0)) / stageLabels.length)
+
   return (
     <ol className="flex flex-col gap-2">
+      <li aria-hidden="true" className="mb-1 h-[3px] overflow-hidden rounded-full bg-muted">
+        <motion.span
+          className="block h-full bg-accent"
+          initial={{ width: 0 }}
+          animate={{ width: `${Math.round(filled * 100)}%` }}
+          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+        />
+      </li>
       {stageLabels.map((item, index) => {
         const done = index < current || progress.stage === 'done'
         const active = index === current && progress.stage !== 'done'
@@ -102,11 +120,20 @@ function RunProgress({
                 done
                   ? 'grid h-4 w-4 place-items-center rounded-full border border-success bg-success text-[10px] text-paper'
                   : active
-                    ? 'h-4 w-4 rounded-full border border-accent bg-accent-tint'
+                    ? 'relative h-4 w-4 rounded-full border border-accent bg-accent-tint'
                     : 'h-4 w-4 rounded-full border border-line-strong'
               }
             >
-              {done ? '✓' : ''}
+              {done ? '✓' : null}
+              {active ? (
+                // Пульс на текущем шаге: по нему видно, что процесс идёт, даже когда
+                // шаг долгий и цифры не меняются
+                <motion.span
+                  className="absolute inset-0 rounded-full border border-accent"
+                  animate={{ scale: [1, 1.9], opacity: [0.7, 0] }}
+                  transition={{ duration: 1.6, repeat: Number.POSITIVE_INFINITY, ease: 'easeOut' }}
+                />
+              ) : null}
             </span>
             <span className={done || active ? 'text-ink' : 'text-ink-2'}>
               {item.label}
@@ -114,6 +141,7 @@ function RunProgress({
                 ? ` ${progress.done ?? 0} из ${progress.total}`
                 : ''}
             </span>
+            {active ? <TypingDots label="Идёт работа" /> : null}
           </li>
         )
       })}
@@ -156,6 +184,7 @@ export function ConceptsPanel({
   canGenerate = true,
   role,
   other,
+  initialRun = null,
 }: {
   roomId: string
   hasPhoto: boolean
@@ -164,6 +193,11 @@ export function ConceptsPanel({
   /** Все концепты комнаты, свежий запуск первым */
   items: ConceptItem[]
   latestBatchId: string | null
+  /**
+   * Генерация, начатая раньше и ещё не кончившаяся. Приходит со страницы, чтобы обновление
+   * вкладки не теряло ожидание: раньше оно жило только в состоянии этого компонента.
+   */
+  initialRun?: { runId: string; accessToken: string } | null
   /** Генерация стоит денег: второй участник только смотрит и отмечает */
   canGenerate?: boolean
   role: ProjectRole
@@ -173,7 +207,7 @@ export function ConceptsPanel({
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
-  const [run, setRun] = useState<{ runId: string; accessToken: string } | null>(null)
+  const [run, setRun] = useState<{ runId: string; accessToken: string } | null>(initialRun)
   const conceptHref = (conceptId: string) =>
     `/projects/${projectId}/rooms/${roomId}/concepts/${conceptId}`
   const [votes, setVotes] = useState<Record<string, boolean>>({})
@@ -399,6 +433,15 @@ export function ConceptsPanel({
             : tab === 'theirs'
               ? `${other?.name} пока ничего не отметил(а).`
               : 'Пока ничего не отмечено.'}
+        </p>
+      ) : null}
+
+      {ready.length > 0 ? (
+        <p className="border-l-2 border-accent pl-3 text-[15px] leading-relaxed text-ink-2">
+          Откройте понравившийся вариант и{' '}
+          <span className="text-ink">нажмите на предмет прямо на картинке</span> — сервис подберёт
+          похожую мебель из магазинов с ценами. Кнопка «В список» под ценой соберёт из них список
+          покупок и смету.
         </p>
       ) : null}
 

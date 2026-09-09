@@ -229,6 +229,21 @@ export async function deleteRoom(userId: string, roomId: string): Promise<{ file
   return { fileKeys: [room.photoUrl, room.planUrl].filter((key): key is string => Boolean(key)) }
 }
 
+/** Отметка об идущей генерации: по ней страница восстанавливает ожидание после обновления */
+export async function attachGenerationRun(roomId: string, runId: string): Promise<void> {
+  await getDb()
+    .update(rooms)
+    .set({ generationRunId: runId, generationStartedAt: new Date() })
+    .where(eq(rooms.id, roomId))
+}
+
+export async function clearGenerationRun(roomId: string): Promise<void> {
+  await getDb()
+    .update(rooms)
+    .set({ generationRunId: null, generationStartedAt: null })
+    .where(eq(rooms.id, roomId))
+}
+
 export async function setRoomPhoto(
   userId: string,
   roomId: string,

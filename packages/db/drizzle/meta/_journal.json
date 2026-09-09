@@ -85,6 +85,13 @@
       "when": 1788800596260,
       "tag": "0011_pro-autopay",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788971475505,
+      "tag": "0012_generation-run",
+      "breakpoints": true
     }
   ]
 }
