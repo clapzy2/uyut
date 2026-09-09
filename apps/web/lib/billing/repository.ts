@@ -1,4 +1,5 @@
 import {
+  type Database,
   type Purchase,
   type PurchaseKind,
   projects,
@@ -8,23 +9,32 @@ import {
   subscriptions,
   users,
 } from '@uyut/db'
-import { and, count, desc, eq, gt, isNull, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, isNotNull, isNull, lt, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { isUuid, NotFoundError } from '@/lib/projects/access'
+
+/**
+ * Исполнитель запроса: либо база целиком, либо открытая транзакция. Выдача доступа идёт
+ * внутри транзакции, а обычные чтения — снаружи, и условие у них должно быть общим.
+ */
+type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0]
+
+/** Условие «действующая подписка Pro»: активна и период ещё не кончился */
+function activeProWhere(userId: string) {
+  return and(
+    eq(subscriptions.userId, userId),
+    eq(subscriptions.plan, 'pro'),
+    eq(subscriptions.status, 'active'),
+    gt(subscriptions.currentPeriodEnd, new Date()),
+  )
+}
 
 /** Действующая подписка Pro: активна и период ещё не кончился */
 export async function activeProSubscription(userId: string): Promise<Subscription | null> {
   const [row] = await getDb()
     .select()
     .from(subscriptions)
-    .where(
-      and(
-        eq(subscriptions.userId, userId),
-        eq(subscriptions.plan, 'pro'),
-        eq(subscriptions.status, 'active'),
-        gt(subscriptions.currentPeriodEnd, new Date()),
-      ),
-    )
+    .where(activeProWhere(userId))
     .orderBy(desc(subscriptions.currentPeriodEnd))
     .limit(1)
   return row ?? null
@@ -107,20 +117,39 @@ export async function findPurchaseByPayment(paymentId: string): Promise<Purchase
 }
 
 /**
- * Переводит покупку в paid ровно один раз: условие по статусу в самом update,
- * поэтому повторное уведомление или гонка возврата и webhook ничего не удвоят.
+ * Отметка об оплате и выдача доступа одной транзакцией.
+ *
+ * Раздельно этого делать нельзя. Отметка ставится условием по статусу, то есть срабатывает
+ * ровно один раз; если выдача после неё упадёт — обрыв к базе, перезапуск контейнера, — покупка
+ * навсегда останется оплаченной без доступа, и повторное уведомление уже не поможет: оно увидит
+ * отметку и выйдет раньше выдачи. Деньги списаны, тариф не выдан, и починить нечем.
+ *
+ * Возвращает true, если доступ выдан именно этим вызовом. Повторный вызов вернёт false, поэтому
+ * webhook, возврат на сайт и повторные уведомления безопасно зовут это сколько угодно раз.
+ *
+ * В транзакции нет ни одного обращения по сети: ни к провайдеру, ни к очереди, ни к почте —
+ * иначе чужой таймаут держал бы строки заблокированными.
  */
-export async function markPurchasePaid(purchaseId: string): Promise<boolean> {
-  const rows = await getDb()
-    .update(purchases)
-    .set({ status: 'paid', paidAt: new Date() })
-    .where(and(eq(purchases.id, purchaseId), eq(purchases.status, 'pending')))
-    .returning({ id: purchases.id })
-  return rows.length > 0
-}
-
-export async function markProjectPaid(projectId: string): Promise<void> {
-  await getDb().update(projects).set({ isPaid: true }).where(eq(projects.id, projectId))
+export async function settlePurchasePaid(
+  purchase: Purchase,
+  paymentMethodId: string | null,
+): Promise<boolean> {
+  return getDb().transaction(async (tx) => {
+    const rows = await tx
+      .update(purchases)
+      .set({ status: 'paid', paidAt: new Date() })
+      .where(and(eq(purchases.id, purchase.id), eq(purchases.status, 'pending')))
+      .returning({ id: purchases.id })
+    if (rows.length === 0) {
+      return false
+    }
+    if (purchase.kind === 'project' && purchase.projectId) {
+      await tx.update(projects).set({ isPaid: true }).where(eq(projects.id, purchase.projectId))
+    } else {
+      await activateProWith(tx, purchase.userId, paymentMethodId)
+    }
+    return true
+  })
 }
 
 function addMonth(from: Date): Date {
@@ -129,13 +158,22 @@ function addMonth(from: Date): Date {
   return next
 }
 
-/** Месяц Pro: продлевает действующую подписку или заводит новую от сегодняшнего дня */
-export async function activatePro(
+/**
+ * Месяц Pro внутри уже открытой транзакции: продлевает действующую подписку или заводит новую.
+ * Чтение подписки идёт тем же исполнителем, что и запись, иначе внутри транзакции можно
+ * увидеть состояние до неё и продлить дважды.
+ */
+async function activateProWith(
+  db: Transaction,
   userId: string,
   paymentMethodId: string | null,
 ): Promise<Subscription> {
-  const db = getDb()
-  const current = await activeProSubscription(userId)
+  const [current] = await db
+    .select()
+    .from(subscriptions)
+    .where(activeProWhere(userId))
+    .orderBy(desc(subscriptions.currentPeriodEnd))
+    .limit(1)
   if (current) {
     const [updated] = await db
       .update(subscriptions)
@@ -165,6 +203,65 @@ export async function activatePro(
     throw new Error('subscription insert returned nothing')
   }
   return created
+}
+
+/** Месяц Pro отдельным вызовом: своя транзакция на одну выдачу */
+export async function activatePro(
+  userId: string,
+  paymentMethodId: string | null,
+): Promise<Subscription> {
+  return getDb().transaction((tx) => activateProWith(tx, userId, paymentMethodId))
+}
+
+/**
+ * Покупки, за которые, возможно, уже заплачено, а мы об этом не знаем.
+ *
+ * Уведомление от ЮKassa может не дойти: неверный адрес в кабинете, ложный отказ по адресу
+ * отправителя, простой дольше суток. Если человек при этом закрыл вкладку и не вернулся по
+ * ссылке с ?payment=, покупка останется висеть навсегда, а деньги уйдут молча. Догоняющий
+ * проход перечитывает такие платежи у провайдера сам.
+ *
+ * Окно снизу — десять минут: раньше человек ещё может стоять на странице банка. Сверху трое
+ * суток: платёж у ЮKassa к этому времени закрыт, и дёргать по нему API незачем.
+ */
+export async function listStalePendingPurchases(
+  now: Date,
+  limit = 100,
+): Promise<Array<{ id: string; paymentId: string }>> {
+  const rows = await getDb()
+    .select({ id: purchases.id, paymentId: purchases.yukassaPaymentId })
+    .from(purchases)
+    .where(
+      and(
+        eq(purchases.status, 'pending'),
+        isNotNull(purchases.yukassaPaymentId),
+        lt(purchases.createdAt, new Date(now.getTime() - 10 * 60_000)),
+        gt(purchases.createdAt, new Date(now.getTime() - 3 * 24 * 60 * 60_000)),
+      ),
+    )
+    .orderBy(asc(purchases.createdAt))
+    .limit(limit)
+  return rows.flatMap((row) => (row.paymentId ? [{ id: row.id, paymentId: row.paymentId }] : []))
+}
+
+/** Незакрытая покупка Pro этого человека: с неё начинается попытка автосписания */
+export async function pendingProPurchase(
+  userId: string,
+): Promise<{ id: string; paymentId: string } | null> {
+  const [row] = await getDb()
+    .select({ id: purchases.id, paymentId: purchases.yukassaPaymentId })
+    .from(purchases)
+    .where(
+      and(
+        eq(purchases.userId, userId),
+        eq(purchases.kind, 'pro'),
+        eq(purchases.status, 'pending'),
+        isNotNull(purchases.yukassaPaymentId),
+      ),
+    )
+    .orderBy(desc(purchases.createdAt))
+    .limit(1)
+  return row?.paymentId ? { id: row.id, paymentId: row.paymentId } : null
 }
 
 export async function userEmail(userId: string): Promise<string | null> {

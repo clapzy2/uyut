@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { projects, purchases, subscriptions, users } from '@uyut/db'
-import { eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { NextRequest } from 'next/server'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createFakePaymentProvider } from '@/lib/payments/fake-provider'
@@ -14,9 +14,14 @@ vi.mock('@/lib/payments', () => ({
 }))
 
 const { applyPayment } = await import('@/lib/billing/apply')
-const { activatePro, attachPayment, canCreateProject, createPurchase, getPlan } = await import(
-  '@/lib/billing/repository'
-)
+const {
+  activatePro,
+  attachPayment,
+  canCreateProject,
+  createPurchase,
+  getPlan,
+  settlePurchasePaid,
+} = await import('@/lib/billing/repository')
 const { POST } = await import('@/app/api/webhooks/yukassa/route')
 const { getDb } = await import('@/lib/db')
 
@@ -97,6 +102,61 @@ describe('billing in a real database', () => {
       .from(projects)
       .where(eq(projects.id, projectId))
     expect(project?.isPaid).toBe(true)
+  })
+
+  it('не оставляет оплату без выдачи, если выдача сорвалась', async () => {
+    const purchase = await createPurchase({
+      userId,
+      kind: 'project',
+      projectId,
+      amountKopecks: 150_000,
+    })
+    // Проекта с таким номером нет, и это даже не UUID: запрос выдачи упадёт уже в Postgres.
+    // Так проверяется главное: отметка об оплате откатывается вместе с несостоявшейся выдачей.
+    const broken = { ...purchase, projectId: 'это-не-uuid' }
+
+    await expect(settlePurchasePaid(broken, null)).rejects.toThrow()
+
+    const [row] = await getDb().select().from(purchases).where(eq(purchases.id, purchase.id))
+    expect(row?.status, 'покупка обязана остаться неоплаченной').toBe('pending')
+    expect(row?.paidAt).toBeNull()
+  })
+
+  it('выдаёт доступ ровно один раз и не продлевает повторно', async () => {
+    const db = getDb()
+    // Свой пользователь: включённый Pro виден соседним проверкам и сбил бы их
+    const [own] = await db
+      .insert(users)
+      .values({ email: `billing-once-${run}@example.test` })
+      .returning({ id: users.id })
+    const ownId = own?.id ?? ''
+    try {
+      const purchase = await createPurchase({
+        userId: ownId,
+        kind: 'pro',
+        projectId: null,
+        amountKopecks: 99_900,
+      })
+      expect(await settlePurchasePaid(purchase, null)).toBe(true)
+      const [afterFirst] = await db
+        .select({ periodEnd: subscriptions.currentPeriodEnd })
+        .from(subscriptions)
+        .where(eq(subscriptions.userId, ownId))
+        .orderBy(desc(subscriptions.currentPeriodEnd))
+        .limit(1)
+
+      expect(await settlePurchasePaid(purchase, null)).toBe(false)
+      const rows = await db
+        .select({ periodEnd: subscriptions.currentPeriodEnd })
+        .from(subscriptions)
+        .where(eq(subscriptions.userId, ownId))
+      expect(rows, 'вторая попытка не должна заводить ещё одну подписку').toHaveLength(1)
+      expect(rows[0]?.periodEnd?.toISOString()).toBe(afterFirst?.periodEnd?.toISOString())
+    } finally {
+      await db.delete(purchases).where(eq(purchases.userId, ownId))
+      await db.delete(subscriptions).where(eq(subscriptions.userId, ownId))
+      await db.delete(users).where(eq(users.id, ownId))
+    }
   })
 
   it('ignores notifications for unknown payments and rejects garbage', async () => {
