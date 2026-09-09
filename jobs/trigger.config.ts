@@ -32,15 +32,14 @@ function playwrightChromium(): BuildExtension {
             // Каталог задаём и при установке, и в рантайме: иначе браузер ляжет в кэш root,
             // а искать его будут в другом месте
             `RUN PLAYWRIGHT_BROWSERS_PATH=${BROWSERS_PATH} npx -y playwright@${PLAYWRIGHT_VERSION} install --with-deps chromium`,
+            // Переменные вшиты в образ, а не заданы через deploy.env с override.
+            // Тот вариант молча заменял собой весь набор переменных окружения воркера,
+            // и он поднимался без адреса базы и ключей: задачи копились в очереди,
+            // потому что брать их было некому.
+            `ENV PLAYWRIGHT_BROWSERS_PATH=${BROWSERS_PATH}`,
+            'ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1',
+            'ENV PLAYWRIGHT_SKIP_BROWSER_VALIDATION=1',
           ],
-        },
-        deploy: {
-          env: {
-            PLAYWRIGHT_BROWSERS_PATH: BROWSERS_PATH,
-            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
-            PLAYWRIGHT_SKIP_BROWSER_VALIDATION: '1',
-          },
-          override: true,
         },
       })
     },

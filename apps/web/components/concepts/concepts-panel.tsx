@@ -5,7 +5,12 @@ import { Button, cn, toast } from '@uyut/ui'
 import { motion } from 'motion/react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
-import { refreshConcepts, requestConcepts, setConceptLike } from '@/actions/concepts'
+import {
+  checkGeneration,
+  refreshConcepts,
+  requestConcepts,
+  setConceptLike,
+} from '@/actions/concepts'
 import { PresenceChip } from '@/components/collaboration/presence-chip'
 import { DuoCard } from '@/components/concepts/duo-card'
 import { EmptyArt } from '@/components/empty-art'
@@ -54,14 +59,18 @@ const SLOW_AFTER_MS = 90_000
 // Задача живёт не дольше десяти минут (jobs/src/generate-concept.ts), так что после восьми
 // ждать нечего: либо она уже кончилась молча, либо не начиналась вовсе
 const GIVE_UP_AFTER_MS = 8 * 60_000
+// Как часто переспрашивать сервер, пока идёт ожидание
+const SERVER_CHECK_MS = 15_000
 
 function RunProgress({
   runId,
   accessToken,
+  roomId,
   onFinished,
 }: {
   runId: string
   accessToken: string
+  roomId: string
   onFinished: (failed: boolean) => void
 }) {
   const { progress, slow, lost } = useRunWatch({
@@ -72,6 +81,20 @@ function RunProgress({
     onFinished,
   })
   const current = stageIndex(progress.stage)
+
+  // Поток событий из очереди умеет замолчать без единой ошибки: галочки замирают, а концепты
+  // при этом давно готовы. Поэтому раз в пятнадцать секунд переспрашиваем сервер — он смотрит
+  // на сами концепты, а не на связь.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void checkGeneration(roomId).then((result) => {
+        if (result.ok && !result.data.running) {
+          onFinished(false)
+        }
+      })
+    }, SERVER_CHECK_MS)
+    return () => clearInterval(timer)
+  }, [roomId, onFinished])
 
   if (lost) {
     return (
@@ -304,6 +327,7 @@ export function ConceptsPanel({
         <RunProgress
           runId={run.runId}
           accessToken={run.accessToken}
+          roomId={roomId}
           onFinished={(failed) => {
             setRun(null)
             if (failed) {

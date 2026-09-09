@@ -230,17 +230,21 @@ export async function deleteRoom(userId: string, roomId: string): Promise<{ file
 }
 
 /** Отметка об идущей генерации: по ней страница восстанавливает ожидание после обновления */
-export async function attachGenerationRun(roomId: string, runId: string): Promise<void> {
+export async function attachGenerationRun(
+  roomId: string,
+  runId: string,
+  batchId: string,
+): Promise<void> {
   await getDb()
     .update(rooms)
-    .set({ generationRunId: runId, generationStartedAt: new Date() })
+    .set({ generationRunId: runId, generationStartedAt: new Date(), generationBatchId: batchId })
     .where(eq(rooms.id, roomId))
 }
 
 export async function clearGenerationRun(roomId: string): Promise<void> {
   await getDb()
     .update(rooms)
-    .set({ generationRunId: null, generationStartedAt: null })
+    .set({ generationRunId: null, generationStartedAt: null, generationBatchId: null })
     .where(eq(rooms.id, roomId))
 }
 

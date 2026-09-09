@@ -1,6 +1,6 @@
 import type { PromptPlan } from '@uyut/ai'
 import { type Concept, concepts, rooms } from '@uyut/db'
-import { and, asc, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { NotFoundError } from '@/lib/projects/access'
 import { getRoom, type RoomWithProject } from '@/lib/projects/repository'
@@ -183,6 +183,21 @@ export async function roomLikes(projectId: string, roomId: string): Promise<Room
     likes[row.id] = { owner: row.owner, partner: row.partner }
   }
   return likes
+}
+
+/**
+ * Сколько концептов у запуска и сколько из них ещё в работе. Считается по самому запуску,
+ * без проверки прав: зовётся только рядом с уже проверенной комнатой.
+ */
+export async function countBatch(batchId: string): Promise<{ total: number; pending: number }> {
+  const [row] = await getDb()
+    .select({
+      total: sql<number>`count(*)::int`,
+      pending: sql<number>`count(*) filter (where ${concepts.status} = 'pending')::int`,
+    })
+    .from(concepts)
+    .where(eq(concepts.batchId, batchId))
+  return { total: Number(row?.total ?? 0), pending: Number(row?.pending ?? 0) }
 }
 
 export async function countPending(userId: string, roomId: string): Promise<number> {

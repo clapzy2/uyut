@@ -93,6 +93,9 @@ export const rooms = pgTable(
     // теряет ожидание целиком, и человек видит экран так, будто ничего не запускал.
     generationRunId: text('generation_run_id'),
     generationStartedAt: timestamp('generation_started_at', { withTimezone: true }),
+    // Запуск этого прогона: по нему видно, готовы ли уже его концепты. Без него не отличить
+    // «строки ещё не созданы» от «давно готовы», а это разные экраны.
+    generationBatchId: uuid('generation_batch_id'),
   },
   (table) => [index('rooms_project_idx').on(table.projectId)],
 )
