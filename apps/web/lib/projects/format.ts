@@ -29,6 +29,14 @@ export const roomConditionHints: Record<RoomCondition, string> = {
   keep: 'Сохраним то, что уже стоит в комнате. Поменяем только то, о чём вы попросите в заметках.',
 }
 
+// Значения повторены здесь, а не взяты из @uyut/db: там это значение, а не тип, и импорт
+// из клиентского кода тянет в браузерную сборку драйвер базы. satisfies следит, чтобы списки не разъехались.
+export const roomConditionOptions = [
+  'bare',
+  'finished',
+  'keep',
+] as const satisfies readonly RoomCondition[]
+
 // В MVP три типа комнат; ванная и детская появятся позже
 export const mvpRoomKinds = ['living', 'bedroom', 'kitchen'] as const satisfies readonly RoomKind[]
 

@@ -1,13 +1,16 @@
 'use client'
 
 import type { RoomCondition } from '@uyut/db'
-import { roomConditions } from '@uyut/db'
 import { toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { updateRoomCondition } from '@/actions/rooms'
 import { FormError } from '@/components/form-error'
-import { roomConditionHints, roomConditionLabels } from '@/lib/projects/format'
+import {
+  roomConditionHints,
+  roomConditionLabels,
+  roomConditionOptions,
+} from '@/lib/projects/format'
 
 /**
  * Что делаем с комнатой. Стоит под фотографией, потому что решение принимают, глядя на неё:
@@ -50,7 +53,7 @@ export function RoomConditionForm({
         Что делаем с комнатой
       </legend>
       <div className="flex flex-col gap-2">
-        {roomConditions.map((option) => (
+        {roomConditionOptions.map((option) => (
           <label key={option} className="cursor-pointer">
             <input
               type="radio"

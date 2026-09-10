@@ -1,6 +1,5 @@
-import { roomConditions } from '@uyut/db'
 import { z } from 'zod'
-import { mvpRoomKinds } from '@/lib/projects/format'
+import { mvpRoomKinds, roomConditionOptions } from '@/lib/projects/format'
 
 export const projectIdSchema = z.uuid()
 
@@ -52,7 +51,7 @@ export const projectSettingsSchema = z.object({
 
 export const roomKindSchema = z.enum(mvpRoomKinds, { error: 'Выберите тип комнаты' })
 
-export const roomConditionSchema = z.enum(roomConditions, {
+export const roomConditionSchema = z.enum(roomConditionOptions, {
   error: 'Выберите, что делаем с комнатой',
 })
 
