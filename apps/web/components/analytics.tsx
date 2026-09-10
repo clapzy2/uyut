@@ -43,6 +43,9 @@ function Tracker() {
         capture_dead_clicks: false,
         capture_exceptions: false,
         person_profiles: 'identified_only',
+        // Браузер, у которого включено «не отслеживать», не считаем вовсе. Политика обещает
+        // человеку такую возможность, и обещание должно быть правдой.
+        respect_dnt: true,
       })
       client = posthog
       // Первый просмотр шлём здесь: библиотека грузится асинхронно и к моменту

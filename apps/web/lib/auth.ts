@@ -9,6 +9,7 @@ import { findInvite } from './collaboration/repository'
 import { getDb } from './db'
 import { getEmailSender, invitationLetter, passwordResetLetter, verificationLetter } from './email'
 import { getEnv } from './env'
+import { operator } from './legal/operator'
 import { hashPassword, verifyPassword } from './password'
 import { createAuthStorage, getLoginByEmailLimiter } from './redis'
 import { CLIENT_IP_HEADER } from './security/client-ip'
@@ -34,6 +35,9 @@ function createAuth() {
       fields: { name: 'displayName', image: 'avatarUrl' },
       additionalFields: {
         role: { type: 'string', defaultValue: 'user', input: false },
+        // Ставятся сервером при создании учётной записи, из браузера прийти не могут
+        consentAcceptedAt: { type: 'date', required: false, input: false },
+        consentVersion: { type: 'string', required: false, input: false },
       },
     },
     session: {
@@ -105,13 +109,16 @@ function createAuth() {
     databaseHooks: {
       user: {
         create: {
-          // Форма регистрации не спрашивает имя: до первого редактирования профиля берём часть адреса
+          // Форма регистрации не спрашивает имя: до первого редактирования профиля берём часть адреса.
+          // Здесь же отмечаем согласие: аккаунт заводится только через форму, где галочка
+          // обязательна, а редакцию документов и время знает сервер, а не браузер.
           before: async (user) => {
+            const consent = { consentAcceptedAt: new Date(), consentVersion: operator.updatedAt }
             const name = user.name?.trim()
             if (name) {
-              return { data: user }
+              return { data: { ...user, ...consent } }
             }
-            return { data: { ...user, name: user.email.split('@')[0] ?? 'Вы' } }
+            return { data: { ...user, ...consent, name: user.email.split('@')[0] ?? 'Вы' } }
           },
         },
       },
@@ -137,7 +144,14 @@ function createAuth() {
         const headers = ctx.request?.headers ?? new Headers(ctx.headers ?? undefined)
         const actorId = ctx.context.newSession?.user.id ?? ctx.context.session?.user.id ?? null
         if (ctx.path === '/sign-up/email' && ctx.context.newSession) {
-          await recordAudit({ action: 'auth.register', actorId, headers })
+          // Вместе с записью о регистрации сохраняем, с какой редакцией документов человек
+          // согласился: адрес и браузер аудит берёт из заголовков сам
+          await recordAudit({
+            action: 'auth.register',
+            actorId,
+            headers,
+            metadata: { consentVersion: operator.updatedAt },
+          })
         }
         if (ctx.path === '/sign-in/email' && ctx.context.newSession) {
           await recordAudit({ action: 'auth.login', actorId, headers })

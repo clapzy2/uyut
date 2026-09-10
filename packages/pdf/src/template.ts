@@ -115,6 +115,11 @@ const CSS = `
 
   /* ТЗ */
   .brief-intro { max-width: 150mm; }
+  /* Оговорка стоит перед самим заданием и набрана в размер текста: раньше она была мелкой
+     строкой внизу последней страницы, и владелец её попросту не увидел. */
+  .brief-warning { max-width: 150mm; margin-top: 5mm; border-left: 2px solid #7c2f3b; padding: 1mm 0 1mm 4mm; display: grid; gap: 2mm; }
+  .brief-warning p { font-size: 9.5pt; line-height: 1.5; color: #262220; }
+  .brief-warning-title { font-family: 'Literata', Georgia, serif; font-size: 11pt; color: #7c2f3b; }
   .brief-room { break-before: page; display: grid; gap: 5mm; }
   .brief-room:first-of-type { break-before: auto; }
   .brief-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm 10mm; font-size: 9.5pt; line-height: 1.5; }
@@ -403,7 +408,11 @@ function briefPages(data: PdfData, free: boolean): string {
     ${ribbon(free)}
     <p class="eyebrow">ТЗ мастеру · для сметы бригады</p>
     <h1 style="margin-top:3mm">Техническое задание</h1>
-    <p class="small brief-intro" style="margin-top:4mm">Основа для сметы бригады, не проектная документация: объём работ по разделам, точки электрики с привязкой к мебели, материалы по концепту. Размеры сверх площади комнаты мастер уточняет по месту.</p>
+    <div class="brief-warning">
+      <p class="brief-warning-title">Прочитайте до того, как отдадите бригаде</p>
+      <p>Задание составлено по вашему концепту и площади комнат. Сервис не был на объекте: он не знает обмеров, состояния проводки, где несущие стены и какая высота потолков. Количество материалов и точки электрики бригада обязана проверить на месте.</p>
+      <p>Этот документ нужен, чтобы вы и мастера говорили об одном и том же. Он не заменяет проект и расчёты инженера.</p>
+    </div>
     <div class="rule strong" style="margin-top:5mm"></div>
     ${brief.rooms
       .map(
