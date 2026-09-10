@@ -1,4 +1,5 @@
 import type { BuildExtension } from '@trigger.dev/build'
+import { additionalPackages } from '@trigger.dev/build/extensions/core'
 import { defineConfig } from '@trigger.dev/sdk'
 
 /** Должна совпадать с playwright в зависимостях: браузер и библиотека ходят парой */
@@ -51,19 +52,22 @@ export default defineConfig({
   runtime: 'node-24',
   dirs: ['./src'],
   // sharp содержит нативные бинарники и не переживает бандлинг: ставим его в образ как есть.
-  // Пакеты шрифтов — по той же причине, только наоборот: код из них не нужен вовсе, нужны
-  // файлы .woff2, а сборщик упаковывает только код и выбрасывает всё остальное. Из-за этого
-  // сборка PDF падала на «Cannot find module .../literata-cyrillic-wght-normal.woff2».
   build: {
-    external: [
-      'sharp',
-      'playwright',
-      'playwright-core',
-      '@fontsource-variable/literata',
-      '@fontsource-variable/onest',
-      '@fontsource/jetbrains-mono',
+    external: ['sharp', 'playwright', 'playwright-core'],
+    extensions: [
+      playwrightChromium(),
+      // Шрифты для PDF читаются файлами по вычисляемому пути (packages/pdf/src/fonts.ts),
+      // и такой зависимости сборщик не видит вовсе: пометка «внешний» не помогла, сборка
+      // продолжала падать на «Cannot find module .../literata-cyrillic-wght-normal.woff2».
+      // Здесь пакеты названы прямо, поэтому доедут в образ целиком, вместе с .woff2.
+      additionalPackages({
+        packages: [
+          '@fontsource-variable/literata',
+          '@fontsource-variable/onest',
+          '@fontsource/jetbrains-mono',
+        ],
+      }),
     ],
-    extensions: [playwrightChromium()],
   },
   maxDuration: 300,
   retries: {
