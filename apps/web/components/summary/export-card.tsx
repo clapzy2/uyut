@@ -366,8 +366,11 @@ export function ExportCard({
             </div>
           ) : latest.status === 'failed' ? (
             <p className="border-t border-line pt-4 text-[13px] leading-relaxed text-danger">
-              Последняя сборка не удалась{latest.error ? `: ${latest.error}` : ''}. Попробуйте ещё
-              раз.
+              {/* Раньше сюда выводилась сырая ошибка задачи — владелец увидел стек вызовов
+                  с путями к файлам внутри контейнера. Человеку это ничего не говорит,
+                  а подробности и так лежат в журнале сервера. */}
+              Последняя сборка не удалась. Мы записали, что случилось, и уже смотрим. Попробуйте ещё
+              раз — обычно со второго выходит.
             </p>
           ) : latest.status === 'running' || latest.status === 'pending' ? (
             <p className="border-t border-line pt-4 text-[13px] leading-relaxed text-ink-2">
