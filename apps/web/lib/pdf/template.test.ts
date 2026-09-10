@@ -89,6 +89,15 @@ describe('project PDF template', () => {
     expect(html).not.toContain('wm-layer"></div>')
   })
 
+  it('оговорка про задание стоит до самого задания, а не мелким шрифтом в конце', () => {
+    const html = renderProjectHtml(sample('paid'), { fontCss: '' })
+    const warning = html.indexOf('Прочитайте до того, как отдадите бригаде')
+    const firstRoomSection = html.indexOf('Окрасить стены в два слоя.')
+    expect(warning).toBeGreaterThan(-1)
+    expect(warning).toBeLessThan(firstRoomSection)
+    expect(html).toContain('не знает обмеров, состояния проводки')
+  })
+
   it('печатает пометку рекламы одним блоком и не теряет erid', () => {
     const html = renderProjectHtml(sample('paid'), { fontCss: '' })
     expect(html).toContain('подобрана по партнёрским программам')
