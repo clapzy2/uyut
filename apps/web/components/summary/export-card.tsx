@@ -2,11 +2,13 @@
 
 import type { ProjectContact, SubscriptionPlan } from '@uyut/db'
 import { Button, buttonClassName, Checkbox, cn, inputClassName, Label, toast } from '@uyut/ui'
+import { motion } from 'motion/react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { startProjectPurchase, startProSubscription } from '@/actions/billing'
 import { type ExportRun, exportProjectPdf, loadExport } from '@/actions/exports'
 import { CheckoutButton } from '@/components/billing/checkout-button'
+import { TypingDots } from '@/components/typing-dots'
 import { formatPrice } from '@/lib/concepts/format'
 import type { ExportView } from '@/lib/exports/repository'
 import { formatDate } from '@/lib/projects/format'
@@ -17,7 +19,7 @@ export type PaymentState = 'paid' | 'pending' | 'canceled' | null
 
 const stageLabels: Array<{ key: string; label: string }> = [
   { key: 'collect', label: 'Собираем данные проекта' },
-  { key: 'brief', label: 'Пишем ТЗ мастеру' },
+  { key: 'brief', label: 'Пишем задание для мастеров' },
   { key: 'layout', label: 'Верстаем страницы' },
   { key: 'print', label: 'Печатаем PDF' },
   { key: 'upload', label: 'Сохраняем файл' },
@@ -68,8 +70,19 @@ function RunProgress({
       </div>
     )
   }
+  // Доля пройденного: без полосы шаги стоят молча, и сборка выглядит замершей
+  const filled = progress.stage === 'done' ? 1 : Math.min(1, current / stageLabels.length)
+
   return (
     <ol className="flex flex-col gap-1.5" aria-label="Сборка PDF">
+      <li aria-hidden="true" className="mb-1 h-[3px] overflow-hidden rounded-full bg-muted">
+        <motion.span
+          className="block h-full bg-accent"
+          initial={{ width: 0 }}
+          animate={{ width: `${Math.round(filled * 100)}%` }}
+          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+        />
+      </li>
       {stageLabels.map((item, index) => {
         const done = index < current || progress.stage === 'done'
         const active = index === current && progress.stage !== 'done'
@@ -81,13 +94,21 @@ function RunProgress({
                 done
                   ? 'grid h-4 w-4 place-items-center rounded-full border border-success bg-success text-[10px] text-paper'
                   : active
-                    ? 'h-4 w-4 rounded-full border border-accent bg-accent-tint'
+                    ? 'relative h-4 w-4 rounded-full border border-accent bg-accent-tint'
                     : 'h-4 w-4 rounded-full border border-line-strong'
               }
             >
-              {done ? '✓' : ''}
+              {done ? '✓' : null}
+              {active ? (
+                <motion.span
+                  className="absolute inset-0 rounded-full border border-accent"
+                  animate={{ scale: [1, 1.9], opacity: [0.7, 0] }}
+                  transition={{ duration: 1.6, repeat: Number.POSITIVE_INFINITY, ease: 'easeOut' }}
+                />
+              ) : null}
             </span>
             <span className={done || active ? 'text-ink' : 'text-ink-2'}>{item.label}</span>
+            {active ? <TypingDots label="Идёт работа" /> : null}
           </li>
         )
       })}

@@ -51,8 +51,18 @@ export default defineConfig({
   runtime: 'node-24',
   dirs: ['./src'],
   // sharp содержит нативные бинарники и не переживает бандлинг: ставим его в образ как есть.
+  // Пакеты шрифтов — по той же причине, только наоборот: код из них не нужен вовсе, нужны
+  // файлы .woff2, а сборщик упаковывает только код и выбрасывает всё остальное. Из-за этого
+  // сборка PDF падала на «Cannot find module .../literata-cyrillic-wght-normal.woff2».
   build: {
-    external: ['sharp', 'playwright', 'playwright-core'],
+    external: [
+      'sharp',
+      'playwright',
+      'playwright-core',
+      '@fontsource-variable/literata',
+      '@fontsource-variable/onest',
+      '@fontsource/jetbrains-mono',
+    ],
     extensions: [playwrightChromium()],
   },
   maxDuration: 300,
