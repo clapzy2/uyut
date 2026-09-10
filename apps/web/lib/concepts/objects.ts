@@ -10,7 +10,7 @@ import {
   type ProjectRole,
 } from '@uyut/db'
 import { asc, eq } from 'drizzle-orm'
-import { displayImage } from '@/lib/catalog/product-image'
+import { orderedImages } from '@/lib/catalog/product-image'
 import { otherMember } from '@/lib/collaboration/repository'
 import { getDb } from '@/lib/db'
 import { NotFoundError } from '@/lib/projects/access'
@@ -29,6 +29,8 @@ export type MatchView = {
   /** Готовая пометка рекламы от партнёрской сети: показывается целиком, резать нельзя */
   adDisclosure: string | null
   imageUrl: string | null
+  /** Запасная ссылка на картинку: первая у части магазинов не отвечает */
+  imageFallbackUrl: string | null
   similarity: number
   overBudget: boolean
 }
@@ -104,7 +106,8 @@ async function toMatch(item: SimilarItem, window: PriceWindow | null): Promise<M
     oldPriceKopecks: item.oldPriceKopecks,
     affiliateUrl: item.affiliateUrl,
     adDisclosure: item.attributes?.adDisclosure?.trim() || null,
-    imageUrl: await productImage(displayImage(item.images)),
+    imageUrl: await productImage(orderedImages(item.images)[0]),
+    imageFallbackUrl: await productImage(orderedImages(item.images)[1]),
     similarity: item.similarity,
     overBudget: window !== null && item.priceKopecks > window.maxKopecks,
   }
