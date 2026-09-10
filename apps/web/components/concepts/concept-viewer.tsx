@@ -10,6 +10,7 @@ import { resetRecolor, saveRecolor } from '@/actions/recolor'
 import { addItem } from '@/actions/shopping'
 import { AdDisclosure } from '@/components/ad-disclosure'
 import { SwatchPicker } from '@/components/concepts/swatch-picker'
+import { ProductImage } from '@/components/product-image'
 import { categoryLabels, formatPrice, sourceLabel } from '@/lib/concepts/format'
 import { spreadMarkers } from '@/lib/concepts/marker-layout'
 import type { ConceptPageData, MatchView, ObjectView } from '@/lib/concepts/objects'
@@ -147,15 +148,7 @@ function MatchesPanel({
                   className="flex min-w-0 flex-1 items-center gap-3 transition-colors duration-200 ease-ui hover:bg-muted/60"
                 >
                   <span className="block h-16 w-16 shrink-0 overflow-hidden border border-line bg-muted">
-                    {match.imageUrl ? (
-                      // biome-ignore lint/performance/noImgElement: картинка товара живёт у магазина, оптимизатор next/image здесь не нужен
-                      <img
-                        src={match.imageUrl}
-                        alt=""
-                        className="h-full w-full object-cover"
-                        loading="lazy"
-                      />
-                    ) : null}
+                    <ProductImage src={match.imageUrl} fallback={match.imageFallbackUrl} alt="" />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[15px] text-ink">{match.title}</span>

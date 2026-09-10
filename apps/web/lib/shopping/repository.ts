@@ -8,7 +8,7 @@ import {
   shoppingLists,
 } from '@uyut/db'
 import { and, asc, eq, sql } from 'drizzle-orm'
-import { displayImage } from '@/lib/catalog/product-image'
+import { orderedImages } from '@/lib/catalog/product-image'
 import { getDb } from '@/lib/db'
 import {
   assertOwner,
@@ -30,6 +30,8 @@ export type ShoppingItemView = {
   /** Готовая пометка рекламы от партнёрской сети: показывается целиком, резать нельзя */
   adDisclosure: string | null
   imageUrl: string | null
+  /** Запасная ссылка на картинку: первая у части магазинов не отвечает */
+  imageFallbackUrl: string | null
   inStock: boolean
   quantity: number
   /** Цена строки: цена варианта или товара, умноженная на количество */
@@ -99,7 +101,8 @@ export async function getShoppingList(
         priceKopecks: product.priceKopecks,
         affiliateUrl: item.selectedVariant?.affiliateUrl ?? product.affiliateUrl,
         adDisclosure: product.attributes?.adDisclosure?.trim() || null,
-        imageUrl: await productImage(displayImage(product.images)),
+        imageUrl: await productImage(orderedImages(product.images)[0]),
+        imageFallbackUrl: await productImage(orderedImages(product.images)[1]),
         inStock: product.inStock,
         quantity: item.quantity,
         totalKopecks: itemTotalKopecks({
