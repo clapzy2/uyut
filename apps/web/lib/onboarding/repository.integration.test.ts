@@ -108,7 +108,12 @@ describe('onboarding and concepts in a real database', () => {
     const created = await createBatch({
       room,
       batchId,
-      plan: { shared: 'Общая часть задания', variations: ['A', 'B'], source: 'template' },
+      plan: {
+        shared: 'Общая часть задания',
+        variations: ['A', 'B'],
+        mandate: '',
+        source: 'template',
+      },
       model: 'nano-banana-2',
       styleTags: ['scandi'],
     })

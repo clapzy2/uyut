@@ -5,6 +5,7 @@ import {
   projectCollaborators,
   projects,
   type Room,
+  type RoomCondition,
   type RoomKind,
   rooms,
   users,
@@ -151,7 +152,7 @@ export async function listRooms(userId: string, projectId: string): Promise<Room
 export async function createRoom(
   userId: string,
   projectId: string,
-  input: { kind: RoomKind; name: string; areaM2?: number | null },
+  input: { kind: RoomKind; name: string; areaM2?: number | null; condition?: RoomCondition },
 ): Promise<Room> {
   const project = await assertOwner(userId, projectId)
   const db = getDb()
@@ -166,6 +167,7 @@ export async function createRoom(
       kind: input.kind,
       name: input.name,
       areaM2: input.areaM2 ?? null,
+      ...(input.condition ? { condition: input.condition } : {}),
       orderIndex: (last?.maxIndex ?? -1) + 1,
     })
     .returning()
@@ -209,6 +211,7 @@ export type RoomPatch = {
   name?: string
   kind?: RoomKind
   areaM2?: number | null
+  condition?: RoomCondition
   notes?: string | null
   refreshFinish?: boolean
 }

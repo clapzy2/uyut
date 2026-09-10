@@ -67,6 +67,7 @@ async function writeNotes(
   conceptIds: string[],
   brief: ConceptBrief,
   shared: string,
+  mandate: string,
 ): Promise<void> {
   const key = process.env.FAL_KEY
   if (!key) {
@@ -79,7 +80,7 @@ async function writeNotes(
   const ours = ready.filter((row) => conceptIds.includes(row.id))
   for (const concept of ours) {
     try {
-      const variation = concept.prompt.replace(shared, '').trim()
+      const variation = concept.prompt.replace(shared, '').replace(mandate, '').trim()
       const note = await completeFalLlm(key, {
         system:
           'Ты помощник сервиса дизайна интерьера «Домица». Пиши по-русски, на «вы», без восторгов, ровно два коротких предложения: первое — что за идея в этом варианте комнаты, второе — почему это подходит именно этой семье. Без вступлений и без кавычек.',
@@ -168,7 +169,7 @@ export const generateConcept = task({
           batchKind: payload.duo ? ('duo' as const) : ('regular' as const),
           orderIndex: index,
           status: 'pending' as const,
-          prompt: `${plan.shared} ${variation}`.trim(),
+          prompt: `${plan.shared} ${variation} ${plan.mandate}`.replace(/\s+/g, ' ').trim(),
           styleTags: project.styleTags,
           aiModel: modelId,
           title: payload.duo?.variations[index]?.title ?? null,
@@ -245,6 +246,7 @@ export const generateConcept = task({
         created.map((concept) => concept.id),
         brief,
         plan.shared,
+        plan.mandate,
       )
     }
 

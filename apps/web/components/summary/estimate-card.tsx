@@ -91,11 +91,11 @@ function RoomWorksRow({
           {formatPrice(works.totalKopecks)}
         </span>
       </div>
-      {room.condition === 'finished' && readOnly ? (
+      {room.condition !== 'bare' && readOnly ? (
         <span className="text-[13px] text-ink-2">
           {room.refreshFinish ? 'с обновлением чистовой отделки' : 'без обновления отделки'}
         </span>
-      ) : room.condition === 'finished' ? (
+      ) : room.condition !== 'bare' ? (
         <Checkbox
           id={`refresh-${room.id}`}
           label={<span className="text-[13px] text-ink-2">Обновить чистовую отделку</span>}

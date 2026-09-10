@@ -51,6 +51,13 @@ export async function requestConcepts(
   try {
     const room = await getRoom(userId, roomId)
     requireOwner(room.role)
+    // «Оставить как есть» без единого пожелания даёт пять копий фотографии: менять нечего.
+    if (room.condition === 'keep' && !room.notes?.trim() && !revision?.trim()) {
+      return {
+        ok: false,
+        error: 'Напишите в заметках, что поменять. Комната остаётся как есть, менять пока нечего.',
+      }
+    }
     const { success } = await getConceptsByUserLimiter().limit(userId)
     if (!success) {
       return { ok: false, error: 'Сегодня уже много генераций. Попробуйте через час.' }

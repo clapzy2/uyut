@@ -2,6 +2,7 @@ import {
   buildTemplatePlan,
   type ConceptBrief,
   fixedPreamble,
+  mandateSentence,
   nearestStyles,
   styleLibrary,
   styleTagsFromVector,
@@ -106,6 +107,63 @@ describe('buildTemplatePlan', () => {
     const plan = buildTemplatePlan(brief(), 5)
     expect(plan.shared).toContain('no people')
     expect(plan.shared).toContain('no watermarks')
+  })
+})
+
+describe('режим «оставить как есть»', () => {
+  const keep = brief({ condition: 'keep', notes: 'Перемести шкаф справа под окно' })
+
+  it('не просит ни ремонта, ни переделки', () => {
+    const text = fixedPreamble(keep)
+    expect(text).not.toContain('Renovate')
+    expect(text).not.toContain('Redesign')
+    expect(text).toContain('the same cabinets, appliances and furniture')
+  })
+
+  it('в задании нет отделки и палитры: они перекрасили бы комнату', () => {
+    const plan = buildTemplatePlan(keep, 5)
+    expect(plan.shared).not.toContain('Finishes:')
+    expect(plan.shared).not.toContain('Furniture level:')
+  })
+
+  it('вариации не диктуют новую расстановку', () => {
+    const plan = buildTemplatePlan(keep, 5)
+    expect(plan.variations).toHaveLength(5)
+    expect(plan.variations.every((block) => block.startsWith('Make the requested change'))).toBe(
+      true,
+    )
+  })
+})
+
+describe('mandateSentence', () => {
+  it('просьба из заметок доходит до задания даже без перевода', () => {
+    const text = mandateSentence(brief({ notes: 'Шкаф под окно' }))
+    expect(text).toContain('Шкаф под окно')
+    expect(text).toContain('overrides everything above')
+  })
+
+  it('перевод вытесняет русский текст', () => {
+    const text = mandateSentence(
+      brief({ notes: 'Шкаф под окно' }),
+      'Move the cabinet under the window',
+    )
+    expect(text).toContain('Move the cabinet under the window')
+    expect(text).not.toContain('Шкаф')
+  })
+
+  it('заметка и правка из чата идут вместе', () => {
+    const text = mandateSentence(brief({ notes: 'Шкаф под окно', revision: 'darker walls' }))
+    expect(text).toContain('Шкаф под окно; darker walls')
+  })
+
+  it('без пожеланий фразы нет', () => {
+    expect(mandateSentence(brief())).toBe('')
+  })
+
+  it('просьба стоит после вариации, а не в середине задания', () => {
+    const plan = buildTemplatePlan(brief({ notes: 'Шкаф под окно' }), 5)
+    expect(plan.mandate).toContain('Шкаф под окно')
+    expect(plan.shared).not.toContain('Шкаф под окно')
   })
 })
 

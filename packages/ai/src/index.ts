@@ -76,6 +76,7 @@ export {
   createPromptBuilder,
   createTemplatePromptBuilder,
   fixedPreamble,
+  mandateSentence,
   styleOrDefault,
 } from './prompt'
 export { closeMask, maskWeights, meanLightness, type RecolorTarget, recolorPixels } from './recolor'

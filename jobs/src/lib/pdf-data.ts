@@ -65,8 +65,14 @@ const sourceLabels: Record<string, string> = {
   dump: 'Каталог',
 }
 
+const conditionLabels: Record<Room['condition'], string> = {
+  bare: 'Черновая отделка',
+  finished: 'Отделка есть',
+  keep: 'Отделка есть, остаётся как есть',
+}
+
 function conditionLabel(room: Room): string {
-  return room.condition === 'bare' ? 'Черновая отделка' : 'Отделка есть'
+  return conditionLabels[room.condition]
 }
 
 /** Ключ объекта в нашем bucket, если ссылка ведёт в него; иначе null */
@@ -253,7 +259,7 @@ export function briefInput(snapshot: ProjectSnapshot): BriefInput {
       return {
         name: room.name,
         kind: roomKindLabels[room.kind],
-        condition: room.condition === 'bare' ? 'черновая отделка' : 'отделка есть',
+        condition: conditionLabels[room.condition].toLowerCase(),
         areaM2: room.areaM2,
         concept: entry
           ? {

@@ -139,7 +139,7 @@ export async function createBatch(input: {
     batchId: input.batchId,
     orderIndex: index,
     status: 'pending' as const,
-    prompt: `${input.plan.shared} ${variation}`.trim(),
+    prompt: `${input.plan.shared} ${variation} ${input.plan.mandate}`.replace(/\s+/g, ' ').trim(),
     styleTags: input.styleTags,
     aiModel: input.model,
   }))
