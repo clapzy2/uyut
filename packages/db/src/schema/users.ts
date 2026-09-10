@@ -10,6 +10,11 @@ export const users = pgTable('users', {
   role: text('role', { enum: ['user', 'admin'] })
     .notNull()
     .default('user'),
+  // Согласие на обработку данных: закон возлагает на нас обязанность доказать, что оно было.
+  // Раньше галочка проверялась только в браузере и нигде не сохранялась — доказывать было нечем.
+  consentAcceptedAt: timestamp('consent_accepted_at', { withTimezone: true }),
+  /** Редакция документов, действовавшая в момент согласия */
+  consentVersion: text('consent_version'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true })
     .notNull()
