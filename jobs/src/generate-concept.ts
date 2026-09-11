@@ -234,8 +234,10 @@ export const generateConcept = task({
         }).build(brief, count)
     logger.info('prompt plan ready', { source: plan.source, variations: plan.variations.length })
 
-    // Правка идёт моделью, которая умеет сохранять комнату; рисовать с нуля дешевле на прежней
-    const { renderer: engine, modelId } = renderer(payload.editSteps ? 'gpt-image-2.5' : undefined)
+    // Где надо сохранить комнату, там рисует модель, которая это умеет. Прежняя на той же кухне
+    // рисовала чужую светлую комнату даже на прямую просьбу ничего не менять. С нуля рисуем прежней: там беречь нечего, а она дешевле.
+    const preserving = Boolean(payload.editSteps) || brief.condition === 'keep'
+    const { renderer: engine, modelId } = renderer(preserving ? 'gpt-image-2.5' : undefined)
     const created = await database
       .insert(concepts)
       .values(
