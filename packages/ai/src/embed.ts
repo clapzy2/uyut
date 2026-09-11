@@ -43,14 +43,39 @@ export function cosine(a: readonly number[], b: readonly number[]): number {
   return dot / Math.sqrt(normA * normB)
 }
 
-/** Ближайшие стили к вектору вкуса: первый становится ведущим, остальные уточняют промпт. */
+/**
+ * Ближайшие стили к вектору вкуса: первый становится ведущим, остальные уточняют промпт.
+ *
+ * Сначала считаем вес семейства, потом берём лучший стиль из каждого. Раньше сравнивались
+ * веса отдельных стилей, а при равных весах сортировка стабильна и побеждал тот, кто раньше в библиотеке.
+ * Сканди стоит в ней первым, поэтому у всех, кто лайкнул поровну из разных семейств, ведущим выходил сканди.
+ * По одному стилю на семейство нужно ещё и затем, чтобы вариации различались, а не повторяли один и тот же вкус.
+ */
 export function nearestStyles(vector: readonly number[], count = 3): StyleEntry[] {
-  return styleLibrary
+  const weighted = styleLibrary
     .map((entry, index) => ({ entry, weight: vector[index] ?? 0 }))
     .filter((item) => item.weight > 0)
     .sort((left, right) => right.weight - left.weight)
-    .slice(0, count)
-    .map((item) => item.entry)
+
+  const familyWeight = new Map<string, number>()
+  for (const item of weighted) {
+    familyWeight.set(item.entry.family, (familyWeight.get(item.entry.family) ?? 0) + item.weight)
+  }
+
+  const leaders: StyleEntry[] = []
+  const taken = new Set<string>()
+  for (const family of [...familyWeight.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .map(([name]) => name)) {
+    const best = weighted.find((item) => item.entry.family === family)
+    if (best) {
+      leaders.push(best.entry)
+      taken.add(best.entry.id)
+    }
+  }
+  // Семейств может оказаться меньше, чем просят стилей: добираем оставшимися по весу
+  const rest = weighted.filter((item) => !taken.has(item.entry.id)).map((item) => item.entry)
+  return [...leaders, ...rest].slice(0, count)
 }
 
 /** Семейства стилей по вектору, в порядке убывания веса. Пишутся в projects.style_tags. */

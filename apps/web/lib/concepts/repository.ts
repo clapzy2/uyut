@@ -2,7 +2,7 @@ import type { PromptPlan } from '@uyut/ai'
 import { type Concept, concepts, rooms } from '@uyut/db'
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { NotFoundError } from '@/lib/projects/access'
+import { AccessError, NotFoundError, requireOwner } from '@/lib/projects/access'
 import { getRoom, type RoomWithProject } from '@/lib/projects/repository'
 import { CONCEPT_STALE_AFTER_MS, OBJECTS_STALE_AFTER_MS, staleBefore } from '@/lib/queue/stale'
 import { presignedObjectUrl } from '@/lib/storage'
@@ -144,6 +144,27 @@ export async function createBatch(input: {
     aiModel: input.model,
   }))
   return getDb().insert(concepts).values(rows).returning()
+}
+
+/**
+ * Концепт, который можно взять за основу правки. Править может только владелец:
+ * это платное действие, как и обычная генерация.
+ */
+export async function getConceptForEdit(
+  userId: string,
+  conceptId: string,
+): Promise<{ id: string; roomId: string }> {
+  const [row] = await getDb().select().from(concepts).where(eq(concepts.id, conceptId)).limit(1)
+  if (!row) {
+    throw new NotFoundError('Концепт не найден')
+  }
+  const room = await getRoom(userId, row.roomId)
+  requireOwner(room.role)
+  // Править можно и перекрашенный вариант: готовность считаем по той же картинке, которую видит человек
+  if (row.status !== 'ready' || !(row.editedRenderUrl ?? row.renderUrl)) {
+    throw new AccessError('Этот вариант ещё не готов, править пока нечего.')
+  }
+  return { id: row.id, roomId: row.roomId }
 }
 
 export async function setConceptLike(

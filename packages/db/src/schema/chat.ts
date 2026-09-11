@@ -23,6 +23,13 @@ export type ChatProposal = {
   kind: 'regeneration'
   roomId: string
   revision: string
+  /**
+   * Концепт, на который человек смотрел, когда просил правку. Если он есть, правим его,
+   * а не рисуем комнату заново от фотографии.
+   */
+  conceptId?: string
+  /** Просьба по-русски: её же показываем на карточке правки */
+  summaryRu?: string
   status: 'pending' | 'confirmed' | 'dismissed'
 }
 export type ChatMeta = { cards?: ChatCard[]; proposal?: ChatProposal; tools?: string[] }

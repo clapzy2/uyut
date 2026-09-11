@@ -258,7 +258,15 @@ async function proposeRegeneration(
   }
   return {
     text: `Предложение показано человеку с кнопкой подтверждения: «${summaryRu}». Больше ничего делать не нужно, генерация стартует только по кнопке.`,
-    proposal: { kind: 'regeneration', roomId: room.id, revision, status: 'pending' },
+    proposal: {
+      kind: 'regeneration',
+      roomId: room.id,
+      revision,
+      summaryRu,
+      // Человек смотрит на конкретный вариант — значит правка относится к нему, а не ко всей комнате
+      ...(scope.conceptId && roomId === scope.roomId ? { conceptId: scope.conceptId } : {}),
+      status: 'pending',
+    },
   }
 }
 

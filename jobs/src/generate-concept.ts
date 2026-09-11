@@ -14,7 +14,7 @@ import {
   styleLibrary,
 } from '@uyut/ai'
 import { concepts, projects, rooms } from '@uyut/db'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { z } from 'zod'
 import { db } from './lib/db'
@@ -29,6 +29,13 @@ const payloadSchema = z.object({
   count: z.number().int().min(1).max(8).default(5),
   /** Правка из чата после первой генерации, по-английски */
   revision: z.string().max(500).optional(),
+  /**
+   * Правка готового рендера: рисуем от него, а не от фотографии комнаты.
+   * Только так работает «вот этот вариант, но шкаф под окном».
+   */
+  baseConceptId: z.uuid().optional(),
+  /** Текст просьбы словами человека: показываем его рядом с результатом */
+  editRequest: z.string().max(500).optional(),
   /** Варианты на двоих: у каждого рендера своя правка и название, общая часть промпта из шаблона */
   duo: z
     .object({
@@ -129,6 +136,21 @@ export const generateConcept = task({
     }
     const { room, project } = row
 
+    // Правка готового рендера рисуется от него, а не от фотографии комнаты
+    const [base] = payload.baseConceptId
+      ? await database
+          .select()
+          .from(concepts)
+          .where(and(eq(concepts.id, payload.baseConceptId), eq(concepts.roomId, room.id)))
+          .limit(1)
+      : []
+    // Перекрашенная версия идёт первой: именно её человек видит везде в сервисе и её же имеет в виду,
+    // когда просит поправить «этот вариант». Та же формула уже живёт в списке комнаты, на странице концепта и в PDF.
+    const baseRenderKey = base ? (base.editedRenderUrl ?? base.renderUrl) : null
+    if (payload.baseConceptId && !baseRenderKey) {
+      throw new Error(`концепт-основа ${payload.baseConceptId} не найден или без рендера`)
+    }
+
     const count = payload.duo ? payload.duo.variations.length : payload.count
     publish({ stage: 'brief', done: 0, total: count, failed: 0 })
     const { primary, secondary } = pickStyles(project.styleReferenceEmbedding)
@@ -136,10 +158,13 @@ export const generateConcept = task({
       roomKind: room.kind,
       roomName: room.name,
       areaM2: room.areaM2,
-      condition: room.condition,
-      notes: room.notes,
+      // Правка рендера всегда бережливая, как бы ни была отмечена сама комната:
+      // основа — уже готовый интерьер, и переделывать его целиком никто не просил.
+      condition: base ? 'keep' : room.condition,
+      // У правки своя просьба, заметки комнаты в неё не подмешиваем
+      notes: base ? (payload.editRequest ?? null) : room.notes,
       revision: payload.revision ?? null,
-      hasPhoto: Boolean(room.photoUrl),
+      hasPhoto: Boolean(base ?? room.photoUrl),
       budgetKopecks: project.budgetKopecks,
       household: project.household ?? null,
       primaryStyle: primary,
@@ -166,12 +191,18 @@ export const generateConcept = task({
         plan.variations.map((variation, index) => ({
           roomId: room.id,
           batchId: payload.batchId,
-          batchKind: payload.duo ? ('duo' as const) : ('regular' as const),
+          batchKind: base
+            ? ('edit' as const)
+            : payload.duo
+              ? ('duo' as const)
+              : ('regular' as const),
           orderIndex: index,
           status: 'pending' as const,
           prompt: `${plan.shared} ${variation} ${plan.mandate}`.replace(/\s+/g, ' ').trim(),
           styleTags: project.styleTags,
           aiModel: modelId,
+          baseConceptId: base?.id ?? null,
+          editRequest: base ? (payload.editRequest ?? null) : null,
           title: payload.duo?.variations[index]?.title ?? null,
           // У вариантов на двоих подпись уже есть: это идея из предложения модели
           note: payload.duo?.variations[index]?.idea ?? null,
@@ -179,10 +210,12 @@ export const generateConcept = task({
       )
       .returning()
 
-    // Фото комнаты становится основой рендера; без него модель рисует комнату с нуля
-    const photo = room.photoUrl ? await readObject(room.photoUrl) : null
-    const imageUrl = photo
-      ? `data:${photo.contentType};base64,${photo.body.toString('base64')}`
+    // Основа рендера: выбранный концепт, если это правка, иначе фото комнаты.
+    // Без основы модель рисует комнату с нуля.
+    const sourceKey = baseRenderKey ?? room.photoUrl
+    const source = sourceKey ? await readObject(sourceKey) : null
+    const imageUrl = source
+      ? `data:${source.contentType};base64,${source.body.toString('base64')}`
       : undefined
 
     let done = 0

@@ -14,6 +14,7 @@ import { AccessError, requireOwner } from '@/lib/projects/access'
 import { attachGenerationRun, clearGenerationRun, getRoom } from '@/lib/projects/repository'
 import { getConceptsByUserLimiter } from '@/lib/redis'
 import { getSession } from '@/lib/session'
+import { conceptEditSchema } from '@/lib/validation/projects'
 
 export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string }
 
@@ -36,9 +37,22 @@ function failure(error: unknown): { ok: false; error: string } {
   return { ok: false, error: GENERIC }
 }
 
+/** Сколько рендеров делать: с нуля нужен выбор, для правки достаточно трёх прочтений одной просьбы. */
+const FRESH_COUNT = 5
+const EDIT_COUNT = 3
+
+export type ConceptRequest = {
+  /** Правка из чата, по-английски */
+  revision?: string
+  /** Рендер-основа: правим его, а не фотографию комнаты */
+  baseConceptId?: string
+  /** Просьба словами человека к этой правке */
+  editRequest?: string
+}
+
 export async function requestConcepts(
   roomId: string,
-  revision?: string,
+  request: ConceptRequest = {},
 ): Promise<ActionResult<ConceptRun>> {
   const userId = await currentUserId()
   if (!userId) {
@@ -48,11 +62,12 @@ export async function requestConcepts(
   if (!env.FAL_KEY || !env.TRIGGER_SECRET_KEY) {
     return { ok: false, error: NO_KEYS }
   }
+  const { revision, baseConceptId, editRequest } = request
   try {
     const room = await getRoom(userId, roomId)
     requireOwner(room.role)
     // «Оставить как есть» без единого пожелания даёт пять копий фотографии: менять нечего.
-    if (room.condition === 'keep' && !room.notes?.trim() && !revision?.trim()) {
+    if (!baseConceptId && room.condition === 'keep' && !room.notes?.trim() && !revision?.trim()) {
       return {
         ok: false,
         error: 'Напишите в заметках, что поменять. Комната остаётся как есть, менять пока нечего.',
@@ -66,8 +81,10 @@ export async function requestConcepts(
     const handle = await tasks.trigger('generate-concept', {
       roomId: room.id,
       batchId,
-      count: 5,
+      count: baseConceptId ? EDIT_COUNT : FRESH_COUNT,
       ...(revision ? { revision: revision.slice(0, 500) } : {}),
+      ...(baseConceptId ? { baseConceptId } : {}),
+      ...(editRequest ? { editRequest: editRequest.slice(0, 500) } : {}),
     })
     await attachGenerationRun(room.id, handle.id, batchId)
     await recordAudit({
@@ -75,12 +92,42 @@ export async function requestConcepts(
       actorId: userId,
       targetType: 'room',
       targetId: room.id,
-      metadata: { batchId, runId: handle.id },
+      metadata: { batchId, runId: handle.id, ...(baseConceptId ? { baseConceptId } : {}) },
     })
     const accessToken =
       handle.publicAccessToken ??
       (await triggerAuth.createPublicToken({ scopes: { read: { runs: [handle.id] } } }))
     return { ok: true, data: { runId: handle.id, accessToken, batchId } }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+/**
+ * Правка одного варианта: «вот этот, но шкаф под окном».
+ *
+ * Отличается от обычной генерации тем, что основой берётся готовый рендер, а не фотография
+ * комнаты. Раньше любая правка уходила на фото, и вместо понравившегося варианта с одним изменением
+ * человек получал пять совсем других комнат.
+ */
+export async function reviseConcept(
+  conceptId: string,
+  input: unknown,
+): Promise<ActionResult<ConceptRun>> {
+  const userId = await currentUserId()
+  if (!userId) {
+    return { ok: false, error: SESSION_EXPIRED }
+  }
+  const parsed = conceptEditSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Проверьте текст правки' }
+  }
+  try {
+    const concept = await conceptsRepository.getConceptForEdit(userId, conceptId)
+    return await requestConcepts(concept.roomId, {
+      baseConceptId: concept.id,
+      editRequest: parsed.data.request,
+    })
   } catch (error) {
     return failure(error)
   }

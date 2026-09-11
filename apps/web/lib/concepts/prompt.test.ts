@@ -47,6 +47,24 @@ describe('styleVector', () => {
     expect(nearestStyles(vector, 2).map((style) => style.id)).toEqual([first, second])
   })
 
+  it('ведущим становится сильнейшее семейство, а не первое в библиотеке', () => {
+    // У владельца было поровну лайков в четырёх семействах, а все десять рендеров вышли
+    // скандинавскими: сканди просто стоит первым в списке стилей.
+    const scandi = styleLibrary.filter((style) => style.family === 'scandi')[0]
+    const classic = styleLibrary.filter((style) => style.family === 'classic').slice(0, 2)
+    if (!scandi || classic.length < 2) throw new Error('библиотека стилей неполная')
+    const vector = styleVector([scandi.id, ...classic.map((style) => style.id)])
+    expect(nearestStyles(vector, 1)[0]?.family).toBe('classic')
+  })
+
+  it('в ближайших стилях семейства не повторяются, пока есть другие', () => {
+    const scandi = styleLibrary.filter((style) => style.family === 'scandi').slice(0, 2)
+    const loft = styleLibrary.filter((style) => style.family === 'loft')[0]
+    if (scandi.length < 2 || !loft) throw new Error('библиотека стилей неполная')
+    const vector = styleVector([...scandi.map((style) => style.id), loft.id])
+    expect(nearestStyles(vector, 2).map((style) => style.family)).toEqual(['scandi', 'loft'])
+  })
+
   it('незнакомые идентификаторы игнорируются', () => {
     expect(styleVector(['нет-такого']).every((value) => value === 0)).toBe(true)
   })

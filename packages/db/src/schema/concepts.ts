@@ -21,7 +21,8 @@ export type ObjectsStatus = (typeof objectsStatuses)[number]
 export type ConceptEdit = { objectId: string; swatchId: string }
 
 // Обычный запуск или «варианты на двоих»: три рендера на пересечении вкусов двух людей
-export const conceptBatchKinds = ['regular', 'duo'] as const
+// edit — правка выбранного рендера: основа не фото комнаты, а другой концепт
+export const conceptBatchKinds = ['regular', 'duo', 'edit'] as const
 export type ConceptBatchKind = (typeof conceptBatchKinds)[number]
 
 // Концепты: варианты дизайна одной комнаты. Строки создаются сразу при запуске генерации,
@@ -50,6 +51,11 @@ export const concepts = pgTable(
     seed: bigint('seed', { mode: 'number' }),
     likedByOwner: boolean('liked_by_owner'),
     likedByPartner: boolean('liked_by_partner'),
+    // От какого рендера отталкивалась правка. Без внешнего ключа: концепт-основа может быть удалён,
+    // а правка остаётся самостоятельным результатом и падать вместе с ним не должна.
+    baseConceptId: uuid('base_concept_id'),
+    // Что именно просили поменять, словами человека: показываем над карточкой
+    editRequest: text('edit_request'),
     // Подбор предметов идёт отдельной задачей после рендера
     objectsStatus: text('objects_status', { enum: objectsStatuses }).notNull().default('pending'),
     objectsError: text('objects_error'),

@@ -1,6 +1,6 @@
 'use client'
 
-import type { ProjectRole } from '@uyut/db'
+import type { ConceptBatchKind, ProjectRole } from '@uyut/db'
 import { Button, cn, toast } from '@uyut/ui'
 import { motion } from 'motion/react'
 import Link from 'next/link'
@@ -32,7 +32,9 @@ import { useRunWatch } from '@/lib/queue/use-run-watch'
 export type ConceptItem = {
   id: string
   batchId: string
-  batchKind: 'regular' | 'duo'
+  batchKind: ConceptBatchKind
+  /** Просьба человека, если это правка готового варианта */
+  editRequest: string | null
   title: string | null
   status: 'pending' | 'ready' | 'failed'
   renderSrc: string | null
@@ -62,6 +64,16 @@ const SLOW_AFTER_MS = 90_000
 const GIVE_UP_AFTER_MS = 8 * 60_000
 // Как часто переспрашивать сервер, пока идёт ожидание
 const SERVER_CHECK_MS = 15_000
+
+function conceptCaption(item: ConceptItem): string | undefined {
+  if (item.batchKind === 'edit') {
+    return item.editRequest ? `Правка · ${item.editRequest}` : 'Правка выбранного варианта'
+  }
+  if (item.batchKind === 'duo') {
+    return `На двоих · ${item.title ?? ''}`.trim()
+  }
+  return undefined
+}
 
 function RunProgress({
   runId,
@@ -201,6 +213,7 @@ function theirChange(
 export function ConceptsPanel({
   roomId,
   hasPhoto,
+  keepsFurniture,
   onboarded,
   projectId,
   items,
@@ -212,6 +225,8 @@ export function ConceptsPanel({
 }: {
   roomId: string
   hasPhoto: boolean
+  /** Комната отмечена как «оставить как есть»: от этого зависит, что мы обещаем человеку */
+  keepsFurniture: boolean
   onboarded: boolean
   projectId: string
   /** Все концепты комнаты, свежий запуск первым */
@@ -276,10 +291,12 @@ export function ConceptsPanel({
   const duo = other ? duoEligibility(current) : null
   const unseen = split.unseen.filter((item) => votes[item.id] === undefined)
 
+  // Подпись на карточке: правку надо отличать от обычного варианта, иначе в общей куче
+  // непонятно, почему три картинки похожи друг на друга.
   const cards: SwipeCard[] = unseen.map((item) => ({
     id: item.id,
     src: item.renderSrc as string,
-    caption: item.batchKind === 'duo' ? `На двоих · ${item.title ?? ''}`.trim() : undefined,
+    caption: conceptCaption(item),
     badge: other && theirVote(item, role) === true ? `♥ ${other.name} · нравится` : undefined,
   }))
 
@@ -533,9 +550,15 @@ export function ConceptsPanel({
         </p>
       ) : null}
 
-      {canGenerate && !hasPhoto ? (
+      {/* Прежняя подпись обещала «с фото она будет вашей» и читалась как «ваша мебель останется».
+          Остаётся геометрия, а обстановка — только в режиме «оставить как есть», поэтому говорим прямо. */}
+      {canGenerate ? (
         <p className="text-[15px] leading-relaxed text-ink-2">
-          Без фото комната рисуется с нуля, по площади и типу. С фото она будет вашей.
+          {!hasPhoto
+            ? 'Без фото комната рисуется с нуля, по площади и типу. С фото сохраняется ракурс и геометрия вашей комнаты.'
+            : keepsFurniture
+              ? 'Комната останется как на фото. Поменяем только то, о чём вы попросили в заметках.'
+              : 'Сохраняем ракурс, геометрию, окна и двери. Отделку и мебель рисуем заново: того, что стоит в комнате сейчас, на рендере не будет.'}
         </p>
       ) : null}
 

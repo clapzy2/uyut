@@ -1,4 +1,4 @@
-import type { ProjectRole } from '@uyut/db'
+import type { ConceptBatchKind, ConceptStatus, ProjectRole } from '@uyut/db'
 
 // Чистые правила отметок для двоих: чей лайк «мой», чей «второго участника», где совпали
 
@@ -104,7 +104,7 @@ export type DuoEligibility = {
  * комнаты, ни один не понравился обоим, и предыдущий такой запуск уже дорисован.
  */
 export function duoEligibility(
-  items: Array<VotePair & { status: 'pending' | 'ready' | 'failed'; batchKind: 'regular' | 'duo' }>,
+  items: Array<VotePair & { status: ConceptStatus; batchKind: ConceptBatchKind }>,
   threshold = DUO_VOTES_THRESHOLD,
 ): DuoEligibility {
   const ready = items.filter((item) => item.status === 'ready')
