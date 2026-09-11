@@ -14,7 +14,7 @@ const rules: Array<{ category: CatalogCategory; pattern: RegExp }> = [
   {
     category: 'lamp',
     pattern:
-      /светильник|люстр|лампа|торшер|(?<![а-яё])бра(?![а-яё])|подвес|светод|lamp|light|chandelier/i,
+      /светильник|люстр|лампа|торшер|(?<![а-яё])бра(?![а-яё])|(?<![а-яё])подвес(?![а-яё])|светод|lamp|light|chandelier/i,
   },
   { category: 'rug', pattern: /ков[её]р|ковров|палас|rug|carpet/i },
   // Стол раньше хранения: «стол письменный с тумбой» — стол, а не тумба.
