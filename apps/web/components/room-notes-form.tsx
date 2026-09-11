@@ -34,13 +34,19 @@ export function RoomNotesForm({ roomId, notes }: { roomId: string; notes: string
       noValidate
       className="flex flex-col gap-4"
     >
-      <Textarea
-        id="notes"
-        label="Заметки"
-        placeholder="Что важно учесть: батарея под окном, дверь открывается внутрь…"
-        error={errors.notes?.message}
-        {...form.register('notes')}
-      />
+      <div className="flex flex-col gap-2">
+        <Textarea
+          id="notes"
+          label="Заметки"
+          placeholder="Что важно учесть: батарея под окном, дверь открывается внутрь…"
+          error={errors.notes?.message}
+          {...form.register('notes')}
+        />
+        {/* Владелец написал сюда просьбу и ждал, что рендеры изменятся сами. Они не меняются. */}
+        <p className="text-[13px] leading-relaxed text-ink-2">
+          Заметки уходят в задание для следующей генерации. Уже готовые концепты от них не меняются.
+        </p>
+      </div>
       <FormError message={errors.root?.message} />
       <Button
         type="submit"

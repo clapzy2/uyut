@@ -4,7 +4,7 @@ import { and, asc, desc, eq } from 'drizzle-orm'
 import { categoryLabels, formatPrice } from '@/lib/concepts/format'
 import { getDb } from '@/lib/db'
 import { assertOwnerOrCollaborator } from '@/lib/projects/access'
-import { formatArea, roomKindLabels } from '@/lib/projects/format'
+import { formatArea, roomConditionShort, roomKindLabels } from '@/lib/projects/format'
 
 export type ChatScope = { projectId: string; roomId?: string | null; conceptId?: string | null }
 
@@ -46,7 +46,7 @@ export async function buildProjectContext(userId: string, scope: ChatScope): Pro
     'Комнаты:',
     ...roomList.map(
       (room) =>
-        `- ${room.name} (id ${room.id}, ${roomKindLabels[room.kind].toLowerCase()}${room.areaM2 ? `, ${formatArea(room.areaM2)}` : ', площадь не указана'}, ${room.condition === 'bare' ? 'черновая отделка' : 'с ремонтом'}${room.photoUrl ? ', фото есть' : ', без фото'})${room.notes ? `. Заметки: ${shorten(room.notes, 200)}` : ''}${room.id === scope.roomId ? ' — ТЕКУЩАЯ КОМНАТА' : ''}`,
+        `- ${room.name} (id ${room.id}, ${roomKindLabels[room.kind].toLowerCase()}${room.areaM2 ? `, ${formatArea(room.areaM2)}` : ', площадь не указана'}, ${roomConditionShort[room.condition]}${room.photoUrl ? ', фото есть' : ', без фото'})${room.notes ? `. Заметки: ${shorten(room.notes, 200)}` : ''}${room.id === scope.roomId ? ' — ТЕКУЩАЯ КОМНАТА' : ''}`,
     ),
   ]
 

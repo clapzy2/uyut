@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { mvpRoomKinds } from '@/lib/projects/format'
+import { mvpRoomKinds, roomConditionOptions } from '@/lib/projects/format'
 
 export const projectIdSchema = z.uuid()
 
@@ -51,6 +51,10 @@ export const projectSettingsSchema = z.object({
 
 export const roomKindSchema = z.enum(mvpRoomKinds, { error: 'Выберите тип комнаты' })
 
+export const roomConditionSchema = z.enum(roomConditionOptions, {
+  error: 'Выберите, что делаем с комнатой',
+})
+
 export const roomSchema = z.object({
   kind: roomKindSchema,
   name: z
@@ -60,6 +64,8 @@ export const roomSchema = z.object({
     .max(40, { error: 'Слишком длинно: хватит 40 знаков' }),
   areaM2: areaSchema,
 })
+
+export const roomConditionFormSchema = z.object({ condition: roomConditionSchema })
 
 export const roomNotesSchema = z.object({
   notes: z.string().trim().max(2000, { error: 'Слишком длинно: хватит 2000 знаков' }),
@@ -71,3 +77,4 @@ export type ProjectSettingsOutput = z.output<typeof projectSettingsSchema>
 export type RoomInput = z.input<typeof roomSchema>
 export type RoomOutput = z.output<typeof roomSchema>
 export type RoomNotesInput = z.input<typeof roomNotesSchema>
+export type RoomConditionInput = z.input<typeof roomConditionFormSchema>

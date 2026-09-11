@@ -7,7 +7,12 @@ import { AccessError, requireOwner } from '@/lib/projects/access'
 import * as repository from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { deleteObject, putObject } from '@/lib/storage'
-import { projectIdSchema, roomNotesSchema, roomSchema } from '@/lib/validation/projects'
+import {
+  projectIdSchema,
+  roomConditionFormSchema,
+  roomNotesSchema,
+  roomSchema,
+} from '@/lib/validation/projects'
 
 export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string }
 
@@ -71,6 +76,24 @@ export async function updateRoom(roomId: string, input: unknown): Promise<Action
   }
   try {
     const room = await repository.updateRoom(userId, roomId, parsed.data)
+    revalidateRoom(room.projectId, room.id)
+    return { ok: true, data: undefined }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+export async function updateRoomCondition(roomId: string, input: unknown): Promise<ActionResult> {
+  const userId = await currentUserId()
+  if (!userId) {
+    return { ok: false, error: SESSION_EXPIRED }
+  }
+  const parsed = roomConditionFormSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Проверьте выбор' }
+  }
+  try {
+    const room = await repository.updateRoom(userId, roomId, { condition: parsed.data.condition })
     revalidateRoom(room.projectId, room.id)
     return { ok: true, data: undefined }
   } catch (error) {

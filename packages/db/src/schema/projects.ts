@@ -19,7 +19,14 @@ export const roomKinds = ['living', 'bedroom', 'kitchen', 'bath', 'kid'] as cons
 export type RoomKind = (typeof roomKinds)[number]
 
 // Черновая отделка или готовый ремонт: от этого зависит, просит ли промпт сделать ремонт
-export const roomConditions = ['bare', 'finished'] as const
+/**
+ * Что делаем с комнатой. От этого зависит и задание для модели, и работы в смете.
+ *
+ * bare — комната без отделки, рисуем ремонт и обстановку с нуля.
+ * finished — ремонт уже есть, но человек хочет другой интерьер: мебель и отделку рисуем заново.
+ * keep — ремонт и обстановка остаются, меняем только то, о чём человек попросил словами.
+ */
+export const roomConditions = ['bare', 'finished', 'keep'] as const
 export type RoomCondition = (typeof roomConditions)[number]
 
 export type Household = {

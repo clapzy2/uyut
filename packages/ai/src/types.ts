@@ -5,8 +5,8 @@ export type ConceptBrief = {
   roomKind: 'living' | 'bedroom' | 'kitchen' | 'bath' | 'kid'
   roomName: string
   areaM2: number | null
-  /** Черновая отделка или готовый ремонт */
-  condition: 'bare' | 'finished'
+  /** bare — ремонта нет, finished — ремонт есть и нужен новый вид, keep — оставляем как есть */
+  condition: 'bare' | 'finished' | 'keep'
   /** Заметки пользователя, обычно по-русски */
   notes: string | null
   /** Правка из чата после первой генерации, по-английски: «darker walls, no rug» */
@@ -31,6 +31,14 @@ export type ConceptBrief = {
 export type PromptPlan = {
   shared: string
   variations: string[]
+  /**
+   * Требование человека, дописываемое последней фразой каждого задания.
+   *
+   * Стоит после вариации намеренно: вариация предлагает расстановку, а это — прямая просьба,
+   * и в споре побеждать должна она. Раньше просьба стояла в середине задания и проигрывала:
+   * «перемести шкаф под окно» превращалось в стол и барную стойку.
+   */
+  mandate: string
   /** Кто составил план: claude или шаблон */
   source: 'claude' | 'template'
 }

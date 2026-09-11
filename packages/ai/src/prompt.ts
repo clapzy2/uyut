@@ -60,6 +60,18 @@ export function fixedPreamble(brief: ConceptBrief): string {
     const area = brief.areaM2 ? ` of about ${Math.round(brief.areaM2)} square metres` : ''
     return `Interior photograph of a ${noun}${area} in a city apartment, one large window on the left, wide framing.`
   }
+  // Точечная правка: комната на фотографии остаётся собой, меняется только то, о чём попросили.
+  // Здесь нельзя говорить «renovate» или «redesign» — модель понимает это как «снеси и построй заново».
+  if (brief.condition === 'keep') {
+    return [
+      `This photograph shows a real ${noun} that the client wants to keep.`,
+      'Preserve it exactly: the same camera angle, the same room proportions, the same windows and doors,',
+      'the same wall, floor and ceiling finishes, the same cabinets, appliances and furniture,',
+      'the same colours and materials.',
+      'Change only what the client asks for below and nothing else.',
+      'Everything the client did not mention stays exactly as it is in the photograph.',
+    ].join(' ')
+  }
   if (brief.condition === 'bare') {
     return [
       `Renovate this unfinished room and furnish it as a ${noun}.`,
@@ -87,20 +99,69 @@ function stylePart(brief: ConceptBrief): string {
   return parts.join(' ')
 }
 
-// Правка из чата идёт отдельной фразой после стиля: так она не теряется, кто бы ни писал стиль
-function revisionPart(brief: ConceptBrief): string {
-  return brief.revision ? ` Client's revision request: ${brief.revision.trim()}.` : ''
+/**
+ * В режиме «оставить как есть» стиля в задании нет вовсе: любая фраза про отделку
+ * и палитру перекрашивает комнату, которую нас попросили сохранить.
+ */
+function styleSentence(brief: ConceptBrief, style?: string): string {
+  if (brief.condition === 'keep') {
+    return ''
+  }
+  return style?.trim() || stylePart(brief)
 }
 
-function sharedPrompt(brief: ConceptBrief, style?: string): string {
+/**
+ * Прямая просьба человека одной фразой. Собирает два источника: заметки комнаты и правку из чата.
+ *
+ * Заметка раньше шла только в анкете для LLM и терялась во всех запасных путях, а там, где доходила, модель
+ * пересказывала её своими словами: «перемести шкаф под окно» становилось столом и барной стойкой.
+ * Поэтому просьба идёт отдельно и дословно, а если перевода не дали — по-русски. Перевод лучше, чем кириллица
+ * в задании, но кириллица в задании лучше, чем потерянная просьба.
+ */
+export function mandateSentence(brief: ConceptBrief, translatedNotes?: string): string {
+  const wishes = [translatedNotes?.trim() || brief.notes?.trim(), brief.revision?.trim()]
+    .filter((wish): wish is string => Boolean(wish))
+    .map((wish) => wish.replace(/\s+/g, ' ').replace(/[.\s]+$/, ''))
+  if (wishes.length === 0) {
+    return ''
+  }
   return [
-    fixedPreamble(brief),
-    (style?.trim() || stylePart(brief)) + revisionPart(brief),
-    TAIL,
+    `The client asks for the following, and it overrides everything above, including the arrangement: ${wishes.join('; ')}.`,
+    'Follow it literally: the object the client named stays that object, the place they named stays that place.',
+    'Do not substitute a different piece of furniture for the one they asked about.',
   ].join(' ')
 }
 
+function sharedPrompt(brief: ConceptBrief, style?: string): string {
+  return [fixedPreamble(brief), styleSentence(brief, style), TAIL].filter(Boolean).join(' ')
+}
+
+/**
+ * Пять способов выполнить одну просьбу, а не пять разных интерьеров.
+ *
+ * В режиме «оставить как есть» обычные вариации вредны: они диктуют новую расстановку
+ * («мебель вдоль окна», «открытые полки вдоль длинной стены») и тем самым отменяют просьбу
+ * сохранить комнату. Здесь варьируется только то, как именно выполнить сказанное.
+ */
+function keepVariationPrompts(count: number): string[] {
+  const blocks = [
+    'Make the requested change in the most straightforward way and leave everything else untouched.',
+    'Make the requested change and close the gap it leaves using the same finishes and units already in the room.',
+    'Make the requested change, placing the item as close to the window wall as it physically fits.',
+    'Make the requested change while keeping the walking space in the middle of the room clear.',
+    'Make the requested change; if the item does not fit as it is, use a lower or narrower unit of the same kind and material.',
+  ]
+  const result: string[] = []
+  for (let index = 0; index < count; index += 1) {
+    result.push(blocks[index % blocks.length] as string)
+  }
+  return result
+}
+
 function variationPrompts(brief: ConceptBrief, count: number): string[] {
+  if (brief.condition === 'keep') {
+    return keepVariationPrompts(count)
+  }
   const primary = brief.primaryStyle
   const second = brief.secondaryStyles[0] ?? primary
   const third = brief.secondaryStyles[1] ?? second
@@ -123,6 +184,7 @@ export function buildTemplatePlan(brief: ConceptBrief, count: number): PromptPla
   return {
     shared: sharedPrompt(brief),
     variations: variationPrompts(brief, count),
+    mandate: mandateSentence(brief),
     source: 'template',
   }
 }
@@ -136,22 +198,25 @@ const SYSTEM_PROMPT = `Ты помогаешь сервису дизайна и�
 Про ракурс, геометрию комнаты и объём ремонта сервис пишет сам, отдельной фразой перед твоей. Твоя часть — только стиль, материалы и потребности семьи.
 
 Правила:
-- Отвечай ТОЛЬКО JSON вида {"style": "...", "variations": ["...", "..."]} без пояснений и без markdown.
+- Отвечай ТОЛЬКО JSON вида {"style": "...", "request": "...", "variations": ["...", "..."]} без пояснений и без markdown.
 - Весь текст внутри JSON на английском языке. Заметки клиента приходят по-русски: переведи смысл, не копируй кириллицу и никогда не переводи строительные термины дословно.
 - В "style" две-четыре фразы: отделка стен, пола и потолка, палитра, материалы, уровень мебели и то, что нужно этой семье. Ничего про камеру, ракурс, окна и переделку стен.
-- В "variations" ровно столько блоков, сколько просят. Каждый — одна-две фразы про расстановку мебели, свет и настроение. Блоки заметно отличаются друг от друга, но остаются одной и той же комнатой в одном стиле.
+- В "request" дословный перевод просьбы клиента, если она есть, иначе пустая строка. Здесь запреты выше не действуют: если человек просит передвинуть или убрать предмет, так и переводи. Сохраняй названный предмет и названное место: «шкаф под окно» — это cabinet under the window, а не стол, не барная стойка и не полка. Ничего не добавляй от себя.
+- В "variations" ровно столько блоков, сколько просят. Каждый — одна-две фразы про расстановку мебели, свет и настроение. Блоки заметно отличаются друг от друга, но остаются одной и той же комнатой в одном стиле. Ни один блок не должен противоречить "request".
 - Никаких брендов, никаких имён людей, никаких архитектурных переделок.`
 
 type AnthropicResponse = { content?: Array<{ type?: string; text?: string }> }
 
-function extractJson(text: string): { style?: unknown; variations?: unknown } | null {
+type ParsedPlan = { style?: unknown; request?: unknown; variations?: unknown }
+
+function extractJson(text: string): ParsedPlan | null {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
   if (start === -1 || end <= start) {
     return null
   }
   try {
-    return JSON.parse(text.slice(start, end + 1)) as { style?: unknown; variations?: unknown }
+    return JSON.parse(text.slice(start, end + 1)) as ParsedPlan
   } catch {
     return null
   }
@@ -165,12 +230,16 @@ function planFromText(
 ): PromptPlan {
   const parsed = extractJson(text)
   const style = typeof parsed?.style === 'string' ? parsed.style.trim() : ''
+  const request = typeof parsed?.request === 'string' ? parsed.request.trim() : ''
   const variations = Array.isArray(parsed?.variations)
     ? parsed.variations.filter(
         (item): item is string => typeof item === 'string' && item.trim() !== '',
       )
     : []
-  if (style.length < 30 || variations.length === 0) {
+  // В режиме «оставить как есть» стиль не нужен и его отсутствие не повод откатываться к шаблону:
+  // оттуда мы потеряем перевод просьбы, ради которого всё и затеяно.
+  const needsStyle = brief.condition !== 'keep'
+  if ((needsStyle && style.length < 30) || variations.length === 0) {
     return fallback
   }
   while (variations.length < count) {
@@ -179,8 +248,20 @@ function planFromText(
   return {
     shared: sharedPrompt(brief, style),
     variations: variations.slice(0, count),
+    mandate: mandateSentence(brief, request),
     source: 'claude',
   }
+}
+
+/** Что сообщаем модели о состоянии комнаты: отсюда она понимает, сочинять отделку или беречь её. */
+function conditionLine(condition: ConceptBrief['condition']): string {
+  if (condition === 'bare') {
+    return 'Комната сдана без отделки: голые стены, бетонный потолок, пола нет. Не переводи это состояние в ответ, просто опиши, какой должна стать готовая отделка.'
+  }
+  if (condition === 'keep') {
+    return 'ВАЖНО: комната остаётся как есть. Существующая отделка, мебель и техника сохраняются, меняется только то, о чём просит клиент. Отдай пустой "style" и всё внимание отдай полю "request".'
+  }
+  return 'Ремонт в комнате уже сделан, меняем только обстановку.'
 }
 
 function briefForClaude(brief: ConceptBrief, count: number): string {
@@ -190,9 +271,7 @@ function briefForClaude(brief: ConceptBrief, count: number): string {
   const lines = [
     `Комната: ${brief.roomName}, тип ${roomNouns[brief.roomKind]}.`,
     brief.areaM2 ? `Площадь: ${brief.areaM2} м².` : 'Площадь не указана.',
-    brief.condition === 'bare'
-      ? 'Комната сдана без отделки: голые стены, бетонный потолок, пола нет. Не переводи это состояние в ответ, просто опиши, какой должна стать готовая отделка.'
-      : 'Ремонт в комнате уже сделан, меняем только обстановку.',
+    conditionLine(brief.condition),
     `Ведущий стиль: ${style.ru}. Отделка: ${style.finish}. Мебель и настроение: ${style.descriptor}.`,
     others.length > 0 ? `Близкие стили: ${others.join('; ')}.` : '',
     household

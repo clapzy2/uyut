@@ -6,7 +6,7 @@ import { completeFalLlm } from './chat'
 export type BriefRoomInput = {
   name: string
   kind: string
-  condition: 'черновая отделка' | 'отделка есть'
+  condition: string
   areaM2: number | null
   concept: {
     note: string | null

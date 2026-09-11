@@ -1,4 +1,4 @@
-import type { RoomKind } from '@uyut/db'
+import type { RoomCondition, RoomKind } from '@uyut/db'
 
 export const roomKindLabels: Record<RoomKind, string> = {
   living: 'Гостиная',
@@ -7,6 +7,35 @@ export const roomKindLabels: Record<RoomKind, string> = {
   bath: 'Ванная',
   kid: 'Детская',
 }
+
+export const roomConditionLabels: Record<RoomCondition, string> = {
+  bare: 'Без отделки',
+  finished: 'Ремонт есть, хочу другой интерьер',
+  keep: 'Оставить как есть',
+}
+
+/** Короткая форма для перечислений и для анкеты помощника */
+export const roomConditionShort: Record<RoomCondition, string> = {
+  bare: 'без отделки',
+  finished: 'с ремонтом, нужен новый интерьер',
+  keep: 'с ремонтом, оставляем как есть',
+}
+
+/** Подпись под выбором: человек должен понимать, что именно случится с его комнатой. */
+export const roomConditionHints: Record<RoomCondition, string> = {
+  bare: 'Комната от застройщика. Нарисуем отделку и обстановку с нуля.',
+  finished:
+    'Ремонт уже сделан, но нужен новый вид. Стены и окна сохраним, мебель и отделку нарисуем заново.',
+  keep: 'Сохраним то, что уже стоит в комнате. Поменяем только то, о чём вы попросите в заметках.',
+}
+
+// Значения повторены здесь, а не взяты из @uyut/db: там это значение, а не тип, и импорт
+// из клиентского кода тянет в браузерную сборку драйвер базы. satisfies следит, чтобы списки не разъехались.
+export const roomConditionOptions = [
+  'bare',
+  'finished',
+  'keep',
+] as const satisfies readonly RoomCondition[]
 
 // В MVP три типа комнат; ванная и детская появятся позже
 export const mvpRoomKinds = ['living', 'bedroom', 'kitchen'] as const satisfies readonly RoomKind[]
