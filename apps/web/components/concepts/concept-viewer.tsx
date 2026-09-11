@@ -12,9 +12,9 @@ import { AdDisclosure } from '@/components/ad-disclosure'
 import { SwatchPicker } from '@/components/concepts/swatch-picker'
 import { ProductImage } from '@/components/product-image'
 import {
-  categoryLabels,
   fitLabel,
   formatPrice,
+  objectLabel,
   sizeLabel,
   sourceLabel,
 } from '@/lib/concepts/format'
@@ -45,7 +45,7 @@ function ObjectChip({
       onMouseLeave={() => onHover(false)}
       onFocus={() => onHover(true)}
       onBlur={() => onHover(false)}
-      aria-label={`${object.orderIndex + 1}. ${categoryLabels[object.category]}`}
+      aria-label={`${object.orderIndex + 1}. ${objectLabel(object.label, object.category)}`}
       aria-pressed={selected}
       style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
       className={cn(
@@ -116,7 +116,7 @@ function MatchesPanel({
       </p>
     )
   }
-  const label = categoryLabels[object.category]
+  const label = objectLabel(object.label, object.category)
   if (object.matches.length === 0) {
     return (
       <div>
@@ -323,7 +323,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
         return
       }
       toast({
-        title: `${categoryLabels[selected.category]}: ${swatch.ru.toLowerCase()}`,
+        title: `${objectLabel(selected.label, selected.category)}: ${swatch.ru.toLowerCase()}`,
         tone: 'success',
       })
       basesRef.current.clear()
@@ -536,7 +536,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
                     : 'border-control text-ink-2 hover:text-ink',
                 )}
               >
-                {object.orderIndex + 1} {categoryLabels[object.category]}
+                {object.orderIndex + 1} {objectLabel(object.label, object.category)}
               </button>
             ))}
           </div>
@@ -564,7 +564,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
         {canEdit && selected?.maskKey && concept.renderKey ? (
           <div className="border-t border-line pt-4">
             <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
-              Материал: {categoryLabels[selected.category].toLowerCase()}
+              Материал: {objectLabel(selected.label, selected.category).toLowerCase()}
             </p>
             <SwatchPicker
               category={selected.category}
