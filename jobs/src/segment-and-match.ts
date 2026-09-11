@@ -13,7 +13,14 @@ import { putObject, readObject } from './lib/s3'
 const payloadSchema = z.object({ conceptId: z.uuid() })
 export type SegmentAndMatchPayload = z.input<typeof payloadSchema>
 
+// Поле вокруг предмета в долях его размера: без него вырезка режет предмет по краю,
+// а с большим полем в кадр опять лезет комната.
 const CROP_PADDING = 0.04
+const MASK_PADDING = 0.06
+const CROP_SIDE = 512
+
+/** Вырезке нужны только рамка и подпись: остального у сохранённых предметов уже нет. */
+type CroppedObject = Pick<DetectedObject, 'label' | 'bbox'>
 
 type Progress = { stage: 'detect' | 'mask' | 'embed' | 'match' | 'done'; found: number }
 
@@ -21,11 +28,12 @@ function publish(progress: Progress): void {
   metadata.set('progress', progress)
 }
 
-async function cropObject(
+/** Прямоугольник вокруг предмета: запасной путь, когда маска не посчиталась. */
+async function cropByBox(
   render: Buffer,
   width: number,
   height: number,
-  object: DetectedObject,
+  object: CroppedObject,
 ): Promise<Buffer> {
   const left = Math.max(0, Math.round((object.bbox.x - CROP_PADDING) * width))
   const top = Math.max(0, Math.round((object.bbox.y - CROP_PADDING) * height))
@@ -36,9 +44,111 @@ async function cropObject(
   )
   return sharp(render)
     .extract({ left, top, width: Math.max(8, right - left), height: Math.max(8, bottom - top) })
-    .resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true })
+    .resize({ width: CROP_SIDE, height: CROP_SIDE, fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 88 })
     .toBuffer()
+}
+
+/** Границы белого пятна маски. Тоньше рамки детектора: она всегда с запасом. */
+function maskBounds(
+  pixels: Buffer,
+  width: number,
+  height: number,
+): { left: number; top: number; right: number; bottom: number } | null {
+  let left = width
+  let top = height
+  let right = -1
+  let bottom = -1
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if ((pixels[y * width + x] ?? 0) < 128) {
+        continue
+      }
+      if (x < left) left = x
+      if (x > right) right = x
+      if (y < top) top = y
+      if (y > bottom) bottom = y
+    }
+  }
+  return right < left || bottom < top ? null : { left, top, right, bottom }
+}
+
+/**
+ * Вырезка предмета по маске, а не прямоугольником.
+ *
+ * В прямоугольник вместе с предметом попадает пол, стена, соседняя мебель и то, что стоит
+ * на столешнице.
+ *
+ * Замер на сорока одном предмете с боевых рендеров, поровну по категориям
+ * (jobs/scripts/bench-crop.ts): кресла 0.303 → 0.565, хранение 0.483 → 0.607, диваны 0.685 → 0.728,
+ * светильники 0.692 → 0.725, ковры 0.644 → 0.668. Столы и декор не сдвинулись
+ * (−0.016 и −0.003), хотя именно ради столов всё затевалось: их слабый подбор объясняется
+ * чем-то другим, скорее всего самим каталогом. Отдельный рецепт для двух категорий
+ * делать не стали: разница меньше разброса на шести предметах и подгонка под выборку вреднее.
+ *
+ * Маска приходит от SAM белым пятном по чёрному в обычных каналах цвета, а не прозрачностью,
+ * поэтому её сначала приходится превратить в альфу и только потом класть на рендер.
+ */
+async function cropByMask(
+  render: Buffer,
+  width: number,
+  height: number,
+  maskBody: Buffer,
+): Promise<Buffer> {
+  const alpha = await sharp(maskBody)
+    .resize(width, height, { fit: 'fill' })
+    .greyscale()
+    .raw()
+    .toBuffer()
+  const bounds = maskBounds(alpha, width, height)
+  if (!bounds) {
+    throw new Error('маска пустая')
+  }
+  const cut = await sharp(render)
+    .removeAlpha()
+    .joinChannel(alpha, { raw: { width, height, channels: 1 } })
+    .flatten({ background: '#ffffff' })
+    .toBuffer()
+
+  const boxWidth = bounds.right - bounds.left + 1
+  const boxHeight = bounds.bottom - bounds.top + 1
+  const pad = Math.round(Math.max(boxWidth, boxHeight) * MASK_PADDING)
+  const left = Math.max(0, bounds.left - pad)
+  const top = Math.max(0, bounds.top - pad)
+  const right = Math.min(width, bounds.right + 1 + pad)
+  const bottom = Math.min(height, bounds.bottom + 1 + pad)
+
+  return (
+    sharp(cut)
+      .extract({ left, top, width: Math.max(8, right - left), height: Math.max(8, bottom - top) })
+      // Квадрат с белым полем: у Voyage все картинки каталога тоже на белом фоне товарных карточек
+      .resize({
+        width: CROP_SIDE,
+        height: CROP_SIDE,
+        fit: 'contain',
+        background: '#ffffff',
+      })
+      .jpeg({ quality: 88 })
+      .toBuffer()
+  )
+}
+
+/** По маске, если она есть и сработала; иначе прямоугольником, как раньше. */
+export async function cropObject(
+  render: Buffer,
+  width: number,
+  height: number,
+  object: CroppedObject,
+  maskBody: Buffer | null,
+): Promise<Buffer> {
+  if (maskBody) {
+    try {
+      return await cropByMask(render, width, height, maskBody)
+    } catch (error) {
+      logger.warn('crop by mask failed', { label: object.label, error: String(error) })
+    }
+  }
+  return cropByBox(render, width, height, object)
 }
 
 /**
@@ -102,22 +212,27 @@ export const segmentAndMatch = task({
 
       const segmenter = createFalSegmenter(falKey)
       const base = `projects/${project.id}/rooms/${room.id}/concepts/${concept.id}/objects`
-      const [masks, crops] = await Promise.all([
-        Promise.all(
-          detected.map(async (object, index) => {
-            try {
-              const mask = await segmenter.maskForBox(image, object.bbox)
-              const key = `${base}/${index}-mask.png`
-              await putObject(key, mask.body, 'image/png')
-              return key
-            } catch (error) {
-              logger.warn('mask failed', { index, error: String(error) })
-              return null
-            }
-          }),
+      // Маски считаются раньше вырезок, потому что вырезка теперь идёт по маске.
+      // Раньше оба шага шли рядом, и вырезка ничего о маске знать не могла.
+      const masked = await Promise.all(
+        detected.map(async (object, index) => {
+          try {
+            const mask = await segmenter.maskForBox(image, object.bbox)
+            const key = `${base}/${index}-mask.png`
+            await putObject(key, mask.body, 'image/png')
+            return { key, body: mask.body }
+          } catch (error) {
+            logger.warn('mask failed', { index, error: String(error) })
+            return { key: null, body: null }
+          }
+        }),
+      )
+      const masks = masked.map((one) => one.key)
+      const crops = await Promise.all(
+        detected.map((object, index) =>
+          cropObject(render.body, width, height, object, masked[index]?.body ?? null),
         ),
-        Promise.all(detected.map((object) => cropObject(render.body, width, height, object))),
-      ])
+      )
 
       publish({ stage: 'embed', found: detected.length })
       const vectors =
