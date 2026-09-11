@@ -1,5 +1,6 @@
 import type { CatalogSource } from '@uyut/db'
 import { categoryFromText, isCatalogCategory } from './categories'
+import { hasAnyDimension, parseDimensionsCm } from './dimensions'
 import type { FeedItem, FeedParseResult, SkippedRow } from './types'
 
 /**
@@ -127,9 +128,16 @@ export function parseCsvDump(text: string, source: CatalogSource = 'dump'): Feed
     const images = [row.image_url, row.image_url_2, row.image_url_3]
       .filter((url): url is string => Boolean(url))
       .map((url) => ({ url, alt: title }))
-    const width = parseNumber(row.width_cm)
-    const depth = parseNumber(row.depth_cm)
-    const height = parseNumber(row.height_cm)
+    // Размеры из отдельных колонок, а если их нет — из самого названия: чаще всего они именно там
+    const fromColumns = {
+      width: parseNumber(row.width_cm),
+      depth: parseNumber(row.depth_cm),
+      height: parseNumber(row.height_cm),
+    }
+    const measured = hasAnyDimension(fromColumns)
+      ? fromColumns
+      : parseDimensionsCm(`${title} ${row.description ?? ''}`)
+    const { width, depth, height } = measured
     items.push({
       source,
       externalId,
@@ -145,7 +153,7 @@ export function parseCsvDump(text: string, source: CatalogSource = 'dump'): Feed
       attributes: {
         color: row.color || undefined,
         material: row.material || undefined,
-        dimensionsCm: width || depth || height ? { width, depth, height } : undefined,
+        dimensionsCm: hasAnyDimension(measured) ? { width, depth, height } : undefined,
         adDisclosure: row.ad_disclosure || undefined,
       },
       inStock: parseBoolean(row.in_stock),
