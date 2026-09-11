@@ -2,7 +2,7 @@
 // Пишет CSV в том же формате, что читает catalog:import, — импорт остаётся отдельным шагом,
 // чтобы результат сбора можно было посмотреть глазами до записи в базу.
 import { writeFileSync } from 'node:fs'
-import { categoryFromText } from '@uyut/catalog'
+import { categoryFromText, parseDimensionsCm } from '@uyut/catalog'
 import type { CatalogCategory } from '@uyut/db'
 import { requireEnv } from '../src/lib/env'
 
@@ -215,31 +215,6 @@ async function fetchPage(token: string, query: string, page: number): Promise<Of
   }
 }
 
-/** Габариты из названия или описания: «120х60х75» или «200 x 300 см». */
-function dimensions(text: string): {
-  width: number | null
-  depth: number | null
-  height: number | null
-} {
-  const sane = (value: string): number | null => {
-    const number = Number(value)
-    return number >= 15 && number <= 400 ? number : null
-  }
-  const triple = /(\d{2,3})\s*[х×x*]\s*(\d{2,3})\s*[х×x*]\s*(\d{2,3})/i.exec(text)
-  if (triple) {
-    return {
-      width: sane(triple[1] ?? ''),
-      depth: sane(triple[2] ?? ''),
-      height: sane(triple[3] ?? ''),
-    }
-  }
-  const pair = /(\d{2,3})\s*[х×x*]\s*(\d{2,3})\s*см/i.exec(text)
-  if (pair) {
-    return { width: sane(pair[1] ?? ''), depth: sane(pair[2] ?? ''), height: null }
-  }
-  return { width: null, depth: null, height: null }
-}
-
 /**
  * Цвет из «..., цвет коричневый». Второе слово берётся только со строчной буквы: без этого
  * в цвет попадало начало следующего предложения — «коричневый Диван угловой».
@@ -279,7 +254,7 @@ function toRow(offer: Offer): Row | null {
     return null
   }
   const oldPrice = Math.round(Number(offer.oldPrice))
-  const measured = dimensions(`${offer.title} ${offer.description}`)
+  const measured = parseDimensionsCm(`${offer.title} ${offer.description}`)
   return {
     // Пара «магазин плюс артикул» переживает переиндексацию сети, внутренний id — нет
     externalId: offer.article ? `${offer.merchantId}-${offer.article}` : offer.id,
@@ -294,7 +269,9 @@ function toRow(offer: Offer): Row | null {
     brand: offer.vendor.length > 1 ? offer.vendor : shopOf(offer.url),
     description: offer.description.slice(0, 600),
     color: colorOf(`${offer.title} ${offer.description}`),
-    ...measured,
+    width: measured.width ?? null,
+    depth: measured.depth ?? null,
+    height: measured.height ?? null,
     disclosure: offer.disclosure,
   }
 }
