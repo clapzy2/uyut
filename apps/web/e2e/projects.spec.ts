@@ -114,10 +114,20 @@ test.describe
       const storedPhoto = await page.request.get((await photoImage.getAttribute('src')) ?? '')
       expect((await sharp(await storedPhoto.body()).metadata()).width).toBe(2048)
 
+      // На странице комнаты две кнопки сохранения: мерки и заметки
       await page.getByLabel('Заметки').fill('Батарея под окном, дверь открывается внутрь.')
-      await page.getByRole('button', { name: 'Сохранить' }).click()
+      await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
       await expect(page.getByText('Сохранили')).toBeVisible()
       await expect(page.getByRole('button', { name: 'Сгенерировать концепты' })).toBeEnabled()
+
+      // Мерки рулеткой: по ним считается, влезет ли мебель
+      await page.getByLabel('Высота потолка, см').fill('270')
+      await page.getByLabel('Участок стены').fill('простенок под окном')
+      await page.getByLabel('Ширина, см').fill('140')
+      await page.getByRole('button', { name: 'Сохранить мерки' }).click()
+      await expect(page.getByText('Сохранили')).toBeVisible()
+      await page.reload()
+      await expect(page.getByLabel('Ширина, см')).toHaveValue('140')
     })
 
     test('a stranger sees neither the project nor the room', async ({

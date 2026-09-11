@@ -1,5 +1,12 @@
 import { MATCH_CONFIDENCE_THRESHOLD, type PriceWindow, priceWindow } from '@uyut/ai'
-import { findSimilar, type SimilarItem } from '@uyut/catalog'
+import {
+  checkFit,
+  type DimensionsCm,
+  type FitVerdict,
+  findSimilar,
+  type RoomSpot,
+  type SimilarItem,
+} from '@uyut/catalog'
 import {
   type CatalogCategory,
   type ConceptBbox,
@@ -33,6 +40,10 @@ export type MatchView = {
   imageFallbackUrl: string | null
   similarity: number
   overBudget: boolean
+  /** Габариты из карточки магазина, сантиметры */
+  dimensionsCm: DimensionsCm | null
+  /** Влезет ли в промеренные участки стены этой комнаты */
+  fit: FitVerdict
 }
 
 export type ObjectView = {
@@ -96,7 +107,12 @@ async function productImage(url: string | undefined): Promise<string | null> {
   return key ? presignedObjectUrl(key, 60 * 60) : url
 }
 
-async function toMatch(item: SimilarItem, window: PriceWindow | null): Promise<MatchView> {
+async function toMatch(
+  item: SimilarItem,
+  window: PriceWindow | null,
+  spots: readonly RoomSpot[] | undefined,
+): Promise<MatchView> {
+  const dimensionsCm = item.attributes?.dimensionsCm ?? null
   return {
     id: item.id,
     title: item.title,
@@ -110,6 +126,8 @@ async function toMatch(item: SimilarItem, window: PriceWindow | null): Promise<M
     imageFallbackUrl: await productImage(orderedImages(item.images)[1]),
     similarity: item.similarity,
     overBudget: window !== null && item.priceKopecks > window.maxKopecks,
+    dimensionsCm,
+    fit: checkFit(dimensionsCm ?? undefined, spots),
   }
 }
 
@@ -120,6 +138,7 @@ async function toMatch(item: SimilarItem, window: PriceWindow | null): Promise<M
 export async function matchesForObject(
   object: ConceptObject,
   budgetKopecks: number | null,
+  spots?: readonly RoomSpot[],
 ): Promise<{ matches: MatchView[]; window: PriceWindow | null; styleOnly: boolean }> {
   const db = getDb()
   const window = priceWindow(budgetKopecks, object.category)
@@ -145,7 +164,7 @@ export async function matchesForObject(
     })
     items = [...inBudget, ...extra]
   }
-  const matches = await Promise.all(items.map((item) => toMatch(item, window)))
+  const matches = await Promise.all(items.map((item) => toMatch(item, window, spots)))
   const best = matches[0]?.similarity ?? 0
   return { matches, window, styleOnly: matches.length > 0 && best < MATCH_CONFIDENCE_THRESHOLD }
 }
@@ -171,7 +190,7 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
   const objects = await Promise.all(
     rows.map(async (object): Promise<ObjectView> => {
       const [{ matches, window, styleOnly }, maskSrc] = await Promise.all([
-        matchesForObject(object, room.project.budgetKopecks),
+        matchesForObject(object, room.project.budgetKopecks, room.measurements?.spots),
         object.maskUrl ? presignedObjectUrl(object.maskUrl, 60 * 60) : Promise.resolve(null),
       ])
       return {

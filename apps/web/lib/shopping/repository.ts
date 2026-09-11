@@ -1,4 +1,4 @@
-import { itemTotalKopecks } from '@uyut/catalog'
+import { checkFit, type DimensionsCm, type FitVerdict, itemTotalKopecks } from '@uyut/catalog'
 import {
   type CatalogCategory,
   catalogItems,
@@ -40,6 +40,10 @@ export type ShoppingItemView = {
   roomId: string | null
   roomName: string | null
   conceptObjectId: string | null
+  /** Габариты из карточки магазина, сантиметры */
+  dimensionsCm: DimensionsCm | null
+  /** Влезет ли в промеренные участки стены своей комнаты */
+  fit: FitVerdict
 }
 
 export type ShoppingListView = {
@@ -83,7 +87,12 @@ export async function getShoppingList(
     return { id: null, items: [], count: 0 }
   }
   const rows = await db
-    .select({ item: shoppingListItems, product: catalogItems, roomName: rooms.name })
+    .select({
+      item: shoppingListItems,
+      product: catalogItems,
+      roomName: rooms.name,
+      measurements: rooms.measurements,
+    })
     .from(shoppingListItems)
     .innerJoin(catalogItems, eq(catalogItems.id, shoppingListItems.catalogItemId))
     .leftJoin(rooms, eq(rooms.id, shoppingListItems.roomId))
@@ -91,7 +100,7 @@ export async function getShoppingList(
     .orderBy(asc(rooms.orderIndex), asc(shoppingListItems.createdAt))
   const items = await Promise.all(
     rows.map(
-      async ({ item, product, roomName }): Promise<ShoppingItemView> => ({
+      async ({ item, product, roomName, measurements }): Promise<ShoppingItemView> => ({
         id: item.id,
         catalogItemId: product.id,
         title: product.title,
@@ -114,6 +123,8 @@ export async function getShoppingList(
         roomId: item.roomId,
         roomName,
         conceptObjectId: item.conceptObjectId,
+        dimensionsCm: product.attributes?.dimensionsCm ?? null,
+        fit: checkFit(product.attributes?.dimensionsCm, measurements?.spots),
       }),
     ),
   )

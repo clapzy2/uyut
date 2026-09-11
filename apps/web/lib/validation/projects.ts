@@ -67,6 +67,33 @@ export const roomSchema = z.object({
 
 export const roomConditionFormSchema = z.object({ condition: roomConditionSchema })
 
+/** Участок стены со слов человека: название и ширина в сантиметрах */
+const spotWidthSchema = z
+  .string()
+  .trim()
+  .transform((value, ctx): number | null => {
+    const normalized = value.replace(',', '.')
+    if (normalized === '') {
+      return null
+    }
+    const number = Number(normalized)
+    if (!Number.isFinite(number) || number < 10 || number > 2000) {
+      ctx.addIssue({ code: 'custom', message: 'От 10 до 2000 см' })
+      return null
+    }
+    return Math.round(number)
+  })
+
+export const roomMeasurementsSchema = z.object({
+  ceilingCm: spotWidthSchema,
+  spots: z
+    .array(z.object({ name: z.string().trim().max(40), widthCm: spotWidthSchema }))
+    .max(8)
+    .default([]),
+})
+
+export type RoomMeasurementsInput = z.input<typeof roomMeasurementsSchema>
+
 export const roomNotesSchema = z.object({
   notes: z.string().trim().max(2000, { error: 'Слишком длинно: хватит 2000 знаков' }),
 })

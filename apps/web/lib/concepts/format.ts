@@ -1,3 +1,4 @@
+import type { DimensionsCm, FitVerdict } from '@uyut/catalog'
 import type { CatalogCategory } from '@uyut/db'
 
 // Подписи категорий для интерфейса. Живут здесь, а не в пакете каталога, потому что
@@ -33,4 +34,34 @@ const rubles = new Intl.NumberFormat('ru-RU')
 
 export function formatPrice(kopecks: number): string {
   return `${rubles.format(Math.round(kopecks / 100))} ₽`
+}
+
+/** Габариты одной строкой: «120 × 45 × 101 см». Порядок как у магазина, без букв Ш·Г·В. */
+export function sizeLabel(dimensions: DimensionsCm | null | undefined): string | null {
+  if (!dimensions) {
+    return null
+  }
+  const sides = [dimensions.width, dimensions.depth, dimensions.height].filter(
+    (side): side is number => typeof side === 'number' && side > 0,
+  )
+  return sides.length > 0 ? `${sides.join(' × ')} см` : null
+}
+
+/**
+ * Вердикт по месту, словами.
+ *
+ * Молчим, когда мерок нет: пустая строка честнее догадки. «Не встанет» показываем с числом,
+ * чтобы человек мог проверить нас сам.
+ */
+export function fitLabel(fit: FitVerdict): string | null {
+  if (fit.state === 'unknown' || !fit.spot || fit.itemCm === undefined) {
+    return null
+  }
+  if (fit.state === 'tooWide') {
+    return `Не встанет: шире на ${fit.overCm} см, ${fit.spot.name} ${fit.spot.widthCm} см`
+  }
+  if (fit.state === 'tight') {
+    return `Впритык: ${fit.spot.name} ${fit.spot.widthCm} см`
+  }
+  return `Встанет: ${fit.spot.name} ${fit.spot.widthCm} см`
 }

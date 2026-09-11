@@ -13,6 +13,7 @@ export {
   type RoomWorksKind,
   type WorksRates,
 } from './estimate'
+export { checkFit, type FitVerdict, footprintCm, type RoomSpot } from './fit'
 export {
   contentHash,
   countItems,
