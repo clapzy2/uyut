@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { ChatDrawer } from '@/components/chat/chat-drawer'
+import { ConceptEditForm } from '@/components/concepts/concept-edit-form'
 import { ConceptViewer } from '@/components/concepts/concept-viewer'
 import { getConceptPage } from '@/lib/concepts/objects'
 import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
@@ -79,6 +80,14 @@ export default async function ConceptPage({ params }: { params: Params }) {
       <div className="mt-8">
         <ConceptViewer data={data} />
       </div>
+      {data.role === 'owner' && data.concept.status === 'ready' ? (
+        <div className="mt-10 max-w-2xl">
+          <ConceptEditForm
+            conceptId={data.concept.id}
+            roomHref={`/projects/${data.room.projectId}/rooms/${data.room.id}`}
+          />
+        </div>
+      ) : null}
       <ChatDrawer
         projectId={data.room.projectId}
         roomId={data.room.id}

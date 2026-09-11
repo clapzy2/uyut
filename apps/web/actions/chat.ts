@@ -53,7 +53,7 @@ export async function confirmRegeneration(
     if (proposal?.status !== 'pending') {
       return { ok: false, error: 'Это предложение уже обработано.' }
     }
-    const run = await requestConcepts(proposal.roomId, proposal.revision)
+    const run = await requestConcepts(proposal.roomId, { revision: proposal.revision })
     if (!run.ok) {
       return run
     }

@@ -78,3 +78,13 @@ export type RoomInput = z.input<typeof roomSchema>
 export type RoomOutput = z.output<typeof roomSchema>
 export type RoomNotesInput = z.input<typeof roomNotesSchema>
 export type RoomConditionInput = z.input<typeof roomConditionFormSchema>
+
+export const conceptEditSchema = z.object({
+  request: z
+    .string()
+    .trim()
+    .min(3, { error: 'Напишите, что поменять' })
+    .max(500, { error: 'Слишком длинно: хватит 500 знаков' }),
+})
+
+export type ConceptEditInput = z.input<typeof conceptEditSchema>

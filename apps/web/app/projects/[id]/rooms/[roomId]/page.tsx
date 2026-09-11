@@ -172,6 +172,7 @@ export default async function RoomPage({ params }: { params: Params }) {
             roomId={room.id}
             projectId={room.projectId}
             hasPhoto={Boolean(room.photoUrl)}
+            keepsFurniture={room.condition === 'keep'}
             onboarded={Boolean(room.project.onboardedAt)}
             canGenerate={isOwner}
             role={room.role}
@@ -182,6 +183,7 @@ export default async function RoomPage({ params }: { params: Params }) {
               id: item.id,
               batchId: item.batchId,
               batchKind: item.batchKind,
+              editRequest: item.editRequest,
               title: item.title,
               status: item.status,
               renderSrc: item.renderSrc,
