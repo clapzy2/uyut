@@ -567,10 +567,18 @@ export function ConceptsPanel({
           <FormError message={error ?? undefined} />
           <div className="flex flex-wrap items-center gap-3">
             <Button type="button" onClick={generate} pending={pending}>
-              {items.length === 0 ? 'Сгенерировать концепты' : 'Сгенерировать ещё 5'}
+              {items.length === 0
+                ? 'Сгенерировать концепты'
+                : keepsFurniture
+                  ? 'Сгенерировать ещё 3'
+                  : 'Сгенерировать ещё 5'}
             </Button>
             {items.length === 0 ? (
-              <span className="text-sm text-ink-2">пять вариантов, около тридцати секунд</span>
+              <span className="text-sm text-ink-2">
+                {keepsFurniture
+                  ? 'три варианта, около минуты'
+                  : 'пять вариантов, около тридцати секунд'}
+              </span>
             ) : null}
           </div>
         </>

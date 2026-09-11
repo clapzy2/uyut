@@ -83,7 +83,8 @@ export async function requestConcepts(
     const handle = await tasks.trigger('generate-concept', {
       roomId: room.id,
       batchId,
-      count: baseConceptId ? EDIT_COUNT : FRESH_COUNT,
+      // В режиме «оставить как есть» пять вариантов одной и той же комнаты почти не отличаются: платить за пять незачем
+      count: baseConceptId || room.condition === 'keep' ? EDIT_COUNT : FRESH_COUNT,
       ...(revision ? { revision: revision.slice(0, 500) } : {}),
       ...(baseConceptId ? { baseConceptId } : {}),
       ...(editRequest ? { editRequest: editRequest.slice(0, 500) } : {}),
@@ -106,13 +107,6 @@ export async function requestConcepts(
   }
 }
 
-/**
- * Правка одного варианта: «вот этот, но шкаф под окном».
- *
- * Отличается от обычной генерации тем, что основой берётся готовый рендер, а не фотография
- * комнаты. Раньше любая правка уходила на фото, и вместо понравившегося варианта с одним изменением
- * человек получал пять совсем других комнат.
- */
 /**
  * План правки словами, без единого потраченного цента.
  *
@@ -140,6 +134,12 @@ export async function planConceptEdit(
   }
 }
 
+/**
+ * Правка одного варианта: «вот этот, но шкаф под окном».
+ *
+ * Основой берётся готовый рендер, а не фотография комнаты. Раньше любая правка уходила
+ * на фото, и вместо понравившегося варианта с одним изменением человек получал пять других комнат.
+ */
 export async function reviseConcept(
   conceptId: string,
   input: unknown,
