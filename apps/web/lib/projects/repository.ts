@@ -7,6 +7,7 @@ import {
   type Room,
   type RoomCondition,
   type RoomKind,
+  type RoomMeasurements,
   rooms,
   users,
 } from '@uyut/db'
@@ -212,6 +213,7 @@ export type RoomPatch = {
   kind?: RoomKind
   areaM2?: number | null
   condition?: RoomCondition
+  measurements?: RoomMeasurements | null
   notes?: string | null
   refreshFinish?: boolean
 }

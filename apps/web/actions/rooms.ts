@@ -10,6 +10,7 @@ import { deleteObject, putObject } from '@/lib/storage'
 import {
   projectIdSchema,
   roomConditionFormSchema,
+  roomMeasurementsSchema,
   roomNotesSchema,
   roomSchema,
 } from '@/lib/validation/projects'
@@ -94,6 +95,38 @@ export async function updateRoomCondition(roomId: string, input: unknown): Promi
   }
   try {
     const room = await repository.updateRoom(userId, roomId, { condition: parsed.data.condition })
+    revalidateRoom(room.projectId, room.id)
+    return { ok: true, data: undefined }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+export async function updateRoomMeasurements(
+  roomId: string,
+  input: unknown,
+): Promise<ActionResult> {
+  const userId = await currentUserId()
+  if (!userId) {
+    return { ok: false, error: SESSION_EXPIRED }
+  }
+  const parsed = roomMeasurementsSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Проверьте мерки' }
+  }
+  // Участки без числа или без названия бесполезны: сравнивать будет не с чем или непонятно где
+  const spots = parsed.data.spots
+    .filter((spot) => spot.name !== '' && spot.widthCm !== null)
+    .map((spot) => ({ name: spot.name, widthCm: spot.widthCm as number }))
+  const measurements =
+    parsed.data.ceilingCm === null && spots.length === 0
+      ? null
+      : {
+          ...(parsed.data.ceilingCm === null ? {} : { ceilingCm: parsed.data.ceilingCm }),
+          ...(spots.length > 0 ? { spots } : {}),
+        }
+  try {
+    const room = await repository.updateRoom(userId, roomId, { measurements })
     revalidateRoom(room.projectId, room.id)
     return { ok: true, data: undefined }
   } catch (error) {

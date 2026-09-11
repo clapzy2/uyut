@@ -79,6 +79,12 @@ export const projects = pgTable(
   (table) => [index('projects_owner_idx').on(table.ownerId).where(sql`${table.deletedAt} is null`)],
 )
 
+/** Участок стены, куда что-то ставят: «простенок под окном», 140 см. */
+export type RoomSpot = { name: string; widthCm: number }
+
+/** Мерки комнаты со слов человека, в сантиметрах. */
+export type RoomMeasurements = { ceilingCm?: number; spots?: RoomSpot[] }
+
 export const rooms = pgTable(
   'rooms',
   {
@@ -95,6 +101,12 @@ export const rooms = pgTable(
     photoUrl: text('photo_url'),
     planUrl: text('plan_url'),
     notes: text('notes'),
+    /**
+     * Что человек промерил рулеткой. Единственный источник настоящих размеров: из площади
+     * длину стены не вывести (двенадцать метров — это и 3×4, и 2×6), а рисующая модель сантиметров не знает вовсе.
+     * Одним jsonb, а не колонками: участков стены бывает сколько угодно и зовутся они по-разному.
+     */
+    measurements: jsonb('measurements').$type<RoomMeasurements>(),
     orderIndex: integer('order_index').notNull().default(0),
     // Идущая генерация концептов. Живёт у комнаты, а не в состоянии страницы: иначе обновление
     // теряет ожидание целиком, и человек видит экран так, будто ничего не запускал.

@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { removeItem, setItemQuantity } from '@/actions/shopping'
 import { AdDisclosure } from '@/components/ad-disclosure'
 import { EmptyArt } from '@/components/empty-art'
-import { formatPrice, sourceLabel } from '@/lib/concepts/format'
+import { fitLabel, formatPrice, sizeLabel, sourceLabel } from '@/lib/concepts/format'
 import type { ShoppingItemView } from '@/lib/shopping/repository'
 
 type Group = { key: string; title: string; items: ShoppingItemView[] }
@@ -54,9 +54,11 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
   const meta = [
     item.brand,
     sourceLabel(item.source),
+    sizeLabel(item.dimensionsCm),
     item.variant?.color,
     item.inStock ? null : 'нет в наличии',
   ].filter(Boolean)
+  const fit = fitLabel(item.fit)
 
   return (
     <li
@@ -81,6 +83,16 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
           {item.title}
         </a>
         <span className="block truncate text-[13px] text-ink-2">{meta.join(' · ')}</span>
+        {fit ? (
+          <span
+            className={cn(
+              'block truncate text-[12px]',
+              item.fit.state === 'tooWide' ? 'text-danger' : 'text-ink-2',
+            )}
+          >
+            {fit}
+          </span>
+        ) : null}
         <AdDisclosure text={item.adDisclosure} />
         <span className="mt-1 block font-mono text-[12px] text-ink-2 sm:hidden">
           {item.quantity > 1

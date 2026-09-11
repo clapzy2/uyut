@@ -11,7 +11,13 @@ import { addItem } from '@/actions/shopping'
 import { AdDisclosure } from '@/components/ad-disclosure'
 import { SwatchPicker } from '@/components/concepts/swatch-picker'
 import { ProductImage } from '@/components/product-image'
-import { categoryLabels, formatPrice, sourceLabel } from '@/lib/concepts/format'
+import {
+  categoryLabels,
+  fitLabel,
+  formatPrice,
+  sizeLabel,
+  sourceLabel,
+} from '@/lib/concepts/format'
 import { spreadMarkers } from '@/lib/concepts/marker-layout'
 import type { ConceptPageData, MatchView, ObjectView } from '@/lib/concepts/objects'
 import { applySwatch, prepareRecolor, type RecolorBase } from '@/lib/recolor/client'
@@ -153,8 +159,20 @@ function MatchesPanel({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[15px] text-ink">{match.title}</span>
                     <span className="block truncate text-[13px] text-ink-2">
-                      {[match.brand, sourceLabel(match.source)].filter(Boolean).join(' · ')}
+                      {[match.brand, sourceLabel(match.source), sizeLabel(match.dimensionsCm)]
+                        .filter(Boolean)
+                        .join(' · ')}
                     </span>
+                    {fitLabel(match.fit) ? (
+                      <span
+                        className={cn(
+                          'mt-0.5 block truncate text-[12px]',
+                          match.fit.state === 'tooWide' ? 'text-danger' : 'text-ink-2',
+                        )}
+                      >
+                        {fitLabel(match.fit)}
+                      </span>
+                    ) : null}
                   </span>
                 </a>
                 <span className="flex shrink-0 flex-col items-end gap-1.5">

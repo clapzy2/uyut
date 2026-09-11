@@ -7,6 +7,7 @@ import { ConceptsPanel } from '@/components/concepts/concepts-panel'
 import { DeleteRoomDialog } from '@/components/delete-room-dialog'
 import { FileUploader } from '@/components/file-uploader'
 import { RoomConditionForm } from '@/components/room-condition-form'
+import { RoomMeasurementsForm } from '@/components/room-measurements-form'
 import { RoomNotesForm } from '@/components/room-notes-form'
 import { RoomSettingsDialog } from '@/components/room-settings-dialog'
 import { otherMember } from '@/lib/collaboration/repository'
@@ -156,6 +157,9 @@ export default async function RoomPage({ params }: { params: Params }) {
 
         <div className="flex flex-col gap-10">
           {isOwner ? <RoomConditionForm roomId={room.id} condition={room.condition} /> : null}
+          {isOwner ? (
+            <RoomMeasurementsForm roomId={room.id} measurements={room.measurements} />
+          ) : null}
           {isOwner ? (
             <RoomNotesForm roomId={room.id} notes={room.notes} />
           ) : room.notes ? (
