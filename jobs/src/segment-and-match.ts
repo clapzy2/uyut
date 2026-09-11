@@ -1,6 +1,6 @@
 import { logger, metadata, task } from '@trigger.dev/sdk'
 import { createFalDetector, createFalSegmenter, type DetectedObject, priceWindow } from '@uyut/ai'
-import { countItems, findSimilar } from '@uyut/catalog'
+import { countItems, findSimilar, subcategoryForLabel } from '@uyut/catalog'
 import { conceptObjects, concepts, projects, rooms } from '@uyut/db'
 import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
@@ -254,16 +254,26 @@ export const segmentAndMatch = task({
         let best: { id: string; similarity: number } | null = null
         if (catalog.embedded > 0) {
           const window = priceWindow(project.budgetKopecks, object.category)
+          // Детектор знает, что нашёл именно обеденный стол, а не просто стол
+          const subcategory = subcategoryForLabel(object.label)
           const inBudget = await findSimilar(database, {
             embedding,
             category: object.category,
+            subcategory,
             minPriceKopecks: window?.minKopecks,
             maxPriceKopecks: window?.maxKopecks,
             limit: 1,
           })
           const candidate =
             inBudget[0] ??
-            (await findSimilar(database, { embedding, category: object.category, limit: 1 }))[0]
+            (
+              await findSimilar(database, {
+                embedding,
+                category: object.category,
+                subcategory,
+                limit: 1,
+              })
+            )[0]
           if (candidate) {
             best = { id: candidate.id, similarity: candidate.similarity }
             matched += 1

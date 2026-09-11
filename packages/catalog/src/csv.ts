@@ -1,6 +1,7 @@
 import type { CatalogSource } from '@uyut/db'
 import { categoryFromText, isCatalogCategory } from './categories'
 import { hasAnyDimension, parseDimensionsCm } from './dimensions'
+import { subcategoryFromText } from './subcategories'
 import type { FeedItem, FeedParseResult, SkippedRow } from './types'
 
 /**
@@ -142,7 +143,7 @@ export function parseCsvDump(text: string, source: CatalogSource = 'dump'): Feed
       source,
       externalId,
       category,
-      subcategory: row.subcategory || undefined,
+      subcategory: row.subcategory || subcategoryFromText(category, title, row.description),
       brand: row.brand || undefined,
       title,
       description: row.description || undefined,
