@@ -2,7 +2,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { tasks, auth as triggerAuth } from '@trigger.dev/sdk'
-import type { DuoProposal } from '@uyut/ai'
+import { buildEditPlan, type DuoProposal, type EditPlan } from '@uyut/ai'
 import { revalidatePath } from 'next/cache'
 import { recordAudit } from '@/lib/audit'
 import { bumpProjectVersion } from '@/lib/collaboration/live'
@@ -48,6 +48,8 @@ export type ConceptRequest = {
   baseConceptId?: string
   /** Просьба словами человека к этой правке */
   editRequest?: string
+  /** Разобранный на шаги план, показанный человеку до запуска */
+  editSteps?: Array<{ titleRu: string; prompt: string }>
 }
 
 export async function requestConcepts(
@@ -62,7 +64,7 @@ export async function requestConcepts(
   if (!env.FAL_KEY || !env.TRIGGER_SECRET_KEY) {
     return { ok: false, error: NO_KEYS }
   }
-  const { revision, baseConceptId, editRequest } = request
+  const { revision, baseConceptId, editRequest, editSteps } = request
   try {
     const room = await getRoom(userId, roomId)
     requireOwner(room.role)
@@ -85,6 +87,7 @@ export async function requestConcepts(
       ...(revision ? { revision: revision.slice(0, 500) } : {}),
       ...(baseConceptId ? { baseConceptId } : {}),
       ...(editRequest ? { editRequest: editRequest.slice(0, 500) } : {}),
+      ...(editSteps && editSteps.length > 0 ? { editSteps } : {}),
     })
     await attachGenerationRun(room.id, handle.id, batchId)
     await recordAudit({
@@ -110,6 +113,33 @@ export async function requestConcepts(
  * комнаты. Раньше любая правка уходила на фото, и вместо понравившегося варианта с одним изменением
  * человек получал пять совсем других комнат.
  */
+/**
+ * План правки словами, без единого потраченного цента.
+ *
+ * Рисующая модель не переносит предметы и не додумывает намерений, поэтому одну фразу человека
+ * надо разложить на однозначные команды. Человек видит их до запуска и понимает, за что платит.
+ */
+export async function planConceptEdit(
+  conceptId: string,
+  input: unknown,
+): Promise<ActionResult<EditPlan>> {
+  const userId = await currentUserId()
+  if (!userId) {
+    return { ok: false, error: SESSION_EXPIRED }
+  }
+  const parsed = conceptEditSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Проверьте текст правки' }
+  }
+  try {
+    await conceptsRepository.getConceptForEdit(userId, conceptId)
+    const plan = await buildEditPlan(getEnv().FAL_KEY, parsed.data.request)
+    return { ok: true, data: plan }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
 export async function reviseConcept(
   conceptId: string,
   input: unknown,
@@ -124,9 +154,14 @@ export async function reviseConcept(
   }
   try {
     const concept = await conceptsRepository.getConceptForEdit(userId, conceptId)
+    const plan = await buildEditPlan(getEnv().FAL_KEY, parsed.data.request)
+    if (plan.steps.length === 0) {
+      return { ok: false, error: plan.warningRu || 'Такую правку сделать не получится.' }
+    }
     return await requestConcepts(concept.roomId, {
       baseConceptId: concept.id,
       editRequest: parsed.data.request,
+      editSteps: plan.steps.map((step) => ({ titleRu: step.titleRu, prompt: step.prompt })),
     })
   } catch (error) {
     return failure(error)

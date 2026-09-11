@@ -9,7 +9,9 @@ import {
   createFalRenderer,
   createPromptBuilder,
   isConceptModelId,
+  KEEP_THE_REST,
   nearestStyles,
+  type RenderResult,
   type StyleEntry,
   styleLibrary,
 } from '@uyut/ai'
@@ -36,6 +38,20 @@ const payloadSchema = z.object({
   baseConceptId: z.uuid().optional(),
   /** Текст просьбы словами человека: показываем его рядом с результатом */
   editRequest: z.string().max(500).optional(),
+  /**
+   * Готовый план правки по шагам. Считается до запуска и показывается человеку,
+   * чтобы он видел, за что платит.
+   */
+  editSteps: z
+    .array(z.object({ titleRu: z.string().max(200), prompt: z.string().min(1).max(600) }))
+    .min(1)
+    .max(4)
+    .optional(),
+  /**
+   * Ключ кадра с самим предметом: вырезка с фото или карточка товара.
+   * Словами модель рисует похожую мебель, картинкой — ту самую.
+   */
+  objectKey: z.string().max(500).optional(),
   /** Варианты на двоих: у каждого рендера своя правка и название, общая часть промпта из шаблона */
   duo: z
     .object({
@@ -61,9 +77,12 @@ function pickStyles(vector: number[] | null): { primary: StyleEntry; secondary: 
   return { primary, secondary: nearest.slice(1) }
 }
 
-function renderer(): { renderer: ConceptRenderer; modelId: ConceptModelId } {
+function renderer(override?: ConceptModelId): {
+  renderer: ConceptRenderer
+  modelId: ConceptModelId
+} {
   const raw = process.env.CONCEPT_MODEL ?? 'nano-banana-2'
-  const modelId: ConceptModelId = isConceptModelId(raw) ? raw : 'nano-banana-2'
+  const modelId: ConceptModelId = override ?? (isConceptModelId(raw) ? raw : 'nano-banana-2')
   return { renderer: createFalRenderer(requireEnv('FAL_KEY'), modelId), modelId }
 }
 
@@ -110,6 +129,37 @@ async function writeNotes(
       logger.warn('note failed', { conceptId: concept.id, error: String(error) })
     }
   }
+}
+
+/**
+ * Правка по шагам: каждый следующий рисуется поверх результата предыдущего.
+ *
+ * Одним заданием модель не переносит предметы вообще, а двумя — переносит. Проверено на живой
+ * кухне: «убери шкаф» плюс «поставь шкаф под окном» дали то, чего не дала ни одна формулировка в лоб.
+ * Комната за четыре шага не расползается, поэтому ошибки цепочки не копятся.
+ */
+async function renderSteps(
+  engine: ConceptRenderer,
+  steps: Array<{ prompt: string }>,
+  imageUrl: string | undefined,
+  referenceUrls: string[],
+): Promise<RenderResult> {
+  let current = imageUrl
+  let last: RenderResult | null = null
+  for (const step of steps) {
+    last = await engine.render({
+      prompt: `${step.prompt} ${KEEP_THE_REST}`,
+      imageUrl: current,
+      // Кадр предмета нужен только тому шагу, который что-то ставит
+      ...(referenceUrls.length > 0 ? { referenceUrls } : {}),
+      aspectRatio: '16:9',
+    })
+    current = `data:${last.contentType};base64,${last.body.toString('base64')}`
+  }
+  if (!last) {
+    throw new Error('план правки пуст')
+  }
+  return last
 }
 
 function publish(progress: Progress): void {
@@ -184,7 +234,8 @@ export const generateConcept = task({
         }).build(brief, count)
     logger.info('prompt plan ready', { source: plan.source, variations: plan.variations.length })
 
-    const { renderer: engine, modelId } = renderer()
+    // Правка идёт моделью, которая умеет сохранять комнату; рисовать с нуля дешевле на прежней
+    const { renderer: engine, modelId } = renderer(payload.editSteps ? 'gpt-image-2.5' : undefined)
     const created = await database
       .insert(concepts)
       .values(
@@ -198,7 +249,9 @@ export const generateConcept = task({
               : ('regular' as const),
           orderIndex: index,
           status: 'pending' as const,
-          prompt: `${plan.shared} ${variation} ${plan.mandate}`.replace(/\s+/g, ' ').trim(),
+          prompt: payload.editSteps
+            ? payload.editSteps.map((step) => step.prompt).join(' → ')
+            : `${plan.shared} ${variation} ${plan.mandate}`.replace(/\s+/g, ' ').trim(),
           styleTags: project.styleTags,
           aiModel: modelId,
           baseConceptId: base?.id ?? null,
@@ -218,6 +271,12 @@ export const generateConcept = task({
       ? `data:${source.contentType};base64,${source.body.toString('base64')}`
       : undefined
 
+    // Кадр самого предмета, если его приложили: без него модель рисует похожую мебель
+    const object = payload.objectKey ? await readObject(payload.objectKey).catch(() => null) : null
+    const objectUrls = object
+      ? [`data:${object.contentType};base64,${object.body.toString('base64')}`]
+      : []
+
     let done = 0
     let failed = 0
     publish({ stage: 'render', done, total: created.length, failed })
@@ -225,12 +284,14 @@ export const generateConcept = task({
     await Promise.all(
       created.map(async (concept) => {
         try {
-          const result = await engine.render({
-            prompt: concept.prompt,
-            imageUrl,
-            seed: 1000 + concept.orderIndex,
-            aspectRatio: '16:9',
-          })
+          const result = payload.editSteps
+            ? await renderSteps(engine, payload.editSteps, imageUrl, objectUrls)
+            : await engine.render({
+                prompt: concept.prompt,
+                imageUrl,
+                seed: 1000 + concept.orderIndex,
+                aspectRatio: '16:9',
+              })
           const base = `projects/${project.id}/rooms/${room.id}/concepts/${concept.id}`
           const full = await sharp(result.body).webp({ quality: 88 }).toBuffer()
           const thumb = await sharp(result.body)

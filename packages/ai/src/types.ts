@@ -51,6 +51,11 @@ export type RenderRequest = {
   prompt: string
   /** Фото комнаты как data URI или https-ссылка. Без него рисуем с нуля. */
   imageUrl?: string
+  /**
+   * Дополнительные кадры: сам предмет вблизи или фотография товара из каталога.
+   * Словами модель рисует похожую мебель, картинкой — ту самую.
+   */
+  referenceUrls?: string[]
   seed?: number
   aspectRatio?: string
 }
