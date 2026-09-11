@@ -5,7 +5,9 @@ import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { ConceptEditForm } from '@/components/concepts/concept-edit-form'
 import { ConceptViewer } from '@/components/concepts/concept-viewer'
 import { getConceptPage } from '@/lib/concepts/objects'
+import { generationStillRunning } from '@/lib/concepts/resume-run'
 import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
+import { getRoom } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 
 type Params = Promise<{ id: string; roomId: string; conceptId: string }>
@@ -47,6 +49,13 @@ export default async function ConceptPage({ params }: { params: Params }) {
     notFound()
   }
 
+  // Обновление вкладки теряет ожидание, и человек легко закажет вторую платную правку поверх первой.
+  // Поэтому спрашиваем сервер, не идёт ли уже расчёт по этой комнате.
+  const busy =
+    data.role === 'owner'
+      ? await generationStillRunning(await getRoom(session.user.id, data.room.id))
+      : false
+
   return (
     <section className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-14 lg:py-16">
       <nav className="flex flex-wrap gap-x-2 text-sm text-ink-2">
@@ -84,7 +93,9 @@ export default async function ConceptPage({ params }: { params: Params }) {
         <div className="mt-10 max-w-2xl">
           <ConceptEditForm
             conceptId={data.concept.id}
+            roomId={data.room.id}
             roomHref={`/projects/${data.room.projectId}/rooms/${data.room.id}`}
+            busyElsewhere={busy}
           />
         </div>
       ) : null}

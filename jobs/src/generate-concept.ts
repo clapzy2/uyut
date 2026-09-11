@@ -144,7 +144,10 @@ export const generateConcept = task({
           .where(and(eq(concepts.id, payload.baseConceptId), eq(concepts.roomId, room.id)))
           .limit(1)
       : []
-    if (payload.baseConceptId && !base?.renderUrl) {
+    // Перекрашенная версия идёт первой: именно её человек видит везде в сервисе и её же имеет в виду,
+    // когда просит поправить «этот вариант». Та же формула уже живёт в списке комнаты, на странице концепта и в PDF.
+    const baseRenderKey = base ? (base.editedRenderUrl ?? base.renderUrl) : null
+    if (payload.baseConceptId && !baseRenderKey) {
       throw new Error(`концепт-основа ${payload.baseConceptId} не найден или без рендера`)
     }
 
@@ -209,7 +212,7 @@ export const generateConcept = task({
 
     // Основа рендера: выбранный концепт, если это правка, иначе фото комнаты.
     // Без основы модель рисует комнату с нуля.
-    const sourceKey = base?.renderUrl ?? room.photoUrl
+    const sourceKey = baseRenderKey ?? room.photoUrl
     const source = sourceKey ? await readObject(sourceKey) : null
     const imageUrl = source
       ? `data:${source.contentType};base64,${source.body.toString('base64')}`

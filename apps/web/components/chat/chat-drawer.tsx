@@ -119,7 +119,9 @@ function ProposalCard({
   return (
     <div className="mt-2 rounded-sm border border-accent bg-paper p-2.5 text-[13px]">
       <p className="text-ink">
-        Запустить новую генерацию с этими правками? Пять рендеров, около тридцати секунд.
+        {proposal.conceptId
+          ? 'Поправить этот вариант? Три рендера, остальное останется как есть.'
+          : 'Запустить новую генерацию с этими правками? Пять рендеров, комната рисуется заново.'}
       </p>
       <div className="mt-2 flex gap-2">
         <Button

@@ -160,7 +160,8 @@ export async function getConceptForEdit(
   }
   const room = await getRoom(userId, row.roomId)
   requireOwner(room.role)
-  if (row.status !== 'ready' || !row.renderUrl) {
+  // Править можно и перекрашенный вариант: готовность считаем по той же картинке, которую видит человек
+  if (row.status !== 'ready' || !(row.editedRenderUrl ?? row.renderUrl)) {
     throw new AccessError('Этот вариант ещё не готов, править пока нечего.')
   }
   return { id: row.id, roomId: row.roomId }
