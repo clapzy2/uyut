@@ -12,7 +12,13 @@ export {
   createFalBriefGenerator,
   parseBrief,
 } from './brief'
-export { budgetShares, MATCH_CONFIDENCE_THRESHOLD, type PriceWindow, priceWindow } from './budget'
+export {
+  budgetShares,
+  MATCH_CONFIDENCE_THRESHOLD,
+  MATCH_FLOOR,
+  type PriceWindow,
+  priceWindow,
+} from './budget'
 export {
   type AgentReply,
   ASSISTANT_PERSONA,

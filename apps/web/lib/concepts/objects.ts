@@ -1,4 +1,4 @@
-import { MATCH_CONFIDENCE_THRESHOLD, type PriceWindow, priceWindow } from '@uyut/ai'
+import { MATCH_CONFIDENCE_THRESHOLD, MATCH_FLOOR, type PriceWindow, priceWindow } from '@uyut/ai'
 import {
   checkFit,
   type DimensionsCm,
@@ -170,7 +170,12 @@ export async function matchesForObject(
   }
   const matches = await Promise.all(items.map((item) => toMatch(item, window, spots)))
   const best = matches[0]?.similarity ?? 0
-  return { matches, window, styleOnly: matches.length > 0 && best < MATCH_CONFIDENCE_THRESHOLD }
+  // Ниже порога не показываем ничего. Детектор не умеет отвечать «такого предмета здесь нет»,
+  // и выдуманный ковёр тянул за собой коврик в салон автомобиля. Пустота честнее.
+  if (best < MATCH_FLOOR) {
+    return { matches: [], window, styleOnly: false }
+  }
+  return { matches, window, styleOnly: best < MATCH_CONFIDENCE_THRESHOLD }
 }
 
 export async function getConceptPage(userId: string, conceptId: string): Promise<ConceptPageData> {
