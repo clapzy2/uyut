@@ -52,15 +52,16 @@ const phrasesByRoom: Record<RoomKind, Phrase[]> = {
     { phrase: 'a mirror', category: 'decor' },
     { phrase: 'a plant', category: 'decor' },
   ],
+  // На кухне ищем только то, что покупают штукой. Гарнитур делают по размеру, и подбирать к нему
+  // шкаф из каталога бессмысленно. Ковёр и картина убраны по другой причине: детектор не решает,
+  // есть ли предмет, ему говорят «найди ковёр», и он находит плитку пола. На боевой кухне так
+  // подбирался коврик в салон Peugeot к ковру, которого там нет.
   kitchen: [
     { phrase: 'a dining table', category: 'table' },
     { phrase: 'a chair', category: 'chair' },
     { phrase: 'a bar stool', category: 'chair' },
     { phrase: 'a pendant lamp', category: 'lamp' },
-    { phrase: 'a cabinet', category: 'storage' },
-    { phrase: 'a rug', category: 'rug' },
     { phrase: 'a plant', category: 'decor' },
-    { phrase: 'a framed picture', category: 'decor' },
   ],
   bath: [
     { phrase: 'a cabinet', category: 'storage' },
