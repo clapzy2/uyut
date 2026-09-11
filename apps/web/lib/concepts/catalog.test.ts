@@ -10,6 +10,11 @@ describe('categoryFromText', () => {
     expect(categoryFromText('Стол письменный «Сити 4», с тумбой')).toBe('table')
     expect(categoryFromText('Бра настенное')).toBe('lamp')
     expect(categoryFromText('Торшер напольный')).toBe('lamp')
+    // Слово «подвес» без границ утаскивало в светильники подвесные шкафы и тумбы под ТВ
+    expect(categoryFromText('Шкаф подвесной в гостиную «Флэш»')).toBe('storage')
+    expect(categoryFromText('Тумба под ТВ подвесная «Инфинити»')).toBe('storage')
+    expect(categoryFromText('Светильник подвесной')).toBe('lamp')
+    expect(categoryFromText('Подвес стеклянный над стол')).toBe('lamp')
     expect(categoryFromText('Ковёр 160×230')).toBe('rug')
   })
 
