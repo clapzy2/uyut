@@ -1,10 +1,16 @@
 'use client'
 
+import type { EditPlan } from '@uyut/ai'
 import { Button, Textarea, toast } from '@uyut/ui'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
-import { checkGeneration, refreshConcepts, reviseConcept } from '@/actions/concepts'
+import {
+  checkGeneration,
+  planConceptEdit,
+  refreshConcepts,
+  reviseConcept,
+} from '@/actions/concepts'
 import { FormError } from '@/components/form-error'
 import { useRunWatch } from '@/lib/queue/use-run-watch'
 
@@ -97,6 +103,8 @@ export function ConceptEditForm({
   const [error, setError] = useState<string | undefined>(undefined)
   const [sending, setSending] = useState(false)
   const [run, setRun] = useState<{ runId: string; accessToken: string } | null>(null)
+  // План считается бесплатно и показывается до расчёта: человек видит, за что платит
+  const [plan, setPlan] = useState<EditPlan | null>(null)
 
   const finished = useCallback(
     (failed: boolean) => {
@@ -112,8 +120,20 @@ export function ConceptEditForm({
     [router, roomHref, roomId],
   )
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function askForPlan(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setError(undefined)
+    setSending(true)
+    const result = await planConceptEdit(conceptId, { request })
+    setSending(false)
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    setPlan(result.data)
+  }
+
+  async function confirm() {
     setError(undefined)
     setSending(true)
     const result = await reviseConcept(conceptId, { request })
@@ -122,6 +142,7 @@ export function ConceptEditForm({
       setError(result.error)
       return
     }
+    setPlan(null)
     setRun({ runId: result.data.runId, accessToken: result.data.accessToken })
   }
 
@@ -155,8 +176,52 @@ export function ConceptEditForm({
     )
   }
 
+  if (plan) {
+    return (
+      <div className="flex flex-col gap-4 border border-line p-5">
+        <div>
+          <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
+            Что мы сделаем
+          </p>
+          {plan.steps.length > 0 ? (
+            <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-[15px] leading-relaxed text-ink">
+              {plan.steps.map((step) => (
+                <li key={step.prompt}>{step.titleRu}</li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-[15px] leading-relaxed text-ink-2">Делать нечего.</p>
+          )}
+        </div>
+        {plan.warningRu ? (
+          <p className="text-[13px] leading-relaxed text-danger">{plan.warningRu}</p>
+        ) : null}
+        {/* Модель не переносит предметы одним заданием, поэтому просьба и делится на шаги */}
+        <p className="text-[13px] leading-relaxed text-ink-2">
+          Шаги идут по очереди, каждый поверх предыдущего. Придут три варианта.
+        </p>
+        <FormError message={error} />
+        <div className="flex flex-wrap gap-3">
+          {plan.steps.length > 0 ? (
+            <Button
+              type="button"
+              variant="secondary"
+              pending={sending}
+              onClick={() => void confirm()}
+            >
+              {sending ? 'Запускаем…' : 'Запустить'}
+            </Button>
+          ) : null}
+          <Button type="button" variant="ghost" onClick={() => setPlan(null)}>
+            Изменить просьбу
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <form onSubmit={submit} noValidate className="flex flex-col gap-3 border border-line p-5">
+    <form onSubmit={askForPlan} noValidate className="flex flex-col gap-3 border border-line p-5">
       <Textarea
         id={`edit-${conceptId}`}
         label="Поправить этот вариант"
@@ -165,8 +230,8 @@ export function ConceptEditForm({
         onChange={(event) => setRequest(event.currentTarget.value)}
       />
       <p className="text-[13px] leading-relaxed text-ink-2">
-        Правим именно эту картинку, а не фотографию комнаты. Всё, о чём вы не попросите, останется
-        как выше. Придут три варианта одной правки.
+        Правим именно эту картинку, а не фотографию комнаты. Сначала покажем, что собираемся делать,
+        и только после вашего согласия потратим расчёт.
       </p>
       <FormError message={error} />
       <Button
@@ -176,7 +241,7 @@ export function ConceptEditForm({
         disabled={request.trim().length < 3}
         className="self-start"
       >
-        {sending ? 'Отправляем…' : 'Поправить'}
+        {sending ? 'Думаем…' : 'Показать, что сделаем'}
       </Button>
     </form>
   )

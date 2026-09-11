@@ -115,7 +115,10 @@ test.describe
       expect((await sharp(await storedPhoto.body()).metadata()).width).toBe(2048)
 
       // На странице комнаты две кнопки сохранения: мерки и заметки
-      await page.getByLabel('Заметки').fill('Батарея под окном, дверь открывается внутрь.')
+      // Точное совпадение: подпись у переключателя режимов тоже упоминает заметки
+      await page
+        .getByLabel('Заметки', { exact: true })
+        .fill('Батарея под окном, дверь открывается внутрь.')
       await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
       await expect(page.getByText('Сохранили')).toBeVisible()
       await expect(page.getByRole('button', { name: 'Сгенерировать концепты' })).toBeEnabled()

@@ -11,6 +11,18 @@ export const conceptModels = {
     supportsSeed: false,
     usdPerImage: 0.08,
   },
+  /**
+   * Для точечных правок. На живой кухне владельца: nano-banana на просьбу сохранить комнату
+   * рисовал чужую светлую кухню, эта модель сохранила гарнитур, плитку, вытяжку и игрушки на полу.
+   * Цена замерена по балансу: короткая правка около пяти центов, длинное задание доходит до двадцати четырёх.
+   */
+  'gpt-image-2.5': {
+    label: 'GPT Image 2.5',
+    editEndpoint: 'openai/gpt-image-2.5/flare/edit',
+    createEndpoint: 'openai/gpt-image-2.5/flare/text-to-image',
+    supportsSeed: false,
+    usdPerImage: 0.1,
+  },
   'kontext-pro': {
     label: 'Flux Kontext Pro',
     editEndpoint: 'fal-ai/flux-pro/kontext',
@@ -51,17 +63,27 @@ function buildBody(
   const model = conceptModels[modelId]
   const aspectRatio = request.aspectRatio ?? '16:9'
   const seed = model.supportsSeed && request.seed !== undefined ? { seed: request.seed } : {}
-  if (request.imageUrl) {
+  // Вторым кадром идёт сам предмет: словами модель рисует похожую мебель, картинкой — ту самую
+  const images = [request.imageUrl, ...(request.referenceUrls ?? [])].filter((url): url is string =>
+    Boolean(url),
+  )
+  if (images.length > 0) {
+    if (modelId === 'gpt-image-2.5') {
+      return { endpoint: model.editEndpoint, body: { image_urls: images, prompt: request.prompt } }
+    }
     if (modelId === 'nano-banana-2') {
       return {
         endpoint: model.editEndpoint,
-        body: { image_urls: [request.imageUrl], prompt: request.prompt, aspect_ratio: aspectRatio },
+        body: { image_urls: images, prompt: request.prompt, aspect_ratio: aspectRatio },
       }
     }
     return {
       endpoint: model.editEndpoint,
       body: { image_url: request.imageUrl, prompt: request.prompt, guidance_scale: 3.5, ...seed },
     }
+  }
+  if (modelId === 'gpt-image-2.5') {
+    return { endpoint: model.createEndpoint, body: { prompt: request.prompt } }
   }
   if (modelId === 'nano-banana-2') {
     return {

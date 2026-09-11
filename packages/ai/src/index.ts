@@ -1,4 +1,5 @@
 // Клиенты Fal.ai, Anthropic и Voyage, каталог стилей и сборка промптов.
+
 export {
   BRIEF_SECTIONS,
   BRIEF_SYSTEM_PROMPT,
@@ -51,6 +52,13 @@ export {
   duoHash,
   parseDuoProposal,
 } from './duo'
+export {
+  buildEditPlan,
+  type EditPlan,
+  type EditStep,
+  KEEP_THE_REST,
+  parseEditPlan,
+} from './edit-plan'
 export {
   cosine,
   createVoyageEmbedder,
