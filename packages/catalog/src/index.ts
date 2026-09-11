@@ -27,5 +27,10 @@ export {
   type UpsertSummary,
   upsertFeedItems,
 } from './repository'
+export {
+  type CatalogSubcategory,
+  subcategoryForLabel,
+  subcategoryFromText,
+} from './subcategories'
 export type { FeedItem, FeedParseResult, FeedSource, SkippedRow } from './types'
 export { parseYml } from './yml'

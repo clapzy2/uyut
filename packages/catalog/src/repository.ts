@@ -7,6 +7,7 @@ import {
   type Database,
 } from '@uyut/db'
 import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import type { CatalogSubcategory } from './subcategories'
 import type { FeedItem } from './types'
 
 /** Хеш того, что влияет на векторы: изменилось — считаем заново. */
@@ -148,6 +149,11 @@ export type SimilarQuery = {
   maxPriceKopecks?: number
   limit?: number
   excludeIds?: string[]
+  /**
+   * Вид предмета внутри категории. Если внутри вида набралось меньше нужного,
+   * добираем остальной категорией: пустой список хуже списка с чужими видами.
+   */
+  subcategory?: CatalogSubcategory
   /** По какому вектору искать: вырезка с рендера сравнивается с картинкой, запрос словами — с текстом */
   by?: 'image' | 'text'
 }
@@ -159,6 +165,30 @@ export type SimilarItem = CatalogItem & { similarity: number }
  * ivfflat-индекс ускоряет поиск, когда каталог вырастет; на сотнях записей идёт полный скан.
  */
 export async function findSimilar(db: Database, query: SimilarQuery): Promise<SimilarItem[]> {
+  const limit = query.limit ?? 5
+  if (!query.subcategory) {
+    return searchSimilar(db, query, limit)
+  }
+  // Сначала среди своего вида: обеденный стол должен сравниваться с обеденными,
+  // а не с компьютерными, которых в каталоге больше половины всей категории.
+  const own = await searchSimilar(db, query, limit)
+  if (own.length >= limit) {
+    return own
+  }
+  const seen = new Set(own.map((item) => item.id))
+  const rest = await searchSimilar(
+    db,
+    { ...query, subcategory: undefined, excludeIds: [...seen, ...(query.excludeIds ?? [])] },
+    limit - own.length,
+  )
+  return [...own, ...rest]
+}
+
+async function searchSimilar(
+  db: Database,
+  query: SimilarQuery,
+  limit: number,
+): Promise<SimilarItem[]> {
   const vector = `[${query.embedding.join(',')}]`
   const column = query.by === 'text' ? catalogItems.textEmbedding : catalogItems.imageEmbedding
   const conditions = [
@@ -166,6 +196,9 @@ export async function findSimilar(db: Database, query: SimilarQuery): Promise<Si
     eq(catalogItems.inStock, true),
     sql`${column} is not null`,
   ]
+  if (query.subcategory) {
+    conditions.push(eq(catalogItems.subcategory, query.subcategory))
+  }
   if (query.minPriceKopecks !== undefined) {
     conditions.push(sql`${catalogItems.priceKopecks} >= ${query.minPriceKopecks}`)
   }
@@ -181,7 +214,7 @@ export async function findSimilar(db: Database, query: SimilarQuery): Promise<Si
     .from(catalogItems)
     .where(and(...conditions))
     .orderBy(distance)
-    .limit(query.limit ?? 5)
+    .limit(limit)
   return rows.map((row) => ({ ...row.item, similarity: 1 - Number(row.distance) }))
 }
 

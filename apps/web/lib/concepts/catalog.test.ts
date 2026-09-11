@@ -101,7 +101,9 @@ describe('parseYml', () => {
       source: 'hoff',
       externalId: '42',
       category: 'sofa',
-      subcategory: 'Диваны',
+      // В подкатегории теперь вид предмета для подбора, а не название раздела фида.
+      // У диванов видов нет: делить их не на что и незачем.
+      subcategory: undefined,
       brand: 'Hoff',
       priceKopecks: 3_999_000,
       oldPriceKopecks: 4_500_000,

@@ -6,6 +6,7 @@ import {
   findSimilar,
   type RoomSpot,
   type SimilarItem,
+  subcategoryForLabel,
 } from '@uyut/catalog'
 import {
   type CatalogCategory,
@@ -147,9 +148,12 @@ export async function matchesForObject(
   if (embedding.length === 0) {
     return { matches: [], window, styleOnly: false }
   }
+  // Вид предмета знает детектор: «a dining table» сравниваем с обеденными, а не с письменными
+  const subcategory = subcategoryForLabel(object.label)
   const inBudget = await findSimilar(db, {
     embedding,
     category: object.category,
+    subcategory,
     minPriceKopecks: window?.minKopecks,
     maxPriceKopecks: window?.maxKopecks,
     limit: MATCHES,

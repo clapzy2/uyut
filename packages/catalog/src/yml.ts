@@ -1,6 +1,7 @@
 import type { CatalogSource } from '@uyut/db'
 import { XMLParser } from 'fast-xml-parser'
 import { categoryFromText } from './categories'
+import { subcategoryFromText } from './subcategories'
 import type { FeedItem, FeedParseResult, SkippedRow } from './types'
 
 type YmlCategory = { '@_id'?: string; '@_parentId'?: string; '#text'?: string }
@@ -137,7 +138,7 @@ export function parseYml(xml: string, source: CatalogSource): FeedParseResult {
       source,
       externalId: String(externalId),
       category,
-      subcategory: path.split(' / ').pop() || undefined,
+      subcategory: subcategoryFromText(category, title, path),
       brand: text(offer.vendor),
       title,
       description: text(offer.description),
