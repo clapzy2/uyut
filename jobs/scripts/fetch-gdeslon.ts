@@ -254,7 +254,9 @@ function toRow(offer: Offer): Row | null {
     return null
   }
   const oldPrice = Math.round(Number(offer.oldPrice))
-  const measured = parseDimensionsCm(`${offer.title} ${offer.description}`)
+  const measured = parseDimensionsCm(`${offer.title} ${offer.description}`, {
+    sleepingIsFootprint: category === 'bed',
+  })
   return {
     // Пара «магазин плюс артикул» переживает переиндексацию сети, внутренний id — нет
     externalId: offer.article ? `${offer.merchantId}-${offer.article}` : offer.id,
