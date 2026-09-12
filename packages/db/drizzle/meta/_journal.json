@@ -120,6 +120,13 @@
       "when": 1789109344041,
       "tag": "0016_room-measurements",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789178842637,
+      "tag": "0017_plan-reading",
+      "breakpoints": true
     }
   ]
 }

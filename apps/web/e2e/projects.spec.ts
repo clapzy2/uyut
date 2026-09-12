@@ -85,6 +85,11 @@ test.describe
       })
       await expect(page.getByText('Это не похоже на PDF, JPG или PNG')).toBeVisible()
 
+      // Чтение плана: ключа модели в CI нет, поэтому проверяем, что кнопка на месте,
+      // действие доходит до сервера и отказ выглядит как человеческая фраза, а не как падение
+      await page.getByRole('button', { name: 'Прочитать размеры с плана' }).click()
+      await expect(page.getByText('Чтение планов пока не подключено')).toBeVisible()
+
       for (const kind of ['Спальня']) {
         await page.getByRole('button', { name: 'Добавить комнату' }).click()
         // Радиокнопки скрыты визуально, кликаем по подписи-чипу внутри диалога
@@ -124,13 +129,16 @@ test.describe
       await expect(page.getByRole('button', { name: 'Сгенерировать концепты' })).toBeEnabled()
 
       // Мерки рулеткой: по ним считается, влезет ли мебель
-      await page.getByLabel('Высота потолка, см').fill('270')
+      await page.getByLabel('Потолок, см').fill('270')
+      await page.getByLabel('Ширина комнаты, см').fill('290')
+      await page.getByLabel('Глубина комнаты, см').fill('425')
       await page.getByLabel('Участок стены').fill('простенок под окном')
       await page.getByLabel('Ширина, см').fill('140')
       await page.getByRole('button', { name: 'Сохранить мерки' }).click()
       await expect(page.getByText('Сохранили')).toBeVisible()
       await page.reload()
       await expect(page.getByLabel('Ширина, см')).toHaveValue('140')
+      await expect(page.getByLabel('Глубина комнаты, см')).toHaveValue('425')
     })
 
     test('a stranger sees neither the project nor the room', async ({

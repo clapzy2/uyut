@@ -10,6 +10,7 @@ import { TogetherCard } from '@/components/collaboration/together-card'
 import { DeleteProjectDialog } from '@/components/delete-project-dialog'
 import { EmptyArt } from '@/components/empty-art'
 import { FileUploader } from '@/components/file-uploader'
+import { PlanReadingCard } from '@/components/plan-reading-card'
 import { ProjectSettingsDialog } from '@/components/project-settings-dialog'
 import { getCollaboration, ownerDisplayName } from '@/lib/collaboration/repository'
 import { canInvite } from '@/lib/collaboration/rules'
@@ -202,9 +203,8 @@ export default async function ProjectPage({ params }: { params: Params }) {
                 {isOwner ? (
                   <p>
                     {PLAN_LIMIT_TEXT}.
-                    <br />
-                    План нужен вам как шпаргалка: комнаты и площади вписываются вручную, глядя на
-                    него. Без плана тоже можно.
+                    <br />С плана мы прочитаем комнаты, их размеры и высоту потолка, а вы поправите,
+                    если что-то не сошлось. Без плана тоже можно: комнаты вписываются руками.
                   </p>
                 ) : (
                   <p>Плана пока нет. Его загружает владелец проекта.</p>
@@ -226,6 +226,15 @@ export default async function ProjectPage({ params }: { params: Params }) {
               ) : null}
             </>
           )}
+          {isOwner ? (
+            <PlanReadingCard
+              projectId={project.id}
+              reading={project.planReading}
+              hasPlan={Boolean(project.planUrl)}
+              planIsPdf={planIsPdf}
+              roomCount={project.rooms.length}
+            />
+          ) : null}
         </div>
 
         <div>

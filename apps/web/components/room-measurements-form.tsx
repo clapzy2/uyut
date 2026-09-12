@@ -39,6 +39,8 @@ export function RoomMeasurementsForm({
   const [ceiling, setCeiling] = useState(
     measurements?.ceilingCm ? String(measurements.ceilingCm) : '',
   )
+  const [width, setWidth] = useState(measurements?.widthCm ? String(measurements.widthCm) : '')
+  const [depth, setDepth] = useState(measurements?.depthCm ? String(measurements.depthCm) : '')
   const [rows, setRows] = useState<Row[]>(() => initialRows(measurements))
   const [error, setError] = useState<string | undefined>(undefined)
   const [saving, setSaving] = useState(false)
@@ -53,6 +55,8 @@ export function RoomMeasurementsForm({
     setSaving(true)
     const result = await updateRoomMeasurements(roomId, {
       ceilingCm: ceiling,
+      widthCm: width,
+      depthCm: depth,
       spots: rows.map((row) => ({ name: row.name, widthCm: row.width })),
     })
     setSaving(false)
@@ -76,13 +80,37 @@ export function RoomMeasurementsForm({
         </p>
       </div>
 
-      <Input
-        id={`ceiling-${roomId}`}
-        label="Высота потолка, см"
-        inputMode="numeric"
-        value={ceiling}
-        onChange={(event) => setCeiling(event.currentTarget.value)}
-      />
+      <div className="flex flex-wrap gap-3">
+        <Input
+          id={`ceiling-${roomId}`}
+          className="w-32"
+          label="Потолок, см"
+          inputMode="numeric"
+          value={ceiling}
+          onChange={(event) => setCeiling(event.currentTarget.value)}
+        />
+        <Input
+          id={`room-width-${roomId}`}
+          className="w-40"
+          label="Ширина комнаты, см"
+          inputMode="numeric"
+          value={width}
+          onChange={(event) => setWidth(event.currentTarget.value)}
+        />
+        <Input
+          id={`room-depth-${roomId}`}
+          className="w-40"
+          label="Глубина комнаты, см"
+          inputMode="numeric"
+          value={depth}
+          onChange={(event) => setDepth(event.currentTarget.value)}
+        />
+      </div>
+      <p className="-mt-1 text-[13px] leading-relaxed text-ink-2">
+        Стороны комнаты подставляются с плана, если он загружен. По ним видно только то, что предмет
+        шире самой длинной стены и не встанет никуда. Чтобы услышать «встанет», нужен промеренный
+        участок.
+      </p>
 
       <div className="flex flex-col gap-3">
         {rows.map((row, index) => (
