@@ -246,7 +246,8 @@ export function PlanReadingCard({
         </fieldset>
       </div>
       <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-        {roomConditionHints[condition]} У каждой комнаты это потом можно поменять отдельно.
+        {roomConditionHints[condition]} Поставим это всем комнатам из плана, у каждой потом можно
+        поменять отдельно.
       </p>
 
       <ul className="mt-5 flex flex-col gap-3">

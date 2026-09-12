@@ -1,5 +1,7 @@
 import 'server-only'
 
+import { createRequire } from 'node:module'
+import { dirname, join, sep } from 'node:path'
 import {
   applyRecheck,
   createFalPlanReader,
@@ -42,6 +44,28 @@ const PDF_MAX_PAGES = 3
 /** Сколько комнат перечитывать по отрезкам за один план: дальше это уже не помощь, а счёт. */
 const MAX_RECHECKS = 6
 
+/**
+ * Потолок разрешения страницы. Размер холста берётся из самого файла, а поле страницы в PDF
+ * задаётся произвольно: лист «200 на 200 дюймов» весом в шестьсот байт просит у сервера
+ * гигабайты памяти. Двенадцать мегапикселей — это лист А3 при полутора сотнях точек на дюйм,
+ * больше для чтения размерных линий не нужно.
+ */
+const PDF_MAX_PIXELS = 12_000_000
+
+/**
+ * Папка со стандартными шрифтами pdf.js. Путь считаем один раз и мягко: если пакет переехал,
+ * чтение должно продолжать работать без них, а не падать на импорте.
+ */
+const standardFontDataUrl = (() => {
+  try {
+    const require_ = createRequire(import.meta.url)
+    const pdfjs = require_.resolve('pdfjs-dist/package.json')
+    return `${join(dirname(pdfjs), 'standard_fonts')}${sep}`
+  } catch {
+    return undefined
+  }
+})()
+
 function isPdf(key: string): boolean {
   return key.toLowerCase().endsWith('.pdf')
 }
@@ -66,6 +90,10 @@ async function pdfPages(body: Buffer): Promise<Array<{ body: Buffer; contentType
   const [{ createCanvas }, pdfjs] = await Promise.all([
     import('@napi-rs/canvas'),
     import('pdfjs-dist/legacy/build/pdf.mjs'),
+    // Воркер подтягивается изнутри pdf.js динамически, и трассировщик Next его не видит:
+    // в собранный образ файл не попадал, а чтение PDF падало только в production.
+    // Явный импорт ставит его в зависимости страницы, и файл доезжает до контейнера.
+    import('pdfjs-dist/legacy/build/pdf.worker.mjs'),
   ])
   const document = await pdfjs.getDocument({
     data: new Uint8Array(body),
@@ -73,25 +101,35 @@ async function pdfPages(body: Buffer): Promise<Array<{ body: Buffer; contentType
     // а системные шрифты в контейнере всё равно другие
     disableFontFace: true,
     useWorkerFetch: false,
+    // Запасные шрифты для файлов, которые ссылаются на стандартные четырнадцать, но не вкладывают их:
+    // без них pdf.js подставляет что попало и может потерять часть знаков
+    ...(standardFontDataUrl ? { standardFontDataUrl } : {}),
   }).promise
   const count = Math.min(document.numPages, PDF_MAX_PAGES)
   const pages: Array<{ body: Buffer; contentType: string }> = []
   for (let index = 1; index <= count; index += 1) {
-    const page = await document.getPage(index)
-    const viewport = page.getViewport({ scale: PDF_DPI / 72 })
-    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height))
-    const context = canvas.getContext('2d')
-    // Без заливки прозрачный фон станет чёрным при переводе в JPEG
-    context.fillStyle = '#ffffff'
-    context.fillRect(0, 0, canvas.width, canvas.height)
-    await page.render({
-      // biome-ignore lint/suspicious/noExplicitAny: холст napi-rs и типы pdf.js описаны по-разному
-      canvas: canvas as any,
-      // biome-ignore lint/suspicious/noExplicitAny: то же самое для контекста
-      canvasContext: context as any,
-      viewport,
-    }).promise
-    pages.push(await toJpeg(canvas.toBuffer('image/png')))
+    try {
+      const page = await document.getPage(index)
+      const full = page.getViewport({ scale: PDF_DPI / 72 })
+      const budget = Math.min(1, Math.sqrt(PDF_MAX_PIXELS / (full.width * full.height)))
+      const viewport = page.getViewport({ scale: (PDF_DPI / 72) * budget })
+      const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height))
+      const context = canvas.getContext('2d')
+      // Без заливки прозрачный фон станет чёрным при переводе в JPEG
+      context.fillStyle = '#ffffff'
+      context.fillRect(0, 0, canvas.width, canvas.height)
+      await page.render({
+        // biome-ignore lint/suspicious/noExplicitAny: холст napi-rs и типы pdf.js описаны по-разному
+        canvas: canvas as any,
+        // biome-ignore lint/suspicious/noExplicitAny: то же самое для контекста
+        canvasContext: context as any,
+        viewport,
+      }).promise
+      pages.push(await toJpeg(canvas.toBuffer('image/png')))
+    } catch (error) {
+      // Одна сломанная страница не отменяет остальные: план обычно на первой, а сбоит титульная
+      console.error(`страница ${index} не развернулась`, error)
+    }
   }
   return pages
 }
@@ -153,7 +191,16 @@ export async function readPlanFromStorage(key: string): Promise<PlanReading> {
       throw new Error('в файле нет страниц')
     }
     const read = createFalPlanReader(apiKey)
-    const readings = await Promise.all(pages.map((page) => read(page)))
+    // Одна неудачная страница не выбрасывает те, что прочитались
+    const answers = await Promise.allSettled(pages.map((page) => read(page)))
+    const readings = answers
+      .filter(
+        (answer): answer is PromiseFulfilledResult<PlanReading> => answer.status === 'fulfilled',
+      )
+      .map((answer) => answer.value)
+    if (readings.length === 0) {
+      throw new Error('ни одна страница не прочиталась')
+    }
     reading = mergeReadings(readings)
   } catch (error) {
     console.error(error)

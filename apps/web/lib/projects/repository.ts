@@ -211,8 +211,18 @@ export async function createRoomsFromPlan(
     .from(rooms)
     .where(eq(rooms.projectId, project.id))
   let order = (last?.maxIndex ?? -1) + 1
-  const fresh = input.rooms.filter((room) => !room.roomId)
-  const existing = input.rooms.filter((room) => room.roomId)
+  const wanted = input.rooms.filter((room) => room.roomId).map((room) => room.roomId as string)
+  const current =
+    wanted.length > 0
+      ? await db
+          .select()
+          .from(rooms)
+          .where(and(eq(rooms.projectId, project.id), inArray(rooms.id, wanted)))
+      : []
+  const byId = new Map(current.map((room) => [room.id, room]))
+  // Комнату успели удалить между чтением плана и подтверждением: заводим заново, а не теряем
+  const fresh = input.rooms.filter((room) => !room.roomId || !byId.has(room.roomId))
+  const existing = input.rooms.filter((room) => room.roomId && byId.has(room.roomId))
   if (fresh.length > 0) {
     await db.insert(rooms).values(
       fresh.map((room) => ({
@@ -227,34 +237,28 @@ export async function createRoomsFromPlan(
       })),
     )
   }
-  if (existing.length > 0) {
-    const ids = existing.map((room) => room.roomId as string)
-    const current = await db
-      .select()
-      .from(rooms)
-      .where(and(eq(rooms.projectId, project.id), inArray(rooms.id, ids)))
-    const byId = new Map(current.map((room) => [room.id, room]))
-    for (const room of existing) {
-      const before = byId.get(room.roomId as string)
-      // Комната из другого проекта сюда не попадёт: выборка ограничена этим проектом
-      if (!before) {
-        continue
-      }
-      await db
-        .update(rooms)
-        .set({
-          kind: room.kind,
-          name: room.name,
-          // Площадь и мерки с плана дополняют, а не отменяют. Участки стен человек мерил
-          // рулеткой, и с плана их не прочитать: затереть их прочитанным — потерять
-          // единственные настоящие числа, какие у нас были.
-          areaM2: room.areaM2 ?? before.areaM2,
-          measurements: mergeMeasurements(before.measurements, room.measurements),
-          // Заметку не затираем пустой: человек мог написать её раньше и оставить поле плана пустым
-          ...(room.notes ? { notes: room.notes } : {}),
-        })
-        .where(and(eq(rooms.id, room.roomId as string), eq(rooms.projectId, project.id)))
+  for (const room of existing) {
+    const before = byId.get(room.roomId as string)
+    if (!before) {
+      continue
     }
+    await db
+      .update(rooms)
+      .set({
+        kind: room.kind,
+        name: room.name,
+        // Состояние квартиры человек выбирает одним ответом на все комнаты плана,
+        // и экран прямо об этом говорит
+        condition: room.condition,
+        // Площадь и мерки с плана дополняют, а не отменяют. Участки стен человек мерил
+        // рулеткой, и с плана их не прочитать: затереть их прочитанным — потерять
+        // единственные настоящие числа, какие у нас были.
+        areaM2: room.areaM2 ?? before.areaM2,
+        measurements: mergeMeasurements(before.measurements, room.measurements),
+        // Заметку не затираем пустой: человек мог написать её раньше и оставить поле плана пустым
+        ...(room.notes ? { notes: room.notes } : {}),
+      })
+      .where(and(eq(rooms.id, room.roomId as string), eq(rooms.projectId, project.id)))
   }
   await db
     .update(projects)

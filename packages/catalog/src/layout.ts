@@ -163,9 +163,11 @@ function cornerOf(
 /**
  * Отрезок стены, на который можно ставить.
  *
- * Углы отданы соседним стенам: угол комнаты принадлежит сразу двум, и без этого отступа шкаф
- * у левой стены и комод у верхней вставали в одну и ту же клетку. На картинке они наезжали друг
- * на друга, а в ответе стояло «всё помещается».
+ * Угол комнаты принадлежит сразу двум стенам, и без разведения шкаф у левой стены и комод
+ * у верхней вставали в одну клетку. Уступают углы только боковые стены: этого достаточно,
+ * чтобы прямоугольники не пересекались, а горизонтальные сохраняют всю свою длину. Резать
+ * обе пары — значит объявлять бездомной мебель, которой на стене есть место: на переборе
+ * из семи с половиной тысяч комнат так терялось шесть процентов раскладок.
  */
 function spanOf(
   wall: LayoutWall,
@@ -173,8 +175,53 @@ function spanOf(
   room: Size,
 ): { from: number; to: number } {
   return wall === 'top' || wall === 'bottom'
-    ? { from: depths.left, to: room.widthCm - depths.right }
+    ? { from: 0, to: room.widthCm }
     : { from: depths.top, to: room.depthCm - depths.bottom }
+}
+
+/**
+ * Самый узкий зазор между мебелью противоположных стен.
+ *
+ * Считается только там, где мебель и правда стоит друг напротив друга. Одинокая кровать
+ * поперёк спальни оставляет у изножья полметра, но это тупик, а не проход: обойти её можно
+ * сбоку, где пусто. Жаловаться на такой зазор — врать, поэтому узкие места ищутся по тем
+ * участкам, где заняты обе стороны.
+ */
+function pinchGap(placed: readonly Placement[], room: Size): number | undefined {
+  const axes = [
+    {
+      near: placed.filter((place) => place.wall === 'top'),
+      far: placed.filter((place) => place.wall === 'bottom'),
+      across: room.depthCm,
+      along: (place: Placement) => [place.xCm, place.xCm + place.widthCm] as const,
+      nearDepth: (place: Placement) => place.yCm + place.depthCm,
+      farDepth: (place: Placement) => room.depthCm - place.yCm,
+    },
+    {
+      near: placed.filter((place) => place.wall === 'left'),
+      far: placed.filter((place) => place.wall === 'right'),
+      across: room.widthCm,
+      along: (place: Placement) => [place.yCm, place.yCm + place.depthCm] as const,
+      nearDepth: (place: Placement) => place.xCm + place.widthCm,
+      farDepth: (place: Placement) => room.widthCm - place.xCm,
+    },
+  ]
+  let narrowest: number | undefined
+  for (const axis of axes) {
+    for (const one of axis.near) {
+      for (const other of axis.far) {
+        const [oneFrom, oneTo] = axis.along(one)
+        const [otherFrom, otherTo] = axis.along(other)
+        // Стоят ли они хоть сколько-то друг против друга
+        if (Math.min(oneTo, otherTo) - Math.max(oneFrom, otherFrom) <= 0.5) {
+          continue
+        }
+        const gap = axis.across - axis.nearDepth(one) - axis.farDepth(other)
+        narrowest = narrowest === undefined ? gap : Math.min(narrowest, gap)
+      }
+    }
+  }
+  return narrowest
 }
 
 const OPPOSITE: Record<LayoutWall, LayoutWall> = {
@@ -291,17 +338,16 @@ export function layoutRoom(
     roomy.depthCm = Math.max(roomy.depthCm, entry.size.depthCm)
   }
 
-  const depths: Record<LayoutWall, number> = {
-    top: walls.top.depthCm,
-    bottom: walls.bottom.depthCm,
-    left: walls.left.depthCm,
-    right: walls.right.depthCm,
-  }
-
+  // Горизонтальные стены кладутся первыми и на всю длину: их глубина задаёт отступ боковым.
+  // Сначала считаем её только по назначенным предметам, потом уточняем по поставленным —
+  // отвергнутая мебель не должна отрезать углы, которых она не занимает.
+  const depths: Record<LayoutWall, number> = { top: 0, bottom: 0, left: 0, right: 0 }
   let freeWallCm = 0
-  for (const wall of order) {
+
+  const layOut = (wall: LayoutWall) => {
     const span = spanOf(wall, depths, { widthCm, depthCm })
     let along = span.from
+    let deepest = 0
     for (const item of walls[wall].items) {
       const size = sizeOnWall(wall, item.size)
       const at = cornerOf(wall, along, size, { widthCm, depthCm })
@@ -310,7 +356,7 @@ export function layoutRoom(
         at.yCm >= -0.5 &&
         at.xCm + size.widthCm <= widthCm + 0.5 &&
         at.yCm + size.depthCm <= depthCm + 0.5
-      // Угол соседней стены съел место, либо предмет глубже самой комнаты: рисовать его
+      // Места вдоль стены не осталось, либо предмет глубже самой комнаты: рисовать его
       // поверх стены нельзя, а молча выбросить — тем более
       if (along + item.size.widthCm > span.to + 0.5 || !insideRoom) {
         problems.push({ kind: 'noWall', title: item.title, widthCm: item.size.widthCm })
@@ -326,8 +372,17 @@ export function layoutRoom(
         wall,
       })
       along += item.size.widthCm
+      deepest = Math.max(deepest, item.size.depthCm)
     }
+    depths[wall] = deepest
     freeWallCm += Math.max(0, span.to - along)
+  }
+
+  for (const wall of ['top', 'bottom'] as const) {
+    layOut(wall)
+  }
+  for (const wall of ['left', 'right'] as const) {
+    layOut(wall)
   }
 
   const centerWidthCm = widthCm - depths.left - depths.right
@@ -340,9 +395,11 @@ export function layoutRoom(
   // Предметы посередине встают в ряд слева направо, а не все в одну точку: иначе журнальный
   // столик оказывался внутри обеденного, и оба считались поместившимися
   let centerUsedCm = 0
-  let requiredCm = centerItems.length > 0 ? 0 : WALKWAY_CM
-  let walkwayCm = Math.min(centerWidthCm, centerDepthCm)
+  let centerPlaced = 0
   for (const entry of centerItems) {
+    // Вокруг обеденного стола нужен отодвинутый стул, вокруг журнального — вытянутая рука.
+    // Предмет ставится, только если его собственный запас помещается, поэтому отдельной
+    // жалобы на тесноту вокруг него потом уже не нужно.
     const clearance = clearanceOf(entry)
     const needWidth = entry.size.widthCm + clearance * 2
     const needDepth = entry.size.depthCm + clearance * 2
@@ -360,15 +417,15 @@ export function layoutRoom(
       wall: 'center',
     })
     centerUsedCm += needWidth
-    // Проход меряем тем, что просит сам предмет: вокруг журнального столика сорок сантиметров —
-    // это норма, а не теснота, и жаловаться на них было бы враньём
-    requiredCm = Math.max(requiredCm, clearance)
-    walkwayCm = Math.min(walkwayCm, (centerDepthCm - entry.size.depthCm) / 2)
+    centerPlaced += 1
   }
 
-  const rounded = Math.max(0, Math.round(walkwayCm))
-  if (placed.length > 0 && rounded < requiredCm) {
-    problems.push({ kind: 'narrowWalkway', gapCm: rounded })
+  // Узкое место ищем там, где мебель стоит друг напротив друга. Если посреди комнаты что-то
+  // поставлено, свой запас оно уже получило при постановке, и мерить нечего.
+  const pinch = centerPlaced > 0 ? undefined : pinchGap(placed, { widthCm, depthCm })
+  const walkwayCm = Math.max(0, Math.round(pinch ?? Math.min(centerWidthCm, centerDepthCm)))
+  if (pinch !== undefined && walkwayCm < WALKWAY_CM) {
+    problems.push({ kind: 'narrowWalkway', gapCm: walkwayCm })
   }
 
   return {
@@ -376,7 +433,7 @@ export function layoutRoom(
     depthCm,
     placed,
     freeWallCm: Math.round(freeWallCm),
-    walkwayCm: rounded,
+    walkwayCm,
     problems,
     offFloor,
     unmeasured,

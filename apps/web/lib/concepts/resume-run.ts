@@ -33,6 +33,15 @@ export function isPendingClaim(runId: string | null): boolean {
   return runId?.startsWith('pending:') ?? false
 }
 
+/**
+ * Сколько живёт бронь без запуска.
+ *
+ * Между «заняли комнату» и «записали настоящий номер запуска» проходит секунда. Если в этот
+ * зазор процесс умер, бронь осталась бы навсегда, и комната навсегда выпала бы из «обставить
+ * всю квартиру»: она не занята и не готова, а выглядит занятой. Минуты хватает с запасом.
+ */
+const CLAIM_STALE_AFTER_MS = 60_000
+
 export async function generationStillRunning(room: Room): Promise<boolean> {
   const startedAt = room.generationStartedAt
   if (!room.generationRunId || !startedAt) {
@@ -52,7 +61,14 @@ export async function generationStillRunning(room: Room): Promise<boolean> {
 /** Ключ для продолжения ожидания, если генерация и правда идёт. */
 export async function resumeGenerationRun(room: Room): Promise<ConceptRunHandle | null> {
   const runId = room.generationRunId
-  if (!runId || isPendingClaim(runId) || !getEnv().TRIGGER_SECRET_KEY) {
+  if (isPendingClaim(runId)) {
+    const startedAt = room.generationStartedAt?.getTime() ?? 0
+    if (Date.now() - startedAt > CLAIM_STALE_AFTER_MS) {
+      await clearGenerationRun(room.id)
+    }
+    return null
+  }
+  if (!runId || !getEnv().TRIGGER_SECRET_KEY) {
     return null
   }
   if (!(await generationStillRunning(room))) {
