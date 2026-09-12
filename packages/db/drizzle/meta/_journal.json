@@ -127,6 +127,13 @@
       "when": 1789178842637,
       "tag": "0017_plan-reading",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789208194266,
+      "tag": "0018_item-size",
+      "breakpoints": true
     }
   ]
 }

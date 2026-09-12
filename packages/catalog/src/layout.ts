@@ -63,8 +63,8 @@ export type RoomLayout = {
   problems: LayoutProblem[]
   /** Предметы, которые пол не занимают: люстры, картины, текстиль */
   offFloor: string[]
-  /** Предметы без размеров в карточке магазина: их разместить не из чего */
-  unmeasured: string[]
+  /** Предметы без размеров: их разместить не из чего, пока размеры не появятся */
+  unmeasured: Array<{ id: string; title: string }>
 }
 
 /** Где предмет стоит: у стены, посреди комнаты или нигде, потому что он висит. */
@@ -365,7 +365,7 @@ export function layoutRoom(
   }
 
   const offFloor: string[] = []
-  const unmeasured: string[] = []
+  const unmeasured: Array<{ id: string; title: string }> = []
   const problems: LayoutProblem[] = []
   const placed: Placement[] = []
 
@@ -378,7 +378,7 @@ export function layoutRoom(
     }
     const size = footprint(item.dimensions)
     if (!size) {
-      unmeasured.push(item.title)
+      unmeasured.push({ id: item.id, title: item.title })
       continue
     }
     // Два одинаковых стула занимают пол дважды: количество разворачивается в отдельные предметы

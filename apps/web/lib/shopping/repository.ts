@@ -17,6 +17,7 @@ import {
   NotFoundError,
 } from '@/lib/projects/access'
 import { ownObjectKey, presignedObjectUrl } from '@/lib/storage'
+import { effectiveSize } from './item-size'
 
 export type ShoppingItemView = {
   id: string
@@ -40,8 +41,10 @@ export type ShoppingItemView = {
   roomId: string | null
   roomName: string | null
   conceptObjectId: string | null
-  /** Габариты из карточки магазина, сантиметры */
+  /** Габариты в сантиметрах: из карточки магазина либо вписанные человеком */
   dimensionsCm: DimensionsCm | null
+  /** Числа вписал человек, а не магазин */
+  ownSize: boolean
   /** Влезет ли в промеренные участки стены своей комнаты */
   fit: FitVerdict
 }
@@ -123,8 +126,9 @@ export async function getShoppingList(
         roomId: item.roomId,
         roomName,
         conceptObjectId: item.conceptObjectId,
-        dimensionsCm: product.attributes?.dimensionsCm ?? null,
-        fit: checkFit(product.attributes?.dimensionsCm, measurements ?? {}),
+        dimensionsCm: effectiveSize(item, product),
+        ownSize: Boolean(item.dimensionsCm),
+        fit: checkFit(effectiveSize(item, product) ?? undefined, measurements ?? {}),
       }),
     ),
   )
@@ -288,6 +292,26 @@ export async function setShoppingItemQuantity(
     .set({ quantity: next })
     .where(eq(shoppingListItems.id, item.id))
   return { projectId: item.projectId, quantity: next }
+}
+
+/**
+ * Габариты, вписанные человеком. Пустые значения стирают запись и возвращают строку
+ * к тому, что написано в карточке магазина.
+ */
+export async function setShoppingItemSize(
+  userId: string,
+  itemId: string,
+  size: { width?: number; depth?: number; height?: number },
+): Promise<{ projectId: string }> {
+  const item = await ownedItem(userId, itemId)
+  const kept = Object.fromEntries(
+    Object.entries(size).filter(([, value]) => typeof value === 'number' && value > 0),
+  )
+  await getDb()
+    .update(shoppingListItems)
+    .set({ dimensionsCm: Object.keys(kept).length > 0 ? kept : null })
+    .where(eq(shoppingListItems.id, item.id))
+  return { projectId: item.projectId }
 }
 
 export async function removeShoppingItem(
