@@ -75,10 +75,22 @@ export function FileUploader({
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={pending}
-        className="inline-flex items-center gap-2 py-2 text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4 transition-colors duration-200 ease-ui hover:text-accent disabled:opacity-60"
+        aria-busy={pending || undefined}
+        className="relative inline-flex items-center gap-2 overflow-hidden py-2 text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4 transition-colors duration-200 ease-ui hover:text-accent disabled:opacity-60"
       >
-        <Icon name="upload" className="size-4" />
+        <span
+          aria-hidden="true"
+          className={pending ? 'animate-[busy-dot_1.2s_var(--ease-ui)_infinite]' : undefined}
+        >
+          <Icon name="upload" className="size-4" />
+        </span>
         {pending ? pendingLabel : label}
+        {pending ? (
+          <span
+            aria-hidden="true"
+            className="upload-rail absolute bottom-0 left-0 h-px w-1/3 bg-accent"
+          />
+        ) : null}
       </button>
     </>
   )

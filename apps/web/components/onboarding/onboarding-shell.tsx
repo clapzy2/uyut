@@ -18,14 +18,25 @@ export function OnboardingShell({
 }) {
   return (
     <section className="mx-auto w-full max-w-2xl px-5 py-10 sm:px-8 sm:py-14">
-      <div className="flex gap-1.5" aria-hidden="true">
+      <div
+        className="flex gap-1.5"
+        role="progressbar"
+        aria-label="Заполнение проекта"
+        aria-valuemin={1}
+        aria-valuemax={ONBOARDING_STEPS}
+        aria-valuenow={step}
+        aria-valuetext={`Шаг ${step} из ${ONBOARDING_STEPS}`}
+      >
         {stepNumbers.map((number) => (
           <span
             key={number}
+            aria-hidden="true"
             className={
-              number <= step
-                ? 'h-[3px] flex-1 rounded-full bg-accent'
-                : 'h-[3px] flex-1 rounded-full bg-line'
+              number < step
+                ? 'onboarding-progress-complete h-[3px] flex-1 rounded-full bg-accent'
+                : number === step
+                  ? 'onboarding-progress-current h-[3px] flex-1 rounded-full bg-accent'
+                  : 'h-[3px] flex-1 rounded-full bg-line'
             }
           />
         ))}
@@ -37,7 +48,7 @@ export function OnboardingShell({
         {title}
       </h1>
       {hint ? <div className="mt-3 text-[15px] leading-relaxed text-ink-2">{hint}</div> : null}
-      <div className="mt-8">{children}</div>
+      <div className="mt-8 animate-[rise-in_350ms_var(--ease-appear)]">{children}</div>
     </section>
   )
 }

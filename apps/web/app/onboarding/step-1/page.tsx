@@ -70,7 +70,7 @@ export default async function Step1({ searchParams }: StepParams) {
             {fileNameFromKey(project.planUrl)}
           </p>
         ) : (
-          <div className="grid aspect-[3/2] place-items-center border border-dashed border-line-strong p-6 text-center text-[15px] leading-relaxed text-ink-2">
+          <div className="blueprint-grid grid aspect-[3/2] place-items-center border border-dashed border-line-strong p-6 text-center text-[15px] leading-relaxed text-ink-2">
             <p>{PLAN_LIMIT_TEXT}</p>
           </div>
         )}

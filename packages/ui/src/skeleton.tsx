@@ -6,7 +6,9 @@ import { cn } from './cn'
  * так при появлении данных ничего не прыгает. Пульсацию гасит prefers-reduced-motion.
  */
 export function Skeleton({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div aria-hidden="true" className={cn('animate-pulse bg-muted', className)} {...props} />
+  return (
+    <div aria-hidden="true" className={cn('skeleton-shimmer bg-muted', className)} {...props} />
+  )
 }
 
 /** Обёртка экрана загрузки: скринридер слышит одно сообщение вместо набора пустых блоков */

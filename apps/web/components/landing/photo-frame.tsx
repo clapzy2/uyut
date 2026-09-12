@@ -32,13 +32,16 @@ export function PhotoFrame({
     )
   }
   return (
-    // biome-ignore lint/performance/noImgElement: кадры лендинга лежат рядом со страницей и уже сжаты
-    <img
-      src={slot.src}
-      alt={slot.alt}
-      loading={priority ? 'eager' : 'lazy'}
-      fetchPriority={priority ? 'high' : 'auto'}
-      className={cn('block object-cover', className)}
-    />
+    <div className={cn('group overflow-hidden bg-muted', className)}>
+      {/* biome-ignore lint/performance/noImgElement: кадры лендинга лежат рядом со страницей и уже сжаты */}
+      <img
+        src={slot.src}
+        alt={slot.alt}
+        loading={priority ? 'eager' : 'lazy'}
+        fetchPriority={priority ? 'high' : 'auto'}
+        decoding="async"
+        className="block h-full w-full object-cover transition-transform duration-[900ms] ease-appear group-hover:scale-[1.025]"
+      />
+    </div>
   )
 }

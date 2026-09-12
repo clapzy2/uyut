@@ -150,6 +150,333 @@
   }
 }
 
+@keyframes hero-line-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes hero-copy-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hero-media-in {
+  from {
+    opacity: 0;
+    clip-path: inset(0 0 12% 0);
+    transform: translateY(14px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0);
+    transform: none;
+  }
+}
+
+@keyframes section-in {
+  from {
+    opacity: 0.25;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes busy-dot {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.75);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes skeleton-sweep {
+  from {
+    transform: translateX(-115%);
+  }
+  to {
+    transform: translateX(215%);
+  }
+}
+
+@keyframes upload-rail {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(320%);
+  }
+}
+
+@keyframes scan-plan {
+  0% {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(86px);
+  }
+}
+
+@keyframes progress-draw {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes control-rise {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes swipe-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-shimmer::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--paper) 72%, transparent),
+    transparent
+  );
+  content: "";
+  animation: skeleton-sweep 1.6s var(--ease-ui) infinite;
+}
+
+.upload-rail {
+  animation: upload-rail 1.2s var(--ease-ui) infinite;
+}
+
+.plan-scan {
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.plan-scan::after {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 1px;
+  background: var(--accent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 55%, transparent);
+  content: "";
+  animation: scan-plan 1.8s var(--ease-ui) infinite;
+}
+
+.blueprint-grid {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--line) 55%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--line) 55%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.onboarding-progress-current {
+  transform-origin: left;
+  animation: progress-draw 500ms var(--ease-appear) both;
+}
+
+.onboarding-progress-complete {
+  transform-origin: left;
+  animation: progress-draw 320ms var(--ease-appear) both;
+}
+
+.household-choice {
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
+  transition:
+    color 180ms var(--ease-ui),
+    background-color 180ms var(--ease-ui),
+    border-color 180ms var(--ease-ui),
+    box-shadow 260ms var(--ease-appear),
+    transform 180ms var(--ease-ui);
+}
+
+label:hover .household-choice {
+  border-color: var(--ink);
+  color: var(--ink);
+  transform: translateY(-1px);
+}
+
+label:active .household-choice {
+  transform: scale(0.94);
+}
+
+input:checked + .household-choice {
+  box-shadow: 0 5px 16px -9px color-mix(in srgb, var(--accent) 75%, transparent);
+  transform: translateY(-1px);
+}
+
+.household-toggle-row {
+  transition:
+    background-color 220ms var(--ease-ui),
+    transform 180ms var(--ease-ui);
+}
+
+.household-toggle-row:hover {
+  background: color-mix(in srgb, var(--paper) 52%, transparent);
+}
+
+.household-toggle-row:active {
+  transform: scale(0.992);
+}
+
+.household-toggle-row:has(.household-toggle-input:checked) {
+  background: color-mix(in srgb, var(--accent-tint) 68%, transparent);
+}
+
+.household-toggle-state {
+  transition: color 200ms var(--ease-ui);
+}
+
+.household-toggle-control {
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 10%, transparent);
+  transition:
+    background-color 220ms var(--ease-ui),
+    border-color 220ms var(--ease-ui),
+    box-shadow 220ms var(--ease-ui),
+    transform 180ms var(--ease-ui);
+}
+
+.household-toggle-row:hover .household-toggle-control {
+  border-color: var(--ink-2);
+  transform: translateY(-1px);
+}
+
+.household-toggle-knob {
+  transition:
+    transform 300ms var(--ease-appear),
+    background-color 220ms var(--ease-ui);
+}
+
+.household-toggle-mark {
+  transition:
+    background-color 200ms var(--ease-ui),
+    transform 300ms var(--ease-appear);
+}
+
+.household-toggle-input:checked ~ .household-toggle-state {
+  color: var(--accent);
+}
+
+.household-toggle-input:checked ~ .household-toggle-control {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 5px 16px -9px color-mix(in srgb, var(--accent) 78%, transparent);
+}
+
+.household-toggle-input:checked ~ .household-toggle-control .household-toggle-knob {
+  transform: translateX(26px);
+}
+
+.household-toggle-input:checked ~ .household-toggle-control .household-toggle-mark {
+  background: var(--accent);
+  transform: scale(1.35);
+}
+
+.household-toggle-input:focus-visible ~ .household-toggle-control {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.motion-control-list > * {
+  animation: control-rise 360ms var(--ease-appear) both;
+}
+
+.motion-control-list > :nth-child(2) {
+  animation-delay: 45ms;
+}
+
+.motion-control-list > :nth-child(3) {
+  animation-delay: 90ms;
+}
+
+.motion-control-list > :nth-child(4) {
+  animation-delay: 135ms;
+}
+
+.motion-swipe-card {
+  animation: swipe-card-enter 320ms var(--ease-appear) both;
+}
+
+.motion-hero-line {
+  transform-origin: left;
+  animation: hero-line-in 700ms var(--ease-appear) 80ms both;
+}
+
+.motion-hero-title {
+  animation: hero-copy-in 700ms var(--ease-appear) 130ms both;
+}
+
+.motion-hero-detail {
+  animation: hero-copy-in 650ms var(--ease-appear) 240ms both;
+}
+
+.motion-hero-action {
+  animation: hero-copy-in 600ms var(--ease-appear) 330ms both;
+}
+
+.motion-hero-media {
+  animation: hero-media-in 900ms var(--ease-appear) 420ms both;
+}
+
+/* На современных браузерах секции входят в ритм страницы в момент прокрутки.
+   Без поддержки scroll-driven animations контент остаётся обычным и полностью видимым. */
+@supports (animation-timeline: view()) {
+  .motion-section {
+    animation: section-in linear both;
+    animation-timeline: view();
+    animation-range: entry 8% cover 28%;
+  }
+}
+
 /* Точки «помощник думает». Меняется только прозрачность: раскладка остаётся на месте,
    и список не дёргается, когда вместо точек приходит первый символ ответа */
 @keyframes typing-dot {
@@ -201,10 +528,22 @@
     border-radius: 9999px;
     background: var(--line);
   }
+  input[type="range"].budget-range::-webkit-slider-runnable-track {
+    background: linear-gradient(
+      to right,
+      var(--accent) 0 var(--range-progress),
+      var(--line) var(--range-progress) 100%
+    );
+  }
   input[type="range"]::-moz-range-track {
     height: 4px;
     border-radius: 9999px;
     background: var(--line);
+  }
+  input[type="range"].budget-range::-moz-range-progress {
+    height: 4px;
+    border-radius: 9999px;
+    background: var(--accent);
   }
   input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
@@ -215,6 +554,10 @@
     border: 2px solid var(--paper);
     border-radius: 9999px;
     background: var(--accent);
+    box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 32%, transparent);
+    transition:
+      transform 180ms var(--ease-ui),
+      box-shadow 180ms var(--ease-ui);
   }
   input[type="range"]::-moz-range-thumb {
     width: 22px;
@@ -222,6 +565,14 @@
     border: 2px solid var(--paper);
     border-radius: 9999px;
     background: var(--accent);
+    box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 32%, transparent);
+  }
+  input[type="range"]:hover::-webkit-slider-thumb {
+    transform: scale(1.12);
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 42%, transparent);
+  }
+  input[type="range"]:active::-webkit-slider-thumb {
+    transform: scale(1.22);
   }
   @media (prefers-reduced-motion: reduce) {
     *,
@@ -229,6 +580,19 @@
     *::after {
       animation-duration: 0.01ms !important;
       transition-duration: 0.01ms !important;
+    }
+    .motion-section {
+      opacity: 1 !important;
+      transform: none !important;
+    }
+    .skeleton-shimmer::after,
+    .plan-scan::after,
+    .upload-rail,
+    .onboarding-progress-current,
+    .onboarding-progress-complete,
+    .motion-control-list > *,
+    .motion-swipe-card {
+      animation: none !important;
     }
   }
 }

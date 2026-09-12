@@ -202,7 +202,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
             </>
           ) : (
             <>
-              <div className="grid aspect-[4/3] place-items-center border border-dashed border-line-strong p-6 text-center text-[15px] leading-relaxed text-ink-2">
+              <div className="blueprint-grid grid aspect-[4/3] place-items-center border border-dashed border-line-strong p-6 text-center text-[15px] leading-relaxed text-ink-2">
                 {isOwner ? (
                   <p>
                     {PLAN_LIMIT_TEXT}.
@@ -279,7 +279,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
                   <li key={room.id} className="border-b border-line">
                     <Link
                       href={`/projects/${project.id}/rooms/${room.id}`}
-                      className="group flex items-baseline justify-between gap-4 py-4"
+                      className="group flex items-baseline justify-between gap-4 py-4 transition-[background-color,padding] duration-300 ease-appear hover:bg-paper sm:hover:px-3"
                     >
                       <span className="min-w-0">
                         <span className="block font-serif text-[22px] leading-tight text-ink decoration-accent decoration-1 underline-offset-[6px] group-hover:underline">
@@ -291,7 +291,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
                             .join(' · ')}
                         </span>
                       </span>
-                      <span className="shrink-0 text-[14px] text-accent">
+                      <span className="shrink-0 text-[14px] text-accent transition-transform duration-300 ease-appear group-hover:translate-x-1">
                         {room.conceptCount > 0
                           ? `${pluralConcepts(room.conceptCount)} →`
                           : 'Собрать концепты →'}

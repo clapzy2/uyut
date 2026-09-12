@@ -2,7 +2,7 @@
 
 import { Button } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
-import { useState, useTransition } from 'react'
+import { type CSSProperties, useState, useTransition } from 'react'
 import { saveBudget } from '@/actions/onboarding'
 import { FormError } from '@/components/form-error'
 import { BUDGET_DEFAULT_KOPECKS } from '@/lib/validation/onboarding'
@@ -34,11 +34,12 @@ export function BudgetForm({ projectId, initial }: { projectId: string; initial:
   const [error, setError] = useState<string | null>(null)
   const [index, setIndex] = useState(() => nearestIndex(initial ?? BUDGET_DEFAULT_KOPECKS))
   const kopecks = steps[index] ?? BUDGET_DEFAULT_KOPECKS
+  const progress = (index / (steps.length - 1)) * 100
 
   return (
     <div className="flex flex-col gap-7">
       <div>
-        <p className="font-serif text-[34px] leading-none text-ink">
+        <p className="font-serif text-[34px] leading-none text-ink tabular-nums transition-colors duration-200 ease-ui">
           {rubles.format(Math.round(kopecks / 100))} ₽
         </p>
         <p className="mt-2 text-[15px] text-ink-2">на мебель, отделку и декор всей квартиры</p>
@@ -54,7 +55,8 @@ export function BudgetForm({ projectId, initial }: { projectId: string; initial:
           onChange={(event) => setIndex(Number(event.target.value))}
           aria-label="Бюджет"
           aria-valuetext={`${rubles.format(Math.round(kopecks / 100))} рублей`}
-          className="w-full"
+          className="budget-range w-full"
+          style={{ '--range-progress': `${progress}%` } as CSSProperties}
         />
         <div className="mt-2 flex justify-between font-mono text-[12px] text-ink-2">
           <span>100 тыс.</span>

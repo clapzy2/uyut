@@ -124,12 +124,16 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Sea
             <li key={item.id} className="border-b border-line">
               <Link
                 href={`/projects/${item.id}`}
-                className="group grid grid-cols-[64px_1fr] items-center gap-4 py-5 sm:grid-cols-[96px_1fr] sm:gap-6 sm:py-6"
+                className="group grid grid-cols-[64px_1fr] items-center gap-4 py-5 transition-[background-color,padding] duration-300 ease-appear hover:bg-paper sm:grid-cols-[96px_1fr] sm:gap-6 sm:py-6 sm:hover:px-3"
               >
                 <div className="grid aspect-[4/3] place-items-center overflow-hidden border border-line bg-muted text-[11px] uppercase tracking-[0.1em] text-ink-2">
                   {thumbnail && 'url' in thumbnail ? (
                     // biome-ignore lint/performance/noImgElement: подписанная ссылка живёт 15 минут, оптимизатор next/image здесь не нужен
-                    <img src={thumbnail.url} alt="" className="size-full object-cover" />
+                    <img
+                      src={thumbnail.url}
+                      alt=""
+                      className="size-full object-cover transition-transform duration-700 ease-appear group-hover:scale-[1.04]"
+                    />
                   ) : thumbnail ? (
                     <span>PDF</span>
                   ) : (

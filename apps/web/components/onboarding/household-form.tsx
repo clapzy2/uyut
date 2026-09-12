@@ -26,9 +26,9 @@ function Choice({
   lastIsPlus?: boolean
 }) {
   return (
-    <fieldset className="m-0 flex flex-wrap items-center justify-between gap-3 border-0 p-0">
-      <legend className="text-[15px] text-ink">{label}</legend>
-      <div className="flex gap-2">
+    <fieldset className="m-0 flex flex-wrap items-center justify-between gap-4 border-0 p-0">
+      <legend className="text-[15px] font-medium text-ink">{label}</legend>
+      <div className="flex gap-2.5">
         {options.map((option, index) => (
           <label key={option} className="cursor-pointer">
             <input
@@ -38,7 +38,7 @@ function Choice({
               onChange={() => onChange(option)}
               className="peer sr-only"
             />
-            <span className="inline-flex h-9 w-11 items-center justify-center rounded-full border border-control text-sm text-ink-2 transition-colors duration-200 ease-ui hover:text-ink peer-checked:border-accent peer-checked:text-ink peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
+            <span className="household-choice inline-flex size-11 items-center justify-center rounded-full border border-control text-[15px] text-ink-2 peer-checked:border-accent peer-checked:bg-accent peer-checked:text-on-accent peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
               {lastIsPlus && index === options.length - 1 ? `${option}+` : option}
             </span>
           </label>
@@ -50,24 +50,39 @@ function Choice({
 
 function Toggle({
   label,
+  checkedHint,
+  uncheckedHint,
   checked,
   onChange,
 }: {
   label: string
+  checkedHint: string
+  uncheckedHint: string
   checked: boolean
   onChange: (value: boolean) => void
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-3 py-1">
-      <span className="text-[15px] text-ink">{label}</span>
+    <label className="household-toggle-row group -mx-3 grid min-h-[72px] cursor-pointer grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 px-3 py-3.5">
+      <span className="text-[15px] font-medium text-ink">{label}</span>
       <input
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
-        className="peer sr-only"
+        className="household-toggle-input peer sr-only"
       />
-      <span className="relative h-6 w-11 shrink-0 rounded-full border border-control bg-muted transition-colors duration-200 ease-ui peer-checked:border-accent peer-checked:bg-accent peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
-        <span className="absolute left-[3px] top-[3px] h-[16px] w-[16px] rounded-full bg-paper transition-transform duration-200 ease-ui peer-checked:translate-x-5" />
+      <span
+        className="household-toggle-state row-span-2 w-7 text-right font-mono text-[11px] uppercase tracking-[0.08em] text-ink-2"
+        aria-hidden="true"
+      >
+        {checked ? 'Да' : 'Нет'}
+      </span>
+      <span className="household-toggle-control relative row-span-2 h-8 w-[58px] shrink-0 rounded-full border border-control bg-muted">
+        <span className="household-toggle-knob absolute left-[3px] top-[3px] grid size-6 place-items-center rounded-full bg-paper shadow-soft">
+          <span className="household-toggle-mark block size-1.5 rounded-full bg-control" />
+        </span>
+      </span>
+      <span className="mt-0.5 text-[13px] leading-snug text-ink-2">
+        {checked ? checkedHint : uncheckedHint}
       </span>
     </label>
   )
@@ -98,7 +113,7 @@ export function HouseholdForm({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4 border-b border-line pb-6">
+      <div className="flex flex-col gap-5 border-b border-line pb-7">
         <Choice
           label="Взрослых"
           name="adults"
@@ -116,23 +131,35 @@ export function HouseholdForm({
           lastIsPlus
         />
       </div>
-      <div className="flex flex-col gap-3">
+      <div className="motion-control-list flex flex-col divide-y divide-line border-y border-line">
         <Toggle
           label="Есть кот или собака"
+          checkedHint="Учтём лежанку и практичные материалы"
+          uncheckedHint="Отдельная зона для питомца не нужна"
           checked={value.pets}
           onChange={(pets) => patch({ pets })}
         />
         <Toggle
           label="Готовите дома"
+          checkedHint="Нужны хранение и удобная рабочая поверхность"
+          uncheckedHint="Кухня рассчитана на редкую готовку"
           checked={value.cookHome}
           onChange={(cookHome) => patch({ cookHome })}
         />
         <Toggle
           label="Часто принимаете гостей"
+          checkedHint="Добавим запас посадочных мест"
+          uncheckedHint="Не занимаем комнату лишними стульями"
           checked={value.receiveGuests}
           onChange={(receiveGuests) => patch({ receiveGuests })}
         />
-        <Toggle label="Работаете из дома" checked={value.wfh} onChange={(wfh) => patch({ wfh })} />
+        <Toggle
+          label="Работаете из дома"
+          checkedHint="Предусмотрим полноценное рабочее место"
+          uncheckedHint="Рабочий стол можно не добавлять"
+          checked={value.wfh}
+          onChange={(wfh) => patch({ wfh })}
+        />
       </div>
 
       <FormError message={error ?? undefined} />

@@ -25,8 +25,9 @@ export function buttonClassName(
     // Цвет и нажатие идут вместе: палец видит отклик там же, где его ждёт глаз.
     // Два процента — это пара пикселей: заметно на ощупь и незаметно на глаз,
     // а при выключенной анимации в системе браузер сам сводит длительность к нулю.
-    'transition-[color,background-color,border-color,transform] duration-200 ease-ui active:scale-[0.98]',
-    'disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100',
+    'transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui',
+    'hover:-translate-y-px active:translate-y-0 active:scale-[0.98]',
+    'disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:active:scale-100',
     variants[options.variant ?? 'primary'],
     sizes[options.size ?? 'md'],
     options.className,
@@ -57,6 +58,12 @@ export function Button({
       className={buttonClassName({ variant, size, className })}
       {...props}
     >
+      {pending ? (
+        <span
+          aria-hidden="true"
+          className="size-1.5 shrink-0 animate-[busy-dot_1.2s_var(--ease-ui)_infinite] rounded-full bg-current"
+        />
+      ) : null}
       {children}
     </button>
   )

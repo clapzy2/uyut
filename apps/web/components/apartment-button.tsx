@@ -1,6 +1,6 @@
 'use client'
 
-import { Button, toast } from '@uyut/ui'
+import { Button, cn, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { requestApartmentConcepts } from '@/actions/concepts'
@@ -66,7 +66,14 @@ export function ApartmentButton({
   }
 
   return (
-    <div className="mt-8 animate-[rise-in_350ms_var(--ease-appear)] border border-line bg-paper p-5">
+    <div
+      aria-busy={pending || undefined}
+      className={cn(
+        'relative mt-8 overflow-hidden border border-line bg-paper p-5 transition-[border-color,box-shadow] duration-300 ease-ui',
+        'animate-[rise-in_350ms_var(--ease-appear)]',
+        pending ? 'border-accent shadow-soft' : '',
+      )}
+    >
       <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
         Вся квартира сразу
       </p>
@@ -92,6 +99,12 @@ export function ApartmentButton({
           {pending ? 'Запускаем…' : 'Обставить всю квартиру'}
         </Button>
       </div>
+      {pending ? (
+        <span
+          aria-hidden="true"
+          className="upload-rail absolute inset-x-0 bottom-0 h-0.5 w-1/3 bg-accent"
+        />
+      ) : null}
     </div>
   )
 }

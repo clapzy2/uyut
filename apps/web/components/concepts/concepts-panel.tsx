@@ -341,7 +341,10 @@ export function ConceptsPanel({
 
   if (run) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="animate-[rise-in_350ms_var(--ease-appear)] border-y border-line bg-paper px-4 py-5 sm:px-5">
+        <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-2">
+          Собираем комнату
+        </p>
         <RunProgress
           runId={run.runId}
           accessToken={run.accessToken}
@@ -357,7 +360,7 @@ export function ConceptsPanel({
             void refreshConcepts(roomId).then(() => router.refresh())
           }}
         />
-        <p className="text-[15px] text-ink-2">
+        <p className="mt-4 text-[15px] text-ink-2">
           Обычно около тридцати секунд. Можно уйти со страницы, концепты дождутся.
         </p>
       </div>
@@ -441,7 +444,7 @@ export function ConceptsPanel({
                 <li
                   key={item.id}
                   className={cn(
-                    'relative overflow-hidden border bg-muted',
+                    'group relative overflow-hidden border bg-muted',
                     mine && theirs ? 'border-accent' : 'border-line',
                   )}
                 >
@@ -450,7 +453,7 @@ export function ConceptsPanel({
                     <img
                       src={item.renderSrc as string}
                       alt={`Концепт ${item.orderIndex + 1}, открыть`}
-                      className="block aspect-[4/3] w-full object-cover transition-opacity duration-200 ease-ui hover:opacity-90"
+                      className="block aspect-[4/3] w-full object-cover transition-[opacity,transform] duration-700 ease-appear group-hover:scale-[1.025] group-hover:opacity-90"
                     />
                   </a>
                   {mark ? (

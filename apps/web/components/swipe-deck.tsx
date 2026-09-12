@@ -163,7 +163,7 @@ export function SwipeDeck({
               }
             }}
             style={{ x, rotate, zIndex: 2 }}
-            className="absolute inset-0 cursor-grab overflow-hidden border border-line bg-muted shadow-soft active:cursor-grabbing"
+            className="motion-swipe-card absolute inset-0 cursor-grab overflow-hidden border border-line bg-muted shadow-soft active:cursor-grabbing"
             role={onOpen ? 'button' : undefined}
             tabIndex={onOpen ? 0 : undefined}
             aria-label={onOpen ? 'Открыть карточку' : undefined}
@@ -234,7 +234,7 @@ export function SwipeDeck({
           onClick={() => commit(false)}
           disabled={!current}
           aria-label="Не нравится"
-          className="grid h-12 w-12 place-items-center rounded-full border border-control text-ink-2 transition-colors duration-200 ease-ui hover:border-ink hover:text-ink disabled:opacity-40"
+          className="grid h-12 w-12 place-items-center rounded-full border border-control text-ink-2 transition-[color,border-color,background-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 hover:border-ink hover:bg-paper hover:text-ink hover:shadow-soft active:translate-y-0 active:scale-90 disabled:opacity-40"
         >
           <span aria-hidden="true" className="text-lg">
             ✕
@@ -246,7 +246,7 @@ export function SwipeDeck({
             onClick={undo}
             disabled={!canUndo}
             aria-label="Вернуть предыдущую"
-            className="grid h-10 w-10 place-items-center rounded-full border border-line text-ink-2 transition-colors duration-200 ease-ui hover:border-line-strong hover:text-ink disabled:opacity-30"
+            className="grid h-10 w-10 place-items-center rounded-full border border-line text-ink-2 transition-[color,border-color,transform] duration-200 ease-ui hover:-translate-y-0.5 hover:border-line-strong hover:text-ink active:translate-y-0 active:scale-90 disabled:opacity-30"
           >
             <span aria-hidden="true">↶</span>
           </button>
@@ -256,7 +256,7 @@ export function SwipeDeck({
           onClick={() => commit(true)}
           disabled={!current}
           aria-label="Нравится"
-          className="grid h-12 w-12 place-items-center rounded-full border border-accent text-accent transition-colors duration-200 ease-ui hover:bg-accent-tint disabled:opacity-40"
+          className="grid h-12 w-12 place-items-center rounded-full border border-accent text-accent transition-[color,background-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 hover:bg-accent-tint hover:shadow-soft active:translate-y-0 active:scale-90 disabled:opacity-40"
         >
           <span aria-hidden="true" className="text-lg">
             ♥

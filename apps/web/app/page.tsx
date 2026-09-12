@@ -105,24 +105,40 @@ export default async function HomePage() {
   return (
     <>
       <section className="mx-auto max-w-6xl px-5 pb-14 pt-12 sm:px-8 sm:pb-20 sm:pt-16 lg:pt-20">
-        <h1 className={`${heading} max-w-4xl text-[42px] sm:text-6xl lg:text-[76px]`}>
-          Проект квартиры за вечер, а не за три месяца.
-        </h1>
-        <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4">
-          <Link href="/register" className={buttonClassName()}>
+        <div className="motion-hero-line h-px w-16 bg-accent sm:w-24" aria-hidden="true" />
+        <p className={`${label} motion-hero-detail mt-5`}>От плана до списка покупок</p>
+        <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,8fr)_minmax(240px,3fr)] lg:items-end lg:gap-12">
+          <h1
+            className={`${heading} motion-hero-title max-w-4xl text-[42px] sm:text-6xl lg:text-[76px]`}
+          >
+            Проект квартиры за вечер, а не за три месяца.
+          </h1>
+          <p className="motion-hero-detail max-w-md text-[16px] leading-relaxed text-ink-2 lg:border-l lg:border-line-strong lg:pl-6">
+            Покажите квартиру — получите варианты комнат, подходящую мебель, смету и понятный
+            документ для мастеров.
+          </p>
+        </div>
+        <div className="motion-hero-action mt-8 flex flex-wrap items-center gap-x-6 gap-y-4">
+          <Link href="/register" className={buttonClassName({ className: 'shadow-soft' })}>
             Начать бесплатно
           </Link>
           <p className={label}>Первая квартира бесплатно · карта не нужна</p>
         </div>
-        <PhotoFrame
-          slot={photo('hero')}
-          priority
-          className="mt-12 aspect-[16/10] w-full sm:mt-14 lg:aspect-[16/8]"
-        />
+        <div className="motion-hero-media mt-12 sm:mt-14">
+          <PhotoFrame
+            slot={photo('hero')}
+            priority
+            className="aspect-[16/10] w-full lg:aspect-[16/8]"
+          />
+          <div className="mt-3 flex items-center justify-between gap-4">
+            <p className={label}>Жилая комната · вечерний свет</p>
+            <p className={`${label} hidden sm:block`}>01 / 05</p>
+          </div>
+        </div>
       </section>
 
       <section className="border-t border-line">
-        <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[4fr_7fr] lg:gap-16">
+        <div className="motion-section mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[4fr_7fr] lg:gap-16">
           <div>
             <p className={label}>Как это устроено</p>
             <h2 className={`${heading} mt-3 text-[30px] sm:text-4xl`}>Три шага, один вечер</h2>
@@ -151,7 +167,7 @@ export default async function HomePage() {
       </section>
 
       <section className="border-t border-line">
-        <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-20">
+        <div className="motion-section mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-20">
           <p className={label}>Одна и та же комната</p>
           <h2 className={`${heading} mt-3 max-w-2xl text-[30px] sm:text-4xl`}>
             Сначала пустые стены, потом список покупок
@@ -175,7 +191,7 @@ export default async function HomePage() {
       </section>
 
       <section className="border-t border-line">
-        <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[5fr_6fr] lg:items-center lg:gap-16">
+        <div className="motion-section mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[5fr_6fr] lg:items-center lg:gap-16">
           <div>
             <p className={label}>Квартира целиком</p>
             <h2 className={`${heading} mt-3 text-[30px] sm:text-4xl`}>С настоящими сантиметрами</h2>
@@ -202,7 +218,7 @@ export default async function HomePage() {
       </section>
 
       <section className="border-t border-line">
-        <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[6fr_5fr] lg:items-center lg:gap-16">
+        <div className="motion-section mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[6fr_5fr] lg:items-center lg:gap-16">
           <div>
             <p className={label}>Что остаётся у вас</p>
             <h2 className={`${heading} mt-3 text-[30px] sm:text-4xl`}>
@@ -219,7 +235,7 @@ export default async function HomePage() {
       </section>
 
       <section className="border-t border-line">
-        <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[5fr_6fr] lg:items-center lg:gap-16">
+        <div className="motion-section mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[5fr_6fr] lg:items-center lg:gap-16">
           <PhotoFrame slot={photo('together')} className="aspect-[3/4] w-full lg:aspect-[4/5]" />
           <div>
             <p className={label}>Вдвоём</p>
@@ -234,7 +250,7 @@ export default async function HomePage() {
       </section>
 
       <section className="border-t border-line">
-        <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-20">
+        <div className="motion-section mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-20">
           <p className={label}>Сколько стоит</p>
           <h2 className={`${heading} mt-3 max-w-2xl text-[30px] sm:text-4xl`}>
             Посмотреть можно бесплатно
@@ -270,7 +286,7 @@ export default async function HomePage() {
       </section>
 
       <section className="border-t border-line">
-        <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-24">
+        <div className="motion-section mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-24">
           <h2 className={`${heading} max-w-3xl text-[32px] sm:text-5xl`}>
             Начните с одной комнаты.
           </h2>
