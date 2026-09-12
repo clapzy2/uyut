@@ -9,6 +9,7 @@ import { FileUploader } from '@/components/file-uploader'
 import { RoomConditionForm } from '@/components/room-condition-form'
 import { RoomMeasurementsForm } from '@/components/room-measurements-form'
 import { RoomNotesForm } from '@/components/room-notes-form'
+import { RoomPlan } from '@/components/room-plan'
 import { RoomSettingsDialog } from '@/components/room-settings-dialog'
 import { otherMember } from '@/lib/collaboration/repository'
 import { latestBatch, listConceptsByRoom } from '@/lib/concepts/repository'
@@ -18,6 +19,7 @@ import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
 import { fileNameFromKey, formatArea, roomKindLabels } from '@/lib/projects/format'
 import { getRoom } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
+import { roomLayout } from '@/lib/shopping/layout'
 import { presignedObjectUrl } from '@/lib/storage'
 
 type Params = Promise<{ id: string; roomId: string }>
@@ -60,12 +62,14 @@ export default async function RoomPage({ params }: { params: Params }) {
   }
   const isOwner = room.role === 'owner'
 
-  const [allConcepts, { batchId: latestBatchId }, other, runningGeneration] = await Promise.all([
-    listConceptsByRoom(session.user.id, room.id),
-    latestBatch(session.user.id, room.id),
-    otherMember(room.projectId, session.user.id),
-    resumeGenerationRun(room),
-  ])
+  const [allConcepts, { batchId: latestBatchId }, other, runningGeneration, layout] =
+    await Promise.all([
+      listConceptsByRoom(session.user.id, room.id),
+      latestBatch(session.user.id, room.id),
+      otherMember(room.projectId, session.user.id),
+      resumeGenerationRun(room),
+      roomLayout(session.user.id, room.projectId, room.id, room.measurements),
+    ])
   const conceptItems = allConcepts
   const photoUrl = room.photoUrl ? await presignedObjectUrl(room.photoUrl) : null
   const uploadPhotoForRoom = uploadRoomPhoto.bind(null, room.id)
@@ -160,6 +164,7 @@ export default async function RoomPage({ params }: { params: Params }) {
           {isOwner ? (
             <RoomMeasurementsForm roomId={room.id} measurements={room.measurements} />
           ) : null}
+          {layout ? <RoomPlan layout={layout} /> : null}
           {isOwner ? (
             <RoomNotesForm roomId={room.id} notes={room.notes} />
           ) : room.notes ? (

@@ -1,5 +1,12 @@
 import type { BriefInput } from '@uyut/ai'
-import { estimateProject, type WorksRates } from '@uyut/catalog'
+import {
+  estimateProject,
+  type LayoutItem,
+  layoutRoom,
+  type RoomLayout,
+  subcategoryFromText,
+  type WorksRates,
+} from '@uyut/catalog'
 import {
   type CatalogCategory,
   type Concept,
@@ -134,6 +141,28 @@ type ShoppingRow = {
   item: typeof shoppingListItems.$inferSelect
   product: typeof catalogItems.$inferSelect
   roomName: string | null
+}
+
+/**
+ * Расстановка комнаты сверху для документа. Считается здесь же, из того же списка покупок,
+ * что и на сайте: хранить её негде, а разойтись с сайтом она не должна.
+ */
+function roomPlan(room: Room, shopping: readonly ShoppingRow[]): RoomLayout | null {
+  const { widthCm, depthCm } = room.measurements ?? {}
+  if (!widthCm || !depthCm) {
+    return null
+  }
+  const items: LayoutItem[] = shopping
+    .filter((row) => row.item.roomId === room.id)
+    .map((row) => ({
+      id: row.item.id,
+      title: row.product.title,
+      category: row.product.category,
+      subcategory: subcategoryFromText(row.product.category, row.product.title),
+      dimensions: row.product.attributes?.dimensionsCm ?? null,
+      quantity: row.item.quantity,
+    }))
+  return items.length > 0 ? layoutRoom({ widthCm, depthCm }, items) : null
 }
 
 export type ProjectSnapshot = {
@@ -361,6 +390,7 @@ export async function buildPdfData(input: {
           ...object,
           category: categoryLabels[object.category],
         })),
+        plan: roomPlan(room, snapshot.shopping),
       }
     }),
   )
