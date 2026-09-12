@@ -60,6 +60,8 @@ export type PlanRoomReading = {
   suspicious?: boolean
   /** Стороны, которые пришлось перечитать по отрезкам цепочки, чтобы площадь сошлась */
   rechecked?: Array<'width' | 'depth'>
+  /** Прихожая, коридор, кладовая: размеры сохраняем, мебель не подбираем */
+  utility?: boolean
 }
 
 /**

@@ -42,8 +42,16 @@ export const roomConditionOptions = [
   'keep',
 ] as const satisfies readonly RoomCondition[]
 
-// В MVP три типа комнат; ванная и детская появятся позже
-export const mvpRoomKinds = ['living', 'bedroom', 'kitchen'] as const satisfies readonly RoomKind[]
+/**
+ * Типы комнат, которые сервис обставляет. Ванной здесь нет по причине каталога, а не рисования:
+ * сантехнику мы из каталога выкинули намеренно, и подбирать в ванной будет нечего.
+ */
+export const mvpRoomKinds = [
+  'living',
+  'bedroom',
+  'kitchen',
+  'kid',
+] as const satisfies readonly RoomKind[]
 
 const areaFormat = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 })
 const dateFormat = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' })

@@ -258,7 +258,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
                 <h2 className="font-serif text-2xl leading-tight text-ink">Комнат пока нет.</h2>
                 <p className="mt-2 max-w-md text-[15px] text-ink-2">
                   {isOwner
-                    ? 'Добавьте те, что хотите обставить: гостиную, спальню или кухню. Остальные типы появятся позже.'
+                    ? 'Добавьте те, что хотите обставить: гостиную, спальню, кухню или детскую. Ванные пока не делаем.'
                     : 'Комнаты добавляет владелец проекта: как только они появятся, здесь будут концепты.'}
                 </p>
                 {isOwner ? (

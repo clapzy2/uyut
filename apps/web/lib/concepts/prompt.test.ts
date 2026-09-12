@@ -118,6 +118,12 @@ describe('buildTemplatePlan', () => {
     expect(plan.shared).not.toContain('metres wide')
   })
 
+  it('детская остаётся детской, а не превращается в гостиную', () => {
+    const plan = buildTemplatePlan(brief({ roomKind: 'kid', hasPhoto: false }), 5)
+    expect(plan.shared).toContain("children's room")
+    expect(plan.shared).not.toContain('living room')
+  })
+
   it('переносит потребности семьи в задание', () => {
     const plan = buildTemplatePlan(
       brief({ household: { adults: 2, kids: 1, pets: true, wfh: true } }),
