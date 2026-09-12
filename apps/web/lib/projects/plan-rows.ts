@@ -27,15 +27,18 @@ export type ExistingRoom = {
   id: string
   name: string
   kind: RoomKind
-  hasMeasurements: boolean
   /** Что человек уже написал про эту комнату: поле желания открывается с этим текстом */
   notes: string | null
 }
 
-/** Название для сравнения: регистр, лишние пробелы и порядковый номер значения не имеют */
+/**
+ * Название для сравнения. Регистр, лишние пробелы и порядковый номер значения не имеют:
+ * «Спальня 1» из серии дома и «Спальня» с чертежа — одна и та же комната, а разводит их
+ * порядок, в котором они идут.
+ */
 function sameName(one: string, other: string): boolean {
   const plain = (value: string) =>
-    value.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim()
+    value.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').replace(/ \d+$/, '').trim()
   return plain(one) === plain(other)
 }
 
@@ -50,15 +53,18 @@ const supported = new Set<RoomKind>(mvpRoomKinds)
  * с чертежа — одна и та же комната. Пара ищется по названию, а не по типу: своего типа
  * у прихожей, коридора и кабинета пока нет, все они живут как гостиная, и по типу «Прихожая»
  * с плана забрала бы себе гостиную из анкеты вместе с её названием и размерами.
+ *
+ * Ищем среди всех комнат, а не только среди непромеренных: иначе повторное чтение того же плана
+ * заводило вторую «Гостиную» рядом с первой. Промеренное рулеткой при этом не теряется —
+ * участки стен план не знает и не трогает.
  */
 export function planRows(reading: PlanReading, existing: readonly ExistingRoom[] = []): PlanRow[] {
-  const free = existing.filter((room) => !room.hasMeasurements)
   const taken = new Set<string>()
   return reading.rooms.map((room) => {
     const unsupported = !supported.has(room.kind)
     const match = unsupported
       ? undefined
-      : free.find(
+      : existing.find(
           (candidate) =>
             candidate.kind === room.kind &&
             sameName(candidate.name, room.name) &&

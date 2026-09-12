@@ -37,27 +37,17 @@ function problemText(problem: LayoutProblem): string {
   }
 }
 
-export function RoomPlan({ layout }: { layout: RoomLayout }) {
+/** Сам чертёж с номерами и расшифровкой. Отдельно от текста: тот же рисунок нужен и на главной. */
+export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
   // Масштаб по узкой стороне коробки: комната 220 на 600 см иначе рисуется на полтора экрана
   const scale = Math.min(MAX_WIDTH / layout.widthCm, MAX_HEIGHT / layout.depthCm)
   const roomWidth = layout.widthCm * scale
   const roomHeight = layout.depthCm * scale
   const width = roomWidth + PADDING * 2
   const height = roomHeight + PADDING * 2
-  const problems = layout.problems
 
   return (
     <div>
-      <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
-        Вид сверху
-      </p>
-      <p className="mb-4 text-[13px] leading-relaxed text-ink-2">
-        Комната {Math.round(layout.widthCm)} × {Math.round(layout.depthCm)} см и то, что вы выбрали,
-        в масштабе. Мы раскладываем крупное вдоль стен, а стол — посередине. Где на самом деле дверь
-        и окно, план не знает, поэтому свободной стены осталось {layout.freeWallCm} см, и это запас,
-        из которого ещё вычтется дверь.
-      </p>
-
       <div className="overflow-x-auto">
         <svg
           viewBox={`0 0 ${width} ${height}`}
@@ -116,6 +106,25 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
           </li>
         ))}
       </ol>
+    </div>
+  )
+}
+
+export function RoomPlan({ layout }: { layout: RoomLayout }) {
+  const problems = layout.problems
+  return (
+    <div>
+      <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
+        Вид сверху
+      </p>
+      <p className="mb-4 text-[13px] leading-relaxed text-ink-2">
+        Комната {Math.round(layout.widthCm)} × {Math.round(layout.depthCm)} см и то, что вы выбрали,
+        в масштабе. Мы раскладываем крупное вдоль стен, а стол — посередине. Где на самом деле дверь
+        и окно, план не знает, поэтому свободной стены осталось {layout.freeWallCm} см, и это запас,
+        из которого ещё вычтется дверь.
+      </p>
+
+      <RoomPlanDrawing layout={layout} />
 
       {problems.length > 0 ? (
         <ul className="mt-4 flex flex-col gap-2">

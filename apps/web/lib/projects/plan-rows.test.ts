@@ -51,18 +51,25 @@ describe('planRows', () => {
         { name: 'Гостиная', kind: 'living', widthCm: 383 },
         { name: 'Спальня', kind: 'bedroom', widthCm: 290 },
       ]),
-      [{ id: 'r1', name: 'Гостиная', kind: 'living', hasMeasurements: false, notes: null }],
+      [{ id: 'r1', name: 'Гостиная', kind: 'living', notes: null }],
     )
     expect(rows[0]?.roomId).toBe('r1')
     expect(rows[0]?.roomName).toBe('Гостиная')
     expect(rows[1]?.roomId).toBeUndefined()
   })
 
-  it('промеренную рулеткой комнату прочитанным не перетираем', () => {
+  it('повторное чтение того же плана не заводит вторую «Гостиную»', () => {
     const rows = planRows(reading([{ name: 'Гостиная', kind: 'living', widthCm: 383 }]), [
-      { id: 'r1', name: 'Гостиная', kind: 'living', hasMeasurements: true, notes: null },
+      { id: 'r1', name: 'Гостиная', kind: 'living', notes: null },
     ])
-    expect(rows[0]?.roomId).toBeUndefined()
+    expect(rows[0]?.roomId).toBe('r1')
+  })
+
+  it('«Спальня 1» из серии дома — та же спальня, что и «Спальня» с плана', () => {
+    const rows = planRows(reading([{ name: 'Спальня', kind: 'bedroom', widthCm: 290 }]), [
+      { id: 'r1', name: 'Спальня 1', kind: 'bedroom', notes: null },
+    ])
+    expect(rows[0]?.roomId).toBe('r1')
   })
 
   it('прихожая не забирает себе гостиную: у них общий тип, но разные названия', () => {
@@ -71,7 +78,7 @@ describe('planRows', () => {
         { name: 'Прихожая', kind: 'living', widthCm: 120, depthCm: 700 },
         { name: 'Гостиная', kind: 'living', widthCm: 383, depthCm: 425 },
       ]),
-      [{ id: 'r1', name: 'Гостиная', kind: 'living', hasMeasurements: false, notes: null }],
+      [{ id: 'r1', name: 'Гостиная', kind: 'living', notes: null }],
     )
     expect(rows[0]?.roomId).toBeUndefined()
     expect(rows[1]?.roomId).toBe('r1')
@@ -83,7 +90,6 @@ describe('planRows', () => {
         id: 'r1',
         name: 'Гостиная',
         kind: 'living',
-        hasMeasurements: false,
         notes: 'телевизор и батарею оставить',
       },
     ])
@@ -96,7 +102,7 @@ describe('planRows', () => {
         { name: 'Спальня', kind: 'bedroom', widthCm: 290 },
         { name: 'Спальня', kind: 'bedroom', widthCm: 310 },
       ]),
-      [{ id: 'r1', name: 'Спальня', kind: 'bedroom', hasMeasurements: false, notes: null }],
+      [{ id: 'r1', name: 'Спальня', kind: 'bedroom', notes: null }],
     )
     expect(rows[0]?.roomId).toBe('r1')
     expect(rows[1]?.roomId).toBeUndefined()

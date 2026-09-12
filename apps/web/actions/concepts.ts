@@ -158,19 +158,26 @@ export async function requestApartmentConcepts(
       if (!(await claimRoomForGeneration(room.id, batchId))) {
         continue
       }
-      // Падение одной комнаты не отменяет остальные, но занятую комнату надо освободить
+      let handle: Awaited<ReturnType<typeof tasks.trigger>> | null = null
       try {
-        const handle = await tasks.trigger('generate-concept', {
+        handle = await tasks.trigger('generate-concept', {
           roomId: room.id,
           batchId,
           count: APARTMENT_COUNT,
         })
-        await attachGenerationRun(room.id, handle.id, batchId)
-        started += 1
       } catch (error) {
+        // Очередь не приняла задание. Отпускаем комнату: платить не за что, а держать её
+        // занятой до истечения срока значит скрыть её от следующего нажатия
         console.error('комната не запустилась', room.id, error)
         await clearGenerationRun(room.id).catch(() => undefined)
+        continue
       }
+      started += 1
+      // Задание уже в очереди, и с этого момента комнату отпускать нельзя ни при какой ошибке:
+      // упавшая запись отметки — повод потерять ожидание, а не повод заплатить второй раз
+      await attachGenerationRun(room.id, handle.id, batchId).catch((error) =>
+        console.error('отметка запуска не записалась', room.id, error),
+      )
     }
     if (started === 0) {
       return {
@@ -373,8 +380,12 @@ export async function refreshConcepts(roomId: string): Promise<ActionResult<{ pe
     const room = await getRoom(userId, roomId)
     const pending = await conceptsRepository.countPending(userId, room.id)
     // Зовётся, когда ожидание кончилось: снимаем отметку, иначе обновление страницы
-    // показало бы экран ожидания заново
-    await clearGenerationRun(room.id)
+    // показало бы экран ожидания заново. Но только если считать и правда нечего: поток
+    // из очереди умеет замолчать раньше самой задачи, и снятая отметка открывала комнату
+    // для второго платного запуска поверх идущего первого.
+    if (pending === 0) {
+      await clearGenerationRun(room.id)
+    }
     revalidatePath(`/projects/${room.projectId}/rooms/${room.id}`)
     return { ok: true, data: { pending } }
   } catch (error) {

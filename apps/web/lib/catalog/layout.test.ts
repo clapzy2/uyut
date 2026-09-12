@@ -132,9 +132,9 @@ describe('layoutRoom', () => {
     const layout = layoutRoom({ widthCm: 300, depthCm: 400 }, [
       item({ title: 'Шкаф', dimensions: { width: 100, depth: 60, height: 220 } }),
     ])
-    // Периметр 1400 минус занятые сто сантиметров и минус два угла по шестьдесят,
-    // которые отдал шкаф соседним стенам
-    expect(layout.freeWallCm).toBe(1180)
+    // Периметр 1400 минус занятые сто сантиметров. Угол уступают только боковые стены,
+    // а здесь у верхней и нижней пусто, и уступать нечего
+    expect(layout.freeWallCm).toBe(1300)
   })
 })
 
@@ -332,4 +332,95 @@ describe('перебор случайных комнат', () => {
       }
     },
   )
+})
+
+describe('честность вердикта', () => {
+  it('комод встаёт на свободную стену, а не объявляется бездомным', () => {
+    const layout = layoutRoom({ widthCm: 350, depthCm: 400 }, [
+      item({
+        title: 'Кровать',
+        category: 'bed',
+        dimensions: { width: 160, depth: 200, height: 90 },
+      }),
+      item({ title: 'Шкаф', dimensions: { width: 200, depth: 60, height: 220 } }),
+      item({ title: 'Комод', dimensions: { width: 100, depth: 45, height: 80 } }),
+    ])
+    expect(layout.problems).toEqual([])
+    expect(layout.placed).toHaveLength(3)
+  })
+
+  it('три шкафа в квадратной комнате не выпадают все разом', () => {
+    const layout = layoutRoom({ widthCm: 300, depthCm: 300 }, [
+      item({ title: 'Шкаф А', dimensions: { width: 300, depth: 60, height: 220 } }),
+      item({ title: 'Шкаф Б', dimensions: { width: 300, depth: 60, height: 220 } }),
+      item({ title: 'Комод', dimensions: { width: 200, depth: 50, height: 80 } }),
+    ])
+    expect(layout.placed.length).toBeGreaterThanOrEqual(2)
+    expect(anyOverlap(layout)).toBe(false)
+  })
+
+  it('одинокая кровать не считается узким проходом: рядом с ней пусто', () => {
+    const layout = layoutRoom({ widthCm: 400, depthCm: 250 }, [
+      item({
+        title: 'Кровать',
+        category: 'bed',
+        dimensions: { width: 160, depth: 200, height: 90 },
+      }),
+    ])
+    expect(layout.problems).toEqual([])
+  })
+
+  it('когда стол посередине не поместился, про узкий проход всё равно говорим', () => {
+    const layout = layoutRoom({ widthCm: 180, depthCm: 500 }, [
+      item({ title: 'Шкаф', dimensions: { width: 200, depth: 60, height: 220 } }),
+      item({ title: 'Комод', dimensions: { width: 200, depth: 60, height: 90 } }),
+      item({
+        title: 'Стол обеденный',
+        category: 'table',
+        subcategory: 'dining',
+        dimensions: { width: 160, depth: 90, height: 75 },
+      }),
+    ])
+    expect(layout.problems.map((problem) => problem.kind).sort()).toEqual([
+      'narrowWalkway',
+      'noCenter',
+    ])
+  })
+
+  it('журнальный столик рядом с обеденным не превращается в жалобу на тесноту', () => {
+    const layout = layoutRoom({ widthCm: 500, depthCm: 240 }, [
+      item({
+        title: 'Стол обеденный',
+        category: 'table',
+        subcategory: 'dining',
+        dimensions: { width: 160, depth: 90, height: 75 },
+      }),
+      item({
+        title: 'Столик',
+        category: 'table',
+        subcategory: 'coffee',
+        dimensions: { width: 90, depth: 130, height: 45 },
+      }),
+    ])
+    expect(layout.problems).toEqual([])
+  })
+})
+
+describe('один предмет в пустой комнате', () => {
+  it('если он геометрически помещается, он должен встать', () => {
+    const random = pseudoRandom(31337)
+    for (let round = 0; round < 500; round += 1) {
+      const roomWidth = 90 + Math.floor(random() * 900)
+      const roomDepth = 90 + Math.floor(random() * 900)
+      const width = 30 + Math.floor(random() * 400)
+      const depth = 30 + Math.floor(random() * 300)
+      const layout = layoutRoom({ widthCm: roomWidth, depthCm: roomDepth }, [
+        item({ title: 'Шкаф', dimensions: { width, depth, height: 200 } }),
+      ])
+      const fitsSomehow =
+        (width <= roomWidth && depth <= roomDepth) || (depth <= roomWidth && width <= roomDepth)
+      const where = `комната ${roomWidth}×${roomDepth}, шкаф ${width}×${depth}, круг ${round}`
+      expect(layout.placed.length === 1, where).toBe(fitsSomehow)
+    }
+  })
 })

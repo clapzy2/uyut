@@ -21,6 +21,13 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@uyut/db', '@uyut/ui'],
   // Нативные модули не бандлятся, а грузятся из node_modules
   serverExternalPackages: ['@napi-rs/canvas', '@node-rs/argon2', 'pdfjs-dist', 'sharp'],
+  // Стандартные шрифты pdf.js подгружаются по пути во время работы, и трассировщик их не видит.
+  // Без них файлы, которые ссылаются на стандартные четырнадцать шрифтов и не вкладывают их,
+  // рисуются чем попало.
+  outputFileTracingIncludes: {
+    '/projects/[id]': ['../../node_modules/.bun/**/pdfjs-dist/standard_fonts/*'],
+    '/onboarding/step-1': ['../../node_modules/.bun/**/pdfjs-dist/standard_fonts/*'],
+  },
   poweredByHeader: false,
   reactStrictMode: true,
   // next dev иначе подкладывает в проект служебные md-файлы для сторонних инструментов

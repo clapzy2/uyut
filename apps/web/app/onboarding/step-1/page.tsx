@@ -98,7 +98,6 @@ export default async function Step1({ searchParams }: StepParams) {
               id: room.id,
               name: room.name,
               kind: room.kind,
-              hasMeasurements: Boolean(room.measurements?.widthCm && room.measurements.depthCm),
               notes: room.notes,
             }))}
           />

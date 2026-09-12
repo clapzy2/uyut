@@ -243,7 +243,6 @@ export default async function ProjectPage({ params }: { params: Params }) {
                 id: room.id,
                 name: room.name,
                 kind: room.kind,
-                hasMeasurements: Boolean(room.measurements?.widthCm && room.measurements.depthCm),
                 notes: room.notes,
               }))}
             />
