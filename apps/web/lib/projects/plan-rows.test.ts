@@ -1,6 +1,6 @@
 import type { PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
-import { planRows } from './plan-rows'
+import { areaCheck, planRows } from './plan-rows'
 
 function reading(rooms: PlanReading['rooms']): PlanReading {
   return { ceilingCm: 270, rooms, readAt: '2026-09-12T00:00:00.000Z' }
@@ -106,5 +106,29 @@ describe('planRows', () => {
     )
     expect(rows[0]?.roomId).toBe('r1')
     expect(rows[1]?.roomId).toBeUndefined()
+  })
+})
+
+describe('areaCheck', () => {
+  const row = (width: string, depth: string, area: string) => ({ width, depth, area })
+
+  it('считает обе стороны, при которых площадь сойдётся', () => {
+    // 393 на 425 это 16,7 м², а на плане 16,3: верная ширина 383,5, верная глубина 414,8
+    const check = areaCheck(row('393', '425', '16,3'))
+    expect(check?.widthCm).toBe(384)
+    expect(check?.depthCm).toBe(415)
+  })
+
+  it('на сходящихся числах молчит', () => {
+    expect(areaCheck(row('383', '425', '16,3'))).toBeNull()
+  })
+
+  it('без одного из трёх чисел сверять не с чем', () => {
+    expect(areaCheck(row('383', '', '16,3'))).toBeNull()
+    expect(areaCheck(row('383', '425', ''))).toBeNull()
+  })
+
+  it('мусор в поле не превращается в предложение', () => {
+    expect(areaCheck(row('не число', '425', '16,3'))).toBeNull()
   })
 })

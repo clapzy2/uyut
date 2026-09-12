@@ -12,9 +12,12 @@ import {
   roomConditionLabels,
   roomKindLabels,
 } from '@/lib/projects/format'
-import { type ExistingRoom, type PlanRow, planRows } from '@/lib/projects/plan-rows'
+import { areaCheck, type ExistingRoom, type PlanRow, planRows } from '@/lib/projects/plan-rows'
 
 const numberFieldClassName = `${inputClassName} h-10 text-[14px]`
+
+const fixButtonClassName =
+  'inline-flex h-8 items-center rounded-full border border-control px-3 text-[13px] text-ink-2 transition-[color,border-color,transform] duration-200 ease-ui hover:border-ink hover:text-ink active:scale-[0.98]'
 
 /**
  * Подсказка в поле желания. Разная по типам комнат: «побольше света» в санузле и в спальне
@@ -32,11 +35,6 @@ function wishPlaceholder(kind: RoomKind): string {
   return WISH_PLACEHOLDERS[kind]
 }
 
-const number = (raw: string) => {
-  const value = Number(raw.replace(',', '.'))
-  return Number.isFinite(value) && value > 0 ? value : null
-}
-
 /**
  * Площадь, посчитанная по сторонам, когда она расходится с подписанной на плане.
  *
@@ -44,20 +42,6 @@ const number = (raw: string) => {
  * без ниш. Но именно здесь видно промах чтения, который иначе не заметить: на проверке модель
  * прочла ширину гостиной как 393 вместо 383, и разошлось это ровно в площади.
  */
-function areaHint(row: PlanRow): string | null {
-  const width = number(row.width)
-  const depth = number(row.depth)
-  const area = number(row.area)
-  if (width === null || depth === null || area === null) {
-    return null
-  }
-  const computed = (width * depth) / 10_000
-  if (Math.abs(computed - area) / area < 0.02) {
-    return null
-  }
-  return `По сторонам выходит ${computed.toFixed(1).replace('.', ',')} м², а на плане ${row.area} м².`
-}
-
 /**
  * Прочитанный план перед глазами человека.
  *
@@ -251,111 +235,135 @@ export function PlanReadingCard({
       </p>
 
       <ul className="mt-5 flex flex-col gap-3">
-        {rows.map((row, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: строки различает только позиция на плане
-          <li key={index} className="border border-line bg-paper p-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <input
-                type="checkbox"
-                id={`plan-room-${index}`}
-                checked={row.include}
-                disabled={row.unsupported}
-                onChange={(event) => patch(index, { include: event.currentTarget.checked })}
-                className="size-[18px] flex-none cursor-pointer appearance-none rounded-xs border border-control bg-paper transition-colors duration-200 ease-ui checked:border-accent checked:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-              />
-              <input
-                aria-label={`Название комнаты ${index + 1}`}
-                value={row.name}
-                onChange={(event) => patch(index, { name: event.currentTarget.value })}
-                className={`${numberFieldClassName} min-w-[10rem] flex-1`}
-              />
-              <select
-                aria-label={`Тип комнаты ${index + 1}`}
-                value={row.kind}
-                onChange={(event) => patch(index, { kind: event.currentTarget.value as RoomKind })}
-                className={`${numberFieldClassName} w-[9rem]`}
-              >
-                {mvpRoomKinds.map((kind) => (
-                  <option key={kind} value={kind}>
-                    {roomKindLabels[kind]}
-                  </option>
-                ))}
-              </select>
-            </div>
+        {rows.map((row, index) => {
+          const check = areaCheck(row)
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: строки различает только позиция на плане
+            <li key={index} className="border border-line bg-paper p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="checkbox"
+                  id={`plan-room-${index}`}
+                  checked={row.include}
+                  disabled={row.unsupported}
+                  onChange={(event) => patch(index, { include: event.currentTarget.checked })}
+                  className="size-[18px] flex-none cursor-pointer appearance-none rounded-xs border border-control bg-paper transition-colors duration-200 ease-ui checked:border-accent checked:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                />
+                <input
+                  aria-label={`Название комнаты ${index + 1}`}
+                  value={row.name}
+                  onChange={(event) => patch(index, { name: event.currentTarget.value })}
+                  className={`${numberFieldClassName} min-w-[10rem] flex-1`}
+                />
+                <select
+                  aria-label={`Тип комнаты ${index + 1}`}
+                  value={row.kind}
+                  onChange={(event) =>
+                    patch(index, { kind: event.currentTarget.value as RoomKind })
+                  }
+                  className={`${numberFieldClassName} w-[9rem]`}
+                >
+                  {mvpRoomKinds.map((kind) => (
+                    <option key={kind} value={kind}>
+                      {roomKindLabels[kind]}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            <div className="mt-3 flex flex-wrap gap-3 pl-[30px]">
-              <label className="text-[13px] text-ink-2">
-                Ширина, см
-                <input
-                  inputMode="numeric"
-                  value={row.width}
-                  onChange={(event) => patch(index, { width: event.currentTarget.value })}
-                  className={`${numberFieldClassName} mt-1 w-24`}
-                />
-              </label>
-              <label className="text-[13px] text-ink-2">
-                Глубина, см
-                <input
-                  inputMode="numeric"
-                  value={row.depth}
-                  onChange={(event) => patch(index, { depth: event.currentTarget.value })}
-                  className={`${numberFieldClassName} mt-1 w-24`}
-                />
-              </label>
-              <label className="text-[13px] text-ink-2">
-                Площадь, м²
-                <input
-                  inputMode="decimal"
-                  value={row.area}
-                  onChange={(event) => patch(index, { area: event.currentTarget.value })}
-                  className={`${numberFieldClassName} mt-1 w-24`}
-                />
-              </label>
-            </div>
+              <div className="mt-3 flex flex-wrap gap-3 pl-[30px]">
+                <label className="text-[13px] text-ink-2">
+                  Ширина, см
+                  <input
+                    inputMode="numeric"
+                    value={row.width}
+                    onChange={(event) => patch(index, { width: event.currentTarget.value })}
+                    className={`${numberFieldClassName} mt-1 w-24`}
+                  />
+                </label>
+                <label className="text-[13px] text-ink-2">
+                  Глубина, см
+                  <input
+                    inputMode="numeric"
+                    value={row.depth}
+                    onChange={(event) => patch(index, { depth: event.currentTarget.value })}
+                    className={`${numberFieldClassName} mt-1 w-24`}
+                  />
+                </label>
+                <label className="text-[13px] text-ink-2">
+                  Площадь, м²
+                  <input
+                    inputMode="decimal"
+                    value={row.area}
+                    onChange={(event) => patch(index, { area: event.currentTarget.value })}
+                    className={`${numberFieldClassName} mt-1 w-24`}
+                  />
+                </label>
+              </div>
 
-            {row.include ? (
-              <label className="mt-3 block pl-[30px] text-[13px] text-ink-2">
-                Чего хотите в этой комнате
-                <input
-                  value={row.wish}
-                  placeholder={wishPlaceholder(row.kind)}
-                  onChange={(event) => patch(index, { wish: event.currentTarget.value })}
-                  className={`${numberFieldClassName} mt-1 w-full`}
-                />
-              </label>
-            ) : null}
+              {row.include ? (
+                <label className="mt-3 block pl-[30px] text-[13px] text-ink-2">
+                  Чего хотите в этой комнате
+                  <input
+                    value={row.wish}
+                    placeholder={wishPlaceholder(row.kind)}
+                    onChange={(event) => patch(index, { wish: event.currentTarget.value })}
+                    className={`${numberFieldClassName} mt-1 w-full`}
+                  />
+                </label>
+              ) : null}
 
-            {row.roomId ? (
-              <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
-                Числа впишем в комнату «{row.roomName}», которая уже есть в проекте. Новой такой же
-                не появится.
-              </p>
-            ) : null}
-            {row.unsupported ? (
-              <p className="mt-3 pl-[30px] text-[13px] leading-relaxed text-ink-2">
-                {row.unsupportedReason === 'utility'
-                  ? 'Прихожие, коридоры и кладовые мы не обставляем: мебель туда покупают редко, а размеры с плана сохранились.'
-                  : 'Ванные сервис пока не делает: сантехники в каталоге нет, и подбирать там будет нечего. Размеры сохранились в плане.'}
-              </p>
-            ) : null}
-            {row.rechecked ? (
-              <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
-                {row.rechecked === 'both' ? 'Обе стороны' : 'Одну сторону'} мы перечитали по
-                отрезкам размерной цепочки: с первого раза площадь не сходилась, теперь сходится.
-              </p>
-            ) : null}
-            {areaHint(row) ? (
-              <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
-                {areaHint(row)} Проверьте, какое из чисел мы прочитали неверно.
-              </p>
-            ) : null}
-            {row.suspicious ? (
-              <p className="mt-3 pl-[30px] text-[13px] leading-relaxed text-danger">
-                Площадь не сходится с размерами. Одно из трёх чисел мы прочитали неверно.
-              </p>
-            ) : null}
-          </li>
-        ))}
+              {row.roomId ? (
+                <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
+                  Числа впишем в комнату «{row.roomName}», которая уже есть в проекте. Новой такой
+                  же не появится.
+                </p>
+              ) : null}
+              {row.unsupported ? (
+                <p className="mt-3 pl-[30px] text-[13px] leading-relaxed text-ink-2">
+                  {row.unsupportedReason === 'utility'
+                    ? 'Прихожие, коридоры и кладовые мы не обставляем: мебель туда покупают редко, а размеры с плана сохранились.'
+                    : 'Ванные сервис пока не делает: сантехники в каталоге нет, и подбирать там будет нечего. Размеры сохранились в плане.'}
+                </p>
+              ) : null}
+              {row.rechecked ? (
+                <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
+                  {row.rechecked === 'both' ? 'Обе стороны' : 'Одну сторону'} мы перечитали по
+                  отрезкам размерной цепочки: с первого раза площадь не сходилась, теперь сходится.
+                </p>
+              ) : null}
+              {check ? (
+                <div className="mt-2 pl-[30px]">
+                  <p className="text-[13px] leading-relaxed text-ink-2">
+                    {check.text} Одно из трёх чисел прочитано неверно. Площади на плане верить
+                    можно: её печатают, а не складывают из отрезков.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => patch(index, { width: String(check.widthCm) })}
+                      className={fixButtonClassName}
+                    >
+                      Ширина {check.widthCm} см
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => patch(index, { depth: String(check.depthCm) })}
+                      className={fixButtonClassName}
+                    >
+                      Глубина {check.depthCm} см
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {row.suspicious ? (
+                <p className="mt-3 pl-[30px] text-[13px] leading-relaxed text-danger">
+                  Площадь не сходится с размерами. Одно из трёх чисел мы прочитали неверно.
+                </p>
+              ) : null}
+            </li>
+          )
+        })}
       </ul>
 
       <FormError message={error} />
