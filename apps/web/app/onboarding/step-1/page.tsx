@@ -88,6 +88,7 @@ export default async function Step1({ searchParams }: StepParams) {
 
         {project.planUrl ? (
           <PlanReadingCard
+            key={project.planUrl}
             projectId={project.id}
             reading={project.planReading}
             hasPlan

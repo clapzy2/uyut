@@ -177,6 +177,26 @@ function spanOf(
     : { from: depths.top, to: room.depthCm - depths.bottom }
 }
 
+const OPPOSITE: Record<LayoutWall, LayoutWall> = {
+  top: 'bottom',
+  bottom: 'top',
+  left: 'right',
+  right: 'left',
+}
+
+/**
+ * Влезет ли предмет к этой стене, не упёршись в мебель напротив.
+ *
+ * Стена бывает достаточно длинной, а комната при этом узкой: шкаф глубиной 165 см у левой стены
+ * и такой же у правой в комнате шириной 252 см смыкаются посередине. Длина стены об этом
+ * ничего не говорит, поэтому глубину проверяем отдельно.
+ */
+function depthFits(wall: WallState, item: Size, walls: Record<LayoutWall, WallState>, room: Size) {
+  const across = wall.wall === 'top' || wall.wall === 'bottom' ? room.depthCm : room.widthCm
+  const opposite = walls[OPPOSITE[wall.wall]].depthCm
+  return Math.max(wall.depthCm, item.depthCm) + opposite <= across
+}
+
 type Sized = { item: LayoutItem; size: Size; spot: Spot }
 
 /**
@@ -256,7 +276,11 @@ export function layoutRoom(
   for (const entry of wallItems) {
     const roomy = order
       .map((wall) => walls[wall])
-      .filter((wall) => wall.lengthCm - wall.usedCm >= entry.size.widthCm)
+      .filter(
+        (wall) =>
+          wall.lengthCm - wall.usedCm >= entry.size.widthCm &&
+          depthFits(wall, entry.size, walls, { widthCm, depthCm }),
+      )
       .sort((a, b) => b.lengthCm - b.usedCm - (a.lengthCm - a.usedCm))[0]
     if (!roomy) {
       problems.push({ kind: 'noWall', title: entry.item.title, widthCm: entry.size.widthCm })
