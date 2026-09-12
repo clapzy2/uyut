@@ -49,12 +49,17 @@ export type PlanRoom = {
    * Значит, одно из трёх чисел прочитано неверно, и строку надо подсветить человеку.
    */
   suspicious?: boolean
+  /** Сторону перечитали отдельным вопросом по отрезкам цепочки, и после этого площадь сошлась */
+  rechecked?: PlanSide[]
 }
 
 export type PlanReading = {
   ceilingCm?: number
   rooms: PlanRoom[]
 }
+
+/** Сторона комнаты на чертеже: вдоль горизонтали или вдоль вертикали */
+export type PlanSide = 'width' | 'depth'
 
 /**
  * Границы правдоподобия. Всё за ними — не размер комнаты, а склеенные числа с чертежа
@@ -68,6 +73,17 @@ const MAX_AREA_M2 = 200
 
 /** Насколько подписанная площадь может расходиться с произведением сторон */
 const AREA_TOLERANCE = 0.25
+
+/**
+ * Порог, с которого имеет смысл перечитать сторону по отрезкам.
+ *
+ * Два процента — это уже не округление подписи, а прочитанная не та цифра. Замер на трудном плане:
+ * общим проходом модель читала ширину гостиной как 393 см при верных 383 в пяти случаях из шести,
+ * и на своей ошибке настаивала даже когда её прямо просили сверяться с площадью. Тот же вопрос,
+ * заданный про одну комнату и одну сторону с просьбой перечислить отрезки цепочки, дал 900+2100+830
+ * пять раз из пяти. Отсюда и правило: сомнительное место перечитывается отдельным вопросом.
+ */
+const RECHECK_TOLERANCE = 0.02
 
 const KIND_WORDS: ReadonlyArray<[RegExp, RoomKind]> = [
   [/санузел|ванн|туалет|с\/у|душев/i, 'bath'],
@@ -146,14 +162,24 @@ export function parseFloorPlan(raw: string): PlanReading {
     return { rooms: [] }
   }
   const rooms: PlanRoom[] = []
+  // В плане БТИ трёшки все три комнаты подписаны «Комната». Одинаковые названия разводим
+  // номерами прямо здесь: дальше по ним ищется пара с уже заведённой комнатой и собирается
+  // ответ, и два одинаковых ключа схлопнули бы квартиру до одной комнаты.
+  const used = new Map<string, number>()
   for (const entry of Array.isArray(parsed.rooms) ? parsed.rooms : []) {
-    const source = entry as Record<string, unknown>
-    const name = String(source.name ?? '')
-      .replace(/\s+/g, ' ')
-      .trim()
-    if (name === '' || name.length > 40) {
+    if (!entry || typeof entry !== 'object') {
       continue
     }
+    const source = entry as Record<string, unknown>
+    const read = String(source.name ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (read === '' || read.length > 40) {
+      continue
+    }
+    const seen = (used.get(read.toLowerCase()) ?? 0) + 1
+    used.set(read.toLowerCase(), seen)
+    const name = seen === 1 ? read : `${read} ${seen}`
     const room = {
       name,
       kind: roomKindFromName(name),
@@ -168,6 +194,150 @@ export function parseFloorPlan(raw: string): PlanReading {
   }
   const ceiling = ceilingCm(parsed.ceilingMm)
   return ceiling === undefined ? { rooms } : { ceilingCm: ceiling, rooms }
+}
+
+/** Не сходится ли площадь настолько, что стоит перечитать стороны отдельным вопросом. */
+export function needsRecheck(room: PlanRoom): boolean {
+  if (room.widthCm === undefined || room.depthCm === undefined || room.areaM2 === undefined) {
+    return false
+  }
+  const computed = (room.widthCm * room.depthCm) / 10_000
+  return Math.abs(computed - room.areaM2) / room.areaM2 > RECHECK_TOLERANCE
+}
+
+/**
+ * Задание на перечёт одной стороны одной комнаты.
+ *
+ * Просим перечислить отрезки, а не назвать сумму: складывает модель хорошо, а вот увидеть
+ * «830» там, где она уже решила, что там «930», у неё получается только если заставить
+ * выписать числа по одному.
+ */
+export const SIDE_RECHECK_PROMPT = `Ты читаешь обмерный план и отвечаешь про одну комнату.
+
+Отвечай ТОЛЬКО JSON вида: {"segments": [числа в миллиметрах], "totalMm": число}
+
+Правила:
+- segments — отрезки размерной цепочки вдоль запрошенной стороны, по порядку, как подписаны на плане.
+- Переписывай каждое число ровно так, как оно напечатано. Не округляй и не додумывай.
+- Если сторона подписана одним числом, в segments одно число.
+- totalMm — сумма segments.
+- Не видишь размерной линии у этой стороны — верни пустой segments и totalMm равным null.`
+
+/** Сумма отрезков в сантиметрах или undefined, если отрезков нет либо сумма неправдоподобна. */
+export function parseSideRecheck(raw: string): number | undefined {
+  const start = raw.indexOf('{')
+  const end = raw.lastIndexOf('}')
+  if (start === -1 || end <= start) {
+    return undefined
+  }
+  let parsed: { segments?: unknown }
+  try {
+    parsed = JSON.parse(raw.slice(start, end + 1))
+  } catch {
+    return undefined
+  }
+  const segments = Array.isArray(parsed.segments) ? parsed.segments : []
+  if (segments.length === 0) {
+    return undefined
+  }
+  let sum = 0
+  for (const segment of segments) {
+    const value = Number(segment)
+    if (!Number.isFinite(value) || value <= 0) {
+      return undefined
+    }
+    sum += value
+  }
+  // Считаем сами, а не берём totalMm: сложение — единственное, в чём мы можем не сомневаться
+  return sideCm(sum)
+}
+
+/**
+ * Принять ли перечитанные стороны вместо прочитанных общим проходом.
+ *
+ * Меняем только тогда, когда после замены подписанная площадь сходится: иначе мы бы молча
+ * поменяли одну ошибку на другую, а у человека не осталось бы ни единого признака, что числам
+ * нельзя верить. Не сошлась — отдаём исходную строку с пометкой, пусть смотрит сам.
+ */
+export function applyRecheck(
+  room: PlanRoom,
+  side: { widthCm?: number; depthCm?: number },
+): PlanRoom | null {
+  const widthCm = side.widthCm ?? room.widthCm
+  const depthCm = side.depthCm ?? room.depthCm
+  if (widthCm === undefined || depthCm === undefined || room.areaM2 === undefined) {
+    return null
+  }
+  const off = Math.abs((widthCm * depthCm) / 10_000 - room.areaM2) / room.areaM2
+  if (off > RECHECK_TOLERANCE) {
+    return null
+  }
+  const rechecked: PlanSide[] = []
+  if (side.widthCm !== undefined && side.widthCm !== room.widthCm) {
+    rechecked.push('width')
+  }
+  if (side.depthCm !== undefined && side.depthCm !== room.depthCm) {
+    rechecked.push('depth')
+  }
+  if (rechecked.length === 0) {
+    return null
+  }
+  const fixed: PlanRoom = { ...room, widthCm, depthCm, rechecked }
+  delete fixed.suspicious
+  return fixed
+}
+
+/**
+ * Комнаты со всех страниц файла: одноимённую с первой страницы вторая не перебивает.
+ *
+ * Повторы внутри одной страницы — не повторы: у трёшки в плане БТИ все комнаты подписаны
+ * «Комната», и разводит их номерами разбор ответа. Здесь отсеиваются только те, что уже
+ * встретились на предыдущих страницах: у многостраничных планов первый лист часто повторяет
+ * часть второго.
+ */
+export function mergeReadings(readings: readonly PlanReading[]): PlanReading {
+  const rooms: PlanRoom[] = []
+  const seen = new Set<string>()
+  let ceilingCm: number | undefined
+  for (const reading of readings) {
+    ceilingCm ??= reading.ceilingCm
+    const onThisPage: string[] = []
+    for (const room of reading.rooms) {
+      const key = room.name.trim().toLowerCase()
+      if (key === '' || seen.has(key)) {
+        continue
+      }
+      onThisPage.push(key)
+      rooms.push(room)
+    }
+    for (const key of onThisPage) {
+      seen.add(key)
+    }
+  }
+  return ceilingCm === undefined ? { rooms } : { ceilingCm, rooms }
+}
+
+const SIDE_WORDS: Record<PlanSide, string> = {
+  width: 'ширины, то есть по горизонтали чертежа',
+  depth: 'глубины, то есть по вертикали чертежа',
+}
+
+export type SideReader = (
+  image: { body: Buffer; contentType: string },
+  roomName: string,
+  side: PlanSide,
+) => Promise<number | undefined>
+
+export function createFalSideReader(apiKey: string): SideReader {
+  return async (image, roomName, side) => {
+    const result = await falQueue<{ output?: string }>(apiKey, 'fal-ai/any-llm/vision', {
+      model: PLAN_READER_MODEL,
+      system_prompt: SIDE_RECHECK_PROMPT,
+      prompt: `Комната «${roomName}». Нужна размерная цепочка вдоль её ${SIDE_WORDS[side]}. Перечисли отрезки.`,
+      image_url: toDataUri(image),
+    })
+    return parseSideRecheck(result.output ?? '')
+  }
 }
 
 export type PlanReader = (image: { body: Buffer; contentType: string }) => Promise<PlanReading>

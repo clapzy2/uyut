@@ -1,4 +1,4 @@
-import type { LayoutItem } from '@uyut/catalog'
+import type { LayoutItem, Placement } from '@uyut/catalog'
 import { layoutRoom, WALKWAY_CM } from '@uyut/catalog'
 import { describe, expect, it } from 'vitest'
 
@@ -132,7 +132,137 @@ describe('layoutRoom', () => {
     const layout = layoutRoom({ widthCm: 300, depthCm: 400 }, [
       item({ title: 'Шкаф', dimensions: { width: 100, depth: 60, height: 220 } }),
     ])
-    // Периметр 1400 минус занятые сто сантиметров
-    expect(layout.freeWallCm).toBe(1300)
+    // Периметр 1400 минус занятые сто сантиметров и минус два угла по шестьдесят,
+    // которые отдал шкаф соседним стенам
+    expect(layout.freeWallCm).toBe(1180)
+  })
+})
+
+/** Пересекаются ли два прямоугольника плана хотя бы на сантиметр */
+function overlaps(a: Placement, b: Placement): boolean {
+  return (
+    a.xCm < b.xCm + b.widthCm - 0.5 &&
+    b.xCm < a.xCm + a.widthCm - 0.5 &&
+    a.yCm < b.yCm + b.depthCm - 0.5 &&
+    b.yCm < a.yCm + a.depthCm - 0.5
+  )
+}
+
+function anyOverlap(layout: ReturnType<typeof layoutRoom>): boolean {
+  return layout.placed.some((one, index) =>
+    layout.placed.slice(index + 1).some((other) => overlaps(one, other)),
+  )
+}
+
+describe('ничто не наезжает друг на друга', () => {
+  it('мебель соседних стен не встаёт в один угол', () => {
+    // Комод уходил на верхнюю стену в точку (0,0), где уже стояла кровать у левой стены
+    const layout = layoutRoom({ widthCm: 350, depthCm: 400 }, [
+      item({
+        title: 'Кровать',
+        category: 'bed',
+        dimensions: { width: 160, depth: 200, height: 90 },
+      }),
+      item({ title: 'Шкаф', dimensions: { width: 200, depth: 60, height: 220 } }),
+      item({ title: 'Комод', dimensions: { width: 100, depth: 45, height: 80 } }),
+    ])
+    expect(anyOverlap(layout)).toBe(false)
+  })
+
+  it('четыре одинаковые тумбы по четырём стенам тоже не сходятся в углах', () => {
+    const layout = layoutRoom({ widthCm: 400, depthCm: 400 }, [
+      item({ title: 'Тумба', dimensions: { width: 120, depth: 40, height: 60 }, quantity: 4 }),
+    ])
+    expect(layout.placed).toHaveLength(4)
+    expect(anyOverlap(layout)).toBe(false)
+  })
+
+  it('журнальный столик не оказывается внутри обеденного', () => {
+    const layout = layoutRoom({ widthCm: 500, depthCm: 500 }, [
+      item({
+        title: 'Стол обеденный',
+        category: 'table',
+        subcategory: 'dining',
+        dimensions: { width: 160, depth: 90, height: 75 },
+      }),
+      item({
+        title: 'Столик журнальный',
+        category: 'table',
+        subcategory: 'coffee',
+        dimensions: { width: 110, depth: 60, height: 45 },
+      }),
+    ])
+    expect(anyOverlap(layout)).toBe(false)
+  })
+
+  it('две копии одного столика не ложатся в одну точку', () => {
+    const layout = layoutRoom({ widthCm: 600, depthCm: 500 }, [
+      item({
+        title: 'Столик',
+        category: 'table',
+        subcategory: 'coffee',
+        dimensions: { width: 110, depth: 60, height: 45 },
+        quantity: 2,
+      }),
+    ])
+    expect(layout.placed).toHaveLength(2)
+    expect(anyOverlap(layout)).toBe(false)
+  })
+
+  it('ничего не вылезает за стены комнаты', () => {
+    const layout = layoutRoom({ widthCm: 250, depthCm: 400 }, [
+      item({
+        title: 'Угловой диван',
+        category: 'sofa',
+        dimensions: { width: 260, depth: 260, height: 85 },
+      }),
+    ])
+    for (const place of layout.placed) {
+      expect(place.xCm + place.widthCm).toBeLessThanOrEqual(250.5)
+      expect(place.yCm + place.depthCm).toBeLessThanOrEqual(400.5)
+    }
+    // Не встал — значит, об этом надо сказать, а не тихо нарисовать поверх стены
+    expect(layout.problems.some((problem) => problem.kind === 'noWall')).toBe(true)
+  })
+})
+
+describe('проход меряем тем, что просит предмет', () => {
+  it('сорок сантиметров вокруг журнального столика это норма, а не теснота', () => {
+    const layout = layoutRoom({ widthCm: 300, depthCm: 400 }, [
+      item({ title: 'Диван', category: 'sofa', dimensions: { width: 220, depth: 95, height: 85 } }),
+      item({
+        title: 'Столик',
+        category: 'table',
+        subcategory: 'coffee',
+        dimensions: { width: 110, depth: 60, height: 45 },
+      }),
+    ])
+    expect(layout.problems.some((problem) => problem.kind === 'narrowWalkway')).toBe(false)
+  })
+
+  it('без мебели посередине проход меряем семьюдесятью сантиметрами', () => {
+    const layout = layoutRoom({ widthCm: 180, depthCm: 500 }, [
+      item({ title: 'Шкаф', dimensions: { width: 200, depth: 60, height: 220 } }),
+      item({ title: 'Комод', dimensions: { width: 200, depth: 60, height: 90 } }),
+    ])
+    expect(layout.problems.some((problem) => problem.kind === 'narrowWalkway')).toBe(true)
+  })
+})
+
+describe('кровать встаёт изголовьем к стене', () => {
+  it('вдоль стены идёт ширина кровати, а не её длина', () => {
+    const layout = layoutRoom({ widthCm: 300, depthCm: 400 }, [
+      item({
+        title: 'Кровать',
+        category: 'bed',
+        dimensions: { width: 180, depth: 200, height: 50 },
+      }),
+    ])
+    const bed = layout.placed[0]
+    // Кровать ушла к длинной стене, поэтому вдоль стены идёт вертикаль плана
+    const alongWall = bed?.wall === 'left' || bed?.wall === 'right' ? bed?.depthCm : bed?.widthCm
+    const intoRoom = bed?.wall === 'left' || bed?.wall === 'right' ? bed?.widthCm : bed?.depthCm
+    expect(alongWall).toBe(180)
+    expect(intoRoom).toBe(200)
   })
 })

@@ -141,9 +141,7 @@ function MatchesPanel({
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-serif text-xl text-ink">
-          {object.styleOnly
-            ? `${label}: похожие по стилю`
-            : `${label}: ${object.matches.length} похожих`}
+          {object.styleOnly ? `${label}: похожие по стилю` : `${label}: ${shown.length} похожих`}
         </p>
         {object.window ? (
           <span className="rounded-full border border-control px-2.5 py-0.5 text-[12px] text-ink-2">
@@ -162,6 +160,12 @@ function MatchesPanel({
           Показывать только то, что влезает по меркам
           {onlyFitting ? '' : ` · не влезает ${oversized}`}
         </label>
+      ) : null}
+      {shown.length === 0 ? (
+        <p className="text-[15px] leading-relaxed text-ink-2">
+          По меркам не влезает ни один из найденных. Снимите галочку, чтобы посмотреть их всё равно:
+          мерки бывают сняты неточно, а у товара бывает вариант поменьше.
+        </p>
       ) : null}
       <ul className="flex flex-col divide-y divide-line border-y border-line">
         {shown.map((match) => {

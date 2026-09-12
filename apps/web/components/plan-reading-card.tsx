@@ -1,12 +1,17 @@
 'use client'
 
 import type { PlanReading, RoomKind } from '@uyut/db'
-import { Button, Input, inputClassName, toast } from '@uyut/ui'
+import { Button, chipClassName, Input, inputClassName, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { confirmPlanRooms, forgetPlanReading, readPlan } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
-import { mvpRoomKinds, roomKindLabels } from '@/lib/projects/format'
+import {
+  mvpRoomKinds,
+  roomConditionHints,
+  roomConditionLabels,
+  roomKindLabels,
+} from '@/lib/projects/format'
 import { type ExistingRoom, type PlanRow, planRows } from '@/lib/projects/plan-rows'
 
 const numberFieldClassName = `${inputClassName} h-10 text-[14px]`
@@ -85,6 +90,9 @@ export function PlanReadingCard({
     reading?.ceilingCm && !reading.confirmedAt ? String(reading.ceilingCm) : '',
   )
   const [error, setError] = useState<string | undefined>(undefined)
+  // Состояние квартиры решает, войдёт ли в смету ремонт. Спрашиваем один раз на все комнаты:
+  // по плану их пять, и пять одинаковых ответов подряд человек давать не станет
+  const [condition, setCondition] = useState<'bare' | 'finished'>('bare')
   const [reading_, startReading] = useTransition()
   const [saving, setSaving] = useState(false)
 
@@ -122,6 +130,7 @@ export function PlanReadingCard({
     setSaving(true)
     const result = await confirmPlanRooms(projectId, {
       ceilingCm: ceiling,
+      condition,
       rooms: rows.map((row) => ({
         include: row.include,
         roomId: row.roomId ?? '',
@@ -166,21 +175,22 @@ export function PlanReadingCard({
         </p>
         {planIsPdf ? (
           <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
-            Этот план лежит в PDF, а читаем мы с картинки. Пришлите скриншот или фотографию плана.
+            План в PDF: посмотрим первые три страницы, план обычно на первой.
           </p>
-        ) : (
-          <div className="mt-4">
-            <Button type="button" variant="secondary" onClick={read} pending={reading_}>
-              {reading_ ? 'Читаем план…' : 'Прочитать размеры с плана'}
-            </Button>
-          </div>
-        )}
+        ) : null}
+        <div className="mt-4">
+          <Button type="button" variant="secondary" onClick={read} pending={reading_}>
+            {reading_ ? 'Читаем план…' : 'Прочитать размеры с плана'}
+          </Button>
+        </div>
         <FormError message={error} />
       </div>
     )
   }
 
   const chosen = rows.filter((row) => row.include).length
+  // Ни у одной комнаты не прочитались обе стороны: план без размерных линий
+  const noSides = rows.every((row) => row.width === '' || row.depth === '')
 
   return (
     <div className="mt-6 animate-[rise-in_350ms_var(--ease-appear)] border-t border-line pt-6">
@@ -196,15 +206,48 @@ export function PlanReadingCard({
         .
       </p>
 
-      <div className="mt-5 max-w-[10rem]">
-        <Input
-          id="plan-ceiling"
-          label="Высота потолка, см"
-          inputMode="numeric"
-          value={ceiling}
-          onChange={(event) => setCeiling(event.currentTarget.value)}
-        />
+      {noSides ? (
+        <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
+          Размерных линий на этом плане нет, поэтому стены мы не прочитали: взяли только названия и
+          площади. Так печатают рекламные планировки застройщика. Стороны комнат можно вписать
+          руками здесь или позже, в самой комнате.
+        </p>
+      ) : null}
+
+      <div className="mt-5 flex flex-wrap items-end gap-6">
+        <div className="max-w-[10rem]">
+          <Input
+            id="plan-ceiling"
+            label="Высота потолка, см"
+            inputMode="numeric"
+            value={ceiling}
+            onChange={(event) => setCeiling(event.currentTarget.value)}
+          />
+        </div>
+        <fieldset className="m-0 border-0 p-0">
+          <legend className="mb-2 block text-xs font-medium uppercase tracking-[0.1em] text-ink-2">
+            Что делаем с квартирой
+          </legend>
+          <div className="flex flex-wrap gap-2">
+            {(['bare', 'finished'] as const).map((value) => (
+              <label key={value} className="cursor-pointer">
+                <input
+                  type="radio"
+                  name="plan-condition"
+                  value={value}
+                  checked={condition === value}
+                  onChange={() => setCondition(value)}
+                  className="peer sr-only"
+                />
+                <span className={chipClassName}>{roomConditionLabels[value]}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
       </div>
+      <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+        {roomConditionHints[condition]} У каждой комнаты это потом можно поменять отдельно.
+      </p>
 
       <ul className="mt-5 flex flex-col gap-3">
         {rows.map((row, index) => (
@@ -291,6 +334,12 @@ export function PlanReadingCard({
               <p className="mt-3 pl-[30px] text-[13px] leading-relaxed text-ink-2">
                 Такие комнаты сервис пока не делает. Размеры сохранились в плане, комната появится,
                 когда мы до неё дойдём.
+              </p>
+            ) : null}
+            {row.rechecked ? (
+              <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
+                {row.rechecked === 'both' ? 'Обе стороны' : 'Одну сторону'} мы перечитали по
+                отрезкам размерной цепочки: с первого раза площадь не сходилась, теперь сходится.
               </p>
             ) : null}
             {areaHint(row) ? (

@@ -102,6 +102,8 @@ export type RoomMeasurementsInput = z.input<typeof roomMeasurementsSchema>
  */
 export const planRoomsSchema = z.object({
   ceilingCm: spotWidthSchema,
+  /** Состояние квартиры одним ответом на все создаваемые комнаты: от него зависит смета работ */
+  condition: z.enum(['bare', 'finished'], { error: 'Выберите, что делаем с квартирой' }),
   rooms: z
     .array(
       z.object({

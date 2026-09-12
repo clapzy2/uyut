@@ -28,6 +28,11 @@ const TOKEN_TIMEOUT_MS = 4_000
  * Поэтому спрашиваем сами концепты этого запуска: пока ни один не создан, ждём — задача ещё
  * не дошла до их создания. Как только они есть и ни один не в работе, ждать нечего.
  */
+/** Комната занята под запуск, но сам запуск ещё не создан: ключа для ожидания у неё нет. */
+export function isPendingClaim(runId: string | null): boolean {
+  return runId?.startsWith('pending:') ?? false
+}
+
 export async function generationStillRunning(room: Room): Promise<boolean> {
   const startedAt = room.generationStartedAt
   if (!room.generationRunId || !startedAt) {
@@ -47,7 +52,7 @@ export async function generationStillRunning(room: Room): Promise<boolean> {
 /** Ключ для продолжения ожидания, если генерация и правда идёт. */
 export async function resumeGenerationRun(room: Room): Promise<ConceptRunHandle | null> {
   const runId = room.generationRunId
-  if (!runId || !getEnv().TRIGGER_SECRET_KEY) {
+  if (!runId || isPendingClaim(runId) || !getEnv().TRIGGER_SECRET_KEY) {
     return null
   }
   if (!(await generationStillRunning(room))) {

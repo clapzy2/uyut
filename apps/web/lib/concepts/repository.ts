@@ -1,8 +1,8 @@
 import type { PromptPlan } from '@uyut/ai'
-import { type Concept, concepts, rooms } from '@uyut/db'
+import { type Concept, conceptObjects, concepts, rooms } from '@uyut/db'
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { AccessError, NotFoundError, requireOwner } from '@/lib/projects/access'
+import { AccessError, isUuid, NotFoundError, requireOwner } from '@/lib/projects/access'
 import { getRoom, type RoomWithProject } from '@/lib/projects/repository'
 import { CONCEPT_STALE_AFTER_MS, OBJECTS_STALE_AFTER_MS, staleBefore } from '@/lib/queue/stale'
 import { presignedObjectUrl } from '@/lib/storage'
@@ -165,6 +165,25 @@ export async function getConceptForEdit(
     throw new AccessError('Этот вариант ещё не готов, править пока нечего.')
   }
   return { id: row.id, roomId: row.roomId }
+}
+
+/**
+ * Принадлежит ли предмет именно этому рендеру.
+ *
+ * Ткнуть можно только то, что нарисовано на правимой картинке. Без этой проверки id предмета
+ * из чужого проекта, увиденный когда-то бывшим соучастником, заставил бы задачу открыть чужой
+ * рендер и приложить кусок чужой комнаты к своей правке.
+ */
+export async function conceptHasObject(conceptId: string, objectId: string): Promise<boolean> {
+  if (!isUuid(objectId)) {
+    return false
+  }
+  const [row] = await getDb()
+    .select({ id: conceptObjects.id })
+    .from(conceptObjects)
+    .where(and(eq(conceptObjects.id, objectId), eq(conceptObjects.conceptId, conceptId)))
+    .limit(1)
+  return Boolean(row)
 }
 
 export async function setConceptLike(

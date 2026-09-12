@@ -43,7 +43,13 @@ const payloadSchema = z.object({
    * чтобы он видел, за что платит.
    */
   editSteps: z
-    .array(z.object({ titleRu: z.string().max(200), prompt: z.string().min(1).max(600) }))
+    .array(
+      z.object({
+        titleRu: z.string().max(200),
+        prompt: z.string().min(1).max(600),
+        needsObject: z.boolean().optional(),
+      }),
+    )
     .min(1)
     .max(4)
     .optional(),
@@ -145,18 +151,20 @@ async function writeNotes(
  */
 async function renderSteps(
   engine: ConceptRenderer,
-  steps: Array<{ prompt: string }>,
+  steps: Array<{ prompt: string; needsObject?: boolean }>,
   imageUrl: string | undefined,
   referenceUrls: string[],
 ): Promise<RenderResult> {
   let current = imageUrl
   let last: RenderResult | null = null
   for (const step of steps) {
+    // Кадр предмета нужен только тому шагу, который что-то ставит. На шаге «убрать шкаф»
+    // вторая картинка со шкафом — прямое противоречие команде, и модель рисовала его заново
+    const withObject = referenceUrls.length > 0 && step.needsObject === true
     last = await engine.render({
       prompt: `${step.prompt} ${KEEP_THE_REST}`,
       imageUrl: current,
-      // Кадр предмета нужен только тому шагу, который что-то ставит
-      ...(referenceUrls.length > 0 ? { referenceUrls } : {}),
+      ...(withObject ? { referenceUrls } : {}),
       aspectRatio: '16:9',
     })
     current = `data:${last.contentType};base64,${last.body.toString('base64')}`
@@ -174,12 +182,18 @@ async function renderSteps(
  * похожую мебель, а не ту же. Картинка предмета вторым кадром — единственный способ сказать
  * «поставь вот это», и вырезаем мы её по маске, а не рамкой: в рамку попадают стена и соседи.
  */
-async function cropConceptObject(objectId: string): Promise<{ body: Buffer; contentType: string }> {
+async function cropConceptObject(
+  objectId: string,
+  conceptId: string,
+): Promise<{ body: Buffer; contentType: string }> {
+  // Предмет обязан принадлежать правимому рендеру. Проверка стоит и в действии, и здесь:
+  // задача читает файлы из хранилища, и открыть по чужому id чужую комнату она не должна
+  // ни при каком способе попасть в очередь.
   const [row] = await db()
     .select({ object: conceptObjects, concept: concepts })
     .from(conceptObjects)
     .innerJoin(concepts, eq(concepts.id, conceptObjects.conceptId))
-    .where(eq(conceptObjects.id, objectId))
+    .where(and(eq(conceptObjects.id, objectId), eq(conceptObjects.conceptId, conceptId)))
     .limit(1)
   if (!row) {
     throw new Error('предмет не найден')
@@ -321,8 +335,8 @@ export const generateConcept = task({
     // Кадр самого предмета, если его приложили: без него модель рисует похожую мебель
     const attached = payload.objectKey
       ? await readObject(payload.objectKey).catch(() => null)
-      : payload.objectId
-        ? await cropConceptObject(payload.objectId).catch((error) => {
+      : payload.objectId && payload.baseConceptId
+        ? await cropConceptObject(payload.objectId, payload.baseConceptId).catch((error) => {
             logger.warn('object crop failed', { error: String(error) })
             return null
           })
