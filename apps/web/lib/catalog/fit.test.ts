@@ -53,3 +53,28 @@ describe('checkFit', () => {
     expect(verdict.spot?.widthCm).toBe(320)
   })
 })
+
+describe('высота потолка', () => {
+  const spots = [{ name: 'стена слева', widthCm: 320 }]
+
+  it('шкаф под потолок не встанет, и ширина уже не важна', () => {
+    const verdict = checkFit({ width: 100, depth: 35, height: 270 }, spots, 270)
+    expect(verdict.state).toBe('tooTall')
+    expect(verdict.overCm).toBe(5)
+    expect(verdict.ceilingCm).toBe(270)
+  })
+
+  it('запас под потолком пять сантиметров: иначе не занести и не выровнять', () => {
+    // 266 плюс запас выше потолка в 270, а в потолок 272 тот же шкаф встаёт
+    expect(checkFit({ width: 100, depth: 35, height: 266 }, spots, 270).state).toBe('tooTall')
+    expect(checkFit({ width: 100, depth: 35, height: 266 }, spots, 272).state).toBe('fits')
+  })
+
+  it('без высоты потолка проверяем только ширину', () => {
+    expect(checkFit({ width: 100, depth: 35, height: 270 }, spots).state).toBe('fits')
+  })
+
+  it('когда сторон меньше трёх, высоту отличить нельзя и под потолок не проверяем', () => {
+    expect(checkFit({ width: 100, depth: 35 }, spots, 200).state).toBe('fits')
+  })
+})
