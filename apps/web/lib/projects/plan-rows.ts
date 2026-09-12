@@ -14,6 +14,18 @@ export type PlanRow = {
   suspicious: boolean
   /** Комнаты этого типа сервис пока не делает, и создать её нельзя */
   unsupported: boolean
+  /** Комната проекта, которой достанутся эти числа вместо создания новой */
+  roomId?: string
+  /** Как она называется сейчас: человек должен понять, куда попадут размеры */
+  roomName?: string
+}
+
+/** Комната проекта глазами этого экрана: что уже есть и чего у неё не хватает */
+export type ExistingRoom = {
+  id: string
+  name: string
+  kind: RoomKind
+  hasMeasurements: boolean
 }
 
 const supported = new Set<RoomKind>(mvpRoomKinds)
@@ -22,10 +34,22 @@ const supported = new Set<RoomKind>(mvpRoomKinds)
  * Прочитанное к правке. Ванные и детские приходят снятыми: их сервис пока не делает,
  * и молча выкинуть такую строку хуже, чем показать с объяснением — иначе человек решит,
  * что мы не увидели половину плана.
+ *
+ * Комнаты из онбординга план не задваивает, а дополняет: «Гостиная» из анкеты и «Гостиная»
+ * с чертежа — одна и та же комната. Пара ищется по типу и только среди комнат без размеров:
+ * у промеренной рулеткой комнаты числа свои, и перетирать их прочитанным нельзя.
  */
-export function planRows(reading: PlanReading): PlanRow[] {
+export function planRows(reading: PlanReading, existing: readonly ExistingRoom[] = []): PlanRow[] {
+  const free = existing.filter((room) => !room.hasMeasurements)
+  const taken = new Set<string>()
   return reading.rooms.map((room) => {
     const unsupported = !supported.has(room.kind)
+    const match = unsupported
+      ? undefined
+      : free.find((candidate) => candidate.kind === room.kind && !taken.has(candidate.id))
+    if (match) {
+      taken.add(match.id)
+    }
     return {
       include: !unsupported,
       name: room.name,
@@ -37,6 +61,7 @@ export function planRows(reading: PlanReading): PlanRow[] {
       wish: '',
       suspicious: room.suspicious === true,
       unsupported,
+      ...(match ? { roomId: match.id, roomName: match.name } : {}),
     }
   })
 }

@@ -201,7 +201,7 @@ export async function forgetPlanReading(projectId: string): Promise<ActionResult
 export async function confirmPlanRooms(
   projectId: string,
   input: unknown,
-): Promise<ActionResult<{ created: number }>> {
+): Promise<ActionResult<{ created: number; updated: number }>> {
   const userId = await currentUserId()
   if (!userId) {
     return { ok: false, error: SESSION_EXPIRED }
@@ -229,7 +229,7 @@ export async function confirmPlanRooms(
       readAt: project.planReading?.readAt ?? new Date().toISOString(),
       confirmedAt: new Date().toISOString(),
     }
-    const created = await repository.createRoomsFromPlan(userId, projectId, {
+    const saved = await repository.createRoomsFromPlan(userId, projectId, {
       reading,
       rooms: chosen.map((room) => {
         const measurements: RoomMeasurements = {
@@ -238,6 +238,7 @@ export async function confirmPlanRooms(
           ...(room.depthCm === null ? {} : { depthCm: room.depthCm }),
         }
         return {
+          ...(room.roomId ? { roomId: room.roomId } : {}),
           kind: room.kind,
           name: room.name || roomKindLabels[room.kind],
           areaM2: room.areaM2,
@@ -252,11 +253,11 @@ export async function confirmPlanRooms(
       targetType: 'project',
       targetId: projectId,
       headers: await headers(),
-      metadata: { created: created.length },
+      metadata: saved,
     })
     revalidatePath('/projects')
     revalidatePath(`/projects/${projectId}`)
-    return { ok: true, data: { created: created.length } }
+    return { ok: true, data: saved }
   } catch (error) {
     return failure(error)
   }

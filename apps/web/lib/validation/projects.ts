@@ -106,6 +106,8 @@ export const planRoomsSchema = z.object({
     .array(
       z.object({
         include: z.boolean(),
+        // Пустая строка, а не отсутствие поля: форма отдаёт то, что есть в состоянии строки
+        roomId: z.union([z.uuid(), z.literal('')]),
         name: z.string().trim().max(40, { error: 'Слишком длинно: хватит 40 знаков' }),
         kind: roomKindSchema,
         widthCm: spotWidthSchema,

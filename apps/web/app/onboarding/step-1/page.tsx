@@ -6,6 +6,7 @@ import { uploadPlan } from '@/actions/projects'
 import { FileUploader } from '@/components/file-uploader'
 import { ApartmentForm } from '@/components/onboarding/apartment-form'
 import { OnboardingShell } from '@/components/onboarding/onboarding-shell'
+import { PlanReadingCard } from '@/components/plan-reading-card'
 import { PLAN_ACCEPT, PLAN_LIMIT_TEXT, PLAN_MAX_BYTES } from '@/lib/files/rules'
 import type { StepParams } from '@/lib/onboarding/guard'
 import { getOnboardingState } from '@/lib/onboarding/repository'
@@ -56,7 +57,7 @@ export default async function Step1({ searchParams }: StepParams) {
     <OnboardingShell
       step={1}
       title="Загрузите план"
-      hint="Фотография или PDF. По плану мы поймём форму комнат, а комнаты добавим на странице проекта."
+      hint="Фотография или скриншот. С плана мы прочитаем комнаты, их размеры и высоту потолка, а вы поправите, если что-то не сошлось."
     >
       <div className="flex flex-col gap-7">
         {planSrc ? (
@@ -84,6 +85,22 @@ export default async function Step1({ searchParams }: StepParams) {
           successTitle="План загружен"
           action={uploadPlanForProject}
         />
+
+        {project.planUrl ? (
+          <PlanReadingCard
+            projectId={project.id}
+            reading={project.planReading}
+            hasPlan
+            planIsPdf={project.planUrl.endsWith('.pdf')}
+            roomCount={project.rooms.length}
+            existing={project.rooms.map((room) => ({
+              id: room.id,
+              name: room.name,
+              kind: room.kind,
+              hasMeasurements: Boolean(room.measurements?.widthCm && room.measurements.depthCm),
+            }))}
+          />
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-3">
           <Link href={`/onboarding/step-2?project=${project.id}`} className={buttonClassName()}>

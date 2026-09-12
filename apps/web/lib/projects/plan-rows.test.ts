@@ -44,4 +44,36 @@ describe('planRows', () => {
     expect(row?.suspicious).toBe(true)
     expect(row?.include).toBe(true)
   })
+
+  it('комнату из анкеты план дополняет, а не задваивает', () => {
+    const rows = planRows(
+      reading([
+        { name: 'Гостиная', kind: 'living', widthCm: 383 },
+        { name: 'Спальня', kind: 'bedroom', widthCm: 290 },
+      ]),
+      [{ id: 'r1', name: 'Гостиная', kind: 'living', hasMeasurements: false }],
+    )
+    expect(rows[0]?.roomId).toBe('r1')
+    expect(rows[0]?.roomName).toBe('Гостиная')
+    expect(rows[1]?.roomId).toBeUndefined()
+  })
+
+  it('промеренную рулеткой комнату прочитанным не перетираем', () => {
+    const rows = planRows(reading([{ name: 'Гостиная', kind: 'living', widthCm: 383 }]), [
+      { id: 'r1', name: 'Гостиная', kind: 'living', hasMeasurements: true },
+    ])
+    expect(rows[0]?.roomId).toBeUndefined()
+  })
+
+  it('две спальни с плана не достаются одной и той же комнате', () => {
+    const rows = planRows(
+      reading([
+        { name: 'Спальня', kind: 'bedroom', widthCm: 290 },
+        { name: 'Спальня 2', kind: 'bedroom', widthCm: 310 },
+      ]),
+      [{ id: 'r1', name: 'Спальня', kind: 'bedroom', hasMeasurements: false }],
+    )
+    expect(rows[0]?.roomId).toBe('r1')
+    expect(rows[1]?.roomId).toBeUndefined()
+  })
 })
