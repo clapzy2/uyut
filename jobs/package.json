@@ -11,6 +11,7 @@
     "catalog:import": "bun --env-file=../.env run scripts/import-catalog.ts",
     "catalog:repair-dimensions": "bun --env-file=../.env run scripts/repair-dimensions.ts",
     "catalog:repair-subcategories": "bun --env-file=../.env run scripts/repair-subcategories.ts",
+    "catalog:clean": "bun --env-file=../.env run scripts/clean-catalog.ts",
     "bench-crop": "bun --env-file=../.env run scripts/bench-crop.ts",
     "catalog:embed": "bun --env-file=../.env run scripts/embed-catalog.ts",
     "try-match": "bun --env-file=../.env run scripts/try-match.ts",
