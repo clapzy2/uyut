@@ -91,15 +91,21 @@ export function ConceptEditForm({
   roomId,
   roomHref,
   busyElsewhere,
+  objects,
 }: {
   conceptId: string
   roomId: string
   roomHref: string
   /** По этой комнате уже идёт расчёт: вторая правка сверху означала бы двойную оплату */
   busyElsewhere: boolean
+  /** Предметы, найденные на этом рендере: любой можно приложить к просьбе картинкой */
+  objects: Array<{ id: string; label: string }>
 }) {
   const router = useRouter()
   const [request, setRequest] = useState('')
+  // Предмет, приложенный к просьбе картинкой. Словами модель рисует похожую мебель,
+  // кадром — ту же самую, поэтому «переставить вот этот шкаф» без кадра не работает.
+  const [objectId, setObjectId] = useState('')
   const [error, setError] = useState<string | undefined>(undefined)
   const [sending, setSending] = useState(false)
   const [run, setRun] = useState<{ runId: string; accessToken: string } | null>(null)
@@ -136,7 +142,7 @@ export function ConceptEditForm({
   async function confirm() {
     setError(undefined)
     setSending(true)
-    const result = await reviseConcept(conceptId, { request })
+    const result = await reviseConcept(conceptId, { request, objectId })
     setSending(false)
     if (!result.ok) {
       setError(result.error)
@@ -229,6 +235,31 @@ export function ConceptEditForm({
         value={request}
         onChange={(event) => setRequest(event.currentTarget.value)}
       />
+      {objects.length > 0 ? (
+        <div>
+          <p className="mb-2 text-[13px] text-ink-2">
+            О каком предмете речь? Приложим его картинкой, и модель перерисует именно его, а не
+            похожий.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {objects.map((object) => (
+              <button
+                key={object.id}
+                type="button"
+                onClick={() => setObjectId(objectId === object.id ? '' : object.id)}
+                aria-pressed={objectId === object.id}
+                className={`inline-flex h-9 items-center rounded-full border px-4 text-sm transition-[color,background-color,border-color,transform] duration-200 ease-ui active:scale-[0.98] ${
+                  objectId === object.id
+                    ? 'border-accent text-ink'
+                    : 'border-control text-ink-2 hover:text-ink'
+                }`}
+              >
+                {object.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <p className="text-[13px] leading-relaxed text-ink-2">
         Правим именно эту картинку, а не фотографию комнаты. Сначала покажем, что собираемся делать,
         и только после вашего согласия потратим расчёт.

@@ -140,6 +140,8 @@ export const conceptEditSchema = z.object({
     .trim()
     .min(3, { error: 'Напишите, что поменять' })
     .max(500, { error: 'Слишком длинно: хватит 500 знаков' }),
+  /** Предмет с рендера, приложенный к просьбе картинкой. Пусто — правим одними словами */
+  objectId: z.union([z.uuid(), z.literal('')]).default(''),
 })
 
 export type ConceptEditInput = z.input<typeof conceptEditSchema>

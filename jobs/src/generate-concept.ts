@@ -15,7 +15,7 @@ import {
   type StyleEntry,
   styleLibrary,
 } from '@uyut/ai'
-import { concepts, projects, rooms } from '@uyut/db'
+import { conceptObjects, concepts, projects, rooms } from '@uyut/db'
 import { and, eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { z } from 'zod'
@@ -23,7 +23,7 @@ import { db } from './lib/db'
 import { requireEnv } from './lib/env'
 import { putObject, readObject } from './lib/s3'
 import { clampText } from './lib/text'
-import { segmentAndMatch } from './segment-and-match'
+import { cropObject, segmentAndMatch } from './segment-and-match'
 
 const payloadSchema = z.object({
   roomId: z.uuid(),
@@ -52,6 +52,11 @@ const payloadSchema = z.object({
    * Словами модель рисует похожую мебель, картинкой — ту самую.
    */
   objectKey: z.string().max(500).optional(),
+  /**
+   * Предмет с рендера, который человек ткнул пальцем. Вырезаем его здесь же по маске:
+   * так работает и со старыми концептами, где вырезки нигде не сохранены.
+   */
+  objectId: z.uuid().optional(),
   /** Варианты на двоих: у каждого рендера своя правка и название, общая часть промпта из шаблона */
   duo: z
     .object({
@@ -160,6 +165,45 @@ async function renderSteps(
     throw new Error('план правки пуст')
   }
   return last
+}
+
+/**
+ * Вырезка предмета с рендера, на котором его нашли.
+ *
+ * Модель не переносит предметы и не помнит, как выглядел «тот самый шкаф»: словами она рисует
+ * похожую мебель, а не ту же. Картинка предмета вторым кадром — единственный способ сказать
+ * «поставь вот это», и вырезаем мы её по маске, а не рамкой: в рамку попадают стена и соседи.
+ */
+async function cropConceptObject(objectId: string): Promise<{ body: Buffer; contentType: string }> {
+  const [row] = await db()
+    .select({ object: conceptObjects, concept: concepts })
+    .from(conceptObjects)
+    .innerJoin(concepts, eq(concepts.id, conceptObjects.conceptId))
+    .where(eq(conceptObjects.id, objectId))
+    .limit(1)
+  if (!row) {
+    throw new Error('предмет не найден')
+  }
+  const key = row.concept.editedRenderUrl ?? row.concept.renderUrl
+  if (!key) {
+    throw new Error('у концепта нет рендера')
+  }
+  const render = await readObject(key)
+  const meta = await sharp(render.body).metadata()
+  const width = meta.width ?? 0
+  const height = meta.height ?? 0
+  if (width === 0 || height === 0) {
+    throw new Error('рендер не читается')
+  }
+  const mask = row.object.maskUrl ? await readObject(row.object.maskUrl).catch(() => null) : null
+  const body = await cropObject(
+    Buffer.from(render.body),
+    width,
+    height,
+    { label: row.object.label, bbox: row.object.bbox },
+    mask ? Buffer.from(mask.body) : null,
+  )
+  return { body, contentType: 'image/jpeg' }
 }
 
 function publish(progress: Progress): void {
@@ -275,9 +319,16 @@ export const generateConcept = task({
       : undefined
 
     // Кадр самого предмета, если его приложили: без него модель рисует похожую мебель
-    const object = payload.objectKey ? await readObject(payload.objectKey).catch(() => null) : null
-    const objectUrls = object
-      ? [`data:${object.contentType};base64,${object.body.toString('base64')}`]
+    const attached = payload.objectKey
+      ? await readObject(payload.objectKey).catch(() => null)
+      : payload.objectId
+        ? await cropConceptObject(payload.objectId).catch((error) => {
+            logger.warn('object crop failed', { error: String(error) })
+            return null
+          })
+        : null
+    const objectUrls = attached
+      ? [`data:${attached.contentType};base64,${attached.body.toString('base64')}`]
       : []
 
     let done = 0
