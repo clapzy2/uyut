@@ -88,6 +88,7 @@ export {
   createFalPlanReader,
   createFalSideReader,
   FLOOR_PLAN_PROMPT,
+  isUtilityRoom,
   mergeReadings,
   needsRecheck,
   PLAN_READER_MODEL,

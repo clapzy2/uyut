@@ -16,6 +16,8 @@ export type PlanRow = {
   rechecked?: 'width' | 'depth' | 'both'
   /** Комнаты этого типа сервис пока не делает, и создать её нельзя */
   unsupported: boolean
+  /** Почему нельзя: такой тип комнаты или такое назначение помещения */
+  unsupportedReason?: 'kind' | 'utility'
   /** Комната проекта, которой достанутся эти числа вместо создания новой */
   roomId?: string
   /** Как она называется сейчас: человек должен понять, куда попадут размеры */
@@ -61,7 +63,7 @@ const supported = new Set<RoomKind>(mvpRoomKinds)
 export function planRows(reading: PlanReading, existing: readonly ExistingRoom[] = []): PlanRow[] {
   const taken = new Set<string>()
   return reading.rooms.map((room) => {
-    const unsupported = !supported.has(room.kind)
+    const unsupported = room.utility === true || !supported.has(room.kind)
     const match = unsupported
       ? undefined
       : existing.find(
@@ -83,6 +85,9 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
       area: room.areaM2 ? String(room.areaM2).replace('.', ',') : '',
       wish: match?.notes ?? '',
       suspicious: room.suspicious === true,
+      ...(unsupported
+        ? { unsupportedReason: room.utility ? ('utility' as const) : ('kind' as const) }
+        : {}),
       ...(room.rechecked && room.rechecked.length > 0
         ? { rechecked: room.rechecked.length > 1 ? ('both' as const) : room.rechecked[0] }
         : {}),

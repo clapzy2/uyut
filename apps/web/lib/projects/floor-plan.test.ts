@@ -1,5 +1,6 @@
 import {
   applyRecheck,
+  isUtilityRoom,
   mergeReadings,
   needsRecheck,
   parseFloorPlan,
@@ -267,5 +268,26 @@ describe('одинаковые названия комнат', () => {
       { rooms: [{ name: 'Комната', kind: 'living', widthCm: 999 }] },
     ])
     expect(merged.rooms.map((room) => room.widthCm)).toEqual([300, 280])
+  })
+})
+
+describe('подсобные помещения', () => {
+  it('прихожая и коридор помечаются как необставляемые', () => {
+    const reading = parseFloorPlan(
+      JSON.stringify({
+        rooms: [
+          { name: 'Прихожая', widthMm: 1200, depthMm: 7000 },
+          { name: 'Гостиная', widthMm: 3830, depthMm: 4250 },
+          { name: 'Кладовая', widthMm: 900, depthMm: 1200 },
+        ],
+      }),
+    )
+    expect(reading.rooms.map((room) => room.utility === true)).toEqual([true, false, true])
+  })
+
+  it('кабинет и зал обставляются: это жилые комнаты', () => {
+    expect(isUtilityRoom('Кабинет')).toBe(false)
+    expect(isUtilityRoom('Зал')).toBe(false)
+    expect(isUtilityRoom('Гардеробная')).toBe(true)
   })
 })

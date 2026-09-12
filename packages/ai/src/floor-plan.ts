@@ -51,6 +51,8 @@ export type PlanRoom = {
   suspicious?: boolean
   /** Сторону перечитали отдельным вопросом по отрезкам цепочки, и после этого площадь сошлась */
   rechecked?: PlanSide[]
+  /** Подсобное помещение: размеры с плана берём, а мебель туда не подбираем */
+  utility?: boolean
 }
 
 export type PlanReading = {
@@ -85,6 +87,13 @@ const AREA_TOLERANCE = 0.25
  */
 const RECHECK_TOLERANCE = 0.02
 
+/**
+ * Комнаты, которые не обставляют мебелью из каталога: прихожая, коридор, кладовая.
+ * Своего типа у них нет, и без этой пометки они уезжали бы в «гостиную» — сервис рисовал бы
+ * диван и ковёр в коридоре шириной метр двадцать.
+ */
+const UTILITY_WORDS = /прихож|коридор|холл|тамбур|гардероб|кладов|постироч|котельн|лестнич|шахт/i
+
 const KIND_WORDS: ReadonlyArray<[RegExp, RoomKind]> = [
   [/санузел|ванн|туалет|с\/у|душев/i, 'bath'],
   [/детск|ребён|ребен/i, 'kid'],
@@ -98,6 +107,11 @@ const KIND_WORDS: ReadonlyArray<[RegExp, RoomKind]> = [
  * Тип комнаты по названию с плана. Прихожая и кабинет уезжают в «гостиную» намеренно:
  * своих типов у них пока нет, а generic-комната сломала бы и подбор, и промпт.
  */
+/** Прихожая, коридор и кладовая: размеры у них есть, а обставлять их сервис не берётся. */
+export function isUtilityRoom(name: string): boolean {
+  return UTILITY_WORDS.test(name)
+}
+
 export function roomKindFromName(name: string): RoomKind {
   for (const [pattern, kind] of KIND_WORDS) {
     if (pattern.test(name)) {
@@ -183,6 +197,7 @@ export function parseFloorPlan(raw: string): PlanReading {
     const room = {
       name,
       kind: roomKindFromName(name),
+      ...(isUtilityRoom(name) ? { utility: true } : {}),
       widthCm: sideCm(source.widthMm),
       depthCm: sideCm(source.depthMm),
       areaM2: areaM2(source.areaM2),
