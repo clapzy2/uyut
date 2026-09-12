@@ -48,10 +48,22 @@ export const shoppingListItems = pgTable(
     }),
     quantity: integer('quantity').notNull().default(1),
     selectedVariant: jsonb('selected_variant').$type<ShoppingVariant>(),
+    /**
+     * Габариты со слов человека, когда в карточке магазина их нет.
+     *
+     * Живут у строки списка, а не у товара каталога: карточка общая для всех проектов,
+     * и одно чужое число разъехалось бы по всем. У дивана размеров в фиде нет почти никогда —
+     * из четырёхсот шестидесяти двух они нашлись у одного, — а без них вид сверху
+     * про самый крупный предмет комнаты молчит.
+     */
+    dimensionsCm: jsonb('dimensions_cm').$type<ItemDimensionsCm>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('shopping_list_items_list_idx').on(table.listId)],
 )
+
+/** Ширина, глубина и высота в сантиметрах: тот же вид, что и в карточке каталога */
+export type ItemDimensionsCm = { width?: number; depth?: number; height?: number }
 
 export type ShoppingList = typeof shoppingLists.$inferSelect
 export type ShoppingListItem = typeof shoppingListItems.$inferSelect

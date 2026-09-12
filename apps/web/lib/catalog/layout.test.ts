@@ -124,7 +124,7 @@ describe('layoutRoom', () => {
     const layout = layoutRoom({ widthCm: 300, depthCm: 400 }, [
       item({ title: 'Шкаф без размеров', dimensions: null }),
     ])
-    expect(layout.unmeasured).toEqual(['Шкаф без размеров'])
+    expect(layout.unmeasured.map((one) => one.title)).toEqual(['Шкаф без размеров'])
     expect(layout.placed).toEqual([])
   })
 
@@ -322,7 +322,7 @@ describe('перебор случайных комнат', () => {
         // Каждая купленная единица либо стоит на плане, либо названа вслух: молча пропасть нельзя
         const onFloor = items
           .filter((item) => !layout.offFloor.includes(item.title))
-          .filter((item) => !layout.unmeasured.includes(item.title))
+          .filter((item) => !layout.unmeasured.some((one) => one.title === item.title))
           .reduce((sum, item) => sum + item.quantity, 0)
         const named = layout.problems.filter(
           (problem) => problem.kind === 'noWall' || problem.kind === 'noCenter',

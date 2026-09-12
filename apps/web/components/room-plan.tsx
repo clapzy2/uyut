@@ -1,5 +1,6 @@
 import type { LayoutProblem, RoomLayout } from '@uyut/catalog'
 import { WALKWAY_CM } from '@uyut/catalog'
+import { ItemSizeForm } from '@/components/item-size-form'
 
 /**
  * План комнаты сверху: прямоугольник комнаты и прямоугольники мебели в масштабе.
@@ -144,9 +145,17 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
       ) : null}
 
       {layout.unmeasured.length > 0 ? (
-        <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
-          Без габаритов в карточке магазина и потому не на плане: {layout.unmeasured.join(', ')}.
-        </p>
+        <div className="mt-4 border-t border-line pt-4">
+          <p className="text-[13px] leading-relaxed text-ink-2">
+            У этих товаров магазин не указал габариты, поэтому на плане их нет. Диваны так почти
+            всегда: перепишите два числа с карточки товара, и они встанут на место.
+          </p>
+          <div className="mt-3 flex flex-col gap-2">
+            {layout.unmeasured.map((item) => (
+              <ItemSizeForm key={item.id} itemId={item.id} title={item.title} />
+            ))}
+          </div>
+        </div>
       ) : null}
       {layout.offFloor.length > 0 ? (
         <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
