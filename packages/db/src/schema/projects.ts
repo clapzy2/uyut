@@ -60,6 +60,10 @@ export type PlanRoomReading = {
   suspicious?: boolean
   /** Стороны, которые пришлось перечитать по отрезкам цепочки, чтобы площадь сошлась */
   rechecked?: Array<'width' | 'depth'>
+  /** Стороны, посчитанные из подписанной площади, а не прочитанные с размерной линии */
+  estimated?: Array<'width' | 'depth'>
+  /** Форма комнаты со слов модели: во сколько раз шире, чем глубже */
+  aspect?: number
   /** Прихожая, коридор, кладовая: размеры сохраняем, мебель не подбираем */
   utility?: boolean
 }
@@ -70,6 +74,8 @@ export type PlanRoomReading = {
  */
 export type PlanReading = {
   ceilingCm?: number
+  /** Общая площадь квартиры с плана: сверяется с суммой площадей комнат */
+  totalAreaM2?: number
   rooms: PlanRoomReading[]
   /** Когда прочитали, ISO-строкой: в jsonb дата всё равно станет строкой */
   readAt: string

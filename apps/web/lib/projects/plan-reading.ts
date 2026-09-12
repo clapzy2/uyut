@@ -6,6 +6,7 @@ import {
   applyRecheck,
   createFalPlanReader,
   createFalSideReader,
+  estimateSides,
   mergeReadings,
   needsRecheck,
   type PlanReading,
@@ -166,6 +167,10 @@ async function planPages(key: string): Promise<Array<{ body: Buffer; contentType
  * числе. А вот отдельный вопрос про одну комнату и одну сторону с просьбой перечислить отрезки
  * цепочки дал верный ответ пять раз из пяти. Поэтому перечитываем обе стороны сомнительной
  * комнаты и берём новые числа только если после них площадь сошлась.
+ *
+ * Не сошлась и после перечёта — складывать больше нечего, и стороны считаются из площади и формы.
+ * Площадь модель читает как подпись, а не как сумму, и на трёх настоящих планах не ошиблась
+ * в ней ни разу, тогда как сторону теряла звеном цепочки.
  */
 async function recheckRooms(
   reading: PlanReading,
@@ -184,7 +189,7 @@ async function recheckRooms(
         readSide(page, room.name, 'width').catch(() => undefined),
         readSide(page, room.name, 'depth').catch(() => undefined),
       ])
-      const fixed = applyRecheck(room, { widthCm, depthCm })
+      const fixed = applyRecheck(room, { widthCm, depthCm }) ?? estimateSides(room)
       if (fixed) {
         fixes.set(room.name, fixed)
       }

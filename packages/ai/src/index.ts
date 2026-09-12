@@ -85,8 +85,10 @@ export {
 export { downloadFalFile, FalError, falQueue, toDataUri } from './fal-queue'
 export {
   applyRecheck,
+  checkTotalArea,
   createFalPlanReader,
   createFalSideReader,
+  estimateSides,
   FLOOR_PLAN_PROMPT,
   isUtilityRoom,
   mergeReadings,

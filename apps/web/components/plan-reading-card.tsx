@@ -12,7 +12,13 @@ import {
   roomConditionLabels,
   roomKindLabels,
 } from '@/lib/projects/format'
-import { areaCheck, type ExistingRoom, type PlanRow, planRows } from '@/lib/projects/plan-rows'
+import {
+  areaCheck,
+  type ExistingRoom,
+  type PlanRow,
+  planRows,
+  totalAreaCheck,
+} from '@/lib/projects/plan-rows'
 
 const numberFieldClassName = `${inputClassName} h-10 text-[14px]`
 
@@ -175,6 +181,8 @@ export function PlanReadingCard({
   const chosen = rows.filter((row) => row.include).length
   // Ни у одной комнаты не прочитались обе стороны: план без размерных линий
   const noSides = rows.every((row) => row.width === '' || row.depth === '')
+  // Сумма площадей против общей площади с плана: единственное, что ловит потерянную и выдуманную комнату
+  const total = totalAreaCheck(rows, reading?.totalAreaM2)
 
   return (
     <div className="mt-6 animate-[rise-in_350ms_var(--ease-appear)] border-t border-line pt-6">
@@ -195,6 +203,14 @@ export function PlanReadingCard({
           Размерных линий на этом плане нет, поэтому стены мы не прочитали: взяли только названия и
           площади. Так печатают рекламные планировки застройщика. Стороны комнат можно вписать
           руками здесь или позже, в самой комнате.
+        </p>
+      ) : null}
+
+      {total && !total.agrees ? (
+        <p className="mt-3 border-l-2 border-danger/50 pl-3 text-[14px] leading-relaxed text-ink-2">
+          Комнаты в сумме дают {total.sum} м², а общая площадь на плане {total.total} м². Значит,
+          одну комнату мы потеряли, лишнюю придумали или ошиблись в площади. Сверьте список с
+          чертежом, прежде чем сохранять.
         </p>
       ) : null}
 
@@ -337,6 +353,13 @@ export function PlanReadingCard({
                 <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
                   {row.rechecked === 'both' ? 'Обе стороны' : 'Одну сторону'} мы перечитали по
                   отрезкам размерной цепочки: с первого раза площадь не сходилась, теперь сходится.
+                </p>
+              ) : null}
+              {row.estimated ? (
+                <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
+                  {row.estimated === 'both'
+                    ? 'Стороны посчитаны из подписанной площади: размерных линий у этой комнаты на плане не нашлось. Это прикидка, промерьте рулеткой, когда будете на месте.'
+                    : `${row.estimated === 'width' ? 'Ширина посчитана' : 'Глубина посчитана'} из подписанной площади и второй стороны. Площадь сходится точно, но если неверна вторая сторона, неверна и эта.`}
                 </p>
               ) : null}
               {check ? (
