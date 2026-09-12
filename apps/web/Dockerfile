@@ -16,6 +16,9 @@ COPY . .
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile
 RUN bun run --filter @uyut/web build
 RUN bun build packages/db/src/migrate.ts --target=node --outfile=/app/out/migrate.mjs
+# Разовые работы по каталогу кладём рядом с миграциями: у контейнера уже есть доступ к базе,
+# и запустить их можно одной командой, не вынимая ключи наружу
+RUN bun build jobs/scripts/repair-dimensions.ts --target=node --outfile=/app/out/repair-dimensions.mjs
 
 FROM node:24-slim AS runtime
 WORKDIR /app
@@ -31,6 +34,7 @@ COPY --from=build --chown=app:app /app/apps/web/.next/static ./apps/web/.next/st
 # иначе фотографии лендинга и картинки библиотеки стилей отдают 404.
 COPY --from=build --chown=app:app /app/apps/web/public ./apps/web/public
 COPY --from=build --chown=app:app /app/out/migrate.mjs ./migrate.mjs
+COPY --from=build --chown=app:app /app/out/repair-dimensions.mjs ./repair-dimensions.mjs
 COPY --from=build --chown=app:app /app/packages/db/drizzle ./drizzle
 USER app
 EXPOSE 3000
