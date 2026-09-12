@@ -50,7 +50,14 @@ export function ApartmentButton({
       setError(result.error)
       return
     }
-    toast({ title: 'Запустили. Комнаты будут готовы по очереди', tone: 'success' })
+    const { started, asked } = result.data
+    toast({
+      title:
+        started < asked
+          ? `Запустили ${started} из ${asked}: на остальные сегодня не хватило лимита`
+          : 'Запустили. Комнаты будут готовы по очереди',
+      tone: started < asked ? 'danger' : 'success',
+    })
     router.refresh()
   }
 

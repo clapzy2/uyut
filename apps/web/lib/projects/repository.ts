@@ -324,6 +324,23 @@ export async function attachGenerationRun(
     .where(eq(rooms.id, roomId))
 }
 
+/**
+ * Занять комнату под генерацию, если она свободна. Возвращает false, когда её успели занять раньше.
+ *
+ * Отдельно от attachGenerationRun, потому что решает другую задачу: там мы записываем запуск,
+ * который уже создан, а здесь ставим флаг ДО запуска, чтобы два нажатия подряд не оплатили
+ * одну комнату дважды. Условие в WHERE делает проверку и захват одним запросом, и между ними
+ * нельзя вклиниться.
+ */
+export async function claimRoomForGeneration(roomId: string, batchId: string): Promise<boolean> {
+  const claimed = await getDb()
+    .update(rooms)
+    .set({ generationRunId: `pending:${batchId}`, generationStartedAt: new Date() })
+    .where(and(eq(rooms.id, roomId), isNull(rooms.generationRunId)))
+    .returning({ id: rooms.id })
+  return claimed.length > 0
+}
+
 export async function clearGenerationRun(roomId: string): Promise<void> {
   await getDb()
     .update(rooms)

@@ -14,6 +14,7 @@ import { getEnv } from '@/lib/env'
 import { AccessError, requireOwner } from '@/lib/projects/access'
 import {
   attachGenerationRun,
+  claimRoomForGeneration,
   clearGenerationRun,
   getProject,
   getRoom,
@@ -126,7 +127,7 @@ export async function requestConcepts(
  */
 export async function requestApartmentConcepts(
   projectId: string,
-): Promise<ActionResult<{ started: number }>> {
+): Promise<ActionResult<{ started: number; asked: number }>> {
   const userId = await currentUserId()
   if (!userId) {
     return { ok: false, error: SESSION_EXPIRED }
@@ -142,16 +143,23 @@ export async function requestApartmentConcepts(
     if (ready.length === 0) {
       return { ok: false, error: 'Обставлять нечего: во всех комнатах уже что-то есть.' }
     }
-    const { success } = await getConceptsByUserLimiter().limit(userId)
-    if (!success) {
-      return { ok: false, error: 'Сегодня уже много генераций. Попробуйте через час.' }
-    }
     let started = 0
+    let throttled = false
     for (const room of ready) {
-      // По одному запуску за раз: очередь Trigger.dev держит их сама, а падение одной комнаты
-      // не должно отменять остальные
+      // Счётчик тратим по комнате, а не по нажатию: пять комнат — это пять генераций,
+      // и общий предел должен считать их пятью, иначе он ничего не ограничивает
+      const { success } = await getConceptsByUserLimiter().limit(userId)
+      if (!success) {
+        throttled = true
+        break
+      }
+      const batchId = randomUUID()
+      // Занимаем комнату до запуска: два нажатия подряд иначе оплатят одну комнату дважды
+      if (!(await claimRoomForGeneration(room.id, batchId))) {
+        continue
+      }
+      // Падение одной комнаты не отменяет остальные, но занятую комнату надо освободить
       try {
-        const batchId = randomUUID()
         const handle = await tasks.trigger('generate-concept', {
           roomId: room.id,
           batchId,
@@ -161,20 +169,26 @@ export async function requestApartmentConcepts(
         started += 1
       } catch (error) {
         console.error('комната не запустилась', room.id, error)
+        await clearGenerationRun(room.id).catch(() => undefined)
       }
     }
     if (started === 0) {
-      return { ok: false, error: GENERIC }
+      return {
+        ok: false,
+        error: throttled
+          ? 'Сегодня уже много генераций. Попробуйте через час.'
+          : 'Все эти комнаты уже считаются. Дождитесь их.',
+      }
     }
     await recordAudit({
       action: 'concepts.requested',
       actorId: userId,
       targetType: 'project',
       targetId: projectId,
-      metadata: { apartment: true, rooms: started },
+      metadata: { apartment: true, rooms: started, asked: ready.length },
     })
     revalidatePath(`/projects/${projectId}`)
-    return { ok: true, data: { started } }
+    return { ok: true, data: { started, asked: ready.length } }
   } catch (error) {
     return failure(error)
   }
