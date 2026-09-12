@@ -1,4 +1,4 @@
-import type { Estimate, WorksRates } from '@uyut/catalog'
+import type { Estimate, RoomLayout, WorksRates } from '@uyut/catalog'
 import type { ContractorBrief, ExportKind } from '@uyut/db'
 
 /** Картинка для документа: data URI, чтобы Chromium не ходил в сеть при печати */
@@ -21,6 +21,11 @@ export type PdfRoom = {
   alternates: Array<PdfImage & { caption: string }>
   note: string | null
   objects: PdfObject[]
+  /**
+   * Расстановка сверху по настоящим размерам комнаты. Прораб читает документ рулеткой,
+   * а у рендера сантиметров нет, поэтому план отвечает на то, на что рендер ответить не может.
+   */
+  plan: RoomLayout | null
 }
 
 export type PdfShoppingItem = {

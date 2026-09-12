@@ -20,6 +20,17 @@ export {
   type RoomLimits,
   type RoomSpot,
 } from './fit'
+export {
+  CHAIR_PULLOUT_CM,
+  COFFEE_CLEARANCE_CM,
+  type LayoutItem,
+  type LayoutProblem,
+  type LayoutWall,
+  layoutRoom,
+  type Placement,
+  type RoomLayout,
+  WALKWAY_CM,
+} from './layout'
 export { isBathroomFixture, isForeignListing, isNotFurniture } from './not-furniture'
 export {
   contentHash,

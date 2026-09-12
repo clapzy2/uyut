@@ -1,4 +1,4 @@
-import { estimateProject } from '@uyut/catalog'
+import { estimateProject, layoutRoom } from '@uyut/catalog'
 import { footerTemplate, type PdfData, renderProjectHtml } from '@uyut/pdf'
 import { describe, expect, it } from 'vitest'
 
@@ -30,6 +30,15 @@ function sample(kind: PdfData['kind']): PdfData {
         alternates: [{ src: 'data:image/jpeg;base64,CCC', caption: 'Вариант со скамьёй' }],
         note: 'Диван напротив окна.',
         objects: [{ index: 1, category: 'Диван', product: 'Диван Букле', priceKopecks: 67_900_00 }],
+        plan: layoutRoom({ widthCm: 340, depthCm: 540 }, [
+          {
+            id: 's1',
+            title: 'Диван Букле',
+            category: 'sofa',
+            dimensions: { width: 220, depth: 95, height: 85 },
+            quantity: 1,
+          },
+        ]),
       },
     ],
     roomsWithoutConcept: ['Кухня'],
@@ -113,6 +122,13 @@ describe('project PDF template', () => {
       }
     }
     expect(renderProjectHtml(data, { fontCss: '' })).not.toContain('партнёрским программам')
+  })
+
+  it('печатает вид сверху вектором, а не картинкой, и говорит про проход', () => {
+    const html = renderProjectHtml(sample('paid'), { fontCss: '' })
+    expect(html).toContain('Вид сверху · 340 × 540 см')
+    expect(html).toContain('<svg viewBox="0 0 400')
+    expect(html).toContain('проход посередине')
   })
 
   it('splits the summary into a headline and the rest of the text', () => {

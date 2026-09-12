@@ -1,3 +1,5 @@
+import type { LayoutProblem, RoomLayout } from '@uyut/catalog'
+import { WALKWAY_CM } from '@uyut/catalog'
 import {
   escapeHtml as esc,
   formatArea,
@@ -82,6 +84,10 @@ const CSS = `
   .objects .row { display: grid; grid-template-columns: 6mm 1fr auto; gap: 3mm; align-items: baseline; padding-bottom: 1.8mm; border-bottom: 1px solid #ddd4c1; }
   .objects .idx { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 7.5pt; color: #7c2f3b; }
   .objects .sub { display: block; font-size: 8pt; color: #6d6656; }
+  .plan { margin-top: 2mm; }
+  .plan svg { display: block; width: 100%; height: auto; }
+  .plan .verdict { font-size: 8pt; line-height: 1.45; color: #6d6656; margin-top: 1.5mm; }
+  .plan .bad { color: #7c2f3b; }
   .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; }
   .thumbs .img { height: 27mm; overflow: hidden; }
   .thumbs .cap { font-size: 7.5pt; color: #6d6656; margin-top: 1.5mm; }
@@ -230,6 +236,58 @@ function splitSummary(data: PdfData): [string, string | null] {
   return [first, rest === '' ? null : rest]
 }
 
+/**
+ * Вид сверху в документе: комната прямоугольником и мебель прямоугольниками в масштабе.
+ * Рисуется сразу в SVG, без картинки: Chromium печатает вектор резко на любой бумаге.
+ */
+function roomPlan(plan: RoomLayout | null): string {
+  if (!plan || plan.placed.length === 0) {
+    return ''
+  }
+  const width = 400
+  const scale = width / plan.widthCm
+  const height = Math.round(plan.depthCm * scale)
+  const boxes = plan.placed
+    .map(
+      (place) =>
+        `<rect x="${(place.xCm * scale).toFixed(1)}" y="${(place.yCm * scale).toFixed(1)}" width="${(place.widthCm * scale).toFixed(1)}" height="${(place.depthCm * scale).toFixed(1)}" fill="#f0dcdf" stroke="#7c2f3b" stroke-width="1"/>` +
+        `<text x="${((place.xCm + place.widthCm / 2) * scale).toFixed(1)}" y="${((place.yCm + place.depthCm / 2) * scale).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#2f2a20">${esc(place.title.length > 16 ? `${place.title.slice(0, 15)}…` : place.title)}</text>`,
+    )
+    .join('')
+  const trouble = plan.problems.filter((problem) => problem.kind !== 'noRoomSize')
+  const verdict =
+    trouble.length > 0
+      ? `<p class="verdict bad">${esc(planProblems(trouble))}</p>`
+      : `<p class="verdict">Выбранное помещается, проход посередине ${plan.walkwayCm} см. Где дверь и окно, план не знает: свободной стены ${plan.freeWallCm} см.</p>`
+  return `
+      <div class="plan">
+        <p class="eyebrow">Вид сверху · ${Math.round(plan.widthCm)} × ${Math.round(plan.depthCm)} см</p>
+        <svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+          <rect x="0" y="0" width="${width}" height="${height}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>
+          ${boxes}
+        </svg>
+        ${verdict}
+      </div>`
+}
+
+function planProblems(problems: readonly LayoutProblem[]): string {
+  return problems
+    .map((problem) => {
+      if (problem.kind === 'noWall') {
+        return `${problem.title} шириной ${problem.widthCm} см не встаёт ни к одной стене.`
+      }
+      if (problem.kind === 'noCenter') {
+        return `${problem.title} посреди комнаты не помещается.`
+      }
+      if (problem.kind === 'narrowWalkway') {
+        return `Проход посередине ${problem.gapCm} см, свободно ходить получается от ${WALKWAY_CM} см.`
+      }
+      return ''
+    })
+    .filter(Boolean)
+    .join(' ')
+}
+
 function roomPage(room: PdfRoom, index: number, free: boolean): string {
   const meta = [`Комната ${index + 1}`, formatArea(room.areaM2), room.conditionLabel].filter(
     Boolean,
@@ -265,6 +323,7 @@ function roomPage(room: PdfRoom, index: number, free: boolean): string {
                 )
                 .join('')
         }
+        ${roomPlan(room.plan)}
       </div>
     </div>
     ${
