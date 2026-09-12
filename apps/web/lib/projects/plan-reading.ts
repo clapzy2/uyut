@@ -95,16 +95,34 @@ async function pdfPages(body: Buffer): Promise<Array<{ body: Buffer; contentType
     // Явный импорт ставит его в зависимости страницы, и файл доезжает до контейнера.
     import('pdfjs-dist/legacy/build/pdf.worker.mjs'),
   ])
-  const document = await pdfjs.getDocument({
-    data: new Uint8Array(body),
-    // Шрифты внутри файла нам не нужны: размерные линии мы всё равно читаем моделью,
-    // а системные шрифты в контейнере всё равно другие
-    disableFontFace: true,
-    useWorkerFetch: false,
-    // Запасные шрифты для файлов, которые ссылаются на стандартные четырнадцать, но не вкладывают их:
-    // без них pdf.js подставляет что попало и может потерять часть знаков
-    ...(standardFontDataUrl ? { standardFontDataUrl } : {}),
-  }).promise
+  let document: Awaited<ReturnType<typeof pdfjs.getDocument>['promise']>
+  try {
+    document = await pdfjs.getDocument({
+      data: new Uint8Array(body),
+      // Шрифты внутри файла нам не нужны: размерные линии мы всё равно читаем моделью,
+      // а системные шрифты в контейнере всё равно другие
+      disableFontFace: true,
+      useWorkerFetch: false,
+      // Запасные шрифты для файлов, которые ссылаются на стандартные четырнадцать, но не вкладывают их:
+      // без них pdf.js подставляет что попало и может потерять часть знаков
+      ...(standardFontDataUrl ? { standardFontDataUrl } : {}),
+    }).promise
+  } catch (error) {
+    // Про пароль и про битый файл человеку надо сказать по-разному: в первом случае помогает
+    // он сам, во втором — только другой файл. Общее «попробуйте через минуту» бесполезно в обоих.
+    const name = error instanceof Error ? error.name : ''
+    if (name === 'PasswordException') {
+      throw new PlanReadError(
+        'PDF защищён паролем, и открыть его мы не можем. Снимите пароль или пришлите скриншот плана.',
+      )
+    }
+    throw new PlanReadError(
+      'Этот PDF не открывается: похоже, файл повреждён. Пришлите другой файл или скриншот плана.',
+    )
+  }
+  if (document.numPages === 0) {
+    throw new PlanReadError('В этом PDF нет ни одной страницы. Пришлите другой файл.')
+  }
   const count = Math.min(document.numPages, PDF_MAX_PAGES)
   const pages: Array<{ body: Buffer; contentType: string }> = []
   for (let index = 1; index <= count; index += 1) {
@@ -203,6 +221,10 @@ export async function readPlanFromStorage(key: string): Promise<PlanReading> {
     }
     reading = mergeReadings(readings)
   } catch (error) {
+    // Понятную причину, найденную по дороге, не подменяем общей отговоркой
+    if (error instanceof PlanReadError) {
+      throw error
+    }
     console.error(error)
     throw new PlanReadError('Не получилось прочитать план. Попробуйте ещё раз через минуту.')
   }
