@@ -4,7 +4,7 @@
 // «Кровать, 2042×946×700 мм» становилась кроватью шириной 42 см. Такие числа хуже пустого поля:
 // на пустое поле не полагаешься, а неверному веришь. Скрипт перечитывает название и описание
 // заново и переписывает размеры. Без --apply только показывает, что изменится.
-import { hasAnyDimension, parseDimensionsCm } from '@uyut/catalog'
+import { type DimensionsCm, hasAnyDimension, parseDimensionsCm } from '@uyut/catalog'
 import { catalogItems } from '@uyut/db'
 import { eq } from 'drizzle-orm'
 import { db } from '../src/lib/db'
@@ -27,13 +27,23 @@ let gained = 0
 let lost = 0
 const samples: string[] = []
 
+/**
+ * Одинаковы ли размеры по значениям. Сравнивать сериализацией нельзя: порядок ключей в jsonb
+ * свой, и тысяча строк с теми же числами выглядела бы изменившейся. Число в отчёте должно
+ * означать настоящие правки, иначе на него нельзя смотреть.
+ */
+const same = (one?: DimensionsCm, other?: DimensionsCm) =>
+  (one?.width ?? null) === (other?.width ?? null) &&
+  (one?.depth ?? null) === (other?.depth ?? null) &&
+  (one?.height ?? null) === (other?.height ?? null)
+
 for (const row of rows) {
   const before = row.attributes?.dimensionsCm
   const after = parseDimensionsCm(`${row.title} ${row.description ?? ''}`, {
     sleepingIsFootprint: row.category === 'bed',
   })
   const next = hasAnyDimension(after) ? after : undefined
-  if (JSON.stringify(before ?? null) === JSON.stringify(next ?? null)) {
+  if (same(before, next)) {
     continue
   }
   changed += 1
