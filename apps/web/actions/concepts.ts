@@ -6,12 +6,18 @@ import { buildEditPlan, type DuoProposal, type EditPlan } from '@uyut/ai'
 import { revalidatePath } from 'next/cache'
 import { recordAudit } from '@/lib/audit'
 import { bumpProjectVersion } from '@/lib/collaboration/live'
+import { APARTMENT_COUNT, apartmentPlan } from '@/lib/concepts/apartment'
 import { getDuoOffer } from '@/lib/concepts/duo'
 import * as conceptsRepository from '@/lib/concepts/repository'
 import { generationStillRunning } from '@/lib/concepts/resume-run'
 import { getEnv } from '@/lib/env'
 import { AccessError, requireOwner } from '@/lib/projects/access'
-import { attachGenerationRun, clearGenerationRun, getRoom } from '@/lib/projects/repository'
+import {
+  attachGenerationRun,
+  clearGenerationRun,
+  getProject,
+  getRoom,
+} from '@/lib/projects/repository'
 import { getConceptsByUserLimiter } from '@/lib/redis'
 import { getSession } from '@/lib/session'
 import { conceptEditSchema } from '@/lib/validation/projects'
@@ -102,6 +108,70 @@ export async function requestConcepts(
       handle.publicAccessToken ??
       (await triggerAuth.createPublicToken({ scopes: { read: { runs: [handle.id] } } }))
     return { ok: true, data: { runId: handle.id, accessToken, batchId } }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+/**
+ * Обставить квартиру целиком: по одному запуску на каждую комнату, где ещё нет концептов.
+ *
+ * Стиль у комнат общий и так: он живёт у проекта, а не у комнаты. Ценность этой кнопки
+ * в другом — человеку не нужно заходить в каждую комнату и ждать пять раз подряд. Рендеров
+ * на комнату берём три, а не пять: при четырёх комнатах пять вариантов в каждой — это двадцать
+ * картинок и деньги, которых человек не ждал.
+ */
+export async function requestApartmentConcepts(
+  projectId: string,
+): Promise<ActionResult<{ started: number }>> {
+  const userId = await currentUserId()
+  if (!userId) {
+    return { ok: false, error: SESSION_EXPIRED }
+  }
+  const env = getEnv()
+  if (!env.FAL_KEY || !env.TRIGGER_SECRET_KEY) {
+    return { ok: false, error: NO_KEYS }
+  }
+  try {
+    const project = await getProject(userId, projectId)
+    requireOwner(project.role)
+    const { ready } = apartmentPlan(project.rooms)
+    if (ready.length === 0) {
+      return { ok: false, error: 'Обставлять нечего: во всех комнатах уже что-то есть.' }
+    }
+    const { success } = await getConceptsByUserLimiter().limit(userId)
+    if (!success) {
+      return { ok: false, error: 'Сегодня уже много генераций. Попробуйте через час.' }
+    }
+    let started = 0
+    for (const room of ready) {
+      // По одному запуску за раз: очередь Trigger.dev держит их сама, а падение одной комнаты
+      // не должно отменять остальные
+      try {
+        const batchId = randomUUID()
+        const handle = await tasks.trigger('generate-concept', {
+          roomId: room.id,
+          batchId,
+          count: APARTMENT_COUNT,
+        })
+        await attachGenerationRun(room.id, handle.id, batchId)
+        started += 1
+      } catch (error) {
+        console.error('комната не запустилась', room.id, error)
+      }
+    }
+    if (started === 0) {
+      return { ok: false, error: GENERIC }
+    }
+    await recordAudit({
+      action: 'concepts.requested',
+      actorId: userId,
+      targetType: 'project',
+      targetId: projectId,
+      metadata: { apartment: true, rooms: started },
+    })
+    revalidatePath(`/projects/${projectId}`)
+    return { ok: true, data: { started } }
   } catch (error) {
     return failure(error)
   }

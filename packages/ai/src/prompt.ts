@@ -54,11 +54,36 @@ function householdNeeds(brief: ConceptBrief): string[] {
  * Постоянная рамка задания: ракурс, геометрия и объём ремонта. Её пишем мы, а не модель,
  * потому что на тестах именно эти фразы удерживали комнату похожей на исходную фотографию.
  */
+/**
+ * Размер комнаты словами для задания без фотографии.
+ *
+ * Площадь форму комнаты не задаёт: двенадцать метров — это и 3×4, и 2×6, а модель по одной
+ * площади рисует что угодно. Когда стороны известны с плана, называем их: узкая комната
+ * получается узкой, и расстановка на картинке хотя бы похожа на возможную.
+ */
+function sizeSentence(brief: ConceptBrief): string {
+  const metres = (cm?: number) => (cm && cm > 0 ? (cm / 100).toFixed(1) : null)
+  const width = metres(brief.sizeCm?.widthCm)
+  const depth = metres(brief.sizeCm?.depthCm)
+  const ceiling = metres(brief.sizeCm?.ceilingCm)
+  if (!width || !depth) {
+    return brief.areaM2 ? `about ${Math.round(brief.areaM2)} square metres` : ''
+  }
+  const height = ceiling ? `, ceiling ${ceiling} metres high` : ''
+  return `${width} metres wide and ${depth} metres deep${height}`
+}
+
 export function fixedPreamble(brief: ConceptBrief): string {
   const noun = roomNouns[brief.roomKind]
   if (!brief.hasPhoto) {
-    const area = brief.areaM2 ? ` of about ${Math.round(brief.areaM2)} square metres` : ''
-    return `Interior photograph of a ${noun}${area} in a city apartment, one large window on the left, wide framing.`
+    const size = sizeSentence(brief)
+    return [
+      `Interior photograph of a ${noun} in a city apartment`,
+      size,
+      'one large window on the left, wide framing.',
+    ]
+      .filter(Boolean)
+      .join(', ')
   }
   // Точечная правка: комната на фотографии остаётся собой, меняется только то, о чём попросили.
   // Здесь нельзя говорить «renovate» или «redesign» — модель понимает это как «снеси и построй заново».

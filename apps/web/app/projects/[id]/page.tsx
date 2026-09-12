@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { uploadPlan } from '@/actions/projects'
 import { AddRoomDialog } from '@/components/add-room-dialog'
+import { ApartmentButton } from '@/components/apartment-button'
 import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { PartnerBanner } from '@/components/collaboration/partner-banner'
 import { TogetherCard } from '@/components/collaboration/together-card'
@@ -14,6 +15,7 @@ import { PlanReadingCard } from '@/components/plan-reading-card'
 import { ProjectSettingsDialog } from '@/components/project-settings-dialog'
 import { getCollaboration, ownerDisplayName } from '@/lib/collaboration/repository'
 import { canInvite } from '@/lib/collaboration/rules'
+import { apartmentPlan } from '@/lib/concepts/apartment'
 import { formatPrice } from '@/lib/concepts/format'
 import { PLAN_ACCEPT, PLAN_LIMIT_TEXT, PLAN_MAX_BYTES } from '@/lib/files/rules'
 import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
@@ -86,6 +88,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
   }
 
   const isOwner = project.role === 'owner'
+  const apartment = apartmentPlan(project.rooms)
   const planUrl = project.planUrl ? await presignedObjectUrl(project.planUrl) : null
   const planIsPdf = project.planUrl?.endsWith('.pdf') ?? false
   const uploadPlanForProject = uploadPlan.bind(null, project.id)
@@ -292,6 +295,14 @@ export default async function ProjectPage({ params }: { params: Params }) {
                 <div className="mt-5">
                   <AddRoomDialog projectId={project.id} />
                 </div>
+              ) : null}
+              {isOwner && project.rooms.length > 1 ? (
+                <ApartmentButton
+                  projectId={project.id}
+                  rooms={apartment.rooms}
+                  ready={apartment.ready}
+                  renders={apartment.renders}
+                />
               ) : null}
             </>
           )}
