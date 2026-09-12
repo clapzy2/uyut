@@ -14,6 +14,7 @@ export {
   type WorksRates,
 } from './estimate'
 export { checkFit, type FitVerdict, footprintCm, type RoomSpot } from './fit'
+export { isBathroomFixture, isForeignListing, isNotFurniture } from './not-furniture'
 export {
   contentHash,
   countItems,
