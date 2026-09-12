@@ -40,6 +40,11 @@ export async function generateMetadata(): Promise<Metadata> {
       title: 'Домица — проект квартиры за вечер',
       description,
     },
+    // Подтверждение владения сайтом для партнёрской сети: она читает этот тег на главной.
+    // Значение публичное по своей природе, оно и должно быть видно в исходном коде страницы.
+    verification: {
+      other: { 'mitgo-verification': '550f8336-a359-475e-866d-cc5c89e774c4' },
+    },
   }
 }
 
