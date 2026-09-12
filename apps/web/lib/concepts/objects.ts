@@ -112,6 +112,7 @@ async function toMatch(
   item: SimilarItem,
   window: PriceWindow | null,
   spots: readonly RoomSpot[] | undefined,
+  ceilingCm: number | undefined,
 ): Promise<MatchView> {
   const dimensionsCm = item.attributes?.dimensionsCm ?? null
   return {
@@ -128,7 +129,7 @@ async function toMatch(
     similarity: item.similarity,
     overBudget: window !== null && item.priceKopecks > window.maxKopecks,
     dimensionsCm,
-    fit: checkFit(dimensionsCm ?? undefined, spots),
+    fit: checkFit(dimensionsCm ?? undefined, spots, ceilingCm),
   }
 }
 
@@ -140,6 +141,7 @@ export async function matchesForObject(
   object: ConceptObject,
   budgetKopecks: number | null,
   spots?: readonly RoomSpot[],
+  ceilingCm?: number,
 ): Promise<{ matches: MatchView[]; window: PriceWindow | null; styleOnly: boolean }> {
   const db = getDb()
   const window = priceWindow(budgetKopecks, object.category)
@@ -168,7 +170,7 @@ export async function matchesForObject(
     })
     items = [...inBudget, ...extra]
   }
-  const matches = await Promise.all(items.map((item) => toMatch(item, window, spots)))
+  const matches = await Promise.all(items.map((item) => toMatch(item, window, spots, ceilingCm)))
   const best = matches[0]?.similarity ?? 0
   // Ниже порога не показываем ничего. Детектор не умеет отвечать «такого предмета здесь нет»,
   // и выдуманный ковёр тянул за собой коврик в салон автомобиля. Пустота честнее.
@@ -199,7 +201,12 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
   const objects = await Promise.all(
     rows.map(async (object): Promise<ObjectView> => {
       const [{ matches, window, styleOnly }, maskSrc] = await Promise.all([
-        matchesForObject(object, room.project.budgetKopecks, room.measurements?.spots),
+        matchesForObject(
+          object,
+          room.project.budgetKopecks,
+          room.measurements?.spots,
+          room.measurements?.ceilingCm,
+        ),
         object.maskUrl ? presignedObjectUrl(object.maskUrl, 60 * 60) : Promise.resolve(null),
       ])
       return {

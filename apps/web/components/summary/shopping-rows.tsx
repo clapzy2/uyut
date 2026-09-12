@@ -87,7 +87,9 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
           <span
             className={cn(
               'block truncate text-[12px]',
-              item.fit.state === 'tooWide' ? 'text-danger' : 'text-ink-2',
+              item.fit.state === 'tooWide' || item.fit.state === 'tooTall'
+                ? 'text-danger'
+                : 'text-ink-2',
             )}
           >
             {fit}

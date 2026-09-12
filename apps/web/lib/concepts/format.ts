@@ -87,6 +87,10 @@ export function sizeLabel(dimensions: DimensionsCm | null | undefined): string |
  * чтобы человек мог проверить нас сам.
  */
 export function fitLabel(fit: FitVerdict): string | null {
+  // Под потолок не встаёт — участок стены уже не важен, поэтому этот случай первый
+  if (fit.state === 'tooTall' && fit.ceilingCm) {
+    return `Не встанет по высоте: выше потолка на ${fit.overCm} см, потолок ${fit.ceilingCm} см`
+  }
   if (fit.state === 'unknown' || !fit.spot || fit.itemCm === undefined) {
     return null
   }

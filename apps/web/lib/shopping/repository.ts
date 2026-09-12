@@ -124,7 +124,11 @@ export async function getShoppingList(
         roomName,
         conceptObjectId: item.conceptObjectId,
         dimensionsCm: product.attributes?.dimensionsCm ?? null,
-        fit: checkFit(product.attributes?.dimensionsCm, measurements?.spots),
+        fit: checkFit(
+          product.attributes?.dimensionsCm,
+          measurements?.spots,
+          measurements?.ceilingCm,
+        ),
       }),
     ),
   )

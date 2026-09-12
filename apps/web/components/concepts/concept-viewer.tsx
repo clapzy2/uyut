@@ -163,7 +163,9 @@ function MatchesPanel({
                       <span
                         className={cn(
                           'mt-0.5 block truncate text-[12px]',
-                          match.fit.state === 'tooWide' ? 'text-danger' : 'text-ink-2',
+                          match.fit.state === 'tooWide' || match.fit.state === 'tooTall'
+                            ? 'text-danger'
+                            : 'text-ink-2',
                         )}
                       >
                         {fitLabel(match.fit)}
