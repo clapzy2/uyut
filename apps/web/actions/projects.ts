@@ -242,6 +242,7 @@ export async function confirmPlanRooms(
           name: room.name || roomKindLabels[room.kind],
           areaM2: room.areaM2,
           measurements: Object.keys(measurements).length > 0 ? measurements : null,
+          notes: room.wish || null,
         }
       }),
     })

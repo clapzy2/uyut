@@ -12,6 +12,22 @@ import { type PlanRow, planRows } from '@/lib/projects/plan-rows'
 const numberFieldClassName = `${inputClassName} h-10 text-[14px]`
 
 /**
+ * Подсказка в поле желания. Разная по типам комнат: «побольше света» в санузле и в спальне
+ * значит разное, а пустое поле человек чаще всего пролистывает.
+ */
+const WISH_PLACEHOLDERS: Record<RoomKind, string> = {
+  living: 'диван на троих, место под телевизор',
+  bedroom: 'шкаф во всю стену, кровать не у окна',
+  kitchen: 'обеденный стол на четверых, побольше ящиков',
+  bath: 'душ вместо ванны',
+  kid: 'стол для уроков, низкие полки',
+}
+
+function wishPlaceholder(kind: RoomKind): string {
+  return WISH_PLACEHOLDERS[kind]
+}
+
+/**
  * Прочитанный план перед глазами человека.
  *
  * Между чтением и комнатами намеренно стоит правка. Модель читает чертежи хорошо, но ошибка
@@ -79,6 +95,7 @@ export function PlanReadingCard({
         widthCm: row.width,
         depthCm: row.depth,
         areaM2: row.area,
+        wish: row.wish,
       })),
     })
     setSaving(false)
@@ -131,7 +148,8 @@ export function PlanReadingCard({
         Мы прочитали так
       </p>
       <p className="mt-3 text-[15px] leading-relaxed text-ink-2">
-        Сверьте с планом и поправьте, что не сошлось. Отмеченные строки станут комнатами проекта
+        Сверьте с планом и поправьте, что не сошлось. Напишите, чего хотите в каждой комнате: это
+        уйдёт в задание, когда будем рисовать. Отмеченные строки станут комнатами проекта
         {roomCount > 0
           ? ` вдобавок к тем ${roomCount === 1 ? 'одной' : roomCount}, что уже есть`
           : ''}
@@ -210,6 +228,18 @@ export function PlanReadingCard({
                 />
               </label>
             </div>
+
+            {row.include ? (
+              <label className="mt-3 block pl-[30px] text-[13px] text-ink-2">
+                Чего хотите в этой комнате
+                <input
+                  value={row.wish}
+                  placeholder={wishPlaceholder(row.kind)}
+                  onChange={(event) => patch(index, { wish: event.currentTarget.value })}
+                  className={`${numberFieldClassName} mt-1 w-full`}
+                />
+              </label>
+            ) : null}
 
             {row.unsupported ? (
               <p className="mt-3 pl-[30px] text-[13px] leading-relaxed text-ink-2">

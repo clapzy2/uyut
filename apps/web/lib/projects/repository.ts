@@ -174,6 +174,7 @@ export async function createRoomsFromPlan(
       name: string
       areaM2: number | null
       measurements: RoomMeasurements | null
+      notes: string | null
     }>
     reading: PlanReading
   },
@@ -197,6 +198,7 @@ export async function createRoomsFromPlan(
               name: room.name,
               areaM2: room.areaM2,
               measurements: room.measurements,
+              notes: room.notes,
               orderIndex: order++,
             })),
           )

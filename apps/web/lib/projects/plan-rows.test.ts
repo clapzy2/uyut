@@ -12,6 +12,8 @@ describe('planRows', () => {
       reading([{ name: 'Гостиная', kind: 'living', widthCm: 383, depthCm: 425, areaM2: 16.3 }]),
     )
     expect(row).toMatchObject({ include: true, width: '383', depth: '425', area: '16,3' })
+    // Желание человек пишет сам: с плана его взять неоткуда
+    expect(row?.wish).toBe('')
   })
 
   it('чего не прочитали, то пустое поле, а не ноль', () => {

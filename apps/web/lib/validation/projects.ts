@@ -111,6 +111,7 @@ export const planRoomsSchema = z.object({
         widthCm: spotWidthSchema,
         depthCm: spotWidthSchema,
         areaM2: areaSchema,
+        wish: z.string().trim().max(500, { error: 'Слишком длинно: хватит 500 знаков' }),
       }),
     )
     .min(1, { error: 'Нечего сохранять' })

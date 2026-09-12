@@ -95,6 +95,8 @@ function MatchesPanel({
   adding,
   onAdd,
   canAdd,
+  onlyFitting,
+  onOnlyFitting,
 }: {
   object: ObjectView | null
   /** Сколько каждого товара уже в списке покупок проекта */
@@ -102,6 +104,8 @@ function MatchesPanel({
   adding: string | null
   onAdd: (match: MatchView, object: ObjectView) => void
   canAdd: boolean
+  onlyFitting: boolean
+  onOnlyFitting: (value: boolean) => void
 }) {
   if (!object) {
     return (
@@ -111,6 +115,16 @@ function MatchesPanel({
     )
   }
   const label = objectLabel(object.label, object.category)
+  // «Не влезает» — единственный совет, который считается арифметикой, а не похожестью,
+  // и поэтому единственный, по которому имеет смысл фильтровать список.
+  const oversized = object.matches.filter(
+    (match) => match.fit.state === 'tooWide' || match.fit.state === 'tooTall',
+  ).length
+  const shown = onlyFitting
+    ? object.matches.filter(
+        (match) => match.fit.state !== 'tooWide' && match.fit.state !== 'tooTall',
+      )
+    : object.matches
   if (object.matches.length === 0) {
     return (
       <div>
@@ -137,8 +151,20 @@ function MatchesPanel({
           </span>
         ) : null}
       </div>
+      {oversized > 0 ? (
+        <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink-2">
+          <input
+            type="checkbox"
+            checked={onlyFitting}
+            onChange={(event) => onOnlyFitting(event.currentTarget.checked)}
+            className="size-[16px] cursor-pointer appearance-none rounded-xs border border-control bg-paper transition-colors duration-200 ease-ui checked:border-accent checked:bg-accent"
+          />
+          Показывать только то, что влезает по меркам
+          {onlyFitting ? '' : ` · не влезает ${oversized}`}
+        </label>
+      ) : null}
       <ul className="flex flex-col divide-y divide-line border-y border-line">
-        {object.matches.map((match) => {
+        {shown.map((match) => {
           const inList = quantities[match.id] ?? 0
           return (
             <li key={match.id} className={cn('py-3', match.overBudget && 'opacity-75')}>
@@ -377,6 +403,8 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
   }
 
   const [adding, setAdding] = useState<string | null>(null)
+  // Галочка живёт у всей панели, а не у предмета: человек решает один раз за просмотр
+  const [onlyFitting, setOnlyFitting] = useState(false)
 
   // Перекрашенный предмет уходит в список с выбранным свотчем как вариантом цвета
   function addToList(match: MatchView, object: ObjectView) {
@@ -543,6 +571,8 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
           adding={adding}
           onAdd={addToList}
           canAdd={canEdit}
+          onlyFitting={onlyFitting}
+          onOnlyFitting={setOnlyFitting}
         />
         <div className="flex flex-wrap items-baseline justify-between gap-2 border-t border-line pt-4 text-[13px] text-ink-2">
           <span>

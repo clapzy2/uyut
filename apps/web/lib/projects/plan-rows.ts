@@ -9,6 +9,8 @@ export type PlanRow = {
   width: string
   depth: string
   area: string
+  /** Чего человек хочет в этой комнате: уходит в заметки комнаты и оттуда в задание модели */
+  wish: string
   suspicious: boolean
   /** Комнаты этого типа сервис пока не делает, и создать её нельзя */
   unsupported: boolean
@@ -32,6 +34,7 @@ export function planRows(reading: PlanReading): PlanRow[] {
       depth: room.depthCm ? String(room.depthCm) : '',
       // В полях площади человек пишет через запятую, и прочитанное должно выглядеть так же
       area: room.areaM2 ? String(room.areaM2).replace('.', ',') : '',
+      wish: '',
       suspicious: room.suspicious === true,
       unsupported,
     }
