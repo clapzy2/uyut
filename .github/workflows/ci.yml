@@ -68,6 +68,10 @@ jobs:
         run: bunx playwright install --with-deps chromium
 
       - name: E2E
+        env:
+          # Playwright starts the production server on 4300. Override the job-wide
+          # build URL so Better Auth trusts the actual browser origin as well.
+          APP_URL: http://localhost:4300
         run: bun run e2e
 
       - name: Stop services
