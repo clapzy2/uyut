@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { cookies } from 'next/headers'
 import type { ReactNode } from 'react'
 import { Analytics } from '@/components/analytics'
+import { PageTransition } from '@/components/page-transition'
 import { SiteFooter } from '@/components/site-footer'
 import { SiteHeader } from '@/components/site-header'
 import { VerifyEmailBanner } from '@/components/verify-email-banner'
@@ -53,7 +54,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       <body className="flex min-h-dvh flex-col font-sans">
         <SiteHeader theme={theme} user={user ? { name: user.name } : null} />
         {user && !user.emailVerified ? <VerifyEmailBanner email={user.email} /> : null}
-        <main className="flex-1">{children}</main>
+        <PageTransition>{children}</PageTransition>
         <SiteFooter />
         <Toaster />
         <Analytics />

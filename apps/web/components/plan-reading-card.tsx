@@ -7,9 +7,51 @@ import { useState, useTransition } from 'react'
 import { confirmPlanRooms, forgetPlanReading, readPlan } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
 import { mvpRoomKinds, roomKindLabels } from '@/lib/projects/format'
-import { type PlanRow, planRows } from '@/lib/projects/plan-rows'
+import { type ExistingRoom, type PlanRow, planRows } from '@/lib/projects/plan-rows'
 
 const numberFieldClassName = `${inputClassName} h-10 text-[14px]`
+
+/**
+ * Подсказка в поле желания. Разная по типам комнат: «побольше света» в санузле и в спальне
+ * значит разное, а пустое поле человек чаще всего пролистывает.
+ */
+const WISH_PLACEHOLDERS: Record<RoomKind, string> = {
+  living: 'диван на троих, место под телевизор',
+  bedroom: 'шкаф во всю стену, кровать не у окна',
+  kitchen: 'обеденный стол на четверых, побольше ящиков',
+  bath: 'душ вместо ванны',
+  kid: 'стол для уроков, низкие полки',
+}
+
+function wishPlaceholder(kind: RoomKind): string {
+  return WISH_PLACEHOLDERS[kind]
+}
+
+const number = (raw: string) => {
+  const value = Number(raw.replace(',', '.'))
+  return Number.isFinite(value) && value > 0 ? value : null
+}
+
+/**
+ * Площадь, посчитанная по сторонам, когда она расходится с подписанной на плане.
+ *
+ * Это не ошибка сама по себе: комната бывает не прямоугольной, а подписанная площадь считается
+ * без ниш. Но именно здесь видно промах чтения, который иначе не заметить: на проверке модель
+ * прочла ширину гостиной как 393 вместо 383, и разошлось это ровно в площади.
+ */
+function areaHint(row: PlanRow): string | null {
+  const width = number(row.width)
+  const depth = number(row.depth)
+  const area = number(row.area)
+  if (width === null || depth === null || area === null) {
+    return null
+  }
+  const computed = (width * depth) / 10_000
+  if (Math.abs(computed - area) / area < 0.02) {
+    return null
+  }
+  return `По сторонам выходит ${computed.toFixed(1).replace('.', ',')} м², а на плане ${row.area} м².`
+}
 
 /**
  * Прочитанный план перед глазами человека.
@@ -24,16 +66,24 @@ export function PlanReadingCard({
   hasPlan,
   planIsPdf,
   roomCount,
+  existing,
 }: {
   projectId: string
   reading: PlanReading | null
   hasPlan: boolean
   planIsPdf: boolean
   roomCount: number
+  existing: ExistingRoom[]
 }) {
   const router = useRouter()
-  const [rows, setRows] = useState<PlanRow[] | null>(reading ? planRows(reading) : null)
-  const [ceiling, setCeiling] = useState(reading?.ceilingCm ? String(reading.ceilingCm) : '')
+  // Подтверждённое чтение таблицу больше не открывает: числа уже в комнатах, и второй экран
+  // правки поверх них только путает. Перечитать план можно кнопкой.
+  const [rows, setRows] = useState<PlanRow[] | null>(
+    reading && !reading.confirmedAt ? planRows(reading, existing) : null,
+  )
+  const [ceiling, setCeiling] = useState(
+    reading?.ceilingCm && !reading.confirmedAt ? String(reading.ceilingCm) : '',
+  )
   const [error, setError] = useState<string | undefined>(undefined)
   const [reading_, startReading] = useTransition()
   const [saving, setSaving] = useState(false)
@@ -52,7 +102,7 @@ export function PlanReadingCard({
         setError(result.error)
         return
       }
-      setRows(planRows(result.data))
+      setRows(planRows(result.data, existing))
       setCeiling(result.data.ceilingCm ? String(result.data.ceilingCm) : '')
       toast({ title: 'План прочитан', tone: 'success' })
     })
@@ -74,11 +124,13 @@ export function PlanReadingCard({
       ceilingCm: ceiling,
       rooms: rows.map((row) => ({
         include: row.include,
+        roomId: row.roomId ?? '',
         name: row.name,
         kind: row.kind,
         widthCm: row.width,
         depthCm: row.depth,
         areaM2: row.area,
+        wish: row.wish,
       })),
     })
     setSaving(false)
@@ -87,9 +139,14 @@ export function PlanReadingCard({
       return
     }
     setRows(null)
+    const { created, updated } = result.data
     toast({
-      title:
-        result.data.created === 1 ? 'Комната создана' : `Комнат создано: ${result.data.created}`,
+      title: [
+        created > 0 ? `новых комнат: ${created}` : null,
+        updated > 0 ? `размеры вписаны в ${updated}` : null,
+      ]
+        .filter(Boolean)
+        .join(', '),
       tone: 'success',
     })
     router.refresh()
@@ -131,7 +188,8 @@ export function PlanReadingCard({
         Мы прочитали так
       </p>
       <p className="mt-3 text-[15px] leading-relaxed text-ink-2">
-        Сверьте с планом и поправьте, что не сошлось. Отмеченные строки станут комнатами проекта
+        Сверьте с планом и поправьте, что не сошлось. Напишите, чего хотите в каждой комнате: это
+        уйдёт в задание, когда будем рисовать. Отмеченные строки станут комнатами проекта
         {roomCount > 0
           ? ` вдобавок к тем ${roomCount === 1 ? 'одной' : roomCount}, что уже есть`
           : ''}
@@ -211,10 +269,33 @@ export function PlanReadingCard({
               </label>
             </div>
 
+            {row.include ? (
+              <label className="mt-3 block pl-[30px] text-[13px] text-ink-2">
+                Чего хотите в этой комнате
+                <input
+                  value={row.wish}
+                  placeholder={wishPlaceholder(row.kind)}
+                  onChange={(event) => patch(index, { wish: event.currentTarget.value })}
+                  className={`${numberFieldClassName} mt-1 w-full`}
+                />
+              </label>
+            ) : null}
+
+            {row.roomId ? (
+              <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
+                Числа впишем в комнату «{row.roomName}», которая уже есть в проекте. Новой такой же
+                не появится.
+              </p>
+            ) : null}
             {row.unsupported ? (
               <p className="mt-3 pl-[30px] text-[13px] leading-relaxed text-ink-2">
                 Такие комнаты сервис пока не делает. Размеры сохранились в плане, комната появится,
                 когда мы до неё дойдём.
+              </p>
+            ) : null}
+            {areaHint(row) ? (
+              <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
+                {areaHint(row)} Проверьте, какое из чисел мы прочитали неверно.
               </p>
             ) : null}
             {row.suspicious ? (
@@ -230,7 +311,7 @@ export function PlanReadingCard({
 
       <div className="mt-5 flex flex-wrap gap-3">
         <Button type="button" onClick={confirm} pending={saving} disabled={chosen === 0}>
-          {saving ? 'Создаём…' : chosen === 1 ? 'Создать комнату' : `Создать комнаты: ${chosen}`}
+          {saving ? 'Сохраняем…' : `Сохранить: ${chosen}`}
         </Button>
         <Button type="button" variant="ghost" onClick={forget}>
           Впишу сам

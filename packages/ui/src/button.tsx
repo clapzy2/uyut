@@ -21,8 +21,12 @@ export function buttonClassName(
   options: { variant?: Variant; size?: Size; className?: string } = {},
 ): string {
   return cn(
-    'inline-flex items-center justify-center gap-2 rounded-sm font-medium tracking-[0.01em] transition-colors duration-200 ease-ui',
-    'disabled:cursor-not-allowed disabled:opacity-60',
+    'inline-flex items-center justify-center gap-2 rounded-sm font-medium tracking-[0.01em]',
+    // Цвет и нажатие идут вместе: палец видит отклик там же, где его ждёт глаз.
+    // Два процента — это пара пикселей: заметно на ощупь и незаметно на глаз,
+    // а при выключенной анимации в системе браузер сам сводит длительность к нулю.
+    'transition-[color,background-color,border-color,transform] duration-200 ease-ui active:scale-[0.98]',
+    'disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100',
     variants[options.variant ?? 'primary'],
     sizes[options.size ?? 'md'],
     options.className,

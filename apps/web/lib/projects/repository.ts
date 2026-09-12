@@ -170,14 +170,17 @@ export async function createRoomsFromPlan(
   projectId: string,
   input: {
     rooms: Array<{
+      /** Комната, которой достанутся числа. Пусто — заводим новую */
+      roomId?: string
       kind: RoomKind
       name: string
       areaM2: number | null
       measurements: RoomMeasurements | null
+      notes: string | null
     }>
     reading: PlanReading
   },
-): Promise<Room[]> {
+): Promise<{ created: number; updated: number }> {
   const project = await assertOwner(userId, projectId)
   const db = getDb()
   const [last] = await db
@@ -185,27 +188,39 @@ export async function createRoomsFromPlan(
     .from(rooms)
     .where(eq(rooms.projectId, project.id))
   let order = (last?.maxIndex ?? -1) + 1
-  const created =
-    input.rooms.length === 0
-      ? []
-      : await db
-          .insert(rooms)
-          .values(
-            input.rooms.map((room) => ({
-              projectId: project.id,
-              kind: room.kind,
-              name: room.name,
-              areaM2: room.areaM2,
-              measurements: room.measurements,
-              orderIndex: order++,
-            })),
-          )
-          .returning()
+  const fresh = input.rooms.filter((room) => !room.roomId)
+  const existing = input.rooms.filter((room) => room.roomId)
+  if (fresh.length > 0) {
+    await db.insert(rooms).values(
+      fresh.map((room) => ({
+        projectId: project.id,
+        kind: room.kind,
+        name: room.name,
+        areaM2: room.areaM2,
+        measurements: room.measurements,
+        notes: room.notes,
+        orderIndex: order++,
+      })),
+    )
+  }
+  for (const room of existing) {
+    // Заметку не затираем пустой: человек мог написать её раньше и оставить поле плана пустым
+    await db
+      .update(rooms)
+      .set({
+        kind: room.kind,
+        name: room.name,
+        areaM2: room.areaM2,
+        measurements: room.measurements,
+        ...(room.notes ? { notes: room.notes } : {}),
+      })
+      .where(and(eq(rooms.id, room.roomId as string), eq(rooms.projectId, project.id)))
+  }
   await db
     .update(projects)
     .set({ planReading: input.reading, updatedAt: new Date() })
     .where(eq(projects.id, project.id))
-  return created
+  return { created: fresh.length, updated: existing.length }
 }
 
 export async function listRooms(userId: string, projectId: string): Promise<Room[]> {

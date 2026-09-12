@@ -12,6 +12,16 @@ import { WALKWAY_CM } from '@uyut/catalog'
 const PADDING = 28
 const MAX_WIDTH = 520
 
+/**
+ * Размер предмета так, как он написан в магазине: сначала длинная сторона.
+ * На чертеже у стены он повёрнут, и «95 × 220» вместо «220 × 95» человека только путает.
+ */
+function sizeLabel(place: { widthCm: number; depthCm: number }): string {
+  const long = Math.round(Math.max(place.widthCm, place.depthCm))
+  const short = Math.round(Math.min(place.widthCm, place.depthCm))
+  return `${long} × ${short}`
+}
+
 function problemText(problem: LayoutProblem): string {
   switch (problem.kind) {
     case 'noWall':
@@ -61,7 +71,7 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
             className="fill-muted stroke-ink"
             strokeWidth={2}
           />
-          {layout.placed.map((place) => (
+          {layout.placed.map((place, index) => (
             <g key={place.id}>
               <rect
                 x={PADDING + place.xCm * scale}
@@ -71,19 +81,36 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
                 className="fill-accent-tint stroke-accent"
                 strokeWidth={1.5}
               />
+              {/* Внутри прямоугольника только номер: название шкафа глубиной 60 см
+                  не помещается в него ни при каком шрифте и лезет на соседей */}
               <text
                 x={PADDING + (place.xCm + place.widthCm / 2) * scale}
                 y={PADDING + (place.yCm + place.depthCm / 2) * scale}
                 textAnchor="middle"
-                dominantBaseline="middle"
-                className="fill-ink text-[10px]"
+                dominantBaseline="central"
+                className="fill-ink text-[11px] font-medium"
               >
-                {place.title.length > 18 ? `${place.title.slice(0, 17)}…` : place.title}
+                {index + 1}
               </text>
             </g>
           ))}
         </svg>
       </div>
+
+      <ol className="mt-3 flex flex-col gap-1">
+        {layout.placed.map((place, index) => (
+          <li key={place.id} className="flex gap-2 text-[13px] leading-relaxed text-ink-2">
+            <span className="w-4 shrink-0 font-mono text-[12px] text-accent">{index + 1}</span>
+            <span className="min-w-0">
+              {place.title}
+              <span className="text-ink-2/80">
+                {' · '}
+                {sizeLabel(place)} см
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
 
       {problems.length > 0 ? (
         <ul className="mt-4 flex flex-col gap-2">

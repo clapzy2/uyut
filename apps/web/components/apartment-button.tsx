@@ -64,8 +64,9 @@ export function ApartmentButton({
         Вся квартира сразу
       </p>
       <p className="mt-3 text-[15px] leading-relaxed text-ink">
-        Обставим {ready.map((room) => room.name).join(', ')} в одном стиле: {renderWord(renders)},
-        по три варианта на комнату. Заходить в каждую комнату и ждать по очереди не придётся.
+        Обставим в одном стиле: {ready.map((room) => room.name).join(', ')}. Выйдет{' '}
+        {renderWord(renders)}, по три варианта на комнату. Заходить в каждую комнату и ждать по
+        очереди не придётся.
       </p>
       {skipped.length > 0 ? (
         <p className="mt-2 text-[13px] leading-relaxed text-ink-2">

@@ -236,6 +236,12 @@ export default async function ProjectPage({ params }: { params: Params }) {
               hasPlan={Boolean(project.planUrl)}
               planIsPdf={planIsPdf}
               roomCount={project.rooms.length}
+              existing={project.rooms.map((room) => ({
+                id: room.id,
+                name: room.name,
+                kind: room.kind,
+                hasMeasurements: Boolean(room.measurements?.widthCm && room.measurements.depthCm),
+              }))}
             />
           ) : null}
         </div>

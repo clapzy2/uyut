@@ -247,11 +247,19 @@ function roomPlan(plan: RoomLayout | null): string {
   const width = 400
   const scale = width / plan.widthCm
   const height = Math.round(plan.depthCm * scale)
+  // В прямоугольнике только номер: название не помещается в шкаф глубиной 60 см
+  // и на печати наезжает на соседей. Что под каким номером, говорит список ниже.
   const boxes = plan.placed
     .map(
-      (place) =>
+      (place, index) =>
         `<rect x="${(place.xCm * scale).toFixed(1)}" y="${(place.yCm * scale).toFixed(1)}" width="${(place.widthCm * scale).toFixed(1)}" height="${(place.depthCm * scale).toFixed(1)}" fill="#f0dcdf" stroke="#7c2f3b" stroke-width="1"/>` +
-        `<text x="${((place.xCm + place.widthCm / 2) * scale).toFixed(1)}" y="${((place.yCm + place.depthCm / 2) * scale).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#2f2a20">${esc(place.title.length > 16 ? `${place.title.slice(0, 15)}…` : place.title)}</text>`,
+        `<text x="${((place.xCm + place.widthCm / 2) * scale).toFixed(1)}" y="${((place.yCm + place.depthCm / 2) * scale).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#2f2a20">${index + 1}</text>`,
+    )
+    .join('')
+  const legend = plan.placed
+    .map(
+      (place, index) =>
+        `<p class="verdict">${index + 1} · ${esc(place.title)} · ${Math.round(Math.max(place.widthCm, place.depthCm))} × ${Math.round(Math.min(place.widthCm, place.depthCm))} см</p>`,
     )
     .join('')
   const trouble = plan.problems.filter((problem) => problem.kind !== 'noRoomSize')
@@ -266,6 +274,7 @@ function roomPlan(plan: RoomLayout | null): string {
           <rect x="0" y="0" width="${width}" height="${height}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>
           ${boxes}
         </svg>
+        ${legend}
         ${verdict}
       </div>`
 }
