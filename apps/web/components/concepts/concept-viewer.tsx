@@ -11,13 +11,7 @@ import { addItem } from '@/actions/shopping'
 import { AdDisclosure } from '@/components/ad-disclosure'
 import { SwatchPicker } from '@/components/concepts/swatch-picker'
 import { ProductImage } from '@/components/product-image'
-import {
-  fitLabel,
-  formatPrice,
-  objectLabel,
-  sizeLabel,
-  sourceLabel,
-} from '@/lib/concepts/format'
+import { fitLabel, formatPrice, objectLabel, sizeLabel, sourceLabel } from '@/lib/concepts/format'
 import { spreadMarkers } from '@/lib/concepts/marker-layout'
 import type { ConceptPageData, MatchView, ObjectView } from '@/lib/concepts/objects'
 import { applySwatch, prepareRecolor, type RecolorBase } from '@/lib/recolor/client'
