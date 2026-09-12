@@ -4,6 +4,7 @@ import { notFound, redirect } from 'next/navigation'
 import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { ConceptEditForm } from '@/components/concepts/concept-edit-form'
 import { ConceptViewer } from '@/components/concepts/concept-viewer'
+import { objectLabel } from '@/lib/concepts/format'
 import { getConceptPage } from '@/lib/concepts/objects'
 import { generationStillRunning } from '@/lib/concepts/resume-run'
 import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
@@ -96,6 +97,10 @@ export default async function ConceptPage({ params }: { params: Params }) {
             roomId={data.room.id}
             roomHref={`/projects/${data.room.projectId}/rooms/${data.room.id}`}
             busyElsewhere={busy}
+            objects={data.objects.map((object) => ({
+              id: object.id,
+              label: objectLabel(object.label, object.category),
+            }))}
           />
         </div>
       ) : null}

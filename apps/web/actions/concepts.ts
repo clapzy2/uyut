@@ -56,6 +56,8 @@ export type ConceptRequest = {
   editRequest?: string
   /** Разобранный на шаги план, показанный человеку до запуска */
   editSteps?: Array<{ titleRu: string; prompt: string }>
+  /** Предмет с рендера: его вырезка уйдёт в модель вторым кадром */
+  objectId?: string
 }
 
 export async function requestConcepts(
@@ -70,7 +72,7 @@ export async function requestConcepts(
   if (!env.FAL_KEY || !env.TRIGGER_SECRET_KEY) {
     return { ok: false, error: NO_KEYS }
   }
-  const { revision, baseConceptId, editRequest, editSteps } = request
+  const { revision, baseConceptId, editRequest, editSteps, objectId } = request
   try {
     const room = await getRoom(userId, roomId)
     requireOwner(room.role)
@@ -95,6 +97,7 @@ export async function requestConcepts(
       ...(baseConceptId ? { baseConceptId } : {}),
       ...(editRequest ? { editRequest: editRequest.slice(0, 500) } : {}),
       ...(editSteps && editSteps.length > 0 ? { editSteps } : {}),
+      ...(objectId ? { objectId } : {}),
     })
     await attachGenerationRun(room.id, handle.id, batchId)
     await recordAudit({
@@ -232,6 +235,7 @@ export async function reviseConcept(
       baseConceptId: concept.id,
       editRequest: parsed.data.request,
       editSteps: plan.steps.map((step) => ({ titleRu: step.titleRu, prompt: step.prompt })),
+      ...(parsed.data.objectId ? { objectId: parsed.data.objectId } : {}),
     })
   } catch (error) {
     return failure(error)
