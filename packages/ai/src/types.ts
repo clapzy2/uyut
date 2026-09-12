@@ -12,6 +12,12 @@ export type ConceptBrief = {
   /** Правка из чата после первой генерации, по-английски: «darker walls, no rug» */
   revision?: string | null
   hasPhoto: boolean
+  /**
+   * Настоящие стороны комнаты в сантиметрах, если их промерили или прочитали с плана.
+   * Нужны там, где фотографии нет вовсе: без них задание описывает комнату площадью,
+   * а двенадцать метров — это и вытянутый пенал, и почти квадрат.
+   */
+  sizeCm?: { widthCm?: number; depthCm?: number; ceilingCm?: number }
   budgetKopecks: number | null
   household: {
     adults?: number

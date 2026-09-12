@@ -98,6 +98,26 @@ describe('buildTemplatePlan', () => {
     expect(plan.shared).not.toContain('Keep the exact camera angle')
   })
 
+  it('когда стороны известны с плана, задание называет их вместо площади', () => {
+    const plan = buildTemplatePlan(
+      brief({ hasPhoto: false, sizeCm: { widthCm: 290, depthCm: 425, ceilingCm: 270 } }),
+      5,
+    )
+    expect(plan.shared).toContain('2.9 metres wide and 4.3 metres deep')
+    expect(plan.shared).toContain('ceiling 2.7 metres high')
+    expect(plan.shared).not.toContain('square metres')
+  })
+
+  it('одной стороны мало: форму по ней не задать, возвращаемся к площади', () => {
+    const plan = buildTemplatePlan(brief({ hasPhoto: false, sizeCm: { widthCm: 290 } }), 5)
+    expect(plan.shared).toContain('about 18 square metres')
+  })
+
+  it('с фотографией размеры в задание не идут: комнату видно и так', () => {
+    const plan = buildTemplatePlan(brief({ sizeCm: { widthCm: 290, depthCm: 425 } }), 5)
+    expect(plan.shared).not.toContain('metres wide')
+  })
+
   it('переносит потребности семьи в задание', () => {
     const plan = buildTemplatePlan(
       brief({ household: { adults: 2, kids: 1, pets: true, wfh: true } }),
