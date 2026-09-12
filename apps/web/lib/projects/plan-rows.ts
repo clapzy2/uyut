@@ -96,3 +96,42 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
     }
   })
 }
+
+const number = (raw: string) => {
+  const value = Number(raw.replace(',', '.'))
+  return Number.isFinite(value) && value > 0 ? value : null
+}
+
+export type AreaCheck = {
+  text: string
+  /** Ширина, при которой площадь сойдётся с глубиной */
+  widthCm: number
+  /** Глубина, при которой площадь сойдётся с шириной */
+  depthCm: number
+}
+
+/**
+ * Расхождение площади с размерами и два числа, которыми его можно закрыть.
+ *
+ * Подписанная площадь — самое надёжное число на плане: её печатают, а не складывают из отрезков.
+ * Поэтому из неё и глубины считается ширина, из неё и ширины — глубина, а человек выбирает,
+ * что из двух он видит на чертеже. На замере модель уверенно и повторно читала ширину гостиной
+ * как 393 см при верных 383, и расходилось это ровно в площади.
+ */
+export function areaCheck(row: Pick<PlanRow, 'width' | 'depth' | 'area'>): AreaCheck | null {
+  const width = number(row.width)
+  const depth = number(row.depth)
+  const area = number(row.area)
+  if (width === null || depth === null || area === null) {
+    return null
+  }
+  const computed = (width * depth) / 10_000
+  if (Math.abs(computed - area) / area < 0.02) {
+    return null
+  }
+  return {
+    text: `По сторонам выходит ${computed.toFixed(1).replace('.', ',')} м², а на плане ${row.area} м².`,
+    widthCm: Math.round((area * 10_000) / depth),
+    depthCm: Math.round((area * 10_000) / width),
+  }
+}
