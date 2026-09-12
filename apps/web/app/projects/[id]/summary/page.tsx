@@ -5,6 +5,7 @@ import { notFound, redirect } from 'next/navigation'
 import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { EstimateCard } from '@/components/summary/estimate-card'
 import { ExportCard, type PaymentState } from '@/components/summary/export-card'
+import { FitWarnings } from '@/components/summary/fit-warnings'
 import { PartnerExports } from '@/components/summary/partner-exports'
 import { ShoppingRows } from '@/components/summary/shopping-rows'
 import { applyPayment } from '@/lib/billing/apply'
@@ -18,6 +19,7 @@ import { formatArea, pluralRooms } from '@/lib/projects/format'
 import { getProject } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { pluralItems, pluralPositions } from '@/lib/shopping/format'
+import { projectLayouts } from '@/lib/shopping/layout'
 import { getWorksRates } from '@/lib/shopping/rates'
 import { getShoppingList } from '@/lib/shopping/repository'
 
@@ -97,10 +99,11 @@ export default async function SummaryPage({
   }
   const isOwner = project.role === 'owner'
 
-  const [list, exports, plan] = await Promise.all([
+  const [list, exports, plan, layouts] = await Promise.all([
     getShoppingList(session.user.id, project.id),
     listExports(session.user.id, project.id, 4),
     getPlan(session.user.id),
+    projectLayouts(session.user.id, project.id, project.rooms),
   ])
   const rates = getWorksRates()
   const env = getEnv()
@@ -154,6 +157,7 @@ export default async function SummaryPage({
               : ''}
           </p>
           <ShoppingRows items={list.items} projectId={project.id} readOnly={!isOwner} />
+          <FitWarnings rooms={layouts} projectId={project.id} />
         </div>
         <aside className="flex flex-col gap-8">
           {isOwner ? (
