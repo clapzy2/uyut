@@ -230,8 +230,8 @@ export function PlanReadingCard({
         </fieldset>
       </div>
       <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-        {roomConditionHints[condition]} Поставим это всем комнатам из плана, у каждой потом можно
-        поменять отдельно.
+        {roomConditionHints[condition]} Поставим это новым комнатам. У тех, что уже заведены,
+        состояние не трогаем: вы могли выбрать его сами.
       </p>
 
       <ul className="mt-5 flex flex-col gap-3">
@@ -313,6 +313,13 @@ export function PlanReadingCard({
                 </label>
               ) : null}
 
+              {row.ambiguous ? (
+                <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
+                  В проекте несколько похожих комнат, и какая из них эта, знаете только вы. Заведём
+                  новую. Если это одна из уже заведённых, назовите строку точно так же, как названа
+                  она, и прочитайте план ещё раз.
+                </p>
+              ) : null}
               {row.roomId ? (
                 <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
                   Числа впишем в комнату «{row.roomName}», которая уже есть в проекте. Новой такой

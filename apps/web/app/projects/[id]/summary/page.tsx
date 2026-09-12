@@ -99,12 +99,12 @@ export default async function SummaryPage({
   }
   const isOwner = project.role === 'owner'
 
-  const [list, exports, plan, layouts] = await Promise.all([
+  const [list, exports, plan] = await Promise.all([
     getShoppingList(session.user.id, project.id),
     listExports(session.user.id, project.id, 4),
     getPlan(session.user.id),
-    projectLayouts(session.user.id, project.id, project.rooms),
   ])
+  const layouts = projectLayouts(project.rooms, list)
   const rates = getWorksRates()
   const env = getEnv()
   const rooms = project.rooms.map((room) => ({

@@ -2,7 +2,7 @@ import 'server-only'
 
 import { type LayoutItem, layoutRoom, type RoomLayout, subcategoryFromText } from '@uyut/catalog'
 import type { Room, RoomMeasurements } from '@uyut/db'
-import { getShoppingList } from './repository'
+import { getShoppingList, type ShoppingItemView } from './repository'
 
 /**
  * Вид сверху для одной комнаты: что человек уже выбрал, разложенное по её настоящим размерам.
@@ -38,21 +38,19 @@ export async function roomLayout(
 }
 
 /**
- * Раскладки всех комнат проекта одним запросом списка покупок.
+ * Раскладки всех комнат проекта по уже прочитанному списку покупок.
  *
- * Отдельно от roomLayout, потому что страница итогов спрашивает сразу про все комнаты,
- * а звать getShoppingList по разу на комнату — это пять одинаковых запросов подряд.
+ * Список принимается аргументом, а не читается здесь: страница итогов и так его загружает,
+ * и второе чтение стоило бы ещё сотни подписанных ссылок на картинки товаров.
  */
-export async function projectLayouts(
-  userId: string,
-  projectId: string,
+export function projectLayouts(
   rooms: readonly Room[],
-): Promise<Array<{ roomId: string; roomName: string; layout: RoomLayout }>> {
+  list: { items: readonly ShoppingItemView[] },
+): Array<{ roomId: string; roomName: string; layout: RoomLayout }> {
   const measured = rooms.filter((room) => room.measurements?.widthCm && room.measurements.depthCm)
   if (measured.length === 0) {
     return []
   }
-  const list = await getShoppingList(userId, projectId)
   const result: Array<{ roomId: string; roomName: string; layout: RoomLayout }> = []
   for (const room of measured) {
     const items: LayoutItem[] = list.items

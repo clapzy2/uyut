@@ -23,7 +23,10 @@ export function RoomSettingsDialog({
   const form = useForm<RoomInput, unknown, RoomOutput>({
     resolver: zodResolver(roomSchema),
     defaultValues: {
-      kind: room.kind === 'bath' || room.kind === 'kid' ? 'living' : room.kind,
+      // Ванная в переключателе не показывается, и подставить вместо неё гостиную — меньшее зло.
+      // Детская там теперь есть, и подменять её нельзя: сохранение настроек молча меняло тип
+      // комнаты, а вместе с ним задание модели и список предметов для детектора.
+      kind: room.kind === 'bath' ? 'living' : room.kind,
       name: room.name,
       areaM2: formatAreaInput(room.areaM2),
     },

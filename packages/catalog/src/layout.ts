@@ -179,49 +179,128 @@ function spanOf(
     : { from: depths.top, to: room.depthCm - depths.bottom }
 }
 
+/** Шаг сетки, на которой проверяется проходимость. Пять сантиметров — точнее, чем мерит рулетка. */
+const GRID_CM = 5
+
+/** Потолок числа клеток: у квартиры-студии на двадцать метров сетка иначе разрастается. */
+const GRID_CELLS = 10_000
+
+/** Выше этого ширина прохода уже ни на что не влияет, и искать её точнее незачем. */
+const ROUTE_CAP_CM = 150
+
+/** Кусок свободного пола меньше этого считаем закутком, а не отрезанной частью комнаты. */
+const ISLAND_CELLS = 20
+
 /**
- * Самый узкий зазор между мебелью противоположных стен.
+ * Самый широкий маршрут по комнате.
  *
- * Считается только там, где мебель и правда стоит друг напротив друга. Одинокая кровать
- * поперёк спальни оставляет у изножья полметра, но это тупик, а не проход: обойти её можно
- * сбоку, где пусто. Жаловаться на такой зазор — врать, поэтому узкие места ищутся по тем
- * участкам, где заняты обе стороны.
+ * Считать зазоры между парами предметов бесполезно: угол бывает заперт мебелью соседних стен,
+ * которые друг напротив друга не стоят вовсе. Поэтому комната растеризуется, и для каждой ширины
+ * прохода проверяется, остаётся ли свободный пол единым куском. Возвращается наибольшая ширина,
+ * при которой по комнате ещё можно пройти всюду.
  */
-function pinchGap(placed: readonly Placement[], room: Size): number | undefined {
-  const axes = [
-    {
-      near: placed.filter((place) => place.wall === 'top'),
-      far: placed.filter((place) => place.wall === 'bottom'),
-      across: room.depthCm,
-      along: (place: Placement) => [place.xCm, place.xCm + place.widthCm] as const,
-      nearDepth: (place: Placement) => place.yCm + place.depthCm,
-      farDepth: (place: Placement) => room.depthCm - place.yCm,
-    },
-    {
-      near: placed.filter((place) => place.wall === 'left'),
-      far: placed.filter((place) => place.wall === 'right'),
-      across: room.widthCm,
-      along: (place: Placement) => [place.yCm, place.yCm + place.depthCm] as const,
-      nearDepth: (place: Placement) => place.xCm + place.widthCm,
-      farDepth: (place: Placement) => room.widthCm - place.xCm,
-    },
-  ]
-  let narrowest: number | undefined
-  for (const axis of axes) {
-    for (const one of axis.near) {
-      for (const other of axis.far) {
-        const [oneFrom, oneTo] = axis.along(one)
-        const [otherFrom, otherTo] = axis.along(other)
-        // Стоят ли они хоть сколько-то друг против друга
-        if (Math.min(oneTo, otherTo) - Math.max(oneFrom, otherFrom) <= 0.5) {
-          continue
-        }
-        const gap = axis.across - axis.nearDepth(one) - axis.farDepth(other)
-        narrowest = narrowest === undefined ? gap : Math.min(narrowest, gap)
+function widestRoute(placed: readonly Placement[], room: Size): number {
+  const step = Math.max(
+    GRID_CM,
+    Math.ceil(Math.sqrt((room.widthCm * room.depthCm) / GRID_CELLS) / GRID_CM) * GRID_CM,
+  )
+  const cols = Math.max(1, Math.floor(room.widthCm / step))
+  const rows = Math.max(1, Math.floor(room.depthCm / step))
+  const busy = new Uint8Array(cols * rows)
+  for (const place of placed) {
+    const fromX = Math.max(0, Math.floor(place.xCm / step))
+    const toX = Math.min(cols, Math.ceil((place.xCm + place.widthCm) / step))
+    const fromY = Math.max(0, Math.floor(place.yCm / step))
+    const toY = Math.min(rows, Math.ceil((place.yCm + place.depthCm) / step))
+    for (let y = fromY; y < toY; y += 1) {
+      for (let x = fromX; x < toX; x += 1) {
+        busy[y * cols + x] = 1
       }
     }
   }
-  return narrowest
+  // Сумма по прямоугольнику за одно обращение: иначе на каждую клетку пришлось бы обходить
+  // весь квадрат прохода заново
+  const sums = new Int32Array((cols + 1) * (rows + 1))
+  for (let y = 0; y < rows; y += 1) {
+    for (let x = 0; x < cols; x += 1) {
+      sums[(y + 1) * (cols + 1) + x + 1] =
+        (busy[y * cols + x] as number) +
+        (sums[y * (cols + 1) + x + 1] as number) +
+        (sums[(y + 1) * (cols + 1) + x] as number) -
+        (sums[y * (cols + 1) + x] as number)
+    }
+  }
+  const busyIn = (x0: number, y0: number, x1: number, y1: number) =>
+    (sums[y1 * (cols + 1) + x1] as number) -
+    (sums[y0 * (cols + 1) + x1] as number) -
+    (sums[y1 * (cols + 1) + x0] as number) +
+    (sums[y0 * (cols + 1) + x0] as number)
+
+  const fits = (widthCells: number): boolean => {
+    // Клетка проходима, если вокруг неё умещается свободный квадрат нужной ширины
+    const half = Math.floor(widthCells / 2)
+    const open = new Uint8Array(cols * rows)
+    let total = 0
+    for (let y = 0; y < rows; y += 1) {
+      for (let x = 0; x < cols; x += 1) {
+        const x0 = Math.max(0, x - half)
+        const y0 = Math.max(0, y - half)
+        const x1 = Math.min(cols, x + widthCells - half)
+        const y1 = Math.min(rows, y + widthCells - half)
+        if (x1 - x0 < widthCells || y1 - y0 < widthCells) {
+          continue
+        }
+        if (busyIn(x0, y0, x1, y1) === 0) {
+          open[y * cols + x] = 1
+          total += 1
+        }
+      }
+    }
+    if (total === 0) {
+      return false
+    }
+    // Обходим первый найденный кусок: если за его пределами остался ещё один заметный,
+    // значит, часть комнаты пешком недостижима
+    const seen = new Uint8Array(cols * rows)
+    const stack: number[] = []
+    const first = open.indexOf(1)
+    stack.push(first)
+    seen[first] = 1
+    let reached = 0
+    while (stack.length > 0) {
+      const at = stack.pop() as number
+      reached += 1
+      const x = at % cols
+      const y = (at - x) / cols
+      const around = [
+        x > 0 ? at - 1 : -1,
+        x + 1 < cols ? at + 1 : -1,
+        y > 0 ? at - cols : -1,
+        y + 1 < rows ? at + cols : -1,
+      ]
+      for (const next of around) {
+        if (next >= 0 && open[next] === 1 && seen[next] === 0) {
+          seen[next] = 1
+          stack.push(next)
+        }
+      }
+    }
+    return total - reached < ISLAND_CELLS
+  }
+
+  // Проходимость только сужается с ростом ширины, поэтому ищем делением пополам,
+  // а не перебором: у большой комнаты перебор шагами по пять сантиметров занимал секунды
+  let low = 0
+  let high = Math.floor(Math.min(room.widthCm, room.depthCm, ROUTE_CAP_CM) / step)
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2)
+    if (fits(middle)) {
+      low = middle
+    } else {
+      high = middle - 1
+    }
+  }
+  return low * step
 }
 
 const OPPOSITE: Record<LayoutWall, LayoutWall> = {
@@ -316,6 +395,9 @@ export function layoutRoom(
   }
   const order: LayoutWall[] = ['top', 'bottom', 'left', 'right']
 
+  type Homeless = { id: string; title: string; size: Size }
+  const homeless: Homeless[] = []
+
   const wallItems = sized
     .filter((entry) => entry.spot === 'wall' || entry.spot === 'floorFree')
     .sort((a, b) => b.size.widthCm - a.size.widthCm)
@@ -329,8 +411,9 @@ export function layoutRoom(
           depthFits(wall, entry.size, walls, { widthCm, depthCm }),
       )
       .sort((a, b) => b.lengthCm - b.usedCm - (a.lengthCm - a.usedCm))[0]
+    // Не нашлось стены по длине — не приговор: свободный кусок ищет второй заход
     if (!roomy) {
-      problems.push({ kind: 'noWall', title: entry.item.title, widthCm: entry.size.widthCm })
+      homeless.push({ id: entry.item.id, title: entry.item.title, size: entry.size })
       continue
     }
     roomy.items.push({ id: entry.item.id, title: entry.item.title, size: entry.size })
@@ -344,38 +427,59 @@ export function layoutRoom(
   const depths: Record<LayoutWall, number> = { top: 0, bottom: 0, left: 0, right: 0 }
   let freeWallCm = 0
 
+  const cursor: Record<LayoutWall, number> = { top: 0, bottom: 0, left: 0, right: 0 }
+
+  /**
+   * Встанет ли предмет именно сюда. Проверяем сам прямоугольник против уже поставленных,
+   * а не глубину стены целиком: у стены бывает занята половина, и грубая проверка
+   * отказывала предмету, которому места хватало на второй половине.
+   */
+  const put = (wall: LayoutWall, item: Homeless, along: number): boolean => {
+    const size = sizeOnWall(wall, item.size)
+    const at = cornerOf(wall, along, size, { widthCm, depthCm })
+    const insideRoom =
+      at.xCm >= -0.5 &&
+      at.yCm >= -0.5 &&
+      at.xCm + size.widthCm <= widthCm + 0.5 &&
+      at.yCm + size.depthCm <= depthCm + 0.5
+    if (!insideRoom) {
+      return false
+    }
+    const collides = placed.some(
+      (other) =>
+        at.xCm < other.xCm + other.widthCm - 0.5 &&
+        other.xCm < at.xCm + size.widthCm - 0.5 &&
+        at.yCm < other.yCm + other.depthCm - 0.5 &&
+        other.yCm < at.yCm + size.depthCm - 0.5,
+    )
+    if (collides) {
+      return false
+    }
+    placed.push({
+      id: `${item.id}-${placed.length}`,
+      title: item.title,
+      xCm: at.xCm,
+      yCm: at.yCm,
+      widthCm: size.widthCm,
+      depthCm: size.depthCm,
+      wall,
+    })
+    cursor[wall] = Math.max(cursor[wall], along + item.size.widthCm)
+    depths[wall] = Math.max(depths[wall], item.size.depthCm)
+    return true
+  }
+
   const layOut = (wall: LayoutWall) => {
     const span = spanOf(wall, depths, { widthCm, depthCm })
-    let along = span.from
-    let deepest = 0
+    cursor[wall] = span.from
     for (const item of walls[wall].items) {
-      const size = sizeOnWall(wall, item.size)
-      const at = cornerOf(wall, along, size, { widthCm, depthCm })
-      const insideRoom =
-        at.xCm >= -0.5 &&
-        at.yCm >= -0.5 &&
-        at.xCm + size.widthCm <= widthCm + 0.5 &&
-        at.yCm + size.depthCm <= depthCm + 0.5
       // Места вдоль стены не осталось, либо предмет глубже самой комнаты: рисовать его
-      // поверх стены нельзя, а молча выбросить — тем более
-      if (along + item.size.widthCm > span.to + 0.5 || !insideRoom) {
-        problems.push({ kind: 'noWall', title: item.title, widthCm: item.size.widthCm })
-        continue
+      // поверх стены нельзя, а молча выбросить — тем более. Такие предметы уходят
+      // во второй заход, где им ищут место на любой стене
+      if (cursor[wall] + item.size.widthCm > span.to + 0.5 || !put(wall, item, cursor[wall])) {
+        homeless.push(item)
       }
-      placed.push({
-        id: `${item.id}-${placed.length}`,
-        title: item.title,
-        xCm: at.xCm,
-        yCm: at.yCm,
-        widthCm: size.widthCm,
-        depthCm: size.depthCm,
-        wall,
-      })
-      along += item.size.widthCm
-      deepest = Math.max(deepest, item.size.depthCm)
     }
-    depths[wall] = deepest
-    freeWallCm += Math.max(0, span.to - along)
   }
 
   for (const wall of ['top', 'bottom'] as const) {
@@ -383,6 +487,44 @@ export function layoutRoom(
   }
   for (const wall of ['left', 'right'] as const) {
     layOut(wall)
+  }
+
+  /**
+   * Второй заход для тех, кому не хватило назначенной стены.
+   *
+   * Сюда попадает всё, чему не хватило места при назначении или на назначенной стене. Стену
+   * выбирают по её полной длине, а раскладка отдаёт боковым только промежуток между верхней
+   * и нижней мебелью, и «не встаёт» получали предметы, которым место было: на переборе
+   * случайных комнат так врал каждый шестой ответ. Здесь каждая стена просматривается целиком,
+   * и только после этого отказ становится отказом.
+   */
+  const RETRY_STEP_CM = 5
+  homeless.sort((a, b) => b.size.widthCm - a.size.widthCm)
+  for (const item of homeless) {
+    let standing = false
+    for (const candidate of ['top', 'bottom', 'left', 'right'] as const) {
+      // Во втором заходе стена просматривается целиком, от угла до угла: отступ под соседнюю
+      // стену нужен первому проходу для опрятной расстановки, а здесь мы ищем любое место,
+      // и от наложения защищает точная проверка прямоугольника
+      const length = candidate === 'top' || candidate === 'bottom' ? widthCm : depthCm
+      for (let along = 0; along + item.size.widthCm <= length + 0.5; along += RETRY_STEP_CM) {
+        if (put(candidate, item, along)) {
+          standing = true
+          break
+        }
+      }
+      if (standing) {
+        break
+      }
+    }
+    if (!standing) {
+      problems.push({ kind: 'noWall', title: item.title, widthCm: item.size.widthCm })
+    }
+  }
+
+  for (const wall of ['top', 'bottom', 'left', 'right'] as const) {
+    const span = spanOf(wall, depths, { widthCm, depthCm })
+    freeWallCm += Math.max(0, span.to - cursor[wall])
   }
 
   const centerWidthCm = widthCm - depths.left - depths.right
@@ -395,7 +537,6 @@ export function layoutRoom(
   // Предметы посередине встают в ряд слева направо, а не все в одну точку: иначе журнальный
   // столик оказывался внутри обеденного, и оба считались поместившимися
   let centerUsedCm = 0
-  let centerPlaced = 0
   for (const entry of centerItems) {
     // Вокруг обеденного стола нужен отодвинутый стул, вокруг журнального — вытянутая рука.
     // Предмет ставится, только если его собственный запас помещается, поэтому отдельной
@@ -417,14 +558,12 @@ export function layoutRoom(
       wall: 'center',
     })
     centerUsedCm += needWidth
-    centerPlaced += 1
   }
 
-  // Узкое место ищем там, где мебель стоит друг напротив друга. Если посреди комнаты что-то
-  // поставлено, свой запас оно уже получило при постановке, и мерить нечего.
-  const pinch = centerPlaced > 0 ? undefined : pinchGap(placed, { widthCm, depthCm })
-  const walkwayCm = Math.max(0, Math.round(pinch ?? Math.min(centerWidthCm, centerDepthCm)))
-  if (pinch !== undefined && walkwayCm < WALKWAY_CM) {
+  // Проход — это самое узкое место на маршруте, по которому можно обойти всю комнату,
+  // а не просто расстояние между двумя стенками мебели
+  const walkwayCm = widestRoute(placed, { widthCm, depthCm })
+  if (placed.length > 0 && walkwayCm < WALKWAY_CM) {
     problems.push({ kind: 'narrowWalkway', gapCm: walkwayCm })
   }
 
