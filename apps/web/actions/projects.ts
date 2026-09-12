@@ -219,6 +219,10 @@ export async function confirmPlanRooms(
     const project = await assertOwner(userId, projectId)
     const reading: PlanReading = {
       ...(ceilingCm === null ? {} : { ceilingCm }),
+      // Общую площадь человек не правит, но она остаётся частью записи о том, что было прочитано
+      ...(project.planReading?.totalAreaM2 === undefined
+        ? {}
+        : { totalAreaM2: project.planReading.totalAreaM2 }),
       rooms: rooms.map((room) => ({
         name: room.name || roomKindLabels[room.kind],
         kind: room.kind,

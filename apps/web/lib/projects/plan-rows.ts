@@ -14,6 +14,8 @@ export type PlanRow = {
   suspicious: boolean
   /** Сторона или обе, которые пришлось перечитать отдельным вопросом, чтобы площадь сошлась */
   rechecked?: 'width' | 'depth' | 'both'
+  /** Сторона или обе, посчитанные из подписанной площади, а не прочитанные с размерной линии */
+  estimated?: 'width' | 'depth' | 'both'
   /** Комнаты этого типа сервис пока не делает, и создать её нельзя */
   unsupported: boolean
   /** Почему нельзя: такой тип комнаты или такое назначение помещения */
@@ -111,6 +113,9 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
       ...(room.rechecked && room.rechecked.length > 0
         ? { rechecked: room.rechecked.length > 1 ? ('both' as const) : room.rechecked[0] }
         : {}),
+      ...(room.estimated && room.estimated.length > 0
+        ? { estimated: room.estimated.length > 1 ? ('both' as const) : room.estimated[0] }
+        : {}),
       unsupported,
       ...(match ? { roomId: match.id, roomName: match.name } : {}),
       ...(paired.ambiguous ? { ambiguous: true } : {}),
@@ -121,6 +126,43 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
 const number = (raw: string) => {
   const value = Number(raw.replace(',', '.'))
   return Number.isFinite(value) && value > 0 ? value : null
+}
+
+/**
+ * Сумма площадей комнат против общей площади квартиры с плана.
+ *
+ * Единственная проверка, которая ловит потерянную и выдуманную комнату: по одной строке этого
+ * не видно, по сумме видно сразу. На обмерном плане без подписей модель сочиняла лишнее
+ * помещение в шести прогонах из семи, и поймать это было нечем.
+ *
+ * Считается по строкам, а не по чтению: человек правит площади прямо здесь, и сумма должна
+ * ходить за его правками. Пять процентов допуска, потому что площади на планах округлены
+ * до десятой, а общую нередко меряют по внешнему контуру.
+ *
+ * Молчим, когда проверять нечем: нет общей площади либо хоть у одной строки нет своей.
+ * Неполная сумма всегда меньше общей, и пугать ею не за что.
+ */
+export function totalAreaCheck(
+  rows: ReadonlyArray<Pick<PlanRow, 'area'>>,
+  totalM2: number | undefined,
+): { sum: string; total: string; agrees: boolean } | null {
+  if (totalM2 === undefined || !(totalM2 > 0) || rows.length === 0) {
+    return null
+  }
+  let sum = 0
+  for (const row of rows) {
+    const area = number(row.area)
+    if (area === null) {
+      return null
+    }
+    sum += area
+  }
+  const rounded = Math.round(sum * 10) / 10
+  return {
+    sum: rounded.toFixed(1).replace('.', ','),
+    total: totalM2.toFixed(1).replace('.', ','),
+    agrees: Math.abs(rounded - totalM2) / totalM2 <= 0.05,
+  }
 }
 
 export type AreaCheck = {

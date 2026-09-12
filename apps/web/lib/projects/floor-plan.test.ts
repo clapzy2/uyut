@@ -1,5 +1,7 @@
 import {
   applyRecheck,
+  checkTotalArea,
+  estimateSides,
   isUtilityRoom,
   mergeReadings,
   needsRecheck,
@@ -289,5 +291,113 @@ describe('подсобные помещения', () => {
     expect(isUtilityRoom('Кабинет')).toBe(false)
     expect(isUtilityRoom('Зал')).toBe(false)
     expect(isUtilityRoom('Гардеробная')).toBe(true)
+  })
+})
+
+describe('стороны из площади', () => {
+  it('вторую сторону считает из площади и первой', () => {
+    const reading = parseFloorPlan(answer([{ name: 'Кухня', depthMm: 1942, areaM2: 5.4 }]))
+    const room = reading.rooms[0]
+    expect(room?.depthCm).toBe(194)
+    expect(room?.widthCm).toBe(278)
+    expect(room?.estimated).toEqual(['width'])
+  })
+
+  it('обе стороны берёт из площади и формы, когда размерных линий нет', () => {
+    const reading = parseFloorPlan(answer([{ name: 'Спальня', areaM2: 12, aspect: 1.2 }]))
+    const room = reading.rooms[0]
+    expect(room?.widthCm).toBe(379)
+    expect(room?.depthCm).toBe(316)
+    expect(room?.estimated).toEqual(['width', 'depth'])
+  })
+
+  it('без формы и без сторон ничего не выдумывает', () => {
+    const reading = parseFloorPlan(answer([{ name: 'Спальня', areaM2: 12 }]))
+    expect(reading.rooms[0]?.widthCm).toBeUndefined()
+    expect(reading.rooms[0]?.estimated).toBeUndefined()
+  })
+
+  it('прочитанные стороны не трогает', () => {
+    const reading = parseFloorPlan(
+      answer([{ name: 'Гостиная', widthMm: 3830, depthMm: 4250, areaM2: 16.3, aspect: 0.9 }]),
+    )
+    expect(reading.rooms[0]?.widthCm).toBe(383)
+    expect(reading.rooms[0]?.estimated).toBeUndefined()
+  })
+
+  it('нелепую форму отвергает и сторон по ней не считает', () => {
+    const reading = parseFloorPlan(answer([{ name: 'Спальня', areaM2: 12, aspect: 40 }]))
+    expect(reading.rooms[0]?.widthCm).toBeUndefined()
+  })
+})
+
+describe('estimateSides', () => {
+  const living = {
+    name: 'Гостиная',
+    kind: 'living' as const,
+    widthCm: 304,
+    depthCm: 412,
+    areaM2: 14.9,
+    aspect: 0.655,
+  }
+
+  it('пересчитывает стороны из площади, когда цепочке верить нечего', () => {
+    const fixed = estimateSides(living)
+    expect(fixed?.widthCm).toBe(312)
+    expect(fixed?.depthCm).toBe(477)
+    expect(fixed?.estimated).toEqual(['width', 'depth'])
+  })
+
+  it('без своей формы берёт форму из прочитанных сторон', () => {
+    const fixed = estimateSides({ ...living, aspect: undefined })
+    expect(fixed?.widthCm).toBe(332)
+    expect(fixed?.depthCm).toBe(449)
+  })
+
+  it('молчит, когда площадь и так сходится', () => {
+    expect(estimateSides({ ...living, depthCm: 490 })).toBeNull()
+  })
+
+  it('молчит без площади: считать не из чего', () => {
+    expect(estimateSides({ ...living, areaM2: undefined })).toBeNull()
+  })
+})
+
+describe('checkTotalArea', () => {
+  const rooms = [
+    { name: 'Прихожая', kind: 'living' as const, areaM2: 5.8 },
+    { name: 'Санузел', kind: 'bath' as const, areaM2: 2.7 },
+    { name: 'Кухня', kind: 'kitchen' as const, areaM2: 5.4 },
+    { name: 'Гостиная', kind: 'living' as const, areaM2: 14.9 },
+  ]
+
+  it('сходится, когда сумма равна общей площади', () => {
+    const check = checkTotalArea({ totalAreaM2: 28.8, rooms })
+    expect(check).toEqual({ sumM2: 28.8, totalM2: 28.8, agrees: true })
+  })
+
+  it('ловит выдуманную комнату', () => {
+    const check = checkTotalArea({
+      totalAreaM2: 28.8,
+      rooms: [...rooms, { name: 'Туалет', kind: 'bath' as const, areaM2: 2.8 }],
+    })
+    expect(check?.agrees).toBe(false)
+  })
+
+  it('ловит потерянную комнату', () => {
+    expect(checkTotalArea({ totalAreaM2: 28.8, rooms: rooms.slice(1) })?.agrees).toBe(false)
+  })
+
+  it('молчит, когда у комнаты нет площади: неполная сумма всегда меньше', () => {
+    expect(
+      checkTotalArea({
+        totalAreaM2: 28.8,
+        rooms: [...rooms, { name: 'Кладовая', kind: 'living' as const, widthCm: 100 }],
+      }),
+    ).toBeUndefined()
+  })
+
+  it('молчит без общей площади', () => {
+    expect(checkTotalArea({ rooms })).toBeUndefined()
   })
 })
