@@ -82,10 +82,15 @@ export function fixedPreamble(brief: ConceptBrief): string {
       'a calm view outside.',
     ].join(' ')
   }
+  // Технику и радиаторы при смене интерьера не покупают заново, а мы их стирали.
+  // Владелец заметил это первым: в гостиной исчез телевизор, хотя меняли обстановку, а не технику.
   return [
     `Redesign and furnish this room as a ${noun}.`,
     'Keep the exact camera angle, the room proportions and the window and door openings in the same place:',
     'the same window shape, the same number of sashes, the same wall around it.',
+    'Keep the appliances and fixed equipment that are already in the room and stay when furniture changes:',
+    'the television, the radiators, the air conditioner, the built-in kitchen appliances,',
+    'the sockets and switches, in the same places and of the same size.',
   ].join(' ')
 }
 
