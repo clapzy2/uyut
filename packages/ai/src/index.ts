@@ -84,14 +84,22 @@ export {
 } from './fal'
 export { downloadFalFile, FalError, falQueue, toDataUri } from './fal-queue'
 export {
+  applyRecheck,
   createFalPlanReader,
+  createFalSideReader,
   FLOOR_PLAN_PROMPT,
+  mergeReadings,
+  needsRecheck,
   PLAN_READER_MODEL,
   type PlanReader,
   type PlanReading,
   type PlanRoom,
+  type PlanSide,
   parseFloorPlan,
+  parseSideRecheck,
   roomKindFromName,
+  SIDE_RECHECK_PROMPT,
+  type SideReader,
 } from './floor-plan'
 export {
   buildTemplatePlan,

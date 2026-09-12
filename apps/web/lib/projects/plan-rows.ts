@@ -12,6 +12,8 @@ export type PlanRow = {
   /** Чего человек хочет в этой комнате: уходит в заметки комнаты и оттуда в задание модели */
   wish: string
   suspicious: boolean
+  /** Сторона или обе, которые пришлось перечитать отдельным вопросом, чтобы площадь сошлась */
+  rechecked?: 'width' | 'depth' | 'both'
   /** Комнаты этого типа сервис пока не делает, и создать её нельзя */
   unsupported: boolean
   /** Комната проекта, которой достанутся эти числа вместо создания новой */
@@ -60,6 +62,9 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
       area: room.areaM2 ? String(room.areaM2).replace('.', ',') : '',
       wish: '',
       suspicious: room.suspicious === true,
+      ...(room.rechecked && room.rechecked.length > 0
+        ? { rechecked: room.rechecked.length > 1 ? ('both' as const) : room.rechecked[0] }
+        : {}),
       unsupported,
       ...(match ? { roomId: match.id, roomName: match.name } : {}),
     }

@@ -166,15 +166,14 @@ export function PlanReadingCard({
         </p>
         {planIsPdf ? (
           <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
-            Этот план лежит в PDF, а читаем мы с картинки. Пришлите скриншот или фотографию плана.
+            План в PDF: посмотрим первые три страницы, план обычно на первой.
           </p>
-        ) : (
-          <div className="mt-4">
-            <Button type="button" variant="secondary" onClick={read} pending={reading_}>
-              {reading_ ? 'Читаем план…' : 'Прочитать размеры с плана'}
-            </Button>
-          </div>
-        )}
+        ) : null}
+        <div className="mt-4">
+          <Button type="button" variant="secondary" onClick={read} pending={reading_}>
+            {reading_ ? 'Читаем план…' : 'Прочитать размеры с плана'}
+          </Button>
+        </div>
         <FormError message={error} />
       </div>
     )
@@ -291,6 +290,12 @@ export function PlanReadingCard({
               <p className="mt-3 pl-[30px] text-[13px] leading-relaxed text-ink-2">
                 Такие комнаты сервис пока не делает. Размеры сохранились в плане, комната появится,
                 когда мы до неё дойдём.
+              </p>
+            ) : null}
+            {row.rechecked ? (
+              <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
+                {row.rechecked === 'both' ? 'Обе стороны' : 'Одну сторону'} мы перечитали по
+                отрезкам размерной цепочки: с первого раза площадь не сходилась, теперь сходится.
               </p>
             ) : null}
             {areaHint(row) ? (

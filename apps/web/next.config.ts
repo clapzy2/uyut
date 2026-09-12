@@ -20,7 +20,7 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: path.resolve(configDir, '../..'),
   transpilePackages: ['@uyut/db', '@uyut/ui'],
   // Нативные модули не бандлятся, а грузятся из node_modules
-  serverExternalPackages: ['@node-rs/argon2', 'sharp'],
+  serverExternalPackages: ['@napi-rs/canvas', '@node-rs/argon2', 'pdfjs-dist', 'sharp'],
   poweredByHeader: false,
   reactStrictMode: true,
   // next dev иначе подкладывает в проект служебные md-файлы для сторонних инструментов
