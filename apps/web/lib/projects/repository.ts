@@ -12,7 +12,7 @@ import {
   rooms,
   users,
 } from '@uyut/db'
-import { and, asc, count, desc, eq, isNull, max, or, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNull, max, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   assertOwner,
@@ -165,6 +165,28 @@ export async function setPlanReading(
 }
 
 /** Комнаты с плана одной пачкой: подтверждение — это один жест, а не пять. */
+/**
+ * Мерки комнаты после чтения плана: прочитанное поверх промеренного, но только там,
+ * где прочитанное есть. План знает коробку комнаты и высоту потолка, участки стен знает
+ * только рулетка, и одно не должно стирать другое.
+ */
+function mergeMeasurements(
+  before: RoomMeasurements | null,
+  read: RoomMeasurements | null,
+): RoomMeasurements | null {
+  const merged: RoomMeasurements = { ...(before ?? {}) }
+  if (read?.ceilingCm !== undefined) {
+    merged.ceilingCm = read.ceilingCm
+  }
+  if (read?.widthCm !== undefined) {
+    merged.widthCm = read.widthCm
+  }
+  if (read?.depthCm !== undefined) {
+    merged.depthCm = read.depthCm
+  }
+  return Object.keys(merged).length > 0 ? merged : null
+}
+
 export async function createRoomsFromPlan(
   userId: string,
   projectId: string,
@@ -172,6 +194,7 @@ export async function createRoomsFromPlan(
     rooms: Array<{
       /** Комната, которой достанутся числа. Пусто — заводим новую */
       roomId?: string
+      condition: RoomCondition
       kind: RoomKind
       name: string
       areaM2: number | null
@@ -194,6 +217,7 @@ export async function createRoomsFromPlan(
     await db.insert(rooms).values(
       fresh.map((room) => ({
         projectId: project.id,
+        condition: room.condition,
         kind: room.kind,
         name: room.name,
         areaM2: room.areaM2,
@@ -203,18 +227,34 @@ export async function createRoomsFromPlan(
       })),
     )
   }
-  for (const room of existing) {
-    // Заметку не затираем пустой: человек мог написать её раньше и оставить поле плана пустым
-    await db
-      .update(rooms)
-      .set({
-        kind: room.kind,
-        name: room.name,
-        areaM2: room.areaM2,
-        measurements: room.measurements,
-        ...(room.notes ? { notes: room.notes } : {}),
-      })
-      .where(and(eq(rooms.id, room.roomId as string), eq(rooms.projectId, project.id)))
+  if (existing.length > 0) {
+    const ids = existing.map((room) => room.roomId as string)
+    const current = await db
+      .select()
+      .from(rooms)
+      .where(and(eq(rooms.projectId, project.id), inArray(rooms.id, ids)))
+    const byId = new Map(current.map((room) => [room.id, room]))
+    for (const room of existing) {
+      const before = byId.get(room.roomId as string)
+      // Комната из другого проекта сюда не попадёт: выборка ограничена этим проектом
+      if (!before) {
+        continue
+      }
+      await db
+        .update(rooms)
+        .set({
+          kind: room.kind,
+          name: room.name,
+          // Площадь и мерки с плана дополняют, а не отменяют. Участки стен человек мерил
+          // рулеткой, и с плана их не прочитать: затереть их прочитанным — потерять
+          // единственные настоящие числа, какие у нас были.
+          areaM2: room.areaM2 ?? before.areaM2,
+          measurements: mergeMeasurements(before.measurements, room.measurements),
+          // Заметку не затираем пустой: человек мог написать её раньше и оставить поле плана пустым
+          ...(room.notes ? { notes: room.notes } : {}),
+        })
+        .where(and(eq(rooms.id, room.roomId as string), eq(rooms.projectId, project.id)))
+    }
   }
   await db
     .update(projects)

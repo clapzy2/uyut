@@ -11,6 +11,8 @@ import { WALKWAY_CM } from '@uyut/catalog'
 
 const PADDING = 28
 const MAX_WIDTH = 520
+/** Вытянутая комната иначе растягивает страницу на полтора экрана чертежа */
+const MAX_HEIGHT = 620
 
 /**
  * Размер предмета так, как он написан в магазине: сначала длинная сторона.
@@ -36,9 +38,12 @@ function problemText(problem: LayoutProblem): string {
 }
 
 export function RoomPlan({ layout }: { layout: RoomLayout }) {
-  const scale = MAX_WIDTH / layout.widthCm
-  const width = MAX_WIDTH + PADDING * 2
-  const height = layout.depthCm * scale + PADDING * 2
+  // Масштаб по узкой стороне коробки: комната 220 на 600 см иначе рисуется на полтора экрана
+  const scale = Math.min(MAX_WIDTH / layout.widthCm, MAX_HEIGHT / layout.depthCm)
+  const roomWidth = layout.widthCm * scale
+  const roomHeight = layout.depthCm * scale
+  const width = roomWidth + PADDING * 2
+  const height = roomHeight + PADDING * 2
   const problems = layout.problems
 
   return (
@@ -66,8 +71,8 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
           <rect
             x={PADDING}
             y={PADDING}
-            width={MAX_WIDTH}
-            height={layout.depthCm * scale}
+            width={roomWidth}
+            height={roomHeight}
             className="fill-muted stroke-ink"
             strokeWidth={2}
           />

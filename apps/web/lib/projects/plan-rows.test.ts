@@ -51,7 +51,7 @@ describe('planRows', () => {
         { name: 'Гостиная', kind: 'living', widthCm: 383 },
         { name: 'Спальня', kind: 'bedroom', widthCm: 290 },
       ]),
-      [{ id: 'r1', name: 'Гостиная', kind: 'living', hasMeasurements: false }],
+      [{ id: 'r1', name: 'Гостиная', kind: 'living', hasMeasurements: false, notes: null }],
     )
     expect(rows[0]?.roomId).toBe('r1')
     expect(rows[0]?.roomName).toBe('Гостиная')
@@ -60,18 +60,43 @@ describe('planRows', () => {
 
   it('промеренную рулеткой комнату прочитанным не перетираем', () => {
     const rows = planRows(reading([{ name: 'Гостиная', kind: 'living', widthCm: 383 }]), [
-      { id: 'r1', name: 'Гостиная', kind: 'living', hasMeasurements: true },
+      { id: 'r1', name: 'Гостиная', kind: 'living', hasMeasurements: true, notes: null },
     ])
     expect(rows[0]?.roomId).toBeUndefined()
+  })
+
+  it('прихожая не забирает себе гостиную: у них общий тип, но разные названия', () => {
+    const rows = planRows(
+      reading([
+        { name: 'Прихожая', kind: 'living', widthCm: 120, depthCm: 700 },
+        { name: 'Гостиная', kind: 'living', widthCm: 383, depthCm: 425 },
+      ]),
+      [{ id: 'r1', name: 'Гостиная', kind: 'living', hasMeasurements: false, notes: null }],
+    )
+    expect(rows[0]?.roomId).toBeUndefined()
+    expect(rows[1]?.roomId).toBe('r1')
+  })
+
+  it('поле желания открывается с тем, что человек уже писал про эту комнату', () => {
+    const rows = planRows(reading([{ name: 'Гостиная', kind: 'living', widthCm: 383 }]), [
+      {
+        id: 'r1',
+        name: 'Гостиная',
+        kind: 'living',
+        hasMeasurements: false,
+        notes: 'телевизор и батарею оставить',
+      },
+    ])
+    expect(rows[0]?.wish).toBe('телевизор и батарею оставить')
   })
 
   it('две спальни с плана не достаются одной и той же комнате', () => {
     const rows = planRows(
       reading([
         { name: 'Спальня', kind: 'bedroom', widthCm: 290 },
-        { name: 'Спальня 2', kind: 'bedroom', widthCm: 310 },
+        { name: 'Спальня', kind: 'bedroom', widthCm: 310 },
       ]),
-      [{ id: 'r1', name: 'Спальня', kind: 'bedroom', hasMeasurements: false }],
+      [{ id: 'r1', name: 'Спальня', kind: 'bedroom', hasMeasurements: false, notes: null }],
     )
     expect(rows[0]?.roomId).toBe('r1')
     expect(rows[1]?.roomId).toBeUndefined()

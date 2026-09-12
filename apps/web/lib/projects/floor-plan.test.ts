@@ -211,3 +211,61 @@ describe('mergeReadings', () => {
     expect(merged.ceilingCm).toBe(265)
   })
 })
+
+describe('стойкость разбора к мусору модели', () => {
+  it('вложенные объекты и числа строками не ломают чтение', () => {
+    const raw =
+      'Вот результат: {"ceilingMm":"2700","rooms":[{"name":"Кухня","widthMm":"2450","depthMm":2800,"areaM2":"6.9"}]} Конец.'
+    const reading = parseFloorPlan(raw)
+    expect(reading.ceilingCm).toBe(270)
+    expect(reading.rooms[0]).toMatchObject({ widthCm: 245, depthCm: 280, areaM2: 6.9 })
+  })
+
+  it('комнат больше двадцати — берём все, лишнее отсечёт форма', () => {
+    const rooms = Array.from({ length: 25 }, (_, index) => ({
+      name: `Комната ${index + 1}`,
+      widthMm: 3000,
+    }))
+    expect(parseFloorPlan(JSON.stringify({ rooms })).rooms).toHaveLength(25)
+  })
+
+  it('строка вместо объекта комнаты пропускается', () => {
+    const raw = '{"rooms":["Кухня",{"name":"Спальня","widthMm":2900}]}'
+    expect(parseFloorPlan(raw).rooms.map((room) => room.name)).toEqual(['Спальня'])
+  })
+})
+
+describe('одинаковые названия комнат', () => {
+  it('три «Комнаты» в плане БТИ остаются тремя комнатами', () => {
+    const reading = parseFloorPlan(
+      JSON.stringify({
+        ceilingMm: 2700,
+        rooms: [
+          { name: 'Комната', widthMm: 3000, depthMm: 4000 },
+          { name: 'Комната', widthMm: 2800, depthMm: 3600 },
+          { name: 'Комната', widthMm: 2500, depthMm: 3200 },
+        ],
+      }),
+    )
+    expect(reading.rooms.map((room) => room.name)).toEqual(['Комната', 'Комната 2', 'Комната 3'])
+    expect(reading.rooms.map((room) => room.widthCm)).toEqual([300, 280, 250])
+  })
+
+  it('пустая строка вместо комнаты ответ не роняет', () => {
+    const raw = '{"ceilingMm":2700,"rooms":[{"name":"Кухня","widthMm":2450},null]}'
+    expect(parseFloorPlan(raw).rooms).toHaveLength(1)
+  })
+
+  it('повтор со второй страницы отсеивается, повтор внутри страницы — нет', () => {
+    const merged = mergeReadings([
+      {
+        rooms: [
+          { name: 'Комната', kind: 'living', widthCm: 300 },
+          { name: 'Комната 2', kind: 'living', widthCm: 280 },
+        ],
+      },
+      { rooms: [{ name: 'Комната', kind: 'living', widthCm: 999 }] },
+    ])
+    expect(merged.rooms.map((room) => room.widthCm)).toEqual([300, 280])
+  })
+})

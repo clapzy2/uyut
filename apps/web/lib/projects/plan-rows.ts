@@ -28,6 +28,15 @@ export type ExistingRoom = {
   name: string
   kind: RoomKind
   hasMeasurements: boolean
+  /** Что человек уже написал про эту комнату: поле желания открывается с этим текстом */
+  notes: string | null
+}
+
+/** Название для сравнения: регистр, лишние пробелы и порядковый номер значения не имеют */
+function sameName(one: string, other: string): boolean {
+  const plain = (value: string) =>
+    value.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim()
+  return plain(one) === plain(other)
 }
 
 const supported = new Set<RoomKind>(mvpRoomKinds)
@@ -38,8 +47,9 @@ const supported = new Set<RoomKind>(mvpRoomKinds)
  * что мы не увидели половину плана.
  *
  * Комнаты из онбординга план не задваивает, а дополняет: «Гостиная» из анкеты и «Гостиная»
- * с чертежа — одна и та же комната. Пара ищется по типу и только среди комнат без размеров:
- * у промеренной рулеткой комнаты числа свои, и перетирать их прочитанным нельзя.
+ * с чертежа — одна и та же комната. Пара ищется по названию, а не по типу: своего типа
+ * у прихожей, коридора и кабинета пока нет, все они живут как гостиная, и по типу «Прихожая»
+ * с плана забрала бы себе гостиную из анкеты вместе с её названием и размерами.
  */
 export function planRows(reading: PlanReading, existing: readonly ExistingRoom[] = []): PlanRow[] {
   const free = existing.filter((room) => !room.hasMeasurements)
@@ -48,7 +58,12 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
     const unsupported = !supported.has(room.kind)
     const match = unsupported
       ? undefined
-      : free.find((candidate) => candidate.kind === room.kind && !taken.has(candidate.id))
+      : free.find(
+          (candidate) =>
+            candidate.kind === room.kind &&
+            sameName(candidate.name, room.name) &&
+            !taken.has(candidate.id),
+        )
     if (match) {
       taken.add(match.id)
     }
@@ -60,7 +75,7 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
       depth: room.depthCm ? String(room.depthCm) : '',
       // В полях площади человек пишет через запятую, и прочитанное должно выглядеть так же
       area: room.areaM2 ? String(room.areaM2).replace('.', ',') : '',
-      wish: '',
+      wish: match?.notes ?? '',
       suspicious: room.suspicious === true,
       ...(room.rechecked && room.rechecked.length > 0
         ? { rechecked: room.rechecked.length > 1 ? ('both' as const) : room.rechecked[0] }

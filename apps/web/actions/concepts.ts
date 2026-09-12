@@ -56,7 +56,7 @@ export type ConceptRequest = {
   /** Просьба словами человека к этой правке */
   editRequest?: string
   /** Разобранный на шаги план, показанный человеку до запуска */
-  editSteps?: Array<{ titleRu: string; prompt: string }>
+  editSteps?: Array<{ titleRu: string; prompt: string; needsObject?: boolean }>
   /** Предмет с рендера: его вырезка уйдёт в модель вторым кадром */
   objectId?: string
 }
@@ -241,6 +241,12 @@ export async function reviseConcept(
   }
   try {
     const concept = await conceptsRepository.getConceptForEdit(userId, conceptId)
+    // Приложить можно только предмет с этой же картинки: чужой id сюда не проходит
+    const objectId =
+      parsed.data.objectId &&
+      (await conceptsRepository.conceptHasObject(concept.id, parsed.data.objectId))
+        ? parsed.data.objectId
+        : ''
     const plan = await buildEditPlan(getEnv().FAL_KEY, parsed.data.request)
     if (plan.steps.length === 0) {
       return { ok: false, error: plan.warningRu || 'Такую правку сделать не получится.' }
@@ -248,8 +254,12 @@ export async function reviseConcept(
     return await requestConcepts(concept.roomId, {
       baseConceptId: concept.id,
       editRequest: parsed.data.request,
-      editSteps: plan.steps.map((step) => ({ titleRu: step.titleRu, prompt: step.prompt })),
-      ...(parsed.data.objectId ? { objectId: parsed.data.objectId } : {}),
+      editSteps: plan.steps.map((step) => ({
+        titleRu: step.titleRu,
+        prompt: step.prompt,
+        needsObject: step.needsObject,
+      })),
+      ...(objectId ? { objectId } : {}),
     })
   } catch (error) {
     return failure(error)

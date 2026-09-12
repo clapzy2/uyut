@@ -131,6 +131,27 @@ describe('project PDF template', () => {
     expect(html).toContain('проход посередине')
   })
 
+  it('когда ничего не расставилось, причину всё равно печатаем', () => {
+    const data = sample('paid')
+    const room = data.rooms[0]
+    if (room) {
+      room.plan = layoutRoom({ widthCm: 300, depthCm: 260 }, [
+        {
+          id: 's1',
+          title: 'Диван Бергамо',
+          category: 'sofa',
+          dimensions: { width: 320, depth: 95, height: 85 },
+          quantity: 1,
+        },
+      ])
+    }
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('Вид сверху · 300 × 260 см')
+    expect(html).toContain('не встаёт ни к одной стене')
+    // Рисовать нечего, рамку пустой комнаты не печатаем
+    expect(html).not.toContain('<svg viewBox="0 0 400')
+  })
+
   it('splits the summary into a headline and the rest of the text', () => {
     const html = renderProjectHtml(sample('paid'), { fontCss: '' })
     expect(html).toContain('Дом для четверых, если считать кота</h1>')

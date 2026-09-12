@@ -85,7 +85,9 @@ const CSS = `
   .objects .idx { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 7.5pt; color: #7c2f3b; }
   .objects .sub { display: block; font-size: 8pt; color: #6d6656; }
   .plan { margin-top: 2mm; }
-  .plan svg { display: block; width: 100%; height: auto; }
+  /* Высота ограничена страницей: у комнаты 220 на 600 см чертёж в натуральных пропорциях
+     выезжал за поле и обрезался вместе со строкой «проход 65 см», которую и надо было прочесть */
+  .plan svg { display: block; width: 100%; height: auto; max-height: 52mm; }
   .plan .verdict { font-size: 8pt; line-height: 1.45; color: #6d6656; margin-top: 1.5mm; }
   .plan .bad { color: #7c2f3b; }
   .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; }
@@ -241,12 +243,16 @@ function splitSummary(data: PdfData): [string, string | null] {
  * Рисуется сразу в SVG, без картинки: Chromium печатает вектор резко на любой бумаге.
  */
 function roomPlan(plan: RoomLayout | null): string {
-  if (!plan || plan.placed.length === 0) {
+  if (!plan || plan.problems.some((problem) => problem.kind === 'noRoomSize')) {
+    return ''
+  }
+  const trouble = plan.problems.filter((problem) => problem.kind !== 'noRoomSize')
+  if (plan.placed.length === 0 && trouble.length === 0) {
     return ''
   }
   const width = 400
   const scale = width / plan.widthCm
-  const height = Math.round(plan.depthCm * scale)
+  const height = Math.max(1, Math.round(plan.depthCm * scale))
   // В прямоугольнике только номер: название не помещается в шкаф глубиной 60 см
   // и на печати наезжает на соседей. Что под каким номером, говорит список ниже.
   const boxes = plan.placed
@@ -262,18 +268,22 @@ function roomPlan(plan: RoomLayout | null): string {
         `<p class="verdict">${index + 1} · ${esc(place.title)} · ${Math.round(Math.max(place.widthCm, place.depthCm))} × ${Math.round(Math.min(place.widthCm, place.depthCm))} см</p>`,
     )
     .join('')
-  const trouble = plan.problems.filter((problem) => problem.kind !== 'noRoomSize')
   const verdict =
     trouble.length > 0
       ? `<p class="verdict bad">${esc(planProblems(trouble))}</p>`
       : `<p class="verdict">Выбранное помещается, проход посередине ${plan.walkwayCm} см. Где дверь и окно, план не знает: свободной стены ${plan.freeWallCm} см.</p>`
+  // Чертёж без картинки, если расставить не удалось ничего: сама причина важнее рамки
+  const drawing =
+    plan.placed.length > 0
+      ? `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+          <rect x="0" y="0" width="${width}" height="${height}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>
+          ${boxes}
+        </svg>`
+      : ''
   return `
       <div class="plan">
         <p class="eyebrow">Вид сверху · ${Math.round(plan.widthCm)} × ${Math.round(plan.depthCm)} см</p>
-        <svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
-          <rect x="0" y="0" width="${width}" height="${height}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>
-          ${boxes}
-        </svg>
+        ${drawing}
         ${legend}
         ${verdict}
       </div>`

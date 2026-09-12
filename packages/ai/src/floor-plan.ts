@@ -162,14 +162,24 @@ export function parseFloorPlan(raw: string): PlanReading {
     return { rooms: [] }
   }
   const rooms: PlanRoom[] = []
+  // В плане БТИ трёшки все три комнаты подписаны «Комната». Одинаковые названия разводим
+  // номерами прямо здесь: дальше по ним ищется пара с уже заведённой комнатой и собирается
+  // ответ, и два одинаковых ключа схлопнули бы квартиру до одной комнаты.
+  const used = new Map<string, number>()
   for (const entry of Array.isArray(parsed.rooms) ? parsed.rooms : []) {
-    const source = entry as Record<string, unknown>
-    const name = String(source.name ?? '')
-      .replace(/\s+/g, ' ')
-      .trim()
-    if (name === '' || name.length > 40) {
+    if (!entry || typeof entry !== 'object') {
       continue
     }
+    const source = entry as Record<string, unknown>
+    const read = String(source.name ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (read === '' || read.length > 40) {
+      continue
+    }
+    const seen = (used.get(read.toLowerCase()) ?? 0) + 1
+    used.set(read.toLowerCase(), seen)
+    const name = seen === 1 ? read : `${read} ${seen}`
     const room = {
       name,
       kind: roomKindFromName(name),
@@ -277,20 +287,31 @@ export function applyRecheck(
   return fixed
 }
 
-/** Комнаты со всех страниц файла: одноимённую с первой страницы вторая не перебивает. */
+/**
+ * Комнаты со всех страниц файла: одноимённую с первой страницы вторая не перебивает.
+ *
+ * Повторы внутри одной страницы — не повторы: у трёшки в плане БТИ все комнаты подписаны
+ * «Комната», и разводит их номерами разбор ответа. Здесь отсеиваются только те, что уже
+ * встретились на предыдущих страницах: у многостраничных планов первый лист часто повторяет
+ * часть второго.
+ */
 export function mergeReadings(readings: readonly PlanReading[]): PlanReading {
   const rooms: PlanRoom[] = []
   const seen = new Set<string>()
   let ceilingCm: number | undefined
   for (const reading of readings) {
     ceilingCm ??= reading.ceilingCm
+    const onThisPage: string[] = []
     for (const room of reading.rooms) {
       const key = room.name.trim().toLowerCase()
       if (key === '' || seen.has(key)) {
         continue
       }
-      seen.add(key)
+      onThisPage.push(key)
       rooms.push(room)
+    }
+    for (const key of onThisPage) {
+      seen.add(key)
     }
   }
   return ceilingCm === undefined ? { rooms } : { ceilingCm, rooms }

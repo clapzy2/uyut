@@ -98,6 +98,7 @@ export default async function Step1({ searchParams }: StepParams) {
               name: room.name,
               kind: room.kind,
               hasMeasurements: Boolean(room.measurements?.widthCm && room.measurements.depthCm),
+              notes: room.notes,
             }))}
           />
         ) : null}

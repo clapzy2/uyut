@@ -210,7 +210,7 @@ export async function confirmPlanRooms(
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? 'Проверьте размеры' }
   }
-  const { ceilingCm, rooms } = parsed.data
+  const { ceilingCm, condition, rooms } = parsed.data
   const chosen = rooms.filter((room) => room.include)
   if (chosen.length === 0) {
     return { ok: false, error: 'Отметьте хотя бы одну комнату.' }
@@ -239,6 +239,7 @@ export async function confirmPlanRooms(
         }
         return {
           ...(room.roomId ? { roomId: room.roomId } : {}),
+          condition,
           kind: room.kind,
           name: room.name || roomKindLabels[room.kind],
           areaM2: room.areaM2,
