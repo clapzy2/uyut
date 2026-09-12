@@ -2,7 +2,12 @@
 
 export { categoryFromText, isCatalogCategory } from './categories'
 export { parseCsv, parseCsvDump, parseRubles } from './csv'
-export { type DimensionsCm, hasAnyDimension, parseDimensionsCm } from './dimensions'
+export {
+  type DimensionsCm,
+  hasAnyDimension,
+  type ParseOptions,
+  parseDimensionsCm,
+} from './dimensions'
 export {
   type Estimate,
   type EstimateItem,

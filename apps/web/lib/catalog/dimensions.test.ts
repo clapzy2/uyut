@@ -76,3 +76,36 @@ describe('размеры, которые описывают не сам пред
     })
   })
 })
+
+describe('спальное место', () => {
+  it('у кровати это и есть её габарит', () => {
+    const bed = parseDimensionsCm(
+      'Кровать двуспальная «Ницца», без основания, спальное место 1600×2000 мм, цвет бодега',
+      { sleepingIsFootprint: true },
+    )
+    expect(bed).toMatchObject({ width: 160, depth: 200 })
+  })
+
+  it('у дивана — нет: там оно меряется в разложенном виде', () => {
+    const sofa = parseDimensionsCm('Диван-кровать "Лора", ТД 332 С/М, спальное место 1370х1910 мм')
+    expect(sofa.width).toBeUndefined()
+    expect(sofa.depth).toBeUndefined()
+  })
+
+  it('без пометки ведём себя как раньше', () => {
+    expect(parseDimensionsCm('Кровать, спальное место 1600×2000 мм').width).toBeUndefined()
+  })
+
+  it('упаковку не считаем габаритом даже у кровати', () => {
+    expect(
+      parseDimensionsCm('Кровать Тайм, в упаковке 2100×900×200 мм', { sleepingIsFootprint: true })
+        .width,
+    ).toBeUndefined()
+  })
+
+  it('матрас меряется сам собой', () => {
+    expect(
+      parseDimensionsCm('Матрас Reno, 90х200 см', { sleepingIsFootprint: true }),
+    ).toMatchObject({ width: 90, depth: 200 })
+  })
+})

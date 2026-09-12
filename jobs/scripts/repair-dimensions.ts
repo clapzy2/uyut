@@ -15,6 +15,7 @@ const database = db()
 const rows = await database
   .select({
     id: catalogItems.id,
+    category: catalogItems.category,
     title: catalogItems.title,
     description: catalogItems.description,
     attributes: catalogItems.attributes,
@@ -28,7 +29,9 @@ const samples: string[] = []
 
 for (const row of rows) {
   const before = row.attributes?.dimensionsCm
-  const after = parseDimensionsCm(`${row.title} ${row.description ?? ''}`)
+  const after = parseDimensionsCm(`${row.title} ${row.description ?? ''}`, {
+    sleepingIsFootprint: row.category === 'bed',
+  })
   const next = hasAnyDimension(after) ? after : undefined
   if (JSON.stringify(before ?? null) === JSON.stringify(next ?? null)) {
     continue

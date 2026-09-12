@@ -25,11 +25,25 @@ const PAIR = /(?<![\d.,])(\d{2,4})\s*[х×x*]\s*(\d{2,4})\s*(мм|см|mm|cm)/gi
 const NOT_THE_OBJECT =
   /(спальное место|спальная поверхность|матрас|упаковк|в упаковке|короб|ниша|ниши|внутренн)[^.;]{0,30}$/i
 
+/**
+ * То же самое для кровати. У неё спальное место и есть габарит: рама шире сантиметров
+ * на пять, и это ближе к правде, чем пустое поле. У дивана наоборот — там спальное место
+ * меряется в разложенном виде и к месту у стены отношения не имеет.
+ *
+ * Замер на боевом каталоге: из 301 кровати размеры были у 127. Остальные подписаны
+ * «спальное место 1600×2000 мм», и мы их выбрасывали.
+ */
+const NOT_THE_BED = /(упаковк|в упаковке|короб|ниша|ниши|внутренн)[^.;]{0,30}$/i
+
 /** Первое совпадение, перед которым не стоит оговорки вроде «спальное место». */
-function firstAboutTheObject(text: string, pattern: RegExp): RegExpExecArray | null {
+function firstAboutTheObject(
+  text: string,
+  pattern: RegExp,
+  skip: RegExp = NOT_THE_OBJECT,
+): RegExpExecArray | null {
   pattern.lastIndex = 0
   for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
-    if (!NOT_THE_OBJECT.test(text.slice(0, match.index))) {
+    if (!skip.test(text.slice(0, match.index))) {
       return match
     }
   }
@@ -63,15 +77,21 @@ function sane(value: number, divisor: number): number | undefined {
  * седьмую часть всех распознанных размеров, и это хуже, чем отсутствие размера: на пустое поле
  * можно не полагаться, а неверному числу веришь.
  */
-export function parseDimensionsCm(text: string): DimensionsCm {
-  const triple = firstAboutTheObject(text, TRIPLE)
+export type ParseOptions = {
+  /** Спальное место считать габаритом: верно для кровати и матраса, неверно для дивана */
+  sleepingIsFootprint?: boolean
+}
+
+export function parseDimensionsCm(text: string, options: ParseOptions = {}): DimensionsCm {
+  const skip = options.sleepingIsFootprint ? NOT_THE_BED : NOT_THE_OBJECT
+  const triple = firstAboutTheObject(text, TRIPLE, skip)
   if (triple) {
     const values = [Number(triple[1]), Number(triple[2]), Number(triple[3])]
     const divisor = unitDivisor(triple[4], values)
     const [width, depth, height] = values.map((value) => sane(value, divisor))
     return { width, depth, height }
   }
-  const pair = firstAboutTheObject(text, PAIR)
+  const pair = firstAboutTheObject(text, PAIR, skip)
   if (pair) {
     const values = [Number(pair[1]), Number(pair[2])]
     const divisor = unitDivisor(pair[3], values)

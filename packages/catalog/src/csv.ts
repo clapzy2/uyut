@@ -137,7 +137,9 @@ export function parseCsvDump(text: string, source: CatalogSource = 'dump'): Feed
     }
     const measured = hasAnyDimension(fromColumns)
       ? fromColumns
-      : parseDimensionsCm(`${title} ${row.description ?? ''}`)
+      : parseDimensionsCm(`${title} ${row.description ?? ''}`, {
+          sleepingIsFootprint: category === 'bed',
+        })
     const { width, depth, height } = measured
     items.push({
       source,
