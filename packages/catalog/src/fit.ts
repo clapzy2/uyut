@@ -62,12 +62,27 @@ export function heightCm(dimensions: DimensionsCm | undefined): number | undefin
   return undefined
 }
 
-export function checkFit(
-  dimensions: DimensionsCm | undefined,
-  spots: readonly RoomSpot[] | undefined,
-  ceilingCm?: number,
-): FitVerdict {
+/**
+ * Всё, что известно о комнате в сантиметрах.
+ *
+ * Участки меряют рулеткой, коробку читают с плана. Это разные по силе числа: участок говорит
+ * и «встанет», и «не встанет», а коробка — только «не встанет», потому что вдоль стены
+ * обычно есть дверь, батарея или угол, и всей её длины под шкаф нет.
+ */
+export type RoomLimits = {
+  spots?: readonly RoomSpot[]
+  ceilingCm?: number
+  /** Стороны комнаты с плана */
+  widthCm?: number
+  depthCm?: number
+}
+
+/** Самая длинная стена комнаты: предмет шире неё не встанет ни при какой расстановке. */
+const LONGEST_WALL = 'самая длинная стена'
+
+export function checkFit(dimensions: DimensionsCm | undefined, limits: RoomLimits): FitVerdict {
   const itemCm = footprintCm(dimensions)
+  const { ceilingCm } = limits
   // Под потолок проверяем раньше ширины: если шкаф не встаёт по высоте,
   // его ширина уже не имеет значения.
   const tall = heightCm(dimensions)
@@ -79,8 +94,24 @@ export function checkFit(
       overCm: Math.max(1, Math.round(tall + CEILING_CLEARANCE_CM - ceilingCm)),
     }
   }
-  const measured = (spots ?? []).filter((spot) => spot.widthCm > 0)
-  if (itemCm === undefined || measured.length === 0) {
+  const measured = (limits.spots ?? []).filter((spot) => spot.widthCm > 0)
+  if (itemCm === undefined) {
+    return { state: 'unknown', itemCm }
+  }
+  if (measured.length === 0) {
+    // Только коробка комнаты: утверждать «встанет» не из чего, а «не встанет» — точно.
+    const sides = [limits.widthCm, limits.depthCm].filter(
+      (side): side is number => typeof side === 'number' && side > 0,
+    )
+    const longest = sides.length > 0 ? Math.max(...sides) : undefined
+    if (longest !== undefined && itemCm > longest) {
+      return {
+        state: 'tooWide',
+        spot: { name: LONGEST_WALL, widthCm: longest },
+        itemCm,
+        overCm: Math.round(itemCm - longest),
+      }
+    }
     return { state: 'unknown', itemCm }
   }
   const widest = measured.reduce((best, spot) => (spot.widthCm > best.widthCm ? spot : best))

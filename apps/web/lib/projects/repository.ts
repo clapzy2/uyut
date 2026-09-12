@@ -1,5 +1,6 @@
 import {
   concepts,
+  type PlanReading,
   type Project,
   type ProjectRole,
   projectCollaborators,
@@ -141,8 +142,70 @@ export async function setProjectPlan(
   key: string,
 ): Promise<{ previousKey: string | null }> {
   const project = await assertOwner(userId, projectId)
-  await getDb().update(projects).set({ planUrl: key }).where(eq(projects.id, project.id))
+  // Новый план — новые размеры: прочитанное со старого стирается, иначе человек подтвердит
+  // чужие числа, глядя на свежую картинку.
+  await getDb()
+    .update(projects)
+    .set({ planUrl: key, planReading: null })
+    .where(eq(projects.id, project.id))
   return { previousKey: project.planUrl }
+}
+
+/**
+ * Что прочитали с плана. Пишем и до правки, и после: по паре «прочитано» и «подтверждено»
+ * потом видно, где чтение врёт, а другого способа это узнать у нас нет.
+ */
+export async function setPlanReading(
+  userId: string,
+  projectId: string,
+  reading: PlanReading | null,
+): Promise<void> {
+  const project = await assertOwner(userId, projectId)
+  await getDb().update(projects).set({ planReading: reading }).where(eq(projects.id, project.id))
+}
+
+/** Комнаты с плана одной пачкой: подтверждение — это один жест, а не пять. */
+export async function createRoomsFromPlan(
+  userId: string,
+  projectId: string,
+  input: {
+    rooms: Array<{
+      kind: RoomKind
+      name: string
+      areaM2: number | null
+      measurements: RoomMeasurements | null
+    }>
+    reading: PlanReading
+  },
+): Promise<Room[]> {
+  const project = await assertOwner(userId, projectId)
+  const db = getDb()
+  const [last] = await db
+    .select({ maxIndex: max(rooms.orderIndex) })
+    .from(rooms)
+    .where(eq(rooms.projectId, project.id))
+  let order = (last?.maxIndex ?? -1) + 1
+  const created =
+    input.rooms.length === 0
+      ? []
+      : await db
+          .insert(rooms)
+          .values(
+            input.rooms.map((room) => ({
+              projectId: project.id,
+              kind: room.kind,
+              name: room.name,
+              areaM2: room.areaM2,
+              measurements: room.measurements,
+              orderIndex: order++,
+            })),
+          )
+          .returning()
+  await db
+    .update(projects)
+    .set({ planReading: input.reading, updatedAt: new Date() })
+    .where(eq(projects.id, project.id))
+  return created
 }
 
 export async function listRooms(userId: string, projectId: string): Promise<Room[]> {

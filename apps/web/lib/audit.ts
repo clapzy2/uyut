@@ -14,6 +14,8 @@ export type AuditAction =
   | 'profile.avatar_changed'
   | 'project.created'
   | 'project.deleted'
+  | 'project.plan_read'
+  | 'project.plan_rooms'
   | 'onboarding.completed'
   | 'concepts.requested'
   | 'concept.recolored'

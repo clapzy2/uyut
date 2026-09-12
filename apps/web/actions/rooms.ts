@@ -118,15 +118,17 @@ export async function updateRoomMeasurements(
   const spots = parsed.data.spots
     .filter((spot) => spot.name !== '' && spot.widthCm !== null)
     .map((spot) => ({ name: spot.name, widthCm: spot.widthCm as number }))
-  const measurements =
-    parsed.data.ceilingCm === null && spots.length === 0
-      ? null
-      : {
-          ...(parsed.data.ceilingCm === null ? {} : { ceilingCm: parsed.data.ceilingCm }),
-          ...(spots.length > 0 ? { spots } : {}),
-        }
+  const { ceilingCm, widthCm, depthCm } = parsed.data
+  const measurements = {
+    ...(ceilingCm === null ? {} : { ceilingCm }),
+    ...(widthCm === null ? {} : { widthCm }),
+    ...(depthCm === null ? {} : { depthCm }),
+    ...(spots.length > 0 ? { spots } : {}),
+  }
   try {
-    const room = await repository.updateRoom(userId, roomId, { measurements })
+    const room = await repository.updateRoom(userId, roomId, {
+      measurements: Object.keys(measurements).length > 0 ? measurements : null,
+    })
     revalidateRoom(room.projectId, room.id)
     return { ok: true, data: undefined }
   } catch (error) {

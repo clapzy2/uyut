@@ -86,6 +86,8 @@ const spotWidthSchema = z
 
 export const roomMeasurementsSchema = z.object({
   ceilingCm: spotWidthSchema,
+  widthCm: spotWidthSchema,
+  depthCm: spotWidthSchema,
   spots: z
     .array(z.object({ name: z.string().trim().max(40), widthCm: spotWidthSchema }))
     .max(8)
@@ -93,6 +95,29 @@ export const roomMeasurementsSchema = z.object({
 })
 
 export type RoomMeasurementsInput = z.input<typeof roomMeasurementsSchema>
+
+/**
+ * Правка прочитанного плана. Название пустым разрешено: строку, которую человек снял галочкой,
+ * незачем заставлять его дозаполнять, а у оставленной подставится название по типу комнаты.
+ */
+export const planRoomsSchema = z.object({
+  ceilingCm: spotWidthSchema,
+  rooms: z
+    .array(
+      z.object({
+        include: z.boolean(),
+        name: z.string().trim().max(40, { error: 'Слишком длинно: хватит 40 знаков' }),
+        kind: roomKindSchema,
+        widthCm: spotWidthSchema,
+        depthCm: spotWidthSchema,
+        areaM2: areaSchema,
+      }),
+    )
+    .min(1, { error: 'Нечего сохранять' })
+    .max(20, { error: 'Больше двадцати комнат за раз не берём' }),
+})
+
+export type PlanRoomsInput = z.input<typeof planRoomsSchema>
 
 export const roomNotesSchema = z.object({
   notes: z.string().trim().max(2000, { error: 'Слишком длинно: хватит 2000 знаков' }),

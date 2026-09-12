@@ -84,6 +84,16 @@ export {
 } from './fal'
 export { downloadFalFile, FalError, falQueue, toDataUri } from './fal-queue'
 export {
+  createFalPlanReader,
+  FLOOR_PLAN_PROMPT,
+  PLAN_READER_MODEL,
+  type PlanReader,
+  type PlanReading,
+  type PlanRoom,
+  parseFloorPlan,
+  roomKindFromName,
+} from './floor-plan'
+export {
   buildTemplatePlan,
   createClaudePromptBuilder,
   createFalLlmPromptBuilder,

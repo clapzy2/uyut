@@ -45,6 +45,33 @@ export type ProjectContact = {
   phone?: string
 }
 
+/**
+ * Комната, прочитанная с плана квартиры. Живёт у проекта, а не у комнаты, потому что появляется
+ * раньше комнат: сначала мы показываем прочитанное на правку, и только подтверждённое становится
+ * комнатами проекта.
+ */
+export type PlanRoomReading = {
+  name: string
+  kind: RoomKind
+  widthCm?: number
+  depthCm?: number
+  areaM2?: number
+  /** Подписанная площадь не сошлась с размерами: строку показываем человеку отдельно */
+  suspicious?: boolean
+}
+
+/**
+ * Разбор загруженного плана. Хранится целиком, в том числе после подтверждения: по паре
+ * «что прочитали» и «что поправил человек» видно, где чтение врёт, а спросить об этом больше некого.
+ */
+export type PlanReading = {
+  ceilingCm?: number
+  rooms: PlanRoomReading[]
+  /** Когда прочитали, ISO-строкой: в jsonb дата всё равно станет строкой */
+  readAt: string
+  confirmedAt?: string
+}
+
 // Одна квартира = один проект. Бюджет, состав семьи и вкус заполняет онбординг.
 export const projects = pgTable(
   'projects',
@@ -66,6 +93,7 @@ export const projects = pgTable(
     contact: jsonb('contact').$type<ProjectContact>(),
     // Ключи объектов в приватном bucket, наружу отдаются подписанной ссылкой
     planUrl: text('plan_url'),
+    planReading: jsonb('plan_reading').$type<PlanReading>(),
     referenceUrl: text('reference_url'),
     onboardedAt: timestamp('onboarded_at', { withTimezone: true }),
     isPaid: boolean('is_paid').notNull().default(false),
@@ -82,8 +110,17 @@ export const projects = pgTable(
 /** Участок стены, куда что-то ставят: «простенок под окном», 140 см. */
 export type RoomSpot = { name: string; widthCm: number }
 
-/** Мерки комнаты со слов человека, в сантиметрах. */
-export type RoomMeasurements = { ceilingCm?: number; spots?: RoomSpot[] }
+/**
+ * Мерки комнаты в сантиметрах. Источника два: рулетка человека и план квартиры.
+ * widthCm и depthCm — коробка комнаты, из неё растёт вид сверху и проверка проходов;
+ * spots — отдельные простенки, их с плана не прочитать, их меряют руками.
+ */
+export type RoomMeasurements = {
+  ceilingCm?: number
+  widthCm?: number
+  depthCm?: number
+  spots?: RoomSpot[]
+}
 
 export const rooms = pgTable(
   'rooms',
