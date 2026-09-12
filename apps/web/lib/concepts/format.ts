@@ -3,6 +3,39 @@ import type { CatalogCategory } from '@uyut/db'
 
 // Подписи категорий для интерфейса. Живут здесь, а не в пакете каталога, потому что
 // клиентским компонентам нельзя тянуть серверный пакет с базой.
+/**
+ * Как называть найденный предмет человеку.
+ *
+ * По категории три разных предмета на одном рендере назывались одинаково: «Хранение», «Хранение»,
+ * «Хранение». Детектор при этом знает, что нашёл именно шкаф, стеллаж или тумбу.
+ */
+const objectLabels: Record<string, string> = {
+  'a sofa': 'Диван',
+  'an armchair': 'Кресло',
+  'a chair': 'Стул',
+  'a bar stool': 'Барный стул',
+  'a dining table': 'Обеденный стол',
+  'a coffee table': 'Журнальный стол',
+  'a bedside table': 'Прикроватная тумба',
+  'a wardrobe': 'Шкаф',
+  'a chest of drawers': 'Комод',
+  'a shelving unit': 'Стеллаж',
+  'a cabinet': 'Тумба',
+  'a bed': 'Кровать',
+  'a rug': 'Ковёр',
+  'a pendant lamp': 'Подвесной светильник',
+  'a floor lamp': 'Торшер',
+  'a table lamp': 'Настольная лампа',
+  'a framed picture': 'Картина',
+  'a mirror': 'Зеркало',
+  'a plant': 'Растение',
+}
+
+/** Название предмета, а если подпись незнакомая — хотя бы категория. */
+export function objectLabel(label: string, category: CatalogCategory): string {
+  return objectLabels[label.trim().toLowerCase()] ?? categoryLabels[category]
+}
+
 export const categoryLabels: Record<CatalogCategory, string> = {
   sofa: 'Диван',
   chair: 'Кресло',
