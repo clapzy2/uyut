@@ -1,8 +1,10 @@
+import { layoutRoom } from '@uyut/catalog'
 import { buttonClassName } from '@uyut/ui'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { PhotoFrame } from '@/components/landing/photo-frame'
+import { RoomPlanDrawing } from '@/components/room-plan'
 import { formatPrice } from '@/lib/concepts/format'
 import { getEnv } from '@/lib/env'
 import { photo } from '@/lib/landing/photos'
@@ -11,16 +13,52 @@ import { getSession } from '@/lib/session'
 export const metadata: Metadata = {
   title: 'Домица — проект квартиры за вечер',
   description:
-    'Загрузите фотографию комнаты и получите варианты обстановки, список мебели из российских магазинов, смету и задание для мастеров.',
+    'Загрузите план квартиры или фотографию комнаты и получите варианты обстановки с настоящими размерами, мебель из российских магазинов, смету и задание для мастеров.',
 }
 
 const label = 'font-mono text-[11px] uppercase tracking-[0.12em] text-ink-2'
 const heading = 'font-serif font-normal leading-[1.06] tracking-tight text-ink'
 
+/**
+ * Пример на главной считается тем же кодом, что и настоящие комнаты: рисовать в фотошопе то,
+ * чего сервис не делает, нельзя, а так картинка всегда честная и чинится вместе с движком.
+ */
+const samplePlan = layoutRoom({ widthCm: 383, depthCm: 425 }, [
+  {
+    id: 'sofa',
+    title: 'Диван трёхместный',
+    category: 'sofa',
+    dimensions: { width: 220, depth: 95, height: 85 },
+    quantity: 1,
+  },
+  {
+    id: 'wardrobe',
+    title: 'Шкаф-купе',
+    category: 'storage',
+    dimensions: { width: 200, depth: 60, height: 240 },
+    quantity: 1,
+  },
+  {
+    id: 'dresser',
+    title: 'Комод под телевизор',
+    category: 'storage',
+    dimensions: { width: 150, depth: 45, height: 60 },
+    quantity: 1,
+  },
+  {
+    id: 'coffee',
+    title: 'Столик журнальный',
+    category: 'table',
+    subcategory: 'coffee',
+    dimensions: { width: 110, depth: 60, height: 45 },
+    quantity: 1,
+  },
+])
+
 const steps = [
   {
     title: 'Показываете квартиру',
-    text: 'План, фотография комнаты или просто серия дома. Пять коротких вопросов о том, сколько вас, как вы живёте и на что рассчитываете.',
+    text: 'Загружаете план — сервис читает с него комнаты, их стороны и высоту потолка, а вы поправляете, если что-то не сошлось. Можно и просто фотографией комнаты или серией дома.',
   },
   {
     title: 'Смотрите варианты',
@@ -133,6 +171,33 @@ export default async function HomePage() {
             картинки можно открыть по ссылке и купить. Смета считается по площади комнат и служит
             ориентиром для разговора с бригадой.
           </p>
+        </div>
+      </section>
+
+      <section className="border-t border-line">
+        <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[5fr_6fr] lg:items-center lg:gap-16">
+          <div>
+            <p className={label}>Квартира целиком</p>
+            <h2 className={`${heading} mt-3 text-[30px] sm:text-4xl`}>С настоящими сантиметрами</h2>
+            <p className="mt-5 max-w-xl text-[16px] leading-relaxed text-ink-2">
+              Картинка, которую рисует модель, сантиметров не знает: на ней в комнату влезает что
+              угодно. Поэтому размеры мы берём с вашего плана и считаем отдельно — сумму ширин
+              против длины стен, остаток посередине против ширины прохода. Ответ «этот диван не
+              встанет» приходит до покупки, а не после доставки.
+            </p>
+            <p className="mt-4 max-w-xl text-[16px] leading-relaxed text-ink-2">
+              Дальше квартира обставляется целиком, в одном стиле, одной кнопкой: комнаты считаются
+              разом, список покупок и смета — общие.
+            </p>
+          </div>
+          <figure className="m-0">
+            <div className="border border-line bg-paper p-5">
+              <RoomPlanDrawing layout={samplePlan} />
+            </div>
+            <figcaption className={`${label} mt-3`}>
+              Так сервис раскладывает гостиную 383 × 425 см
+            </figcaption>
+          </figure>
         </div>
       </section>
 
