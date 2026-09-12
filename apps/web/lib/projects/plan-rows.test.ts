@@ -132,3 +132,41 @@ describe('areaCheck', () => {
     expect(areaCheck(row('не число', '425', '16,3'))).toBeNull()
   })
 })
+
+describe('комнаты с номерами', () => {
+  const bedroom = (id: string, name: string) => ({
+    id,
+    name,
+    kind: 'bedroom' as const,
+    notes: null,
+  })
+
+  it('«Спальня 2» с плана достаётся «Спальне 2», а не первой попавшейся', () => {
+    const rows = planRows(
+      reading([
+        { name: 'Спальня 2', kind: 'bedroom', widthCm: 350, depthCm: 460 },
+        { name: 'Спальня 1', kind: 'bedroom', widthCm: 290, depthCm: 380 },
+      ]),
+      [bedroom('r1', 'Спальня 1'), bedroom('r2', 'Спальня 2')],
+    )
+    expect(rows[0]?.roomId).toBe('r2')
+    expect(rows[1]?.roomId).toBe('r1')
+  })
+
+  it('одна «Спальня» с плана и две в проекте: не угадываем, а говорим об этом', () => {
+    const rows = planRows(reading([{ name: 'Спальня', kind: 'bedroom', widthCm: 290 }]), [
+      bedroom('r1', 'Спальня 1'),
+      bedroom('r2', 'Спальня 2'),
+    ])
+    expect(rows[0]?.roomId).toBeUndefined()
+    expect(rows[0]?.ambiguous).toBe(true)
+  })
+
+  it('одна «Спальня 1» в проекте — совпадение однозначно', () => {
+    const rows = planRows(reading([{ name: 'Спальня', kind: 'bedroom', widthCm: 290 }]), [
+      bedroom('r1', 'Спальня 1'),
+    ])
+    expect(rows[0]?.roomId).toBe('r1')
+    expect(rows[0]?.ambiguous).toBeUndefined()
+  })
+})

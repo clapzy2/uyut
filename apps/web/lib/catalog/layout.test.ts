@@ -64,9 +64,9 @@ describe('layoutRoom', () => {
   })
 
   it('узкий проход между стенами называем числом', () => {
-    // Комната 180 см в ширину, у обеих длинных стен по шестидесятисантиметровому шкафу:
-    // посередине остаются шестьдесят, а это уже боком
-    const layout = layoutRoom({ widthCm: 180, depthCm: 500 }, [
+    // Комната 180 см в ширину, шкафы занимают обе стены целиком: посередине остаются
+    // шестьдесят, и обойти их негде
+    const layout = layoutRoom({ widthCm: 180, depthCm: 200 }, [
       item({ title: 'Шкаф', dimensions: { width: 200, depth: 60, height: 220 } }),
       item({ title: 'Комод', dimensions: { width: 200, depth: 60, height: 90 } }),
     ])
@@ -227,8 +227,8 @@ describe('ничто не наезжает друг на друга', () => {
 })
 
 describe('проход меряем тем, что просит предмет', () => {
-  it('сорок сантиметров вокруг журнального столика это норма, а не теснота', () => {
-    const layout = layoutRoom({ widthCm: 300, depthCm: 400 }, [
+  it('журнальный столик у дивана в просторной комнате не создаёт тесноты', () => {
+    const layout = layoutRoom({ widthCm: 420, depthCm: 500 }, [
       item({ title: 'Диван', category: 'sofa', dimensions: { width: 220, depth: 95, height: 85 } }),
       item({
         title: 'Столик',
@@ -241,7 +241,7 @@ describe('проход меряем тем, что просит предмет',
   })
 
   it('без мебели посередине проход меряем семьюдесятью сантиметрами', () => {
-    const layout = layoutRoom({ widthCm: 180, depthCm: 500 }, [
+    const layout = layoutRoom({ widthCm: 180, depthCm: 200 }, [
       item({ title: 'Шкаф', dimensions: { width: 200, depth: 60, height: 220 } }),
       item({ title: 'Комод', dimensions: { width: 200, depth: 60, height: 90 } }),
     ])
@@ -371,7 +371,7 @@ describe('честность вердикта', () => {
   })
 
   it('когда стол посередине не поместился, про узкий проход всё равно говорим', () => {
-    const layout = layoutRoom({ widthCm: 180, depthCm: 500 }, [
+    const layout = layoutRoom({ widthCm: 180, depthCm: 200 }, [
       item({ title: 'Шкаф', dimensions: { width: 200, depth: 60, height: 220 } }),
       item({ title: 'Комод', dimensions: { width: 200, depth: 60, height: 90 } }),
       item({
@@ -388,7 +388,7 @@ describe('честность вердикта', () => {
   })
 
   it('журнальный столик рядом с обеденным не превращается в жалобу на тесноту', () => {
-    const layout = layoutRoom({ widthCm: 500, depthCm: 240 }, [
+    const layout = layoutRoom({ widthCm: 600, depthCm: 420 }, [
       item({
         title: 'Стол обеденный',
         category: 'table',
@@ -422,5 +422,107 @@ describe('один предмет в пустой комнате', () => {
       const where = `комната ${roomWidth}×${roomDepth}, шкаф ${width}×${depth}, круг ${round}`
       expect(layout.placed.length === 1, where).toBe(fitsSomehow)
     }
+  })
+})
+
+/**
+ * Есть ли у предмета место у какой-нибудь стены, куда он встаёт, никого не задев.
+ * Перебор грубый, шагом в десять сантиметров: он и должен быть грубее самой раскладки,
+ * иначе проверял бы её же логику её же средствами.
+ */
+function couldStandSomewhere(
+  layout: ReturnType<typeof layoutRoom>,
+  size: { widthCm: number; depthCm: number },
+): boolean {
+  const free = (x: number, y: number, w: number, d: number) =>
+    x >= 0 &&
+    y >= 0 &&
+    x + w <= layout.widthCm &&
+    y + d <= layout.depthCm &&
+    !layout.placed.some(
+      (place) =>
+        x < place.xCm + place.widthCm - 0.5 &&
+        place.xCm < x + w - 0.5 &&
+        y < place.yCm + place.depthCm - 0.5 &&
+        place.yCm < y + d - 0.5,
+    )
+  const { widthCm: w, depthCm: d } = size
+  for (let along = 0; along <= Math.max(layout.widthCm, layout.depthCm); along += 10) {
+    if (free(along, 0, w, d)) return true
+    if (free(along, layout.depthCm - d, w, d)) return true
+    if (free(0, along, d, w)) return true
+    if (free(layout.widthCm - d, along, d, w)) return true
+  }
+  return false
+}
+
+describe('вердикт «не встаёт» должен быть правдой', () => {
+  it('комод не объявляется бездомным при свободной стене', () => {
+    const layout = layoutRoom({ widthCm: 500, depthCm: 300 }, [
+      item({ title: 'Стенка', dimensions: { width: 500, depth: 100, height: 200 } }),
+      item({ title: 'Диван', category: 'sofa', dimensions: { width: 280, depth: 40, height: 85 } }),
+      item({ title: 'Комод', dimensions: { width: 210, depth: 100, height: 80 } }),
+    ])
+    expect(layout.problems).toEqual([])
+    expect(layout.placed).toHaveLength(3)
+  })
+
+  it('второй такой же диван встаёт к противоположной стене', () => {
+    const layout = layoutRoom({ widthCm: 283, depthCm: 435 }, [
+      item({
+        title: 'Диван',
+        category: 'sofa',
+        dimensions: { width: 265, depth: 193, height: 85 },
+        quantity: 2,
+      }),
+    ])
+    expect(layout.placed).toHaveLength(2)
+    expect(anyOverlap(layout)).toBe(false)
+  })
+
+  it('на переборе ни один отказ не оказывается ложным', () => {
+    const random = pseudoRandom(4242)
+    let checked = 0
+    for (let round = 0; round < 3000; round += 1) {
+      const roomWidth = 120 + Math.floor(random() * 500)
+      const roomDepth = 120 + Math.floor(random() * 500)
+      const items: LayoutItem[] = Array.from(
+        { length: 1 + Math.floor(random() * 6) },
+        (_, index) => ({
+          id: `i${index}`,
+          title: `Предмет ${index}`,
+          category: 'storage' as const,
+          dimensions: {
+            width: 40 + Math.floor(random() * 260),
+            depth: 35 + Math.floor(random() * 120),
+            height: 80,
+          },
+          quantity: 1,
+        }),
+      )
+      const layout = layoutRoom({ widthCm: roomWidth, depthCm: roomDepth }, items)
+      for (const problem of layout.problems) {
+        if (problem.kind !== 'noWall') {
+          continue
+        }
+        checked += 1
+        // Ширина в жалобе не различает два предмета одной ширины, поэтому проверяем всех,
+        // кто под неё подходит: хоть одному из них места быть не должно
+        const candidates = items
+          .map((one) => ({
+            widthCm: one.dimensions?.width ?? 0,
+            depthCm: one.dimensions?.depth ?? 0,
+          }))
+          .filter((one) => one.widthCm === problem.widthCm)
+        if (candidates.length === 0) {
+          continue
+        }
+        expect(
+          candidates.some((size) => !couldStandSomewhere(layout, size)),
+          `комната ${roomWidth}×${roomDepth}, круг ${round}: «${problem.title}» отвергнут зря`,
+        ).toBe(true)
+      }
+    }
+    expect(checked).toBeGreaterThan(0)
   })
 })

@@ -96,6 +96,9 @@ const BY_DETECTOR_LABEL: Record<string, CatalogSubcategory> = {
   'a dining table': 'dining',
   'a coffee table': 'coffee',
   'a bedside table': 'bedside',
+  // Фраза детской: без неё письменный стол искался среди всех столов подряд,
+  // и вместо стола для уроков предлагался журнальный
+  'a desk': 'desk',
   'an armchair': 'armchair',
   'a chair': 'chair',
   'a bar stool': 'stool',

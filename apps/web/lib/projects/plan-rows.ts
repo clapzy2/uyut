@@ -1,4 +1,4 @@
-import type { PlanReading, RoomKind } from '@uyut/db'
+import type { PlanReading, PlanRoomReading, RoomKind } from '@uyut/db'
 import { mvpRoomKinds } from './format'
 
 /** Строка экрана «мы прочитали так»: то же, что в плане, но в виде, пригодном для полей ввода. */
@@ -22,6 +22,8 @@ export type PlanRow = {
   roomId?: string
   /** Как она называется сейчас: человек должен понять, куда попадут размеры */
   roomName?: string
+  /** Похожих комнат в проекте несколько, и какая из них эта — знает только человек */
+  ambiguous?: boolean
 }
 
 /** Комната проекта глазами этого экрана: что уже есть и чего у неё не хватает */
@@ -33,15 +35,14 @@ export type ExistingRoom = {
   notes: string | null
 }
 
-/**
- * Название для сравнения. Регистр, лишние пробелы и порядковый номер значения не имеют:
- * «Спальня 1» из серии дома и «Спальня» с чертежа — одна и та же комната, а разводит их
- * порядок, в котором они идут.
- */
-function sameName(one: string, other: string): boolean {
-  const plain = (value: string) =>
-    value.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').replace(/ \d+$/, '').trim()
-  return plain(one) === plain(other)
+/** Название без регистра, лишних пробелов и ё: по нему ищется точное совпадение. */
+function plainName(value: string): string {
+  return value.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim()
+}
+
+/** То же самое без порядкового номера в конце: «Спальня 1» и «Спальня» становятся одним. */
+function withoutNumber(value: string): string {
+  return plainName(value).replace(/ \d+$/, '')
 }
 
 const supported = new Set<RoomKind>(mvpRoomKinds)
@@ -62,16 +63,35 @@ const supported = new Set<RoomKind>(mvpRoomKinds)
  */
 export function planRows(reading: PlanReading, existing: readonly ExistingRoom[] = []): PlanRow[] {
   const taken = new Set<string>()
+  // Сначала точные совпадения названий, и только потом — без номера. Иначе «Спальня 2» с плана
+  // забирала бы себе «Спальня 1» просто потому, что идёт первой, и мерки мастер-спальни
+  // уезжали бы в детскую вместе с её заметкой.
+  const pair = (room: PlanRoomReading): { match?: ExistingRoom; ambiguous: boolean } => {
+    const exact = existing.find(
+      (candidate) =>
+        candidate.kind === room.kind &&
+        !taken.has(candidate.id) &&
+        plainName(candidate.name) === plainName(room.name),
+    )
+    if (exact) {
+      return { match: exact, ambiguous: false }
+    }
+    const loose = existing.filter(
+      (candidate) =>
+        candidate.kind === room.kind &&
+        !taken.has(candidate.id) &&
+        withoutNumber(candidate.name) === withoutNumber(room.name),
+    )
+    // Кандидатов несколько — значит, номер как раз и различает комнаты, и угадывать нельзя:
+    // мерки мастер-спальни, попавшие в детскую, человек заметит нескоро
+    return loose.length === 1
+      ? { match: loose[0], ambiguous: false }
+      : { ambiguous: loose.length > 1 }
+  }
   return reading.rooms.map((room) => {
     const unsupported = room.utility === true || !supported.has(room.kind)
-    const match = unsupported
-      ? undefined
-      : existing.find(
-          (candidate) =>
-            candidate.kind === room.kind &&
-            sameName(candidate.name, room.name) &&
-            !taken.has(candidate.id),
-        )
+    const paired = unsupported ? { ambiguous: false } : pair(room)
+    const match = paired.match
     if (match) {
       taken.add(match.id)
     }
@@ -93,6 +113,7 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
         : {}),
       unsupported,
       ...(match ? { roomId: match.id, roomName: match.name } : {}),
+      ...(paired.ambiguous ? { ambiguous: true } : {}),
     }
   })
 }
