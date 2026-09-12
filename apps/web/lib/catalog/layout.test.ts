@@ -266,3 +266,70 @@ describe('кровать встаёт изголовьем к стене', () =>
     expect(intoRoom).toBe(200)
   })
 })
+
+/**
+ * Перебор случайных комнат.
+ *
+ * Расстановка — это арифметика на четырёх стенах, и её легко сломать правкой, которая
+ * на трёх примерах из тестов выглядит безобидной. Генератор детерминированный: одна и та же
+ * тысяча раскладок на каждом прогоне, поэтому упавший случай воспроизводится.
+ */
+function pseudoRandom(seed: number): () => number {
+  let state = seed
+  return () => {
+    state = (state * 1664525 + 1013904223) % 4294967296
+    return state / 4294967296
+  }
+}
+
+const CATEGORIES = ['sofa', 'bed', 'storage', 'table', 'chair', 'lamp', 'rug', 'decor'] as const
+const SUBCATEGORIES = [undefined, 'dining', 'coffee', 'armchair', 'floorLamp', 'wardrobe'] as const
+
+describe('перебор случайных комнат', () => {
+  it.each([20260912, 7, 999_331])(
+    'ни одна раскладка не наезжает, не вылезает и не теряет предметы (зерно %i)',
+    (seed) => {
+      const random = pseudoRandom(seed)
+      for (let round = 0; round < 1000; round += 1) {
+        const roomWidth = 150 + Math.floor(random() * 500)
+        const roomDepth = 150 + Math.floor(random() * 500)
+        const count = 1 + Math.floor(random() * 6)
+        const items: LayoutItem[] = Array.from({ length: count }, (_, index) => ({
+          id: `i${index}`,
+          title: `Предмет ${index}`,
+          category: CATEGORIES[Math.floor(random() * CATEGORIES.length)] as LayoutItem['category'],
+          subcategory: SUBCATEGORIES[
+            Math.floor(random() * SUBCATEGORIES.length)
+          ] as LayoutItem['subcategory'],
+          dimensions: {
+            width: 30 + Math.floor(random() * 270),
+            depth: 30 + Math.floor(random() * 170),
+            height: 30 + Math.floor(random() * 200),
+          },
+          quantity: 1 + Math.floor(random() * 3),
+        }))
+        const layout = layoutRoom({ widthCm: roomWidth, depthCm: roomDepth }, items)
+        const where = `комната ${roomWidth}×${roomDepth}, предметов ${count}, круг ${round}`
+
+        for (const place of layout.placed) {
+          expect(place.xCm, where).toBeGreaterThanOrEqual(-0.5)
+          expect(place.yCm, where).toBeGreaterThanOrEqual(-0.5)
+          expect(place.xCm + place.widthCm, where).toBeLessThanOrEqual(roomWidth + 0.5)
+          expect(place.yCm + place.depthCm, where).toBeLessThanOrEqual(roomDepth + 0.5)
+        }
+        expect(anyOverlap(layout), where).toBe(false)
+
+        // Каждая купленная единица либо стоит на плане, либо названа вслух: молча пропасть нельзя
+        const onFloor = items
+          .filter((item) => !layout.offFloor.includes(item.title))
+          .filter((item) => !layout.unmeasured.includes(item.title))
+          .reduce((sum, item) => sum + item.quantity, 0)
+        const named = layout.problems.filter(
+          (problem) => problem.kind === 'noWall' || problem.kind === 'noCenter',
+        ).length
+        expect(layout.placed.length + named, where).toBe(onFloor)
+        expect(layout.freeWallCm, where).toBeGreaterThanOrEqual(0)
+      }
+    },
+  )
+})

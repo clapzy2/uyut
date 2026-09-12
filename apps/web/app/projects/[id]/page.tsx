@@ -231,6 +231,9 @@ export default async function ProjectPage({ params }: { params: Params }) {
           )}
           {isOwner ? (
             <PlanReadingCard
+              // Ключ — сам файл плана: заменили план, и таблица прочитанного со старого
+              // должна исчезнуть вместе с ним, а не ждать сохранения чужих комнат
+              key={project.planUrl}
               projectId={project.id}
               reading={project.planReading}
               hasPlan={Boolean(project.planUrl)}
