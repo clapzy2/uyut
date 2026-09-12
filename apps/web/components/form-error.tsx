@@ -5,7 +5,7 @@ export function FormError({ message }: { message?: string }) {
   return (
     <p
       role="alert"
-      className="rounded-sm border border-danger/40 bg-paper px-3.5 py-3 text-sm leading-snug text-ink"
+      className="motion-form-error rounded-sm border border-danger/40 bg-paper px-3.5 py-3 text-sm leading-snug text-ink"
     >
       {message}
     </p>

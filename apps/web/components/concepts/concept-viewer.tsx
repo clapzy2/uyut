@@ -43,9 +43,9 @@ function ObjectChip({
       aria-pressed={selected}
       style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
       className={cn(
-        'absolute z-20 grid h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 px-2 font-mono text-[13px] font-medium shadow-soft transition-transform duration-200 ease-ui hover:scale-110',
+        'absolute z-20 grid h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 px-2 font-mono text-[13px] font-medium shadow-soft transition-[color,background-color,border-color,transform] duration-200 ease-ui hover:scale-110 active:scale-90',
         selected
-          ? 'border-on-accent bg-accent text-on-accent'
+          ? 'motion-selected-marker border-on-accent bg-accent text-on-accent'
           : 'border-accent bg-paper/90 text-accent',
       )}
     >
@@ -171,7 +171,10 @@ function MatchesPanel({
         {shown.map((match) => {
           const inList = quantities[match.id] ?? 0
           return (
-            <li key={match.id} className={cn('py-3', match.overBudget && 'opacity-75')}>
+            <li
+              key={match.id}
+              className={cn('motion-list-row group py-3', match.overBudget && 'opacity-75')}
+            >
               <div className="flex items-center gap-3">
                 <a
                   href={match.affiliateUrl}
@@ -180,7 +183,12 @@ function MatchesPanel({
                   className="flex min-w-0 flex-1 items-center gap-3 transition-colors duration-200 ease-ui hover:bg-muted/60"
                 >
                   <span className="block h-16 w-16 shrink-0 overflow-hidden border border-line bg-muted">
-                    <ProductImage src={match.imageUrl} fallback={match.imageFallbackUrl} alt="" />
+                    <ProductImage
+                      src={match.imageUrl}
+                      fallback={match.imageFallbackUrl}
+                      alt=""
+                      className="transition-transform duration-500 ease-appear group-hover:scale-[1.06]"
+                    />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[15px] text-ink">{match.title}</span>
@@ -231,9 +239,9 @@ function MatchesPanel({
                       }
                       onClick={() => onAdd(match, object)}
                       className={cn(
-                        'h-8 rounded-full border px-3 text-[12px] transition-colors duration-200 ease-ui disabled:opacity-50',
+                        'h-8 rounded-full border px-3 text-[12px] transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90 disabled:opacity-50',
                         inList > 0
-                          ? 'border-accent bg-accent-tint text-accent'
+                          ? 'border-accent bg-accent-tint text-accent shadow-[0_4px_14px_-10px_var(--accent)]'
                           : 'border-control text-ink-2 hover:border-accent hover:text-accent',
                       )}
                     >
@@ -501,9 +509,9 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
               onClick={() => like(false)}
               aria-pressed={liked === false}
               className={cn(
-                'h-9 rounded-full border px-3.5 text-sm transition-colors duration-200 ease-ui',
+                'h-9 rounded-full border px-3.5 text-sm transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90',
                 liked === false
-                  ? 'border-ink text-ink'
+                  ? 'border-ink bg-muted text-ink shadow-soft'
                   : 'border-control text-ink-2 hover:text-ink',
               )}
             >
@@ -514,9 +522,9 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
               onClick={() => like(true)}
               aria-pressed={liked === true}
               className={cn(
-                'h-9 rounded-full border px-3.5 text-sm transition-colors duration-200 ease-ui',
+                'h-9 rounded-full border px-3.5 text-sm transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90',
                 liked
-                  ? 'border-accent bg-accent-tint text-accent'
+                  ? 'border-accent bg-accent-tint text-accent shadow-soft'
                   : 'border-accent text-accent hover:bg-accent-tint',
               )}
             >
@@ -558,9 +566,9 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
                 onMouseLeave={() => setHoveredId(null)}
                 aria-pressed={object.id === selectedId}
                 className={cn(
-                  'h-8 rounded-full border px-3 text-[13px] transition-colors duration-200 ease-ui',
+                  'h-8 rounded-full border px-3 text-[13px] transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90',
                   object.id === selectedId
-                    ? 'border-accent bg-accent-tint text-accent'
+                    ? 'border-accent bg-accent-tint text-accent shadow-soft'
                     : 'border-control text-ink-2 hover:text-ink',
                 )}
               >

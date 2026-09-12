@@ -23,13 +23,13 @@ export function Checkbox({ id, label, error, className, ...props }: CheckboxProp
             type="checkbox"
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? errorId : undefined}
-            className="peer absolute inset-0 size-full cursor-pointer appearance-none rounded-xs border border-control bg-paper transition-colors duration-200 ease-ui checked:border-accent checked:bg-accent group-hover:border-ink checked:group-hover:border-accent-hover"
+            className="peer absolute inset-0 size-full cursor-pointer appearance-none rounded-xs border border-control bg-paper transition-[border-color,background-color,box-shadow,transform] duration-200 ease-ui checked:scale-[1.06] checked:border-accent checked:bg-accent checked:shadow-[0_3px_10px_color-mix(in_srgb,var(--accent)_24%,transparent)] group-hover:border-ink checked:group-hover:border-accent-hover active:scale-90"
             {...props}
           />
           <Icon
             name="check"
             className={cn(
-              'pointer-events-none relative size-3 text-on-accent opacity-0 transition-opacity duration-200 ease-ui peer-checked:opacity-100',
+              'pointer-events-none relative size-3 scale-50 text-on-accent opacity-0 transition-[opacity,transform] duration-200 ease-appear peer-checked:scale-100 peer-checked:opacity-100',
             )}
           />
         </span>

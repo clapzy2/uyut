@@ -79,7 +79,7 @@ function RoomWorksRow({
   }
 
   return (
-    <li className="flex flex-col gap-1.5 py-2.5">
+    <li className="motion-list-row flex flex-col gap-1.5 py-2.5">
       <div className="flex items-baseline justify-between gap-4">
         <span className="text-[15px] text-ink">
           {room.name}
@@ -137,7 +137,10 @@ export function EstimateCard({
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="border border-line bg-paper p-5 sm:p-6" aria-labelledby="estimate-title">
+      <section
+        className="motion-section border border-line bg-paper p-5 sm:p-6"
+        aria-labelledby="estimate-title"
+      >
         <p
           id="estimate-title"
           className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2"
@@ -173,7 +176,7 @@ export function EstimateCard({
         </div>
         <div className="mt-2 flex items-baseline justify-between gap-4 border-t border-ink pt-3">
           <span className="text-[15px] text-ink">Итого</span>
-          <span className="font-serif text-[30px] leading-none tracking-tight text-ink">
+          <span className="font-serif text-[30px] leading-none tracking-tight text-ink transition-colors duration-300">
             {formatPrice(estimate.totalKopecks)}
           </span>
         </div>
@@ -190,7 +193,7 @@ export function EstimateCard({
         ) : null}
       </section>
 
-      <section aria-labelledby="works-title">
+      <section className="motion-section" aria-labelledby="works-title">
         <p
           id="works-title"
           className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2"

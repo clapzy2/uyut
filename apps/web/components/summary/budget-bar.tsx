@@ -15,11 +15,24 @@ export function BudgetBar({ shares, freeLabel, overBudget, className }: Props) {
   return (
     <div className={cn('flex flex-col gap-2', className)}>
       <div className="flex h-2 gap-0.5" role="img" aria-label={label}>
-        <span className="block h-full bg-accent" style={{ width: `${shares.furniture * 100}%` }} />
-        <span className="block h-full bg-ink-2/70" style={{ width: `${shares.works * 100}%` }} />
         <span
-          className={cn('block h-full', overBudget ? 'bg-danger/60' : 'bg-line')}
-          style={{ width: `${shares.free * 100}%`, minWidth: overBudget ? '2px' : undefined }}
+          className="motion-budget-segment block h-full bg-accent"
+          style={{ width: `${shares.furniture * 100}%` }}
+        />
+        <span
+          className="motion-budget-segment block h-full bg-ink-2/70"
+          style={{ width: `${shares.works * 100}%`, animationDelay: '90ms' }}
+        />
+        <span
+          className={cn(
+            'motion-budget-segment block h-full',
+            overBudget ? 'bg-danger/60' : 'bg-line',
+          )}
+          style={{
+            width: `${shares.free * 100}%`,
+            minWidth: overBudget ? '2px' : undefined,
+            animationDelay: '180ms',
+          }}
         />
       </div>
       <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ink-2">

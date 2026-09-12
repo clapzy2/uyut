@@ -272,6 +272,65 @@
   }
 }
 
+@keyframes error-settle {
+  0% {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  65% {
+    transform: translateX(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes toast-life {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes empty-art-draw {
+  from {
+    stroke-dashoffset: 52;
+    opacity: 0.25;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+@keyframes budget-segment-in {
+  from {
+    opacity: 0.3;
+    transform: scaleX(0);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes marker-attention {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--accent) 38%, transparent),
+      var(--shadow-soft);
+  }
+  50% {
+    box-shadow:
+      0 0 0 7px color-mix(in srgb, var(--accent) 0%, transparent),
+      var(--shadow-soft);
+  }
+}
+
 .skeleton-shimmer {
   position: relative;
   overflow: hidden;
@@ -446,6 +505,58 @@ input:checked + .household-choice {
   animation: swipe-card-enter 320ms var(--ease-appear) both;
 }
 
+.motion-form-error {
+  animation: error-settle 300ms var(--ease-appear) both;
+}
+
+.motion-toast-life {
+  transform-origin: left;
+  animation: toast-life 6000ms linear both;
+}
+
+.motion-empty-art path,
+.motion-empty-art circle {
+  stroke-dasharray: 52;
+  animation: empty-art-draw 900ms var(--ease-appear) both;
+}
+
+.motion-empty-art :nth-child(2) {
+  animation-delay: 70ms;
+}
+
+.motion-empty-art :nth-child(3) {
+  animation-delay: 140ms;
+}
+
+.motion-empty-art :nth-child(n + 4) {
+  animation-delay: 210ms;
+}
+
+.motion-budget-segment {
+  transform-origin: left;
+  animation: budget-segment-in 600ms var(--ease-appear) both;
+}
+
+.motion-list-row {
+  animation: control-rise 360ms var(--ease-appear) both;
+}
+
+.motion-list-row:nth-child(2) {
+  animation-delay: 45ms;
+}
+
+.motion-list-row:nth-child(3) {
+  animation-delay: 90ms;
+}
+
+.motion-list-row:nth-child(n + 4) {
+  animation-delay: 135ms;
+}
+
+.motion-selected-marker {
+  animation: marker-attention 1700ms var(--ease-ui) infinite;
+}
+
 .motion-hero-line {
   transform-origin: left;
   animation: hero-line-in 700ms var(--ease-appear) 80ms both;
@@ -591,7 +702,14 @@ input:checked + .household-choice {
     .onboarding-progress-current,
     .onboarding-progress-complete,
     .motion-control-list > *,
-    .motion-swipe-card {
+    .motion-swipe-card,
+    .motion-form-error,
+    .motion-toast-life,
+    .motion-empty-art path,
+    .motion-empty-art circle,
+    .motion-budget-segment,
+    .motion-list-row,
+    .motion-selected-marker {
       animation: none !important;
     }
   }

@@ -1,7 +1,7 @@
 'use client'
 
 import type { RoomCondition } from '@uyut/db'
-import { toast } from '@uyut/ui'
+import { cn, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { updateRoomCondition } from '@/actions/rooms'
@@ -48,11 +48,15 @@ export function RoomConditionForm({
   }
 
   return (
-    <fieldset className="m-0 border-0 p-0" disabled={pending}>
+    <fieldset
+      className={cn('m-0 border-0 p-0 transition-opacity duration-200', pending && 'opacity-70')}
+      disabled={pending}
+      aria-busy={pending}
+    >
       <legend className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
         Что делаем с комнатой
       </legend>
-      <div className="flex flex-col gap-2">
+      <div className="motion-control-list flex flex-col gap-2">
         {roomConditionOptions.map((option) => (
           <label key={option} className="cursor-pointer">
             <input
@@ -63,8 +67,16 @@ export function RoomConditionForm({
               onChange={() => choose(option)}
               className="peer sr-only"
             />
-            <span className="block border border-control px-4 py-3 transition-colors duration-200 ease-ui hover:border-line-strong peer-checked:border-accent peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
-              <span className="block text-[15px] text-ink">{roomConditionLabels[option]}</span>
+            <span className="block border border-control px-4 py-3 transition-[border-color,background-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 hover:border-line-strong peer-checked:-translate-y-0.5 peer-checked:border-accent peer-checked:bg-accent-tint peer-checked:shadow-soft peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
+              <span className="flex items-center justify-between gap-3 text-[15px] text-ink">
+                {roomConditionLabels[option]}
+                <span
+                  className={cn(
+                    'size-2 rounded-full border border-control transition-[border-color,background-color,transform] duration-200',
+                    value === option && 'scale-110 border-accent bg-accent',
+                  )}
+                />
+              </span>
               <span className="mt-1 block text-[13px] leading-relaxed text-ink-2">
                 {roomConditionHints[option]}
               </span>

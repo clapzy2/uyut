@@ -22,7 +22,7 @@ export function EmptyArt({
       viewBox="0 0 116 88"
       role="img"
       aria-hidden="true"
-      className={className}
+      className={`motion-empty-art ${className ?? ''}`}
       xmlns="http://www.w3.org/2000/svg"
     >
       <title>{kind}</title>

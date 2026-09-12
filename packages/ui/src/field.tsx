@@ -25,7 +25,7 @@ export function FieldError({ id, children }: { id: string; children?: ReactNode 
     return null
   }
   return (
-    <p id={id} role="alert" className="mt-1.5 text-sm leading-snug text-danger">
+    <p id={id} role="alert" className="motion-form-error mt-1.5 text-sm leading-snug text-danger">
       {children}
     </p>
   )

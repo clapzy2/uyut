@@ -63,14 +63,19 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
   return (
     <li
       className={cn(
-        'grid grid-cols-[64px_minmax(0,1fr)] items-start gap-x-3 gap-y-2 py-3 sm:flex sm:items-center sm:gap-4',
+        'motion-list-row group grid grid-cols-[64px_minmax(0,1fr)] items-start gap-x-3 gap-y-2 py-3 transition-[opacity,background-color,padding] duration-300 ease-appear hover:bg-muted/35 sm:flex sm:items-center sm:gap-4 sm:hover:px-2',
         busy && 'opacity-60',
       )}
     >
       <span className="block h-16 w-16 shrink-0 overflow-hidden border border-line bg-muted">
         {item.imageUrl ? (
           // biome-ignore lint/performance/noImgElement: картинка товара живёт у магазина, оптимизатор next/image здесь не нужен
-          <img src={item.imageUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+          <img
+            src={item.imageUrl}
+            alt=""
+            className="h-full w-full object-cover transition-transform duration-500 ease-appear group-hover:scale-[1.06]"
+            loading="lazy"
+          />
         ) : null}
       </span>
       <span className="min-w-0 flex-1">
@@ -112,7 +117,7 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
               disabled={busy}
               onClick={() => void run(() => setItemQuantity(item.id, item.quantity - 1))}
               aria-label={item.quantity === 1 ? 'Убрать из списка' : 'Меньше на один'}
-              className="w-8 text-ink-2 transition-colors duration-200 ease-ui hover:text-ink disabled:opacity-50"
+              className="w-8 text-ink-2 transition-[color,background-color,transform] duration-200 ease-ui hover:bg-muted hover:text-ink active:scale-75 disabled:opacity-50"
             >
               −
             </button>
@@ -124,7 +129,7 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
               disabled={busy || item.quantity >= 99}
               onClick={() => void run(() => setItemQuantity(item.id, item.quantity + 1))}
               aria-label="Больше на один"
-              className="w-8 text-ink-2 transition-colors duration-200 ease-ui hover:text-ink disabled:opacity-50"
+              className="w-8 text-ink-2 transition-[color,background-color,transform] duration-200 ease-ui hover:bg-muted hover:text-ink active:scale-75 disabled:opacity-50"
             >
               +
             </button>

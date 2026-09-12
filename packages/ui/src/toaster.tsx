@@ -19,7 +19,7 @@ function ToastCard({ item }: { item: ToastItem }) {
     <div
       role="status"
       className={cn(
-        'pointer-events-auto w-[min(360px,calc(100vw-2rem))] rounded-md border bg-paper p-4 shadow-soft',
+        'pointer-events-auto relative w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-md border bg-paper p-4 shadow-soft',
         'animate-[toast-in_350ms_var(--ease-appear)]',
         item.tone === 'danger' ? 'border-danger/50' : 'border-line',
       )}
@@ -49,6 +49,13 @@ function ToastCard({ item }: { item: ToastItem }) {
           <Icon name="close" className="size-3.5" />
         </button>
       </div>
+      <span
+        aria-hidden="true"
+        className={cn(
+          'motion-toast-life absolute inset-x-0 bottom-0 h-0.5',
+          item.tone === 'danger' ? 'bg-danger' : 'bg-accent',
+        )}
+      />
     </div>
   )
 }
