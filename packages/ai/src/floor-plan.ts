@@ -184,31 +184,58 @@ function sidesFromArea(
 }
 
 /**
+ * Расходится ли прочитанная сторона с формой комнаты настолько, что верить ей нельзя.
+ *
+ * Четверть, потому что форму модель называет на глаз и промах в ней обычный. А вот разница
+ * в разы означает не неточность, а что прочитано не то число.
+ */
+const SHAPE_TOLERANCE = 0.25
+
+function disagrees(readCm: number, shapedCm: number | undefined): boolean {
+  return shapedCm !== undefined && Math.abs(readCm - shapedCm) / shapedCm > SHAPE_TOLERANCE
+}
+
+/**
  * Достроить недостающие стороны по площади.
  *
  * Одна сторона и площадь дают вторую точно, делением. Не прочитано ни одной — стороны
  * восстанавливаются из площади и формы, и это уже прикидка, но прикидка лучше пустоты:
  * без двух чисел не появится ни вид сверху, ни проверка на влезание.
+ *
+ * Но делить можно только на число, которому есть вера, иначе выходит хуже, чем было.
+ * Боевой случай: у гостиной в 14,9 м² модель прочла глубину 252 см — это один отрезок правой
+ * цепочки из трёх, 2516 мм. Деление дало ширину 591 см, почти всю ширину квартиры.
+ * Пара идеально сходилась с площадью и описывала совсем другую комнату, а человеку неоткуда
+ * было узнать, что числа выдуманы. Поэтому прочитанную сторону сверяем с формой: спорит —
+ * значит, прочитано не то, и обе стороны считаются из площади и формы.
  */
 function settleSides(room: PlanRoom): PlanRoom {
   const { widthCm, depthCm, areaM2, aspect } = room
   if (areaM2 === undefined || (widthCm !== undefined && depthCm !== undefined)) {
     return room
   }
+  const shaped = aspect === undefined ? undefined : sidesFromArea(areaM2, aspect)
   const areaCm2 = areaM2 * 10_000
   if (widthCm !== undefined) {
-    const found = boundedCm(areaCm2 / widthCm)
-    return found === undefined ? room : { ...room, depthCm: found, estimated: ['depth'] }
+    return disagrees(widthCm, shaped?.widthCm)
+      ? { ...room, ...shaped, estimated: ['width', 'depth'] }
+      : withSecondSide(room, 'depth', boundedCm(areaCm2 / widthCm))
   }
   if (depthCm !== undefined) {
-    const found = boundedCm(areaCm2 / depthCm)
-    return found === undefined ? room : { ...room, widthCm: found, estimated: ['width'] }
+    return disagrees(depthCm, shaped?.depthCm)
+      ? { ...room, ...shaped, estimated: ['width', 'depth'] }
+      : withSecondSide(room, 'width', boundedCm(areaCm2 / depthCm))
   }
-  if (aspect === undefined) {
+  return shaped === undefined ? room : { ...room, ...shaped, estimated: ['width', 'depth'] }
+}
+
+function withSecondSide(room: PlanRoom, side: PlanSide, found: number | undefined): PlanRoom {
+  if (found === undefined) {
     return room
   }
-  const sides = sidesFromArea(areaM2, aspect)
-  return sides === undefined ? room : { ...room, ...sides, estimated: ['width', 'depth'] }
+  return side === 'depth'
+    ? { ...room, depthCm: found, estimated: ['depth'] }
+    : { ...room, widthCm: found, estimated: ['width'] }
 }
 
 function areaM2(raw: unknown): number | undefined {

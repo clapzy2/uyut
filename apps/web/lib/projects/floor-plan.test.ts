@@ -401,3 +401,41 @@ describe('checkTotalArea', () => {
     expect(checkTotalArea({ rooms })).toBeUndefined()
   })
 })
+
+describe('прочитанная сторона против формы комнаты', () => {
+  it('не делит на отрезок цепочки, принятый за всю сторону', () => {
+    // Боевой случай: гостиная 14,9 м², прочитана глубина 252 (один отрезок из трёх),
+    // деление давало ширину 591 см — почти вся ширина квартиры
+    const reading = parseFloorPlan(
+      answer([{ name: 'Гостиная', depthMm: 2520, areaM2: 14.9, aspect: 0.7 }]),
+    )
+    const room = reading.rooms[0]
+    expect(room?.widthCm).toBe(323)
+    expect(room?.depthCm).toBe(461)
+    expect(room?.estimated).toEqual(['width', 'depth'])
+  })
+
+  it('прочитанной стороне, которая сходится с формой, верит и делит на неё', () => {
+    const reading = parseFloorPlan(
+      answer([{ name: 'Кухня', depthMm: 1942, areaM2: 5.4, aspect: 1.2 }]),
+    )
+    const room = reading.rooms[0]
+    expect(room?.depthCm).toBe(194)
+    expect(room?.widthCm).toBe(278)
+    expect(room?.estimated).toEqual(['width'])
+  })
+
+  it('без формы сверять не с чем, и деление остаётся как было', () => {
+    const reading = parseFloorPlan(answer([{ name: 'Гостиная', depthMm: 2520, areaM2: 14.9 }]))
+    expect(reading.rooms[0]?.widthCm).toBe(591)
+  })
+
+  it('ловит прихожую, растянутую делением в полосу', () => {
+    const reading = parseFloorPlan(
+      answer([{ name: 'Прихожая', widthMm: 6080, areaM2: 5.8, aspect: 2 }]),
+    )
+    const room = reading.rooms[0]
+    expect(room?.widthCm).toBe(341)
+    expect(room?.depthCm).toBe(170)
+  })
+})
