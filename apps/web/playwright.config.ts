@@ -16,7 +16,7 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: 'bun run start',
+    command: 'bun --env-file=../../.env.e2e run next start',
     url: `${baseURL}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,

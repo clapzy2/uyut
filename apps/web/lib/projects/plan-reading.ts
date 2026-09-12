@@ -7,8 +7,8 @@ import {
   createFalPlanReader,
   createFalSideReader,
   estimateSides,
+  markChainMismatch,
   mergeReadings,
-  needsRecheck,
   type PlanReading,
   type PlanRoom,
   type SideReader,
@@ -178,18 +178,26 @@ async function recheckRooms(
   readSide: SideReader,
 ): Promise<PlanReading> {
   const page = pages[0]
-  const doubtful = reading.rooms.filter(needsRecheck).slice(0, MAX_RECHECKS)
-  if (!page || doubtful.length === 0) {
+  // Площадь есть не на каждом обмерном плане. Повторно читаем каждую полностью
+  // известную цепочку: при наличии площади можем принять исправление, без неё
+  // хотя бы не скроем расхождение двух чтений.
+  const measurable = reading.rooms
+    .filter((room) => room.widthCm !== undefined && room.depthCm !== undefined)
+    .slice(0, MAX_RECHECKS)
+  if (!page || measurable.length === 0) {
     return reading
   }
   const fixes = new Map<string, PlanRoom>()
   await Promise.all(
-    doubtful.map(async (room) => {
+    measurable.map(async (room) => {
       const [widthCm, depthCm] = await Promise.all([
         readSide(page, room.name, 'width').catch(() => undefined),
         readSide(page, room.name, 'depth').catch(() => undefined),
       ])
-      const fixed = applyRecheck(room, { widthCm, depthCm }) ?? estimateSides(room)
+      const fixed =
+        applyRecheck(room, { widthCm, depthCm }) ??
+        markChainMismatch(room, { widthCm, depthCm }) ??
+        estimateSides(room)
       if (fixed) {
         fixes.set(room.name, fixed)
       }

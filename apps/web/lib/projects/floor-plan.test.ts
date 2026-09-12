@@ -3,6 +3,7 @@ import {
   checkTotalArea,
   estimateSides,
   isUtilityRoom,
+  markChainMismatch,
   mergeReadings,
   needsRecheck,
   parseFloorPlan,
@@ -360,6 +361,29 @@ describe('estimateSides', () => {
 
   it('молчит без площади: считать не из чего', () => {
     expect(estimateSides({ ...living, areaM2: undefined })).toBeNull()
+  })
+})
+
+describe('markChainMismatch', () => {
+  const room = {
+    name: 'Комната',
+    kind: 'living' as const,
+    widthCm: 280,
+    depthCm: 400,
+  }
+
+  it('не подменяет размер без подписанной площади, но требует ручной проверки', () => {
+    const flagged = markChainMismatch(room, { widthCm: 330, depthCm: 400 })
+    expect(flagged).toMatchObject({ widthCm: 280, depthCm: 400, suspicious: true })
+    expect(flagged?.chainMismatch).toEqual(['width'])
+  })
+
+  it('не создаёт ложное предупреждение, когда повторная цепочка совпала', () => {
+    expect(markChainMismatch(room, { widthCm: 280, depthCm: 400 })).toBeNull()
+  })
+
+  it('не вмешивается, когда есть площадь для арифметической проверки', () => {
+    expect(markChainMismatch({ ...room, areaM2: 11.2 }, { widthCm: 330 })).toBeNull()
   })
 })
 

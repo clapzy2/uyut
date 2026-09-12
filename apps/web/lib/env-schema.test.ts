@@ -21,6 +21,7 @@ describe('parseServerEnv', () => {
     const env = parseServerEnv(complete)
     expect(env.NODE_ENV).toBe('development')
     expect(env.SENTRY_DSN).toBeUndefined()
+    expect(env.SENTRY_ENVIRONMENT).toBeUndefined()
     expect(env.MAILPIT_URL).toBeUndefined()
     // Развёртывание идёт за одним обратным прокси, так что доверяем последней записи
     expect(env.TRUSTED_PROXY_HOPS).toBe(1)
@@ -35,6 +36,13 @@ describe('parseServerEnv', () => {
 
   it('treats an empty SENTRY_DSN as not configured', () => {
     expect(parseServerEnv({ ...complete, SENTRY_DSN: '' }).SENTRY_DSN).toBeUndefined()
+  })
+
+  it('keeps an explicit Sentry environment separate from NODE_ENV', () => {
+    expect(
+      parseServerEnv({ ...complete, NODE_ENV: 'production', SENTRY_ENVIRONMENT: 'local-e2e' })
+        .SENTRY_ENVIRONMENT,
+    ).toBe('local-e2e')
   })
 
   it('names the broken variable in the error', () => {

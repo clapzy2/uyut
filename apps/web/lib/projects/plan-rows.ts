@@ -14,6 +14,8 @@ export type PlanRow = {
   suspicious: boolean
   /** Сторона или обе, которые пришлось перечитать отдельным вопросом, чтобы площадь сошлась */
   rechecked?: 'width' | 'depth' | 'both'
+  /** Повторное чтение цепочки не подтвердило исходный размер. */
+  chainMismatch?: 'width' | 'depth' | 'both'
   /** Сторона или обе, посчитанные из подписанной площади, а не прочитанные с размерной линии */
   estimated?: 'width' | 'depth' | 'both'
   /** Комнаты этого типа сервис пока не делает, и создать её нельзя */
@@ -112,6 +114,12 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
         : {}),
       ...(room.rechecked && room.rechecked.length > 0
         ? { rechecked: room.rechecked.length > 1 ? ('both' as const) : room.rechecked[0] }
+        : {}),
+      ...(room.chainMismatch && room.chainMismatch.length > 0
+        ? {
+            chainMismatch:
+              room.chainMismatch.length > 1 ? ('both' as const) : room.chainMismatch[0],
+          }
         : {}),
       ...(room.estimated && room.estimated.length > 0
         ? { estimated: room.estimated.length > 1 ? ('both' as const) : room.estimated[0] }

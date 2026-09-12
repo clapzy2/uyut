@@ -112,6 +112,19 @@ describe('parseYml', () => {
     expect(items[0]?.attributes?.dimensionsCm?.width).toBe(210)
     expect(skipped[0]?.reason).toContain('не мебель')
   })
+
+  it('берёт габариты из комбинированного параметра, текста и миллиметров', () => {
+    const xml = `<?xml version="1.0"?><yml_catalog><shop>
+      <categories><category id="1">Мебель</category><category id="2" parentId="1">Диваны</category></categories>
+      <offers>
+        <offer id="combined"><url>https://shop/combined</url><price>39990</price><categoryId>2</categoryId><picture>https://cdn/combined.jpg</picture><name>Диван</name><param name="Габариты ШхГхВ, мм">2100 × 950 × 850</param></offer>
+        <offer id="text"><url>https://shop/text</url><price>29990</price><categoryId>2</categoryId><picture>https://cdn/text.jpg</picture><name>Диван 220 × 90 × 85 см</name></offer>
+      </offers></shop></yml_catalog>`
+    const { items } = parseYml(xml, 'hoff')
+    expect(items).toHaveLength(2)
+    expect(items[0]?.attributes?.dimensionsCm).toEqual({ width: 210, depth: 95, height: 85 })
+    expect(items[1]?.attributes?.dimensionsCm).toEqual({ width: 220, depth: 90, height: 85 })
+  })
 })
 
 describe('selectObjects', () => {

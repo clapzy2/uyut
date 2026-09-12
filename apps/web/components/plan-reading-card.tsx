@@ -355,6 +355,13 @@ export function PlanReadingCard({
                   отрезкам размерной цепочки: с первого раза площадь не сходилась, теперь сходится.
                 </p>
               ) : null}
+              {row.chainMismatch ? (
+                <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-danger">
+                  {row.chainMismatch === 'both' ? 'Обе стороны' : 'Одна сторона'} в размерной
+                  цепочке при повторном чтении получилась другой. Площади на плане нет, поэтому мы
+                  не выбирали число за вас — сверьте эту строку с чертежом или рулеткой.
+                </p>
+              ) : null}
               {row.estimated ? (
                 <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
                   {row.estimated === 'both'
@@ -386,7 +393,7 @@ export function PlanReadingCard({
                   </div>
                 </div>
               ) : null}
-              {row.suspicious ? (
+              {row.suspicious && !row.chainMismatch ? (
                 <p className="mt-3 pl-[30px] text-[13px] leading-relaxed text-danger">
                   Площадь не сходится с размерами. Одно из трёх чисел мы прочитали неверно.
                 </p>

@@ -54,6 +54,11 @@ export type PlanRoom = {
   /** Сторону перечитали отдельным вопросом по отрезкам цепочки, и после этого площадь сошлась */
   rechecked?: PlanSide[]
   /**
+   * Повторное чтение размерной цепочки не совпало с первоначальным. Площади на
+   * плане нет, поэтому выбрать правильное число автоматически нельзя.
+   */
+  chainMismatch?: PlanSide[]
+  /**
    * Стороны, посчитанные из площади, а не прочитанные с размерной линии.
    *
    * Замер на трёх настоящих планах: подписанную площадь модель читает верно пять раз из пяти,
@@ -448,6 +453,29 @@ export function applyRecheck(
   const fixed: PlanRoom = { ...room, widthCm, depthCm, rechecked }
   delete fixed.suspicious
   return fixed
+}
+
+/**
+ * На обмерных планах часто нет подписанной площади. В таком случае нельзя
+ * арифметически доказать, какая из двух трактовок цепочки верна, но можно не
+ * скрывать конфликт двух независимых чтений. Не подменяем исходные размеры:
+ * строка должна дойти до ручной проверки.
+ */
+export function markChainMismatch(
+  room: PlanRoom,
+  side: { widthCm?: number; depthCm?: number },
+): PlanRoom | null {
+  if (room.areaM2 !== undefined || room.widthCm === undefined || room.depthCm === undefined) {
+    return null
+  }
+  const mismatch: PlanSide[] = []
+  if (side.widthCm !== undefined && side.widthCm !== room.widthCm) {
+    mismatch.push('width')
+  }
+  if (side.depthCm !== undefined && side.depthCm !== room.depthCm) {
+    mismatch.push('depth')
+  }
+  return mismatch.length > 0 ? { ...room, suspicious: true, chainMismatch: mismatch } : null
 }
 
 /**

@@ -126,6 +126,8 @@ Coolify ставит перед приложением обратный прок
 | `CRON_SECRET` | случайная строка, `openssl rand -hex 32`. Ей защищён ежедневный проход по подпискам; без неё маршрут отвечает 404 и продления не работают |
 | `SENTRY_DSN` | DSN production-проекта Sentry |
 | `NEXT_PUBLIC_SENTRY_DSN` | тот же DSN, отметить «Available at build time» |
+| `SENTRY_ENVIRONMENT` | `production`; отделяет боевые события от локальных прогонов |
+| `NEXT_PUBLIC_SENTRY_ENVIRONMENT` | `production`, отметить «Available at build time» |
 | `NEXT_PUBLIC_POSTHOG_KEY` | ключ проекта PostHog, отметить «Available at build time» |
 | `NEXT_PUBLIC_POSTHOG_HOST` | `https://eu.i.posthog.com`, отметить «Available at build time» |
 | `MAILPIT_URL` | оставить пустым, нужен только локально |

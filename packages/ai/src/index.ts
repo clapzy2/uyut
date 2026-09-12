@@ -91,6 +91,7 @@ export {
   estimateSides,
   FLOOR_PLAN_PROMPT,
   isUtilityRoom,
+  markChainMismatch,
   mergeReadings,
   needsRecheck,
   PLAN_READER_MODEL,

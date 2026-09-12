@@ -8,6 +8,7 @@ ENV NEXT_TELEMETRY_DISABLED=1 DOCKER_BUILD=1
 # Значения NEXT_PUBLIC_* попадают в клиентский код на этапе сборки, поэтому их мало
 # передать контейнеру: без ARG они до next build не доходят, и аналитика молча молчит.
 ARG NEXT_PUBLIC_SENTRY_DSN
+ARG NEXT_PUBLIC_SENTRY_ENVIRONMENT
 ARG NEXT_PUBLIC_POSTHOG_KEY
 ARG NEXT_PUBLIC_POSTHOG_HOST
 COPY . .

@@ -1,6 +1,7 @@
 import type { CatalogSource } from '@uyut/db'
 import { XMLParser } from 'fast-xml-parser'
 import { categoryFromText } from './categories'
+import { type DimensionsCm, hasAnyDimension, parseDimensionsCm } from './dimensions'
 import { subcategoryFromText } from './subcategories'
 import type { FeedItem, FeedParseResult, SkippedRow } from './types'
 
@@ -46,6 +47,56 @@ function kopecks(value: string | number | undefined): number | null {
   }
   const number = Number(String(value).replace(',', '.'))
   return Number.isFinite(number) && number > 0 ? Math.round(number * 100) : null
+}
+
+const MIN_DIMENSION_CM = 15
+const MAX_DIMENSION_CM = 500
+
+function parameterKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/[\s.,:;()[\]{}_-]+/g, '')
+}
+
+function dimensionValue(value: string | undefined, key: string): number | undefined {
+  const match = value?.replace(/\u00a0/g, ' ').match(/\d+(?:[.,]\d+)?/)
+  if (!match) {
+    return undefined
+  }
+  const raw = Number(match[0].replace(',', '.'))
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return undefined
+  }
+  const isMillimetres = /(?:мм|mm)/i.test(`${key} ${value}`)
+  const centimetres = isMillimetres || raw > 500 ? raw / 10 : raw
+  const rounded = Math.round(centimetres)
+  return rounded >= MIN_DIMENSION_CM && rounded <= MAX_DIMENSION_CM ? rounded : undefined
+}
+
+function paramDimensions(params: Map<string, string>): DimensionsCm {
+  const valueFor = (keys: readonly string[]) => {
+    for (const key of keys) {
+      const value = params.get(parameterKey(key))
+      if (value !== undefined) {
+        return dimensionValue(value, key)
+      }
+    }
+    return undefined
+  }
+  return {
+    width: valueFor(['ширина', 'ширина см', 'ширина мм', 'width', 'width cm', 'width mm']),
+    depth: valueFor(['глубина', 'глубина см', 'глубина мм', 'depth', 'depth cm', 'depth mm']),
+    height: valueFor(['высота', 'высота см', 'высота мм', 'height', 'height cm', 'height mm']),
+  }
+}
+
+function mergedDimensions(primary: DimensionsCm, fallback: DimensionsCm): DimensionsCm {
+  return {
+    width: primary.width ?? fallback.width,
+    depth: primary.depth ?? fallback.depth,
+    height: primary.height ?? fallback.height,
+  }
 }
 
 /**
@@ -119,20 +170,26 @@ export function parseYml(xml: string, source: CatalogSource): FeedParseResult {
     }
     const params = new Map<string, string>()
     for (const param of asArray(offer.param)) {
-      const name = param['@_name']?.toLowerCase()
+      const name = param['@_name']
       const value = text(param)
       if (name && value) {
-        params.set(name, value)
+        params.set(parameterKey(name), value)
       }
     }
-    const dimension = (key: string) => {
-      const value = params.get(key)
-      const number = value ? Number(value.replace(',', '.')) : Number.NaN
-      return Number.isFinite(number) && number > 0 ? number : undefined
-    }
-    const width = dimension('ширина') ?? dimension('ширина, см')
-    const depth = dimension('глубина') ?? dimension('глубина, см')
-    const height = dimension('высота') ?? dimension('высота, см')
+    const directDimensions = paramDimensions(params)
+    // У партнёров габариты часто лежат одной строкой «Ш×Г×В, мм», а не тремя
+    // полями. Дополняем отдельные параметры числом из названия, описания и
+    // всех параметров, не затирая более точные значения из выделенных полей.
+    const dimensionsText = [...params.entries()]
+      .map(([name, value]) => `${value} ${name}`)
+      .join(' ')
+    const parsedDimensions = parseDimensionsCm(
+      `${title} ${text(offer.description) ?? ''} ${dimensionsText}`,
+      {
+        sleepingIsFootprint: category === 'bed',
+      },
+    )
+    const dimensions = mergedDimensions(directDimensions, parsedDimensions)
     const available = offer['@_available']
     items.push({
       source,
@@ -147,9 +204,10 @@ export function parseYml(xml: string, source: CatalogSource): FeedParseResult {
       affiliateUrl: url,
       images: pictures.map((picture) => ({ url: picture, alt: title })),
       attributes: {
-        color: params.get('цвет'),
-        material: params.get('материал') ?? params.get('материал обивки'),
-        dimensionsCm: width || depth || height ? { width, depth, height } : undefined,
+        color: params.get(parameterKey('цвет')),
+        material:
+          params.get(parameterKey('материал')) ?? params.get(parameterKey('материал обивки')),
+        dimensionsCm: hasAnyDimension(dimensions) ? dimensions : undefined,
       },
       inStock: available === undefined ? true : String(available) !== 'false',
     })

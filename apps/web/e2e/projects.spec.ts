@@ -85,10 +85,15 @@ test.describe
       })
       await expect(page.getByText('Это не похоже на PDF, JPG или PNG')).toBeVisible()
 
-      // Чтение плана: ключа модели в CI нет, поэтому проверяем, что кнопка на месте,
-      // действие доходит до сервера и отказ выглядит как человеческая фраза, а не как падение
-      await page.getByRole('button', { name: 'Прочитать размеры с плана' }).click()
-      await expect(page.getByText('Чтение планов пока не подключено')).toBeVisible()
+      // Кнопка чтения плана должна быть доступна в любом окружении. Без ключа проверяем
+      // человеческий отказ сервера; с ключом не запускаем здесь платную модель — её отдельно
+      // прогоняет bench-plans на настоящих чертежах.
+      const readPlan = page.getByRole('button', { name: 'Прочитать размеры с плана' })
+      await expect(readPlan).toBeVisible()
+      if (!process.env.FAL_KEY) {
+        await readPlan.click()
+        await expect(page.getByText('Чтение планов пока не подключено')).toBeVisible()
+      }
 
       for (const kind of ['Спальня']) {
         await page.getByRole('button', { name: 'Добавить комнату' }).click()
