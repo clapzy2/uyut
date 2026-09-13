@@ -106,6 +106,24 @@ describe('buildTemplatePlan', () => {
     expect(plan.shared).toContain('2.9 metres wide and 4.3 metres deep')
     expect(plan.shared).toContain('ceiling 2.7 metres high')
     expect(plan.shared).not.toContain('square metres')
+    expect(plan.shared).toContain('hard outer-wall constraints')
+    expect(plan.shared).toContain('at least 80 cm wide')
+  })
+
+  it('без фото не придумывает всем квартирам панорамное окно слева', () => {
+    const plan = buildTemplatePlan(brief({ hasPhoto: false }), 3)
+    expect(plan.shared).not.toContain('window on the left')
+    expect(plan.shared).toContain('do not invent panoramic or floor-to-ceiling glazing')
+  })
+
+  it('для узкой комнаты запрещает остров и стол в проходе', () => {
+    const plan = buildTemplatePlan(
+      brief({ roomKind: 'kitchen', hasPhoto: false, sizeCm: { widthCm: 208, depthCm: 260 } }),
+      3,
+    )
+    expect(plan.shared).toContain('This is a narrow room')
+    expect(plan.shared).toContain('no central full-size dining table')
+    expect(plan.variations.every((variation) => !variation.includes('window wall'))).toBe(true)
   })
 
   it('одной стороны мало: форму по ней не задать, возвращаемся к площади', () => {

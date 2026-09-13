@@ -73,6 +73,29 @@ function sizeSentence(brief: ConceptBrief): string {
   return `${width} metres wide and ${depth} metres deep${height}`
 }
 
+/**
+ * Генеративная модель воспринимает размеры как пожелание, если не назвать их жёстким ограничением.
+ * Здесь же задаём минимальный проход и запрещаем расширять маленькую комнату ради красивого кадра.
+ */
+function scaleConstraints(brief: ConceptBrief): string {
+  const width = brief.sizeCm?.widthCm
+  const depth = brief.sizeCm?.depthCm
+  if (!width || !depth) {
+    return 'Use believable apartment scale and keep a clear walking route from the doorway.'
+  }
+  const narrow = Math.min(width, depth) < 240
+  return [
+    'Treat the stated dimensions as hard outer-wall constraints; do not make the room wider or deeper for the composition.',
+    'Use furniture at real scale and keep an unobstructed walking route at least 80 cm wide.',
+    'Keep the doorway and window clear; no furniture may cross an opening.',
+    narrow
+      ? 'This is a narrow room: use a one-wall or shallow L-shaped arrangement, no island, no central full-size dining table.'
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
 export function fixedPreamble(brief: ConceptBrief): string {
   const noun = roomNouns[brief.roomKind]
   if (!brief.hasPhoto) {
@@ -80,7 +103,9 @@ export function fixedPreamble(brief: ConceptBrief): string {
     return [
       `Interior photograph of a ${noun} in a city apartment`,
       size,
-      'one large window on the left, wide framing.',
+      'wide framing from a doorway corner.',
+      'Use one ordinary apartment window and one ordinary doorway; do not invent panoramic or floor-to-ceiling glazing.',
+      scaleConstraints(brief),
     ]
       .filter(Boolean)
       .join(', ')
@@ -195,13 +220,49 @@ function variationPrompts(brief: ConceptBrief, count: number): string[] {
   const primary = brief.primaryStyle
   const second = brief.secondaryStyles[0] ?? primary
   const third = brief.secondaryStyles[1] ?? second
-  const blocks = [
-    `Arrangement: ${primary.descriptor}. Balanced daytime composition.`,
-    `Arrangement: main furniture along the window wall, a low storage unit on the opposite wall with a framed artwork above it. ${second.descriptor}.`,
-    `Evening version: lamps switched on, warm pools of light, deeper accent colours in the textiles. ${primary.descriptor}.`,
-    `Bolder version: one accent wall, open shelving along the long wall, a patterned rug. ${third.descriptor}.`,
-    `Calmer version: fewer objects, a wide plain rug, one large artwork, more empty floor. ${primary.descriptor}.`,
-  ]
+  const roomLayouts: Record<ConceptBrief['roomKind'], string[]> = {
+    kitchen: [
+      'A compact one-wall kitchen with a shallow breakfast ledge; keep the middle completely open.',
+      'A shallow L-shaped kitchen with a small wall-side table; preserve an 80 cm route to every cabinet.',
+      'A linear kitchen with a fold-down dining surface and stackable chairs; no island or freestanding table in the passage.',
+      'A compact kitchen with tall storage grouped at one end and an uninterrupted worktop on the long wall.',
+      'A calm one-wall kitchen with only essential furniture and the largest possible clear floor area.',
+    ],
+    living: [
+      'Place the sofa on a long wall, facing a low media unit, with a direct clear route from the door to the window.',
+      'Use a compact sofa and one movable chair around a small coffee table; keep the centre easy to cross.',
+      'Create a family seating corner with low child-safe storage and a generous open play area.',
+      'Use wall-mounted storage and one accent chair; keep all tall furniture away from the window.',
+      'Use fewer pieces: one sofa, one small table, one lamp and one artwork, leaving more empty floor.',
+    ],
+    bedroom: [
+      'Put the bed against a solid wall with two narrow bedside surfaces and a clear route from the door.',
+      'Use an offset bed and full-height storage on one short wall without narrowing the entrance.',
+      'Use a storage bed, one bedside surface and a compact wardrobe, keeping the window unobstructed.',
+      'Group storage on one wall and leave the rest of the room calm and open.',
+      'Use only a bed, compact wardrobe and one lamp with the widest possible clear passage.',
+    ],
+    kid: [
+      'Keep the bed and desk against separate walls and leave an open play area in the middle.',
+      'Use low storage, a compact bed and a desk near daylight without blocking the window.',
+      'Group sleep and storage along one wall, leaving a safe uninterrupted play route.',
+      'Use a loft-free compact arrangement with rounded furniture and accessible book storage.',
+      'Use only essential child-safe furniture and maximise empty floor.',
+    ],
+    bath: [
+      'Keep fixtures against the walls and preserve a clear route from the door to every fixture.',
+      'Use wall-mounted storage and compact fixtures without moving the doorway.',
+      'Group storage above or below existing fixtures and keep the floor visually open.',
+      'Use one compact vanity and shallow vertical storage, with no object blocking an opening.',
+      'Use the fewest fixtures and storage pieces possible while keeping the room practical.',
+    ],
+  }
+  const styles = [primary, second, primary, third, primary]
+  const layouts = roomLayouts[brief.roomKind]
+  const blocks = layouts.map(
+    (layout, index) =>
+      `Arrangement ${index + 1}: ${layout} ${styles[index]?.descriptor ?? primary.descriptor}.`,
+  )
   const result: string[] = []
   for (let index = 0; index < count; index += 1) {
     result.push(blocks[index % blocks.length] as string)

@@ -155,6 +155,25 @@ describe('selectObjects', () => {
     )
     expect(objects.map((object) => object.category)).toEqual(['rug', 'sofa'])
   })
+
+  it('не считает часть дивана отдельным креслом', () => {
+    const objects = selectObjects(
+      [
+        { label: 'a sofa', category: 'sofa', bbox: box(0.2, 0.45, 0.6, 0.4) },
+        { label: 'an armchair', category: 'chair', bbox: box(0.55, 0.52, 0.18, 0.24) },
+      ],
+      6,
+    )
+    expect(objects.map((object) => object.label)).toEqual(['a sofa'])
+  })
+
+  it('называет высокий светильник у пола торшером', () => {
+    const objects = selectObjects(
+      [{ label: 'a pendant lamp', category: 'lamp', bbox: box(0.05, 0.2, 0.12, 0.65) }],
+      6,
+    )
+    expect(objects[0]?.label).toBe('a floor lamp')
+  })
 })
 
 describe('detectorCaption и priceWindow', () => {

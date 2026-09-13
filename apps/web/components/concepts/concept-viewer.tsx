@@ -446,8 +446,8 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,7fr)_minmax(0,4fr)] lg:gap-12">
-      <div>
+    <div className="grid min-w-0 gap-8 lg:grid-cols-[minmax(0,7fr)_minmax(0,4fr)] lg:gap-12">
+      <div className="min-w-0">
         <div className="relative overflow-hidden border border-line bg-muted">
           {concept.renderSrc ? (
             // biome-ignore lint/performance/noImgElement: подписанная ссылка живёт час, оптимизатор next/image здесь не нужен
@@ -554,7 +554,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
         ) : null}
       </div>
 
-      <aside className="flex flex-col gap-4">
+      <aside className="flex min-w-0 flex-col gap-4">
         {objects.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {objects.map((object) => (

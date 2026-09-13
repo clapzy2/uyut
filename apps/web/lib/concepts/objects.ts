@@ -198,17 +198,20 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
 
   const objects = await Promise.all(
     rows.map(async (object): Promise<ObjectView> => {
-      const [{ matches, window, styleOnly }, maskSrc] = await Promise.all([
-        matchesForObject(object, room.project.budgetKopecks, room.measurements ?? {}),
-        object.maskUrl ? presignedObjectUrl(object.maskUrl, 60 * 60) : Promise.resolve(null),
-      ])
+      const { matches, window, styleOnly } = await matchesForObject(
+        object,
+        room.project.budgetKopecks,
+        room.measurements ?? {},
+      )
       return {
         id: object.id,
         orderIndex: object.orderIndex,
         category: object.category,
         label: object.label,
         bbox: object.bbox,
-        maskSrc,
+        // CSS-mask тоже загружает браузер. Прямая подписанная ссылка S3 не отдаёт CORS-заголовок,
+        // поэтому подсветка молча пропадала. Тот же закрытый маршрут уже используется канвой.
+        maskSrc: object.maskUrl ? `/api/object?key=${encodeURIComponent(object.maskUrl)}` : null,
         maskKey: object.maskUrl,
         swatchId: object.swatchId,
         confidence: object.matchedConfidence,

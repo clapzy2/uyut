@@ -106,6 +106,38 @@ function intersectionOverUnion(a: NormalizedBox, b: NormalizedBox): number {
   return union > 0 ? overlap / union : 0
 }
 
+function coveredFraction(a: NormalizedBox, b: NormalizedBox): number {
+  const left = Math.max(a.x, b.x)
+  const top = Math.max(a.y, b.y)
+  const right = Math.min(a.x + a.w, b.x + b.w)
+  const bottom = Math.min(a.y + a.h, b.y + b.h)
+  const overlap = Math.max(0, right - left) * Math.max(0, bottom - top)
+  const smaller = Math.min(a.w * a.h, b.w * b.h)
+  return smaller > 0 ? overlap / smaller : 0
+}
+
+function normalizedLabel(item: {
+  label: string
+  category: CatalogCategory
+  bbox: NormalizedBox
+}): typeof item {
+  // Florence иногда называет высокий дуговой торшер подвесным светильником. Если рамка тянется
+  // почти до пола, это физически не подвес: исправляем подпись до подбора товаров.
+  if (
+    item.label === 'a pendant lamp' &&
+    item.bbox.y + item.bbox.h > 0.72 &&
+    item.bbox.h > item.bbox.w * 1.25
+  ) {
+    return { ...item, label: 'a floor lamp' }
+  }
+  return item
+}
+
+function competingFurniture(left: DetectedObject, right: DetectedObject): boolean {
+  const pair = new Set([left.category, right.category])
+  return pair.has('sofa') && pair.has('chair')
+}
+
 /**
  * Чистка ответа детектора: рамки на всю картинку, крошечные и дубли одной категории убираются,
  * остаются самые крупные предметы. Порядок по площади и есть порядок номеров на рендере.
@@ -115,16 +147,23 @@ export function selectObjects(
   limit: number,
 ): DetectedObject[] {
   const candidates = raw
+    .map(normalizedLabel)
     .map((item) => ({ ...item, area: item.bbox.w * item.bbox.h }))
     .filter((item) => item.area > 0.002 && item.area < 0.85)
     .sort((left, right) => right.area - left.area)
   const kept: DetectedObject[] = []
   for (const candidate of candidates) {
-    const duplicate = kept.some(
-      (item) =>
-        item.category === candidate.category &&
-        intersectionOverUnion(item.bbox, candidate.bbox) > 0.5,
-    )
+    const duplicate = kept.some((item) => {
+      const sameKind = item.category === candidate.category
+      const competing = competingFurniture(item, candidate)
+      if (!sameKind && !competing) {
+        return false
+      }
+      return (
+        intersectionOverUnion(item.bbox, candidate.bbox) > 0.5 ||
+        coveredFraction(item.bbox, candidate.bbox) > 0.72
+      )
+    })
     if (!duplicate) {
       kept.push(candidate)
     }

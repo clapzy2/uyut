@@ -32,9 +32,14 @@ export function SwatchPicker({
   const groups = swatchClasses
     .map((klass: SwatchClass) => ({
       klass,
-      items: swatches.filter((swatch) => swatch.class === klass),
+      items: swatches.filter(
+        (swatch) => swatch.class === klass && swatchAvailability(category, swatch) === 'ok',
+      ),
     }))
     .filter((group) => group.items.length > 0)
+  const futureCount = swatches.filter(
+    (swatch) => swatchAvailability(category, swatch) !== 'ok',
+  ).length
 
   return (
     <fieldset className="m-0 flex flex-col gap-3 border-0 p-0">
@@ -46,14 +51,11 @@ export function SwatchPicker({
           </p>
           <div className="flex flex-wrap gap-1.5">
             {group.items.map((swatch) => {
-              const available = swatchAvailability(category, swatch) === 'ok'
-              const approximate = available && approximateFor(swatch)
+              const approximate = approximateFor(swatch)
               const selected = swatch.id === currentSwatchId
-              const title = !available
-                ? `${swatch.ru}. Появится во второй версии: фактуру ${swatchClassLabels[swatch.class].toLowerCase()} сдвигом цвета не получить`
-                : approximate
-                  ? `${swatch.ru}. Приблизительно: светлоту нужно менять сильно, тени станут плоскими`
-                  : swatch.ru
+              const title = approximate
+                ? `${swatch.ru}. Приблизительно: светлоту нужно менять сильно, тени станут плоскими`
+                : swatch.ru
               return (
                 <button
                   key={swatch.id}
@@ -61,20 +63,16 @@ export function SwatchPicker({
                   title={title}
                   aria-label={title}
                   aria-pressed={selected}
-                  disabled={!available || busy}
-                  onClick={() => available && onCommit(swatch)}
+                  disabled={busy}
+                  onClick={() => onCommit(swatch)}
                   className={cn(
                     'relative h-8 w-8 rounded-full border-2 transition-transform duration-200 ease-ui',
                     selected ? 'border-accent scale-110' : 'border-paper shadow-soft',
-                    available ? 'hover:scale-110' : 'cursor-not-allowed opacity-40',
+                    'hover:scale-110 disabled:cursor-wait disabled:opacity-50',
                   )}
                   style={{ backgroundColor: swatch.hex }}
                 >
-                  {!available ? (
-                    <span className="absolute -right-1 -top-1 rounded-full bg-paper px-1 font-mono text-[9px] leading-[14px] text-ink-2 shadow-soft">
-                      v2
-                    </span>
-                  ) : approximate ? (
+                  {approximate ? (
                     <span className="absolute -right-1 -top-1 grid h-3.5 w-3.5 place-items-center rounded-full bg-paper font-mono text-[9px] leading-none text-ink-2 shadow-soft">
                       ≈
                     </span>
@@ -86,9 +84,20 @@ export function SwatchPicker({
         </div>
       ))}
       <p className="text-[12px] leading-relaxed text-ink-2">
-        Нажмите на цвет: примерка и сохранение одним движением. Меняется цвет, не фактура: значок
-        «v2» у материалов, которые появятся с перекраской по маске.
+        Нажмите на цвет: примерка и сохранение одним движением. Меняется цвет, а исходная фактура
+        предмета сохраняется.
       </p>
+      {futureCount > 0 ? (
+        <details className="text-[12px] leading-relaxed text-ink-2">
+          <summary className="cursor-pointer select-none underline decoration-line-strong underline-offset-4 hover:text-ink">
+            Другие материалы появятся позже
+          </summary>
+          <p className="mt-2 max-w-md">
+            Для смены самой фактуры — например, дерева на мрамор или ткани на кожу — нужна отдельная
+            перерисовка по маске. Сейчас показываем только честную смену цвета.
+          </p>
+        </details>
+      ) : null}
     </fieldset>
   )
 }

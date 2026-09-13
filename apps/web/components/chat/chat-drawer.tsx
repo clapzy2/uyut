@@ -322,7 +322,7 @@ export function ChatDrawer(scope: Scope) {
       <div aria-hidden="true" className="h-20 sm:h-0" />
       <RadixDialog.Trigger
         className={cn(
-          'fixed bottom-5 right-5 z-40 inline-flex h-12 items-center gap-2 rounded-full bg-accent px-5 text-[15px] font-medium text-on-accent shadow-soft transition-colors duration-200 ease-ui hover:bg-accent-hover',
+          'fixed bottom-4 right-4 z-40 inline-flex size-11 items-center justify-center rounded-full bg-accent text-[15px] font-medium text-on-accent shadow-soft transition-[background-color,transform] duration-200 ease-ui hover:-translate-y-0.5 hover:bg-accent-hover active:translate-y-0 active:scale-95 sm:bottom-5 sm:right-5 sm:h-12 sm:w-auto sm:gap-2 sm:px-5',
           open && 'pointer-events-none opacity-0',
         )}
         aria-label="Открыть помощника"
@@ -331,7 +331,7 @@ export function ChatDrawer(scope: Scope) {
         <span aria-hidden="true" className="text-[17px] leading-none">
           🤖
         </span>{' '}
-        Спросить
+        <span className="hidden sm:inline">Спросить</span>
       </RadixDialog.Trigger>
 
       {/* forceMount отдаёт появление и уход панели motion: Radix иначе снимает разметку сразу */}
