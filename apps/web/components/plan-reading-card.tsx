@@ -182,7 +182,7 @@ export function PlanReadingCard({
             className="plan-scan relative mt-4 overflow-hidden border border-line bg-paper px-4 py-5"
           >
             <p className="relative z-10 bg-paper/90 text-[14px] leading-relaxed text-ink-2">
-              Сверяем подписи комнат, размерные цепочки и высоту потолка.
+              Читаем подписи комнат, размерные цепочки, высоту потолка, окна и двери.
             </p>
           </div>
         ) : null}
