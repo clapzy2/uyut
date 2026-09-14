@@ -72,6 +72,17 @@ const RULES: Partial<Record<CatalogCategory, Rule[]>> = {
   ],
 }
 
+// Когда в одном названии встречаются два предметных слова, главное слово в начале надёжнее:
+// «Ваза для цветов» — всё ещё ваза, а «Растение в вазе» — растение.
+const LEADING_RULES: Partial<Record<CatalogCategory, Rule[]>> = {
+  decor: [
+    { subcategory: 'mirror', pattern: /^\s*зеркал/i },
+    { subcategory: 'picture', pattern: /^\s*(?:картин|постер|панно|фоторам|репродукц)/i },
+    { subcategory: 'plant', pattern: /^\s*(?:растени|кашпо|цветок|суккулент|пальм)/i },
+    { subcategory: 'vase', pattern: /^\s*(?:ваз[аоы]|подсвечник|статуэтк|фигурк)/i },
+  ],
+}
+
 /** Вид предмета по названию, или undefined, если по названию не видно. */
 export function subcategoryFromText(
   category: CatalogCategory,
@@ -87,7 +98,9 @@ export function subcategoryFromText(
     if (!part) {
       continue
     }
-    const match = rules.find((rule) => rule.pattern.test(part))
+    const match =
+      LEADING_RULES[category]?.find((rule) => rule.pattern.test(part)) ??
+      rules.find((rule) => rule.pattern.test(part))
     if (match) {
       return match.subcategory
     }

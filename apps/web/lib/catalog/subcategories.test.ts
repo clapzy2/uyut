@@ -19,6 +19,10 @@ describe('subcategoryFromText', () => {
 
   it('название важнее общего текста описания', () => {
     expect(subcategoryFromText('decor', 'Ваза Glasar', 'Для цветов и живых растений')).toBe('vase')
+    expect(subcategoryFromText('decor', 'Ваза для цветов напольная', 'Интерьерное растение')).toBe(
+      'vase',
+    )
+    expect(subcategoryFromText('decor', 'Растение в вазе')).toBe('plant')
     expect(subcategoryFromText('decor', 'Картина на холсте', 'Зеркальная поверхность')).toBe(
       'picture',
     )
