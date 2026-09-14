@@ -10,6 +10,8 @@ export type RoomSpot = { name: string; widthCm: number }
  */
 export type FitVerdict = {
   state: 'fits' | 'tight' | 'tooWide' | 'tooTall' | 'unknown'
+  /** Почему нельзя дать положительный ответ. Нужна интерфейсу, чтобы не прятать неопределённость. */
+  reason?: 'itemDimensions' | 'roomDimensions' | 'wallMeasurements'
   /** Участок, о котором идёт речь: самый широкий из промеренных */
   spot?: RoomSpot
   itemCm?: number
@@ -96,8 +98,9 @@ export function checkFit(dimensions: DimensionsCm | undefined, limits: RoomLimit
   }
   const measured = (limits.spots ?? []).filter((spot) => spot.widthCm > 0)
   if (itemCm === undefined) {
-    return { state: 'unknown', itemCm }
+    return { state: 'unknown', reason: 'itemDimensions' }
   }
+  const fullFootprint = Boolean(dimensions?.width && dimensions.depth)
   if (measured.length === 0) {
     // Только коробка комнаты: утверждать «встанет» не из чего, а «не встанет» — точно.
     const sides = [limits.widthCm, limits.depthCm].filter(
@@ -112,11 +115,20 @@ export function checkFit(dimensions: DimensionsCm | undefined, limits: RoomLimit
         overCm: Math.round(itemCm - longest),
       }
     }
-    return { state: 'unknown', itemCm }
+    return {
+      state: 'unknown',
+      reason: longest === undefined ? 'roomDimensions' : 'wallMeasurements',
+      itemCm,
+    }
   }
   const widest = measured.reduce((best, spot) => (spot.widthCm > best.widthCm ? spot : best))
   if (itemCm > widest.widthCm) {
     return { state: 'tooWide', spot: widest, itemCm, overCm: Math.round(itemCm - widest.widthCm) }
+  }
+  // Одной стороны достаточно, чтобы доказать «не встанет», но недостаточно для положительного
+  // ответа: неизвестная глубина может перекрыть проход или упереться в мебель напротив.
+  if (!fullFootprint) {
+    return { state: 'unknown', reason: 'itemDimensions', itemCm }
   }
   return {
     state: widest.widthCm - itemCm < TIGHT_CM ? 'tight' : 'fits',

@@ -189,6 +189,8 @@ describe('buildTemplatePlan', () => {
     )
     expect(plan.shared).toContain('This is a narrow room')
     expect(plan.shared).toContain('no central full-size dining table')
+    expect(plan.shared).toContain('doors and drawers must open')
+    expect(plan.shared).toContain('Never cover a stated window, radiator, ventilation opening')
     expect(plan.variations.every((variation) => !variation.includes('window wall'))).toBe(true)
   })
 

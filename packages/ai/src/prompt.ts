@@ -130,6 +130,9 @@ function scaleConstraints(brief: ConceptBrief): string {
     narrow && brief.roomKind === 'kitchen'
       ? 'This is a narrow room: use a one-wall or shallow L-shaped arrangement, no island, no central full-size dining table.'
       : '',
+    brief.roomKind === 'kitchen'
+      ? 'Keep the refrigerator, oven, dishwasher and every lower cabinet fully operable: their doors and drawers must open without hitting the dining furniture or blocking the entrance. Keep a continuous preparation surface between the main cooking and washing zones. Never cover a stated window, radiator, ventilation opening or gas equipment with cabinetry.'
+      : '',
   ]
     .filter(Boolean)
     .join(' ')

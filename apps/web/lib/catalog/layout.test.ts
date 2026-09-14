@@ -128,6 +128,14 @@ describe('layoutRoom', () => {
     expect(layout.placed).toEqual([])
   })
 
+  it('товар только с шириной не получает выдуманную глубину', () => {
+    const layout = layoutRoom({ widthCm: 300, depthCm: 400 }, [
+      item({ title: 'Комод без глубины', dimensions: { width: 120 } }),
+    ])
+    expect(layout.unmeasured.map((one) => one.title)).toEqual(['Комод без глубины'])
+    expect(layout.placed).toEqual([])
+  })
+
   it('свободная стена остаётся числом: дверь и окно план не знает', () => {
     const layout = layoutRoom({ widthCm: 300, depthCm: 400 }, [
       item({ title: 'Шкаф', dimensions: { width: 100, depth: 60, height: 220 } }),

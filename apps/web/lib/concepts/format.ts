@@ -91,14 +91,20 @@ export function fitLabel(fit: FitVerdict): string | null {
   if (fit.state === 'tooTall' && fit.ceilingCm) {
     return `Не встанет по высоте: выше потолка на ${fit.overCm} см, потолок ${fit.ceilingCm} см`
   }
-  if (fit.state === 'unknown' || !fit.spot || fit.itemCm === undefined) {
-    return null
+  if (fit.state === 'unknown') {
+    if (fit.reason === 'itemDimensions') return 'Нужны полные размеры товара'
+    if (fit.reason === 'roomDimensions') return 'Нужны размеры комнаты'
+    if (fit.reason === 'wallMeasurements') return 'Нужен замер свободного участка стены'
+    return 'Размеры пока не подтверждены'
+  }
+  if (!fit.spot || fit.itemCm === undefined) {
+    return 'Размеры пока не подтверждены'
   }
   if (fit.state === 'tooWide') {
     return `Не встанет: шире на ${fit.overCm} см, ${fit.spot.name} ${fit.spot.widthCm} см`
   }
   if (fit.state === 'tight') {
-    return `Впритык: ${fit.spot.name} ${fit.spot.widthCm} см`
+    return `Подходит впритык: ${fit.spot.name} ${fit.spot.widthCm} см`
   }
-  return `Встанет: ${fit.spot.name} ${fit.spot.widthCm} см`
+  return `Подходит по размерам: ${fit.spot.name} ${fit.spot.widthCm} см`
 }

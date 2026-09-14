@@ -100,24 +100,13 @@ function footprint(dimensions: DimensionsCm | null): { widthCm: number; depthCm:
   if (!dimensions) {
     return null
   }
-  const { width, depth, height } = dimensions
-  if (width !== undefined && depth !== undefined && height !== undefined) {
-    // Порядку сторон верим, а не берём наибольшую за ширину: у кровати 180×200 длинная сторона —
-    // это глубина, она уходит в комнату, а вдоль стены встаёт изголовье в 180 см. На боевом
-    // каталоге порядок соблюдают: у 71 процента товаров со всеми тремя размерами глубина
-    // и правда оказалась наименьшей стороной.
-    return { widthCm: width, depthCm: depth }
-  }
-  const known = [width, depth, height].filter(
-    (side): side is number => typeof side === 'number' && side > 0,
-  )
-  if (known.length === 0) {
+  const { width, depth } = dimensions
+  if (!width || !depth) {
     return null
   }
-  // Сторон меньше трёх: какая из них высота, знать неоткуда. Берём наибольшую за ширину
-  // и считаем предмет квадратным в плане — это осторожнее, чем угадать в свою пользу.
-  const side = Math.max(...known)
-  return { widthCm: side, depthCm: Math.min(side, 60) }
+  // Раскладка отвечает не только за длину вдоль стены, но и за выступ в комнату. Поэтому
+  // частичный размер здесь хуже отсутствующего: выдуманная глубина создаёт ложный проход.
+  return { widthCm: width, depthCm: depth }
 }
 
 type Size = { widthCm: number; depthCm: number }

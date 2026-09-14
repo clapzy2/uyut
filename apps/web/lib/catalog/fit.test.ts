@@ -29,7 +29,18 @@ describe('footprintCm', () => {
 describe('checkFit', () => {
   it('молчим, когда нечего сравнивать', () => {
     expect(checkFit({ width: 120, depth: 45, height: 80 }, { spots: [] }).state).toBe('unknown')
-    expect(checkFit(undefined, { spots }).state).toBe('unknown')
+    expect(checkFit(undefined, { spots })).toMatchObject({
+      state: 'unknown',
+      reason: 'itemDimensions',
+    })
+  })
+
+  it('одна сторона товара может доказать отказ, но не положительный результат', () => {
+    expect(checkFit({ width: 120 }, { spots })).toMatchObject({
+      state: 'unknown',
+      reason: 'itemDimensions',
+    })
+    expect(checkFit({ width: 360 }, { spots }).state).toBe('tooWide')
   })
 
   it('встаёт свободно', () => {
@@ -96,7 +107,10 @@ describe('коробка комнаты с плана', () => {
 
   it('уже стены — молчим: обещать «встанет» по коробке нельзя', () => {
     // Вдоль стены дверь, батарея и угол, и всей её длины под диван нет
-    expect(checkFit({ width: 300, depth: 95, height: 85 }, room).state).toBe('unknown')
+    expect(checkFit({ width: 300, depth: 95, height: 85 }, room)).toMatchObject({
+      state: 'unknown',
+      reason: 'wallMeasurements',
+    })
   })
 
   it('промеренный участок сильнее коробки: он и отвечает', () => {
