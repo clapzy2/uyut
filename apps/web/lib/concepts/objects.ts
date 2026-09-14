@@ -12,6 +12,7 @@ import {
   type CatalogCategory,
   type ConceptBbox,
   type ConceptObject,
+  type ConceptQualityReview,
   conceptObjects,
   concepts,
   type ObjectsStatus,
@@ -82,6 +83,7 @@ export type ConceptPageData = {
     renderKey: string | null
     editedRenderKey: string | null
     note: string | null
+    qualityReview: ConceptQualityReview | null
     orderIndex: number
     batchId: string
   }
@@ -246,6 +248,7 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
       renderKey: concept.renderUrl,
       editedRenderKey: concept.editedRenderUrl,
       note: concept.note,
+      qualityReview: concept.qualityReview,
       orderIndex: concept.orderIndex,
       batchId: concept.batchId,
     },

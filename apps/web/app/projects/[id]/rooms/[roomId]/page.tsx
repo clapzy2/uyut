@@ -199,6 +199,7 @@ export default async function RoomPage({ params }: { params: Params }) {
               owner: item.likedByOwner,
               partner: item.likedByPartner,
               orderIndex: item.orderIndex,
+              qualityStatus: item.editedRenderUrl ? null : (item.qualityReview?.status ?? null),
             }))}
           />
         </div>

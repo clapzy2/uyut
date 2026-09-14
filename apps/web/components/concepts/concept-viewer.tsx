@@ -16,6 +16,7 @@ import { spreadMarkers } from '@/lib/concepts/marker-layout'
 import type { ConceptPageData, MatchView, ObjectView } from '@/lib/concepts/objects'
 import { applySwatch, prepareRecolor, type RecolorBase } from '@/lib/recolor/client'
 import { pluralItems } from '@/lib/shopping/format'
+import { QualityReview } from './quality-review'
 
 function ObjectChip({
   object,
@@ -532,7 +533,8 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
             </button>
           </div>
         </div>
-        {concept.note ? (
+        <QualityReview review={concept.qualityReview} edited={Boolean(concept.editedRenderKey)} />
+        {concept.note && !concept.editedRenderKey ? (
           <p className="mt-4 border-l-2 border-line-strong pl-4 text-[15px] leading-relaxed text-ink-2">
             {concept.note}
           </p>

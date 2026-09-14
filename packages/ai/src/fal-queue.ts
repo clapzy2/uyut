@@ -19,22 +19,25 @@ export async function falQueue<T = Record<string, unknown>>(
   timeoutMs = 180_000,
 ): Promise<T> {
   const headers = { Authorization: `Key ${apiKey}` }
+  // Общий дедлайн включает отправку и зависшие HTTP-запросы, не только опрос очереди.
+  const signal = AbortSignal.timeout(timeoutMs)
+  const deadline = Date.now() + timeoutMs
   const submit = await fetch(`https://queue.fal.run/${endpoint}`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   })
   if (!submit.ok) {
     throw new FalError(`${endpoint}: ${submit.status} ${(await submit.text()).slice(0, 200)}`)
   }
   const { status_url, response_url } = (await submit.json()) as QueueSubmit
-  const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    const status = (await fetch(status_url, { headers }).then((response) =>
+    const status = (await fetch(status_url, { headers, signal }).then((response) =>
       response.json(),
     )) as QueueStatus
     if (status.status === 'COMPLETED') {
-      const response = await fetch(response_url, { headers })
+      const response = await fetch(response_url, { headers, signal })
       if (!response.ok) {
         throw new FalError(
           `${endpoint}: ${response.status} ${(await response.text()).slice(0, 200)}`,

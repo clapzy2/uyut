@@ -20,6 +20,20 @@ export type ObjectsStatus = (typeof objectsStatuses)[number]
 
 export type ConceptEdit = { objectId: string; swatchId: string }
 
+/** Рекомендательная проверка исходного рендера, не подтверждение точности размеров. */
+export type ConceptQualityReview = {
+  version: 1
+  status: 'checked' | 'review' | 'unavailable'
+  model: string
+  checkedAt: string
+  issues: Array<{
+    code: 'not_interior' | 'wrong_room' | 'broken_geometry' | 'blocked_access' | 'opening_conflict'
+    detail: string
+    confidence: number
+  }>
+  description: string | null
+}
+
 // Обычный запуск или «варианты на двоих»: три рендера на пересечении вкусов двух людей
 // edit — правка выбранного рендера: основа не фото комнаты, а другой концепт
 export const conceptBatchKinds = ['regular', 'duo', 'edit'] as const
@@ -62,8 +76,9 @@ export const concepts = pgTable(
     // Перекраска: оригинал остаётся в render_url, отредактированная версия и список правок рядом
     editedRenderUrl: text('edited_render_url'),
     edits: jsonb('edits').$type<ConceptEdit[]>(),
-    // Две фразы помощника: что за идея и почему подходит семье
+    // Короткое описание варианта; у новых рендеров — по изображению из автопроверки.
     note: text('note'),
+    qualityReview: jsonb('quality_review').$type<ConceptQualityReview>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

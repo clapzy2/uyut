@@ -1,6 +1,6 @@
 'use client'
 
-import type { ConceptBatchKind, ProjectRole } from '@uyut/db'
+import type { ConceptBatchKind, ConceptQualityReview, ProjectRole } from '@uyut/db'
 import { Button, cn, toast } from '@uyut/ui'
 import { motion } from 'motion/react'
 import Link from 'next/link'
@@ -41,6 +41,7 @@ export type ConceptItem = {
   owner: boolean | null
   partner: boolean | null
   orderIndex: number
+  qualityStatus?: ConceptQualityReview['status'] | null
 }
 
 type Tab = 'all' | 'mine' | 'theirs' | 'both'
@@ -48,7 +49,7 @@ type Tab = 'all' | 'mine' | 'theirs' | 'both'
 const stageLabels: Array<{ key: string; label: string }> = [
   { key: 'brief', label: 'Собираем бриф' },
   { key: 'prompt', label: 'Пишем задание для рендера' },
-  { key: 'render', label: 'Рендерим' },
+  { key: 'render', label: 'Рисуем и проверяем' },
   { key: 'done', label: 'Готово' },
 ]
 
@@ -66,6 +67,8 @@ const GIVE_UP_AFTER_MS = 8 * 60_000
 const SERVER_CHECK_MS = 15_000
 
 function conceptCaption(item: ConceptItem): string | undefined {
+  if (item.qualityStatus === 'review') return 'Автопроверка: возможные ошибки — откройте замечания'
+  if (item.qualityStatus === 'unavailable') return 'Автопроверка недоступна — проверьте результат'
   if (item.batchKind === 'edit') {
     return item.editRequest ? `Правка · ${item.editRequest}` : 'Правка выбранного варианта'
   }
@@ -455,6 +458,13 @@ export function ConceptsPanel({
                       alt={`Концепт ${item.orderIndex + 1}, открыть`}
                       className="block aspect-[4/3] w-full object-cover transition-[opacity,transform] duration-700 ease-appear group-hover:scale-[1.025] group-hover:opacity-90"
                     />
+                    {item.qualityStatus === 'review' || item.qualityStatus === 'unavailable' ? (
+                      <span className="block bg-paper px-3 py-2 text-[12px] leading-relaxed text-ink-2">
+                        {item.qualityStatus === 'review'
+                          ? 'Есть возможные ошибки'
+                          : 'Без автопроверки'}
+                      </span>
+                    ) : null}
                   </a>
                   {mark ? (
                     <span className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-paper/90 px-2 py-0.5 text-[12px] text-accent">

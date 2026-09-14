@@ -4,7 +4,6 @@ import {
   type ConceptBrief,
   type ConceptModelId,
   type ConceptRenderer,
-  completeFalLlm,
   conceptModels,
   createFalRenderer,
   createPromptBuilder,
@@ -12,6 +11,7 @@ import {
   KEEP_THE_REST,
   nearestStyles,
   type RenderResult,
+  reviewConceptImage,
   type StyleEntry,
   styleLibrary,
 } from '@uyut/ai'
@@ -22,7 +22,6 @@ import { z } from 'zod'
 import { db } from './lib/db'
 import { requireEnv } from './lib/env'
 import { putObject, readObject } from './lib/s3'
-import { clampText } from './lib/text'
 import { cropObject, segmentAndMatch } from './segment-and-match'
 
 const payloadSchema = z.object({
@@ -98,49 +97,6 @@ function renderer(override?: ConceptModelId): {
 }
 
 type Progress = { stage: string; done: number; total: number; failed: number }
-
-async function writeNotes(
-  database: ReturnType<typeof db>,
-  conceptIds: string[],
-  brief: ConceptBrief,
-  shared: string,
-  mandate: string,
-): Promise<void> {
-  const key = process.env.FAL_KEY
-  if (!key) {
-    return
-  }
-  const ready = await database
-    .select({ id: concepts.id, prompt: concepts.prompt })
-    .from(concepts)
-    .where(eq(concepts.status, 'ready'))
-  const ours = ready.filter((row) => conceptIds.includes(row.id))
-  for (const concept of ours) {
-    try {
-      const variation = concept.prompt.replace(shared, '').replace(mandate, '').trim()
-      const note = await completeFalLlm(key, {
-        system:
-          'Ты помощник сервиса дизайна интерьера «Домица». Пиши по-русски, на «вы», без восторгов, ровно два коротких предложения: первое — что за идея в этом варианте комнаты, второе — почему это подходит именно этой семье. Без вступлений и без кавычек.',
-        prompt: [
-          `Комната: ${brief.roomName}. Стиль: ${brief.primaryStyle.ru}.`,
-          brief.household
-            ? `Семья: взрослых ${brief.household.adults ?? '?'}, детей ${brief.household.kids ?? 0}, животные ${brief.household.pets ? 'есть' : 'нет'}, работа из дома ${brief.household.wfh ? 'да' : 'нет'}.`
-            : '',
-          brief.notes ? `Пожелания: ${brief.notes}` : '',
-          `Особенность этого варианта (по-английски, переведи смысл): ${variation}`,
-        ]
-          .filter(Boolean)
-          .join('\n'),
-      })
-      await database
-        .update(concepts)
-        .set({ note: clampText(note, 400) })
-        .where(eq(concepts.id, concept.id))
-    } catch (error) {
-      logger.warn('note failed', { conceptId: concept.id, error: String(error) })
-    }
-  }
-}
 
 /**
  * Правка по шагам: каждый следующий рисуется поверх результата предыдущего.
@@ -363,6 +319,22 @@ export const generateConcept = task({
               })
           const base = `projects/${project.id}/rooms/${room.id}/concepts/${concept.id}`
           const full = await sharp(result.body).webp({ quality: 88 }).toBuffer()
+          // Проверяем пиксели, а не промпт. Уменьшение ограничивает размер запроса;
+          // общий HTTP-дедлайн проверки — 35 секунд, её сбой не роняет результат.
+          const reviewImage = await sharp(result.body)
+            .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: 85 })
+            .toBuffer()
+          const qualityReview = await reviewConceptImage(
+            requireEnv('FAL_KEY'),
+            { body: reviewImage, contentType: 'image/jpeg' },
+            brief,
+          )
+          logger.info('concept quality review', {
+            conceptId: concept.id,
+            status: qualityReview.status,
+            issueCodes: qualityReview.issues.map((issue) => issue.code),
+          })
           const thumb = await sharp(result.body)
             .resize({ width: 640, withoutEnlargement: true })
             .webp({ quality: 78 })
@@ -378,6 +350,9 @@ export const generateConcept = task({
               renderUrl: `${base}.webp`,
               renderThumbUrl: `${base}-thumb.webp`,
               seed: result.seed,
+              qualityReview,
+              // Описание основано на готовом изображении, не на намерениях из задания.
+              note: qualityReview.description,
             })
             .where(eq(concepts.id, concept.id))
           done += 1
@@ -401,17 +376,6 @@ export const generateConcept = task({
         publish({ stage: 'render', done, total: created.length, failed })
       }),
     )
-
-    // Две фразы к каждому удачному рендеру: что за идея и почему подходит семье
-    if (!payload.duo) {
-      await writeNotes(
-        database,
-        created.map((concept) => concept.id),
-        brief,
-        plan.shared,
-        plan.mandate,
-      )
-    }
 
     publish({ stage: 'done', done, total: created.length, failed })
     const usd = conceptModels[modelId].usdPerImage * created.length
