@@ -81,8 +81,18 @@ export function subcategoryFromText(
   if (!rules) {
     return undefined
   }
-  const text = parts.filter(Boolean).join(' ')
-  return rules.find((rule) => rule.pattern.test(text))?.subcategory
+  // Название товара надёжнее описания и пути категории. Проверяем части по очереди,
+  // иначе «Стул …, мягкое кресло» становился креслом, а «Ваза для цветов» — растением.
+  for (const part of parts) {
+    if (!part) {
+      continue
+    }
+    const match = rules.find((rule) => rule.pattern.test(part))
+    if (match) {
+      return match.subcategory
+    }
+  }
+  return undefined
 }
 
 /**

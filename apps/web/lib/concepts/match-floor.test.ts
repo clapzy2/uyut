@@ -1,4 +1,4 @@
-import { MATCH_CONFIDENCE_THRESHOLD, MATCH_FLOOR } from '@uyut/ai'
+import { isUsableMatch, MATCH_CONFIDENCE_THRESHOLD, MATCH_FLOOR } from '@uyut/ai'
 import { describe, expect, it } from 'vitest'
 
 describe('пороги подбора', () => {
@@ -18,5 +18,10 @@ describe('пороги подбора', () => {
     for (const real of [0.58, 0.61, 0.64, 0.66, 0.73]) {
       expect(real).toBeGreaterThan(MATCH_FLOOR)
     }
+  })
+
+  it('каждый результат проходит порог отдельно', () => {
+    expect([0.72, 0.44, 0.58, 0.31].filter(isUsableMatch)).toEqual([0.72, 0.58])
+    expect(isUsableMatch(Number.NaN)).toBe(false)
   })
 })

@@ -13,7 +13,7 @@ function axis(index: number): number[] {
 }
 
 const SOURCE = 'dump' as const
-const ids = ['it-sofa-a', 'it-sofa-b', 'it-sofa-c', 'it-chair-a']
+const ids = ['it-sofa-a', 'it-sofa-b', 'it-sofa-c', 'it-chair-a', 'it-chair-seat']
 
 describe('catalog in a real database', () => {
   beforeAll(async () => {
@@ -53,10 +53,22 @@ describe('catalog in a real database', () => {
         source: SOURCE,
         externalId: 'it-chair-a',
         category: 'chair',
+        subcategory: 'armchair',
         title: 'Кресло А',
         priceKopecks: 20_000_00,
         affiliateUrl: 'https://shop/d',
         images: [{ url: 'https://cdn/d.jpg' }],
+        inStock: true,
+      },
+      {
+        source: SOURCE,
+        externalId: 'it-chair-seat',
+        category: 'chair',
+        subcategory: 'chair',
+        title: 'Стул А',
+        priceKopecks: 15_000_00,
+        affiliateUrl: 'https://shop/e',
+        images: [{ url: 'https://cdn/e.jpg' }],
         inStock: true,
       },
     ])
@@ -141,5 +153,17 @@ describe('catalog in a real database', () => {
     const totals = await countItems(getDb())
     expect(totals.total).toBeGreaterThanOrEqual(3)
     expect(totals.embedded).toBeGreaterThanOrEqual(3)
+  })
+
+  it('в строгом режиме не подменяет стул креслом', async () => {
+    const matches = await findSimilar(getDb(), {
+      embedding: axis(4),
+      category: 'chair',
+      subcategory: 'chair',
+      strictSubcategory: true,
+      limit: 5,
+    })
+    expect(matches.map((item) => item.externalId)).toContain('it-chair-seat')
+    expect(matches.map((item) => item.externalId)).not.toContain('it-chair-a')
   })
 })

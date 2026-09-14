@@ -1,4 +1,4 @@
-import { MATCH_CONFIDENCE_THRESHOLD, MATCH_FLOOR, type PriceWindow, priceWindow } from '@uyut/ai'
+import { isUsableMatch, MATCH_CONFIDENCE_THRESHOLD, type PriceWindow, priceWindow } from '@uyut/ai'
 import {
   checkFit,
   type DimensionsCm,
@@ -156,25 +156,32 @@ export async function matchesForObject(
     embedding,
     category: object.category,
     subcategory,
+    strictSubcategory: Boolean(subcategory),
     minPriceKopecks: window?.minKopecks,
     maxPriceKopecks: window?.maxKopecks,
     limit: MATCHES,
   })
-  let items = inBudget
-  if (inBudget.length < MIN_IN_BUDGET) {
+  let items = inBudget.filter((item) => isUsableMatch(item.similarity))
+  if (items.length < MIN_IN_BUDGET) {
     const extra = await findSimilar(db, {
       embedding,
       category: object.category,
-      limit: MATCHES - inBudget.length,
+      subcategory,
+      strictSubcategory: Boolean(subcategory),
+      limit: MATCHES - items.length,
       excludeIds: inBudget.map((item) => item.id),
     })
-    items = [...inBudget, ...extra]
+    items = [...items, ...extra.filter((item) => isUsableMatch(item.similarity))]
   }
-  const matches = await Promise.all(items.map((item) => toMatch(item, window, limits)))
+  // Каждый кандидат обязан пройти порог сам. Раньше сильный первый результат
+  // протаскивал за собой четыре слабых и визуально неверных товара.
+  const matches = await Promise.all(
+    items.slice(0, MATCHES).map((item) => toMatch(item, window, limits)),
+  )
   const best = matches[0]?.similarity ?? 0
   // Ниже порога не показываем ничего. Детектор не умеет отвечать «такого предмета здесь нет»,
   // и выдуманный ковёр тянул за собой коврик в салон автомобиля. Пустота честнее.
-  if (best < MATCH_FLOOR) {
+  if (matches.length === 0) {
     return { matches: [], window, styleOnly: false }
   }
   return { matches, window, styleOnly: best < MATCH_CONFIDENCE_THRESHOLD }

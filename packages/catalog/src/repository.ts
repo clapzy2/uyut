@@ -150,10 +150,12 @@ export type SimilarQuery = {
   limit?: number
   excludeIds?: string[]
   /**
-   * Вид предмета внутри категории. Если внутри вида набралось меньше нужного,
-   * добираем остальной категорией: пустой список хуже списка с чужими видами.
+   * Вид предмета внутри категории. По умолчанию при недоборе ищем по широкой категории;
+   * для покупок с уже известным видом это отключается через strictSubcategory.
    */
   subcategory?: CatalogSubcategory
+  /** Не подменять запрошенный вид товара соседним видом из той же категории. */
+  strictSubcategory?: boolean
   /** По какому вектору искать: вырезка с рендера сравнивается с картинкой, запрос словами — с текстом */
   by?: 'image' | 'text'
 }
@@ -172,7 +174,7 @@ export async function findSimilar(db: Database, query: SimilarQuery): Promise<Si
   // Сначала среди своего вида: обеденный стол должен сравниваться с обеденными,
   // а не с компьютерными, которых в каталоге больше половины всей категории.
   const own = await searchSimilar(db, query, limit)
-  if (own.length >= limit) {
+  if (query.strictSubcategory || own.length >= limit) {
     return own
   }
   const seen = new Set(own.map((item) => item.id))

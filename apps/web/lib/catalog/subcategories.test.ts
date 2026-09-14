@@ -12,6 +12,16 @@ describe('subcategoryFromText', () => {
     expect(subcategoryFromText('chair', 'Кресло Glasar бордовое')).toBe('armchair')
     expect(subcategoryFromText('chair', 'Стул обеденный «Роза»')).toBe('chair')
     expect(subcategoryFromText('chair', 'Стул барный «Гангток»')).toBe('stool')
+    expect(subcategoryFromText('chair', 'Стул Glasar Богемия', 'Мягкое кресло для гостиной')).toBe(
+      'chair',
+    )
+  })
+
+  it('название важнее общего текста описания', () => {
+    expect(subcategoryFromText('decor', 'Ваза Glasar', 'Для цветов и живых растений')).toBe('vase')
+    expect(subcategoryFromText('decor', 'Картина на холсте', 'Зеркальная поверхность')).toBe(
+      'picture',
+    )
   })
 
   it('шкаф, комод и стеллаж различаются', () => {

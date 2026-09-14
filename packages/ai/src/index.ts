@@ -20,6 +20,7 @@ export {
 } from './brief'
 export {
   budgetShares,
+  isUsableMatch,
   MATCH_CONFIDENCE_THRESHOLD,
   MATCH_FLOOR,
   type PriceWindow,

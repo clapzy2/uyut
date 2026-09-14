@@ -40,3 +40,8 @@ export const MATCH_CONFIDENCE_THRESHOLD = 0.55
  * и подбирали коврик в салон Peugeot и корзину для ванной. Настоящие предметы держались выше.
  */
 export const MATCH_FLOOR = 0.45
+
+/** Можно ли безопасно показать совпадение пользователю как товар для покупки. */
+export function isUsableMatch(similarity: number): boolean {
+  return Number.isFinite(similarity) && similarity >= MATCH_FLOOR
+}

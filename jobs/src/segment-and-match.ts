@@ -1,5 +1,11 @@
 import { logger, metadata, task } from '@trigger.dev/sdk'
-import { createFalDetector, createFalSegmenter, type DetectedObject, priceWindow } from '@uyut/ai'
+import {
+  createFalDetector,
+  createFalSegmenter,
+  type DetectedObject,
+  isUsableMatch,
+  priceWindow,
+} from '@uyut/ai'
 import { countItems, findSimilar, subcategoryForLabel } from '@uyut/catalog'
 import { conceptObjects, concepts, projects, rooms } from '@uyut/db'
 import { eq } from 'drizzle-orm'
@@ -260,21 +266,23 @@ export const segmentAndMatch = task({
             embedding,
             category: object.category,
             subcategory,
+            strictSubcategory: Boolean(subcategory),
             minPriceKopecks: window?.minKopecks,
             maxPriceKopecks: window?.maxKopecks,
             limit: 1,
           })
-          const candidate =
-            inBudget[0] ??
-            (
-              await findSimilar(database, {
-                embedding,
-                category: object.category,
-                subcategory,
-                limit: 1,
-              })
-            )[0]
-          if (candidate) {
+          const candidate = isUsableMatch(inBudget[0]?.similarity ?? Number.NaN)
+            ? inBudget[0]
+            : (
+                await findSimilar(database, {
+                  embedding,
+                  category: object.category,
+                  subcategory,
+                  strictSubcategory: Boolean(subcategory),
+                  limit: 1,
+                })
+              ).find((item) => isUsableMatch(item.similarity))
+          if (candidate && isUsableMatch(candidate.similarity)) {
             best = { id: candidate.id, similarity: candidate.similarity }
             matched += 1
           }
