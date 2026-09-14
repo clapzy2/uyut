@@ -33,6 +33,42 @@ describe('layoutRoom', () => {
     expect((sofa?.yCm ?? 0) + (sofa?.depthCm ?? 0)).toBeLessThanOrEqual(400)
   })
 
+  it('не ставит мебель на явно указанные проёмы', () => {
+    const layout = layoutRoom(
+      {
+        widthCm: 220,
+        depthCm: 250,
+        layoutNotes: 'Дверь слева шириной 250 см, балкон справа шириной 250 см',
+      },
+      [item({ title: 'Шкаф', dimensions: { width: 250, depth: 40, height: 200 } })],
+    )
+
+    expect(layout.reservations).toHaveLength(2)
+    expect(layout.placed).toEqual([])
+    expect(layout.problems).toContainEqual({ kind: 'noWall', title: 'Шкаф', widthCm: 250 })
+  })
+
+  it('оставляет свободной зону открывания двери перед стеной', () => {
+    const layout = layoutRoom(
+      {
+        widthCm: 310,
+        depthCm: 220,
+        layoutNotes: 'Дверь снизу шириной 90 см',
+      },
+      [
+        item({
+          title: 'Стол обеденный',
+          category: 'table',
+          subcategory: 'dining',
+          dimensions: { width: 100, depth: 60, height: 75 },
+        }),
+      ],
+    )
+
+    expect(layout.placed).toEqual([])
+    expect(layout.problems).toContainEqual({ kind: 'noCenter', title: 'Стол обеденный' })
+  })
+
   it('предмет шире любой стены не встаёт никуда, и мы это называем', () => {
     const layout = layoutRoom({ widthCm: 250, depthCm: 300 }, [
       item({ title: 'Стенка', dimensions: { width: 320, depth: 45, height: 200 } }),

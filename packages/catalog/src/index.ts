@@ -38,6 +38,11 @@ export {
 } from './layout'
 export { isBathroomFixture, isForeignListing, isNotFurniture } from './not-furniture'
 export {
+  parseWallReservations,
+  type WallReservation,
+  type WallReservationKind,
+} from './openings'
+export {
   type CatalogHealth,
   contentHash,
   countItems,

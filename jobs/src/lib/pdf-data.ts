@@ -162,7 +162,9 @@ function roomPlan(room: Room, shopping: readonly ShoppingRow[]): RoomLayout | nu
       dimensions: row.product.attributes?.dimensionsCm ?? null,
       quantity: row.item.quantity,
     }))
-  return items.length > 0 ? layoutRoom({ widthCm, depthCm }, items) : null
+  return items.length > 0
+    ? layoutRoom({ widthCm, depthCm, layoutNotes: room.measurements?.layoutNotes }, items)
+    : null
 }
 
 export type ProjectSnapshot = {

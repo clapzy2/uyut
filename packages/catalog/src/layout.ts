@@ -1,5 +1,6 @@
 import type { CatalogCategory } from '@uyut/db'
 import type { DimensionsCm } from './dimensions'
+import { parseWallReservations, type WallReservation } from './openings'
 import type { CatalogSubcategory } from './subcategories'
 
 /**
@@ -11,8 +12,8 @@ import type { CatalogSubcategory } from './subcategories'
  * стен, остаток посередине против ширины прохода. Ответ «не влезает» получается до покупки,
  * а не после доставки.
  *
- * Чего план не знает и знать не может: где дверь, где окно, куда открываются створки.
- * Поэтому свободная стена показывается числом, а не выдаётся за запас.
+ * Проёмы учитываются, когда человек явно указал стену в описании комнаты. Если сторона не
+ * названа, ничего не угадываем и не выдаём приблизительную схему за исполнительный чертёж.
  */
 
 /** Минимальный проход, по которому человек проходит не боком */
@@ -65,6 +66,8 @@ export type RoomLayout = {
   offFloor: string[]
   /** Предметы без размеров: их разместить не из чего, пока размеры не появятся */
   unmeasured: Array<{ id: string; title: string }>
+  /** Проёмы и инженерные зоны, уверенно извлечённые из описания комнаты */
+  reservations: WallReservation[]
 }
 
 /** Где предмет стоит: у стены, посреди комнаты или нигде, потому что он висит. */
@@ -335,7 +338,7 @@ function clearanceOf(entry: Sized): number {
  * а не лучшая из возможных расстановок.
  */
 export function layoutRoom(
-  room: { widthCm?: number; depthCm?: number },
+  room: { widthCm?: number; depthCm?: number; layoutNotes?: string | null },
   items: readonly LayoutItem[],
 ): RoomLayout {
   const widthCm = room.widthCm ?? 0
@@ -350,6 +353,7 @@ export function layoutRoom(
       problems: [{ kind: 'noRoomSize' }],
       offFloor: [],
       unmeasured: [],
+      reservations: [],
     }
   }
 
@@ -357,6 +361,51 @@ export function layoutRoom(
   const unmeasured: Array<{ id: string; title: string }> = []
   const problems: LayoutProblem[] = []
   const placed: Placement[] = []
+  const reservations = parseWallReservations(room.layoutNotes, { widthCm, depthCm })
+
+  type Rect = { xCm: number; yCm: number; widthCm: number; depthCm: number }
+  const overlaps = (a: Rect, b: Rect) =>
+    a.xCm < b.xCm + b.widthCm - 0.5 &&
+    b.xCm < a.xCm + a.widthCm - 0.5 &&
+    a.yCm < b.yCm + b.depthCm - 0.5 &&
+    b.yCm < a.yCm + a.depthCm - 0.5
+  const clearanceRects: Rect[] = reservations
+    .filter((reservation) => reservation.clearanceCm > 0)
+    .map((reservation) => {
+      const length = reservation.toCm - reservation.fromCm
+      switch (reservation.wall) {
+        case 'top':
+          return {
+            xCm: reservation.fromCm,
+            yCm: 0,
+            widthCm: length,
+            depthCm: reservation.clearanceCm,
+          }
+        case 'bottom':
+          return {
+            xCm: reservation.fromCm,
+            yCm: depthCm - reservation.clearanceCm,
+            widthCm: length,
+            depthCm: reservation.clearanceCm,
+          }
+        case 'left':
+          return {
+            xCm: 0,
+            yCm: reservation.fromCm,
+            widthCm: reservation.clearanceCm,
+            depthCm: length,
+          }
+        case 'right':
+          return {
+            xCm: widthCm - reservation.clearanceCm,
+            yCm: reservation.fromCm,
+            widthCm: reservation.clearanceCm,
+            depthCm: length,
+          }
+        default:
+          return { xCm: 0, yCm: 0, widthCm: 0, depthCm: 0 }
+      }
+    })
 
   const sized: Sized[] = []
   for (const item of items) {
@@ -426,6 +475,7 @@ export function layoutRoom(
   const put = (wall: LayoutWall, item: Homeless, along: number): boolean => {
     const size = sizeOnWall(wall, item.size)
     const at = cornerOf(wall, along, size, { widthCm, depthCm })
+    const rect = { ...at, ...size }
     const insideRoom =
       at.xCm >= -0.5 &&
       at.yCm >= -0.5 &&
@@ -434,14 +484,15 @@ export function layoutRoom(
     if (!insideRoom) {
       return false
     }
-    const collides = placed.some(
-      (other) =>
-        at.xCm < other.xCm + other.widthCm - 0.5 &&
-        other.xCm < at.xCm + size.widthCm - 0.5 &&
-        at.yCm < other.yCm + other.depthCm - 0.5 &&
-        other.yCm < at.yCm + size.depthCm - 0.5,
+    const blocksWall = reservations.some(
+      (reservation) =>
+        reservation.wall === wall &&
+        along < reservation.toCm - 0.5 &&
+        reservation.fromCm < along + item.size.widthCm - 0.5,
     )
-    if (collides) {
+    const collides = placed.some((other) => overlaps(rect, other))
+    const blocksAccess = clearanceRects.some((clearance) => overlaps(rect, clearance))
+    if (blocksWall || collides || blocksAccess) {
       return false
     }
     placed.push({
@@ -512,8 +563,27 @@ export function layoutRoom(
   }
 
   for (const wall of ['top', 'bottom', 'left', 'right'] as const) {
-    const span = spanOf(wall, depths, { widthCm, depthCm })
-    freeWallCm += Math.max(0, span.to - cursor[wall])
+    const wallLength = wall === 'top' || wall === 'bottom' ? widthCm : depthCm
+    const intervals = [
+      ...reservations
+        .filter((reservation) => reservation.wall === wall)
+        .map((reservation) => [reservation.fromCm, reservation.toCm] as const),
+      ...placed
+        .filter((place) => place.wall === wall)
+        .map((place) =>
+          wall === 'top' || wall === 'bottom'
+            ? ([place.xCm, place.xCm + place.widthCm] as const)
+            : ([place.yCm, place.yCm + place.depthCm] as const),
+        ),
+    ].sort((a, b) => a[0] - b[0])
+    let occupiedCm = 0
+    let endCm = 0
+    for (const [from, to] of intervals) {
+      if (to <= endCm) continue
+      occupiedCm += to - Math.max(from, endCm)
+      endCm = to
+    }
+    freeWallCm += Math.max(0, wallLength - occupiedCm)
   }
 
   const centerWidthCm = widthCm - depths.left - depths.right
@@ -537,7 +607,7 @@ export function layoutRoom(
       problems.push({ kind: 'noCenter', title: entry.item.title })
       continue
     }
-    placed.push({
+    const centerPlacement: Placement = {
       id: `${entry.item.id}-${placed.length}`,
       title: entry.item.title,
       xCm: depths.left + centerUsedCm + clearance,
@@ -545,7 +615,12 @@ export function layoutRoom(
       widthCm: entry.size.widthCm,
       depthCm: entry.size.depthCm,
       wall: 'center',
-    })
+    }
+    if (clearanceRects.some((clearanceRect) => overlaps(centerPlacement, clearanceRect))) {
+      problems.push({ kind: 'noCenter', title: entry.item.title })
+      continue
+    }
+    placed.push(centerPlacement)
     centerUsedCm += needWidth
   }
 
@@ -565,5 +640,6 @@ export function layoutRoom(
     problems,
     offFloor,
     unmeasured,
+    reservations,
   }
 }

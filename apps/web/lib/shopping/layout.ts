@@ -34,7 +34,14 @@ export async function roomLayout(
   if (items.length === 0) {
     return null
   }
-  return layoutRoom({ widthCm: measurements.widthCm, depthCm: measurements.depthCm }, items)
+  return layoutRoom(
+    {
+      widthCm: measurements.widthCm,
+      depthCm: measurements.depthCm,
+      layoutNotes: measurements.layoutNotes,
+    },
+    items,
+  )
 }
 
 /**
@@ -66,11 +73,22 @@ export function projectLayouts(
     if (items.length === 0) {
       continue
     }
-    const measurements = room.measurements as { widthCm: number; depthCm: number }
+    const measurements = room.measurements as {
+      widthCm: number
+      depthCm: number
+      layoutNotes?: string
+    }
     result.push({
       roomId: room.id,
       roomName: room.name,
-      layout: layoutRoom({ widthCm: measurements.widthCm, depthCm: measurements.depthCm }, items),
+      layout: layoutRoom(
+        {
+          widthCm: measurements.widthCm,
+          depthCm: measurements.depthCm,
+          layoutNotes: measurements.layoutNotes,
+        },
+        items,
+      ),
     })
   }
   return result

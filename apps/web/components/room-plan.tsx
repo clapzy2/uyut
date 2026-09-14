@@ -1,4 +1,4 @@
-import type { LayoutProblem, RoomLayout } from '@uyut/catalog'
+import type { LayoutProblem, LayoutWall, RoomLayout, WallReservationKind } from '@uyut/catalog'
 import { WALKWAY_CM } from '@uyut/catalog'
 import { ItemSizeForm } from '@/components/item-size-form'
 
@@ -14,6 +14,44 @@ const PADDING = 28
 const MAX_WIDTH = 520
 /** Вытянутая комната иначе растягивает страницу на полтора экрана чертежа */
 const MAX_HEIGHT = 620
+
+const RESERVATION_LABELS: Record<WallReservationKind, string> = {
+  door: 'дверь',
+  window: 'окно',
+  balcony: 'выход на балкон',
+  radiator: 'радиатор',
+  ventilation: 'вентиляция',
+}
+
+function wallLine(
+  wall: LayoutWall,
+  fromCm: number,
+  toCm: number,
+  scale: number,
+  roomWidth: number,
+  roomHeight: number,
+) {
+  switch (wall) {
+    case 'top':
+      return { x1: PADDING + fromCm * scale, y1: PADDING, x2: PADDING + toCm * scale, y2: PADDING }
+    case 'bottom':
+      return {
+        x1: PADDING + fromCm * scale,
+        y1: PADDING + roomHeight,
+        x2: PADDING + toCm * scale,
+        y2: PADDING + roomHeight,
+      }
+    case 'left':
+      return { x1: PADDING, y1: PADDING + fromCm * scale, x2: PADDING, y2: PADDING + toCm * scale }
+    case 'right':
+      return {
+        x1: PADDING + roomWidth,
+        y1: PADDING + fromCm * scale,
+        x2: PADDING + roomWidth,
+        y2: PADDING + toCm * scale,
+      }
+  }
+}
 
 /**
  * Размер предмета так, как он написан в магазине: сначала длинная сторона.
@@ -67,6 +105,50 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
             className="fill-muted stroke-ink"
             strokeWidth={2}
           />
+          {layout.reservations.map((reservation) => {
+            const line = wallLine(
+              reservation.wall,
+              reservation.fromCm,
+              reservation.toCm,
+              scale,
+              roomWidth,
+              roomHeight,
+            )
+            const length = reservation.toCm - reservation.fromCm
+            const clearance = reservation.clearanceCm
+            const isHorizontal = reservation.wall === 'top' || reservation.wall === 'bottom'
+            const clearanceX =
+              reservation.wall === 'right'
+                ? PADDING + roomWidth - clearance * scale
+                : PADDING + (isHorizontal ? reservation.fromCm : 0) * scale
+            const clearanceY =
+              reservation.wall === 'bottom'
+                ? PADDING + roomHeight - clearance * scale
+                : PADDING + (isHorizontal ? 0 : reservation.fromCm) * scale
+            return (
+              <g
+                key={`${reservation.kind}-${reservation.wall}-${reservation.fromCm}-${reservation.toCm}`}
+              >
+                {clearance > 0 ? (
+                  <rect
+                    x={clearanceX}
+                    y={clearanceY}
+                    width={(isHorizontal ? length : clearance) * scale}
+                    height={(isHorizontal ? clearance : length) * scale}
+                    className="fill-accent-tint stroke-accent"
+                    strokeWidth={1}
+                    strokeDasharray="5 4"
+                  />
+                ) : null}
+                <line
+                  {...line}
+                  className={clearance > 0 ? 'stroke-danger' : 'stroke-accent'}
+                  strokeWidth={5}
+                  strokeLinecap="round"
+                />
+              </g>
+            )
+          })}
           {layout.placed.map((place, index) => (
             <g key={place.id}>
               <rect
@@ -107,6 +189,15 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
           </li>
         ))}
       </ol>
+      {layout.reservations.length > 0 ? (
+        <p className="mt-3 text-[12px] leading-relaxed text-ink-2">
+          Учтено из описания:{' '}
+          {layout.reservations
+            .map((reservation) => RESERVATION_LABELS[reservation.kind])
+            .join(', ')}
+          . Пунктиром показан свободный подход к двери или балкону.
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -120,9 +211,10 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
       </p>
       <p className="mb-4 text-[13px] leading-relaxed text-ink-2">
         Комната {Math.round(layout.widthCm)} × {Math.round(layout.depthCm)} см и то, что вы выбрали,
-        в масштабе. Мы раскладываем крупное вдоль стен, а стол — посередине. Где на самом деле дверь
-        и окно, план не знает, поэтому свободной стены осталось {layout.freeWallCm} см, и это запас,
-        из которого ещё вычтется дверь.
+        в масштабе. Мы раскладываем крупное вдоль стен, а стол — посередине.{' '}
+        {layout.reservations.length > 0
+          ? `Указанные проёмы и инженерные зоны учтены; свободной стены осталось ${layout.freeWallCm} см.`
+          : `Расположение проёмов не указано, поэтому свободные ${layout.freeWallCm} см — предварительная оценка.`}
       </p>
 
       <RoomPlanDrawing layout={layout} />
