@@ -13,6 +13,7 @@ import {
   type RenderResult,
   renderArchitectureAnchoredBatch,
   reviewConceptImage,
+  roomRenderAspectRatio,
   type StyleEntry,
   styleLibrary,
 } from '@uyut/ai'
@@ -97,6 +98,17 @@ function renderer(override?: ConceptModelId): {
   return { renderer: createFalRenderer(requireEnv('FAL_KEY'), modelId), modelId }
 }
 
+/** Считает реальные обращения к платному рендеру, включая каждый шаг сложной правки. */
+function withRenderMeter(engine: ConceptRenderer, onRequest: () => void): ConceptRenderer {
+  return {
+    model: engine.model,
+    async render(request) {
+      onRequest()
+      return engine.render(request)
+    },
+  }
+}
+
 type Progress = { stage: string; done: number; total: number; failed: number }
 
 /**
@@ -111,6 +123,7 @@ async function renderSteps(
   steps: Array<{ prompt: string; needsObject?: boolean }>,
   imageUrl: string | undefined,
   referenceUrls: string[],
+  aspectRatio: string,
 ): Promise<RenderResult> {
   let current = imageUrl
   let last: RenderResult | null = null
@@ -122,7 +135,7 @@ async function renderSteps(
       prompt: `${step.prompt} ${KEEP_THE_REST}`,
       imageUrl: current,
       ...(withObject ? { referenceUrls } : {}),
-      aspectRatio: '16:9',
+      aspectRatio,
     })
     current = `data:${last.contentType};base64,${last.body.toString('base64')}`
   }
@@ -254,7 +267,12 @@ export const generateConcept = task({
     // Где надо сохранить комнату, там рисует модель, которая это умеет. Прежняя на той же кухне
     // рисовала чужую светлую комнату даже на прямую просьбу ничего не менять. С нуля рисуем прежней: там беречь нечего, а она дешевле.
     const preserving = Boolean(payload.editSteps) || brief.condition === 'keep'
-    const { renderer: engine, modelId } = renderer(preserving ? 'gpt-image-2.5' : undefined)
+    const { renderer: rawEngine, modelId } = renderer(preserving ? 'gpt-image-2.5' : undefined)
+    let renderRequests = 0
+    let reviewRequests = 0
+    const engine = withRenderMeter(rawEngine, () => {
+      renderRequests += 1
+    })
     const created = await database
       .insert(concepts)
       .values(
@@ -302,6 +320,7 @@ export const generateConcept = task({
     const objectUrls = attached
       ? [`data:${attached.contentType};base64,${attached.body.toString('base64')}`]
       : []
+    const aspectRatio = roomRenderAspectRatio(brief)
 
     let done = 0
     let failed = 0
@@ -315,7 +334,7 @@ export const generateConcept = task({
     const anchorItems = created.map((concept) => ({
       prompt: concept.prompt,
       seed: 1000 + concept.orderIndex,
-      aspectRatio: '16:9',
+      aspectRatio,
     }))
     const anchored =
       !imageUrl && !payload.editSteps && !preserving && anchorItems.length > 0
@@ -348,13 +367,13 @@ export const generateConcept = task({
             if (!anchoredResult) throw new Error('нет результата варианта')
             result = await anchoredResult
           } else if (payload.editSteps) {
-            result = await renderSteps(engine, payload.editSteps, imageUrl, objectUrls)
+            result = await renderSteps(engine, payload.editSteps, imageUrl, objectUrls, aspectRatio)
           } else {
             result = await engine.render({
               prompt: concept.prompt,
               imageUrl,
               seed: 1000 + concept.orderIndex,
-              aspectRatio: '16:9',
+              aspectRatio,
             })
           }
           const base = `projects/${project.id}/rooms/${room.id}/concepts/${concept.id}`
@@ -365,6 +384,7 @@ export const generateConcept = task({
             .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
             .jpeg({ quality: 85 })
             .toBuffer()
+          reviewRequests += 1
           const qualityReview = await reviewConceptImage(
             requireEnv('FAL_KEY'),
             { body: reviewImage, contentType: 'image/jpeg' },
@@ -418,8 +438,27 @@ export const generateConcept = task({
     )
 
     publish({ stage: 'done', done, total: created.length, failed })
-    const usd = conceptModels[modelId].usdPerImage * created.length
-    logger.info('batch finished', { batchId: payload.batchId, done, failed, usd })
-    return { batchId: payload.batchId, done, failed, usd }
+    // fal не отдаёт фактически списанную сумму в ответе задачи. Это верхняя оценка по числу
+    // отправленных запросов: отклонённый до постановки в очередь запрос мог не списаться.
+    const renderUsdEstimate = Number(
+      (conceptModels[modelId].usdPerImage * renderRequests).toFixed(4),
+    )
+    logger.info('batch finished', {
+      batchId: payload.batchId,
+      done,
+      failed,
+      modelId,
+      renderRequests,
+      reviewRequests,
+      renderUsdEstimate,
+    })
+    return {
+      batchId: payload.batchId,
+      done,
+      failed,
+      usd: renderUsdEstimate,
+      renderRequests,
+      reviewRequests,
+    }
   },
 })

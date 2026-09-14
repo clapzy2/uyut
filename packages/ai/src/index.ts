@@ -122,6 +122,7 @@ export {
   createTemplatePromptBuilder,
   fixedPreamble,
   mandateSentence,
+  roomRenderAspectRatio,
   styleOrDefault,
 } from './prompt'
 export {

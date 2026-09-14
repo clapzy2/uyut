@@ -1,5 +1,5 @@
 /**
- * Standalone QA, no database writes or uploads. --generate allows exactly six renders.
+ * Standalone QA, no database writes or uploads. --generate allows exactly nine renders.
  * Existing HTTPS URLs or WebP data URLs arrive on stdin and never enter the report.
  * Cached images/results prevent repeated charges when continuing an interrupted run.
  */
@@ -10,12 +10,14 @@ import {
   createFalRenderer,
   createPromptBuilder,
   reviewConceptImage,
+  roomRenderAspectRatio,
   styleLibrary,
 } from '@uyut/ai'
 import sharp from 'sharp'
 import { qualityBenchCases } from './quality-bench-cases'
 
 const directory = resolve(process.env.QUALITY_BENCH_DIR ?? 'output/quality-bench')
+const BENCH_VERSION = 2
 function requireApiKey(): string {
   const key = process.env.FAL_KEY
   if (!key) throw new Error('FAL_KEY required')
@@ -23,6 +25,10 @@ function requireApiKey(): string {
 }
 const apiKey = requireApiKey()
 await mkdir(directory, { recursive: true })
+const selectedCase = process.env.QUALITY_BENCH_CASE
+if (selectedCase && !/^[a-z0-9-]{1,70}$/.test(selectedCase)) {
+  throw new Error('Invalid QUALITY_BENCH_CASE')
+}
 type Sample = {
   id: string
   kind: ConceptBrief['roomKind']
@@ -60,6 +66,7 @@ if (process.argv.includes('--generate')) {
   const style = styleLibrary[1]
   if (!style) throw new Error('Missing style')
   for (const item of qualityBenchCases) {
+    if (selectedCase && item.id !== selectedCase) continue
     samples.push({
       id: item.id,
       kind: item.kind,
@@ -74,7 +81,7 @@ if (process.argv.includes('--generate')) {
         sizeCm: { widthCm: item.width, depthCm: item.depth, ceilingCm: 270 },
         layoutNotes: item.layoutNotes,
         budgetKopecks: 80000000,
-        household: null,
+        household: item.household,
         primaryStyle: style,
         secondaryStyles: [],
         families: [style.family],
@@ -89,12 +96,16 @@ const builder = createPromptBuilder({ falKey: apiKey })
 async function run(sample: Sample) {
   const imagePath = join(directory, `${sample.id}.webp`)
   const resultPath = join(directory, `${sample.id}.json`)
-  if (
-    await readFile(resultPath).then(
-      () => true,
-      () => false,
+  const cached = await readFile(resultPath, 'utf8')
+    .then(
+      (raw) =>
+        JSON.parse(raw) as {
+          benchVersion?: unknown
+          review?: { status?: unknown }
+        },
     )
-  ) {
+    .catch(() => null)
+  if (cached?.benchVersion === BENCH_VERSION && cached.review?.status !== 'unavailable') {
     console.log(JSON.stringify({ id: sample.id, status: 'cached' }))
     return
   }
@@ -108,7 +119,8 @@ async function run(sample: Sample) {
         JSON.stringify({ brief: sample.brief, prompt, source: plan.source }, null, 2),
       )
       console.log(JSON.stringify({ id: sample.id, stage: 'render', promptSource: plan.source }))
-      body = (await engine.render({ prompt, aspectRatio: '16:9' })).body
+      body = (await engine.render({ prompt, aspectRatio: roomRenderAspectRatio(sample.brief) }))
+        .body
     } else if (sample.url) {
       const response = await fetch(sample.url, { signal: AbortSignal.timeout(20000) })
       if (!response.ok) throw new Error(`Sample request failed: ${response.status}`)
@@ -128,11 +140,15 @@ async function run(sample: Sample) {
   const review = await reviewConceptImage(apiKey, image, {
     roomKind: sample.kind,
     layoutNotes: sample.layoutNotes,
+    notes: sample.brief?.notes,
+    revision: sample.brief?.revision,
+    household: sample.brief?.household,
   })
   // Wrong-kind controls are separate requests, never counted as additional images.
   const controlKind = sample.kind === 'kitchen' ? 'bedroom' : 'kitchen'
   const control = await reviewConceptImage(apiKey, image, { roomKind: controlKind })
   const result = {
+    benchVersion: BENCH_VERSION,
     id: sample.id,
     kind: sample.kind,
     source: sample.brief ? 'synthetic-generation' : 'existing-concept',
@@ -160,7 +176,11 @@ for (let index = 0; index < samples.length; index += 2) {
       run(sample).catch((error) => {
         failures++
         console.error(
-          JSON.stringify({ id: sample.id, error: error instanceof Error ? error.name : 'Error' }),
+          JSON.stringify({
+            id: sample.id,
+            error: error instanceof Error ? error.name : 'Error',
+            message: error instanceof Error ? error.message.slice(0, 300) : 'Unknown error',
+          }),
         )
       }),
     ),

@@ -6,6 +6,7 @@ import {
   fixedPreamble,
   mandateSentence,
   nearestStyles,
+  roomRenderAspectRatio,
   styleLibrary,
   styleTagsFromVector,
   styleVector,
@@ -85,6 +86,9 @@ describe('buildTemplatePlan', () => {
     const plan = buildTemplatePlan(brief({ hasPhoto: false, layoutNotes }), 3)
     expect(plan.shared).toContain(layoutNotes)
     expect(plan.shared).toContain('not the camera')
+    expect(plan.shared).toContain('make a checklist of every stated window, door, entrance')
+    expect(plan.shared).toContain('exactly the stated number and kinds of openings')
+    expect(plan.shared).toContain('merge adjacent openings into panoramic glazing')
     expect(plan.shared).toContain('Do not mirror the plan')
     expect(plan.shared).not.toContain('one ordinary apartment window')
     expect(fixedPreamble(brief({ hasPhoto: true, layoutNotes }))).not.toContain(layoutNotes)
@@ -214,6 +218,45 @@ describe('buildTemplatePlan', () => {
     expect(plan.shared).toContain('desk for working from home')
   })
 
+  it('для кухни явно считает посадочные места по числу жителей', () => {
+    const plan = buildTemplatePlan(
+      brief({
+        roomKind: 'kitchen',
+        hasPhoto: false,
+        sizeCm: { widthCm: 208, depthCm: 260 },
+        household: { adults: 2, kids: 1, cookHome: true },
+      }),
+      3,
+    )
+    expect(plan.shared).toContain('exactly 3 usable dining seats')
+    expect(plan.shared).toContain('folding, stackable or built into a wall-side table')
+    expect(plan.shared).toContain('none may stand in the walking route')
+  })
+
+  it('не размножает детский уголок, рабочий стол и место питомца по каждой комнате', () => {
+    const household = {
+      adults: 2,
+      kids: 1,
+      pets: true,
+      wfh: true,
+      cookHome: true,
+    }
+    const kitchen = buildTemplatePlan(
+      brief({ roomKind: 'kitchen', household, hasPhoto: false }),
+      1,
+    ).shared
+    expect(kitchen).toContain('exactly 3 usable dining seats')
+    expect(kitchen).toContain('generous worktop space')
+    expect(kitchen).not.toContain('safe corner for a child')
+    expect(kitchen).not.toContain('cosy spot for a pet')
+    expect(kitchen).not.toContain('desk for working from home')
+
+    const living = buildTemplatePlan(brief({ roomKind: 'living', household }), 1).shared
+    expect(living).toContain('safe corner for a child')
+    expect(living).toContain('cosy spot for a pet')
+    expect(living).toContain('desk for working from home')
+  })
+
   it('уровень мебели зависит от бюджета', () => {
     expect(buildTemplatePlan(brief({ budgetKopecks: 200_000_00 }), 1).shared).toContain(
       'mass-market',
@@ -316,6 +359,29 @@ describe('fixedPreamble', () => {
     const text = fixedPreamble(brief({ hasPhoto: false }))
     expect(text).toContain('about 18 square metres')
     expect(text).not.toContain('Keep the exact camera angle')
+  })
+})
+
+describe('формат кадра по форме комнаты', () => {
+  it('не растягивает почти квадратную маленькую кухню широким холстом', () => {
+    expect(roomRenderAspectRatio({ hasPhoto: false, sizeCm: { widthCm: 215, depthCm: 240 } })).toBe(
+      '4:3',
+    )
+  })
+
+  it('выбирает более широкий кадр только для действительно вытянутой комнаты', () => {
+    expect(roomRenderAspectRatio({ hasPhoto: false, sizeCm: { widthCm: 180, depthCm: 300 } })).toBe(
+      '3:2',
+    )
+    expect(roomRenderAspectRatio({ hasPhoto: false, sizeCm: { widthCm: 240, depthCm: 550 } })).toBe(
+      '16:9',
+    )
+  })
+
+  it('при редактировании фотографии сохраняет исходный формат', () => {
+    expect(roomRenderAspectRatio({ hasPhoto: true, sizeCm: { widthCm: 215, depthCm: 240 } })).toBe(
+      'auto',
+    )
   })
 })
 
