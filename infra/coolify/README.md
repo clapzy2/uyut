@@ -94,7 +94,7 @@ Coolify ставит перед приложением обратный прок
 | Переменная | Значение |
 |---|---|
 | `FAL_KEY` | ключ fal.ai; без него генерация вариантов недоступна |
-| `CONCEPT_MODEL` | `nano-banana-2` (по умолчанию) или `kontext-pro` |
+| `CONCEPT_MODEL` | `gpt-image-2.5-sunburst` (по умолчанию) или резервный `nano-banana-2` |
 | `VOYAGE_API_KEY` | ключ Voyage AI для подбора товаров по картинке |
 | `TRIGGER_SECRET_KEY` | ключ окружения Trigger.dev; без него не запускаются фоновые задачи |
 | `ANTHROPIC_API_KEY` | не используется, оставить пустым: модели вызываются через fal |

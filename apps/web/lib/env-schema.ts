@@ -30,7 +30,9 @@ export const serverEnvSchema = z.object({
   // Внешние модели. Пустое значение означает «ключа нет»: приложение поднимается и работает
   // на запасных вариантах, чтобы разработка и CI не зависели от платных сервисов.
   FAL_KEY: optionalText,
-  CONCEPT_MODEL: z.enum(['nano-banana-2', 'kontext-pro']).default('nano-banana-2'),
+  CONCEPT_MODEL: z
+    .enum(['gpt-image-2.5-sunburst', 'nano-banana-2'])
+    .default('gpt-image-2.5-sunburst'),
   ANTHROPIC_API_KEY: optionalText,
   VOYAGE_API_KEY: optionalText,
   TRIGGER_SECRET_KEY: optionalText,

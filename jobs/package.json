@@ -16,6 +16,7 @@
     "bench-crop": "bun --env-file=../.env run scripts/bench-crop.ts",
     "bench-plans": "bun --env-file=../.env run scripts/bench-plans.ts",
     "bench-models": "bun --env-file=../.env run scripts/bench-render-models.ts",
+    "bench-reference-models": "bun --env-file=../.env run scripts/bench-reference-models.ts",
     "catalog:embed": "bun --env-file=../.env run scripts/embed-catalog.ts",
     "try-match": "bun --env-file=../.env run scripts/try-match.ts",
     "match-concept": "bun --env-file=../.env run scripts/match-concept.ts",

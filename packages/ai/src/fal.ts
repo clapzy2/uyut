@@ -1,8 +1,8 @@
 import { downloadFalFile, FalError, falQueue } from './fal-queue'
 import type { ConceptRenderer, RenderRequest, RenderResult } from './types'
 
-// Движки генерации. Выбор проверен на реальной комнате: Nano Banana 2 держит геометрию и лучше
-// понимает инструкции, Kontext Pro точнее в мелочах и дешевле, поэтому стоит запасным.
+// Движки генерации. Финалисты проверены на трёх реальных комнатах по два запуска:
+// Sunburst стабильнее сохранил стационарные элементы, Nano Banana 2 оставлен резервным.
 export const conceptModels = {
   'nano-banana-2': {
     label: 'Nano Banana 2',

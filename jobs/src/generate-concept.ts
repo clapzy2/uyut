@@ -93,8 +93,9 @@ function renderer(override?: ConceptModelId): {
   renderer: ConceptRenderer
   modelId: ConceptModelId
 } {
-  const raw = process.env.CONCEPT_MODEL ?? 'nano-banana-2'
-  const modelId: ConceptModelId = override ?? (isConceptModelId(raw) ? raw : 'nano-banana-2')
+  const raw = process.env.CONCEPT_MODEL ?? 'gpt-image-2.5-sunburst'
+  const modelId: ConceptModelId =
+    override ?? (isConceptModelId(raw) ? raw : 'gpt-image-2.5-sunburst')
   return { renderer: createFalRenderer(requireEnv('FAL_KEY'), modelId), modelId }
 }
 
