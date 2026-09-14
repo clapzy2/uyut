@@ -175,6 +175,9 @@ function mergeMeasurements(
   read: RoomMeasurements | null,
 ): RoomMeasurements | null {
   const merged: RoomMeasurements = { ...(before ?? {}) }
+  if (read?.layoutNotes !== undefined) {
+    merged.layoutNotes = read.layoutNotes
+  }
   if (read?.ceilingCm !== undefined) {
     merged.ceilingCm = read.ceilingCm
   }
@@ -343,6 +346,16 @@ export type RoomPatch = {
 export async function updateRoom(userId: string, roomId: string, patch: RoomPatch): Promise<Room> {
   const room = await getRoom(userId, roomId)
   requireOwner(room.role)
+  // Старые открытые формы ещё не отправляют описание архитектуры. Отсутствие поля
+  // его не стирает; пустая строка из новой формы — явная команда очистить.
+  if (patch.measurements !== undefined && patch.measurements?.layoutNotes === undefined) {
+    if (room.measurements?.layoutNotes !== undefined) {
+      patch = {
+        ...patch,
+        measurements: { ...patch.measurements, layoutNotes: room.measurements.layoutNotes },
+      }
+    }
+  }
   const [updated] = await getDb().update(rooms).set(patch).where(eq(rooms.id, room.id)).returning()
   await touchProject(room.projectId)
   return updated ?? room

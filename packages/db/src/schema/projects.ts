@@ -53,6 +53,7 @@ export type ProjectContact = {
 export type PlanRoomReading = {
   name: string
   kind: RoomKind
+  layoutNotes?: string
   widthCm?: number
   depthCm?: number
   areaM2?: number
@@ -128,6 +129,8 @@ export type RoomSpot = { name: string; widthCm: number }
  * spots — отдельные простенки, их с плана не прочитать, их меряют руками.
  */
 export type RoomMeasurements = {
+  /** Окна, двери и форма относительно ориентации плана, не точная геометрическая модель. */
+  layoutNotes?: string
   ceilingCm?: number
   widthCm?: number
   depthCm?: number

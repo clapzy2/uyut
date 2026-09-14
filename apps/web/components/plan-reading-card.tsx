@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { confirmPlanRooms, forgetPlanReading, readPlan } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
+import { RoomLayoutField } from '@/components/room-layout-field'
 import {
   mvpRoomKinds,
   roomConditionHints,
@@ -130,6 +131,7 @@ export function PlanReadingCard({
         depthCm: row.depth,
         areaM2: row.area,
         wish: row.wish,
+        layoutNotes: row.layoutNotes,
       })),
     })
     setSaving(false)
@@ -160,8 +162,8 @@ export function PlanReadingCard({
       <div className="mt-6 border-t border-line pt-6">
         <p className="text-[15px] leading-relaxed text-ink-2">
           {confirmed
-            ? 'Размеры с этого плана уже перенесены в комнаты. Прочитать заново можно в любой момент: комнаты добавятся к тем, что есть.'
-            : 'Мы умеем читать размеры прямо с плана: комнаты, стены и высоту потолка. Вы всё увидите и поправите до того, как что-то появится в проекте.'}
+            ? 'Данные с плана уже перенесены в комнаты. При повторном чтении обновим совпавшие комнаты, остальные предложим добавить. Окна и двери можно уточнить и в мерках комнаты.'
+            : 'Прочитаем размеры, высоту потолка, видимые окна и двери. Вы сможете сверить и поправить результат перед сохранением.'}
         </p>
         {planIsPdf ? (
           <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
@@ -327,6 +329,16 @@ export function PlanReadingCard({
                   />
                 </label>
               </div>
+
+              {row.include ? (
+                <div className="mt-4 min-w-0 pl-[30px]">
+                  <RoomLayoutField
+                    id={`plan-layout-${index}`}
+                    value={row.layoutNotes}
+                    onChange={(layoutNotes) => patch(index, { layoutNotes })}
+                  />
+                </div>
+              ) : null}
 
               {row.include ? (
                 <label className="mt-3 block pl-[30px] text-[13px] text-ink-2">

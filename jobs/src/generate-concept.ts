@@ -274,6 +274,7 @@ export const generateConcept = task({
       revision: payload.revision ?? null,
       hasPhoto: Boolean(base ?? room.photoUrl),
       ...(room.measurements ? { sizeCm: room.measurements } : {}),
+      ...(room.measurements?.layoutNotes ? { layoutNotes: room.measurements.layoutNotes } : {}),
       budgetKopecks: project.budgetKopecks,
       household: project.household ?? null,
       primaryStyle: primary,

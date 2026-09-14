@@ -1,6 +1,7 @@
 import {
   buildTemplatePlan,
   type ConceptBrief,
+  createFalLlmPromptBuilder,
   fixedPreamble,
   mandateSentence,
   nearestStyles,
@@ -8,7 +9,7 @@ import {
   styleTagsFromVector,
   styleVector,
 } from '@uyut/ai'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 function brief(patch: Partial<ConceptBrief> = {}): ConceptBrief {
   const primary = styleLibrary[1]
@@ -78,6 +79,66 @@ describe('styleVector', () => {
 })
 
 describe('buildTemplatePlan', () => {
+  it('передаёт архитектуру во все концепты без фото, но не подменяет ею фото', () => {
+    const layoutNotes = 'Два окна на нижней стене, дверь слева.'
+    const plan = buildTemplatePlan(brief({ hasPhoto: false, layoutNotes }), 3)
+    expect(plan.shared).toContain(layoutNotes)
+    expect(plan.shared).toContain('not the camera')
+    expect(plan.shared).toContain('Do not mirror the plan')
+    expect(plan.shared).not.toContain('one ordinary apartment window')
+    expect(fixedPreamble(brief({ hasPhoto: true, layoutNotes }))).not.toContain(layoutNotes)
+    expect(fixedPreamble(brief({ hasPhoto: false }))).toContain(
+      'illustrative layout, not a reconstruction',
+    )
+  })
+
+  it('не навязывает узкой спальне кухонную расстановку', () => {
+    const text = fixedPreamble(
+      brief({ hasPhoto: false, roomKind: 'bedroom', sizeCm: { widthCm: 220, depthCm: 420 } }),
+    )
+    expect(text).not.toContain('one-wall or shallow L-shaped')
+  })
+
+  it('LLM получает размеры и архитектуру; они остаются в итоговом промпте', async () => {
+    const layoutNotes = 'Окно снизу, дверь слева.'
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        Response.json({
+          status_url: 'https://queue.fal.run/status',
+          response_url: 'https://queue.fal.run/result',
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ status: 'COMPLETED' }))
+      .mockResolvedValueOnce(
+        Response.json({
+          output: JSON.stringify({
+            style: 'Warm natural wood and matte cream finishes with compact furniture.',
+            variations: ['Layout one.', 'Layout two.', 'Layout three.'],
+          }),
+        }),
+      )
+    try {
+      const plan = await createFalLlmPromptBuilder('test-key').build(
+        brief({
+          hasPhoto: false,
+          layoutNotes,
+          sizeCm: { widthCm: 208, depthCm: 260 },
+          roomKind: 'kitchen',
+        }),
+        3,
+      )
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+      expect(body.prompt).toContain(layoutNotes)
+      expect(body.prompt).toContain('2.1 metres wide and 2.6 metres deep')
+      expect(body.prompt).toContain('no island')
+      expect(plan.source).toBe('claude')
+      expect(plan.shared).toContain(layoutNotes)
+      expect(plan.variations).toHaveLength(3)
+    } finally {
+      fetchMock.mockRestore()
+    }
+  })
   it('просит сделать ремонт, когда отделка черновая', () => {
     const plan = buildTemplatePlan(brief(), 5)
     expect(plan.source).toBe('template')

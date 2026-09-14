@@ -120,6 +120,7 @@ export async function updateRoomMeasurements(
     .map((spot) => ({ name: spot.name, widthCm: spot.widthCm as number }))
   const { ceilingCm, widthCm, depthCm } = parsed.data
   const measurements = {
+    ...(parsed.data.layoutNotes === undefined ? {} : { layoutNotes: parsed.data.layoutNotes }),
     ...(ceilingCm === null ? {} : { ceilingCm }),
     ...(widthCm === null ? {} : { widthCm }),
     ...(depthCm === null ? {} : { depthCm }),

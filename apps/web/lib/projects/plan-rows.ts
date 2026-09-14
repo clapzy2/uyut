@@ -11,6 +11,7 @@ export type PlanRow = {
   area: string
   /** Чего человек хочет в этой комнате: уходит в заметки комнаты и оттуда в задание модели */
   wish: string
+  layoutNotes: string
   suspicious: boolean
   /** Сторона или обе, которые пришлось перечитать отдельным вопросом, чтобы площадь сошлась */
   rechecked?: 'width' | 'depth' | 'both'
@@ -108,6 +109,7 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
       // В полях площади человек пишет через запятую, и прочитанное должно выглядеть так же
       area: room.areaM2 ? String(room.areaM2).replace('.', ',') : '',
       wish: match?.notes ?? '',
+      layoutNotes: room.layoutNotes ?? '',
       suspicious: room.suspicious === true,
       ...(unsupported
         ? { unsupportedReason: room.utility ? ('utility' as const) : ('kind' as const) }

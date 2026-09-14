@@ -229,6 +229,7 @@ export async function confirmPlanRooms(
         ...(room.widthCm === null ? {} : { widthCm: room.widthCm }),
         ...(room.depthCm === null ? {} : { depthCm: room.depthCm }),
         ...(room.areaM2 === null ? {} : { areaM2: room.areaM2 }),
+        ...(room.layoutNotes === undefined ? {} : { layoutNotes: room.layoutNotes }),
       })),
       readAt: project.planReading?.readAt ?? new Date().toISOString(),
       confirmedAt: new Date().toISOString(),
@@ -237,6 +238,7 @@ export async function confirmPlanRooms(
       reading,
       rooms: chosen.map((room) => {
         const measurements: RoomMeasurements = {
+          ...(room.layoutNotes === undefined ? {} : { layoutNotes: room.layoutNotes }),
           ...(ceilingCm === null ? {} : { ceilingCm }),
           ...(room.widthCm === null ? {} : { widthCm: room.widthCm }),
           ...(room.depthCm === null ? {} : { depthCm: room.depthCm }),

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { updateRoomMeasurements } from '@/actions/rooms'
 import { FormError } from '@/components/form-error'
+import { RoomLayoutField } from '@/components/room-layout-field'
 
 type Row = { name: string; width: string }
 
@@ -41,6 +42,7 @@ export function RoomMeasurementsForm({
   )
   const [width, setWidth] = useState(measurements?.widthCm ? String(measurements.widthCm) : '')
   const [depth, setDepth] = useState(measurements?.depthCm ? String(measurements.depthCm) : '')
+  const [layoutNotes, setLayoutNotes] = useState(measurements?.layoutNotes ?? '')
   const [rows, setRows] = useState<Row[]>(() => initialRows(measurements))
   const [error, setError] = useState<string | undefined>(undefined)
   const [saving, setSaving] = useState(false)
@@ -57,6 +59,7 @@ export function RoomMeasurementsForm({
       ceilingCm: ceiling,
       widthCm: width,
       depthCm: depth,
+      layoutNotes,
       spots: rows.map((row) => ({ name: row.name, widthCm: row.width })),
     })
     setSaving(false)
@@ -152,6 +155,8 @@ export function RoomMeasurementsForm({
           ))}
         </datalist>
       </div>
+
+      <RoomLayoutField id={`room-layout-${roomId}`} value={layoutNotes} onChange={setLayoutNotes} />
 
       <FormError message={error} />
 

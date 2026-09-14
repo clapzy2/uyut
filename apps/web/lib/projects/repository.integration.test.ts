@@ -7,6 +7,7 @@ import { NotFoundError } from './access'
 import {
   createProject,
   createRoom,
+  createRoomsFromPlan,
   deleteProject,
   deleteRoom,
   getProject,
@@ -78,6 +79,36 @@ describe('project isolation between users', () => {
     )
     await expect(deleteProject(bob, projectId)).rejects.toBeInstanceOf(NotFoundError)
     expect((await getProject(alice, projectId)).title).toBe('Квартира Алисы')
+  })
+
+  it('сохраняет архитектуру из плана, не теряет участки стен и поддерживает очистку', async () => {
+    await updateRoom(alice, roomId, { measurements: { spots: [{ name: 'ниша', widthCm: 140 }] } })
+    const input = {
+      reading: { rooms: [], readAt: new Date().toISOString() },
+      rooms: [
+        {
+          roomId,
+          name: 'Гостиная',
+          kind: 'living' as const,
+          condition: 'bare' as const,
+          areaM2: 18.5,
+          notes: null,
+          measurements: { widthCm: 350, layoutNotes: 'Окно снизу, вход слева.' },
+        },
+      ],
+    }
+    await expect(createRoomsFromPlan(bob, projectId, input)).rejects.toBeInstanceOf(NotFoundError)
+    await createRoomsFromPlan(alice, projectId, input)
+    expect((await getRoom(alice, roomId)).measurements).toMatchObject({
+      layoutNotes: 'Окно снизу, вход слева.',
+      widthCm: 350,
+      spots: [{ name: 'ниша', widthCm: 140 }],
+    })
+    // Сохранение со старой открытой формы не удаляет новые данные.
+    await updateRoom(alice, roomId, { measurements: { widthCm: 360 } })
+    expect((await getRoom(alice, roomId)).measurements?.layoutNotes).toBe('Окно снизу, вход слева.')
+    await updateRoom(alice, roomId, { measurements: { widthCm: 360, layoutNotes: '' } })
+    expect((await getRoom(alice, roomId)).measurements?.layoutNotes).toBe('')
   })
 
   it('treats garbage ids as not found instead of crashing', async () => {

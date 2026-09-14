@@ -7,6 +7,16 @@ function reading(rooms: PlanReading['rooms']): PlanReading {
 }
 
 describe('planRows', () => {
+  it('передаёт архитектуру в редактируемое поле, старый план оставляет его пустым', () => {
+    const [row, legacy] = planRows(
+      reading([
+        { name: 'Кухня', kind: 'kitchen', layoutNotes: 'Окно снизу, дверь слева' },
+        { name: 'Гостиная', kind: 'living' },
+      ]),
+    )
+    expect(row?.layoutNotes).toBe('Окно снизу, дверь слева')
+    expect(legacy?.layoutNotes).toBe('')
+  })
   it('числа становятся текстом полей, площадь через запятую', () => {
     const [row] = planRows(
       reading([{ name: 'Гостиная', kind: 'living', widthCm: 383, depthCm: 425, areaM2: 16.3 }]),

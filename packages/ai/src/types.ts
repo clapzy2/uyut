@@ -18,6 +18,8 @@ export type ConceptBrief = {
    * а двенадцать метров — это и вытянутый пенал, и почти квадрат.
    */
   sizeCm?: { widthCm?: number; depthCm?: number; ceilingCm?: number }
+  /** Описание архитектуры с плана, проверенное пользователем. Не точные координаты. */
+  layoutNotes?: string
   budgetKopecks: number | null
   household: {
     adults?: number

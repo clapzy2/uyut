@@ -1,7 +1,50 @@
 import { describe, expect, it } from 'vitest'
-import { projectSettingsSchema, roomSchema } from './projects'
+import {
+  planRoomsSchema,
+  projectSettingsSchema,
+  roomMeasurementsSchema,
+  roomSchema,
+} from './projects'
 
 describe('project validation', () => {
+  it('проверяет описание архитектуры в мерках и при подтверждении плана', () => {
+    const measurements = {
+      ceilingCm: '',
+      widthCm: '208',
+      depthCm: '260',
+      layoutNotes: '  Окно снизу  ',
+    }
+    expect(roomMeasurementsSchema.parse(measurements).layoutNotes).toBe('Окно снизу')
+    expect(
+      roomMeasurementsSchema.safeParse({ ...measurements, layoutNotes: 'x'.repeat(801) }).success,
+    ).toBe(false)
+    expect(roomMeasurementsSchema.parse({ ...measurements, layoutNotes: '' }).layoutNotes).toBe('')
+    expect(
+      roomMeasurementsSchema.parse({ ...measurements, layoutNotes: undefined }).layoutNotes,
+    ).toBeUndefined()
+    const plan = {
+      ceilingCm: '',
+      condition: 'bare',
+      rooms: [
+        {
+          include: true,
+          roomId: '',
+          name: 'Кухня',
+          kind: 'kitchen',
+          widthCm: '208',
+          depthCm: '260',
+          areaM2: '5,4',
+          wish: '',
+          layoutNotes: 'Окно снизу',
+        },
+      ],
+    }
+    expect(planRoomsSchema.parse(plan).rooms[0]?.layoutNotes).toBe('Окно снизу')
+    expect(
+      planRoomsSchema.safeParse({ ...plan, rooms: [{ ...plan.rooms[0], layoutNotes: 42 }] })
+        .success,
+    ).toBe(false)
+  })
   it('turns empty optional fields into null and accepts a comma decimal', () => {
     const result = projectSettingsSchema.parse({
       title: '  Квартира на Ленина ',

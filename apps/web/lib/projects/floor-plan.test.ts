@@ -16,6 +16,32 @@ function answer(rooms: unknown[], ceilingMm: number | null = 2700): string {
   return JSON.stringify({ ceilingMm, rooms })
 }
 
+describe('описание архитектуры с плана', () => {
+  it('сохраняет проёмы при расчёте сторон и объединении страниц', () => {
+    const layoutNotes = 'Окно снизу, вход слева. Справа выступ.'
+    const reading = parseFloorPlan(
+      answer([{ name: 'Кухня', areaM2: 5.4, aspect: 0.8, layoutNotes }]),
+    )
+    const merged = mergeReadings([reading])
+    expect(merged.rooms[0]?.layoutNotes).toBe(layoutNotes)
+    expect(merged.rooms[0]?.estimated).toEqual(['width', 'depth'])
+  })
+
+  it('не превращает неизвестные проёмы в выдуманное описание', () => {
+    for (const layoutNotes of [undefined, null, 42, {}, '   ']) {
+      const reading = parseFloorPlan(answer([{ name: 'Кухня', areaM2: 5.4, layoutNotes }]))
+      expect(reading.rooms[0]?.layoutNotes).toBeUndefined()
+    }
+  })
+
+  it('ограничивает длину ответа модели', () => {
+    const reading = parseFloorPlan(
+      answer([{ name: 'Кухня', areaM2: 5.4, layoutNotes: 'x'.repeat(900) }]),
+    )
+    expect(reading.rooms[0]?.layoutNotes).toHaveLength(800)
+  })
+})
+
 describe('roomKindFromName', () => {
   it('узнаёт комнаты по названию с плана', () => {
     expect(roomKindFromName('Спальня 2')).toBe('bedroom')
