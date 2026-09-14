@@ -10,7 +10,7 @@ const roomNouns: Record<ConceptBrief['roomKind'], string> = {
 }
 
 const TAIL =
-  'Realistic interior photograph, natural daylight, no people, no text, no watermarks, no logos.'
+  'Realistic interior photograph. Use lighting consistent with the reference photo and stated architecture; daylight only through existing windows, artificial lighting in windowless rooms. Never add openings just to light the scene. No people, no text, no watermarks, no logos.'
 
 function budgetHint(kopecks: number | null): string {
   if (kopecks === null) {
@@ -62,7 +62,7 @@ function householdNeeds(brief: ConceptBrief): string[] {
  * получается узкой, и расстановка на картинке хотя бы похожа на возможную.
  */
 function sizeSentence(brief: ConceptBrief): string {
-  const metres = (cm?: number) => (cm && cm > 0 ? (cm / 100).toFixed(1) : null)
+  const metres = (cm?: number) => (cm && Number.isFinite(cm) && cm > 0 ? String(cm / 100) : null)
   const width = metres(brief.sizeCm?.widthCm)
   const depth = metres(brief.sizeCm?.depthCm)
   const ceiling = metres(brief.sizeCm?.ceilingCm)
@@ -130,8 +130,8 @@ export function fixedPreamble(brief: ConceptBrief): string {
       'Keep the exact camera angle, the room proportions and all window and door openings in the same places:',
       'the same window shape, the same number of sashes, the same wall around it.',
       'Finish the ceiling: smooth, painted matte white, no cables, no exposed concrete.',
-      'Remove the protective film and stickers from the window: clean glass, soft daylight,',
-      'a calm view outside.',
+      'If a window is visible, remove its protective film and stickers: clean glass and a calm view outside.',
+      'Do not add a window where none exists; use artificial lighting in windowless rooms.',
     ].join(' ')
   }
   // Технику и радиаторы при смене интерьера не покупают заново, а мы их стирали.

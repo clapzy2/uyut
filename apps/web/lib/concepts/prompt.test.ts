@@ -130,7 +130,7 @@ describe('buildTemplatePlan', () => {
       )
       const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
       expect(body.prompt).toContain(layoutNotes)
-      expect(body.prompt).toContain('2.1 metres wide and 2.6 metres deep')
+      expect(body.prompt).toContain('2.08 metres wide and 2.6 metres deep')
       expect(body.prompt).toContain('no island')
       expect(plan.source).toBe('claude')
       expect(plan.shared).toContain(layoutNotes)
@@ -144,7 +144,7 @@ describe('buildTemplatePlan', () => {
     expect(plan.source).toBe('template')
     expect(plan.shared).toContain('Renovate this unfinished room')
     expect(plan.shared).toContain('Finish the ceiling')
-    expect(plan.shared).toContain('Remove the protective film')
+    expect(plan.shared).toContain('remove its protective film')
   })
 
   it('не трогает ремонт, если он уже сделан', () => {
@@ -164,7 +164,7 @@ describe('buildTemplatePlan', () => {
       brief({ hasPhoto: false, sizeCm: { widthCm: 290, depthCm: 425, ceilingCm: 270 } }),
       5,
     )
-    expect(plan.shared).toContain('2.9 metres wide and 4.3 metres deep')
+    expect(plan.shared).toContain('2.9 metres wide and 4.25 metres deep')
     expect(plan.shared).toContain('ceiling 2.7 metres high')
     expect(plan.shared).not.toContain('square metres')
     expect(plan.shared).toContain('hard outer-wall constraints')
@@ -228,7 +228,7 @@ describe('buildTemplatePlan', () => {
 
   it('в задании нет людей, текста и водяных знаков', () => {
     const plan = buildTemplatePlan(brief(), 5)
-    expect(plan.shared).toContain('no people')
+    expect(plan.shared).toContain('No people')
     expect(plan.shared).toContain('no watermarks')
   })
 })
@@ -291,6 +291,13 @@ describe('mandateSentence', () => {
 })
 
 describe('fixedPreamble', () => {
+  it.each([true, false])('не навязывает дневной свет комнате без окон (фото: %s)', (hasPhoto) => {
+    const plan = buildTemplatePlan(brief({ hasPhoto, layoutNotes: 'Комната без окон' }), 1)
+    expect(plan.shared).toContain('artificial lighting in windowless rooms')
+    expect(plan.shared).not.toContain('natural daylight')
+    expect(plan.shared).not.toContain('soft daylight')
+  })
+
   it('геометрия и объём ремонта заданы нами, а не моделью', () => {
     const text = fixedPreamble(brief())
     expect(text).toContain('Keep the exact camera angle')

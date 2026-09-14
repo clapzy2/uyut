@@ -27,17 +27,20 @@ export function QualityReview({
     <div className="mt-4 border border-line bg-paper p-4 text-[13px] leading-relaxed text-ink-2">
       <p className="font-medium text-ink">
         {review.status === 'review'
-          ? 'Автопроверка: есть возможные ошибки'
+          ? 'Автопроверка: есть замечания — проверьте результат'
           : 'Автопроверка выполнена'}
       </p>
       {review.issues.length > 0 ? (
         <ul className="mt-2 list-disc space-y-1 pl-5">
           {review.issues.map((issue) => (
-            <li key={issue.code}>{issue.detail}</li>
+            <li key={issue.code}>
+              {issue.code === 'requirement_unconfirmed' ? 'Пожелание требует проверки. ' : ''}
+              {issue.detail}
+            </li>
           ))}
         </ul>
       ) : (
-        <p className="mt-2">Модель не отметила явных визуальных ошибок.</p>
+        <p className="mt-2">Модель не отметила замечаний. Это не подтверждение всех пожеланий.</p>
       )}
       <p className="mt-2">
         Это подсказка модели, она может ошибаться. Размеры, соответствие плану и то, влезет ли

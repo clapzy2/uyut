@@ -27,7 +27,14 @@ export type ConceptQualityReview = {
   model: string
   checkedAt: string
   issues: Array<{
-    code: 'not_interior' | 'wrong_room' | 'broken_geometry' | 'blocked_access' | 'opening_conflict'
+    code:
+      | 'not_interior'
+      | 'wrong_room'
+      | 'broken_geometry'
+      | 'blocked_access'
+      | 'opening_conflict'
+      | 'brief_conflict'
+      | 'requirement_unconfirmed'
     detail: string
     confidence: number
   }>
