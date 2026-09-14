@@ -20,6 +20,7 @@ RUN bun build packages/db/src/migrate.ts --target=node --outfile=/app/out/migrat
 # Разовые работы по каталогу кладём рядом с миграциями: у контейнера уже есть доступ к базе,
 # и запустить их можно одной командой, не вынимая ключи наружу
 RUN bun build jobs/scripts/repair-dimensions.ts --target=node --outfile=/app/out/repair-dimensions.mjs
+RUN bun build jobs/scripts/repair-subcategories.ts --target=node --outfile=/app/out/repair-subcategories.mjs
 
 FROM node:24-slim AS runtime
 WORKDIR /app
@@ -36,6 +37,7 @@ COPY --from=build --chown=app:app /app/apps/web/.next/static ./apps/web/.next/st
 COPY --from=build --chown=app:app /app/apps/web/public ./apps/web/public
 COPY --from=build --chown=app:app /app/out/migrate.mjs ./migrate.mjs
 COPY --from=build --chown=app:app /app/out/repair-dimensions.mjs ./repair-dimensions.mjs
+COPY --from=build --chown=app:app /app/out/repair-subcategories.mjs ./repair-subcategories.mjs
 COPY --from=build --chown=app:app /app/packages/db/drizzle ./drizzle
 USER app
 EXPOSE 3000
