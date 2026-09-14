@@ -220,15 +220,36 @@ async function searchSimilar(
   return rows.map((row) => ({ ...row.item, similarity: 1 - Number(row.distance) }))
 }
 
-export async function countItems(db: Database): Promise<{ total: number; embedded: number }> {
+export type CatalogHealth = {
+  total: number
+  embedded: number
+  withDimensions: number
+  stale: number
+}
+
+/**
+ * Минимальный операционный отчёт каталога.
+ *
+ * Для проверки влезания нужны одновременно ширина и глубина; одной высоты недостаточно.
+ * Товар старше двух суток не удаляем, но считаем подозрительным: ежедневный фид должен был
+ * подтвердить цену и наличие хотя бы один раз за это время.
+ */
+export async function countItems(db: Database): Promise<CatalogHealth> {
   const [row] = await db
     .select({
       total: sql<number>`count(*)`,
       embedded: sql<number>`count(*) filter (where ${catalogItems.imageEmbedding} is not null)`,
+      withDimensions: sql<number>`count(*) filter (where ${catalogItems.attributes}->'dimensionsCm'->>'width' is not null and ${catalogItems.attributes}->'dimensionsCm'->>'depth' is not null)`,
+      stale: sql<number>`count(*) filter (where ${catalogItems.lastSyncedAt} < now() - interval '48 hours')`,
     })
     .from(catalogItems)
     .where(eq(catalogItems.inStock, true))
-  return { total: Number(row?.total ?? 0), embedded: Number(row?.embedded ?? 0) }
+  return {
+    total: Number(row?.total ?? 0),
+    embedded: Number(row?.embedded ?? 0),
+    withDimensions: Number(row?.withDimensions ?? 0),
+    stale: Number(row?.stale ?? 0),
+  }
 }
 
 export async function getCatalogItems(db: Database, ids: string[]): Promise<CatalogItem[]> {

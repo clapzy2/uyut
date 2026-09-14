@@ -52,5 +52,8 @@ if (embedder) {
   console.log('VOYAGE_API_KEY не задан: векторы не посчитаны, подбор работать не будет')
 }
 const totals = await countItems(database)
-console.log(`в каталоге ${totals.total} позиций, с векторами ${totals.embedded}`)
+const percent = (part: number) => (totals.total === 0 ? 0 : Math.round((part / totals.total) * 100))
+console.log(
+  `в каталоге ${totals.total} позиций: с векторами ${totals.embedded} (${percent(totals.embedded)}%), с шириной и глубиной ${totals.withDimensions} (${percent(totals.withDimensions)}%), старше 48 часов ${totals.stale}`,
+)
 process.exit(0)

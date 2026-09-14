@@ -1,5 +1,5 @@
 import { logger, schedules, task } from '@trigger.dev/sdk'
-import { markMissingOutOfStock, parseYml, upsertFeedItems } from '@uyut/catalog'
+import { countItems, markMissingOutOfStock, parseYml, upsertFeedItems } from '@uyut/catalog'
 import { type CatalogSource, catalogSources } from '@uyut/db'
 import { db } from './lib/db'
 import { embedPendingCatalog, voyageOrNull } from './lib/embed-catalog'
@@ -100,6 +100,8 @@ export const indexCatalog = schedules.task({
       logger.info('фиды не настроены, обновляем только векторы')
     }
     const embedded = await embedCatalog.triggerAndWait({ maxItems: 2000 })
-    return { feeds, embedded: embedded.ok ? embedded.output : null }
+    const health = await countItems(db())
+    logger.info('catalog health', health)
+    return { feeds, embedded: embedded.ok ? embedded.output : null, health }
   },
 })

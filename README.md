@@ -59,6 +59,7 @@ bun run dev             # http://localhost:4300
 | `bun run test` | unit-тесты |
 | `bun run test:integration` | тесты изоляции данных на локальной базе |
 | `bun run catalog:import файл.csv` | импорт дампа каталога и расчёт векторов, формат в `packages/catalog/README.md` |
+| `bun run catalog:health` | покрытие каталога векторами и габаритами, свежесть цен и наличия |
 | `bun run e2e` | e2e-тесты поверх production-сборки |
 | `bun run db:generate` | сгенерировать миграцию из схемы |
 | `bun run db:migrate` | применить миграции |

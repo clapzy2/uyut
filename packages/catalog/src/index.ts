@@ -38,6 +38,7 @@ export {
 } from './layout'
 export { isBathroomFixture, isForeignListing, isNotFurniture } from './not-furniture'
 export {
+  type CatalogHealth,
   contentHash,
   countItems,
   findSimilar,
