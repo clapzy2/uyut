@@ -11,6 +11,13 @@ export const conceptModels = {
     supportsSeed: false,
     usdPerImage: 0.08,
   },
+  'nano-banana-pro': {
+    label: 'Nano Banana Pro',
+    editEndpoint: 'fal-ai/nano-banana-pro/edit',
+    createEndpoint: 'fal-ai/nano-banana-pro',
+    supportsSeed: false,
+    usdPerImage: 0.15,
+  },
   /**
    * Для точечных правок. На живой кухне владельца: nano-banana на просьбу сохранить комнату
    * рисовал чужую светлую кухню, эта модель сохранила гарнитур, плитку, вытяжку и игрушки на полу.
@@ -20,6 +27,13 @@ export const conceptModels = {
     label: 'GPT Image 2.5',
     editEndpoint: 'openai/gpt-image-2.5/flare/edit',
     createEndpoint: 'openai/gpt-image-2.5/flare/text-to-image',
+    supportsSeed: false,
+    usdPerImage: 0.1,
+  },
+  'gpt-image-2.5-sunburst': {
+    label: 'GPT Image 2.5 Sunburst',
+    editEndpoint: 'openai/gpt-image-2.5/sunburst/edit',
+    createEndpoint: 'openai/gpt-image-2.5/sunburst/text-to-image',
     supportsSeed: false,
     usdPerImage: 0.1,
   },
@@ -61,6 +75,8 @@ function buildBody(
   request: RenderRequest,
 ): { endpoint: string; body: Record<string, unknown> } {
   const model = conceptModels[modelId]
+  const isGptImage25 = modelId === 'gpt-image-2.5' || modelId === 'gpt-image-2.5-sunburst'
+  const isNanoBanana = modelId === 'nano-banana-2' || modelId === 'nano-banana-pro'
   const aspectRatio = request.aspectRatio ?? '16:9'
   const seed = model.supportsSeed && request.seed !== undefined ? { seed: request.seed } : {}
   // Вторым кадром идёт сам предмет: словами модель рисует похожую мебель, картинкой — ту самую
@@ -68,10 +84,10 @@ function buildBody(
     Boolean(url),
   )
   if (images.length > 0) {
-    if (modelId === 'gpt-image-2.5') {
+    if (isGptImage25) {
       return { endpoint: model.editEndpoint, body: { image_urls: images, prompt: request.prompt } }
     }
-    if (modelId === 'nano-banana-2') {
+    if (isNanoBanana) {
       return {
         endpoint: model.editEndpoint,
         body: { image_urls: images, prompt: request.prompt, aspect_ratio: aspectRatio },
@@ -82,10 +98,10 @@ function buildBody(
       body: { image_url: request.imageUrl, prompt: request.prompt, guidance_scale: 3.5, ...seed },
     }
   }
-  if (modelId === 'gpt-image-2.5') {
+  if (isGptImage25) {
     return { endpoint: model.createEndpoint, body: { prompt: request.prompt } }
   }
-  if (modelId === 'nano-banana-2') {
+  if (isNanoBanana) {
     return {
       endpoint: model.createEndpoint,
       body: { prompt: request.prompt, aspect_ratio: aspectRatio },

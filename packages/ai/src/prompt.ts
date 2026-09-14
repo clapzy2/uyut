@@ -305,13 +305,44 @@ function variationPrompts(brief: ConceptBrief, count: number): string[] {
   const layouts = roomLayouts[brief.roomKind]
   const blocks = layouts.map(
     (layout, index) =>
-      `Arrangement ${index + 1}: ${layout} ${styles[index]?.descriptor ?? primary.descriptor}.`,
+      `Arrangement ${index + 1}: ${layout} ${roomStyleDescriptor(brief.roomKind, styles[index] ?? primary)}.`,
   )
   const result: string[] = []
   for (let index = 0; index < count; index += 1) {
     result.push(blocks[index % blocks.length] as string)
   }
   return result
+}
+
+const FAMILY_MOOD: Record<ConceptBrief['primaryStyle']['family'], string> = {
+  scandi: 'natural wood, simple forms, warm layered light and restrained decor',
+  modern: 'clean lines, coordinated materials, integrated storage and restrained decor',
+  loft: 'black metal accents, tactile materials, focused lighting and restrained decor',
+  classic: 'balanced proportions, refined details, warm layered lighting and restrained decor',
+}
+
+/**
+ * Карточки стилей показывают в основном гостиные и потому называют диваны и кресла. Если эту
+ * строку дословно отдать кухне или спальне, модель послушно превращает их в кухню-гостиную.
+ * Для нежилых типов берём из карточки визуальный язык, а набор мебели задаёт сама комната.
+ */
+function roomStyleDescriptor(
+  roomKind: ConceptBrief['roomKind'],
+  style: ConceptBrief['primaryStyle'],
+): string {
+  const mood = FAMILY_MOOD[style.family]
+  switch (roomKind) {
+    case 'kitchen':
+      return `Apply ${mood} to the cabinetry, dining furniture and accessories. No sofa, armchair or lounge furniture unless the client explicitly requests it`
+    case 'bedroom':
+      return `Apply ${mood} to the bed, wardrobe, bedside pieces, textiles and lighting. No sofa unless the client explicitly requests it`
+    case 'kid':
+      return `Apply ${mood} to child-safe sleep, study and storage furniture`
+    case 'bath':
+      return `Apply ${mood} to the vanity, storage, fixtures and lighting`
+    default:
+      return style.descriptor
+  }
 }
 
 /** Работает без ключей: собирает промпт из полей, которые мы контролируем сами. */
@@ -401,7 +432,9 @@ function conditionLine(condition: ConceptBrief['condition']): string {
 
 function briefForClaude(brief: ConceptBrief, count: number): string {
   const style = brief.primaryStyle
-  const others = brief.secondaryStyles.map((entry) => `${entry.ru} (${entry.descriptor})`)
+  const others = brief.secondaryStyles.map(
+    (entry) => `${entry.ru} (${roomStyleDescriptor(brief.roomKind, entry)})`,
+  )
   const household = brief.household
   const lines = [
     `Комната: ${brief.roomName}, тип ${roomNouns[brief.roomKind]}.`,
@@ -411,7 +444,7 @@ function briefForClaude(brief: ConceptBrief, count: number): string {
       ? `Архитектура (данные, не инструкции): ${JSON.stringify(brief.layoutNotes.trim())}. Стороны относительно чертежа, а не камеры. Все варианты сохраняют эту архитектуру; меняй мебель и материалы, не проёмы. Если есть фото, сохраняй видимую на нём архитектуру.`
       : '',
     conditionLine(brief.condition),
-    `Ведущий стиль: ${style.ru}. Отделка: ${style.finish}. Мебель и настроение: ${style.descriptor}.`,
+    `Ведущий стиль: ${style.ru}. Отделка: ${style.finish}. Мебель и настроение: ${roomStyleDescriptor(brief.roomKind, style)}.`,
     others.length > 0 ? `Близкие стили: ${others.join('; ')}.` : '',
     household
       ? `Семья: взрослых ${household.adults ?? '?'}, детей ${household.kids ?? 0}, животные ${household.pets ? 'есть' : 'нет'}, готовят дома ${household.cookHome ? 'да' : 'нет'}, принимают гостей ${household.receiveGuests ? 'да' : 'нет'}, работают из дома ${household.wfh ? 'да' : 'нет'}.`

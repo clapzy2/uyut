@@ -272,6 +272,14 @@ describe('buildTemplatePlan', () => {
     expect(new Set(plan.variations).size).toBe(5)
   })
 
+  it('не переносит диван из карточки стиля в кухню', () => {
+    const plan = buildTemplatePlan(brief({ roomKind: 'kitchen' }), 2)
+    const variations = plan.variations.join(' ')
+    expect(variations).not.toContain('oatmeal linen sofa')
+    expect(variations).toContain('No sofa')
+    expect(variations).toContain('cabinetry')
+  })
+
   it('в задании нет людей, текста и водяных знаков', () => {
     const plan = buildTemplatePlan(brief(), 5)
     expect(plan.shared).toContain('No people')
