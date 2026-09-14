@@ -1,6 +1,12 @@
 // Клиенты Fal.ai, Anthropic и Voyage, каталог стилей и сборка промптов.
 
 export {
+  type ArchitectureBatchItem,
+  type ArchitectureBatchPlan,
+  renderArchitectureAnchoredBatch,
+} from './architecture-anchor'
+
+export {
   BRIEF_SECTIONS,
   BRIEF_SYSTEM_PROMPT,
   type BriefGenerator,
@@ -106,6 +112,8 @@ export {
   type SideReader,
 } from './floor-plan'
 export {
+  ARCHITECTURE_ANCHOR_INSTRUCTION,
+  architectureAnchoredPrompt,
   buildTemplatePlan,
   createClaudePromptBuilder,
   createFalLlmPromptBuilder,

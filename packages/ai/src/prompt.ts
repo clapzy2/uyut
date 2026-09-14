@@ -12,6 +12,18 @@ const roomNouns: Record<ConceptBrief['roomKind'], string> = {
 const TAIL =
   'Realistic interior photograph. Use lighting consistent with the reference photo and stated architecture; daylight only through existing windows, artificial lighting in windowless rooms. Never add openings just to light the scene. No people, no text, no watermarks, no logos.'
 
+export const ARCHITECTURE_ANCHOR_INSTRUCTION =
+  'The attached image is the architecture anchor for this same room. Keep exactly the same camera position and framing, outer walls, room proportions, ceiling, windows, doors and other openings. Do not add, remove, move, resize or mirror any opening. Change only the furniture arrangement, movable lighting, finishes and decor requested by the concept. This is another concept for the same room, not a different apartment.'
+
+/**
+ * Первый рендер комнаты без фотографии становится визуальным якорем остальных вариантов.
+ * Текстовый план не задаёт координаты пикселей, а ссылка на один кадр позволяет edit-модели
+ * сохранить стены и проёмы. Якорь не обещает точных размеров исходного плана.
+ */
+export function architectureAnchoredPrompt(prompt: string): string {
+  return `${ARCHITECTURE_ANCHOR_INSTRUCTION} ${prompt}`.replace(/\s+/g, ' ').trim()
+}
+
 function budgetHint(kopecks: number | null): string {
   if (kopecks === null) {
     return 'affordable, widely available furniture'

@@ -11,6 +11,7 @@ import {
   KEEP_THE_REST,
   nearestStyles,
   type RenderResult,
+  renderArchitectureAnchoredBatch,
   reviewConceptImage,
   type StyleEntry,
   styleLibrary,
@@ -306,17 +307,56 @@ export const generateConcept = task({
     let failed = 0
     publish({ stage: 'render', done, total: created.length, failed })
 
+    // Когда фотографии комнаты нет, независимые text-to-image запросы рисуют разные квартиры:
+    // у вариантов меняются окно, дверь и даже пропорции. Первый результат становится общим
+    // визуальным якорем, а остальные строятся edit-запросами от него. Число рендеров не растёт.
+    // Если самый первый запрос упал, его не повторяем автоматически: остальные продолжают
+    // прежним независимым способом, а оплаченный/неоплаченный сбой не дублируется.
+    const anchorItems = created.map((concept) => ({
+      prompt: concept.prompt,
+      seed: 1000 + concept.orderIndex,
+      aspectRatio: '16:9',
+    }))
+    const anchored =
+      !imageUrl && !payload.editSteps && !preserving && anchorItems.length > 0
+        ? renderArchitectureAnchoredBatch(
+            engine,
+            anchorItems as [(typeof anchorItems)[number], ...Array<(typeof anchorItems)[number]>],
+          )
+        : null
+    if (anchored && created.length > 1) {
+      void anchored.anchor.then(
+        () =>
+          logger.info('architecture anchor ready', {
+            conceptId: created[0]?.id,
+            derivedVariants: created.length - 1,
+          }),
+        (error) =>
+          logger.warn('architecture anchor failed; remaining variants stay independent', {
+            conceptId: created[0]?.id,
+            error: String(error),
+          }),
+      )
+    }
+
     await Promise.all(
-      created.map(async (concept) => {
+      created.map(async (concept, conceptIndex) => {
         try {
-          const result = payload.editSteps
-            ? await renderSteps(engine, payload.editSteps, imageUrl, objectUrls)
-            : await engine.render({
-                prompt: concept.prompt,
-                imageUrl,
-                seed: 1000 + concept.orderIndex,
-                aspectRatio: '16:9',
-              })
+          let result: RenderResult
+          if (anchored) {
+            const anchoredResult = anchored.results[conceptIndex]
+            if (!anchoredResult) throw new Error('нет результата варианта')
+            result = await anchoredResult
+          } else if (payload.editSteps) {
+            result = await renderSteps(engine, payload.editSteps, imageUrl, objectUrls)
+          } else {
+            result = await engine.render({
+              prompt: concept.prompt,
+              imageUrl,
+              seed: 1000 + concept.orderIndex,
+              aspectRatio: '16:9',
+            })
+          }
           const base = `projects/${project.id}/rooms/${room.id}/concepts/${concept.id}`
           const full = await sharp(result.body).webp({ quality: 88 }).toBuffer()
           // Проверяем пиксели, а не промпт. Уменьшение ограничивает размер запроса;

@@ -1,4 +1,5 @@
 import {
+  architectureAnchoredPrompt,
   buildTemplatePlan,
   type ConceptBrief,
   createFalLlmPromptBuilder,
@@ -315,5 +316,19 @@ describe('fixedPreamble', () => {
     const text = fixedPreamble(brief({ hasPhoto: false }))
     expect(text).toContain('about 18 square metres')
     expect(text).not.toContain('Keep the exact camera angle')
+  })
+})
+
+describe('визуальный якорь архитектуры', () => {
+  it('требует сохранить ракурс, пропорции и все проёмы', () => {
+    const text = architectureAnchoredPrompt('Move the sofa to the right.')
+    expect(text).toContain('same camera position and framing')
+    expect(text).toContain('room proportions')
+    expect(text).toContain('Do not add, remove, move, resize or mirror any opening')
+    expect(text).toContain('Move the sofa to the right.')
+  })
+
+  it('нормализует пробелы, не меняя просьбу', () => {
+    expect(architectureAnchoredPrompt('  Keep   three seats.  ')).toContain('Keep three seats.')
   })
 })
