@@ -34,6 +34,12 @@ describe('проёмы комнаты из 2D-схемы', () => {
     expect(roomLayoutInputFromGeometry(geometry, 'Гостиная', null)).toEqual({
       widthCm: 400,
       depthCm: 300,
+      floorPolygon: [
+        { xCm: 0, yCm: 0 },
+        { xCm: 400, yCm: 0 },
+        { xCm: 400, yCm: 300 },
+        { xCm: 0, yCm: 300 },
+      ],
       reservations: [
         { kind: 'window', wall: 'top', fromCm: 120, toCm: 220, clearanceCm: 0 },
         { kind: 'door', wall: 'left', fromCm: 180, toCm: 270, clearanceCm: 90 },
@@ -60,7 +66,7 @@ describe('проёмы комнаты из 2D-схемы', () => {
     ).toBeNull()
   })
 
-  it('не выдаёт ограничивающую рамку Г-образной комнаты за точную форму', () => {
+  it('сохраняет точный контур Г-образной комнаты', () => {
     const rooms = [
       {
         name: 'Гостиная',
@@ -74,6 +80,17 @@ describe('проёмы комнаты из 2D-схемы', () => {
         ],
       },
     ]
-    expect(roomLayoutInputFromGeometry({ ...geometry, rooms }, 'Гостиная', null)).toBeNull()
+    expect(roomLayoutInputFromGeometry({ ...geometry, rooms }, 'Гостиная', null)).toMatchObject({
+      widthCm: 400,
+      depthCm: 300,
+      floorPolygon: [
+        { xCm: 0, yCm: 0 },
+        { xCm: 400, yCm: 0 },
+        { xCm: 400, yCm: 100 },
+        { xCm: 100, yCm: 100 },
+        { xCm: 100, yCm: 300 },
+        { xCm: 0, yCm: 300 },
+      ],
+    })
   })
 })

@@ -29,6 +29,7 @@ export {
   CHAIR_PULLOUT_CM,
   COFFEE_CLEARANCE_CM,
   type LayoutItem,
+  type LayoutPoint,
   type LayoutProblem,
   type LayoutWall,
   layoutRoom,

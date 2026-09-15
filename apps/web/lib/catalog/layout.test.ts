@@ -587,3 +587,37 @@ describe('вердикт «не встаёт» должен быть правд�
     expect(checked).toBeGreaterThan(0)
   })
 })
+
+describe('нестандартный контур комнаты', () => {
+  const floorPolygon = [
+    { xCm: 0, yCm: 0 },
+    { xCm: 300, yCm: 0 },
+    { xCm: 300, yCm: 100 },
+    { xCm: 100, yCm: 100 },
+    { xCm: 100, yCm: 300 },
+    { xCm: 0, yCm: 300 },
+  ]
+
+  it('не считает вырез Г-образной комнаты свободным полом', () => {
+    const layout = layoutRoom({ widthCm: 300, depthCm: 300, floorPolygon }, [
+      item({
+        title: 'Тумба',
+        dimensions: { width: 120, depth: 40, height: 60 },
+        quantity: 4,
+      }),
+    ])
+
+    expect(layout.floorPolygon).toEqual(floorPolygon)
+    expect(layout.placed.length).toBeGreaterThan(0)
+    for (const place of layout.placed) {
+      const entersCutout = place.xCm + place.widthCm > 100 && place.yCm + place.depthCm > 100
+      expect(entersCutout, `${place.title} попала в вырез комнаты`).toBe(false)
+    }
+  })
+
+  it('считает только реально существующие участки внешних стен', () => {
+    const layout = layoutRoom({ widthCm: 300, depthCm: 300, floorPolygon }, [])
+
+    expect(layout.freeWallCm).toBe(800)
+  })
+})

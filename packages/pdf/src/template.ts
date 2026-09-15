@@ -239,7 +239,7 @@ function splitSummary(data: PdfData): [string, string | null] {
 }
 
 /**
- * Вид сверху в документе: комната прямоугольником и мебель прямоугольниками в масштабе.
+ * Вид сверху в документе: реальный контур комнаты и мебель прямоугольниками в масштабе.
  * Рисуется сразу в SVG, без картинки: Chromium печатает вектор резко на любой бумаге.
  */
 function roomPlan(plan: RoomLayout | null): string {
@@ -280,7 +280,16 @@ function roomPlan(plan: RoomLayout | null): string {
   const drawing =
     plan.placed.length > 0
       ? `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
-          <rect x="0" y="0" width="${width}" height="${height}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>
+          ${
+            plan.floorPolygon
+              ? `<polygon points="${plan.floorPolygon
+                  .map(
+                    (point) =>
+                      `${(point.xCm * scale).toFixed(1)},${(point.yCm * scale).toFixed(1)}`,
+                  )
+                  .join(' ')}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>`
+              : `<rect x="0" y="0" width="${width}" height="${height}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>`
+          }
           ${boxes}
         </svg>`
       : ''

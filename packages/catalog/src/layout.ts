@@ -36,6 +36,11 @@ export type LayoutItem = {
 
 export type LayoutWall = 'top' | 'right' | 'bottom' | 'left'
 
+export type LayoutPoint = {
+  xCm: number
+  yCm: number
+}
+
 export type Placement = {
   id: string
   title: string
@@ -56,6 +61,8 @@ export type LayoutProblem =
 export type RoomLayout = {
   widthCm: number
   depthCm: number
+  /** Реальный контур пола в локальных координатах комнаты. */
+  floorPolygon?: LayoutPoint[]
   placed: Placement[]
   /** Свободная длина стен после расстановки, сантиметры */
   freeWallCm: number
@@ -76,6 +83,8 @@ export type RoomLayoutInput = {
   widthCm?: number
   depthCm?: number
   layoutNotes?: string | null
+  /** Реальный контур пола в локальных координатах комнаты. */
+  floorPolygon?: readonly LayoutPoint[]
   /** Точные участки из подтверждённой 2D-схемы. Пустой массив тоже является точным ответом. */
   reservations?: readonly WallReservation[]
 }
@@ -123,6 +132,71 @@ function footprint(dimensions: DimensionsCm | null): { widthCm: number; depthCm:
 }
 
 type Size = { widthCm: number; depthCm: number }
+
+type Rect = { xCm: number; yCm: number; widthCm: number; depthCm: number }
+
+const GEOMETRY_EPSILON_CM = 0.5
+
+function pointOnSegment(point: LayoutPoint, start: LayoutPoint, end: LayoutPoint): boolean {
+  const cross =
+    (point.xCm - start.xCm) * (end.yCm - start.yCm) -
+    (point.yCm - start.yCm) * (end.xCm - start.xCm)
+  if (Math.abs(cross) > GEOMETRY_EPSILON_CM) return false
+  return (
+    point.xCm >= Math.min(start.xCm, end.xCm) - GEOMETRY_EPSILON_CM &&
+    point.xCm <= Math.max(start.xCm, end.xCm) + GEOMETRY_EPSILON_CM &&
+    point.yCm >= Math.min(start.yCm, end.yCm) - GEOMETRY_EPSILON_CM &&
+    point.yCm <= Math.max(start.yCm, end.yCm) + GEOMETRY_EPSILON_CM
+  )
+}
+
+/** Граница считается частью комнаты: мебель может стоять вплотную к стене. */
+function pointInFloor(point: LayoutPoint, polygon: readonly LayoutPoint[]): boolean {
+  let inside = false
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index]
+    const end = polygon[(index + 1) % polygon.length]
+    if (!start || !end) continue
+    if (pointOnSegment(point, start, end)) return true
+    if (
+      start.yCm > point.yCm !== end.yCm > point.yCm &&
+      point.xCm <
+        ((end.xCm - start.xCm) * (point.yCm - start.yCm)) / (end.yCm - start.yCm) + start.xCm
+    ) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
+/**
+ * Весь прямоугольник мебели должен находиться на полу, а не только его центр.
+ * Девять контрольных точек ловят угловые вырезы и узкие ниши типовых ортогональных планов.
+ */
+function rectInsideFloor(rect: Rect, polygon: readonly LayoutPoint[]): boolean {
+  const xs = [rect.xCm, rect.xCm + rect.widthCm / 2, rect.xCm + rect.widthCm]
+  const ys = [rect.yCm, rect.yCm + rect.depthCm / 2, rect.yCm + rect.depthCm]
+  return xs.every((xCm) => ys.every((yCm) => pointInFloor({ xCm, yCm }, polygon)))
+}
+
+function validFloorPolygon(
+  polygon: readonly LayoutPoint[] | undefined,
+  room: Size,
+): LayoutPoint[] | undefined {
+  if (!polygon || polygon.length < 3) return undefined
+  const copy = polygon.map((point) => ({ xCm: point.xCm, yCm: point.yCm }))
+  return copy.every(
+    (point) =>
+      Number.isFinite(point.xCm) &&
+      Number.isFinite(point.yCm) &&
+      point.xCm >= -GEOMETRY_EPSILON_CM &&
+      point.yCm >= -GEOMETRY_EPSILON_CM &&
+      point.xCm <= room.widthCm + GEOMETRY_EPSILON_CM &&
+      point.yCm <= room.depthCm + GEOMETRY_EPSILON_CM,
+  )
+    ? copy
+    : undefined
+}
 
 type WallState = {
   wall: LayoutWall
@@ -201,7 +275,11 @@ const ISLAND_CELLS = 20
  * прохода проверяется, остаётся ли свободный пол единым куском. Возвращается наибольшая ширина,
  * при которой по комнате ещё можно пройти всюду.
  */
-function widestRoute(placed: readonly Placement[], room: Size): number {
+function widestRoute(
+  placed: readonly Placement[],
+  room: Size,
+  floorPolygon?: readonly LayoutPoint[],
+): number {
   const step = Math.max(
     GRID_CM,
     Math.ceil(Math.sqrt((room.widthCm * room.depthCm) / GRID_CELLS) / GRID_CM) * GRID_CM,
@@ -209,6 +287,14 @@ function widestRoute(placed: readonly Placement[], room: Size): number {
   const cols = Math.max(1, Math.floor(room.widthCm / step))
   const rows = Math.max(1, Math.floor(room.depthCm / step))
   const busy = new Uint8Array(cols * rows)
+  if (floorPolygon) {
+    for (let y = 0; y < rows; y += 1) {
+      for (let x = 0; x < cols; x += 1) {
+        const center = { xCm: (x + 0.5) * step, yCm: (y + 0.5) * step }
+        if (!pointInFloor(center, floorPolygon)) busy[y * cols + x] = 1
+      }
+    }
+  }
   for (const place of placed) {
     const fromX = Math.max(0, Math.floor(place.xCm / step))
     const toX = Math.min(cols, Math.ceil((place.xCm + place.widthCm) / step))
@@ -350,6 +436,7 @@ function clearanceOf(entry: Sized): number {
 export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]): RoomLayout {
   const widthCm = room.widthCm ?? 0
   const depthCm = room.depthCm ?? 0
+  const floorPolygon = validFloorPolygon(room.floorPolygon, { widthCm, depthCm })
   if (widthCm <= 0 || depthCm <= 0) {
     return {
       widthCm,
@@ -381,7 +468,6 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       ? 'description'
       : 'none'
 
-  type Rect = { xCm: number; yCm: number; widthCm: number; depthCm: number }
   const overlaps = (a: Rect, b: Rect) =>
     a.xCm < b.xCm + b.widthCm - 0.5 &&
     b.xCm < a.xCm + a.widthCm - 0.5 &&
@@ -502,6 +588,9 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     if (!insideRoom) {
       return false
     }
+    if (floorPolygon && !rectInsideFloor(rect, floorPolygon)) {
+      return false
+    }
     const blocksWall = reservations.some(
       (reservation) =>
         reservation.wall === wall &&
@@ -580,8 +669,49 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     }
   }
 
+  const fullWallSpans: Record<LayoutWall, ReadonlyArray<readonly [number, number]>> = {
+    top: [[0, widthCm]],
+    bottom: [[0, widthCm]],
+    left: [[0, depthCm]],
+    right: [[0, depthCm]],
+  }
+  const polygonWallSpans = floorPolygon
+    ? floorPolygon.reduce<Record<LayoutWall, Array<readonly [number, number]>>>(
+        (spans, start, index) => {
+          const end = floorPolygon[(index + 1) % floorPolygon.length]
+          if (!end) return spans
+          if (
+            Math.abs(start.yCm) <= GEOMETRY_EPSILON_CM &&
+            Math.abs(end.yCm) <= GEOMETRY_EPSILON_CM
+          ) {
+            spans.top.push([Math.min(start.xCm, end.xCm), Math.max(start.xCm, end.xCm)])
+          }
+          if (
+            Math.abs(start.yCm - depthCm) <= GEOMETRY_EPSILON_CM &&
+            Math.abs(end.yCm - depthCm) <= GEOMETRY_EPSILON_CM
+          ) {
+            spans.bottom.push([Math.min(start.xCm, end.xCm), Math.max(start.xCm, end.xCm)])
+          }
+          if (
+            Math.abs(start.xCm) <= GEOMETRY_EPSILON_CM &&
+            Math.abs(end.xCm) <= GEOMETRY_EPSILON_CM
+          ) {
+            spans.left.push([Math.min(start.yCm, end.yCm), Math.max(start.yCm, end.yCm)])
+          }
+          if (
+            Math.abs(start.xCm - widthCm) <= GEOMETRY_EPSILON_CM &&
+            Math.abs(end.xCm - widthCm) <= GEOMETRY_EPSILON_CM
+          ) {
+            spans.right.push([Math.min(start.yCm, end.yCm), Math.max(start.yCm, end.yCm)])
+          }
+          return spans
+        },
+        { top: [], bottom: [], left: [], right: [] },
+      )
+    : null
+
   for (const wall of ['top', 'bottom', 'left', 'right'] as const) {
-    const wallLength = wall === 'top' || wall === 'bottom' ? widthCm : depthCm
+    const wallSpans = polygonWallSpans?.[wall] ?? fullWallSpans[wall]
     const intervals = [
       ...reservations
         .filter((reservation) => reservation.wall === wall)
@@ -593,15 +723,21 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
             ? ([place.xCm, place.xCm + place.widthCm] as const)
             : ([place.yCm, place.yCm + place.depthCm] as const),
         ),
-    ].sort((a, b) => a[0] - b[0])
-    let occupiedCm = 0
-    let endCm = 0
-    for (const [from, to] of intervals) {
-      if (to <= endCm) continue
-      occupiedCm += to - Math.max(from, endCm)
-      endCm = to
+    ]
+    for (const [wallFrom, wallTo] of wallSpans) {
+      const clipped = intervals
+        .map(([from, to]) => [Math.max(from, wallFrom), Math.min(to, wallTo)] as const)
+        .filter(([from, to]) => to > from)
+        .sort((a, b) => a[0] - b[0])
+      let occupiedCm = 0
+      let endCm = wallFrom
+      for (const [from, to] of clipped) {
+        if (to <= endCm) continue
+        occupiedCm += to - Math.max(from, endCm)
+        endCm = to
+      }
+      freeWallCm += Math.max(0, wallTo - wallFrom - occupiedCm)
     }
-    freeWallCm += Math.max(0, wallLength - occupiedCm)
   }
 
   const centerWidthCm = widthCm - depths.left - depths.right
@@ -638,13 +774,17 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       problems.push({ kind: 'noCenter', title: entry.item.title })
       continue
     }
+    if (floorPolygon && !rectInsideFloor(centerPlacement, floorPolygon)) {
+      problems.push({ kind: 'noCenter', title: entry.item.title })
+      continue
+    }
     placed.push(centerPlacement)
     centerUsedCm += needWidth
   }
 
   // Проход — это самое узкое место на маршруте, по которому можно обойти всю комнату,
   // а не просто расстояние между двумя стенками мебели
-  const walkwayCm = widestRoute(placed, { widthCm, depthCm })
+  const walkwayCm = widestRoute(placed, { widthCm, depthCm }, floorPolygon)
   if (placed.length > 0 && walkwayCm < WALKWAY_CM) {
     problems.push({ kind: 'narrowWalkway', gapCm: walkwayCm })
   }
@@ -652,6 +792,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
   return {
     widthCm,
     depthCm,
+    ...(floorPolygon ? { floorPolygon } : {}),
     placed,
     freeWallCm: Math.round(freeWallCm),
     walkwayCm,

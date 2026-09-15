@@ -97,14 +97,24 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
           aria-label={`План комнаты ${Math.round(layout.widthCm)} на ${Math.round(layout.depthCm)} сантиметров, предметов: ${layout.placed.length}`}
         >
           <title>План комнаты сверху</title>
-          <rect
-            x={PADDING}
-            y={PADDING}
-            width={roomWidth}
-            height={roomHeight}
-            className="fill-muted stroke-ink"
-            strokeWidth={2}
-          />
+          {layout.floorPolygon ? (
+            <polygon
+              points={layout.floorPolygon
+                .map((point) => `${PADDING + point.xCm * scale},${PADDING + point.yCm * scale}`)
+                .join(' ')}
+              className="fill-muted stroke-ink"
+              strokeWidth={2}
+            />
+          ) : (
+            <rect
+              x={PADDING}
+              y={PADDING}
+              width={roomWidth}
+              height={roomHeight}
+              className="fill-muted stroke-ink"
+              strokeWidth={2}
+            />
+          )}
           {layout.reservations.map((reservation) => {
             const line = wallLine(
               reservation.wall,

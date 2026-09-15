@@ -2,7 +2,6 @@ import type { RoomLayoutInput, WallReservation } from '@uyut/catalog'
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall, RoomMeasurements } from '@uyut/db'
 
 const BOUNDARY_TOLERANCE_CM = 20
-const MIN_RECTANGULAR_FILL = 0.9
 
 export type GeometryRoomLayoutInput = RoomLayoutInput & {
   widthCm: number
@@ -12,16 +11,6 @@ export type GeometryRoomLayoutInput = RoomLayoutInput & {
 
 function normalizedName(value: string): string {
   return value.trim().toLocaleLowerCase('ru').replaceAll('ё', 'е')
-}
-
-function polygonArea(points: readonly PlanPoint[]): number {
-  let twiceArea = 0
-  for (let index = 0; index < points.length; index += 1) {
-    const current = points[index]
-    const next = points[(index + 1) % points.length]
-    if (current && next) twiceArea += current.xCm * next.yCm - next.xCm * current.yCm
-  }
-  return Math.abs(twiceArea) / 2
 }
 
 function pointAlongWall(wall: PlanWall, distanceCm: number): PlanPoint {
@@ -49,9 +38,8 @@ function reservationKind(type: PlanOpening['type']): WallReservation['kind'] {
 }
 
 /**
- * Переводит проёмы глобального плана в локальные стороны прямоугольной комнаты.
- * Сложные Г-образные комнаты намеренно пропускаются: текущий упаковщик мебели работает с
- * прямоугольником, и ограничивающая рамка выдала бы пустую часть комнаты за свободный пол.
+ * Переводит глобальный контур и проёмы плана в локальные координаты комнаты.
+ * Размеры ручного обмера имеют приоритет, поэтому вместе с рамкой масштабируется и сам контур.
  */
 export function roomLayoutInputFromGeometry(
   geometry: PlanGeometry | undefined,
@@ -73,8 +61,6 @@ export function roomLayoutInputFromGeometry(
   const geometryWidth = maxX - minX
   const geometryDepth = maxY - minY
   if (geometryWidth <= 0 || geometryDepth <= 0) return null
-  const fill = polygonArea(room.polygon) / (geometryWidth * geometryDepth)
-  if (fill < MIN_RECTANGULAR_FILL) return null
 
   const widthCm =
     measurements?.widthCm && measurements.widthCm > 0 ? measurements.widthCm : geometryWidth
@@ -82,6 +68,10 @@ export function roomLayoutInputFromGeometry(
     measurements?.depthCm && measurements.depthCm > 0 ? measurements.depthCm : geometryDepth
   const scaleX = widthCm / geometryWidth
   const scaleY = depthCm / geometryDepth
+  const floorPolygon = room.polygon.map((point) => ({
+    xCm: Math.round((point.xCm - minX) * scaleX),
+    yCm: Math.round((point.yCm - minY) * scaleY),
+  }))
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
   const reservations: WallReservation[] = []
 
@@ -136,6 +126,7 @@ export function roomLayoutInputFromGeometry(
   return {
     widthCm: Math.round(widthCm),
     depthCm: Math.round(depthCm),
+    floorPolygon,
     ...(measurements?.layoutNotes ? { layoutNotes: measurements.layoutNotes } : {}),
     reservations,
   }
