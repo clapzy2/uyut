@@ -81,19 +81,59 @@ const spotWidthSchema = z
       ctx.addIssue({ code: 'custom', message: 'От 10 до 2000 см' })
       return null
     }
-    return Math.round(number)
+    return number
   })
 
-export const roomMeasurementsSchema = z.object({
-  layoutNotes: z.string().trim().max(800).optional(),
-  ceilingCm: spotWidthSchema,
-  widthCm: spotWidthSchema,
-  depthCm: spotWidthSchema,
-  spots: z
-    .array(z.object({ name: z.string().trim().max(40), widthCm: spotWidthSchema }))
-    .max(8)
-    .default([]),
-})
+const toleranceSchema = z
+  .string()
+  .trim()
+  .default('')
+  .transform((value, ctx): number | null => {
+    if (!value) return null
+    const number = Number(value.replace(',', '.'))
+    if (!Number.isFinite(number) || number <= 0 || number > 100) {
+      ctx.addIssue({ code: 'custom', message: 'Укажите погрешность больше 0 и не больше 100 см' })
+      return null
+    }
+    return number
+  })
+
+export const roomMeasurementsSchema = z
+  .object({
+    finishStage: z.enum(['unknown', 'before', 'after']).default('unknown'),
+    toleranceCm: toleranceSchema,
+    confirmDimensions: z.boolean().default(false),
+    layoutNotes: z.string().trim().max(800).optional(),
+    ceilingCm: spotWidthSchema,
+    widthCm: spotWidthSchema,
+    depthCm: spotWidthSchema,
+    spots: z
+      .array(z.object({ name: z.string().trim().max(40), widthCm: spotWidthSchema }))
+      .max(8)
+      .default([]),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.confirmDimensions &&
+      (value.widthCm === null ||
+        value.depthCm === null ||
+        value.finishStage === 'unknown' ||
+        value.toleranceCm === null)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Для подтверждения укажите обе стороны, этап отделки и погрешность замера.',
+      })
+    }
+    if (
+      value.toleranceCm !== null &&
+      [value.widthCm, value.depthCm].some(
+        (side) => side !== null && value.toleranceCm !== null && value.toleranceCm >= side,
+      )
+    ) {
+      ctx.addIssue({ code: 'custom', message: 'Погрешность должна быть меньше размера комнаты.' })
+    }
+  })
 
 export type RoomMeasurementsInput = z.input<typeof roomMeasurementsSchema>
 

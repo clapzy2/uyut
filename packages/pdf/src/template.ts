@@ -303,6 +303,7 @@ function roomPlan(plan: RoomLayout | null): string {
   return `
       <div class="plan">
         <p class="eyebrow">Вид сверху · ${Math.round(plan.widthCm)} × ${Math.round(plan.depthCm)} см</p>
+        ${plan.measurementNote ? `<p class="verdict">${esc(plan.measurementNote)}</p>` : ''}
         ${drawing}
         ${legend}
         ${verdict}

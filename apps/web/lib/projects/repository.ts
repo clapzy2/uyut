@@ -14,6 +14,7 @@ import {
 } from '@uyut/db'
 import { and, asc, count, desc, eq, inArray, isNull, max, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { mergePlanMeasurements } from '@/lib/projects/measurement-assurance'
 import {
   assertOwner,
   assertOwnerOrCollaborator,
@@ -170,25 +171,6 @@ export async function setPlanReading(
  * где прочитанное есть. План знает коробку комнаты и высоту потолка, участки стен знает
  * только рулетка, и одно не должно стирать другое.
  */
-function mergeMeasurements(
-  before: RoomMeasurements | null,
-  read: RoomMeasurements | null,
-): RoomMeasurements | null {
-  const merged: RoomMeasurements = { ...(before ?? {}) }
-  if (read?.layoutNotes !== undefined) {
-    merged.layoutNotes = read.layoutNotes
-  }
-  if (read?.ceilingCm !== undefined) {
-    merged.ceilingCm = read.ceilingCm
-  }
-  if (read?.widthCm !== undefined) {
-    merged.widthCm = read.widthCm
-  }
-  if (read?.depthCm !== undefined) {
-    merged.depthCm = read.depthCm
-  }
-  return Object.keys(merged).length > 0 ? merged : null
-}
 
 export async function createRoomsFromPlan(
   userId: string,
@@ -257,7 +239,7 @@ export async function createRoomsFromPlan(
         // рулеткой, и с плана их не прочитать: затереть их прочитанным — потерять
         // единственные настоящие числа, какие у нас были.
         areaM2: room.areaM2 ?? before.areaM2,
-        measurements: mergeMeasurements(before.measurements, room.measurements),
+        measurements: mergePlanMeasurements(before.measurements, room.measurements),
         // Заметку не затираем пустой: человек мог написать её раньше и оставить поле плана пустым
         ...(room.notes ? { notes: room.notes } : {}),
       })

@@ -30,6 +30,25 @@ const geometry: PlanGeometry = {
 }
 
 describe('проёмы комнаты из 2D-схемы', () => {
+  it('сохраняет дробные сантиметры в контуре и проёмах', () => {
+    const result = roomLayoutInputFromGeometry(geometry, 'Гостиная', {
+      widthCm: 400.5,
+      depthCm: 300.25,
+    })
+    expect(result?.widthCm).toBe(400.5)
+    expect(result?.depthCm).toBe(300.25)
+    expect(result?.floorPolygon?.[1]?.xCm).toBe(400.5)
+    expect(result?.reservations[0]?.fromCm).toBeCloseTo(120.15)
+  })
+  it('не угадывает контур среди одноимённых комнат', () => {
+    expect(
+      roomLayoutInputFromGeometry(
+        { ...geometry, rooms: [...geometry.rooms, ...geometry.rooms] },
+        'Гостиная',
+        null,
+      ),
+    ).toBeNull()
+  })
   it('переводит глобальные координаты в стороны комнаты', () => {
     expect(roomLayoutInputFromGeometry(geometry, 'Гостиная', null)).toEqual({
       widthCm: 400,

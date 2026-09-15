@@ -1,8 +1,8 @@
 import 'server-only'
 
-import { type LayoutItem, layoutRoom, type RoomLayout, subcategoryFromText } from '@uyut/catalog'
+import { type LayoutItem, type RoomLayout, subcategoryFromText } from '@uyut/catalog'
 import type { PlanGeometry, Room, RoomMeasurements } from '@uyut/db'
-import { roomLayoutInputFromGeometry } from '@/lib/projects/room-geometry-layout'
+import { layoutWithMeasurements } from '@/lib/projects/layout-with-measurements'
 import { getShoppingList, type ShoppingItemView } from './repository'
 
 /**
@@ -20,19 +20,6 @@ export async function roomLayout(
   measurements: RoomMeasurements | null,
   geometry?: PlanGeometry,
 ): Promise<RoomLayout | null> {
-  const geometryInput = roomLayoutInputFromGeometry(geometry, roomName, measurements)
-  const layoutInput =
-    geometryInput ??
-    (measurements?.widthCm && measurements.depthCm
-      ? {
-          widthCm: measurements.widthCm,
-          depthCm: measurements.depthCm,
-          layoutNotes: measurements.layoutNotes,
-        }
-      : null)
-  if (!layoutInput) {
-    return null
-  }
   const list = await getShoppingList(userId, projectId)
   const items: LayoutItem[] = list.items
     .filter((item) => item.roomId === roomId)
@@ -47,7 +34,7 @@ export async function roomLayout(
   if (items.length === 0) {
     return null
   }
-  return layoutRoom(layoutInput, items)
+  return layoutWithMeasurements(roomName, measurements, geometry, items)
 }
 
 /**
@@ -76,22 +63,12 @@ export function projectLayouts(
     if (items.length === 0) {
       continue
     }
-    const geometryInput = roomLayoutInputFromGeometry(geometry, room.name, room.measurements)
-    const measurements = room.measurements
-    const layoutInput =
-      geometryInput ??
-      (measurements?.widthCm && measurements.depthCm
-        ? {
-            widthCm: measurements.widthCm,
-            depthCm: measurements.depthCm,
-            layoutNotes: measurements.layoutNotes,
-          }
-        : null)
-    if (!layoutInput) continue
+    const layout = layoutWithMeasurements(room.name, room.measurements, geometry, items)
+    if (!layout) continue
     result.push({
       roomId: room.id,
       roomName: room.name,
-      layout: layoutRoom(layoutInput, items),
+      layout,
     })
   }
   return result

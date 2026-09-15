@@ -79,9 +79,10 @@ export function roomLayoutInputFromGeometry(
   measurements: RoomMeasurements | null | undefined,
 ): GeometryRoomLayoutInput | null {
   if (geometry?.status !== 'confirmed') return null
-  const room = geometry.rooms.find(
+  const matchingRooms = geometry.rooms.filter(
     (candidate) => normalizedName(candidate.name) === normalizedName(roomName),
   )
+  const room = matchingRooms.length === 1 ? matchingRooms[0] : undefined
   if (!room || room.polygon.length < 3) return null
 
   const xs = room.polygon.map((point) => point.xCm)
@@ -92,17 +93,24 @@ export function roomLayoutInputFromGeometry(
   const maxY = Math.max(...ys)
   const geometryWidth = maxX - minX
   const geometryDepth = maxY - minY
-  if (geometryWidth <= 0 || geometryDepth <= 0) return null
+  if (
+    !Number.isFinite(geometryWidth) ||
+    !Number.isFinite(geometryDepth) ||
+    geometryWidth <= 0 ||
+    geometryDepth <= 0
+  )
+    return null
 
   const widthCm =
     measurements?.widthCm && measurements.widthCm > 0 ? measurements.widthCm : geometryWidth
   const depthCm =
     measurements?.depthCm && measurements.depthCm > 0 ? measurements.depthCm : geometryDepth
+  if (!Number.isFinite(widthCm) || !Number.isFinite(depthCm)) return null
   const scaleX = widthCm / geometryWidth
   const scaleY = depthCm / geometryDepth
   const floorPolygon = room.polygon.map((point) => ({
-    xCm: Math.round((point.xCm - minX) * scaleX),
-    yCm: Math.round((point.yCm - minY) * scaleY),
+    xCm: (point.xCm - minX) * scaleX,
+    yCm: (point.yCm - minY) * scaleY,
   }))
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
   const reservations: WallReservation[] = []
@@ -116,12 +124,12 @@ export function roomLayoutInputFromGeometry(
     floorReservations.push({
       kind: reservationKind(opening.type),
       start: {
-        xCm: Math.round((start.xCm - minX) * scaleX),
-        yCm: Math.round((start.yCm - minY) * scaleY),
+        xCm: (start.xCm - minX) * scaleX,
+        yCm: (start.yCm - minY) * scaleY,
       },
       end: {
-        xCm: Math.round((end.xCm - minX) * scaleX),
-        yCm: Math.round((end.yCm - minY) * scaleY),
+        xCm: (end.xCm - minX) * scaleX,
+        yCm: (end.yCm - minY) * scaleY,
       },
       clearanceCm: clearanceCm(opening.type),
     })
@@ -142,8 +150,8 @@ export function roomLayoutInputFromGeometry(
       reservations.push({
         kind: reservationKind(opening.type),
         wall: wallSide,
-        fromCm: Math.round((clippedStart - minX) * scaleX),
-        toCm: Math.round((clippedEnd - minX) * scaleX),
+        fromCm: (clippedStart - minX) * scaleX,
+        toCm: (clippedEnd - minX) * scaleX,
         clearanceCm: clearanceCm(opening.type),
       })
       continue
@@ -163,15 +171,15 @@ export function roomLayoutInputFromGeometry(
     reservations.push({
       kind: reservationKind(opening.type),
       wall: wallSide,
-      fromCm: Math.round((clippedStart - minY) * scaleY),
-      toCm: Math.round((clippedEnd - minY) * scaleY),
+      fromCm: (clippedStart - minY) * scaleY,
+      toCm: (clippedEnd - minY) * scaleY,
       clearanceCm: clearanceCm(opening.type),
     })
   }
 
   return {
-    widthCm: Math.round(widthCm),
-    depthCm: Math.round(depthCm),
+    widthCm,
+    depthCm,
     floorPolygon,
     ...(measurements?.layoutNotes ? { layoutNotes: measurements.layoutNotes } : {}),
     reservations,

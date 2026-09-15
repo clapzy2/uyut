@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { preparePhoto, UploadError } from '@/lib/files/uploads'
 import { AccessError, requireOwner } from '@/lib/projects/access'
+import { editedDimensionSources } from '@/lib/projects/dimension-sources'
 import * as repository from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { deleteObject, putObject } from '@/lib/storage'
@@ -120,6 +121,23 @@ export async function updateRoomMeasurements(
     .map((spot) => ({ name: spot.name, widthCm: spot.widthCm as number }))
   const { ceilingCm, widthCm, depthCm } = parsed.data
   const measurements = {
+    finishStage: parsed.data.finishStage,
+    ...(parsed.data.toleranceCm === null ? {} : { toleranceCm: parsed.data.toleranceCm }),
+    ...(parsed.data.confirmDimensions &&
+    widthCm !== null &&
+    depthCm !== null &&
+    parsed.data.finishStage !== 'unknown' &&
+    parsed.data.toleranceCm !== null
+      ? {
+          verification: {
+            widthCm,
+            depthCm,
+            finishStage: parsed.data.finishStage,
+            toleranceCm: parsed.data.toleranceCm,
+            confirmedAt: new Date().toISOString(),
+          },
+        }
+      : {}),
     ...(parsed.data.layoutNotes === undefined ? {} : { layoutNotes: parsed.data.layoutNotes }),
     ...(ceilingCm === null ? {} : { ceilingCm }),
     ...(widthCm === null ? {} : { widthCm }),
@@ -127,8 +145,11 @@ export async function updateRoomMeasurements(
     ...(spots.length > 0 ? { spots } : {}),
   }
   try {
+    const before = await repository.getRoom(userId, roomId)
+    const dimensionSources = editedDimensionSources({ widthCm, depthCm }, before.measurements)
     const room = await repository.updateRoom(userId, roomId, {
-      measurements: Object.keys(measurements).length > 0 ? measurements : null,
+      measurements:
+        Object.keys(measurements).length > 0 ? { ...measurements, dimensionSources } : null,
     })
     revalidateRoom(room.projectId, room.id)
     return { ok: true, data: undefined }

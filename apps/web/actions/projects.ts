@@ -13,7 +13,9 @@ import { recordAudit } from '@/lib/audit'
 import { canCreateProject, PROJECT_LIMIT } from '@/lib/billing/repository'
 import { preparePlan, UploadError } from '@/lib/files/uploads'
 import { AccessError, assertOwner } from '@/lib/projects/access'
+import { planDimensionSources } from '@/lib/projects/dimension-sources'
 import { roomKindLabels } from '@/lib/projects/format'
+import { kitchenItemsSchema } from '@/lib/projects/kitchen-items'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
 import * as repository from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -211,6 +213,14 @@ export async function savePlanGeometry(
       return { ok: false, error: 'Сначала прочитайте план и постройте 2D-схему.' }
     }
     const submitted = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
+    const kitchenItems = kitchenItemsSchema.safeParse(
+      submitted.kitchenItems ?? before.kitchenItems ?? [],
+    )
+    if (!kitchenItems.success)
+      return {
+        ok: false,
+        error: 'Проверьте размеры кухонных элементов: от 10 до 600 см, координаты неотрицательные.',
+      }
     // Габарит квартиры не редактируется: все ручные координаты обязаны остаться внутри
     // исходного полотна, построенного по загруженному плану.
     const geometry = validatePlanGeometryEdit({
@@ -260,6 +270,7 @@ export async function savePlanGeometry(
     }
     const saved: NonNullable<PlanReading['geometry']> = {
       ...checked,
+      kitchenItems: kitchenItems.data,
       status: 'confirmed',
       confirmedAt: new Date().toISOString(),
     }
@@ -321,6 +332,11 @@ export async function confirmPlanRooms(
         ? {}
         : { geometry: project.planReading.geometry }),
       rooms: rooms.map((room) => ({
+        dimensionSources: planDimensionSources(
+          room,
+          project.planReading?.rooms ?? [],
+          Boolean(project.planReading?.confirmedAt),
+        ),
         name: room.name || roomKindLabels[room.kind],
         kind: room.kind,
         ...(room.widthCm === null ? {} : { widthCm: room.widthCm }),
@@ -335,6 +351,11 @@ export async function confirmPlanRooms(
       reading,
       rooms: chosen.map((room) => {
         const measurements: RoomMeasurements = {
+          dimensionSources: planDimensionSources(
+            room,
+            project.planReading?.rooms ?? [],
+            Boolean(project.planReading?.confirmedAt),
+          ),
           ...(room.layoutNotes === undefined ? {} : { layoutNotes: room.layoutNotes }),
           ...(ceilingCm === null ? {} : { ceilingCm }),
           ...(room.widthCm === null ? {} : { widthCm: room.widthCm }),

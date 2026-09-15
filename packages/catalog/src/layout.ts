@@ -67,6 +67,8 @@ export type LayoutProblem =
   | { kind: 'noRoomSize' }
 
 export type RoomLayout = {
+  /** Условия достоверности исходных размеров, показываются вместе со схемой. */
+  measurementNote?: string
   widthCm: number
   depthCm: number
   /** Реальный контур пола в локальных координатах комнаты. */
@@ -155,7 +157,8 @@ type FloorEdge = {
   inward: 1 | -1
 }
 
-const GEOMETRY_EPSILON_CM = 0.5
+// Только погрешность вычислений, не разрешение мебели выступать за стену на полсантиметра.
+const GEOMETRY_EPSILON_CM = 1e-7
 
 function pointOnSegment(point: LayoutPoint, start: LayoutPoint, end: LayoutPoint): boolean {
   const cross =
@@ -191,12 +194,43 @@ function pointInFloor(point: LayoutPoint, polygon: readonly LayoutPoint[]): bool
 
 /**
  * Весь прямоугольник мебели должен находиться на полу, а не только его центр.
- * Девять контрольных точек ловят угловые вырезы и узкие ниши типовых ортогональных планов.
+ * Помимо контрольных точек проверяем каждое ребро: узкий вырез может пройти между точками.
  */
-function rectInsideFloor(rect: Rect, polygon: readonly LayoutPoint[]): boolean {
+export function rectInsideFloor(rect: Rect, polygon: readonly LayoutPoint[]): boolean {
   const xs = [rect.xCm, rect.xCm + rect.widthCm / 2, rect.xCm + rect.widthCm]
   const ys = [rect.yCm, rect.yCm + rect.depthCm / 2, rect.yCm + rect.depthCm]
-  return xs.every((xCm) => ys.every((yCm) => pointInFloor({ xCm, yCm }, polygon)))
+  if (!xs.every((xCm) => ys.every((yCm) => pointInFloor({ xCm, yCm }, polygon)))) return false
+  return !polygon.some((start, index) => {
+    const end = polygon[(index + 1) % polygon.length]
+    if (!end) return false
+    let from = 0
+    let to = 1
+    for (const [origin, delta, low, high] of [
+      [
+        start.xCm,
+        end.xCm - start.xCm,
+        rect.xCm + GEOMETRY_EPSILON_CM,
+        rect.xCm + rect.widthCm - GEOMETRY_EPSILON_CM,
+      ],
+      [
+        start.yCm,
+        end.yCm - start.yCm,
+        rect.yCm + GEOMETRY_EPSILON_CM,
+        rect.yCm + rect.depthCm - GEOMETRY_EPSILON_CM,
+      ],
+    ] as const) {
+      if (Math.abs(delta) <= GEOMETRY_EPSILON_CM) {
+        if (origin < low || origin > high) return false
+      } else {
+        const a = (low - origin) / delta
+        const b = (high - origin) / delta
+        from = Math.max(from, Math.min(a, b))
+        to = Math.min(to, Math.max(a, b))
+        if (from > to) return false
+      }
+    }
+    return from <= to
+  })
 }
 
 function validFloorPolygon(
@@ -623,10 +657,10 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
   const blockingFloorReservations = [...floorReservations, ...wallFloorReservations]
 
   const overlaps = (a: Rect, b: Rect) =>
-    a.xCm < b.xCm + b.widthCm - 0.5 &&
-    b.xCm < a.xCm + a.widthCm - 0.5 &&
-    a.yCm < b.yCm + b.depthCm - 0.5 &&
-    b.yCm < a.yCm + a.depthCm - 0.5
+    a.xCm < b.xCm + b.widthCm - GEOMETRY_EPSILON_CM &&
+    b.xCm < a.xCm + a.widthCm - GEOMETRY_EPSILON_CM &&
+    a.yCm < b.yCm + b.depthCm - GEOMETRY_EPSILON_CM &&
+    b.yCm < a.yCm + a.depthCm - GEOMETRY_EPSILON_CM
   const clearanceRects: Rect[] = reservations
     .filter((reservation) => reservation.clearanceCm > 0)
     .map((reservation) => {
@@ -741,10 +775,10 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     const at = cornerOf(wall, along, size, { widthCm, depthCm })
     const rect = { ...at, ...size }
     const insideRoom =
-      at.xCm >= -0.5 &&
-      at.yCm >= -0.5 &&
-      at.xCm + size.widthCm <= widthCm + 0.5 &&
-      at.yCm + size.depthCm <= depthCm + 0.5
+      at.xCm >= -GEOMETRY_EPSILON_CM &&
+      at.yCm >= -GEOMETRY_EPSILON_CM &&
+      at.xCm + size.widthCm <= widthCm + GEOMETRY_EPSILON_CM &&
+      at.yCm + size.depthCm <= depthCm + GEOMETRY_EPSILON_CM
     if (!insideRoom) {
       return false
     }
@@ -754,8 +788,8 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     const blocksWall = reservations.some(
       (reservation) =>
         reservation.wall === wall &&
-        along < reservation.toCm - 0.5 &&
-        reservation.fromCm < along + item.size.widthCm - 0.5,
+        along < reservation.toCm - GEOMETRY_EPSILON_CM &&
+        reservation.fromCm < along + item.size.widthCm - GEOMETRY_EPSILON_CM,
     )
     const collides = placed.some((other) => overlaps(rect, other))
     const blocksAccess = clearanceRects.some((clearance) => overlaps(rect, clearance))
@@ -823,7 +857,10 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       // Места вдоль стены не осталось, либо предмет глубже самой комнаты: рисовать его
       // поверх стены нельзя, а молча выбросить — тем более. Такие предметы уходят
       // во второй заход, где им ищут место на любой стене
-      if (cursor[wall] + item.size.widthCm > span.to + 0.5 || !put(wall, item, cursor[wall])) {
+      if (
+        cursor[wall] + item.size.widthCm > span.to + GEOMETRY_EPSILON_CM ||
+        !put(wall, item, cursor[wall])
+      ) {
         homeless.push(item)
       }
     }
@@ -854,7 +891,11 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       // стену нужен первому проходу для опрятной расстановки, а здесь мы ищем любое место,
       // и от наложения защищает точная проверка прямоугольника
       const length = candidate === 'top' || candidate === 'bottom' ? widthCm : depthCm
-      for (let along = 0; along + item.size.widthCm <= length + 0.5; along += RETRY_STEP_CM) {
+      for (
+        let along = 0;
+        along + item.size.widthCm <= length + GEOMETRY_EPSILON_CM;
+        along += RETRY_STEP_CM
+      ) {
         if (put(candidate, item, along)) {
           standing = true
           break

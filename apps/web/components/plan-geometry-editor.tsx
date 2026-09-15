@@ -14,6 +14,7 @@ import {
 } from 'react'
 import { savePlanGeometry } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
+import { KitchenPlanEditor } from '@/components/kitchen-plan-editor'
 import {
   inspectPlanGeometry,
   type PlanGeometryIssue,
@@ -438,6 +439,7 @@ export function PlanGeometryEditor({
   const [walls, setWalls] = useState(() => geometry.walls)
   const [openings, setOpenings] = useState(() => geometry.openings)
   const [rooms, setRooms] = useState(() => geometry.rooms)
+  const [kitchenItems, setKitchenItems] = useState(() => geometry.kitchenItems ?? [])
   const [selection, setSelection] = useState<Selection>(() =>
     geometry.walls[0]
       ? `wall:${geometry.walls[0].id}`
@@ -563,6 +565,7 @@ export function PlanGeometryEditor({
     setWalls(geometry.walls)
     setOpenings(geometry.openings)
     setRooms(geometry.rooms)
+    setKitchenItems(geometry.kitchenItems ?? [])
     setSelection(nextSelection(geometry.walls, geometry.openings))
     setError(undefined)
   }
@@ -570,7 +573,13 @@ export function PlanGeometryEditor({
   function save() {
     setError(undefined)
     startSaving(async () => {
-      const result = await savePlanGeometry(projectId, { ...geometry, walls, openings, rooms })
+      const result = await savePlanGeometry(projectId, {
+        ...geometry,
+        walls,
+        openings,
+        rooms,
+        kitchenItems,
+      })
       if (!result.ok) {
         setError(result.error)
         return
@@ -585,7 +594,12 @@ export function PlanGeometryEditor({
     'h-11 w-full rounded-sm border border-control bg-paper px-3 text-[14px] text-ink outline-none transition-colors focus:border-accent'
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!saving) setOpen(next)
+      }}
+    >
       <DialogTrigger asChild>
         <Button variant="secondary">
           {geometry.status === 'confirmed' ? 'Изменить схему' : 'Проверить схему'}
@@ -596,300 +610,317 @@ export function PlanGeometryEditor({
         description="Двигайте элементы на чертеже или задайте точные сантиметры вручную."
         className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-y-auto"
       >
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="mr-1 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
-            Добавить
-          </span>
-          <Button type="button" variant="secondary" size="sm" onClick={addWall}>
-            Стену
-          </Button>
-          <Button type="button" variant="secondary" size="sm" onClick={() => addOpening('door')}>
-            Дверь
-          </Button>
-          <Button type="button" variant="secondary" size="sm" onClick={() => addOpening('window')}>
-            Окно
-          </Button>
-          <Button type="button" variant="secondary" size="sm" onClick={() => addOpening('balcony')}>
-            Балконный блок
-          </Button>
-        </div>
-
-        <PlanGeometryCanvas
-          geometry={geometry}
-          walls={walls}
-          openings={openings}
-          rooms={rooms}
-          selection={selection}
-          onSelectionChange={setSelection}
-          onWallsChange={setWalls}
-          onOpeningsChange={setOpenings}
-          onRoomsChange={setRooms}
-          wallErrorIds={wallErrorIds}
-          openingErrorIds={openingErrorIds}
-          roomErrorIndexes={roomErrorIndexes}
-        />
-
-        <div
-          className={`mt-4 border p-4 ${blockingIssues.length > 0 ? 'border-danger/50 bg-paper' : issues.length > 0 ? 'border-accent/40 bg-accent-tint/20' : 'border-line bg-muted'}`}
-          aria-live="polite"
-        >
-          <p className="text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
-            Проверка геометрии
-          </p>
-          {issues.length === 0 ? (
-            <p className="mt-2 text-[14px] leading-relaxed text-ink">
-              Явных ошибок нет: стены соединены, а проёмы помещаются на своих стенах.
-            </p>
-          ) : (
-            <>
-              <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-                {blockingIssues.length > 0
-                  ? 'Исправьте красные элементы перед сохранением.'
-                  : 'Схему можно сохранить, но внешний контур стоит перепроверить.'}
-              </p>
-              <ul className="mt-3 space-y-2">
-                {issues.slice(0, 8).map((issue) => (
-                  <li key={issue.id}>
-                    <button
-                      type="button"
-                      onClick={() => selectIssue(issue)}
-                      className={`text-left text-[13px] leading-relaxed underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink ${issue.severity === 'error' ? 'text-danger' : 'text-ink-2'}`}
-                    >
-                      {issue.severity === 'error' ? 'Ошибка: ' : 'Проверьте: '}
-                      {issue.message}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-
-        <div className="mt-6 grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,1fr)]">
-          <div>
-            <label htmlFor="geometry-element" className="mb-2 block text-[13px] text-ink-2">
-              Элемент схемы
-            </label>
-            <select
-              id="geometry-element"
-              value={selection}
-              onChange={(event) => setSelection(event.currentTarget.value as Selection)}
-              className={selectClassName}
+        <fieldset disabled={saving} inert={saving} className="min-w-0 border-0 p-0">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="mr-1 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
+              Добавить
+            </span>
+            <Button type="button" variant="secondary" size="sm" onClick={addWall}>
+              Стену
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => addOpening('door')}>
+              Дверь
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => addOpening('window')}
             >
-              <optgroup label="Стены">
-                {walls.map((wall, index) => (
-                  <option key={wall.id} value={`wall:${wall.id}`}>
-                    Стена {index + 1} · {wallLength(wall)} см
-                  </option>
-                ))}
-              </optgroup>
-              {openings.length > 0 ? (
-                <optgroup label="Проёмы">
-                  {openings.map((opening, index) => (
-                    <option key={opening.id} value={`opening:${opening.id}`}>
-                      {openingLabel(opening.type)} {index + 1} · {opening.widthCm} см
+              Окно
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => addOpening('balcony')}
+            >
+              Балконный блок
+            </Button>
+          </div>
+
+          <PlanGeometryCanvas
+            geometry={geometry}
+            walls={walls}
+            openings={openings}
+            rooms={rooms}
+            selection={selection}
+            onSelectionChange={setSelection}
+            onWallsChange={setWalls}
+            onOpeningsChange={setOpenings}
+            onRoomsChange={setRooms}
+            wallErrorIds={wallErrorIds}
+            openingErrorIds={openingErrorIds}
+            roomErrorIndexes={roomErrorIndexes}
+          />
+
+          <div
+            className={`mt-4 border p-4 ${blockingIssues.length > 0 ? 'border-danger/50 bg-paper' : issues.length > 0 ? 'border-accent/40 bg-accent-tint/20' : 'border-line bg-muted'}`}
+            aria-live="polite"
+          >
+            <p className="text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
+              Проверка геометрии
+            </p>
+            {issues.length === 0 ? (
+              <p className="mt-2 text-[14px] leading-relaxed text-ink">
+                Явных ошибок нет: стены соединены, а проёмы помещаются на своих стенах.
+              </p>
+            ) : (
+              <>
+                <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+                  {blockingIssues.length > 0
+                    ? 'Исправьте красные элементы перед сохранением.'
+                    : 'Схему можно сохранить, но внешний контур стоит перепроверить.'}
+                </p>
+                <ul className="mt-3 space-y-2">
+                  {issues.slice(0, 8).map((issue) => (
+                    <li key={issue.id}>
+                      <button
+                        type="button"
+                        onClick={() => selectIssue(issue)}
+                        className={`text-left text-[13px] leading-relaxed underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink ${issue.severity === 'error' ? 'text-danger' : 'text-ink-2'}`}
+                      >
+                        {issue.severity === 'error' ? 'Ошибка: ' : 'Проверьте: '}
+                        {issue.message}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+
+          <KitchenPlanEditor
+            geometry={{ ...geometry, walls, openings, rooms }}
+            items={kitchenItems}
+            onChange={setKitchenItems}
+          />
+          <div className="mt-6 grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,1fr)]">
+            <div>
+              <label htmlFor="geometry-element" className="mb-2 block text-[13px] text-ink-2">
+                Элемент схемы
+              </label>
+              <select
+                id="geometry-element"
+                value={selection}
+                onChange={(event) => setSelection(event.currentTarget.value as Selection)}
+                className={selectClassName}
+              >
+                <optgroup label="Стены">
+                  {walls.map((wall, index) => (
+                    <option key={wall.id} value={`wall:${wall.id}`}>
+                      Стена {index + 1} · {wallLength(wall)} см
                     </option>
                   ))}
                 </optgroup>
-              ) : null}
-              {rooms.length > 0 ? (
-                <optgroup label="Контуры комнат">
-                  {rooms.map((room, index) => {
-                    return (
-                      <option key={`${index}-${room.name}`} value={`room:${index}`}>
-                        {room.name} · {room.polygon.length} точек
+                {openings.length > 0 ? (
+                  <optgroup label="Проёмы">
+                    {openings.map((opening, index) => (
+                      <option key={opening.id} value={`opening:${opening.id}`}>
+                        {openingLabel(opening.type)} {index + 1} · {opening.widthCm} см
                       </option>
-                    )
-                  })}
-                </optgroup>
-              ) : null}
-            </select>
+                    ))}
+                  </optgroup>
+                ) : null}
+                {rooms.length > 0 ? (
+                  <optgroup label="Контуры комнат">
+                    {rooms.map((room, index) => {
+                      return (
+                        <option key={`${index}-${room.name}`} value={`room:${index}`}>
+                          {room.name} · {room.polygon.length} точек
+                        </option>
+                      )
+                    })}
+                  </optgroup>
+                ) : null}
+              </select>
 
-            <div className="mt-5 border border-line bg-muted p-4 text-[13px] leading-relaxed text-ink-2">
-              Координаты считаются от левого верхнего угла квартиры: X идёт вправо, Y — вниз.
-              Удаление стены также уберёт все привязанные к ней проёмы.
+              <div className="mt-5 border border-line bg-muted p-4 text-[13px] leading-relaxed text-ink-2">
+                Координаты считаются от левого верхнего угла квартиры: X идёт вправо, Y — вниз.
+                Удаление стены также уберёт все привязанные к ней проёмы.
+              </div>
+            </div>
+
+            <div className="min-w-0">
+              {selectedWall ? (
+                <div className="space-y-4">
+                  <div>
+                    <p className="mb-2 text-[13px] text-ink-2">Тип стены</p>
+                    <div className="flex gap-2">
+                      {(['inner', 'outer'] as const).map((kind) => (
+                        <button
+                          key={kind}
+                          type="button"
+                          onClick={() => patchWall({ kind })}
+                          className={`rounded-full border px-3 py-2 text-[13px] transition-colors ${selectedWall.kind === kind ? 'border-accent bg-accent-tint text-ink' : 'border-control text-ink-2 hover:border-ink'}`}
+                        >
+                          {kind === 'outer' ? 'Несущая/внешняя' : 'Перегородка'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className={numberClassName}>
+                    <Input
+                      id="wall-start-x"
+                      label="Начало X, см"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={selectedWall.start.xCm}
+                      onChange={(event) =>
+                        patchWall({
+                          start: { ...selectedWall.start, xCm: Number(event.currentTarget.value) },
+                        })
+                      }
+                    />
+                    <Input
+                      id="wall-start-y"
+                      label="Начало Y, см"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={selectedWall.start.yCm}
+                      onChange={(event) =>
+                        patchWall({
+                          start: { ...selectedWall.start, yCm: Number(event.currentTarget.value) },
+                        })
+                      }
+                    />
+                    <Input
+                      id="wall-end-x"
+                      label="Конец X, см"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={selectedWall.end.xCm}
+                      onChange={(event) =>
+                        patchWall({
+                          end: { ...selectedWall.end, xCm: Number(event.currentTarget.value) },
+                        })
+                      }
+                    />
+                    <Input
+                      id="wall-end-y"
+                      label="Конец Y, см"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={selectedWall.end.yCm}
+                      onChange={(event) =>
+                        patchWall({
+                          end: { ...selectedWall.end, yCm: Number(event.currentTarget.value) },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedOpening ? (
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="opening-type" className="mb-2 block text-[13px] text-ink-2">
+                      Тип проёма
+                    </label>
+                    <select
+                      id="opening-type"
+                      value={selectedOpening.type}
+                      onChange={(event) =>
+                        patchOpening({ type: event.currentTarget.value as PlanOpening['type'] })
+                      }
+                      className={selectClassName}
+                    >
+                      <option value="door">Дверь</option>
+                      <option value="window">Окно</option>
+                      <option value="balcony">Балконный блок</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="opening-wall" className="mb-2 block text-[13px] text-ink-2">
+                      Стена
+                    </label>
+                    <select
+                      id="opening-wall"
+                      value={selectedOpening.wallId}
+                      onChange={(event) => patchOpening({ wallId: event.currentTarget.value })}
+                      className={selectClassName}
+                    >
+                      {walls.map((wall, index) => (
+                        <option key={wall.id} value={wall.id}>
+                          Стена {index + 1} · {wallLength(wall)} см
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className={numberClassName}>
+                    <Input
+                      id="opening-offset"
+                      label="От начала стены, см"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={selectedOpening.offsetCm}
+                      onChange={(event) =>
+                        patchOpening({ offsetCm: Number(event.currentTarget.value) })
+                      }
+                    />
+                    <Input
+                      id="opening-width"
+                      label="Ширина, см"
+                      type="number"
+                      min="30"
+                      step="1"
+                      value={selectedOpening.widthCm}
+                      onChange={(event) =>
+                        patchOpening({ widthCm: Number(event.currentTarget.value) })
+                      }
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedRoom ? (
+                <div className="border border-line bg-muted p-4">
+                  <p className="font-serif text-xl text-ink">{selectedRoom.name}</p>
+                  <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+                    Перетаскивайте розовые точки на чертеже. После сохранения контур будет проверен
+                    по площади, указанной на исходном плане.
+                  </p>
+                  <p className="mt-3 font-mono text-[12px] text-ink-2">
+                    {selectedRoom.polygon.length} точек контура
+                  </p>
+                </div>
+              ) : null}
+
+              {selectedWall || selectedOpening ? (
+                <button
+                  type="button"
+                  onClick={removeSelected}
+                  className="mt-5 text-[13px] text-danger underline decoration-line-strong underline-offset-4"
+                >
+                  Убрать этот элемент из схемы
+                </button>
+              ) : !selectedRoom ? (
+                <p className="text-[14px] text-ink-2">В схеме не осталось элементов.</p>
+              ) : null}
             </div>
           </div>
 
-          <div className="min-w-0">
-            {selectedWall ? (
-              <div className="space-y-4">
-                <div>
-                  <p className="mb-2 text-[13px] text-ink-2">Тип стены</p>
-                  <div className="flex gap-2">
-                    {(['inner', 'outer'] as const).map((kind) => (
-                      <button
-                        key={kind}
-                        type="button"
-                        onClick={() => patchWall({ kind })}
-                        className={`rounded-full border px-3 py-2 text-[13px] transition-colors ${selectedWall.kind === kind ? 'border-accent bg-accent-tint text-ink' : 'border-control text-ink-2 hover:border-ink'}`}
-                      >
-                        {kind === 'outer' ? 'Несущая/внешняя' : 'Перегородка'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className={numberClassName}>
-                  <Input
-                    id="wall-start-x"
-                    label="Начало X, см"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={selectedWall.start.xCm}
-                    onChange={(event) =>
-                      patchWall({
-                        start: { ...selectedWall.start, xCm: Number(event.currentTarget.value) },
-                      })
-                    }
-                  />
-                  <Input
-                    id="wall-start-y"
-                    label="Начало Y, см"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={selectedWall.start.yCm}
-                    onChange={(event) =>
-                      patchWall({
-                        start: { ...selectedWall.start, yCm: Number(event.currentTarget.value) },
-                      })
-                    }
-                  />
-                  <Input
-                    id="wall-end-x"
-                    label="Конец X, см"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={selectedWall.end.xCm}
-                    onChange={(event) =>
-                      patchWall({
-                        end: { ...selectedWall.end, xCm: Number(event.currentTarget.value) },
-                      })
-                    }
-                  />
-                  <Input
-                    id="wall-end-y"
-                    label="Конец Y, см"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={selectedWall.end.yCm}
-                    onChange={(event) =>
-                      patchWall({
-                        end: { ...selectedWall.end, yCm: Number(event.currentTarget.value) },
-                      })
-                    }
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            {selectedOpening ? (
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="opening-type" className="mb-2 block text-[13px] text-ink-2">
-                    Тип проёма
-                  </label>
-                  <select
-                    id="opening-type"
-                    value={selectedOpening.type}
-                    onChange={(event) =>
-                      patchOpening({ type: event.currentTarget.value as PlanOpening['type'] })
-                    }
-                    className={selectClassName}
-                  >
-                    <option value="door">Дверь</option>
-                    <option value="window">Окно</option>
-                    <option value="balcony">Балконный блок</option>
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="opening-wall" className="mb-2 block text-[13px] text-ink-2">
-                    Стена
-                  </label>
-                  <select
-                    id="opening-wall"
-                    value={selectedOpening.wallId}
-                    onChange={(event) => patchOpening({ wallId: event.currentTarget.value })}
-                    className={selectClassName}
-                  >
-                    {walls.map((wall, index) => (
-                      <option key={wall.id} value={wall.id}>
-                        Стена {index + 1} · {wallLength(wall)} см
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className={numberClassName}>
-                  <Input
-                    id="opening-offset"
-                    label="От начала стены, см"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={selectedOpening.offsetCm}
-                    onChange={(event) =>
-                      patchOpening({ offsetCm: Number(event.currentTarget.value) })
-                    }
-                  />
-                  <Input
-                    id="opening-width"
-                    label="Ширина, см"
-                    type="number"
-                    min="30"
-                    step="1"
-                    value={selectedOpening.widthCm}
-                    onChange={(event) =>
-                      patchOpening({ widthCm: Number(event.currentTarget.value) })
-                    }
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            {selectedRoom ? (
-              <div className="border border-line bg-muted p-4">
-                <p className="font-serif text-xl text-ink">{selectedRoom.name}</p>
-                <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-                  Перетаскивайте розовые точки на чертеже. После сохранения контур будет проверен по
-                  площади, указанной на исходном плане.
-                </p>
-                <p className="mt-3 font-mono text-[12px] text-ink-2">
-                  {selectedRoom.polygon.length} точек контура
-                </p>
-              </div>
-            ) : null}
-
-            {selectedWall || selectedOpening ? (
-              <button
-                type="button"
-                onClick={removeSelected}
-                className="mt-5 text-[13px] text-danger underline decoration-line-strong underline-offset-4"
-              >
-                Убрать этот элемент из схемы
-              </button>
-            ) : !selectedRoom ? (
-              <p className="text-[14px] text-ink-2">В схеме не осталось элементов.</p>
-            ) : null}
+          <FormError message={error} />
+          <div className="mt-6 flex flex-wrap gap-3 border-t border-line pt-5">
+            <Button
+              type="button"
+              onClick={save}
+              pending={saving}
+              disabled={walls.length < 3 || blockingIssues.length > 0}
+            >
+              {saving ? 'Проверяем…' : 'Подтвердить и сохранить'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={reset} disabled={saving}>
+              Сбросить правки
+            </Button>
           </div>
-        </div>
-
-        <FormError message={error} />
-        <div className="mt-6 flex flex-wrap gap-3 border-t border-line pt-5">
-          <Button
-            type="button"
-            onClick={save}
-            pending={saving}
-            disabled={walls.length < 3 || blockingIssues.length > 0}
-          >
-            {saving ? 'Проверяем…' : 'Подтвердить и сохранить'}
-          </Button>
-          <Button type="button" variant="ghost" onClick={reset} disabled={saving}>
-            Сбросить правки
-          </Button>
-        </div>
+        </fieldset>
       </DialogContent>
     </Dialog>
   )

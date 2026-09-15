@@ -82,6 +82,15 @@ function sample(kind: PdfData['kind']): PdfData {
 }
 
 describe('project PDF template', () => {
+  it('includes escaped measurement limitations beside the plan', () => {
+    const data = sample('paid')
+    const room = data.rooms[0]
+    if (!room?.plan) throw new Error('Missing fixture plan')
+    room.plan.measurementNote = 'Предварительно <проверить размеры>'
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('Предварительно &lt;проверить размеры&gt;')
+    expect(html).not.toContain('<проверить размеры>')
+  })
   it('renders every section with escaped text and the brief', () => {
     const html = renderProjectHtml(sample('paid'), { fontCss: '' })
     expect(html).toContain('<!doctype html>')

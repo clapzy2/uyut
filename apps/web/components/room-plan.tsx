@@ -321,6 +321,9 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
               : `Расположение проёмов не указано, поэтому свободные ${layout.freeWallCm} см — предварительная оценка.`}
       </p>
 
+      {layout.measurementNote ? (
+        <p className="mb-4 text-[13px] leading-relaxed text-ink-2">{layout.measurementNote}</p>
+      ) : null}
       <RoomPlanDrawing layout={layout} />
 
       {problems.length > 0 ? (

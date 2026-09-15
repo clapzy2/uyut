@@ -51,6 +51,7 @@ export type ProjectContact = {
  * комнатами проекта.
  */
 export type PlanRoomReading = {
+  dimensionSources?: RoomMeasurements['dimensionSources']
   name: string
   kind: RoomKind
   layoutNotes?: string
@@ -87,6 +88,14 @@ export type PlanOpening = {
   widthCm: number
 }
 export type PlanRoomShape = { name: string; polygon: PlanPoint[] }
+export type PlanKitchenItem = {
+  id: string
+  kind: 'sink' | 'hob' | 'fridge' | 'cabinet'
+  xCm: number
+  yCm: number
+  widthCm: number
+  depthCm: number
+}
 export type PlanGeometry = {
   version: 1
   status: 'draft' | 'confirmed'
@@ -96,6 +105,7 @@ export type PlanGeometry = {
   walls: PlanWall[]
   openings: PlanOpening[]
   rooms: PlanRoomShape[]
+  kitchenItems?: PlanKitchenItem[]
   warnings: string[]
 }
 
@@ -159,6 +169,27 @@ export type RoomSpot = { name: string; widthCm: number }
  * spots — отдельные простенки, их с плана не прочитать, их меряют руками.
  */
 export type RoomMeasurements = {
+  finishStage?: 'unknown' | 'before' | 'after'
+  /** Заявленная пользователем погрешность одного полного размера, не каждого конца стены. */
+  toleranceCm?: number
+  /** Подтверждает только ширину и глубину со слов пользователя, не инженерную проверку. */
+  verification?: {
+    widthCm: number
+    depthCm: number
+    finishStage: 'before' | 'after'
+    toleranceCm: number
+    confirmedAt: string
+  }
+  /** Источник относится только к сохранённому значению, не подтверждает натурный замер. */
+  dimensionSources?: Partial<
+    Record<
+      'widthCm' | 'depthCm',
+      {
+        valueCm: number
+        source: 'plan' | 'estimated' | 'entered' | 'unknown'
+      }
+    >
+  >
   /** Окна, двери и форма относительно ориентации плана, не точная геометрическая модель. */
   layoutNotes?: string
   ceilingCm?: number

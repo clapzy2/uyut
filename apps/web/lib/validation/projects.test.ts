@@ -7,6 +7,48 @@ import {
 } from './projects'
 
 describe('project validation', () => {
+  const baseMeasurements = { widthCm: '300,5', depthCm: '400.2', ceilingCm: '270.5' }
+  it('preserves fractional centimetres without silent rounding', () => {
+    const result = roomMeasurementsSchema.parse(baseMeasurements)
+    expect(result.widthCm).toBe(300.5)
+    expect(result.depthCm).toBe(400.2)
+    expect(result.ceilingCm).toBe(270.5)
+    expect(result.confirmDimensions).toBe(false)
+    expect(result.finishStage).toBe('unknown')
+    expect(result.toleranceCm).toBeNull()
+  })
+  it('requires actual measurement context for explicit confirmation', () => {
+    const confirmed = {
+      ...baseMeasurements,
+      finishStage: 'after',
+      toleranceCm: '0,5',
+      confirmDimensions: true,
+    }
+    expect(roomMeasurementsSchema.parse(confirmed).toleranceCm).toBe(0.5)
+    for (const change of [
+      { widthCm: '' },
+      { depthCm: '' },
+      { finishStage: 'unknown' },
+      { toleranceCm: '' },
+      { toleranceCm: '0' },
+      { toleranceCm: '-1' },
+      { toleranceCm: 'Infinity' },
+      { confirmDimensions: 'true' },
+    ]) {
+      expect(roomMeasurementsSchema.safeParse({ ...confirmed, ...change }).success).toBe(false)
+    }
+  })
+  it('rejects unreasonable tolerance and strips forged verification metadata', () => {
+    expect(
+      roomMeasurementsSchema.safeParse({ ...baseMeasurements, widthCm: '10', toleranceCm: '11' })
+        .success,
+    ).toBe(false)
+    const parsed = roomMeasurementsSchema.parse({
+      ...baseMeasurements,
+      verification: { confirmedAt: 'forged' },
+    })
+    expect(parsed).not.toHaveProperty('verification')
+  })
   it('проверяет описание архитектуры в мерках и при подтверждении плана', () => {
     const measurements = {
       ceilingCm: '',
