@@ -48,6 +48,23 @@ describe('layoutRoom', () => {
     expect(layout.problems).toContainEqual({ kind: 'noWall', title: 'Шкаф', widthCm: 250 })
   })
 
+  it('точные проёмы из 2D-схемы важнее текстового описания', () => {
+    const layout = layoutRoom(
+      {
+        widthCm: 300,
+        depthCm: 400,
+        layoutNotes: 'Окно снизу шириной 120 см',
+        reservations: [{ kind: 'door', wall: 'top', fromCm: 35, toCm: 125, clearanceCm: 90 }],
+      },
+      [item({ title: 'Тумба', dimensions: { width: 100, depth: 40, height: 60 } })],
+    )
+
+    expect(layout.reservationSource).toBe('geometry')
+    expect(layout.reservations).toEqual([
+      { kind: 'door', wall: 'top', fromCm: 35, toCm: 125, clearanceCm: 90 },
+    ])
+  })
+
   it('оставляет свободной зону открывания двери перед стеной', () => {
     const layout = layoutRoom(
       {

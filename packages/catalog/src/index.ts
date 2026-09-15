@@ -34,6 +34,7 @@ export {
   layoutRoom,
   type Placement,
   type RoomLayout,
+  type RoomLayoutInput,
   WALKWAY_CM,
 } from './layout'
 export { isBathroomFixture, isForeignListing, isNotFurniture } from './not-furniture'

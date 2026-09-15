@@ -36,6 +36,9 @@ export function FitWarnings({ rooms, projectId }: { rooms: RoomFit[]; projectId:
   if (trouble.length === 0) {
     return null
   }
+  const geometryRooms = trouble.filter(
+    (room) => room.layout.reservationSource === 'geometry',
+  ).length
   return (
     <div className="mt-8 animate-[rise-in_350ms_var(--ease-appear)] border border-danger/40 bg-paper p-5">
       <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-danger">
@@ -55,8 +58,11 @@ export function FitWarnings({ rooms, projectId }: { rooms: RoomFit[]; projectId:
         ))}
       </ul>
       <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
-        Считаем по размерам комнаты и габаритам из карточек магазинов. Где дверь и окно, план не
-        знает, поэтому проверьте по месту, прежде чем покупать.
+        {geometryRooms === trouble.length
+          ? 'Считаем по размерам комнаты, габаритам товаров и дверям с окнами из подтверждённой 2D-схемы.'
+          : geometryRooms > 0
+            ? 'Для части комнат двери и окна взяты из подтверждённой 2D-схемы. В остальных их положение нужно проверить по месту.'
+            : 'Считаем по размерам комнаты и габаритам из карточек магазинов. Где дверь и окно, план не знает, поэтому проверьте по месту, прежде чем покупать.'}
       </p>
     </div>
   )

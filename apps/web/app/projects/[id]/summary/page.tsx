@@ -104,7 +104,7 @@ export default async function SummaryPage({
     listExports(session.user.id, project.id, 4),
     getPlan(session.user.id),
   ])
-  const layouts = projectLayouts(project.rooms, list)
+  const layouts = projectLayouts(project.rooms, list, project.planReading?.geometry)
   const rates = getWorksRates()
   const env = getEnv()
   const rooms = project.rooms.map((room) => ({

@@ -68,6 +68,16 @@ export type RoomLayout = {
   unmeasured: Array<{ id: string; title: string }>
   /** Проёмы и инженерные зоны, уверенно извлечённые из описания комнаты */
   reservations: WallReservation[]
+  /** Откуда взялись координаты проёмов. */
+  reservationSource: 'geometry' | 'description' | 'none'
+}
+
+export type RoomLayoutInput = {
+  widthCm?: number
+  depthCm?: number
+  layoutNotes?: string | null
+  /** Точные участки из подтверждённой 2D-схемы. Пустой массив тоже является точным ответом. */
+  reservations?: readonly WallReservation[]
 }
 
 /** Где предмет стоит: у стены, посреди комнаты или нигде, потому что он висит. */
@@ -337,10 +347,7 @@ function clearanceOf(entry: Sized): number {
  * Это не оптимальная упаковка и не пытается ею быть: нам нужен ответ «влезает или нет»,
  * а не лучшая из возможных расстановок.
  */
-export function layoutRoom(
-  room: { widthCm?: number; depthCm?: number; layoutNotes?: string | null },
-  items: readonly LayoutItem[],
-): RoomLayout {
+export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]): RoomLayout {
   const widthCm = room.widthCm ?? 0
   const depthCm = room.depthCm ?? 0
   if (widthCm <= 0 || depthCm <= 0) {
@@ -354,6 +361,7 @@ export function layoutRoom(
       offFloor: [],
       unmeasured: [],
       reservations: [],
+      reservationSource: 'none',
     }
   }
 
@@ -361,7 +369,17 @@ export function layoutRoom(
   const unmeasured: Array<{ id: string; title: string }> = []
   const problems: LayoutProblem[] = []
   const placed: Placement[] = []
-  const reservations = parseWallReservations(room.layoutNotes, { widthCm, depthCm })
+  const explicitReservations = room.reservations
+  const hasGeometryReservations = explicitReservations !== undefined
+  const reservations =
+    explicitReservations !== undefined
+      ? explicitReservations.map((reservation) => ({ ...reservation }))
+      : parseWallReservations(room.layoutNotes, { widthCm, depthCm })
+  const reservationSource = hasGeometryReservations
+    ? 'geometry'
+    : reservations.length > 0
+      ? 'description'
+      : 'none'
 
   type Rect = { xCm: number; yCm: number; widthCm: number; depthCm: number }
   const overlaps = (a: Rect, b: Rect) =>
@@ -641,5 +659,6 @@ export function layoutRoom(
     offFloor,
     unmeasured,
     reservations,
+    reservationSource,
   }
 }

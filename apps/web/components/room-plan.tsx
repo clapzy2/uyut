@@ -191,7 +191,9 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
       </ol>
       {layout.reservations.length > 0 ? (
         <p className="mt-3 text-[12px] leading-relaxed text-ink-2">
-          Учтено из описания:{' '}
+          {layout.reservationSource === 'geometry'
+            ? 'Учтено по подтверждённой 2D-схеме: '
+            : 'Учтено из описания: '}
           {layout.reservations
             .map((reservation) => RESERVATION_LABELS[reservation.kind])
             .join(', ')}
@@ -212,9 +214,13 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
       <p className="mb-4 text-[13px] leading-relaxed text-ink-2">
         Комната {Math.round(layout.widthCm)} × {Math.round(layout.depthCm)} см и то, что вы выбрали,
         в масштабе. Мы раскладываем крупное вдоль стен, а стол — посередине.{' '}
-        {layout.reservations.length > 0
-          ? `Указанные проёмы и инженерные зоны учтены; свободной стены осталось ${layout.freeWallCm} см.`
-          : `Расположение проёмов не указано, поэтому свободные ${layout.freeWallCm} см — предварительная оценка.`}
+        {layout.reservationSource === 'geometry' && layout.reservations.length > 0
+          ? `Двери и окна взяты из подтверждённой 2D-схемы; свободной стены осталось ${layout.freeWallCm} см.`
+          : layout.reservationSource === 'geometry'
+            ? `Подтверждённая 2D-схема не содержит проёмов на границах этой комнаты; свободной стены осталось ${layout.freeWallCm} см.`
+            : layout.reservations.length > 0
+              ? `Указанные проёмы и инженерные зоны учтены; свободной стены осталось ${layout.freeWallCm} см.`
+              : `Расположение проёмов не указано, поэтому свободные ${layout.freeWallCm} см — предварительная оценка.`}
       </p>
 
       <RoomPlanDrawing layout={layout} />

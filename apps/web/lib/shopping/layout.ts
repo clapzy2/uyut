@@ -1,7 +1,8 @@
 import 'server-only'
 
 import { type LayoutItem, layoutRoom, type RoomLayout, subcategoryFromText } from '@uyut/catalog'
-import type { Room, RoomMeasurements } from '@uyut/db'
+import type { PlanGeometry, Room, RoomMeasurements } from '@uyut/db'
+import { roomLayoutInputFromGeometry } from '@/lib/projects/room-geometry-layout'
 import { getShoppingList, type ShoppingItemView } from './repository'
 
 /**
@@ -15,9 +16,21 @@ export async function roomLayout(
   userId: string,
   projectId: string,
   roomId: string,
+  roomName: string,
   measurements: RoomMeasurements | null,
+  geometry?: PlanGeometry,
 ): Promise<RoomLayout | null> {
-  if (!measurements?.widthCm || !measurements.depthCm) {
+  const geometryInput = roomLayoutInputFromGeometry(geometry, roomName, measurements)
+  const layoutInput =
+    geometryInput ??
+    (measurements?.widthCm && measurements.depthCm
+      ? {
+          widthCm: measurements.widthCm,
+          depthCm: measurements.depthCm,
+          layoutNotes: measurements.layoutNotes,
+        }
+      : null)
+  if (!layoutInput) {
     return null
   }
   const list = await getShoppingList(userId, projectId)
@@ -34,14 +47,7 @@ export async function roomLayout(
   if (items.length === 0) {
     return null
   }
-  return layoutRoom(
-    {
-      widthCm: measurements.widthCm,
-      depthCm: measurements.depthCm,
-      layoutNotes: measurements.layoutNotes,
-    },
-    items,
-  )
+  return layoutRoom(layoutInput, items)
 }
 
 /**
@@ -53,13 +59,10 @@ export async function roomLayout(
 export function projectLayouts(
   rooms: readonly Room[],
   list: { items: readonly ShoppingItemView[] },
+  geometry?: PlanGeometry,
 ): Array<{ roomId: string; roomName: string; layout: RoomLayout }> {
-  const measured = rooms.filter((room) => room.measurements?.widthCm && room.measurements.depthCm)
-  if (measured.length === 0) {
-    return []
-  }
   const result: Array<{ roomId: string; roomName: string; layout: RoomLayout }> = []
-  for (const room of measured) {
+  for (const room of rooms) {
     const items: LayoutItem[] = list.items
       .filter((item) => item.roomId === room.id)
       .map((item) => ({
@@ -73,22 +76,22 @@ export function projectLayouts(
     if (items.length === 0) {
       continue
     }
-    const measurements = room.measurements as {
-      widthCm: number
-      depthCm: number
-      layoutNotes?: string
-    }
+    const geometryInput = roomLayoutInputFromGeometry(geometry, room.name, room.measurements)
+    const measurements = room.measurements
+    const layoutInput =
+      geometryInput ??
+      (measurements?.widthCm && measurements.depthCm
+        ? {
+            widthCm: measurements.widthCm,
+            depthCm: measurements.depthCm,
+            layoutNotes: measurements.layoutNotes,
+          }
+        : null)
+    if (!layoutInput) continue
     result.push({
       roomId: room.id,
       roomName: room.name,
-      layout: layoutRoom(
-        {
-          widthCm: measurements.widthCm,
-          depthCm: measurements.depthCm,
-          layoutNotes: measurements.layoutNotes,
-        },
-        items,
-      ),
+      layout: layoutRoom(layoutInput, items),
     })
   }
   return result

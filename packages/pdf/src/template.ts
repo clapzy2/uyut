@@ -271,7 +271,11 @@ function roomPlan(plan: RoomLayout | null): string {
   const verdict =
     trouble.length > 0
       ? `<p class="verdict bad">${esc(planProblems(trouble))}</p>`
-      : `<p class="verdict">Выбранное помещается, проход посередине ${plan.walkwayCm} см. Где дверь и окно, план не знает: свободной стены ${plan.freeWallCm} см.</p>`
+      : plan.reservationSource === 'geometry'
+        ? `<p class="verdict">Выбранное помещается, проход посередине ${plan.walkwayCm} см. Двери и окна учтены по подтверждённой 2D-схеме; свободной стены ${plan.freeWallCm} см.</p>`
+        : plan.reservationSource === 'description'
+          ? `<p class="verdict">Выбранное помещается, проход посередине ${plan.walkwayCm} см. Проёмы учтены по описанию комнаты; свободной стены ${plan.freeWallCm} см.</p>`
+          : `<p class="verdict">Выбранное помещается, проход посередине ${plan.walkwayCm} см. Где дверь и окно, план не знает: свободной стены ${plan.freeWallCm} см.</p>`
   // Чертёж без картинки, если расставить не удалось ничего: сама причина важнее рамки
   const drawing =
     plan.placed.length > 0

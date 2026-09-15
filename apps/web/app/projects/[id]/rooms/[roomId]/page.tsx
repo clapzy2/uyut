@@ -68,7 +68,14 @@ export default async function RoomPage({ params }: { params: Params }) {
       latestBatch(session.user.id, room.id),
       otherMember(room.projectId, session.user.id),
       resumeGenerationRun(room),
-      roomLayout(session.user.id, room.projectId, room.id, room.measurements),
+      roomLayout(
+        session.user.id,
+        room.projectId,
+        room.id,
+        room.name,
+        room.measurements,
+        room.project.planReading?.geometry,
+      ),
     ])
   const conceptItems = allConcepts
   const photoUrl = room.photoUrl ? await presignedObjectUrl(room.photoUrl) : null
