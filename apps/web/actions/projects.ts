@@ -1,7 +1,11 @@
 'use server'
 
 import { randomUUID } from 'node:crypto'
-import { reconcilePlanGeometryRooms, validatePlanGeometryEdit } from '@uyut/ai'
+import {
+  isManualPlanGeometryId,
+  reconcilePlanGeometryRooms,
+  validatePlanGeometryEdit,
+} from '@uyut/ai'
 import type { PlanReading, RoomMeasurements } from '@uyut/db'
 import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
@@ -231,13 +235,15 @@ export async function savePlanGeometry(
         error: 'Один из элементов имеет неверный размер или выходит за границы схемы.',
       }
     }
-    // На этом экране можно исправлять и убирать найденные элементы, но нельзя незаметно
-    // подложить произвольную геометрию с новыми идентификаторами.
+    // Новые элементы принимаем только с отдельным форматом ручного ID. Это не позволяет
+    // подменить распознанный элемент и оставляет происхождение геометрии различимым.
     const wallIds = new Set(before.walls.map((wall) => wall.id))
     const openingIds = new Set(before.openings.map((opening) => opening.id))
     if (
-      geometry.walls.some((wall) => !wallIds.has(wall.id)) ||
-      geometry.openings.some((opening) => !openingIds.has(opening.id))
+      geometry.walls.some((wall) => !wallIds.has(wall.id) && !isManualPlanGeometryId(wall.id)) ||
+      geometry.openings.some(
+        (opening) => !openingIds.has(opening.id) && !isManualPlanGeometryId(opening.id),
+      )
     ) {
       return { ok: false, error: 'В схеме появились неизвестные элементы. Обновите страницу.' }
     }

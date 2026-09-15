@@ -51,6 +51,7 @@ const MAX_POINTS = 30
 const MAX_WALLS = 200
 const MAX_OPENINGS = 200
 const MAX_ROOMS = 50
+const MANUAL_GEOMETRY_ID = /^manual_[a-f0-9]{24}$/
 
 function finite(value: unknown): number | undefined {
   const number = Number(value)
@@ -101,6 +102,11 @@ function cleanId(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const id = value.trim().slice(0, 40)
   return /^[a-zA-Z0-9_-]+$/.test(id) ? id : undefined
+}
+
+/** Идентификатор элемента, который пользователь добавил в редакторе, а не vision-модель. */
+export function isManualPlanGeometryId(value: unknown): value is string {
+  return typeof value === 'string' && MANUAL_GEOMETRY_ID.test(value)
 }
 
 /** Превращает непроверенный ответ vision-модели в безопасную для расчётов 2D-схему. */

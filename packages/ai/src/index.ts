@@ -113,6 +113,7 @@ export {
   type SideReader,
 } from './floor-plan'
 export {
+  isManualPlanGeometryId,
   type PlanGeometry,
   type PlanOpening,
   type PlanPoint,

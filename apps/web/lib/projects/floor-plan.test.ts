@@ -2,6 +2,7 @@ import {
   applyRecheck,
   checkTotalArea,
   estimateSides,
+  isManualPlanGeometryId,
   isUtilityRoom,
   markChainMismatch,
   mergeReadings,
@@ -43,6 +44,12 @@ const validGeometry = {
 }
 
 describe('геометрия плана', () => {
+  it('отличает добавленные вручную элементы от ответа модели', () => {
+    expect(isManualPlanGeometryId('manual_0123456789abcdef01234567')).toBe(true)
+    expect(isManualPlanGeometryId('manual_0123456789abcdef')).toBe(false)
+    expect(isManualPlanGeometryId('w1')).toBe(false)
+  })
+
   it('переводит координаты в сантиметры и связывает проём со стеной', () => {
     const geometry = parsePlanGeometry(validGeometry)
     expect(geometry).toMatchObject({

@@ -15,12 +15,16 @@ type DragTarget =
 
 const numberClassName = 'grid grid-cols-2 gap-3'
 
+function wallDistance(wall: PlanWall): number {
+  return Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
+}
+
 function wallLength(wall: PlanWall): number {
-  return Math.round(Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm))
+  return Math.round(wallDistance(wall))
 }
 
 function pointAlongWall(wall: PlanWall, distanceCm: number): PlanPoint {
-  const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
+  const length = wallDistance(wall)
   const ratio = length === 0 ? 0 : distanceCm / length
   return {
     xCm: wall.start.xCm + (wall.end.xCm - wall.start.xCm) * ratio,
@@ -46,6 +50,16 @@ function roomCentre(points: PlanPoint[]): PlanPoint {
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(value, maximum))
+}
+
+function manualGeometryId() {
+  return `manual_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`
+}
+
+function openingLabel(type: PlanOpening['type']) {
+  if (type === 'window') return 'Окно'
+  if (type === 'balcony') return 'Балконный блок'
+  return 'Дверь'
 }
 
 function PlanGeometryCanvas({
@@ -124,7 +138,7 @@ function PlanGeometryCanvas({
         ...drag.wall,
         [drag.endpoint]: snapped,
       }
-      const nextLength = wallLength(nextWall)
+      const nextLength = wallDistance(nextWall)
       onWallsChange(walls.map((wall) => (wall.id === drag.id ? nextWall : wall)))
       onOpeningsChange(
         openings.map((opening) =>
@@ -347,6 +361,54 @@ export function PlanGeometryEditor({
     )
   }
 
+  function addWall() {
+    setError(undefined)
+    if (walls.length >= 200) {
+      setError('В одной схеме может быть не больше 200 стен.')
+      return
+    }
+    const length = Math.round(clamp(geometry.widthCm * 0.35, 60, 200))
+    const centreX = geometry.widthCm / 2
+    const stagger = ((walls.length % 5) - 2) * 18
+    const yCm = Math.round(clamp(geometry.heightCm / 2 + stagger, 0, geometry.heightCm))
+    const wall: PlanWall = {
+      id: manualGeometryId(),
+      kind: 'inner',
+      start: { xCm: Math.round(clamp(centreX - length / 2, 0, geometry.widthCm)), yCm },
+      end: { xCm: Math.round(clamp(centreX + length / 2, 0, geometry.widthCm)), yCm },
+    }
+    setWalls((current) => [...current, wall])
+    setSelection(`wall:${wall.id}`)
+  }
+
+  function addOpening(type: PlanOpening['type']) {
+    setError(undefined)
+    if (openings.length >= 200) {
+      setError('В одной схеме может быть не больше 200 проёмов.')
+      return
+    }
+    const preferredWallId = selectedWall?.id ?? selectedOpening?.wallId
+    const hostWall =
+      walls.find((wall) => wall.id === preferredWallId && wallDistance(wall) >= 60) ??
+      walls.find((wall) => wallDistance(wall) >= 60)
+    if (!hostWall) {
+      setError('Сначала добавьте или выберите стену длиной не меньше 60 см.')
+      return
+    }
+    const hostLength = wallDistance(hostWall)
+    const preferredWidth = type === 'window' ? 120 : type === 'balcony' ? 150 : 90
+    const widthCm = Math.floor(Math.min(preferredWidth, hostLength - 30))
+    const opening: PlanOpening = {
+      id: manualGeometryId(),
+      type,
+      wallId: hostWall.id,
+      widthCm,
+      offsetCm: Math.round((hostLength - widthCm) / 2),
+    }
+    setOpenings((current) => [...current, opening])
+    setSelection(`opening:${opening.id}`)
+  }
+
   function nextSelection(nextWalls: PlanWall[], nextOpenings: PlanOpening[]): Selection {
     return nextWalls[0] ? `wall:${nextWalls[0].id}` : `opening:${nextOpenings[0]?.id ?? ''}`
   }
@@ -403,6 +465,24 @@ export function PlanGeometryEditor({
         description="Двигайте элементы на чертеже или задайте точные сантиметры вручную."
         className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-y-auto"
       >
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
+            Добавить
+          </span>
+          <Button type="button" variant="secondary" size="sm" onClick={addWall}>
+            Стену
+          </Button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => addOpening('door')}>
+            Дверь
+          </Button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => addOpening('window')}>
+            Окно
+          </Button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => addOpening('balcony')}>
+            Балконный блок
+          </Button>
+        </div>
+
         <PlanGeometryCanvas
           geometry={geometry}
           walls={walls}
@@ -435,8 +515,7 @@ export function PlanGeometryEditor({
                 <optgroup label="Проёмы">
                   {openings.map((opening, index) => (
                     <option key={opening.id} value={`opening:${opening.id}`}>
-                      {opening.type === 'window' ? 'Окно' : 'Дверь'} {index + 1} · {opening.widthCm}{' '}
-                      см
+                      {openingLabel(opening.type)} {index + 1} · {opening.widthCm} см
                     </option>
                   ))}
                 </optgroup>
