@@ -79,6 +79,36 @@ describe('геометрия плана', () => {
     expect(geometry?.openings).toEqual([])
   })
 
+  it('не принимает пересекающиеся проёмы на одной стене', () => {
+    const geometry = parsePlanGeometry({
+      ...validGeometry,
+      openings: [
+        { id: 'window-1', type: 'window', wallId: 'w1', offsetMm: 1200, widthMm: 1500 },
+        { id: 'door-1', type: 'door', wallId: 'w1', offsetMm: 2400, widthMm: 900 },
+      ],
+    })
+    expect(geometry?.openings).toHaveLength(1)
+    expect(geometry?.warnings.at(-1)).toContain('пересекается')
+  })
+
+  it('не принимает самопересекающийся контур комнаты', () => {
+    const geometry = parsePlanGeometry({
+      ...validGeometry,
+      rooms: [
+        {
+          name: 'Гостиная',
+          polygon: [
+            { xMm: 0, yMm: 0 },
+            { xMm: 5000, yMm: 4000 },
+            { xMm: 5000, yMm: 0 },
+            { xMm: 0, yMm: 3000 },
+          ],
+        },
+      ],
+    })
+    expect(geometry?.rooms).toEqual([])
+  })
+
   it('не выдаёт набор случайных линий за схему квартиры', () => {
     expect(parsePlanGeometry({ ...validGeometry, walls: validGeometry.walls.slice(0, 2) })).toBe(
       undefined,

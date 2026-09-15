@@ -5,9 +5,19 @@
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanRoomShape, PlanWall } from '@uyut/db'
 import { Button, Dialog, DialogContent, DialogTrigger, Input, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
-import { type PointerEvent as ReactPointerEvent, useRef, useState, useTransition } from 'react'
+import {
+  type PointerEvent as ReactPointerEvent,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from 'react'
 import { savePlanGeometry } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
+import {
+  inspectPlanGeometry,
+  type PlanGeometryIssue,
+} from '@/lib/projects/plan-geometry-inspection'
 
 type Selection = `wall:${string}` | `opening:${string}` | `room:${number}`
 
@@ -95,6 +105,9 @@ function PlanGeometryCanvas({
   onWallsChange,
   onOpeningsChange,
   onRoomsChange,
+  wallErrorIds,
+  openingErrorIds,
+  roomErrorIndexes,
 }: {
   geometry: PlanGeometry
   walls: PlanWall[]
@@ -105,6 +118,9 @@ function PlanGeometryCanvas({
   onWallsChange: (walls: PlanWall[]) => void
   onOpeningsChange: (openings: PlanOpening[]) => void
   onRoomsChange: (rooms: PlanRoomShape[]) => void
+  wallErrorIds: ReadonlySet<string>
+  openingErrorIds: ReadonlySet<string>
+  roomErrorIndexes: ReadonlySet<number>
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<DragTarget | undefined>(undefined)
@@ -245,13 +261,14 @@ function PlanGeometryCanvas({
           const centre = roomCentre(room.polygon)
           const points = room.polygon.map((point) => `${point.xCm},${point.yCm}`).join(' ')
           const selected = selectionKind === 'room' && Number(selectionId) === roomIndex
+          const hasError = roomErrorIndexes.has(roomIndex)
           return (
             <g key={`${roomIndex}-${room.name}`}>
               <polygon
                 points={points}
                 fill="var(--accent-tint)"
                 fillOpacity={selected ? 0.55 : 0.3}
-                stroke={selected ? 'var(--accent)' : 'transparent'}
+                stroke={hasError ? 'var(--danger)' : selected ? 'var(--accent)' : 'transparent'}
                 strokeWidth="2"
                 vectorEffect="non-scaling-stroke"
                 className="cursor-pointer transition-colors"
@@ -277,6 +294,7 @@ function PlanGeometryCanvas({
 
         {walls.map((wall) => {
           const selected = selectionKind === 'wall' && selectionId === wall.id
+          const hasError = wallErrorIds.has(wall.id)
           return (
             <g key={wall.id}>
               <line
@@ -284,7 +302,7 @@ function PlanGeometryCanvas({
                 y1={wall.start.yCm}
                 x2={wall.end.xCm}
                 y2={wall.end.yCm}
-                stroke={selected ? 'var(--accent)' : 'var(--ink)'}
+                stroke={hasError ? 'var(--danger)' : selected ? 'var(--accent)' : 'var(--ink)'}
                 strokeWidth={selected ? 7 : wall.kind === 'outer' ? 6 : 4}
                 strokeLinecap="square"
                 vectorEffect="non-scaling-stroke"
@@ -329,6 +347,7 @@ function PlanGeometryCanvas({
           if (!wall) return null
           const segment = openingSegment(opening, wall)
           const selected = selectionKind === 'opening' && selectionId === opening.id
+          const hasError = openingErrorIds.has(opening.id)
           return (
             <g key={opening.id}>
               <line
@@ -359,7 +378,7 @@ function PlanGeometryCanvas({
                 y1={segment.start.yCm}
                 x2={segment.end.xCm}
                 y2={segment.end.yCm}
-                stroke={selected ? 'var(--accent)' : 'var(--ink-2)'}
+                stroke={hasError ? 'var(--danger)' : selected ? 'var(--accent)' : 'var(--ink-2)'}
                 strokeWidth={selected ? 5 : 3}
                 strokeDasharray={opening.type === 'door' ? '7 5' : undefined}
                 vectorEffect="non-scaling-stroke"
@@ -436,6 +455,23 @@ export function PlanGeometryEditor({
   const selectedOpening =
     selectionKind === 'opening' ? openings.find((opening) => opening.id === selectionId) : null
   const selectedRoom = selectionKind === 'room' ? rooms[Number(selectionId)] : undefined
+  const issues = useMemo(
+    () => inspectPlanGeometry({ ...geometry, walls, openings, rooms }),
+    [geometry, walls, openings, rooms],
+  )
+  const blockingIssues = issues.filter((issue) => issue.severity === 'error')
+  const wallErrorIds = new Set(blockingIssues.flatMap((issue) => issue.wallIds ?? []))
+  const openingErrorIds = new Set(blockingIssues.flatMap((issue) => issue.openingIds ?? []))
+  const roomErrorIndexes = new Set(blockingIssues.flatMap((issue) => issue.roomIndexes ?? []))
+
+  function selectIssue(issue: PlanGeometryIssue) {
+    const openingId = issue.openingIds?.[0]
+    const wallId = issue.wallIds?.[0]
+    const roomIndex = issue.roomIndexes?.[0]
+    if (openingId) setSelection(`opening:${openingId}`)
+    else if (wallId) setSelection(`wall:${wallId}`)
+    else if (roomIndex !== undefined) setSelection(`room:${roomIndex}`)
+  }
 
   function patchWall(patch: Partial<PlanWall>) {
     if (!selectedWall) return
@@ -588,7 +624,46 @@ export function PlanGeometryEditor({
           onWallsChange={setWalls}
           onOpeningsChange={setOpenings}
           onRoomsChange={setRooms}
+          wallErrorIds={wallErrorIds}
+          openingErrorIds={openingErrorIds}
+          roomErrorIndexes={roomErrorIndexes}
         />
+
+        <div
+          className={`mt-4 border p-4 ${blockingIssues.length > 0 ? 'border-danger/50 bg-paper' : issues.length > 0 ? 'border-accent/40 bg-accent-tint/20' : 'border-line bg-muted'}`}
+          aria-live="polite"
+        >
+          <p className="text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
+            Проверка геометрии
+          </p>
+          {issues.length === 0 ? (
+            <p className="mt-2 text-[14px] leading-relaxed text-ink">
+              Явных ошибок нет: стены соединены, а проёмы помещаются на своих стенах.
+            </p>
+          ) : (
+            <>
+              <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+                {blockingIssues.length > 0
+                  ? 'Исправьте красные элементы перед сохранением.'
+                  : 'Схему можно сохранить, но внешний контур стоит перепроверить.'}
+              </p>
+              <ul className="mt-3 space-y-2">
+                {issues.slice(0, 8).map((issue) => (
+                  <li key={issue.id}>
+                    <button
+                      type="button"
+                      onClick={() => selectIssue(issue)}
+                      className={`text-left text-[13px] leading-relaxed underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink ${issue.severity === 'error' ? 'text-danger' : 'text-ink-2'}`}
+                    >
+                      {issue.severity === 'error' ? 'Ошибка: ' : 'Проверьте: '}
+                      {issue.message}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
 
         <div className="mt-6 grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,1fr)]">
           <div>
@@ -803,7 +878,12 @@ export function PlanGeometryEditor({
 
         <FormError message={error} />
         <div className="mt-6 flex flex-wrap gap-3 border-t border-line pt-5">
-          <Button type="button" onClick={save} pending={saving} disabled={walls.length < 3}>
+          <Button
+            type="button"
+            onClick={save}
+            pending={saving}
+            disabled={walls.length < 3 || blockingIssues.length > 0}
+          >
             {saving ? 'Проверяем…' : 'Подтвердить и сохранить'}
           </Button>
           <Button type="button" variant="ghost" onClick={reset} disabled={saving}>

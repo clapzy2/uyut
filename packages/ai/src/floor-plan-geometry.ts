@@ -85,6 +85,48 @@ function distance(a: PlanPoint, b: PlanPoint): number {
   return Math.hypot(b.xCm - a.xCm, b.yCm - a.yCm)
 }
 
+function signedTurn(a: PlanPoint, b: PlanPoint, c: PlanPoint): number {
+  return (b.xCm - a.xCm) * (c.yCm - a.yCm) - (b.yCm - a.yCm) * (c.xCm - a.xCm)
+}
+
+function onSegment(a: PlanPoint, b: PlanPoint, point: PlanPoint): boolean {
+  return (
+    Math.abs(signedTurn(a, b, point)) < 0.001 &&
+    point.xCm >= Math.min(a.xCm, b.xCm) &&
+    point.xCm <= Math.max(a.xCm, b.xCm) &&
+    point.yCm >= Math.min(a.yCm, b.yCm) &&
+    point.yCm <= Math.max(a.yCm, b.yCm)
+  )
+}
+
+function segmentsIntersect(a: PlanPoint, b: PlanPoint, c: PlanPoint, d: PlanPoint): boolean {
+  const abC = signedTurn(a, b, c)
+  const abD = signedTurn(a, b, d)
+  const cdA = signedTurn(c, d, a)
+  const cdB = signedTurn(c, d, b)
+  const abSeparated = (abC > 0 && abD < 0) || (abC < 0 && abD > 0)
+  const cdSeparated = (cdA > 0 && cdB < 0) || (cdA < 0 && cdB > 0)
+  if (abSeparated && cdSeparated) return true
+  return onSegment(a, b, c) || onSegment(a, b, d) || onSegment(c, d, a) || onSegment(c, d, b)
+}
+
+function polygonCrossesItself(points: readonly PlanPoint[]): boolean {
+  for (let first = 0; first < points.length; first += 1) {
+    const firstEnd = (first + 1) % points.length
+    const a = points[first]
+    const b = points[firstEnd]
+    if (!a || !b) continue
+    for (let second = first + 1; second < points.length; second += 1) {
+      const secondEnd = (second + 1) % points.length
+      if (firstEnd === second || secondEnd === first) continue
+      const c = points[second]
+      const d = points[secondEnd]
+      if (c && d && segmentsIntersect(a, b, c, d)) return true
+    }
+  }
+  return false
+}
+
 /** Площадь контура по формуле Гаусса. */
 export function planPolygonAreaM2(points: readonly PlanPoint[]): number {
   if (points.length < 3) return 0
@@ -191,6 +233,16 @@ export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
       warnings.push('Один проём отброшен: он не помещается на указанной стене.')
       continue
     }
+    const overlapsExisting = openings.some(
+      (existing) =>
+        existing.wallId === wallId &&
+        Math.max(existing.offsetCm, offsetCm) <
+          Math.min(existing.offsetCm + existing.widthCm, offsetCm + openingWidthCm),
+    )
+    if (overlapsExisting) {
+      warnings.push('Один проём отброшен: он пересекается с другим проёмом на этой стене.')
+      continue
+    }
     openingIds.add(id)
     openings.push({ id, type, wallId, offsetCm, widthCm: openingWidthCm })
   }
@@ -204,7 +256,12 @@ export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
       .slice(0, MAX_POINTS)
       .map((entry) => point(entry, widthCm, heightCm))
       .filter((entry): entry is PlanPoint => entry !== undefined)
-    if (!name || polygon.length < 3 || planPolygonAreaM2(polygon) < 0.5) {
+    if (
+      !name ||
+      polygon.length < 3 ||
+      planPolygonAreaM2(polygon) < 0.5 ||
+      polygonCrossesItself(polygon)
+    ) {
       warnings.push('Контур одной комнаты отброшен: он не образует многоугольник.')
       continue
     }
