@@ -67,7 +67,7 @@ export function RoomMeasurementsForm({
       setError(result.error)
       return
     }
-    toast({ title: 'Сохранили', tone: 'success' })
+    toast({ title: 'Мерки сохранены', tone: 'success' })
     router.refresh()
   }
 

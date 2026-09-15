@@ -130,7 +130,7 @@ test.describe
         .getByLabel('Заметки', { exact: true })
         .fill('Батарея под окном, дверь открывается внутрь.')
       await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
-      await expect(page.getByText('Сохранили')).toBeVisible()
+      await expect(page.getByText('Заметки сохранены', { exact: true })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Сгенерировать концепты' })).toBeEnabled()
 
       // Мерки рулеткой: по ним считается, влезет ли мебель
@@ -140,7 +140,7 @@ test.describe
       await page.getByLabel('Участок стены').fill('простенок под окном')
       await page.getByLabel('Ширина, см').fill('140')
       await page.getByRole('button', { name: 'Сохранить мерки' }).click()
-      await expect(page.getByText('Сохранили')).toBeVisible()
+      await expect(page.getByText('Мерки сохранены', { exact: true })).toBeVisible()
       await page.reload()
       await expect(page.getByLabel('Ширина, см')).toHaveValue('140')
       await expect(page.getByLabel('Глубина комнаты, см')).toHaveValue('425')

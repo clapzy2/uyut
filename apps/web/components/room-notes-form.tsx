@@ -22,7 +22,7 @@ export function RoomNotesForm({ roomId, notes }: { roomId: string; notes: string
       form.setError('root', { message: result.error })
       return
     }
-    toast({ title: 'Сохранили', tone: 'success' })
+    toast({ title: 'Заметки сохранены', tone: 'success' })
     form.reset(values)
     router.refresh()
   }
