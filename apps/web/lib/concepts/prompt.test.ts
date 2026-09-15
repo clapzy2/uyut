@@ -35,6 +35,15 @@ function brief(patch: Partial<ConceptBrief> = {}): ConceptBrief {
 }
 
 describe('styleVector', () => {
+  it('кухонные ограничения доходят до задания и без обмеров', () => {
+    const prompt = fixedPreamble(brief({ roomKind: 'kitchen', hasPhoto: false, sizeCm: undefined }))
+    expect(prompt).toContain('Room dimensions are unknown: do not add an island')
+    const measured = fixedPreamble(
+      brief({ roomKind: 'kitchen', hasPhoto: false, sizeCm: { widthCm: 208, depthCm: 260 } }),
+    )
+    expect(measured).toContain('two opposing runs leave 88 cm')
+    expect(measured).toContain('Do not add opposing cabinet runs')
+  })
   it('нулевой вектор, пока ничего не лайкнули', () => {
     const vector = styleVector([])
     expect(vector).toHaveLength(1024)

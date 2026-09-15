@@ -1,3 +1,4 @@
+import { kitchenConstraints } from './kitchen-layout'
 import { type StyleEntry, styleLibrary } from './styles'
 import type { ConceptBrief, PromptBuilder, PromptPlan } from './types'
 
@@ -120,10 +121,16 @@ function scaleConstraints(brief: ConceptBrief): string {
   const width = brief.sizeCm?.widthCm
   const depth = brief.sizeCm?.depthCm
   if (!width || !depth) {
-    return 'Use believable apartment scale and keep a clear walking route from the doorway.'
+    return [
+      'Use believable apartment scale and keep a clear walking route from the doorway.',
+      brief.roomKind === 'kitchen' ? kitchenConstraints(brief.sizeCm) : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
   }
   const narrow = Math.min(width, depth) < 240
   return [
+    brief.roomKind === 'kitchen' ? kitchenConstraints(brief.sizeCm) : '',
     'Treat the stated dimensions as hard outer-wall constraints; do not make the room wider or deeper for the composition.',
     'Use furniture at real scale and keep an unobstructed walking route at least 80 cm wide.',
     'Keep the doorway and window clear; no furniture may cross an opening.',
