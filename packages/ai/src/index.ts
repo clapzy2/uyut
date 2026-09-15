@@ -116,9 +116,12 @@ export {
   type PlanGeometry,
   type PlanOpening,
   type PlanPoint,
+  type PlanRoomArea,
   type PlanRoomShape,
   type PlanWall,
   parsePlanGeometry,
+  planPolygonAreaM2,
+  reconcilePlanGeometryRooms,
 } from './floor-plan-geometry'
 export {
   ARCHITECTURE_ANCHOR_INSTRUCTION,

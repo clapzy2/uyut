@@ -42,6 +42,28 @@ function summary(reading: PlanReading) {
   return {
     ceilingCm: reading.ceilingCm ?? null,
     totalAreaM2: reading.totalAreaM2 ?? null,
+    geometry: reading.geometry
+      ? {
+          status: reading.geometry.status,
+          widthCm: reading.geometry.widthCm,
+          heightCm: reading.geometry.heightCm,
+          walls: reading.geometry.walls.length,
+          wallSegments: reading.geometry.walls.map((wall) => ({
+            id: wall.id,
+            kind: wall.kind,
+            start: wall.start,
+            end: wall.end,
+          })),
+          openings: reading.geometry.openings.map((opening) => ({
+            type: opening.type,
+            wallId: opening.wallId,
+            offsetCm: opening.offsetCm,
+            widthCm: opening.widthCm,
+          })),
+          rooms: reading.geometry.rooms.map((room) => room.name),
+          warnings: reading.geometry.warnings,
+        }
+      : null,
     rooms: reading.rooms.map((room) => ({
       name: room.name,
       kind: room.kind,

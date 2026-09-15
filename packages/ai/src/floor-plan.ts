@@ -1,6 +1,10 @@
 import type { RoomKind } from './detect'
 import { FalError, falQueue, toDataUri } from './fal-queue'
-import { type PlanGeometry, parsePlanGeometry } from './floor-plan-geometry'
+import {
+  type PlanGeometry,
+  parsePlanGeometry,
+  reconcilePlanGeometryRooms,
+} from './floor-plan-geometry'
 
 /**
  * Чтение обмерного плана квартиры.
@@ -43,7 +47,9 @@ export const FLOOR_PLAN_PROMPT = `Ты читаешь план квартиры 
 - geometry — единая 2D-схема квартиры в масштабе. Начало координат в левом верхнем углу внешнего контура; x вправо, y вниз, всё в миллиметрах.
 - widthMm и heightMm внутри geometry — габарит ограничивающего прямоугольника квартиры, не размер картинки.
 - Каждую стену запиши один раз от start до end. Внешние стены kind outer, перегородки inner. Идентификаторы уникальны.
+- Стена — полный логический отрезок от угла до угла или пересечения, включая место проёма. Не создавай отдельную короткую стену на месте окна или двери.
 - Проём обязан ссылаться на стену. offsetMm — расстояние вдоль стены от её start до начала проёма; widthMm — ширина проёма. Не видишь ширину или стену уверенно — не добавляй этот проём.
+- Проём добавляй только по архитектурному символу в самой планировке. Цифра из внешней размерной цепочки, перпендикулярной стене, не является шириной окна или двери.
 - polygon проходит по внутреннему контуру комнаты, без повторения первой точки в конце. Не видишь связный контур — не добавляй комнату в geometry.rooms.
 - geometry верни null, если на плане нельзя восстановить общий масштаб и связное положение хотя бы трёх стен. Не подменяй точную схему приблизительным рисунком.`
 
@@ -344,7 +350,7 @@ export function parseFloorPlan(raw: string): PlanReading {
   }
   const ceiling = ceilingCm(parsed.ceilingMm)
   const total = areaM2(parsed.totalAreaM2)
-  const geometry = parsePlanGeometry(parsed.geometry)
+  const geometry = reconcilePlanGeometryRooms(parsePlanGeometry(parsed.geometry), rooms)
   return {
     ...(ceiling === undefined ? {} : { ceilingCm: ceiling }),
     ...(total === undefined ? {} : { totalAreaM2: total }),

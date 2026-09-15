@@ -40,6 +40,8 @@ export type PlanGeometry = {
   warnings: string[]
 }
 
+export type PlanRoomArea = { name: string; areaM2?: number }
+
 const MIN_CANVAS_CM = 100
 const MAX_CANVAS_CM = 10_000
 const MIN_WALL_CM = 20
@@ -76,6 +78,19 @@ function point(raw: unknown, widthCm: number, heightCm: number): PlanPoint | und
 
 function distance(a: PlanPoint, b: PlanPoint): number {
   return Math.hypot(b.xCm - a.xCm, b.yCm - a.yCm)
+}
+
+/** Площадь контура по формуле Гаусса. */
+export function planPolygonAreaM2(points: readonly PlanPoint[]): number {
+  if (points.length < 3) return 0
+  let twiceArea = 0
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index]
+    const next = points[(index + 1) % points.length]
+    if (!current || !next) continue
+    twiceArea += current.xCm * next.yCm - next.xCm * current.yCm
+  }
+  return Math.abs(twiceArea) / 2 / 10_000
 }
 
 function cleanId(value: unknown): string | undefined {
@@ -155,6 +170,9 @@ export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
       openingWidthCm < 30 ||
       openingWidthCm > 1_000 ||
       offsetCm + openingWidthCm > wallLength + 1 ||
+      // Host-wall проходит сквозь проём. Если проём занял весь короткий отрезок, модель
+      // приняла нарисованное окно за отдельную стену, и доверять такой привязке нельзя.
+      wallLength - openingWidthCm < 30 ||
       (type !== 'door' && type !== 'window' && type !== 'balcony')
     ) {
       warnings.push('Один проём отброшен: он не помещается на указанной стене.')
@@ -173,7 +191,7 @@ export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
       .slice(0, MAX_POINTS)
       .map((entry) => point(entry, widthCm, heightCm))
       .filter((entry): entry is PlanPoint => entry !== undefined)
-    if (!name || polygon.length < 3) {
+    if (!name || polygon.length < 3 || planPolygonAreaM2(polygon) < 0.5) {
       warnings.push('Контур одной комнаты отброшен: он не образует многоугольник.')
       continue
     }
@@ -189,5 +207,38 @@ export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
     openings,
     rooms,
     warnings: [...new Set(warnings)].slice(0, 8),
+  }
+}
+
+/** Сверяет масштаб контуров с независимо прочитанными подписями площадей. */
+export function reconcilePlanGeometryRooms(
+  geometry: PlanGeometry | undefined,
+  rooms: readonly PlanRoomArea[],
+): PlanGeometry | undefined {
+  if (!geometry) return undefined
+  const areas = new Map(
+    rooms
+      .filter((room): room is { name: string; areaM2: number } => room.areaM2 !== undefined)
+      .map((room) => [room.name.trim().toLocaleLowerCase('ru'), room.areaM2]),
+  )
+  const kept: PlanRoomShape[] = []
+  let rejected = 0
+  for (const room of geometry.rooms) {
+    const expected = areas.get(room.name.trim().toLocaleLowerCase('ru'))
+    const actual = planPolygonAreaM2(room.polygon)
+    if (expected !== undefined && Math.abs(actual - expected) / expected > 0.33) {
+      rejected += 1
+      continue
+    }
+    kept.push(room)
+  }
+  if (rejected === 0) return geometry
+  return {
+    ...geometry,
+    rooms: kept,
+    warnings: [
+      ...geometry.warnings,
+      `${rejected} ${rejected === 1 ? 'контур комнаты отброшен' : 'контура комнат отброшены'}: геометрическая площадь не совпала с подписью.`,
+    ].slice(0, 8),
   }
 }

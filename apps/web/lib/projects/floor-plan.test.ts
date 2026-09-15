@@ -9,6 +9,7 @@ import {
   parseFloorPlan,
   parsePlanGeometry,
   parseSideRecheck,
+  reconcilePlanGeometryRooms,
   roomKindFromName,
 } from '@uyut/ai'
 import { describe, expect, it } from 'vitest'
@@ -62,6 +63,14 @@ describe('геометрия плана', () => {
     expect(geometry?.warnings).toHaveLength(1)
   })
 
+  it('не принимает проём, которым модель накрыла весь короткий фрагмент стены', () => {
+    const geometry = parsePlanGeometry({
+      ...validGeometry,
+      openings: [{ id: 'window-2', type: 'window', wallId: 'w1', offsetMm: 0, widthMm: 4900 }],
+    })
+    expect(geometry?.openings).toEqual([])
+  })
+
   it('не выдаёт набор случайных линий за схему квартиры', () => {
     expect(parsePlanGeometry({ ...validGeometry, walls: validGeometry.walls.slice(0, 2) })).toBe(
       undefined,
@@ -76,6 +85,13 @@ describe('геометрия плана', () => {
       }),
     )
     expect(reading.geometry?.walls).toHaveLength(4)
+  })
+
+  it('отбрасывает контур, площадь которого противоречит подписи комнаты', () => {
+    const geometry = parsePlanGeometry(validGeometry)
+    const checked = reconcilePlanGeometryRooms(geometry, [{ name: 'Гостиная', areaM2: 10 }])
+    expect(checked?.rooms).toEqual([])
+    expect(checked?.warnings.at(-1)).toContain('контур комнаты отброшен')
   })
 })
 
