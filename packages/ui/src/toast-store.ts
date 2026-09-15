@@ -23,7 +23,18 @@ export const useToastStore = create<ToastState>((set) => ({
   items: [],
   push: (input) => {
     const id = nextId++
-    set((state) => ({ items: [...state.items, { id, tone: 'neutral', ...input }] }))
+    const item: ToastItem = { id, tone: 'neutral', ...input }
+    set((state) => ({
+      items: [
+        ...state.items.filter(
+          (current) =>
+            current.title !== item.title ||
+            current.description !== item.description ||
+            current.tone !== item.tone,
+        ),
+        item,
+      ],
+    }))
     return id
   },
   dismiss: (id) => set((state) => ({ items: state.items.filter((item) => item.id !== id) })),
