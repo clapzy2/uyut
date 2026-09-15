@@ -1,6 +1,7 @@
 'use server'
 
 import { randomUUID } from 'node:crypto'
+import { reconcilePlanGeometryRooms, validatePlanGeometryEdit } from '@uyut/ai'
 import type { PlanReading, RoomMeasurements } from '@uyut/db'
 import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
@@ -187,6 +188,80 @@ export async function forgetPlanReading(projectId: string): Promise<ActionResult
     await repository.setPlanReading(userId, projectId, null)
     revalidatePath(`/projects/${projectId}`)
     return { ok: true, data: undefined }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+/** Сохранить ручную правку 2D-схемы и отметить её подтверждённой владельцем. */
+export async function savePlanGeometry(
+  projectId: string,
+  input: unknown,
+): Promise<ActionResult<NonNullable<PlanReading['geometry']>>> {
+  const userId = await currentUserId()
+  if (!userId) return { ok: false, error: SESSION_EXPIRED }
+  try {
+    const project = await assertOwner(userId, projectId)
+    const before = project.planReading?.geometry
+    if (!project.planReading || !before) {
+      return { ok: false, error: 'Сначала прочитайте план и постройте 2D-схему.' }
+    }
+    const submitted = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
+    // Габарит квартиры и контуры комнат на этом первом экране не редактируются. Берём их
+    // только из сохранённой схемы, чтобы клиент мог менять строго стены и проёмы.
+    const geometry = validatePlanGeometryEdit({
+      ...submitted,
+      widthCm: before.widthCm,
+      heightCm: before.heightCm,
+      rooms: before.rooms,
+    })
+    if (!geometry) {
+      return { ok: false, error: 'Схема не сохранилась: проверьте координаты стен.' }
+    }
+    const submittedWalls = Array.isArray(submitted.walls) ? submitted.walls.slice(0, 200).length : 0
+    const submittedOpenings = Array.isArray(submitted.openings)
+      ? submitted.openings.slice(0, 200).length
+      : 0
+    if (
+      geometry.walls.length !== submittedWalls ||
+      geometry.openings.length !== submittedOpenings
+    ) {
+      return {
+        ok: false,
+        error: 'Один из элементов имеет неверный размер или выходит за границы схемы.',
+      }
+    }
+    // На этом экране можно исправлять и убирать найденные элементы, но нельзя незаметно
+    // подложить произвольную геометрию с новыми идентификаторами.
+    const wallIds = new Set(before.walls.map((wall) => wall.id))
+    const openingIds = new Set(before.openings.map((opening) => opening.id))
+    if (
+      geometry.walls.some((wall) => !wallIds.has(wall.id)) ||
+      geometry.openings.some((opening) => !openingIds.has(opening.id))
+    ) {
+      return { ok: false, error: 'В схеме появились неизвестные элементы. Обновите страницу.' }
+    }
+    const checked = reconcilePlanGeometryRooms(geometry, project.planReading.rooms)
+    if (!checked) return { ok: false, error: 'В схеме должно остаться не меньше трёх стен.' }
+    const saved: NonNullable<PlanReading['geometry']> = {
+      ...checked,
+      status: 'confirmed',
+      confirmedAt: new Date().toISOString(),
+    }
+    await repository.setPlanReading(userId, projectId, {
+      ...project.planReading,
+      geometry: saved,
+    })
+    await recordAudit({
+      action: 'project.plan_geometry_confirmed',
+      actorId: userId,
+      targetType: 'project',
+      targetId: projectId,
+      headers: await headers(),
+      metadata: { walls: saved.walls.length, openings: saved.openings.length },
+    })
+    revalidatePath(`/projects/${projectId}`)
+    return { ok: true, data: saved }
   } catch (error) {
     return failure(error)
   }

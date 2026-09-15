@@ -122,6 +122,7 @@ export {
   parsePlanGeometry,
   planPolygonAreaM2,
   reconcilePlanGeometryRooms,
+  validatePlanGeometryEdit,
 } from './floor-plan-geometry'
 export {
   ARCHITECTURE_ANCHOR_INSTRUCTION,

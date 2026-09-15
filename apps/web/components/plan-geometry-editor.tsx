@@ -1,0 +1,314 @@
+'use client'
+
+import type { PlanGeometry, PlanOpening, PlanWall } from '@uyut/db'
+import { Button, Dialog, DialogContent, DialogTrigger, Input, toast } from '@uyut/ui'
+import { useRouter } from 'next/navigation'
+import { useState, useTransition } from 'react'
+import { savePlanGeometry } from '@/actions/projects'
+import { FormError } from '@/components/form-error'
+
+type Selection = `wall:${string}` | `opening:${string}`
+
+const numberClassName = 'grid grid-cols-2 gap-3'
+
+function wallLength(wall: PlanWall): number {
+  return Math.round(Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm))
+}
+
+export function PlanGeometryEditor({
+  projectId,
+  geometry,
+}: {
+  projectId: string
+  geometry: PlanGeometry
+}) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [walls, setWalls] = useState(() => geometry.walls)
+  const [openings, setOpenings] = useState(() => geometry.openings)
+  const [selection, setSelection] = useState<Selection>(() =>
+    geometry.walls[0]
+      ? `wall:${geometry.walls[0].id}`
+      : `opening:${geometry.openings[0]?.id ?? ''}`,
+  )
+  const [error, setError] = useState<string>()
+  const [saving, startSaving] = useTransition()
+  const [selectionKind, selectionId] = selection.split(':')
+  const selectedWall =
+    selectionKind === 'wall' ? walls.find((wall) => wall.id === selectionId) : null
+  const selectedOpening =
+    selectionKind === 'opening' ? openings.find((opening) => opening.id === selectionId) : null
+
+  function patchWall(patch: Partial<PlanWall>) {
+    if (!selectedWall) return
+    setWalls((current) =>
+      current.map((wall) => (wall.id === selectedWall.id ? { ...wall, ...patch } : wall)),
+    )
+  }
+
+  function patchOpening(patch: Partial<PlanOpening>) {
+    if (!selectedOpening) return
+    setOpenings((current) =>
+      current.map((opening) =>
+        opening.id === selectedOpening.id ? { ...opening, ...patch } : opening,
+      ),
+    )
+  }
+
+  function nextSelection(nextWalls: PlanWall[], nextOpenings: PlanOpening[]): Selection {
+    return nextWalls[0] ? `wall:${nextWalls[0].id}` : `opening:${nextOpenings[0]?.id ?? ''}`
+  }
+
+  function removeSelected() {
+    if (selectedWall) {
+      const nextWalls = walls.filter((wall) => wall.id !== selectedWall.id)
+      const nextOpenings = openings.filter((opening) => opening.wallId !== selectedWall.id)
+      setWalls(nextWalls)
+      setOpenings(nextOpenings)
+      setSelection(nextSelection(nextWalls, nextOpenings))
+      return
+    }
+    if (selectedOpening) {
+      const nextOpenings = openings.filter((opening) => opening.id !== selectedOpening.id)
+      setOpenings(nextOpenings)
+      setSelection(nextSelection(walls, nextOpenings))
+    }
+  }
+
+  function reset() {
+    setWalls(geometry.walls)
+    setOpenings(geometry.openings)
+    setSelection(nextSelection(geometry.walls, geometry.openings))
+    setError(undefined)
+  }
+
+  function save() {
+    setError(undefined)
+    startSaving(async () => {
+      const result = await savePlanGeometry(projectId, { ...geometry, walls, openings })
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      toast({ title: '2D-схема подтверждена', tone: 'success' })
+      setOpen(false)
+      router.refresh()
+    })
+  }
+
+  const selectClassName =
+    'h-11 w-full rounded-sm border border-control bg-paper px-3 text-[14px] text-ink outline-none transition-colors focus:border-accent'
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="secondary">
+          {geometry.status === 'confirmed' ? 'Изменить схему' : 'Проверить схему'}
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        title="Проверка 2D-схемы"
+        description="Выберите элемент, сверьте сантиметры с исходным планом и исправьте только явные ошибки."
+        className="max-h-[calc(100dvh-2rem)] max-w-2xl overflow-y-auto"
+      >
+        <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,1fr)]">
+          <div>
+            <label htmlFor="geometry-element" className="mb-2 block text-[13px] text-ink-2">
+              Элемент схемы
+            </label>
+            <select
+              id="geometry-element"
+              value={selection}
+              onChange={(event) => setSelection(event.currentTarget.value as Selection)}
+              className={selectClassName}
+            >
+              <optgroup label="Стены">
+                {walls.map((wall, index) => (
+                  <option key={wall.id} value={`wall:${wall.id}`}>
+                    Стена {index + 1} · {wallLength(wall)} см
+                  </option>
+                ))}
+              </optgroup>
+              {openings.length > 0 ? (
+                <optgroup label="Проёмы">
+                  {openings.map((opening, index) => (
+                    <option key={opening.id} value={`opening:${opening.id}`}>
+                      {opening.type === 'window' ? 'Окно' : 'Дверь'} {index + 1} · {opening.widthCm}{' '}
+                      см
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+            </select>
+
+            <div className="mt-5 border border-line bg-muted p-4 text-[13px] leading-relaxed text-ink-2">
+              Координаты считаются от левого верхнего угла квартиры: X идёт вправо, Y — вниз.
+              Удаление стены также уберёт все привязанные к ней проёмы.
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            {selectedWall ? (
+              <div className="space-y-4">
+                <div>
+                  <p className="mb-2 text-[13px] text-ink-2">Тип стены</p>
+                  <div className="flex gap-2">
+                    {(['inner', 'outer'] as const).map((kind) => (
+                      <button
+                        key={kind}
+                        type="button"
+                        onClick={() => patchWall({ kind })}
+                        className={`rounded-full border px-3 py-2 text-[13px] transition-colors ${selectedWall.kind === kind ? 'border-accent bg-accent-tint text-ink' : 'border-control text-ink-2 hover:border-ink'}`}
+                      >
+                        {kind === 'outer' ? 'Несущая/внешняя' : 'Перегородка'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={numberClassName}>
+                  <Input
+                    id="wall-start-x"
+                    label="Начало X, см"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={selectedWall.start.xCm}
+                    onChange={(event) =>
+                      patchWall({
+                        start: { ...selectedWall.start, xCm: Number(event.currentTarget.value) },
+                      })
+                    }
+                  />
+                  <Input
+                    id="wall-start-y"
+                    label="Начало Y, см"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={selectedWall.start.yCm}
+                    onChange={(event) =>
+                      patchWall({
+                        start: { ...selectedWall.start, yCm: Number(event.currentTarget.value) },
+                      })
+                    }
+                  />
+                  <Input
+                    id="wall-end-x"
+                    label="Конец X, см"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={selectedWall.end.xCm}
+                    onChange={(event) =>
+                      patchWall({
+                        end: { ...selectedWall.end, xCm: Number(event.currentTarget.value) },
+                      })
+                    }
+                  />
+                  <Input
+                    id="wall-end-y"
+                    label="Конец Y, см"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={selectedWall.end.yCm}
+                    onChange={(event) =>
+                      patchWall({
+                        end: { ...selectedWall.end, yCm: Number(event.currentTarget.value) },
+                      })
+                    }
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {selectedOpening ? (
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="opening-type" className="mb-2 block text-[13px] text-ink-2">
+                    Тип проёма
+                  </label>
+                  <select
+                    id="opening-type"
+                    value={selectedOpening.type}
+                    onChange={(event) =>
+                      patchOpening({ type: event.currentTarget.value as PlanOpening['type'] })
+                    }
+                    className={selectClassName}
+                  >
+                    <option value="door">Дверь</option>
+                    <option value="window">Окно</option>
+                    <option value="balcony">Балконный блок</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="opening-wall" className="mb-2 block text-[13px] text-ink-2">
+                    Стена
+                  </label>
+                  <select
+                    id="opening-wall"
+                    value={selectedOpening.wallId}
+                    onChange={(event) => patchOpening({ wallId: event.currentTarget.value })}
+                    className={selectClassName}
+                  >
+                    {walls.map((wall, index) => (
+                      <option key={wall.id} value={wall.id}>
+                        Стена {index + 1} · {wallLength(wall)} см
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className={numberClassName}>
+                  <Input
+                    id="opening-offset"
+                    label="От начала стены, см"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={selectedOpening.offsetCm}
+                    onChange={(event) =>
+                      patchOpening({ offsetCm: Number(event.currentTarget.value) })
+                    }
+                  />
+                  <Input
+                    id="opening-width"
+                    label="Ширина, см"
+                    type="number"
+                    min="30"
+                    step="1"
+                    value={selectedOpening.widthCm}
+                    onChange={(event) =>
+                      patchOpening({ widthCm: Number(event.currentTarget.value) })
+                    }
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {selectedWall || selectedOpening ? (
+              <button
+                type="button"
+                onClick={removeSelected}
+                className="mt-5 text-[13px] text-danger underline decoration-line-strong underline-offset-4"
+              >
+                Убрать этот элемент из схемы
+              </button>
+            ) : (
+              <p className="text-[14px] text-ink-2">В схеме не осталось элементов.</p>
+            )}
+          </div>
+        </div>
+
+        <FormError message={error} />
+        <div className="mt-6 flex flex-wrap gap-3 border-t border-line pt-5">
+          <Button type="button" onClick={save} pending={saving} disabled={walls.length < 3}>
+            {saving ? 'Проверяем…' : 'Подтвердить и сохранить'}
+          </Button>
+          <Button type="button" variant="ghost" onClick={reset} disabled={saving}>
+            Сбросить правки
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}

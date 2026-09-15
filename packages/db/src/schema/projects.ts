@@ -89,7 +89,8 @@ export type PlanOpening = {
 export type PlanRoomShape = { name: string; polygon: PlanPoint[] }
 export type PlanGeometry = {
   version: 1
-  status: 'draft'
+  status: 'draft' | 'confirmed'
+  confirmedAt?: string
   widthCm: number
   heightCm: number
   walls: PlanWall[]

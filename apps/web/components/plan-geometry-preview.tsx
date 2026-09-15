@@ -1,4 +1,5 @@
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall } from '@uyut/db'
+import type { ReactNode } from 'react'
 
 function along(wall: PlanWall, distanceCm: number): PlanPoint {
   const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
@@ -24,7 +25,13 @@ function centre(points: PlanPoint[]): PlanPoint {
   return { xCm: sum.xCm / points.length, yCm: sum.yCm / points.length }
 }
 
-export function PlanGeometryPreview({ geometry }: { geometry: PlanGeometry }) {
+export function PlanGeometryPreview({
+  geometry,
+  action,
+}: {
+  geometry: PlanGeometry
+  action?: ReactNode
+}) {
   const padding = Math.max(20, Math.min(geometry.widthCm, geometry.heightCm) * 0.06)
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
 
@@ -33,7 +40,7 @@ export function PlanGeometryPreview({ geometry }: { geometry: PlanGeometry }) {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
-            2D-схема · черновик
+            2D-схема · {geometry.status === 'confirmed' ? 'подтверждена' : 'черновик'}
           </p>
           <h2 className="mt-2 font-serif text-3xl text-ink">Стены и проёмы</h2>
         </div>
@@ -228,6 +235,7 @@ export function PlanGeometryPreview({ geometry }: { geometry: PlanGeometry }) {
               дверь
             </span>
           </div>
+          {action ? <div className="mt-6">{action}</div> : null}
         </div>
       </div>
     </section>

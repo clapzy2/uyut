@@ -31,7 +31,8 @@ export type PlanRoomShape = {
  */
 export type PlanGeometry = {
   version: 1
-  status: 'draft'
+  status: 'draft' | 'confirmed'
+  confirmedAt?: string
   widthCm: number
   heightCm: number
   walls: PlanWall[]
@@ -47,6 +48,9 @@ const MAX_CANVAS_CM = 10_000
 const MIN_WALL_CM = 20
 const MAX_WALL_CM = 5_000
 const MAX_POINTS = 30
+const MAX_WALLS = 200
+const MAX_OPENINGS = 200
+const MAX_ROOMS = 50
 
 function finite(value: unknown): number | undefined {
   const number = Number(value)
@@ -119,7 +123,7 @@ export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
   const warnings: string[] = []
   const walls: PlanWall[] = []
   const wallIds = new Set<string>()
-  for (const rawWall of Array.isArray(source.walls) ? source.walls : []) {
+  for (const rawWall of (Array.isArray(source.walls) ? source.walls : []).slice(0, MAX_WALLS)) {
     if (!rawWall || typeof rawWall !== 'object') continue
     const wall = rawWall as Record<string, unknown>
     const id = cleanId(wall.id)
@@ -149,7 +153,10 @@ export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
   const wallById = new Map(walls.map((wall) => [wall.id, wall]))
   const openings: PlanOpening[] = []
   const openingIds = new Set<string>()
-  for (const rawOpening of Array.isArray(source.openings) ? source.openings : []) {
+  for (const rawOpening of (Array.isArray(source.openings) ? source.openings : []).slice(
+    0,
+    MAX_OPENINGS,
+  )) {
     if (!rawOpening || typeof rawOpening !== 'object') continue
     const opening = rawOpening as Record<string, unknown>
     const id = cleanId(opening.id)
@@ -183,7 +190,7 @@ export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
   }
 
   const rooms: PlanRoomShape[] = []
-  for (const rawRoom of Array.isArray(source.rooms) ? source.rooms : []) {
+  for (const rawRoom of (Array.isArray(source.rooms) ? source.rooms : []).slice(0, MAX_ROOMS)) {
     if (!rawRoom || typeof rawRoom !== 'object') continue
     const room = rawRoom as Record<string, unknown>
     const name = typeof room.name === 'string' ? room.name.trim().slice(0, 40) : ''
@@ -208,6 +215,63 @@ export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
     rooms,
     warnings: [...new Set(warnings)].slice(0, 8),
   }
+}
+
+/**
+ * Повторная проверка схемы, отредактированной в браузере. В сеть она ходит уже в сантиметрах,
+ * а основной парсер принимает миллиметры, поэтому явно переводим каждое поле и прогоняем через
+ * те же ограничения, что ответ vision-модели.
+ */
+export function validatePlanGeometryEdit(raw: unknown): PlanGeometry | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const source = raw as Record<string, unknown>
+  const millimetres = (value: unknown) => Number(value) * 10
+  const convertPoint = (value: unknown) => {
+    const point = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+    return { xMm: millimetres(point.xCm), yMm: millimetres(point.yCm) }
+  }
+  const walls = (Array.isArray(source.walls) ? source.walls : [])
+    .slice(0, MAX_WALLS)
+    .map((value) => {
+      const wall = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+      return {
+        id: wall.id,
+        kind: wall.kind,
+        start: convertPoint(wall.start),
+        end: convertPoint(wall.end),
+        thicknessMm: wall.thicknessCm === undefined ? undefined : millimetres(wall.thicknessCm),
+      }
+    })
+  const openings = (Array.isArray(source.openings) ? source.openings : [])
+    .slice(0, MAX_OPENINGS)
+    .map((value) => {
+      const opening = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+      return {
+        id: opening.id,
+        type: opening.type,
+        wallId: opening.wallId,
+        offsetMm: millimetres(opening.offsetCm),
+        widthMm: millimetres(opening.widthCm),
+      }
+    })
+  const rooms = (Array.isArray(source.rooms) ? source.rooms : [])
+    .slice(0, MAX_ROOMS)
+    .map((value) => {
+      const room = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+      return {
+        name: room.name,
+        polygon: (Array.isArray(room.polygon) ? room.polygon : [])
+          .slice(0, MAX_POINTS)
+          .map(convertPoint),
+      }
+    })
+  return parsePlanGeometry({
+    widthMm: millimetres(source.widthCm),
+    heightMm: millimetres(source.heightCm),
+    walls,
+    openings,
+    rooms,
+  })
 }
 
 /** Сверяет масштаб контуров с независимо прочитанными подписями площадей. */

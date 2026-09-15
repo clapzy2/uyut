@@ -11,6 +11,7 @@ import {
   parseSideRecheck,
   reconcilePlanGeometryRooms,
   roomKindFromName,
+  validatePlanGeometryEdit,
 } from '@uyut/ai'
 import { describe, expect, it } from 'vitest'
 
@@ -92,6 +93,30 @@ describe('геометрия плана', () => {
     const checked = reconcilePlanGeometryRooms(geometry, [{ name: 'Гостиная', areaM2: 10 }])
     expect(checked?.rooms).toEqual([])
     expect(checked?.warnings.at(-1)).toContain('контур комнаты отброшен')
+  })
+
+  it('повторно проверяет схему после ручной правки в сантиметрах', () => {
+    const geometry = parsePlanGeometry(validGeometry)
+    const edited = geometry
+      ? validatePlanGeometryEdit({
+          ...geometry,
+          walls: geometry.walls.map((wall) =>
+            wall.id === 'w1' ? { ...wall, end: { ...wall.end, xCm: 480 } } : wall,
+          ),
+        })
+      : undefined
+    expect(edited?.walls.find((wall) => wall.id === 'w1')?.end.xCm).toBe(480)
+    // Окно шириной 150 см всё ещё помещается на исправленной стене.
+    expect(edited?.openings).toHaveLength(1)
+  })
+
+  it('не сохраняет ручную правку, после которой осталось меньше трёх стен', () => {
+    const geometry = parsePlanGeometry(validGeometry)
+    expect(
+      geometry
+        ? validatePlanGeometryEdit({ ...geometry, walls: geometry.walls.slice(0, 2) })
+        : null,
+    ).toBeUndefined()
   })
 })
 
