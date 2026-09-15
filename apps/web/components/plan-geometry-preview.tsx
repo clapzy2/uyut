@@ -51,6 +51,74 @@ export function PlanGeometryPreview({ geometry }: { geometry: PlanGeometry }) {
             aria-label="Черновая двухмерная схема квартиры"
             className="block aspect-[4/3] w-full"
           >
+            <g fill="none" stroke="var(--ink-2)" strokeOpacity="0.75">
+              <line
+                x1="0"
+                y1={-padding * 0.48}
+                x2={geometry.widthCm}
+                y2={-padding * 0.48}
+                strokeWidth="1"
+                vectorEffect="non-scaling-stroke"
+              />
+              <line
+                x1="0"
+                y1={-padding * 0.68}
+                x2="0"
+                y2={-padding * 0.28}
+                strokeWidth="1"
+                vectorEffect="non-scaling-stroke"
+              />
+              <line
+                x1={geometry.widthCm}
+                y1={-padding * 0.68}
+                x2={geometry.widthCm}
+                y2={-padding * 0.28}
+                strokeWidth="1"
+                vectorEffect="non-scaling-stroke"
+              />
+              <line
+                x1={-padding * 0.48}
+                y1="0"
+                x2={-padding * 0.48}
+                y2={geometry.heightCm}
+                strokeWidth="1"
+                vectorEffect="non-scaling-stroke"
+              />
+              <line
+                x1={-padding * 0.68}
+                y1="0"
+                x2={-padding * 0.28}
+                y2="0"
+                strokeWidth="1"
+                vectorEffect="non-scaling-stroke"
+              />
+              <line
+                x1={-padding * 0.68}
+                y1={geometry.heightCm}
+                x2={-padding * 0.28}
+                y2={geometry.heightCm}
+                strokeWidth="1"
+                vectorEffect="non-scaling-stroke"
+              />
+            </g>
+            <g
+              fill="var(--ink-2)"
+              fontSize="11"
+              textAnchor="middle"
+              className="font-mono"
+            >
+              <text x={geometry.widthCm / 2} y={-padding * 0.62}>
+                {geometry.widthCm} см
+              </text>
+              <text
+                x={-padding * 0.62}
+                y={geometry.heightCm / 2}
+                transform={`rotate(-90 ${-padding * 0.62} ${geometry.heightCm / 2})`}
+              >
+                {geometry.heightCm} см
+              </text>
+            </g>
+
             {geometry.rooms.map((room) => {
               const label = centre(room.polygon)
               const points = room.polygon.map((point) => `${point.xCm},${point.yCm}`).join(' ')
