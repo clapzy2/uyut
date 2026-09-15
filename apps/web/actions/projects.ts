@@ -211,13 +211,12 @@ export async function savePlanGeometry(
       return { ok: false, error: 'Сначала прочитайте план и постройте 2D-схему.' }
     }
     const submitted = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
-    // Габарит квартиры и контуры комнат на этом первом экране не редактируются. Берём их
-    // только из сохранённой схемы, чтобы клиент мог менять строго стены и проёмы.
+    // Габарит квартиры не редактируется: все ручные координаты обязаны остаться внутри
+    // исходного полотна, построенного по загруженному плану.
     const geometry = validatePlanGeometryEdit({
       ...submitted,
       widthCm: before.widthCm,
       heightCm: before.heightCm,
-      rooms: before.rooms,
     })
     if (!geometry) {
       return { ok: false, error: 'Схема не сохранилась: проверьте координаты стен.' }
@@ -226,9 +225,11 @@ export async function savePlanGeometry(
     const submittedOpenings = Array.isArray(submitted.openings)
       ? submitted.openings.slice(0, 200).length
       : 0
+    const submittedRooms = Array.isArray(submitted.rooms) ? submitted.rooms.slice(0, 50).length : 0
     if (
       geometry.walls.length !== submittedWalls ||
-      geometry.openings.length !== submittedOpenings
+      geometry.openings.length !== submittedOpenings ||
+      geometry.rooms.length !== submittedRooms
     ) {
       return {
         ok: false,
@@ -243,12 +244,20 @@ export async function savePlanGeometry(
       geometry.walls.some((wall) => !wallIds.has(wall.id) && !isManualPlanGeometryId(wall.id)) ||
       geometry.openings.some(
         (opening) => !openingIds.has(opening.id) && !isManualPlanGeometryId(opening.id),
-      )
+      ) ||
+      geometry.rooms.length !== before.rooms.length ||
+      geometry.rooms.some((room, index) => room.name !== before.rooms[index]?.name)
     ) {
       return { ok: false, error: 'В схеме появились неизвестные элементы. Обновите страницу.' }
     }
     const checked = reconcilePlanGeometryRooms(geometry, project.planReading.rooms)
     if (!checked) return { ok: false, error: 'В схеме должно остаться не меньше трёх стен.' }
+    if (checked.rooms.length !== geometry.rooms.length) {
+      return {
+        ok: false,
+        error: 'Контур комнаты слишком сильно расходится с площадью, указанной на плане.',
+      }
+    }
     const saved: NonNullable<PlanReading['geometry']> = {
       ...checked,
       status: 'confirmed',
@@ -264,7 +273,11 @@ export async function savePlanGeometry(
       targetType: 'project',
       targetId: projectId,
       headers: await headers(),
-      metadata: { walls: saved.walls.length, openings: saved.openings.length },
+      metadata: {
+        walls: saved.walls.length,
+        openings: saved.openings.length,
+        roomContours: saved.rooms.length,
+      },
     })
     revalidatePath(`/projects/${projectId}`)
     return { ok: true, data: saved }

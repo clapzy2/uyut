@@ -1,17 +1,20 @@
+// biome-ignore-all lint/suspicious/noArrayIndexKey: room and polygon point order is fixed and acts as editor identity
+
 'use client'
 
-import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall } from '@uyut/db'
+import type { PlanGeometry, PlanOpening, PlanPoint, PlanRoomShape, PlanWall } from '@uyut/db'
 import { Button, Dialog, DialogContent, DialogTrigger, Input, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import { type PointerEvent as ReactPointerEvent, useRef, useState, useTransition } from 'react'
 import { savePlanGeometry } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
 
-type Selection = `wall:${string}` | `opening:${string}`
+type Selection = `wall:${string}` | `opening:${string}` | `room:${number}`
 
 type DragTarget =
   | { kind: 'wall'; id: string; endpoint: 'start' | 'end'; wall: PlanWall; pointerId: number }
   | { kind: 'opening'; id: string; opening: PlanOpening; pointerId: number }
+  | { kind: 'room'; roomIndex: number; pointIndex: number; pointerId: number }
 
 const numberClassName = 'grid grid-cols-2 gap-3'
 
@@ -62,22 +65,46 @@ function openingLabel(type: PlanOpening['type']) {
   return 'Дверь'
 }
 
+function snapToWallEndpoint(
+  point: PlanPoint,
+  walls: PlanWall[],
+  excludedWallId: string,
+): PlanPoint {
+  let closest: PlanPoint | undefined
+  let closestDistance = 13
+  for (const wall of walls) {
+    if (wall.id === excludedWallId) continue
+    for (const endpoint of [wall.start, wall.end]) {
+      const distance = Math.hypot(point.xCm - endpoint.xCm, point.yCm - endpoint.yCm)
+      if (distance < closestDistance) {
+        closest = endpoint
+        closestDistance = distance
+      }
+    }
+  }
+  return closest ? { ...closest } : point
+}
+
 function PlanGeometryCanvas({
   geometry,
   walls,
   openings,
+  rooms,
   selection,
   onSelectionChange,
   onWallsChange,
   onOpeningsChange,
+  onRoomsChange,
 }: {
   geometry: PlanGeometry
   walls: PlanWall[]
   openings: PlanOpening[]
+  rooms: PlanRoomShape[]
   selection: Selection
   onSelectionChange: (selection: Selection) => void
   onWallsChange: (walls: PlanWall[]) => void
   onOpeningsChange: (openings: PlanOpening[]) => void
+  onRoomsChange: (rooms: PlanRoomShape[]) => void
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<DragTarget | undefined>(undefined)
@@ -119,6 +146,18 @@ function PlanGeometryCanvas({
     onSelectionChange(`opening:${opening.id}`)
   }
 
+  function startRoomDrag(
+    event: ReactPointerEvent<SVGCircleElement>,
+    roomIndex: number,
+    pointIndex: number,
+  ) {
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragRef.current = { kind: 'room', roomIndex, pointIndex, pointerId: event.pointerId }
+    onSelectionChange(`room:${roomIndex}`)
+  }
+
   function move(event: ReactPointerEvent<SVGSVGElement>) {
     const drag = dragRef.current
     if (!drag || drag.pointerId !== event.pointerId) return
@@ -129,9 +168,10 @@ function PlanGeometryCanvas({
       const other = drag.endpoint === 'start' ? drag.wall.end : drag.wall.start
       const dx = drag.wall.end.xCm - drag.wall.start.xCm
       const dy = drag.wall.end.yCm - drag.wall.start.yCm
-      const snapped = { ...point }
+      let snapped = { ...point }
       if (Math.abs(dx) >= Math.abs(dy) * 2) snapped.yCm = other.yCm
       else if (Math.abs(dy) >= Math.abs(dx) * 2) snapped.xCm = other.xCm
+      snapped = snapToWallEndpoint(snapped, walls, drag.id)
       if (Math.hypot(snapped.xCm - other.xCm, snapped.yCm - other.yCm) < 20) return
 
       const nextWall: PlanWall = {
@@ -148,6 +188,22 @@ function PlanGeometryCanvas({
                 offsetCm: clamp(opening.offsetCm, 0, Math.max(0, nextLength - opening.widthCm)),
               }
             : opening,
+        ),
+      )
+      return
+    }
+
+    if (drag.kind === 'room') {
+      onRoomsChange(
+        rooms.map((room, roomIndex) =>
+          roomIndex === drag.roomIndex
+            ? {
+                ...room,
+                polygon: room.polygon.map((vertex, pointIndex) =>
+                  pointIndex === drag.pointIndex ? point : vertex,
+                ),
+              }
+            : room,
         ),
       )
       return
@@ -185,12 +241,25 @@ function PlanGeometryCanvas({
         onPointerUp={stop}
         onPointerCancel={stop}
       >
-        {geometry.rooms.map((room) => {
+        {rooms.map((room, roomIndex) => {
           const centre = roomCentre(room.polygon)
           const points = room.polygon.map((point) => `${point.xCm},${point.yCm}`).join(' ')
+          const selected = selectionKind === 'room' && Number(selectionId) === roomIndex
           return (
-            <g key={`${room.name}-${points}`}>
-              <polygon points={points} fill="var(--accent-tint)" fillOpacity="0.3" />
+            <g key={`${roomIndex}-${room.name}`}>
+              <polygon
+                points={points}
+                fill="var(--accent-tint)"
+                fillOpacity={selected ? 0.55 : 0.3}
+                stroke={selected ? 'var(--accent)' : 'transparent'}
+                strokeWidth="2"
+                vectorEffect="non-scaling-stroke"
+                className="cursor-pointer transition-colors"
+                onPointerDown={(event) => {
+                  event.stopPropagation()
+                  onSelectionChange(`room:${roomIndex}`)
+                }}
+              />
               <text
                 x={centre.xCm}
                 y={centre.yCm}
@@ -312,10 +381,27 @@ function PlanGeometryCanvas({
             </g>
           )
         })}
+
+        {selectionKind === 'room'
+          ? rooms[Number(selectionId)]?.polygon.map((vertex, pointIndex) => (
+              <circle
+                key={pointIndex}
+                cx={vertex.xCm}
+                cy={vertex.yCm}
+                r="7"
+                fill="var(--paper)"
+                stroke="var(--accent)"
+                strokeWidth="3"
+                vectorEffect="non-scaling-stroke"
+                className="cursor-grab active:cursor-grabbing"
+                onPointerDown={(event) => startRoomDrag(event, Number(selectionId), pointIndex)}
+              />
+            ))
+          : null}
       </svg>
       <p className="mt-3 text-[12px] leading-relaxed text-ink-2">
-        Нажмите на стену или проём. Розовые точки двигают концы стены, круг на проёме — сам проём
-        вдоль стены. Прямые стены сохраняют направление.
+        Нажмите на стену, проём или комнату. Концы стен магнитятся друг к другу вблизи, проёмы
+        двигаются вдоль стены, а точки контура меняют форму комнаты.
       </p>
     </div>
   )
@@ -332,10 +418,15 @@ export function PlanGeometryEditor({
   const [open, setOpen] = useState(false)
   const [walls, setWalls] = useState(() => geometry.walls)
   const [openings, setOpenings] = useState(() => geometry.openings)
+  const [rooms, setRooms] = useState(() => geometry.rooms)
   const [selection, setSelection] = useState<Selection>(() =>
     geometry.walls[0]
       ? `wall:${geometry.walls[0].id}`
-      : `opening:${geometry.openings[0]?.id ?? ''}`,
+      : geometry.openings[0]
+        ? `opening:${geometry.openings[0].id}`
+        : geometry.rooms[0]
+          ? 'room:0'
+          : 'wall:',
   )
   const [error, setError] = useState<string>()
   const [saving, startSaving] = useTransition()
@@ -344,6 +435,7 @@ export function PlanGeometryEditor({
     selectionKind === 'wall' ? walls.find((wall) => wall.id === selectionId) : null
   const selectedOpening =
     selectionKind === 'opening' ? openings.find((opening) => opening.id === selectionId) : null
+  const selectedRoom = selectionKind === 'room' ? rooms[Number(selectionId)] : undefined
 
   function patchWall(patch: Partial<PlanWall>) {
     if (!selectedWall) return
@@ -410,7 +502,9 @@ export function PlanGeometryEditor({
   }
 
   function nextSelection(nextWalls: PlanWall[], nextOpenings: PlanOpening[]): Selection {
-    return nextWalls[0] ? `wall:${nextWalls[0].id}` : `opening:${nextOpenings[0]?.id ?? ''}`
+    if (nextWalls[0]) return `wall:${nextWalls[0].id}`
+    if (nextOpenings[0]) return `opening:${nextOpenings[0].id}`
+    return rooms[0] ? 'room:0' : 'wall:'
   }
 
   function removeSelected() {
@@ -432,6 +526,7 @@ export function PlanGeometryEditor({
   function reset() {
     setWalls(geometry.walls)
     setOpenings(geometry.openings)
+    setRooms(geometry.rooms)
     setSelection(nextSelection(geometry.walls, geometry.openings))
     setError(undefined)
   }
@@ -439,7 +534,7 @@ export function PlanGeometryEditor({
   function save() {
     setError(undefined)
     startSaving(async () => {
-      const result = await savePlanGeometry(projectId, { ...geometry, walls, openings })
+      const result = await savePlanGeometry(projectId, { ...geometry, walls, openings, rooms })
       if (!result.ok) {
         setError(result.error)
         return
@@ -487,10 +582,12 @@ export function PlanGeometryEditor({
           geometry={geometry}
           walls={walls}
           openings={openings}
+          rooms={rooms}
           selection={selection}
           onSelectionChange={setSelection}
           onWallsChange={setWalls}
           onOpeningsChange={setOpenings}
+          onRoomsChange={setRooms}
         />
 
         <div className="mt-6 grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,1fr)]">
@@ -518,6 +615,17 @@ export function PlanGeometryEditor({
                       {openingLabel(opening.type)} {index + 1} · {opening.widthCm} см
                     </option>
                   ))}
+                </optgroup>
+              ) : null}
+              {rooms.length > 0 ? (
+                <optgroup label="Контуры комнат">
+                  {rooms.map((room, index) => {
+                    return (
+                      <option key={`${index}-${room.name}`} value={`room:${index}`}>
+                        {room.name} · {room.polygon.length} точек
+                      </option>
+                    )
+                  })}
                 </optgroup>
               ) : null}
             </select>
@@ -666,6 +774,19 @@ export function PlanGeometryEditor({
               </div>
             ) : null}
 
+            {selectedRoom ? (
+              <div className="border border-line bg-muted p-4">
+                <p className="font-serif text-xl text-ink">{selectedRoom.name}</p>
+                <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+                  Перетаскивайте розовые точки на чертеже. После сохранения контур будет проверен по
+                  площади, указанной на исходном плане.
+                </p>
+                <p className="mt-3 font-mono text-[12px] text-ink-2">
+                  {selectedRoom.polygon.length} точек контура
+                </p>
+              </div>
+            ) : null}
+
             {selectedWall || selectedOpening ? (
               <button
                 type="button"
@@ -674,9 +795,9 @@ export function PlanGeometryEditor({
               >
                 Убрать этот элемент из схемы
               </button>
-            ) : (
+            ) : !selectedRoom ? (
               <p className="text-[14px] text-ink-2">В схеме не осталось элементов.</p>
-            )}
+            ) : null}
           </div>
         </div>
 

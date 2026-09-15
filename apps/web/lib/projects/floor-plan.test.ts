@@ -117,6 +117,22 @@ describe('геометрия плана', () => {
     expect(edited?.openings).toHaveLength(1)
   })
 
+  it('сохраняет ручную правку точки контура комнаты', () => {
+    const geometry = parsePlanGeometry(validGeometry)
+    const edited = geometry
+      ? validatePlanGeometryEdit({
+          ...geometry,
+          rooms: geometry.rooms.map((room) => ({
+            ...room,
+            polygon: room.polygon.map((point, index) =>
+              index === 2 ? { ...point, xCm: 480 } : point,
+            ),
+          })),
+        })
+      : undefined
+    expect(edited?.rooms[0]?.polygon[2]).toEqual({ xCm: 480, yCm: 400 })
+  })
+
   it('не сохраняет ручную правку, после которой осталось меньше трёх стен', () => {
     const geometry = parsePlanGeometry(validGeometry)
     expect(
