@@ -44,6 +44,20 @@ describe('проёмы комнаты из 2D-схемы', () => {
         { kind: 'window', wall: 'top', fromCm: 120, toCm: 220, clearanceCm: 0 },
         { kind: 'door', wall: 'left', fromCm: 180, toCm: 270, clearanceCm: 90 },
       ],
+      floorReservations: [
+        {
+          kind: 'window',
+          start: { xCm: 120, yCm: 0 },
+          end: { xCm: 220, yCm: 0 },
+          clearanceCm: 0,
+        },
+        {
+          kind: 'door',
+          start: { xCm: 0, yCm: 180 },
+          end: { xCm: 0, yCm: 270 },
+          clearanceCm: 90,
+        },
+      ],
     })
   })
 
@@ -91,6 +105,48 @@ describe('проёмы комнаты из 2D-схемы', () => {
         { xCm: 100, yCm: 300 },
         { xCm: 0, yCm: 300 },
       ],
+    })
+  })
+
+  it('переносит проём на внутреннюю стену Г-образной комнаты', () => {
+    const rooms = [
+      {
+        name: 'Гостиная',
+        polygon: [
+          { xCm: 100, yCm: 50 },
+          { xCm: 500, yCm: 50 },
+          { xCm: 500, yCm: 150 },
+          { xCm: 200, yCm: 150 },
+          { xCm: 200, yCm: 350 },
+          { xCm: 100, yCm: 350 },
+        ],
+      },
+    ]
+    const walls = [
+      ...geometry.walls,
+      {
+        id: 'notch',
+        kind: 'inner' as const,
+        start: { xCm: 500, yCm: 150 },
+        end: { xCm: 200, yCm: 150 },
+      },
+    ]
+    const openings = [
+      { id: 'notch-window', type: 'window' as const, wallId: 'notch', offsetCm: 50, widthCm: 100 },
+    ]
+
+    expect(
+      roomLayoutInputFromGeometry({ ...geometry, rooms, walls, openings }, 'Гостиная', null),
+    ).toMatchObject({
+      floorReservations: [
+        {
+          kind: 'window',
+          start: { xCm: 350, yCm: 100 },
+          end: { xCm: 250, yCm: 100 },
+          clearanceCm: 0,
+        },
+      ],
+      reservations: [],
     })
   })
 })

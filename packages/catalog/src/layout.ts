@@ -1,6 +1,6 @@
 import type { CatalogCategory } from '@uyut/db'
 import type { DimensionsCm } from './dimensions'
-import { parseWallReservations, type WallReservation } from './openings'
+import { parseWallReservations, type WallReservation, type WallReservationKind } from './openings'
 import type { CatalogSubcategory } from './subcategories'
 
 /**
@@ -41,6 +41,14 @@ export type LayoutPoint = {
   yCm: number
 }
 
+/** Точный проём на любом участке контура комнаты. */
+export type FloorReservation = {
+  kind: WallReservationKind
+  start: LayoutPoint
+  end: LayoutPoint
+  clearanceCm: number
+}
+
 export type Placement = {
   id: string
   title: string
@@ -49,7 +57,7 @@ export type Placement = {
   yCm: number
   widthCm: number
   depthCm: number
-  wall: LayoutWall | 'center'
+  wall: LayoutWall | 'perimeter' | 'center'
 }
 
 export type LayoutProblem =
@@ -75,6 +83,8 @@ export type RoomLayout = {
   unmeasured: Array<{ id: string; title: string }>
   /** Проёмы и инженерные зоны, уверенно извлечённые из описания комнаты */
   reservations: WallReservation[]
+  /** Точные проёмы, включая стены ниш и выступов. */
+  floorReservations: FloorReservation[]
   /** Откуда взялись координаты проёмов. */
   reservationSource: 'geometry' | 'description' | 'none'
 }
@@ -87,6 +97,8 @@ export type RoomLayoutInput = {
   floorPolygon?: readonly LayoutPoint[]
   /** Точные участки из подтверждённой 2D-схемы. Пустой массив тоже является точным ответом. */
   reservations?: readonly WallReservation[]
+  /** Точные проёмы на произвольных участках контура. */
+  floorReservations?: readonly FloorReservation[]
 }
 
 /** Где предмет стоит: у стены, посреди комнаты или нигде, потому что он висит. */
@@ -134,6 +146,14 @@ function footprint(dimensions: DimensionsCm | null): { widthCm: number; depthCm:
 type Size = { widthCm: number; depthCm: number }
 
 type Rect = { xCm: number; yCm: number; widthCm: number; depthCm: number }
+
+type FloorEdge = {
+  orientation: 'horizontal' | 'vertical'
+  fixedCm: number
+  fromCm: number
+  toCm: number
+  inward: 1 | -1
+}
 
 const GEOMETRY_EPSILON_CM = 0.5
 
@@ -196,6 +216,96 @@ function validFloorPolygon(
   )
     ? copy
     : undefined
+}
+
+function floorEdges(polygon: readonly LayoutPoint[]): FloorEdge[] {
+  const edges: FloorEdge[] = []
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index]
+    const end = polygon[(index + 1) % polygon.length]
+    if (!start || !end) continue
+    const horizontal = Math.abs(start.yCm - end.yCm) <= GEOMETRY_EPSILON_CM
+    const vertical = Math.abs(start.xCm - end.xCm) <= GEOMETRY_EPSILON_CM
+    if (!horizontal && !vertical) continue
+    if (horizontal) {
+      const fromCm = Math.min(start.xCm, end.xCm)
+      const toCm = Math.max(start.xCm, end.xCm)
+      if (toCm - fromCm <= GEOMETRY_EPSILON_CM) continue
+      const fixedCm = (start.yCm + end.yCm) / 2
+      const middleCm = (fromCm + toCm) / 2
+      const inward: 1 | -1 = pointInFloor({ xCm: middleCm, yCm: fixedCm + 1 }, polygon) ? 1 : -1
+      edges.push({ orientation: 'horizontal', fixedCm, fromCm, toCm, inward })
+      continue
+    }
+    const fromCm = Math.min(start.yCm, end.yCm)
+    const toCm = Math.max(start.yCm, end.yCm)
+    if (toCm - fromCm <= GEOMETRY_EPSILON_CM) continue
+    const fixedCm = (start.xCm + end.xCm) / 2
+    const middleCm = (fromCm + toCm) / 2
+    const inward: 1 | -1 = pointInFloor({ xCm: fixedCm + 1, yCm: middleCm }, polygon) ? 1 : -1
+    edges.push({ orientation: 'vertical', fixedCm, fromCm, toCm, inward })
+  }
+  return edges
+}
+
+function floorReservationRect(
+  reservation: FloorReservation,
+  polygon: readonly LayoutPoint[],
+): Rect | null {
+  if (reservation.clearanceCm <= 0) return null
+  const horizontal = Math.abs(reservation.start.yCm - reservation.end.yCm) <= GEOMETRY_EPSILON_CM
+  const vertical = Math.abs(reservation.start.xCm - reservation.end.xCm) <= GEOMETRY_EPSILON_CM
+  if (!horizontal && !vertical) return null
+  if (horizontal) {
+    const fromCm = Math.min(reservation.start.xCm, reservation.end.xCm)
+    const toCm = Math.max(reservation.start.xCm, reservation.end.xCm)
+    const yCm = (reservation.start.yCm + reservation.end.yCm) / 2
+    const middleCm = (fromCm + toCm) / 2
+    const inward = pointInFloor({ xCm: middleCm, yCm: yCm + 1 }, polygon) ? 1 : -1
+    return {
+      xCm: fromCm,
+      yCm: inward > 0 ? yCm : yCm - reservation.clearanceCm,
+      widthCm: toCm - fromCm,
+      depthCm: reservation.clearanceCm,
+    }
+  }
+  const fromCm = Math.min(reservation.start.yCm, reservation.end.yCm)
+  const toCm = Math.max(reservation.start.yCm, reservation.end.yCm)
+  const xCm = (reservation.start.xCm + reservation.end.xCm) / 2
+  const middleCm = (fromCm + toCm) / 2
+  const inward = pointInFloor({ xCm: xCm + 1, yCm: middleCm }, polygon) ? 1 : -1
+  return {
+    xCm: inward > 0 ? xCm : xCm - reservation.clearanceCm,
+    yCm: fromCm,
+    widthCm: reservation.clearanceCm,
+    depthCm: toCm - fromCm,
+  }
+}
+
+function rectBlocksFloorReservation(rect: Rect, reservation: FloorReservation): boolean {
+  const horizontal = Math.abs(reservation.start.yCm - reservation.end.yCm) <= GEOMETRY_EPSILON_CM
+  if (horizontal) {
+    const yCm = (reservation.start.yCm + reservation.end.yCm) / 2
+    const fromCm = Math.min(reservation.start.xCm, reservation.end.xCm)
+    const toCm = Math.max(reservation.start.xCm, reservation.end.xCm)
+    return (
+      yCm >= rect.yCm - GEOMETRY_EPSILON_CM &&
+      yCm <= rect.yCm + rect.depthCm + GEOMETRY_EPSILON_CM &&
+      fromCm < rect.xCm + rect.widthCm - GEOMETRY_EPSILON_CM &&
+      rect.xCm < toCm - GEOMETRY_EPSILON_CM
+    )
+  }
+  const vertical = Math.abs(reservation.start.xCm - reservation.end.xCm) <= GEOMETRY_EPSILON_CM
+  if (!vertical) return false
+  const xCm = (reservation.start.xCm + reservation.end.xCm) / 2
+  const fromCm = Math.min(reservation.start.yCm, reservation.end.yCm)
+  const toCm = Math.max(reservation.start.yCm, reservation.end.yCm)
+  return (
+    xCm >= rect.xCm - GEOMETRY_EPSILON_CM &&
+    xCm <= rect.xCm + rect.widthCm + GEOMETRY_EPSILON_CM &&
+    fromCm < rect.yCm + rect.depthCm - GEOMETRY_EPSILON_CM &&
+    rect.yCm < toCm - GEOMETRY_EPSILON_CM
+  )
 }
 
 type WallState = {
@@ -448,6 +558,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       offFloor: [],
       unmeasured: [],
       reservations: [],
+      floorReservations: [],
       reservationSource: 'none',
     }
   }
@@ -457,7 +568,9 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
   const problems: LayoutProblem[] = []
   const placed: Placement[] = []
   const explicitReservations = room.reservations
-  const hasGeometryReservations = explicitReservations !== undefined
+  const explicitFloorReservations = room.floorReservations
+  const hasGeometryReservations =
+    explicitReservations !== undefined || explicitFloorReservations !== undefined
   const reservations =
     explicitReservations !== undefined
       ? explicitReservations.map((reservation) => ({ ...reservation }))
@@ -467,6 +580,47 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     : reservations.length > 0
       ? 'description'
       : 'none'
+  const floorReservations =
+    explicitFloorReservations?.map((reservation) => ({
+      ...reservation,
+      start: { ...reservation.start },
+      end: { ...reservation.end },
+    })) ?? []
+  const wallFloorReservations: FloorReservation[] = reservations.map((reservation) => {
+    switch (reservation.wall) {
+      case 'top':
+        return {
+          kind: reservation.kind,
+          start: { xCm: reservation.fromCm, yCm: 0 },
+          end: { xCm: reservation.toCm, yCm: 0 },
+          clearanceCm: reservation.clearanceCm,
+        }
+      case 'bottom':
+        return {
+          kind: reservation.kind,
+          start: { xCm: reservation.fromCm, yCm: depthCm },
+          end: { xCm: reservation.toCm, yCm: depthCm },
+          clearanceCm: reservation.clearanceCm,
+        }
+      case 'left':
+        return {
+          kind: reservation.kind,
+          start: { xCm: 0, yCm: reservation.fromCm },
+          end: { xCm: 0, yCm: reservation.toCm },
+          clearanceCm: reservation.clearanceCm,
+        }
+      case 'right':
+        return {
+          kind: reservation.kind,
+          start: { xCm: widthCm, yCm: reservation.fromCm },
+          end: { xCm: widthCm, yCm: reservation.toCm },
+          clearanceCm: reservation.clearanceCm,
+        }
+      default:
+        throw new Error(`Неизвестная сторона стены: ${reservation.wall satisfies never}`)
+    }
+  })
+  const blockingFloorReservations = [...floorReservations, ...wallFloorReservations]
 
   const overlaps = (a: Rect, b: Rect) =>
     a.xCm < b.xCm + b.widthCm - 0.5 &&
@@ -510,6 +664,12 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
           return { xCm: 0, yCm: 0, widthCm: 0, depthCm: 0 }
       }
     })
+  if (floorPolygon) {
+    for (const reservation of floorReservations) {
+      const clearance = floorReservationRect(reservation, floorPolygon)
+      if (clearance) clearanceRects.push(clearance)
+    }
+  }
 
   const sized: Sized[] = []
   for (const item of items) {
@@ -599,7 +759,10 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     )
     const collides = placed.some((other) => overlaps(rect, other))
     const blocksAccess = clearanceRects.some((clearance) => overlaps(rect, clearance))
-    if (blocksWall || collides || blocksAccess) {
+    const blocksFloorOpening = blockingFloorReservations.some((reservation) =>
+      rectBlocksFloorReservation(rect, reservation),
+    )
+    if (blocksWall || blocksFloorOpening || collides || blocksAccess) {
       return false
     }
     placed.push({
@@ -613,6 +776,43 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     })
     cursor[wall] = Math.max(cursor[wall], along + item.size.widthCm)
     depths[wall] = Math.max(depths[wall], item.size.depthCm)
+    return true
+  }
+
+  const perimeterEdges = floorPolygon
+    ? floorEdges(floorPolygon).toSorted((a, b) => b.toCm - b.fromCm - (a.toCm - a.fromCm))
+    : []
+
+  /** Ставит предмет к стене ниши или выступа, которой нет среди четырёх сторон рамки. */
+  const putOnFloorEdge = (edge: FloorEdge, item: Homeless, alongCm: number): boolean => {
+    const rect: Rect =
+      edge.orientation === 'horizontal'
+        ? {
+            xCm: alongCm,
+            yCm: edge.inward > 0 ? edge.fixedCm : edge.fixedCm - item.size.depthCm,
+            widthCm: item.size.widthCm,
+            depthCm: item.size.depthCm,
+          }
+        : {
+            xCm: edge.inward > 0 ? edge.fixedCm : edge.fixedCm - item.size.depthCm,
+            yCm: alongCm,
+            widthCm: item.size.depthCm,
+            depthCm: item.size.widthCm,
+          }
+    if (!floorPolygon || !rectInsideFloor(rect, floorPolygon)) return false
+    if (placed.some((other) => overlaps(rect, other))) return false
+    if (clearanceRects.some((clearance) => overlaps(rect, clearance))) return false
+    if (
+      blockingFloorReservations.some((reservation) => rectBlocksFloorReservation(rect, reservation))
+    ) {
+      return false
+    }
+    placed.push({
+      id: `${item.id}-${placed.length}`,
+      title: item.title,
+      ...rect,
+      wall: 'perimeter',
+    })
     return true
   }
 
@@ -665,78 +865,102 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       }
     }
     if (!standing) {
+      for (const edge of perimeterEdges) {
+        for (
+          let alongCm = edge.fromCm;
+          alongCm + item.size.widthCm <= edge.toCm + GEOMETRY_EPSILON_CM;
+          alongCm += RETRY_STEP_CM
+        ) {
+          if (putOnFloorEdge(edge, item, alongCm)) {
+            standing = true
+            break
+          }
+        }
+        if (standing) break
+      }
+    }
+    if (!standing) {
       problems.push({ kind: 'noWall', title: item.title, widthCm: item.size.widthCm })
     }
   }
 
-  const fullWallSpans: Record<LayoutWall, ReadonlyArray<readonly [number, number]>> = {
-    top: [[0, widthCm]],
-    bottom: [[0, widthCm]],
-    left: [[0, depthCm]],
-    right: [[0, depthCm]],
+  const freeLength = (
+    fromCm: number,
+    toCm: number,
+    intervals: ReadonlyArray<readonly [number, number]>,
+  ) => {
+    const clipped = intervals
+      .map(([from, to]) => [Math.max(from, fromCm), Math.min(to, toCm)] as const)
+      .filter(([from, to]) => to > from)
+      .sort((a, b) => a[0] - b[0])
+    let occupiedCm = 0
+    let endCm = fromCm
+    for (const [from, to] of clipped) {
+      if (to <= endCm) continue
+      occupiedCm += to - Math.max(from, endCm)
+      endCm = to
+    }
+    return Math.max(0, toCm - fromCm - occupiedCm)
   }
-  const polygonWallSpans = floorPolygon
-    ? floorPolygon.reduce<Record<LayoutWall, Array<readonly [number, number]>>>(
-        (spans, start, index) => {
-          const end = floorPolygon[(index + 1) % floorPolygon.length]
-          if (!end) return spans
-          if (
-            Math.abs(start.yCm) <= GEOMETRY_EPSILON_CM &&
-            Math.abs(end.yCm) <= GEOMETRY_EPSILON_CM
-          ) {
-            spans.top.push([Math.min(start.xCm, end.xCm), Math.max(start.xCm, end.xCm)])
-          }
-          if (
-            Math.abs(start.yCm - depthCm) <= GEOMETRY_EPSILON_CM &&
-            Math.abs(end.yCm - depthCm) <= GEOMETRY_EPSILON_CM
-          ) {
-            spans.bottom.push([Math.min(start.xCm, end.xCm), Math.max(start.xCm, end.xCm)])
-          }
-          if (
-            Math.abs(start.xCm) <= GEOMETRY_EPSILON_CM &&
-            Math.abs(end.xCm) <= GEOMETRY_EPSILON_CM
-          ) {
-            spans.left.push([Math.min(start.yCm, end.yCm), Math.max(start.yCm, end.yCm)])
-          }
-          if (
-            Math.abs(start.xCm - widthCm) <= GEOMETRY_EPSILON_CM &&
-            Math.abs(end.xCm - widthCm) <= GEOMETRY_EPSILON_CM
-          ) {
-            spans.right.push([Math.min(start.yCm, end.yCm), Math.max(start.yCm, end.yCm)])
-          }
-          return spans
-        },
-        { top: [], bottom: [], left: [], right: [] },
-      )
-    : null
 
-  for (const wall of ['top', 'bottom', 'left', 'right'] as const) {
-    const wallSpans = polygonWallSpans?.[wall] ?? fullWallSpans[wall]
-    const intervals = [
-      ...reservations
-        .filter((reservation) => reservation.wall === wall)
-        .map((reservation) => [reservation.fromCm, reservation.toCm] as const),
-      ...placed
-        .filter((place) => place.wall === wall)
-        .map((place) =>
-          wall === 'top' || wall === 'bottom'
-            ? ([place.xCm, place.xCm + place.widthCm] as const)
-            : ([place.yCm, place.yCm + place.depthCm] as const),
-        ),
-    ]
-    for (const [wallFrom, wallTo] of wallSpans) {
-      const clipped = intervals
-        .map(([from, to]) => [Math.max(from, wallFrom), Math.min(to, wallTo)] as const)
-        .filter(([from, to]) => to > from)
-        .sort((a, b) => a[0] - b[0])
-      let occupiedCm = 0
-      let endCm = wallFrom
-      for (const [from, to] of clipped) {
-        if (to <= endCm) continue
-        occupiedCm += to - Math.max(from, endCm)
-        endCm = to
-      }
-      freeWallCm += Math.max(0, wallTo - wallFrom - occupiedCm)
+  if (floorPolygon) {
+    for (const edge of perimeterEdges) {
+      const openingIntervals = blockingFloorReservations.flatMap((reservation) => {
+        if (edge.orientation === 'horizontal') {
+          const sameLine =
+            Math.abs(reservation.start.yCm - reservation.end.yCm) <= GEOMETRY_EPSILON_CM &&
+            Math.abs(reservation.start.yCm - edge.fixedCm) <= GEOMETRY_EPSILON_CM
+          return sameLine
+            ? [
+                [
+                  Math.min(reservation.start.xCm, reservation.end.xCm),
+                  Math.max(reservation.start.xCm, reservation.end.xCm),
+                ] as const,
+              ]
+            : []
+        }
+        const sameLine =
+          Math.abs(reservation.start.xCm - reservation.end.xCm) <= GEOMETRY_EPSILON_CM &&
+          Math.abs(reservation.start.xCm - edge.fixedCm) <= GEOMETRY_EPSILON_CM
+        return sameLine
+          ? [
+              [
+                Math.min(reservation.start.yCm, reservation.end.yCm),
+                Math.max(reservation.start.yCm, reservation.end.yCm),
+              ] as const,
+            ]
+          : []
+      })
+      const furnitureIntervals = placed.flatMap((place) => {
+        if (edge.orientation === 'horizontal') {
+          const touches =
+            Math.abs(place.yCm - edge.fixedCm) <= GEOMETRY_EPSILON_CM ||
+            Math.abs(place.yCm + place.depthCm - edge.fixedCm) <= GEOMETRY_EPSILON_CM
+          return touches ? [[place.xCm, place.xCm + place.widthCm] as const] : []
+        }
+        const touches =
+          Math.abs(place.xCm - edge.fixedCm) <= GEOMETRY_EPSILON_CM ||
+          Math.abs(place.xCm + place.widthCm - edge.fixedCm) <= GEOMETRY_EPSILON_CM
+        return touches ? [[place.yCm, place.yCm + place.depthCm] as const] : []
+      })
+      freeWallCm += freeLength(edge.fromCm, edge.toCm, [...openingIntervals, ...furnitureIntervals])
+    }
+  } else {
+    for (const wall of ['top', 'bottom', 'left', 'right'] as const) {
+      const wallLength = wall === 'top' || wall === 'bottom' ? widthCm : depthCm
+      const intervals = [
+        ...reservations
+          .filter((reservation) => reservation.wall === wall)
+          .map((reservation) => [reservation.fromCm, reservation.toCm] as const),
+        ...placed
+          .filter((place) => place.wall === wall)
+          .map((place) =>
+            wall === 'top' || wall === 'bottom'
+              ? ([place.xCm, place.xCm + place.widthCm] as const)
+              : ([place.yCm, place.yCm + place.depthCm] as const),
+          ),
+      ]
+      freeWallCm += freeLength(0, wallLength, intervals)
     }
   }
 
@@ -800,6 +1024,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     offFloor,
     unmeasured,
     reservations,
+    floorReservations,
     reservationSource,
   }
 }

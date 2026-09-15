@@ -28,6 +28,7 @@ export {
 export {
   CHAIR_PULLOUT_CM,
   COFFEE_CLEARANCE_CM,
+  type FloorReservation,
   type LayoutItem,
   type LayoutPoint,
   type LayoutProblem,

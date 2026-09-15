@@ -615,9 +615,63 @@ describe('нестандартный контур комнаты', () => {
     }
   })
 
-  it('считает только реально существующие участки внешних стен', () => {
+  it('считает весь реальный периметр, включая стены ниши', () => {
     const layout = layoutRoom({ widthCm: 300, depthCm: 300, floorPolygon }, [])
 
-    expect(layout.freeWallCm).toBe(800)
+    expect(layout.freeWallCm).toBe(1200)
+  })
+
+  it('использует внутреннюю стену ниши, когда внешние стены заняты', () => {
+    const layout = layoutRoom(
+      {
+        widthCm: 300,
+        depthCm: 300,
+        floorPolygon,
+        reservations: [
+          { kind: 'window', wall: 'top', fromCm: 0, toCm: 300, clearanceCm: 0 },
+          { kind: 'window', wall: 'right', fromCm: 0, toCm: 100, clearanceCm: 0 },
+          { kind: 'window', wall: 'bottom', fromCm: 0, toCm: 100, clearanceCm: 0 },
+          { kind: 'window', wall: 'left', fromCm: 0, toCm: 300, clearanceCm: 0 },
+        ],
+      },
+      [item({ title: 'Комод', dimensions: { width: 150, depth: 40, height: 80 } })],
+    )
+
+    expect(layout.placed).toHaveLength(1)
+    expect(layout.placed[0]?.wall).toBe('perimeter')
+  })
+
+  it('не закрывает проём на внутренней стене', () => {
+    const layout = layoutRoom(
+      {
+        widthCm: 300,
+        depthCm: 300,
+        floorPolygon,
+        reservations: [
+          { kind: 'window', wall: 'top', fromCm: 0, toCm: 300, clearanceCm: 0 },
+          { kind: 'window', wall: 'right', fromCm: 0, toCm: 100, clearanceCm: 0 },
+          { kind: 'window', wall: 'bottom', fromCm: 0, toCm: 100, clearanceCm: 0 },
+          { kind: 'window', wall: 'left', fromCm: 0, toCm: 300, clearanceCm: 0 },
+        ],
+        floorReservations: [
+          {
+            kind: 'window',
+            start: { xCm: 100, yCm: 100 },
+            end: { xCm: 300, yCm: 100 },
+            clearanceCm: 0,
+          },
+          {
+            kind: 'door',
+            start: { xCm: 100, yCm: 100 },
+            end: { xCm: 100, yCm: 300 },
+            clearanceCm: 90,
+          },
+        ],
+      },
+      [item({ title: 'Комод', dimensions: { width: 150, depth: 40, height: 80 } })],
+    )
+
+    expect(layout.placed).toEqual([])
+    expect(layout.problems).toContainEqual({ kind: 'noWall', title: 'Комод', widthCm: 150 })
   })
 })

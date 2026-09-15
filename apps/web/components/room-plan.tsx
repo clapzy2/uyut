@@ -1,9 +1,16 @@
-import type { LayoutProblem, LayoutWall, RoomLayout, WallReservationKind } from '@uyut/catalog'
+import type {
+  FloorReservation,
+  LayoutPoint,
+  LayoutProblem,
+  LayoutWall,
+  RoomLayout,
+  WallReservationKind,
+} from '@uyut/catalog'
 import { WALKWAY_CM } from '@uyut/catalog'
 import { ItemSizeForm } from '@/components/item-size-form'
 
 /**
- * План комнаты сверху: прямоугольник комнаты и прямоугольники мебели в масштабе.
+ * План комнаты сверху: реальный контур комнаты и прямоугольники мебели в масштабе.
  *
  * Рисунок намеренно грубый. Он не показывает, как будет красиво, он показывает, помещается ли
  * купленное в комнату и остаётся ли где пройти. Красиво показывает рендер, но у рендера нет
@@ -50,6 +57,53 @@ function wallLine(
         x2: PADDING + roomWidth,
         y2: PADDING + toCm * scale,
       }
+  }
+}
+
+function pointInPolygon(point: LayoutPoint, polygon: readonly LayoutPoint[]): boolean {
+  let inside = false
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index]
+    const end = polygon[(index + 1) % polygon.length]
+    if (!start || !end) continue
+    if (
+      start.yCm > point.yCm !== end.yCm > point.yCm &&
+      point.xCm <
+        ((end.xCm - start.xCm) * (point.yCm - start.yCm)) / (end.yCm - start.yCm) + start.xCm
+    ) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
+function exactClearanceRect(
+  reservation: FloorReservation,
+  polygon: readonly LayoutPoint[],
+): { xCm: number; yCm: number; widthCm: number; depthCm: number } | null {
+  if (reservation.clearanceCm <= 0) return null
+  const horizontal = Math.abs(reservation.start.yCm - reservation.end.yCm) < 1
+  if (horizontal) {
+    const fromCm = Math.min(reservation.start.xCm, reservation.end.xCm)
+    const toCm = Math.max(reservation.start.xCm, reservation.end.xCm)
+    const yCm = (reservation.start.yCm + reservation.end.yCm) / 2
+    const insideBelow = pointInPolygon({ xCm: (fromCm + toCm) / 2, yCm: yCm + 1 }, polygon)
+    return {
+      xCm: fromCm,
+      yCm: insideBelow ? yCm : yCm - reservation.clearanceCm,
+      widthCm: toCm - fromCm,
+      depthCm: reservation.clearanceCm,
+    }
+  }
+  const fromCm = Math.min(reservation.start.yCm, reservation.end.yCm)
+  const toCm = Math.max(reservation.start.yCm, reservation.end.yCm)
+  const xCm = (reservation.start.xCm + reservation.end.xCm) / 2
+  const insideRight = pointInPolygon({ xCm: xCm + 1, yCm: (fromCm + toCm) / 2 }, polygon)
+  return {
+    xCm: insideRight ? xCm : xCm - reservation.clearanceCm,
+    yCm: fromCm,
+    widthCm: reservation.clearanceCm,
+    depthCm: toCm - fromCm,
   }
 }
 
@@ -115,50 +169,83 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
               strokeWidth={2}
             />
           )}
-          {layout.reservations.map((reservation) => {
-            const line = wallLine(
-              reservation.wall,
-              reservation.fromCm,
-              reservation.toCm,
-              scale,
-              roomWidth,
-              roomHeight,
-            )
-            const length = reservation.toCm - reservation.fromCm
-            const clearance = reservation.clearanceCm
-            const isHorizontal = reservation.wall === 'top' || reservation.wall === 'bottom'
-            const clearanceX =
-              reservation.wall === 'right'
-                ? PADDING + roomWidth - clearance * scale
-                : PADDING + (isHorizontal ? reservation.fromCm : 0) * scale
-            const clearanceY =
-              reservation.wall === 'bottom'
-                ? PADDING + roomHeight - clearance * scale
-                : PADDING + (isHorizontal ? 0 : reservation.fromCm) * scale
+          {layout.floorReservations.map((reservation) => {
+            const clearance = layout.floorPolygon
+              ? exactClearanceRect(reservation, layout.floorPolygon)
+              : null
             return (
               <g
-                key={`${reservation.kind}-${reservation.wall}-${reservation.fromCm}-${reservation.toCm}`}
+                key={`${reservation.kind}-${reservation.start.xCm}-${reservation.start.yCm}-${reservation.end.xCm}-${reservation.end.yCm}`}
               >
-                {clearance > 0 ? (
+                {clearance ? (
                   <rect
-                    x={clearanceX}
-                    y={clearanceY}
-                    width={(isHorizontal ? length : clearance) * scale}
-                    height={(isHorizontal ? clearance : length) * scale}
+                    x={PADDING + clearance.xCm * scale}
+                    y={PADDING + clearance.yCm * scale}
+                    width={clearance.widthCm * scale}
+                    height={clearance.depthCm * scale}
                     className="fill-accent-tint stroke-accent"
                     strokeWidth={1}
                     strokeDasharray="5 4"
                   />
                 ) : null}
                 <line
-                  {...line}
-                  className={clearance > 0 ? 'stroke-danger' : 'stroke-accent'}
+                  x1={PADDING + reservation.start.xCm * scale}
+                  y1={PADDING + reservation.start.yCm * scale}
+                  x2={PADDING + reservation.end.xCm * scale}
+                  y2={PADDING + reservation.end.yCm * scale}
+                  className={reservation.clearanceCm > 0 ? 'stroke-danger' : 'stroke-accent'}
                   strokeWidth={5}
                   strokeLinecap="round"
                 />
               </g>
             )
           })}
+          {layout.floorReservations.length === 0
+            ? layout.reservations.map((reservation) => {
+                const line = wallLine(
+                  reservation.wall,
+                  reservation.fromCm,
+                  reservation.toCm,
+                  scale,
+                  roomWidth,
+                  roomHeight,
+                )
+                const length = reservation.toCm - reservation.fromCm
+                const clearance = reservation.clearanceCm
+                const isHorizontal = reservation.wall === 'top' || reservation.wall === 'bottom'
+                const clearanceX =
+                  reservation.wall === 'right'
+                    ? PADDING + roomWidth - clearance * scale
+                    : PADDING + (isHorizontal ? reservation.fromCm : 0) * scale
+                const clearanceY =
+                  reservation.wall === 'bottom'
+                    ? PADDING + roomHeight - clearance * scale
+                    : PADDING + (isHorizontal ? 0 : reservation.fromCm) * scale
+                return (
+                  <g
+                    key={`${reservation.kind}-${reservation.wall}-${reservation.fromCm}-${reservation.toCm}`}
+                  >
+                    {clearance > 0 ? (
+                      <rect
+                        x={clearanceX}
+                        y={clearanceY}
+                        width={(isHorizontal ? length : clearance) * scale}
+                        height={(isHorizontal ? clearance : length) * scale}
+                        className="fill-accent-tint stroke-accent"
+                        strokeWidth={1}
+                        strokeDasharray="5 4"
+                      />
+                    ) : null}
+                    <line
+                      {...line}
+                      className={clearance > 0 ? 'stroke-danger' : 'stroke-accent'}
+                      strokeWidth={5}
+                      strokeLinecap="round"
+                    />
+                  </g>
+                )
+              })
+            : null}
           {layout.placed.map((place, index) => (
             <g key={place.id}>
               <rect
@@ -199,12 +286,12 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
           </li>
         ))}
       </ol>
-      {layout.reservations.length > 0 ? (
+      {layout.reservations.length > 0 || layout.floorReservations.length > 0 ? (
         <p className="mt-3 text-[12px] leading-relaxed text-ink-2">
           {layout.reservationSource === 'geometry'
             ? 'Учтено по подтверждённой 2D-схеме: '
             : 'Учтено из описания: '}
-          {layout.reservations
+          {(layout.floorReservations.length > 0 ? layout.floorReservations : layout.reservations)
             .map((reservation) => RESERVATION_LABELS[reservation.kind])
             .join(', ')}
           . Пунктиром показан свободный подход к двери или балкону.
@@ -216,6 +303,7 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
 
 export function RoomPlan({ layout }: { layout: RoomLayout }) {
   const problems = layout.problems
+  const hasOpenings = layout.reservations.length > 0 || layout.floorReservations.length > 0
   return (
     <div>
       <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
@@ -224,11 +312,11 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
       <p className="mb-4 text-[13px] leading-relaxed text-ink-2">
         Комната {Math.round(layout.widthCm)} × {Math.round(layout.depthCm)} см и то, что вы выбрали,
         в масштабе. Мы раскладываем крупное вдоль стен, а стол — посередине.{' '}
-        {layout.reservationSource === 'geometry' && layout.reservations.length > 0
+        {layout.reservationSource === 'geometry' && hasOpenings
           ? `Двери и окна взяты из подтверждённой 2D-схемы; свободной стены осталось ${layout.freeWallCm} см.`
           : layout.reservationSource === 'geometry'
             ? `Подтверждённая 2D-схема не содержит проёмов на границах этой комнаты; свободной стены осталось ${layout.freeWallCm} см.`
-            : layout.reservations.length > 0
+            : hasOpenings
               ? `Указанные проёмы и инженерные зоны учтены; свободной стены осталось ${layout.freeWallCm} см.`
               : `Расположение проёмов не указано, поэтому свободные ${layout.freeWallCm} см — предварительная оценка.`}
       </p>

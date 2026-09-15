@@ -262,6 +262,12 @@ function roomPlan(plan: RoomLayout | null): string {
         `<text x="${((place.xCm + place.widthCm / 2) * scale).toFixed(1)}" y="${((place.yCm + place.depthCm / 2) * scale).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#2f2a20">${index + 1}</text>`,
     )
     .join('')
+  const openings = plan.floorReservations
+    .map(
+      (reservation) =>
+        `<line x1="${(reservation.start.xCm * scale).toFixed(1)}" y1="${(reservation.start.yCm * scale).toFixed(1)}" x2="${(reservation.end.xCm * scale).toFixed(1)}" y2="${(reservation.end.yCm * scale).toFixed(1)}" stroke="${reservation.clearanceCm > 0 ? '#b42338' : '#7c2f3b'}" stroke-width="5" stroke-linecap="round"/>`,
+    )
+    .join('')
   const legend = plan.placed
     .map(
       (place, index) =>
@@ -290,6 +296,7 @@ function roomPlan(plan: RoomLayout | null): string {
                   .join(' ')}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>`
               : `<rect x="0" y="0" width="${width}" height="${height}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>`
           }
+          ${openings}
           ${boxes}
         </svg>`
       : ''

@@ -1,4 +1,4 @@
-import type { RoomLayoutInput, WallReservation } from '@uyut/catalog'
+import type { FloorReservation, RoomLayoutInput, WallReservation } from '@uyut/catalog'
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall, RoomMeasurements } from '@uyut/db'
 
 const BOUNDARY_TOLERANCE_CM = 20
@@ -7,6 +7,7 @@ export type GeometryRoomLayoutInput = RoomLayoutInput & {
   widthCm: number
   depthCm: number
   reservations: WallReservation[]
+  floorReservations: FloorReservation[]
 }
 
 function normalizedName(value: string): string {
@@ -35,6 +36,37 @@ function clearanceCm(type: PlanOpening['type']): number {
 
 function reservationKind(type: PlanOpening['type']): WallReservation['kind'] {
   return type
+}
+
+function pointDistanceToSegment(point: PlanPoint, start: PlanPoint, end: PlanPoint): number {
+  const dx = end.xCm - start.xCm
+  const dy = end.yCm - start.yCm
+  const lengthSquared = dx * dx + dy * dy
+  if (lengthSquared === 0) return Math.hypot(point.xCm - start.xCm, point.yCm - start.yCm)
+  const ratio = Math.max(
+    0,
+    Math.min(1, ((point.xCm - start.xCm) * dx + (point.yCm - start.yCm) * dy) / lengthSquared),
+  )
+  return Math.hypot(point.xCm - (start.xCm + dx * ratio), point.yCm - (start.yCm + dy * ratio))
+}
+
+function openingBelongsToRoom(
+  start: PlanPoint,
+  end: PlanPoint,
+  polygon: readonly PlanPoint[],
+): boolean {
+  for (let index = 0; index < polygon.length; index += 1) {
+    const edgeStart = polygon[index]
+    const edgeEnd = polygon[(index + 1) % polygon.length]
+    if (!edgeStart || !edgeEnd) continue
+    if (
+      pointDistanceToSegment(start, edgeStart, edgeEnd) <= BOUNDARY_TOLERANCE_CM &&
+      pointDistanceToSegment(end, edgeStart, edgeEnd) <= BOUNDARY_TOLERANCE_CM
+    ) {
+      return true
+    }
+  }
+  return false
 }
 
 /**
@@ -74,11 +106,25 @@ export function roomLayoutInputFromGeometry(
   }))
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
   const reservations: WallReservation[] = []
+  const floorReservations: FloorReservation[] = []
 
   for (const opening of geometry.openings) {
     const wall = wallById.get(opening.wallId)
     if (!wall) continue
     const [start, end] = openingPoints(opening, wall)
+    if (!openingBelongsToRoom(start, end, room.polygon)) continue
+    floorReservations.push({
+      kind: reservationKind(opening.type),
+      start: {
+        xCm: Math.round((start.xCm - minX) * scaleX),
+        yCm: Math.round((start.yCm - minY) * scaleY),
+      },
+      end: {
+        xCm: Math.round((end.xCm - minX) * scaleX),
+        yCm: Math.round((end.yCm - minY) * scaleY),
+      },
+      clearanceCm: clearanceCm(opening.type),
+    })
     const horizontal =
       Math.abs(wall.end.xCm - wall.start.xCm) >= Math.abs(wall.end.yCm - wall.start.yCm)
     if (horizontal) {
@@ -129,5 +175,6 @@ export function roomLayoutInputFromGeometry(
     floorPolygon,
     ...(measurements?.layoutNotes ? { layoutNotes: measurements.layoutNotes } : {}),
     reservations,
+    floorReservations,
   }
 }
