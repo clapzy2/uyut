@@ -101,12 +101,7 @@ export function PlanGeometryPreview({ geometry }: { geometry: PlanGeometry }) {
                 vectorEffect="non-scaling-stroke"
               />
             </g>
-            <g
-              fill="var(--ink-2)"
-              fontSize="11"
-              textAnchor="middle"
-              className="font-mono"
-            >
+            <g fill="var(--ink-2)" fontSize="11" textAnchor="middle" className="font-mono">
               <text x={geometry.widthCm / 2} y={-padding * 0.62}>
                 {geometry.widthCm} см
               </text>
