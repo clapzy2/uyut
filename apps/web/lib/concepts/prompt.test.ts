@@ -43,6 +43,11 @@ describe('styleVector', () => {
     )
     expect(measured).toContain('two opposing runs leave 88 cm')
     expect(measured).toContain('Do not add opposing cabinet runs')
+    for (const condition of ['bare', 'finished'] as const) {
+      expect(fixedPreamble(brief({ roomKind: 'kitchen', hasPhoto: true, condition }))).toContain(
+        'Room dimensions are unknown: do not add an island',
+      )
+    }
   })
   it('нулевой вектор, пока ничего не лайкнули', () => {
     const vector = styleVector([])

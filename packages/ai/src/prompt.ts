@@ -181,6 +181,7 @@ export function fixedPreamble(brief: ConceptBrief): string {
       'Finish the ceiling: smooth, painted matte white, no cables, no exposed concrete.',
       'If a window is visible, remove its protective film and stickers: clean glass and a calm view outside.',
       'Do not add a window where none exists; use artificial lighting in windowless rooms.',
+      brief.roomKind === 'kitchen' ? kitchenConstraints(brief.sizeCm) : '',
     ].join(' ')
   }
   // Технику и радиаторы при смене интерьера не покупают заново, а мы их стирали.
@@ -192,6 +193,7 @@ export function fixedPreamble(brief: ConceptBrief): string {
     'Keep the appliances and fixed equipment that are already in the room and stay when furniture changes:',
     'the television, the radiators, the air conditioner, the built-in kitchen appliances,',
     'the sockets and switches, in the same places and of the same size.',
+    brief.roomKind === 'kitchen' ? kitchenConstraints(brief.sizeCm) : '',
   ].join(' ')
 }
 
