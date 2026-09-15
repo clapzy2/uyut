@@ -223,6 +223,9 @@ export async function confirmPlanRooms(
       ...(project.planReading?.totalAreaM2 === undefined
         ? {}
         : { totalAreaM2: project.planReading.totalAreaM2 }),
+      ...(project.planReading?.geometry === undefined
+        ? {}
+        : { geometry: project.planReading.geometry }),
       rooms: rooms.map((room) => ({
         name: room.name || roomKindLabels[room.kind],
         kind: room.kind,

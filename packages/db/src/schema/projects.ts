@@ -71,6 +71,33 @@ export type PlanRoomReading = {
   utility?: boolean
 }
 
+export type PlanPoint = { xCm: number; yCm: number }
+export type PlanWall = {
+  id: string
+  start: PlanPoint
+  end: PlanPoint
+  kind: 'outer' | 'inner'
+  thicknessCm?: number
+}
+export type PlanOpening = {
+  id: string
+  type: 'door' | 'window' | 'balcony'
+  wallId: string
+  offsetCm: number
+  widthCm: number
+}
+export type PlanRoomShape = { name: string; polygon: PlanPoint[] }
+export type PlanGeometry = {
+  version: 1
+  status: 'draft'
+  widthCm: number
+  heightCm: number
+  walls: PlanWall[]
+  openings: PlanOpening[]
+  rooms: PlanRoomShape[]
+  warnings: string[]
+}
+
 /**
  * Разбор загруженного плана. Хранится целиком, в том числе после подтверждения: по паре
  * «что прочитали» и «что поправил человек» видно, где чтение врёт, а спросить об этом больше некого.
@@ -80,6 +107,8 @@ export type PlanReading = {
   /** Общая площадь квартиры с плана: сверяется с суммой площадей комнат */
   totalAreaM2?: number
   rooms: PlanRoomReading[]
+  /** Геометрически валидный черновик; источником остаётся vision-модель. */
+  geometry?: PlanGeometry
   /** Когда прочитали, ISO-строкой: в jsonb дата всё равно станет строкой */
   readAt: string
   confirmedAt?: string

@@ -1,5 +1,6 @@
 import type { RoomKind } from './detect'
 import { FalError, falQueue, toDataUri } from './fal-queue'
+import { type PlanGeometry, parsePlanGeometry } from './floor-plan-geometry'
 
 /**
  * Чтение обмерного плана квартиры.
@@ -22,10 +23,10 @@ export const PLAN_READER_MODEL = 'anthropic/claude-sonnet-4.5'
  * Задание зрячей модели. Просим именно миллиметры: русские планы подписывают в них,
  * и перевод на стороне модели — лишний повод ошибиться на порядок.
  */
-export const FLOOR_PLAN_PROMPT = `Ты читаешь план квартиры и достаёшь из него числа.
+export const FLOOR_PLAN_PROMPT = `Ты читаешь план квартиры и достаёшь из него числа и геометрию.
 
 Отвечай ТОЛЬКО JSON вида:
-{"ceilingMm": число или null, "totalAreaM2": число или null, "rooms": [{"name": "...", "widthMm": число или null, "depthMm": число или null, "areaM2": число или null, "aspect": число или null, "layoutNotes": строка или null}]}
+{"ceilingMm": число или null, "totalAreaM2": число или null, "rooms": [{"name": "...", "widthMm": число или null, "depthMm": число или null, "areaM2": число или null, "aspect": число или null, "layoutNotes": строка или null}], "geometry": {"widthMm": число, "heightMm": число, "walls": [{"id":"w1","start":{"xMm":0,"yMm":0},"end":{"xMm":3000,"yMm":0},"kind":"outer или inner","thicknessMm":число или null}], "openings":[{"id":"o1","type":"door или window или balcony","wallId":"w1","offsetMm":число,"widthMm":число}], "rooms":[{"name":"Кухня","polygon":[{"xMm":0,"yMm":0},{"xMm":3000,"yMm":0},{"xMm":3000,"yMm":2500}]}] } или null}
 
 Правила:
 - Названия комнат переписывай как есть, по-русски.
@@ -38,7 +39,13 @@ export const FLOOR_PLAN_PROMPT = `Ты читаешь план квартиры 
 - totalAreaM2 — общая площадь квартиры, если она подписана на плане. Не складывай её сам.
 - Высоту потолка бери из подписи вроде «H = 2700». Если её нет, null.
 - Балконы, лоджии, шахты и лестничные клетки в список не включай.
-- Ничего не додумывай: чего не видно, то null. Исключение — aspect, его оценивай всегда.`
+- Ничего не додумывай: чего не видно, то null. Исключение — aspect, его оценивай всегда.
+- geometry — единая 2D-схема квартиры в масштабе. Начало координат в левом верхнем углу внешнего контура; x вправо, y вниз, всё в миллиметрах.
+- widthMm и heightMm внутри geometry — габарит ограничивающего прямоугольника квартиры, не размер картинки.
+- Каждую стену запиши один раз от start до end. Внешние стены kind outer, перегородки inner. Идентификаторы уникальны.
+- Проём обязан ссылаться на стену. offsetMm — расстояние вдоль стены от её start до начала проёма; widthMm — ширина проёма. Не видишь ширину или стену уверенно — не добавляй этот проём.
+- polygon проходит по внутреннему контуру комнаты, без повторения первой точки в конце. Не видишь связный контур — не добавляй комнату в geometry.rooms.
+- geometry верни null, если на плане нельзя восстановить общий масштаб и связное положение хотя бы трёх стен. Не подменяй точную схему приблизительным рисунком.`
 
 /** Одна комната с плана, в сантиметрах: в них же меряет всё остальное приложение. */
 export type PlanRoom = {
@@ -82,6 +89,8 @@ export type PlanReading = {
   /** Общая площадь квартиры с плана: по ней проверяется, не потеряна ли комната и не выдумана ли лишняя */
   totalAreaM2?: number
   rooms: PlanRoom[]
+  /** Проверенная кодом, но ещё не подтверждённая человеком 2D-схема. */
+  geometry?: PlanGeometry
 }
 
 /** Сторона комнаты на чертеже: вдоль горизонтали или вдоль вертикали */
@@ -285,7 +294,7 @@ export function parseFloorPlan(raw: string): PlanReading {
   if (start === -1 || end <= start) {
     return { rooms: [] }
   }
-  let parsed: { ceilingMm?: unknown; totalAreaM2?: unknown; rooms?: unknown }
+  let parsed: { ceilingMm?: unknown; totalAreaM2?: unknown; rooms?: unknown; geometry?: unknown }
   try {
     parsed = JSON.parse(raw.slice(start, end + 1))
   } catch {
@@ -335,9 +344,11 @@ export function parseFloorPlan(raw: string): PlanReading {
   }
   const ceiling = ceilingCm(parsed.ceilingMm)
   const total = areaM2(parsed.totalAreaM2)
+  const geometry = parsePlanGeometry(parsed.geometry)
   return {
     ...(ceiling === undefined ? {} : { ceilingCm: ceiling }),
     ...(total === undefined ? {} : { totalAreaM2: total }),
+    ...(geometry === undefined ? {} : { geometry }),
     rooms,
   }
 }
@@ -526,9 +537,11 @@ export function mergeReadings(readings: readonly PlanReading[]): PlanReading {
   const seen = new Set<string>()
   let ceilingCm: number | undefined
   let totalAreaM2: number | undefined
+  let geometry: PlanGeometry | undefined
   for (const reading of readings) {
     ceilingCm ??= reading.ceilingCm
     totalAreaM2 ??= reading.totalAreaM2
+    geometry ??= reading.geometry
     const onThisPage: string[] = []
     for (const room of reading.rooms) {
       const key = room.name.trim().toLowerCase()
@@ -545,6 +558,7 @@ export function mergeReadings(readings: readonly PlanReading[]): PlanReading {
   return {
     ...(ceilingCm === undefined ? {} : { ceilingCm }),
     ...(totalAreaM2 === undefined ? {} : { totalAreaM2 }),
+    ...(geometry === undefined ? {} : { geometry }),
     rooms,
   }
 }

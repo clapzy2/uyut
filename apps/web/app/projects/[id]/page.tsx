@@ -11,6 +11,7 @@ import { TogetherCard } from '@/components/collaboration/together-card'
 import { DeleteProjectDialog } from '@/components/delete-project-dialog'
 import { EmptyArt } from '@/components/empty-art'
 import { FileUploader } from '@/components/file-uploader'
+import { PlanGeometryPreview } from '@/components/plan-geometry-preview'
 import { PlanReadingCard } from '@/components/plan-reading-card'
 import { ProjectSettingsDialog } from '@/components/project-settings-dialog'
 import { getCollaboration, ownerDisplayName } from '@/lib/collaboration/repository'
@@ -317,6 +318,10 @@ export default async function ProjectPage({ params }: { params: Params }) {
           )}
         </div>
       </div>
+
+      {project.planReading?.geometry ? (
+        <PlanGeometryPreview geometry={project.planReading.geometry} />
+      ) : null}
 
       {isOwner && collaboration ? (
         <div className="mt-12 border-t border-line pt-6">

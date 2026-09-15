@@ -7,6 +7,7 @@ import {
   mergeReadings,
   needsRecheck,
   parseFloorPlan,
+  parsePlanGeometry,
   parseSideRecheck,
   roomKindFromName,
 } from '@uyut/ai'
@@ -15,6 +16,68 @@ import { describe, expect, it } from 'vitest'
 function answer(rooms: unknown[], ceilingMm: number | null = 2700): string {
   return JSON.stringify({ ceilingMm, rooms })
 }
+
+const validGeometry = {
+  widthMm: 5000,
+  heightMm: 4000,
+  walls: [
+    { id: 'w1', start: { xMm: 0, yMm: 0 }, end: { xMm: 5000, yMm: 0 }, kind: 'outer' },
+    { id: 'w2', start: { xMm: 5000, yMm: 0 }, end: { xMm: 5000, yMm: 4000 }, kind: 'outer' },
+    { id: 'w3', start: { xMm: 5000, yMm: 4000 }, end: { xMm: 0, yMm: 4000 }, kind: 'outer' },
+    { id: 'w4', start: { xMm: 0, yMm: 4000 }, end: { xMm: 0, yMm: 0 }, kind: 'outer' },
+  ],
+  openings: [{ id: 'window-1', type: 'window', wallId: 'w1', offsetMm: 1200, widthMm: 1500 }],
+  rooms: [
+    {
+      name: 'Гостиная',
+      polygon: [
+        { xMm: 0, yMm: 0 },
+        { xMm: 5000, yMm: 0 },
+        { xMm: 5000, yMm: 4000 },
+        { xMm: 0, yMm: 4000 },
+      ],
+    },
+  ],
+}
+
+describe('геометрия плана', () => {
+  it('переводит координаты в сантиметры и связывает проём со стеной', () => {
+    const geometry = parsePlanGeometry(validGeometry)
+    expect(geometry).toMatchObject({
+      version: 1,
+      status: 'draft',
+      widthCm: 500,
+      heightCm: 400,
+      openings: [{ wallId: 'w1', offsetCm: 120, widthCm: 150 }],
+    })
+    expect(geometry?.rooms[0]?.polygon[2]).toEqual({ xCm: 500, yCm: 400 })
+  })
+
+  it('не принимает дверь, которая выходит за конец стены', () => {
+    const geometry = parsePlanGeometry({
+      ...validGeometry,
+      openings: [{ id: 'door-1', type: 'door', wallId: 'w1', offsetMm: 4800, widthMm: 900 }],
+    })
+    expect(geometry?.openings).toEqual([])
+    expect(geometry?.warnings).toHaveLength(1)
+  })
+
+  it('не выдаёт набор случайных линий за схему квартиры', () => {
+    expect(parsePlanGeometry({ ...validGeometry, walls: validGeometry.walls.slice(0, 2) })).toBe(
+      undefined,
+    )
+  })
+
+  it('сохраняет валидную схему вместе с комнатами', () => {
+    const reading = parseFloorPlan(
+      JSON.stringify({
+        rooms: [{ name: 'Гостиная', widthMm: 5000, depthMm: 4000, areaM2: 20 }],
+        geometry: validGeometry,
+      }),
+    )
+    expect(reading.geometry?.walls).toHaveLength(4)
+  })
+})
 
 describe('описание архитектуры с плана', () => {
   it('сохраняет проёмы при расчёте сторон и объединении страниц', () => {

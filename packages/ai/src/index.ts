@@ -113,6 +113,14 @@ export {
   type SideReader,
 } from './floor-plan'
 export {
+  type PlanGeometry,
+  type PlanOpening,
+  type PlanPoint,
+  type PlanRoomShape,
+  type PlanWall,
+  parsePlanGeometry,
+} from './floor-plan-geometry'
+export {
   ARCHITECTURE_ANCHOR_INSTRUCTION,
   architectureAnchoredPrompt,
   buildTemplatePlan,
