@@ -1,18 +1,310 @@
 'use client'
 
-import type { PlanGeometry, PlanOpening, PlanWall } from '@uyut/db'
+import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall } from '@uyut/db'
 import { Button, Dialog, DialogContent, DialogTrigger, Input, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
-import { useState, useTransition } from 'react'
+import { type PointerEvent as ReactPointerEvent, useRef, useState, useTransition } from 'react'
 import { savePlanGeometry } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
 
 type Selection = `wall:${string}` | `opening:${string}`
 
+type DragTarget =
+  | { kind: 'wall'; id: string; endpoint: 'start' | 'end'; wall: PlanWall; pointerId: number }
+  | { kind: 'opening'; id: string; opening: PlanOpening; pointerId: number }
+
 const numberClassName = 'grid grid-cols-2 gap-3'
 
 function wallLength(wall: PlanWall): number {
   return Math.round(Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm))
+}
+
+function pointAlongWall(wall: PlanWall, distanceCm: number): PlanPoint {
+  const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
+  const ratio = length === 0 ? 0 : distanceCm / length
+  return {
+    xCm: wall.start.xCm + (wall.end.xCm - wall.start.xCm) * ratio,
+    yCm: wall.start.yCm + (wall.end.yCm - wall.start.yCm) * ratio,
+  }
+}
+
+function openingSegment(opening: PlanOpening, wall: PlanWall) {
+  return {
+    start: pointAlongWall(wall, opening.offsetCm),
+    end: pointAlongWall(wall, opening.offsetCm + opening.widthCm),
+    centre: pointAlongWall(wall, opening.offsetCm + opening.widthCm / 2),
+  }
+}
+
+function roomCentre(points: PlanPoint[]): PlanPoint {
+  const total = points.reduce(
+    (result, point) => ({ xCm: result.xCm + point.xCm, yCm: result.yCm + point.yCm }),
+    { xCm: 0, yCm: 0 },
+  )
+  return { xCm: total.xCm / points.length, yCm: total.yCm / points.length }
+}
+
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.max(minimum, Math.min(value, maximum))
+}
+
+function PlanGeometryCanvas({
+  geometry,
+  walls,
+  openings,
+  selection,
+  onSelectionChange,
+  onWallsChange,
+  onOpeningsChange,
+}: {
+  geometry: PlanGeometry
+  walls: PlanWall[]
+  openings: PlanOpening[]
+  selection: Selection
+  onSelectionChange: (selection: Selection) => void
+  onWallsChange: (walls: PlanWall[]) => void
+  onOpeningsChange: (openings: PlanOpening[]) => void
+}) {
+  const svgRef = useRef<SVGSVGElement>(null)
+  const dragRef = useRef<DragTarget | undefined>(undefined)
+  const padding = Math.max(24, Math.min(geometry.widthCm, geometry.heightCm) * 0.06)
+  const wallById = new Map(walls.map((wall) => [wall.id, wall]))
+  const [selectionKind, selectionId] = selection.split(':')
+
+  function canvasPoint(event: ReactPointerEvent<SVGSVGElement>): PlanPoint | null {
+    const svg = svgRef.current
+    const matrix = svg?.getScreenCTM()
+    if (!svg || !matrix) return null
+    const point = svg.createSVGPoint()
+    point.x = event.clientX
+    point.y = event.clientY
+    const local = point.matrixTransform(matrix.inverse())
+    return {
+      xCm: Math.round(clamp(local.x, 0, geometry.widthCm)),
+      yCm: Math.round(clamp(local.y, 0, geometry.heightCm)),
+    }
+  }
+
+  function startWallDrag(
+    event: ReactPointerEvent<SVGCircleElement>,
+    wall: PlanWall,
+    endpoint: 'start' | 'end',
+  ) {
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragRef.current = { kind: 'wall', id: wall.id, endpoint, wall, pointerId: event.pointerId }
+    onSelectionChange(`wall:${wall.id}`)
+  }
+
+  function startOpeningDrag(event: ReactPointerEvent<SVGCircleElement>, opening: PlanOpening) {
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragRef.current = { kind: 'opening', id: opening.id, opening, pointerId: event.pointerId }
+    onSelectionChange(`opening:${opening.id}`)
+  }
+
+  function move(event: ReactPointerEvent<SVGSVGElement>) {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const point = canvasPoint(event)
+    if (!point) return
+
+    if (drag.kind === 'wall') {
+      const other = drag.endpoint === 'start' ? drag.wall.end : drag.wall.start
+      const dx = drag.wall.end.xCm - drag.wall.start.xCm
+      const dy = drag.wall.end.yCm - drag.wall.start.yCm
+      const snapped = { ...point }
+      if (Math.abs(dx) >= Math.abs(dy) * 2) snapped.yCm = other.yCm
+      else if (Math.abs(dy) >= Math.abs(dx) * 2) snapped.xCm = other.xCm
+      if (Math.hypot(snapped.xCm - other.xCm, snapped.yCm - other.yCm) < 20) return
+
+      const nextWall: PlanWall = {
+        ...drag.wall,
+        [drag.endpoint]: snapped,
+      }
+      const nextLength = wallLength(nextWall)
+      onWallsChange(walls.map((wall) => (wall.id === drag.id ? nextWall : wall)))
+      onOpeningsChange(
+        openings.map((opening) =>
+          opening.wallId === drag.id
+            ? {
+                ...opening,
+                offsetCm: clamp(opening.offsetCm, 0, Math.max(0, nextLength - opening.widthCm)),
+              }
+            : opening,
+        ),
+      )
+      return
+    }
+
+    const wall = wallById.get(drag.opening.wallId)
+    if (!wall) return
+    const wallDx = wall.end.xCm - wall.start.xCm
+    const wallDy = wall.end.yCm - wall.start.yCm
+    const length = Math.hypot(wallDx, wallDy)
+    if (length === 0) return
+    const projected =
+      ((point.xCm - wall.start.xCm) * wallDx + (point.yCm - wall.start.yCm) * wallDy) / length
+    const offsetCm = Math.round(
+      clamp(projected - drag.opening.widthCm / 2, 0, Math.max(0, length - drag.opening.widthCm)),
+    )
+    onOpeningsChange(
+      openings.map((opening) => (opening.id === drag.id ? { ...opening, offsetCm } : opening)),
+    )
+  }
+
+  function stop(event: ReactPointerEvent<SVGSVGElement>) {
+    if (dragRef.current?.pointerId === event.pointerId) dragRef.current = undefined
+  }
+
+  return (
+    <div className="border border-line bg-paper p-3 sm:p-5">
+      <svg
+        ref={svgRef}
+        viewBox={`${-padding} ${-padding} ${geometry.widthCm + padding * 2} ${geometry.heightCm + padding * 2}`}
+        role="img"
+        aria-label="Интерактивная схема квартиры"
+        className="block aspect-[16/9] w-full touch-none select-none"
+        onPointerMove={move}
+        onPointerUp={stop}
+        onPointerCancel={stop}
+      >
+        {geometry.rooms.map((room) => {
+          const centre = roomCentre(room.polygon)
+          const points = room.polygon.map((point) => `${point.xCm},${point.yCm}`).join(' ')
+          return (
+            <g key={`${room.name}-${points}`}>
+              <polygon points={points} fill="var(--accent-tint)" fillOpacity="0.3" />
+              <text
+                x={centre.xCm}
+                y={centre.yCm}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill="var(--ink-2)"
+                fontSize="12"
+                className="pointer-events-none font-mono"
+              >
+                {room.name.toUpperCase()}
+              </text>
+            </g>
+          )
+        })}
+
+        {walls.map((wall) => {
+          const selected = selectionKind === 'wall' && selectionId === wall.id
+          return (
+            <g key={wall.id}>
+              <line
+                x1={wall.start.xCm}
+                y1={wall.start.yCm}
+                x2={wall.end.xCm}
+                y2={wall.end.yCm}
+                stroke={selected ? 'var(--accent)' : 'var(--ink)'}
+                strokeWidth={selected ? 7 : wall.kind === 'outer' ? 6 : 4}
+                strokeLinecap="square"
+                vectorEffect="non-scaling-stroke"
+                className="transition-colors"
+              />
+              <line
+                x1={wall.start.xCm}
+                y1={wall.start.yCm}
+                x2={wall.end.xCm}
+                y2={wall.end.yCm}
+                stroke="transparent"
+                strokeWidth="22"
+                vectorEffect="non-scaling-stroke"
+                className="cursor-pointer"
+                onPointerDown={(event) => {
+                  event.stopPropagation()
+                  onSelectionChange(`wall:${wall.id}`)
+                }}
+              />
+              {selected
+                ? (['start', 'end'] as const).map((endpoint) => (
+                    <circle
+                      key={endpoint}
+                      cx={wall[endpoint].xCm}
+                      cy={wall[endpoint].yCm}
+                      r="8"
+                      fill="var(--paper)"
+                      stroke="var(--accent)"
+                      strokeWidth="3"
+                      vectorEffect="non-scaling-stroke"
+                      className="cursor-grab active:cursor-grabbing"
+                      onPointerDown={(event) => startWallDrag(event, wall, endpoint)}
+                    />
+                  ))
+                : null}
+            </g>
+          )
+        })}
+
+        {openings.map((opening) => {
+          const wall = wallById.get(opening.wallId)
+          if (!wall) return null
+          const segment = openingSegment(opening, wall)
+          const selected = selectionKind === 'opening' && selectionId === opening.id
+          return (
+            <g key={opening.id}>
+              <line
+                x1={segment.start.xCm}
+                y1={segment.start.yCm}
+                x2={segment.end.xCm}
+                y2={segment.end.yCm}
+                stroke="var(--paper)"
+                strokeWidth="12"
+                vectorEffect="non-scaling-stroke"
+              />
+              <line
+                x1={segment.start.xCm}
+                y1={segment.start.yCm}
+                x2={segment.end.xCm}
+                y2={segment.end.yCm}
+                stroke="transparent"
+                strokeWidth="22"
+                vectorEffect="non-scaling-stroke"
+                className="cursor-pointer"
+                onPointerDown={(event) => {
+                  event.stopPropagation()
+                  onSelectionChange(`opening:${opening.id}`)
+                }}
+              />
+              <line
+                x1={segment.start.xCm}
+                y1={segment.start.yCm}
+                x2={segment.end.xCm}
+                y2={segment.end.yCm}
+                stroke={selected ? 'var(--accent)' : 'var(--ink-2)'}
+                strokeWidth={selected ? 5 : 3}
+                strokeDasharray={opening.type === 'door' ? '7 5' : undefined}
+                vectorEffect="non-scaling-stroke"
+                className="pointer-events-none"
+              />
+              {selected ? (
+                <circle
+                  cx={segment.centre.xCm}
+                  cy={segment.centre.yCm}
+                  r="8"
+                  fill="var(--accent)"
+                  stroke="var(--paper)"
+                  strokeWidth="3"
+                  vectorEffect="non-scaling-stroke"
+                  className="cursor-grab active:cursor-grabbing"
+                  onPointerDown={(event) => startOpeningDrag(event, opening)}
+                />
+              ) : null}
+            </g>
+          )
+        })}
+      </svg>
+      <p className="mt-3 text-[12px] leading-relaxed text-ink-2">
+        Нажмите на стену или проём. Розовые точки двигают концы стены, круг на проёме — сам проём
+        вдоль стены. Прямые стены сохраняют направление.
+      </p>
+    </div>
+  )
 }
 
 export function PlanGeometryEditor({
@@ -108,10 +400,20 @@ export function PlanGeometryEditor({
       </DialogTrigger>
       <DialogContent
         title="Проверка 2D-схемы"
-        description="Выберите элемент, сверьте сантиметры с исходным планом и исправьте только явные ошибки."
-        className="max-h-[calc(100dvh-2rem)] max-w-2xl overflow-y-auto"
+        description="Двигайте элементы на чертеже или задайте точные сантиметры вручную."
+        className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-y-auto"
       >
-        <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,1fr)]">
+        <PlanGeometryCanvas
+          geometry={geometry}
+          walls={walls}
+          openings={openings}
+          selection={selection}
+          onSelectionChange={setSelection}
+          onWallsChange={setWalls}
+          onOpeningsChange={setOpenings}
+        />
+
+        <div className="mt-6 grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,1fr)]">
           <div>
             <label htmlFor="geometry-element" className="mb-2 block text-[13px] text-ink-2">
               Элемент схемы
