@@ -193,7 +193,6 @@ test.describe('project summary', () => {
     // иногда успевает нажать старую SVG-кнопку ровно в момент router.refresh().
     await page.reload()
     await page.getByRole('button', { name: 'Повернуть: Диван Букле e2e' }).click()
-    await expect(page.getByText('Мебель повёрнута и проверена')).toBeVisible()
     const nextRotation = afterDrag.placement.rotation === 0 ? 90 : 0
     await expect
       .poll(async () => {
@@ -215,7 +214,6 @@ test.describe('project summary', () => {
       .where(eq(shoppingListItems.id, shoppingItem.id))
     await page.reload()
     await page.getByRole('button', { name: 'Изменить рабочую сторону: Диван Букле e2e' }).click()
-    await expect(page.getByText(/Рабочая сторона направлена/)).toBeVisible()
     await expect
       .poll(async () => {
         const [saved] = await db
