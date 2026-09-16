@@ -24,6 +24,7 @@ const PADDING = 28
 const MAX_WIDTH = 520
 /** Вытянутая комната иначе растягивает страницу на полтора экрана чертежа */
 const MAX_HEIGHT = 620
+const DIRECTION_ARROW = { up: '↑', right: '→', down: '↓', left: '←' } as const
 
 const RESERVATION_LABELS: Record<WallReservationKind, string> = {
   door: 'дверь',
@@ -199,26 +200,40 @@ export function RoomPlanDrawing({
               </polygon>
             ))}
             {layout.functionalZones.map((zone) => (
-              <rect
+              <g
                 key={`${zone.itemId}-${zone.kind}-${zone.xCm}-${zone.yCm}`}
                 data-functional-zone-placement-id={zone.placementId}
-                x={PADDING + zone.xCm * scale}
-                y={PADDING + zone.yCm * scale}
-                width={zone.widthCm * scale}
-                height={zone.depthCm * scale}
-                className={
-                  zone.source === 'measured'
-                    ? 'fill-accent/10 stroke-accent'
-                    : 'fill-muted/40 stroke-ink-2'
-                }
-                strokeWidth={1}
-                strokeDasharray="4 4"
               >
-                <title>
-                  {zone.title}: рабочая зона {zone.clearanceCm} см
-                  {zone.source === 'preliminary' ? ' (предварительно)' : ''}
-                </title>
-              </rect>
+                <rect
+                  x={PADDING + zone.xCm * scale}
+                  y={PADDING + zone.yCm * scale}
+                  width={zone.widthCm * scale}
+                  height={zone.depthCm * scale}
+                  className={
+                    zone.source === 'measured'
+                      ? 'fill-accent/10 stroke-accent'
+                      : 'fill-muted/40 stroke-ink-2'
+                  }
+                  strokeWidth={1}
+                  strokeDasharray="4 4"
+                >
+                  <title>
+                    {zone.title}: рабочая зона {zone.clearanceCm} см
+                    {zone.source === 'preliminary' ? ' (предварительно)' : ''}
+                  </title>
+                </rect>
+                {zone.direction !== 'around' ? (
+                  <text
+                    x={PADDING + (zone.xCm + zone.widthCm / 2) * scale}
+                    y={PADDING + (zone.yCm + zone.depthCm / 2) * scale}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    className="pointer-events-none fill-accent text-[15px] font-medium"
+                  >
+                    {DIRECTION_ARROW[zone.direction]}
+                  </text>
+                ) : null}
+              </g>
             ))}
             {layout.floorReservations.map((reservation) => {
               const clearance = layout.floorPolygon
@@ -372,7 +387,8 @@ export function RoomPlanDrawing({
         <p className="mt-2 text-[12px] leading-relaxed text-ink-2">
           Второй пунктир — место для использования мебели: открывания, раскладывания и стульев. При
           перемещении он едет вместе с предметом и тоже проверяется. Серым показана предварительная
-          зона, розовым — введённый точный размер.
+          зона, розовым — введённый точный размер. Стрелка показывает, куда открывается или
+          раскладывается предмет.
         </p>
       ) : null}
     </div>
@@ -420,7 +436,8 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
           <p className="mt-2 text-[12px] leading-relaxed text-ink-2">
             Координаты идут от левого верхнего угла локального контура комнаты. Закреплённое место
             проверяется по настоящему габариту, проёмам, радиаторам и рабочим зонам; остальные
-            предметы сервис расставит вокруг него автоматически.
+            предметы сервис расставит вокруг него автоматически. Если предмет стоит не у стены,
+            укажите его рабочую сторону — без неё сервис оставит безопасный запас со всех сторон.
           </p>
           <div className="mt-3">
             {layout.placementInputs.map((item) => (

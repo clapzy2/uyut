@@ -79,7 +79,13 @@ export type ItemDimensionsCm = { width?: number; depth?: number; height?: number
 
 export type ItemOperationClearanceCm = { front?: number; side?: number; around?: number }
 
-export type ItemPlacementCm = { xCm: number; yCm: number; rotation: 0 | 90 }
+export type ItemPlacementCm = {
+  xCm: number
+  yCm: number
+  rotation: 0 | 90
+  /** Куда обращена рабочая сторона предмета на плане. */
+  frontDirection?: 'up' | 'right' | 'down' | 'left'
+}
 
 export type ShoppingList = typeof shoppingLists.$inferSelect
 export type ShoppingListItem = typeof shoppingListItems.$inferSelect

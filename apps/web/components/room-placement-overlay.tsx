@@ -1,6 +1,12 @@
 'use client'
 
-import type { FloorReservation, LayoutPoint, Placement, RoomLayout } from '@uyut/catalog'
+import type {
+  FloorReservation,
+  LayoutDirection,
+  LayoutPoint,
+  Placement,
+  RoomLayout,
+} from '@uyut/catalog'
 import {
   functionalZoneRect,
   type Rect,
@@ -43,6 +49,7 @@ type ActiveDrag = {
   widthCm: number
   depthCm: number
   rotation: 0 | 90
+  frontDirection?: LayoutDirection
   valid: boolean
   issue?: PreviewIssue
 }
@@ -50,6 +57,7 @@ type ActiveDrag = {
 const GRID_CM = 5
 const WALL_SNAP_CM = 10
 const EPSILON = 0.01
+const DIRECTION_ARROW = { up: '↑', right: '→', down: '↓', left: '←' } as const
 
 function svgPoint(event: PointerEvent<SVGElement>, svg: SVGSVGElement) {
   const matrix = svg.getScreenCTM()
@@ -195,6 +203,31 @@ function wallForRect(rect: Rect, roomWidthCm: number, roomDepthCm: number): Plac
   return 'center'
 }
 
+function directionForRect(
+  rect: Rect,
+  roomWidthCm: number,
+  roomDepthCm: number,
+): LayoutDirection | 'around' {
+  switch (wallForRect(rect, roomWidthCm, roomDepthCm)) {
+    case 'top':
+      return 'down'
+    case 'right':
+      return 'left'
+    case 'bottom':
+      return 'up'
+    case 'left':
+      return 'right'
+    case 'perimeter':
+    case 'center':
+      return 'around'
+  }
+}
+
+function rotateDirection(direction?: LayoutDirection): LayoutDirection | undefined {
+  if (!direction) return undefined
+  return { up: 'right', right: 'down', down: 'left', left: 'up' }[direction] as LayoutDirection
+}
+
 const ISSUE_TEXT: Record<PreviewIssue, string> = {
   outside: 'Сюда нельзя: предмет выходит за границу комнаты',
   collision: 'Сюда нельзя: мешает другая мебель',
@@ -306,11 +339,15 @@ export function RoomPlacementOverlay({
     return { valid: true }
   }
 
-  function operationZoneAt(candidate: Rect, placementId: string): Rect | undefined {
+  function operationZoneAt(
+    candidate: Rect,
+    placementId: string,
+    frontDirection?: LayoutDirection,
+  ): Rect | undefined {
     const zone = zoneByPlacementId.get(placementId)
     if (!zone) return undefined
-    const wall = wallForRect(candidate, roomWidthCm, roomDepthCm)
-    return functionalZoneRect(candidate, zone, wall)
+    const direction = frontDirection ?? directionForRect(candidate, roomWidthCm, roomDepthCm)
+    return functionalZoneRect(candidate, zone, direction)
   }
 
   function setStatus(message: string, valid: boolean) {
@@ -376,6 +413,7 @@ export function RoomPlacementOverlay({
     xCm: number,
     yCm: number,
     rotation: 0 | 90,
+    frontDirection: LayoutDirection | undefined,
     successTitle: string,
   ) {
     startSaving(async () => {
@@ -384,6 +422,7 @@ export function RoomPlacementOverlay({
         xCm: String(xCm),
         yCm: String(yCm),
         rotation: String(rotation),
+        frontDirection: frontDirection ?? 'auto',
       })
       if (!result.ok) {
         toast({ title: result.error, tone: 'danger' })
@@ -429,6 +468,7 @@ export function RoomPlacementOverlay({
       widthCm: place.widthCm,
       depthCm: place.depthCm,
       rotation: displayedRotation(place, input),
+      frontDirection: input.frontDirection,
       valid: true,
     }
     setDraggingPlacementId(place.id)
@@ -451,7 +491,7 @@ export function RoomPlacementOverlay({
     }
     drag.nextX = next.xCm
     drag.nextY = next.yCm
-    const candidateZone = operationZoneAt(candidate, drag.placementId)
+    const candidateZone = operationZoneAt(candidate, drag.placementId, drag.frontDirection)
     const verdict = previewVerdict(candidate, drag.placementId, candidateZone)
     drag.valid = verdict.valid
     drag.issue = verdict.issue
@@ -501,7 +541,14 @@ export function RoomPlacementOverlay({
       })
       return
     }
-    savePlacement(drag.itemId, drag.nextX, drag.nextY, drag.rotation, 'Положение мебели проверено')
+    savePlacement(
+      drag.itemId,
+      drag.nextX,
+      drag.nextY,
+      drag.rotation,
+      drag.frontDirection,
+      'Положение мебели проверено',
+    )
   }
 
   function rotate(place: Placement) {
@@ -513,7 +560,12 @@ export function RoomPlacementOverlay({
     const depthCm = rotation === 0 ? input.depthCm : input.widthCm
     const next = snappedPosition(place.xCm, place.yCm, widthCm, depthCm, roomWidthCm, roomDepthCm)
     const candidate = { xCm: next.xCm, yCm: next.yCm, widthCm, depthCm }
-    const verdict = previewVerdict(candidate, place.id, operationZoneAt(candidate, place.id))
+    const frontDirection = rotateDirection(input.frontDirection)
+    const verdict = previewVerdict(
+      candidate,
+      place.id,
+      operationZoneAt(candidate, place.id, frontDirection),
+    )
     if (!verdict.valid) {
       toast({
         title:
@@ -524,7 +576,54 @@ export function RoomPlacementOverlay({
       })
       return
     }
-    savePlacement(place.itemId, next.xCm, next.yCm, rotation, 'Мебель повёрнута и проверена')
+    savePlacement(
+      place.itemId,
+      next.xCm,
+      next.yCm,
+      rotation,
+      frontDirection,
+      'Мебель повёрнута и проверена',
+    )
+  }
+
+  function changeDirection(place: Placement) {
+    if (saving) return
+    const input = inputById.get(place.itemId)
+    const zone = zoneByPlacementId.get(place.id)
+    if (!input || !zone || zone.kind === 'around') return
+    const current =
+      input.frontDirection ?? (zone.direction === 'around' ? undefined : zone.direction)
+    const candidate = {
+      xCm: place.xCm,
+      yCm: place.yCm,
+      widthCm: place.widthCm,
+      depthCm: place.depthCm,
+    }
+    const directions: LayoutDirection[] = []
+    let next = rotateDirection(current) ?? 'up'
+    for (let index = 0; index < 4; index += 1) {
+      directions.push(next)
+      next = rotateDirection(next) ?? 'up'
+    }
+    const frontDirection = directions.find(
+      (direction) =>
+        previewVerdict(candidate, place.id, functionalZoneRect(candidate, zone, direction)).valid,
+    )
+    if (!frontDirection) {
+      toast({
+        title: 'Рабочую сторону здесь не повернуть: вокруг мебели не хватает места',
+        tone: 'danger',
+      })
+      return
+    }
+    savePlacement(
+      place.itemId,
+      place.xCm,
+      place.yCm,
+      displayedRotation(place, input),
+      frontDirection,
+      `Рабочая сторона направлена ${DIRECTION_ARROW[frontDirection]}`,
+    )
   }
 
   function rotateFromKeyboard(event: KeyboardEvent<SVGGElement>, place: Placement) {
@@ -547,6 +646,7 @@ export function RoomPlacementOverlay({
     >
       {placements.map((place) => {
         const movable = inputById.has(place.itemId)
+        const functionalZone = zoneByPlacementId.get(place.id)
         return (
           <g key={place.id}>
             {movable ? (
@@ -620,6 +720,46 @@ export function RoomPlacementOverlay({
                   className="pointer-events-none fill-accent text-[13px] font-medium"
                 >
                   ↻
+                </text>
+              </g>
+            ) : null}
+            {movable && functionalZone && functionalZone.kind !== 'around' ? (
+              // SVG has no native button element; the form below remains the non-pointer fallback.
+              // biome-ignore lint/a11y/useSemanticElements: interactive SVG direction handle
+              <g
+                role="button"
+                aria-label={`Изменить рабочую сторону: ${place.title}`}
+                tabIndex={0}
+                className="cursor-pointer focus:outline-none"
+                onPointerDown={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  changeDirection(place)
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' && event.key !== ' ') return
+                  event.preventDefault()
+                  changeDirection(place)
+                }}
+              >
+                <circle
+                  cx={padding + (place.xCm + place.widthCm) * scale}
+                  cy={padding + (place.yCm + place.depthCm) * scale}
+                  r={11}
+                  className="fill-surface stroke-accent transition-colors hover:fill-accent-tint"
+                  strokeWidth={1.5}
+                  vectorEffect="non-scaling-stroke"
+                />
+                <text
+                  x={padding + (place.xCm + place.widthCm) * scale}
+                  y={padding + (place.yCm + place.depthCm) * scale + 0.5}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  className="pointer-events-none fill-accent text-[13px] font-medium"
+                >
+                  {functionalZone.direction === 'around'
+                    ? '↕'
+                    : DIRECTION_ARROW[functionalZone.direction]}
                 </text>
               </g>
             ) : null}

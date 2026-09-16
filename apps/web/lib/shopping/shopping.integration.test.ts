@@ -150,11 +150,17 @@ describe('shopping list in a real database', () => {
 
   it('stores and clears an exact placement only for the owner', async () => {
     const added = await addShoppingItem(ownerId, { projectId, catalogItemId: sofaId, roomId })
-    await setShoppingItemPlacement(ownerId, added.itemId, { xCm: 35, yCm: 70, rotation: 90 })
+    await setShoppingItemPlacement(ownerId, added.itemId, {
+      xCm: 35,
+      yCm: 70,
+      rotation: 90,
+      frontDirection: 'left',
+    })
     expect((await getShoppingList(ownerId, projectId)).items[0]?.placementCm).toEqual({
       xCm: 35,
       yCm: 70,
       rotation: 90,
+      frontDirection: 'left',
     })
     await expect(
       setShoppingItemPlacement(strangerId, added.itemId, { xCm: 0, yCm: 0, rotation: 0 }),

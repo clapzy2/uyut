@@ -33,7 +33,13 @@ export type LayoutItem = {
   dimensions: DimensionsCm | null
   operationClearance?: OperationClearanceCm | null
   /** Подтверждённое место от левого верхнего угла комнаты; без него место ищется автоматически. */
-  placement?: { xCm: number; yCm: number; rotation: 0 | 90 } | null
+  placement?: {
+    xCm: number
+    yCm: number
+    rotation: 0 | 90
+    /** Куда обращена рабочая сторона предмета; без значения направление выводится от стены. */
+    frontDirection?: LayoutDirection
+  } | null
   quantity: number
 }
 
@@ -41,6 +47,9 @@ export type LayoutItem = {
 export type OperationClearanceCm = { front?: number; side?: number; around?: number }
 
 export type LayoutWall = 'top' | 'right' | 'bottom' | 'left'
+
+/** Направление от предмета в координатах плана. */
+export type LayoutDirection = 'up' | 'right' | 'down' | 'left'
 
 export type LayoutPoint = {
   xCm: number
@@ -83,6 +92,7 @@ export type FunctionalZone = Rect & {
   placementId: string
   title: string
   kind: 'front' | 'side' | 'around'
+  direction: LayoutDirection | 'around'
   source: 'measured' | 'preliminary'
   clearanceCm: number
 }
@@ -133,6 +143,8 @@ export type RoomLayout = {
     xCm?: number
     yCm?: number
     rotation: 0 | 90
+    frontDirection?: LayoutDirection
+    operationKind?: 'front' | 'side' | 'around'
   }>
   /** Какие обмеры ещё нужны, чтобы проверка не подставляла типовые числа. */
   missingSafetyData: string[]
@@ -486,10 +498,10 @@ function operationRequirement(
 export function functionalZoneRect(
   rect: Rect,
   requirement: Pick<FunctionalZone, 'kind' | 'clearanceCm'>,
-  wall: LayoutWall | 'perimeter' | 'center',
+  direction: LayoutDirection | 'around',
 ): Rect {
   const { kind, clearanceCm: clearance } = requirement
-  if (kind === 'around' || wall === 'center' || wall === 'perimeter') {
+  if (kind === 'around' || direction === 'around') {
     return {
       xCm: rect.xCm - clearance,
       yCm: rect.yCm - clearance,
@@ -499,29 +511,29 @@ export function functionalZoneRect(
   }
   const side = kind === 'side' ? clearance : 0
   const front = kind === 'front' ? clearance : 0
-  switch (wall) {
-    case 'top':
+  switch (direction) {
+    case 'down':
       return {
         xCm: rect.xCm - side,
         yCm: rect.yCm,
         widthCm: rect.widthCm + side * 2,
         depthCm: rect.depthCm + front,
       }
-    case 'bottom':
+    case 'up':
       return {
         xCm: rect.xCm - side,
         yCm: rect.yCm - front,
         widthCm: rect.widthCm + side * 2,
         depthCm: rect.depthCm + front,
       }
-    case 'left':
+    case 'right':
       return {
         xCm: rect.xCm,
         yCm: rect.yCm - side,
         widthCm: rect.widthCm + front,
         depthCm: rect.depthCm + side * 2,
       }
-    case 'right':
+    case 'left':
       return {
         xCm: rect.xCm - front,
         yCm: rect.yCm - side,
@@ -531,11 +543,28 @@ export function functionalZoneRect(
   }
 }
 
+function directionFromWall(wall: LayoutWall | 'perimeter' | 'center'): LayoutDirection | 'around' {
+  switch (wall) {
+    case 'top':
+      return 'down'
+    case 'right':
+      return 'left'
+    case 'bottom':
+      return 'up'
+    case 'left':
+      return 'right'
+    case 'perimeter':
+    case 'center':
+      return 'around'
+  }
+}
+
 function operationZone(
   item: LayoutItem,
   rect: Rect,
   wall: LayoutWall | 'perimeter' | 'center',
   placementId: string,
+  frontDirection?: LayoutDirection,
 ): FunctionalZone | null {
   const requirement = operationRequirement(item)
   if (!requirement) return null
@@ -547,10 +576,11 @@ function operationZone(
     placementId,
     title: item.title,
     kind: requirement.kind,
+    direction: frontDirection ?? directionFromWall(wall),
     source: measured ? ('measured' as const) : ('preliminary' as const),
     clearanceCm: clearance,
   }
-  return { ...base, ...functionalZoneRect(rect, base, wall) }
+  return { ...base, ...functionalZoneRect(rect, base, base.direction) }
 }
 
 /** Угол предмета в координатах комнаты. Размер здесь уже развёрнут по стене. */
@@ -751,7 +781,12 @@ type Sized = {
   item: LayoutItem
   size: Size
   spot: Spot
-  placement?: { xCm: number; yCm: number; rotation: 0 | 90 }
+  placement?: {
+    xCm: number
+    yCm: number
+    rotation: 0 | 90
+    frontDirection?: LayoutDirection
+  }
 }
 
 /**
@@ -967,6 +1002,8 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       depthCm: size.depthCm,
       ...(item.placement ? { xCm: item.placement.xCm, yCm: item.placement.yCm } : {}),
       rotation: item.placement?.rotation ?? 0,
+      ...(item.placement?.frontDirection ? { frontDirection: item.placement.frontDirection } : {}),
+      ...(operation ? { operationKind: operation.kind } : {}),
     })
     // Два одинаковых стула занимают пол дважды: количество разворачивается в отдельные предметы
     for (let copy = 0; copy < Math.max(1, item.quantity); copy += 1) {
@@ -1194,7 +1231,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
             ? 'right'
             : 'center'
     const placementId = `${entry.item.id}-${placed.length}`
-    const zone = operationZone(entry.item, rect, wall, placementId)
+    const zone = operationZone(entry.item, rect, wall, placementId, entry.placement?.frontDirection)
     const insideBounds =
       rect.xCm >= -GEOMETRY_EPSILON_CM &&
       rect.yCm >= -GEOMETRY_EPSILON_CM &&

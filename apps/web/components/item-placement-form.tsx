@@ -13,6 +13,8 @@ export function ItemPlacementForm({
   xCm,
   yCm,
   rotation,
+  frontDirection,
+  operationKind,
 }: {
   itemId: string
   title: string
@@ -21,12 +23,15 @@ export function ItemPlacementForm({
   xCm?: number
   yCm?: number
   rotation: 0 | 90
+  frontDirection?: 'up' | 'right' | 'down' | 'left'
+  operationKind?: 'front' | 'side' | 'around'
 }) {
   const router = useRouter()
   const [value, setValue] = useState({
     xCm: xCm === undefined ? '' : String(xCm),
     yCm: yCm === undefined ? '' : String(yCm),
     rotation: String(rotation) as '0' | '90',
+    frontDirection: frontDirection ?? 'auto',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
@@ -64,6 +69,30 @@ export function ItemPlacementForm({
             className={`${inputClassName} mt-1 h-9 w-24 text-[13px]`}
           />
         </label>
+        {operationKind && operationKind !== 'around' ? (
+          <label>
+            <span className="block text-[11px] text-ink-2">
+              {operationKind === 'front' ? 'Рабочая сторона' : 'Ориентация'}
+            </span>
+            <select
+              aria-label={`Рабочая сторона: ${title}`}
+              value={value.frontDirection}
+              onChange={(event) =>
+                setValue((all) => ({
+                  ...all,
+                  frontDirection: event.currentTarget.value as typeof all.frontDirection,
+                }))
+              }
+              className={`${inputClassName} mt-1 h-9 w-32 text-[13px]`}
+            >
+              <option value="auto">от стены</option>
+              <option value="up">вверх ↑</option>
+              <option value="right">вправо →</option>
+              <option value="down">вниз ↓</option>
+              <option value="left">влево ←</option>
+            </select>
+          </label>
+        ) : null}
         <label>
           <span className="block text-[11px] text-ink-2">Сверху, см</span>
           <input

@@ -253,6 +253,7 @@ const itemPlacementSchema = z.discriminatedUnion('mode', [
     xCm: coordinateSchema,
     yCm: coordinateSchema,
     rotation: z.enum(['0', '90']).transform((value) => (value === '90' ? 90 : 0) as 0 | 90),
+    frontDirection: z.enum(['auto', 'up', 'right', 'down', 'left']).optional(),
   }),
 ])
 
@@ -272,6 +273,9 @@ export async function setItemPlacement(itemId: string, input: unknown): Promise<
             xCm: parsed.data.xCm,
             yCm: parsed.data.yCm,
             rotation: parsed.data.rotation,
+            ...(parsed.data.frontDirection && parsed.data.frontDirection !== 'auto'
+              ? { frontDirection: parsed.data.frontDirection }
+              : {}),
           }
     const result = await setShoppingItemPlacement(userId, itemId, placement)
     await recordAudit({

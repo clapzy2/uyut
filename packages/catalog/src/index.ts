@@ -30,6 +30,7 @@ export {
   COFFEE_CLEARANCE_CM,
   type FloorKeepClearZone,
   type FloorReservation,
+  type LayoutDirection,
   type LayoutItem,
   type LayoutPoint,
   type LayoutProblem,

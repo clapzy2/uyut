@@ -43,6 +43,7 @@ describe('layoutRoom', () => {
       xCm: 350,
       yCm: 40,
       rotation: 90,
+      operationKind: 'front',
     })
   })
 
@@ -193,17 +194,43 @@ describe('layoutRoom', () => {
     const rect = { xCm: 40, yCm: 30, widthCm: 120, depthCm: 50 }
     const requirement = { kind: 'front' as const, clearanceCm: 70 }
 
-    expect(functionalZoneRect(rect, requirement, 'top')).toEqual({
+    expect(functionalZoneRect(rect, requirement, 'down')).toEqual({
       xCm: 40,
       yCm: 30,
       widthCm: 120,
       depthCm: 120,
     })
-    expect(functionalZoneRect(rect, requirement, 'right')).toEqual({
+    expect(functionalZoneRect(rect, requirement, 'left')).toEqual({
       xCm: -30,
       yCm: 30,
       widthCm: 190,
       depthCm: 50,
+    })
+  })
+
+  it('использует указанное направление у отдельно стоящей мебели', () => {
+    const layout = layoutRoom({ widthCm: 500, depthCm: 400 }, [
+      item({
+        id: 'wardrobe',
+        title: 'Шкаф в центре',
+        subcategory: 'wardrobe',
+        dimensions: { width: 100, depth: 40, height: 200 },
+        operationClearance: { front: 80 },
+        placement: { xCm: 180, yCm: 160, rotation: 0, frontDirection: 'right' },
+      }),
+    ])
+
+    expect(layout.problems).toEqual([])
+    expect(layout.functionalZones[0]).toMatchObject({
+      direction: 'right',
+      xCm: 180,
+      yCm: 160,
+      widthCm: 180,
+      depthCm: 40,
+    })
+    expect(layout.placementInputs[0]).toMatchObject({
+      frontDirection: 'right',
+      operationKind: 'front',
     })
   })
 

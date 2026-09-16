@@ -194,6 +194,7 @@ test.describe('project summary', () => {
     await page.reload()
     await page.getByRole('button', { name: 'Повернуть: Диван Букле e2e' }).click()
     await expect(page.getByText('Мебель повёрнута и проверена')).toBeVisible()
+    const nextRotation = afterDrag.placement.rotation === 0 ? 90 : 0
     await expect
       .poll(async () => {
         const [saved] = await db
@@ -202,7 +203,28 @@ test.describe('project summary', () => {
           .where(eq(shoppingListItems.id, shoppingItem.id))
         return saved?.placement?.rotation
       })
-      .toBe(afterDrag.placement.rotation === 0 ? 90 : 0)
+      .toBe(nextRotation)
+
+    // Воспроизводимая центральная позиция изолирует проверку кнопки направления от уже проверенных
+    // выше drag-and-drop и поворота. Здесь у дивана достаточно места с каждой стороны.
+    await db
+      .update(shoppingListItems)
+      .set({
+        placementCm: { xCm: 155, yCm: 125, rotation: nextRotation, frontDirection: 'down' },
+      })
+      .where(eq(shoppingListItems.id, shoppingItem.id))
+    await page.reload()
+    await page.getByRole('button', { name: 'Изменить рабочую сторону: Диван Букле e2e' }).click()
+    await expect(page.getByText(/Рабочая сторона направлена/)).toBeVisible()
+    await expect
+      .poll(async () => {
+        const [saved] = await db
+          .select({ placement: shoppingListItems.placementCm })
+          .from(shoppingListItems)
+          .where(eq(shoppingListItems.id, shoppingItem.id))
+        return saved?.placement?.frontDirection
+      })
+      .toMatch(/^(up|right|down|left)$/)
 
     await page.goto(`/projects/${projectId}/summary`)
     row = page
