@@ -119,6 +119,8 @@ export type RoomLayout = {
   freeWallCm: number
   /** Самый узкий проход между расставленным, сантиметры */
   walkwayCm: number
+  /** Сколько независимых порядков расстановки сравнено перед выбором этого варианта. */
+  alternativesEvaluated: number
   problems: LayoutProblem[]
   /** Предметы, которые пол не занимают: люстры, картины, текстиль */
   offFloor: string[]
@@ -900,8 +902,37 @@ function clearanceOf(entry: Sized): number {
   )
 }
 
+type LayoutStrategy = {
+  wallOrder: readonly LayoutWall[]
+  itemOrder: 'width' | 'area' | 'depth'
+}
+
+const LAYOUT_STRATEGIES: readonly LayoutStrategy[] = [
+  { wallOrder: ['top', 'bottom', 'left', 'right'], itemOrder: 'width' },
+  { wallOrder: ['left', 'right', 'top', 'bottom'], itemOrder: 'area' },
+  { wallOrder: ['bottom', 'top', 'right', 'left'], itemOrder: 'depth' },
+]
+
+function hardProblemCount(layout: RoomLayout): number {
+  return layout.problems.filter((problem) => problem.kind !== 'narrowWalkway').length
+}
+
+/** Порядок сравнения обещаний: сначала ничего не теряем, потом освобождаем маршрут. */
+function isBetterLayout(candidate: RoomLayout, current: RoomLayout): boolean {
+  const candidateHard = hardProblemCount(candidate)
+  const currentHard = hardProblemCount(current)
+  if (candidateHard !== currentHard) return candidateHard < currentHard
+  if (candidate.placed.length !== current.placed.length)
+    return candidate.placed.length > current.placed.length
+  const candidateBlocked = candidate.problems.some((problem) => problem.kind === 'narrowWalkway')
+  const currentBlocked = current.problems.some((problem) => problem.kind === 'narrowWalkway')
+  if (candidateBlocked !== currentBlocked) return !candidateBlocked
+  if (candidate.walkwayCm !== current.walkwayCm) return candidate.walkwayCm > current.walkwayCm
+  return false
+}
+
 /**
- * Раскладывает мебель: крупное к стенам, стол посередине.
+ * Один детерминированный вариант раскладки: крупное к стенам, стол посередине.
  *
  * Двумя проходами. Сначала предметы разбираются по стенам — на ту, где больше свободного места.
  * Куда именно вдоль стены встанет предмет, на этом шаге ещё неизвестно: это зависит от того,
@@ -911,7 +942,11 @@ function clearanceOf(entry: Sized): number {
  * Это не оптимальная упаковка и не пытается ею быть: нам нужен ответ «влезает или нет»,
  * а не лучшая из возможных расстановок.
  */
-export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]): RoomLayout {
+function layoutRoomCandidate(
+  room: RoomLayoutInput,
+  items: readonly LayoutItem[],
+  strategy: LayoutStrategy,
+): RoomLayout {
   const widthCm = room.widthCm ?? 0
   const depthCm = room.depthCm ?? 0
   const floorPolygon = validFloorPolygon(room.floorPolygon, { widthCm, depthCm })
@@ -922,6 +957,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       placed: [],
       freeWallCm: 0,
       walkwayCm: 0,
+      alternativesEvaluated: 1,
       problems: [{ kind: 'noRoomSize' }],
       offFloor: [],
       unmeasured: [],
@@ -1087,14 +1123,19 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     left: { wall: 'left', lengthCm: depthCm, usedCm: 0, depthCm: 0, items: [] },
     right: { wall: 'right', lengthCm: depthCm, usedCm: 0, depthCm: 0, items: [] },
   }
-  const order: LayoutWall[] = ['top', 'bottom', 'left', 'right']
+  const order = strategy.wallOrder
 
   type Homeless = { id: string; title: string; size: Size }
   const homeless: Homeless[] = []
 
   const wallItems = sized
     .filter((entry) => !entry.placement && (entry.spot === 'wall' || entry.spot === 'floorFree'))
-    .sort((a, b) => b.size.widthCm - a.size.widthCm)
+    .sort((a, b) => {
+      if (strategy.itemOrder === 'area')
+        return b.size.widthCm * b.size.depthCm - a.size.widthCm * a.size.depthCm
+      if (strategy.itemOrder === 'depth') return b.size.depthCm - a.size.depthCm
+      return b.size.widthCm - a.size.widthCm
+    })
 
   for (const entry of wallItems) {
     const roomy = order
@@ -1390,7 +1431,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
   homeless.sort((a, b) => b.size.widthCm - a.size.widthCm)
   for (const item of homeless) {
     let standing = false
-    for (const candidate of ['top', 'bottom', 'left', 'right'] as const) {
+    for (const candidate of strategy.wallOrder) {
       // Во втором заходе стена просматривается целиком, от угла до угла: отступ под соседнюю
       // стену нужен первому проходу для опрятной расстановки, а здесь мы ищем любое место,
       // и от наложения защищает точная проверка прямоугольника
@@ -1509,68 +1550,92 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     }
   }
 
-  const centerWidthCm = widthCm - depths.left - depths.right
-  const centerDepthCm = depthCm - depths.top - depths.bottom
-
   const centerItems = sized
     .filter((entry) => !entry.placement && entry.spot === 'center')
     .sort((a, b) => b.size.widthCm - a.size.widthCm)
 
-  // Предметы посередине встают в ряд слева направо, а не все в одну точку: иначе журнальный
-  // столик оказывался внутри обеденного, и оба считались поместившимися
-  let centerUsedCm = 0
   for (const entry of centerItems) {
-    // Вокруг обеденного стола нужен отодвинутый стул, вокруг журнального — вытянутая рука.
-    // Предмет ставится, только если его собственный запас помещается, поэтому отдельной
-    // жалобы на тесноту вокруг него потом уже не нужно.
     const clearance = clearanceOf(entry)
-    const needWidth = entry.size.widthCm + clearance * 2
-    const needDepth = entry.size.depthCm + clearance * 2
-    if (centerUsedCm + needWidth > centerWidthCm || needDepth > centerDepthCm) {
+    const orientations = [
+      { widthCm: entry.size.widthCm, depthCm: entry.size.depthCm },
+      ...(entry.size.widthCm === entry.size.depthCm
+        ? []
+        : [{ widthCm: entry.size.depthCm, depthCm: entry.size.widthCm }]),
+    ]
+    let bestCenter:
+      | { placement: Placement; zone: FunctionalZone | null; walkwayCm: number }
+      | undefined
+
+    for (const orientation of orientations) {
+      const xMin = depths.left + clearance
+      const xMax = widthCm - depths.right - clearance - orientation.widthCm
+      const yMin = depths.top + clearance
+      const yMax = depthCm - depths.bottom - clearance - orientation.depthCm
+      if (xMax < xMin || yMax < yMin) continue
+      // Центр проверяется первым ради стабильности старых проектов, затем четыре края.
+      const positions = [
+        { xCm: (xMin + xMax) / 2, yCm: (yMin + yMax) / 2 },
+        { xCm: xMin, yCm: yMin },
+        { xCm: xMin, yCm: yMax },
+        { xCm: xMax, yCm: yMin },
+        { xCm: xMax, yCm: yMax },
+        { xCm: (xMin + xMax) / 2, yCm: yMin },
+        { xCm: (xMin + xMax) / 2, yCm: yMax },
+        { xCm: xMin, yCm: (yMin + yMax) / 2 },
+        { xCm: xMax, yCm: (yMin + yMax) / 2 },
+      ]
+      for (const position of positions) {
+        const placement: Placement = {
+          id: `${entry.item.id}-${placed.length}`,
+          itemId: entry.item.id,
+          title: entry.item.title,
+          ...position,
+          ...orientation,
+          wall: 'center',
+        }
+        const zone = operationZone(entry.item, placement, 'center', placement.id)
+        const outsideFloor = floorPolygon
+          ? !rectInsideFloor(placement, floorPolygon) ||
+            (zone ? !rectInsideFloor(zone, floorPolygon) : false)
+          : placement.xCm < 0 ||
+            placement.yCm < 0 ||
+            placement.xCm + placement.widthCm > widthCm ||
+            placement.yCm + placement.depthCm > depthCm ||
+            (zone
+              ? zone.xCm < 0 ||
+                zone.yCm < 0 ||
+                zone.xCm + zone.widthCm > widthCm ||
+                zone.yCm + zone.depthCm > depthCm
+              : false)
+        const collides =
+          placed.some((other) => overlaps(placement, other)) ||
+          functionalZones.some((other) => overlaps(placement, other)) ||
+          (zone !== null &&
+            (placed.some((other) => overlaps(zone, other)) ||
+              functionalZones.some((other) => overlaps(zone, other))))
+        const blocked =
+          clearanceRects.some((clearanceRect) => overlaps(placement, clearanceRect)) ||
+          keepClearZones.some((keepClear) => rectOverlapsPolygon(placement, keepClear.polygon)) ||
+          (zone !== null &&
+            (clearanceRects.some((clearanceRect) => overlaps(zone, clearanceRect)) ||
+              keepClearZones.some((keepClear) => rectOverlapsPolygon(zone, keepClear.polygon))))
+        if (outsideFloor || collides || blocked) continue
+        const candidateWalkway = widestRoute(
+          [...placed, ...functionalZones, placement, ...(zone ? [zone] : [])],
+          { widthCm, depthCm },
+          floorPolygon,
+        )
+        if (!bestCenter || candidateWalkway > bestCenter.walkwayCm) {
+          bestCenter = { placement, zone, walkwayCm: candidateWalkway }
+        }
+      }
+    }
+    if (!bestCenter) {
       problems.push({ kind: 'noCenter', title: entry.item.title })
       continue
     }
-    const centerPlacement: Placement = {
-      id: `${entry.item.id}-${placed.length}`,
-      itemId: entry.item.id,
-      title: entry.item.title,
-      xCm: depths.left + centerUsedCm + clearance,
-      yCm: depths.top + (centerDepthCm - entry.size.depthCm) / 2,
-      widthCm: entry.size.widthCm,
-      depthCm: entry.size.depthCm,
-      wall: 'center',
-    }
-    const zone = operationZone(entry.item, centerPlacement, 'center', centerPlacement.id)
-    if (
-      clearanceRects.some((clearanceRect) => overlaps(centerPlacement, clearanceRect)) ||
-      keepClearZones.some((zone) => rectOverlapsPolygon(centerPlacement, zone.polygon))
-    ) {
-      problems.push({ kind: 'noCenter', title: entry.item.title })
-      continue
-    }
-    if (floorPolygon && !rectInsideFloor(centerPlacement, floorPolygon)) {
-      problems.push({ kind: 'noCenter', title: entry.item.title })
-      continue
-    }
-    if (
-      zone &&
-      ((floorPolygon
-        ? !rectInsideFloor(zone, floorPolygon)
-        : zone.xCm < 0 ||
-          zone.yCm < 0 ||
-          zone.xCm + zone.widthCm > widthCm ||
-          zone.yCm + zone.depthCm > depthCm) ||
-        placed.some((other) => overlaps(zone, other)) ||
-        functionalZones.some((other) => overlaps(zone, other)) ||
-        clearanceRects.some((clearance) => overlaps(zone, clearance)) ||
-        keepClearZones.some((keepClear) => rectOverlapsPolygon(zone, keepClear.polygon)))
-    ) {
-      problems.push({ kind: 'noCenter', title: entry.item.title })
-      continue
-    }
-    placed.push(centerPlacement)
-    if (zone) functionalZones.push(zone)
-    centerUsedCm += needWidth
+    placed.push(bestCenter.placement)
+    if (bestCenter.zone) functionalZones.push(bestCenter.zone)
   }
 
   // Проход — это самое узкое место на маршруте, по которому можно обойти всю комнату,
@@ -1699,6 +1764,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     placed,
     freeWallCm: Math.round(freeWallCm),
     walkwayCm,
+    alternativesEvaluated: 1,
     problems,
     offFloor,
     unmeasured,
@@ -1715,4 +1781,17 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     safetySummary,
     reservationSource,
   }
+}
+
+/**
+ * Считает несколько независимых вариантов и возвращает лучший, а не первый допустимый.
+ * Варианты не случайны: одинаковый проект всегда даёт одинаковую расстановку.
+ */
+export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]): RoomLayout {
+  let best = layoutRoomCandidate(room, items, LAYOUT_STRATEGIES[0] as LayoutStrategy)
+  for (const strategy of LAYOUT_STRATEGIES.slice(1)) {
+    const candidate = layoutRoomCandidate(room, items, strategy)
+    if (isBetterLayout(candidate, best)) best = candidate
+  }
+  return { ...best, alternativesEvaluated: LAYOUT_STRATEGIES.length }
 }

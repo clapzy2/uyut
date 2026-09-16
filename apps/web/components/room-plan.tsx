@@ -408,7 +408,8 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
       </p>
       <p className="mb-4 text-[13px] leading-relaxed text-ink-2">
         Комната {Math.round(layout.widthCm)} × {Math.round(layout.depthCm)} см и то, что вы выбрали,
-        в масштабе. Мы раскладываем крупное вдоль стен, а стол — посередине.{' '}
+        в масштабе. Сервис сравнил {layout.alternativesEvaluated} варианта расстановки: крупное
+        вдоль стен, стол — в свободной центральной зоне.{' '}
         {layout.reservationSource === 'geometry' && hasOpenings
           ? `Двери и окна взяты из подтверждённой 2D-схемы; свободной стены осталось ${layout.freeWallCm} см.`
           : layout.reservationSource === 'geometry'
