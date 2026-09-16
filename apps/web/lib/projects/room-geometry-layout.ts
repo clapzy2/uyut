@@ -147,6 +147,11 @@ export function roomLayoutInputFromGeometry(
     if (!wall) continue
     const [start, end] = openingPoints(opening, wall)
     if (!openingBelongsToRoom(start, end, room.polygon)) continue
+    if (opening.type === 'window' && opening.sillHeightCm === undefined) {
+      missingSafetyData.push(
+        `Окно ${opening.id}: укажите высоту подоконника, чтобы проверить низкую мебель под ним.`,
+      )
+    }
     const clearance = doorClearanceZone(opening, geometry)
     if (opening.type !== 'window') {
       if (!clearance) {

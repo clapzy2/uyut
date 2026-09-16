@@ -1,6 +1,11 @@
 import type { LayoutItem, Placement } from '@uyut/catalog'
 import { layoutRoom, WALKWAY_CM } from '@uyut/catalog'
-import { functionalZoneRect } from '@uyut/catalog/layout'
+import {
+  functionalZoneRect,
+  rectBlocksFloorReservation,
+  reservationBlocksHeight,
+  wallReservationToFloorReservation,
+} from '@uyut/catalog/layout'
 import { describe, expect, it } from 'vitest'
 
 function item(over: Partial<LayoutItem> & Pick<LayoutItem, 'title'>): LayoutItem {
@@ -40,6 +45,7 @@ describe('layoutRoom', () => {
       title: 'Шкаф у правой стены',
       widthCm: 120,
       depthCm: 50,
+      heightCm: 200,
       xCm: 350,
       yCm: 40,
       rotation: 90,
@@ -323,6 +329,29 @@ describe('layoutRoom', () => {
       [item({ title: 'Комод', dimensions: { width: 150, depth: 40, height: 80 } })],
     )
     expect(unknownSill.placed[0]?.wall).not.toBe('top')
+  })
+
+  it('одинаково проверяет линию окна для автоматической и ручной расстановки', () => {
+    const window = wallReservationToFloorReservation(
+      {
+        kind: 'window',
+        wall: 'top',
+        fromCm: 20,
+        toCm: 120,
+        clearanceCm: 0,
+        sillHeightCm: 90,
+      },
+      300,
+      400,
+    )
+    const furniture = { xCm: 20, yCm: 0, widthCm: 100, depthCm: 40 }
+
+    expect(rectBlocksFloorReservation(furniture, window)).toBe(true)
+    expect(reservationBlocksHeight(window, { heightCm: 80 })).toBe(false)
+    expect(reservationBlocksHeight(window, { heightCm: 180 })).toBe(true)
+    expect(reservationBlocksHeight({ ...window, sillHeightCm: undefined }, { heightCm: 80 })).toBe(
+      true,
+    )
   })
 
   it('не ставит мебель в точную дугу двери или зону радиатора', () => {

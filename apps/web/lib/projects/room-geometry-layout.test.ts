@@ -225,4 +225,17 @@ describe('проёмы комнаты из 2D-схемы', () => {
       reservations: [],
     })
   })
+
+  it('просит высоту подоконника, если без неё нельзя проверить мебель', () => {
+    const withoutSill = {
+      ...geometry,
+      openings: geometry.openings.map((opening) =>
+        opening.type === 'window' ? { ...opening, sillHeightCm: undefined } : opening,
+      ),
+    }
+
+    expect(roomLayoutInputFromGeometry(withoutSill, 'Гостиная', null)?.missingSafetyData).toContain(
+      'Окно window: укажите высоту подоконника, чтобы проверить низкую мебель под ним.',
+    )
+  })
 })

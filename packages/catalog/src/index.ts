@@ -30,6 +30,7 @@ export {
   COFFEE_CLEARANCE_CM,
   type FloorKeepClearZone,
   type FloorReservation,
+  floorReservationRect,
   type LayoutDirection,
   type LayoutItem,
   type LayoutPoint,
@@ -39,7 +40,10 @@ export {
   type Placement,
   type RoomLayout,
   type RoomLayoutInput,
+  rectBlocksFloorReservation,
+  reservationBlocksHeight,
   WALKWAY_CM,
+  wallReservationToFloorReservation,
 } from './layout'
 export { isBathroomFixture, isForeignListing, isNotFurniture } from './not-furniture'
 export {

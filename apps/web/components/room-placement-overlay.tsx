@@ -1,17 +1,15 @@
 'use client'
 
-import type {
-  FloorReservation,
-  LayoutDirection,
-  LayoutPoint,
-  Placement,
-  RoomLayout,
-} from '@uyut/catalog'
+import type { LayoutDirection, LayoutPoint, Placement, RoomLayout } from '@uyut/catalog'
 import {
+  floorReservationRect,
   functionalZoneRect,
   type Rect,
+  rectBlocksFloorReservation,
   rectInsideFloor,
   rectOverlapsPolygon,
+  reservationBlocksHeight,
+  wallReservationToFloorReservation,
 } from '@uyut/catalog/layout'
 import { toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
@@ -27,7 +25,6 @@ import {
 import { setItemPlacement } from '@/actions/shopping'
 
 type PlacementInput = RoomLayout['placementInputs'][number]
-type WallReservation = RoomLayout['reservations'][number]
 type PreviewBlock = Rect & { placementId?: string }
 type PreviewIssue = 'outside' | 'collision' | 'blocked' | 'operation'
 
@@ -48,6 +45,7 @@ type ActiveDrag = {
   nextY: number
   widthCm: number
   depthCm: number
+  heightCm?: number
   rotation: 0 | 90
   frontDirection?: LayoutDirection
   valid: boolean
@@ -73,37 +71,6 @@ function displayedRotation(place: Placement, input: PlacementInput): 0 | 90 {
   return normal ? 0 : 90
 }
 
-function pointOnSegment(point: LayoutPoint, start: LayoutPoint, end: LayoutPoint): boolean {
-  const cross =
-    (point.xCm - start.xCm) * (end.yCm - start.yCm) -
-    (point.yCm - start.yCm) * (end.xCm - start.xCm)
-  if (Math.abs(cross) > EPSILON) return false
-  return (
-    point.xCm >= Math.min(start.xCm, end.xCm) - EPSILON &&
-    point.xCm <= Math.max(start.xCm, end.xCm) + EPSILON &&
-    point.yCm >= Math.min(start.yCm, end.yCm) - EPSILON &&
-    point.yCm <= Math.max(start.yCm, end.yCm) + EPSILON
-  )
-}
-
-function pointInPolygon(point: LayoutPoint, polygon: readonly LayoutPoint[]): boolean {
-  let inside = false
-  for (let index = 0; index < polygon.length; index += 1) {
-    const start = polygon[index]
-    const end = polygon[(index + 1) % polygon.length]
-    if (!start || !end) continue
-    if (pointOnSegment(point, start, end)) return true
-    if (
-      start.yCm > point.yCm !== end.yCm > point.yCm &&
-      point.xCm <
-        ((end.xCm - start.xCm) * (point.yCm - start.yCm)) / (end.yCm - start.yCm) + start.xCm
-    ) {
-      inside = !inside
-    }
-  }
-  return inside
-}
-
 function overlaps(first: Rect, second: Rect): boolean {
   return (
     first.xCm < second.xCm + second.widthCm - EPSILON &&
@@ -111,59 +78,6 @@ function overlaps(first: Rect, second: Rect): boolean {
     first.yCm < second.yCm + second.depthCm - EPSILON &&
     first.yCm + first.depthCm > second.yCm + EPSILON
   )
-}
-
-function exactClearanceRect(
-  reservation: FloorReservation,
-  polygon: readonly LayoutPoint[],
-): Rect | null {
-  if (reservation.clearanceCm <= 0) return null
-  const horizontal = Math.abs(reservation.start.yCm - reservation.end.yCm) < 1
-  if (horizontal) {
-    const fromCm = Math.min(reservation.start.xCm, reservation.end.xCm)
-    const toCm = Math.max(reservation.start.xCm, reservation.end.xCm)
-    const yCm = (reservation.start.yCm + reservation.end.yCm) / 2
-    const insideBelow = pointInPolygon({ xCm: (fromCm + toCm) / 2, yCm: yCm + 1 }, polygon)
-    return {
-      xCm: fromCm,
-      yCm: insideBelow ? yCm : yCm - reservation.clearanceCm,
-      widthCm: toCm - fromCm,
-      depthCm: reservation.clearanceCm,
-    }
-  }
-  const fromCm = Math.min(reservation.start.yCm, reservation.end.yCm)
-  const toCm = Math.max(reservation.start.yCm, reservation.end.yCm)
-  const xCm = (reservation.start.xCm + reservation.end.xCm) / 2
-  const insideRight = pointInPolygon({ xCm: xCm + 1, yCm: (fromCm + toCm) / 2 }, polygon)
-  return {
-    xCm: insideRight ? xCm : xCm - reservation.clearanceCm,
-    yCm: fromCm,
-    widthCm: reservation.clearanceCm,
-    depthCm: toCm - fromCm,
-  }
-}
-
-function wallClearanceRect(
-  reservation: WallReservation,
-  roomWidthCm: number,
-  roomDepthCm: number,
-): Rect | null {
-  if (reservation.clearanceCm <= 0) return null
-  const length = reservation.toCm - reservation.fromCm
-  if (reservation.wall === 'top' || reservation.wall === 'bottom') {
-    return {
-      xCm: reservation.fromCm,
-      yCm: reservation.wall === 'bottom' ? roomDepthCm - reservation.clearanceCm : 0,
-      widthCm: length,
-      depthCm: reservation.clearanceCm,
-    }
-  }
-  return {
-    xCm: reservation.wall === 'right' ? roomWidthCm - reservation.clearanceCm : 0,
-    yCm: reservation.fromCm,
-    widthCm: reservation.clearanceCm,
-    depthCm: length,
-  }
 }
 
 function snappedPosition(
@@ -283,22 +197,33 @@ export function RoomPlacementOverlay({
   const [draggingPlacementId, setDraggingPlacementId] = useState<string>()
   const [saving, startSaving] = useTransition()
 
-  const blocks = useMemo<PreviewBlock[]>(() => {
-    const result: PreviewBlock[] = []
-    for (const zone of functionalZones) result.push({ ...zone, placementId: zone.placementId })
-    if (floorReservations.length > 0 && floorPolygon) {
-      for (const reservation of floorReservations) {
-        const rect = exactClearanceRect(reservation, floorPolygon)
-        if (rect) result.push(rect)
-      }
-    } else {
-      for (const reservation of reservations) {
-        const rect = wallClearanceRect(reservation, roomWidthCm, roomDepthCm)
-        if (rect) result.push(rect)
-      }
-    }
-    return result
-  }, [floorPolygon, floorReservations, functionalZones, reservations, roomDepthCm, roomWidthCm])
+  const roomPolygon = useMemo(
+    () =>
+      floorPolygon ?? [
+        { xCm: 0, yCm: 0 },
+        { xCm: roomWidthCm, yCm: 0 },
+        { xCm: roomWidthCm, yCm: roomDepthCm },
+        { xCm: 0, yCm: roomDepthCm },
+      ],
+    [floorPolygon, roomDepthCm, roomWidthCm],
+  )
+  const openingBlocks = useMemo(
+    () =>
+      [
+        ...floorReservations,
+        ...reservations.map((reservation) =>
+          wallReservationToFloorReservation(reservation, roomWidthCm, roomDepthCm),
+        ),
+      ].map((reservation) => ({
+        reservation,
+        clearance: floorReservationRect(reservation, roomPolygon),
+      })),
+    [floorReservations, reservations, roomDepthCm, roomPolygon, roomWidthCm],
+  )
+  const blocks = useMemo<PreviewBlock[]>(
+    () => functionalZones.map((zone) => ({ ...zone, placementId: zone.placementId })),
+    [functionalZones],
+  )
 
   useEffect(() => setReady(true), [])
 
@@ -315,6 +240,7 @@ export function RoomPlacementOverlay({
   function previewVerdict(
     candidate: Rect,
     placementId: string,
+    itemHeightCm: number | undefined,
     candidateZone?: Rect,
   ): { valid: boolean; issue?: PreviewIssue } {
     if (!insideRoom(candidate)) return { valid: false, issue: 'outside' }
@@ -322,6 +248,16 @@ export function RoomPlacementOverlay({
       return { valid: false, issue: 'collision' }
     }
     if (keepClearZones.some((zone) => rectOverlapsPolygon(candidate, zone.polygon))) {
+      return { valid: false, issue: 'blocked' }
+    }
+    if (
+      openingBlocks.some(
+        ({ reservation, clearance }) =>
+          reservationBlocksHeight(reservation, { heightCm: itemHeightCm }) &&
+          (rectBlocksFloorReservation(candidate, reservation) ||
+            (clearance ? overlaps(candidate, clearance) : false)),
+      )
+    ) {
       return { valid: false, issue: 'blocked' }
     }
     if (blocks.some((block) => block.placementId !== placementId && overlaps(candidate, block))) {
@@ -332,6 +268,9 @@ export function RoomPlacementOverlay({
     if (
       placements.some((place) => place.id !== placementId && overlaps(candidateZone, place)) ||
       blocks.some((block) => block.placementId !== placementId && overlaps(candidateZone, block)) ||
+      openingBlocks.some(({ clearance }) =>
+        clearance ? overlaps(candidateZone, clearance) : false,
+      ) ||
       keepClearZones.some((zone) => rectOverlapsPolygon(candidateZone, zone.polygon))
     ) {
       return { valid: false, issue: 'operation' }
@@ -467,6 +406,7 @@ export function RoomPlacementOverlay({
       nextY: place.yCm,
       widthCm: place.widthCm,
       depthCm: place.depthCm,
+      heightCm: input.heightCm,
       rotation: displayedRotation(place, input),
       frontDirection: input.frontDirection,
       valid: true,
@@ -492,7 +432,7 @@ export function RoomPlacementOverlay({
     drag.nextX = next.xCm
     drag.nextY = next.yCm
     const candidateZone = operationZoneAt(candidate, drag.placementId, drag.frontDirection)
-    const verdict = previewVerdict(candidate, drag.placementId, candidateZone)
+    const verdict = previewVerdict(candidate, drag.placementId, drag.heightCm, candidateZone)
     drag.valid = verdict.valid
     drag.issue = verdict.issue
     const preview = drag.valid ? 'valid' : 'invalid'
@@ -564,6 +504,7 @@ export function RoomPlacementOverlay({
     const verdict = previewVerdict(
       candidate,
       place.id,
+      input.heightCm,
       operationZoneAt(candidate, place.id, frontDirection),
     )
     if (!verdict.valid) {
@@ -607,7 +548,12 @@ export function RoomPlacementOverlay({
     }
     const frontDirection = directions.find(
       (direction) =>
-        previewVerdict(candidate, place.id, functionalZoneRect(candidate, zone, direction)).valid,
+        previewVerdict(
+          candidate,
+          place.id,
+          input.heightCm,
+          functionalZoneRect(candidate, zone, direction),
+        ).valid,
     )
     if (!frontDirection) {
       toast({

@@ -140,6 +140,7 @@ export type RoomLayout = {
     title: string
     widthCm: number
     depthCm: number
+    heightCm?: number
     xCm?: number
     yCm?: number
     rotation: 0 | 90
@@ -350,7 +351,45 @@ function floorEdges(polygon: readonly LayoutPoint[]): FloorEdge[] {
   return edges
 }
 
-function floorReservationRect(
+export function wallReservationToFloorReservation(
+  reservation: WallReservation,
+  roomWidthCm: number,
+  roomDepthCm: number,
+): FloorReservation {
+  const base = {
+    kind: reservation.kind,
+    clearanceCm: reservation.clearanceCm,
+    ...(reservation.sillHeightCm === undefined ? {} : { sillHeightCm: reservation.sillHeightCm }),
+  }
+  switch (reservation.wall) {
+    case 'top':
+      return {
+        ...base,
+        start: { xCm: reservation.fromCm, yCm: 0 },
+        end: { xCm: reservation.toCm, yCm: 0 },
+      }
+    case 'bottom':
+      return {
+        ...base,
+        start: { xCm: reservation.fromCm, yCm: roomDepthCm },
+        end: { xCm: reservation.toCm, yCm: roomDepthCm },
+      }
+    case 'left':
+      return {
+        ...base,
+        start: { xCm: 0, yCm: reservation.fromCm },
+        end: { xCm: 0, yCm: reservation.toCm },
+      }
+    case 'right':
+      return {
+        ...base,
+        start: { xCm: roomWidthCm, yCm: reservation.fromCm },
+        end: { xCm: roomWidthCm, yCm: reservation.toCm },
+      }
+  }
+}
+
+export function floorReservationRect(
   reservation: FloorReservation,
   polygon: readonly LayoutPoint[],
 ): Rect | null {
@@ -384,7 +423,7 @@ function floorReservationRect(
   }
 }
 
-function rectBlocksFloorReservation(rect: Rect, reservation: FloorReservation): boolean {
+export function rectBlocksFloorReservation(rect: Rect, reservation: FloorReservation): boolean {
   const horizontal = Math.abs(reservation.start.yCm - reservation.end.yCm) <= GEOMETRY_EPSILON_CM
   if (horizontal) {
     const yCm = (reservation.start.yCm + reservation.end.yCm) / 2
@@ -410,9 +449,9 @@ function rectBlocksFloorReservation(rect: Rect, reservation: FloorReservation): 
   )
 }
 
-function reservationBlocksHeight(
+export function reservationBlocksHeight(
   reservation: Pick<FloorReservation, 'kind' | 'sillHeightCm'>,
-  item: Size,
+  item: { heightCm?: number },
 ): boolean {
   if (reservation.kind !== 'window' || reservation.sillHeightCm === undefined) return true
   return item.heightCm === undefined || item.heightCm >= reservation.sillHeightCm
@@ -876,52 +915,9 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
         polygon: zone.polygon.map((point) => ({ ...point })),
       })) ?? []
   const missingSafetyData = [...new Set(room.missingSafetyData ?? [])]
-  const wallFloorReservations: FloorReservation[] = reservations.map((reservation) => {
-    switch (reservation.wall) {
-      case 'top':
-        return {
-          kind: reservation.kind,
-          start: { xCm: reservation.fromCm, yCm: 0 },
-          end: { xCm: reservation.toCm, yCm: 0 },
-          clearanceCm: reservation.clearanceCm,
-          ...(reservation.sillHeightCm === undefined
-            ? {}
-            : { sillHeightCm: reservation.sillHeightCm }),
-        }
-      case 'bottom':
-        return {
-          kind: reservation.kind,
-          start: { xCm: reservation.fromCm, yCm: depthCm },
-          end: { xCm: reservation.toCm, yCm: depthCm },
-          clearanceCm: reservation.clearanceCm,
-          ...(reservation.sillHeightCm === undefined
-            ? {}
-            : { sillHeightCm: reservation.sillHeightCm }),
-        }
-      case 'left':
-        return {
-          kind: reservation.kind,
-          start: { xCm: 0, yCm: reservation.fromCm },
-          end: { xCm: 0, yCm: reservation.toCm },
-          clearanceCm: reservation.clearanceCm,
-          ...(reservation.sillHeightCm === undefined
-            ? {}
-            : { sillHeightCm: reservation.sillHeightCm }),
-        }
-      case 'right':
-        return {
-          kind: reservation.kind,
-          start: { xCm: widthCm, yCm: reservation.fromCm },
-          end: { xCm: widthCm, yCm: reservation.toCm },
-          clearanceCm: reservation.clearanceCm,
-          ...(reservation.sillHeightCm === undefined
-            ? {}
-            : { sillHeightCm: reservation.sillHeightCm }),
-        }
-      default:
-        throw new Error(`Неизвестная сторона стены: ${reservation.wall satisfies never}`)
-    }
-  })
+  const wallFloorReservations = reservations.map((reservation) =>
+    wallReservationToFloorReservation(reservation, widthCm, depthCm),
+  )
   const blockingFloorReservations = [...floorReservations, ...wallFloorReservations]
 
   const overlaps = (a: Rect, b: Rect) =>
@@ -1000,6 +996,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       title: item.title,
       widthCm: size.widthCm,
       depthCm: size.depthCm,
+      ...(size.heightCm === undefined ? {} : { heightCm: size.heightCm }),
       ...(item.placement ? { xCm: item.placement.xCm, yCm: item.placement.yCm } : {}),
       rotation: item.placement?.rotation ?? 0,
       ...(item.placement?.frontDirection ? { frontDirection: item.placement.frontDirection } : {}),
