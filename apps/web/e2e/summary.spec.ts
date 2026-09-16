@@ -99,12 +99,26 @@ test.describe('project summary', () => {
     if (!product || !room || !list) {
       throw new Error('не удалось подготовить данные списка')
     }
-    await db
+    const [shoppingItem] = await db
       .insert(shoppingListItems)
-      .values({ listId: list.id, catalogItemId: product.id, roomId: room.id, quantity: 1 })
+      .values({
+        listId: list.id,
+        catalogItemId: product.id,
+        roomId: room.id,
+        quantity: 1,
+        dimensionsCm: { width: 210, depth: 90, height: 85 },
+      })
+      .returning({ id: shoppingListItems.id })
+    await db
+      .update(rooms)
+      .set({ measurements: { widthCm: 400, depthCm: 460 } })
+      .where(eq(rooms.id, room.id))
+    if (!shoppingItem) throw new Error('не удалось подготовить строку списка')
 
     await page.reload()
-    const row = page.getByRole('listitem').filter({ hasText: 'Диван Букле e2e' })
+    let row = page
+      .getByRole('listitem')
+      .filter({ has: page.getByRole('link', { name: 'Диван Букле e2e' }) })
     await expect(row).toBeVisible()
     await expect(row.getByText(/67\s900\s₽/)).toBeVisible()
     await expect(page.getByText(/1 позиция · 1 предмет/)).toBeVisible()
@@ -113,6 +127,50 @@ test.describe('project summary', () => {
     await expect(row.getByText(/135\s800\s₽/)).toBeVisible()
     await expect(estimate.getByText(/503\s800\s₽/)).toBeVisible()
     await expect(page.getByText(/1 позиция · 2 предмета/)).toBeVisible()
+
+    // Вид сверху не только считает место: владелец двигает товар прямо на плане, а координаты
+    // сохраняются одной записью после отпускания указателя.
+    await page.goto(`/projects/${projectId}/rooms/${room.id}`)
+    await expect(page.getByLabel('Перемещение мебели по плану')).toHaveAttribute(
+      'data-ready',
+      'true',
+    )
+    const movable = page.getByRole('button', { name: 'Переместить: Диван Букле e2e' }).first()
+    await expect(movable).toBeVisible()
+    await movable.scrollIntoViewIfNeeded()
+    const box = await movable.boundingBox()
+    if (!box) throw new Error('не удалось получить прямоугольник мебели')
+    const hit = await page.evaluate(
+      ({ x, y }) => {
+        const element = document.elementFromPoint(x, y)
+        return {
+          tag: element?.tagName ?? null,
+          label: element?.closest('[aria-label]')?.getAttribute('aria-label') ?? null,
+        }
+      },
+      { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+    )
+    expect(hit).toEqual({ tag: 'rect', label: 'Переместить: Диван Букле e2e' })
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await expect(movable).toHaveAttribute('data-dragging', 'true')
+    await page.mouse.move(box.x + box.width / 2 + 24, box.y + box.height / 2 + 18)
+    await page.mouse.up()
+    await expect(page.getByText('Положение мебели проверено')).toBeVisible()
+    await expect
+      .poll(async () => {
+        const [saved] = await db
+          .select({ placement: shoppingListItems.placementCm })
+          .from(shoppingListItems)
+          .where(eq(shoppingListItems.id, shoppingItem.id))
+        return saved?.placement ?? null
+      })
+      .not.toBeNull()
+
+    await page.goto(`/projects/${projectId}/summary`)
+    row = page
+      .getByRole('listitem')
+      .filter({ has: page.getByRole('link', { name: 'Диван Букле e2e' }) })
 
     await row.getByRole('button', { name: 'убрать' }).click()
     await expect(page.getByText('Список пока пуст.')).toBeVisible()

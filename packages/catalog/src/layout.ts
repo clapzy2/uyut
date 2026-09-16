@@ -65,6 +65,8 @@ export type FloorKeepClearZone = {
 
 export type Placement = {
   id: string
+  /** Строка списка покупок, из которой получился прямоугольник. */
+  itemId: string
   title: string
   /** Сантиметры от левого верхнего угла комнаты */
   xCm: number
@@ -1080,6 +1082,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     }
     placed.push({
       id: `${item.id}-${placed.length}`,
+      itemId: item.id,
       title: item.title,
       xCm: at.xCm,
       yCm: at.yCm,
@@ -1146,6 +1149,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     }
     placed.push({
       id: `${item.id}-${placed.length}`,
+      itemId: item.id,
       title: item.title,
       ...rect,
       wall: 'perimeter',
@@ -1224,6 +1228,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     }
     placed.push({
       id: `${entry.item.id}-${placed.length}`,
+      itemId: entry.item.id,
       title: entry.item.title,
       ...rect,
       wall,
@@ -1413,6 +1418,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     }
     const centerPlacement: Placement = {
       id: `${entry.item.id}-${placed.length}`,
+      itemId: entry.item.id,
       title: entry.item.title,
       xCm: depths.left + centerUsedCm + clearance,
       yCm: depths.top + (centerDepthCm - entry.size.depthCm) / 2,

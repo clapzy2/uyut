@@ -10,6 +10,7 @@ import { WALKWAY_CM } from '@uyut/catalog'
 import { ItemOperationForm } from '@/components/item-operation-form'
 import { ItemPlacementForm } from '@/components/item-placement-form'
 import { ItemSizeForm } from '@/components/item-size-form'
+import { RoomPlacementOverlay } from '@/components/room-placement-overlay'
 
 /**
  * План комнаты сверху: реальный контур комнаты и прямоугольники мебели в масштабе.
@@ -139,7 +140,13 @@ function problemText(problem: LayoutProblem): string {
 }
 
 /** Сам чертёж с номерами и расшифровкой. Отдельно от текста: тот же рисунок нужен и на главной. */
-export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
+export function RoomPlanDrawing({
+  layout,
+  editable = false,
+}: {
+  layout: RoomLayout
+  editable?: boolean
+}) {
   // Масштаб по узкой стороне коробки: комната 220 на 600 см иначе рисуется на полтора экрана
   const scale = Math.min(MAX_WIDTH / layout.widthCm, MAX_HEIGHT / layout.depthCm)
   const roomWidth = layout.widthCm * scale
@@ -150,168 +157,180 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
   return (
     <div>
       <div className="overflow-x-auto">
-        <svg
-          viewBox={`0 0 ${width} ${height}`}
-          width={width}
-          height={height}
-          className="h-auto max-w-full"
-          role="img"
-          aria-label={`План комнаты ${Math.round(layout.widthCm)} на ${Math.round(layout.depthCm)} сантиметров, предметов: ${layout.placed.length}`}
-        >
-          <title>План комнаты сверху</title>
-          {layout.floorPolygon ? (
-            <polygon
-              points={layout.floorPolygon
-                .map((point) => `${PADDING + point.xCm * scale},${PADDING + point.yCm * scale}`)
-                .join(' ')}
-              className="fill-muted stroke-ink"
-              strokeWidth={2}
-            />
-          ) : (
-            <rect
-              x={PADDING}
-              y={PADDING}
-              width={roomWidth}
-              height={roomHeight}
-              className="fill-muted stroke-ink"
-              strokeWidth={2}
-            />
-          )}
-          {layout.keepClearZones.map((zone) => (
-            <polygon
-              key={`${zone.kind}-${zone.label}-${zone.polygon[0]?.xCm}-${zone.polygon[0]?.yCm}`}
-              points={zone.polygon
-                .map((point) => `${PADDING + point.xCm * scale},${PADDING + point.yCm * scale}`)
-                .join(' ')}
-              className="fill-danger/10 stroke-danger"
-              strokeWidth={1}
-              strokeDasharray="5 4"
-            >
-              <title>{zone.label}</title>
-            </polygon>
-          ))}
-          {layout.functionalZones.map((zone) => (
-            <rect
-              key={`${zone.itemId}-${zone.kind}-${zone.xCm}-${zone.yCm}`}
-              x={PADDING + zone.xCm * scale}
-              y={PADDING + zone.yCm * scale}
-              width={zone.widthCm * scale}
-              height={zone.depthCm * scale}
-              className={
-                zone.source === 'measured'
-                  ? 'fill-accent/10 stroke-accent'
-                  : 'fill-muted/40 stroke-ink-2'
-              }
-              strokeWidth={1}
-              strokeDasharray="4 4"
-            >
-              <title>
-                {zone.title}: рабочая зона {zone.clearanceCm} см
-                {zone.source === 'preliminary' ? ' (предварительно)' : ''}
-              </title>
-            </rect>
-          ))}
-          {layout.floorReservations.map((reservation) => {
-            const clearance = layout.floorPolygon
-              ? exactClearanceRect(reservation, layout.floorPolygon)
-              : null
-            return (
-              <g
-                key={`${reservation.kind}-${reservation.start.xCm}-${reservation.start.yCm}-${reservation.end.xCm}-${reservation.end.yCm}`}
-              >
-                {clearance ? (
-                  <rect
-                    x={PADDING + clearance.xCm * scale}
-                    y={PADDING + clearance.yCm * scale}
-                    width={clearance.widthCm * scale}
-                    height={clearance.depthCm * scale}
-                    className="fill-accent-tint stroke-accent"
-                    strokeWidth={1}
-                    strokeDasharray="5 4"
-                  />
-                ) : null}
-                <line
-                  x1={PADDING + reservation.start.xCm * scale}
-                  y1={PADDING + reservation.start.yCm * scale}
-                  x2={PADDING + reservation.end.xCm * scale}
-                  y2={PADDING + reservation.end.yCm * scale}
-                  className={reservation.clearanceCm > 0 ? 'stroke-danger' : 'stroke-accent'}
-                  strokeWidth={5}
-                  strokeLinecap="round"
-                />
-              </g>
-            )
-          })}
-          {layout.floorReservations.length === 0
-            ? layout.reservations.map((reservation) => {
-                const line = wallLine(
-                  reservation.wall,
-                  reservation.fromCm,
-                  reservation.toCm,
-                  scale,
-                  roomWidth,
-                  roomHeight,
-                )
-                const length = reservation.toCm - reservation.fromCm
-                const clearance = reservation.clearanceCm
-                const isHorizontal = reservation.wall === 'top' || reservation.wall === 'bottom'
-                const clearanceX =
-                  reservation.wall === 'right'
-                    ? PADDING + roomWidth - clearance * scale
-                    : PADDING + (isHorizontal ? reservation.fromCm : 0) * scale
-                const clearanceY =
-                  reservation.wall === 'bottom'
-                    ? PADDING + roomHeight - clearance * scale
-                    : PADDING + (isHorizontal ? 0 : reservation.fromCm) * scale
-                return (
-                  <g
-                    key={`${reservation.kind}-${reservation.wall}-${reservation.fromCm}-${reservation.toCm}`}
-                  >
-                    {clearance > 0 ? (
-                      <rect
-                        x={clearanceX}
-                        y={clearanceY}
-                        width={(isHorizontal ? length : clearance) * scale}
-                        height={(isHorizontal ? clearance : length) * scale}
-                        className="fill-accent-tint stroke-accent"
-                        strokeWidth={1}
-                        strokeDasharray="5 4"
-                      />
-                    ) : null}
-                    <line
-                      {...line}
-                      className={clearance > 0 ? 'stroke-danger' : 'stroke-accent'}
-                      strokeWidth={5}
-                      strokeLinecap="round"
-                    />
-                  </g>
-                )
-              })
-            : null}
-          {layout.placed.map((place, index) => (
-            <g key={place.id}>
-              <rect
-                x={PADDING + place.xCm * scale}
-                y={PADDING + place.yCm * scale}
-                width={place.widthCm * scale}
-                height={place.depthCm * scale}
-                className="fill-accent-tint stroke-accent"
-                strokeWidth={1.5}
+        <div className="relative w-fit max-w-full">
+          <svg
+            viewBox={`0 0 ${width} ${height}`}
+            width={width}
+            height={height}
+            className="h-auto max-w-full"
+            role="img"
+            aria-label={`План комнаты ${Math.round(layout.widthCm)} на ${Math.round(layout.depthCm)} сантиметров, предметов: ${layout.placed.length}`}
+          >
+            <title>План комнаты сверху</title>
+            {layout.floorPolygon ? (
+              <polygon
+                points={layout.floorPolygon
+                  .map((point) => `${PADDING + point.xCm * scale},${PADDING + point.yCm * scale}`)
+                  .join(' ')}
+                className="fill-muted stroke-ink"
+                strokeWidth={2}
               />
-              {/* Внутри прямоугольника только номер: название шкафа глубиной 60 см
-                  не помещается в него ни при каком шрифте и лезет на соседей */}
-              <text
-                x={PADDING + (place.xCm + place.widthCm / 2) * scale}
-                y={PADDING + (place.yCm + place.depthCm / 2) * scale}
-                textAnchor="middle"
-                dominantBaseline="central"
-                className="fill-ink text-[11px] font-medium"
+            ) : (
+              <rect
+                x={PADDING}
+                y={PADDING}
+                width={roomWidth}
+                height={roomHeight}
+                className="fill-muted stroke-ink"
+                strokeWidth={2}
+              />
+            )}
+            {layout.keepClearZones.map((zone) => (
+              <polygon
+                key={`${zone.kind}-${zone.label}-${zone.polygon[0]?.xCm}-${zone.polygon[0]?.yCm}`}
+                points={zone.polygon
+                  .map((point) => `${PADDING + point.xCm * scale},${PADDING + point.yCm * scale}`)
+                  .join(' ')}
+                className="fill-danger/10 stroke-danger"
+                strokeWidth={1}
+                strokeDasharray="5 4"
               >
-                {index + 1}
-              </text>
-            </g>
-          ))}
-        </svg>
+                <title>{zone.label}</title>
+              </polygon>
+            ))}
+            {layout.functionalZones.map((zone) => (
+              <rect
+                key={`${zone.itemId}-${zone.kind}-${zone.xCm}-${zone.yCm}`}
+                x={PADDING + zone.xCm * scale}
+                y={PADDING + zone.yCm * scale}
+                width={zone.widthCm * scale}
+                height={zone.depthCm * scale}
+                className={
+                  zone.source === 'measured'
+                    ? 'fill-accent/10 stroke-accent'
+                    : 'fill-muted/40 stroke-ink-2'
+                }
+                strokeWidth={1}
+                strokeDasharray="4 4"
+              >
+                <title>
+                  {zone.title}: рабочая зона {zone.clearanceCm} см
+                  {zone.source === 'preliminary' ? ' (предварительно)' : ''}
+                </title>
+              </rect>
+            ))}
+            {layout.floorReservations.map((reservation) => {
+              const clearance = layout.floorPolygon
+                ? exactClearanceRect(reservation, layout.floorPolygon)
+                : null
+              return (
+                <g
+                  key={`${reservation.kind}-${reservation.start.xCm}-${reservation.start.yCm}-${reservation.end.xCm}-${reservation.end.yCm}`}
+                >
+                  {clearance ? (
+                    <rect
+                      x={PADDING + clearance.xCm * scale}
+                      y={PADDING + clearance.yCm * scale}
+                      width={clearance.widthCm * scale}
+                      height={clearance.depthCm * scale}
+                      className="fill-accent-tint stroke-accent"
+                      strokeWidth={1}
+                      strokeDasharray="5 4"
+                    />
+                  ) : null}
+                  <line
+                    x1={PADDING + reservation.start.xCm * scale}
+                    y1={PADDING + reservation.start.yCm * scale}
+                    x2={PADDING + reservation.end.xCm * scale}
+                    y2={PADDING + reservation.end.yCm * scale}
+                    className={reservation.clearanceCm > 0 ? 'stroke-danger' : 'stroke-accent'}
+                    strokeWidth={5}
+                    strokeLinecap="round"
+                  />
+                </g>
+              )
+            })}
+            {layout.floorReservations.length === 0
+              ? layout.reservations.map((reservation) => {
+                  const line = wallLine(
+                    reservation.wall,
+                    reservation.fromCm,
+                    reservation.toCm,
+                    scale,
+                    roomWidth,
+                    roomHeight,
+                  )
+                  const length = reservation.toCm - reservation.fromCm
+                  const clearance = reservation.clearanceCm
+                  const isHorizontal = reservation.wall === 'top' || reservation.wall === 'bottom'
+                  const clearanceX =
+                    reservation.wall === 'right'
+                      ? PADDING + roomWidth - clearance * scale
+                      : PADDING + (isHorizontal ? reservation.fromCm : 0) * scale
+                  const clearanceY =
+                    reservation.wall === 'bottom'
+                      ? PADDING + roomHeight - clearance * scale
+                      : PADDING + (isHorizontal ? 0 : reservation.fromCm) * scale
+                  return (
+                    <g
+                      key={`${reservation.kind}-${reservation.wall}-${reservation.fromCm}-${reservation.toCm}`}
+                    >
+                      {clearance > 0 ? (
+                        <rect
+                          x={clearanceX}
+                          y={clearanceY}
+                          width={(isHorizontal ? length : clearance) * scale}
+                          height={(isHorizontal ? clearance : length) * scale}
+                          className="fill-accent-tint stroke-accent"
+                          strokeWidth={1}
+                          strokeDasharray="5 4"
+                        />
+                      ) : null}
+                      <line
+                        {...line}
+                        className={clearance > 0 ? 'stroke-danger' : 'stroke-accent'}
+                        strokeWidth={5}
+                        strokeLinecap="round"
+                      />
+                    </g>
+                  )
+                })
+              : null}
+            {layout.placed.map((place, index) => (
+              <g key={place.id}>
+                <rect
+                  x={PADDING + place.xCm * scale}
+                  y={PADDING + place.yCm * scale}
+                  width={place.widthCm * scale}
+                  height={place.depthCm * scale}
+                  className="fill-accent-tint stroke-accent"
+                  strokeWidth={1.5}
+                />
+                {/* Внутри прямоугольника только номер: название шкафа глубиной 60 см
+                  не помещается в него ни при каком шрифте и лезет на соседей */}
+                <text
+                  x={PADDING + (place.xCm + place.widthCm / 2) * scale}
+                  y={PADDING + (place.yCm + place.depthCm / 2) * scale}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  className="fill-ink text-[11px] font-medium"
+                >
+                  {index + 1}
+                </text>
+              </g>
+            ))}
+          </svg>
+          {editable && layout.placed.length > 0 ? (
+            <RoomPlacementOverlay
+              placements={layout.placed}
+              inputs={layout.placementInputs}
+              scale={scale}
+              padding={PADDING}
+              width={width}
+              height={height}
+            />
+          ) : null}
+        </div>
       </div>
 
       <ol className="mt-3 flex flex-col gap-1">
@@ -351,7 +370,7 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
   )
 }
 
-export function RoomPlan({ layout }: { layout: RoomLayout }) {
+export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canEdit?: boolean }) {
   const problems = layout.problems
   const hasOpenings =
     layout.reservations.length > 0 ||
@@ -372,14 +391,17 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
             : hasOpenings
               ? `Указанные проёмы и инженерные зоны учтены; свободной стены осталось ${layout.freeWallCm} см.`
               : `Расположение проёмов не указано, поэтому свободные ${layout.freeWallCm} см — предварительная оценка.`}
+        {canEdit && layout.placed.length > 0
+          ? ' Предмет на схеме можно перетащить мышкой или пальцем; после отпускания новое место проверится и сохранится.'
+          : ''}
       </p>
 
       {layout.measurementNote ? (
         <p className="mb-4 text-[13px] leading-relaxed text-ink-2">{layout.measurementNote}</p>
       ) : null}
-      <RoomPlanDrawing layout={layout} />
+      <RoomPlanDrawing layout={layout} editable={canEdit} />
 
-      {layout.placementInputs.length > 0 ? (
+      {canEdit && layout.placementInputs.length > 0 ? (
         <details className="mt-4 border border-line bg-surface p-3">
           <summary className="cursor-pointer text-[13px] font-medium text-ink">
             Точное положение мебели ·{' '}
@@ -412,7 +434,7 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
         </div>
       ) : null}
 
-      {layout.operationInputs.length > 0 ? (
+      {canEdit && layout.operationInputs.length > 0 ? (
         <details className="mt-4 border border-line bg-surface p-3">
           <summary className="cursor-pointer text-[13px] font-medium text-ink">
             Рабочие зоны мебели · уточнить точность
@@ -453,11 +475,13 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
             У этих товаров магазин не указал габариты, поэтому на плане их нет. Диваны так почти
             всегда: перепишите два числа с карточки товара, и они встанут на место.
           </p>
-          <div className="mt-3 flex flex-col gap-2">
-            {layout.unmeasured.map((item) => (
-              <ItemSizeForm key={item.id} itemId={item.id} title={item.title} />
-            ))}
-          </div>
+          {canEdit ? (
+            <div className="mt-3 flex flex-col gap-2">
+              {layout.unmeasured.map((item) => (
+                <ItemSizeForm key={item.id} itemId={item.id} title={item.title} />
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {layout.offFloor.length > 0 ? (

@@ -171,7 +171,7 @@ export default async function RoomPage({ params }: { params: Params }) {
           {isOwner ? (
             <RoomMeasurementsForm roomId={room.id} measurements={room.measurements} />
           ) : null}
-          {layout ? <RoomPlan layout={layout} /> : null}
+          {layout ? <RoomPlan layout={layout} canEdit={isOwner} /> : null}
           {isOwner ? (
             <RoomNotesForm roomId={room.id} notes={room.notes} />
           ) : room.notes ? (
