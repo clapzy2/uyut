@@ -19,6 +19,7 @@ export async function roomLayout(
   roomName: string,
   measurements: RoomMeasurements | null,
   geometry?: PlanGeometry,
+  roomKind?: Room['kind'],
 ): Promise<RoomLayout | null> {
   const list = await getShoppingList(userId, projectId)
   const items: LayoutItem[] = list.items
@@ -36,7 +37,7 @@ export async function roomLayout(
   if (items.length === 0) {
     return null
   }
-  return layoutWithMeasurements(roomName, measurements, geometry, items)
+  return layoutWithMeasurements(roomName, measurements, geometry, items, roomKind)
 }
 
 /**
@@ -67,7 +68,7 @@ export function projectLayouts(
     if (items.length === 0) {
       continue
     }
-    const layout = layoutWithMeasurements(room.name, room.measurements, geometry, items)
+    const layout = layoutWithMeasurements(room.name, room.measurements, geometry, items, room.kind)
     if (!layout) continue
     result.push({
       roomId: room.id,

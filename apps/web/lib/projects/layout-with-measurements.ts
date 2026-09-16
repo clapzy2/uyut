@@ -1,4 +1,4 @@
-import { type LayoutItem, layoutRoom, type RoomLayout } from '@uyut/catalog'
+import { type LayoutItem, type LayoutRoomKind, layoutRoom, type RoomLayout } from '@uyut/catalog'
 import type { PlanGeometry, RoomMeasurements } from '@uyut/db'
 import { hasCurrentVerification, measurementNotice } from './measurement-assurance'
 import { roomLayoutInputFromGeometry } from './room-geometry-layout'
@@ -9,12 +9,13 @@ export function layoutWithMeasurements(
   measurements: RoomMeasurements | null,
   geometry: PlanGeometry | undefined,
   items: readonly LayoutItem[],
+  roomKind?: LayoutRoomKind,
 ): RoomLayout | null {
   const geometryInput = roomLayoutInputFromGeometry(geometry, name, measurements)
   let measurementNote = measurementNotice(measurements)
   if (geometryInput) {
     return {
-      ...layoutRoom(geometryInput, items),
+      ...layoutRoom({ ...geometryInput, roomKind }, items),
       measurementNote: `${measurementNote} Погрешность контура, ниш и проёмов ещё не учтена в расчёте. Схема предварительная.`,
     }
   }
@@ -45,6 +46,7 @@ export function layoutWithMeasurements(
         widthCm: width - tolerance,
         depthCm: depth - tolerance,
         layoutNotes: measurements?.layoutNotes,
+        roomKind,
       },
       items,
     ),

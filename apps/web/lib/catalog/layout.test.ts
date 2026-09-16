@@ -177,6 +177,93 @@ describe('layoutRoom', () => {
     expect(measured.functionalZones[0]).toMatchObject({ source: 'measured', clearanceCm: 60 })
   })
 
+  it('проверяет точный боковой подход к кровати в спальне', () => {
+    const layout = layoutRoom({ widthCm: 500, depthCm: 500, roomKind: 'bedroom' }, [
+      item({
+        id: 'bed',
+        title: 'Кровать',
+        category: 'bed',
+        dimensions: { width: 200, depth: 160, height: 90 },
+        operationClearance: { side: 50 },
+      }),
+    ])
+
+    expect(layout.safetyChecks).toContainEqual({
+      id: 'bed-side',
+      label: 'Подход к кровати «Кровать»',
+      detail: 'Точный запас 50 см учтён в расстановке.',
+      status: 'checked',
+    })
+    expect(layout.operationInputs[0]?.guidance).toContain('подход с каждого бока')
+  })
+
+  it('не выдаёт диван за проверенный без размера разложенной части', () => {
+    const layout = layoutRoom({ widthCm: 500, depthCm: 400, roomKind: 'living' }, [
+      item({
+        id: 'sofa',
+        title: 'Диван',
+        category: 'sofa',
+        dimensions: { width: 200, depth: 90, height: 85 },
+      }),
+    ])
+
+    expect(layout.safetyChecks.find((check) => check.id === 'sofa-front')).toMatchObject({
+      status: 'needs-data',
+      detail: expect.stringContaining('вылет разложенной части'),
+    })
+  })
+
+  it('помечает типовой запас у обеденного стола как предварительный', () => {
+    const layout = layoutRoom({ widthCm: 500, depthCm: 500, roomKind: 'kitchen' }, [
+      item({
+        id: 'table',
+        title: 'Обеденный стол',
+        category: 'table',
+        subcategory: 'dining',
+        dimensions: { width: 120, depth: 80, height: 75 },
+      }),
+    ])
+
+    expect(layout.safetyChecks.find((check) => check.id === 'table-around')).toMatchObject({
+      status: 'preliminary',
+      detail: 'Пока использован предварительный запас 75 см.',
+    })
+  })
+
+  it('просит место под кресло у рабочего стола в детской', () => {
+    const layout = layoutRoom({ widthCm: 400, depthCm: 400, roomKind: 'kid' }, [
+      item({
+        id: 'desk',
+        title: 'Рабочий стол',
+        category: 'table',
+        subcategory: 'desk',
+        dimensions: { width: 120, depth: 60, height: 75 },
+      }),
+    ])
+
+    expect(layout.safetyChecks.find((check) => check.id === 'desk-front')).toMatchObject({
+      status: 'needs-data',
+      detail: expect.stringContaining('место для кресла'),
+    })
+  })
+
+  it('показывает, когда мебель вместе с точной рабочей зоной не проходит', () => {
+    const layout = layoutRoom({ widthCm: 220, depthCm: 120, roomKind: 'living' }, [
+      item({
+        id: 'sofa',
+        title: 'Диван',
+        category: 'sofa',
+        dimensions: { width: 220, depth: 80 },
+        operationClearance: { front: 80 },
+      }),
+    ])
+
+    expect(layout.safetyChecks.find((check) => check.id === 'sofa-front')).toMatchObject({
+      status: 'blocked',
+      detail: 'Безопасное место вместе с рабочей зоной не найдено.',
+    })
+  })
+
   it('связывает каждую рабочую зону с конкретным экземпляром товара', () => {
     const layout = layoutRoom({ widthCm: 500, depthCm: 500 }, [
       item({

@@ -28,11 +28,13 @@ export function ItemOperationForm({
   title,
   kind,
   valueCm,
+  guidance,
 }: {
   itemId: string
   title: string
   kind: OperationKind
   valueCm?: number
+  guidance?: string
 }) {
   const router = useRouter()
   const [value, setValue] = useState(valueCm ? String(valueCm) : '')
@@ -81,7 +83,7 @@ export function ItemOperationForm({
           {saving ? 'Пишем…' : valueCm ? 'Обновить' : 'Учесть'}
         </button>
       </div>
-      <p className="mt-2 text-[12px] leading-relaxed text-ink-2">{copy.hint}</p>
+      <p className="mt-2 text-[12px] leading-relaxed text-ink-2">{guidance ?? copy.hint}</p>
       {error ? <p className="mt-2 text-[13px] text-danger">{error}</p> : null}
     </div>
   )

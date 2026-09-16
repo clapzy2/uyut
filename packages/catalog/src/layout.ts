@@ -51,6 +51,8 @@ export type LayoutWall = 'top' | 'right' | 'bottom' | 'left'
 /** Направление от предмета в координатах плана. */
 export type LayoutDirection = 'up' | 'right' | 'down' | 'left'
 
+export type LayoutRoomKind = 'living' | 'bedroom' | 'kitchen' | 'bath' | 'kid'
+
 export type LayoutPoint = {
   xCm: number
   yCm: number
@@ -133,6 +135,7 @@ export type RoomLayout = {
     title: string
     kind: 'front' | 'side' | 'around'
     valueCm?: number
+    guidance?: string
   }>
   /** Измеренная мебель, которую можно закрепить в точных координатах. */
   placementInputs: Array<{
@@ -149,11 +152,19 @@ export type RoomLayout = {
   }>
   /** Какие обмеры ещё нужны, чтобы проверка не подставляла типовые числа. */
   missingSafetyData: string[]
+  /** Проверки, специфичные для назначения комнаты и выбранной мебели. */
+  safetyChecks: Array<{
+    id: string
+    label: string
+    detail: string
+    status: 'checked' | 'preliminary' | 'needs-data' | 'blocked'
+  }>
   /** Откуда взялись координаты проёмов. */
   reservationSource: 'geometry' | 'description' | 'none'
 }
 
 export type RoomLayoutInput = {
+  roomKind?: LayoutRoomKind
   widthCm?: number
   depthCm?: number
   layoutNotes?: string | null
@@ -533,6 +544,48 @@ function operationRequirement(
   return null
 }
 
+function roomRuleApplies(roomKind: LayoutRoomKind | undefined, item: LayoutItem): boolean {
+  if (!roomKind || roomKind === 'bath') return false
+  if (item.category === 'storage') return true
+  if (roomKind === 'bedroom') return item.category === 'bed'
+  if (roomKind === 'living') return item.category === 'sofa' || item.category === 'table'
+  if (roomKind === 'kid')
+    return (
+      item.category === 'bed' ||
+      (item.category === 'table' && item.subcategory === 'desk') ||
+      item.category === 'sofa'
+    )
+  return item.category === 'table' && item.subcategory === 'dining'
+}
+
+function operationGuidance(
+  roomKind: LayoutRoomKind | undefined,
+  item: LayoutItem,
+  kind: 'front' | 'side' | 'around',
+): string | undefined {
+  if (!roomRuleApplies(roomKind, item)) return undefined
+  if (item.category === 'bed')
+    return 'Укажите требуемый подход с каждого бока кровати — сервис проверит его вместе с проходом к двери.'
+  if (item.category === 'sofa')
+    return 'Укажите полный вылет разложенной части или место перед диваном, которое нельзя занимать.'
+  if (item.category === 'storage')
+    return 'Укажите вылет открытой дверцы или ящика: закрытый габарит шкафа для проверки недостаточен.'
+  if (item.category === 'table' && item.subcategory === 'desk')
+    return 'Укажите место для кресла от края стола в рабочем положении.'
+  if (kind === 'around')
+    return 'Укажите расстояние от края столешницы с учётом отодвинутых стульев.'
+  return undefined
+}
+
+function roomRuleLabel(item: LayoutItem): string {
+  if (item.category === 'bed') return `Подход к кровати «${item.title}»`
+  if (item.category === 'sofa') return `Зона перед диваном «${item.title}»`
+  if (item.category === 'storage') return `Открывание хранения «${item.title}»`
+  if (item.category === 'table' && item.subcategory === 'desk')
+    return `Рабочее место «${item.title}»`
+  return `Использование стола «${item.title}»`
+}
+
 /** Рабочая зона предмета в выбранном месте. Общая функция нужна серверу и живому 2D-превью. */
 export function functionalZoneRect(
   rect: Rect,
@@ -872,6 +925,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       operationInputs: [],
       placementInputs: [],
       missingSafetyData: [],
+      safetyChecks: [],
       reservationSource: 'none',
     }
   }
@@ -984,11 +1038,13 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     const operation = operationRequirement(item)
     if (operation) {
       const valueCm = item.operationClearance?.[operation.kind]
+      const guidance = operationGuidance(room.roomKind, item, operation.kind)
       operationInputs.push({
         id: item.id,
         title: item.title,
         kind: operation.kind,
         ...(valueCm === undefined ? {} : { valueCm }),
+        ...(guidance ? { guidance } : {}),
       })
     }
     placementInputs.push({
@@ -1512,6 +1568,76 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     problems.push({ kind: 'narrowWalkway', gapCm: walkwayCm })
   }
 
+  const safetyChecks: RoomLayout['safetyChecks'] = []
+  if (room.roomKind && placed.length > 0) {
+    safetyChecks.push({
+      id: 'continuous-route',
+      label: 'Непрерывный проход по комнате',
+      detail:
+        walkwayCm >= WALKWAY_CM
+          ? `Самое узкое место маршрута — ${walkwayCm} см.`
+          : `Самое узкое место — ${walkwayCm} см, требуется перестановка мебели.`,
+      status: walkwayCm >= WALKWAY_CM ? 'checked' : 'blocked',
+    })
+  }
+  for (const item of items) {
+    const requirement = operationRequirement(item)
+    if (!requirement || !roomRuleApplies(room.roomKind, item)) continue
+    const measured = item.operationClearance?.[requirement.kind]
+    const expected = Math.max(1, item.quantity)
+    const itemPlacements = placed.filter((placement) => placement.itemId === item.id)
+    const itemZones = functionalZones.filter((zone) => zone.itemId === item.id)
+    const size = footprint(item.dimensions)
+    if (!size) {
+      safetyChecks.push({
+        id: `${item.id}-${requirement.kind}`,
+        label: roomRuleLabel(item),
+        detail: 'Сначала укажите полный габарит предмета.',
+        status: 'needs-data',
+      })
+      continue
+    }
+    if (
+      itemPlacements.length < expected ||
+      ((measured !== undefined || requirement.fallbackCm !== undefined) &&
+        itemZones.length < itemPlacements.length)
+    ) {
+      safetyChecks.push({
+        id: `${item.id}-${requirement.kind}`,
+        label: roomRuleLabel(item),
+        detail: 'Безопасное место вместе с рабочей зоной не найдено.',
+        status: 'blocked',
+      })
+      continue
+    }
+    if (measured !== undefined && measured > 0) {
+      safetyChecks.push({
+        id: `${item.id}-${requirement.kind}`,
+        label: roomRuleLabel(item),
+        detail: `Точный запас ${measured} см учтён в расстановке.`,
+        status: 'checked',
+      })
+      continue
+    }
+    if (requirement.fallbackCm !== undefined) {
+      safetyChecks.push({
+        id: `${item.id}-${requirement.kind}`,
+        label: roomRuleLabel(item),
+        detail: `Пока использован предварительный запас ${requirement.fallbackCm} см.`,
+        status: 'preliminary',
+      })
+      continue
+    }
+    safetyChecks.push({
+      id: `${item.id}-${requirement.kind}`,
+      label: roomRuleLabel(item),
+      detail:
+        operationGuidance(room.roomKind, item, requirement.kind) ??
+        'Укажите рабочую зону предмета.',
+      status: 'needs-data',
+    })
+  }
+
   return {
     widthCm,
     depthCm,
@@ -1531,6 +1657,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     ],
     placementInputs: [...new Map(placementInputs.map((entry) => [entry.id, entry])).values()],
     missingSafetyData,
+    safetyChecks,
     reservationSource,
   }
 }

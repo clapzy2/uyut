@@ -75,6 +75,7 @@ export default async function RoomPage({ params }: { params: Params }) {
         room.name,
         room.measurements,
         room.project.planReading?.geometry,
+        room.kind,
       ),
     ])
   const conceptItems = allConcepts
