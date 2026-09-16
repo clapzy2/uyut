@@ -440,6 +440,9 @@ export function PlanGeometryEditor({
   const [openings, setOpenings] = useState(() => geometry.openings)
   const [rooms, setRooms] = useState(() => geometry.rooms)
   const [kitchenItems, setKitchenItems] = useState(() => geometry.kitchenItems ?? [])
+  const [utilityPoints, setUtilityPoints] = useState(() => geometry.utilityPoints ?? [])
+  const [routeWidthCm, setRouteWidthCm] = useState(() => geometry.routeWidthCm)
+  const [routeStartOpeningId, setRouteStartOpeningId] = useState(() => geometry.routeStartOpeningId)
   const [selection, setSelection] = useState<Selection>(() =>
     geometry.walls[0]
       ? `wall:${geometry.walls[0].id}`
@@ -484,6 +487,8 @@ export function PlanGeometryEditor({
 
   function patchOpening(patch: Partial<PlanOpening>) {
     if (!selectedOpening) return
+    if (patch.type === 'window' && routeStartOpeningId === selectedOpening.id)
+      setRouteStartOpeningId(undefined)
     setOpenings((current) =>
       current.map((opening) =>
         opening.id === selectedOpening.id ? { ...opening, ...patch } : opening,
@@ -551,12 +556,15 @@ export function PlanGeometryEditor({
       const nextOpenings = openings.filter((opening) => opening.wallId !== selectedWall.id)
       setWalls(nextWalls)
       setOpenings(nextOpenings)
+      if (!nextOpenings.some((opening) => opening.id === routeStartOpeningId))
+        setRouteStartOpeningId(undefined)
       setSelection(nextSelection(nextWalls, nextOpenings))
       return
     }
     if (selectedOpening) {
       const nextOpenings = openings.filter((opening) => opening.id !== selectedOpening.id)
       setOpenings(nextOpenings)
+      if (selectedOpening.id === routeStartOpeningId) setRouteStartOpeningId(undefined)
       setSelection(nextSelection(walls, nextOpenings))
     }
   }
@@ -566,6 +574,9 @@ export function PlanGeometryEditor({
     setOpenings(geometry.openings)
     setRooms(geometry.rooms)
     setKitchenItems(geometry.kitchenItems ?? [])
+    setUtilityPoints(geometry.utilityPoints ?? [])
+    setRouteWidthCm(geometry.routeWidthCm)
+    setRouteStartOpeningId(geometry.routeStartOpeningId)
     setSelection(nextSelection(geometry.walls, geometry.openings))
     setError(undefined)
   }
@@ -579,6 +590,9 @@ export function PlanGeometryEditor({
         openings,
         rooms,
         kitchenItems,
+        utilityPoints,
+        routeWidthCm,
+        routeStartOpeningId,
       })
       if (!result.ok) {
         setError(result.error)
@@ -691,10 +705,21 @@ export function PlanGeometryEditor({
           </div>
 
           <KitchenPlanEditor
-            geometry={{ ...geometry, walls, openings, rooms }}
+            geometry={{
+              ...geometry,
+              walls,
+              openings,
+              rooms,
+              utilityPoints,
+              routeWidthCm,
+              routeStartOpeningId,
+            }}
             items={kitchenItems}
             onChange={setKitchenItems}
             onOpeningsChange={setOpenings}
+            onUtilityPointsChange={setUtilityPoints}
+            onRouteWidthChange={setRouteWidthCm}
+            onRouteStartChange={setRouteStartOpeningId}
           />
           <div className="mt-6 grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,1fr)]">
             <div>

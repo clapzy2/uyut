@@ -103,6 +103,25 @@ describe('явные резервы открывания и монтажа', () 
     )
     expect(flipped?.polygon[2]?.yCm).toBe(-120)
   })
+  it('строит четверть окружности от выбранных петель', () => {
+    const start = doorClearanceZone(
+      {
+        ...door,
+        clearance: { side: 'left', depthCm: 80, shape: 'swing', hinge: 'start' },
+      },
+      geometry,
+    )
+    const end = doorClearanceZone(
+      { ...door, clearance: { side: 'left', depthCm: 80, shape: 'swing', hinge: 'end' } },
+      geometry,
+    )
+    expect(start?.polygon).toHaveLength(26)
+    expect(start?.polygon[0]).toEqual({ xCm: 100, yCm: 0 })
+    expect(start?.polygon.at(-1)?.xCm).toBeCloseTo(100)
+    expect(start?.polygon.at(-1)?.yCm).toBeCloseTo(80)
+    expect(end?.polygon[0]).toEqual({ xCm: 180, yCm: 0 })
+    expect(end?.polygon.at(-1)?.yCm).toBeCloseTo(80)
+  })
   it('резерв вдоль диагональной стены остаётся повёрнутым, не bounding box', () => {
     const diagonal = {
       ...geometry,
@@ -147,5 +166,18 @@ describe('явные резервы открывания и монтажа', () 
         .success,
     ).toBe(false)
     expect(openingClearancesSchema.parse([door])[0]?.clearance).toEqual(door.clearance)
+    expect(
+      openingClearancesSchema.parse([
+        {
+          ...door,
+          sillHeightCm: 84.5,
+          clearance: { side: 'left', depthCm: 80, shape: 'swing', hinge: 'end' },
+        },
+      ])[0],
+    ).toEqual({
+      id: 'd',
+      sillHeightCm: 84.5,
+      clearance: { side: 'left', depthCm: 80, shape: 'swing', hinge: 'end' },
+    })
   })
 })

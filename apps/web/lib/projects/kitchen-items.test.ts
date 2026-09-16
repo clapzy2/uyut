@@ -50,6 +50,28 @@ describe('кухонные модули', () => {
       kitchenItemIssues([{ ...item, xCm: 100 }], 300, 300, { ...geometry, openings: [opening] }),
     ).toEqual([])
   })
+  it('разрешает низкий модуль под проверенным подоконником', () => {
+    const window = {
+      id: 'window',
+      wallId: 'top',
+      offsetCm: 0,
+      widthCm: 80,
+      type: 'window' as const,
+      sillHeightCm: 90,
+    }
+    expect(
+      kitchenItemIssues([{ ...item, heightCm: 89 }], 300, 300, {
+        ...geometry,
+        openings: [window],
+      }),
+    ).toEqual([])
+    expect(
+      kitchenItemIssues([{ ...item, heightCm: 90 }], 300, 300, {
+        ...geometry,
+        openings: [window],
+      }).join(' '),
+    ).toContain('не помещается под подоконником')
+  })
   it('не считает полотно квартирой при отсутствии контуров', () => {
     expect(kitchenItemIssues([item], 300, 300, { ...geometry, rooms: [] }).join(' ')).toContain(
       'не найден контур',

@@ -17,6 +17,7 @@ import { openingClearancesSchema } from '@/lib/projects/clearance-zones'
 import { planDimensionSources } from '@/lib/projects/dimension-sources'
 import { roomKindLabels } from '@/lib/projects/format'
 import { kitchenItemsSchema } from '@/lib/projects/kitchen-items'
+import { kitchenSafetySchema } from '@/lib/projects/kitchen-safety'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
 import * as repository from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -220,6 +221,21 @@ export async function savePlanGeometry(
         ok: false,
         error: 'Проверьте свободные зоны дверей: глубина должна быть больше 0 и не больше 600 см.',
       }
+    const kitchenSafety = kitchenSafetySchema.safeParse({
+      routeWidthCm: submitted.routeWidthCm,
+      routeStartOpeningId: submitted.routeStartOpeningId,
+      utilityPoints: submitted.utilityPoints ?? before.utilityPoints ?? [],
+    })
+    if (
+      !kitchenSafety.success ||
+      kitchenSafety.data.utilityPoints.some(
+        (point) => point.xCm > before.widthCm || point.yCm > before.heightCm,
+      )
+    )
+      return {
+        ok: false,
+        error: 'Проверьте инженерные точки и ширину маршрута: они должны помещаться на схеме.',
+      }
     const kitchenItems = kitchenItemsSchema.safeParse(
       submitted.kitchenItems ?? before.kitchenItems ?? [],
     )
@@ -238,6 +254,14 @@ export async function savePlanGeometry(
     if (!geometry) {
       return { ok: false, error: 'Схема не сохранилась: проверьте координаты стен.' }
     }
+    if (
+      kitchenSafety.data.routeStartOpeningId &&
+      !geometry.openings.some(
+        (opening) =>
+          opening.id === kitchenSafety.data.routeStartOpeningId && opening.type !== 'window',
+      )
+    )
+      return { ok: false, error: 'Выбранная стартовая дверь не найдена в схеме.' }
     const submittedWalls = Array.isArray(submitted.walls) ? submitted.walls.slice(0, 200).length : 0
     const submittedOpenings = Array.isArray(submitted.openings)
       ? submitted.openings.slice(0, 200).length
@@ -278,10 +302,23 @@ export async function savePlanGeometry(
     const saved: NonNullable<PlanReading['geometry']> = {
       ...checked,
       openings: checked.openings.map((opening) => {
-        const clearance = openingClearances.data.find((o) => o.id === opening.id)?.clearance
-        return { ...opening, ...(clearance && opening.type !== 'window' ? { clearance } : {}) }
+        const submittedOpening = openingClearances.data.find((o) => o.id === opening.id)
+        const clearance = submittedOpening?.clearance
+        const sillHeightCm = submittedOpening?.sillHeightCm
+        return {
+          ...opening,
+          ...(clearance && opening.type !== 'window' ? { clearance } : {}),
+          ...(sillHeightCm !== undefined && opening.type === 'window' ? { sillHeightCm } : {}),
+        }
       }),
       kitchenItems: kitchenItems.data,
+      utilityPoints: kitchenSafety.data.utilityPoints,
+      ...(kitchenSafety.data.routeWidthCm === undefined
+        ? {}
+        : { routeWidthCm: kitchenSafety.data.routeWidthCm }),
+      ...(kitchenSafety.data.routeStartOpeningId
+        ? { routeStartOpeningId: kitchenSafety.data.routeStartOpeningId }
+        : {}),
       status: 'confirmed',
       confirmedAt: new Date().toISOString(),
     }
@@ -299,6 +336,7 @@ export async function savePlanGeometry(
         walls: saved.walls.length,
         openings: saved.openings.length,
         roomContours: saved.rooms.length,
+        utilityPoints: saved.utilityPoints?.length ?? 0,
       },
     })
     revalidatePath(`/projects/${projectId}`)

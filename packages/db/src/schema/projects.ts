@@ -86,10 +86,25 @@ export type PlanOpening = {
   wallId: string
   offsetCm: number
   widthCm: number
-  /** Explicit rectangular keep-clear envelope, not an inferred door swing. */
-  clearance?: { side: 'left' | 'right'; depthCm: number }
+  sillHeightCm?: number
+  /** Explicit keep-clear envelope; legacy values without shape remain rectangular. */
+  clearance?: {
+    side: 'left' | 'right'
+    depthCm: number
+    shape?: 'rectangle' | 'swing'
+    hinge?: 'start' | 'end'
+  }
 }
 export type PlanRoomShape = { name: string; polygon: PlanPoint[] }
+export type PlanUtilityPoint = {
+  id: string
+  kind: 'water' | 'drain' | 'vent' | 'socket' | 'gas' | 'radiator'
+  xCm: number
+  yCm: number
+  /** Explicit connection length or reserved radius, supplied by the user. */
+  reachCm?: number
+  heightCm?: number
+}
 export type PlanKitchenItem = {
   id: string
   kind: 'sink' | 'hob' | 'fridge' | 'cabinet'
@@ -97,6 +112,7 @@ export type PlanKitchenItem = {
   yCm: number
   widthCm: number
   depthCm: number
+  heightCm?: number
   front?: 'top' | 'right' | 'bottom' | 'left'
   openingDepthCm?: number
   passageCm?: number
@@ -112,6 +128,9 @@ export type PlanGeometry = {
   openings: PlanOpening[]
   rooms: PlanRoomShape[]
   kitchenItems?: PlanKitchenItem[]
+  utilityPoints?: PlanUtilityPoint[]
+  routeWidthCm?: number
+  routeStartOpeningId?: string
   warnings: string[]
 }
 

@@ -10,8 +10,11 @@ export const openingClearancesSchema = z
         .object({
           side: z.enum(['left', 'right']),
           depthCm: z.number().finite().positive().max(600),
+          shape: z.enum(['rectangle', 'swing']).optional(),
+          hinge: z.enum(['start', 'end']).optional(),
         })
         .optional(),
+      sillHeightCm: z.number().finite().positive().max(600).optional(),
     }),
   )
   .max(200)
@@ -102,19 +105,48 @@ export function doorClearanceZone(
   const ux = (wall.end.xCm - wall.start.xCm) / length
   const uy = (wall.end.yCm - wall.start.yCm) / length
   const sign = opening.clearance.side === 'left' ? 1 : -1
-  const nx = -uy * sign * opening.clearance.depthCm
-  const ny = ux * sign * opening.clearance.depthCm
+  const nx = -uy * sign
+  const ny = ux * sign
   const a = {
     xCm: wall.start.xCm + ux * opening.offsetCm,
     yCm: wall.start.yCm + uy * opening.offsetCm,
   }
   const b = { xCm: a.xCm + ux * opening.widthCm, yCm: a.yCm + uy * opening.widthCm }
+  let polygon: PlanPoint[]
+  if (opening.clearance.shape === 'swing') {
+    const hingeAtEnd = opening.clearance.hinge === 'end'
+    const hinge = hingeAtEnd ? b : a
+    const closedX = ux * (hingeAtEnd ? -1 : 1)
+    const closedY = uy * (hingeAtEnd ? -1 : 1)
+    polygon = [hinge]
+    const subdivisions = 24
+    for (let index = 0; index <= subdivisions; index += 1) {
+      const angle = (Math.PI / 2) * (index / subdivisions)
+      polygon.push({
+        xCm:
+          hinge.xCm +
+          opening.clearance.depthCm * (closedX * Math.cos(angle) + nx * Math.sin(angle)),
+        yCm:
+          hinge.yCm +
+          opening.clearance.depthCm * (closedY * Math.cos(angle) + ny * Math.sin(angle)),
+      })
+    }
+  } else {
+    const offsetX = nx * opening.clearance.depthCm
+    const offsetY = ny * opening.clearance.depthCm
+    polygon = [
+      a,
+      b,
+      { xCm: b.xCm + offsetX, yCm: b.yCm + offsetY },
+      { xCm: a.xCm + offsetX, yCm: a.yCm + offsetY },
+    ]
+  }
   return {
     id: `door-${opening.id}`,
     ownerId: opening.id,
     door: true,
     label: `Дверь ${opening.id}: свободная зона`,
-    polygon: [a, b, { xCm: b.xCm + nx, yCm: b.yCm + ny }, { xCm: a.xCm + nx, yCm: a.yCm + ny }],
+    polygon,
   }
 }
 

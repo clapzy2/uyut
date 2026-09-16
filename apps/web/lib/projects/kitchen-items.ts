@@ -11,6 +11,7 @@ export const kitchenItemsSchema = z
       yCm: z.number().finite().min(0).max(10000),
       widthCm: z.number().finite().min(10).max(600),
       depthCm: z.number().finite().min(10).max(600),
+      heightCm: z.number().finite().min(1).max(600).optional(),
       front: z.enum(['top', 'right', 'bottom', 'left']).optional(),
       openingDepthCm: z.number().finite().min(0).max(600).optional(),
       passageCm: z.number().finite().min(0).max(600).optional(),
@@ -88,11 +89,14 @@ export function kitchenItemIssues(
             1e-7,
           )
         ) {
-          result.push(
-            opening.type === 'window'
-              ? `${label} касается окна ${opening.id}: проверьте высоту подоконника и открывание.`
-              : `${label} перекрывает линию дверного проёма ${opening.id}.`,
-          )
+          if (opening.type === 'window') {
+            if (opening.sillHeightCm === undefined || item.heightCm === undefined)
+              result.push(
+                `${label} касается окна ${opening.id}: укажите высоту модуля и высоту подоконника.`,
+              )
+            else if (item.heightCm >= opening.sillHeightCm)
+              result.push(`${label} не помещается под подоконником окна ${opening.id}.`)
+          } else result.push(`${label} перекрывает линию дверного проёма ${opening.id}.`)
         }
       }
     }
