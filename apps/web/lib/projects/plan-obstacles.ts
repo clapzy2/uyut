@@ -10,7 +10,11 @@ export const obstacleLabels: Record<PlanObstacle['kind'], string> = {
 export const planObstaclesSchema = z
   .array(
     z.object({
-      id: z.string().regex(/^manual_[a-f0-9]{24}$/),
+      id: z
+        .string()
+        .min(1)
+        .max(40)
+        .regex(/^[a-zA-Z0-9_-]+$/),
       kind: z.enum(['column', 'shaft', 'fixed']),
       xCm: z.number().finite().min(0).max(10_000),
       yCm: z.number().finite().min(0).max(10_000),

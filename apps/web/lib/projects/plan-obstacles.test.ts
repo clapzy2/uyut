@@ -15,9 +15,10 @@ describe('неподвижные препятствия', () => {
     expect(planObstaclesSchema.parse([obstacle])).toEqual([obstacle])
   })
 
-  it('не принимает нулевой размер и произвольный идентификатор', () => {
+  it('принимает распознанный ID, но не принимает нулевой размер и опасные символы', () => {
+    expect(planObstaclesSchema.safeParse([{ ...obstacle, id: 'shaft-1' }]).success).toBe(true)
     expect(planObstaclesSchema.safeParse([{ ...obstacle, widthCm: 0 }]).success).toBe(false)
-    expect(planObstaclesSchema.safeParse([{ ...obstacle, id: 'column-1' }]).success).toBe(false)
+    expect(planObstaclesSchema.safeParse([{ ...obstacle, id: '<script>' }]).success).toBe(false)
   })
 
   it('показывает пользовательскую подпись, если она задана', () => {

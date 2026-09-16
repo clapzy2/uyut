@@ -294,10 +294,14 @@ export async function savePlanGeometry(
     // подменить распознанный элемент и оставляет происхождение геометрии различимым.
     const wallIds = new Set(before.walls.map((wall) => wall.id))
     const openingIds = new Set(before.openings.map((opening) => opening.id))
+    const obstacleIds = new Set((before.obstacles ?? []).map((obstacle) => obstacle.id))
     if (
       geometry.walls.some((wall) => !wallIds.has(wall.id) && !isManualPlanGeometryId(wall.id)) ||
       geometry.openings.some(
         (opening) => !openingIds.has(opening.id) && !isManualPlanGeometryId(opening.id),
+      ) ||
+      obstacles.data.some(
+        (obstacle) => !obstacleIds.has(obstacle.id) && !isManualPlanGeometryId(obstacle.id),
       ) ||
       geometry.rooms.length !== before.rooms.length ||
       geometry.rooms.some((room, index) => room.name !== before.rooms[index]?.name)

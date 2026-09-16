@@ -115,6 +115,7 @@ export {
 export {
   isManualPlanGeometryId,
   type PlanGeometry,
+  type PlanObstacle,
   type PlanOpening,
   type PlanPoint,
   type PlanRoomArea,

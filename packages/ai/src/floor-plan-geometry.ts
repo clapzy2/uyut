@@ -23,6 +23,16 @@ export type PlanRoomShape = {
   polygon: PlanPoint[]
 }
 
+export type PlanObstacle = {
+  id: string
+  kind: 'column' | 'shaft' | 'fixed'
+  xCm: number
+  yCm: number
+  widthCm: number
+  depthCm: number
+  label?: string
+}
+
 /**
  * Геометрия, восстановленная с картинки плана.
  *
@@ -37,6 +47,7 @@ export type PlanGeometry = {
   heightCm: number
   walls: PlanWall[]
   openings: PlanOpening[]
+  obstacles: PlanObstacle[]
   rooms: PlanRoomShape[]
   warnings: string[]
 }
@@ -51,6 +62,7 @@ const MAX_POINTS = 30
 const MAX_WALLS = 200
 const MAX_OPENINGS = 200
 const MAX_ROOMS = 50
+const MAX_OBSTACLES = 100
 const MANUAL_GEOMETRY_ID = /^manual_[a-f0-9]{24}$/
 
 function finite(value: unknown): number | undefined {
@@ -125,6 +137,22 @@ function polygonCrossesItself(points: readonly PlanPoint[]): boolean {
     }
   }
   return false
+}
+
+function pointInPolygon(point: PlanPoint, polygon: readonly PlanPoint[]): boolean {
+  let inside = false
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index]
+    const end = polygon[(index + 1) % polygon.length]
+    if (!start || !end) continue
+    if (
+      start.yCm > point.yCm !== end.yCm > point.yCm &&
+      point.xCm <
+        ((end.xCm - start.xCm) * (point.yCm - start.yCm)) / (end.yCm - start.yCm) + start.xCm
+    )
+      inside = !inside
+  }
+  return inside
 }
 
 /** Площадь контура по формуле Гаусса. */
@@ -268,6 +296,61 @@ export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
     rooms.push({ name, polygon })
   }
 
+  const obstacles: PlanObstacle[] = []
+  const obstacleIds = new Set<string>()
+  for (const rawObstacle of (Array.isArray(source.obstacles) ? source.obstacles : []).slice(
+    0,
+    MAX_OBSTACLES,
+  )) {
+    if (!rawObstacle || typeof rawObstacle !== 'object') continue
+    const obstacle = rawObstacle as Record<string, unknown>
+    const id = cleanId(obstacle.id)
+    const kind = obstacle.kind
+    const xCm = cm(obstacle.xMm)
+    const yCm = cm(obstacle.yMm)
+    const obstacleWidthCm = cm(obstacle.widthMm)
+    const obstacleDepthCm = cm(obstacle.depthMm)
+    const label = typeof obstacle.label === 'string' ? obstacle.label.trim().slice(0, 80) : ''
+    const centre =
+      xCm !== undefined &&
+      yCm !== undefined &&
+      obstacleWidthCm !== undefined &&
+      obstacleDepthCm !== undefined
+        ? { xCm: xCm + obstacleWidthCm / 2, yCm: yCm + obstacleDepthCm / 2 }
+        : undefined
+    if (
+      !id ||
+      obstacleIds.has(id) ||
+      (kind !== 'column' && kind !== 'shaft' && kind !== 'fixed') ||
+      xCm === undefined ||
+      yCm === undefined ||
+      obstacleWidthCm === undefined ||
+      obstacleDepthCm === undefined ||
+      obstacleWidthCm < 5 ||
+      obstacleDepthCm < 5 ||
+      obstacleWidthCm > 300 ||
+      obstacleDepthCm > 300 ||
+      xCm + obstacleWidthCm > widthCm ||
+      yCm + obstacleDepthCm > heightCm ||
+      obstacleWidthCm * obstacleDepthCm > widthCm * heightCm * 0.1 ||
+      !centre ||
+      !rooms.some((room) => pointInPolygon(centre, room.polygon))
+    ) {
+      warnings.push('Одно препятствие отброшено: его вид, размеры или положение не подтверждены.')
+      continue
+    }
+    obstacleIds.add(id)
+    obstacles.push({
+      id,
+      kind,
+      xCm,
+      yCm,
+      widthCm: obstacleWidthCm,
+      depthCm: obstacleDepthCm,
+      ...(label ? { label } : {}),
+    })
+  }
+
   return {
     version: 1,
     status: 'draft',
@@ -275,6 +358,7 @@ export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
     heightCm,
     walls,
     openings,
+    obstacles,
     rooms,
     warnings: [...new Set(warnings)].slice(0, 8),
   }

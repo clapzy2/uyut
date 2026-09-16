@@ -30,6 +30,17 @@ const validGeometry = {
     { id: 'w4', start: { xMm: 0, yMm: 4000 }, end: { xMm: 0, yMm: 0 }, kind: 'outer' },
   ],
   openings: [{ id: 'window-1', type: 'window', wallId: 'w1', offsetMm: 1200, widthMm: 1500 }],
+  obstacles: [
+    {
+      id: 'shaft-1',
+      kind: 'shaft',
+      xMm: 4200,
+      yMm: 3000,
+      widthMm: 500,
+      depthMm: 700,
+      label: 'Вентшахта',
+    },
+  ],
   rooms: [
     {
       name: 'Гостиная',
@@ -60,6 +71,29 @@ describe('геометрия плана', () => {
       openings: [{ wallId: 'w1', offsetCm: 120, widthCm: 150 }],
     })
     expect(geometry?.rooms[0]?.polygon[2]).toEqual({ xCm: 500, yCm: 400 })
+    expect(geometry?.obstacles).toEqual([
+      {
+        id: 'shaft-1',
+        kind: 'shaft',
+        xCm: 420,
+        yCm: 300,
+        widthCm: 50,
+        depthCm: 70,
+        label: 'Вентшахта',
+      },
+    ])
+  })
+
+  it('отбрасывает препятствие вне комнаты или неправдоподобного размера', () => {
+    const geometry = parsePlanGeometry({
+      ...validGeometry,
+      obstacles: [
+        { id: 'outside', kind: 'column', xMm: 4900, yMm: 3900, widthMm: 300, depthMm: 300 },
+        { id: 'room-sized', kind: 'shaft', xMm: 0, yMm: 0, widthMm: 3000, depthMm: 3000 },
+      ],
+    })
+    expect(geometry?.obstacles).toEqual([])
+    expect(geometry?.warnings.join(' ')).toContain('препятствие отброшено')
   })
 
   it('не принимает дверь, которая выходит за конец стены', () => {
