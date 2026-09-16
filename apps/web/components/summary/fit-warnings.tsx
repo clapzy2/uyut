@@ -25,6 +25,15 @@ function lines(layout: RoomLayout): string[] {
         `проход посередине ${problem.gapCm} см, свободно ходить получается от ${WALKWAY_CM}`,
       )
     }
+    if (problem.kind === 'invalidPlacement') {
+      const reason =
+        problem.reason === 'outside'
+          ? 'выходит за контур комнаты'
+          : problem.reason === 'collision'
+            ? 'пересекается с другой мебелью или рабочей зоной'
+            : 'перекрывает дверь, окно, радиатор или их свободную зону'
+      result.push(`${problem.title}: заданное место ${reason}`)
+    }
   }
   for (const missing of layout.missingSafetyData) result.push(missing)
   for (const operation of layout.operationInputs) {

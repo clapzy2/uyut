@@ -15,6 +15,60 @@ function item(over: Partial<LayoutItem> & Pick<LayoutItem, 'title'>): LayoutItem
 const kinds = (layout: ReturnType<typeof layoutRoom>) => layout.problems.map((p) => p.kind)
 
 describe('layoutRoom', () => {
+  it('закрепляет товар в точных координатах и расставляет остальные вокруг', () => {
+    const layout = layoutRoom({ widthCm: 400, depthCm: 300 }, [
+      item({
+        id: 'exact',
+        title: 'Шкаф у правой стены',
+        dimensions: { width: 120, depth: 50, height: 200 },
+        placement: { xCm: 350, yCm: 40, rotation: 90 },
+      }),
+      item({ id: 'auto', title: 'Комод', dimensions: { width: 140, depth: 45, height: 80 } }),
+    ])
+
+    expect(layout.placed.find((place) => place.id.startsWith('exact-'))).toMatchObject({
+      xCm: 350,
+      yCm: 40,
+      widthCm: 50,
+      depthCm: 120,
+      wall: 'right',
+    })
+    expect(layout.placed.find((place) => place.id.startsWith('auto-'))).toBeDefined()
+    expect(layout.placementInputs).toContainEqual({
+      id: 'exact',
+      title: 'Шкаф у правой стены',
+      widthCm: 120,
+      depthCm: 50,
+      xCm: 350,
+      yCm: 40,
+      rotation: 90,
+    })
+  })
+
+  it('отвергает закреплённое место поверх двери и не выдаёт его за безопасное', () => {
+    const layout = layoutRoom(
+      {
+        widthCm: 300,
+        depthCm: 300,
+        reservations: [{ kind: 'door', wall: 'top', fromCm: 0, toCm: 90, clearanceCm: 90 }],
+      },
+      [
+        item({
+          title: 'Шкаф',
+          dimensions: { width: 80, depth: 40, height: 200 },
+          placement: { xCm: 5, yCm: 5, rotation: 0 },
+        }),
+      ],
+    )
+
+    expect(layout.placed).toEqual([])
+    expect(layout.problems).toContainEqual({
+      kind: 'invalidPlacement',
+      title: 'Шкаф',
+      reason: 'blocked',
+    })
+  })
+
   it('показывает, какие рабочие зоны мебели ещё нужно измерить', () => {
     const layout = layoutRoom({ widthCm: 400, depthCm: 400 }, [
       item({ title: 'Шкаф', subcategory: 'wardrobe' }),

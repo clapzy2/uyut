@@ -337,6 +337,15 @@ function planProblems(problems: readonly LayoutProblem[]): string {
       if (problem.kind === 'narrowWalkway') {
         return `Проход посередине ${problem.gapCm} см, свободно ходить получается от ${WALKWAY_CM} см.`
       }
+      if (problem.kind === 'invalidPlacement') {
+        const reason =
+          problem.reason === 'outside'
+            ? 'выходит за контур комнаты'
+            : problem.reason === 'collision'
+              ? 'пересекается с другой мебелью или рабочей зоной'
+              : 'перекрывает проём или инженерную зону'
+        return `${problem.title}: закреплённое место ${reason}.`
+      }
       return ''
     })
     .filter(Boolean)

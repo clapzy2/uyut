@@ -9,6 +9,7 @@ import {
   addShoppingItem,
   getShoppingList,
   removeShoppingItem,
+  setShoppingItemPlacement,
   setShoppingItemQuantity,
   shoppingQuantities,
 } from './repository'
@@ -145,6 +146,22 @@ describe('shopping list in a real database', () => {
     after = await getShoppingList(ownerId, projectId)
     expect(after.items).toHaveLength(0)
     expect(after.id).not.toBeNull()
+  })
+
+  it('stores and clears an exact placement only for the owner', async () => {
+    const added = await addShoppingItem(ownerId, { projectId, catalogItemId: sofaId, roomId })
+    await setShoppingItemPlacement(ownerId, added.itemId, { xCm: 35, yCm: 70, rotation: 90 })
+    expect((await getShoppingList(ownerId, projectId)).items[0]?.placementCm).toEqual({
+      xCm: 35,
+      yCm: 70,
+      rotation: 90,
+    })
+    await expect(
+      setShoppingItemPlacement(strangerId, added.itemId, { xCm: 0, yCm: 0, rotation: 0 }),
+    ).rejects.toBeInstanceOf(NotFoundError)
+    await setShoppingItemPlacement(ownerId, added.itemId, null)
+    expect((await getShoppingList(ownerId, projectId)).items[0]?.placementCm).toBeNull()
+    await removeShoppingItem(ownerId, added.itemId)
   })
 
   it('hides the list and its rows from a stranger', async () => {

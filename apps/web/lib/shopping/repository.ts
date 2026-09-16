@@ -3,6 +3,7 @@ import {
   type CatalogCategory,
   catalogItems,
   type ItemOperationClearanceCm,
+  type ItemPlacementCm,
   rooms,
   type ShoppingVariant,
   shoppingListItems,
@@ -48,6 +49,8 @@ export type ShoppingItemView = {
   ownSize: boolean
   /** Точное место, которое нужно предмету при использовании: со слов человека или производителя */
   operationClearanceCm: ItemOperationClearanceCm | null
+  /** Подтверждённое человеком место в локальных координатах комнаты */
+  placementCm: ItemPlacementCm | null
   /** Влезет ли в промеренные участки стены своей комнаты */
   fit: FitVerdict
 }
@@ -132,6 +135,7 @@ export async function getShoppingList(
         dimensionsCm: effectiveSize(item, product),
         ownSize: Boolean(item.dimensionsCm),
         operationClearanceCm: item.operationClearanceCm ?? null,
+        placementCm: item.placementCm ?? null,
         fit: checkFit(effectiveSize(item, product) ?? undefined, measurements ?? {}),
       }),
     ),
@@ -331,6 +335,20 @@ export async function setShoppingItemOperationClearance(
   await getDb()
     .update(shoppingListItems)
     .set({ operationClearanceCm: Object.keys(kept).length > 0 ? kept : null })
+    .where(eq(shoppingListItems.id, item.id))
+  return { projectId: item.projectId }
+}
+
+/** Точное положение товара либо null, чтобы снова включить автоматическую расстановку. */
+export async function setShoppingItemPlacement(
+  userId: string,
+  itemId: string,
+  placement: ItemPlacementCm | null,
+): Promise<{ projectId: string }> {
+  const item = await ownedItem(userId, itemId)
+  await getDb()
+    .update(shoppingListItems)
+    .set({ placementCm: placement })
     .where(eq(shoppingListItems.id, item.id))
   return { projectId: item.projectId }
 }

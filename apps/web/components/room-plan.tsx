@@ -8,6 +8,7 @@ import type {
 } from '@uyut/catalog'
 import { WALKWAY_CM } from '@uyut/catalog'
 import { ItemOperationForm } from '@/components/item-operation-form'
+import { ItemPlacementForm } from '@/components/item-placement-form'
 import { ItemSizeForm } from '@/components/item-size-form'
 
 /**
@@ -126,6 +127,12 @@ function problemText(problem: LayoutProblem): string {
       return `${problem.title} посреди комнаты не помещается: вокруг него не остаётся места, чтобы отодвинуть стул и пройти.`
     case 'narrowWalkway':
       return `Проход посередине ${problem.gapCm} см. Свободно ходить получается от ${WALKWAY_CM} см.`
+    case 'invalidPlacement':
+      return problem.reason === 'outside'
+        ? `${problem.title}: заданное место выходит за контур комнаты вместе с рабочей зоной.`
+        : problem.reason === 'collision'
+          ? `${problem.title}: заданное место пересекается с другой мебелью или её рабочей зоной.`
+          : `${problem.title}: заданное место перекрывает дверь, окно, радиатор или их обязательную свободную зону.`
     default:
       return 'Размеры комнаты не заданы, расставлять не по чему.'
   }
@@ -371,6 +378,26 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
         <p className="mb-4 text-[13px] leading-relaxed text-ink-2">{layout.measurementNote}</p>
       ) : null}
       <RoomPlanDrawing layout={layout} />
+
+      {layout.placementInputs.length > 0 ? (
+        <details className="mt-4 border border-line bg-surface p-3">
+          <summary className="cursor-pointer text-[13px] font-medium text-ink">
+            Точное положение мебели ·{' '}
+            {layout.placementInputs.filter((item) => item.xCm !== undefined).length}/
+            {layout.placementInputs.length}
+          </summary>
+          <p className="mt-2 text-[12px] leading-relaxed text-ink-2">
+            Координаты идут от левого верхнего угла локального контура комнаты. Закреплённое место
+            проверяется по настоящему габариту, проёмам, радиаторам и рабочим зонам; остальные
+            предметы сервис расставит вокруг него автоматически.
+          </p>
+          <div className="mt-3">
+            {layout.placementInputs.map((item) => (
+              <ItemPlacementForm key={item.id} {...item} itemId={item.id} />
+            ))}
+          </div>
+        </details>
+      ) : null}
 
       {layout.missingSafetyData.length > 0 ? (
         <div className="mt-4 border border-accent/40 bg-accent-tint p-3">

@@ -63,6 +63,12 @@ export const shoppingListItems = pgTable(
      * around — со всех сторон у отдельно стоящего предмета.
      */
     operationClearanceCm: jsonb('operation_clearance_cm').$type<ItemOperationClearanceCm>(),
+    /**
+     * Подтверждённое положение товара внутри локального контура комнаты.
+     * Координаты считаются от левого верхнего угла комнаты; поворот меняет местами ширину и
+     * глубину. Без записи раскладчик продолжает искать безопасное место автоматически.
+     */
+    placementCm: jsonb('placement_cm').$type<ItemPlacementCm>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('shopping_list_items_list_idx').on(table.listId)],
@@ -72,6 +78,8 @@ export const shoppingListItems = pgTable(
 export type ItemDimensionsCm = { width?: number; depth?: number; height?: number }
 
 export type ItemOperationClearanceCm = { front?: number; side?: number; around?: number }
+
+export type ItemPlacementCm = { xCm: number; yCm: number; rotation: 0 | 90 }
 
 export type ShoppingList = typeof shoppingLists.$inferSelect
 export type ShoppingListItem = typeof shoppingListItems.$inferSelect

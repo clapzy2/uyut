@@ -12,6 +12,7 @@ import {
   removeShoppingItem,
   type ShoppingListView,
   setShoppingItemOperationClearance,
+  setShoppingItemPlacement,
   setShoppingItemQuantity,
   setShoppingItemSize,
 } from '@/lib/shopping/repository'
@@ -225,6 +226,60 @@ export async function setItemOperationClearance(
       targetType: 'shopping_list_item',
       targetId: itemId,
       metadata: { projectId: result.projectId, operationClearance: parsed.data },
+    })
+    revalidateProject(result.projectId)
+    return { ok: true, data: undefined }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+const coordinateSchema = z
+  .string()
+  .trim()
+  .transform((value, ctx) => {
+    const number = Number(value.replace(',', '.'))
+    if (!Number.isFinite(number) || number < 0 || number > 10000) {
+      ctx.addIssue({ code: 'custom', message: 'Координата должна быть от 0 до 10 000 см' })
+      return z.NEVER
+    }
+    return Math.round(number)
+  })
+
+const itemPlacementSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('auto') }),
+  z.object({
+    mode: z.literal('exact'),
+    xCm: coordinateSchema,
+    yCm: coordinateSchema,
+    rotation: z.enum(['0', '90']).transform((value) => (value === '90' ? 90 : 0) as 0 | 90),
+  }),
+])
+
+/** Закрепляет товар на плане или возвращает его автоматическому раскладчику. */
+export async function setItemPlacement(itemId: string, input: unknown): Promise<ActionResult> {
+  const userId = await currentUserId()
+  if (!userId) return { ok: false, error: SESSION_EXPIRED }
+  const parsed = itemPlacementSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Проверьте координаты' }
+  }
+  try {
+    const placement =
+      parsed.data.mode === 'auto'
+        ? null
+        : {
+            xCm: parsed.data.xCm,
+            yCm: parsed.data.yCm,
+            rotation: parsed.data.rotation,
+          }
+    const result = await setShoppingItemPlacement(userId, itemId, placement)
+    await recordAudit({
+      action: 'shopping.item_updated',
+      actorId: userId,
+      targetType: 'shopping_list_item',
+      targetId: itemId,
+      metadata: { projectId: result.projectId, placement },
     })
     revalidateProject(result.projectId)
     return { ok: true, data: undefined }
