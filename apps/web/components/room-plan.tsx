@@ -426,6 +426,42 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
       ) : null}
       <RoomPlanDrawing layout={layout} editable={canEdit} />
 
+      <section
+        className={`mt-4 border p-3 ${
+          layout.safetySummary.status === 'checked'
+            ? 'border-success/40 bg-success/5'
+            : layout.safetySummary.status === 'blocked'
+              ? 'border-danger/40 bg-danger/5'
+              : 'border-accent/40 bg-accent-tint'
+        }`}
+        aria-live="polite"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[13px] font-medium text-ink">{layout.safetySummary.title}</p>
+          <span
+            className={`rounded-full border px-2 py-0.5 text-[11px] ${
+              layout.safetySummary.status === 'checked'
+                ? 'border-success/40 text-success'
+                : layout.safetySummary.status === 'blocked'
+                  ? 'border-danger/40 text-danger'
+                  : layout.safetySummary.status === 'preliminary'
+                    ? 'border-accent/40 text-accent'
+                    : 'border-line-strong text-ink-2'
+            }`}
+          >
+            {
+              {
+                checked: 'Можно сверять покупки',
+                preliminary: 'Нужна финальная сверка',
+                'needs-data': 'Расчёт неполный',
+                blocked: 'Покупать рано',
+              }[layout.safetySummary.status]
+            }
+          </span>
+        </div>
+        <p className="mt-1 text-[12px] leading-relaxed text-ink-2">{layout.safetySummary.detail}</p>
+      </section>
+
       {layout.safetyChecks.length > 0 ? (
         <section
           className="mt-4 border border-line bg-surface p-3"

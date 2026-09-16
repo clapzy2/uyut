@@ -52,6 +52,7 @@ export type LayoutWall = 'top' | 'right' | 'bottom' | 'left'
 export type LayoutDirection = 'up' | 'right' | 'down' | 'left'
 
 export type LayoutRoomKind = 'living' | 'bedroom' | 'kitchen' | 'bath' | 'kid'
+export type RoomSafetyStatus = 'checked' | 'preliminary' | 'needs-data' | 'blocked'
 
 export type LayoutPoint = {
   xCm: number
@@ -157,8 +158,14 @@ export type RoomLayout = {
     id: string
     label: string
     detail: string
-    status: 'checked' | 'preliminary' | 'needs-data' | 'blocked'
+    status: RoomSafetyStatus
   }>
+  /** Единый вывод о достоверности расчёта, чтобы зелёный статус не скрывал неизвестные данные. */
+  safetySummary: {
+    status: RoomSafetyStatus
+    title: string
+    detail: string
+  }
   /** Откуда взялись координаты проёмов. */
   reservationSource: 'geometry' | 'description' | 'none'
 }
@@ -926,6 +933,11 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       placementInputs: [],
       missingSafetyData: [],
       safetyChecks: [],
+      safetySummary: {
+        status: 'blocked',
+        title: 'Проверка невозможна',
+        detail: 'Сначала укажите ширину и глубину комнаты.',
+      },
       reservationSource: 'none',
     }
   }
@@ -1638,6 +1650,48 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     })
   }
 
+  const hasBlocked = problems.length > 0 || safetyChecks.some((check) => check.status === 'blocked')
+  const hasMissingOperation = operationInputs.some((input) => {
+    if (input.valueCm !== undefined) return false
+    const item = itemById.get(input.id)
+    return item ? operationRequirement(item)?.fallbackCm === undefined : true
+  })
+  const hasNeedsData =
+    missingSafetyData.length > 0 ||
+    unmeasured.length > 0 ||
+    hasMissingOperation ||
+    reservationSource === 'none' ||
+    safetyChecks.some((check) => check.status === 'needs-data')
+  const hasPreliminary =
+    reservationSource === 'description' ||
+    safetyChecks.some((check) => check.status === 'preliminary')
+  const safetySummary: RoomLayout['safetySummary'] = hasBlocked
+    ? {
+        status: 'blocked',
+        title: 'Требуется перестановка',
+        detail: 'Хотя бы один предмет, его рабочая зона или непрерывный проход не помещается.',
+      }
+    : hasNeedsData
+      ? {
+          status: 'needs-data',
+          title: 'Нужны данные перед покупкой',
+          detail:
+            reservationSource === 'none'
+              ? 'Не подтверждено положение дверей, окон и радиаторов; зелёный результат пока невозможен.'
+              : 'Не хватает габаритов или рабочей зоны хотя бы одного выбранного предмета.',
+        }
+      : hasPreliminary
+        ? {
+            status: 'preliminary',
+            title: 'Предварительно помещается',
+            detail: 'Расстановка проходит, но часть зон или проёмов пока задана приблизительно.',
+          }
+        : {
+            status: 'checked',
+            title: 'Базовые проверки пройдены',
+            detail: 'Габариты, рабочие зоны, проёмы и непрерывный проход учтены в текущей схеме.',
+          }
+
   return {
     widthCm,
     depthCm,
@@ -1658,6 +1712,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     placementInputs: [...new Map(placementInputs.map((entry) => [entry.id, entry])).values()],
     missingSafetyData,
     safetyChecks,
+    safetySummary,
     reservationSource,
   }
 }

@@ -262,6 +262,76 @@ describe('layoutRoom', () => {
       status: 'blocked',
       detail: 'Безопасное место вместе с рабочей зоной не найдено.',
     })
+    expect(layout.safetySummary.status).toBe('blocked')
+  })
+
+  it('не даёт зелёный итог, пока неизвестно положение проёмов', () => {
+    const layout = layoutRoom({ widthCm: 500, depthCm: 400, roomKind: 'living' }, [
+      item({
+        id: 'armchair',
+        title: 'Кресло',
+        category: 'chair',
+        subcategory: 'armchair',
+        dimensions: { width: 80, depth: 80, height: 90 },
+      }),
+    ])
+
+    expect(layout.problems).toEqual([])
+    expect(layout.safetySummary).toMatchObject({
+      status: 'needs-data',
+      title: 'Нужны данные перед покупкой',
+      detail: expect.stringContaining('дверей, окон и радиаторов'),
+    })
+  })
+
+  it('помечает расчёт как предварительный, когда проёмы взяты только из описания', () => {
+    const layout = layoutRoom(
+      {
+        widthCm: 500,
+        depthCm: 400,
+        roomKind: 'living',
+        layoutNotes: 'На верхней стене окно 120 см от 100 до 220 см',
+      },
+      [
+        item({
+          id: 'armchair',
+          title: 'Кресло',
+          category: 'chair',
+          subcategory: 'armchair',
+          dimensions: { width: 80, depth: 80, height: 90 },
+        }),
+      ],
+    )
+
+    expect(layout.reservationSource).toBe('description')
+    expect(layout.safetySummary.status).toBe('preliminary')
+  })
+
+  it('даёт проверенный итог только с точными проёмами и рабочими зонами', () => {
+    const layout = layoutRoom(
+      {
+        widthCm: 500,
+        depthCm: 500,
+        roomKind: 'bedroom',
+        reservations: [],
+        floorReservations: [],
+      },
+      [
+        item({
+          id: 'bed',
+          title: 'Кровать',
+          category: 'bed',
+          dimensions: { width: 200, depth: 160, height: 90 },
+          operationClearance: { side: 50 },
+        }),
+      ],
+    )
+
+    expect(layout.safetySummary).toEqual({
+      status: 'checked',
+      title: 'Базовые проверки пройдены',
+      detail: 'Габариты, рабочие зоны, проёмы и непрерывный проход учтены в текущей схеме.',
+    })
   })
 
   it('связывает каждую рабочую зону с конкретным экземпляром товара', () => {

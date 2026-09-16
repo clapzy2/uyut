@@ -12,16 +12,16 @@ import Link from 'next/link'
 export type RoomFit = { roomId: string; roomName: string; layout: RoomLayout }
 
 function lines(layout: RoomLayout): string[] {
-  const result: string[] = []
+  const result = new Set<string>()
   for (const problem of layout.problems) {
     if (problem.kind === 'noWall') {
-      result.push(`${problem.title} шириной ${problem.widthCm} см не встаёт ни к одной стене`)
+      result.add(`${problem.title} шириной ${problem.widthCm} см не встаёт ни к одной стене`)
     }
     if (problem.kind === 'noCenter') {
-      result.push(`${problem.title} не помещается посреди комнаты`)
+      result.add(`${problem.title} не помещается посреди комнаты`)
     }
     if (problem.kind === 'narrowWalkway') {
-      result.push(
+      result.add(
         `проход посередине ${problem.gapCm} см, свободно ходить получается от ${WALKWAY_CM}`,
       )
     }
@@ -32,21 +32,32 @@ function lines(layout: RoomLayout): string[] {
           : problem.reason === 'collision'
             ? 'пересекается с другой мебелью или рабочей зоной'
             : 'перекрывает дверь, окно, радиатор или их свободную зону'
-      result.push(`${problem.title}: заданное место ${reason}`)
+      result.add(`${problem.title}: заданное место ${reason}`)
     }
   }
-  for (const missing of layout.missingSafetyData) result.push(missing)
+  for (const missing of layout.missingSafetyData) result.add(missing)
+  const coveredOperations = new Set(layout.safetyChecks.map((check) => check.id))
+  for (const check of layout.safetyChecks) {
+    if (check.status !== 'checked') result.add(`${check.label}: ${check.detail}`)
+  }
   for (const operation of layout.operationInputs) {
-    if (operation.valueCm !== undefined) continue
+    if (
+      operation.valueCm !== undefined ||
+      coveredOperations.has(`${operation.id}-${operation.kind}`)
+    )
+      continue
     const need =
       operation.kind === 'front'
         ? 'запас перед предметом'
         : operation.kind === 'side'
           ? 'свободное место по бокам'
           : 'свободное место вокруг'
-    result.push(`${operation.title}: не указан ${need}`)
+    result.add(`${operation.title}: не указан ${need}`)
   }
-  return result
+  if (result.size === 0 && layout.safetySummary.status !== 'checked') {
+    result.add(layout.safetySummary.detail)
+  }
+  return [...result]
 }
 
 export function FitWarnings({ rooms, projectId }: { rooms: RoomFit[]; projectId: string }) {

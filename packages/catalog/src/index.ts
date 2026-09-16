@@ -41,6 +41,7 @@ export {
   type Placement,
   type RoomLayout,
   type RoomLayoutInput,
+  type RoomSafetyStatus,
   rectBlocksFloorReservation,
   reservationBlocksHeight,
   WALKWAY_CM,
