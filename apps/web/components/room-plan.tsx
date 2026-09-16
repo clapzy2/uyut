@@ -328,6 +328,13 @@ export function RoomPlanDrawing({
               padding={PADDING}
               width={width}
               height={height}
+              roomWidthCm={layout.widthCm}
+              roomDepthCm={layout.depthCm}
+              floorPolygon={layout.floorPolygon}
+              reservations={layout.reservations}
+              floorReservations={layout.floorReservations}
+              keepClearZones={layout.keepClearZones}
+              functionalZones={layout.functionalZones}
             />
           ) : null}
         </div>
@@ -392,7 +399,7 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
               ? `Указанные проёмы и инженерные зоны учтены; свободной стены осталось ${layout.freeWallCm} см.`
               : `Расположение проёмов не указано, поэтому свободные ${layout.freeWallCm} см — предварительная оценка.`}
         {canEdit && layout.placed.length > 0
-          ? ' Предмет на схеме можно перетащить мышкой или пальцем; после отпускания новое место проверится и сохранится.'
+          ? ' Предмет на схеме можно перетащить мышкой или пальцем и повернуть кнопкой ↻. Свободное место подсвечивается сразу, а после отпускания ещё раз строго проверяется и сохраняется.'
           : ''}
       </p>
 

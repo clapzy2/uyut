@@ -405,7 +405,7 @@ function reservationBlocksHeight(
 }
 
 /** SAT для прямоугольника и выпуклой зоны. Касание границ допустимо, пересечение — нет. */
-function rectOverlapsPolygon(rect: Rect, polygon: readonly LayoutPoint[]): boolean {
+export function rectOverlapsPolygon(rect: Rect, polygon: readonly LayoutPoint[]): boolean {
   if (polygon.length < 3) return false
   const rectPoints = [
     { xCm: rect.xCm, yCm: rect.yCm },

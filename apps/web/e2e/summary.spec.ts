@@ -128,6 +128,11 @@ test.describe('project summary', () => {
     await expect(estimate.getByText(/503\s800\s₽/)).toBeVisible()
     await expect(page.getByText(/1 позиция · 2 предмета/)).toBeVisible()
 
+    // Для проверки ручной схемы оставляем один предмет: второй экземпляр уже проверен сметой,
+    // а здесь важны свободное перемещение и поворот без случайного пересечения копий.
+    await row.getByRole('button', { name: 'Меньше на один' }).click()
+    await expect(page.getByText(/1 позиция · 1 предмет/)).toBeVisible()
+
     // Вид сверху не только считает место: владелец двигает товар прямо на плане, а координаты
     // сохраняются одной записью после отпускания указателя.
     await page.goto(`/projects/${projectId}/rooms/${room.id}`)
@@ -155,6 +160,7 @@ test.describe('project summary', () => {
     await page.mouse.down()
     await expect(movable).toHaveAttribute('data-dragging', 'true')
     await page.mouse.move(box.x + box.width / 2 + 24, box.y + box.height / 2 + 18)
+    await expect(movable).toHaveAttribute('data-preview', 'valid')
     await page.mouse.up()
     await expect(page.getByText('Положение мебели проверено')).toBeVisible()
     await expect
@@ -167,12 +173,32 @@ test.describe('project summary', () => {
       })
       .not.toBeNull()
 
+    const [afterDrag] = await db
+      .select({ placement: shoppingListItems.placementCm })
+      .from(shoppingListItems)
+      .where(eq(shoppingListItems.id, shoppingItem.id))
+    if (!afterDrag?.placement) throw new Error('перемещение не сохранилось')
+    expect(afterDrag.placement.xCm % 5).toBe(0)
+    expect(afterDrag.placement.yCm % 5).toBe(0)
+
+    await page.getByRole('button', { name: 'Повернуть: Диван Букле e2e' }).click()
+    await expect(page.getByText('Мебель повёрнута и проверена')).toBeVisible()
+    await expect
+      .poll(async () => {
+        const [saved] = await db
+          .select({ placement: shoppingListItems.placementCm })
+          .from(shoppingListItems)
+          .where(eq(shoppingListItems.id, shoppingItem.id))
+        return saved?.placement?.rotation
+      })
+      .toBe(afterDrag.placement.rotation === 0 ? 90 : 0)
+
     await page.goto(`/projects/${projectId}/summary`)
     row = page
       .getByRole('listitem')
       .filter({ has: page.getByRole('link', { name: 'Диван Букле e2e' }) })
 
-    await row.getByRole('button', { name: 'убрать' }).click()
+    await row.getByRole('button', { name: 'убрать', exact: true }).click()
     await expect(page.getByText('Список пока пуст.')).toBeVisible()
     await expect(estimate.getByText(/368\s000\s₽/)).toBeVisible()
 
