@@ -18,6 +18,7 @@ import { planDimensionSources } from '@/lib/projects/dimension-sources'
 import { roomKindLabels } from '@/lib/projects/format'
 import { kitchenItemsSchema } from '@/lib/projects/kitchen-items'
 import { kitchenSafetySchema } from '@/lib/projects/kitchen-safety'
+import { planObstaclesSchema } from '@/lib/projects/plan-obstacles'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
 import * as repository from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -244,6 +245,18 @@ export async function savePlanGeometry(
         ok: false,
         error: 'Проверьте размеры кухонных элементов: от 10 до 600 см, координаты неотрицательные.',
       }
+    const obstacles = planObstaclesSchema.safeParse(submitted.obstacles ?? before.obstacles ?? [])
+    if (
+      !obstacles.success ||
+      obstacles.data.some(
+        (item) =>
+          item.xCm + item.widthCm > before.widthCm || item.yCm + item.depthCm > before.heightCm,
+      )
+    )
+      return {
+        ok: false,
+        error: 'Проверьте препятствия: они должны иметь точные размеры и помещаться на схеме.',
+      }
     // Габарит квартиры не редактируется: все ручные координаты обязаны остаться внутри
     // исходного полотна, построенного по загруженному плану.
     const geometry = validatePlanGeometryEdit({
@@ -313,6 +326,7 @@ export async function savePlanGeometry(
       }),
       kitchenItems: kitchenItems.data,
       utilityPoints: kitchenSafety.data.utilityPoints,
+      obstacles: obstacles.data,
       ...(kitchenSafety.data.routeWidthCm === undefined
         ? {}
         : { routeWidthCm: kitchenSafety.data.routeWidthCm }),
@@ -337,6 +351,7 @@ export async function savePlanGeometry(
         openings: saved.openings.length,
         roomContours: saved.rooms.length,
         utilityPoints: saved.utilityPoints?.length ?? 0,
+        obstacles: saved.obstacles?.length ?? 0,
       },
     })
     revalidatePath(`/projects/${projectId}`)

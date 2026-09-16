@@ -204,6 +204,15 @@ export function inspectRoutes(items: PlanKitchenItem[], geometry: PlanGeometry):
       around.every((sample) =>
         geometry.rooms.some((room) => pointInPolygon(sample, room.polygon)),
       ) &&
+      around.every((sample) =>
+        (geometry.obstacles ?? []).every(
+          (obstacle) =>
+            sample.xCm < obstacle.xCm ||
+            sample.xCm > obstacle.xCm + obstacle.widthCm ||
+            sample.yCm < obstacle.yCm ||
+            sample.yCm > obstacle.yCm + obstacle.depthCm,
+        ),
+      ) &&
       items.every((item) => distanceToItem(point, item) >= half) &&
       !wallBlocksPoint(point, geometry, half)
     )

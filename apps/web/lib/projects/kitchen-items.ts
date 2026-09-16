@@ -101,6 +101,16 @@ export function kitchenItemIssues(
           } else result.push(`${label} перекрывает линию дверного проёма ${opening.id}.`)
         }
       }
+      for (const obstacle of geometry.obstacles ?? []) {
+        if (
+          item.xCm < obstacle.xCm + obstacle.widthCm &&
+          obstacle.xCm < item.xCm + item.widthCm &&
+          item.yCm < obstacle.yCm + obstacle.depthCm &&
+          obstacle.yCm < item.yCm + item.depthCm
+        ) {
+          result.push(`${label} пересекает неподвижное препятствие.`)
+        }
+      }
     }
     for (let otherIndex = index + 1; otherIndex < items.length; otherIndex += 1) {
       const other = items[otherIndex]

@@ -105,6 +105,16 @@ export type PlanUtilityPoint = {
   reachCm?: number
   heightCm?: number
 }
+/** Неподвижный прямоугольный объём, который нельзя занимать мебелью или маршрутом. */
+export type PlanObstacle = {
+  id: string
+  kind: 'column' | 'shaft' | 'fixed'
+  xCm: number
+  yCm: number
+  widthCm: number
+  depthCm: number
+  label?: string
+}
 export type PlanKitchenItem = {
   id: string
   kind: 'sink' | 'hob' | 'oven' | 'dishwasher' | 'fridge' | 'cabinet'
@@ -129,6 +139,7 @@ export type PlanGeometry = {
   rooms: PlanRoomShape[]
   kitchenItems?: PlanKitchenItem[]
   utilityPoints?: PlanUtilityPoint[]
+  obstacles?: PlanObstacle[]
   routeWidthCm?: number
   routeStartOpeningId?: string
   warnings: string[]

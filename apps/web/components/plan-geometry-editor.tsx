@@ -2,7 +2,14 @@
 
 'use client'
 
-import type { PlanGeometry, PlanOpening, PlanPoint, PlanRoomShape, PlanWall } from '@uyut/db'
+import type {
+  PlanGeometry,
+  PlanObstacle,
+  PlanOpening,
+  PlanPoint,
+  PlanRoomShape,
+  PlanWall,
+} from '@uyut/db'
 import { Button, Dialog, DialogContent, DialogTrigger, Input, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import {
@@ -15,6 +22,7 @@ import {
 import { savePlanGeometry } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
 import { KitchenPlanEditor } from '@/components/kitchen-plan-editor'
+import { PlanObstaclesEditor } from '@/components/plan-obstacles-editor'
 import {
   inspectPlanGeometry,
   type PlanGeometryIssue,
@@ -441,6 +449,7 @@ export function PlanGeometryEditor({
   const [rooms, setRooms] = useState(() => geometry.rooms)
   const [kitchenItems, setKitchenItems] = useState(() => geometry.kitchenItems ?? [])
   const [utilityPoints, setUtilityPoints] = useState(() => geometry.utilityPoints ?? [])
+  const [obstacles, setObstacles] = useState<PlanObstacle[]>(() => geometry.obstacles ?? [])
   const [routeWidthCm, setRouteWidthCm] = useState(() => geometry.routeWidthCm)
   const [routeStartOpeningId, setRouteStartOpeningId] = useState(() => geometry.routeStartOpeningId)
   const [selection, setSelection] = useState<Selection>(() =>
@@ -575,6 +584,7 @@ export function PlanGeometryEditor({
     setRooms(geometry.rooms)
     setKitchenItems(geometry.kitchenItems ?? [])
     setUtilityPoints(geometry.utilityPoints ?? [])
+    setObstacles(geometry.obstacles ?? [])
     setRouteWidthCm(geometry.routeWidthCm)
     setRouteStartOpeningId(geometry.routeStartOpeningId)
     setSelection(nextSelection(geometry.walls, geometry.openings))
@@ -591,6 +601,7 @@ export function PlanGeometryEditor({
         rooms,
         kitchenItems,
         utilityPoints,
+        obstacles,
         routeWidthCm,
         routeStartOpeningId,
       })
@@ -704,6 +715,11 @@ export function PlanGeometryEditor({
             )}
           </div>
 
+          <PlanObstaclesEditor
+            geometry={{ ...geometry, walls, rooms }}
+            obstacles={obstacles}
+            onChange={setObstacles}
+          />
           <KitchenPlanEditor
             geometry={{
               ...geometry,
@@ -711,6 +727,7 @@ export function PlanGeometryEditor({
               openings,
               rooms,
               utilityPoints,
+              obstacles,
               routeWidthCm,
               routeStartOpeningId,
             }}

@@ -99,6 +99,23 @@ describe('кухонные модули', () => {
   it('обнаруживает наложение и выход за полотно', () => {
     expect(kitchenItemIssues([item, { ...item, id: 'two', xCm: 50 }], 100, 300)).toHaveLength(2)
   })
+  it('не разрешает поставить модуль на колонну или шахту', () => {
+    expect(
+      kitchenItemIssues([item], 300, 300, {
+        ...geometry,
+        obstacles: [
+          {
+            id: 'manual_0123456789abcdef01234567',
+            kind: 'column',
+            xCm: 20,
+            yCm: 20,
+            widthCm: 30,
+            depthCm: 30,
+          },
+        ],
+      }).join(' '),
+    ).toContain('неподвижное препятствие')
+  })
   it('отвергает нечисловые размеры и повторные ID на сервере', () => {
     expect(kitchenItemsSchema.safeParse([{ ...item, widthCm: Number.NaN }]).success).toBe(false)
     expect(kitchenItemsSchema.safeParse([item, item]).success).toBe(false)

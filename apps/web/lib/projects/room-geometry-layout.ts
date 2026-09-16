@@ -6,6 +6,7 @@ import type {
 } from '@uyut/catalog'
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall, RoomMeasurements } from '@uyut/db'
 import { doorClearanceZone } from './clearance-zones'
+import { obstacleTitle } from './plan-obstacles'
 
 const BOUNDARY_TOLERANCE_CM = 20
 
@@ -251,6 +252,30 @@ export function roomLayoutInputFromGeometry(
       )
     }
     keepClearZones.push({ kind: 'radiator', label: `Радиатор ${point.id}`, polygon })
+  }
+
+  for (const obstacle of geometry.obstacles ?? []) {
+    const corners: PlanPoint[] = [
+      { xCm: obstacle.xCm, yCm: obstacle.yCm },
+      { xCm: obstacle.xCm + obstacle.widthCm, yCm: obstacle.yCm },
+      { xCm: obstacle.xCm + obstacle.widthCm, yCm: obstacle.yCm + obstacle.depthCm },
+      { xCm: obstacle.xCm, yCm: obstacle.yCm + obstacle.depthCm },
+    ]
+    const roomTouchesObstacle =
+      corners.some((corner) => pointInPolygon(corner, room.polygon)) ||
+      room.polygon.some(
+        (point) =>
+          point.xCm >= obstacle.xCm &&
+          point.xCm <= obstacle.xCm + obstacle.widthCm &&
+          point.yCm >= obstacle.yCm &&
+          point.yCm <= obstacle.yCm + obstacle.depthCm,
+      )
+    if (!roomTouchesObstacle) continue
+    keepClearZones.push({
+      kind: 'obstacle',
+      label: obstacleTitle(obstacle),
+      polygon: corners.map(localPoint),
+    })
   }
 
   return {

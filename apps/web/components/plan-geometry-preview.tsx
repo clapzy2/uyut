@@ -1,5 +1,6 @@
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall } from '@uyut/db'
 import type { ReactNode } from 'react'
+import { obstacleTitle } from '@/lib/projects/plan-obstacles'
 
 function along(wall: PlanWall, distanceCm: number): PlanPoint {
   const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
@@ -186,6 +187,23 @@ export function PlanGeometryPreview({
                 </g>
               )
             })}
+
+            {(geometry.obstacles ?? []).map((obstacle) => (
+              <rect
+                key={obstacle.id}
+                x={obstacle.xCm}
+                y={obstacle.yCm}
+                width={obstacle.widthCm}
+                height={obstacle.depthCm}
+                fill="var(--danger)"
+                fillOpacity="0.16"
+                stroke="var(--danger)"
+                strokeWidth="1.5"
+                vectorEffect="non-scaling-stroke"
+              >
+                <title>{obstacleTitle(obstacle)}</title>
+              </rect>
+            ))}
           </svg>
         </div>
 
@@ -201,6 +219,10 @@ export function PlanGeometryPreview({
               <dd className="font-mono text-ink">
                 {geometry.widthCm} × {geometry.heightCm} см
               </dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-ink-2">Препятствия</dt>
+              <dd className="font-mono text-ink">{geometry.obstacles?.length ?? 0}</dd>
             </div>
             <div className="flex justify-between gap-4">
               <dt className="text-ink-2">Окна</dt>

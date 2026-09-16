@@ -67,7 +67,7 @@ export type FloorReservation = {
 
 /** Точная зона пола, которую нельзя занимать мебелью: дуга двери или запас у радиатора. */
 export type FloorKeepClearZone = {
-  kind: 'door' | 'balcony' | 'radiator'
+  kind: 'door' | 'balcony' | 'radiator' | 'obstacle'
   label: string
   polygon: LayoutPoint[]
 }

@@ -238,4 +238,46 @@ describe('проёмы комнаты из 2D-схемы', () => {
       'Окно window: укажите высоту подоконника, чтобы проверить низкую мебель под ним.',
     )
   })
+
+  it('переносит колонны и шахты в запрещённые зоны конкретной комнаты', () => {
+    const result = roomLayoutInputFromGeometry(
+      {
+        ...geometry,
+        obstacles: [
+          {
+            id: 'manual_0123456789abcdef01234567',
+            kind: 'column',
+            xCm: 200,
+            yCm: 100,
+            widthCm: 30,
+            depthCm: 40,
+            label: 'Несущая колонна',
+          },
+          {
+            id: 'manual_89abcdef0123456701234567',
+            kind: 'shaft',
+            xCm: 520,
+            yCm: 100,
+            widthCm: 40,
+            depthCm: 40,
+          },
+        ],
+      },
+      'Гостиная',
+      null,
+    )
+
+    expect(result?.keepClearZones.filter((zone) => zone.kind === 'obstacle')).toEqual([
+      {
+        kind: 'obstacle',
+        label: 'Несущая колонна',
+        polygon: [
+          { xCm: 100, yCm: 50 },
+          { xCm: 130, yCm: 50 },
+          { xCm: 130, yCm: 90 },
+          { xCm: 100, yCm: 90 },
+        ],
+      },
+    ])
+  })
 })

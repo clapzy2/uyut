@@ -90,6 +90,19 @@ describe('инженерия кухни и непрерывные маршрут
       ),
     ).toContain('Нет непрерывного маршрута')
   })
+  it('не пропускает маршрут сквозь неподвижное препятствие', () => {
+    const obstacle = {
+      id: 'manual_0123456789abcdef01234567',
+      kind: 'shaft' as const,
+      xCm: 220,
+      yCm: 0,
+      widthCm: 80,
+      depthCm: 400,
+    }
+    expect(
+      inspectRoutes([fridge], { ...geometry, obstacles: [obstacle] }).issues.join(' '),
+    ).toContain('Нет непрерывного маршрута')
+  })
   it('пропускает маршрут через явно заданный проём во внутренней стене', () => {
     const barrier = {
       id: 'barrier',
