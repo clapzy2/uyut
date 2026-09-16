@@ -35,6 +35,7 @@ export {
   type LayoutItem,
   type LayoutPoint,
   type LayoutProblem,
+  type LayoutRelationshipKind,
   type LayoutRoomKind,
   type LayoutWall,
   layoutRoom,

@@ -138,4 +138,70 @@ describe('реалистичные сценарии комнат', () => {
     expect(reversed.walkwayCm, scenario.name).toBe(direct.walkwayCm)
     expect(reversed.safetySummary.status, scenario.name).toBe(direct.safetySummary.status)
   })
+
+  it('учитывает диван, ТВ-зону и журнальный стол при выборе гостиной', () => {
+    const scenario = scenarios.find((entry) => entry.kind === 'living') as Scenario
+    const layout = layoutRoom(
+      {
+        roomKind: scenario.kind,
+        widthCm: scenario.widthCm,
+        depthCm: scenario.depthCm,
+        reservations: [],
+        floorReservations: [],
+      },
+      scenario.items,
+    )
+
+    expect(layout.relationships.find((relation) => relation.kind === 'sofa-tv')).toMatchObject({
+      status: 'checked',
+    })
+    expect(layout.relationships.find((relation) => relation.kind === 'sofa-coffee')).toMatchObject({
+      status: 'checked',
+      distanceCm: expect.any(Number),
+    })
+  })
+
+  it('не выдумывает расположение окна для рабочего стола', () => {
+    const scenario = scenarios.find((entry) => entry.kind === 'kid') as Scenario
+    const withoutWindow = layoutRoom(
+      {
+        roomKind: 'kid',
+        widthCm: scenario.widthCm,
+        depthCm: scenario.depthCm,
+        reservations: [],
+        floorReservations: [],
+      },
+      scenario.items,
+    )
+    const withWindow = layoutRoom(
+      {
+        roomKind: 'kid',
+        widthCm: scenario.widthCm,
+        depthCm: scenario.depthCm,
+        reservations: [],
+        floorReservations: [
+          {
+            kind: 'window',
+            start: { xCm: 120, yCm: 0 },
+            end: { xCm: 240, yCm: 0 },
+            clearanceCm: 0,
+            sillHeightCm: 90,
+          },
+        ],
+      },
+      scenario.items,
+    )
+
+    expect(
+      withoutWindow.relationships.find((relation) => relation.kind === 'desk-window'),
+    ).toMatchObject({
+      status: 'needs-data',
+    })
+    expect(
+      withWindow.relationships.find((relation) => relation.kind === 'desk-window'),
+    ).toMatchObject({
+      status: 'review',
+      distanceCm: expect.any(Number),
+    })
+  })
 })

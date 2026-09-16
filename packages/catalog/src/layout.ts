@@ -53,6 +53,7 @@ export type LayoutDirection = 'up' | 'right' | 'down' | 'left'
 
 export type LayoutRoomKind = 'living' | 'bedroom' | 'kitchen' | 'bath' | 'kid'
 export type RoomSafetyStatus = 'checked' | 'preliminary' | 'needs-data' | 'blocked'
+export type LayoutRelationshipKind = 'sofa-tv' | 'sofa-coffee' | 'bed-storage' | 'desk-window'
 
 export type LayoutPoint = {
   xCm: number
@@ -168,6 +169,15 @@ export type RoomLayout = {
     title: string
     detail: string
   }
+  /** Функциональные связи между предметами и архитектурой комнаты. */
+  relationships: Array<{
+    id: string
+    kind: LayoutRelationshipKind
+    label: string
+    detail: string
+    status: 'checked' | 'review' | 'needs-data'
+    distanceCm?: number
+  }>
   /** Откуда взялись координаты проёмов. */
   reservationSource: 'geometry' | 'description' | 'none'
 }
@@ -595,6 +605,18 @@ function roomRuleLabel(item: LayoutItem): string {
   return `Использование стола «${item.title}»`
 }
 
+function rectDistanceCm(one: Rect, other: Rect): number {
+  const dx = Math.max(one.xCm - (other.xCm + other.widthCm), other.xCm - (one.xCm + one.widthCm), 0)
+  const dy = Math.max(one.yCm - (other.yCm + other.depthCm), other.yCm - (one.yCm + one.depthCm), 0)
+  return Math.round(Math.hypot(dx, dy))
+}
+
+function pointDistanceToRect(point: LayoutPoint, rect: Rect): number {
+  const dx = Math.max(rect.xCm - point.xCm, point.xCm - (rect.xCm + rect.widthCm), 0)
+  const dy = Math.max(rect.yCm - point.yCm, point.yCm - (rect.yCm + rect.depthCm), 0)
+  return Math.round(Math.hypot(dx, dy))
+}
+
 /** Рабочая зона предмета в выбранном месте. Общая функция нужна серверу и живому 2D-превью. */
 export function functionalZoneRect(
   rect: Rect,
@@ -917,6 +939,18 @@ function hardProblemCount(layout: RoomLayout): number {
   return layout.problems.filter((problem) => problem.kind !== 'narrowWalkway').length
 }
 
+function relationshipScore(layout: RoomLayout): number {
+  return layout.relationships.reduce((score, relation) => {
+    if (relation.kind === 'sofa-tv' && relation.status === 'checked') return score + 10_000
+    if (
+      (relation.kind === 'sofa-coffee' || relation.kind === 'desk-window') &&
+      relation.distanceCm !== undefined
+    )
+      return score - relation.distanceCm
+    return score
+  }, 0)
+}
+
 /** Порядок сравнения обещаний: сначала ничего не теряем, потом освобождаем маршрут. */
 function isBetterLayout(candidate: RoomLayout, current: RoomLayout): boolean {
   const candidateHard = hardProblemCount(candidate)
@@ -927,6 +961,10 @@ function isBetterLayout(candidate: RoomLayout, current: RoomLayout): boolean {
   const candidateBlocked = candidate.problems.some((problem) => problem.kind === 'narrowWalkway')
   const currentBlocked = current.problems.some((problem) => problem.kind === 'narrowWalkway')
   if (candidateBlocked !== currentBlocked) return !candidateBlocked
+  const candidateRelationships = relationshipScore(candidate)
+  const currentRelationships = relationshipScore(current)
+  if (candidateRelationships !== currentRelationships)
+    return candidateRelationships > currentRelationships
   if (candidate.walkwayCm !== current.walkwayCm) return candidate.walkwayCm > current.walkwayCm
   return false
 }
@@ -974,6 +1012,7 @@ function layoutRoomCandidate(
         title: 'Проверка невозможна',
         detail: 'Сначала укажите ширину и глубину комнаты.',
       },
+      relationships: [],
       reservationSource: 'none',
     }
   }
@@ -1715,6 +1754,99 @@ function layoutRoomCandidate(
     })
   }
 
+  const relationships: RoomLayout['relationships'] = []
+  const placementFor = (predicate: (item: LayoutItem) => boolean) =>
+    placed.find((placement) => {
+      const item = itemById.get(placement.itemId)
+      return item ? predicate(item) : false
+    })
+  const sofaPlacement = placementFor((item) => item.category === 'sofa')
+  const tvPlacement = placementFor(
+    (item) =>
+      item.category === 'storage' && /(?:^|[^а-яё])тв(?:[^а-яё]|$)|телевиз/i.test(item.title),
+  )
+  if (room.roomKind === 'living' && sofaPlacement && tvPlacement) {
+    const opposite =
+      sofaPlacement.wall !== 'center' &&
+      sofaPlacement.wall !== 'perimeter' &&
+      tvPlacement.wall !== 'center' &&
+      tvPlacement.wall !== 'perimeter' &&
+      OPPOSITE[sofaPlacement.wall] === tvPlacement.wall
+    relationships.push({
+      id: 'sofa-tv',
+      kind: 'sofa-tv',
+      label: 'Диван и ТВ-зона',
+      detail: opposite
+        ? 'Предметы стоят у противоположных стен; направление просмотра не пересекает мебель.'
+        : 'Предметы не стоят напротив друг друга. Проверьте направление экрана и посадки вручную.',
+      status: opposite ? 'checked' : 'review',
+    })
+  }
+  const coffeePlacement = placementFor(
+    (item) => item.category === 'table' && item.subcategory === 'coffee',
+  )
+  if (room.roomKind === 'living' && sofaPlacement && coffeePlacement) {
+    const distanceCm = rectDistanceCm(sofaPlacement, coffeePlacement)
+    relationships.push({
+      id: 'sofa-coffee',
+      kind: 'sofa-coffee',
+      label: 'Диван и журнальный стол',
+      detail: `Между краями ${distanceCm} см. Это расстояние учтено при выборе варианта без ухудшения прохода.`,
+      status: 'checked',
+      distanceCm,
+    })
+  }
+  const bedPlacement = placementFor((item) => item.category === 'bed')
+  const storagePlacement = placementFor((item) => item.category === 'storage')
+  if (
+    (room.roomKind === 'bedroom' || room.roomKind === 'kid') &&
+    bedPlacement &&
+    storagePlacement
+  ) {
+    relationships.push({
+      id: 'bed-storage',
+      kind: 'bed-storage',
+      label: 'Кровать и хранение',
+      detail: 'Габариты и рабочие зоны кровати и хранения не пересекаются.',
+      status: 'checked',
+    })
+  }
+  const deskPlacement = placementFor(
+    (item) => item.category === 'table' && item.subcategory === 'desk',
+  )
+  if ((room.roomKind === 'bedroom' || room.roomKind === 'kid') && deskPlacement) {
+    const windows = blockingFloorReservations.filter((reservation) => reservation.kind === 'window')
+    if (reservationSource !== 'geometry' || windows.length === 0) {
+      relationships.push({
+        id: 'desk-window',
+        kind: 'desk-window',
+        label: 'Рабочий стол и окно',
+        detail: 'Для выбора стороны стола нужно точное положение окна на подтверждённой 2D-схеме.',
+        status: 'needs-data',
+      })
+    } else {
+      const distanceCm = Math.min(
+        ...windows.map((window) =>
+          pointDistanceToRect(
+            {
+              xCm: (window.start.xCm + window.end.xCm) / 2,
+              yCm: (window.start.yCm + window.end.yCm) / 2,
+            },
+            deskPlacement,
+          ),
+        ),
+      )
+      relationships.push({
+        id: 'desk-window',
+        kind: 'desk-window',
+        label: 'Рабочий стол и окно',
+        detail: `До ближайшего окна ${distanceCm} см. Подтвердите сторону света, блики и ведущую руку пользователя.`,
+        status: 'review',
+        distanceCm,
+      })
+    }
+  }
+
   const hasBlocked = problems.length > 0 || safetyChecks.some((check) => check.status === 'blocked')
   const hasMissingOperation = operationInputs.some((input) => {
     if (input.valueCm !== undefined) return false
@@ -1779,6 +1911,7 @@ function layoutRoomCandidate(
     missingSafetyData,
     safetyChecks,
     safetySummary,
+    relationships,
     reservationSource,
   }
 }

@@ -500,6 +500,42 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
         </section>
       ) : null}
 
+      {layout.relationships.length > 0 ? (
+        <section
+          className="mt-4 border border-line bg-surface p-3"
+          aria-labelledby="room-relations-title"
+        >
+          <h3 id="room-relations-title" className="text-[13px] font-medium text-ink">
+            Связи в комнате
+          </h3>
+          <ul className="mt-3 space-y-3">
+            {layout.relationships.map((relation) => (
+              <li key={relation.id} className="grid gap-1 sm:grid-cols-[1fr_auto] sm:gap-3">
+                <div>
+                  <p className="text-[13px] font-medium text-ink">{relation.label}</p>
+                  <p className="mt-0.5 text-[12px] leading-relaxed text-ink-2">{relation.detail}</p>
+                </div>
+                <span
+                  className={`h-fit w-fit rounded-full border px-2 py-0.5 text-[11px] ${
+                    relation.status === 'checked'
+                      ? 'border-success/40 text-success'
+                      : relation.status === 'needs-data'
+                        ? 'border-line-strong text-ink-2'
+                        : 'border-accent/40 text-accent'
+                  }`}
+                >
+                  {relation.status === 'checked'
+                    ? 'Учтено'
+                    : relation.status === 'needs-data'
+                      ? 'Нужны данные'
+                      : 'Проверить на месте'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {canEdit && layout.placementInputs.length > 0 ? (
         <details className="mt-4 border border-line bg-surface p-3">
           <summary className="cursor-pointer text-[13px] font-medium text-ink">
