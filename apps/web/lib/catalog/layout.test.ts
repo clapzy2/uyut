@@ -1,5 +1,6 @@
 import type { LayoutItem, Placement } from '@uyut/catalog'
 import { layoutRoom, WALKWAY_CM } from '@uyut/catalog'
+import { functionalZoneRect } from '@uyut/catalog/layout'
 import { describe, expect, it } from 'vitest'
 
 function item(over: Partial<LayoutItem> & Pick<LayoutItem, 'title'>): LayoutItem {
@@ -121,6 +122,7 @@ describe('layoutRoom', () => {
     expect(layout.functionalZones).toHaveLength(1)
     expect(layout.functionalZones[0]).toMatchObject({
       itemId: 'first',
+      placementId: layout.placed[0]?.id,
       kind: 'front',
       source: 'measured',
       clearanceCm: 100,
@@ -166,6 +168,43 @@ describe('layoutRoom', () => {
       clearanceCm: 75,
     })
     expect(measured.functionalZones[0]).toMatchObject({ source: 'measured', clearanceCm: 60 })
+  })
+
+  it('связывает каждую рабочую зону с конкретным экземпляром товара', () => {
+    const layout = layoutRoom({ widthCm: 500, depthCm: 500 }, [
+      item({
+        id: 'sofa',
+        title: 'Два дивана',
+        category: 'sofa',
+        quantity: 2,
+        dimensions: { width: 160, depth: 70 },
+        operationClearance: { front: 60 },
+      }),
+    ])
+
+    expect(layout.placed).toHaveLength(2)
+    expect(layout.functionalZones).toHaveLength(2)
+    expect(new Set(layout.functionalZones.map((zone) => zone.placementId))).toEqual(
+      new Set(layout.placed.map((place) => place.id)),
+    )
+  })
+
+  it('пересчитывает рабочую зону в ту сторону, куда обращена мебель', () => {
+    const rect = { xCm: 40, yCm: 30, widthCm: 120, depthCm: 50 }
+    const requirement = { kind: 'front' as const, clearanceCm: 70 }
+
+    expect(functionalZoneRect(rect, requirement, 'top')).toEqual({
+      xCm: 40,
+      yCm: 30,
+      widthCm: 120,
+      depthCm: 120,
+    })
+    expect(functionalZoneRect(rect, requirement, 'right')).toEqual({
+      xCm: -30,
+      yCm: 30,
+      widthCm: 190,
+      depthCm: 50,
+    })
   })
 
   it('без размеров комнаты расставлять не из чего', () => {

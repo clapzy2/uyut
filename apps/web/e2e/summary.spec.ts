@@ -107,6 +107,7 @@ test.describe('project summary', () => {
         roomId: room.id,
         quantity: 1,
         dimensionsCm: { width: 210, depth: 90, height: 85 },
+        operationClearanceCm: { front: 60 },
       })
       .returning({ id: shoppingListItems.id })
     await db
@@ -159,8 +160,15 @@ test.describe('project summary', () => {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.down()
     await expect(movable).toHaveAttribute('data-dragging', 'true')
-    await page.mouse.move(box.x + box.width / 2 + 24, box.y + box.height / 2 + 18)
+    // Двигаем вдоль стены: для предмета с зоной «спереди» направление должно оставаться
+    // однозначным. У отдельно стоящего предмета без заданной стороны сервер берёт безопасный
+    // запас со всех сторон.
+    await page.mouse.move(box.x + box.width / 2 + 24, box.y + box.height / 2)
     await expect(movable).toHaveAttribute('data-preview', 'valid')
+    await expect(movable.locator('xpath=..').locator('[data-zone-preview]')).toHaveAttribute(
+      'data-visible',
+      'true',
+    )
     await page.mouse.up()
     await expect(page.getByText('Положение мебели проверено')).toBeVisible()
     await expect

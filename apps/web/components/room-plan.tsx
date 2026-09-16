@@ -201,6 +201,7 @@ export function RoomPlanDrawing({
             {layout.functionalZones.map((zone) => (
               <rect
                 key={`${zone.itemId}-${zone.kind}-${zone.xCm}-${zone.yCm}`}
+                data-functional-zone-placement-id={zone.placementId}
                 x={PADDING + zone.xCm * scale}
                 y={PADDING + zone.yCm * scale}
                 width={zone.widthCm * scale}
@@ -369,8 +370,9 @@ export function RoomPlanDrawing({
       ) : null}
       {layout.functionalZones.length > 0 ? (
         <p className="mt-2 text-[12px] leading-relaxed text-ink-2">
-          Второй пунктир — место для использования мебели: открывания, раскладывания и стульев.
-          Серым показана предварительная зона, розовым — введённый точный размер.
+          Второй пунктир — место для использования мебели: открывания, раскладывания и стульев. При
+          перемещении он едет вместе с предметом и тоже проверяется. Серым показана предварительная
+          зона, розовым — введённый точный размер.
         </p>
       ) : null}
     </div>

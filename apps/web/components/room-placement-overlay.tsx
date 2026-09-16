@@ -1,7 +1,12 @@
 'use client'
 
 import type { FloorReservation, LayoutPoint, Placement, RoomLayout } from '@uyut/catalog'
-import { type Rect, rectInsideFloor, rectOverlapsPolygon } from '@uyut/catalog/layout'
+import {
+  functionalZoneRect,
+  type Rect,
+  rectInsideFloor,
+  rectOverlapsPolygon,
+} from '@uyut/catalog/layout'
 import { toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import {
@@ -17,7 +22,8 @@ import { setItemPlacement } from '@/actions/shopping'
 
 type PlacementInput = RoomLayout['placementInputs'][number]
 type WallReservation = RoomLayout['reservations'][number]
-type PreviewBlock = Rect & { itemId?: string }
+type PreviewBlock = Rect & { placementId?: string }
+type PreviewIssue = 'outside' | 'collision' | 'blocked' | 'operation'
 
 type ActiveDrag = {
   itemId: string
@@ -25,6 +31,8 @@ type ActiveDrag = {
   pointerId: number
   group: SVGGElement
   hitbox: SVGRectElement
+  zonePreview: SVGRectElement | null
+  baseZones: SVGElement[]
   svg: SVGSVGElement
   startSvgX: number
   startSvgY: number
@@ -36,6 +44,7 @@ type ActiveDrag = {
   depthCm: number
   rotation: 0 | 90
   valid: boolean
+  issue?: PreviewIssue
 }
 
 const GRID_CM = 5
@@ -159,22 +168,38 @@ function snappedPosition(
 ) {
   let x = Math.round(xCm / GRID_CM) * GRID_CM
   let y = Math.round(yCm / GRID_CM) * GRID_CM
-  let wall = false
+  let verticalWall: 'left' | 'right' | undefined
+  let horizontalWall: 'top' | 'bottom' | undefined
   if (Math.abs(x) <= WALL_SNAP_CM) {
     x = 0
-    wall = true
+    verticalWall = 'left'
   } else if (Math.abs(roomWidthCm - (x + widthCm)) <= WALL_SNAP_CM) {
     x = roomWidthCm - widthCm
-    wall = true
+    verticalWall = 'right'
   }
   if (Math.abs(y) <= WALL_SNAP_CM) {
     y = 0
-    wall = true
+    horizontalWall = 'top'
   } else if (Math.abs(roomDepthCm - (y + depthCm)) <= WALL_SNAP_CM) {
     y = roomDepthCm - depthCm
-    wall = true
+    horizontalWall = 'bottom'
   }
-  return { xCm: x, yCm: y, wall }
+  return { xCm: x, yCm: y, verticalWall, horizontalWall }
+}
+
+function wallForRect(rect: Rect, roomWidthCm: number, roomDepthCm: number): Placement['wall'] {
+  if (Math.abs(rect.yCm) <= EPSILON) return 'top'
+  if (Math.abs(rect.yCm + rect.depthCm - roomDepthCm) <= EPSILON) return 'bottom'
+  if (Math.abs(rect.xCm) <= EPSILON) return 'left'
+  if (Math.abs(rect.xCm + rect.widthCm - roomWidthCm) <= EPSILON) return 'right'
+  return 'center'
+}
+
+const ISSUE_TEXT: Record<PreviewIssue, string> = {
+  outside: 'Сюда нельзя: предмет выходит за границу комнаты',
+  collision: 'Сюда нельзя: мешает другая мебель',
+  blocked: 'Сюда нельзя: мешает проём или инженерная зона',
+  operation: 'Сюда нельзя: не хватает места для открывания или использования',
 }
 
 /**
@@ -213,15 +238,21 @@ export function RoomPlacementOverlay({
 }) {
   const router = useRouter()
   const inputById = useMemo(() => new Map(inputs.map((input) => [input.id, input])), [inputs])
+  const zoneByPlacementId = useMemo(
+    () => new Map(functionalZones.map((zone) => [zone.placementId, zone])),
+    [functionalZones],
+  )
   const active = useRef<ActiveDrag | null>(null)
   const status = useRef<SVGTextElement | null>(null)
+  const verticalGuide = useRef<SVGLineElement | null>(null)
+  const horizontalGuide = useRef<SVGLineElement | null>(null)
   const [ready, setReady] = useState(false)
   const [draggingPlacementId, setDraggingPlacementId] = useState<string>()
   const [saving, startSaving] = useTransition()
 
   const blocks = useMemo<PreviewBlock[]>(() => {
     const result: PreviewBlock[] = []
-    for (const zone of functionalZones) result.push({ ...zone, itemId: zone.itemId })
+    for (const zone of functionalZones) result.push({ ...zone, placementId: zone.placementId })
     if (floorReservations.length > 0 && floorPolygon) {
       for (const reservation of floorReservations) {
         const rect = exactClearanceRect(reservation, floorPolygon)
@@ -238,19 +269,48 @@ export function RoomPlacementOverlay({
 
   useEffect(() => setReady(true), [])
 
-  function isValid(candidate: Rect, placementId: string, itemId: string): boolean {
+  function insideRoom(candidate: Rect): boolean {
     const insideBounds =
       candidate.xCm >= 0 &&
       candidate.yCm >= 0 &&
       candidate.xCm + candidate.widthCm <= roomWidthCm + EPSILON &&
       candidate.yCm + candidate.depthCm <= roomDepthCm + EPSILON
     if (!insideBounds) return false
-    if (floorPolygon && !rectInsideFloor(candidate, floorPolygon)) return false
+    return !floorPolygon || rectInsideFloor(candidate, floorPolygon)
+  }
+
+  function previewVerdict(
+    candidate: Rect,
+    placementId: string,
+    candidateZone?: Rect,
+  ): { valid: boolean; issue?: PreviewIssue } {
+    if (!insideRoom(candidate)) return { valid: false, issue: 'outside' }
     if (placements.some((place) => place.id !== placementId && overlaps(candidate, place))) {
-      return false
+      return { valid: false, issue: 'collision' }
     }
-    if (keepClearZones.some((zone) => rectOverlapsPolygon(candidate, zone.polygon))) return false
-    return !blocks.some((block) => block.itemId !== itemId && overlaps(candidate, block))
+    if (keepClearZones.some((zone) => rectOverlapsPolygon(candidate, zone.polygon))) {
+      return { valid: false, issue: 'blocked' }
+    }
+    if (blocks.some((block) => block.placementId !== placementId && overlaps(candidate, block))) {
+      return { valid: false, issue: 'blocked' }
+    }
+    if (!candidateZone) return { valid: true }
+    if (!insideRoom(candidateZone)) return { valid: false, issue: 'operation' }
+    if (
+      placements.some((place) => place.id !== placementId && overlaps(candidateZone, place)) ||
+      blocks.some((block) => block.placementId !== placementId && overlaps(candidateZone, block)) ||
+      keepClearZones.some((zone) => rectOverlapsPolygon(candidateZone, zone.polygon))
+    ) {
+      return { valid: false, issue: 'operation' }
+    }
+    return { valid: true }
+  }
+
+  function operationZoneAt(candidate: Rect, placementId: string): Rect | undefined {
+    const zone = zoneByPlacementId.get(placementId)
+    if (!zone) return undefined
+    const wall = wallForRect(candidate, roomWidthCm, roomDepthCm)
+    return functionalZoneRect(candidate, zone, wall)
   }
 
   function setStatus(message: string, valid: boolean) {
@@ -262,10 +322,52 @@ export function RoomPlacementOverlay({
     )
   }
 
+  function setGuides(next: ReturnType<typeof snappedPosition>) {
+    if (verticalGuide.current) {
+      if (next.verticalWall) {
+        const x = next.verticalWall === 'left' ? padding : padding + roomWidthCm * scale
+        verticalGuide.current.setAttribute('x1', String(x))
+        verticalGuide.current.setAttribute('x2', String(x))
+        verticalGuide.current.setAttribute('data-visible', 'true')
+      } else {
+        verticalGuide.current.removeAttribute('data-visible')
+      }
+    }
+    if (horizontalGuide.current) {
+      if (next.horizontalWall) {
+        const y = next.horizontalWall === 'top' ? padding : padding + roomDepthCm * scale
+        horizontalGuide.current.setAttribute('y1', String(y))
+        horizontalGuide.current.setAttribute('y2', String(y))
+        horizontalGuide.current.setAttribute('data-visible', 'true')
+      } else {
+        horizontalGuide.current.removeAttribute('data-visible')
+      }
+    }
+  }
+
+  function showZonePreview(drag: ActiveDrag, zone: Rect | undefined, valid: boolean) {
+    const preview = drag.zonePreview
+    if (!preview || !zone) {
+      preview?.removeAttribute('data-visible')
+      return
+    }
+    preview.setAttribute('x', String(padding + zone.xCm * scale))
+    preview.setAttribute('y', String(padding + zone.yCm * scale))
+    preview.setAttribute('width', String(zone.widthCm * scale))
+    preview.setAttribute('height', String(zone.depthCm * scale))
+    preview.setAttribute('data-preview', valid ? 'valid' : 'invalid')
+    preview.setAttribute('data-visible', 'true')
+  }
+
   function clearPreview(drag: ActiveDrag) {
     drag.group.removeAttribute('transform')
     drag.group.removeAttribute('data-preview')
     drag.hitbox.removeAttribute('data-preview')
+    drag.zonePreview?.removeAttribute('data-visible')
+    drag.zonePreview?.removeAttribute('data-preview')
+    for (const zone of drag.baseZones) zone.removeAttribute('visibility')
+    verticalGuide.current?.removeAttribute('data-visible')
+    horizontalGuide.current?.removeAttribute('data-visible')
     if (status.current) status.current.textContent = ''
   }
 
@@ -297,17 +399,26 @@ export function RoomPlacementOverlay({
     const input = inputById.get(place.itemId)
     const svg = event.currentTarget.ownerSVGElement
     const hitbox = event.currentTarget.querySelector<SVGRectElement>('[data-hitbox]')
+    const zonePreview =
+      event.currentTarget.parentElement?.querySelector<SVGRectElement>('[data-zone-preview]') ??
+      null
     if (!input || !svg || !hitbox) return
     const point = svgPoint(event, svg)
     if (!point) return
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
+    const baseZones = Array.from(
+      svg.parentElement?.querySelectorAll<SVGElement>('[data-functional-zone-placement-id]') ?? [],
+    ).filter((zone) => zone.getAttribute('data-functional-zone-placement-id') === place.id)
+    for (const zone of baseZones) zone.setAttribute('visibility', 'hidden')
     active.current = {
       itemId: place.itemId,
       placementId: place.id,
       pointerId: event.pointerId,
       group: event.currentTarget,
       hitbox,
+      zonePreview,
+      baseZones,
       svg,
       startSvgX: point.x,
       startSvgY: point.y,
@@ -340,7 +451,10 @@ export function RoomPlacementOverlay({
     }
     drag.nextX = next.xCm
     drag.nextY = next.yCm
-    drag.valid = isValid(candidate, drag.placementId, drag.itemId)
+    const candidateZone = operationZoneAt(candidate, drag.placementId)
+    const verdict = previewVerdict(candidate, drag.placementId, candidateZone)
+    drag.valid = verdict.valid
+    drag.issue = verdict.issue
     const preview = drag.valid ? 'valid' : 'invalid'
     drag.group.dataset.preview = preview
     drag.hitbox.dataset.preview = preview
@@ -348,12 +462,18 @@ export function RoomPlacementOverlay({
       'transform',
       `translate(${(next.xCm - drag.originX) * scale} ${(next.yCm - drag.originY) * scale})`,
     )
+    showZonePreview(drag, candidateZone, verdict.valid)
+    setGuides(next)
     setStatus(
       drag.valid
-        ? next.wall
-          ? 'Привязано к стене · место свободно'
-          : `Место свободно · ${next.xCm} × ${next.yCm} см`
-        : 'Сюда нельзя: мешает граница, проём или мебель',
+        ? next.verticalWall || next.horizontalWall
+          ? candidateZone
+            ? 'Привязано к стене · мебель и рабочая зона помещаются'
+            : 'Привязано к стене · место свободно'
+          : candidateZone
+            ? `Место и рабочая зона свободны · ${next.xCm} × ${next.yCm} см`
+            : `Место свободно · ${next.xCm} × ${next.yCm} см`
+        : ISSUE_TEXT[verdict.issue ?? 'blocked'],
       drag.valid,
     )
   }
@@ -376,7 +496,7 @@ export function RoomPlacementOverlay({
     setDraggingPlacementId(undefined)
     if (!drag.valid) {
       toast({
-        title: 'Сюда поставить нельзя: мешает граница, проём или другая мебель',
+        title: ISSUE_TEXT[drag.issue ?? 'blocked'],
         tone: 'danger',
       })
       return
@@ -392,8 +512,16 @@ export function RoomPlacementOverlay({
     const widthCm = rotation === 0 ? input.widthCm : input.depthCm
     const depthCm = rotation === 0 ? input.depthCm : input.widthCm
     const next = snappedPosition(place.xCm, place.yCm, widthCm, depthCm, roomWidthCm, roomDepthCm)
-    if (!isValid({ xCm: next.xCm, yCm: next.yCm, widthCm, depthCm }, place.id, place.itemId)) {
-      toast({ title: 'Для поворота здесь не хватает свободного места', tone: 'danger' })
+    const candidate = { xCm: next.xCm, yCm: next.yCm, widthCm, depthCm }
+    const verdict = previewVerdict(candidate, place.id, operationZoneAt(candidate, place.id))
+    if (!verdict.valid) {
+      toast({
+        title:
+          verdict.issue === 'operation'
+            ? 'После поворота не хватает места для открывания или использования'
+            : ISSUE_TEXT[verdict.issue ?? 'blocked'],
+        tone: 'danger',
+      })
       return
     }
     savePlacement(place.itemId, next.xCm, next.yCm, rotation, 'Мебель повёрнута и проверена')
@@ -421,6 +549,20 @@ export function RoomPlacementOverlay({
         const movable = inputById.has(place.itemId)
         return (
           <g key={place.id}>
+            {movable ? (
+              <rect
+                data-zone-preview
+                x={0}
+                y={0}
+                width={0}
+                height={0}
+                pointerEvents="none"
+                className="opacity-0 transition-opacity data-[visible=true]:opacity-100 data-[preview=valid]:fill-accent/10 data-[preview=valid]:stroke-accent data-[preview=invalid]:fill-danger/15 data-[preview=invalid]:stroke-danger"
+                strokeWidth={1.5}
+                strokeDasharray="5 4"
+                vectorEffect="non-scaling-stroke"
+              />
+            ) : null}
             <g
               role={movable ? 'button' : undefined}
               aria-label={movable ? `Переместить: ${place.title}` : undefined}
@@ -484,6 +626,26 @@ export function RoomPlacementOverlay({
           </g>
         )
       })}
+      <line
+        ref={verticalGuide}
+        y1={padding}
+        y2={padding + roomDepthCm * scale}
+        pointerEvents="none"
+        className="stroke-accent opacity-0 transition-opacity data-[visible=true]:opacity-100"
+        strokeWidth={1.5}
+        strokeDasharray="3 3"
+        vectorEffect="non-scaling-stroke"
+      />
+      <line
+        ref={horizontalGuide}
+        x1={padding}
+        x2={padding + roomWidthCm * scale}
+        pointerEvents="none"
+        className="stroke-accent opacity-0 transition-opacity data-[visible=true]:opacity-100"
+        strokeWidth={1.5}
+        strokeDasharray="3 3"
+        vectorEffect="non-scaling-stroke"
+      />
       <text ref={status} x={padding} y={18} aria-live="polite" />
       {saving ? (
         <text x={padding} y={18} className="fill-ink-2 text-[11px]">

@@ -79,6 +79,8 @@ export type Placement = {
 /** Зона, которую мебель не занимает постоянно, но которая нужна при её использовании. */
 export type FunctionalZone = Rect & {
   itemId: string
+  /** Конкретный прямоугольник мебели, которому принадлежит зона (важно при quantity > 1). */
+  placementId: string
   title: string
   kind: 'front' | 'side' | 'around'
   source: 'measured' | 'preliminary'
@@ -480,10 +482,60 @@ function operationRequirement(
   return null
 }
 
+/** Рабочая зона предмета в выбранном месте. Общая функция нужна серверу и живому 2D-превью. */
+export function functionalZoneRect(
+  rect: Rect,
+  requirement: Pick<FunctionalZone, 'kind' | 'clearanceCm'>,
+  wall: LayoutWall | 'perimeter' | 'center',
+): Rect {
+  const { kind, clearanceCm: clearance } = requirement
+  if (kind === 'around' || wall === 'center' || wall === 'perimeter') {
+    return {
+      xCm: rect.xCm - clearance,
+      yCm: rect.yCm - clearance,
+      widthCm: rect.widthCm + clearance * 2,
+      depthCm: rect.depthCm + clearance * 2,
+    }
+  }
+  const side = kind === 'side' ? clearance : 0
+  const front = kind === 'front' ? clearance : 0
+  switch (wall) {
+    case 'top':
+      return {
+        xCm: rect.xCm - side,
+        yCm: rect.yCm,
+        widthCm: rect.widthCm + side * 2,
+        depthCm: rect.depthCm + front,
+      }
+    case 'bottom':
+      return {
+        xCm: rect.xCm - side,
+        yCm: rect.yCm - front,
+        widthCm: rect.widthCm + side * 2,
+        depthCm: rect.depthCm + front,
+      }
+    case 'left':
+      return {
+        xCm: rect.xCm,
+        yCm: rect.yCm - side,
+        widthCm: rect.widthCm + front,
+        depthCm: rect.depthCm + side * 2,
+      }
+    case 'right':
+      return {
+        xCm: rect.xCm - front,
+        yCm: rect.yCm - side,
+        widthCm: rect.widthCm + front,
+        depthCm: rect.depthCm + side * 2,
+      }
+  }
+}
+
 function operationZone(
   item: LayoutItem,
   rect: Rect,
   wall: LayoutWall | 'perimeter' | 'center',
+  placementId: string,
 ): FunctionalZone | null {
   const requirement = operationRequirement(item)
   if (!requirement) return null
@@ -492,56 +544,13 @@ function operationZone(
   if (!clearance || clearance <= 0) return null
   const base = {
     itemId: item.id,
+    placementId,
     title: item.title,
     kind: requirement.kind,
     source: measured ? ('measured' as const) : ('preliminary' as const),
     clearanceCm: clearance,
   }
-  if (requirement.kind === 'around' || wall === 'center' || wall === 'perimeter') {
-    return {
-      ...base,
-      xCm: rect.xCm - clearance,
-      yCm: rect.yCm - clearance,
-      widthCm: rect.widthCm + clearance * 2,
-      depthCm: rect.depthCm + clearance * 2,
-    }
-  }
-  const side = requirement.kind === 'side' ? clearance : 0
-  const front = requirement.kind === 'front' ? clearance : 0
-  switch (wall) {
-    case 'top':
-      return {
-        ...base,
-        xCm: rect.xCm - side,
-        yCm: rect.yCm,
-        widthCm: rect.widthCm + side * 2,
-        depthCm: rect.depthCm + front,
-      }
-    case 'bottom':
-      return {
-        ...base,
-        xCm: rect.xCm - side,
-        yCm: rect.yCm - front,
-        widthCm: rect.widthCm + side * 2,
-        depthCm: rect.depthCm + front,
-      }
-    case 'left':
-      return {
-        ...base,
-        xCm: rect.xCm,
-        yCm: rect.yCm - side,
-        widthCm: rect.widthCm + front,
-        depthCm: rect.depthCm + side * 2,
-      }
-    case 'right':
-      return {
-        ...base,
-        xCm: rect.xCm - front,
-        yCm: rect.yCm - side,
-        widthCm: rect.widthCm + front,
-        depthCm: rect.depthCm + side * 2,
-      }
-  }
+  return { ...base, ...functionalZoneRect(rect, base, wall) }
 }
 
 /** Угол предмета в координатах комнаты. Размер здесь уже развёрнут по стене. */
@@ -1022,7 +1031,8 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     const at = cornerOf(wall, along, size, { widthCm, depthCm })
     const rect = { ...at, ...size }
     const sourceItem = itemById.get(item.id)
-    const zone = sourceItem ? operationZone(sourceItem, rect, wall) : null
+    const placementId = `${item.id}-${placed.length}`
+    const zone = sourceItem ? operationZone(sourceItem, rect, wall, placementId) : null
     const insideRoom =
       at.xCm >= -GEOMETRY_EPSILON_CM &&
       at.yCm >= -GEOMETRY_EPSILON_CM &&
@@ -1081,7 +1091,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       return false
     }
     placed.push({
-      id: `${item.id}-${placed.length}`,
+      id: placementId,
       itemId: item.id,
       title: item.title,
       xCm: at.xCm,
@@ -1126,7 +1136,8 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
         : edge.inward > 0
           ? 'left'
           : 'right'
-    const zone = sourceItem ? operationZone(sourceItem, rect, zoneWall) : null
+    const placementId = `${item.id}-${placed.length}`
+    const zone = sourceItem ? operationZone(sourceItem, rect, zoneWall, placementId) : null
     if (zone && !rectInsideFloor(zone, floorPolygon)) return false
     if (placed.some((other) => overlaps(rect, other))) return false
     if (functionalZones.some((other) => overlaps(rect, other))) return false
@@ -1148,7 +1159,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       return false
     }
     placed.push({
-      id: `${item.id}-${placed.length}`,
+      id: placementId,
       itemId: item.id,
       title: item.title,
       ...rect,
@@ -1182,7 +1193,8 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
           : touchesRight
             ? 'right'
             : 'center'
-    const zone = operationZone(entry.item, rect, wall)
+    const placementId = `${entry.item.id}-${placed.length}`
+    const zone = operationZone(entry.item, rect, wall, placementId)
     const insideBounds =
       rect.xCm >= -GEOMETRY_EPSILON_CM &&
       rect.yCm >= -GEOMETRY_EPSILON_CM &&
@@ -1227,7 +1239,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       continue
     }
     placed.push({
-      id: `${entry.item.id}-${placed.length}`,
+      id: placementId,
       itemId: entry.item.id,
       title: entry.item.title,
       ...rect,
@@ -1426,7 +1438,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       depthCm: entry.size.depthCm,
       wall: 'center',
     }
-    const zone = operationZone(entry.item, centerPlacement, 'center')
+    const zone = operationZone(entry.item, centerPlacement, 'center', centerPlacement.id)
     if (
       clearanceRects.some((clearanceRect) => overlaps(centerPlacement, clearanceRect)) ||
       keepClearZones.some((zone) => rectOverlapsPolygon(centerPlacement, zone.polygon))
