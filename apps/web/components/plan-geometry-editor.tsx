@@ -694,6 +694,7 @@ export function PlanGeometryEditor({
             geometry={{ ...geometry, walls, openings, rooms }}
             items={kitchenItems}
             onChange={setKitchenItems}
+            onOpeningsChange={setOpenings}
           />
           <div className="mt-6 grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,1fr)]">
             <div>

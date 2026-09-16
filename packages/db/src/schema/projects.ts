@@ -86,6 +86,8 @@ export type PlanOpening = {
   wallId: string
   offsetCm: number
   widthCm: number
+  /** Explicit rectangular keep-clear envelope, not an inferred door swing. */
+  clearance?: { side: 'left' | 'right'; depthCm: number }
 }
 export type PlanRoomShape = { name: string; polygon: PlanPoint[] }
 export type PlanKitchenItem = {
@@ -95,6 +97,10 @@ export type PlanKitchenItem = {
   yCm: number
   widthCm: number
   depthCm: number
+  front?: 'top' | 'right' | 'bottom' | 'left'
+  openingDepthCm?: number
+  passageCm?: number
+  installationGaps?: { top: number; right: number; bottom: number; left: number }
 }
 export type PlanGeometry = {
   version: 1

@@ -1,23 +1,28 @@
 'use client'
 
-import type { PlanGeometry, PlanKitchenItem } from '@uyut/db'
+import type { PlanGeometry, PlanKitchenItem, PlanOpening } from '@uyut/db'
 import { useRef, useState } from 'react'
+import { inspectClearances, rotateKitchenItem } from '@/lib/projects/clearance-zones'
 import { kitchenItemIssues, kitchenLabels } from '@/lib/projects/kitchen-items'
 
 export function KitchenPlanEditor({
   geometry,
   items,
   onChange,
+  onOpeningsChange,
 }: {
   geometry: PlanGeometry
   items: PlanKitchenItem[]
   onChange: (items: PlanKitchenItem[]) => void
+  onOpeningsChange: (openings: PlanOpening[]) => void
 }) {
   const [selectedId, setSelectedId] = useState<string>()
   const svg = useRef<SVGSVGElement>(null)
   const drag = useRef<{ id: string; dx: number; dy: number; pointerId: number } | null>(null)
   const selected = items.find((item) => item.id === selectedId)
-  const issues = kitchenItemIssues(items, geometry.widthCm, geometry.heightCm)
+  const issues = kitchenItemIssues(items, geometry.widthCm, geometry.heightCm, geometry)
+  const clearance = inspectClearances(items, geometry)
+  const directions = { top: 'Сверху', right: 'Справа', bottom: 'Снизу', left: 'Слева' } as const
   function point(clientX: number, clientY: number) {
     const matrix = svg.current?.getScreenCTM()
     return matrix ? new DOMPoint(clientX, clientY).matrixTransform(matrix.inverse()) : null
@@ -145,6 +150,19 @@ export function KitchenPlanEditor({
             </text>
           </g>
         ))}
+        {clearance.zones.map((zone) => (
+          <polygon
+            key={zone.id}
+            points={zone.polygon.map((p) => `${p.xCm},${p.yCm}`).join(' ')}
+            fill="var(--accent-tint)"
+            fillOpacity={0.3}
+            stroke="var(--accent)"
+            strokeDasharray="6 4"
+            pointerEvents="none"
+          >
+            <title>{zone.label}</title>
+          </polygon>
+        ))}
       </svg>
       {items.length > 0 ? (
         <label className="mt-3 block text-sm">
@@ -177,6 +195,7 @@ export function KitchenPlanEditor({
               }
               <input
                 type="number"
+                step="any"
                 min={field === 'xCm' || field === 'yCm' ? 0 : 10}
                 max={field === 'xCm' || field === 'yCm' ? 10000 : 600}
                 value={selected[field]}
@@ -190,7 +209,7 @@ export function KitchenPlanEditor({
           ))}
           <button
             type="button"
-            onClick={() => patch({ widthCm: selected.depthCm, depthCm: selected.widthCm })}
+            onClick={() => patch(rotateKitchenItem(selected))}
             className="border border-control p-2 text-sm"
           >
             Повернуть на 90°
@@ -207,6 +226,172 @@ export function KitchenPlanEditor({
           </button>
         </div>
       ) : null}
+      {selected ? (
+        <fieldset className="mt-4 space-y-3 border border-line p-3">
+          <legend className="px-1 text-sm">Открывание, проход и монтаж</legend>
+          <p className="text-xs text-ink-2">
+            Размеры берите из инструкции техники или замера. Пустое поле означает «неизвестно», 0 —
+            явно заданное отсутствие запаса. Проход измеряется от края открытой дверцы.
+          </p>
+          <label className="block text-sm">
+            Сторона фасада на схеме
+            <select
+              className="mt-1 block w-full border border-control bg-paper p-2"
+              value={selected.front ?? ''}
+              onChange={(e) =>
+                patch({ front: (e.target.value || undefined) as PlanKitchenItem['front'] })
+              }
+            >
+              <option value="">Не указана</option>
+              {Object.entries(directions).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            {(['openingDepthCm', 'passageCm'] as const).map((field) => (
+              <label className="text-sm" key={field}>
+                {field === 'openingDepthCm' ? 'Вылет открытой дверцы, см' : 'Свободный проход, см'}
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  max="600"
+                  className="mt-1 w-full border border-control bg-paper p-2"
+                  value={selected[field] ?? ''}
+                  onChange={(e) => {
+                    const v = e.currentTarget.valueAsNumber
+                    patch({ [field]: Number.isFinite(v) ? v : undefined })
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+          <label className="flex gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={!!selected.installationGaps}
+              onChange={(e) =>
+                patch({
+                  installationGaps: e.target.checked
+                    ? { top: 0, right: 0, bottom: 0, left: 0 }
+                    : undefined,
+                })
+              }
+            />
+            Задать монтажные зазоры (начальные значения — 0, проверьте все четыре)
+          </label>
+          {selected.installationGaps ? (
+            <div className="grid grid-cols-2 gap-3">
+              {(Object.keys(directions) as Array<keyof typeof directions>).map((side) => (
+                <label key={side} className="text-sm">
+                  {directions[side]}, см
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    max="100"
+                    value={selected.installationGaps?.[side] ?? 0}
+                    className="mt-1 w-full border border-control bg-paper p-2"
+                    onChange={(e) => {
+                      const value = e.currentTarget.valueAsNumber
+                      if (Number.isFinite(value) && selected.installationGaps)
+                        patch({ installationGaps: { ...selected.installationGaps, [side]: value } })
+                    }}
+                  />
+                </label>
+              ))}
+            </div>
+          ) : null}
+        </fieldset>
+      ) : null}
+      {geometry.openings.some((o) => o.type !== 'window') ? (
+        <details className="mt-4 border border-line p-3">
+          <summary className="cursor-pointer text-sm">Свободные зоны дверей</summary>
+          <p className="my-2 text-xs text-ink-2">
+            Прямоугольный резерв для открывания, не точная дуга створки. Сторона А — слева по
+            направлению от начала стены к концу, Б — справа. Проверьте штриховую зону на схеме. Для
+            раздвижной двери эта модель может не подойти.
+          </p>
+          {geometry.openings
+            .filter((o) => o.type !== 'window')
+            .map((o) => (
+              <fieldset key={o.id} className="my-3 space-y-2">
+                <legend className="text-sm">Дверь {o.id}</legend>
+                <label className="block text-sm">
+                  Сторона
+                  <select
+                    value={o.clearance?.side ?? ''}
+                    className="ml-2 border border-control bg-paper p-2"
+                    onChange={(e) => {
+                      const side = e.target.value as 'left' | 'right' | ''
+                      onOpeningsChange(
+                        geometry.openings.map((v) =>
+                          v.id === o.id
+                            ? {
+                                ...v,
+                                clearance: side
+                                  ? { side, depthCm: o.clearance?.depthCm ?? o.widthCm }
+                                  : undefined,
+                              }
+                            : v,
+                        ),
+                      )
+                    }}
+                  >
+                    <option value="">Не задана</option>
+                    <option value="left">А</option>
+                    <option value="right">Б</option>
+                  </select>
+                </label>
+                {o.clearance ? (
+                  <label className="block text-sm">
+                    Глубина резерва, см (начальное значение равно ширине проёма — уточните)
+                    <input
+                      type="number"
+                      min="0.1"
+                      max="600"
+                      step="any"
+                      className="mt-1 w-full border border-control bg-paper p-2"
+                      value={o.clearance.depthCm}
+                      onChange={(e) => {
+                        const depthCm = e.currentTarget.valueAsNumber
+                        const current = o.clearance
+                        if (Number.isFinite(depthCm) && current)
+                          onOpeningsChange(
+                            geometry.openings.map((v) =>
+                              v.id === o.id
+                                ? { ...v, clearance: { side: current.side, depthCm } }
+                                : v,
+                            ),
+                          )
+                      }}
+                    />
+                  </label>
+                ) : null}
+              </fieldset>
+            ))}
+        </details>
+      ) : null}
+      {clearance.issues.length > 0 ? (
+        <ul className="mt-3 text-sm text-danger" aria-live="polite">
+          {clearance.issues.map((issue) => (
+            <li key={issue}>{issue}</li>
+          ))}
+        </ul>
+      ) : null}
+      {clearance.missing.length > 0 ? (
+        <details className="mt-3 text-sm text-ink-2">
+          <summary>Нужно уточнить: {clearance.missing.length}</summary>
+          <ul>
+            {clearance.missing.map((issue) => (
+              <li key={issue}>{issue}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
       {issues.length > 0 ? (
         <ul className="mt-3 text-sm text-danger" aria-live="polite">
           {issues.map((issue) => (
@@ -215,8 +400,11 @@ export function KitchenPlanEditor({
         </ul>
       ) : null}
       <p className="mt-3 text-xs text-ink-2">
-        Проверяются пересечения модулей и границы полотна. Стены, проёмы и открывание техники пока
-        требуют проверки по плану. Расстановка сохраняется кнопкой подтверждения схемы.
+        Проверяются модули, контуры комнат, линии стен и проёмов по текущей схеме. Толщина стен,
+        проверка коммуникаций и высот остаются за специалистом. Штриховые зоны — заданные вами
+        резервы открывания, локального прохода и монтажа. Общий маршрут по квартире и точная дуга
+        дверцы не рассчитываются. Зоны прохода могут пересекаться между собой. Отсутствие
+        предупреждений не гарантирует монтаж. Расстановка сохраняется кнопкой подтверждения схемы.
       </p>
     </section>
   )

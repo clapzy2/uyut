@@ -13,6 +13,7 @@ import { recordAudit } from '@/lib/audit'
 import { canCreateProject, PROJECT_LIMIT } from '@/lib/billing/repository'
 import { preparePlan, UploadError } from '@/lib/files/uploads'
 import { AccessError, assertOwner } from '@/lib/projects/access'
+import { openingClearancesSchema } from '@/lib/projects/clearance-zones'
 import { planDimensionSources } from '@/lib/projects/dimension-sources'
 import { roomKindLabels } from '@/lib/projects/format'
 import { kitchenItemsSchema } from '@/lib/projects/kitchen-items'
@@ -213,6 +214,12 @@ export async function savePlanGeometry(
       return { ok: false, error: 'Сначала прочитайте план и постройте 2D-схему.' }
     }
     const submitted = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
+    const openingClearances = openingClearancesSchema.safeParse(submitted.openings ?? [])
+    if (!openingClearances.success)
+      return {
+        ok: false,
+        error: 'Проверьте свободные зоны дверей: глубина должна быть больше 0 и не больше 600 см.',
+      }
     const kitchenItems = kitchenItemsSchema.safeParse(
       submitted.kitchenItems ?? before.kitchenItems ?? [],
     )
@@ -270,6 +277,10 @@ export async function savePlanGeometry(
     }
     const saved: NonNullable<PlanReading['geometry']> = {
       ...checked,
+      openings: checked.openings.map((opening) => {
+        const clearance = openingClearances.data.find((o) => o.id === opening.id)?.clearance
+        return { ...opening, ...(clearance && opening.type !== 'window' ? { clearance } : {}) }
+      }),
       kitchenItems: kitchenItems.data,
       status: 'confirmed',
       confirmedAt: new Date().toISOString(),
