@@ -103,5 +103,11 @@ describe('кухонные модули', () => {
     expect(kitchenItemsSchema.safeParse([{ ...item, widthCm: Number.NaN }]).success).toBe(false)
     expect(kitchenItemsSchema.safeParse([item, item]).success).toBe(false)
     expect(kitchenItemsSchema.parse([item])).toEqual([item])
+    expect(
+      kitchenItemsSchema.parse([
+        { ...item, id: 'oven', kind: 'oven' },
+        { ...item, id: 'dishwasher', kind: 'dishwasher', xCm: 60 },
+      ]),
+    ).toHaveLength(2)
   })
 })

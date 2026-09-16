@@ -107,7 +107,7 @@ export type PlanUtilityPoint = {
 }
 export type PlanKitchenItem = {
   id: string
-  kind: 'sink' | 'hob' | 'fridge' | 'cabinet'
+  kind: 'sink' | 'hob' | 'oven' | 'dishwasher' | 'fridge' | 'cabinet'
   xCm: number
   yCm: number
   widthCm: number

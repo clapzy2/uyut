@@ -6,7 +6,7 @@ export const kitchenItemsSchema = z
   .array(
     z.object({
       id: z.string().min(1).max(80),
-      kind: z.enum(['sink', 'hob', 'fridge', 'cabinet']),
+      kind: z.enum(['sink', 'hob', 'oven', 'dishwasher', 'fridge', 'cabinet']),
       xCm: z.number().finite().min(0).max(10000),
       yCm: z.number().finite().min(0).max(10000),
       widthCm: z.number().finite().min(10).max(600),
@@ -34,6 +34,8 @@ export const kitchenItemsSchema = z
 export const kitchenLabels: Record<PlanKitchenItem['kind'], string> = {
   sink: 'Мойка',
   hob: 'Плита',
+  oven: 'Духовка',
+  dishwasher: 'Посудомоечная машина',
   fridge: 'Холодильник',
   cabinet: 'Гарнитур',
 }

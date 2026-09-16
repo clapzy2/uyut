@@ -27,6 +27,24 @@ describe('layoutRoom', () => {
     ])
   })
 
+  it('просит точное место для кресла у рабочего стола', () => {
+    const layout = layoutRoom({ widthCm: 300, depthCm: 400 }, [
+      item({
+        title: 'Рабочий стол',
+        category: 'table',
+        subcategory: 'desk',
+        dimensions: { width: 120, depth: 60, height: 75 },
+      }),
+    ])
+
+    expect(layout.operationInputs).toContainEqual({
+      id: 'Рабочий стол',
+      title: 'Рабочий стол',
+      kind: 'front',
+    })
+    expect(layout.functionalZones).toEqual([])
+  })
+
   it('не ставит мебель в измеренную зону открывания соседнего шкафа', () => {
     const layout = layoutRoom({ widthCm: 300, depthCm: 200 }, [
       item({

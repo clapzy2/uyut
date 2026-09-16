@@ -113,6 +113,22 @@ function sizeSentence(brief: ConceptBrief): string {
   return `${width} metres wide and ${depth} metres deep${height}`
 }
 
+/** Функциональные ограничения комнаты: они одинаковы для генерации с фото и без него. */
+function roomFunctionConstraints(brief: ConceptBrief): string {
+  switch (brief.roomKind) {
+    case 'bedroom':
+      return 'Keep a continuous route from the doorway to the bed and wardrobe. The wardrobe doors and drawers must open fully. Leave usable access beside the bed and at its foot; do not put the headboard, tall storage or a desk across a window, radiator or doorway.'
+    case 'living':
+      return 'Keep a direct route between the doorway, seating and window. Sofa-bed deployment, cabinet doors and drawers must remain usable without moving the main furniture or blocking the route. Keep tall storage away from windows and radiators.'
+    case 'kid':
+      return 'Keep a continuous route from the doorway to the bed, desk and storage and preserve an open play area. The desk chair and every drawer must open without blocking that route. Do not place tall storage across a window, radiator or doorway.'
+    case 'kitchen':
+      return 'Keep every appliance, drawer and cabinet door operable and preserve direct access from the entrance to the sink, hob, refrigerator, oven and dishwasher. Do not cover a ventilation point, radiator or utility connection.'
+    case 'bath':
+      return 'Keep direct access from the doorway to every fixture and keep all cabinet and shower doors operable.'
+  }
+}
+
 /**
  * Генеративная модель воспринимает размеры как пожелание, если не назвать их жёстким ограничением.
  * Здесь же задаём минимальный проход и запрещаем расширять маленькую комнату ради красивого кадра.
@@ -124,6 +140,7 @@ function scaleConstraints(brief: ConceptBrief): string {
     return [
       'Use believable apartment scale and keep a clear walking route from the doorway.',
       brief.roomKind === 'kitchen' ? kitchenConstraints(brief.sizeCm) : '',
+      roomFunctionConstraints(brief),
     ]
       .filter(Boolean)
       .join(' ')
@@ -131,6 +148,7 @@ function scaleConstraints(brief: ConceptBrief): string {
   const narrow = Math.min(width, depth) < 240
   return [
     brief.roomKind === 'kitchen' ? kitchenConstraints(brief.sizeCm) : '',
+    roomFunctionConstraints(brief),
     'Treat the stated dimensions as hard outer-wall constraints; do not make the room wider or deeper for the composition.',
     'Use furniture at real scale and keep an unobstructed walking route at least 80 cm wide.',
     'Keep the doorway and window clear; no furniture may cross an opening.',
@@ -182,6 +200,7 @@ export function fixedPreamble(brief: ConceptBrief): string {
       'If a window is visible, remove its protective film and stickers: clean glass and a calm view outside.',
       'Do not add a window where none exists; use artificial lighting in windowless rooms.',
       brief.roomKind === 'kitchen' ? kitchenConstraints(brief.sizeCm) : '',
+      roomFunctionConstraints(brief),
     ].join(' ')
   }
   // Технику и радиаторы при смене интерьера не покупают заново, а мы их стирали.
@@ -194,6 +213,7 @@ export function fixedPreamble(brief: ConceptBrief): string {
     'the television, the radiators, the air conditioner, the built-in kitchen appliances,',
     'the sockets and switches, in the same places and of the same size.',
     brief.roomKind === 'kitchen' ? kitchenConstraints(brief.sizeCm) : '',
+    roomFunctionConstraints(brief),
   ].join(' ')
 }
 

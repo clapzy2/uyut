@@ -88,6 +88,7 @@ export function inspectUtilities(
   const missing: string[] = []
   const required: Partial<Record<PlanKitchenItem['kind'], PlanUtilityPoint['kind'][]>> = {
     sink: ['water', 'drain'],
+    dishwasher: ['water', 'drain', 'socket'],
     fridge: ['socket'],
     hob: ['vent'],
   }
@@ -114,11 +115,19 @@ export function inspectUtilities(
           `Модуль ${index + 1} дальше заданной длины подключения «${utilityLabels[kind]}».`,
         )
     }
-    if (
-      item.kind === 'hob' &&
-      !points.some((point) => point.kind === 'socket' || point.kind === 'gas')
-    )
-      missing.push(`Модуль ${index + 1}: укажите розетку или газ для плиты.`)
+    if (item.kind === 'hob' || item.kind === 'oven') {
+      const power = points.filter((point) => point.kind === 'socket' || point.kind === 'gas')
+      const label = item.kind === 'oven' ? 'подключение духовки' : 'розетку или газ для плиты'
+      if (power.length === 0) missing.push(`Модуль ${index + 1}: укажите ${label}.`)
+      else if (power.every((point) => point.reachCm === undefined))
+        missing.push(`Модуль ${index + 1}: для «${label}» задайте допустимую длину подключения.`)
+      else if (
+        !power.some(
+          (point) => point.reachCm !== undefined && distanceToItem(point, item) <= point.reachCm,
+        )
+      )
+        issues.push(`Модуль ${index + 1} дальше заданной длины для «${label}».`)
+    }
   }
   for (const point of points.filter((candidate) => candidate.kind === 'radiator')) {
     if (point.reachCm === undefined) missing.push(`Радиатор ${point.id}: задайте свободный радиус.`)

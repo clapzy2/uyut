@@ -116,6 +116,19 @@ describe('buildTemplatePlan', () => {
       brief({ hasPhoto: false, roomKind: 'bedroom', sizeCm: { widthCm: 220, depthCm: 420 } }),
     )
     expect(text).not.toContain('one-wall or shallow L-shaped')
+    expect(text).toContain('usable access beside the bed and at its foot')
+    expect(text).toContain('wardrobe doors and drawers must open fully')
+  })
+
+  it('учитывает рабочее кресло и раскладывание дивана в жилых комнатах', () => {
+    const living = fixedPreamble(
+      brief({ roomKind: 'living', condition: 'finished', household: { wfh: true } }),
+    )
+    expect(living).toContain('Sofa-bed deployment')
+    expect(living).toContain('cabinet doors and drawers must remain usable')
+    const kid = fixedPreamble(brief({ roomKind: 'kid', condition: 'bare' }))
+    expect(kid).toContain('desk chair and every drawer must open')
+    expect(kid).toContain('open play area')
   })
 
   it('LLM получает размеры и архитектуру; они остаются в итоговом промпте', async () => {

@@ -456,6 +456,9 @@ function operationRequirement(
   if (item.category === 'table' && item.subcategory === 'dining') {
     return { kind: 'around', fallbackCm: CHAIR_PULLOUT_CM }
   }
+  if (item.category === 'table' && item.subcategory === 'desk') {
+    return { kind: 'front' }
+  }
   if (item.category === 'table' && item.subcategory === 'coffee') {
     return { kind: 'around', fallbackCm: COFFEE_CLEARANCE_CM }
   }

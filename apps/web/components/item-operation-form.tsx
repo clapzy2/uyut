@@ -10,7 +10,7 @@ type OperationKind = 'front' | 'side' | 'around'
 const COPY: Record<OperationKind, { label: string; hint: string }> = {
   front: {
     label: 'Запас перед предметом, см',
-    hint: 'Для открытой дверцы, ящика или разложенной части — сверх обычной глубины.',
+    hint: 'Для открытой дверцы, ящика, разложенной части или кресла у стола — сверх обычной глубины.',
   },
   side: {
     label: 'Свободно с каждого бока, см',

@@ -149,4 +149,48 @@ describe('инженерия кухни и непрерывные маршрут
       }).success,
     ).toBe(true)
   })
+  it('проверяет все подключения посудомоечной машины отдельно от шкафа', () => {
+    const dishwasher: PlanKitchenItem = {
+      id: 'dishwasher',
+      kind: 'dishwasher',
+      xCm: 200,
+      yCm: 100,
+      widthCm: 60,
+      depthCm: 60,
+    }
+    const incomplete = inspectUtilities(
+      [dishwasher],
+      [{ id: 'water', kind: 'water', xCm: 200, yCm: 100, reachCm: 20 }],
+    )
+    expect(incomplete.missing.join(' ')).toContain('Канализация')
+    expect(incomplete.missing.join(' ')).toContain('Розетка')
+    const points: PlanUtilityPoint[] = [
+      { id: 'water', kind: 'water', xCm: 200, yCm: 100, reachCm: 20 },
+      { id: 'drain', kind: 'drain', xCm: 200, yCm: 100, reachCm: 20 },
+      { id: 'socket', kind: 'socket', xCm: 200, yCm: 100, reachCm: 20 },
+    ]
+    expect(inspectUtilities([dishwasher], points).missing).toEqual([])
+  })
+
+  it('не считает духовку обычным шкафом и требует её подключение', () => {
+    const oven: PlanKitchenItem = {
+      id: 'oven',
+      kind: 'oven',
+      xCm: 200,
+      yCm: 100,
+      widthCm: 60,
+      depthCm: 60,
+    }
+    expect(inspectUtilities([oven], []).missing.join(' ')).toContain('подключение духовки')
+    expect(
+      inspectUtilities([oven], [{ id: 'socket', kind: 'socket', xCm: 200, yCm: 100, reachCm: 20 }])
+        .missing,
+    ).toEqual([])
+    expect(
+      inspectUtilities(
+        [oven],
+        [{ id: 'socket', kind: 'socket', xCm: 100, yCm: 100, reachCm: 39 }],
+      ).issues.join(' '),
+    ).toContain('дальше заданной длины')
+  })
 })
