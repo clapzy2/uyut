@@ -169,6 +169,19 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
               strokeWidth={2}
             />
           )}
+          {layout.keepClearZones.map((zone) => (
+            <polygon
+              key={`${zone.kind}-${zone.label}-${zone.polygon[0]?.xCm}-${zone.polygon[0]?.yCm}`}
+              points={zone.polygon
+                .map((point) => `${PADDING + point.xCm * scale},${PADDING + point.yCm * scale}`)
+                .join(' ')}
+              className="fill-danger/10 stroke-danger"
+              strokeWidth={1}
+              strokeDasharray="5 4"
+            >
+              <title>{zone.label}</title>
+            </polygon>
+          ))}
           {layout.floorReservations.map((reservation) => {
             const clearance = layout.floorPolygon
               ? exactClearanceRect(reservation, layout.floorPolygon)
@@ -286,7 +299,9 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
           </li>
         ))}
       </ol>
-      {layout.reservations.length > 0 || layout.floorReservations.length > 0 ? (
+      {layout.reservations.length > 0 ||
+      layout.floorReservations.length > 0 ||
+      layout.keepClearZones.length > 0 ? (
         <p className="mt-3 text-[12px] leading-relaxed text-ink-2">
           {layout.reservationSource === 'geometry'
             ? 'Учтено по подтверждённой 2D-схеме: '
@@ -294,7 +309,7 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
           {(layout.floorReservations.length > 0 ? layout.floorReservations : layout.reservations)
             .map((reservation) => RESERVATION_LABELS[reservation.kind])
             .join(', ')}
-          . Пунктиром показан свободный подход к двери или балкону.
+          . Пунктиром показаны введённые зоны открывания и радиаторов.
         </p>
       ) : null}
     </div>
@@ -303,7 +318,10 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
 
 export function RoomPlan({ layout }: { layout: RoomLayout }) {
   const problems = layout.problems
-  const hasOpenings = layout.reservations.length > 0 || layout.floorReservations.length > 0
+  const hasOpenings =
+    layout.reservations.length > 0 ||
+    layout.floorReservations.length > 0 ||
+    layout.keepClearZones.length > 0
   return (
     <div>
       <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
@@ -325,6 +343,19 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
         <p className="mb-4 text-[13px] leading-relaxed text-ink-2">{layout.measurementNote}</p>
       ) : null}
       <RoomPlanDrawing layout={layout} />
+
+      {layout.missingSafetyData.length > 0 ? (
+        <div className="mt-4 border border-accent/40 bg-accent-tint p-3">
+          <p className="text-[13px] leading-relaxed text-ink">
+            Для точной проверки не хватает данных:
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink-2">
+            {layout.missingSafetyData.map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {problems.length > 0 ? (
         <ul className="mt-4 flex flex-col gap-2">

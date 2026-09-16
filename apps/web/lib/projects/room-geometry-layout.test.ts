@@ -13,8 +13,22 @@ const geometry: PlanGeometry = {
     { id: 'left', kind: 'inner', start: { xCm: 100, yCm: 50 }, end: { xCm: 100, yCm: 350 } },
   ],
   openings: [
-    { id: 'window', type: 'window', wallId: 'top', offsetCm: 120, widthCm: 100 },
-    { id: 'door', type: 'door', wallId: 'left', offsetCm: 180, widthCm: 90 },
+    {
+      id: 'window',
+      type: 'window',
+      wallId: 'top',
+      offsetCm: 120,
+      widthCm: 100,
+      sillHeightCm: 85,
+    },
+    {
+      id: 'door',
+      type: 'door',
+      wallId: 'left',
+      offsetCm: 180,
+      widthCm: 90,
+      clearance: { side: 'right', depthCm: 90, shape: 'rectangle' },
+    },
   ],
   rooms: [
     {
@@ -60,8 +74,15 @@ describe('проёмы комнаты из 2D-схемы', () => {
         { xCm: 0, yCm: 300 },
       ],
       reservations: [
-        { kind: 'window', wall: 'top', fromCm: 120, toCm: 220, clearanceCm: 0 },
-        { kind: 'door', wall: 'left', fromCm: 180, toCm: 270, clearanceCm: 90 },
+        {
+          kind: 'window',
+          wall: 'top',
+          fromCm: 120,
+          toCm: 220,
+          clearanceCm: 0,
+          sillHeightCm: 85,
+        },
+        { kind: 'door', wall: 'left', fromCm: 180, toCm: 270, clearanceCm: 0 },
       ],
       floorReservations: [
         {
@@ -69,14 +90,28 @@ describe('проёмы комнаты из 2D-схемы', () => {
           start: { xCm: 120, yCm: 0 },
           end: { xCm: 220, yCm: 0 },
           clearanceCm: 0,
+          sillHeightCm: 85,
         },
         {
           kind: 'door',
           start: { xCm: 0, yCm: 180 },
           end: { xCm: 0, yCm: 270 },
-          clearanceCm: 90,
+          clearanceCm: 0,
         },
       ],
+      keepClearZones: [
+        {
+          kind: 'door',
+          label: 'Дверь door: свободная зона',
+          polygon: [
+            { xCm: 0, yCm: 180 },
+            { xCm: 0, yCm: 270 },
+            { xCm: 90, yCm: 270 },
+            { xCm: 90, yCm: 180 },
+          ],
+        },
+      ],
+      missingSafetyData: [],
     })
   })
 
@@ -97,6 +132,28 @@ describe('проёмы комнаты из 2D-схемы', () => {
     expect(
       roomLayoutInputFromGeometry({ ...geometry, status: 'draft' }, 'Гостиная', null),
     ).toBeNull()
+  })
+
+  it('не подставляет типовую глубину двери и переносит радиатор в точную зону', () => {
+    const result = roomLayoutInputFromGeometry(
+      {
+        ...geometry,
+        openings: geometry.openings.map((opening) =>
+          opening.id === 'door' ? { ...opening, clearance: undefined } : opening,
+        ),
+        utilityPoints: [
+          { id: 'radiator', kind: 'radiator', xCm: 300, yCm: 60, reachCm: 30 },
+          { id: 'unknown-radius', kind: 'radiator', xCm: 450, yCm: 60 },
+        ],
+      },
+      'Гостиная',
+      null,
+    )
+    expect(result?.floorReservations.find((entry) => entry.kind === 'door')?.clearanceCm).toBe(0)
+    expect(result?.keepClearZones).toHaveLength(1)
+    expect(result?.keepClearZones[0]?.kind).toBe('radiator')
+    expect(result?.missingSafetyData.join(' ')).toContain('Дверь door')
+    expect(result?.missingSafetyData.join(' ')).toContain('Радиатор unknown-radius')
   })
 
   it('сохраняет точный контур Г-образной комнаты', () => {

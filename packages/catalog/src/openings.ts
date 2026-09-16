@@ -10,6 +10,8 @@ export type WallReservation = {
   toCm: number
   /** Глубина свободной зоны внутрь комнаты; нужна дверям и балконным выходам. */
   clearanceCm: number
+  /** Если высота мебели ниже подоконника, участок стены под окном можно использовать. */
+  sillHeightCm?: number
 }
 
 const DEFAULT_WIDTH: Record<WallReservationKind, number> = {

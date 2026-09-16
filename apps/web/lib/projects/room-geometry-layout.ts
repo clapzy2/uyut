@@ -1,5 +1,11 @@
-import type { FloorReservation, RoomLayoutInput, WallReservation } from '@uyut/catalog'
+import type {
+  FloorKeepClearZone,
+  FloorReservation,
+  RoomLayoutInput,
+  WallReservation,
+} from '@uyut/catalog'
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall, RoomMeasurements } from '@uyut/db'
+import { doorClearanceZone } from './clearance-zones'
 
 const BOUNDARY_TOLERANCE_CM = 20
 
@@ -8,6 +14,8 @@ export type GeometryRoomLayoutInput = RoomLayoutInput & {
   depthCm: number
   reservations: WallReservation[]
   floorReservations: FloorReservation[]
+  keepClearZones: FloorKeepClearZone[]
+  missingSafetyData: string[]
 }
 
 function normalizedName(value: string): string {
@@ -30,12 +38,24 @@ function openingPoints(opening: PlanOpening, wall: PlanWall): [PlanPoint, PlanPo
   ]
 }
 
-function clearanceCm(type: PlanOpening['type']): number {
-  return type === 'door' || type === 'balcony' ? 90 : 0
-}
-
 function reservationKind(type: PlanOpening['type']): WallReservation['kind'] {
   return type
+}
+
+function pointInPolygon(point: PlanPoint, polygon: readonly PlanPoint[]): boolean {
+  let inside = false
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index]
+    const end = polygon[(index + 1) % polygon.length]
+    if (!start || !end) continue
+    if (
+      start.yCm > point.yCm !== end.yCm > point.yCm &&
+      point.xCm <
+        ((end.xCm - start.xCm) * (point.yCm - start.yCm)) / (end.yCm - start.yCm) + start.xCm
+    )
+      inside = !inside
+  }
+  return inside
 }
 
 function pointDistanceToSegment(point: PlanPoint, start: PlanPoint, end: PlanPoint): number {
@@ -115,23 +135,46 @@ export function roomLayoutInputFromGeometry(
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
   const reservations: WallReservation[] = []
   const floorReservations: FloorReservation[] = []
+  const keepClearZones: FloorKeepClearZone[] = []
+  const missingSafetyData: string[] = []
+  const localPoint = (point: PlanPoint): PlanPoint => ({
+    xCm: (point.xCm - minX) * scaleX,
+    yCm: (point.yCm - minY) * scaleY,
+  })
 
   for (const opening of geometry.openings) {
     const wall = wallById.get(opening.wallId)
     if (!wall) continue
     const [start, end] = openingPoints(opening, wall)
     if (!openingBelongsToRoom(start, end, room.polygon)) continue
+    const clearance = doorClearanceZone(opening, geometry)
+    if (opening.type !== 'window') {
+      if (!clearance) {
+        missingSafetyData.push(
+          `${opening.type === 'balcony' ? 'Балконный блок' : 'Дверь'} ${opening.id}: задайте свободную зону открывания.`,
+        )
+      } else {
+        const centre = clearance.polygon.reduce(
+          (sum, point) => ({
+            xCm: sum.xCm + point.xCm / clearance.polygon.length,
+            yCm: sum.yCm + point.yCm / clearance.polygon.length,
+          }),
+          { xCm: 0, yCm: 0 },
+        )
+        if (pointInPolygon(centre, room.polygon))
+          keepClearZones.push({
+            kind: opening.type,
+            label: clearance.label,
+            polygon: clearance.polygon.map(localPoint),
+          })
+      }
+    }
     floorReservations.push({
       kind: reservationKind(opening.type),
-      start: {
-        xCm: (start.xCm - minX) * scaleX,
-        yCm: (start.yCm - minY) * scaleY,
-      },
-      end: {
-        xCm: (end.xCm - minX) * scaleX,
-        yCm: (end.yCm - minY) * scaleY,
-      },
-      clearanceCm: clearanceCm(opening.type),
+      start: localPoint(start),
+      end: localPoint(end),
+      clearanceCm: 0,
+      ...(opening.sillHeightCm === undefined ? {} : { sillHeightCm: opening.sillHeightCm }),
     })
     const horizontal =
       Math.abs(wall.end.xCm - wall.start.xCm) >= Math.abs(wall.end.yCm - wall.start.yCm)
@@ -152,7 +195,8 @@ export function roomLayoutInputFromGeometry(
         wall: wallSide,
         fromCm: (clippedStart - minX) * scaleX,
         toCm: (clippedEnd - minX) * scaleX,
-        clearanceCm: clearanceCm(opening.type),
+        clearanceCm: 0,
+        ...(opening.sillHeightCm === undefined ? {} : { sillHeightCm: opening.sillHeightCm }),
       })
       continue
     }
@@ -173,8 +217,35 @@ export function roomLayoutInputFromGeometry(
       wall: wallSide,
       fromCm: (clippedStart - minY) * scaleY,
       toCm: (clippedEnd - minY) * scaleY,
-      clearanceCm: clearanceCm(opening.type),
+      clearanceCm: 0,
+      ...(opening.sillHeightCm === undefined ? {} : { sillHeightCm: opening.sillHeightCm }),
     })
+  }
+
+  for (const point of geometry.utilityPoints ?? []) {
+    if (point.kind !== 'radiator') continue
+    const belongs =
+      pointInPolygon(point, room.polygon) ||
+      room.polygon.some((start, index) => {
+        const end = room.polygon[(index + 1) % room.polygon.length]
+        return end ? pointDistanceToSegment(point, start, end) <= BOUNDARY_TOLERANCE_CM : false
+      })
+    if (!belongs) continue
+    if (point.reachCm === undefined) {
+      missingSafetyData.push(`Радиатор ${point.id}: задайте свободный радиус.`)
+      continue
+    }
+    const polygon: PlanPoint[] = []
+    for (let index = 0; index < 24; index += 1) {
+      const angle = (Math.PI * 2 * index) / 24
+      polygon.push(
+        localPoint({
+          xCm: point.xCm + Math.cos(angle) * point.reachCm,
+          yCm: point.yCm + Math.sin(angle) * point.reachCm,
+        }),
+      )
+    }
+    keepClearZones.push({ kind: 'radiator', label: `Радиатор ${point.id}`, polygon })
   }
 
   return {
@@ -184,5 +255,7 @@ export function roomLayoutInputFromGeometry(
     ...(measurements?.layoutNotes ? { layoutNotes: measurements.layoutNotes } : {}),
     reservations,
     floorReservations,
+    keepClearZones,
+    missingSafetyData: [...new Set(missingSafetyData)],
   }
 }

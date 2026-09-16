@@ -65,6 +65,81 @@ describe('layoutRoom', () => {
     ])
   })
 
+  it('ставит низкую мебель под окно только при известных высотах', () => {
+    const room = {
+      widthCm: 150,
+      depthCm: 140,
+      reservations: [
+        {
+          kind: 'window' as const,
+          wall: 'top' as const,
+          fromCm: 0,
+          toCm: 150,
+          clearanceCm: 0,
+          sillHeightCm: 90,
+        },
+      ],
+    }
+    const low = layoutRoom(room, [
+      item({ title: 'Комод', dimensions: { width: 150, depth: 40, height: 80 } }),
+    ])
+    expect(low.placed[0]?.wall).toBe('top')
+    const tall = layoutRoom(room, [
+      item({ title: 'Шкаф', dimensions: { width: 150, depth: 40, height: 200 } }),
+    ])
+    expect(tall.placed[0]?.wall).not.toBe('top')
+    const unknownSill = layoutRoom(
+      {
+        ...room,
+        reservations: [
+          {
+            kind: 'window',
+            wall: 'top',
+            fromCm: 0,
+            toCm: 150,
+            clearanceCm: 0,
+          },
+        ],
+      },
+      [item({ title: 'Комод', dimensions: { width: 150, depth: 40, height: 80 } })],
+    )
+    expect(unknownSill.placed[0]?.wall).not.toBe('top')
+  })
+
+  it('не ставит мебель в точную дугу двери или зону радиатора', () => {
+    const result = layoutRoom(
+      {
+        widthCm: 200,
+        depthCm: 140,
+        keepClearZones: [
+          {
+            kind: 'door',
+            label: 'Дуга двери',
+            polygon: [
+              { xCm: 0, yCm: 0 },
+              { xCm: 120, yCm: 0 },
+              { xCm: 120, yCm: 140 },
+              { xCm: 0, yCm: 140 },
+            ],
+          },
+          {
+            kind: 'radiator',
+            label: 'Радиатор',
+            polygon: [
+              { xCm: 120, yCm: 0 },
+              { xCm: 200, yCm: 0 },
+              { xCm: 200, yCm: 140 },
+              { xCm: 120, yCm: 140 },
+            ],
+          },
+        ],
+      },
+      [item({ title: 'Комод', dimensions: { width: 100, depth: 40, height: 80 } })],
+    )
+    expect(result.placed).toEqual([])
+    expect(result.problems).toContainEqual({ kind: 'noWall', title: 'Комод', widthCm: 100 })
+  })
+
   it('оставляет свободной зону открывания двери перед стеной', () => {
     const layout = layoutRoom(
       {

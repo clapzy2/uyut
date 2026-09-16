@@ -47,6 +47,14 @@ export type FloorReservation = {
   start: LayoutPoint
   end: LayoutPoint
   clearanceCm: number
+  sillHeightCm?: number
+}
+
+/** Точная зона пола, которую нельзя занимать мебелью: дуга двери или запас у радиатора. */
+export type FloorKeepClearZone = {
+  kind: 'door' | 'balcony' | 'radiator'
+  label: string
+  polygon: LayoutPoint[]
 }
 
 export type Placement = {
@@ -87,6 +95,9 @@ export type RoomLayout = {
   reservations: WallReservation[]
   /** Точные проёмы, включая стены ниш и выступов. */
   floorReservations: FloorReservation[]
+  keepClearZones: FloorKeepClearZone[]
+  /** Какие обмеры ещё нужны, чтобы проверка не подставляла типовые числа. */
+  missingSafetyData: string[]
   /** Откуда взялись координаты проёмов. */
   reservationSource: 'geometry' | 'description' | 'none'
 }
@@ -101,6 +112,9 @@ export type RoomLayoutInput = {
   reservations?: readonly WallReservation[]
   /** Точные проёмы на произвольных участках контура. */
   floorReservations?: readonly FloorReservation[]
+  /** Точные зоны открывания и инженерные резервы в локальных координатах комнаты. */
+  keepClearZones?: readonly FloorKeepClearZone[]
+  missingSafetyData?: readonly string[]
 }
 
 /** Где предмет стоит: у стены, посреди комнаты или нигде, потому что он висит. */
@@ -132,7 +146,7 @@ function spotFor(item: LayoutItem): Spot {
 }
 
 /** Ширина вдоль стены и глубина от стены. Порядок сторон в фидах: ширина × глубина × высота. */
-function footprint(dimensions: DimensionsCm | null): { widthCm: number; depthCm: number } | null {
+function footprint(dimensions: DimensionsCm | null): Size | null {
   if (!dimensions) {
     return null
   }
@@ -142,10 +156,14 @@ function footprint(dimensions: DimensionsCm | null): { widthCm: number; depthCm:
   }
   // Раскладка отвечает не только за длину вдоль стены, но и за выступ в комнату. Поэтому
   // частичный размер здесь хуже отсутствующего: выдуманная глубина создаёт ложный проход.
-  return { widthCm: width, depthCm: depth }
+  return {
+    widthCm: width,
+    depthCm: depth,
+    ...(dimensions.height === undefined ? {} : { heightCm: dimensions.height }),
+  }
 }
 
-type Size = { widthCm: number; depthCm: number }
+type Size = { widthCm: number; depthCm: number; heightCm?: number }
 
 type Rect = { xCm: number; yCm: number; widthCm: number; depthCm: number }
 
@@ -342,6 +360,44 @@ function rectBlocksFloorReservation(rect: Rect, reservation: FloorReservation): 
   )
 }
 
+function reservationBlocksHeight(
+  reservation: Pick<FloorReservation, 'kind' | 'sillHeightCm'>,
+  item: Size,
+): boolean {
+  if (reservation.kind !== 'window' || reservation.sillHeightCm === undefined) return true
+  return item.heightCm === undefined || item.heightCm >= reservation.sillHeightCm
+}
+
+/** SAT для прямоугольника и выпуклой зоны. Касание границ допустимо, пересечение — нет. */
+function rectOverlapsPolygon(rect: Rect, polygon: readonly LayoutPoint[]): boolean {
+  if (polygon.length < 3) return false
+  const rectPoints = [
+    { xCm: rect.xCm, yCm: rect.yCm },
+    { xCm: rect.xCm + rect.widthCm, yCm: rect.yCm },
+    { xCm: rect.xCm + rect.widthCm, yCm: rect.yCm + rect.depthCm },
+    { xCm: rect.xCm, yCm: rect.yCm + rect.depthCm },
+  ]
+  for (const shape of [rectPoints, polygon]) {
+    for (let index = 0; index < shape.length; index += 1) {
+      const start = shape[index]
+      const end = shape[(index + 1) % shape.length]
+      if (!start || !end) continue
+      const length = Math.hypot(end.xCm - start.xCm, end.yCm - start.yCm)
+      if (length <= GEOMETRY_EPSILON_CM) continue
+      const nx = -(end.yCm - start.yCm) / length
+      const ny = (end.xCm - start.xCm) / length
+      const rectProjection = rectPoints.map((point) => point.xCm * nx + point.yCm * ny)
+      const polygonProjection = polygon.map((point) => point.xCm * nx + point.yCm * ny)
+      if (
+        Math.max(...rectProjection) <= Math.min(...polygonProjection) + GEOMETRY_EPSILON_CM ||
+        Math.max(...polygonProjection) <= Math.min(...rectProjection) + GEOMETRY_EPSILON_CM
+      )
+        return false
+    }
+  }
+  return true
+}
+
 type WallState = {
   wall: LayoutWall
   lengthCm: number
@@ -358,7 +414,11 @@ type WallState = {
 function sizeOnWall(wall: LayoutWall, size: Size): Size {
   return wall === 'top' || wall === 'bottom'
     ? size
-    : { widthCm: size.depthCm, depthCm: size.widthCm }
+    : {
+        widthCm: size.depthCm,
+        depthCm: size.widthCm,
+        ...(size.heightCm === undefined ? {} : { heightCm: size.heightCm }),
+      }
 }
 
 /** Угол предмета в координатах комнаты. Размер здесь уже развёрнут по стене. */
@@ -593,6 +653,8 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       unmeasured: [],
       reservations: [],
       floorReservations: [],
+      keepClearZones: [],
+      missingSafetyData: [],
       reservationSource: 'none',
     }
   }
@@ -620,6 +682,18 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       start: { ...reservation.start },
       end: { ...reservation.end },
     })) ?? []
+  const keepClearZones =
+    room.keepClearZones
+      ?.filter(
+        (zone) =>
+          zone.polygon.length >= 3 &&
+          zone.polygon.every((point) => Number.isFinite(point.xCm) && Number.isFinite(point.yCm)),
+      )
+      .map((zone) => ({
+        ...zone,
+        polygon: zone.polygon.map((point) => ({ ...point })),
+      })) ?? []
+  const missingSafetyData = [...new Set(room.missingSafetyData ?? [])]
   const wallFloorReservations: FloorReservation[] = reservations.map((reservation) => {
     switch (reservation.wall) {
       case 'top':
@@ -628,6 +702,9 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
           start: { xCm: reservation.fromCm, yCm: 0 },
           end: { xCm: reservation.toCm, yCm: 0 },
           clearanceCm: reservation.clearanceCm,
+          ...(reservation.sillHeightCm === undefined
+            ? {}
+            : { sillHeightCm: reservation.sillHeightCm }),
         }
       case 'bottom':
         return {
@@ -635,6 +712,9 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
           start: { xCm: reservation.fromCm, yCm: depthCm },
           end: { xCm: reservation.toCm, yCm: depthCm },
           clearanceCm: reservation.clearanceCm,
+          ...(reservation.sillHeightCm === undefined
+            ? {}
+            : { sillHeightCm: reservation.sillHeightCm }),
         }
       case 'left':
         return {
@@ -642,6 +722,9 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
           start: { xCm: 0, yCm: reservation.fromCm },
           end: { xCm: 0, yCm: reservation.toCm },
           clearanceCm: reservation.clearanceCm,
+          ...(reservation.sillHeightCm === undefined
+            ? {}
+            : { sillHeightCm: reservation.sillHeightCm }),
         }
       case 'right':
         return {
@@ -649,6 +732,9 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
           start: { xCm: widthCm, yCm: reservation.fromCm },
           end: { xCm: widthCm, yCm: reservation.toCm },
           clearanceCm: reservation.clearanceCm,
+          ...(reservation.sillHeightCm === undefined
+            ? {}
+            : { sillHeightCm: reservation.sillHeightCm }),
         }
       default:
         throw new Error(`Неизвестная сторона стены: ${reservation.wall satisfies never}`)
@@ -788,15 +874,21 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     const blocksWall = reservations.some(
       (reservation) =>
         reservation.wall === wall &&
+        reservationBlocksHeight(reservation, item.size) &&
         along < reservation.toCm - GEOMETRY_EPSILON_CM &&
         reservation.fromCm < along + item.size.widthCm - GEOMETRY_EPSILON_CM,
     )
     const collides = placed.some((other) => overlaps(rect, other))
     const blocksAccess = clearanceRects.some((clearance) => overlaps(rect, clearance))
-    const blocksFloorOpening = blockingFloorReservations.some((reservation) =>
-      rectBlocksFloorReservation(rect, reservation),
+    const blocksFloorOpening = blockingFloorReservations.some(
+      (reservation) =>
+        reservationBlocksHeight(reservation, item.size) &&
+        rectBlocksFloorReservation(rect, reservation),
     )
-    if (blocksWall || blocksFloorOpening || collides || blocksAccess) {
+    const blocksKeepClearZone = keepClearZones.some((zone) =>
+      rectOverlapsPolygon(rect, zone.polygon),
+    )
+    if (blocksWall || blocksFloorOpening || collides || blocksAccess || blocksKeepClearZone) {
       return false
     }
     placed.push({
@@ -837,7 +929,12 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     if (placed.some((other) => overlaps(rect, other))) return false
     if (clearanceRects.some((clearance) => overlaps(rect, clearance))) return false
     if (
-      blockingFloorReservations.some((reservation) => rectBlocksFloorReservation(rect, reservation))
+      blockingFloorReservations.some(
+        (reservation) =>
+          reservationBlocksHeight(reservation, item.size) &&
+          rectBlocksFloorReservation(rect, reservation),
+      ) ||
+      keepClearZones.some((zone) => rectOverlapsPolygon(rect, zone.polygon))
     ) {
       return false
     }
@@ -1035,7 +1132,10 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       depthCm: entry.size.depthCm,
       wall: 'center',
     }
-    if (clearanceRects.some((clearanceRect) => overlaps(centerPlacement, clearanceRect))) {
+    if (
+      clearanceRects.some((clearanceRect) => overlaps(centerPlacement, clearanceRect)) ||
+      keepClearZones.some((zone) => rectOverlapsPolygon(centerPlacement, zone.polygon))
+    ) {
       problems.push({ kind: 'noCenter', title: entry.item.title })
       continue
     }
@@ -1066,6 +1166,8 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     unmeasured,
     reservations,
     floorReservations,
+    keepClearZones,
+    missingSafetyData,
     reservationSource,
   }
 }

@@ -26,6 +26,7 @@ function lines(layout: RoomLayout): string[] {
       )
     }
   }
+  for (const missing of layout.missingSafetyData) result.push(missing)
   return result
 }
 
@@ -42,7 +43,7 @@ export function FitWarnings({ rooms, projectId }: { rooms: RoomFit[]; projectId:
   return (
     <div className="mt-8 animate-[rise-in_350ms_var(--ease-appear)] border border-danger/40 bg-paper p-5">
       <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-danger">
-        По меркам не сходится
+        Нужна проверка размеров
       </p>
       <ul className="mt-3 flex flex-col gap-2">
         {trouble.map((room) => (
