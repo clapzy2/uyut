@@ -7,6 +7,7 @@ import type {
   WallReservationKind,
 } from '@uyut/catalog'
 import { WALKWAY_CM } from '@uyut/catalog'
+import { ItemOperationForm } from '@/components/item-operation-form'
 import { ItemSizeForm } from '@/components/item-size-form'
 
 /**
@@ -182,6 +183,27 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
               <title>{zone.label}</title>
             </polygon>
           ))}
+          {layout.functionalZones.map((zone) => (
+            <rect
+              key={`${zone.itemId}-${zone.kind}-${zone.xCm}-${zone.yCm}`}
+              x={PADDING + zone.xCm * scale}
+              y={PADDING + zone.yCm * scale}
+              width={zone.widthCm * scale}
+              height={zone.depthCm * scale}
+              className={
+                zone.source === 'measured'
+                  ? 'fill-accent/10 stroke-accent'
+                  : 'fill-muted/40 stroke-ink-2'
+              }
+              strokeWidth={1}
+              strokeDasharray="4 4"
+            >
+              <title>
+                {zone.title}: рабочая зона {zone.clearanceCm} см
+                {zone.source === 'preliminary' ? ' (предварительно)' : ''}
+              </title>
+            </rect>
+          ))}
           {layout.floorReservations.map((reservation) => {
             const clearance = layout.floorPolygon
               ? exactClearanceRect(reservation, layout.floorPolygon)
@@ -312,6 +334,12 @@ export function RoomPlanDrawing({ layout }: { layout: RoomLayout }) {
           . Пунктиром показаны введённые зоны открывания и радиаторов.
         </p>
       ) : null}
+      {layout.functionalZones.length > 0 ? (
+        <p className="mt-2 text-[12px] leading-relaxed text-ink-2">
+          Второй пунктир — место для использования мебели: открывания, раскладывания и стульев.
+          Серым показана предварительная зона, розовым — введённый точный размер.
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -355,6 +383,24 @@ export function RoomPlan({ layout }: { layout: RoomLayout }) {
             ))}
           </ul>
         </div>
+      ) : null}
+
+      {layout.operationInputs.length > 0 ? (
+        <details className="mt-4 border border-line bg-surface p-3">
+          <summary className="cursor-pointer text-[13px] font-medium text-ink">
+            Рабочие зоны мебели · уточнить точность
+          </summary>
+          <p className="mt-2 text-[12px] leading-relaxed text-ink-2">
+            Берите число из инструкции товара или измерьте сами. Пока поля пустые, шкафы, диваны и
+            кровати проверяются только по закрытому габариту; для столов показана предварительная
+            зона.
+          </p>
+          <div className="mt-3">
+            {layout.operationInputs.map((item) => (
+              <ItemOperationForm key={`${item.id}-${item.kind}`} {...item} itemId={item.id} />
+            ))}
+          </div>
+        </details>
       ) : null}
 
       {problems.length > 0 ? (

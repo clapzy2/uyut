@@ -11,6 +11,7 @@ import {
   getShoppingList,
   removeShoppingItem,
   type ShoppingListView,
+  setShoppingItemOperationClearance,
   setShoppingItemQuantity,
   setShoppingItemSize,
 } from '@/lib/shopping/repository'
@@ -182,6 +183,48 @@ export async function setItemSize(itemId: string, input: unknown): Promise<Actio
       targetType: 'shopping_list_item',
       targetId: itemId,
       metadata: { projectId: result.projectId, size: parsed.data },
+    })
+    revalidateProject(result.projectId)
+    return { ok: true, data: undefined }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+const operationClearanceSchema = z
+  .object({
+    front: sideSchema,
+    side: sideSchema,
+    around: sideSchema,
+  })
+  .refine(
+    (clearance) => clearance.front !== null || clearance.side !== null || clearance.around !== null,
+    { error: 'Впишите хотя бы один точный запас' },
+  )
+
+/** Сохраняет только измеренный запас; сервис не маскирует отсутствие данных типовым числом. */
+export async function setItemOperationClearance(
+  itemId: string,
+  input: unknown,
+): Promise<ActionResult> {
+  const userId = await currentUserId()
+  if (!userId) return { ok: false, error: SESSION_EXPIRED }
+  const parsed = operationClearanceSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Проверьте рабочую зону' }
+  }
+  try {
+    const result = await setShoppingItemOperationClearance(userId, itemId, {
+      ...(parsed.data.front === null ? {} : { front: parsed.data.front }),
+      ...(parsed.data.side === null ? {} : { side: parsed.data.side }),
+      ...(parsed.data.around === null ? {} : { around: parsed.data.around }),
+    })
+    await recordAudit({
+      action: 'shopping.item_updated',
+      actorId: userId,
+      targetType: 'shopping_list_item',
+      targetId: itemId,
+      metadata: { projectId: result.projectId, operationClearance: parsed.data },
     })
     revalidateProject(result.projectId)
     return { ok: true, data: undefined }

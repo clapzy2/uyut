@@ -57,6 +57,12 @@ export const shoppingListItems = pgTable(
      * про самый крупный предмет комнаты молчит.
      */
     dimensionsCm: jsonb('dimensions_cm').$type<ItemDimensionsCm>(),
+    /**
+     * Точное свободное место для использования предмета, а не типовой норматив.
+     * front — перед фасадом/в разложенном виде, side — с каждого бока,
+     * around — со всех сторон у отдельно стоящего предмета.
+     */
+    operationClearanceCm: jsonb('operation_clearance_cm').$type<ItemOperationClearanceCm>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('shopping_list_items_list_idx').on(table.listId)],
@@ -64,6 +70,8 @@ export const shoppingListItems = pgTable(
 
 /** Ширина, глубина и высота в сантиметрах: тот же вид, что и в карточке каталога */
 export type ItemDimensionsCm = { width?: number; depth?: number; height?: number }
+
+export type ItemOperationClearanceCm = { front?: number; side?: number; around?: number }
 
 export type ShoppingList = typeof shoppingLists.$inferSelect
 export type ShoppingListItem = typeof shoppingListItems.$inferSelect

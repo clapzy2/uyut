@@ -262,6 +262,12 @@ function roomPlan(plan: RoomLayout | null): string {
         `<text x="${((place.xCm + place.widthCm / 2) * scale).toFixed(1)}" y="${((place.yCm + place.depthCm / 2) * scale).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#2f2a20">${index + 1}</text>`,
     )
     .join('')
+  const functionalZones = plan.functionalZones
+    .map(
+      (zone) =>
+        `<rect x="${(zone.xCm * scale).toFixed(1)}" y="${(zone.yCm * scale).toFixed(1)}" width="${(zone.widthCm * scale).toFixed(1)}" height="${(zone.depthCm * scale).toFixed(1)}" fill="${zone.source === 'measured' ? '#f0dcdf55' : '#ddd8cf55'}" stroke="${zone.source === 'measured' ? '#7c2f3b' : '#746f67'}" stroke-width="1" stroke-dasharray="4 4"/>`,
+    )
+    .join('')
   const openings = plan.floorReservations
     .map(
       (reservation) =>
@@ -282,6 +288,13 @@ function roomPlan(plan: RoomLayout | null): string {
         : plan.reservationSource === 'description'
           ? `<p class="verdict">Выбранное помещается, проход посередине ${plan.walkwayCm} см. Проёмы учтены по описанию комнаты; свободной стены ${plan.freeWallCm} см.</p>`
           : `<p class="verdict">Выбранное помещается, проход посередине ${plan.walkwayCm} см. Где дверь и окно, план не знает: свободной стены ${plan.freeWallCm} см.</p>`
+  const missingOperations = plan.operationInputs.filter((item) => item.valueCm === undefined)
+  const operationNote =
+    missingOperations.length > 0
+      ? `<p class="verdict bad">Не указаны рабочие зоны: ${esc(missingOperations.map((item) => item.title).join(', '))}. До покупки уточните открывание, раскладывание и подход.</p>`
+      : plan.functionalZones.length > 0
+        ? '<p class="verdict">Пунктиром показаны измеренные рабочие зоны мебели.</p>'
+        : ''
   // Чертёж без картинки, если расставить не удалось ничего: сама причина важнее рамки
   const drawing =
     plan.placed.length > 0
@@ -297,6 +310,7 @@ function roomPlan(plan: RoomLayout | null): string {
               : `<rect x="0" y="0" width="${width}" height="${height}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>`
           }
           ${openings}
+          ${functionalZones}
           ${boxes}
         </svg>`
       : ''
@@ -307,6 +321,7 @@ function roomPlan(plan: RoomLayout | null): string {
         ${drawing}
         ${legend}
         ${verdict}
+        ${operationNote}
       </div>`
 }
 

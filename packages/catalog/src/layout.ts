@@ -31,8 +31,12 @@ export type LayoutItem = {
   category: CatalogCategory
   subcategory?: CatalogSubcategory
   dimensions: DimensionsCm | null
+  operationClearance?: OperationClearanceCm | null
   quantity: number
 }
+
+/** Измеренный запас для использования мебели; ни одно поле не заполняется автоматически. */
+export type OperationClearanceCm = { front?: number; side?: number; around?: number }
 
 export type LayoutWall = 'top' | 'right' | 'bottom' | 'left'
 
@@ -68,6 +72,15 @@ export type Placement = {
   wall: LayoutWall | 'perimeter' | 'center'
 }
 
+/** Зона, которую мебель не занимает постоянно, но которая нужна при её использовании. */
+export type FunctionalZone = Rect & {
+  itemId: string
+  title: string
+  kind: 'front' | 'side' | 'around'
+  source: 'measured' | 'preliminary'
+  clearanceCm: number
+}
+
 export type LayoutProblem =
   | { kind: 'noWall'; title: string; widthCm: number }
   | { kind: 'noCenter'; title: string }
@@ -96,6 +109,14 @@ export type RoomLayout = {
   /** Точные проёмы, включая стены ниш и выступов. */
   floorReservations: FloorReservation[]
   keepClearZones: FloorKeepClearZone[]
+  functionalZones: FunctionalZone[]
+  /** Предметы, для которых рабочую зону можно задать или уточнить. */
+  operationInputs: Array<{
+    id: string
+    title: string
+    kind: 'front' | 'side' | 'around'
+    valueCm?: number
+  }>
   /** Какие обмеры ещё нужны, чтобы проверка не подставляла типовые числа. */
   missingSafetyData: string[]
   /** Откуда взялись координаты проёмов. */
@@ -165,7 +186,7 @@ function footprint(dimensions: DimensionsCm | null): Size | null {
 
 type Size = { widthCm: number; depthCm: number; heightCm?: number }
 
-type Rect = { xCm: number; yCm: number; widthCm: number; depthCm: number }
+export type Rect = { xCm: number; yCm: number; widthCm: number; depthCm: number }
 
 type FloorEdge = {
   orientation: 'horizontal' | 'vertical'
@@ -421,6 +442,90 @@ function sizeOnWall(wall: LayoutWall, size: Size): Size {
       }
 }
 
+function operationRequirement(
+  item: LayoutItem,
+): { kind: 'front' | 'side' | 'around'; fallbackCm?: number } | null {
+  if (item.category === 'sofa') return { kind: 'front' }
+  if (item.category === 'bed') return { kind: 'side' }
+  if (
+    item.category === 'storage' &&
+    (!item.subcategory || ['wardrobe', 'dresser', 'cabinet'].includes(item.subcategory))
+  ) {
+    return { kind: 'front' }
+  }
+  if (item.category === 'table' && item.subcategory === 'dining') {
+    return { kind: 'around', fallbackCm: CHAIR_PULLOUT_CM }
+  }
+  if (item.category === 'table' && item.subcategory === 'coffee') {
+    return { kind: 'around', fallbackCm: COFFEE_CLEARANCE_CM }
+  }
+  return null
+}
+
+function operationZone(
+  item: LayoutItem,
+  rect: Rect,
+  wall: LayoutWall | 'perimeter' | 'center',
+): FunctionalZone | null {
+  const requirement = operationRequirement(item)
+  if (!requirement) return null
+  const measured = item.operationClearance?.[requirement.kind]
+  const clearance = measured ?? requirement.fallbackCm
+  if (!clearance || clearance <= 0) return null
+  const base = {
+    itemId: item.id,
+    title: item.title,
+    kind: requirement.kind,
+    source: measured ? ('measured' as const) : ('preliminary' as const),
+    clearanceCm: clearance,
+  }
+  if (requirement.kind === 'around' || wall === 'center' || wall === 'perimeter') {
+    return {
+      ...base,
+      xCm: rect.xCm - clearance,
+      yCm: rect.yCm - clearance,
+      widthCm: rect.widthCm + clearance * 2,
+      depthCm: rect.depthCm + clearance * 2,
+    }
+  }
+  const side = requirement.kind === 'side' ? clearance : 0
+  const front = requirement.kind === 'front' ? clearance : 0
+  switch (wall) {
+    case 'top':
+      return {
+        ...base,
+        xCm: rect.xCm - side,
+        yCm: rect.yCm,
+        widthCm: rect.widthCm + side * 2,
+        depthCm: rect.depthCm + front,
+      }
+    case 'bottom':
+      return {
+        ...base,
+        xCm: rect.xCm - side,
+        yCm: rect.yCm - front,
+        widthCm: rect.widthCm + side * 2,
+        depthCm: rect.depthCm + front,
+      }
+    case 'left':
+      return {
+        ...base,
+        xCm: rect.xCm,
+        yCm: rect.yCm - side,
+        widthCm: rect.widthCm + front,
+        depthCm: rect.depthCm + side * 2,
+      }
+    case 'right':
+      return {
+        ...base,
+        xCm: rect.xCm - front,
+        yCm: rect.yCm - side,
+        widthCm: rect.widthCm + front,
+        depthCm: rect.depthCm + side * 2,
+      }
+  }
+}
+
 /** Угол предмета в координатах комнаты. Размер здесь уже развёрнут по стене. */
 function cornerOf(
   wall: LayoutWall,
@@ -480,7 +585,7 @@ const ISLAND_CELLS = 20
  * при которой по комнате ещё можно пройти всюду.
  */
 function widestRoute(
-  placed: readonly Placement[],
+  placed: readonly Rect[],
   room: Size,
   floorPolygon?: readonly LayoutPoint[],
 ): number {
@@ -623,7 +728,10 @@ type Sized = { item: LayoutItem; size: Size; spot: Spot }
  * сантиметров бессмысленно, он для того и стоит вплотную к дивану.
  */
 function clearanceOf(entry: Sized): number {
-  return entry.item.subcategory === 'dining' ? CHAIR_PULLOUT_CM : COFFEE_CLEARANCE_CM
+  return (
+    entry.item.operationClearance?.around ??
+    (entry.item.subcategory === 'dining' ? CHAIR_PULLOUT_CM : COFFEE_CLEARANCE_CM)
+  )
 }
 
 /**
@@ -654,6 +762,8 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       reservations: [],
       floorReservations: [],
       keepClearZones: [],
+      functionalZones: [],
+      operationInputs: [],
       missingSafetyData: [],
       reservationSource: 'none',
     }
@@ -663,6 +773,9 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
   const unmeasured: Array<{ id: string; title: string }> = []
   const problems: LayoutProblem[] = []
   const placed: Placement[] = []
+  const functionalZones: FunctionalZone[] = []
+  const operationInputs: RoomLayout['operationInputs'] = []
+  const itemById = new Map(items.map((item) => [item.id, item]))
   const explicitReservations = room.reservations
   const explicitFloorReservations = room.floorReservations
   const hasGeometryReservations =
@@ -803,6 +916,16 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       unmeasured.push({ id: item.id, title: item.title })
       continue
     }
+    const operation = operationRequirement(item)
+    if (operation) {
+      const valueCm = item.operationClearance?.[operation.kind]
+      operationInputs.push({
+        id: item.id,
+        title: item.title,
+        kind: operation.kind,
+        ...(valueCm === undefined ? {} : { valueCm }),
+      })
+    }
     // Два одинаковых стула занимают пол дважды: количество разворачивается в отдельные предметы
     for (let copy = 0; copy < Math.max(1, item.quantity); copy += 1) {
       sized.push({ item, size, spot })
@@ -860,6 +983,8 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     const size = sizeOnWall(wall, item.size)
     const at = cornerOf(wall, along, size, { widthCm, depthCm })
     const rect = { ...at, ...size }
+    const sourceItem = itemById.get(item.id)
+    const zone = sourceItem ? operationZone(sourceItem, rect, wall) : null
     const insideRoom =
       at.xCm >= -GEOMETRY_EPSILON_CM &&
       at.yCm >= -GEOMETRY_EPSILON_CM &&
@@ -868,9 +993,17 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     if (!insideRoom) {
       return false
     }
+    const zoneInsideRoom =
+      !zone ||
+      (zone.xCm >= -GEOMETRY_EPSILON_CM &&
+        zone.yCm >= -GEOMETRY_EPSILON_CM &&
+        zone.xCm + zone.widthCm <= widthCm + GEOMETRY_EPSILON_CM &&
+        zone.yCm + zone.depthCm <= depthCm + GEOMETRY_EPSILON_CM)
+    if (!zoneInsideRoom) return false
     if (floorPolygon && !rectInsideFloor(rect, floorPolygon)) {
       return false
     }
+    if (floorPolygon && zone && !rectInsideFloor(zone, floorPolygon)) return false
     const blocksWall = reservations.some(
       (reservation) =>
         reservation.wall === wall &&
@@ -879,6 +1012,11 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
         reservation.fromCm < along + item.size.widthCm - GEOMETRY_EPSILON_CM,
     )
     const collides = placed.some((other) => overlaps(rect, other))
+    const blocksFunctionalZone = functionalZones.some((other) => overlaps(rect, other))
+    const operationCollides =
+      zone !== null &&
+      (placed.some((other) => overlaps(zone, other)) ||
+        functionalZones.some((other) => overlaps(zone, other)))
     const blocksAccess = clearanceRects.some((clearance) => overlaps(rect, clearance))
     const blocksFloorOpening = blockingFloorReservations.some(
       (reservation) =>
@@ -888,7 +1026,20 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     const blocksKeepClearZone = keepClearZones.some((zone) =>
       rectOverlapsPolygon(rect, zone.polygon),
     )
-    if (blocksWall || blocksFloorOpening || collides || blocksAccess || blocksKeepClearZone) {
+    const operationBlocksAccess =
+      zone !== null &&
+      (clearanceRects.some((clearance) => overlaps(zone, clearance)) ||
+        keepClearZones.some((keepClear) => rectOverlapsPolygon(zone, keepClear.polygon)))
+    if (
+      blocksWall ||
+      blocksFloorOpening ||
+      collides ||
+      blocksFunctionalZone ||
+      operationCollides ||
+      blocksAccess ||
+      blocksKeepClearZone ||
+      operationBlocksAccess
+    ) {
       return false
     }
     placed.push({
@@ -900,6 +1051,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       depthCm: size.depthCm,
       wall,
     })
+    if (zone) functionalZones.push(zone)
     cursor[wall] = Math.max(cursor[wall], along + item.size.widthCm)
     depths[wall] = Math.max(depths[wall], item.size.depthCm)
     return true
@@ -926,7 +1078,25 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
             depthCm: item.size.widthCm,
           }
     if (!floorPolygon || !rectInsideFloor(rect, floorPolygon)) return false
+    const sourceItem = itemById.get(item.id)
+    const zoneWall: LayoutWall =
+      edge.orientation === 'horizontal'
+        ? edge.inward > 0
+          ? 'top'
+          : 'bottom'
+        : edge.inward > 0
+          ? 'left'
+          : 'right'
+    const zone = sourceItem ? operationZone(sourceItem, rect, zoneWall) : null
+    if (zone && !rectInsideFloor(zone, floorPolygon)) return false
     if (placed.some((other) => overlaps(rect, other))) return false
+    if (functionalZones.some((other) => overlaps(rect, other))) return false
+    if (
+      zone &&
+      (placed.some((other) => overlaps(zone, other)) ||
+        functionalZones.some((other) => overlaps(zone, other)))
+    )
+      return false
     if (clearanceRects.some((clearance) => overlaps(rect, clearance))) return false
     if (
       blockingFloorReservations.some(
@@ -944,6 +1114,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       ...rect,
       wall: 'perimeter',
     })
+    if (zone) functionalZones.push(zone)
     return true
   }
 
@@ -1132,6 +1303,7 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       depthCm: entry.size.depthCm,
       wall: 'center',
     }
+    const zone = operationZone(entry.item, centerPlacement, 'center')
     if (
       clearanceRects.some((clearanceRect) => overlaps(centerPlacement, clearanceRect)) ||
       keepClearZones.some((zone) => rectOverlapsPolygon(centerPlacement, zone.polygon))
@@ -1143,13 +1315,30 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
       problems.push({ kind: 'noCenter', title: entry.item.title })
       continue
     }
+    if (
+      zone &&
+      ((floorPolygon
+        ? !rectInsideFloor(zone, floorPolygon)
+        : zone.xCm < 0 ||
+          zone.yCm < 0 ||
+          zone.xCm + zone.widthCm > widthCm ||
+          zone.yCm + zone.depthCm > depthCm) ||
+        placed.some((other) => overlaps(zone, other)) ||
+        functionalZones.some((other) => overlaps(zone, other)) ||
+        clearanceRects.some((clearance) => overlaps(zone, clearance)) ||
+        keepClearZones.some((keepClear) => rectOverlapsPolygon(zone, keepClear.polygon)))
+    ) {
+      problems.push({ kind: 'noCenter', title: entry.item.title })
+      continue
+    }
     placed.push(centerPlacement)
+    if (zone) functionalZones.push(zone)
     centerUsedCm += needWidth
   }
 
   // Проход — это самое узкое место на маршруте, по которому можно обойти всю комнату,
   // а не просто расстояние между двумя стенками мебели
-  const walkwayCm = widestRoute(placed, { widthCm, depthCm }, floorPolygon)
+  const walkwayCm = widestRoute([...placed, ...functionalZones], { widthCm, depthCm }, floorPolygon)
   if (placed.length > 0 && walkwayCm < WALKWAY_CM) {
     problems.push({ kind: 'narrowWalkway', gapCm: walkwayCm })
   }
@@ -1167,6 +1356,10 @@ export function layoutRoom(room: RoomLayoutInput, items: readonly LayoutItem[]):
     reservations,
     floorReservations,
     keepClearZones,
+    functionalZones,
+    operationInputs: [
+      ...new Map(operationInputs.map((entry) => [`${entry.id}-${entry.kind}`, entry])).values(),
+    ],
     missingSafetyData,
     reservationSource,
   }

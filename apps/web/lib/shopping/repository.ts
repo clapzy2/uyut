@@ -2,6 +2,7 @@ import { checkFit, type DimensionsCm, type FitVerdict, itemTotalKopecks } from '
 import {
   type CatalogCategory,
   catalogItems,
+  type ItemOperationClearanceCm,
   rooms,
   type ShoppingVariant,
   shoppingListItems,
@@ -45,6 +46,8 @@ export type ShoppingItemView = {
   dimensionsCm: DimensionsCm | null
   /** Числа вписал человек, а не магазин */
   ownSize: boolean
+  /** Точное место, которое нужно предмету при использовании: со слов человека или производителя */
+  operationClearanceCm: ItemOperationClearanceCm | null
   /** Влезет ли в промеренные участки стены своей комнаты */
   fit: FitVerdict
 }
@@ -128,6 +131,7 @@ export async function getShoppingList(
         conceptObjectId: item.conceptObjectId,
         dimensionsCm: effectiveSize(item, product),
         ownSize: Boolean(item.dimensionsCm),
+        operationClearanceCm: item.operationClearanceCm ?? null,
         fit: checkFit(effectiveSize(item, product) ?? undefined, measurements ?? {}),
       }),
     ),
@@ -310,6 +314,23 @@ export async function setShoppingItemSize(
   await getDb()
     .update(shoppingListItems)
     .set({ dimensionsCm: Object.keys(kept).length > 0 ? kept : null })
+    .where(eq(shoppingListItems.id, item.id))
+  return { projectId: item.projectId }
+}
+
+/** Точные рабочие зоны предмета. Ноль и пустые поля стираются, типовые числа не подставляются. */
+export async function setShoppingItemOperationClearance(
+  userId: string,
+  itemId: string,
+  clearance: ItemOperationClearanceCm,
+): Promise<{ projectId: string }> {
+  const item = await ownedItem(userId, itemId)
+  const kept = Object.fromEntries(
+    Object.entries(clearance).filter(([, value]) => typeof value === 'number' && value > 0),
+  )
+  await getDb()
+    .update(shoppingListItems)
+    .set({ operationClearanceCm: Object.keys(kept).length > 0 ? kept : null })
     .where(eq(shoppingListItems.id, item.id))
   return { projectId: item.projectId }
 }

@@ -27,6 +27,16 @@ function lines(layout: RoomLayout): string[] {
     }
   }
   for (const missing of layout.missingSafetyData) result.push(missing)
+  for (const operation of layout.operationInputs) {
+    if (operation.valueCm !== undefined) continue
+    const need =
+      operation.kind === 'front'
+        ? 'запас перед предметом'
+        : operation.kind === 'side'
+          ? 'свободное место по бокам'
+          : 'свободное место вокруг'
+    result.push(`${operation.title}: не указан ${need}`)
+  }
   return result
 }
 

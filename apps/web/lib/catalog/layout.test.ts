@@ -15,6 +15,87 @@ function item(over: Partial<LayoutItem> & Pick<LayoutItem, 'title'>): LayoutItem
 const kinds = (layout: ReturnType<typeof layoutRoom>) => layout.problems.map((p) => p.kind)
 
 describe('layoutRoom', () => {
+  it('показывает, какие рабочие зоны мебели ещё нужно измерить', () => {
+    const layout = layoutRoom({ widthCm: 400, depthCm: 400 }, [
+      item({ title: 'Шкаф', subcategory: 'wardrobe' }),
+      item({ title: 'Кровать', category: 'bed', subcategory: undefined }),
+    ])
+
+    expect(layout.operationInputs).toEqual([
+      { id: 'Шкаф', title: 'Шкаф', kind: 'front' },
+      { id: 'Кровать', title: 'Кровать', kind: 'side' },
+    ])
+  })
+
+  it('не ставит мебель в измеренную зону открывания соседнего шкафа', () => {
+    const layout = layoutRoom({ widthCm: 300, depthCm: 200 }, [
+      item({
+        id: 'first',
+        title: 'Шкаф 1',
+        subcategory: 'wardrobe',
+        dimensions: { width: 300, depth: 40, height: 200 },
+        operationClearance: { front: 100 },
+      }),
+      item({
+        id: 'second',
+        title: 'Шкаф 2',
+        subcategory: 'wardrobe',
+        dimensions: { width: 300, depth: 40, height: 200 },
+        operationClearance: { front: 100 },
+      }),
+    ])
+
+    expect(layout.placed).toHaveLength(1)
+    expect(layout.functionalZones).toHaveLength(1)
+    expect(layout.functionalZones[0]).toMatchObject({
+      itemId: 'first',
+      kind: 'front',
+      source: 'measured',
+      clearanceCm: 100,
+    })
+    expect(kinds(layout)).toContain('noWall')
+  })
+
+  it('не принимает рабочую зону, которая выходит за контур комнаты', () => {
+    const layout = layoutRoom({ widthCm: 220, depthCm: 120 }, [
+      item({
+        title: 'Диван',
+        category: 'sofa',
+        dimensions: { width: 220, depth: 80 },
+        operationClearance: { front: 80 },
+      }),
+    ])
+
+    expect(layout.placed).toEqual([])
+    expect(kinds(layout)).toEqual(['noWall'])
+  })
+
+  it('отличает предварительный запас у стола от измеренного', () => {
+    const preliminary = layoutRoom({ widthCm: 400, depthCm: 400 }, [
+      item({
+        title: 'Стол',
+        category: 'table',
+        subcategory: 'dining',
+        dimensions: { width: 120, depth: 80 },
+      }),
+    ])
+    const measured = layoutRoom({ widthCm: 400, depthCm: 400 }, [
+      item({
+        title: 'Стол',
+        category: 'table',
+        subcategory: 'dining',
+        dimensions: { width: 120, depth: 80 },
+        operationClearance: { around: 60 },
+      }),
+    ])
+
+    expect(preliminary.functionalZones[0]).toMatchObject({
+      source: 'preliminary',
+      clearanceCm: 75,
+    })
+    expect(measured.functionalZones[0]).toMatchObject({ source: 'measured', clearanceCm: 60 })
+  })
+
   it('без размеров комнаты расставлять не из чего', () => {
     const layout = layoutRoom({}, [item({ title: 'Шкаф' })])
     expect(kinds(layout)).toEqual(['noRoomSize'])

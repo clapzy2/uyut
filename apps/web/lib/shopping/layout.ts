@@ -29,6 +29,7 @@ export async function roomLayout(
       category: item.category,
       subcategory: subcategoryFromText(item.category, item.title),
       dimensions: item.dimensionsCm,
+      operationClearance: item.operationClearanceCm,
       quantity: item.quantity,
     }))
   if (items.length === 0) {
@@ -58,6 +59,7 @@ export function projectLayouts(
         category: item.category,
         subcategory: subcategoryFromText(item.category, item.title),
         dimensions: item.dimensionsCm,
+        operationClearance: item.operationClearanceCm,
         quantity: item.quantity,
       }))
     if (items.length === 0) {
