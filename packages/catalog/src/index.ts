@@ -36,11 +36,8 @@ export {
   type LayoutWall,
   layoutRoom,
   type Placement,
-  type Rect,
   type RoomLayout,
   type RoomLayoutInput,
-  rectInsideFloor,
-  rectOverlapsPolygon,
   WALKWAY_CM,
 } from './layout'
 export { isBathroomFixture, isForeignListing, isNotFurniture } from './not-furniture'

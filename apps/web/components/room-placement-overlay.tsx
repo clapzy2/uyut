@@ -1,14 +1,7 @@
 'use client'
 
-import {
-  type FloorReservation,
-  type LayoutPoint,
-  type Placement,
-  type Rect,
-  type RoomLayout,
-  rectInsideFloor,
-  rectOverlapsPolygon,
-} from '@uyut/catalog'
+import type { FloorReservation, LayoutPoint, Placement, RoomLayout } from '@uyut/catalog'
+import { type Rect, rectInsideFloor, rectOverlapsPolygon } from '@uyut/catalog/layout'
 import { toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import {
