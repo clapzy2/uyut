@@ -189,6 +189,9 @@ test.describe('project summary', () => {
     expect(afterDrag.placement.xCm % 5).toBe(0)
     expect(afterDrag.placement.yCm % 5).toBe(0)
 
+    // Дожидаемся нового серверного дерева после сохранения перетаскивания. Иначе быстрый CI
+    // иногда успевает нажать старую SVG-кнопку ровно в момент router.refresh().
+    await page.reload()
     await page.getByRole('button', { name: 'Повернуть: Диван Букле e2e' }).click()
     await expect(page.getByText('Мебель повёрнута и проверена')).toBeVisible()
     await expect
