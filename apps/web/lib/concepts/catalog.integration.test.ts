@@ -1,5 +1,11 @@
 import { EMBEDDING_DIMENSIONS } from '@uyut/ai'
-import { countItems, findSimilar, saveEmbeddings, upsertFeedItems } from '@uyut/catalog'
+import {
+  countItems,
+  findSimilar,
+  markMissingOutOfStock,
+  saveEmbeddings,
+  upsertFeedItems,
+} from '@uyut/catalog'
 import { catalogItems } from '@uyut/db'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -153,6 +159,42 @@ describe('catalog in a real database', () => {
     const totals = await countItems(getDb())
     expect(totals.total).toBeGreaterThanOrEqual(3)
     expect(totals.embedded).toBeGreaterThanOrEqual(3)
+  })
+
+  it('пачечно скрывает товары, исчезнувшие из свежего фида', async () => {
+    const db = getDb()
+    const externalIds = ['it-askona-current', 'it-askona-missing']
+    try {
+      await upsertFeedItems(
+        db,
+        externalIds.map((externalId) => ({
+          source: 'askona' as const,
+          externalId,
+          category: 'bed' as const,
+          title: externalId,
+          priceKopecks: 50_000_00,
+          affiliateUrl: `https://shop/${externalId}`,
+          images: [{ url: `https://cdn/${externalId}.jpg` }],
+          inStock: true,
+        })),
+      )
+
+      expect(
+        await markMissingOutOfStock(db, 'askona', ['it-askona-current']),
+      ).toBeGreaterThanOrEqual(1)
+      const rows = await db.select().from(catalogItems).where(eq(catalogItems.source, 'askona'))
+      const own = new Map(
+        rows
+          .filter((row) => externalIds.includes(row.externalId))
+          .map((row) => [row.externalId, row.inStock]),
+      )
+      expect(own.get('it-askona-current')).toBe(true)
+      expect(own.get('it-askona-missing')).toBe(false)
+    } finally {
+      for (const externalId of externalIds) {
+        await db.delete(catalogItems).where(eq(catalogItems.externalId, externalId))
+      }
+    }
   })
 
   it('в строгом режиме не подменяет стул креслом', async () => {

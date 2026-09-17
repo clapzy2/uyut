@@ -72,6 +72,7 @@ async function syncFeeds(): Promise<
     updated: number
     hidden: number
     skipped: number
+    warning?: string
   }>
 > {
   const database = db()
@@ -81,6 +82,7 @@ async function syncFeeds(): Promise<
     updated: number
     hidden: number
     skipped: number
+    warning?: string
   }> = []
   for (const feed of configuredFeeds(process.env)) {
     try {
@@ -92,16 +94,24 @@ async function syncFeeds(): Promise<
           : parsePartnerFeed(await response.text(), feed.source, feed.url)
       const skipped = parsed.skippedCount ?? parsed.skipped.length
       const summary = await upsertFeedItems(database, parsed.items)
-      const hidden = await markMissingOutOfStock(
-        database,
-        feed.source,
-        parsed.items.map((item) => item.externalId),
-      )
+      let hidden = 0
+      let warning: string | undefined
+      try {
+        hidden = await markMissingOutOfStock(
+          database,
+          feed.source,
+          parsed.items.map((item) => item.externalId),
+        )
+      } catch (error) {
+        warning = `товары обновлены, но отсутствующие не скрыты: ${String(error)}`
+        logger.error('feed cleanup failed', { source: feed.source, error: String(error) })
+      }
       results.push({
         source: feed.source,
         ...summary,
         hidden,
         skipped,
+        warning,
       })
       logger.info('feed synced', {
         source: feed.source,

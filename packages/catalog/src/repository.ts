@@ -88,20 +88,31 @@ export async function markMissingOutOfStock(
   source: CatalogSource,
   presentExternalIds: string[],
 ): Promise<number> {
-  const rows = await db
-    .update(catalogItems)
-    .set({ inStock: false })
-    .where(
-      and(
-        eq(catalogItems.source, source),
-        eq(catalogItems.inStock, true),
-        presentExternalIds.length > 0
-          ? sql`${catalogItems.externalId} <> all(${presentExternalIds})`
-          : sql`true`,
-      ),
-    )
-    .returning({ id: catalogItems.id })
-  return rows.length
+  const present = new Set(presentExternalIds)
+  const current = await db
+    .select({ externalId: catalogItems.externalId })
+    .from(catalogItems)
+    .where(and(eq(catalogItems.source, source), eq(catalogItems.inStock, true)))
+  const missing = current
+    .map((item) => item.externalId)
+    .filter((externalId) => !present.has(externalId))
+
+  let hidden = 0
+  // Пачки не раздувают один SQL-запрос тысячами идентификаторов из большого фида.
+  for (let offset = 0; offset < missing.length; offset += 500) {
+    const rows = await db
+      .update(catalogItems)
+      .set({ inStock: false })
+      .where(
+        and(
+          eq(catalogItems.source, source),
+          inArray(catalogItems.externalId, missing.slice(offset, offset + 500)),
+        ),
+      )
+      .returning({ id: catalogItems.id })
+    hidden += rows.length
+  }
+  return hidden
 }
 
 /** Записи, у которых векторов нет или содержимое изменилось после последнего расчёта. */
