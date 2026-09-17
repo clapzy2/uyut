@@ -788,6 +788,52 @@ describe('проход меряем тем, что просит предмет',
     ])
     expect(layout.problems.some((problem) => problem.kind === 'narrowWalkway')).toBe(true)
   })
+
+  it('рабочая зона остаётся свободной от мебели, но не становится стеной для человека', () => {
+    const layout = layoutRoom(
+      {
+        roomKind: 'kitchen',
+        widthCm: 420,
+        depthCm: 480,
+        reservations: [
+          { kind: 'window', wall: 'top', fromCm: 120, toCm: 240, clearanceCm: 0 },
+          { kind: 'door', wall: 'bottom', fromCm: 0, toCm: 90, clearanceCm: 90 },
+        ],
+        floorReservations: [],
+      },
+      [
+        item({
+          id: 'run',
+          title: 'Кухонный гарнитур',
+          category: 'storage',
+          subcategory: 'cabinet',
+          dimensions: { width: 240, depth: 60, height: 90 },
+          operationClearance: { front: 80 },
+        }),
+        item({
+          id: 'fridge',
+          title: 'Холодильник',
+          category: 'storage',
+          subcategory: 'wardrobe',
+          dimensions: { width: 60, depth: 65, height: 200 },
+          operationClearance: { front: 70 },
+        }),
+        item({
+          id: 'table',
+          title: 'Обеденный стол',
+          category: 'table',
+          subcategory: 'dining',
+          dimensions: { width: 110, depth: 70, height: 75 },
+          operationClearance: { around: 65 },
+        }),
+      ],
+    )
+
+    expect(layout.functionalZones).toHaveLength(3)
+    expect(layout.problems).toEqual([])
+    expect(layout.walkwayCm).toBeGreaterThanOrEqual(WALKWAY_CM)
+    expect(layout.safetySummary.status).toBe('checked')
+  })
 })
 
 describe('кровать встаёт изголовьем к стене', () => {

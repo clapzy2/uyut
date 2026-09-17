@@ -202,6 +202,76 @@ const scenarios: Scenario[] = [
       }),
     ],
   },
+  {
+    name: 'полная кухня с гарнитуром, холодильником и столом',
+    kind: 'kitchen',
+    widthCm: 420,
+    depthCm: 480,
+    reservations: [
+      { kind: 'window', wall: 'top', fromCm: 120, toCm: 240, clearanceCm: 0 },
+      { kind: 'door', wall: 'bottom', fromCm: 0, toCm: 90, clearanceCm: 90 },
+    ],
+    items: [
+      furniture('kitchen-run', 'Кухонный гарнитур', 'storage', 240, 60, {
+        subcategory: 'cabinet',
+        operationClearance: { front: 80 },
+      }),
+      furniture('fridge', 'Холодильник', 'storage', 60, 65, {
+        subcategory: 'wardrobe',
+        operationClearance: { front: 70 },
+      }),
+      furniture('dining', 'Обеденный стол', 'table', 110, 70, {
+        subcategory: 'dining',
+        operationClearance: { around: 65 },
+      }),
+    ],
+  },
+  {
+    name: 'спальня с рабочим местом и хранением',
+    kind: 'bedroom',
+    widthCm: 440,
+    depthCm: 520,
+    reservations: [
+      { kind: 'window', wall: 'top', fromCm: 140, toCm: 300, clearanceCm: 0 },
+      { kind: 'door', wall: 'bottom', fromCm: 20, toCm: 110, clearanceCm: 90 },
+    ],
+    items: [
+      furniture('bed-work', 'Кровать 160', 'bed', 160, 200, {
+        operationClearance: { side: 45 },
+      }),
+      furniture('desk-work', 'Рабочий стол', 'table', 120, 60, {
+        subcategory: 'desk',
+        operationClearance: { front: 80 },
+      }),
+      furniture('wardrobe-work', 'Шкаф', 'storage', 140, 60, {
+        subcategory: 'wardrobe',
+        operationClearance: { front: 55 },
+      }),
+    ],
+  },
+  {
+    name: 'домашний кабинет с креслом и шкафом',
+    kind: 'living',
+    widthCm: 320,
+    depthCm: 420,
+    reservations: [
+      { kind: 'window', wall: 'top', fromCm: 90, toCm: 230, clearanceCm: 0 },
+      { kind: 'door', wall: 'bottom', fromCm: 0, toCm: 80, clearanceCm: 80 },
+    ],
+    items: [
+      furniture('office-desk', 'Рабочий стол', 'table', 140, 70, {
+        subcategory: 'desk',
+        operationClearance: { front: 90 },
+      }),
+      furniture('office-storage', 'Шкаф для документов', 'storage', 120, 45, {
+        subcategory: 'wardrobe',
+        operationClearance: { front: 55 },
+      }),
+      furniture('office-chair', 'Кресло', 'chair', 75, 75, {
+        subcategory: 'armchair',
+      }),
+    ],
+  },
 ]
 
 describe('реалистичные сценарии комнат', () => {
@@ -302,6 +372,48 @@ describe('реалистичные сценарии комнат', () => {
     expect(
       withWindow.relationships.find((relation) => relation.kind === 'desk-window'),
     ).toMatchObject({
+      status: 'review',
+      distanceCm: expect.any(Number),
+    })
+  })
+
+  it('держит холодильник рядом с рабочей линией, когда геометрия кухни позволяет', () => {
+    const scenario = scenarios.find((entry) => entry.name.startsWith('полная кухня')) as Scenario
+    const layout = layoutRoom(
+      {
+        roomKind: scenario.kind,
+        widthCm: scenario.widthCm,
+        depthCm: scenario.depthCm,
+        reservations: scenario.reservations,
+        floorReservations: [],
+      },
+      scenario.items,
+    )
+
+    expect(
+      layout.relationships.find((relation) => relation.kind === 'kitchen-workflow'),
+    ).toMatchObject({
+      status: 'checked',
+      distanceCm: 0,
+    })
+  })
+
+  it('учитывает окно у рабочего стола не только в детской, но и в домашнем кабинете', () => {
+    const scenario = scenarios.find((entry) =>
+      entry.name.startsWith('домашний кабинет'),
+    ) as Scenario
+    const layout = layoutRoom(
+      {
+        roomKind: scenario.kind,
+        widthCm: scenario.widthCm,
+        depthCm: scenario.depthCm,
+        reservations: scenario.reservations,
+        floorReservations: [],
+      },
+      scenario.items,
+    )
+
+    expect(layout.relationships.find((relation) => relation.kind === 'desk-window')).toMatchObject({
       status: 'review',
       distanceCm: expect.any(Number),
     })

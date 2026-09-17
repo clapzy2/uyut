@@ -53,7 +53,12 @@ export type LayoutDirection = 'up' | 'right' | 'down' | 'left'
 
 export type LayoutRoomKind = 'living' | 'bedroom' | 'kitchen' | 'bath' | 'kid'
 export type RoomSafetyStatus = 'checked' | 'preliminary' | 'needs-data' | 'blocked'
-export type LayoutRelationshipKind = 'sofa-tv' | 'sofa-coffee' | 'bed-storage' | 'desk-window'
+export type LayoutRelationshipKind =
+  | 'sofa-tv'
+  | 'sofa-coffee'
+  | 'bed-storage'
+  | 'desk-window'
+  | 'kitchen-workflow'
 
 export type LayoutPoint = {
   xCm: number
@@ -224,6 +229,15 @@ function spotFor(item: LayoutItem): Spot {
     default:
       return 'none'
   }
+}
+
+type KitchenRole = 'run' | 'fridge'
+
+function kitchenRole(item: LayoutItem): KitchenRole | undefined {
+  if (item.category !== 'storage') return undefined
+  if (/холодиль|рефрижератор/i.test(item.title)) return 'fridge'
+  if (/кухон|гарнитур|рабоч(?:ая|ей)\s+лини|столешниц/i.test(item.title)) return 'run'
+  return undefined
 }
 
 /** Ширина вдоль стены и глубина от стены. Порядок сторон в фидах: ширина × глубина × высота. */
@@ -887,6 +901,10 @@ const OPPOSITE: Record<LayoutWall, LayoutWall> = {
   right: 'left',
 }
 
+function isLayoutWall(wall: Placement['wall']): wall is LayoutWall {
+  return wall !== 'center' && wall !== 'perimeter'
+}
+
 /**
  * Влезет ли предмет к этой стене, не упёршись в мебель напротив.
  *
@@ -942,6 +960,7 @@ function hardProblemCount(layout: RoomLayout): number {
 function relationshipScore(layout: RoomLayout): number {
   return layout.relationships.reduce((score, relation) => {
     if (relation.kind === 'sofa-tv' && relation.status === 'checked') return score + 10_000
+    if (relation.kind === 'kitchen-workflow' && relation.status === 'checked') return score + 5_000
     if (
       (relation.kind === 'sofa-coffee' || relation.kind === 'desk-window') &&
       relation.distanceCm !== undefined
@@ -1177,6 +1196,20 @@ function layoutRoomCandidate(
     })
 
   for (const entry of wallItems) {
+    const role = room.roomKind === 'kitchen' ? kitchenRole(entry.item) : undefined
+    const affinity = (wall: WallState): number => {
+      if (!role) return 0
+      const relatedWalls = order.filter((candidate) =>
+        walls[candidate].items.some((placedItem) => {
+          const placedRole = kitchenRole(itemById.get(placedItem.id) ?? entry.item)
+          return placedRole !== undefined && placedRole !== role
+        }),
+      )
+      if (relatedWalls.length === 0) return 0
+      if (relatedWalls.includes(wall.wall)) return 2
+      if (relatedWalls.some((relatedWall) => OPPOSITE[relatedWall] !== wall.wall)) return 1
+      return 0
+    }
     const roomy = order
       .map((wall) => walls[wall])
       .filter(
@@ -1184,7 +1217,9 @@ function layoutRoomCandidate(
           wall.lengthCm - wall.usedCm >= entry.size.widthCm &&
           depthFits(wall, entry.size, walls, { widthCm, depthCm }),
       )
-      .sort((a, b) => b.lengthCm - b.usedCm - (a.lengthCm - a.usedCm))[0]
+      .sort(
+        (a, b) => affinity(b) - affinity(a) || b.lengthCm - b.usedCm - (a.lengthCm - a.usedCm),
+      )[0]
     // Не нашлось стены по длине — не приговор: свободный кусок ищет второй заход
     if (!roomy) {
       homeless.push({ id: entry.item.id, title: entry.item.title, size: entry.size })
@@ -1659,6 +1694,9 @@ function layoutRoomCandidate(
             (clearanceRects.some((clearanceRect) => overlaps(zone, clearanceRect)) ||
               keepClearZones.some((keepClear) => rectOverlapsPolygon(zone, keepClear.polygon))))
         if (outsideFloor || collides || blocked) continue
+        // Для выбора места учитываем и рабочие зоны: так первый центральный предмет не
+        // отрезает место второму. Это только сравнительный балл вариантов; итоговый проход
+        // ниже считается по физической мебели, потому что рабочая зона не является стеной.
         const candidateWalkway = widestRoute(
           [...placed, ...functionalZones, placement, ...(zone ? [zone] : [])],
           { widthCm, depthCm },
@@ -1679,7 +1717,7 @@ function layoutRoomCandidate(
 
   // Проход — это самое узкое место на маршруте, по которому можно обойти всю комнату,
   // а не просто расстояние между двумя стенками мебели
-  const walkwayCm = widestRoute([...placed, ...functionalZones], { widthCm, depthCm }, floorPolygon)
+  const walkwayCm = widestRoute(placed, { widthCm, depthCm }, floorPolygon)
   if (placed.length > 0 && walkwayCm < WALKWAY_CM) {
     problems.push({ kind: 'narrowWalkway', gapCm: walkwayCm })
   }
@@ -1814,7 +1852,10 @@ function layoutRoomCandidate(
   const deskPlacement = placementFor(
     (item) => item.category === 'table' && item.subcategory === 'desk',
   )
-  if ((room.roomKind === 'bedroom' || room.roomKind === 'kid') && deskPlacement) {
+  if (
+    (room.roomKind === 'bedroom' || room.roomKind === 'kid' || room.roomKind === 'living') &&
+    deskPlacement
+  ) {
     const windows = blockingFloorReservations.filter((reservation) => reservation.kind === 'window')
     if (reservationSource !== 'geometry' || windows.length === 0) {
       relationships.push({
@@ -1845,6 +1886,26 @@ function layoutRoomCandidate(
         distanceCm,
       })
     }
+  }
+  const kitchenRunPlacement = placementFor((item) => kitchenRole(item) === 'run')
+  const fridgePlacement = placementFor((item) => kitchenRole(item) === 'fridge')
+  if (room.roomKind === 'kitchen' && kitchenRunPlacement && fridgePlacement) {
+    const closeWalls =
+      isLayoutWall(kitchenRunPlacement.wall) &&
+      isLayoutWall(fridgePlacement.wall) &&
+      (kitchenRunPlacement.wall === fridgePlacement.wall ||
+        OPPOSITE[kitchenRunPlacement.wall] !== fridgePlacement.wall)
+    const distanceCm = rectDistanceCm(kitchenRunPlacement, fridgePlacement)
+    relationships.push({
+      id: 'kitchen-workflow',
+      kind: 'kitchen-workflow',
+      label: 'Рабочая линия и холодильник',
+      detail: closeWalls
+        ? `Холодильник стоит на той же или соседней стене; между габаритами ${distanceCm} см.`
+        : `Холодильник и рабочая линия разнесены по противоположным сторонам. Проверьте удобство маршрута вручную.`,
+      status: closeWalls ? 'checked' : 'review',
+      distanceCm,
+    })
   }
 
   const hasBlocked = problems.length > 0 || safetyChecks.some((check) => check.status === 'blocked')
