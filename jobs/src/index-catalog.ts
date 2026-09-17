@@ -1,5 +1,11 @@
 import { logger, schedules, task } from '@trigger.dev/sdk'
-import { countItems, markMissingOutOfStock, parseYml, upsertFeedItems } from '@uyut/catalog'
+import {
+  countItems,
+  markMissingOutOfStock,
+  parseAdmitadCsv,
+  parseYml,
+  upsertFeedItems,
+} from '@uyut/catalog'
 import { type CatalogSource, catalogSources } from '@uyut/db'
 import { db } from './lib/db'
 import { embedPendingCatalog, voyageOrNull } from './lib/embed-catalog'
@@ -30,6 +36,12 @@ async function downloadFeed(url: string): Promise<string> {
   return response.text()
 }
 
+export function parsePartnerFeed(text: string, source: CatalogSource, url: string) {
+  const looksLikeXml = /^\s*(?:<\?xml|<yml_catalog|<shop)/i.test(text)
+  const csvRequested = /(?:[?&](?:format|type)=csv\b|\.csv(?:[?&]|$))/i.test(url)
+  return csvRequested || !looksLikeXml ? parseAdmitadCsv(text, source) : parseYml(text, source)
+}
+
 async function syncFeeds(): Promise<
   Array<{ source: string; inserted: number; updated: number; hidden: number; skipped: number }>
 > {
@@ -43,8 +55,8 @@ async function syncFeeds(): Promise<
   }> = []
   for (const feed of configuredFeeds(process.env)) {
     try {
-      const xml = await downloadFeed(feed.url)
-      const parsed = parseYml(xml, feed.source)
+      const contents = await downloadFeed(feed.url)
+      const parsed = parsePartnerFeed(contents, feed.source, feed.url)
       const summary = await upsertFeedItems(database, parsed.items)
       const hidden = await markMissingOutOfStock(
         database,

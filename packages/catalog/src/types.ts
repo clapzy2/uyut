@@ -6,7 +6,7 @@ import type {
   CatalogVariant,
 } from '@uyut/db'
 
-/** Товар после разбора любого фида: одна форма для CSV-дампа, YML Admitad и публичного поиска. */
+/** Товар после разбора любого фида: одна форма для CSV-дампа, CSV/YML Admitad и поиска. */
 export type FeedItem = {
   source: CatalogSource
   externalId: string
@@ -28,7 +28,7 @@ export type SkippedRow = { reason: string; externalId?: string; title?: string }
 
 export type FeedParseResult = { items: FeedItem[]; skipped: SkippedRow[] }
 
-/** Источник фида: скачивает и разбирает. Реализации: CSV-дамп, YML Admitad, поиск Wildberries. */
+/** Источник фида: скачивает и разбирает. Реализации: CSV-дамп, CSV/YML Admitad, поиск. */
 export type FeedSource = {
   readonly source: CatalogSource
   load(): Promise<FeedParseResult>

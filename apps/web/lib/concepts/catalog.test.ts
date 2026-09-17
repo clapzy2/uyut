@@ -1,5 +1,12 @@
 import { budgetShares, detectorCaption, priceWindow, selectObjects } from '@uyut/ai'
-import { categoryFromText, parseCsv, parseCsvDump, parseRubles, parseYml } from '@uyut/catalog'
+import {
+  categoryFromText,
+  parseAdmitadCsv,
+  parseCsv,
+  parseCsvDump,
+  parseRubles,
+  parseYml,
+} from '@uyut/catalog'
 import { describe, expect, it } from 'vitest'
 
 describe('categoryFromText', () => {
@@ -83,6 +90,58 @@ describe('parseCsvDump', () => {
     const { items, skipped } = parseCsvDump(csv)
     expect(items).toEqual([])
     expect(skipped.map((row) => row.reason)).toEqual(['нет цены', 'нет ссылки или картинки'])
+  })
+})
+
+describe('parseAdmitadCsv', () => {
+  const header =
+    'available;categoryId;currencyId;description;id;name;oldprice;param;picture;price;type;url;vendor'
+
+  it('понимает размеры Askona и объединяет ткани одной кровати', () => {
+    const destination = encodeURIComponent(
+      'https://askona.ru/krovati/mario/?SELECTED_HASH_SIZE=90x200&SELECTED_FABRIC_ID=1',
+    )
+    const secondDestination = encodeURIComponent(
+      'https://askona.ru/krovati/mario/?SELECTED_HASH_SIZE=90x200&SELECTED_FABRIC_ID=2',
+    )
+    const csv = `${header}\ntrue;Кровати;RUB;Мягкая кровать;bed-1;Кровать Марио;59990;Длина:200|Ширина:90|Высота:90|Цвет:Синий|Материал обивки:Велюр;https://cdn/bed-blue.jpg;49990;Кровать;https://ad.admitad.com/g/x/?ulp=${destination};Askona\ntrue;Кровати;RUB;Мягкая кровать;bed-2;Кровать Марио;59990;Длина:200|Ширина:90|Высота:90|Цвет:Бежевый|Материал обивки:Велюр;https://cdn/bed-beige.jpg;49990;Кровать;https://ad.admitad.com/g/x/?ulp=${secondDestination};Askona\n`
+    const { items, skipped } = parseAdmitadCsv(csv, 'askona')
+
+    expect(skipped).toEqual([])
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      category: 'bed',
+      brand: 'Askona',
+      priceKopecks: 4_999_000,
+      attributes: {
+        color: 'Синий',
+        material: 'Велюр',
+        dimensionsCm: { width: 90, depth: 200, height: 90 },
+      },
+    })
+    expect(items[0]?.variants).toHaveLength(2)
+  })
+
+  it('не смешивает мебель с матрасами и текстилем', () => {
+    const csv = `${header}\ntrue;Матрасы;RUB;;m-1;Матрас Balance;;;https://cdn/mattress.jpg;19990;Матрас;https://shop/m-1;Askona\ntrue;Подушки;RUB;;p-1;Подушка Sleep;;;https://cdn/pillow.jpg;3990;Подушка;https://shop/p-1;Askona\ntrue;Диваны/Пуфы;RUB;;seat-1;Пуф Марио;;Ширина:60|Глубина:60|Высота:42;https://cdn/pouf.jpg;9990;Пуф;https://shop/seat-1;Askona\n`
+    const { items, skipped } = parseAdmitadCsv(csv, 'askona')
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      category: 'chair',
+      subcategory: 'stool',
+      attributes: { dimensionsCm: { width: 60, depth: 60, height: 42 } },
+    })
+    expect(skipped.map((row) => row.reason)).toEqual(['не мебель', 'не мебель'])
+  })
+
+  it('для комбинированных размеров кровати меняет Д×Ш на Ш×Г', () => {
+    const csv = `${header}\ntrue;Кровати;RUB;;bed-3;Кровать Nova;;Габаритные размеры:200x90x90|Цвет:Серый;https://cdn/bed.jpg;39990;Кровать;https://shop/bed-3;Askona\n`
+    expect(parseAdmitadCsv(csv, 'askona').items[0]?.attributes?.dimensionsCm).toEqual({
+      width: 90,
+      depth: 200,
+      height: 90,
+    })
   })
 })
 
