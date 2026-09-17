@@ -20,6 +20,8 @@ export type ConceptBrief = {
   sizeCm?: { widthCm?: number; depthCm?: number; ceilingCm?: number }
   /** Описание архитектуры с плана, проверенное пользователем. Не точные координаты. */
   layoutNotes?: string
+  /** Проверенная кодом 2D-расстановка. Модель получает её как жёсткий контракт, а не сочиняет. */
+  layoutContract?: string
   budgetKopecks: number | null
   household: {
     adults?: number

@@ -24,6 +24,7 @@ blob-report/
 # Local generation QA: private customer images and paid test artifacts
 output/quality-bench/
 output/model-bench-*/
+jobs/output/
 
 # trigger.dev
 .trigger/

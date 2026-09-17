@@ -48,6 +48,7 @@ export {
   WALKWAY_CM,
   wallReservationToFloorReservation,
 } from './layout'
+export { layoutPromptContract } from './layout-prompt'
 export { isBathroomFixture, isForeignListing, isNotFurniture } from './not-furniture'
 export {
   parseWallReservations,

@@ -17,7 +17,20 @@ import {
   type StyleEntry,
   styleLibrary,
 } from '@uyut/ai'
-import { conceptObjects, concepts, projects, rooms } from '@uyut/db'
+import {
+  type LayoutItem,
+  layoutPromptContract,
+  layoutRoom,
+  subcategoryFromText,
+} from '@uyut/catalog'
+import {
+  catalogItems,
+  conceptObjects,
+  concepts,
+  projects,
+  rooms,
+  shoppingListItems,
+} from '@uyut/db'
 import { and, eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { z } from 'zod'
@@ -215,6 +228,47 @@ export const generateConcept = task({
     }
     const { room, project } = row
 
+    // Если человек уже выбрал товары и вернулся за новым вариантом, красивый рендер получает
+    // ту же проверенную расстановку, что 2D-схема. Без списка или размеров ничего не выдумываем.
+    const measuredWidth = room.measurements?.widthCm
+    const measuredDepth = room.measurements?.depthCm
+    let layoutContract: string | undefined
+    if (measuredWidth && measuredDepth) {
+      const selected = await database
+        .select({ item: shoppingListItems, product: catalogItems })
+        .from(shoppingListItems)
+        .innerJoin(catalogItems, eq(catalogItems.id, shoppingListItems.catalogItemId))
+        .where(eq(shoppingListItems.roomId, room.id))
+      const layoutItems: LayoutItem[] = selected.map(({ item, product }) => ({
+        id: item.id,
+        title: product.title,
+        category: product.category,
+        subcategory: subcategoryFromText(product.category, product.title),
+        dimensions: item.dimensionsCm ?? product.attributes?.dimensionsCm ?? null,
+        operationClearance: item.operationClearanceCm,
+        placement: item.placementCm,
+        quantity: item.quantity,
+      }))
+      if (layoutItems.length > 0) {
+        const calculated = layoutRoom(
+          {
+            roomKind: room.kind,
+            widthCm: measuredWidth,
+            depthCm: measuredDepth,
+            layoutNotes: room.measurements?.layoutNotes,
+          },
+          layoutItems,
+        )
+        if (
+          calculated.placed.length > 0 &&
+          calculated.problems.length === 0 &&
+          calculated.unmeasured.length === 0
+        ) {
+          layoutContract = layoutPromptContract(calculated)
+        }
+      }
+    }
+
     // Правка готового рендера рисуется от него, а не от фотографии комнаты
     const [base] = payload.baseConceptId
       ? await database
@@ -246,6 +300,7 @@ export const generateConcept = task({
       hasPhoto: Boolean(base ?? room.photoUrl),
       ...(room.measurements ? { sizeCm: room.measurements } : {}),
       ...(room.measurements?.layoutNotes ? { layoutNotes: room.measurements.layoutNotes } : {}),
+      ...(layoutContract ? { layoutContract } : {}),
       budgetKopecks: project.budgetKopecks,
       household: project.household ?? null,
       primaryStyle: primary,
