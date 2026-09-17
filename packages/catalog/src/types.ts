@@ -26,7 +26,12 @@ export type FeedItem = {
 
 export type SkippedRow = { reason: string; externalId?: string; title?: string }
 
-export type FeedParseResult = { items: FeedItem[]; skipped: SkippedRow[] }
+export type FeedParseResult = {
+  items: FeedItem[]
+  skipped: SkippedRow[]
+  /** Точное число пропусков, если потоковый разбор ограничил диагностическую выборку. */
+  skippedCount?: number
+}
 
 /** Источник фида: скачивает и разбирает. Реализации: CSV-дамп, CSV/YML Admitad, поиск. */
 export type FeedSource = {

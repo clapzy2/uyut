@@ -1,7 +1,13 @@
 // Разбор партнёрских фидов, хранение каталога и поиск похожих товаров.
 
 export { categoryFromText, isCatalogCategory } from './categories'
-export { parseAdmitadCsv, parseCsv, parseCsvDump, parseRubles } from './csv'
+export {
+  parseAdmitadCsv,
+  parseAdmitadCsvStream,
+  parseCsv,
+  parseCsvDump,
+  parseRubles,
+} from './csv'
 export {
   type DimensionsCm,
   hasAnyDimension,
@@ -49,7 +55,11 @@ export {
   wallReservationToFloorReservation,
 } from './layout'
 export { layoutPromptContract } from './layout-prompt'
-export { isBathroomFixture, isForeignListing, isNotFurniture } from './not-furniture'
+export {
+  isBathroomFixture,
+  isForeignListing,
+  isNotFurniture,
+} from './not-furniture'
 export {
   parseWallReservations,
   type WallReservation,
@@ -74,5 +84,10 @@ export {
   subcategoryForLabel,
   subcategoryFromText,
 } from './subcategories'
-export type { FeedItem, FeedParseResult, FeedSource, SkippedRow } from './types'
+export type {
+  FeedItem,
+  FeedParseResult,
+  FeedSource,
+  SkippedRow,
+} from './types'
 export { parseYml } from './yml'

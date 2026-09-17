@@ -2,6 +2,7 @@ import { budgetShares, detectorCaption, priceWindow, selectObjects } from '@uyut
 import {
   categoryFromText,
   parseAdmitadCsv,
+  parseAdmitadCsvStream,
   parseCsv,
   parseCsvDump,
   parseRubles,
@@ -76,7 +77,11 @@ describe('parseCsvDump', () => {
     expect(item?.category).toBe('sofa')
     expect(item?.priceKopecks).toBe(4_299_000)
     expect(item?.oldPriceKopecks).toBe(5_599_000)
-    expect(item?.attributes?.dimensionsCm).toEqual({ width: 220, depth: 95, height: 85 })
+    expect(item?.attributes?.dimensionsCm).toEqual({
+      width: 220,
+      depth: 95,
+      height: 85,
+    })
     expect(item?.images[0]?.url).toBe('https://cdn/1.jpg')
   })
 
@@ -143,6 +148,19 @@ describe('parseAdmitadCsv', () => {
       height: 90,
     })
   })
+
+  it('потоково разбирает кавычки и переносы строк на границах сетевых чанков', async () => {
+    const csv = `${header}\r\ntrue;Диваны;RUB;"Описание; в две\nстроки и ""кавычках""";sofa-1;Диван Море;;Ширина:210|Глубина:95;https://cdn/sofa.jpg;49990;Диван;https://shop/sofa-1;Askona\r\n`
+    async function* chunks() {
+      for (let index = 0; index < csv.length; index += 7) {
+        yield csv.slice(index, index + 7)
+      }
+    }
+
+    const streamed = await parseAdmitadCsvStream(chunks(), 'askona')
+    expect(streamed).toEqual(parseAdmitadCsv(csv, 'askona'))
+    expect(streamed.items[0]?.description).toBe('Описание; в две\nстроки и "кавычках"')
+  })
 })
 
 describe('parseYml', () => {
@@ -181,8 +199,16 @@ describe('parseYml', () => {
       </offers></shop></yml_catalog>`
     const { items } = parseYml(xml, 'hoff')
     expect(items).toHaveLength(2)
-    expect(items[0]?.attributes?.dimensionsCm).toEqual({ width: 210, depth: 95, height: 85 })
-    expect(items[1]?.attributes?.dimensionsCm).toEqual({ width: 220, depth: 90, height: 85 })
+    expect(items[0]?.attributes?.dimensionsCm).toEqual({
+      width: 210,
+      depth: 95,
+      height: 85,
+    })
+    expect(items[1]?.attributes?.dimensionsCm).toEqual({
+      width: 220,
+      depth: 90,
+      height: 85,
+    })
   })
 })
 
@@ -194,9 +220,17 @@ describe('selectObjects', () => {
       [
         { label: 'a sofa', category: 'sofa', bbox: box(0, 0, 1, 1) },
         { label: 'a sofa', category: 'sofa', bbox: box(0.05, 0.6, 0.4, 0.35) },
-        { label: 'a sofa', category: 'sofa', bbox: box(0.06, 0.62, 0.38, 0.33) },
+        {
+          label: 'a sofa',
+          category: 'sofa',
+          bbox: box(0.06, 0.62, 0.38, 0.33),
+        },
         { label: 'a rug', category: 'rug', bbox: box(0.3, 0.7, 0.5, 0.25) },
-        { label: 'a plant', category: 'decor', bbox: box(0.9, 0.5, 0.02, 0.02) },
+        {
+          label: 'a plant',
+          category: 'decor',
+          bbox: box(0.9, 0.5, 0.02, 0.02),
+        },
       ],
       6,
     )
@@ -219,7 +253,11 @@ describe('selectObjects', () => {
     const objects = selectObjects(
       [
         { label: 'a sofa', category: 'sofa', bbox: box(0.2, 0.45, 0.6, 0.4) },
-        { label: 'an armchair', category: 'chair', bbox: box(0.55, 0.52, 0.18, 0.24) },
+        {
+          label: 'an armchair',
+          category: 'chair',
+          bbox: box(0.55, 0.52, 0.18, 0.24),
+        },
       ],
       6,
     )
@@ -228,7 +266,13 @@ describe('selectObjects', () => {
 
   it('называет высокий светильник у пола торшером', () => {
     const objects = selectObjects(
-      [{ label: 'a pendant lamp', category: 'lamp', bbox: box(0.05, 0.2, 0.12, 0.65) }],
+      [
+        {
+          label: 'a pendant lamp',
+          category: 'lamp',
+          bbox: box(0.05, 0.2, 0.12, 0.65),
+        },
+      ],
       6,
     )
     expect(objects[0]?.label).toBe('a floor lamp')

@@ -68,6 +68,92 @@ function* parseCsvRecords(text: string): Generator<Record<string, string>> {
   }
 }
 
+/** Потоковый вариант для крупных партнёрских CSV: не собирает весь файл в одну строку. */
+async function* csvRowsFromChunks(chunks: AsyncIterable<string>): AsyncGenerator<string[]> {
+  let row: string[] = []
+  let field = ''
+  let quoted = false
+  let pendingQuote = false
+  let skipLineFeed = false
+
+  for await (const chunk of chunks) {
+    let index = 0
+    if (pendingQuote && chunk.length > 0) {
+      if (chunk[0] === '"') {
+        field += '"'
+        quoted = true
+        index = 1
+      } else {
+        quoted = false
+      }
+      pendingQuote = false
+    }
+
+    for (; index < chunk.length; index += 1) {
+      const char = chunk[index] as string
+      if (skipLineFeed) {
+        skipLineFeed = false
+        if (char === '\n') {
+          continue
+        }
+      }
+      if (quoted) {
+        if (char === '"') {
+          if (index + 1 < chunk.length) {
+            if (chunk[index + 1] === '"') {
+              field += '"'
+              index += 1
+            } else {
+              quoted = false
+            }
+          } else {
+            pendingQuote = true
+          }
+        } else {
+          field += char
+        }
+      } else if (char === '"') {
+        quoted = true
+      } else if (char === ';') {
+        row.push(field)
+        field = ''
+      } else if (char === '\n' || char === '\r') {
+        if (char === '\r') {
+          skipLineFeed = true
+        }
+        row.push(field)
+        yield row
+        row = []
+        field = ''
+      } else {
+        field += char
+      }
+    }
+  }
+
+  if (field !== '' || row.length > 0) {
+    row.push(field)
+    yield row
+  }
+}
+
+async function* parseCsvRecordChunks(
+  chunks: AsyncIterable<string>,
+): AsyncGenerator<Record<string, string>> {
+  const rows = csvRowsFromChunks(chunks)
+  const first = await rows.next()
+  if (first.done) {
+    return
+  }
+  const keys = first.value.map((key) => key.replace(/^﻿/, '').trim().toLowerCase())
+  for await (const cells of rows) {
+    if (!cells.some((cell) => cell.trim() !== '')) {
+      continue
+    }
+    yield Object.fromEntries(keys.map((key, index) => [key, (cells[index] ?? '').trim()]))
+  }
+}
+
 export function parseCsv(text: string): Record<string, string>[] {
   return [...parseCsvRecords(text)]
 }
@@ -216,96 +302,156 @@ function canonicalAdmitadId(row: Record<string, string>): string {
  * Универсальный CSV-экспорт Admitad Store. У Askona одна модель повторяется для каждой ткани;
  * такие строки объединяются в один товар с вариантами, иначе каталог разрастается в десятки раз.
  */
+type AdmitadParseState = {
+  source: CatalogSource
+  itemsById: Map<string, FeedItem>
+  skipped: SkippedRow[]
+  skippedCount: number
+  maxSkippedRows: number
+}
+
+function skipAdmitadRow(state: AdmitadParseState, row: SkippedRow): void {
+  state.skippedCount += 1
+  if (state.skipped.length < state.maxSkippedRows) {
+    state.skipped.push(row)
+  }
+}
+
+function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): void {
+  const { itemsById, source } = state
+  const rowId = row.id
+  const title = row.name
+  if (!rowId || !title) {
+    skipAdmitadRow(state, { reason: 'нет id или name', externalId: rowId, title })
+    return
+  }
+  if (!parseBoolean(row.available)) {
+    skipAdmitadRow(state, { reason: 'нет в наличии', externalId: rowId, title })
+    return
+  }
+  if (!isAdmitadFurniture(row)) {
+    skipAdmitadRow(state, { reason: 'не мебель', externalId: rowId, title })
+    return
+  }
+  // Название и тип точнее общего пути: в Askona пуфы лежат в разделе «Диваны/Пуфы».
+  const category =
+    categoryFromText(title, row.type, row.typeprefix) ?? categoryFromText(row.categoryid)
+  if (!category) {
+    skipAdmitadRow(state, { reason: 'неизвестная категория', externalId: rowId, title })
+    return
+  }
+  const priceKopecks = parseRubles(row.price)
+  const picture = row.picture
+    ?.split(/[|,]/)
+    .map((value) => value.trim())
+    .find(Boolean)
+  if (!priceKopecks) {
+    skipAdmitadRow(state, { reason: 'нет цены', externalId: rowId, title })
+    return
+  }
+  if (!row.url || !picture) {
+    skipAdmitadRow(state, {
+      reason: 'нет ссылки или картинки',
+      externalId: rowId,
+      title,
+    })
+    return
+  }
+  if (row.currencyid && row.currencyid.toUpperCase() !== 'RUB') {
+    skipAdmitadRow(state, {
+      reason: `неподдерживаемая валюта ${row.currencyid}`,
+      externalId: rowId,
+      title,
+    })
+    return
+  }
+
+  const params = parseAdmitadParams(row.param)
+  const color = firstParam(params, 'цвет', 'цвет ткани', 'основной цвет')
+  const material = firstParam(params, 'материал', 'материал обивки', 'ткань')
+  const dimensions = admitadDimensions(category, params, `${title} ${row.description ?? ''}`)
+  const externalId = canonicalAdmitadId(row)
+  const variant: CatalogVariant = {
+    color,
+    priceKopecks,
+    affiliateUrl: row.url,
+  }
+  const existing = itemsById.get(externalId)
+  if (existing) {
+    const variants = existing.variants ?? []
+    if (
+      variants.length < 24 &&
+      !variants.some(
+        (entry) => entry.color === variant.color && entry.priceKopecks === variant.priceKopecks,
+      )
+    ) {
+      variants.push(variant)
+      existing.variants = variants
+    }
+    return
+  }
+
+  itemsById.set(externalId, {
+    source,
+    externalId,
+    category,
+    subcategory: subcategoryFromText(category, title, row.type, row.categoryid),
+    brand: row.vendor || undefined,
+    title,
+    description: row.description || undefined,
+    priceKopecks,
+    oldPriceKopecks: parseRubles(row.oldprice) ?? undefined,
+    affiliateUrl: row.url,
+    images: [{ url: picture, alt: title }],
+    attributes: {
+      color,
+      material,
+      dimensionsCm: hasAnyDimension(dimensions) ? dimensions : undefined,
+    },
+    variants: [variant],
+    inStock: true,
+  })
+}
+
+function admitadResult(state: AdmitadParseState): FeedParseResult {
+  return {
+    items: [...state.itemsById.values()],
+    skipped: state.skipped,
+    skippedCount: state.skippedCount,
+  }
+}
+
 export function parseAdmitadCsv(text: string, source: CatalogSource): FeedParseResult {
   const itemsById = new Map<string, FeedItem>()
   const skipped: SkippedRow[] = []
-  for (const row of parseCsvRecords(text)) {
-    const rowId = row.id
-    const title = row.name
-    if (!rowId || !title) {
-      skipped.push({ reason: 'нет id или name', externalId: rowId, title })
-      continue
-    }
-    if (!parseBoolean(row.available)) {
-      skipped.push({ reason: 'нет в наличии', externalId: rowId, title })
-      continue
-    }
-    if (!isAdmitadFurniture(row)) {
-      skipped.push({ reason: 'не мебель', externalId: rowId, title })
-      continue
-    }
-    // Название и тип точнее общего пути: в Askona пуфы лежат в разделе «Диваны/Пуфы».
-    const category =
-      categoryFromText(title, row.type, row.typeprefix) ?? categoryFromText(row.categoryid)
-    if (!category) {
-      skipped.push({ reason: 'неизвестная категория', externalId: rowId, title })
-      continue
-    }
-    const priceKopecks = parseRubles(row.price)
-    const picture = row.picture
-      ?.split(/[|,]/)
-      .map((value) => value.trim())
-      .find(Boolean)
-    if (!priceKopecks) {
-      skipped.push({ reason: 'нет цены', externalId: rowId, title })
-      continue
-    }
-    if (!row.url || !picture) {
-      skipped.push({ reason: 'нет ссылки или картинки', externalId: rowId, title })
-      continue
-    }
-    if (row.currencyid && row.currencyid.toUpperCase() !== 'RUB') {
-      skipped.push({
-        reason: `неподдерживаемая валюта ${row.currencyid}`,
-        externalId: rowId,
-        title,
-      })
-      continue
-    }
-
-    const params = parseAdmitadParams(row.param)
-    const color = firstParam(params, 'цвет', 'цвет ткани', 'основной цвет')
-    const material = firstParam(params, 'материал', 'материал обивки', 'ткань')
-    const dimensions = admitadDimensions(category, params, `${title} ${row.description ?? ''}`)
-    const externalId = canonicalAdmitadId(row)
-    const variant: CatalogVariant = { color, priceKopecks, affiliateUrl: row.url }
-    const existing = itemsById.get(externalId)
-    if (existing) {
-      const variants = existing.variants ?? []
-      if (
-        variants.length < 24 &&
-        !variants.some(
-          (entry) => entry.color === variant.color && entry.priceKopecks === variant.priceKopecks,
-        )
-      ) {
-        variants.push(variant)
-        existing.variants = variants
-      }
-      continue
-    }
-
-    itemsById.set(externalId, {
-      source,
-      externalId,
-      category,
-      subcategory: subcategoryFromText(category, title, row.type, row.categoryid),
-      brand: row.vendor || undefined,
-      title,
-      description: row.description || undefined,
-      priceKopecks,
-      oldPriceKopecks: parseRubles(row.oldprice) ?? undefined,
-      affiliateUrl: row.url,
-      images: [{ url: picture, alt: title }],
-      attributes: {
-        color,
-        material,
-        dimensionsCm: hasAnyDimension(dimensions) ? dimensions : undefined,
-      },
-      variants: [variant],
-      inStock: true,
-    })
+  const state = {
+    source,
+    itemsById,
+    skipped,
+    skippedCount: 0,
+    maxSkippedRows: Number.POSITIVE_INFINITY,
   }
-  return { items: [...itemsById.values()], skipped }
+  for (const row of parseCsvRecords(text)) {
+    addAdmitadRow(state, row)
+  }
+  return admitadResult(state)
+}
+
+export async function parseAdmitadCsvStream(
+  chunks: AsyncIterable<string>,
+  source: CatalogSource,
+): Promise<FeedParseResult> {
+  const state: AdmitadParseState = {
+    source,
+    itemsById: new Map(),
+    skipped: [],
+    skippedCount: 0,
+    maxSkippedRows: 100,
+  }
+  for await (const row of parseCsvRecordChunks(chunks)) {
+    addAdmitadRow(state, row)
+  }
+  return admitadResult(state)
 }
 
 /**
@@ -328,7 +474,11 @@ export function parseCsvDump(text: string, source: CatalogSource = 'dump'): Feed
         ? explicit
         : categoryFromText(row.category, row.subcategory, title)
     if (!category) {
-      skipped.push({ reason: `непонятная категория «${row.category ?? ''}»`, externalId, title })
+      skipped.push({
+        reason: `непонятная категория «${row.category ?? ''}»`,
+        externalId,
+        title,
+      })
       continue
     }
     const priceKopecks = parseRubles(row.price_rub)

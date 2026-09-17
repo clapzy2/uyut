@@ -3,6 +3,7 @@ import {
   countItems,
   markMissingOutOfStock,
   parseAdmitadCsv,
+  parseAdmitadCsvStream,
   parseYml,
   upsertFeedItems,
 } from '@uyut/catalog'
@@ -28,15 +29,34 @@ export function configuredFeeds(
   return feeds
 }
 
-async function downloadFeed(url: string): Promise<string> {
+async function fetchFeed(url: string): Promise<Response> {
   // Крупные российские фиды могут весить десятки мегабайт и идти из Trigger.dev Cloud
   // заметно дольше двух минут. Задача ограничена 30 минутами, поэтому оставляем ей запас
   // на разбор, запись в базу и запуск векторизации.
-  const response = await fetch(url, { signal: AbortSignal.timeout(10 * 60_000) })
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(20 * 60_000),
+  })
   if (!response.ok) {
     throw new Error(`фид не скачался: ${response.status}`)
   }
-  return response.text()
+  return response
+}
+
+async function* decodedChunks(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const decoder = new TextDecoder()
+  const reader = body.getReader()
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const text = decoder.decode(value, { stream: true })
+      if (text) yield text
+    }
+    const tail = decoder.decode()
+    if (tail) yield tail
+  } finally {
+    reader.releaseLock()
+  }
 }
 
 export function parsePartnerFeed(text: string, source: CatalogSource, url: string) {
@@ -46,7 +66,13 @@ export function parsePartnerFeed(text: string, source: CatalogSource, url: strin
 }
 
 async function syncFeeds(): Promise<
-  Array<{ source: string; inserted: number; updated: number; hidden: number; skipped: number }>
+  Array<{
+    source: string
+    inserted: number
+    updated: number
+    hidden: number
+    skipped: number
+  }>
 > {
   const database = db()
   const results: Array<{
@@ -58,24 +84,43 @@ async function syncFeeds(): Promise<
   }> = []
   for (const feed of configuredFeeds(process.env)) {
     try {
-      const contents = await downloadFeed(feed.url)
-      const parsed = parsePartnerFeed(contents, feed.source, feed.url)
+      const response = await fetchFeed(feed.url)
+      const csvRequested = /(?:[?&](?:format|type)=csv\b|\.csv(?:[?&]|$))/i.test(feed.url)
+      const parsed =
+        csvRequested && response.body
+          ? await parseAdmitadCsvStream(decodedChunks(response.body), feed.source)
+          : parsePartnerFeed(await response.text(), feed.source, feed.url)
+      const skipped = parsed.skippedCount ?? parsed.skipped.length
       const summary = await upsertFeedItems(database, parsed.items)
       const hidden = await markMissingOutOfStock(
         database,
         feed.source,
         parsed.items.map((item) => item.externalId),
       )
-      results.push({ source: feed.source, ...summary, hidden, skipped: parsed.skipped.length })
+      results.push({
+        source: feed.source,
+        ...summary,
+        hidden,
+        skipped,
+      })
       logger.info('feed synced', {
         source: feed.source,
         ...summary,
         hidden,
-        skipped: parsed.skipped.length,
+        skipped,
       })
     } catch (error) {
-      logger.error('feed failed', { source: feed.source, error: String(error) })
-      results.push({ source: feed.source, inserted: 0, updated: 0, hidden: 0, skipped: 0 })
+      logger.error('feed failed', {
+        source: feed.source,
+        error: String(error),
+      })
+      results.push({
+        source: feed.source,
+        inserted: 0,
+        updated: 0,
+        hidden: 0,
+        skipped: 0,
+      })
     }
   }
   return results
