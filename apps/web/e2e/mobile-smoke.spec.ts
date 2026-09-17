@@ -57,7 +57,7 @@ test.describe('mobile critical path', () => {
       expect(box?.width).toBeGreaterThanOrEqual(44)
       expect(box?.height).toBeGreaterThanOrEqual(44)
     }
-    await switches.first().click()
+    await page.getByText('Есть кот или собака', { exact: true }).click()
     await expect(switches.first()).toBeChecked()
   })
 })
