@@ -1,4 +1,4 @@
-import type { LayoutItem, LayoutRoomKind } from '@uyut/catalog'
+import type { LayoutItem, LayoutRoomKind, WallReservation } from '@uyut/catalog'
 import { layoutRoom, WALKWAY_CM } from '@uyut/catalog'
 import { describe, expect, it } from 'vitest'
 
@@ -7,6 +7,7 @@ type Scenario = {
   kind: LayoutRoomKind
   widthCm: number
   depthCm: number
+  reservations: WallReservation[]
   items: LayoutItem[]
 }
 
@@ -32,6 +33,10 @@ const scenarios: Scenario[] = [
     kind: 'bedroom',
     widthCm: 420,
     depthCm: 480,
+    reservations: [
+      { kind: 'window', wall: 'top', fromCm: 120, toCm: 300, clearanceCm: 0 },
+      { kind: 'door', wall: 'bottom', fromCm: 20, toCm: 110, clearanceCm: 90 },
+    ],
     items: [
       furniture('bed', 'Кровать 160', 'bed', 160, 200, {
         operationClearance: { side: 45 },
@@ -51,6 +56,10 @@ const scenarios: Scenario[] = [
     kind: 'living',
     widthCm: 480,
     depthCm: 560,
+    reservations: [
+      { kind: 'window', wall: 'top', fromCm: 150, toCm: 330, clearanceCm: 0 },
+      { kind: 'door', wall: 'left', fromCm: 420, toCm: 510, clearanceCm: 90 },
+    ],
     items: [
       furniture('sofa', 'Раскладной диван', 'sofa', 240, 95, {
         operationClearance: { front: 130 },
@@ -70,6 +79,10 @@ const scenarios: Scenario[] = [
     kind: 'kid',
     widthCm: 400,
     depthCm: 480,
+    reservations: [
+      { kind: 'window', wall: 'top', fromCm: 120, toCm: 240, clearanceCm: 0 },
+      { kind: 'door', wall: 'left', fromCm: 380, toCm: 470, clearanceCm: 90 },
+    ],
     items: [
       furniture('bed', 'Односпальная кровать', 'bed', 90, 200, {
         operationClearance: { side: 40 },
@@ -89,6 +102,10 @@ const scenarios: Scenario[] = [
     kind: 'kitchen',
     widthCm: 420,
     depthCm: 480,
+    reservations: [
+      { kind: 'window', wall: 'top', fromCm: 120, toCm: 240, clearanceCm: 0 },
+      { kind: 'door', wall: 'bottom', fromCm: 0, toCm: 90, clearanceCm: 90 },
+    ],
     items: [
       furniture('table', 'Обеденный стол', 'table', 110, 70, {
         subcategory: 'dining',
@@ -97,6 +114,91 @@ const scenarios: Scenario[] = [
       furniture('cabinet', 'Кухонный пенал', 'storage', 80, 60, {
         subcategory: 'wardrobe',
         operationClearance: { front: 80 },
+      }),
+    ],
+  },
+  {
+    name: 'небольшая спальня с кроватью и шкафом',
+    kind: 'bedroom',
+    widthCm: 300,
+    depthCm: 360,
+    reservations: [
+      { kind: 'window', wall: 'top', fromCm: 90, toCm: 210, clearanceCm: 0 },
+      { kind: 'door', wall: 'bottom', fromCm: 0, toCm: 80, clearanceCm: 80 },
+    ],
+    items: [
+      furniture('bed', 'Кровать 140', 'bed', 140, 200, {
+        operationClearance: { side: 40 },
+      }),
+      furniture('wardrobe', 'Шкаф 120', 'storage', 120, 60, {
+        subcategory: 'wardrobe',
+        operationClearance: { front: 50 },
+      }),
+    ],
+  },
+  {
+    name: 'узкая кухня с рабочей линией и холодильником',
+    kind: 'kitchen',
+    widthCm: 240,
+    depthCm: 320,
+    reservations: [
+      { kind: 'window', wall: 'top', fromCm: 80, toCm: 180, clearanceCm: 0 },
+      { kind: 'door', wall: 'bottom', fromCm: 0, toCm: 80, clearanceCm: 80 },
+    ],
+    items: [
+      furniture('run', 'Рабочая линия', 'storage', 180, 60, {
+        subcategory: 'cabinet',
+        operationClearance: { front: 80 },
+      }),
+      furniture('fridge', 'Холодильник', 'storage', 60, 65, {
+        subcategory: 'wardrobe',
+        operationClearance: { front: 70 },
+      }),
+    ],
+  },
+  {
+    name: 'компактная детская со столом у свободной стены',
+    kind: 'kid',
+    widthCm: 320,
+    depthCm: 420,
+    reservations: [
+      { kind: 'window', wall: 'top', fromCm: 100, toCm: 220, clearanceCm: 0 },
+      { kind: 'door', wall: 'left', fromCm: 330, toCm: 410, clearanceCm: 80 },
+    ],
+    items: [
+      furniture('bed', 'Односпальная кровать', 'bed', 90, 200, {
+        operationClearance: { side: 35 },
+      }),
+      furniture('desk', 'Письменный стол', 'table', 100, 55, {
+        subcategory: 'desk',
+        operationClearance: { front: 70 },
+      }),
+      furniture('wardrobe', 'Шкаф', 'storage', 90, 50, {
+        subcategory: 'wardrobe',
+        operationClearance: { front: 45 },
+      }),
+    ],
+  },
+  {
+    name: 'студия с диваном, ТВ и обеденным местом',
+    kind: 'living',
+    widthCm: 330,
+    depthCm: 500,
+    reservations: [
+      { kind: 'window', wall: 'top', fromCm: 100, toCm: 230, clearanceCm: 0 },
+      { kind: 'door', wall: 'bottom', fromCm: 0, toCm: 90, clearanceCm: 90 },
+    ],
+    items: [
+      furniture('sofa', 'Диван', 'sofa', 200, 90, {
+        operationClearance: { front: 110 },
+      }),
+      furniture('tv', 'Тумба под ТВ', 'storage', 140, 40, {
+        subcategory: 'cabinet',
+        operationClearance: { front: 30 },
+      }),
+      furniture('table', 'Стол на двоих', 'table', 80, 70, {
+        subcategory: 'dining',
+        operationClearance: { around: 55 },
       }),
     ],
   },
@@ -109,7 +211,7 @@ describe('реалистичные сценарии комнат', () => {
         roomKind: scenario.kind,
         widthCm: scenario.widthCm,
         depthCm: scenario.depthCm,
-        reservations: [],
+        reservations: scenario.reservations,
         floorReservations: [],
       },
       scenario.items,
@@ -127,7 +229,7 @@ describe('реалистичные сценарии комнат', () => {
       roomKind: scenario.kind,
       widthCm: scenario.widthCm,
       depthCm: scenario.depthCm,
-      reservations: [],
+      reservations: scenario.reservations,
       floorReservations: [],
     } as const
     const direct = layoutRoom(room, scenario.items)
@@ -146,7 +248,7 @@ describe('реалистичные сценарии комнат', () => {
         roomKind: scenario.kind,
         widthCm: scenario.widthCm,
         depthCm: scenario.depthCm,
-        reservations: [],
+        reservations: scenario.reservations,
         floorReservations: [],
       },
       scenario.items,

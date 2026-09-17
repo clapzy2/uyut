@@ -84,22 +84,35 @@ export async function requestConcepts(
         error: 'Напишите в заметках, что поменять. Комната остаётся как есть, менять пока нечего.',
       }
     }
+    const batchId = randomUUID()
+    // Занимаем комнату до лимитера и внешней очереди. Две вкладки или двойной клик иначе
+    // успевают отправить две платные задачи до того, как первая запишет свой runId.
+    if (!(await claimRoomForGeneration(room.id, batchId))) {
+      return { ok: false, error: 'Эта комната уже считается. Дождитесь готовых вариантов.' }
+    }
     const { success } = await getConceptsByUserLimiter().limit(userId)
     if (!success) {
+      await clearGenerationRun(room.id)
       return { ok: false, error: 'Сегодня уже много генераций. Попробуйте через час.' }
     }
-    const batchId = randomUUID()
-    const handle = await tasks.trigger('generate-concept', {
-      roomId: room.id,
-      batchId,
-      // В режиме «оставить как есть» пять вариантов одной и той же комнаты почти не отличаются: платить за пять незачем
-      count: baseConceptId || room.condition === 'keep' ? EDIT_COUNT : FRESH_COUNT,
-      ...(revision ? { revision: revision.slice(0, 500) } : {}),
-      ...(baseConceptId ? { baseConceptId } : {}),
-      ...(editRequest ? { editRequest: editRequest.slice(0, 500) } : {}),
-      ...(editSteps && editSteps.length > 0 ? { editSteps } : {}),
-      ...(objectId ? { objectId } : {}),
-    })
+    let handle: Awaited<ReturnType<typeof tasks.trigger>>
+    try {
+      handle = await tasks.trigger('generate-concept', {
+        roomId: room.id,
+        batchId,
+        // В режиме «оставить как есть» пять вариантов одной и той же комнаты почти не отличаются: платить за пять незачем
+        count: baseConceptId || room.condition === 'keep' ? EDIT_COUNT : FRESH_COUNT,
+        ...(revision ? { revision: revision.slice(0, 500) } : {}),
+        ...(baseConceptId ? { baseConceptId } : {}),
+        ...(editRequest ? { editRequest: editRequest.slice(0, 500) } : {}),
+        ...(editSteps && editSteps.length > 0 ? { editSteps } : {}),
+        ...(objectId ? { objectId } : {}),
+      })
+    } catch (error) {
+      // Очередь не приняла задачу: платного запуска нет, бронь можно безопасно снять.
+      await clearGenerationRun(room.id)
+      throw error
+    }
     await attachGenerationRun(room.id, handle.id, batchId)
     await recordAudit({
       action: 'concepts.requested',
