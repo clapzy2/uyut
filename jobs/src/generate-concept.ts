@@ -8,7 +8,9 @@ import {
   createFalRenderer,
   createPromptBuilder,
   isConceptModelId,
+  isLayoutCorrectionImprovement,
   KEEP_THE_REST,
+  layoutCorrectionPrompt,
   nearestStyles,
   type RenderResult,
   renderArchitectureAnchoredBatch,
@@ -326,6 +328,8 @@ export const generateConcept = task({
     const { renderer: rawEngine, modelId } = renderer(preserving ? 'gpt-image-2.5' : undefined)
     let renderRequests = 0
     let reviewRequests = 0
+    let layoutCorrectionRequests = 0
+    let layoutCorrectionClaimed = false
     const engine = withRenderMeter(rawEngine, () => {
       renderRequests += 1
     })
@@ -432,8 +436,6 @@ export const generateConcept = task({
               aspectRatio,
             })
           }
-          const base = `projects/${project.id}/rooms/${room.id}/concepts/${concept.id}`
-          const full = await sharp(result.body).webp({ quality: 88 }).toBuffer()
           // Проверяем пиксели, а не промпт. Уменьшение ограничивает размер запроса;
           // общий HTTP-дедлайн проверки — 35 секунд, её сбой не роняет результат.
           const reviewImage = await sharp(result.body)
@@ -441,7 +443,7 @@ export const generateConcept = task({
             .jpeg({ quality: 85 })
             .toBuffer()
           reviewRequests += 1
-          const qualityReview = await reviewConceptImage(
+          let qualityReview = await reviewConceptImage(
             requireEnv('FAL_KEY'),
             { body: reviewImage, contentType: 'image/jpeg' },
             brief,
@@ -451,20 +453,62 @@ export const generateConcept = task({
             status: qualityReview.status,
             issueCodes: qualityReview.issues.map((issue) => issue.code),
           })
+          const correctionPrompt = layoutCorrectionPrompt(qualityReview, brief.layoutContract)
+          // На весь пакет разрешена ровно одна дополнительная платная правка. Флаг занимаем
+          // синхронно до await, поэтому параллельные варианты не могут каждый начать свою.
+          if (correctionPrompt && !base && !payload.editSteps && !layoutCorrectionClaimed) {
+            layoutCorrectionClaimed = true
+            layoutCorrectionRequests += 1
+            try {
+              const corrected = await engine.render({
+                prompt: correctionPrompt,
+                imageUrl: `data:${result.contentType};base64,${result.body.toString('base64')}`,
+                aspectRatio,
+              })
+              const correctedReviewImage = await sharp(corrected.body)
+                .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
+                .jpeg({ quality: 85 })
+                .toBuffer()
+              reviewRequests += 1
+              const correctedReview = await reviewConceptImage(
+                requireEnv('FAL_KEY'),
+                { body: correctedReviewImage, contentType: 'image/jpeg' },
+                brief,
+              )
+              const accepted = isLayoutCorrectionImprovement(qualityReview, correctedReview)
+              logger.info('layout correction reviewed', {
+                conceptId: concept.id,
+                accepted,
+                before: qualityReview.issues.map((issue) => issue.code),
+                after: correctedReview.issues.map((issue) => issue.code),
+              })
+              if (accepted) {
+                result = corrected
+                qualityReview = correctedReview
+              }
+            } catch (error) {
+              logger.warn('layout correction failed; keeping original render', {
+                conceptId: concept.id,
+                error: String(error),
+              })
+            }
+          }
+          const objectBase = `projects/${project.id}/rooms/${room.id}/concepts/${concept.id}`
+          const full = await sharp(result.body).webp({ quality: 88 }).toBuffer()
           const thumb = await sharp(result.body)
             .resize({ width: 640, withoutEnlargement: true })
             .webp({ quality: 78 })
             .toBuffer()
           await Promise.all([
-            putObject(`${base}.webp`, full, 'image/webp'),
-            putObject(`${base}-thumb.webp`, thumb, 'image/webp'),
+            putObject(`${objectBase}.webp`, full, 'image/webp'),
+            putObject(`${objectBase}-thumb.webp`, thumb, 'image/webp'),
           ])
           await database
             .update(concepts)
             .set({
               status: 'ready',
-              renderUrl: `${base}.webp`,
-              renderThumbUrl: `${base}-thumb.webp`,
+              renderUrl: `${objectBase}.webp`,
+              renderThumbUrl: `${objectBase}-thumb.webp`,
               seed: result.seed,
               qualityReview,
               // Описание основано на готовом изображении, не на намерениях из задания.
@@ -506,6 +550,7 @@ export const generateConcept = task({
       modelId,
       renderRequests,
       reviewRequests,
+      layoutCorrectionRequests,
       renderUsdEstimate,
     })
     return {
@@ -515,6 +560,7 @@ export const generateConcept = task({
       usd: renderUsdEstimate,
       renderRequests,
       reviewRequests,
+      layoutCorrectionRequests,
     }
   },
 })

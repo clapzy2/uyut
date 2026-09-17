@@ -18,6 +18,7 @@
     "bench-models": "bun --env-file=../.env run scripts/bench-render-models.ts",
     "bench-reference-models": "bun --env-file=../.env run scripts/bench-reference-models.ts",
     "bench-layout-fidelity": "bun --env-file=../.env run scripts/bench-layout-fidelity.ts",
+    "bench-layout-correction": "bun --env-file=../.env run scripts/bench-layout-correction.ts",
     "catalog:embed": "bun --env-file=../.env run scripts/embed-catalog.ts",
     "try-match": "bun --env-file=../.env run scripts/try-match.ts",
     "match-concept": "bun --env-file=../.env run scripts/match-concept.ts",
