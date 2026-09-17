@@ -29,7 +29,10 @@ export function configuredFeeds(
 }
 
 async function downloadFeed(url: string): Promise<string> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(120_000) })
+  // Крупные российские фиды могут весить десятки мегабайт и идти из Trigger.dev Cloud
+  // заметно дольше двух минут. Задача ограничена 30 минутами, поэтому оставляем ей запас
+  // на разбор, запись в базу и запуск векторизации.
+  const response = await fetch(url, { signal: AbortSignal.timeout(10 * 60_000) })
   if (!response.ok) {
     throw new Error(`фид не скачался: ${response.status}`)
   }

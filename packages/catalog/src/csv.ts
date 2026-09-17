@@ -8,10 +8,9 @@ import type { FeedItem, FeedParseResult, SkippedRow } from './types'
  * Разбор CSV без зависимостей: кавычки, экранированные кавычки, переводы строк внутри поля.
  * Разделитель определяется по заголовку: Excel в русской локали сохраняет с точкой с запятой.
  */
-export function parseCsv(text: string): Record<string, string>[] {
+function* csvRows(text: string): Generator<string[]> {
   const source = text.replace(/^﻿/, '')
   const delimiter = detectDelimiter(source)
-  const rows: string[][] = []
   let row: string[] = []
   let field = ''
   let quoted = false
@@ -40,7 +39,7 @@ export function parseCsv(text: string): Record<string, string>[] {
         index += 1
       }
       row.push(field)
-      rows.push(row)
+      yield row
       row = []
       field = ''
     } else {
@@ -49,18 +48,28 @@ export function parseCsv(text: string): Record<string, string>[] {
   }
   if (field !== '' || row.length > 0) {
     row.push(field)
-    rows.push(row)
+    yield row
   }
-  const [header, ...body] = rows
-  if (!header) {
-    return []
+}
+
+function* parseCsvRecords(text: string): Generator<Record<string, string>> {
+  const rows = csvRows(text)
+  const first = rows.next()
+  if (first.done) {
+    return
   }
+  const header = first.value
   const keys = header.map((key) => key.trim().toLowerCase())
-  return body
-    .filter((cells) => cells.some((cell) => cell.trim() !== ''))
-    .map((cells) =>
-      Object.fromEntries(keys.map((key, index) => [key, (cells[index] ?? '').trim()])),
-    )
+  for (const cells of rows) {
+    if (!cells.some((cell) => cell.trim() !== '')) {
+      continue
+    }
+    yield Object.fromEntries(keys.map((key, index) => [key, (cells[index] ?? '').trim()]))
+  }
+}
+
+export function parseCsv(text: string): Record<string, string>[] {
+  return [...parseCsvRecords(text)]
 }
 
 function detectDelimiter(text: string): string {
@@ -210,7 +219,7 @@ function canonicalAdmitadId(row: Record<string, string>): string {
 export function parseAdmitadCsv(text: string, source: CatalogSource): FeedParseResult {
   const itemsById = new Map<string, FeedItem>()
   const skipped: SkippedRow[] = []
-  for (const row of parseCsv(text)) {
+  for (const row of parseCsvRecords(text)) {
     const rowId = row.id
     const title = row.name
     if (!rowId || !title) {
@@ -306,7 +315,7 @@ export function parseAdmitadCsv(text: string, source: CatalogSource): FeedParseR
 export function parseCsvDump(text: string, source: CatalogSource = 'dump'): FeedParseResult {
   const items: FeedItem[] = []
   const skipped: SkippedRow[] = []
-  for (const row of parseCsv(text)) {
+  for (const row of parseCsvRecords(text)) {
     const externalId = row.external_id
     const title = row.title
     if (!externalId || !title) {
