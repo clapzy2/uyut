@@ -1,5 +1,6 @@
 import type { LayoutItem, LayoutRoomKind, WallReservation } from '@uyut/catalog'
 import { layoutRoom, WALKWAY_CM } from '@uyut/catalog'
+import { rectBlocksFloorReservation, rectInsideFloor } from '@uyut/catalog/layout'
 import { describe, expect, it } from 'vitest'
 
 type Scenario = {
@@ -328,7 +329,7 @@ describe('реалистичные сценарии комнат', () => {
       status: 'checked',
     })
     expect(layout.relationships.find((relation) => relation.kind === 'sofa-coffee')).toMatchObject({
-      status: 'checked',
+      status: 'review',
       distanceCm: expect.any(Number),
     })
   })
@@ -417,5 +418,133 @@ describe('реалистичные сценарии комнат', () => {
       status: 'review',
       distanceCm: expect.any(Number),
     })
+  })
+
+  it('расставляет спальню внутри Г-образного контура с проёмом на внутренней стене', () => {
+    const floorPolygon = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 450, yCm: 0 },
+      { xCm: 450, yCm: 180 },
+      { xCm: 300, yCm: 180 },
+      { xCm: 300, yCm: 500 },
+      { xCm: 0, yCm: 500 },
+    ]
+    const floorReservations = [
+      {
+        kind: 'window' as const,
+        start: { xCm: 100, yCm: 0 },
+        end: { xCm: 240, yCm: 0 },
+        clearanceCm: 0,
+        sillHeightCm: 90,
+      },
+      {
+        kind: 'door' as const,
+        start: { xCm: 300, yCm: 180 },
+        end: { xCm: 300, yCm: 270 },
+        clearanceCm: 0,
+      },
+    ]
+    const layout = layoutRoom(
+      {
+        roomKind: 'bedroom',
+        widthCm: 450,
+        depthCm: 500,
+        floorPolygon,
+        reservations: [],
+        floorReservations,
+        keepClearZones: [
+          {
+            kind: 'door',
+            label: 'Дуга внутренней двери',
+            polygon: [
+              { xCm: 210, yCm: 180 },
+              { xCm: 300, yCm: 180 },
+              { xCm: 300, yCm: 270 },
+              { xCm: 210, yCm: 270 },
+            ],
+          },
+        ],
+      },
+      [
+        furniture('l-bed', 'Кровать 140', 'bed', 140, 200, {
+          operationClearance: { side: 40 },
+        }),
+        furniture('l-wardrobe', 'Шкаф', 'storage', 120, 60, {
+          subcategory: 'wardrobe',
+          operationClearance: { front: 50 },
+        }),
+      ],
+    )
+
+    expect(layout.problems).toEqual([])
+    expect(layout.placed).toHaveLength(2)
+    expect(layout.placed.every((placement) => rectInsideFloor(placement, floorPolygon))).toBe(true)
+    expect(
+      layout.placed.every((placement) =>
+        floorReservations.every(
+          (reservation) => !rectBlocksFloorReservation(placement, reservation),
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  it('сохраняет два отдельных окна и свободный выход на балкон', () => {
+    const floorReservations = [
+      {
+        kind: 'window' as const,
+        start: { xCm: 70, yCm: 0 },
+        end: { xCm: 170, yCm: 0 },
+        clearanceCm: 0,
+        sillHeightCm: 90,
+      },
+      {
+        kind: 'window' as const,
+        start: { xCm: 230, yCm: 0 },
+        end: { xCm: 330, yCm: 0 },
+        clearanceCm: 0,
+        sillHeightCm: 90,
+      },
+      {
+        kind: 'balcony' as const,
+        start: { xCm: 500, yCm: 380 },
+        end: { xCm: 500, yCm: 470 },
+        clearanceCm: 0,
+      },
+    ]
+    const balconyZone = {
+      kind: 'balcony' as const,
+      label: 'Выход на балкон',
+      polygon: [
+        { xCm: 410, yCm: 380 },
+        { xCm: 500, yCm: 380 },
+        { xCm: 500, yCm: 470 },
+        { xCm: 410, yCm: 470 },
+      ],
+    }
+    const layout = layoutRoom(
+      {
+        roomKind: 'living',
+        widthCm: 500,
+        depthCm: 550,
+        reservations: [],
+        floorReservations,
+        keepClearZones: [balconyZone],
+      },
+      [
+        furniture('balcony-sofa', 'Диван', 'sofa', 220, 95, {
+          operationClearance: { front: 120 },
+        }),
+        furniture('balcony-tv', 'Тумба под ТВ', 'storage', 160, 45, {
+          subcategory: 'cabinet',
+          operationClearance: { front: 30 },
+        }),
+      ],
+    )
+
+    expect(layout.floorReservations.filter((item) => item.kind === 'window')).toHaveLength(2)
+    expect(layout.floorReservations.filter((item) => item.kind === 'balcony')).toHaveLength(1)
+    expect(layout.problems).toEqual([])
+    expect(layout.safetySummary.status).toBe('checked')
+    expect(layout.walkwayCm).toBeGreaterThanOrEqual(WALKWAY_CM)
   })
 })

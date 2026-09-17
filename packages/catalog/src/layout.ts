@@ -782,6 +782,7 @@ function widestRoute(
   placed: readonly Rect[],
   room: Size,
   floorPolygon?: readonly LayoutPoint[],
+  blockedPolygons: readonly (readonly LayoutPoint[])[] = [],
 ): number {
   const step = Math.max(
     GRID_CM,
@@ -806,6 +807,20 @@ function widestRoute(
     for (let y = fromY; y < toY; y += 1) {
       for (let x = fromX; x < toX; x += 1) {
         busy[y * cols + x] = 1
+      }
+    }
+  }
+  for (const polygon of blockedPolygons) {
+    if (polygon.length < 3) continue
+    for (let y = 0; y < rows; y += 1) {
+      for (let x = 0; x < cols; x += 1) {
+        const cell = {
+          xCm: x * step,
+          yCm: y * step,
+          widthCm: step,
+          depthCm: step,
+        }
+        if (rectOverlapsPolygon(cell, polygon)) busy[y * cols + x] = 1
       }
     }
   }
@@ -1074,6 +1089,9 @@ function layoutRoomCandidate(
         ...zone,
         polygon: zone.polygon.map((point) => ({ ...point })),
       })) ?? []
+  const routeBlockedPolygons = keepClearZones
+    .filter((zone) => zone.kind === 'obstacle' || zone.kind === 'radiator')
+    .map((zone) => zone.polygon)
   const missingSafetyData = [...new Set(room.missingSafetyData ?? [])]
   const wallFloorReservations = reservations.map((reservation) =>
     wallReservationToFloorReservation(reservation, widthCm, depthCm),
@@ -1701,6 +1719,7 @@ function layoutRoomCandidate(
           [...placed, ...functionalZones, placement, ...(zone ? [zone] : [])],
           { widthCm, depthCm },
           floorPolygon,
+          routeBlockedPolygons,
         )
         if (!bestCenter || candidateWalkway > bestCenter.walkwayCm) {
           bestCenter = { placement, zone, walkwayCm: candidateWalkway }
@@ -1717,7 +1736,7 @@ function layoutRoomCandidate(
 
   // Проход — это самое узкое место на маршруте, по которому можно обойти всю комнату,
   // а не просто расстояние между двумя стенками мебели
-  const walkwayCm = widestRoute(placed, { widthCm, depthCm }, floorPolygon)
+  const walkwayCm = widestRoute(placed, { widthCm, depthCm }, floorPolygon, routeBlockedPolygons)
   if (placed.length > 0 && walkwayCm < WALKWAY_CM) {
     problems.push({ kind: 'narrowWalkway', gapCm: walkwayCm })
   }
@@ -1825,12 +1844,15 @@ function layoutRoomCandidate(
   )
   if (room.roomKind === 'living' && sofaPlacement && coffeePlacement) {
     const distanceCm = rectDistanceCm(sofaPlacement, coffeePlacement)
+    const usableFromSofa = distanceCm >= 30 && distanceCm <= 60
     relationships.push({
       id: 'sofa-coffee',
       kind: 'sofa-coffee',
       label: 'Диван и журнальный стол',
-      detail: `Между краями ${distanceCm} см. Это расстояние учтено при выборе варианта без ухудшения прохода.`,
-      status: 'checked',
+      detail: usableFromSofa
+        ? `Между краями ${distanceCm} см: столом удобно пользоваться с дивана.`
+        : `Между краями ${distanceCm} см. Стол слишком близко или далеко — переставьте его вручную.`,
+      status: usableFromSofa ? 'checked' : 'review',
       distanceCm,
     })
   }

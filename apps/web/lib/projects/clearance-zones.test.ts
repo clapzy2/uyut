@@ -103,6 +103,11 @@ describe('явные резервы открывания и монтажа', () 
     )
     expect(flipped?.polygon[2]?.yCm).toBe(-120)
   })
+  it('не называет балконный блок обычной дверью', () => {
+    expect(doorClearanceZone({ ...door, type: 'balcony' }, geometry)?.label).toBe(
+      'Балконный блок d: свободная зона',
+    )
+  })
   it('строит четверть окружности от выбранных петель', () => {
     const start = doorClearanceZone(
       {

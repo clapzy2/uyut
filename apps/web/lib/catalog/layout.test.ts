@@ -545,6 +545,59 @@ describe('layoutRoom', () => {
     expect(result.problems).toContainEqual({ kind: 'noWall', title: 'Комод', widthCm: 100 })
   })
 
+  it('не прокладывает проход сквозь колонну, но разрешает идти через зону двери', () => {
+    const polygon = [
+      { xCm: 0, yCm: 120 },
+      { xCm: 180, yCm: 120 },
+      { xCm: 180, yCm: 280 },
+      { xCm: 0, yCm: 280 },
+    ]
+    const furniture = [
+      item({
+        id: 'chair',
+        title: 'Кресло',
+        category: 'chair',
+        subcategory: 'armchair',
+        dimensions: { width: 60, depth: 60, height: 80 },
+      }),
+    ]
+    const base = {
+      roomKind: 'living' as const,
+      widthCm: 240,
+      depthCm: 400,
+      reservations: [],
+      floorReservations: [],
+    }
+    const obstacle = layoutRoom(
+      {
+        ...base,
+        keepClearZones: [{ kind: 'obstacle', label: 'Колонна', polygon }],
+      },
+      furniture,
+    )
+    const radiator = layoutRoom(
+      {
+        ...base,
+        keepClearZones: [{ kind: 'radiator', label: 'Радиатор', polygon }],
+      },
+      furniture,
+    )
+    const door = layoutRoom(
+      {
+        ...base,
+        keepClearZones: [{ kind: 'door', label: 'Дуга двери', polygon }],
+      },
+      furniture,
+    )
+
+    expect(obstacle.walkwayCm).toBe(60)
+    expect(obstacle.problems).toContainEqual({ kind: 'narrowWalkway', gapCm: 60 })
+    expect(radiator.walkwayCm).toBe(60)
+    expect(radiator.problems).toContainEqual({ kind: 'narrowWalkway', gapCm: 60 })
+    expect(door.walkwayCm).toBeGreaterThanOrEqual(WALKWAY_CM)
+    expect(door.problems.some((problem) => problem.kind === 'narrowWalkway')).toBe(false)
+  })
+
   it('оставляет свободной зону открывания двери перед стеной', () => {
     const layout = layoutRoom(
       {

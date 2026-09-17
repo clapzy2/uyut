@@ -40,4 +40,26 @@ describe('контракт расстановки для генератора', 
   it('не обещает расстановку без размеров или размещённых предметов', () => {
     expect(layoutPromptContract(layoutRoom({}, []))).toBe('')
   })
+
+  it('не обещает удобный журнальный стол, если зона раскладного дивана отодвинула его', () => {
+    const sofa = item('sofa', 'Раскладной диван', 'sofa', 240, 95)
+    const layout = layoutRoom(
+      { roomKind: 'living', widthCm: 480, depthCm: 560, reservations: [] },
+      [
+        { ...sofa, operationClearance: { front: 130 } },
+        {
+          ...item('table', 'Журнальный стол', 'table', 100, 55, 'coffee'),
+          operationClearance: { around: 35 },
+        },
+      ],
+    )
+
+    expect(layout.relationships.find((relation) => relation.kind === 'sofa-coffee')).toMatchObject({
+      status: 'review',
+      distanceCm: expect.any(Number),
+    })
+    expect(layoutPromptContract(layout)).not.toContain(
+      'the coffee table remains directly usable from the sofa',
+    )
+  })
 })

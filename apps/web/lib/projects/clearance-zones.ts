@@ -145,7 +145,7 @@ export function doorClearanceZone(
     id: `door-${opening.id}`,
     ownerId: opening.id,
     door: true,
-    label: `Дверь ${opening.id}: свободная зона`,
+    label: `${opening.type === 'balcony' ? 'Балконный блок' : 'Дверь'} ${opening.id}: свободная зона`,
     polygon,
   }
 }
