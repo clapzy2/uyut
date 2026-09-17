@@ -189,11 +189,19 @@ test.describe('project summary', () => {
     expect(afterDrag.placement.xCm % 5).toBe(0)
     expect(afterDrag.placement.yCm % 5).toBe(0)
 
-    // Дожидаемся нового серверного дерева после сохранения перетаскивания. Иначе быстрый CI
-    // иногда успевает нажать старую SVG-кнопку ровно в момент router.refresh().
+    // Поворот проверяем отдельно от drag-and-drop: после произвольного перемещения вдоль стены
+    // предмет может оказаться в корректном для текущей ориентации месте, где следующая ориентация
+    // уже не помещается. Центральная позиция оставляет достаточно места для обеих ориентаций.
+    await db
+      .update(shoppingListItems)
+      .set({
+        placementCm: { xCm: 155, yCm: 125, rotation: 0, frontDirection: 'down' },
+      })
+      .where(eq(shoppingListItems.id, shoppingItem.id))
     await page.reload()
     await page.getByRole('button', { name: 'Повернуть: Диван Букле e2e' }).click()
-    const nextRotation = afterDrag.placement.rotation === 0 ? 90 : 0
+    await expect(page.getByText('Мебель повёрнута и проверена')).toBeVisible()
+    const nextRotation = 90
     await expect
       .poll(async () => {
         const [saved] = await db
