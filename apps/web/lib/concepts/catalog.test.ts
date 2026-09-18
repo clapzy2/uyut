@@ -153,6 +153,15 @@ describe('parseAdmitadCsv', () => {
     })
   })
 
+  it('не показывает служебное значение цвета как вариант товара', () => {
+    const csv = `${header}\ntrue;Столы;RUB;;table-1;Стол Коби;;Цвет:Неизвестно|Материал:Нет данных;https://cdn/table.jpg;58099;Стол;https://shop/table-1;Askona\n`
+    const item = parseAdmitadCsv(csv, 'askona').items[0]
+
+    expect(item?.attributes?.color).toBeUndefined()
+    expect(item?.attributes?.material).toBeUndefined()
+    expect(item?.variants?.[0]?.color).toBeUndefined()
+  })
+
   it('потоково разбирает кавычки и переносы строк на границах сетевых чанков', async () => {
     const csv = `${header}\r\ntrue;Диваны;RUB;"Описание; в две\nстроки и ""кавычках""";sofa-1;Диван Море;;Ширина:210|Глубина:95;https://cdn/sofa.jpg;49990;Диван;https://shop/sofa-1;Askona\r\n`
     async function* chunks() {

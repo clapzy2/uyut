@@ -232,6 +232,15 @@ function firstParam(params: Map<string, string>, ...names: string[]): string | u
   return undefined
 }
 
+/** Партнёрские фиды иногда передают заглушку как настоящее значение характеристики. */
+function meaningfulParam(value: string | undefined): string | undefined {
+  const normalized = value?.trim()
+  if (!normalized || /^(?:неизвестно|не указан[оа]?|нет данных|n\/?a|-)$/i.test(normalized)) {
+    return undefined
+  }
+  return normalized
+}
+
 const ADMITAD_NON_FURNITURE =
   /матрас|подуш|наматрас|топпер|одеял|плед|постельн|простын|наволоч|пододеяль|чехол|защитн(?:ый|ая) слой|основани[ея] для кроват|реш[её]тк|трансформируемое основание|аксессуар/i
 
@@ -367,8 +376,8 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
   }
 
   const params = parseAdmitadParams(row.param)
-  const color = firstParam(params, 'цвет', 'цвет ткани', 'основной цвет')
-  const material = firstParam(params, 'материал', 'материал обивки', 'ткань')
+  const color = meaningfulParam(firstParam(params, 'цвет', 'цвет ткани', 'основной цвет'))
+  const material = meaningfulParam(firstParam(params, 'материал', 'материал обивки', 'ткань'))
   const dimensions = admitadDimensions(category, params, `${title} ${row.description ?? ''}`)
   const externalId = canonicalAdmitadId(row)
   const variant: CatalogVariant = {
