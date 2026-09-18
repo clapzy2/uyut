@@ -54,7 +54,13 @@ export type CatalogAttributes = {
    */
   adDisclosure?: string
 }
-export type CatalogVariant = { color?: string; priceKopecks?: number; affiliateUrl?: string }
+export type CatalogVariant = {
+  color?: string
+  priceKopecks?: number
+  affiliateUrl?: string
+  /** Фото именно этого цвета/ткани из фида магазина. */
+  imageUrl?: string
+}
 
 // Каталог мебели из партнёрских фидов. Ключ уникальности — источник плюс внешний id,
 // по нему идёт ежедневный upsert. Векторы считаются отдельной задачей для новых и изменённых

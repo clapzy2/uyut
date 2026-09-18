@@ -40,6 +40,13 @@ export type MatchView = {
   imageUrl: string | null
   /** Запасная ссылка на картинку: первая у части магазинов не отвечает */
   imageFallbackUrl: string | null
+  /** Варианты магазина: выбор меняет цену, ссылку и, когда доступно, фотографию. */
+  variants: Array<{
+    color: string | null
+    priceKopecks: number | null
+    affiliateUrl: string | null
+    imageUrl: string | null
+  }>
   similarity: number
   overBudget: boolean
   /** Габариты из карточки магазина, сантиметры */
@@ -116,6 +123,19 @@ async function toMatch(
   limits: RoomLimits,
 ): Promise<MatchView> {
   const dimensionsCm = item.attributes?.dimensionsCm ?? null
+  const images = orderedImages(item.images)
+  const [imageUrl, imageFallbackUrl, variants] = await Promise.all([
+    productImage(images[0]),
+    productImage(images[1]),
+    Promise.all(
+      (item.variants ?? []).map(async (variant) => ({
+        color: variant.color?.trim() || null,
+        priceKopecks: variant.priceKopecks ?? null,
+        affiliateUrl: variant.affiliateUrl ?? null,
+        imageUrl: await productImage(variant.imageUrl),
+      })),
+    ),
+  ])
   return {
     id: item.id,
     title: item.title,
@@ -125,8 +145,9 @@ async function toMatch(
     oldPriceKopecks: item.oldPriceKopecks,
     affiliateUrl: item.affiliateUrl,
     adDisclosure: item.attributes?.adDisclosure?.trim() || null,
-    imageUrl: await productImage(orderedImages(item.images)[0]),
-    imageFallbackUrl: await productImage(orderedImages(item.images)[1]),
+    imageUrl,
+    imageFallbackUrl,
+    variants,
     similarity: item.similarity,
     overBudget: window !== null && item.priceKopecks > window.maxKopecks,
     dimensionsCm,

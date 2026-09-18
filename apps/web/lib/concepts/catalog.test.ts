@@ -125,6 +125,10 @@ describe('parseAdmitadCsv', () => {
       },
     })
     expect(items[0]?.variants).toHaveLength(2)
+    expect(items[0]?.variants).toEqual([
+      expect.objectContaining({ color: 'Синий', imageUrl: 'https://cdn/bed-blue.jpg' }),
+      expect.objectContaining({ color: 'Бежевый', imageUrl: 'https://cdn/bed-beige.jpg' }),
+    ])
   })
 
   it('не смешивает мебель с матрасами и текстилем', () => {

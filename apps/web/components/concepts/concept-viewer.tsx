@@ -90,6 +90,155 @@ function Highlight({ object, strong }: { object: ObjectView; strong: boolean }) 
   )
 }
 
+type SelectedProductVariant = MatchView['variants'][number]
+
+function MatchRow({
+  match,
+  object,
+  quantity,
+  adding,
+  canAdd,
+  onAdd,
+}: {
+  match: MatchView
+  object: ObjectView
+  quantity: number
+  adding: string | null
+  canAdd: boolean
+  onAdd: (match: MatchView, object: ObjectView, variant?: SelectedProductVariant) => void
+}) {
+  const [variantIndex, setVariantIndex] = useState(0)
+  const variant = match.variants[variantIndex]
+  const priceKopecks = variant?.priceKopecks ?? match.priceKopecks
+  const affiliateUrl = variant?.affiliateUrl ?? match.affiliateUrl
+  const imageUrl = variant?.imageUrl ?? match.imageUrl
+  const showVariants = match.variants.length > 1
+
+  return (
+    <li className={cn('motion-list-row group py-3', match.overBudget && 'opacity-75')}>
+      <div className="grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[64px_minmax(0,1fr)_auto]">
+        <a
+          href={affiliateUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`${match.title}: открыть в ${sourceLabel(match.source)}`}
+          className="block h-16 w-16 overflow-hidden border border-line bg-muted"
+        >
+          <ProductImage
+            key={imageUrl ?? match.imageFallbackUrl ?? match.id}
+            src={imageUrl}
+            fallback={match.imageFallbackUrl}
+            alt={variant?.color ? `${match.title}, ${variant.color}` : match.title}
+            className="transition-transform duration-500 ease-appear group-hover:scale-[1.06]"
+          />
+        </a>
+        <span className="min-w-0">
+          <a
+            href={affiliateUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block truncate text-[15px] text-ink decoration-accent decoration-1 underline-offset-4 hover:underline"
+          >
+            {match.title}
+          </a>
+          <span className="block truncate text-[13px] text-ink-2">
+            {[match.brand, sourceLabel(match.source), sizeLabel(match.dimensionsCm)]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+          {fitLabel(match.fit) ? (
+            <span
+              className={cn(
+                'mt-0.5 block truncate text-[12px]',
+                match.fit.state === 'tooWide' || match.fit.state === 'tooTall'
+                  ? 'text-danger'
+                  : 'text-ink-2',
+              )}
+            >
+              {fitLabel(match.fit)}
+            </span>
+          ) : null}
+          {showVariants ? (
+            <label className="mt-2 block max-w-[260px] text-[11px] uppercase tracking-[0.1em] text-ink-2">
+              Цвет и обивка
+              <select
+                value={variantIndex}
+                onChange={(event) => setVariantIndex(Number(event.currentTarget.value))}
+                className="mt-1 block h-9 w-full border border-control bg-paper px-2.5 font-sans text-[13px] normal-case tracking-normal text-ink outline-none transition-colors duration-200 focus:border-accent"
+              >
+                {match.variants.map((entry, index) => (
+                  <option
+                    key={`${entry.affiliateUrl ?? match.id}-${entry.color ?? entry.priceKopecks ?? 'variant'}`}
+                    value={index}
+                  >
+                    {entry.color ?? `Вариант ${index + 1}`}
+                    {entry.priceKopecks && entry.priceKopecks !== match.priceKopecks
+                      ? ` · ${formatPrice(entry.priceKopecks)}`
+                      : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : variant?.color ? (
+            <span className="mt-1 block text-[12px] text-ink-2">Цвет: {variant.color}</span>
+          ) : null}
+        </span>
+        <span className="col-start-2 flex min-w-[112px] items-end justify-between gap-3 sm:col-start-3 sm:flex-col">
+          <span className="flex flex-col items-end gap-1">
+            <span className="font-mono text-[14px] text-ink">{formatPrice(priceKopecks)}</span>
+            {match.overBudget ? (
+              <span className="rounded-full border border-danger px-2 py-0.5 text-[11px] text-danger">
+                выше бюджета
+              </span>
+            ) : match.oldPriceKopecks ? (
+              <span className="font-mono text-[12px] text-ink-2 line-through">
+                {formatPrice(match.oldPriceKopecks)}
+              </span>
+            ) : null}
+          </span>
+          {!canAdd ? (
+            quantity > 0 ? (
+              <span className="font-mono text-[12px] text-ink-2">в списке · {quantity}</span>
+            ) : null
+          ) : (
+            <button
+              type="button"
+              disabled={adding !== null}
+              aria-label={
+                quantity > 0
+                  ? `${match.title}: в списке ${quantity}, добавить ещё`
+                  : `Добавить в список: ${match.title}`
+              }
+              onClick={() => onAdd(match, object, variant)}
+              className={cn(
+                'h-8 rounded-full border px-3 text-[12px] transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90 disabled:opacity-50',
+                quantity > 0
+                  ? 'border-accent bg-accent-tint text-accent shadow-[0_4px_14px_-10px_var(--accent)]'
+                  : 'border-control text-ink-2 hover:border-accent hover:text-accent',
+              )}
+            >
+              {adding === match.id
+                ? 'Добавляем…'
+                : quantity > 0
+                  ? `В списке · ${quantity}`
+                  : 'В список'}
+            </button>
+          )}
+          <a
+            href={affiliateUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[12px] text-ink-2 underline decoration-accent/60 underline-offset-4 transition-colors hover:text-accent"
+          >
+            В магазин ↗
+          </a>
+        </span>
+      </div>
+      <AdDisclosure text={match.adDisclosure} />
+    </li>
+  )
+}
+
 function MatchesPanel({
   object,
   quantities,
@@ -103,7 +252,7 @@ function MatchesPanel({
   /** Сколько каждого товара уже в списке покупок проекта */
   quantities: Record<string, number>
   adding: string | null
-  onAdd: (match: MatchView, object: ObjectView) => void
+  onAdd: (match: MatchView, object: ObjectView, variant?: SelectedProductVariant) => void
   canAdd: boolean
   onlyFitting: boolean
   onOnlyFitting: (value: boolean) => void
@@ -169,96 +318,17 @@ function MatchesPanel({
         </p>
       ) : null}
       <ul className="flex flex-col divide-y divide-line border-y border-line">
-        {shown.map((match) => {
-          const inList = quantities[match.id] ?? 0
-          return (
-            <li
-              key={match.id}
-              className={cn('motion-list-row group py-3', match.overBudget && 'opacity-75')}
-            >
-              <div className="flex items-center gap-3">
-                <a
-                  href={match.affiliateUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex min-w-0 flex-1 items-center gap-3 transition-colors duration-200 ease-ui hover:bg-muted/60"
-                >
-                  <span className="block h-16 w-16 shrink-0 overflow-hidden border border-line bg-muted">
-                    <ProductImage
-                      src={match.imageUrl}
-                      fallback={match.imageFallbackUrl}
-                      alt=""
-                      className="transition-transform duration-500 ease-appear group-hover:scale-[1.06]"
-                    />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[15px] text-ink">{match.title}</span>
-                    <span className="block truncate text-[13px] text-ink-2">
-                      {[match.brand, sourceLabel(match.source), sizeLabel(match.dimensionsCm)]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </span>
-                    {fitLabel(match.fit) ? (
-                      <span
-                        className={cn(
-                          'mt-0.5 block truncate text-[12px]',
-                          match.fit.state === 'tooWide' || match.fit.state === 'tooTall'
-                            ? 'text-danger'
-                            : 'text-ink-2',
-                        )}
-                      >
-                        {fitLabel(match.fit)}
-                      </span>
-                    ) : null}
-                  </span>
-                </a>
-                <span className="flex shrink-0 flex-col items-end gap-1.5">
-                  <span className="font-mono text-[14px] text-ink">
-                    {formatPrice(match.priceKopecks)}
-                  </span>
-                  {match.overBudget ? (
-                    <span className="rounded-full border border-danger px-2 py-0.5 text-[11px] text-danger">
-                      выше бюджета
-                    </span>
-                  ) : match.oldPriceKopecks ? (
-                    <span className="font-mono text-[12px] text-ink-2 line-through">
-                      {formatPrice(match.oldPriceKopecks)}
-                    </span>
-                  ) : null}
-                  {!canAdd ? (
-                    inList > 0 ? (
-                      <span className="font-mono text-[12px] text-ink-2">в списке · {inList}</span>
-                    ) : null
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={adding !== null}
-                      aria-label={
-                        inList > 0
-                          ? `${match.title}: в списке ${inList}, добавить ещё`
-                          : `Добавить в список: ${match.title}`
-                      }
-                      onClick={() => onAdd(match, object)}
-                      className={cn(
-                        'h-8 rounded-full border px-3 text-[12px] transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90 disabled:opacity-50',
-                        inList > 0
-                          ? 'border-accent bg-accent-tint text-accent shadow-[0_4px_14px_-10px_var(--accent)]'
-                          : 'border-control text-ink-2 hover:border-accent hover:text-accent',
-                      )}
-                    >
-                      {adding === match.id
-                        ? 'Добавляем…'
-                        : inList > 0
-                          ? `В списке · ${inList}`
-                          : 'В список'}
-                    </button>
-                  )}
-                </span>
-              </div>
-              <AdDisclosure text={match.adDisclosure} />
-            </li>
-          )
-        })}
+        {shown.map((match) => (
+          <MatchRow
+            key={match.id}
+            match={match}
+            object={object}
+            quantity={quantities[match.id] ?? 0}
+            adding={adding}
+            canAdd={canAdd}
+            onAdd={onAdd}
+          />
+        ))}
       </ul>
       <p className="text-[13px] leading-relaxed text-ink-2">
         {object.styleOnly
@@ -420,15 +490,25 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
   const [onlyFitting, setOnlyFitting] = useState(false)
 
   // Перекрашенный предмет уходит в список с выбранным свотчем как вариантом цвета
-  function addToList(match: MatchView, object: ObjectView) {
+  function addToList(match: MatchView, object: ObjectView, variant?: SelectedProductVariant) {
     const swatch = object.swatchId ? findSwatch(object.swatchId) : undefined
+    const selectedVariant = variant
+      ? {
+          ...(variant.color ? { color: variant.color } : {}),
+          ...(variant.priceKopecks === null ? {} : { priceKopecks: variant.priceKopecks }),
+          ...(variant.affiliateUrl ? { affiliateUrl: variant.affiliateUrl } : {}),
+          ...(variant.imageUrl ? { imageUrl: variant.imageUrl } : {}),
+        }
+      : swatch
+        ? { swatchId: swatch.id, color: swatch.ru.toLowerCase() }
+        : undefined
     setAdding(match.id)
     void addItem({
       projectId: data.room.projectId,
       catalogItemId: match.id,
       roomId: data.room.id,
       conceptObjectId: object.id,
-      ...(swatch ? { variant: { swatchId: swatch.id, color: swatch.ru.toLowerCase() } } : {}),
+      ...(selectedVariant ? { variant: selectedVariant } : {}),
     }).then((result) => {
       setAdding(null)
       if (!result.ok) {

@@ -375,6 +375,7 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
     color,
     priceKopecks,
     affiliateUrl: row.url,
+    imageUrl: picture,
   }
   const existing = itemsById.get(externalId)
   if (existing) {

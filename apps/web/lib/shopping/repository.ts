@@ -119,7 +119,9 @@ export async function getShoppingList(
         priceKopecks: product.priceKopecks,
         affiliateUrl: item.selectedVariant?.affiliateUrl ?? product.affiliateUrl,
         adDisclosure: product.attributes?.adDisclosure?.trim() || null,
-        imageUrl: await productImage(orderedImages(product.images)[0]),
+        imageUrl: await productImage(
+          item.selectedVariant?.imageUrl ?? orderedImages(product.images)[0],
+        ),
         imageFallbackUrl: await productImage(orderedImages(product.images)[1]),
         inStock: product.inStock,
         quantity: item.quantity,

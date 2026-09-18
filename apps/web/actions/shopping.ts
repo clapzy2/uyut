@@ -33,6 +33,7 @@ const addItemSchema = z.object({
       color: z.string().max(80).optional(),
       priceKopecks: z.number().int().nonnegative().optional(),
       affiliateUrl: z.url().optional(),
+      imageUrl: z.url().optional(),
       swatchId: z.string().max(40).optional(),
     })
     .nullish(),

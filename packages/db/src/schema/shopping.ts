@@ -8,6 +8,7 @@ export type ShoppingVariant = {
   color?: string
   priceKopecks?: number
   affiliateUrl?: string
+  imageUrl?: string
   swatchId?: string
 }
 
