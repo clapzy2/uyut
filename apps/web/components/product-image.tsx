@@ -1,7 +1,7 @@
 'use client'
 
 import { cn } from '@uyut/ui'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 /**
  * Картинка товара с запасной ссылкой.
@@ -25,7 +25,21 @@ export function ProductImage({
   className?: string
 }) {
   const [failedUrls, setFailedUrls] = useState<string[]>([])
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
   const url = [src, fallback].find((candidate) => candidate && !failedUrls.includes(candidate))
+
+  // Некоторые магазины не возвращают ошибку, а держат запрос открытым. Без тайм-аута
+  // браузер навсегда показывает сломанный квадрат и не переходит к запасной ссылке.
+  useEffect(() => {
+    if (!url || loadedUrl === url) {
+      return
+    }
+    const timer = setTimeout(() => {
+      setFailedUrls((current) => [...new Set([...current, url])])
+    }, 3_500)
+    return () => clearTimeout(timer)
+  }, [loadedUrl, url])
+
   if (!url) {
     return (
       <span
@@ -55,7 +69,12 @@ export function ProductImage({
       src={url}
       alt={alt}
       loading="lazy"
-      className={cn('block h-full w-full object-cover', className)}
+      className={cn(
+        'block h-full w-full object-cover transition-opacity duration-300',
+        loadedUrl === url ? 'opacity-100' : 'opacity-0',
+        className,
+      )}
+      onLoad={() => setLoadedUrl(url)}
       onError={() => setFailedUrls((current) => [...new Set([...current, url])])}
     />
   )
