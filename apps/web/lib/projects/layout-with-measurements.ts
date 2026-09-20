@@ -15,7 +15,7 @@ export function layoutWithMeasurements(
   let measurementNote = measurementNotice(measurements)
   if (geometryInput) {
     return {
-      ...layoutRoom({ ...geometryInput, roomKind }, items),
+      ...layoutRoom({ ...geometryInput, roomKind, roomName: name }, items),
       measurementNote: `${measurementNote} Погрешность контура, ниш и проёмов ещё не учтена в расчёте. Схема предварительная.`,
     }
   }
@@ -46,6 +46,7 @@ export function layoutWithMeasurements(
         widthCm: width - tolerance,
         depthCm: depth - tolerance,
         layoutNotes: measurements?.layoutNotes,
+        roomName: name,
         roomKind,
       },
       items,

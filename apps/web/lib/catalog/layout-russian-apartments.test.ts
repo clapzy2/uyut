@@ -25,6 +25,7 @@ type ApartmentScenario = {
   floorReservations?: FloorReservation[]
   keepClearZones?: FloorKeepClearZone[]
   expected: 'fits' | 'blocked'
+  expectedSafety?: 'checked' | 'needs-data'
 }
 
 const furniture = (
@@ -153,6 +154,7 @@ const scenarios: ApartmentScenario[] = [
   },
   {
     name: 'студия 18 м² с диваном-кроватью и столом на двоих',
+    expectedSafety: 'needs-data',
     kind: 'living',
     widthCm: 360,
     depthCm: 500,
@@ -315,6 +317,7 @@ describe('российские квартирные сценарии', () => {
     (scenario) => {
       const layout = layoutRoom(
         {
+          roomName: scenario.name,
           roomKind: scenario.kind,
           widthCm: scenario.widthCm,
           depthCm: scenario.depthCm,
@@ -329,7 +332,7 @@ describe('российские квартирные сценарии', () => {
       expect(layout.problems, scenario.name).toEqual([])
       expect(layout.placed, scenario.name).toHaveLength(scenario.items.length)
       expect(layout.walkwayCm, scenario.name).toBeGreaterThanOrEqual(WALKWAY_CM)
-      expect(layout.safetySummary.status, scenario.name).toBe('checked')
+      expect(layout.safetySummary.status, scenario.name).toBe(scenario.expectedSafety ?? 'checked')
       expect(
         layout.placed.every((placement) =>
           rectInsideFloor(
@@ -363,6 +366,7 @@ describe('российские квартирные сценарии', () => {
 
       const reversed = layoutRoom(
         {
+          roomName: scenario.name,
           roomKind: scenario.kind,
           widthCm: scenario.widthCm,
           depthCm: scenario.depthCm,
@@ -388,6 +392,7 @@ describe('российские квартирные сценарии', () => {
     (scenario) => {
       const layout = layoutRoom(
         {
+          roomName: scenario.name,
           roomKind: scenario.kind,
           widthCm: scenario.widthCm,
           depthCm: scenario.depthCm,
@@ -403,4 +408,26 @@ describe('российские квартирные сценарии', () => {
       expect(layout.safetySummary.status, scenario.name).toBe('blocked')
     },
   )
+
+  it('не считает студию полноценной без кухонной рабочей линии и холодильника', () => {
+    const scenario = scenarios.find((entry) => entry.name.startsWith('студия')) as ApartmentScenario
+    const layout = layoutRoom(
+      {
+        roomName: scenario.name,
+        roomKind: scenario.kind,
+        widthCm: scenario.widthCm,
+        depthCm: scenario.depthCm,
+        reservations: scenario.reservations ?? [],
+      },
+      scenario.items,
+    )
+
+    expect(layout.functionProfile).toBe('studio')
+    expect(layout.functionChecks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'food-preparation', status: 'missing' }),
+        expect.objectContaining({ id: 'cold-storage', status: 'missing' }),
+      ]),
+    )
+  })
 })

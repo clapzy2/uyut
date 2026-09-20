@@ -471,6 +471,17 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h3 id="room-functions-title" className="text-[13px] font-medium text-ink">
               Функции комнаты
+              {layout.functionProfile
+                ? ` · ${
+                    {
+                      living: 'гостиная',
+                      bedroom: 'спальня',
+                      kitchen: 'кухня',
+                      kid: 'детская',
+                      studio: 'студия',
+                    }[layout.functionProfile]
+                  }`
+                : ''}
             </h3>
             <span className="text-[11px] text-ink-2">обязательное отделено от желательного</span>
           </div>

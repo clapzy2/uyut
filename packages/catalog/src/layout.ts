@@ -136,6 +136,8 @@ export type RoomFunctionCheck = {
   status: 'met' | 'missing' | 'review'
 }
 
+export type RoomFunctionProfile = 'living' | 'bedroom' | 'kitchen' | 'kid' | 'studio'
+
 export type RoomLayout = {
   /** Условия достоверности исходных размеров, показываются вместе со схемой. */
   measurementNote?: string
@@ -195,6 +197,8 @@ export type RoomLayout = {
   }>
   /** Бытовые функции, которые должна закрывать комната, а не просто список мебели. */
   functionChecks: RoomFunctionCheck[]
+  /** Какой бытовой сценарий применён; студия может быть распознана по названию и заметкам. */
+  functionProfile?: RoomFunctionProfile
   /** Единый вывод о достоверности расчёта, чтобы зелёный статус не скрывал неизвестные данные. */
   safetySummary: {
     status: RoomSafetyStatus
@@ -216,6 +220,7 @@ export type RoomLayout = {
 
 export type RoomLayoutInput = {
   roomKind?: LayoutRoomKind
+  roomName?: string
   widthCm?: number
   depthCm?: number
   layoutNotes?: string | null
@@ -275,12 +280,22 @@ function functionalRoomKind(
 ): FunctionalRoomKind | undefined {
   if (
     room.roomKind === 'living' &&
-    (/(?:^|\s)студи(?:я|и|ю|ей)(?:\s|$)/i.test(room.layoutNotes ?? '') ||
+    (/(?:^|\s)студи(?:я|и|ю|ей)(?:\s|$)/i.test(
+      `${room.roomName ?? ''} ${room.layoutNotes ?? ''}`,
+    ) ||
       items.some((item) => kitchenRole(item) !== undefined))
   ) {
     return 'studio'
   }
   return room.roomKind
+}
+
+function roomFunctionProfile(
+  room: RoomLayoutInput,
+  items: readonly LayoutItem[],
+): RoomFunctionProfile | undefined {
+  const kind = functionalRoomKind(room, items)
+  return kind && kind !== 'bath' ? kind : undefined
 }
 
 type RoomFunctionRule = {
@@ -448,7 +463,7 @@ function roomFunctionChecks(
   for (const placement of placed) {
     placedCounts.set(placement.itemId, (placedCounts.get(placement.itemId) ?? 0) + 1)
   }
-  return roomFunctionRules(functionalRoomKind(room, items)).map((rule) => {
+  return roomFunctionRules(roomFunctionProfile(room, items)).map((rule) => {
     const matching = items.filter(rule.matches)
     if (matching.length === 0) {
       return {
@@ -1282,6 +1297,7 @@ function layoutRoomCandidate(
       missingSafetyData: [],
       safetyChecks: [],
       functionChecks: roomFunctionChecks(room, items, []),
+      functionProfile: roomFunctionProfile(room, items),
       safetySummary: {
         status: 'blocked',
         title: 'Проверка невозможна',
@@ -2322,6 +2338,7 @@ function layoutRoomCandidate(
     missingSafetyData,
     safetyChecks,
     functionChecks,
+    functionProfile: roomFunctionProfile(room, items),
     safetySummary,
     relationships,
     reservationSource,

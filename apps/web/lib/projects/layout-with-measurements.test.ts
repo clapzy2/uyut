@@ -83,4 +83,28 @@ describe('layout measurement bounds', () => {
       layoutWithMeasurements('Комната', { widthCm: Infinity, depthCm: 200 }, undefined, []),
     ).toBeNull()
   })
+
+  it('passes the real room name into the function profile', () => {
+    const layout = layoutWithMeasurements(
+      'Студия 24 м²',
+      { widthCm: 600, depthCm: 400 },
+      undefined,
+      [
+        {
+          id: 'sofa-bed',
+          title: 'Раскладной диван-кровать',
+          category: 'sofa',
+          quantity: 1,
+          dimensions: { width: 190, depth: 90 },
+          operationClearance: { front: 120 },
+        },
+      ],
+      'living',
+    )
+
+    expect(layout?.functionProfile).toBe('studio')
+    expect(layout?.functionChecks).toContainEqual(
+      expect.objectContaining({ id: 'food-preparation', status: 'missing' }),
+    )
+  })
 })

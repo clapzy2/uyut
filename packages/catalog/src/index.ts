@@ -49,6 +49,7 @@ export {
   layoutRoom,
   type Placement,
   type RoomFunctionCheck,
+  type RoomFunctionProfile,
   type RoomLayout,
   type RoomLayoutInput,
   type RoomSafetyStatus,

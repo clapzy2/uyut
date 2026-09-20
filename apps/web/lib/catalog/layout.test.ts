@@ -91,7 +91,7 @@ describe('layoutRoom', () => {
           widthCm: 600,
           depthCm: 500,
           roomKind: 'living',
-          layoutNotes: 'Квартира студия с кухонной зоной',
+          roomName: 'Моя студия',
           reservations: [],
         },
         [
@@ -115,6 +115,7 @@ describe('layoutRoom', () => {
           expect.objectContaining({ id: 'cold-storage', status: 'met' }),
         ]),
       )
+      expect(layout.functionProfile).toBe('studio')
     })
   })
 
