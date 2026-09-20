@@ -392,7 +392,8 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
     if (
       variants.length < 24 &&
       !variants.some(
-        (entry) => entry.color === variant.color && entry.priceKopecks === variant.priceKopecks,
+        (entry) =>
+          entry.affiliateUrl === variant.affiliateUrl && entry.imageUrl === variant.imageUrl,
       )
     ) {
       variants.push(variant)

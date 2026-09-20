@@ -966,6 +966,9 @@ const LAYOUT_STRATEGIES: readonly LayoutStrategy[] = [
   { wallOrder: ['top', 'bottom', 'left', 'right'], itemOrder: 'width' },
   { wallOrder: ['left', 'right', 'top', 'bottom'], itemOrder: 'area' },
   { wallOrder: ['bottom', 'top', 'right', 'left'], itemOrder: 'depth' },
+  { wallOrder: ['right', 'left', 'bottom', 'top'], itemOrder: 'width' },
+  { wallOrder: ['top', 'left', 'bottom', 'right'], itemOrder: 'area' },
+  { wallOrder: ['bottom', 'right', 'top', 'left'], itemOrder: 'depth' },
 ]
 
 function hardProblemCount(layout: RoomLayout): number {
@@ -976,10 +979,12 @@ function relationshipScore(layout: RoomLayout): number {
   return layout.relationships.reduce((score, relation) => {
     if (relation.kind === 'sofa-tv' && relation.status === 'checked') return score + 10_000
     if (relation.kind === 'kitchen-workflow' && relation.status === 'checked') return score + 5_000
-    if (
-      (relation.kind === 'sofa-coffee' || relation.kind === 'desk-window') &&
-      relation.distanceCm !== undefined
-    )
+    if (relation.kind === 'sofa-coffee' && relation.distanceCm !== undefined) {
+      const targetDistanceCm = 45
+      const usableBonus = relation.status === 'checked' ? 2_000 : 0
+      return score + usableBonus - Math.abs(relation.distanceCm - targetDistanceCm)
+    }
+    if (relation.kind === 'desk-window' && relation.distanceCm !== undefined)
       return score - relation.distanceCm
     return score
   }, 0)

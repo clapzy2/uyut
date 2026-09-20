@@ -162,6 +162,24 @@ describe('parseAdmitadCsv', () => {
     expect(item?.variants?.[0]?.color).toBeUndefined()
   })
 
+  it('сохраняет разные варианты без цвета при одинаковой цене', () => {
+    const firstDestination = encodeURIComponent(
+      'https://askona.ru/divany/otto/?SELECTED_FABRIC_ID=1',
+    )
+    const secondDestination = encodeURIComponent(
+      'https://askona.ru/divany/otto/?SELECTED_FABRIC_ID=2',
+    )
+    const csv = `${header}\ntrue;Диваны;RUB;;sofa-1;Диван Отто;;Ширина:210|Глубина:95;https://cdn/otto-1.jpg;49990;Диван;https://ad.admitad.com/g/x/?ulp=${firstDestination};Askona\ntrue;Диваны;RUB;;sofa-2;Диван Отто;;Ширина:210|Глубина:95;https://cdn/otto-2.jpg;49990;Диван;https://ad.admitad.com/g/x/?ulp=${secondDestination};Askona\n`
+
+    const item = parseAdmitadCsv(csv, 'askona').items[0]
+
+    expect(item?.variants).toHaveLength(2)
+    expect(item?.variants?.map((variant) => variant.imageUrl)).toEqual([
+      'https://cdn/otto-1.jpg',
+      'https://cdn/otto-2.jpg',
+    ])
+  })
+
   it('потоково разбирает кавычки и переносы строк на границах сетевых чанков', async () => {
     const csv = `${header}\r\ntrue;Диваны;RUB;"Описание; в две\nстроки и ""кавычках""";sofa-1;Диван Море;;Ширина:210|Глубина:95;https://cdn/sofa.jpg;49990;Диван;https://shop/sofa-1;Askona\r\n`
     async function* chunks() {
