@@ -27,6 +27,11 @@ import {
   inspectPlanGeometry,
   type PlanGeometryIssue,
 } from '@/lib/projects/plan-geometry-inspection'
+import {
+  addRoomContourPoint,
+  MAX_ROOM_CONTOUR_POINTS,
+  removeRoomContourPoint,
+} from '@/lib/projects/room-contour'
 
 type Selection = `wall:${string}` | `opening:${string}` | `room:${number}`
 
@@ -505,6 +510,45 @@ export function PlanGeometryEditor({
     )
   }
 
+  function patchRoomPoint(pointIndex: number, patch: Partial<PlanPoint>) {
+    if (!selectedRoom) return
+    const roomIndex = Number(selectionId)
+    setRooms((current) =>
+      current.map((room, index) =>
+        index === roomIndex
+          ? {
+              ...room,
+              polygon: room.polygon.map((point, index) =>
+                index === pointIndex ? { ...point, ...patch } : point,
+              ),
+            }
+          : room,
+      ),
+    )
+  }
+
+  function addRoomPoint() {
+    if (!selectedRoom) return
+    const roomIndex = Number(selectionId)
+    setRooms((current) =>
+      current.map((room, index) =>
+        index === roomIndex ? { ...room, polygon: addRoomContourPoint(room.polygon) } : room,
+      ),
+    )
+  }
+
+  function removeRoomPoint(pointIndex: number) {
+    if (!selectedRoom) return
+    const roomIndex = Number(selectionId)
+    setRooms((current) =>
+      current.map((room, index) =>
+        index === roomIndex
+          ? { ...room, polygon: removeRoomContourPoint(room.polygon, pointIndex) }
+          : room,
+      ),
+    )
+  }
+
   function addWall() {
     setError(undefined)
     if (walls.length >= 200) {
@@ -926,11 +970,67 @@ export function PlanGeometryEditor({
                 <div className="border border-line bg-muted p-4">
                   <p className="font-serif text-xl text-ink">{selectedRoom.name}</p>
                   <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-                    Перетаскивайте розовые точки на чертеже. После сохранения контур будет проверен
-                    по площади, указанной на исходном плане.
+                    Перетаскивайте розовые точки или задайте сантиметры. «Добавить угол» делит
+                    длиннейшую сторону: сдвиньте новую точку, чтобы обозначить нишу, выступ или
+                    эркер. После сохранения контур сверится с площадью на плане.
                   </p>
+                  <div className="mt-4 space-y-3">
+                    {selectedRoom.polygon.map((point, pointIndex) => (
+                      <div
+                        key={pointIndex}
+                        className="grid grid-cols-[auto_1fr_1fr_auto] items-end gap-2"
+                      >
+                        <span className="pb-3 font-mono text-[12px] text-ink-2">
+                          {pointIndex + 1}
+                        </span>
+                        <Input
+                          id={`room-${selectionId}-point-${pointIndex}-x`}
+                          label="X, см"
+                          type="number"
+                          min="0"
+                          max={geometry.widthCm}
+                          step="1"
+                          value={point.xCm}
+                          onChange={(event) =>
+                            patchRoomPoint(pointIndex, { xCm: Number(event.currentTarget.value) })
+                          }
+                        />
+                        <Input
+                          id={`room-${selectionId}-point-${pointIndex}-y`}
+                          label="Y, см"
+                          type="number"
+                          min="0"
+                          max={geometry.heightCm}
+                          step="1"
+                          value={point.yCm}
+                          onChange={(event) =>
+                            patchRoomPoint(pointIndex, { yCm: Number(event.currentTarget.value) })
+                          }
+                        />
+                        <button
+                          type="button"
+                          disabled={selectedRoom.polygon.length <= 3}
+                          onClick={() => removeRoomPoint(pointIndex)}
+                          aria-label={`Удалить угол ${pointIndex + 1}`}
+                          className="mb-1 h-10 w-10 text-danger transition-colors hover:bg-paper disabled:cursor-not-allowed disabled:opacity-30"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={addRoomPoint}
+                    disabled={selectedRoom.polygon.length >= MAX_ROOM_CONTOUR_POINTS}
+                    className="mt-4"
+                  >
+                    Добавить угол
+                  </Button>
                   <p className="mt-3 font-mono text-[12px] text-ink-2">
-                    {selectedRoom.polygon.length} точек контура
+                    {selectedRoom.polygon.length} из {MAX_ROOM_CONTOUR_POINTS} точек
                   </p>
                 </div>
               ) : null}
