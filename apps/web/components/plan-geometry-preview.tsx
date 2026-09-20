@@ -1,5 +1,6 @@
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall } from '@uyut/db'
 import type { ReactNode } from 'react'
+import { doorClearanceZone } from '@/lib/projects/clearance-zones'
 import { obstacleTitle } from '@/lib/projects/plan-obstacles'
 
 function along(wall: PlanWall, distanceCm: number): PlanPoint {
@@ -158,6 +159,25 @@ export function PlanGeometryPreview({
             ))}
 
             {geometry.openings.map((opening) => {
+              const zone = doorClearanceZone(opening, geometry)
+              if (!zone) return null
+              return (
+                <polygon
+                  key={`clearance-${opening.id}`}
+                  points={zone.polygon.map((point) => `${point.xCm},${point.yCm}`).join(' ')}
+                  fill="var(--danger)"
+                  fillOpacity="0.1"
+                  stroke="var(--danger)"
+                  strokeWidth="1.5"
+                  strokeDasharray="5 4"
+                  vectorEffect="non-scaling-stroke"
+                >
+                  <title>{zone.label}</title>
+                </polygon>
+              )
+            })}
+
+            {geometry.openings.map((opening) => {
               const wall = wallById.get(opening.wallId)
               if (!wall) return null
               const line = openingLine(opening, wall)
@@ -255,6 +275,10 @@ export function PlanGeometryPreview({
             <span>
               <i className="mr-2 inline-block w-5 border-t-2 border-dashed border-ink-2 align-middle" />
               дверь
+            </span>
+            <span>
+              <i className="mr-2 inline-block h-3 w-5 border border-dashed border-danger bg-danger/10 align-middle" />
+              зона открывания
             </span>
           </div>
           {action ? <div className="mt-6">{action}</div> : null}
