@@ -82,6 +82,11 @@ describe('parseCsvDump', () => {
       depth: 95,
       height: 85,
     })
+    expect(item?.attributes?.dimensionsSource).toEqual({
+      width: 'store-parameters',
+      depth: 'store-parameters',
+      height: 'store-parameters',
+    })
     expect(item?.images[0]?.url).toBe('https://cdn/1.jpg')
   })
 
@@ -151,6 +156,11 @@ describe('parseAdmitadCsv', () => {
       depth: 200,
       height: 90,
     })
+    expect(parseAdmitadCsv(csv, 'askona').items[0]?.attributes?.dimensionsSource).toEqual({
+      width: 'store-text',
+      depth: 'store-text',
+      height: 'store-text',
+    })
   })
 
   it('не показывает служебное значение цвета как вариант товара', () => {
@@ -218,6 +228,7 @@ describe('parseYml', () => {
     })
     expect(items[0]?.attributes?.color).toBe('молочный')
     expect(items[0]?.attributes?.dimensionsCm?.width).toBe(210)
+    expect(items[0]?.attributes?.dimensionsSource?.width).toBe('store-parameters')
     expect(skipped[0]?.reason).toContain('не мебель')
   })
 
@@ -239,6 +250,11 @@ describe('parseYml', () => {
       width: 220,
       depth: 90,
       height: 85,
+    })
+    expect(items[0]?.attributes?.dimensionsSource).toEqual({
+      width: 'store-text',
+      depth: 'store-text',
+      height: 'store-text',
     })
   })
 })

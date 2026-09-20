@@ -208,6 +208,16 @@ export function parseYml(xml: string, source: CatalogSource): FeedParseResult {
         material:
           params.get(parameterKey('материал')) ?? params.get(parameterKey('материал обивки')),
         dimensionsCm: hasAnyDimension(dimensions) ? dimensions : undefined,
+        dimensionsSource: hasAnyDimension(dimensions)
+          ? Object.fromEntries(
+              (['width', 'depth', 'height'] as const)
+                .filter((key) => dimensions[key] !== undefined)
+                .map((key) => [
+                  key,
+                  directDimensions[key] !== undefined ? 'store-parameters' : 'store-text',
+                ]),
+            )
+          : undefined,
       },
       inStock: available === undefined ? true : String(available) !== 'false',
     })

@@ -8,6 +8,7 @@ import { removeItem, setItemQuantity } from '@/actions/shopping'
 import { AdDisclosure } from '@/components/ad-disclosure'
 import { EmptyArt } from '@/components/empty-art'
 import { fitLabel, formatPrice, sizeLabel, sourceLabel } from '@/lib/concepts/format'
+import { itemSizeSourceLabel } from '@/lib/shopping/item-size'
 import type { ShoppingItemView } from '@/lib/shopping/repository'
 
 type Group = { key: string; title: string; items: ShoppingItemView[] }
@@ -59,6 +60,7 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
     item.inStock ? null : 'нет в наличии',
   ].filter(Boolean)
   const fit = fitLabel(item.fit)
+  const sizeSource = itemSizeSourceLabel(item.sizeReading)
 
   return (
     <li
@@ -88,6 +90,7 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
           {item.title}
         </a>
         <span className="block truncate text-[13px] text-ink-2">{meta.join(' · ')}</span>
+        {sizeSource ? <span className="block text-[12px] text-ink-2">{sizeSource}</span> : null}
         {fit ? (
           <span
             className={cn(

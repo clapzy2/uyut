@@ -260,7 +260,10 @@ function admitadDimensions(
   category: CatalogCategory,
   params: Map<string, string>,
   fallbackText: string,
-): { width?: number; depth?: number; height?: number } {
+): {
+  dimensions: { width?: number; depth?: number; height?: number }
+  source: Partial<Record<'width' | 'depth' | 'height', 'store-parameters' | 'store-text'>>
+} {
   const width = parseLengthCm(firstParam(params, 'ширина', 'ширина, см'))
   const depth = parseLengthCm(firstParam(params, 'глубина', 'длина', 'длина, см'))
   const height = parseLengthCm(
@@ -268,7 +271,14 @@ function admitadDimensions(
   )
   const named = { width, depth, height }
   if (hasAnyDimension(named)) {
-    return named
+    return {
+      dimensions: named,
+      source: Object.fromEntries(
+        Object.entries(named)
+          .filter(([, value]) => value !== undefined)
+          .map(([key]) => [key, 'store-parameters']),
+      ),
+    }
   }
 
   const combined = firstParam(params, 'габаритные размеры', 'габариты', 'размеры товара', 'размеры')
@@ -277,9 +287,19 @@ function admitadDimensions(
   })
   // Askona записывает габариты кроватей как Д×Ш×В, а наш движок хранит Ш×Г×В.
   if (category === 'bed' && combined && parsed.width && parsed.depth) {
-    return { width: parsed.depth, depth: parsed.width, height: parsed.height }
+    return {
+      dimensions: { width: parsed.depth, depth: parsed.width, height: parsed.height },
+      source: { width: 'store-text', depth: 'store-text', height: 'store-text' },
+    }
   }
-  return parsed
+  return {
+    dimensions: parsed,
+    source: Object.fromEntries(
+      Object.entries(parsed)
+        .filter(([, value]) => value !== undefined)
+        .map(([key]) => [key, 'store-text']),
+    ),
+  }
 }
 
 function canonicalAdmitadId(row: Record<string, string>): string {
@@ -378,7 +398,8 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
   const params = parseAdmitadParams(row.param)
   const color = meaningfulParam(firstParam(params, 'цвет', 'цвет ткани', 'основной цвет'))
   const material = meaningfulParam(firstParam(params, 'материал', 'материал обивки', 'ткань'))
-  const dimensions = admitadDimensions(category, params, `${title} ${row.description ?? ''}`)
+  const dimensionReading = admitadDimensions(category, params, `${title} ${row.description ?? ''}`)
+  const dimensions = dimensionReading.dimensions
   const externalId = canonicalAdmitadId(row)
   const variant: CatalogVariant = {
     color,
@@ -418,6 +439,7 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
       color,
       material,
       dimensionsCm: hasAnyDimension(dimensions) ? dimensions : undefined,
+      dimensionsSource: hasAnyDimension(dimensions) ? dimensionReading.source : undefined,
     },
     variants: [variant],
     inStock: true,
@@ -532,6 +554,16 @@ export function parseCsvDump(text: string, source: CatalogSource = 'dump'): Feed
         color: row.color || undefined,
         material: row.material || undefined,
         dimensionsCm: hasAnyDimension(measured) ? { width, depth, height } : undefined,
+        dimensionsSource: hasAnyDimension(measured)
+          ? Object.fromEntries(
+              Object.entries(measured)
+                .filter(([, value]) => value !== undefined)
+                .map(([key]) => [
+                  key,
+                  hasAnyDimension(fromColumns) ? 'store-parameters' : 'store-text',
+                ]),
+            )
+          : undefined,
         adDisclosure: row.ad_disclosure || undefined,
       },
       inStock: parseBoolean(row.in_stock),

@@ -19,7 +19,7 @@ import {
   NotFoundError,
 } from '@/lib/projects/access'
 import { ownObjectKey, presignedObjectUrl } from '@/lib/storage'
-import { effectiveSize } from './item-size'
+import { effectiveSizeReading, type ItemSizeReading } from './item-size'
 
 export type ShoppingItemView = {
   id: string
@@ -45,6 +45,8 @@ export type ShoppingItemView = {
   conceptObjectId: string | null
   /** Габариты в сантиметрах: из карточки магазина либо вписанные человеком */
   dimensionsCm: DimensionsCm | null
+  /** Источник и доверие к габаритам: видны человеку рядом с числами. */
+  sizeReading: ItemSizeReading
   /** Числа вписал человек, а не магазин */
   ownSize: boolean
   /** Точное место, которое нужно предмету при использовании: со слов человека или производителя */
@@ -108,8 +110,9 @@ export async function getShoppingList(
     .where(eq(shoppingListItems.listId, list.id))
     .orderBy(asc(rooms.orderIndex), asc(shoppingListItems.createdAt))
   const items = await Promise.all(
-    rows.map(
-      async ({ item, product, roomName, measurements }): Promise<ShoppingItemView> => ({
+    rows.map(async ({ item, product, roomName, measurements }): Promise<ShoppingItemView> => {
+      const sizeReading = effectiveSizeReading(item, product)
+      return {
         id: item.id,
         catalogItemId: product.id,
         title: product.title,
@@ -134,13 +137,14 @@ export async function getShoppingList(
         roomId: item.roomId,
         roomName,
         conceptObjectId: item.conceptObjectId,
-        dimensionsCm: effectiveSize(item, product),
+        dimensionsCm: sizeReading.dimensionsCm,
+        sizeReading,
         ownSize: Boolean(item.dimensionsCm),
         operationClearanceCm: item.operationClearanceCm ?? null,
         placementCm: item.placementCm ?? null,
-        fit: checkFit(effectiveSize(item, product) ?? undefined, measurements ?? {}),
-      }),
-    ),
+        fit: checkFit(sizeReading.dimensionsCm ?? undefined, measurements ?? {}),
+      }
+    }),
   )
   return { id: list.id, items, count: items.reduce((sum, item) => sum + item.quantity, 0) }
 }
