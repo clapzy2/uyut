@@ -966,9 +966,6 @@ const LAYOUT_STRATEGIES: readonly LayoutStrategy[] = [
   { wallOrder: ['top', 'bottom', 'left', 'right'], itemOrder: 'width' },
   { wallOrder: ['left', 'right', 'top', 'bottom'], itemOrder: 'area' },
   { wallOrder: ['bottom', 'top', 'right', 'left'], itemOrder: 'depth' },
-  { wallOrder: ['right', 'left', 'bottom', 'top'], itemOrder: 'width' },
-  { wallOrder: ['top', 'left', 'bottom', 'right'], itemOrder: 'area' },
-  { wallOrder: ['bottom', 'right', 'top', 'left'], itemOrder: 'depth' },
 ]
 
 function hardProblemCount(layout: RoomLayout): number {
