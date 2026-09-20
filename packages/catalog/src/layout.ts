@@ -128,6 +128,14 @@ export type LayoutRejection = {
   detail: string
 }
 
+export type RoomFunctionCheck = {
+  id: string
+  label: string
+  detail: string
+  importance: 'required' | 'recommended'
+  status: 'met' | 'missing' | 'review'
+}
+
 export type RoomLayout = {
   /** Условия достоверности исходных размеров, показываются вместе со схемой. */
   measurementNote?: string
@@ -185,6 +193,8 @@ export type RoomLayout = {
     detail: string
     status: RoomSafetyStatus
   }>
+  /** Бытовые функции, которые должна закрывать комната, а не просто список мебели. */
+  functionChecks: RoomFunctionCheck[]
   /** Единый вывод о достоверности расчёта, чтобы зелёный статус не скрывал неизвестные данные. */
   safetySummary: {
     status: RoomSafetyStatus
@@ -255,6 +265,216 @@ function kitchenRole(item: LayoutItem): KitchenRole | undefined {
   if (/холодиль|рефрижератор/i.test(item.title)) return 'fridge'
   if (/кухон|гарнитур|рабоч(?:ая|ей)\s+лини|столешниц/i.test(item.title)) return 'run'
   return undefined
+}
+
+type FunctionalRoomKind = LayoutRoomKind | 'studio'
+
+function functionalRoomKind(
+  room: RoomLayoutInput,
+  items: readonly LayoutItem[],
+): FunctionalRoomKind | undefined {
+  if (
+    room.roomKind === 'living' &&
+    (/(?:^|\s)студи(?:я|и|ю|ей)(?:\s|$)/i.test(room.layoutNotes ?? '') ||
+      items.some((item) => kitchenRole(item) !== undefined))
+  ) {
+    return 'studio'
+  }
+  return room.roomKind
+}
+
+type RoomFunctionRule = {
+  id: string
+  label: string
+  importance: RoomFunctionCheck['importance']
+  matches: (item: LayoutItem) => boolean
+  missing: string
+  review?: string
+}
+
+function roomFunctionRules(kind: FunctionalRoomKind | undefined): RoomFunctionRule[] {
+  const sleeping = (item: LayoutItem) =>
+    item.category === 'bed' ||
+    (item.category === 'sofa' && /диван.?кроват|расклад|спальн/i.test(item.title))
+  const seating = (item: LayoutItem) =>
+    item.category === 'sofa' || (item.category === 'chair' && item.subcategory === 'armchair')
+  const storage = (item: LayoutItem) => item.category === 'storage' && !kitchenRole(item)
+  const dining = (item: LayoutItem) => item.category === 'table' && item.subcategory === 'dining'
+  const desk = (item: LayoutItem) => item.category === 'table' && item.subcategory === 'desk'
+
+  if (kind === 'bedroom') {
+    return [
+      {
+        id: 'sleeping',
+        label: 'Спальное место',
+        importance: 'required',
+        matches: sleeping,
+        missing: 'Добавьте кровать или подтверждённый раскладной диван.',
+      },
+      {
+        id: 'storage',
+        label: 'Хранение одежды',
+        importance: 'required',
+        matches: storage,
+        missing: 'Добавьте шкаф, комод или другое хранение с известными габаритами.',
+      },
+    ]
+  }
+  if (kind === 'living') {
+    return [
+      {
+        id: 'seating',
+        label: 'Место для отдыха',
+        importance: 'required',
+        matches: seating,
+        missing: 'Добавьте диван или кресло.',
+      },
+      {
+        id: 'surface',
+        label: 'Поверхность рядом с посадкой',
+        importance: 'recommended',
+        matches: (item) => item.category === 'table',
+        missing: 'Можно добавить журнальный или приставной стол.',
+      },
+    ]
+  }
+  if (kind === 'kitchen') {
+    return [
+      {
+        id: 'food-preparation',
+        label: 'Рабочая поверхность кухни',
+        importance: 'required',
+        matches: (item) => kitchenRole(item) === 'run',
+        missing: 'Укажите кухонный гарнитур или рабочую линию с реальными габаритами.',
+      },
+      {
+        id: 'cold-storage',
+        label: 'Хранение продуктов',
+        importance: 'required',
+        matches: (item) => kitchenRole(item) === 'fridge',
+        missing: 'Добавьте холодильник с реальными габаритами.',
+      },
+      {
+        id: 'dining',
+        label: 'Место для приёма пищи',
+        importance: 'recommended',
+        matches: dining,
+        missing: 'Если едите на кухне, добавьте стол или барную стойку.',
+        review: 'Подтвердите, что приём пищи предусмотрен в другой комнате.',
+      },
+    ]
+  }
+  if (kind === 'kid') {
+    return [
+      {
+        id: 'sleeping',
+        label: 'Спальное место ребёнка',
+        importance: 'required',
+        matches: sleeping,
+        missing: 'Добавьте кровать или подтверждённый раскладной диван.',
+      },
+      {
+        id: 'storage',
+        label: 'Хранение вещей',
+        importance: 'required',
+        matches: storage,
+        missing: 'Добавьте шкаф, комод или стеллаж.',
+      },
+      {
+        id: 'study',
+        label: 'Место для занятий',
+        importance: 'recommended',
+        matches: desk,
+        missing: 'Для школьника добавьте письменный стол.',
+        review: 'Для дошкольника отдельный письменный стол может не требоваться.',
+      },
+    ]
+  }
+  if (kind === 'studio') {
+    return [
+      {
+        id: 'sleeping',
+        label: 'Спальное место',
+        importance: 'required',
+        matches: sleeping,
+        missing: 'Добавьте кровать или раскладной диван и его полный габарит.',
+      },
+      {
+        id: 'seating',
+        label: 'Место для отдыха',
+        importance: 'required',
+        matches: seating,
+        missing: 'Добавьте диван или кресло.',
+      },
+      {
+        id: 'food-preparation',
+        label: 'Кухонная рабочая зона',
+        importance: 'required',
+        matches: (item) => kitchenRole(item) === 'run',
+        missing: 'Укажите кухонный гарнитур или рабочую линию.',
+      },
+      {
+        id: 'cold-storage',
+        label: 'Хранение продуктов',
+        importance: 'required',
+        matches: (item) => kitchenRole(item) === 'fridge',
+        missing: 'Добавьте холодильник.',
+      },
+      {
+        id: 'storage',
+        label: 'Хранение вещей',
+        importance: 'recommended',
+        matches: storage,
+        missing: 'Предусмотрите шкаф или комод, не относящийся к кухне.',
+      },
+      {
+        id: 'dining',
+        label: 'Место для приёма пищи',
+        importance: 'recommended',
+        matches: dining,
+        missing: 'Добавьте компактный стол или барную стойку.',
+      },
+    ]
+  }
+  return []
+}
+
+function roomFunctionChecks(
+  room: RoomLayoutInput,
+  items: readonly LayoutItem[],
+  placed: readonly Placement[],
+): RoomFunctionCheck[] {
+  const placedCounts = new Map<string, number>()
+  for (const placement of placed) {
+    placedCounts.set(placement.itemId, (placedCounts.get(placement.itemId) ?? 0) + 1)
+  }
+  return roomFunctionRules(functionalRoomKind(room, items)).map((rule) => {
+    const matching = items.filter(rule.matches)
+    if (matching.length === 0) {
+      return {
+        id: rule.id,
+        label: rule.label,
+        detail: rule.review ?? rule.missing,
+        importance: rule.importance,
+        status:
+          rule.importance === 'recommended' || rule.review
+            ? ('review' as const)
+            : ('missing' as const),
+      }
+    }
+    const allPlaced = matching.every(
+      (item) => (placedCounts.get(item.id) ?? 0) >= Math.max(1, item.quantity),
+    )
+    return {
+      id: rule.id,
+      label: rule.label,
+      detail: allPlaced
+        ? 'Функция закрыта выбранной мебелью и учтена в расстановке.'
+        : 'Нужный предмет выбран, но безопасное место для него пока не найдено.',
+      importance: rule.importance,
+      status: allPlaced ? ('met' as const) : ('missing' as const),
+    }
+  })
 }
 
 /** Ширина вдоль стены и глубина от стены. Порядок сторон в фидах: ширина × глубина × высота. */
@@ -1061,6 +1281,7 @@ function layoutRoomCandidate(
       placementInputs: [],
       missingSafetyData: [],
       safetyChecks: [],
+      functionChecks: roomFunctionChecks(room, items, []),
       safetySummary: {
         status: 'blocked',
         title: 'Проверка невозможна',
@@ -2028,18 +2249,23 @@ function layoutRoomCandidate(
   const hasPreliminary =
     reservationSource === 'description' ||
     safetyChecks.some((check) => check.status === 'preliminary')
+  const functionChecks = roomFunctionChecks(room, items, placed)
+  const hasMissingRequiredFunction = functionChecks.some(
+    (check) => check.importance === 'required' && check.status === 'missing',
+  )
   const safetySummary: RoomLayout['safetySummary'] = hasBlocked
     ? {
         status: 'blocked',
         title: 'Требуется перестановка',
         detail: 'Хотя бы один предмет, его рабочая зона или непрерывный проход не помещается.',
       }
-    : hasNeedsData
+    : hasNeedsData || hasMissingRequiredFunction
       ? {
           status: 'needs-data',
           title: 'Нужны данные перед покупкой',
-          detail:
-            reservationSource === 'none'
+          detail: hasMissingRequiredFunction
+            ? 'Не закрыта хотя бы одна обязательная функция комнаты.'
+            : reservationSource === 'none'
               ? 'Не подтверждено положение дверей, окон и радиаторов; зелёный результат пока невозможен.'
               : 'Не хватает габаритов или рабочей зоны хотя бы одного выбранного предмета.',
         }
@@ -2095,6 +2321,7 @@ function layoutRoomCandidate(
     placementInputs: [...new Map(placementInputs.map((entry) => [entry.id, entry])).values()],
     missingSafetyData,
     safetyChecks,
+    functionChecks,
     safetySummary,
     relationships,
     reservationSource,

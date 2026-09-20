@@ -48,6 +48,7 @@ export {
   type LayoutWall,
   layoutRoom,
   type Placement,
+  type RoomFunctionCheck,
   type RoomLayout,
   type RoomLayoutInput,
   type RoomSafetyStatus,

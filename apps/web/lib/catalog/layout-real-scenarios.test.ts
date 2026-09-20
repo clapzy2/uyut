@@ -10,6 +10,7 @@ type Scenario = {
   depthCm: number
   reservations: WallReservation[]
   items: LayoutItem[]
+  expectedSafety?: 'checked' | 'needs-data'
 }
 
 const furniture = (
@@ -100,6 +101,7 @@ const scenarios: Scenario[] = [
   },
   {
     name: 'кухня со столовой зоной и высоким шкафом',
+    expectedSafety: 'needs-data',
     kind: 'kitchen',
     widthCm: 420,
     depthCm: 480,
@@ -292,7 +294,7 @@ describe('реалистичные сценарии комнат', () => {
     expect(layout.problems, scenario.name).toEqual([])
     expect(layout.placed, scenario.name).toHaveLength(scenario.items.length)
     expect(layout.walkwayCm, scenario.name).toBeGreaterThanOrEqual(WALKWAY_CM)
-    expect(layout.safetySummary.status, scenario.name).toBe('checked')
+    expect(layout.safetySummary.status, scenario.name).toBe(scenario.expectedSafety ?? 'checked')
   })
 
   it.each(scenarios)('$name не зависит от порядка строк списка покупок', (scenario) => {

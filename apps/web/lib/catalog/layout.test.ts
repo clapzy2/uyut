@@ -21,6 +21,103 @@ function item(over: Partial<LayoutItem> & Pick<LayoutItem, 'title'>): LayoutItem
 const kinds = (layout: ReturnType<typeof layoutRoom>) => layout.problems.map((p) => p.kind)
 
 describe('layoutRoom', () => {
+  describe('обязательные функции комнаты', () => {
+    it('отдельно проверяет рабочую линию, холодильник и обеденное место кухни', () => {
+      const layout = layoutRoom(
+        { widthCm: 520, depthCm: 420, roomKind: 'kitchen', reservations: [] },
+        [
+          item({ id: 'run', title: 'Кухонный гарнитур', dimensions: { width: 240, depth: 60 } }),
+          item({ id: 'fridge', title: 'Холодильник', dimensions: { width: 60, depth: 65 } }),
+          item({
+            id: 'dining',
+            title: 'Обеденный стол',
+            category: 'table',
+            subcategory: 'dining',
+            dimensions: { width: 100, depth: 70 },
+          }),
+        ],
+      )
+
+      expect(layout.functionChecks).toEqual([
+        expect.objectContaining({ id: 'food-preparation', status: 'met', importance: 'required' }),
+        expect.objectContaining({ id: 'cold-storage', status: 'met', importance: 'required' }),
+        expect.objectContaining({ id: 'dining', status: 'met', importance: 'recommended' }),
+      ])
+    })
+
+    it('не выдаёт спальню без хранения за функционально готовую', () => {
+      const layout = layoutRoom(
+        { widthCm: 420, depthCm: 420, roomKind: 'bedroom', reservations: [] },
+        [
+          item({
+            id: 'bed',
+            title: 'Кровать',
+            category: 'bed',
+            dimensions: { width: 160, depth: 200 },
+            operationClearance: { side: 60 },
+          }),
+        ],
+      )
+
+      expect(layout.functionChecks).toContainEqual(
+        expect.objectContaining({ id: 'sleeping', status: 'met' }),
+      )
+      expect(layout.functionChecks).toContainEqual(
+        expect.objectContaining({ id: 'storage', status: 'missing', importance: 'required' }),
+      )
+      expect(layout.safetySummary).toMatchObject({ status: 'needs-data' })
+    })
+
+    it('просит уточнить рабочее место в детской, не называя его обязательным для дошкольника', () => {
+      const layout = layoutRoom({ widthCm: 500, depthCm: 420, roomKind: 'kid', reservations: [] }, [
+        item({
+          id: 'bed',
+          title: 'Детская кровать',
+          category: 'bed',
+          dimensions: { width: 90, depth: 190 },
+          operationClearance: { side: 50 },
+        }),
+        item({ id: 'wardrobe', title: 'Шкаф', dimensions: { width: 120, depth: 55 } }),
+      ])
+
+      expect(layout.functionChecks).toContainEqual(
+        expect.objectContaining({ id: 'study', status: 'review', importance: 'recommended' }),
+      )
+    })
+
+    it('узнаёт студию по заметке и проверяет жилую и кухонную функции вместе', () => {
+      const layout = layoutRoom(
+        {
+          widthCm: 600,
+          depthCm: 500,
+          roomKind: 'living',
+          layoutNotes: 'Квартира студия с кухонной зоной',
+          reservations: [],
+        },
+        [
+          item({
+            id: 'sofa-bed',
+            title: 'Раскладной диван-кровать',
+            category: 'sofa',
+            dimensions: { width: 190, depth: 90 },
+            operationClearance: { front: 140 },
+          }),
+          item({ id: 'run', title: 'Кухонный гарнитур', dimensions: { width: 220, depth: 60 } }),
+          item({ id: 'fridge', title: 'Холодильник', dimensions: { width: 60, depth: 65 } }),
+        ],
+      )
+
+      expect(layout.functionChecks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'sleeping', status: 'met' }),
+          expect.objectContaining({ id: 'seating', status: 'met' }),
+          expect.objectContaining({ id: 'food-preparation', status: 'met' }),
+          expect.objectContaining({ id: 'cold-storage', status: 'met' }),
+        ]),
+      )
+    })
+  })
+
   it('закрепляет товар в точных координатах и расставляет остальные вокруг', () => {
     const layout = layoutRoom({ widthCm: 400, depthCm: 300 }, [
       item({
@@ -323,6 +420,12 @@ describe('layoutRoom', () => {
           category: 'bed',
           dimensions: { width: 200, depth: 160, height: 90 },
           operationClearance: { side: 50 },
+        }),
+        item({
+          id: 'wardrobe',
+          title: 'Шкаф',
+          dimensions: { width: 120, depth: 55, height: 220 },
+          operationClearance: { front: 60 },
         }),
       ],
     )

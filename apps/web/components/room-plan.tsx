@@ -463,6 +463,48 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
         <p className="mt-1 text-[12px] leading-relaxed text-ink-2">{layout.safetySummary.detail}</p>
       </section>
 
+      {layout.functionChecks.length > 0 ? (
+        <section
+          className="mt-4 border border-line bg-surface p-3"
+          aria-labelledby="room-functions-title"
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 id="room-functions-title" className="text-[13px] font-medium text-ink">
+              Функции комнаты
+            </h3>
+            <span className="text-[11px] text-ink-2">обязательное отделено от желательного</span>
+          </div>
+          <ul className="mt-3 space-y-3">
+            {layout.functionChecks.map((check) => {
+              const copy =
+                check.status === 'met'
+                  ? { label: 'Закрыто', className: 'border-success/40 text-success' }
+                  : check.status === 'missing'
+                    ? { label: 'Не хватает', className: 'border-danger/40 text-danger' }
+                    : { label: 'Уточнить', className: 'border-accent/40 text-accent' }
+              return (
+                <li key={check.id} className="grid gap-1 sm:grid-cols-[1fr_auto] sm:gap-3">
+                  <div>
+                    <p className="text-[13px] font-medium text-ink">
+                      {check.label}{' '}
+                      <span className="font-normal text-ink-2">
+                        · {check.importance === 'required' ? 'обязательно' : 'желательно'}
+                      </span>
+                    </p>
+                    <p className="mt-0.5 text-[12px] leading-relaxed text-ink-2">{check.detail}</p>
+                  </div>
+                  <span
+                    className={`h-fit w-fit rounded-full border px-2 py-0.5 text-[11px] ${copy.className}`}
+                  >
+                    {copy.label}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      ) : null}
+
       {layout.safetyChecks.length > 0 ? (
         <section
           className="mt-4 border border-line bg-surface p-3"
