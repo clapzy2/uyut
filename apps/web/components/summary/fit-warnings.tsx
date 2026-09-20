@@ -35,6 +35,9 @@ function lines(layout: RoomLayout): string[] {
       result.add(`${problem.title}: заданное место ${reason}`)
     }
   }
+  for (const rejection of layout.rejections) {
+    result.add(`${rejection.title}: ${rejection.detail}`)
+  }
   for (const missing of layout.missingSafetyData) result.add(missing)
   const coveredOperations = new Set(layout.safetyChecks.map((check) => check.id))
   for (const check of layout.safetyChecks) {

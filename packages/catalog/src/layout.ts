@@ -113,6 +113,21 @@ export type LayoutProblem =
   | { kind: 'invalidPlacement'; title: string; reason: 'outside' | 'blocked' | 'collision' }
   | { kind: 'noRoomSize' }
 
+export type LayoutRejectionReason =
+  | 'room-boundary'
+  | 'architecture'
+  | 'furniture'
+  | 'operation-zone'
+  | 'no-span'
+
+/** Почему автоматический поиск перебрал варианты, но не нашёл безопасного места. */
+export type LayoutRejection = {
+  itemId: string
+  title: string
+  reason: LayoutRejectionReason
+  detail: string
+}
+
 export type RoomLayout = {
   /** Условия достоверности исходных размеров, показываются вместе со схемой. */
   measurementNote?: string
@@ -128,6 +143,8 @@ export type RoomLayout = {
   /** Сколько независимых порядков расстановки сравнено перед выбором этого варианта. */
   alternativesEvaluated: number
   problems: LayoutProblem[]
+  /** Главная подтверждённая причина отказа для каждого неразмещённого предмета. */
+  rejections: LayoutRejection[]
   /** Предметы, которые пол не занимают: люстры, картины, текстиль */
   offFloor: string[]
   /** Предметы без размеров: их разместить не из чего, пока размеры не появятся */
@@ -1033,6 +1050,7 @@ function layoutRoomCandidate(
       walkwayCm: 0,
       alternativesEvaluated: 1,
       problems: [{ kind: 'noRoomSize' }],
+      rejections: [],
       offFloor: [],
       unmeasured: [],
       reservations: [],
@@ -1056,6 +1074,19 @@ function layoutRoomCandidate(
   const offFloor: string[] = []
   const unmeasured: Array<{ id: string; title: string }> = []
   const problems: LayoutProblem[] = []
+  const unplacedIds = new Set<string>()
+  const rejectionCounts = new Map<string, Record<LayoutRejectionReason, number>>()
+  const reject = (itemId: string, reason: LayoutRejectionReason) => {
+    const counts = rejectionCounts.get(itemId) ?? {
+      'room-boundary': 0,
+      architecture: 0,
+      furniture: 0,
+      'operation-zone': 0,
+      'no-span': 0,
+    }
+    counts[reason] += 1
+    rejectionCounts.set(itemId, counts)
+  }
   const placed: Placement[] = []
   const functionalZones: FunctionalZone[] = []
   const operationInputs: RoomLayout['operationInputs'] = []
@@ -1276,6 +1307,7 @@ function layoutRoomCandidate(
       at.xCm + size.widthCm <= widthCm + GEOMETRY_EPSILON_CM &&
       at.yCm + size.depthCm <= depthCm + GEOMETRY_EPSILON_CM
     if (!insideRoom) {
+      reject(item.id, 'room-boundary')
       return false
     }
     const zoneInsideRoom =
@@ -1284,11 +1316,18 @@ function layoutRoomCandidate(
         zone.yCm >= -GEOMETRY_EPSILON_CM &&
         zone.xCm + zone.widthCm <= widthCm + GEOMETRY_EPSILON_CM &&
         zone.yCm + zone.depthCm <= depthCm + GEOMETRY_EPSILON_CM)
-    if (!zoneInsideRoom) return false
-    if (floorPolygon && !rectInsideFloor(rect, floorPolygon)) {
+    if (!zoneInsideRoom) {
+      reject(item.id, 'operation-zone')
       return false
     }
-    if (floorPolygon && zone && !rectInsideFloor(zone, floorPolygon)) return false
+    if (floorPolygon && !rectInsideFloor(rect, floorPolygon)) {
+      reject(item.id, 'room-boundary')
+      return false
+    }
+    if (floorPolygon && zone && !rectInsideFloor(zone, floorPolygon)) {
+      reject(item.id, 'operation-zone')
+      return false
+    }
     const blocksWall = reservations.some(
       (reservation) =>
         reservation.wall === wall &&
@@ -1325,6 +1364,9 @@ function layoutRoomCandidate(
       blocksKeepClearZone ||
       operationBlocksAccess
     ) {
+      if (operationCollides || operationBlocksAccess) reject(item.id, 'operation-zone')
+      else if (collides || blocksFunctionalZone) reject(item.id, 'furniture')
+      else reject(item.id, 'architecture')
       return false
     }
     placed.push({
@@ -1363,7 +1405,10 @@ function layoutRoomCandidate(
             widthCm: item.size.depthCm,
             depthCm: item.size.widthCm,
           }
-    if (!floorPolygon || !rectInsideFloor(rect, floorPolygon)) return false
+    if (!floorPolygon || !rectInsideFloor(rect, floorPolygon)) {
+      reject(item.id, 'room-boundary')
+      return false
+    }
     const sourceItem = itemById.get(item.id)
     const zoneWall: LayoutWall =
       edge.orientation === 'horizontal'
@@ -1375,16 +1420,30 @@ function layoutRoomCandidate(
           : 'right'
     const placementId = `${item.id}-${placed.length}`
     const zone = sourceItem ? operationZone(sourceItem, rect, zoneWall, placementId) : null
-    if (zone && !rectInsideFloor(zone, floorPolygon)) return false
-    if (placed.some((other) => overlaps(rect, other))) return false
-    if (functionalZones.some((other) => overlaps(rect, other))) return false
+    if (zone && !rectInsideFloor(zone, floorPolygon)) {
+      reject(item.id, 'operation-zone')
+      return false
+    }
+    if (placed.some((other) => overlaps(rect, other))) {
+      reject(item.id, 'furniture')
+      return false
+    }
+    if (functionalZones.some((other) => overlaps(rect, other))) {
+      reject(item.id, 'furniture')
+      return false
+    }
     if (
       zone &&
       (placed.some((other) => overlaps(zone, other)) ||
         functionalZones.some((other) => overlaps(zone, other)))
-    )
+    ) {
+      reject(item.id, 'operation-zone')
       return false
-    if (clearanceRects.some((clearance) => overlaps(rect, clearance))) return false
+    }
+    if (clearanceRects.some((clearance) => overlaps(rect, clearance))) {
+      reject(item.id, 'architecture')
+      return false
+    }
     if (
       blockingFloorReservations.some(
         (reservation) =>
@@ -1393,6 +1452,7 @@ function layoutRoomCandidate(
       ) ||
       keepClearZones.some((zone) => rectOverlapsPolygon(rect, zone.polygon))
     ) {
+      reject(item.id, 'architecture')
       return false
     }
     placed.push({
@@ -1447,6 +1507,8 @@ function layoutRoomCandidate(
           zone.xCm + zone.widthCm <= widthCm &&
           zone.yCm + zone.depthCm <= depthCm)
     if (!insideBounds || !insideFloor || !zoneInside) {
+      unplacedIds.add(entry.item.id)
+      reject(entry.item.id, zoneInside ? 'room-boundary' : 'operation-zone')
       problems.push({ kind: 'invalidPlacement', title: entry.item.title, reason: 'outside' })
       continue
     }
@@ -1457,6 +1519,8 @@ function layoutRoomCandidate(
         (placed.some((other) => overlaps(zone, other)) ||
           functionalZones.some((other) => overlaps(zone, other))))
     if (collision) {
+      unplacedIds.add(entry.item.id)
+      reject(entry.item.id, zone ? 'operation-zone' : 'furniture')
       problems.push({ kind: 'invalidPlacement', title: entry.item.title, reason: 'collision' })
       continue
     }
@@ -1472,6 +1536,8 @@ function layoutRoomCandidate(
         (clearanceRects.some((clearance) => overlaps(zone, clearance)) ||
           keepClearZones.some((keepClear) => rectOverlapsPolygon(zone, keepClear.polygon))))
     if (blocked) {
+      unplacedIds.add(entry.item.id)
+      reject(entry.item.id, zone ? 'operation-zone' : 'architecture')
       problems.push({ kind: 'invalidPlacement', title: entry.item.title, reason: 'blocked' })
       continue
     }
@@ -1560,6 +1626,8 @@ function layoutRoomCandidate(
       }
     }
     if (!standing) {
+      if (!rejectionCounts.has(item.id)) reject(item.id, 'no-span')
+      unplacedIds.add(item.id)
       problems.push({ kind: 'noWall', title: item.title, widthCm: item.size.widthCm })
     }
   }
@@ -1713,7 +1781,18 @@ function layoutRoomCandidate(
           (zone !== null &&
             (clearanceRects.some((clearanceRect) => overlaps(zone, clearanceRect)) ||
               keepClearZones.some((keepClear) => rectOverlapsPolygon(zone, keepClear.polygon))))
-        if (outsideFloor || collides || blocked) continue
+        if (outsideFloor) {
+          reject(entry.item.id, zone ? 'operation-zone' : 'room-boundary')
+          continue
+        }
+        if (collides) {
+          reject(entry.item.id, zone ? 'operation-zone' : 'furniture')
+          continue
+        }
+        if (blocked) {
+          reject(entry.item.id, zone ? 'operation-zone' : 'architecture')
+          continue
+        }
         // Для выбора места учитываем и рабочие зоны: так первый центральный предмет не
         // отрезает место второму. Это только сравнительный балл вариантов; итоговый проход
         // ниже считается по физической мебели, потому что рабочая зона не является стеной.
@@ -1729,6 +1808,8 @@ function layoutRoomCandidate(
       }
     }
     if (!bestCenter) {
+      if (!rejectionCounts.has(entry.item.id)) reject(entry.item.id, 'no-span')
+      unplacedIds.add(entry.item.id)
       problems.push({ kind: 'noCenter', title: entry.item.title })
       continue
     }
@@ -1974,6 +2055,24 @@ function layoutRoomCandidate(
             detail: 'Габариты, рабочие зоны, проёмы и непрерывный проход учтены в текущей схеме.',
           }
 
+  const rejectionDetails: Record<LayoutRejectionReason, string> = {
+    'room-boundary': 'Габарит предмета выходит за реальный контур комнаты.',
+    architecture: 'Все найденные места перекрывают дверь, окно, радиатор или препятствие.',
+    furniture: 'Все найденные места пересекаются с уже расставленной мебелью.',
+    'operation-zone':
+      'Сам предмет помещается, но не помещается зона открывания, раскладывания или использования.',
+    'no-span': 'Ни один свободный участок стены или центра не подходит по габариту.',
+  }
+  const rejections: LayoutRejection[] = [...unplacedIds].flatMap((itemId) => {
+    const item = itemById.get(itemId)
+    const counts = rejectionCounts.get(itemId)
+    if (!item || !counts) return []
+    const reason = (Object.entries(counts) as Array<[LayoutRejectionReason, number]>).sort(
+      (a, b) => b[1] - a[1],
+    )[0]?.[0]
+    return reason ? [{ itemId, title: item.title, reason, detail: rejectionDetails[reason] }] : []
+  })
+
   return {
     widthCm,
     depthCm,
@@ -1983,6 +2082,7 @@ function layoutRoomCandidate(
     walkwayCm,
     alternativesEvaluated: 1,
     problems,
+    rejections,
     offFloor,
     unmeasured,
     reservations,

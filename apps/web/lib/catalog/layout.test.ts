@@ -1252,5 +1252,31 @@ describe('нестандартный контур комнаты', () => {
 
     expect(layout.placed).toEqual([])
     expect(layout.problems).toContainEqual({ kind: 'noWall', title: 'Комод', widthCm: 150 })
+    expect(layout.rejections).toContainEqual({
+      itemId: 'Комод',
+      title: 'Комод',
+      reason: 'architecture',
+      detail: 'Все найденные места перекрывают дверь, окно, радиатор или препятствие.',
+    })
+  })
+
+  it('объясняет, когда входит мебель, но не её рабочая зона', () => {
+    const layout = layoutRoom(
+      { widthCm: 220, depthCm: 220, roomKind: 'living', reservations: [] },
+      [
+        item({
+          title: 'Раскладной диван',
+          category: 'sofa',
+          dimensions: { width: 140, depth: 70, height: 80 },
+          operationClearance: { front: 200 },
+        }),
+      ],
+    )
+
+    expect(layout.placed).toEqual([])
+    expect(layout.rejections[0]).toMatchObject({
+      title: 'Раскладной диван',
+      reason: 'operation-zone',
+    })
   })
 })

@@ -588,6 +588,22 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
         </details>
       ) : null}
 
+      {layout.rejections.length > 0 ? (
+        <section className="mt-4 border border-danger/40 bg-danger/5 p-3">
+          <h3 className="text-[13px] font-medium text-ink">Почему предметы не разместились</h3>
+          <ul className="mt-2 space-y-2">
+            {layout.rejections.map((rejection) => (
+              <li key={rejection.itemId} className="text-[13px] leading-relaxed text-ink-2">
+                <span className="font-medium text-ink">{rejection.title}:</span> {rejection.detail}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[12px] leading-relaxed text-ink-2">
+            Причина выбрана по всем проверенным положениям, а не по одному первому варианту.
+          </p>
+        </section>
+      ) : null}
+
       {problems.length > 0 ? (
         <ul className="mt-4 flex flex-col gap-2">
           {problems.map((problem) => (
