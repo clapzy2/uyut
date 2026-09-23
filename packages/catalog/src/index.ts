@@ -1,6 +1,7 @@
 // Разбор партнёрских фидов, хранение каталога и поиск похожих товаров.
 
 export { categoryFromText, isCatalogCategory } from './categories'
+export { conceptLayoutContract } from './concept-layout'
 export {
   parseAdmitadCsv,
   parseAdmitadCsvStream,
@@ -14,6 +15,7 @@ export {
   type ParseOptions,
   parseDimensionsCm,
 } from './dimensions'
+export { type DoorClearanceZone, doorClearanceZone } from './door-clearance'
 export {
   type Estimate,
   type EstimateItem,
@@ -83,6 +85,10 @@ export {
   type UpsertSummary,
   upsertFeedItems,
 } from './repository'
+export {
+  type GeometryRoomLayoutInput,
+  roomLayoutInputFromGeometry,
+} from './room-geometry-layout'
 export {
   type CatalogSubcategory,
   subcategoryForLabel,

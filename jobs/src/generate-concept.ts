@@ -20,12 +20,7 @@ import {
   type StyleEntry,
   styleLibrary,
 } from '@uyut/ai'
-import {
-  type LayoutItem,
-  layoutPromptContract,
-  layoutRoom,
-  subcategoryFromText,
-} from '@uyut/catalog'
+import { conceptLayoutContract, type LayoutItem, subcategoryFromText } from '@uyut/catalog'
 import {
   catalogItems,
   conceptObjects,
@@ -231,12 +226,10 @@ export const generateConcept = task({
     }
     const { room, project } = row
 
-    // Если человек уже выбрал товары и вернулся за новым вариантом, красивый рендер получает
-    // ту же проверенную расстановку, что 2D-схема. Без списка или размеров ничего не выдумываем.
-    const measuredWidth = room.measurements?.widthCm
-    const measuredDepth = room.measurements?.depthCm
+    // Если человек уже выбрал товары, рендер получает расстановку из того же подтверждённого
+    // контура, что и 2D-схема. При неполных данных не называем координаты проверенными.
     let layoutContract: string | undefined
-    if (measuredWidth && measuredDepth) {
+    if (project.planReading?.geometry?.status === 'confirmed') {
       const selected = await database
         .select({ item: shoppingListItems, product: catalogItems })
         .from(shoppingListItems)
@@ -252,24 +245,13 @@ export const generateConcept = task({
         placement: item.placementCm,
         quantity: item.quantity,
       }))
-      if (layoutItems.length > 0) {
-        const calculated = layoutRoom(
-          {
-            roomKind: room.kind,
-            widthCm: measuredWidth,
-            depthCm: measuredDepth,
-            layoutNotes: room.measurements?.layoutNotes,
-          },
-          layoutItems,
-        )
-        if (
-          calculated.placed.length > 0 &&
-          calculated.problems.length === 0 &&
-          calculated.unmeasured.length === 0
-        ) {
-          layoutContract = layoutPromptContract(calculated)
-        }
-      }
+      layoutContract = conceptLayoutContract(
+        room.name,
+        room.kind,
+        room.measurements,
+        project.planReading.geometry,
+        layoutItems,
+      )
     }
 
     // Правка готового рендера рисуется от него, а не от фотографии комнаты
