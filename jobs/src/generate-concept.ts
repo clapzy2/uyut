@@ -15,6 +15,7 @@ import {
   type RenderResult,
   renderArchitectureAnchoredBatch,
   reviewConceptImage,
+  roomArchitectureFromPlan,
   roomRenderAspectRatio,
   type StyleEntry,
   styleLibrary,
@@ -289,6 +290,7 @@ export const generateConcept = task({
     const count = payload.duo ? payload.duo.variations.length : payload.count
     publish({ stage: 'brief', done: 0, total: count, failed: 0 })
     const { primary, secondary } = pickStyles(project.styleReferenceEmbedding)
+    const architecture = roomArchitectureFromPlan(project.planReading?.geometry, room.name)
     const brief: ConceptBrief = {
       roomKind: room.kind,
       roomName: room.name,
@@ -302,6 +304,7 @@ export const generateConcept = task({
       hasPhoto: Boolean(base ?? room.photoUrl),
       ...(room.measurements ? { sizeCm: room.measurements } : {}),
       ...(room.measurements?.layoutNotes ? { layoutNotes: room.measurements.layoutNotes } : {}),
+      ...(architecture ? { architecture } : {}),
       ...(layoutContract ? { layoutContract } : {}),
       budgetKopecks: project.budgetKopecks,
       household: project.household ?? null,

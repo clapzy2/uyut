@@ -1,3 +1,4 @@
+import type { RoomArchitecture } from './room-architecture'
 import type { StyleEntry, StyleFamily } from './styles'
 
 /** Всё, что известно о комнате и о людях к моменту генерации. */
@@ -20,6 +21,8 @@ export type ConceptBrief = {
   sizeCm?: { widthCm?: number; depthCm?: number; ceilingCm?: number }
   /** Описание архитектуры с плана, проверенное пользователем. Не точные координаты. */
   layoutNotes?: string
+  /** Проёмы и форма из подтверждённого контура именно этой комнаты. */
+  architecture?: RoomArchitecture
   /** Проверенная кодом 2D-расстановка. Модель получает её как жёсткий контракт, а не сочиняет. */
   layoutContract?: string
   budgetKopecks: number | null

@@ -111,6 +111,25 @@ describe('buildTemplatePlan', () => {
     )
   })
 
+  it('передаёт подтверждённые проёмы без противоречивого текста о неизвестном плане', () => {
+    const prompt = fixedPreamble(
+      brief({
+        hasPhoto: false,
+        architecture: {
+          shape: 'nonrectangular',
+          openings: [
+            { type: 'window', side: 'top' },
+            { type: 'door', side: 'left' },
+          ],
+        },
+      }),
+    )
+    expect(prompt).toContain('Confirmed floor-plan facts')
+    expect(prompt).toContain('"shape":"nonrectangular"')
+    expect(prompt).toContain('"side":"left"')
+    expect(prompt).not.toContain('locations are unknown')
+  })
+
   it('не навязывает узкой спальне кухонную расстановку', () => {
     const text = fixedPreamble(
       brief({ hasPhoto: false, roomKind: 'bedroom', sizeCm: { widthCm: 220, depthCm: 420 } }),
