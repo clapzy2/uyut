@@ -4,6 +4,7 @@ import { notFound, redirect } from 'next/navigation'
 import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { ConceptEditForm } from '@/components/concepts/concept-edit-form'
 import { ConceptViewer } from '@/components/concepts/concept-viewer'
+import { PlanComparison } from '@/components/concepts/plan-comparison'
 import { objectLabel } from '@/lib/concepts/format'
 import { getConceptPage } from '@/lib/concepts/objects'
 import { generationStillRunning } from '@/lib/concepts/resume-run'
@@ -90,6 +91,7 @@ export default async function ConceptPage({ params }: { params: Params }) {
       <div className="mt-8">
         <ConceptViewer data={data} />
       </div>
+      <PlanComparison plan={data.plan} renderSrc={data.concept.renderSrc} />
       {data.role === 'owner' && data.concept.status === 'ready' ? (
         <div className="mt-10 max-w-2xl">
           <ConceptEditForm

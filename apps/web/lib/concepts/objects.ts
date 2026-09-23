@@ -1,4 +1,11 @@
-import { isUsableMatch, MATCH_CONFIDENCE_THRESHOLD, type PriceWindow, priceWindow } from '@uyut/ai'
+import {
+  isUsableMatch,
+  MATCH_CONFIDENCE_THRESHOLD,
+  type PriceWindow,
+  priceWindow,
+  type RoomArchitecture,
+  roomArchitectureFromPlan,
+} from '@uyut/ai'
 import {
   checkFit,
   type DimensionsCm,
@@ -101,6 +108,12 @@ export type ConceptPageData = {
     projectTitle: string
     budgetKopecks: number | null
   }
+  plan: {
+    src: string
+    isPdf: boolean
+    label: string
+    architecture: RoomArchitecture | null
+  } | null
   objects: ObjectView[]
   /** Что уже в списке покупок проекта: количество по товару каталога и общий счётчик */
   shopping: { byCatalogItem: Record<string, number>; count: number }
@@ -216,6 +229,7 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
   }
   // Проверка владельца идёт через комнату: чужой концепт неотличим от несуществующего
   const room = await getRoom(userId, concept.roomId)
+  const planKey = room.planUrl ?? room.project.planUrl
   const [rows, byCatalogItem, other] = await Promise.all([
     db
       .select()
@@ -287,6 +301,14 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
       projectTitle: room.project.title,
       budgetKopecks: room.project.budgetKopecks,
     },
+    plan: planKey
+      ? {
+          src: await presignedObjectUrl(planKey, 60 * 60),
+          isPdf: planKey.toLowerCase().endsWith('.pdf'),
+          label: room.planUrl ? 'Фрагмент комнаты' : 'План квартиры',
+          architecture: roomArchitectureFromPlan(room.project.planReading?.geometry, room.name),
+        }
+      : null,
     objects,
     shopping: {
       byCatalogItem,
