@@ -28,6 +28,7 @@ function sample(overrides: Partial<PlanReviewSample> = {}): PlanReviewSample {
   return {
     projectId: 'project',
     roomId: 'room',
+    roomKind: 'living',
     review,
     currentSourceHash: 'current',
     currentArchitecture: {
@@ -51,7 +52,7 @@ describe('plan/render review metrics', () => {
       sample({ review: conflict, qualityReview: flagged }),
       sample({ review: conflict, qualityReview }),
       sample({ qualityReview: flagged }),
-      sample({ projectId: 'another', roomId: 'another', qualityReview }),
+      sample({ projectId: 'another', roomId: 'another', roomKind: 'kitchen', qualityReview }),
       sample({ review: { ...review, openings: ['not_visible'] } }),
     ])
     expect(result).toMatchObject({
@@ -66,6 +67,10 @@ describe('plan/render review metrics', () => {
       falseNegative: 1,
       falsePositive: 1,
       trueNegative: 1,
+      byRoomKind: {
+        living: { compared: 3, missed: 1, falseAlarms: 1 },
+        kitchen: { compared: 1, missed: 0, falseAlarms: 0 },
+      },
     })
   })
 

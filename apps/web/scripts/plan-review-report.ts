@@ -1,4 +1,4 @@
-import { conceptPlanReviews, concepts, createDb, projects, rooms } from '@uyut/db'
+import { conceptPlanReviews, concepts, createDb, projects, roomKinds, rooms } from '@uyut/db'
 import { eq, isNull } from 'drizzle-orm'
 import { planReviewSource } from '../lib/concepts/plan-review'
 import { planReviewMetrics } from '../lib/concepts/plan-review-metrics'
@@ -13,6 +13,7 @@ const rows = await db
   .select({
     projectId: projects.id,
     roomId: rooms.id,
+    roomKind: rooms.kind,
     roomName: rooms.name,
     projectPlanKey: projects.planUrl,
     roomPlanKey: rooms.planUrl,
@@ -43,6 +44,7 @@ const metrics = planReviewMetrics(
     return {
       projectId: row.projectId,
       roomId: row.roomId,
+      roomKind: row.roomKind,
       review: row.review,
       currentSourceHash: source?.hash ?? null,
       currentArchitecture: source?.architecture ?? null,
@@ -70,4 +72,19 @@ console.log(
   `Без видимых противоречий: ложные тревоги ${metrics.falsePositive}, ` +
     `не отмечены ${metrics.trueNegative}`,
 )
+const roomKindLabels = {
+  living: 'гостиные',
+  bedroom: 'спальни',
+  kitchen: 'кухни',
+  bath: 'санузлы',
+  kid: 'детские',
+} as const
+for (const kind of roomKinds) {
+  const counts = metrics.byRoomKind[kind]
+  if (!counts) continue
+  console.log(
+    `${roomKindLabels[kind]}: ${counts.compared} пар, ` +
+      `пропуски ${counts.missed}, ложные тревоги ${counts.falseAlarms}`,
+  )
+}
 console.log('Это оценка по размеченной выборке, не гарантия точности размеров или всей квартиры.')

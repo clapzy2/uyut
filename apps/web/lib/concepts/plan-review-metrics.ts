@@ -1,9 +1,10 @@
 import type { RoomArchitecture } from '@uyut/ai'
-import type { ConceptPlanReview, ConceptQualityReview } from '@uyut/db'
+import type { ConceptPlanReview, ConceptQualityReview, RoomKind } from '@uyut/db'
 
 export type PlanReviewSample = {
   projectId: string
   roomId: string
+  roomKind: RoomKind
   review: ConceptPlanReview
   currentSourceHash: string | null
   currentArchitecture: RoomArchitecture | null
@@ -27,6 +28,7 @@ export type PlanReviewMetrics = {
   falseNegative: number
   falsePositive: number
   trueNegative: number
+  byRoomKind: Partial<Record<RoomKind, { compared: number; missed: number; falseAlarms: number }>>
 }
 
 /** Compare only current, original renders with a conclusive human architecture verdict. */
@@ -47,6 +49,7 @@ export function planReviewMetrics(samples: PlanReviewSample[]): PlanReviewMetric
     falseNegative: 0,
     falsePositive: 0,
     trueNegative: 0,
+    byRoomKind: {},
   }
   const projects = new Set<string>()
   const rooms = new Set<string>()
@@ -89,15 +92,27 @@ export function planReviewMetrics(samples: PlanReviewSample[]): PlanReviewMetric
     metrics.compared++
     projects.add(sample.projectId)
     rooms.add(sample.roomId)
+    const roomMetrics = metrics.byRoomKind[sample.roomKind] ?? {
+      compared: 0,
+      missed: 0,
+      falseAlarms: 0,
+    }
+    metrics.byRoomKind[sample.roomKind] = roomMetrics
+    roomMetrics.compared++
     const autoFlagsConflict = auto.issues.some((issue) => issue.code === 'opening_conflict')
     if (hasConflict) {
       metrics.humanConflicts++
       if (autoFlagsConflict) metrics.truePositive++
-      else metrics.falseNegative++
+      else {
+        metrics.falseNegative++
+        roomMetrics.missed++
+      }
     } else {
       metrics.humanNoVisibleConflicts++
-      if (autoFlagsConflict) metrics.falsePositive++
-      else metrics.trueNegative++
+      if (autoFlagsConflict) {
+        metrics.falsePositive++
+        roomMetrics.falseAlarms++
+      } else metrics.trueNegative++
     }
   }
 
