@@ -14,6 +14,8 @@ const plan = {
       { type: 'door' as const, side: 'inner' as const },
     ],
   },
+  sourceHash: 'a'.repeat(64),
+  review: null,
 }
 
 describe('сверка концепта с планом', () => {

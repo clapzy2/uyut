@@ -91,7 +91,12 @@ export default async function ConceptPage({ params }: { params: Params }) {
       <div className="mt-8">
         <ConceptViewer data={data} />
       </div>
-      <PlanComparison plan={data.plan} renderSrc={data.concept.renderSrc} />
+      <PlanComparison
+        plan={data.plan}
+        renderSrc={data.concept.renderSrc}
+        conceptId={data.concept.id}
+        canReview={data.role === 'owner'}
+      />
       {data.role === 'owner' && data.concept.status === 'ready' ? (
         <div className="mt-10 max-w-2xl">
           <ConceptEditForm

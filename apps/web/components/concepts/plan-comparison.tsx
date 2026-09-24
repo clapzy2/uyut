@@ -1,4 +1,5 @@
 import type { ConceptPageData } from '@/lib/concepts/objects'
+import { PlanReviewForm } from './plan-review-form'
 
 type Plan = NonNullable<ConceptPageData['plan']>
 
@@ -19,9 +20,13 @@ const openingLabels = {
 export function PlanComparison({
   plan,
   renderSrc,
+  conceptId,
+  canReview,
 }: {
   plan: Plan | null
   renderSrc: string | null
+  conceptId?: string
+  canReview?: boolean
 }) {
   if (!plan || !renderSrc) return null
 
@@ -100,6 +105,18 @@ export function PlanComparison({
         Стороны указаны относительно плана, а не камеры. Невидимый в кадре проём нельзя считать
         отсутствующим; по картинке нельзя проверить сантиметровые размеры.
       </p>
+      {canReview && conceptId && plan.architecture && plan.sourceHash ? (
+        <PlanReviewForm
+          key={plan.sourceHash}
+          conceptId={conceptId}
+          sourceHash={plan.sourceHash}
+          openingLabels={plan.architecture.openings.map(
+            (opening, index) =>
+              `${openingLabels[opening.type]} ${index + 1} — ${sideLabels[opening.side]}`,
+          )}
+          review={plan.review}
+        />
+      ) : null}
     </details>
   )
 }

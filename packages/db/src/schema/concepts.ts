@@ -41,6 +41,17 @@ export type ConceptQualityReview = {
   description: string | null
 }
 
+export type PlanReviewVerdict = 'unrated' | 'matches' | 'conflicts' | 'not_visible'
+
+/** Human comparison of a render with the exact plan/geometry snapshot shown at review time. */
+export type ConceptPlanReview = {
+  version: 1
+  sourceHash: string
+  shape: PlanReviewVerdict
+  openings: PlanReviewVerdict[]
+  reviewedAt: string
+}
+
 // Обычный запуск или «варианты на двоих»: три рендера на пересечении вкусов двух людей
 // edit — правка выбранного рендера: основа не фото комнаты, а другой концепт
 export const conceptBatchKinds = ['regular', 'duo', 'edit'] as const
@@ -112,5 +123,15 @@ export const styleVotes = pgTable(
 
 export type Concept = typeof concepts.$inferSelect
 export type NewConcept = typeof concepts.$inferInsert
+
+/** Manual labels are separate so background render workers do not depend on this migration. */
+export const conceptPlanReviews = pgTable('concept_plan_reviews', {
+  conceptId: uuid('concept_id')
+    .primaryKey()
+    .references(() => concepts.id, { onDelete: 'cascade' }),
+  review: jsonb('review').$type<ConceptPlanReview>().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export type StyleVote = typeof styleVotes.$inferSelect
 export type NewStyleVote = typeof styleVotes.$inferInsert

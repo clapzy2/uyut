@@ -1,11 +1,4 @@
-import {
-  isUsableMatch,
-  MATCH_CONFIDENCE_THRESHOLD,
-  type PriceWindow,
-  priceWindow,
-  type RoomArchitecture,
-  roomArchitectureFromPlan,
-} from '@uyut/ai'
+import { isUsableMatch, MATCH_CONFIDENCE_THRESHOLD, type PriceWindow, priceWindow } from '@uyut/ai'
 import {
   checkFit,
   type DimensionsCm,
@@ -19,8 +12,10 @@ import {
   type CatalogCategory,
   type ConceptBbox,
   type ConceptObject,
+  type ConceptPlanReview,
   type ConceptQualityReview,
   conceptObjects,
+  conceptPlanReviews,
   concepts,
   type ObjectsStatus,
   type ProjectRole,
@@ -28,6 +23,7 @@ import {
 import { asc, eq } from 'drizzle-orm'
 import { orderedImages } from '@/lib/catalog/product-image'
 import { otherMember } from '@/lib/collaboration/repository'
+import { planReviewSource } from '@/lib/concepts/plan-review'
 import { getDb } from '@/lib/db'
 import { NotFoundError } from '@/lib/projects/access'
 import { getRoom } from '@/lib/projects/repository'
@@ -112,7 +108,9 @@ export type ConceptPageData = {
     src: string
     isPdf: boolean
     label: string
-    architecture: RoomArchitecture | null
+    architecture: NonNullable<ReturnType<typeof planReviewSource>>['architecture'] | null
+    sourceHash: string | null
+    review: ConceptPlanReview | null
   } | null
   objects: ObjectView[]
   /** Что уже в списке покупок проекта: количество по товару каталога и общий счётчик */
@@ -230,7 +228,13 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
   // Проверка владельца идёт через комнату: чужой концепт неотличим от несуществующего
   const room = await getRoom(userId, concept.roomId)
   const planKey = room.planUrl ?? room.project.planUrl
-  const [rows, byCatalogItem, other] = await Promise.all([
+  const source = planReviewSource(
+    planKey,
+    concept.editedRenderUrl ?? concept.renderUrl,
+    room.project.planReading?.geometry,
+    room.name,
+  )
+  const [rows, byCatalogItem, other, savedPlanReview] = await Promise.all([
     db
       .select()
       .from(conceptObjects)
@@ -238,7 +242,13 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
       .orderBy(asc(conceptObjects.orderIndex)),
     shoppingQuantities(userId, room.projectId),
     otherMember(room.projectId, userId),
+    db
+      .select({ review: conceptPlanReviews.review })
+      .from(conceptPlanReviews)
+      .where(eq(conceptPlanReviews.conceptId, concept.id))
+      .limit(1),
   ])
+  const currentPlanReview = savedPlanReview[0]?.review
 
   const objects = await Promise.all(
     rows.map(async (object): Promise<ObjectView> => {
@@ -306,7 +316,12 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
           src: await presignedObjectUrl(planKey, 60 * 60),
           isPdf: planKey.toLowerCase().endsWith('.pdf'),
           label: room.planUrl ? 'Фрагмент комнаты' : 'План квартиры',
-          architecture: roomArchitectureFromPlan(room.project.planReading?.geometry, room.name),
+          architecture: source?.architecture ?? null,
+          sourceHash: source?.hash ?? null,
+          review:
+            currentPlanReview && currentPlanReview.sourceHash === source?.hash
+              ? currentPlanReview
+              : null,
         }
       : null,
     objects,
