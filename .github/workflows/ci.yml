@@ -55,8 +55,15 @@ jobs:
 
       - name: Start services
         run: |
-          docker compose up -d --wait postgres redis redis-http minio mailpit
-          docker compose up minio-init
+          docker compose up -d --wait postgres redis redis-http s3 mailpit
+          for attempt in $(seq 1 30); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9000/)
+            if [ "$status" != "000" ]; then
+              break
+            fi
+            sleep 2
+          done
+          test "$status" != "000"
 
       - name: Migrate test database
         run: bun run db:migrate

@@ -43,37 +43,17 @@ services:
       redis:
         condition: service_healthy
 
-  # С Docker Hub образы MinIO больше не скачиваются анонимно: там теперь 401 даже с токеном
-  # для анонимного чтения, и сборка падала до первого теста. Зеркало на Quay отдаёт их по-прежнему.
-  minio:
-    image: quay.io/minio/minio:latest
-    command: ["server", "/data", "--console-address", ":9001"]
+  # Локальное S3-хранилище. Публичный образ MinIO больше недоступен для CI без авторизации.
+  s3:
+    image: ghcr.io/chrislusf/seaweedfs:4.47
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      S3_BUCKET: uyut-dev
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9000:8333"
     volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  # Создаёт приватный bucket при первом запуске
-  minio-init:
-    image: quay.io/minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb --ignore-existing local/uyut-dev &&
-      mc anonymous set none local/uyut-dev
-      "
+      - seaweed-data:/data
 
   # Ловит все исходящие письма в dev: SMTP на 1025, веб-интерфейс и API на 8025
   mailpit:
@@ -95,4 +75,4 @@ services:
 volumes:
   postgres-data:
   redis-data:
-  minio-data:
+  seaweed-data:
