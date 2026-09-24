@@ -77,6 +77,23 @@ const entryRoom: PlanGeometry = {
 }
 
 describe('передача подтверждённой геометрии в расстановку мебели', () => {
+  it('не считает доступной комнату, если подтверждённая колонна закрывает вход', () => {
+    const geometry: PlanGeometry = {
+      ...entryRoom,
+      obstacles: [
+        { id: 'column-at-entry', kind: 'column', xCm: 0, yCm: 280, widthCm: 100, depthCm: 80 },
+      ],
+    }
+    const input = roomLayoutInputFromGeometry(geometry, 'Гостиная', null)
+    expect(input?.keepClearZones.some((zone) => zone.kind === 'obstacle')).toBe(true)
+    if (!input) return
+
+    const layout = layoutRoom({ ...input, roomKind: 'living', roomName: 'Гостиная' }, [])
+
+    expect(layout.walkwayCm).toBeLessThan(WALKWAY_CM)
+    expect(layout.safetySummary.status).toBe('blocked')
+  })
+
   it('сохраняет узкий проход в подтверждённом плане и не выдаёт его за свободный', () => {
     const polygon = [
       { xCm: 0, yCm: 0 },

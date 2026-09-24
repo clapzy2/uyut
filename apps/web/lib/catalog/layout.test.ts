@@ -729,6 +729,86 @@ describe('layoutRoom', () => {
     expect(door.problems.some((problem) => problem.kind === 'narrowWalkway')).toBe(false)
   })
 
+  it('проверяет вход в комнату от каждой двери, а не только свободный пол внутри', () => {
+    const base = {
+      widthCm: 300,
+      depthCm: 300,
+      roomKind: 'living' as const,
+      reservations: [],
+      floorReservations: [
+        {
+          kind: 'door' as const,
+          start: { xCm: 105, yCm: 0 },
+          end: { xCm: 195, yCm: 0 },
+          clearanceCm: 0,
+        },
+        {
+          kind: 'door' as const,
+          start: { xCm: 105, yCm: 300 },
+          end: { xCm: 195, yCm: 300 },
+          clearanceCm: 0,
+        },
+      ],
+    }
+    const blockedAtTop = layoutRoom(
+      {
+        ...base,
+        keepClearZones: [
+          {
+            kind: 'obstacle',
+            label: 'Короб у верхней двери',
+            polygon: [
+              { xCm: 90, yCm: 0 },
+              { xCm: 210, yCm: 0 },
+              { xCm: 210, yCm: 80 },
+              { xCm: 90, yCm: 80 },
+            ],
+          },
+        ],
+      },
+      [],
+    )
+    const blockedAtBottom = layoutRoom(
+      {
+        ...base,
+        keepClearZones: [
+          {
+            kind: 'obstacle',
+            label: 'Короб у нижней двери',
+            polygon: [
+              { xCm: 90, yCm: 220 },
+              { xCm: 210, yCm: 220 },
+              { xCm: 210, yCm: 300 },
+              { xCm: 90, yCm: 300 },
+            ],
+          },
+        ],
+      },
+      [],
+    )
+    const clear = layoutRoom({ ...base, keepClearZones: [] }, [])
+    const windowInsteadOfTopDoor = layoutRoom(
+      {
+        ...base,
+        floorReservations: base.floorReservations.map((entry, index) => ({
+          ...entry,
+          kind: index === 0 ? ('window' as const) : ('door' as const),
+        })),
+        keepClearZones: blockedAtTop.keepClearZones,
+      },
+      [],
+    )
+
+    expect(blockedAtTop.walkwayCm).toBeLessThan(WALKWAY_CM)
+    expect(blockedAtTop.safetySummary.status).toBe('blocked')
+    expect(blockedAtBottom.walkwayCm).toBeLessThan(WALKWAY_CM)
+    expect(blockedAtBottom.safetySummary.status).toBe('blocked')
+    expect(clear.walkwayCm).toBeGreaterThanOrEqual(WALKWAY_CM)
+    expect(clear.walkwayCm).toBeLessThanOrEqual(90)
+    expect(windowInsteadOfTopDoor.walkwayCm).toBeGreaterThanOrEqual(WALKWAY_CM)
+    expect(clear.problems.some((problem) => problem.kind === 'narrowWalkway')).toBe(false)
+  })
+
   it('оставляет свободной зону открывания двери перед стеной', () => {
     const layout = layoutRoom(
       {

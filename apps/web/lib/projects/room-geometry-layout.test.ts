@@ -159,8 +159,8 @@ describe('проёмы комнаты из 2D-схемы', () => {
     )
     if (!result) return
     const layout = layoutRoom(result, [])
-    expect(layout.safetySummary.status).toBe('needs-data')
-    expect(layout.safetySummary.detail).toContain('ширина проёма')
+    expect(layout.safetySummary.status).toBe('blocked')
+    expect(layout.walkwayCm).toBeLessThan(WALKWAY_CM)
     expect(roomLayoutInputFromGeometry(geometry, 'Гостиная', null)?.missingSafetyData).toEqual([])
   })
 

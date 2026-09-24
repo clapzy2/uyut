@@ -148,7 +148,7 @@ export type RoomLayout = {
   placed: Placement[]
   /** Свободная длина стен после расстановки, сантиметры */
   freeWallCm: number
-  /** Самый узкий проход между расставленным, сантиметры */
+  /** Самый узкий непрерывный маршрут по комнате от каждого проёма, сантиметры */
   walkwayCm: number
   /** Сколько независимых порядков расстановки сравнено перед выбором этого варианта. */
   alternativesEvaluated: number
@@ -1028,13 +1028,14 @@ const ISLAND_CELLS = 20
  * Считать зазоры между парами предметов бесполезно: угол бывает заперт мебелью соседних стен,
  * которые друг напротив друга не стоят вовсе. Поэтому комната растеризуется, и для каждой ширины
  * прохода проверяется, остаётся ли свободный пол единым куском. Возвращается наибольшая ширина,
- * при которой по комнате ещё можно пройти всюду.
+ * при которой по комнате ещё можно пройти всюду от каждого дверного проёма.
  */
 function widestRoute(
   placed: readonly Rect[],
   room: Size,
   floorPolygon?: readonly LayoutPoint[],
   blockedPolygons: readonly (readonly LayoutPoint[])[] = [],
+  entries: readonly FloorReservation[] = [],
 ): number {
   const step = Math.max(
     GRID_CM,
@@ -1143,7 +1144,38 @@ function widestRoute(
         }
       }
     }
-    return total - reached < ISLAND_CELLS
+    if (total - reached >= ISLAND_CELLS) return false
+
+    // Общий свободный пол ещё не означает, что в него можно попасть через каждую дверь.
+    // Ближайшая к проёму клетка должна входить в тот же связный маршрут.
+    for (const entry of entries) {
+      if (entry.kind !== 'door' && entry.kind !== 'balcony') continue
+      const openingWidthCm = Math.hypot(
+        entry.end.xCm - entry.start.xCm,
+        entry.end.yCm - entry.start.yCm,
+      )
+      if (openingWidthCm < widthCells * step) return false
+      const middleX = (entry.start.xCm + entry.end.xCm) / 2
+      const middleY = (entry.start.yCm + entry.end.yCm) / 2
+      const reachCm = (widthCells * step) / 2 + step * 2
+      const fromX = Math.max(0, Math.floor((middleX - reachCm) / step))
+      const toX = Math.min(cols - 1, Math.floor((middleX + reachCm) / step))
+      const fromY = Math.max(0, Math.floor((middleY - reachCm) / step))
+      const toY = Math.min(rows - 1, Math.floor((middleY + reachCm) / step))
+      let connected = false
+      for (let y = fromY; y <= toY && !connected; y += 1) {
+        for (let x = fromX; x <= toX; x += 1) {
+          if (seen[y * cols + x] === 0) continue
+          const distanceCm = Math.hypot((x + 0.5) * step - middleX, (y + 0.5) * step - middleY)
+          if (distanceCm <= reachCm) {
+            connected = true
+            break
+          }
+        }
+      }
+      if (!connected) return false
+    }
+    return true
   }
 
   // Проходимость только сужается с ростом ширины, поэтому ищем делением пополам,
@@ -2038,6 +2070,7 @@ function layoutRoomCandidate(
           { widthCm, depthCm },
           floorPolygon,
           routeBlockedPolygons,
+          blockingFloorReservations,
         )
         if (!bestCenter || candidateWalkway > bestCenter.walkwayCm) {
           bestCenter = { placement, zone, walkwayCm: candidateWalkway }
@@ -2056,7 +2089,13 @@ function layoutRoomCandidate(
 
   // Проход — это самое узкое место на маршруте, по которому можно обойти всю комнату,
   // а не просто расстояние между двумя стенками мебели
-  const walkwayCm = widestRoute(placed, { widthCm, depthCm }, floorPolygon, routeBlockedPolygons)
+  const walkwayCm = widestRoute(
+    placed,
+    { widthCm, depthCm },
+    floorPolygon,
+    routeBlockedPolygons,
+    blockingFloorReservations,
+  )
   if (walkwayCm < WALKWAY_CM) {
     problems.push({ kind: 'narrowWalkway', gapCm: walkwayCm })
   }
@@ -2071,7 +2110,7 @@ function layoutRoomCandidate(
           ? `Самое узкое место маршрута — ${walkwayCm} см.`
           : placed.length > 0
             ? `Самое узкое место — ${walkwayCm} см, требуется перестановка мебели.`
-            : `Самое узкое место по контуру комнаты — ${walkwayCm} см, это меньше принятого прохода ${WALKWAY_CM} см.`,
+            : `Самое узкое место с учётом проёмов и препятствий — ${walkwayCm} см, это меньше принятого прохода ${WALKWAY_CM} см.`,
       status: walkwayCm >= WALKWAY_CM ? 'checked' : 'blocked',
     })
   }
@@ -2280,7 +2319,7 @@ function layoutRoomCandidate(
             : 'Требуется перестановка',
         detail:
           placed.length === 0 && walkwayCm < WALKWAY_CM
-            ? 'Сам контур комнаты не обеспечивает принятый свободный проход; перепроверьте размеры и планировку.'
+            ? 'Контур, дверные проёмы или препятствия не обеспечивают принятый свободный проход; перепроверьте схему.'
             : 'Хотя бы один предмет, его рабочая зона или непрерывный проход не помещается.',
       }
     : hasNeedsData || hasMissingRequiredFunction

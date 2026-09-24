@@ -670,7 +670,8 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
         </ul>
       ) : layout.placed.length > 0 ? (
         <p className="mt-4 text-[14px] leading-relaxed text-ink-2">
-          Всё выбранное помещается, проход посередине {layout.walkwayCm} см.
+          На текущей схеме размещённая мебель не пересекается; самое узкое место маршрута —{' '}
+          {layout.walkwayCm} см. Итоговый статус проверки указан выше.
         </p>
       ) : null}
 
