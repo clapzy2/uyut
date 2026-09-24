@@ -73,16 +73,30 @@ function openingBelongsToRoom(
   polygon: readonly PlanPoint[],
   toleranceCm: number,
 ): boolean {
+  const dx = end.xCm - start.xCm
+  const dy = end.yCm - start.yCm
+  const length = Math.hypot(dx, dy)
+  if (length === 0) return false
+  const along = (point: PlanPoint) =>
+    ((point.xCm - start.xCm) * dx + (point.yCm - start.yCm) * dy) / length
+  const offset = (point: PlanPoint) =>
+    Math.abs((point.xCm - start.xCm) * dy - (point.yCm - start.yCm) * dx) / length
+  const covered: Array<[number, number]> = []
   for (let index = 0; index < polygon.length; index += 1) {
     const edgeStart = polygon[index]
     const edgeEnd = polygon[(index + 1) % polygon.length]
     if (!edgeStart || !edgeEnd) continue
-    if (
-      pointDistanceToSegment(start, edgeStart, edgeEnd) <= toleranceCm &&
-      pointDistanceToSegment(end, edgeStart, edgeEnd) <= toleranceCm
-    ) {
-      return true
-    }
+    if (offset(edgeStart) > toleranceCm || offset(edgeEnd) > toleranceCm) continue
+    const from = Math.max(0, Math.min(along(edgeStart), along(edgeEnd)))
+    const to = Math.min(length, Math.max(along(edgeStart), along(edgeEnd)))
+    if (to > from) covered.push([from, to])
+  }
+  covered.sort((a, b) => a[0] - b[0])
+  let endOfCoverage = 0
+  for (const [from, to] of covered) {
+    if (from > endOfCoverage + toleranceCm) return false
+    endOfCoverage = Math.max(endOfCoverage, to)
+    if (endOfCoverage >= length - toleranceCm) return true
   }
   return false
 }

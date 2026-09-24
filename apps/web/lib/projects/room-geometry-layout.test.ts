@@ -249,6 +249,52 @@ describe('проёмы комнаты из 2D-схемы', () => {
     })
   })
 
+  it('не теряет окно, пересекающее стык двух ровных участков контура', () => {
+    const rooms = [
+      {
+        name: 'Гостиная',
+        polygon: [
+          { xCm: 100, yCm: 50 },
+          { xCm: 270, yCm: 50 },
+          { xCm: 500, yCm: 50 },
+          { xCm: 500, yCm: 350 },
+          { xCm: 100, yCm: 350 },
+        ],
+      },
+    ]
+    const result = roomLayoutInputFromGeometry({ ...geometry, rooms }, 'Гостиная', null)
+
+    expect(result?.floorReservations).toContainEqual(
+      expect.objectContaining({
+        kind: 'window',
+        start: { xCm: 120, yCm: 0 },
+        end: { xCm: 220, yCm: 0 },
+      }),
+    )
+  })
+
+  it('не склеивает два участка стены через настоящий вырез контура', () => {
+    const rooms = [
+      {
+        name: 'Гостиная',
+        polygon: [
+          { xCm: 100, yCm: 50 },
+          { xCm: 240, yCm: 50 },
+          { xCm: 240, yCm: 70 },
+          { xCm: 260, yCm: 70 },
+          { xCm: 260, yCm: 50 },
+          { xCm: 500, yCm: 50 },
+          { xCm: 500, yCm: 350 },
+          { xCm: 100, yCm: 350 },
+        ],
+      },
+    ]
+    const result = roomLayoutInputFromGeometry({ ...geometry, rooms }, 'Гостиная', null)
+
+    expect(result?.floorReservations.some((opening) => opening.kind === 'window')).toBe(false)
+    expect(result?.missingSafetyData.join(' ')).toContain('Проём window не совпадает')
+  })
+
   it('просит высоту подоконника, если без неё нельзя проверить мебель', () => {
     const withoutSill = {
       ...geometry,
