@@ -40,3 +40,12 @@ export function manualRoomNamesValid(
     new Set(submitted).size === submitted.length && submitted.every((name) => knownNames.has(name))
   )
 }
+
+/** Названия помещений, у которых ещё нет контура. */
+export function missingManualRoomNames(
+  submitted: readonly string[],
+  known: readonly string[],
+): string[] {
+  const completed = new Set(submitted)
+  return [...new Set(known)].filter((name) => !completed.has(name))
+}

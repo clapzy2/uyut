@@ -18,7 +18,11 @@ import { planDimensionSources } from '@/lib/projects/dimension-sources'
 import { roomKindLabels } from '@/lib/projects/format'
 import { kitchenItemsSchema } from '@/lib/projects/kitchen-items'
 import { kitchenSafetySchema } from '@/lib/projects/kitchen-safety'
-import { manualPlanGeometry, manualRoomNamesValid } from '@/lib/projects/manual-plan-geometry'
+import {
+  manualPlanGeometry,
+  manualRoomNamesValid,
+  missingManualRoomNames,
+} from '@/lib/projects/manual-plan-geometry'
 import { planObstaclesSchema } from '@/lib/projects/plan-obstacles'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
 import * as repository from '@/lib/projects/repository'
@@ -298,13 +302,16 @@ export async function savePlanGeometry(
         ok: false,
         error: 'Проверьте препятствия: они должны иметь точные размеры и помещаться на схеме.',
       }
-    // Габарит квартиры не редактируется: все ручные координаты обязаны остаться внутри
-    // исходного полотна, построенного по загруженному плану.
-    const geometry = validatePlanGeometryEdit({
-      ...submitted,
-      widthCm: before.widthCm,
-      heightCm: before.heightCm,
-    })
+    // Габарит схемы не редактируется здесь: координаты остаются внутри полотна,
+    // полученного из плана или введённого владельцем при ручном старте.
+    const geometry = validatePlanGeometryEdit(
+      {
+        ...submitted,
+        widthCm: before.widthCm,
+        heightCm: before.heightCm,
+      },
+      mode,
+    )
     if (!geometry) {
       return { ok: false, error: 'Схема не сохранилась: проверьте координаты стен.' }
     }
@@ -352,19 +359,37 @@ export async function savePlanGeometry(
       return { ok: false, error: 'В схеме появились неизвестные элементы. Обновите страницу.' }
     }
     if (manual) {
+      const knownRoomNames = project.planReading.rooms.map((room) => room.name)
       if (
         !manualRoomNamesValid(
           geometry.rooms.map((room) => room.name),
-          project.planReading.rooms.map((room) => room.name),
+          knownRoomNames,
         )
       ) {
         return { ok: false, error: 'Контуры должны соответствовать комнатам из списка проекта.' }
       }
-      if (mode === 'confirm' && geometry.rooms.length === 0) {
-        return { ok: false, error: 'Добавьте и сверьте с планом хотя бы один контур комнаты.' }
+      if (mode === 'confirm') {
+        if (new Set(knownRoomNames).size !== knownRoomNames.length) {
+          return {
+            ok: false,
+            error:
+              'На плане есть одинаковые названия комнат. Уточните их перед подтверждением схемы.',
+          }
+        }
+        const missingRooms = missingManualRoomNames(
+          geometry.rooms.map((room) => room.name),
+          knownRoomNames,
+        )
+        if (missingRooms.length > 0 || knownRoomNames.length === 0) {
+          return {
+            ok: false,
+            error: `Добавьте контуры всех комнат перед подтверждением: ${missingRooms.slice(0, 3).join(', ') || 'список пуст'}.`,
+          }
+        }
       }
     }
-    const checked = reconcilePlanGeometryRooms(geometry, project.planReading.rooms)
+    const checked =
+      mode === 'draft' ? geometry : reconcilePlanGeometryRooms(geometry, project.planReading.rooms)
     if (!checked) return { ok: false, error: 'В схеме должно остаться не меньше трёх стен.' }
     if (checked.rooms.length !== geometry.rooms.length) {
       return {

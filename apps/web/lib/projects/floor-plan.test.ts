@@ -205,6 +205,32 @@ describe('геометрия плана', () => {
         : null,
     ).toBeUndefined()
   })
+
+  it('позволяет сохранить пустой или частичный ручной черновик, но не подтвердить его', () => {
+    const empty = {
+      widthCm: 500,
+      heightCm: 400,
+      walls: [],
+      openings: [],
+      rooms: [],
+    }
+    expect(validatePlanGeometryEdit(empty, 'draft')?.walls).toEqual([])
+    expect(validatePlanGeometryEdit(empty)).toBeUndefined()
+
+    const oneWall = {
+      ...empty,
+      walls: [
+        {
+          id: 'manual_1234567890abcdef12345678',
+          kind: 'outer',
+          start: { xCm: 0, yCm: 0 },
+          end: { xCm: 400, yCm: 0 },
+        },
+      ],
+    }
+    expect(validatePlanGeometryEdit(oneWall, 'draft')?.walls).toHaveLength(1)
+    expect(validatePlanGeometryEdit(oneWall)).toBeUndefined()
+  })
 })
 
 describe('описание архитектуры с плана', () => {

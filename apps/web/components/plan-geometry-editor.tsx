@@ -24,6 +24,7 @@ import { FormError } from '@/components/form-error'
 import { KitchenPlanEditor } from '@/components/kitchen-plan-editor'
 import { PlanObstaclesEditor } from '@/components/plan-obstacles-editor'
 import { doorClearanceZone } from '@/lib/projects/clearance-zones'
+import { missingManualRoomNames } from '@/lib/projects/manual-plan-geometry'
 import {
   inspectPlanGeometry,
   type PlanGeometryIssue,
@@ -123,6 +124,7 @@ function PlanGeometryCanvas({
   wallErrorIds,
   openingErrorIds,
   roomErrorIndexes,
+  underlay,
 }: {
   geometry: PlanGeometry
   walls: PlanWall[]
@@ -136,6 +138,7 @@ function PlanGeometryCanvas({
   wallErrorIds: ReadonlySet<string>
   openingErrorIds: ReadonlySet<string>
   roomErrorIndexes: ReadonlySet<number>
+  underlay?: { url: string; opacity: number; scale: number; xCm: number; yCm: number }
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<DragTarget | undefined>(undefined)
@@ -273,6 +276,18 @@ function PlanGeometryCanvas({
         onPointerUp={stop}
         onPointerCancel={stop}
       >
+        {underlay ? (
+          <image
+            href={underlay.url}
+            x={underlay.xCm}
+            y={underlay.yCm}
+            width={geometry.widthCm * underlay.scale}
+            height={geometry.heightCm * underlay.scale}
+            preserveAspectRatio="xMidYMid meet"
+            opacity={underlay.opacity}
+            className="pointer-events-none"
+          />
+        ) : null}
         {rooms.map((room, roomIndex) => {
           const centre = roomCentre(room.polygon)
           const points = room.polygon.map((point) => `${point.xCm},${point.yCm}`).join(' ')
@@ -468,11 +483,13 @@ export function PlanGeometryEditor({
   geometry,
   roomNames,
   planUrl,
+  planIsPdf,
 }: {
   projectId: string
   geometry: PlanGeometry
   roomNames: string[]
   planUrl: string | null
+  planIsPdf: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -496,6 +513,11 @@ export function PlanGeometryEditor({
   const [error, setError] = useState<string>()
   const [newRoomName, setNewRoomName] = useState(roomNames[0] ?? '')
   const [verified, setVerified] = useState(false)
+  const [showUnderlay, setShowUnderlay] = useState(geometry.source === 'manual')
+  const [underlayOpacity, setUnderlayOpacity] = useState(0.35)
+  const [underlayScale, setUnderlayScale] = useState(1)
+  const [underlayX, setUnderlayX] = useState(0)
+  const [underlayY, setUnderlayY] = useState(0)
   const [saving, startSaving] = useTransition()
   const [selectionKind, selectionId] = selection.split(':')
   const selectedWall =
@@ -515,6 +537,11 @@ export function PlanGeometryEditor({
   const availableRoomNames = [...new Set(roomNames)].filter(
     (name) => !rooms.some((room) => room.name === name),
   )
+  const missingRoomNames = missingManualRoomNames(
+    rooms.map((room) => room.name),
+    roomNames,
+  )
+  const duplicateRoomNames = new Set(roomNames).size !== roomNames.length
 
   function selectIssue(issue: PlanGeometryIssue) {
     const openingId = issue.openingIds?.[0]
@@ -772,6 +799,88 @@ export function PlanGeometryEditor({
               Открыть исходный план рядом ↗
             </a>
           ) : null}
+          {planUrl ? (
+            <div className="mb-5 border border-line bg-muted p-3 sm:p-4">
+              <p className="mb-3 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
+                Оригинал для сверки
+              </p>
+              {planIsPdf ? (
+                <iframe
+                  src={planUrl}
+                  title="Исходный план квартиры"
+                  className="h-64 w-full border border-line bg-paper sm:h-80"
+                />
+              ) : (
+                // biome-ignore lint/performance/noImgElement: подписанная ссылка короткоживущая, важно сохранить исходное соотношение сторон плана
+                <img
+                  src={planUrl}
+                  alt="Исходный план квартиры для ручной сверки"
+                  className="mx-auto max-h-80 w-auto max-w-full border border-line bg-paper object-contain"
+                />
+              )}
+              {!planIsPdf ? (
+                <div className="mt-4 space-y-3 text-[13px] text-ink-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={showUnderlay}
+                      onChange={(event) => setShowUnderlay(event.currentTarget.checked)}
+                      className="accent-accent"
+                    />
+                    Показать изображение под линиями
+                  </label>
+                  {showUnderlay ? (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label>
+                        Прозрачность · {Math.round(underlayOpacity * 100)}%
+                        <input
+                          type="range"
+                          min="0.1"
+                          max="0.8"
+                          step="0.05"
+                          value={underlayOpacity}
+                          onChange={(event) =>
+                            setUnderlayOpacity(Number(event.currentTarget.value))
+                          }
+                          className="mt-2 w-full accent-accent"
+                        />
+                      </label>
+                      <label>
+                        Масштаб изображения · {Math.round(underlayScale * 100)}%
+                        <input
+                          type="range"
+                          min="0.5"
+                          max="2"
+                          step="0.05"
+                          value={underlayScale}
+                          onChange={(event) => setUnderlayScale(Number(event.currentTarget.value))}
+                          className="mt-2 w-full accent-accent"
+                        />
+                      </label>
+                      <Input
+                        id="plan-underlay-x"
+                        label="Сдвиг изображения X, см"
+                        type="number"
+                        value={underlayX}
+                        onChange={(event) => setUnderlayX(Number(event.currentTarget.value))}
+                      />
+                      <Input
+                        id="plan-underlay-y"
+                        label="Сдвиг изображения Y, см"
+                        type="number"
+                        value={underlayY}
+                        onChange={(event) => setUnderlayY(Number(event.currentTarget.value))}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              <p className="mt-3 text-[12px] leading-relaxed text-ink-2">
+                Наложение не калибровано и не доказывает точность размеров. Сверяйте сантиметры по
+                подписям на исходном плане; положение подложки при закрытии редактора сбросится.
+              </p>
+            </div>
+          ) : null}
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="mr-1 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
               Добавить
@@ -834,6 +943,17 @@ export function PlanGeometryEditor({
             wallErrorIds={wallErrorIds}
             openingErrorIds={openingErrorIds}
             roomErrorIndexes={roomErrorIndexes}
+            underlay={
+              planUrl && !planIsPdf && showUnderlay
+                ? {
+                    url: planUrl,
+                    opacity: underlayOpacity,
+                    scale: underlayScale,
+                    xCm: underlayX,
+                    yCm: underlayY,
+                  }
+                : undefined
+            }
           />
 
           <div
@@ -843,7 +963,11 @@ export function PlanGeometryEditor({
             <p className="text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
               Проверка геометрии
             </p>
-            {issues.length === 0 ? (
+            {walls.length === 0 ? (
+              <p className="mt-2 text-[14px] leading-relaxed text-ink">
+                Линии пока не нанесены. Сохраните пустой черновик или добавьте первую стену.
+              </p>
+            ) : issues.length === 0 ? (
               <p className="mt-2 text-[14px] leading-relaxed text-ink">
                 Явных ошибок нет: стены соединены, а проёмы помещаются на своих стенах.
               </p>
@@ -1261,11 +1385,26 @@ export function PlanGeometryEditor({
           </div>
 
           <FormError message={error} />
+          {geometry.source === 'manual' ? (
+            <div className="mt-4 border-l-2 border-accent pl-4 text-[13px] leading-relaxed text-ink-2">
+              <p>
+                Контуры комнат: {rooms.length} из {new Set(roomNames).size}.
+              </p>
+              {missingRoomNames.length > 0 ? (
+                <p className="mt-1">Ещё не отмечены: {missingRoomNames.join(', ')}.</p>
+              ) : null}
+              {duplicateRoomNames ? (
+                <p className="mt-1 text-danger">
+                  В списке комнат повторяются названия. Для подтверждения их нужно различить.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {geometry.status === 'draft' ? (
             <p className="mt-4 text-[13px] leading-relaxed text-ink-2">
-              Черновик не используется для точной расстановки мебели. Чтобы сохранить промежуточную
-              работу, нужны хотя бы три стены. Контур-заготовку каждой комнаты обязательно подгоните
-              по плану: её начальная форма ничего не говорит о реальной квартире.
+              Черновик не используется для точной расстановки мебели. Его можно сохранить даже без
+              стен и вернуться позже. Контур-заготовку каждой комнаты обязательно подгоните по
+              плану: её начальная форма ничего не говорит о реальной квартире.
             </p>
           ) : null}
           <label className="mt-4 flex items-start gap-3 text-[13px] leading-relaxed text-ink">
@@ -1284,7 +1423,7 @@ export function PlanGeometryEditor({
                 variant="secondary"
                 onClick={() => save('draft')}
                 pending={saving}
-                disabled={walls.length < 3 || blockingIssues.length > 0}
+                disabled={blockingIssues.length > 0}
               >
                 Сохранить черновик
               </Button>
@@ -1294,7 +1433,12 @@ export function PlanGeometryEditor({
               onClick={() => save('confirm')}
               pending={saving}
               disabled={
-                walls.length < 3 || rooms.length === 0 || blockingIssues.length > 0 || !verified
+                walls.length < 3 ||
+                rooms.length === 0 ||
+                blockingIssues.length > 0 ||
+                !verified ||
+                (geometry.source === 'manual' &&
+                  (missingRoomNames.length > 0 || duplicateRoomNames))
               }
             >
               {saving ? 'Проверяем…' : 'Подтвердить и сохранить'}

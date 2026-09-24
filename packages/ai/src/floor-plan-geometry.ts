@@ -179,8 +179,7 @@ export function isManualPlanGeometryId(value: unknown): value is string {
   return typeof value === 'string' && MANUAL_GEOMETRY_ID.test(value)
 }
 
-/** Превращает непроверенный ответ vision-модели в безопасную для расчётов 2D-схему. */
-export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
+function parsePlanGeometryInternal(raw: unknown, minimumWalls: number): PlanGeometry | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const source = raw as Record<string, unknown>
   const widthCm = cm(source.widthMm)
@@ -224,7 +223,7 @@ export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
   }
   // Пара линий может быть мебелью или размерной цепочкой. Схемой считаем только замкнутое
   // по смыслу множество хотя бы из трёх стен.
-  if (walls.length < 3) return undefined
+  if (walls.length < minimumWalls) return undefined
 
   const wallById = new Map(walls.map((wall) => [wall.id, wall]))
   const openings: PlanOpening[] = []
@@ -364,12 +363,20 @@ export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
   }
 }
 
+/** Превращает непроверенный ответ vision-модели в безопасную для расчётов 2D-схему. */
+export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
+  return parsePlanGeometryInternal(raw, 3)
+}
+
 /**
  * Повторная проверка схемы, отредактированной в браузере. В сеть она ходит уже в сантиметрах,
  * а основной парсер принимает миллиметры, поэтому явно переводим каждое поле и прогоняем через
  * те же ограничения, что ответ vision-модели.
  */
-export function validatePlanGeometryEdit(raw: unknown): PlanGeometry | undefined {
+export function validatePlanGeometryEdit(
+  raw: unknown,
+  mode: 'draft' | 'confirm' = 'confirm',
+): PlanGeometry | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const source = raw as Record<string, unknown>
   const millimetres = (value: unknown) => Number(value) * 10
@@ -412,13 +419,16 @@ export function validatePlanGeometryEdit(raw: unknown): PlanGeometry | undefined
           .map(convertPoint),
       }
     })
-  return parsePlanGeometry({
-    widthMm: millimetres(source.widthCm),
-    heightMm: millimetres(source.heightCm),
-    walls,
-    openings,
-    rooms,
-  })
+  return parsePlanGeometryInternal(
+    {
+      widthMm: millimetres(source.widthCm),
+      heightMm: millimetres(source.heightCm),
+      walls,
+      openings,
+      rooms,
+    },
+    mode === 'draft' ? 0 : 3,
+  )
 }
 
 /** Сверяет масштаб контуров с независимо прочитанными подписями площадей. */

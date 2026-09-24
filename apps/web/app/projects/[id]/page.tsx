@@ -331,6 +331,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
                 geometry={project.planReading.geometry}
                 roomNames={project.planReading.rooms.map((room) => room.name)}
                 planUrl={planUrl}
+                planIsPdf={planIsPdf}
               />
             ) : null
           }

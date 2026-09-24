@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { manualPlanGeometry, manualRoomNamesValid } from './manual-plan-geometry'
+import {
+  manualPlanGeometry,
+  manualRoomNamesValid,
+  missingManualRoomNames,
+} from './manual-plan-geometry'
 
 describe('manual plan geometry', () => {
   it('starts with an empty draft instead of imagined walls or rooms', () => {
@@ -28,5 +32,12 @@ describe('manual plan geometry', () => {
     expect(manualRoomNamesValid(['Кухня'], ['Кухня', 'Гостиная'])).toBe(true)
     expect(manualRoomNamesValid(['Кухня', 'Кухня'], ['Кухня'])).toBe(false)
     expect(manualRoomNamesValid(['Спальня'], ['Кухня'])).toBe(false)
+  })
+
+  it('shows which rooms remain before confirming the entire apartment', () => {
+    expect(missingManualRoomNames(['Кухня'], ['Кухня', 'Гостиная', 'Прихожая'])).toEqual([
+      'Гостиная',
+      'Прихожая',
+    ])
   })
 })
