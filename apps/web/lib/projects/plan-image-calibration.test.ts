@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   planImageMatrix,
   planImageScaleCheck,
+  planImageScaleCoverage,
   validPlanImageCalibration,
 } from './plan-image-calibration'
 
@@ -110,5 +111,31 @@ describe('plan image calibration', () => {
         500,
       ),
     ).toBe(false)
+  })
+
+  it('distinguishes same-axis checks from coverage in two directions', () => {
+    const sameAxis = {
+      ...calibration,
+      verificationLines: [
+        {
+          pixelStart: { x: 200, y: 400 },
+          pixelEnd: { x: 300, y: 400 },
+          lengthCm: 200,
+        },
+      ],
+    }
+    expect(planImageScaleCoverage(sameAxis)).toEqual({
+      checks: 1,
+      hasSecondDirection: false,
+      hasConflict: false,
+    })
+    const twoDirections = {
+      ...sameAxis,
+      verificationLines: [
+        ...sameAxis.verificationLines,
+        { pixelStart: { x: 400, y: 100 }, pixelEnd: { x: 400, y: 200 }, lengthCm: 200 },
+      ],
+    }
+    expect(planImageScaleCoverage(twoDirections).hasSecondDirection).toBe(true)
   })
 })

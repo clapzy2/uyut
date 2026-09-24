@@ -5,6 +5,7 @@ import { Button, Input } from '@uyut/ui'
 import { type Dispatch, type SetStateAction, useState } from 'react'
 import {
   planImageScaleCheck,
+  planImageScaleCoverage,
   validPlanImageCalibration,
 } from '@/lib/projects/plan-image-calibration'
 
@@ -32,6 +33,7 @@ export function PlanImageVerification({
   const [lengthCm, setLengthCm] = useState('')
   const [error, setError] = useState<string>()
   const lines = calibration.verificationLines ?? []
+  const coverage = planImageScaleCoverage(calibration)
 
   function updatePoint(index: number, coordinate: 'x' | 'y', value: string) {
     onPointsChange((current) =>
@@ -189,13 +191,22 @@ export function PlanImageVerification({
           </Button>
         )
       ) : null}
-      {lines.length > 0 &&
-      lines.some((line) => !planImageScaleCheck(calibration, line).consistent) ? (
+      {coverage.hasConflict ? (
         <p className="mt-3 text-danger" role="status">
           Масштаб не подтверждён всеми размерами. Не используйте эту подложку для точной расстановки
           мебели.
         </p>
-      ) : null}
+      ) : coverage.hasSecondDirection ? (
+        <p className="mt-3 text-ink" role="status">
+          Размеры сошлись в двух направлениях. Это всё ещё не заменяет обмер на месте.
+        </p>
+      ) : (
+        <p className="mt-3 text-ink-2" role="status">
+          {coverage.checks === 0
+            ? 'Пока проверена одна линия. Добавьте независимый размер поперёк неё.'
+            : 'Размеры сходятся, но проверено только одно направление. Добавьте размер поперёк.'}
+        </p>
+      )}
     </section>
   )
 }

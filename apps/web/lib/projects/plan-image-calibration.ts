@@ -57,6 +57,25 @@ export function planImageScaleCheck(
   return { measuredCm, deviationCm, toleranceCm, consistent: Math.abs(deviationCm) <= toleranceCm }
 }
 
+/** Размеры вдоль одной оси не обнаружат растяжение картинки поперёк неё. */
+export function planImageScaleCoverage(calibration: PlanImageCalibration) {
+  const primaryX = calibration.pixelEnd.x - calibration.pixelStart.x
+  const primaryY = calibration.pixelEnd.y - calibration.pixelStart.y
+  const primaryLength = Math.hypot(primaryX, primaryY)
+  const lines = calibration.verificationLines ?? []
+  const hasSecondDirection = lines.some((line) => {
+    const dx = line.pixelEnd.x - line.pixelStart.x
+    const dy = line.pixelEnd.y - line.pixelStart.y
+    const length = Math.hypot(dx, dy)
+    return length > 0 && Math.abs(primaryX * dy - primaryY * dx) / (primaryLength * length) >= 0.85
+  })
+  return {
+    checks: lines.length,
+    hasSecondDirection,
+    hasConflict: lines.some((line) => !planImageScaleCheck(calibration, line).consistent),
+  }
+}
+
 /** Один размер задаёт масштаб и поворот, а положение первой точки — сдвиг картинки. */
 export function planImageMatrix(
   calibration: PlanImageCalibration,
