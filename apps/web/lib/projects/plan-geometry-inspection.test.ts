@@ -1,4 +1,4 @@
-import type { PlanGeometry, PlanOpening } from '@uyut/db'
+import type { PlanGeometry, PlanOpening, PlanPoint } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import {
   inspectManualPlanCompleteness,
@@ -130,6 +130,112 @@ describe('подтверждение ручной схемы', () => {
     )
     expect(inspectManualPlanCompleteness({ ...geometry, walls })).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'manual-outer-gap-top' })]),
+    )
+  })
+
+  it('не принимает примыкание к середине внешней стены за замкнутый угол', () => {
+    const walls = geometry.walls.map((wall) =>
+      wall.id === 'top' ? { ...wall, end: { xCm: 500, yCm: 200 } } : wall,
+    )
+    expect(inspectManualPlanCompleteness({ ...geometry, walls })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'manual-outer-gap-top' })]),
+    )
+  })
+
+  it('принимает стену, явно разбитую на два отрезка с общим концом', () => {
+    const top = geometry.walls.find((wall) => wall.id === 'top')
+    if (!top) throw new Error('В тестовом плане нет верхней стены')
+    const walls = [
+      { ...top, end: { xCm: 250, yCm: 0 } },
+      {
+        id: 'top-two',
+        kind: 'outer' as const,
+        start: { xCm: 250, yCm: 0 },
+        end: { xCm: 500, yCm: 0 },
+      },
+      ...geometry.walls.slice(1),
+    ]
+    expect(inspectManualPlanCompleteness({ ...geometry, walls })).toEqual([])
+  })
+
+  it('не подтверждает разветвление внешнего контура', () => {
+    const walls = [
+      ...geometry.walls,
+      {
+        id: 'spur',
+        kind: 'outer' as const,
+        start: { xCm: 0, yCm: 0 },
+        end: { xCm: 100, yCm: 100 },
+      },
+    ]
+    expect(inspectManualPlanCompleteness({ ...geometry, walls })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'manual-outer-branch-top' })]),
+    )
+  })
+
+  it('не подтверждает самопересекающийся внешний контур', () => {
+    const points: [PlanPoint, ...PlanPoint[]] = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 500, yCm: 400 },
+      { xCm: 0, yCm: 400 },
+      { xCm: 500, yCm: 0 },
+    ]
+    const walls = points.map((start, index) => ({
+      id: `cross-${index}`,
+      kind: 'outer' as const,
+      start,
+      end: points[index + 1] ?? points[0],
+    }))
+    expect(inspectManualPlanCompleteness({ ...geometry, walls })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'manual-outer-cross-cross-0-cross-2' }),
+      ]),
+    )
+  })
+
+  it('не подтверждает наложенные внешние стены', () => {
+    const walls = [
+      ...geometry.walls,
+      {
+        id: 'duplicate-top',
+        kind: 'outer' as const,
+        start: { xCm: 100, yCm: 0 },
+        end: { xCm: 300, yCm: 0 },
+      },
+    ]
+    expect(inspectManualPlanCompleteness({ ...geometry, walls })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'manual-outer-overlap-top-duplicate-top' }),
+      ]),
+    )
+  })
+
+  it('не принимает второй замкнутый внешний контур, соединённый только внутренней стеной', () => {
+    const inner: [PlanPoint, ...PlanPoint[]] = [
+      { xCm: 100, yCm: 100 },
+      { xCm: 200, yCm: 100 },
+      { xCm: 200, yCm: 200 },
+      { xCm: 100, yCm: 200 },
+    ]
+    const secondLoop = inner.map((start, index) => ({
+      id: `loop-${index}`,
+      kind: 'outer' as const,
+      start,
+      end: inner[index + 1] ?? inner[0],
+    }))
+    const bridge = {
+      id: 'bridge',
+      kind: 'inner' as const,
+      start: { xCm: 0, yCm: 0 },
+      end: inner[0],
+    }
+    expect(
+      inspectManualPlanCompleteness({
+        ...geometry,
+        walls: [...geometry.walls, bridge, ...secondLoop],
+      }),
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'manual-outer-disconnected' })]),
     )
   })
 

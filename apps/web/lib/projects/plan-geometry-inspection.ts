@@ -71,6 +71,15 @@ function endpointIsConnected(
   )
 }
 
+function outerEndpointNeighbours(point: PlanPoint, wallId: string, walls: readonly PlanWall[]) {
+  return walls.filter(
+    (other) =>
+      other.id !== wallId &&
+      (distance(point, other.start) <= ENDPOINT_TOLERANCE_CM ||
+        distance(point, other.end) <= ENDPOINT_TOLERANCE_CM),
+  )
+}
+
 function signedTurn(a: PlanPoint, b: PlanPoint, c: PlanPoint): number {
   return (b.xCm - a.xCm) * (c.yCm - a.yCm) - (b.yCm - a.yCm) * (c.xCm - a.xCm)
 }
@@ -116,6 +125,24 @@ function roomCrossesItself(room: PlanRoomShape): boolean {
 
 function openingInterval(opening: PlanOpening): [number, number] {
   return [opening.offsetCm, opening.offsetCm + opening.widthCm]
+}
+
+function collinearOverlapCm(wall: PlanWall, other: PlanWall): number {
+  if (
+    Math.abs(signedTurn(wall.start, wall.end, other.start)) > 0.001 ||
+    Math.abs(signedTurn(wall.start, wall.end, other.end)) > 0.001
+  )
+    return 0
+  const length = distance(wall.start, wall.end)
+  if (length === 0) return 0
+  const dx = (wall.end.xCm - wall.start.xCm) / length
+  const dy = (wall.end.yCm - wall.start.yCm) / length
+  const first = (other.start.xCm - wall.start.xCm) * dx + (other.start.yCm - wall.start.yCm) * dy
+  const second = (other.end.xCm - wall.start.xCm) * dx + (other.end.yCm - wall.start.yCm) * dy
+  return Math.max(
+    0,
+    Math.min(length, Math.max(first, second)) - Math.max(0, Math.min(first, second)),
+  )
 }
 
 /** Дополнительные требования к схеме, которую владелец хочет подтвердить. */
@@ -169,17 +196,85 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
       message: 'Отметьте внешний контур квартиры, прежде чем подтверждать схему.',
     })
   }
+  if (outerWalls.length > 0 && outerWalls.length < 3) {
+    issues.push({
+      id: 'manual-outer-too-few-walls',
+      severity: 'error',
+      message: 'Внешний контур должен состоять хотя бы из трёх стен.',
+      wallIds: outerWalls.map((wall) => wall.id),
+    })
+  }
   for (const wall of outerWalls) {
-    if (
-      !endpointIsConnected(wall.start, wall.id, outerWalls) ||
-      !endpointIsConnected(wall.end, wall.id, outerWalls)
-    ) {
+    const startNeighbours = outerEndpointNeighbours(wall.start, wall.id, outerWalls)
+    const endNeighbours = outerEndpointNeighbours(wall.end, wall.id, outerWalls)
+    if (startNeighbours.length === 0 || endNeighbours.length === 0) {
       issues.push({
         id: `manual-outer-gap-${wall.id}`,
         severity: 'error',
-        message: 'Внешний контур должен быть замкнут внешними стенами.',
+        message: 'Концы внешней стены должны совпадать с концами соседних внешних стен.',
         wallIds: [wall.id],
       })
+    }
+    if (startNeighbours.length > 1 || endNeighbours.length > 1) {
+      issues.push({
+        id: `manual-outer-branch-${wall.id}`,
+        severity: 'error',
+        message: 'На внешнем контуре есть разветвление или наложенные стены.',
+        wallIds: [wall.id],
+      })
+    }
+  }
+
+  if (outerWalls.length > 0) {
+    const connected = new Set([outerWalls[0]?.id])
+    const pending = [outerWalls[0]]
+    while (pending.length > 0) {
+      const wall = pending.pop()
+      if (!wall) continue
+      for (const point of [wall.start, wall.end]) {
+        for (const neighbour of outerEndpointNeighbours(point, wall.id, outerWalls)) {
+          if (connected.has(neighbour.id)) continue
+          connected.add(neighbour.id)
+          pending.push(neighbour)
+        }
+      }
+    }
+    if (connected.size !== outerWalls.length) {
+      issues.push({
+        id: 'manual-outer-disconnected',
+        severity: 'error',
+        message: 'Внешние стены образуют несколько отдельных контуров.',
+        wallIds: outerWalls.filter((wall) => !connected.has(wall.id)).map((wall) => wall.id),
+      })
+    }
+  }
+
+  for (let first = 0; first < outerWalls.length; first += 1) {
+    const wall = outerWalls[first]
+    if (!wall) continue
+    for (let second = first + 1; second < outerWalls.length; second += 1) {
+      const other = outerWalls[second]
+      if (!other) continue
+      const firstSide = signedTurn(wall.start, wall.end, other.start)
+      const secondSide = signedTurn(wall.start, wall.end, other.end)
+      const thirdSide = signedTurn(other.start, other.end, wall.start)
+      const fourthSide = signedTurn(other.start, other.end, wall.end)
+      if (firstSide * secondSide < 0 && thirdSide * fourthSide < 0) {
+        issues.push({
+          id: `manual-outer-cross-${wall.id}-${other.id}`,
+          severity: 'error',
+          message: 'Внешние стены пересекаются внутри отрезков.',
+          wallIds: [wall.id, other.id],
+        })
+      }
+      if (collinearOverlapCm(wall, other) > ENDPOINT_TOLERANCE_CM) {
+        issues.push({
+          id: `manual-outer-overlap-${wall.id}-${other.id}`,
+          severity: 'error',
+          message: 'Внешние стены накладываются друг на друга.',
+          wallIds: [wall.id, other.id],
+        })
+      }
     }
   }
 
