@@ -6,7 +6,7 @@ import {
   reconcilePlanGeometryRooms,
   validatePlanGeometryEdit,
 } from '@uyut/ai'
-import type { PlanReading, RoomMeasurements } from '@uyut/db'
+import type { PlanImageCalibration, PlanReading, RoomMeasurements } from '@uyut/db'
 import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
 import { recordAudit } from '@/lib/audit'
@@ -23,6 +23,11 @@ import {
   manualRoomNamesValid,
   missingManualRoomNames,
 } from '@/lib/projects/manual-plan-geometry'
+import {
+  inspectManualPlanCompleteness,
+  inspectPlanGeometry,
+} from '@/lib/projects/plan-geometry-inspection'
+import { validPlanImageCalibration } from '@/lib/projects/plan-image-calibration'
 import { planObstaclesSchema } from '@/lib/projects/plan-obstacles'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
 import * as repository from '@/lib/projects/repository'
@@ -261,6 +266,17 @@ export async function savePlanGeometry(
       return { ok: false, error: 'Подтверждённую схему нельзя вернуть в черновик.' }
     }
     const submitted = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
+    const rawCalibration =
+      submitted.imageCalibration === undefined
+        ? before.imageCalibration
+        : submitted.imageCalibration
+    let imageCalibration: PlanImageCalibration | undefined
+    if (rawCalibration !== null && rawCalibration !== undefined) {
+      if (!validPlanImageCalibration(rawCalibration, before.widthCm, before.heightCm)) {
+        return { ok: false, error: 'Проверьте две точки и известный размер для подложки плана.' }
+      }
+      imageCalibration = rawCalibration
+    }
     const openingClearances = openingClearancesSchema.safeParse(submitted.openings ?? [])
     if (!openingClearances.success)
       return {
@@ -397,9 +413,17 @@ export async function savePlanGeometry(
         error: 'Контур комнаты слишком сильно расходится с площадью, указанной на плане.',
       }
     }
+    if (manual && mode === 'confirm') {
+      const issue = [
+        ...inspectPlanGeometry(checked),
+        ...inspectManualPlanCompleteness(checked),
+      ].find((item) => item.severity === 'error')
+      if (issue) return { ok: false, error: issue.message }
+    }
     const saved: NonNullable<PlanReading['geometry']> = {
       ...checked,
       ...(manual ? { source: 'manual' as const } : {}),
+      ...(imageCalibration ? { imageCalibration } : {}),
       openings: checked.openings.map((opening) => {
         const submittedOpening = openingClearances.data.find((o) => o.id === opening.id)
         const clearance = submittedOpening?.clearance

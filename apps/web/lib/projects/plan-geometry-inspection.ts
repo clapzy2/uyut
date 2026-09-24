@@ -118,6 +118,87 @@ function openingInterval(opening: PlanOpening): [number, number] {
   return [opening.offsetCm, opening.offsetCm + opening.widthCm]
 }
 
+/** Дополнительные требования к схеме, которую владелец хочет подтвердить. */
+export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanGeometryIssue[] {
+  const issues: PlanGeometryIssue[] = []
+  const walls = geometry.walls
+  if (walls.length === 0) return issues
+
+  const visited = new Set<string>()
+  const groups: string[][] = []
+  for (const wall of walls) {
+    if (visited.has(wall.id)) continue
+    const group: string[] = []
+    const pending = [wall]
+    visited.add(wall.id)
+    while (pending.length > 0) {
+      const current = pending.pop()
+      if (!current) continue
+      group.push(current.id)
+      for (const other of walls) {
+        if (visited.has(other.id)) continue
+        const touches =
+          distanceToSegment(current.start, other) <= ENDPOINT_TOLERANCE_CM ||
+          distanceToSegment(current.end, other) <= ENDPOINT_TOLERANCE_CM ||
+          distanceToSegment(other.start, current) <= ENDPOINT_TOLERANCE_CM ||
+          distanceToSegment(other.end, current) <= ENDPOINT_TOLERANCE_CM ||
+          segmentsIntersect(current.start, current.end, other.start, other.end)
+        if (touches) {
+          visited.add(other.id)
+          pending.push(other)
+        }
+      }
+    }
+    groups.push(group)
+  }
+  if (groups.length > 1) {
+    issues.push({
+      id: 'manual-disconnected-walls',
+      severity: 'error',
+      message:
+        'Часть стен не соединена с остальной схемой. Сведите их концы или уберите лишние линии.',
+      wallIds: groups.slice(1).flat(),
+    })
+  }
+
+  const outerWalls = walls.filter((wall) => wall.kind === 'outer')
+  if (outerWalls.length === 0) {
+    issues.push({
+      id: 'manual-missing-outer-walls',
+      severity: 'error',
+      message: 'Отметьте внешний контур квартиры, прежде чем подтверждать схему.',
+    })
+  }
+  for (const wall of outerWalls) {
+    if (
+      !endpointIsConnected(wall.start, wall.id, outerWalls) ||
+      !endpointIsConnected(wall.end, wall.id, outerWalls)
+    ) {
+      issues.push({
+        id: `manual-outer-gap-${wall.id}`,
+        severity: 'error',
+        message: 'Внешний контур должен быть замкнут внешними стенами.',
+        wallIds: [wall.id],
+      })
+    }
+  }
+
+  for (const [roomIndex, room] of geometry.rooms.entries()) {
+    const nearWall = room.polygon.some((point) =>
+      walls.some((wall) => distanceToSegment(point, wall) <= 20),
+    )
+    if (!nearWall) {
+      issues.push({
+        id: `manual-detached-room-${roomIndex}`,
+        severity: 'error',
+        message: `${room.name}: контур не касается ни одной нанесённой стены. Проверьте положение комнаты.`,
+        roomIndexes: [roomIndex],
+      })
+    }
+  }
+  return issues
+}
+
 /** Быстрая проверка правок до отправки схемы на сервер. */
 export function inspectPlanGeometry(geometry: EditableGeometry): PlanGeometryIssue[] {
   const issues: PlanGeometryIssue[] = []

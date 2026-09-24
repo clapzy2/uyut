@@ -128,6 +128,15 @@ export type PlanKitchenItem = {
   passageCm?: number
   installationGaps?: { top: number; right: number; bottom: number; left: number }
 }
+export type PlanImageCalibration = {
+  imageWidthPx: number
+  imageHeightPx: number
+  pixelStart: { x: number; y: number }
+  pixelEnd: { x: number; y: number }
+  worldStart: PlanPoint
+  lengthCm: number
+  direction: 'right' | 'left' | 'down' | 'up'
+}
 export type PlanGeometry = {
   version: 1
   status: 'draft' | 'confirmed'
@@ -144,6 +153,8 @@ export type PlanGeometry = {
   obstacles?: PlanObstacle[]
   routeWidthCm?: number
   routeStartOpeningId?: string
+  /** Только отображение исходной картинки поверх координат; не подтверждает геометрию. */
+  imageCalibration?: PlanImageCalibration
   warnings: string[]
 }
 

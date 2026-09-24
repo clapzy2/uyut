@@ -1,6 +1,6 @@
 import type { PlanGeometry, PlanOpening } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
-import { inspectPlanGeometry } from './plan-geometry-inspection'
+import { inspectManualPlanCompleteness, inspectPlanGeometry } from './plan-geometry-inspection'
 
 const windowOpening: PlanOpening = {
   id: 'window',
@@ -90,6 +90,53 @@ describe('проверка правок 2D-схемы', () => {
     ]
     expect(inspectPlanGeometry({ ...geometry, rooms })).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'room-cross-0', severity: 'error' })]),
+    )
+  })
+})
+
+describe('подтверждение ручной схемы', () => {
+  it('принимает замкнутую комнату', () => {
+    expect(inspectManualPlanCompleteness(geometry)).toEqual([])
+  })
+
+  it('находит стену, не связанную с контуром', () => {
+    const walls = [
+      ...geometry.walls,
+      {
+        id: 'island',
+        kind: 'inner' as const,
+        start: { xCm: 150, yCm: 150 },
+        end: { xCm: 250, yCm: 150 },
+      },
+    ]
+    expect(inspectManualPlanCompleteness({ ...geometry, walls })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'manual-disconnected-walls' })]),
+    )
+  })
+
+  it('не считает внутреннюю стену замыканием внешнего контура', () => {
+    const walls = geometry.walls.map((wall) =>
+      wall.id === 'top' ? { ...wall, end: { xCm: 480, yCm: 0 } } : wall,
+    )
+    expect(inspectManualPlanCompleteness({ ...geometry, walls })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'manual-outer-gap-top' })]),
+    )
+  })
+
+  it('находит комнату вдали от нанесённых стен', () => {
+    const rooms = [
+      {
+        name: 'Гостиная',
+        polygon: [
+          { xCm: 150, yCm: 150 },
+          { xCm: 300, yCm: 150 },
+          { xCm: 300, yCm: 250 },
+          { xCm: 150, yCm: 250 },
+        ],
+      },
+    ]
+    expect(inspectManualPlanCompleteness({ ...geometry, rooms })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'manual-detached-room-0' })]),
     )
   })
 })

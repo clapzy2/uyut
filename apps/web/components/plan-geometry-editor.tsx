@@ -22,13 +22,16 @@ import {
 import { savePlanGeometry } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
 import { KitchenPlanEditor } from '@/components/kitchen-plan-editor'
+import { PlanImageReference, type PlanUnderlay } from '@/components/plan-image-reference'
 import { PlanObstaclesEditor } from '@/components/plan-obstacles-editor'
 import { doorClearanceZone } from '@/lib/projects/clearance-zones'
 import { missingManualRoomNames } from '@/lib/projects/manual-plan-geometry'
 import {
+  inspectManualPlanCompleteness,
   inspectPlanGeometry,
   type PlanGeometryIssue,
 } from '@/lib/projects/plan-geometry-inspection'
+import { planImageMatrix } from '@/lib/projects/plan-image-calibration'
 import {
   addRoomContourPoint,
   MAX_ROOM_CONTOUR_POINTS,
@@ -138,7 +141,7 @@ function PlanGeometryCanvas({
   wallErrorIds: ReadonlySet<string>
   openingErrorIds: ReadonlySet<string>
   roomErrorIndexes: ReadonlySet<number>
-  underlay?: { url: string; opacity: number; scale: number; xCm: number; yCm: number }
+  underlay?: PlanUnderlay
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<DragTarget | undefined>(undefined)
@@ -279,11 +282,16 @@ function PlanGeometryCanvas({
         {underlay ? (
           <image
             href={underlay.url}
-            x={underlay.xCm}
-            y={underlay.yCm}
-            width={geometry.widthCm * underlay.scale}
-            height={geometry.heightCm * underlay.scale}
-            preserveAspectRatio="xMidYMid meet"
+            x={underlay.calibration ? 0 : underlay.xCm}
+            y={underlay.calibration ? 0 : underlay.yCm}
+            width={underlay.calibration?.imageWidthPx ?? geometry.widthCm * underlay.scale}
+            height={underlay.calibration?.imageHeightPx ?? geometry.heightCm * underlay.scale}
+            preserveAspectRatio={underlay.calibration ? 'none' : 'xMidYMid meet'}
+            transform={
+              underlay.calibration
+                ? `matrix(${planImageMatrix(underlay.calibration).join(' ')})`
+                : undefined
+            }
             opacity={underlay.opacity}
             className="pointer-events-none"
           />
@@ -513,11 +521,20 @@ export function PlanGeometryEditor({
   const [error, setError] = useState<string>()
   const [newRoomName, setNewRoomName] = useState(roomNames[0] ?? '')
   const [verified, setVerified] = useState(false)
-  const [showUnderlay, setShowUnderlay] = useState(geometry.source === 'manual')
-  const [underlayOpacity, setUnderlayOpacity] = useState(0.35)
-  const [underlayScale, setUnderlayScale] = useState(1)
-  const [underlayX, setUnderlayX] = useState(0)
-  const [underlayY, setUnderlayY] = useState(0)
+  const [imageCalibration, setImageCalibration] = useState(geometry.imageCalibration)
+  const [referenceRevision, setReferenceRevision] = useState(0)
+  const [underlay, setUnderlay] = useState<PlanUnderlay | undefined>(() =>
+    planUrl && !planIsPdf && (geometry.source === 'manual' || geometry.imageCalibration)
+      ? {
+          url: planUrl,
+          opacity: 0.35,
+          scale: 1,
+          xCm: 0,
+          yCm: 0,
+          calibration: geometry.imageCalibration,
+        }
+      : undefined,
+  )
   const [saving, startSaving] = useTransition()
   const [selectionKind, selectionId] = selection.split(':')
   const selectedWall =
@@ -527,10 +544,18 @@ export function PlanGeometryEditor({
   const selectedOpeningClearance = selectedOpening?.clearance
   const selectedRoom = selectionKind === 'room' ? rooms[Number(selectionId)] : undefined
   const issues = useMemo(
-    () => inspectPlanGeometry({ ...geometry, walls, openings, rooms }),
+    () => [
+      ...inspectPlanGeometry({ ...geometry, walls, openings, rooms }),
+      ...(geometry.source === 'manual'
+        ? inspectManualPlanCompleteness({ ...geometry, walls, openings, rooms })
+        : []),
+    ],
     [geometry, walls, openings, rooms],
   )
-  const blockingIssues = issues.filter((issue) => issue.severity === 'error')
+  const blockingIssues = issues.filter(
+    (issue) => issue.severity === 'error' && !issue.id.startsWith('manual-'),
+  )
+  const confirmationIssues = issues.filter((issue) => issue.severity === 'error')
   const wallErrorIds = new Set(blockingIssues.flatMap((issue) => issue.wallIds ?? []))
   const openingErrorIds = new Set(blockingIssues.flatMap((issue) => issue.openingIds ?? []))
   const roomErrorIndexes = new Set(blockingIssues.flatMap((issue) => issue.roomIndexes ?? []))
@@ -733,6 +758,11 @@ export function PlanGeometryEditor({
     setObstacles(geometry.obstacles ?? [])
     setRouteWidthCm(geometry.routeWidthCm)
     setRouteStartOpeningId(geometry.routeStartOpeningId)
+    setImageCalibration(geometry.imageCalibration)
+    setReferenceRevision((revision) => revision + 1)
+    setUnderlay((current) =>
+      current ? { ...current, calibration: geometry.imageCalibration } : undefined,
+    )
     setSelection(nextSelection(geometry.walls, geometry.openings))
     setError(undefined)
   }
@@ -752,6 +782,7 @@ export function PlanGeometryEditor({
           obstacles,
           routeWidthCm,
           routeStartOpeningId,
+          imageCalibration: imageCalibration ?? null,
         },
         mode,
       )
@@ -800,86 +831,17 @@ export function PlanGeometryEditor({
             </a>
           ) : null}
           {planUrl ? (
-            <div className="mb-5 border border-line bg-muted p-3 sm:p-4">
-              <p className="mb-3 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
-                Оригинал для сверки
-              </p>
-              {planIsPdf ? (
-                <iframe
-                  src={planUrl}
-                  title="Исходный план квартиры"
-                  className="h-64 w-full border border-line bg-paper sm:h-80"
-                />
-              ) : (
-                // biome-ignore lint/performance/noImgElement: подписанная ссылка короткоживущая, важно сохранить исходное соотношение сторон плана
-                <img
-                  src={planUrl}
-                  alt="Исходный план квартиры для ручной сверки"
-                  className="mx-auto max-h-80 w-auto max-w-full border border-line bg-paper object-contain"
-                />
-              )}
-              {!planIsPdf ? (
-                <div className="mt-4 space-y-3 text-[13px] text-ink-2">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={showUnderlay}
-                      onChange={(event) => setShowUnderlay(event.currentTarget.checked)}
-                      className="accent-accent"
-                    />
-                    Показать изображение под линиями
-                  </label>
-                  {showUnderlay ? (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label>
-                        Прозрачность · {Math.round(underlayOpacity * 100)}%
-                        <input
-                          type="range"
-                          min="0.1"
-                          max="0.8"
-                          step="0.05"
-                          value={underlayOpacity}
-                          onChange={(event) =>
-                            setUnderlayOpacity(Number(event.currentTarget.value))
-                          }
-                          className="mt-2 w-full accent-accent"
-                        />
-                      </label>
-                      <label>
-                        Масштаб изображения · {Math.round(underlayScale * 100)}%
-                        <input
-                          type="range"
-                          min="0.5"
-                          max="2"
-                          step="0.05"
-                          value={underlayScale}
-                          onChange={(event) => setUnderlayScale(Number(event.currentTarget.value))}
-                          className="mt-2 w-full accent-accent"
-                        />
-                      </label>
-                      <Input
-                        id="plan-underlay-x"
-                        label="Сдвиг изображения X, см"
-                        type="number"
-                        value={underlayX}
-                        onChange={(event) => setUnderlayX(Number(event.currentTarget.value))}
-                      />
-                      <Input
-                        id="plan-underlay-y"
-                        label="Сдвиг изображения Y, см"
-                        type="number"
-                        value={underlayY}
-                        onChange={(event) => setUnderlayY(Number(event.currentTarget.value))}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              <p className="mt-3 text-[12px] leading-relaxed text-ink-2">
-                Наложение не калибровано и не доказывает точность размеров. Сверяйте сантиметры по
-                подписям на исходном плане; положение подложки при закрытии редактора сбросится.
-              </p>
-            </div>
+            <PlanImageReference
+              key={referenceRevision}
+              planUrl={planUrl}
+              planIsPdf={planIsPdf}
+              canvasWidthCm={geometry.widthCm}
+              canvasHeightCm={geometry.heightCm}
+              underlay={underlay}
+              onUnderlayChange={setUnderlay}
+              calibration={imageCalibration}
+              onCalibrationChange={setImageCalibration}
+            />
           ) : null}
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="mr-1 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
@@ -943,21 +905,11 @@ export function PlanGeometryEditor({
             wallErrorIds={wallErrorIds}
             openingErrorIds={openingErrorIds}
             roomErrorIndexes={roomErrorIndexes}
-            underlay={
-              planUrl && !planIsPdf && showUnderlay
-                ? {
-                    url: planUrl,
-                    opacity: underlayOpacity,
-                    scale: underlayScale,
-                    xCm: underlayX,
-                    yCm: underlayY,
-                  }
-                : undefined
-            }
+            underlay={underlay}
           />
 
           <div
-            className={`mt-4 border p-4 ${blockingIssues.length > 0 ? 'border-danger/50 bg-paper' : issues.length > 0 ? 'border-accent/40 bg-accent-tint/20' : 'border-line bg-muted'}`}
+            className={`mt-4 border p-4 ${confirmationIssues.length > 0 ? 'border-danger/50 bg-paper' : issues.length > 0 ? 'border-accent/40 bg-accent-tint/20' : 'border-line bg-muted'}`}
             aria-live="polite"
           >
             <p className="text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
@@ -974,8 +926,8 @@ export function PlanGeometryEditor({
             ) : (
               <>
                 <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-                  {blockingIssues.length > 0
-                    ? 'Исправьте красные элементы перед сохранением.'
+                  {confirmationIssues.length > 0
+                    ? 'Исправьте красные элементы перед подтверждением. Черновик можно сохранить.'
                     : 'Схему можно сохранить, но внешний контур стоит перепроверить.'}
                 </p>
                 <ul className="mt-3 space-y-2">
@@ -1435,7 +1387,7 @@ export function PlanGeometryEditor({
               disabled={
                 walls.length < 3 ||
                 rooms.length === 0 ||
-                blockingIssues.length > 0 ||
+                confirmationIssues.length > 0 ||
                 !verified ||
                 (geometry.source === 'manual' &&
                   (missingRoomNames.length > 0 || duplicateRoomNames))
