@@ -119,9 +119,15 @@ export async function reviewConceptImage(
       },
       QUALITY_REVIEW_TIMEOUT_MS,
     )
-    return parseQualityReview(typeof result.output === 'string' ? result.output : '')
+    return {
+      ...parseQualityReview(typeof result.output === 'string' ? result.output : ''),
+      ...(brief.architecture ? { architecture: brief.architecture } : {}),
+    }
   } catch {
     // Сбой вспомогательной проверки не уничтожает уже оплаченный рендер.
-    return unavailableQualityReview()
+    return {
+      ...unavailableQualityReview(),
+      ...(brief.architecture ? { architecture: brief.architecture } : {}),
+    }
   }
 }

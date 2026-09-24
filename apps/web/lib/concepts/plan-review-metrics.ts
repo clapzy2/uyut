@@ -1,3 +1,4 @@
+import type { RoomArchitecture } from '@uyut/ai'
 import type { ConceptPlanReview, ConceptQualityReview } from '@uyut/db'
 
 export type PlanReviewSample = {
@@ -5,7 +6,7 @@ export type PlanReviewSample = {
   roomId: string
   review: ConceptPlanReview
   currentSourceHash: string | null
-  expectedOpeningCount: number | null
+  currentArchitecture: RoomArchitecture | null
   usesEditedRender: boolean
   qualityReview: ConceptQualityReview | null
 }
@@ -16,6 +17,7 @@ export type PlanReviewMetrics = {
   editedRender: number
   incomplete: number
   autoUnavailable: number
+  autoArchitectureMissing: number
   compared: number
   projects: number
   rooms: number
@@ -35,6 +37,7 @@ export function planReviewMetrics(samples: PlanReviewSample[]): PlanReviewMetric
     editedRender: 0,
     incomplete: 0,
     autoUnavailable: 0,
+    autoArchitectureMissing: 0,
     compared: 0,
     projects: 0,
     rooms: 0,
@@ -52,7 +55,8 @@ export function planReviewMetrics(samples: PlanReviewSample[]): PlanReviewMetric
     if (
       !sample.currentSourceHash ||
       sample.review.sourceHash !== sample.currentSourceHash ||
-      sample.expectedOpeningCount !== sample.review.openings.length
+      !sample.currentArchitecture ||
+      sample.currentArchitecture.openings.length !== sample.review.openings.length
     ) {
       metrics.stale++
       continue
@@ -62,7 +66,11 @@ export function planReviewMetrics(samples: PlanReviewSample[]): PlanReviewMetric
       continue
     }
 
-    const verdicts = [sample.review.shape, ...sample.review.openings]
+    const verdicts = [
+      sample.review.shape,
+      ...sample.review.openings,
+      sample.review.extraOpenings ?? 'unrated',
+    ]
     const hasConflict = verdicts.includes('conflicts')
     if (!hasConflict && !verdicts.every((verdict) => verdict === 'matches')) {
       metrics.incomplete++
@@ -71,6 +79,10 @@ export function planReviewMetrics(samples: PlanReviewSample[]): PlanReviewMetric
     const auto = sample.qualityReview
     if (!auto || auto.status === 'unavailable') {
       metrics.autoUnavailable++
+      continue
+    }
+    if (!sameArchitecture(auto.architecture, sample.currentArchitecture)) {
+      metrics.autoArchitectureMissing++
       continue
     }
 
@@ -92,4 +104,17 @@ export function planReviewMetrics(samples: PlanReviewSample[]): PlanReviewMetric
   metrics.projects = projects.size
   metrics.rooms = rooms.size
   return metrics
+}
+
+function sameArchitecture(
+  reviewed: ConceptQualityReview['architecture'],
+  current: RoomArchitecture,
+): boolean {
+  if (!reviewed || reviewed.shape !== current.shape) return false
+  const openingFacts = (openings: RoomArchitecture['openings']) =>
+    openings.map((opening) => `${opening.type}:${opening.side}`).sort()
+  return (
+    JSON.stringify(openingFacts(reviewed.openings)) ===
+    JSON.stringify(openingFacts(current.openings))
+  )
 }

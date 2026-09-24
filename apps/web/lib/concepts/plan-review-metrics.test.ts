@@ -7,6 +7,7 @@ const review: ConceptPlanReview = {
   sourceHash: 'current',
   shape: 'matches',
   openings: ['matches'],
+  extraOpenings: 'matches',
   reviewedAt: '2026-09-24T00:00:00Z',
 }
 
@@ -15,6 +16,10 @@ const qualityReview: ConceptQualityReview = {
   status: 'checked',
   model: 'example',
   checkedAt: '2026-09-24T00:00:00Z',
+  architecture: {
+    shape: 'rectangular',
+    openings: [{ type: 'window', side: 'top' }],
+  },
   issues: [],
   description: null,
 }
@@ -25,7 +30,10 @@ function sample(overrides: Partial<PlanReviewSample> = {}): PlanReviewSample {
     roomId: 'room',
     review,
     currentSourceHash: 'current',
-    expectedOpeningCount: 1,
+    currentArchitecture: {
+      shape: 'rectangular',
+      openings: [{ type: 'window', side: 'top' }],
+    },
     usesEditedRender: false,
     qualityReview,
     ...overrides,
@@ -64,18 +72,50 @@ describe('plan/render review metrics', () => {
   it('excludes stale, edited and auto-unavailable pairs', () => {
     const result = planReviewMetrics([
       sample({ currentSourceHash: 'replaced' }),
-      sample({ expectedOpeningCount: 2 }),
+      sample({ currentArchitecture: { shape: 'rectangular', openings: [] } }),
       sample({ usesEditedRender: true }),
       sample({ qualityReview: null }),
       sample({ qualityReview: { ...qualityReview, status: 'unavailable' } }),
+      sample({ qualityReview: { ...qualityReview, architecture: undefined } }),
+      sample({
+        qualityReview: {
+          ...qualityReview,
+          architecture: { shape: 'nonrectangular', openings: [{ type: 'window', side: 'top' }] },
+        },
+      }),
     ])
     expect(result).toMatchObject({
-      saved: 5,
+      saved: 7,
       stale: 2,
       editedRender: 1,
       autoUnavailable: 2,
+      autoArchitectureMissing: 2,
       compared: 0,
     })
+  })
+
+  it('compares opening facts regardless of their storage order', () => {
+    const currentArchitecture = {
+      shape: 'rectangular' as const,
+      openings: [
+        { type: 'door' as const, side: 'left' as const },
+        { type: 'window' as const, side: 'top' as const },
+      ],
+    }
+    const result = planReviewMetrics([
+      sample({
+        review: { ...review, openings: ['matches', 'matches'] },
+        currentArchitecture,
+        qualityReview: {
+          ...qualityReview,
+          architecture: {
+            ...currentArchitecture,
+            openings: [...currentArchitecture.openings].reverse(),
+          },
+        },
+      }),
+    ])
+    expect(result).toMatchObject({ compared: 1, trueNegative: 1 })
   })
 
   it('counts visible opening conflicts even when another fact is not visible', () => {
@@ -83,5 +123,18 @@ describe('plan/render review metrics', () => {
       sample({ review: { ...review, shape: 'not_visible', openings: ['conflicts'] } }),
     ])
     expect(result).toMatchObject({ compared: 1, humanConflicts: 1, falseNegative: 1 })
+  })
+
+  it('does not count older labels with unassessed extra openings as clean', () => {
+    const result = planReviewMetrics([
+      sample({ review: { ...review, extraOpenings: undefined } }),
+      sample({ review: { ...review, extraOpenings: 'conflicts' } }),
+    ])
+    expect(result).toMatchObject({
+      compared: 1,
+      incomplete: 1,
+      humanConflicts: 1,
+      falseNegative: 1,
+    })
   })
 })

@@ -102,6 +102,13 @@ describe('проверка готового изображения', () => {
       },
     )
     expect(result.status).toBe('review')
+    expect(result.architecture).toEqual({
+      shape: 'rectangular',
+      openings: [
+        { type: 'window', side: 'top' },
+        { type: 'door', side: 'left' },
+      ],
+    })
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
     expect(body.image_url).toBe('data:image/jpeg;base64,aW1hZ2U=')
     expect(body.prompt).toContain('Окно снизу')

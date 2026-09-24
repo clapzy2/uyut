@@ -41,7 +41,7 @@ const metrics = planReviewMetrics(
       roomId: row.roomId,
       review: row.review,
       currentSourceHash: source?.hash ?? null,
-      expectedOpeningCount: source?.architecture.openings.length ?? null,
+      currentArchitecture: source?.architecture ?? null,
       usesEditedRender: Boolean(row.editedRenderKey),
       qualityReview: row.qualityReview,
     }
@@ -52,7 +52,8 @@ const metrics = planReviewMetrics(
 console.log(`Сохранённых ручных оценок: ${metrics.saved}`)
 console.log(
   `Исключено: устаревшие ${metrics.stale}, исправленные изображения ${metrics.editedRender}, ` +
-    `неполные/неразличимые ${metrics.incomplete}, без автопроверки ${metrics.autoUnavailable}`,
+    `неполные/неразличимые ${metrics.incomplete}, без автопроверки ${metrics.autoUnavailable}, ` +
+    `без сопоставимой архитектуры в автопроверке ${metrics.autoArchitectureMissing}`,
 )
 console.log(
   `Сравнимых пар: ${metrics.compared} (${metrics.rooms} комнат, ${metrics.projects} проектов)`,

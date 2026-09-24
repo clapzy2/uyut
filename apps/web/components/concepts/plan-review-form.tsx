@@ -29,16 +29,27 @@ export function PlanReviewForm({
   const [openings, setOpenings] = useState<PlanReviewVerdict[]>(
     openingLabels.map((_, index) => review?.openings[index] ?? 'unrated'),
   )
+  const [extraOpenings, setExtraOpenings] = useState<PlanReviewVerdict>(
+    review?.extraOpenings ?? 'unrated',
+  )
   const [saving, setSaving] = useState(false)
 
   async function save() {
-    if (shape === 'unrated' && openings.every((value) => value === 'unrated')) {
+    if (
+      shape === 'unrated' &&
+      openings.every((value) => value === 'unrated') &&
+      extraOpenings === 'unrated'
+    ) {
       toast({ title: 'Отметьте хотя бы один пункт.', tone: 'danger' })
       return
     }
     setSaving(true)
     try {
-      const result = await savePlanReview(conceptId, sourceHash, { shape, openings })
+      const result = await savePlanReview(conceptId, sourceHash, {
+        shape,
+        openings,
+        extraOpenings,
+      })
       if (!result.ok) {
         toast({ title: result.error, tone: 'danger' })
         return
@@ -53,15 +64,27 @@ export function PlanReviewForm({
   }
 
   const fields = [
-    { label: 'Форма комнаты', value: shape, onChange: setShape },
+    { label: 'Форма комнаты', value: shape, onChange: setShape, options: choices },
     ...openingLabels.map((label, index) => ({
       label,
       value: openings[index] ?? 'unrated',
+      options: choices,
       onChange: (value: PlanReviewVerdict) =>
         setOpenings((current) =>
           current.map((item, itemIndex) => (itemIndex === index ? value : item)),
         ),
     })),
+    {
+      label: 'Проёмы, которых нет на плане',
+      value: extraOpenings,
+      onChange: setExtraOpenings,
+      options: [
+        { value: 'unrated' as const, label: 'Не оценено' },
+        { value: 'matches' as const, label: 'Лишних проёмов не видно' },
+        { value: 'conflicts' as const, label: 'Виден лишний проём' },
+        { value: 'not_visible' as const, label: 'Ракурс не позволяет проверить' },
+      ],
+    },
   ]
 
   return (
@@ -80,7 +103,7 @@ export function PlanReviewForm({
               onChange={(event) => field.onChange(event.currentTarget.value as PlanReviewVerdict)}
               className="h-10 border border-control bg-paper px-3 text-[13px] text-ink outline-none transition-colors focus:border-accent"
             >
-              {choices.map((choice) => (
+              {field.options.map((choice) => (
                 <option key={choice.value} value={choice.value}>
                   {choice.label}
                 </option>

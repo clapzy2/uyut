@@ -26,6 +26,14 @@ export type ConceptQualityReview = {
   status: 'checked' | 'review' | 'unavailable'
   model: string
   checkedAt: string
+  /** Facts supplied to the image reviewer; absent on older renders and unconfirmed plans. */
+  architecture?: {
+    shape: 'rectangular' | 'nonrectangular'
+    openings: Array<{
+      type: 'door' | 'window' | 'balcony'
+      side: 'top' | 'right' | 'bottom' | 'left' | 'inner'
+    }>
+  }
   issues: Array<{
     code:
       | 'not_interior'
@@ -49,6 +57,8 @@ export type ConceptPlanReview = {
   sourceHash: string
   shape: PlanReviewVerdict
   openings: PlanReviewVerdict[]
+  /** Whether the render visibly adds an opening absent from the confirmed plan. */
+  extraOpenings?: PlanReviewVerdict
   reviewedAt: string
 }
 

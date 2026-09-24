@@ -26,7 +26,11 @@ import { savePlanReview } from './plan-review'
 
 const conceptId = '0cf0d04a-59e5-40f7-8e15-04a0edeb5e02'
 const sourceHash = 'a'.repeat(64)
-const values = { shape: 'matches' as const, openings: ['not_visible' as const] }
+const values = {
+  shape: 'matches' as const,
+  openings: ['not_visible' as const],
+  extraOpenings: 'matches' as const,
+}
 
 describe('save manual comparison', () => {
   beforeEach(() => {
@@ -59,10 +63,22 @@ describe('save manual comparison', () => {
 
   it('rejects a missing or mismatched set of opening labels', async () => {
     expect(
-      (await savePlanReview(conceptId, sourceHash, { shape: 'unrated', openings: ['unrated'] })).ok,
+      (
+        await savePlanReview(conceptId, sourceHash, {
+          shape: 'unrated',
+          openings: ['unrated'],
+          extraOpenings: 'unrated',
+        })
+      ).ok,
     ).toBe(false)
     expect(
-      (await savePlanReview(conceptId, sourceHash, { shape: 'matches', openings: [] })).ok,
+      (
+        await savePlanReview(conceptId, sourceHash, {
+          shape: 'matches',
+          openings: [],
+          extraOpenings: 'matches',
+        })
+      ).ok,
     ).toBe(false)
     expect(mocks.upsert).not.toHaveBeenCalled()
   })

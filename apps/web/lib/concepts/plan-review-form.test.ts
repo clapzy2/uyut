@@ -19,6 +19,8 @@ describe('manual plan review form', () => {
     expect(html).toContain('Форма комнаты')
     expect(html).toContain('Окно 1 — сверху')
     expect(html).toContain('Дверь 2 — слева')
+    expect(html).toContain('Проёмы, которых нет на плане')
+    expect(html).toContain('Виден лишний проём')
     expect(html).toContain('Ракурс не позволяет проверить')
     expect(html).toContain('Сохранить сверку')
   })
