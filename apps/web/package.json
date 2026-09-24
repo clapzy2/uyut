@@ -8,6 +8,7 @@
     "start": "bun --env-file=../../.env run next start",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
+    "qa:plan-review": "bun --env-file=../../.env run scripts/plan-review-report.ts",
     "e2e": "bun --env-file=../../.env.e2e run playwright test",
     "test:integration": "bun --env-file=../../.env run vitest run --config vitest.integration.config.mts"
   },
