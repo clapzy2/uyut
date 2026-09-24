@@ -250,6 +250,7 @@ const scenarios: ApartmentScenario[] = [
   },
   {
     name: 'Г-образная спальня с нишей под шкаф',
+    expectedSafety: 'needs-data',
     kind: 'bedroom',
     widthCm: 420,
     depthCm: 480,
@@ -283,6 +284,7 @@ const scenarios: ApartmentScenario[] = [
   },
   {
     name: 'комната с несущей колонной сохраняет реальный проход',
+    expectedSafety: 'needs-data',
     kind: 'living',
     widthCm: 390,
     depthCm: 480,

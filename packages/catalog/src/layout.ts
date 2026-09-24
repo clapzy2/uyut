@@ -972,6 +972,41 @@ function operationZone(
   return { ...base, ...functionalZoneRect(rect, base, base.direction) }
 }
 
+/** Участки, на которых человек стоит при использовании предмета, без габарита самого предмета. */
+function operationAccessTargets(zone: FunctionalZone, placement: Rect): Rect[] {
+  const left = {
+    xCm: zone.xCm,
+    yCm: placement.yCm,
+    widthCm: placement.xCm - zone.xCm,
+    depthCm: placement.depthCm,
+  }
+  const right = {
+    xCm: placement.xCm + placement.widthCm,
+    yCm: placement.yCm,
+    widthCm: zone.xCm + zone.widthCm - placement.xCm - placement.widthCm,
+    depthCm: placement.depthCm,
+  }
+  const top = {
+    xCm: placement.xCm,
+    yCm: zone.yCm,
+    widthCm: placement.widthCm,
+    depthCm: placement.yCm - zone.yCm,
+  }
+  const bottom = {
+    xCm: placement.xCm,
+    yCm: placement.yCm + placement.depthCm,
+    widthCm: placement.widthCm,
+    depthCm: zone.yCm + zone.depthCm - placement.yCm - placement.depthCm,
+  }
+  if (zone.kind === 'around') return [left, right, top, bottom]
+  if (zone.kind === 'side') {
+    if (zone.direction === 'around') return []
+    return zone.direction === 'up' || zone.direction === 'down' ? [left, right] : [top, bottom]
+  }
+  const front = { up: top, right, down: bottom, left } as const
+  return zone.direction === 'around' ? [] : [front[zone.direction]]
+}
+
 /** Угол предмета в координатах комнаты. Размер здесь уже развёрнут по стене. */
 function cornerOf(
   wall: LayoutWall,
@@ -1036,6 +1071,7 @@ function widestRoute(
   floorPolygon?: readonly LayoutPoint[],
   blockedPolygons: readonly (readonly LayoutPoint[])[] = [],
   entries: readonly FloorReservation[] = [],
+  accessTargets: readonly Rect[] = [],
 ): number {
   const step = Math.max(
     GRID_CM,
@@ -1168,6 +1204,30 @@ function widestRoute(
           if (seen[y * cols + x] === 0) continue
           const distanceCm = Math.hypot((x + 0.5) * step - middleX, (y + 0.5) * step - middleY)
           if (distanceCm <= reachCm) {
+            connected = true
+            break
+          }
+        }
+      }
+      if (!connected) return false
+    }
+    for (const target of accessTargets) {
+      let connected = false
+      const fromX = Math.max(0, Math.floor(target.xCm / step))
+      const toX = Math.min(cols, Math.ceil((target.xCm + target.widthCm) / step))
+      const fromY = Math.max(0, Math.floor(target.yCm / step))
+      const toY = Math.min(rows, Math.ceil((target.yCm + target.depthCm) / step))
+      for (let y = fromY; y < toY && !connected; y += 1) {
+        for (let x = fromX; x < toX; x += 1) {
+          const centerX = (x + 0.5) * step
+          const centerY = (y + 0.5) * step
+          if (
+            seen[y * cols + x] === 1 &&
+            centerX >= target.xCm &&
+            centerX <= target.xCm + target.widthCm &&
+            centerY >= target.yCm &&
+            centerY <= target.yCm + target.depthCm
+          ) {
             connected = true
             break
           }
@@ -2112,6 +2172,57 @@ function layoutRoomCandidate(
             ? `Самое узкое место — ${walkwayCm} см, требуется перестановка мебели.`
             : `Самое узкое место с учётом проёмов и препятствий — ${walkwayCm} см, это меньше принятого прохода ${WALKWAY_CM} см.`,
       status: walkwayCm >= WALKWAY_CM ? 'checked' : 'blocked',
+    })
+  }
+  if (functionalZones.length > 0) {
+    const hasEntry = blockingFloorReservations.some(
+      (reservation) => reservation.kind === 'door' || reservation.kind === 'balcony',
+    )
+    const accessGroups = functionalZones.flatMap((zone) => {
+      const placement = placed.find((candidate) => candidate.id === zone.placementId)
+      if (!placement) return []
+      return [
+        {
+          targets: operationAccessTargets(zone, placement),
+          requiredWidthCm: Math.min(WALKWAY_CM, zone.clearanceCm),
+          // К журнальному столику достаточно подойти с одной стороны; у кровати и
+          // обеденного стола нужны все заданные стороны.
+          anySide: itemById.get(zone.itemId)?.subcategory === 'coffee',
+        },
+      ]
+    })
+    const canReach = (target: Rect, requiredWidthCm: number) =>
+      widestRoute(
+        placed,
+        { widthCm, depthCm },
+        floorPolygon,
+        routeBlockedPolygons,
+        blockingFloorReservations,
+        [target],
+      ) >= requiredWidthCm
+    const hasUnknownDirection = accessGroups.some(({ targets }) => targets.length === 0)
+    const inaccessible = hasEntry
+      ? accessGroups.some(({ targets, requiredWidthCm, anySide }) =>
+          anySide
+            ? !targets.some((target) => canReach(target, requiredWidthCm))
+            : targets.some((target) => !canReach(target, requiredWidthCm)),
+        )
+      : false
+    safetyChecks.push({
+      id: 'operation-zone-access',
+      label: 'Доступ к рабочим зонам мебели',
+      detail: !hasEntry
+        ? 'Укажите положение двери, чтобы проверить путь к каждой стороне мебели.'
+        : inaccessible
+          ? 'Хотя бы к одной стороне мебели нельзя пройти от входа с нужным запасом.'
+          : hasUnknownDirection
+            ? 'Укажите рабочую сторону мебели, чтобы проверить путь к ней от входа.'
+            : 'К рабочим зонам мебели есть путь от входа с нужным запасом.',
+      status: inaccessible
+        ? 'blocked'
+        : !hasEntry || hasUnknownDirection
+          ? 'needs-data'
+          : 'checked',
     })
   }
   for (const item of items) {

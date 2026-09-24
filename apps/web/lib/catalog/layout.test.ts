@@ -295,6 +295,138 @@ describe('layoutRoom', () => {
     expect(layout.operationInputs[0]?.guidance).toContain('подход с каждого бока')
   })
 
+  it('находит недоступный бок кровати, даже когда основной проход широкий', () => {
+    const layout = layoutRoom(
+      {
+        widthCm: 400,
+        depthCm: 200,
+        roomKind: 'bedroom',
+        reservations: [],
+        floorReservations: [
+          {
+            kind: 'door',
+            start: { xCm: 400, yCm: 55 },
+            end: { xCm: 400, yCm: 145 },
+            clearanceCm: 0,
+          },
+        ],
+      },
+      [
+        item({
+          id: 'bed',
+          title: 'Кровать',
+          category: 'bed',
+          dimensions: { width: 160, depth: 200, height: 90 },
+          placement: { xCm: 35, yCm: 0, rotation: 0, frontDirection: 'down' },
+          operationClearance: { side: 35 },
+        }),
+      ],
+    )
+
+    expect(layout.placed).toHaveLength(1)
+    expect(layout.walkwayCm).toBeGreaterThanOrEqual(WALKWAY_CM)
+    expect(layout.safetyChecks.find((check) => check.id === 'operation-zone-access')).toMatchObject(
+      { status: 'blocked', detail: expect.stringContaining('нельзя пройти') },
+    )
+    expect(layout.safetySummary.status).toBe('blocked')
+  })
+
+  it.each([
+    {
+      roomKind: 'bedroom' as const,
+      furniture: item({
+        id: 'wardrobe',
+        title: 'Шкаф',
+        dimensions: { width: 120, depth: 60, height: 220 },
+        placement: { xCm: 100, yCm: 0, rotation: 0 as const, frontDirection: 'down' as const },
+        operationClearance: { front: 60 },
+      }),
+    },
+    {
+      roomKind: 'kid' as const,
+      furniture: item({
+        id: 'desk',
+        title: 'Рабочий стол',
+        category: 'table',
+        subcategory: 'desk',
+        dimensions: { width: 120, depth: 60, height: 75 },
+        placement: { xCm: 100, yCm: 0, rotation: 0 as const, frontDirection: 'down' as const },
+        operationClearance: { front: 75 },
+      }),
+    },
+  ])('подтверждает путь от двери к рабочей зоне: $furniture.title', ({ roomKind, furniture }) => {
+    const layout = layoutRoom(
+      {
+        widthCm: 400,
+        depthCm: 400,
+        roomKind,
+        reservations: [],
+        floorReservations: [
+          {
+            kind: 'door',
+            start: { xCm: 155, yCm: 400 },
+            end: { xCm: 245, yCm: 400 },
+            clearanceCm: 0,
+          },
+        ],
+      },
+      [furniture],
+    )
+
+    expect(layout.placed).toHaveLength(1)
+    expect(layout.safetyChecks.find((check) => check.id === 'operation-zone-access')).toMatchObject(
+      { status: 'checked' },
+    )
+  })
+
+  it('не подтверждает путь к мебели без положения входной двери', () => {
+    const layout = layoutRoom(
+      { widthCm: 400, depthCm: 400, roomKind: 'bedroom', reservations: [] },
+      [
+        item({
+          title: 'Шкаф',
+          dimensions: { width: 120, depth: 60 },
+          operationClearance: { front: 60 },
+        }),
+      ],
+    )
+
+    expect(layout.safetyChecks.find((check) => check.id === 'operation-zone-access')).toMatchObject(
+      { status: 'needs-data', detail: expect.stringContaining('положение двери') },
+    )
+  })
+
+  it('просит указать рабочую сторону шкафа в центре комнаты', () => {
+    const layout = layoutRoom(
+      {
+        widthCm: 400,
+        depthCm: 400,
+        roomKind: 'bedroom',
+        reservations: [],
+        floorReservations: [
+          {
+            kind: 'door',
+            start: { xCm: 155, yCm: 400 },
+            end: { xCm: 245, yCm: 400 },
+            clearanceCm: 0,
+          },
+        ],
+      },
+      [
+        item({
+          title: 'Шкаф',
+          dimensions: { width: 120, depth: 60 },
+          placement: { xCm: 140, yCm: 140, rotation: 0 },
+          operationClearance: { front: 60 },
+        }),
+      ],
+    )
+
+    expect(layout.safetyChecks.find((check) => check.id === 'operation-zone-access')).toMatchObject(
+      { status: 'needs-data', detail: expect.stringContaining('рабочую сторону') },
+    )
+  })
+
   it('не выдаёт диван за проверенный без размера разложенной части', () => {
     const layout = layoutRoom({ widthCm: 500, depthCm: 400, roomKind: 'living' }, [
       item({
@@ -439,7 +571,14 @@ describe('layoutRoom', () => {
         depthCm: 500,
         roomKind: 'bedroom',
         reservations: [],
-        floorReservations: [],
+        floorReservations: [
+          {
+            kind: 'door',
+            start: { xCm: 205, yCm: 500 },
+            end: { xCm: 295, yCm: 500 },
+            clearanceCm: 0,
+          },
+        ],
       },
       [
         item({
