@@ -199,6 +199,10 @@ test.describe('project summary', () => {
       })
       .where(eq(shoppingListItems.id, shoppingItem.id))
     await page.reload()
+    await expect(page.getByLabel('Перемещение мебели по плану')).toHaveAttribute(
+      'data-ready',
+      'true',
+    )
     await page.getByRole('button', { name: 'Повернуть: Диван Букле e2e' }).click()
     await expect(page.getByText('Мебель повёрнута и проверена')).toBeVisible()
     const nextRotation = 90
@@ -221,6 +225,10 @@ test.describe('project summary', () => {
       })
       .where(eq(shoppingListItems.id, shoppingItem.id))
     await page.reload()
+    await expect(page.getByLabel('Перемещение мебели по плану')).toHaveAttribute(
+      'data-ready',
+      'true',
+    )
     await page.getByRole('button', { name: 'Изменить рабочую сторону: Диван Букле e2e' }).click()
     await expect
       .poll(async () => {

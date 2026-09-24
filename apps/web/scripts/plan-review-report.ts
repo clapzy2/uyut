@@ -27,6 +27,10 @@ const rows = await db
   .innerJoin(rooms, eq(concepts.roomId, rooms.id))
   .innerJoin(projects, eq(rooms.projectId, projects.id))
   .where(isNull(projects.deletedAt))
+  .catch(() => {
+    console.error('Не удалось прочитать оценки из базы. Проверьте подключение и миграции.')
+    process.exit(1)
+  })
 
 const metrics = planReviewMetrics(
   rows.map((row) => {
