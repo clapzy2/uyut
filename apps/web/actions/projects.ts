@@ -18,6 +18,7 @@ import { planDimensionSources } from '@/lib/projects/dimension-sources'
 import { roomKindLabels } from '@/lib/projects/format'
 import { kitchenItemsSchema } from '@/lib/projects/kitchen-items'
 import { kitchenSafetySchema } from '@/lib/projects/kitchen-safety'
+import { manualPlanGeometry, manualRoomNamesValid } from '@/lib/projects/manual-plan-geometry'
 import { planObstaclesSchema } from '@/lib/projects/plan-obstacles'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
 import * as repository from '@/lib/projects/repository'
@@ -202,18 +203,58 @@ export async function forgetPlanReading(projectId: string): Promise<ActionResult
   }
 }
 
-/** Сохранить ручную правку 2D-схемы и отметить её подтверждённой владельцем. */
-export async function savePlanGeometry(
+/** Пустое полотно для ручного обмера: размеры задаёт человек, линии не выдумываем. */
+export async function startManualPlanGeometry(
   projectId: string,
   input: unknown,
 ): Promise<ActionResult<NonNullable<PlanReading['geometry']>>> {
   const userId = await currentUserId()
   if (!userId) return { ok: false, error: SESSION_EXPIRED }
+
+  const geometry = manualPlanGeometry(input)
+  if (!geometry) {
+    return { ok: false, error: 'Укажите размеры полотна от 100 до 5000 см.' }
+  }
+
+  try {
+    const project = await assertOwner(userId, projectId)
+    if (!project.planUrl || !project.planReading?.confirmedAt) {
+      return { ok: false, error: 'Сначала загрузите план и подтвердите список комнат.' }
+    }
+    if (project.planReading.geometry) {
+      return { ok: false, error: '2D-схема уже создана. Обновите страницу.' }
+    }
+
+    await repository.setPlanReading(userId, projectId, {
+      ...project.planReading,
+      geometry,
+    })
+    revalidatePath(`/projects/${projectId}`)
+    return { ok: true, data: geometry }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+/** Сохранить ручную правку 2D-схемы и отметить её подтверждённой владельцем. */
+export async function savePlanGeometry(
+  projectId: string,
+  input: unknown,
+  mode: 'draft' | 'confirm' = 'confirm',
+): Promise<ActionResult<NonNullable<PlanReading['geometry']>>> {
+  const userId = await currentUserId()
+  if (!userId) return { ok: false, error: SESSION_EXPIRED }
+  if (mode !== 'draft' && mode !== 'confirm') {
+    return { ok: false, error: 'Неизвестный режим сохранения схемы.' }
+  }
   try {
     const project = await assertOwner(userId, projectId)
     const before = project.planReading?.geometry
     if (!project.planReading || !before) {
       return { ok: false, error: 'Сначала прочитайте план и постройте 2D-схему.' }
+    }
+    if (mode === 'draft' && before.status === 'confirmed') {
+      return { ok: false, error: 'Подтверждённую схему нельзя вернуть в черновик.' }
     }
     const submitted = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
     const openingClearances = openingClearancesSchema.safeParse(submitted.openings ?? [])
@@ -295,6 +336,7 @@ export async function savePlanGeometry(
     const wallIds = new Set(before.walls.map((wall) => wall.id))
     const openingIds = new Set(before.openings.map((opening) => opening.id))
     const obstacleIds = new Set((before.obstacles ?? []).map((obstacle) => obstacle.id))
+    const manual = before.source === 'manual'
     if (
       geometry.walls.some((wall) => !wallIds.has(wall.id) && !isManualPlanGeometryId(wall.id)) ||
       geometry.openings.some(
@@ -303,10 +345,24 @@ export async function savePlanGeometry(
       obstacles.data.some(
         (obstacle) => !obstacleIds.has(obstacle.id) && !isManualPlanGeometryId(obstacle.id),
       ) ||
-      geometry.rooms.length !== before.rooms.length ||
-      geometry.rooms.some((room, index) => room.name !== before.rooms[index]?.name)
+      (!manual &&
+        (geometry.rooms.length !== before.rooms.length ||
+          geometry.rooms.some((room, index) => room.name !== before.rooms[index]?.name)))
     ) {
       return { ok: false, error: 'В схеме появились неизвестные элементы. Обновите страницу.' }
+    }
+    if (manual) {
+      if (
+        !manualRoomNamesValid(
+          geometry.rooms.map((room) => room.name),
+          project.planReading.rooms.map((room) => room.name),
+        )
+      ) {
+        return { ok: false, error: 'Контуры должны соответствовать комнатам из списка проекта.' }
+      }
+      if (mode === 'confirm' && geometry.rooms.length === 0) {
+        return { ok: false, error: 'Добавьте и сверьте с планом хотя бы один контур комнаты.' }
+      }
     }
     const checked = reconcilePlanGeometryRooms(geometry, project.planReading.rooms)
     if (!checked) return { ok: false, error: 'В схеме должно остаться не меньше трёх стен.' }
@@ -318,6 +374,7 @@ export async function savePlanGeometry(
     }
     const saved: NonNullable<PlanReading['geometry']> = {
       ...checked,
+      ...(manual ? { source: 'manual' as const } : {}),
       openings: checked.openings.map((opening) => {
         const submittedOpening = openingClearances.data.find((o) => o.id === opening.id)
         const clearance = submittedOpening?.clearance
@@ -337,15 +394,16 @@ export async function savePlanGeometry(
       ...(kitchenSafety.data.routeStartOpeningId
         ? { routeStartOpeningId: kitchenSafety.data.routeStartOpeningId }
         : {}),
-      status: 'confirmed',
-      confirmedAt: new Date().toISOString(),
+      status: mode === 'draft' ? 'draft' : 'confirmed',
+      ...(mode === 'confirm' ? { confirmedAt: new Date().toISOString() } : {}),
     }
     await repository.setPlanReading(userId, projectId, {
       ...project.planReading,
       geometry: saved,
     })
     await recordAudit({
-      action: 'project.plan_geometry_confirmed',
+      action:
+        mode === 'draft' ? 'project.plan_geometry_drafted' : 'project.plan_geometry_confirmed',
       actorId: userId,
       targetType: 'project',
       targetId: projectId,

@@ -466,9 +466,13 @@ function PlanGeometryCanvas({
 export function PlanGeometryEditor({
   projectId,
   geometry,
+  roomNames,
+  planUrl,
 }: {
   projectId: string
   geometry: PlanGeometry
+  roomNames: string[]
+  planUrl: string | null
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -490,6 +494,8 @@ export function PlanGeometryEditor({
           : 'wall:',
   )
   const [error, setError] = useState<string>()
+  const [newRoomName, setNewRoomName] = useState(roomNames[0] ?? '')
+  const [verified, setVerified] = useState(false)
   const [saving, startSaving] = useTransition()
   const [selectionKind, selectionId] = selection.split(':')
   const selectedWall =
@@ -506,6 +512,9 @@ export function PlanGeometryEditor({
   const wallErrorIds = new Set(blockingIssues.flatMap((issue) => issue.wallIds ?? []))
   const openingErrorIds = new Set(blockingIssues.flatMap((issue) => issue.openingIds ?? []))
   const roomErrorIndexes = new Set(blockingIssues.flatMap((issue) => issue.roomIndexes ?? []))
+  const availableRoomNames = [...new Set(roomNames)].filter(
+    (name) => !rooms.some((room) => room.name === name),
+  )
 
   function selectIssue(issue: PlanGeometryIssue) {
     const openingId = issue.openingIds?.[0]
@@ -612,6 +621,29 @@ export function PlanGeometryEditor({
     setSelection(`wall:${wall.id}`)
   }
 
+  function addRoom() {
+    const name = availableRoomNames.includes(newRoomName) ? newRoomName : availableRoomNames[0]
+    if (!name) return
+    const width = Math.min(geometry.widthCm, Math.max(75, Math.min(300, geometry.widthCm * 0.4)))
+    const height = Math.min(geometry.heightCm, Math.max(75, Math.min(300, geometry.heightCm * 0.4)))
+    const left = Math.round((geometry.widthCm - width) / 2)
+    const top = Math.round((geometry.heightCm - height) / 2)
+    setRooms((current) => [
+      ...current,
+      {
+        name,
+        polygon: [
+          { xCm: left, yCm: top },
+          { xCm: left + width, yCm: top },
+          { xCm: left + width, yCm: top + height },
+          { xCm: left, yCm: top + height },
+        ],
+      },
+    ])
+    setSelection(`room:${rooms.length}`)
+    setVerified(false)
+  }
+
   function addOpening(type: PlanOpening['type']) {
     setError(undefined)
     if (openings.length >= 200) {
@@ -678,25 +710,32 @@ export function PlanGeometryEditor({
     setError(undefined)
   }
 
-  function save() {
+  function save(mode: 'draft' | 'confirm') {
     setError(undefined)
     startSaving(async () => {
-      const result = await savePlanGeometry(projectId, {
-        ...geometry,
-        walls,
-        openings,
-        rooms,
-        kitchenItems,
-        utilityPoints,
-        obstacles,
-        routeWidthCm,
-        routeStartOpeningId,
-      })
+      const result = await savePlanGeometry(
+        projectId,
+        {
+          ...geometry,
+          walls,
+          openings,
+          rooms,
+          kitchenItems,
+          utilityPoints,
+          obstacles,
+          routeWidthCm,
+          routeStartOpeningId,
+        },
+        mode,
+      )
       if (!result.ok) {
         setError(result.error)
         return
       }
-      toast({ title: '2D-схема подтверждена', tone: 'success' })
+      toast({
+        title: mode === 'draft' ? 'Черновик 2D-схемы сохранён' : '2D-схема подтверждена',
+        tone: 'success',
+      })
       setOpen(false)
       router.refresh()
     })
@@ -719,10 +758,20 @@ export function PlanGeometryEditor({
       </DialogTrigger>
       <DialogContent
         title="Проверка 2D-схемы"
-        description="Двигайте элементы на чертеже или задайте точные сантиметры вручную."
+        description="Двигайте элементы на чертеже или задайте сантиметры вручную. Пустые и новые контуры — только заготовки, не результат распознавания плана."
         className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-y-auto"
       >
         <fieldset disabled={saving} inert={saving} className="min-w-0 border-0 p-0">
+          {planUrl ? (
+            <a
+              href={planUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mb-4 inline-block text-[13px] text-accent underline underline-offset-4"
+            >
+              Открыть исходный план рядом ↗
+            </a>
+          ) : null}
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="mr-1 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
               Добавить
@@ -730,6 +779,27 @@ export function PlanGeometryEditor({
             <Button type="button" variant="secondary" size="sm" onClick={addWall}>
               Стену
             </Button>
+            {availableRoomNames.length > 0 ? (
+              <>
+                <select
+                  aria-label="Комната для нового контура"
+                  value={
+                    availableRoomNames.includes(newRoomName) ? newRoomName : availableRoomNames[0]
+                  }
+                  onChange={(event) => setNewRoomName(event.currentTarget.value)}
+                  className="h-9 rounded-sm border border-control bg-paper px-2 text-[13px] text-ink"
+                >
+                  {availableRoomNames.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <Button type="button" variant="secondary" size="sm" onClick={addRoom}>
+                  Контур комнаты
+                </Button>
+              </>
+            ) : null}
             <Button type="button" variant="secondary" size="sm" onClick={() => addOpening('door')}>
               Дверь
             </Button>
@@ -1191,12 +1261,41 @@ export function PlanGeometryEditor({
           </div>
 
           <FormError message={error} />
+          {geometry.status === 'draft' ? (
+            <p className="mt-4 text-[13px] leading-relaxed text-ink-2">
+              Черновик не используется для точной расстановки мебели. Чтобы сохранить промежуточную
+              работу, нужны хотя бы три стены. Контур-заготовку каждой комнаты обязательно подгоните
+              по плану: её начальная форма ничего не говорит о реальной квартире.
+            </p>
+          ) : null}
+          <label className="mt-4 flex items-start gap-3 text-[13px] leading-relaxed text-ink">
+            <input
+              type="checkbox"
+              checked={verified}
+              onChange={(event) => setVerified(event.currentTarget.checked)}
+              className="mt-1 accent-accent"
+            />
+            Я сверил стены, проёмы и контуры комнат с исходным планом. Это не обмер на месте.
+          </label>
           <div className="mt-6 flex flex-wrap gap-3 border-t border-line pt-5">
+            {geometry.status === 'draft' ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => save('draft')}
+                pending={saving}
+                disabled={walls.length < 3 || blockingIssues.length > 0}
+              >
+                Сохранить черновик
+              </Button>
+            ) : null}
             <Button
               type="button"
-              onClick={save}
+              onClick={() => save('confirm')}
               pending={saving}
-              disabled={walls.length < 3 || blockingIssues.length > 0}
+              disabled={
+                walls.length < 3 || rooms.length === 0 || blockingIssues.length > 0 || !verified
+              }
             >
               {saving ? 'Проверяем…' : 'Подтвердить и сохранить'}
             </Button>

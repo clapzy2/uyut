@@ -131,6 +131,8 @@ export type PlanKitchenItem = {
 export type PlanGeometry = {
   version: 1
   status: 'draft' | 'confirmed'
+  /** Ручная схема начинается с пустого полотна, без выдуманного результата распознавания. */
+  source?: 'manual'
   confirmedAt?: string
   widthCm: number
   heightCm: number
@@ -154,7 +156,7 @@ export type PlanReading = {
   /** Общая площадь квартиры с плана: сверяется с суммой площадей комнат */
   totalAreaM2?: number
   rooms: PlanRoomReading[]
-  /** Геометрически валидный черновик; источником остаётся vision-модель. */
+  /** Черновик от vision-модели или пустое ручное полотно. */
   geometry?: PlanGeometry
   /** Когда прочитали, ISO-строкой: в jsonb дата всё равно станет строкой */
   readAt: string

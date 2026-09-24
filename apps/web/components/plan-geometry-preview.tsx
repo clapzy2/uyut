@@ -36,6 +36,14 @@ export function PlanGeometryPreview({
 }) {
   const padding = Math.max(20, Math.min(geometry.widthCm, geometry.heightCm) * 0.06)
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
+  let description =
+    'Схема построена по изображению плана и прошла машинную проверку размеров. Она пока не является обмерным чертежом: перед расчётом мебели нужно сверить стены и проёмы с оригиналом.'
+  if (geometry.source === 'manual') {
+    description =
+      geometry.status === 'draft'
+        ? 'Это ручной черновик. Программа не прочитала план и не добавила стен сама. Нанесите линии и контуры по оригиналу; пустая сетка не является планировкой квартиры.'
+        : 'Схему составил и сверил с планом владелец. Она не заменяет обмер квартиры на месте: перед покупкой мебели проверьте ключевые размеры.'
+  }
 
   return (
     <section className="mt-12 animate-[rise-in_450ms_var(--ease-appear)] border-t border-line pt-8">
@@ -43,6 +51,7 @@ export function PlanGeometryPreview({
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
             2D-схема · {geometry.status === 'confirmed' ? 'подтверждена' : 'черновик'}
+            {geometry.source === 'manual' ? ' · составлена вручную' : ''}
           </p>
           <h2 className="mt-2 font-serif text-3xl text-ink">Стены и проёмы</h2>
         </div>
@@ -228,11 +237,7 @@ export function PlanGeometryPreview({
         </div>
 
         <div className="border border-line bg-paper p-5 sm:p-6">
-          <p className="text-[15px] leading-relaxed text-ink">
-            Схема построена по изображению плана и прошла машинную проверку размеров. Она пока не
-            является обмерным чертежом: перед расчётом мебели нужно сверить стены и проёмы с
-            оригиналом.
-          </p>
+          <p className="text-[15px] leading-relaxed text-ink">{description}</p>
           <dl className="mt-5 space-y-3 border-t border-line pt-4 text-[14px]">
             <div className="flex justify-between gap-4">
               <dt className="text-ink-2">Габарит схемы</dt>
@@ -261,7 +266,7 @@ export function PlanGeometryPreview({
               </dd>
             </div>
           </dl>
-          {geometry.warnings.length > 0 ? (
+          {geometry.warnings.length > 0 && geometry.source !== 'manual' ? (
             <div className="mt-5 border-l-2 border-accent pl-3 text-[13px] leading-relaxed text-ink-2">
               Часть сомнительных линий не попала в схему. Это безопаснее, чем принять мебель или
               размерную цепочку за стену.

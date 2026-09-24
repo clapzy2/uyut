@@ -16,6 +16,7 @@ export type AuditAction =
   | 'project.deleted'
   | 'project.plan_read'
   | 'project.plan_geometry_confirmed'
+  | 'project.plan_geometry_drafted'
   | 'project.plan_rooms'
   | 'onboarding.completed'
   | 'concepts.requested'

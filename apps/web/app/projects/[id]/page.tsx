@@ -11,6 +11,7 @@ import { TogetherCard } from '@/components/collaboration/together-card'
 import { DeleteProjectDialog } from '@/components/delete-project-dialog'
 import { EmptyArt } from '@/components/empty-art'
 import { FileUploader } from '@/components/file-uploader'
+import { ManualPlanGeometryStart } from '@/components/manual-plan-geometry-start'
 import { PlanGeometryEditor } from '@/components/plan-geometry-editor'
 import { PlanGeometryPreview } from '@/components/plan-geometry-preview'
 import { PlanReadingCard } from '@/components/plan-reading-card'
@@ -325,10 +326,17 @@ export default async function ProjectPage({ params }: { params: Params }) {
           geometry={project.planReading.geometry}
           action={
             isOwner ? (
-              <PlanGeometryEditor projectId={project.id} geometry={project.planReading.geometry} />
+              <PlanGeometryEditor
+                projectId={project.id}
+                geometry={project.planReading.geometry}
+                roomNames={project.planReading.rooms.map((room) => room.name)}
+                planUrl={planUrl}
+              />
             ) : null
           }
         />
+      ) : isOwner && planUrl && project.planReading?.confirmedAt ? (
+        <ManualPlanGeometryStart projectId={project.id} />
       ) : null}
 
       {isOwner && collaboration ? (
