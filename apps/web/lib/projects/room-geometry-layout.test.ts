@@ -1,3 +1,4 @@
+import { layoutRoom, WALKWAY_CM } from '@uyut/catalog'
 import type { PlanGeometry } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import { roomLayoutInputFromGeometry } from './room-geometry-layout'
@@ -138,6 +139,29 @@ describe('проёмы комнаты из 2D-схемы', () => {
       depthCm: 301.5,
     })
     expect(result?.missingSafetyData).toEqual([])
+  })
+
+  it('не считает узкий дверной проём подтверждённым свободным проходом', () => {
+    const narrowDoor: PlanGeometry = {
+      ...geometry,
+      openings: geometry.openings.map((opening) =>
+        opening.id === 'door' ? { ...opening, widthCm: 60 } : opening,
+      ),
+    }
+    const result = roomLayoutInputFromGeometry(narrowDoor, 'Гостиная', null)
+
+    expect(result?.floorReservations.find((opening) => opening.kind === 'door')).toMatchObject({
+      start: { xCm: 0, yCm: 180 },
+      end: { xCm: 0, yCm: 240 },
+    })
+    expect(result?.missingSafetyData.join(' ')).toContain(
+      `меньше принятого свободного прохода ${WALKWAY_CM} см`,
+    )
+    if (!result) return
+    const layout = layoutRoom(result, [])
+    expect(layout.safetySummary.status).toBe('needs-data')
+    expect(layout.safetySummary.detail).toContain('ширина проёма')
+    expect(roomLayoutInputFromGeometry(geometry, 'Гостиная', null)?.missingSafetyData).toEqual([])
   })
 
   it('не приписывает комнате проём на стене в 15 см от её контура', () => {

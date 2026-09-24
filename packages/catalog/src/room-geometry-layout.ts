@@ -1,6 +1,7 @@
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall, RoomMeasurements } from '@uyut/db'
 import { doorClearanceZone } from './door-clearance'
 import type { FloorKeepClearZone, FloorReservation, RoomLayoutInput } from './layout'
+import { WALKWAY_CM } from './layout'
 import type { WallReservation } from './openings'
 
 const BOUNDARY_TOLERANCE_CM = 20
@@ -174,6 +175,11 @@ export function roomLayoutInputFromGeometry(
         `Проём ${opening.id} не совпадает с границей комнаты. Уточните стену или контур, прежде чем учитывать его в расстановке.`,
       )
       continue
+    }
+    if (opening.type !== 'window' && opening.widthCm < WALKWAY_CM) {
+      missingSafetyData.push(
+        `${opening.type === 'balcony' ? 'Балконный блок' : 'Дверь'} ${opening.id}: ширина проёма по плану ${opening.widthCm} см меньше принятого свободного прохода ${WALKWAY_CM} см. Уточните чистую ширину проёма перед покупкой мебели.`,
+      )
     }
     if (opening.type === 'window' && opening.sillHeightCm === undefined) {
       missingSafetyData.push(
