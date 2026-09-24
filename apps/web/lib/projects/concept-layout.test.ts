@@ -66,6 +66,23 @@ describe('render layout contract', () => {
     expect(conceptLayoutContract('Гостиная', 'living', null, unsafe, [sofa])).toBeUndefined()
   })
 
+  it('does not send exact furniture positions when room measurements contradict the outline', () => {
+    expect(
+      conceptLayoutContract('Гостиная', 'living', { widthCm: 550, depthCm: 400 }, geometry, [sofa]),
+    ).toBeUndefined()
+  })
+
+  it('does not send exact furniture positions when a nearby opening misses the room boundary', () => {
+    const walls = geometry.walls.map((wall) =>
+      wall.id === 'top'
+        ? { ...wall, start: { xCm: 0, yCm: 15 }, end: { xCm: 500, yCm: 15 } }
+        : wall,
+    )
+    expect(
+      conceptLayoutContract('Гостиная', 'living', null, { ...geometry, walls }, [sofa]),
+    ).toBeUndefined()
+  })
+
   it('does not send furniture positions that collide with a fixed obstacle', () => {
     const obstructed: PlanGeometry = {
       ...geometry,

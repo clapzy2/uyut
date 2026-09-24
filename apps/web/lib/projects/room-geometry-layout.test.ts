@@ -125,7 +125,30 @@ describe('проёмы комнаты из 2D-схемы', () => {
         { wall: 'top', fromCm: 240, toCm: 440 },
         { wall: 'left', fromCm: 360, toCm: 540 },
       ],
+      missingSafetyData: [
+        expect.stringContaining('Ширина комнаты'),
+        expect.stringContaining('Глубина комнаты'),
+      ],
     })
+  })
+
+  it('не объявляет небольшую разницу мерок конфликтом геометрии', () => {
+    const result = roomLayoutInputFromGeometry(geometry, 'Гостиная', {
+      widthCm: 401.5,
+      depthCm: 301.5,
+    })
+    expect(result?.missingSafetyData).toEqual([])
+  })
+
+  it('не приписывает комнате проём на стене в 15 см от её контура', () => {
+    const walls = geometry.walls.map((wall) =>
+      wall.id === 'top'
+        ? { ...wall, start: { xCm: 100, yCm: 65 }, end: { xCm: 500, yCm: 65 } }
+        : wall,
+    )
+    const result = roomLayoutInputFromGeometry({ ...geometry, walls }, 'Гостиная', null)
+    expect(result?.floorReservations.some((entry) => entry.kind === 'window')).toBe(false)
+    expect(result?.missingSafetyData.join(' ')).toContain('Проём window не совпадает')
   })
 
   it('не использует неподтверждённый план', () => {

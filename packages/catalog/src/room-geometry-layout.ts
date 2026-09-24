@@ -4,6 +4,7 @@ import type { FloorKeepClearZone, FloorReservation, RoomLayoutInput } from './la
 import type { WallReservation } from './openings'
 
 const BOUNDARY_TOLERANCE_CM = 20
+const GEOMETRY_ALIGNMENT_TOLERANCE_CM = 2
 
 export type GeometryRoomLayoutInput = RoomLayoutInput & {
   widthCm: number
@@ -70,14 +71,15 @@ function openingBelongsToRoom(
   start: PlanPoint,
   end: PlanPoint,
   polygon: readonly PlanPoint[],
+  toleranceCm: number,
 ): boolean {
   for (let index = 0; index < polygon.length; index += 1) {
     const edgeStart = polygon[index]
     const edgeEnd = polygon[(index + 1) % polygon.length]
     if (!edgeStart || !edgeEnd) continue
     if (
-      pointDistanceToSegment(start, edgeStart, edgeEnd) <= BOUNDARY_TOLERANCE_CM &&
-      pointDistanceToSegment(end, edgeStart, edgeEnd) <= BOUNDARY_TOLERANCE_CM
+      pointDistanceToSegment(start, edgeStart, edgeEnd) <= toleranceCm &&
+      pointDistanceToSegment(end, edgeStart, edgeEnd) <= toleranceCm
     ) {
       return true
     }
@@ -133,6 +135,16 @@ export function roomLayoutInputFromGeometry(
   const floorReservations: FloorReservation[] = []
   const keepClearZones: FloorKeepClearZone[] = []
   const missingSafetyData: string[] = []
+  for (const [label, measured, outlined] of [
+    ['Ширина', measurements?.widthCm, geometryWidth],
+    ['Глубина', measurements?.depthCm, geometryDepth],
+  ] as const) {
+    if (measured && Math.abs(measured - outlined) > GEOMETRY_ALIGNMENT_TOLERANCE_CM) {
+      missingSafetyData.push(
+        `${label} комнаты: контур ${outlined.toFixed(1)} см, мерка ${measured.toFixed(1)} см. Уточните контур или мерку: масштабирование схемы не подтверждает точность проёмов.`,
+      )
+    }
+  }
   const localPoint = (point: PlanPoint): PlanPoint => ({
     xCm: (point.xCm - minX) * scaleX,
     yCm: (point.yCm - minY) * scaleY,
@@ -142,7 +154,13 @@ export function roomLayoutInputFromGeometry(
     const wall = wallById.get(opening.wallId)
     if (!wall) continue
     const [start, end] = openingPoints(opening, wall)
-    if (!openingBelongsToRoom(start, end, room.polygon)) continue
+    if (!openingBelongsToRoom(start, end, room.polygon, BOUNDARY_TOLERANCE_CM)) continue
+    if (!openingBelongsToRoom(start, end, room.polygon, GEOMETRY_ALIGNMENT_TOLERANCE_CM)) {
+      missingSafetyData.push(
+        `Проём ${opening.id} не совпадает с границей комнаты. Уточните стену или контур, прежде чем учитывать его в расстановке.`,
+      )
+      continue
+    }
     if (opening.type === 'window' && opening.sillHeightCm === undefined) {
       missingSafetyData.push(
         `Окно ${opening.id}: укажите высоту подоконника, чтобы проверить низкую мебель под ним.`,

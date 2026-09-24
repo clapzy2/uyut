@@ -382,6 +382,33 @@ describe('layoutRoom', () => {
     })
   })
 
+  it('показывает конкретное противоречие мерок вместо общего сообщения', () => {
+    const layout = layoutRoom(
+      {
+        widthCm: 500,
+        depthCm: 400,
+        roomKind: 'living',
+        reservations: [],
+        missingSafetyData: ['Ширина комнаты: контур и мерка расходятся.'],
+      },
+      [
+        item({
+          id: 'sofa',
+          title: 'Диван',
+          category: 'sofa',
+          dimensions: { width: 180, depth: 85, height: 80 },
+          operationClearance: { front: 70 },
+        }),
+      ],
+    )
+
+    expect(layout.problems).toEqual([])
+    expect(layout.safetySummary).toMatchObject({
+      status: 'needs-data',
+      detail: 'Ширина комнаты: контур и мерка расходятся.',
+    })
+  })
+
   it('помечает расчёт как предварительный, когда проёмы взяты только из описания', () => {
     const layout = layoutRoom(
       {
