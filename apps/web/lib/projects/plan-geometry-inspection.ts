@@ -199,6 +199,32 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
   return issues
 }
 
+/** Подписанная площадь проверяет контур конкретной комнаты, не только сумму квартиры. */
+export function inspectPlanRoomAreas(
+  rooms: readonly PlanRoomShape[],
+  labels: readonly { name: string; areaM2?: number }[],
+): PlanGeometryIssue[] {
+  const labelledAreas = new Map(
+    labels
+      .filter((label) => label.areaM2 !== undefined && label.areaM2 > 0)
+      .map((label) => [label.name.trim().toLocaleLowerCase('ru'), label.areaM2]),
+  )
+  return rooms.flatMap((room, index) => {
+    const expected = labelledAreas.get(room.name.trim().toLocaleLowerCase('ru'))
+    if (expected === undefined || room.polygon.length < 3) return []
+    const actual = polygonAreaM2(room.polygon)
+    if (Math.abs(actual - expected) <= Math.max(0.3, expected * 0.1)) return []
+    return [
+      {
+        id: `manual-room-area-${index}`,
+        severity: 'error' as const,
+        message: `${room.name}: контур даёт ${actual.toFixed(1)} м², на плане подписано ${expected.toFixed(1)} м². Проверьте границу комнаты.`,
+        roomIndexes: [index],
+      },
+    ]
+  })
+}
+
 /** Быстрая проверка правок до отправки схемы на сервер. */
 export function inspectPlanGeometry(geometry: EditableGeometry): PlanGeometryIssue[] {
   const issues: PlanGeometryIssue[] = []

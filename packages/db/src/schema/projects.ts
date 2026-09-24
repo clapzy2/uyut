@@ -136,6 +136,13 @@ export type PlanImageCalibration = {
   worldStart: PlanPoint
   lengthCm: number
   direction: 'right' | 'left' | 'down' | 'up'
+  /** Другие подписанные размеры проверяют масштаб, но не меняют привязку автоматически. */
+  verificationLines?: PlanImageDimensionLine[]
+}
+export type PlanImageDimensionLine = {
+  pixelStart: { x: number; y: number }
+  pixelEnd: { x: number; y: number }
+  lengthCm: number
 }
 export type PlanGeometry = {
   version: 1

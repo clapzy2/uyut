@@ -3,6 +3,7 @@
 import type { PlanImageCalibration } from '@uyut/db'
 import { Button, Input } from '@uyut/ui'
 import { type Dispatch, type SetStateAction, useState } from 'react'
+import { PlanImageVerification } from '@/components/plan-image-verification'
 import { validPlanImageCalibration } from '@/lib/projects/plan-image-calibration'
 
 export type PlanUnderlay = {
@@ -46,10 +47,14 @@ export function PlanImageReference({
     calibration?.direction ?? 'right',
   )
   const [error, setError] = useState<string>()
+  const [checkPoints, setCheckPoints] = useState<PixelPoint[]>([])
+  const [selectingCheck, setSelectingCheck] = useState(false)
 
   function clearCalibration() {
     onCalibrationChange(undefined)
     onUnderlayChange((current) => (current ? { ...current, calibration: undefined } : undefined))
+    setSelectingCheck(false)
+    setCheckPoints([])
   }
 
   function choosePoint(event: React.MouseEvent<HTMLButtonElement>) {
@@ -62,8 +67,12 @@ export function PlanImageReference({
       x: Math.round(((event.clientX - rect.left) / rect.width) * image.naturalWidth),
       y: Math.round(((event.clientY - rect.top) / rect.height) * image.naturalHeight),
     }
-    setPoints((current) => (current.length >= 2 ? [point] : [...current, point]))
-    clearCalibration()
+    if (selectingCheck) {
+      setCheckPoints((current) => (current.length >= 2 ? [point] : [...current, point]))
+    } else {
+      setPoints((current) => (current.length >= 2 ? [point] : [...current, point]))
+      clearCalibration()
+    }
     setError(undefined)
   }
 
@@ -90,6 +99,9 @@ export function PlanImageReference({
       worldStart: { xCm: Number(worldX), yCm: Number(worldY) },
       lengthCm: Number(lengthCm),
       direction,
+      ...(calibration?.verificationLines
+        ? { verificationLines: calibration.verificationLines }
+        : {}),
     }
     if (!validPlanImageCalibration(candidate, canvasWidthCm, canvasHeightCm)) {
       setError('Проверьте длину и точки: оба конца должны лежать внутри схемы.')
@@ -139,8 +151,11 @@ export function PlanImageReference({
                     calibration &&
                     (calibration.imageWidthPx !== naturalWidth ||
                       calibration.imageHeightPx !== naturalHeight)
-                  )
+                  ) {
                     clearCalibration()
+                    setPoints([])
+                    setError('Размер изображения изменился. Отметьте размерную линию заново.')
+                  }
                 }}
               />
             </button>
@@ -153,6 +168,20 @@ export function PlanImageReference({
                       top: `${(point.y / imageSize.height) * 100}%`,
                     }}
                     className="pointer-events-none absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-paper bg-accent text-[12px] font-bold text-paper shadow-md"
+                  >
+                    {index + 1}
+                  </span>
+                ))
+              : null}
+            {imageSize && selectingCheck
+              ? checkPoints.map((point, index) => (
+                  <span
+                    key={index === 0 ? 'check-start' : 'check-end'}
+                    style={{
+                      left: `${(point.x / imageSize.width) * 100}%`,
+                      top: `${(point.y / imageSize.height) * 100}%`,
+                    }}
+                    className="pointer-events-none absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-paper bg-ink text-[12px] font-bold text-paper shadow-md"
                   >
                     {index + 1}
                   </span>
@@ -231,6 +260,7 @@ export function PlanImageReference({
               type="number"
               min="20"
               max="5000"
+              step="0.1"
               value={lengthCm}
               onChange={(event) => {
                 setLengthCm(event.currentTarget.value)
@@ -279,6 +309,18 @@ export function PlanImageReference({
           </Button>
           {calibration ? (
             <p className="text-ink">Подложка привязана по одной размерной линии.</p>
+          ) : null}
+          {calibration ? (
+            <PlanImageVerification
+              calibration={calibration}
+              canvasWidthCm={canvasWidthCm}
+              canvasHeightCm={canvasHeightCm}
+              points={checkPoints}
+              onPointsChange={setCheckPoints}
+              selecting={selectingCheck}
+              onSelectingChange={setSelectingCheck}
+              onCalibrationChange={onCalibrationChange}
+            />
           ) : null}
           {error ? (
             <p className="text-danger" role="alert">

@@ -47,6 +47,30 @@ const calibratedImage = {
   direction: 'right' as const,
 }
 
+const corners = [
+  { xCm: 0, yCm: 0 },
+  { xCm: 500, yCm: 0 },
+  { xCm: 500, yCm: 400 },
+  { xCm: 0, yCm: 400 },
+]
+const closedWalls = corners.map((start, index) => ({
+  id: `manual_${String(index + 1).padStart(24, '0')}`,
+  kind: 'outer' as const,
+  start,
+  end: corners[(index + 1) % corners.length],
+}))
+const kitchenContour = [
+  {
+    name: 'Кухня',
+    polygon: [
+      { xCm: 0, yCm: 0 },
+      { xCm: 300, yCm: 0 },
+      { xCm: 300, yCm: 180 },
+      { xCm: 0, yCm: 180 },
+    ],
+  },
+]
+
 describe('manual plan draft', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -81,9 +105,19 @@ describe('manual plan draft', () => {
   })
 
   it('persists a calibrated underlay with a draft', async () => {
+    const checkedCalibration = {
+      ...calibratedImage,
+      verificationLines: [
+        {
+          pixelStart: { x: 200, y: 500 },
+          pixelEnd: { x: 340, y: 500 },
+          lengthCm: 140,
+        },
+      ],
+    }
     const result = await savePlanGeometry(
       projectId,
-      { ...emptyManualGeometry, imageCalibration: calibratedImage },
+      { ...emptyManualGeometry, imageCalibration: checkedCalibration },
       'draft',
     )
     expect(result.ok).toBe(true)
@@ -91,7 +125,7 @@ describe('manual plan draft', () => {
       'owner',
       projectId,
       expect.objectContaining({
-        geometry: expect.objectContaining({ imageCalibration: calibratedImage }),
+        geometry: expect.objectContaining({ imageCalibration: checkedCalibration }),
       }),
     )
   })
@@ -106,6 +140,70 @@ describe('manual plan draft', () => {
       'draft',
     )
     expect(result.ok).toBe(false)
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+  })
+
+  it('rejects fabricated verification lines outside the image', async () => {
+    const result = await savePlanGeometry(
+      projectId,
+      {
+        ...emptyManualGeometry,
+        imageCalibration: {
+          ...calibratedImage,
+          verificationLines: [
+            { pixelStart: { x: 900, y: 500 }, pixelEnd: { x: 1200, y: 500 }, lengthCm: 140 },
+          ],
+        },
+      },
+      'draft',
+    )
+    expect(result.ok).toBe(false)
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+  })
+
+  it('does not confirm geometry when independent dimensions contradict the scale', async () => {
+    const result = await savePlanGeometry(
+      projectId,
+      {
+        ...emptyManualGeometry,
+        walls: closedWalls,
+        rooms: kitchenContour,
+        imageCalibration: {
+          ...calibratedImage,
+          verificationLines: [
+            { pixelStart: { x: 100, y: 500 }, pixelEnd: { x: 200, y: 500 }, lengthCm: 140 },
+          ],
+        },
+      },
+      'confirm',
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('не сходятся')
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+  })
+
+  it('does not confirm a room contour that disagrees with its labelled area', async () => {
+    const result = await savePlanGeometry(
+      projectId,
+      {
+        ...emptyManualGeometry,
+        walls: closedWalls,
+        rooms: [
+          {
+            name: 'Кухня',
+            polygon: [
+              { xCm: 0, yCm: 0 },
+              { xCm: 300, yCm: 0 },
+              { xCm: 300, yCm: 150 },
+              { xCm: 0, yCm: 150 },
+            ],
+          },
+        ],
+      },
+      'confirm',
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('на плане подписано')
     expect(mocks.setPlanReading).not.toHaveBeenCalled()
   })
 
@@ -138,30 +236,7 @@ describe('manual plan draft', () => {
 
   it('rejects an isolated wall when confirming, but still saves the draft', async () => {
     const walls = [
-      {
-        id: 'manual_000000000000000000000001',
-        kind: 'outer' as const,
-        start: { xCm: 0, yCm: 0 },
-        end: { xCm: 500, yCm: 0 },
-      },
-      {
-        id: 'manual_000000000000000000000002',
-        kind: 'outer' as const,
-        start: { xCm: 500, yCm: 0 },
-        end: { xCm: 500, yCm: 400 },
-      },
-      {
-        id: 'manual_000000000000000000000003',
-        kind: 'outer' as const,
-        start: { xCm: 500, yCm: 400 },
-        end: { xCm: 0, yCm: 400 },
-      },
-      {
-        id: 'manual_000000000000000000000004',
-        kind: 'outer' as const,
-        start: { xCm: 0, yCm: 400 },
-        end: { xCm: 0, yCm: 0 },
-      },
+      ...closedWalls,
       {
         id: 'manual_000000000000000000000005',
         kind: 'inner' as const,
@@ -169,18 +244,7 @@ describe('manual plan draft', () => {
         end: { xCm: 300, yCm: 100 },
       },
     ]
-    const rooms = [
-      {
-        name: 'Кухня',
-        polygon: [
-          { xCm: 0, yCm: 0 },
-          { xCm: 300, yCm: 0 },
-          { xCm: 300, yCm: 180 },
-          { xCm: 0, yCm: 180 },
-        ],
-      },
-    ]
-    const submitted = { ...emptyManualGeometry, walls, rooms }
+    const submitted = { ...emptyManualGeometry, walls, rooms: kitchenContour }
 
     const rejected = await savePlanGeometry(projectId, submitted, 'confirm')
     expect(rejected.ok).toBe(false)

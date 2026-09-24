@@ -329,7 +329,10 @@ export default async function ProjectPage({ params }: { params: Params }) {
               <PlanGeometryEditor
                 projectId={project.id}
                 geometry={project.planReading.geometry}
-                roomNames={project.planReading.rooms.map((room) => room.name)}
+                roomReadings={project.planReading.rooms.map((room) => ({
+                  name: room.name,
+                  areaM2: room.areaM2,
+                }))}
                 planUrl={planUrl}
                 planIsPdf={planIsPdf}
               />

@@ -1,6 +1,10 @@
 import type { PlanGeometry, PlanOpening } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
-import { inspectManualPlanCompleteness, inspectPlanGeometry } from './plan-geometry-inspection'
+import {
+  inspectManualPlanCompleteness,
+  inspectPlanGeometry,
+  inspectPlanRoomAreas,
+} from './plan-geometry-inspection'
 
 const windowOpening: PlanOpening = {
   id: 'window',
@@ -95,6 +99,12 @@ describe('проверка правок 2D-схемы', () => {
 })
 
 describe('подтверждение ручной схемы', () => {
+  it('проверяет площадь каждой комнаты, а не только сумму квартиры', () => {
+    expect(inspectPlanRoomAreas(geometry.rooms, [{ name: 'Гостиная', areaM2: 18 }])).toEqual([
+      expect.objectContaining({ id: 'manual-room-area-0', severity: 'error' }),
+    ])
+    expect(inspectPlanRoomAreas(geometry.rooms, [{ name: 'Гостиная', areaM2: 20 }])).toEqual([])
+  })
   it('принимает замкнутую комнату', () => {
     expect(inspectManualPlanCompleteness(geometry)).toEqual([])
   })

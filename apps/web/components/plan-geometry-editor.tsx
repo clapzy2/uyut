@@ -29,9 +29,10 @@ import { missingManualRoomNames } from '@/lib/projects/manual-plan-geometry'
 import {
   inspectManualPlanCompleteness,
   inspectPlanGeometry,
+  inspectPlanRoomAreas,
   type PlanGeometryIssue,
 } from '@/lib/projects/plan-geometry-inspection'
-import { planImageMatrix } from '@/lib/projects/plan-image-calibration'
+import { planImageMatrix, planImageScaleCheck } from '@/lib/projects/plan-image-calibration'
 import {
   addRoomContourPoint,
   MAX_ROOM_CONTOUR_POINTS,
@@ -489,16 +490,17 @@ function PlanGeometryCanvas({
 export function PlanGeometryEditor({
   projectId,
   geometry,
-  roomNames,
+  roomReadings,
   planUrl,
   planIsPdf,
 }: {
   projectId: string
   geometry: PlanGeometry
-  roomNames: string[]
+  roomReadings: { name: string; areaM2?: number }[]
   planUrl: string | null
   planIsPdf: boolean
 }) {
+  const roomNames = roomReadings.map((room) => room.name)
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [walls, setWalls] = useState(() => geometry.walls)
@@ -547,18 +549,33 @@ export function PlanGeometryEditor({
     () => [
       ...inspectPlanGeometry({ ...geometry, walls, openings, rooms }),
       ...(geometry.source === 'manual'
-        ? inspectManualPlanCompleteness({ ...geometry, walls, openings, rooms })
+        ? [
+            ...inspectManualPlanCompleteness({ ...geometry, walls, openings, rooms }),
+            ...inspectPlanRoomAreas(rooms, roomReadings),
+          ]
+        : []),
+      ...(imageCalibration?.verificationLines?.some(
+        (line) => !planImageScaleCheck(imageCalibration, line).consistent,
+      )
+        ? [
+            {
+              id: 'manual-scale-mismatch',
+              severity: 'error' as const,
+              message:
+                'Подписанные размеры не сходятся с масштабом подложки. Исправьте точки перед подтверждением.',
+            },
+          ]
         : []),
     ],
-    [geometry, walls, openings, rooms],
+    [geometry, walls, openings, rooms, imageCalibration, roomReadings],
   )
   const blockingIssues = issues.filter(
     (issue) => issue.severity === 'error' && !issue.id.startsWith('manual-'),
   )
   const confirmationIssues = issues.filter((issue) => issue.severity === 'error')
-  const wallErrorIds = new Set(blockingIssues.flatMap((issue) => issue.wallIds ?? []))
-  const openingErrorIds = new Set(blockingIssues.flatMap((issue) => issue.openingIds ?? []))
-  const roomErrorIndexes = new Set(blockingIssues.flatMap((issue) => issue.roomIndexes ?? []))
+  const wallErrorIds = new Set(confirmationIssues.flatMap((issue) => issue.wallIds ?? []))
+  const openingErrorIds = new Set(confirmationIssues.flatMap((issue) => issue.openingIds ?? []))
+  const roomErrorIndexes = new Set(confirmationIssues.flatMap((issue) => issue.roomIndexes ?? []))
   const availableRoomNames = [...new Set(roomNames)].filter(
     (name) => !rooms.some((room) => room.name === name),
   )

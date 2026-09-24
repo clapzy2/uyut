@@ -1,6 +1,10 @@
 import type { PlanImageCalibration } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
-import { planImageMatrix, validPlanImageCalibration } from './plan-image-calibration'
+import {
+  planImageMatrix,
+  planImageScaleCheck,
+  validPlanImageCalibration,
+} from './plan-image-calibration'
 
 const calibration: PlanImageCalibration = {
   imageWidthPx: 1000,
@@ -57,12 +61,54 @@ describe('plan image calibration', () => {
       pixelStart: { x: 458, y: 94 },
       pixelEnd: { x: 814, y: 94 },
       worldStart: { xCm: 400, yCm: 90 },
-      lengthCm: 304,
+      lengthCm: 303.9,
     }
     expect(validPlanImageCalibration(apartment, 900, 800)).toBe(true)
     const matrix = planImageMatrix(apartment)
-    expect(transformed(matrix, apartment.pixelEnd).xCm).toBeCloseTo(704)
+    expect(transformed(matrix, apartment.pixelEnd).xCm).toBeCloseTo(703.9)
     expect(transformed(matrix, { x: 0, y: 0 }).xCm).toBeGreaterThan(0)
     expect(transformed(matrix, { x: 903, y: 847 }).yCm).toBeLessThan(800)
+  })
+
+  it('compares independent dimensions and flags the inconsistent segment', () => {
+    const apartment = {
+      ...calibration,
+      pixelStart: { x: 458, y: 94 },
+      pixelEnd: { x: 812, y: 94 },
+      lengthCm: 303.9,
+    }
+    const bottom = planImageScaleCheck(apartment, {
+      pixelStart: { x: 234, y: 808 },
+      pixelEnd: { x: 398, y: 808 },
+      lengthCm: 140,
+    })
+    const left = planImageScaleCheck(apartment, {
+      pixelStart: { x: 35, y: 300 },
+      pixelEnd: { x: 35, y: 519 },
+      lengthCm: 186.9,
+    })
+    const right = planImageScaleCheck(apartment, {
+      pixelStart: { x: 879, y: 400 },
+      pixelEnd: { x: 879, y: 706 },
+      lengthCm: 251.6,
+    })
+    expect(bottom.consistent).toBe(true)
+    expect(left.consistent).toBe(true)
+    expect(right.consistent).toBe(false)
+  })
+
+  it('rejects malformed independent dimension evidence', () => {
+    expect(
+      validPlanImageCalibration(
+        {
+          ...calibration,
+          verificationLines: [
+            { pixelStart: { x: 0, y: 0 }, pixelEnd: { x: 1, y: 1 }, lengthCm: 140 },
+          ],
+        },
+        600,
+        500,
+      ),
+    ).toBe(false)
   })
 })

@@ -26,8 +26,12 @@ import {
 import {
   inspectManualPlanCompleteness,
   inspectPlanGeometry,
+  inspectPlanRoomAreas,
 } from '@/lib/projects/plan-geometry-inspection'
-import { validPlanImageCalibration } from '@/lib/projects/plan-image-calibration'
+import {
+  planImageScaleCheck,
+  validPlanImageCalibration,
+} from '@/lib/projects/plan-image-calibration'
 import { planObstaclesSchema } from '@/lib/projects/plan-obstacles'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
 import * as repository from '@/lib/projects/repository'
@@ -413,10 +417,23 @@ export async function savePlanGeometry(
         error: 'Контур комнаты слишком сильно расходится с площадью, указанной на плане.',
       }
     }
+    if (
+      mode === 'confirm' &&
+      imageCalibration?.verificationLines?.some(
+        (line) => !planImageScaleCheck(imageCalibration, line).consistent,
+      )
+    ) {
+      return {
+        ok: false,
+        error:
+          'Подписанные размеры не сходятся с масштабом подложки. Исправьте точки или сохраните черновик.',
+      }
+    }
     if (manual && mode === 'confirm') {
       const issue = [
         ...inspectPlanGeometry(checked),
         ...inspectManualPlanCompleteness(checked),
+        ...inspectPlanRoomAreas(checked.rooms, project.planReading.rooms),
       ].find((item) => item.severity === 'error')
       if (issue) return { ok: false, error: issue.message }
     }

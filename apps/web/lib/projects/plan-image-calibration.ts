@@ -1,4 +1,4 @@
-import type { PlanImageCalibration } from '@uyut/db'
+import type { PlanImageCalibration, PlanImageDimensionLine } from '@uyut/db'
 
 type PixelPoint = PlanImageCalibration['pixelStart']
 
@@ -11,6 +11,50 @@ function validPixelPoint(point: PixelPoint, width: number, height: number): bool
     point.x <= width &&
     point.y <= height
   )
+}
+
+function validDimensionLine(
+  line: unknown,
+  width: number,
+  height: number,
+): line is PlanImageDimensionLine {
+  if (!line || typeof line !== 'object') return false
+  const candidate = line as Partial<PlanImageDimensionLine>
+  const start = candidate.pixelStart
+  const end = candidate.pixelEnd
+  const length = candidate.lengthCm
+  return Boolean(
+    start &&
+      end &&
+      validPixelPoint(start, width, height) &&
+      validPixelPoint(end, width, height) &&
+      Math.hypot(end.x - start.x, end.y - start.y) >= 10 &&
+      Number.isFinite(length) &&
+      length !== undefined &&
+      length >= 20 &&
+      length <= 5_000 &&
+      Number.isInteger(length * 10),
+  )
+}
+
+/** Сверка второй подписанной линии не предполагает, что по одному растру известны все стены. */
+export function planImageScaleCheck(
+  calibration: PlanImageCalibration,
+  line: PlanImageDimensionLine,
+) {
+  const primaryPixels = Math.hypot(
+    calibration.pixelEnd.x - calibration.pixelStart.x,
+    calibration.pixelEnd.y - calibration.pixelStart.y,
+  )
+  const checkPixels = Math.hypot(
+    line.pixelEnd.x - line.pixelStart.x,
+    line.pixelEnd.y - line.pixelStart.y,
+  )
+  const measuredCm = (checkPixels * calibration.lengthCm) / primaryPixels
+  const deviationCm = measuredCm - line.lengthCm
+  // Толщина линий и ручной клик дают несколько пикселей неопределённости.
+  const toleranceCm = Math.max(2, line.lengthCm * 0.02, (6 * calibration.lengthCm) / primaryPixels)
+  return { measuredCm, deviationCm, toleranceCm, consistent: Math.abs(deviationCm) <= toleranceCm }
 }
 
 /** Один размер задаёт масштаб и поворот, а положение первой точки — сдвиг картинки. */
@@ -63,8 +107,9 @@ export function validPlanImageCalibration(
     !start ||
     !end ||
     !world ||
-    !Number.isInteger(length) ||
-    !length ||
+    !Number.isFinite(length) ||
+    length === undefined ||
+    !Number.isInteger(length * 10) ||
     length < 20 ||
     length > 5_000 ||
     !['right', 'left', 'down', 'up'].includes(source.direction ?? '')
@@ -77,6 +122,16 @@ export function validPlanImageCalibration(
     return false
   if (Math.hypot(end.x - start.x, end.y - start.y) < 10) return false
   if (!Number.isFinite(world.xCm) || !Number.isFinite(world.yCm)) return false
+  const verificationLines = source.verificationLines
+  if (
+    verificationLines !== undefined &&
+    (!Array.isArray(verificationLines) ||
+      verificationLines.length > 6 ||
+      new Set(verificationLines.map((line) => JSON.stringify(line))).size !==
+        verificationLines.length ||
+      !verificationLines.every((line) => validDimensionLine(line, imageWidthPx, imageHeightPx)))
+  )
+    return false
 
   const second = {
     xCm:
