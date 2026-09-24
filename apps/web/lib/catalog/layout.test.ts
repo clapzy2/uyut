@@ -1308,6 +1308,53 @@ describe('нестандартный контур комнаты', () => {
     { xCm: 0, yCm: 300 },
   ]
 
+  it('не называет проверенным узкий проход, заданный самим контуром', () => {
+    const passagePolygon = (passageWidthCm: number) => {
+      const left = (300 - passageWidthCm) / 2
+      const right = left + passageWidthCm
+      return [
+        { xCm: 0, yCm: 0 },
+        { xCm: 300, yCm: 0 },
+        { xCm: 300, yCm: 120 },
+        { xCm: right, yCm: 120 },
+        { xCm: right, yCm: 180 },
+        { xCm: 300, yCm: 180 },
+        { xCm: 300, yCm: 300 },
+        { xCm: 0, yCm: 300 },
+        { xCm: 0, yCm: 180 },
+        { xCm: left, yCm: 180 },
+        { xCm: left, yCm: 120 },
+        { xCm: 0, yCm: 120 },
+      ]
+    }
+    const narrow = layoutRoom(
+      {
+        widthCm: 300,
+        depthCm: 300,
+        floorPolygon: passagePolygon(60),
+        roomKind: 'living',
+        reservations: [],
+      },
+      [],
+    )
+    const wide = layoutRoom(
+      {
+        widthCm: 300,
+        depthCm: 300,
+        floorPolygon: passagePolygon(90),
+        roomKind: 'living',
+        reservations: [],
+      },
+      [],
+    )
+
+    expect(narrow.walkwayCm).toBeLessThan(WALKWAY_CM)
+    expect(narrow.problems).toContainEqual({ kind: 'narrowWalkway', gapCm: narrow.walkwayCm })
+    expect(narrow.safetySummary.status).toBe('blocked')
+    expect(wide.walkwayCm).toBeGreaterThanOrEqual(WALKWAY_CM)
+    expect(wide.problems.some((problem) => problem.kind === 'narrowWalkway')).toBe(false)
+  })
+
   it('не считает вырез Г-образной комнаты свободным полом', () => {
     const layout = layoutRoom({ widthCm: 300, depthCm: 300, floorPolygon }, [
       item({

@@ -1,4 +1,4 @@
-import { layoutRoom } from '@uyut/catalog'
+import { layoutRoom, WALKWAY_CM } from '@uyut/catalog'
 import {
   rectBlocksFloorReservation,
   rectInsideFloor,
@@ -77,6 +77,56 @@ const entryRoom: PlanGeometry = {
 }
 
 describe('передача подтверждённой геометрии в расстановку мебели', () => {
+  it('сохраняет узкий проход в подтверждённом плане и не выдаёт его за свободный', () => {
+    const polygon = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 300, yCm: 0 },
+      { xCm: 300, yCm: 120 },
+      { xCm: 180, yCm: 120 },
+      { xCm: 180, yCm: 180 },
+      { xCm: 300, yCm: 180 },
+      { xCm: 300, yCm: 300 },
+      { xCm: 0, yCm: 300 },
+      { xCm: 0, yCm: 180 },
+      { xCm: 120, yCm: 180 },
+      { xCm: 120, yCm: 120 },
+      { xCm: 0, yCm: 120 },
+    ]
+    const geometry: PlanGeometry = {
+      ...entryRoom,
+      widthCm: 300,
+      heightCm: 300,
+      walls: [
+        {
+          id: 'top',
+          kind: 'outer',
+          start: { xCm: 0, yCm: 0 },
+          end: { xCm: 300, yCm: 0 },
+        },
+      ],
+      openings: [
+        {
+          id: 'entry',
+          type: 'door',
+          wallId: 'top',
+          offsetCm: 105,
+          widthCm: 90,
+          clearance: { side: 'left', depthCm: 90, shape: 'rectangle' },
+        },
+      ],
+      rooms: [{ name: 'Гостиная', polygon }],
+    }
+    const input = roomLayoutInputFromGeometry(geometry, 'Гостиная', null)
+    expect(input?.keepClearZones).toHaveLength(1)
+    if (!input) return
+
+    const layout = layoutRoom({ ...input, roomKind: 'living', roomName: 'Гостиная' }, [])
+
+    expect(layout.walkwayCm).toBeLessThan(WALKWAY_CM)
+    expect(layout.problems).toContainEqual({ kind: 'narrowWalkway', gapCm: layout.walkwayCm })
+    expect(layout.safetySummary.status).toBe('blocked')
+  })
+
   it('не размещает кровать и шкаф в вырезе, окне или зоне двери Г-образной спальни', () => {
     const input = roomLayoutInputFromGeometry(lShapedBedroom, 'Спальня', null)
     expect(input).not.toBeNull()

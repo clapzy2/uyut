@@ -2057,19 +2057,21 @@ function layoutRoomCandidate(
   // Проход — это самое узкое место на маршруте, по которому можно обойти всю комнату,
   // а не просто расстояние между двумя стенками мебели
   const walkwayCm = widestRoute(placed, { widthCm, depthCm }, floorPolygon, routeBlockedPolygons)
-  if (placed.length > 0 && walkwayCm < WALKWAY_CM) {
+  if (walkwayCm < WALKWAY_CM) {
     problems.push({ kind: 'narrowWalkway', gapCm: walkwayCm })
   }
 
   const safetyChecks: RoomLayout['safetyChecks'] = []
-  if (room.roomKind && placed.length > 0) {
+  if (room.roomKind && (placed.length > 0 || walkwayCm < WALKWAY_CM)) {
     safetyChecks.push({
       id: 'continuous-route',
       label: 'Непрерывный проход по комнате',
       detail:
         walkwayCm >= WALKWAY_CM
           ? `Самое узкое место маршрута — ${walkwayCm} см.`
-          : `Самое узкое место — ${walkwayCm} см, требуется перестановка мебели.`,
+          : placed.length > 0
+            ? `Самое узкое место — ${walkwayCm} см, требуется перестановка мебели.`
+            : `Самое узкое место по контуру комнаты — ${walkwayCm} см, это меньше принятого прохода ${WALKWAY_CM} см.`,
       status: walkwayCm >= WALKWAY_CM ? 'checked' : 'blocked',
     })
   }
@@ -2272,8 +2274,14 @@ function layoutRoomCandidate(
   const safetySummary: RoomLayout['safetySummary'] = hasBlocked
     ? {
         status: 'blocked',
-        title: 'Требуется перестановка',
-        detail: 'Хотя бы один предмет, его рабочая зона или непрерывный проход не помещается.',
+        title:
+          placed.length === 0 && walkwayCm < WALKWAY_CM
+            ? 'Слишком узкий проход'
+            : 'Требуется перестановка',
+        detail:
+          placed.length === 0 && walkwayCm < WALKWAY_CM
+            ? 'Сам контур комнаты не обеспечивает принятый свободный проход; перепроверьте размеры и планировку.'
+            : 'Хотя бы один предмет, его рабочая зона или непрерывный проход не помещается.',
       }
     : hasNeedsData || hasMissingRequiredFunction
       ? {
