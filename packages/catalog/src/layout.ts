@@ -1338,8 +1338,12 @@ function isBetterLayout(candidate: RoomLayout, current: RoomLayout): boolean {
   if (candidateHard !== currentHard) return candidateHard < currentHard
   if (candidate.placed.length !== current.placed.length)
     return candidate.placed.length > current.placed.length
-  const candidateBlocked = candidate.problems.some((problem) => problem.kind === 'narrowWalkway')
-  const currentBlocked = current.problems.some((problem) => problem.kind === 'narrowWalkway')
+  const candidateBlocked =
+    candidate.problems.some((problem) => problem.kind === 'narrowWalkway') ||
+    candidate.safetyChecks.some((check) => check.status === 'blocked')
+  const currentBlocked =
+    current.problems.some((problem) => problem.kind === 'narrowWalkway') ||
+    current.safetyChecks.some((check) => check.status === 'blocked')
   if (candidateBlocked !== currentBlocked) return !candidateBlocked
   const candidateRelationships = relationshipScore(candidate)
   const currentRelationships = relationshipScore(current)
@@ -2183,6 +2187,7 @@ function layoutRoomCandidate(
       if (!placement) return []
       return [
         {
+          title: zone.title,
           targets: operationAccessTargets(zone, placement),
           requiredWidthCm: Math.min(WALKWAY_CM, zone.clearanceCm),
           // К журнальному столику достаточно подойти с одной стороны; у кровати и
@@ -2200,29 +2205,25 @@ function layoutRoomCandidate(
         blockingFloorReservations,
         [target],
       ) >= requiredWidthCm
-    const hasUnknownDirection = accessGroups.some(({ targets }) => targets.length === 0)
+    const unknownDirection = accessGroups.find(({ targets }) => targets.length === 0)
     const inaccessible = hasEntry
-      ? accessGroups.some(({ targets, requiredWidthCm, anySide }) =>
+      ? accessGroups.find(({ targets, requiredWidthCm, anySide }) =>
           anySide
             ? !targets.some((target) => canReach(target, requiredWidthCm))
             : targets.some((target) => !canReach(target, requiredWidthCm)),
         )
-      : false
+      : undefined
     safetyChecks.push({
       id: 'operation-zone-access',
       label: 'Доступ к рабочим зонам мебели',
       detail: !hasEntry
         ? 'Укажите положение двери, чтобы проверить путь к каждой стороне мебели.'
         : inaccessible
-          ? 'Хотя бы к одной стороне мебели нельзя пройти от входа с нужным запасом.'
-          : hasUnknownDirection
-            ? 'Укажите рабочую сторону мебели, чтобы проверить путь к ней от входа.'
+          ? `К рабочей зоне «${inaccessible.title}» нельзя пройти от входа с нужным запасом.`
+          : unknownDirection
+            ? `Укажите рабочую сторону «${unknownDirection.title}», чтобы проверить путь к ней от входа.`
             : 'К рабочим зонам мебели есть путь от входа с нужным запасом.',
-      status: inaccessible
-        ? 'blocked'
-        : !hasEntry || hasUnknownDirection
-          ? 'needs-data'
-          : 'checked',
+      status: inaccessible ? 'blocked' : !hasEntry || unknownDirection ? 'needs-data' : 'checked',
     })
   }
   for (const item of items) {
@@ -2421,6 +2422,8 @@ function layoutRoomCandidate(
   const hasMissingRequiredFunction = functionChecks.some(
     (check) => check.importance === 'required' && check.status === 'missing',
   )
+  const missingSafetyDetail =
+    missingSafetyData[0] ?? safetyChecks.find((check) => check.status === 'needs-data')?.detail
   const safetySummary: RoomLayout['safetySummary'] = hasBlocked
     ? {
         status: 'blocked',
@@ -2431,18 +2434,20 @@ function layoutRoomCandidate(
         detail:
           placed.length === 0 && walkwayCm < WALKWAY_CM
             ? 'Контур, дверные проёмы или препятствия не обеспечивают принятый свободный проход; перепроверьте схему.'
-            : 'Хотя бы один предмет, его рабочая зона или непрерывный проход не помещается.',
+            : (safetyChecks.find((check) => check.status === 'blocked')?.detail ??
+              'Хотя бы один предмет, его рабочая зона или непрерывный проход не помещается.'),
       }
     : hasNeedsData || hasMissingRequiredFunction
       ? {
           status: 'needs-data',
           title: 'Нужны данные перед покупкой',
-          detail: hasMissingRequiredFunction
-            ? 'Не закрыта хотя бы одна обязательная функция комнаты.'
-            : reservationSource === 'none'
-              ? 'Не подтверждено положение дверей, окон и радиаторов; зелёный результат пока невозможен.'
-              : (missingSafetyData[0] ??
-                'Не хватает габаритов или рабочей зоны хотя бы одного выбранного предмета.'),
+          detail:
+            missingSafetyDetail ??
+            (hasMissingRequiredFunction
+              ? 'Не закрыта хотя бы одна обязательная функция комнаты.'
+              : reservationSource === 'none'
+                ? 'Не подтверждено положение дверей, окон и радиаторов; зелёный результат пока невозможен.'
+                : 'Не хватает габаритов или рабочей зоны хотя бы одного выбранного предмета.'),
         }
       : hasPreliminary
         ? {
