@@ -16,7 +16,7 @@ export function layoutWithMeasurements(
   if (geometryInput) {
     return {
       ...layoutRoom({ ...geometryInput, roomKind, roomName: name }, items),
-      measurementNote: `${measurementNote} Погрешность контура, ниш и проёмов ещё не учтена в расчёте. Схема предварительная.`,
+      measurementNote: `${measurementNote} Расстановка рассчитана по контуру. Погрешность контура, ниш и проёмов ещё не учтена; для финальной сверки уточните эти размеры. Схема предварительная.`,
     }
   }
   const width = measurements?.widthCm
@@ -35,10 +35,10 @@ export function layoutWithMeasurements(
       ? (measurements.toleranceCm ?? 0)
       : 0
   if (tolerance > 0) {
-    measurementNote += ` Расчётная коробка: ${width - tolerance} × ${depth - tolerance} см вместо ${width} × ${depth} см — по нижней границе замера. Форма принята прямоугольной; погрешность проёмов и монтажные зазоры отдельно не проверены.`
+    measurementNote += ` Расчётный габарит: ${width - tolerance} × ${depth - tolerance} см вместо ${width} × ${depth} см — по нижней границе замера. Форма принята прямоугольной; погрешность проёмов и монтажные зазоры уточните отдельно.`
   } else {
     measurementNote +=
-      ' Размеры не уменьшены: для учёта погрешности подтвердите замер после отделки. Форма принята прямоугольной.'
+      ' Для учёта погрешности подтвердите замер после отделки. Сейчас расчёт использует указанные размеры без уменьшения; форма принята прямоугольной.'
   }
   return {
     ...layoutRoom(

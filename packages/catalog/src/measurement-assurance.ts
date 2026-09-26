@@ -23,8 +23,8 @@ export function hasCurrentVerification(measurements: RoomMeasurements | null): b
 
 export function measurementNotice(measurements: RoomMeasurements | null): string {
   if (!hasCurrentVerification(measurements))
-    return 'Ширина и глубина не подтверждены замером. Расстановка предварительная.'
+    return 'Подтвердите ширину и глубину замером, чтобы уточнить размещение мебели. Пока расстановка предварительная.'
   if (measurements?.finishStage === 'before')
-    return 'Замеры подтверждены пользователем до отделки. После отделки свободное пространство уменьшится — требуется повторный замер.'
-  return `Ширина и глубина подтверждены пользователем после отделки, погрешность ±${measurements?.toleranceCm} см. Это не проверка проёмов, монтажа или всего проекта специалистом.`
+    return 'Вы подтвердили замер до отделки. После отделки сделайте повторный замер: свободное пространство может уменьшиться.'
+  return `Вы подтвердили ширину и глубину после отделки, погрешность ±${measurements?.toleranceCm} см. Проёмы, доставку и монтаж сверяйте отдельно.`
 }

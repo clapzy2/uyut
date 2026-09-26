@@ -63,7 +63,16 @@ describe('measurement assurance', () => {
     }
     expect(hasCurrentVerification(before)).toBe(true)
     expect(measurementNotice(before)).toContain('повторный замер')
-    expect(measurementNotice(measured)).toContain('не проверка')
+    expect(measurementNotice(measured)).toContain('Проёмы, доставку и монтаж сверяйте отдельно')
+    expect(measurementNotice(measured)).toContain('±0.5 см')
+  })
+  it('gives a next step without claiming that missing or stale measurements are checked', () => {
+    for (const data of [null, { ...measured, widthCm: 301 }]) {
+      const notice = measurementNotice(data)
+      expect(notice).toContain('Подтвердите ширину и глубину замером')
+      expect(notice).toContain('расстановка предварительная')
+      expect(notice).not.toContain('Вы подтвердили')
+    }
   })
   it('invalidates verification on plan import and preserves unrelated spots', () => {
     const result = mergePlanMeasurements(measured, {

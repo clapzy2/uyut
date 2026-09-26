@@ -64,9 +64,20 @@ describe('plan review form', () => {
       planState: 'proposed',
       rooms: [{ name: 'Кухня', kind: 'kitchen', widthCm: 300, depthCm: 500, areaM2: 10 }],
     })
-    expect(html).toContain('Это проектное состояние, не исходный обмер')
-    expect(html).toContain('по одной площади нельзя исправить длину стены')
+    expect(html).toContain('Проектное состояние — вариант после изменений, не исходный обмер')
+    expect(html).toContain('Длину стены берём с чертежа или из замера, не из площади')
     expect(html).not.toContain('Ширина 200 см')
     expect(html).not.toContain('Глубина 333 см')
+  })
+
+  it('explains confirmation and gives a next step for unknown sides without inventing them', () => {
+    const html = render({
+      readAt: '2026-09-27',
+      rooms: [{ name: 'Спальня', kind: 'bedroom', areaM2: 12 }],
+    })
+    expect(html).toContain('замеры на месте подтверждаются отдельно')
+    expect(html).toContain('Дополните ширину и глубину по размерным линиям')
+    expect(html).toContain('Пока неизвестные размеры оставлены пустыми')
+    expect(html).not.toContain('Модель не может')
   })
 })

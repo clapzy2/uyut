@@ -83,28 +83,28 @@ export function sizeLabel(dimensions: DimensionsCm | null | undefined): string |
 /**
  * Вердикт по месту, словами.
  *
- * Молчим, когда мерок нет: пустая строка честнее догадки. «Не встанет» показываем с числом,
- * чтобы человек мог проверить нас сам.
+ * Называем проверенный габарит, а при неизвестных размерах — следующий шаг.
+ * Сравнение с участком стены не подменяет 2D-проверку проходов и рабочих зон.
  */
 export function fitLabel(fit: FitVerdict): string | null {
   // Под потолок не встаёт — участок стены уже не важен, поэтому этот случай первый
   if (fit.state === 'tooTall' && fit.ceilingCm) {
-    return `Не встанет по высоте: выше потолка на ${fit.overCm} см, потолок ${fit.ceilingCm} см`
+    return `По высоте не хватает ${fit.overCm} см с учётом запаса для установки; потолок ${fit.ceilingCm} см`
   }
   if (fit.state === 'unknown') {
-    if (fit.reason === 'itemDimensions') return 'Нужны полные размеры товара'
-    if (fit.reason === 'roomDimensions') return 'Нужны размеры комнаты'
-    if (fit.reason === 'wallMeasurements') return 'Нужен замер свободного участка стены'
-    return 'Размеры пока не подтверждены'
+    if (fit.reason === 'itemDimensions') return 'Для проверки уточните полные размеры товара'
+    if (fit.reason === 'roomDimensions') return 'Для проверки укажите размеры комнаты'
+    if (fit.reason === 'wallMeasurements') return 'Для проверки измерьте свободный участок стены'
+    return 'Для проверки подтвердите размеры'
   }
   if (!fit.spot || fit.itemCm === undefined) {
-    return 'Размеры пока не подтверждены'
+    return 'Для проверки подтвердите размеры'
   }
   if (fit.state === 'tooWide') {
     return `Не встанет: шире на ${fit.overCm} см, ${fit.spot.name} ${fit.spot.widthCm} см`
   }
   if (fit.state === 'tight') {
-    return `Подходит впритык: ${fit.spot.name} ${fit.spot.widthCm} см`
+    return `По длине впритык: ${fit.spot.name} ${fit.spot.widthCm} см. Уточните монтажный запас.`
   }
-  return `Подходит по размерам: ${fit.spot.name} ${fit.spot.widthCm} см`
+  return `Помещается по длине: ${fit.spot.name} ${fit.spot.widthCm} см`
 }

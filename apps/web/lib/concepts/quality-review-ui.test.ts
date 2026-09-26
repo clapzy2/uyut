@@ -22,7 +22,7 @@ describe('предупреждения качества', () => {
   })
   it('после перекраски не показывает старый отчёт', () => {
     const html = renderToStaticMarkup(createElement(QualityReview, { review, edited: true }))
-    expect(html).toContain('не проверялась автоматически')
+    expect(html).toContain('новая автосверка не выполнялась')
     expect(html).not.toContain('Видно два места.')
   })
   it('экранирует текст модели', () => {

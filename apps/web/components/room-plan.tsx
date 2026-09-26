@@ -423,7 +423,7 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
       </p>
 
       {layout.measurementNote ? (
-        <p className="mb-4 text-[13px] leading-relaxed text-ink-2">{layout.measurementNote}</p>
+        <p className="mb-4 text-[14px] leading-relaxed text-ink-2">{layout.measurementNote}</p>
       ) : null}
       <RoomPlanDrawing layout={layout} editable={canEdit} />
 
@@ -438,7 +438,7 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
         aria-live="polite"
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[13px] font-medium text-ink">{layout.safetySummary.title}</p>
+          <p className="text-[14px] font-medium text-ink">{layout.safetySummary.title}</p>
           <span
             className={`rounded-full border px-2 py-0.5 text-[11px] ${
               layout.safetySummary.status === 'checked'
@@ -452,15 +452,15 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
           >
             {
               {
-                checked: 'Можно сверять покупки',
+                checked: 'По схеме проверено',
                 preliminary: 'Нужна финальная сверка',
-                'needs-data': 'Расчёт неполный',
-                blocked: 'Покупать рано',
+                'needs-data': 'Дополнить данные',
+                blocked: 'Изменить расстановку',
               }[layout.safetySummary.status]
             }
           </span>
         </div>
-        <p className="mt-1 text-[12px] leading-relaxed text-ink-2">{layout.safetySummary.detail}</p>
+        <p className="mt-1 text-[14px] leading-relaxed text-ink-2">{layout.safetySummary.detail}</p>
       </section>
 
       {layout.functionChecks.length > 0 ? (
@@ -612,9 +612,7 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
 
       {layout.missingSafetyData.length > 0 ? (
         <div className="mt-4 border border-accent/40 bg-accent-tint p-3">
-          <p className="text-[13px] leading-relaxed text-ink">
-            Для точной проверки не хватает данных:
-          </p>
+          <p className="text-[14px] leading-relaxed text-ink">Дополните данные для проверки:</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink-2">
             {layout.missingSafetyData.map((message) => (
               <li key={message}>{message}</li>

@@ -26,6 +26,8 @@ output/quality-bench/
 output/model-bench-*/
 jobs/output/
 output/pdf/
+output/playwright/
+.playwright-cli/
 
 # trigger.dev
 .trigger/

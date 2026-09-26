@@ -150,7 +150,7 @@ function MatchRow({
           {fitLabel(match.fit) ? (
             <span
               className={cn(
-                'mt-0.5 block truncate text-[12px]',
+                'mt-0.5 block text-[13px] leading-relaxed',
                 match.fit.state === 'tooWide' || match.fit.state === 'tooTall'
                   ? 'text-danger'
                   : 'text-ink-2',
@@ -314,14 +314,14 @@ function MatchesPanel({
             onChange={(event) => onOnlyFitting(event.currentTarget.checked)}
             className="size-[16px] cursor-pointer appearance-none rounded-xs border border-control bg-paper transition-colors duration-200 ease-ui checked:border-accent checked:bg-accent"
           />
-          Показывать только то, что влезает по меркам
-          {onlyFitting ? '' : ` · не влезает ${oversized}`}
+          Скрыть товары с превышением габаритов
+          {onlyFitting ? '' : ` · ${oversized}`}
         </label>
       ) : null}
       {shown.length === 0 ? (
         <p className="text-[15px] leading-relaxed text-ink-2">
-          По меркам не влезает ни один из найденных. Снимите галочку, чтобы посмотреть их всё равно:
-          мерки бывают сняты неточно, а у товара бывает вариант поменьше.
+          Найденные товары превышают указанные габариты. Снимите фильтр, чтобы посмотреть другие
+          размеры в карточках магазина, или уточните мерки свободного участка.
         </p>
       ) : null}
       <ul className="flex flex-col divide-y divide-line border-y border-line">
@@ -337,11 +337,18 @@ function MatchesPanel({
           />
         ))}
       </ul>
-      <p className="text-[13px] leading-relaxed text-ink-2">
+      <p className="text-[14px] leading-relaxed text-ink-2">
         {object.styleOnly
-          ? 'Точной копии в каталоге нет, это ближайшие по духу. Ссылка открывает магазин в новой вкладке, «В список» кладёт товар в покупки проекта.'
-          : 'Похожие по форме и цвету, не точная копия. Ссылка открывает магазин в новой вкладке, «В список» кладёт товар в покупки проекта.'}
+          ? 'Товары подобраны по стилю, но не являются точными копиями на изображении.'
+          : 'Товары подобраны по форме и цвету, но не являются точными копиями на изображении.'}{' '}
+        В карточке сравниваем габарит с длиной участка стены, а высоту — при наличии данных. Проходы
+        и рабочие зоны смотрите на 2D-схеме.
       </p>
+      {oversized > 0 ? (
+        <p className="text-[14px] leading-relaxed text-ink-2">
+          Фильтр скрывает превышение размеров; товары без полной проверки остаются с пояснением.
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -544,6 +551,10 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
   return (
     <div className="grid min-w-0 gap-8 lg:grid-cols-[minmax(0,7fr)_minmax(0,4fr)] lg:gap-12">
       <div className="min-w-0">
+        <p className="mb-3 text-[14px] leading-relaxed text-ink-2">
+          Выберите стиль и сочетания. Это визуальный концепт; размещение проверяйте на 2D-схеме,
+          размеры и конкретные модели — по меркам и карточкам магазина.
+        </p>
         <div className="relative overflow-hidden border border-line bg-muted">
           {concept.renderSrc ? (
             // biome-ignore lint/performance/noImgElement: подписанная ссылка живёт час, оптимизатор next/image здесь не нужен

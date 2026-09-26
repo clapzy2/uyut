@@ -555,7 +555,7 @@ describe('layoutRoom', () => {
     expect(layout.problems).toEqual([])
     expect(layout.safetySummary).toMatchObject({
       status: 'needs-data',
-      title: 'Нужны данные перед покупкой',
+      title: 'Дополните данные для проверки',
       detail: expect.stringContaining('дверей, окон и радиаторов'),
     })
   })
