@@ -3,6 +3,8 @@ import { catalogFreshnessNotice } from '@uyut/catalog/freshness'
 import {
   type CatalogCategory,
   catalogItems,
+  conceptObjects,
+  concepts,
   type ItemOperationClearanceCm,
   type ItemPlacementCm,
   rooms,
@@ -21,6 +23,7 @@ import {
 } from '@/lib/projects/access'
 import { ownObjectKey, presignedObjectUrl } from '@/lib/storage'
 import { effectiveSizeReading, type ItemSizeReading } from './item-size'
+import { resolveShoppingVariant } from './variant'
 
 export type ShoppingItemView = {
   id: string
@@ -201,7 +204,7 @@ async function getOrCreateList(projectId: string): Promise<string> {
 }
 
 /**
- * Добавить товар. Тот же товар к тому же предмету рендера не дублируется, а увеличивает количество.
+ * Объединяем только одинаковые варианты в одной комнате у одного предмета рендера.
  */
 export async function addShoppingItem(
   userId: string,
@@ -213,59 +216,92 @@ export async function addShoppingItem(
   }
   const db = getDb()
   const [product] = await db
-    .select({ id: catalogItems.id })
+    .select({ id: catalogItems.id, variants: catalogItems.variants })
     .from(catalogItems)
     .where(eq(catalogItems.id, input.catalogItemId))
     .limit(1)
   if (!product) {
     throw new NotFoundError('Товар не найден')
   }
+  const selectedVariant = resolveShoppingVariant(input.variant, product.variants)
   let roomId: string | null = null
   if (input.roomId) {
+    if (!isUuid(input.roomId)) {
+      throw new NotFoundError('Комната не найдена')
+    }
     const [room] = await db
       .select({ id: rooms.id })
       .from(rooms)
       .where(and(eq(rooms.id, input.roomId), eq(rooms.projectId, project.id)))
       .limit(1)
-    roomId = room?.id ?? null
+    if (!room) {
+      throw new NotFoundError('Комната не найдена в этом проекте')
+    }
+    roomId = room.id
+  }
+  const conceptObjectId = input.conceptObjectId ?? null
+  if (conceptObjectId) {
+    if (!isUuid(conceptObjectId)) {
+      throw new NotFoundError('Предмет не найден')
+    }
+    const [object] = await db
+      .select({ roomId: concepts.roomId })
+      .from(conceptObjects)
+      .innerJoin(concepts, eq(concepts.id, conceptObjects.conceptId))
+      .innerJoin(rooms, eq(rooms.id, concepts.roomId))
+      .where(and(eq(conceptObjects.id, conceptObjectId), eq(rooms.projectId, project.id)))
+      .limit(1)
+    if (!object || (roomId && object.roomId !== roomId)) {
+      throw new NotFoundError('Предмет не найден в этой комнате проекта')
+    }
+    roomId = object.roomId
   }
   const quantity = Math.min(MAX_QUANTITY, Math.max(1, Math.round(input.quantity ?? 1)))
   const listId = await getOrCreateList(project.id)
-  const conceptObjectId = input.conceptObjectId ?? null
-  const [existing] = await db
-    .select({ id: shoppingListItems.id, quantity: shoppingListItems.quantity })
-    .from(shoppingListItems)
-    .where(
-      and(
-        eq(shoppingListItems.listId, listId),
-        eq(shoppingListItems.catalogItemId, product.id),
-        sql`${shoppingListItems.conceptObjectId} is not distinct from ${conceptObjectId}::uuid`,
-      ),
-    )
-    .limit(1)
-  if (existing) {
-    const next = Math.min(MAX_QUANTITY, existing.quantity + quantity)
-    await db
-      .update(shoppingListItems)
-      .set({ quantity: next, ...(input.variant ? { selectedVariant: input.variant } : {}) })
-      .where(eq(shoppingListItems.id, existing.id))
-    return { itemId: existing.id, quantity: next }
-  }
-  const [created] = await db
-    .insert(shoppingListItems)
-    .values({
-      listId,
-      catalogItemId: product.id,
-      roomId,
-      conceptObjectId,
-      quantity,
-      selectedVariant: input.variant ?? null,
-    })
-    .returning({ id: shoppingListItems.id, quantity: shoppingListItems.quantity })
-  if (!created) {
-    throw new Error('shopping item insert returned nothing')
-  }
-  return { itemId: created.id, quantity: created.quantity }
+  return db.transaction(async (tx) => {
+    // Блокировка списка сериализует одновременные добавления без новой миграции.
+    await tx
+      .select({ id: shoppingLists.id })
+      .from(shoppingLists)
+      .where(eq(shoppingLists.id, listId))
+      .for('update')
+    const [existing] = await tx
+      .select({ id: shoppingListItems.id, quantity: shoppingListItems.quantity })
+      .from(shoppingListItems)
+      .where(
+        and(
+          eq(shoppingListItems.listId, listId),
+          eq(shoppingListItems.catalogItemId, product.id),
+          sql`${shoppingListItems.conceptObjectId} is not distinct from ${conceptObjectId}::uuid`,
+          sql`${shoppingListItems.roomId} is not distinct from ${roomId}::uuid`,
+          sql`${shoppingListItems.selectedVariant} is not distinct from ${selectedVariant ? JSON.stringify(selectedVariant) : null}::jsonb`,
+        ),
+      )
+      .limit(1)
+    if (existing) {
+      const next = Math.min(MAX_QUANTITY, existing.quantity + quantity)
+      await tx
+        .update(shoppingListItems)
+        .set({ quantity: next })
+        .where(eq(shoppingListItems.id, existing.id))
+      return { itemId: existing.id, quantity: next }
+    }
+    const [created] = await tx
+      .insert(shoppingListItems)
+      .values({
+        listId,
+        catalogItemId: product.id,
+        roomId,
+        conceptObjectId,
+        quantity,
+        selectedVariant,
+      })
+      .returning({ id: shoppingListItems.id, quantity: shoppingListItems.quantity })
+    if (!created) {
+      throw new Error('shopping item insert returned nothing')
+    }
+    return { itemId: created.id, quantity: created.quantity }
+  })
 }
 
 async function ownedItem(

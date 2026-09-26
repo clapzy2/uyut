@@ -433,7 +433,11 @@ export async function buildPdfData(input: {
           : 'габариты не указаны — проверьте перед покупкой',
         row.product.inStock ? null : 'нет в наличии',
         catalogFreshnessNotice(row.product.lastSyncedAt),
-        row.item.selectedVariant ? 'цену выбранного варианта уточните в магазине' : null,
+        row.item.selectedVariant?.swatchId
+          ? 'цвет — пожелание из концепта; наличие этой ткани и цену уточните в магазине'
+          : row.item.selectedVariant
+            ? 'цену выбранного варианта уточните в магазине'
+            : null,
       ]
         .filter(Boolean)
         .join(' · '),

@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { upsertFeedItems } from '@uyut/catalog'
-import { catalogItems, projects, rooms, shoppingLists, users } from '@uyut/db'
+import {
+  catalogItems,
+  conceptObjects,
+  concepts,
+  projects,
+  rooms,
+  shoppingLists,
+  users,
+} from '@uyut/db'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { getDb } from '@/lib/db'
@@ -57,6 +65,14 @@ describe('shopping list in a real database', () => {
         priceKopecks: 67_900_00,
         affiliateUrl: 'https://shop/sofa',
         images: [{ url: 'https://cdn/sofa.jpg' }],
+        variants: [
+          {
+            color: 'зелёный велюр',
+            priceKopecks: 79_900_00,
+            imageUrl: 'https://cdn.example/green.jpg',
+            affiliateUrl: 'https://shop.example/green',
+          },
+        ],
         inStock: true,
       },
       {
@@ -67,6 +83,7 @@ describe('shopping list in a real database', () => {
         priceKopecks: 6_990_00,
         affiliateUrl: 'https://shop/lamp',
         images: [{ url: 'https://cdn/lamp.jpg' }],
+        variants: [{ color: 'чёрный', priceKopecks: 7_490_00 }],
         inStock: true,
       },
     ])
@@ -115,7 +132,7 @@ describe('shopping list in a real database', () => {
 
   it('keeps a separate row for the same product on another rendered object', async () => {
     const objectId = randomUUID()
-    // Чужой uuid предмета не пройдёт по внешнему ключу, поэтому проверяем без привязки
+    // Неизвестный предмет отклоняется до записи строки.
     await expect(
       addShoppingItem(ownerId, { projectId, catalogItemId: sofaId, conceptObjectId: objectId }),
     ).rejects.toThrow()
@@ -238,6 +255,137 @@ describe('shopping list in a real database', () => {
     } finally {
       vi.unstubAllGlobals()
       await removeShoppingItem(ownerId, added.itemId)
+    }
+  })
+
+  it('separates fabrics and rooms and serializes concurrent additions', async () => {
+    const [otherRoom] = await getDb()
+      .insert(rooms)
+      .values({ projectId, kind: 'bedroom', name: 'Спальня', areaM2: 12 })
+      .returning({ id: rooms.id })
+    if (!otherRoom) throw new Error('Missing bedroom')
+    const createdIds = new Set<string>()
+    try {
+      const basic = await addShoppingItem(ownerId, { projectId, catalogItemId: sofaId, roomId })
+      createdIds.add(basic.itemId)
+      const green = await addShoppingItem(ownerId, {
+        projectId,
+        catalogItemId: sofaId,
+        roomId,
+        variant: {
+          color: 'зелёный велюр',
+          affiliateUrl: 'https://shop.example/green',
+          priceKopecks: 1,
+          imageUrl: 'https://untrusted.example/image',
+        },
+      })
+      createdIds.add(green.itemId)
+      const bedroom = await addShoppingItem(ownerId, {
+        projectId,
+        catalogItemId: sofaId,
+        roomId: otherRoom.id,
+      })
+      createdIds.add(bedroom.itemId)
+      expect(createdIds.size).toBe(3)
+      const additions = await Promise.all(
+        Array.from({ length: 4 }, () =>
+          addShoppingItem(ownerId, { projectId, catalogItemId: sofaId, roomId }),
+        ),
+      )
+      expect(additions.every((item) => item.itemId === basic.itemId)).toBe(true)
+      const list = await getShoppingList(ownerId, projectId)
+      expect(list.items.find((item) => item.id === basic.itemId)?.quantity).toBe(5)
+      expect(list.items.find((item) => item.id === green.itemId)?.variant).toEqual({
+        color: 'зелёный велюр',
+        affiliateUrl: 'https://shop.example/green',
+        priceKopecks: 79_900_00,
+        imageUrl: 'https://cdn.example/green.jpg',
+      })
+      await expect(
+        addShoppingItem(ownerId, {
+          projectId,
+          catalogItemId: sofaId,
+          roomId: randomUUID(),
+        }),
+      ).rejects.toBeInstanceOf(NotFoundError)
+    } finally {
+      for (const id of createdIds) await removeShoppingItem(ownerId, id)
+      await getDb().delete(rooms).where(eq(rooms.id, otherRoom.id))
+    }
+  })
+
+  it('rejects real foreign objects and derives the room only for owned objects', async () => {
+    const db = getDb()
+    const [foreignProject] = await db
+      .insert(projects)
+      .values({ ownerId: strangerId, title: 'Чужой проект' })
+      .returning({ id: projects.id })
+    if (!foreignProject) throw new Error('Missing foreign project')
+    let itemId: string | null = null
+    let ownedConceptId: string | null = null
+    try {
+      const [foreignRoom] = await db
+        .insert(rooms)
+        .values({ projectId: foreignProject.id, kind: 'living', name: 'Чужая комната', areaM2: 18 })
+        .returning({ id: rooms.id })
+      if (!foreignRoom) throw new Error('Missing foreign room')
+      const [foreignConcept, ownedConcept] = await db
+        .insert(concepts)
+        .values([
+          { roomId: foreignRoom.id, batchId: randomUUID(), prompt: 'test', aiModel: 'offline' },
+          { roomId, batchId: randomUUID(), prompt: 'test', aiModel: 'offline' },
+        ])
+        .returning({ id: concepts.id })
+      if (!foreignConcept || !ownedConcept) throw new Error('Missing concepts')
+      ownedConceptId = ownedConcept.id
+      const [foreignObject, ownedObject] = await db
+        .insert(conceptObjects)
+        .values([
+          {
+            conceptId: foreignConcept.id,
+            category: 'sofa' as const,
+            label: 'Диван',
+            bbox: { x: 0, y: 0, w: 1, h: 1 },
+            embedding: Array(1024).fill(0),
+          },
+          {
+            conceptId: ownedConcept.id,
+            category: 'sofa' as const,
+            label: 'Диван',
+            bbox: { x: 0, y: 0, w: 1, h: 1 },
+            embedding: Array(1024).fill(0),
+          },
+        ])
+        .returning({ id: conceptObjects.id })
+      if (!foreignObject || !ownedObject) throw new Error('Missing objects')
+      await expect(
+        addShoppingItem(ownerId, {
+          projectId,
+          catalogItemId: sofaId,
+          conceptObjectId: foreignObject.id,
+        }),
+      ).rejects.toBeInstanceOf(NotFoundError)
+      await expect(
+        addShoppingItem(ownerId, {
+          projectId,
+          catalogItemId: sofaId,
+          roomId: foreignRoom.id,
+        }),
+      ).rejects.toBeInstanceOf(NotFoundError)
+      const added = await addShoppingItem(ownerId, {
+        projectId,
+        catalogItemId: sofaId,
+        conceptObjectId: ownedObject.id,
+      })
+      itemId = added.itemId
+      expect(
+        (await getShoppingList(ownerId, projectId)).items.find((item) => item.id === itemId)
+          ?.roomId,
+      ).toBe(roomId)
+    } finally {
+      if (itemId) await removeShoppingItem(ownerId, itemId)
+      if (ownedConceptId) await db.delete(concepts).where(eq(concepts.id, ownedConceptId))
+      await db.delete(projects).where(eq(projects.id, foreignProject.id))
     }
   })
 })

@@ -95,6 +95,11 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
           {item.title}
         </a>
         <span className="block truncate text-[13px] text-ink-2">{meta.join(' · ')}</span>
+        {item.variant?.swatchId ? (
+          <span className="block text-[12px] text-ink-2">
+            Цвет — пожелание из концепта. Наличие этой ткани и цену уточните в магазине.
+          </span>
+        ) : null}
         {item.catalogNotice ? (
           <span className="block text-[12px] text-ink-2">{item.catalogNotice}</span>
         ) : null}

@@ -204,6 +204,20 @@ describe('selected shopping variant in PDF data without AI or external requests'
     expect(pdf.estimate.furnitureKopecks).toBe(1_600_000)
   })
 
+  it('labels recoloring as a wish and uses base store price and image', async () => {
+    const data = snapshot()
+    const row = data.shopping[0]
+    if (!row) throw new Error('Missing shopping fixture')
+    row.item.selectedVariant = { swatchId: 'linen-milk', color: 'молочный лён' }
+    const { pdf, fetchImage } = await build(data)
+    expect(fetchImage.mock.calls[0]?.[0]).toBe('https://cdn.example/base.png')
+    expect(pdf.shopping[0]?.items[0]).toMatchObject({
+      priceKopecks: 700_000,
+      affiliateUrl: 'https://shop.example/base',
+    })
+    expect(pdf.shopping[0]?.items[0]?.meta).toContain('цвет — пожелание из концепта')
+  })
+
   it('falls back to base product values and does not invent absent dimensions', async () => {
     const data = snapshot()
     const row = data.shopping[0]
