@@ -9,6 +9,7 @@ import {
   shoppingLists,
   users,
 } from '@uyut/db'
+import { renderProjectHtml } from '@uyut/pdf'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { getDb } from '@/lib/db'
@@ -311,6 +312,147 @@ describe('shopping list in a real database', () => {
     } finally {
       for (const id of createdIds) await removeShoppingItem(ownerId, id)
       await getDb().delete(rooms).where(eq(rooms.id, otherRoom.id))
+    }
+  })
+
+  it('keeps a selected concept and its chosen fabric through the list and printed HTML without a like', async () => {
+    const db = getDb()
+    const [selectedProject] = await db
+      .insert(projects)
+      .values({ ownerId, title: `Печатный путь ${run}`, budgetKopecks: 600_000_00 })
+      .returning({ id: projects.id })
+    if (!selectedProject) throw new Error('Missing print project')
+    try {
+      const [selectedRoom] = await db
+        .insert(rooms)
+        .values({
+          projectId: selectedProject.id,
+          kind: 'living',
+          name: 'Гостиная',
+          areaM2: 18.4,
+          measurements: { widthCm: 400, depthCm: 460 },
+        })
+        .returning({ id: rooms.id })
+      if (!selectedRoom) throw new Error('Missing print room')
+      const [selectedConcept] = await db
+        .insert(concepts)
+        .values({
+          roomId: selectedRoom.id,
+          batchId: randomUUID(),
+          status: 'ready',
+          likedByOwner: null,
+          prompt: 'Синтетический концепт без генерации',
+          aiModel: 'offline-test',
+        })
+        .returning({ id: concepts.id })
+      if (!selectedConcept) throw new Error('Missing print concept')
+      const [likedAlternative] = await db
+        .insert(concepts)
+        .values([
+          {
+            roomId: selectedRoom.id,
+            batchId: randomUUID(),
+            status: 'ready',
+            likedByOwner: true,
+            prompt: 'Понравившийся вариант без выбранных товаров',
+            aiModel: 'offline-test',
+          },
+          {
+            roomId: selectedRoom.id,
+            batchId: randomUUID(),
+            status: 'ready',
+            likedByOwner: null,
+            prompt: 'Не выбранный вариант',
+            aiModel: 'offline-test',
+          },
+        ])
+        .returning({ id: concepts.id })
+      if (!likedAlternative) throw new Error('Missing liked alternative')
+      const [selectedObject] = await db
+        .insert(conceptObjects)
+        .values({
+          conceptId: selectedConcept.id,
+          category: 'sofa',
+          label: 'Диван',
+          bbox: { x: 0, y: 0, w: 1, h: 1 },
+          embedding: Array(1024).fill(0),
+          matchedCatalogItemId: lampId,
+        })
+        .returning({ id: conceptObjects.id })
+      if (!selectedObject) throw new Error('Missing print object')
+      // Browser-provided price/photo cannot replace the catalog's chosen fabric.
+      const added = await addShoppingItem(ownerId, {
+        projectId: selectedProject.id,
+        catalogItemId: sofaId,
+        conceptObjectId: selectedObject.id,
+        quantity: 2,
+        variant: {
+          color: 'зелёный велюр',
+          affiliateUrl: 'https://shop.example/green',
+          priceKopecks: 1,
+          imageUrl: 'https://untrusted.example/image',
+        },
+      })
+      await setShoppingItemSize(ownerId, added.itemId, { width: 210, depth: 90 })
+      const list = await getShoppingList(ownerId, selectedProject.id)
+      expect(list.items[0]).toMatchObject({
+        roomId: selectedRoom.id,
+        totalKopecks: 159_800_00,
+        imageUrl: 'https://cdn.example/green.jpg',
+      })
+      const snapshot = await loadSnapshot(selectedProject.id)
+      if (!snapshot) throw new Error('Missing print snapshot')
+      expect(snapshot.concepts.get(selectedRoom.id)?.main.id).toBe(selectedConcept.id)
+      expect(
+        snapshot.concepts.get(selectedRoom.id)?.alternates.map((concept) => concept.id),
+      ).toEqual([likedAlternative.id])
+      expect(snapshot.objects.get(selectedRoom.id)?.[0]).toMatchObject({
+        product: 'Диван для списка',
+        priceKopecks: 79_900_00,
+      })
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 404 })))
+      const pdf = await buildPdfData({
+        snapshot,
+        kind: 'free',
+        options: {},
+        rates: { roughRubPerM2: 15_000, finishRubPerM2: 5_000 },
+        brief: null,
+        summary: null,
+      })
+      expect(pdf.roomsWithoutConcept).toEqual([])
+      expect(pdf.estimate.totalKopecks).toBe(527_800_00)
+      const html = renderProjectHtml(pdf, { fontCss: '' })
+      expect(html).toContain('href="https://shop.example/green"')
+      expect(html).toContain('зелёный велюр')
+      expect(html).toContain('ширина 210 см, глубина 90 см')
+      expect(html).toContain('размеры введены вами')
+      expect(html).toContain('class="page plan-page"')
+      expect(html).toContain('527 800 ₽')
+      expect(html).toContain('Материалы для отделки в сумму не включены')
+      expect(html).not.toContain('untrusted.example')
+      expect(html).not.toContain('Выбранное помещается')
+
+      // Two variants selected for one rendered object must not imply a single model/price.
+      await addShoppingItem(ownerId, {
+        projectId: selectedProject.id,
+        catalogItemId: sofaId,
+        conceptObjectId: selectedObject.id,
+      })
+      const multipleChoices = await loadSnapshot(selectedProject.id)
+      expect(multipleChoices?.concepts.get(selectedRoom.id)?.main.id).toBe(selectedConcept.id)
+      expect(multipleChoices?.objects.get(selectedRoom.id)?.[0]).toMatchObject({
+        product: 'Несколько выбранных позиций — см. список покупок',
+        priceKopecks: null,
+      })
+      for (const item of (await getShoppingList(ownerId, selectedProject.id)).items) {
+        await removeShoppingItem(ownerId, item.id)
+      }
+      const likedOnly = await loadSnapshot(selectedProject.id)
+      expect(likedOnly?.concepts.get(selectedRoom.id)?.main.id).toBe(likedAlternative.id)
+      expect(likedOnly?.concepts.get(selectedRoom.id)?.alternates).toEqual([])
+    } finally {
+      vi.unstubAllGlobals()
+      await db.delete(projects).where(eq(projects.id, selectedProject.id))
     }
   })
 

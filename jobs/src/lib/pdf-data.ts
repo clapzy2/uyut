@@ -26,7 +26,7 @@ import {
 } from '@uyut/db'
 import type { PdfData, PdfImage, PdfRoom, PdfShoppingGroup } from '@uyut/pdf'
 import { formatArea, formatPrice } from '@uyut/pdf'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db } from './db'
 import { optionalEnv, requireEnv } from './env'
@@ -232,29 +232,34 @@ export async function loadSnapshot(projectId: string): Promise<ProjectSnapshot |
   for (const row of objectConcepts) {
     votes.set(row.conceptId, (votes.get(row.conceptId) ?? 0) + 1)
   }
+  const selectedConceptIds = [...votes.keys()]
 
   const conceptMap: ProjectSnapshot['concepts'] = new Map()
   const objectsMap: ProjectSnapshot['objects'] = new Map()
   for (const room of roomRows) {
-    const liked = await database
+    const candidates = await database
       .select()
       .from(concepts)
       .where(
         and(
           eq(concepts.roomId, room.id),
           eq(concepts.status, 'ready'),
-          eq(concepts.likedByOwner, true),
+          selectedConceptIds.length > 0
+            ? or(eq(concepts.likedByOwner, true), inArray(concepts.id, selectedConceptIds))
+            : eq(concepts.likedByOwner, true),
         ),
       )
       .orderBy(desc(concepts.createdAt))
-    const voted = [...liked].sort((a, b) => (votes.get(b.id) ?? 0) - (votes.get(a.id) ?? 0))
-    const main = voted.find((concept) => (votes.get(concept.id) ?? 0) > 0) ?? liked[0]
+    const voted = [...candidates].sort((a, b) => (votes.get(b.id) ?? 0) - (votes.get(a.id) ?? 0))
+    const main = voted.find((concept) => (votes.get(concept.id) ?? 0) > 0) ?? candidates[0]
     if (!main) {
       continue
     }
     conceptMap.set(room.id, {
       main,
-      alternates: liked.filter((concept) => concept.id !== main.id).slice(0, 3),
+      alternates: candidates
+        .filter((concept) => concept.id !== main.id && concept.likedByOwner === true)
+        .slice(0, 3),
     })
     const rows = await database
       .select({ object: conceptObjects, product: catalogItems })
@@ -264,12 +269,25 @@ export async function loadSnapshot(projectId: string): Promise<ProjectSnapshot |
       .orderBy(conceptObjects.orderIndex)
     objectsMap.set(
       room.id,
-      rows.map(({ object, product }) => ({
-        index: object.orderIndex + 1,
-        category: object.category,
-        product: product?.title ?? null,
-        priceKopecks: product?.priceKopecks ?? null,
-      })),
+      rows.map(({ object, product }) => {
+        const chosen = shopping.filter((row) => row.item.conceptObjectId === object.id)
+        const selected = chosen.length === 1 ? chosen[0] : undefined
+        return {
+          index: object.orderIndex + 1,
+          category: object.category,
+          product:
+            chosen.length > 1
+              ? 'Несколько выбранных позиций — см. список покупок'
+              : (selected?.product.title ?? product?.title ?? null),
+          priceKopecks:
+            chosen.length > 1
+              ? null
+              : (selected?.item.selectedVariant?.priceKopecks ??
+                selected?.product.priceKopecks ??
+                product?.priceKopecks ??
+                null),
+        }
+      }),
     )
   }
   return {
