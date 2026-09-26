@@ -25,6 +25,7 @@ blob-report/
 output/quality-bench/
 output/model-bench-*/
 jobs/output/
+output/pdf/
 
 # trigger.dev
 .trigger/

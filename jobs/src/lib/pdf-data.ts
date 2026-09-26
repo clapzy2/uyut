@@ -6,6 +6,7 @@ import {
   subcategoryFromText,
   type WorksRates,
 } from '@uyut/catalog'
+import { catalogFreshnessNotice } from '@uyut/catalog/freshness'
 import { layoutWithMeasurements } from '@uyut/catalog/layout-with-measurements'
 import {
   type CatalogCategory,
@@ -431,6 +432,8 @@ export async function buildPdfData(input: {
             : 'размеры магазина — проверьте перед покупкой'
           : 'габариты не указаны — проверьте перед покупкой',
         row.product.inStock ? null : 'нет в наличии',
+        catalogFreshnessNotice(row.product.lastSyncedAt),
+        row.item.selectedVariant ? 'цену выбранного варианта уточните в магазине' : null,
       ]
         .filter(Boolean)
         .join(' · '),

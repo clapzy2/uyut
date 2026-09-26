@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./geometry": "./src/geometry.ts",
+    "./freshness": "./src/freshness.ts",
     "./layout": "./src/layout.ts",
     "./layout-with-measurements": "./src/layout-with-measurements.ts",
     "./measurement-assurance": "./src/measurement-assurance.ts"

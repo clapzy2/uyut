@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "qa:pdf": "bun run scripts/qa-pdf.ts",
     "dev": "bun --env-file=../.env run trigger dev",
     "deploy": "trigger deploy",
     "typecheck": "tsc --noEmit",

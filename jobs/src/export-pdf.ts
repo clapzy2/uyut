@@ -2,14 +2,14 @@ import { logger, metadata, task } from '@trigger.dev/sdk'
 import { briefHash, createFalBriefGenerator } from '@uyut/ai'
 import type { WorksRates } from '@uyut/catalog'
 import { type ContractorBrief, projectExports } from '@uyut/db'
-import { fontFaceCss, footerTemplate, renderProjectHtml } from '@uyut/pdf'
+import { fontFaceCss, renderProjectHtml } from '@uyut/pdf'
 import { and, desc, eq, isNotNull, ne } from 'drizzle-orm'
-import { chromium } from 'playwright'
 import { z } from 'zod'
 import { db } from './lib/db'
 import { optionalEnv, requireEnv } from './lib/env'
 
 import { briefInput, buildPdfData, loadSnapshot } from './lib/pdf-data'
+import { printPdf } from './lib/print-pdf'
 import { putObject } from './lib/s3'
 
 const payloadSchema = z.object({ exportId: z.uuid() })
@@ -53,25 +53,6 @@ async function cachedBrief(
     .orderBy(desc(projectExports.createdAt))
     .limit(1)
   return row?.brief ?? null
-}
-
-async function printPdf(html: string, title: string): Promise<Buffer> {
-  const browser = await chromium.launch()
-  try {
-    const page = await browser.newPage()
-    await page.setContent(html, { waitUntil: 'load' })
-    await page.emulateMedia({ media: 'print' })
-    return await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      preferCSSPageSize: true,
-      displayHeaderFooter: true,
-      headerTemplate: '<span></span>',
-      footerTemplate: footerTemplate(title),
-    })
-  } finally {
-    await browser.close()
-  }
 }
 
 // Число страниц по объектам /Type /Page в файле; для отчёта и P95 точности хватает

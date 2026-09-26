@@ -1,4 +1,5 @@
 import { checkFit, type DimensionsCm, type FitVerdict, itemTotalKopecks } from '@uyut/catalog'
+import { catalogFreshnessNotice } from '@uyut/catalog/freshness'
 import {
   type CatalogCategory,
   catalogItems,
@@ -36,6 +37,7 @@ export type ShoppingItemView = {
   /** Запасная ссылка на картинку: первая у части магазинов не отвечает */
   imageFallbackUrl: string | null
   inStock: boolean
+  catalogNotice?: string | null
   quantity: number
   /** Цена строки: цена варианта или товара, умноженная на количество */
   totalKopecks: number
@@ -127,6 +129,7 @@ export async function getShoppingList(
         ),
         imageFallbackUrl: await productImage(orderedImages(product.images)[1]),
         inStock: product.inStock,
+        catalogNotice: catalogFreshnessNotice(product.lastSyncedAt),
         quantity: item.quantity,
         totalKopecks: itemTotalKopecks({
           priceKopecks: product.priceKopecks,

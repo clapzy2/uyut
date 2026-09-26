@@ -2,15 +2,17 @@ import { randomUUID } from 'node:crypto'
 import { upsertFeedItems } from '@uyut/catalog'
 import { catalogItems, projects, rooms, shoppingLists, users } from '@uyut/db'
 import { eq } from 'drizzle-orm'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { getDb } from '@/lib/db'
 import { NotFoundError } from '@/lib/projects/access'
+import { buildPdfData, loadSnapshot } from '../../../../jobs/src/lib/pdf-data'
 import {
   addShoppingItem,
   getShoppingList,
   removeShoppingItem,
   setShoppingItemPlacement,
   setShoppingItemQuantity,
+  setShoppingItemSize,
   shoppingQuantities,
 } from './repository'
 
@@ -187,5 +189,55 @@ describe('shopping list in a real database', () => {
     await expect(
       addShoppingItem(ownerId, { projectId, catalogItemId: randomUUID() }),
     ).rejects.toBeInstanceOf(NotFoundError)
+  })
+
+  it('keeps the selected fabric and user dimensions from the real list into PDF data', async () => {
+    const variant = {
+      color: 'зелёный велюр',
+      priceKopecks: 79_900_00,
+      imageUrl: 'https://cdn.example/green.jpg',
+      affiliateUrl: 'https://shop.example/green',
+    }
+    const added = await addShoppingItem(ownerId, {
+      projectId,
+      catalogItemId: sofaId,
+      roomId,
+      quantity: 2,
+      variant,
+    })
+    try {
+      await setShoppingItemSize(ownerId, added.itemId, { width: 210, depth: 90 })
+      const list = await getShoppingList(ownerId, projectId)
+      expect(list.items.find((item) => item.id === added.itemId)).toMatchObject({
+        variant,
+        dimensionsCm: { width: 210, depth: 90 },
+        totalKopecks: 159_800_00,
+      })
+      const snapshot = await loadSnapshot(projectId)
+      if (!snapshot) throw new Error('Missing project snapshot')
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 404 })))
+      const pdf = await buildPdfData({
+        snapshot,
+        kind: 'free',
+        options: {},
+        rates: { roughRubPerM2: 15_000, finishRubPerM2: 5_000 },
+        brief: null,
+        summary: null,
+      })
+      const sofa = pdf.shopping
+        .flatMap((group) => group.items)
+        .find((item) => item.title === 'Диван для списка')
+      expect(sofa).toMatchObject({
+        affiliateUrl: variant.affiliateUrl,
+        quantity: 2,
+        priceKopecks: variant.priceKopecks,
+        totalKopecks: 159_800_00,
+      })
+      expect(sofa?.meta).toContain('зелёный велюр')
+      expect(sofa?.meta).toContain('ширина 210 см, глубина 90 см')
+    } finally {
+      vi.unstubAllGlobals()
+      await removeShoppingItem(ownerId, added.itemId)
+    }
   })
 })

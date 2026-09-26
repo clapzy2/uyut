@@ -444,7 +444,7 @@ function shopping(data: PdfData, free: boolean): string {
         : `${data.shopping.map(shoppingGroup).join('')}
     <div class="shop"><div class="total"><span>Итого по мебели и декору</span><span class="price">${formatPrice(data.estimate.furnitureKopecks)}</span></div></div>`
     }
-    <p class="small" style="margin-top:6mm">Цены на ${esc(formatLongDate(data.generatedAt))}. Ссылки на магазины — в проекте на сайте, там же список можно менять, PDF пересобирается за минуту.${data.roomsWithoutConcept.length > 0 ? ` ${esc(data.roomsWithoutConcept.join(', '))}: расстановка не утверждена, покупок пока нет.` : ''}</p>
+    <p class="small" style="margin-top:6mm">Документ собран ${esc(formatLongDate(data.generatedAt))}. Цены ориентировочные: перед покупкой проверьте цену, наличие и выбранную ткань в магазине. Ссылки на товары — в этом документе; список можно менять в проекте на сайте.${data.roomsWithoutConcept.length > 0 ? ` ${esc(data.roomsWithoutConcept.join(', '))}: расстановка не утверждена.` : ''}</p>
     ${adNotice(data)}
   </section>`
 }
@@ -452,8 +452,8 @@ function shopping(data: PdfData, free: boolean): string {
 /**
  * Пометки рекламы одним блоком внизу страницы покупок.
  *
- * В документе нет кликабельных ссылок, зато товары названы и оценены, поэтому пометку сети
- * показываем. Строка длинная, и под каждым товаром она разнесла бы список на лишние страницы,
+ * В документе есть ссылки на товары, поэтому пометку сети показываем. Строка длинная,
+ * и под каждым товаром она разнесла бы список на лишние страницы,
  * а рекламодателей на весь список обычно два-три — отсюда общий блок без повторов.
  */
 function adNotice(data: PdfData): string {

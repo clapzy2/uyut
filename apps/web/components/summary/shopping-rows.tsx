@@ -95,6 +95,9 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
           {item.title}
         </a>
         <span className="block truncate text-[13px] text-ink-2">{meta.join(' · ')}</span>
+        {item.catalogNotice ? (
+          <span className="block text-[12px] text-ink-2">{item.catalogNotice}</span>
+        ) : null}
         {sizeSource ? <span className="block text-[12px] text-ink-2">{sizeSource}</span> : null}
         {fit ? (
           <span
