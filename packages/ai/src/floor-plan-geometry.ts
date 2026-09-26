@@ -20,6 +20,7 @@ export type PlanOpening = {
 
 export type PlanRoomShape = {
   name: string
+  sourceNumber?: number
   polygon: PlanPoint[]
 }
 
@@ -52,7 +53,20 @@ export type PlanGeometry = {
   warnings: string[]
 }
 
-export type PlanRoomArea = { name: string; areaM2?: number }
+export type PlanRoomArea = {
+  name: string
+  sourceNumber?: number
+  areaM2?: number
+  widthCm?: number
+  depthCm?: number
+}
+
+/** Номер из экспликации, одинаковый контракт у строки комнаты и её контура. */
+export function planRoomSourceNumber(raw: unknown): number | undefined {
+  if (typeof raw !== 'number' && typeof raw !== 'string') return undefined
+  const value = Number(raw)
+  return Number.isInteger(value) && value >= 1 && value <= 50 ? value : undefined
+}
 
 const MIN_CANVAS_CM = 100
 const MAX_CANVAS_CM = 10_000
@@ -63,9 +77,12 @@ const MAX_WALLS = 200
 const MAX_OPENINGS = 200
 const MAX_ROOMS = 50
 const MAX_OBSTACLES = 100
+const ROOM_SIDE_TOLERANCE = 0.05
 const MANUAL_GEOMETRY_ID = /^manual_[a-f0-9]{24}$/
 
 function finite(value: unknown): number | undefined {
+  if (typeof value !== 'number' && typeof value !== 'string') return undefined
+  if (typeof value === 'string' && value.trim() === '') return undefined
   const number = Number(value)
   return Number.isFinite(number) ? number : undefined
 }
@@ -279,12 +296,13 @@ function parsePlanGeometryInternal(raw: unknown, minimumWalls: number): PlanGeom
     if (!rawRoom || typeof rawRoom !== 'object') continue
     const room = rawRoom as Record<string, unknown>
     const name = typeof room.name === 'string' ? room.name.trim().slice(0, 40) : ''
-    const polygon = (Array.isArray(room.polygon) ? room.polygon : [])
-      .slice(0, MAX_POINTS)
-      .map((entry) => point(entry, widthCm, heightCm))
-      .filter((entry): entry is PlanPoint => entry !== undefined)
+    const rawPolygon = Array.isArray(room.polygon) ? room.polygon : []
+    const vertices = rawPolygon.slice(0, MAX_POINTS).map((entry) => point(entry, widthCm, heightCm))
+    const polygon = vertices.filter((entry): entry is PlanPoint => entry !== undefined)
     if (
       !name ||
+      rawPolygon.length > MAX_POINTS ||
+      polygon.length !== vertices.length ||
       polygon.length < 3 ||
       planPolygonAreaM2(polygon) < 0.5 ||
       polygonCrossesItself(polygon)
@@ -292,7 +310,8 @@ function parsePlanGeometryInternal(raw: unknown, minimumWalls: number): PlanGeom
       warnings.push('Контур одной комнаты отброшен: он не образует многоугольник.')
       continue
     }
-    rooms.push({ name, polygon })
+    const sourceNumber = planRoomSourceNumber(room.sourceNumber)
+    rooms.push({ name, ...(sourceNumber === undefined ? {} : { sourceNumber }), polygon })
   }
 
   const obstacles: PlanObstacle[] = []
@@ -379,7 +398,10 @@ export function validatePlanGeometryEdit(
 ): PlanGeometry | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const source = raw as Record<string, unknown>
-  const millimetres = (value: unknown) => Number(value) * 10
+  const millimetres = (value: unknown) => {
+    const number = finite(value)
+    return number === undefined ? undefined : number * 10
+  }
   const convertPoint = (value: unknown) => {
     const point = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
     return { xMm: millimetres(point.xCm), yMm: millimetres(point.yCm) }
@@ -414,8 +436,9 @@ export function validatePlanGeometryEdit(
       const room = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
       return {
         name: room.name,
+        sourceNumber: room.sourceNumber,
         polygon: (Array.isArray(room.polygon) ? room.polygon : [])
-          .slice(0, MAX_POINTS)
+          .slice(0, MAX_POINTS + 1)
           .map(convertPoint),
       }
     })
@@ -431,35 +454,70 @@ export function validatePlanGeometryEdit(
   )
 }
 
-/** Сверяет масштаб контуров с независимо прочитанными подписями площадей. */
+/** Связывает контуры с экспликацией, сверяет площади и габариты без исправления исходных чисел. */
 export function reconcilePlanGeometryRooms(
   geometry: PlanGeometry | undefined,
   rooms: readonly PlanRoomArea[],
 ): PlanGeometry | undefined {
-  if (!geometry) return undefined
-  const areas = new Map(
-    rooms
-      .filter((room): room is { name: string; areaM2: number } => room.areaM2 !== undefined)
-      .map((room) => [room.name.trim().toLocaleLowerCase('ru'), room.areaM2]),
-  )
+  if (!geometry || rooms.length === 0) return geometry
+  const normalize = (name: string) => name.trim().toLocaleLowerCase('ru').replaceAll('ё', 'е')
+  const baseName = (name: string) => normalize(name).replace(/ \d+$/, '')
   const kept: PlanRoomShape[] = []
-  let rejected = 0
+  const warnings: string[] = []
   for (const room of geometry.rooms) {
-    const expected = areas.get(room.name.trim().toLocaleLowerCase('ru'))
-    const actual = planPolygonAreaM2(room.polygon)
-    if (expected !== undefined && Math.abs(actual - expected) / expected > 0.33) {
-      rejected += 1
+    let candidates: readonly PlanRoomArea[]
+    if (room.sourceNumber !== undefined) {
+      candidates = rooms.filter((candidate) => candidate.sourceNumber === room.sourceNumber)
+    } else {
+      const exact = rooms.filter((candidate) => normalize(candidate.name) === normalize(room.name))
+      candidates =
+        exact.length > 0
+          ? exact
+          : rooms.filter((candidate) => baseName(candidate.name) === baseName(room.name))
+    }
+    const expected = candidates.length === 1 ? candidates[0] : undefined
+    const duplicateNumber =
+      room.sourceNumber !== undefined &&
+      geometry.rooms.filter((candidate) => candidate.sourceNumber === room.sourceNumber).length > 1
+    if (!expected || duplicateNumber) {
+      warnings.push(
+        `Контур «${room.name}» отброшен: привязка к помещению неоднозначна или отсутствует.`,
+      )
       continue
     }
-    kept.push(room)
+    const actual = planPolygonAreaM2(room.polygon)
+    if (
+      expected.areaM2 !== undefined &&
+      Math.abs(actual - expected.areaM2) / expected.areaM2 > 0.33
+    ) {
+      warnings.push(
+        `Контур «${expected.name}» отброшен: геометрическая площадь не совпала с подписью.`,
+      )
+      continue
+    }
+    const xs = room.polygon.map((point) => point.xCm)
+    const ys = room.polygon.map((point) => point.yCm)
+    const widthCm = Math.max(...xs) - Math.min(...xs)
+    const depthCm = Math.max(...ys) - Math.min(...ys)
+    // Даже равная площадь не обнаружит перестановку осей или чужую размерную цепочку.
+    // Порог отсеивает грубый конфликт; прохождение не доказывает точность обмера.
+    const sideConflicts = (read: number | undefined, measured: number) =>
+      read !== undefined && read > 0 && Math.abs(read - measured) / read > ROOM_SIDE_TOLERANCE
+    if (sideConflicts(expected.widthCm, widthCm) || sideConflicts(expected.depthCm, depthCm)) {
+      warnings.push(
+        `Контур «${expected.name}» отброшен: габариты по осям не совпали с подписями комнаты.`,
+      )
+      continue
+    }
+    kept.push({
+      ...room,
+      name: expected.name,
+      ...(expected.sourceNumber === undefined ? {} : { sourceNumber: expected.sourceNumber }),
+    })
   }
-  if (rejected === 0) return geometry
   return {
     ...geometry,
     rooms: kept,
-    warnings: [
-      ...geometry.warnings,
-      `${rejected} ${rejected === 1 ? 'контур комнаты отброшен' : 'контура комнат отброшены'}: геометрическая площадь не совпала с подписью.`,
-    ].slice(0, 8),
+    warnings: [...new Set([...warnings, ...geometry.warnings])].slice(0, 8),
   }
 }

@@ -1,4 +1,11 @@
-import { mergeReadings, parseFloorPlan, parseSideRecheck } from '@uyut/ai'
+import {
+  mergeReadings,
+  parseFloorPlan,
+  parseSideRecheck,
+  planPolygonAreaM2,
+  validatePlanGeometryEdit,
+} from '@uyut/ai'
+import { layoutRoom, roomLayoutInputFromGeometry } from '@uyut/catalog'
 import { describe, expect, it } from 'vitest'
 import reference from '../../../../docs/qa/fixtures/apartment-74-77.json'
 import { planRoomsSchema } from '../validation/projects'
@@ -9,6 +16,45 @@ const raw = {
   totalAreaM2: reference.totalAreaM2,
   ceilingMm: reference.uniformCeilingMm,
   rooms: reference.rooms.map((room) => ({ ...room, sourceNumber: room.number, aspect: 1 })),
+}
+
+const contourRooms = reference.rooms.filter(
+  (room) => 'localContourMm' in room && room.localContourMm !== undefined,
+)
+
+function localGeometry(room: (typeof reference.rooms)[number]) {
+  if (!('localContourMm' in room) || !room.localContourMm || !room.widthMm || !room.depthMm) {
+    throw new Error('Missing manually annotated contour')
+  }
+  const widthMm = room.widthMm
+  const depthMm = room.depthMm
+  const polygon = room.localContourMm.map(([xMm, yMm]) => ({ xMm, yMm }))
+  const walls = polygon.map((start, index) => ({
+    id: `w${index}`,
+    start,
+    end: polygon[(index + 1) % polygon.length],
+    kind: 'inner',
+  }))
+  const openings = ('openingChecks' in room ? room.openingChecks : [])?.map((opening, index) => {
+    const wallIndex = opening.side === 'top' ? 0 : opening.side === 'bottom' ? 2 : walls.length - 1
+    return {
+      id: `o${index}`,
+      type: opening.type,
+      wallId: `w${wallIndex}`,
+      offsetMm:
+        opening.side === 'top'
+          ? opening.offsetMm
+          : (opening.side === 'bottom' ? widthMm : depthMm) - opening.offsetMm - opening.widthMm,
+      widthMm: opening.widthMm,
+    }
+  })
+  return {
+    widthMm,
+    heightMm: depthMm,
+    walls,
+    openings,
+    rooms: [{ name: room.name, sourceNumber: room.number, polygon }],
+  }
 }
 
 describe('published apartment: parser regression, not a vision accuracy test', () => {
@@ -112,5 +158,150 @@ describe('published apartment: parser regression, not a vision accuracy test', (
     expect(reading.ceilingCm).toBeUndefined()
     expect(reading.rooms.find((room) => room.sourceNumber === 4)?.ceilingCm).toBe(266.3)
     expect(reading.rooms.find((room) => room.sourceNumber === 6)?.ceilingCm).toBe(267.2)
+  })
+
+  it.each(contourRooms)('binds the local contour of room $number by printed number', (expected) => {
+    const reading = parseFloorPlan(
+      JSON.stringify({
+        ...raw,
+        rooms: [...raw.rooms].reverse(),
+        geometry: localGeometry(expected),
+      }),
+    )
+    const shape = reading.geometry?.rooms[0]
+    expect(shape?.name).toBe(
+      reading.rooms.find((room) => room.sourceNumber === expected.number)?.name,
+    )
+    expect(shape?.sourceNumber).toBe(expected.number)
+    expect(shape?.polygon).toHaveLength(expected.localContourMm?.length ?? 0)
+    expect(planPolygonAreaM2(shape?.polygon ?? [])).toBeCloseTo(expected.areaM2, 2)
+    expect(reading.geometry?.status).toBe('draft')
+    expect(reading.geometry?.openings).toHaveLength(expected.openingChecks?.length ?? 0)
+    const edited = validatePlanGeometryEdit(reading.geometry, 'draft')
+    expect(edited?.rooms[0]?.sourceNumber).toBe(expected.number)
+  })
+
+  it('does not assign an unnumbered bedroom contour by response order', () => {
+    const bedroom = contourRooms.find((room) => room.number === 4)
+    if (!bedroom) throw new Error('Missing bedroom reference')
+    const geometry = localGeometry(bedroom)
+    const reading = parseFloorPlan(
+      JSON.stringify({
+        ...raw,
+        geometry: {
+          ...geometry,
+          rooms: geometry.rooms.map((room) => ({ ...room, sourceNumber: null })),
+        },
+      }),
+    )
+    expect(reading.geometry?.rooms).toEqual([])
+    expect(reading.geometry?.warnings.join(' ')).toContain('привязка')
+  })
+
+  it('rejects a contour with a foreign printed number instead of falling back to its name', () => {
+    const kitchen = contourRooms.find((room) => room.number === 2)
+    if (!kitchen) throw new Error('Missing kitchen reference')
+    const geometry = localGeometry(kitchen)
+    const reading = parseFloorPlan(
+      JSON.stringify({
+        ...raw,
+        geometry: {
+          ...geometry,
+          rooms: geometry.rooms.map((room) => ({ ...room, sourceNumber: 49 })),
+        },
+      }),
+    )
+    expect(reading.geometry?.rooms).toEqual([])
+  })
+
+  it('does not accept equal area as proof of the correct axes of a contour', () => {
+    const bedroom = contourRooms.find((room) => room.number === 4)
+    if (!bedroom) throw new Error('Missing bedroom reference')
+    const geometry = localGeometry(bedroom)
+    const transpose = ({ xMm, yMm }: { xMm: number | undefined; yMm: number | undefined }) => ({
+      xMm: yMm,
+      yMm: xMm,
+    })
+    const reading = parseFloorPlan(
+      JSON.stringify({
+        ...raw,
+        geometry: {
+          ...geometry,
+          widthMm: geometry.heightMm,
+          heightMm: geometry.widthMm,
+          walls: geometry.walls.map((wall) => ({
+            ...wall,
+            start: transpose(wall.start),
+            end: wall.end ? transpose(wall.end) : undefined,
+          })),
+          openings: [],
+          rooms: geometry.rooms.map((room) => ({ ...room, polygon: room.polygon.map(transpose) })),
+        },
+      }),
+    )
+    expect(reading.geometry?.rooms).toEqual([])
+    expect(reading.geometry?.warnings.join(' ')).toContain('габариты')
+  })
+
+  it('rejects repeated contour numbers without retaining an arbitrary first polygon', () => {
+    const bedroom = contourRooms.find((room) => room.number === 4)
+    if (!bedroom) throw new Error('Missing bedroom reference')
+    const geometry = localGeometry(bedroom)
+    const reading = parseFloorPlan(
+      JSON.stringify({
+        ...raw,
+        geometry: { ...geometry, rooms: [...geometry.rooms, ...geometry.rooms] },
+      }),
+    )
+    expect(reading.geometry?.rooms).toEqual([])
+    expect(reading.geometry?.warnings.join(' ')).toContain('привязка')
+  })
+
+  it('keeps the bedroom window on its labelled wall without inventing a sill or door swing', () => {
+    const bedroom = contourRooms.find((room) => room.number === 4)
+    if (!bedroom) throw new Error('Missing bedroom reference')
+    const reading = parseFloorPlan(JSON.stringify({ ...raw, geometry: localGeometry(bedroom) }))
+    if (!reading.geometry) throw new Error('Missing geometry')
+    // Only exercise the layout conversion: this is not user confirmation of actual measurements.
+    const input = roomLayoutInputFromGeometry(
+      { ...reading.geometry, status: 'confirmed' },
+      'Спальня 4',
+      null,
+    )
+    expect(input?.reservations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'window', wall: 'top', fromCm: 93.9, toCm: 228.3 }),
+        expect.objectContaining({ kind: 'door', wall: 'bottom', fromCm: 14, toCm: 103.6 }),
+      ]),
+    )
+    expect(input?.missingSafetyData.join(' ')).toContain('высоту подоконника')
+    expect(input?.missingSafetyData.join(' ')).toContain('зону открывания')
+  })
+
+  it('does not call the bedroom checked when the door location is still unknown', () => {
+    const bedroom = contourRooms.find((room) => room.number === 6)
+    if (!bedroom) throw new Error('Missing bedroom reference')
+    const reading = parseFloorPlan(JSON.stringify({ ...raw, geometry: localGeometry(bedroom) }))
+    if (!reading.geometry) throw new Error('Missing geometry')
+    const input = roomLayoutInputFromGeometry(
+      { ...reading.geometry, status: 'confirmed' },
+      'Спальня 6',
+      null,
+    )
+    if (!input) throw new Error('Missing local layout input')
+    const layout = layoutRoom({ ...input, roomKind: 'bedroom' }, [
+      {
+        id: 'bed',
+        title: 'Тестовая кровать',
+        category: 'bed',
+        quantity: 1,
+        dimensions: { width: 90, depth: 200 },
+        operationClearance: { side: 35 },
+      },
+    ])
+    expect(layout.safetySummary.status).not.toBe('checked')
+    expect(layout.safetyChecks).toContainEqual(
+      expect.objectContaining({ id: 'operation-zone-access', status: 'needs-data' }),
+    )
   })
 })

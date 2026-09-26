@@ -3,6 +3,7 @@ import { FalError, falQueue, toDataUri } from './fal-queue'
 import {
   type PlanGeometry,
   parsePlanGeometry,
+  planRoomSourceNumber,
   reconcilePlanGeometryRooms,
 } from './floor-plan-geometry'
 
@@ -51,6 +52,7 @@ export const FLOOR_PLAN_PROMPT = `Ты читаешь план квартиры 
 - Не принимай за obstacle мебель, сантехнику, кухонные шкафы, размерные подписи, штриховку стены или пустую нишу. Не видишь одновременно положение и два размера уверенно — не добавляй объект.
 - xMm и yMm препятствия — его левый верхний угол в координатах geometry; widthMm и depthMm — полный занимаемый прямоугольник. label — короткая русская подпись с плана без догадок.
 - polygon проходит по внутреннему контуру комнаты, без повторения первой точки в конце. Не видишь связный контур — не добавляй комнату в geometry.rooms.
+- В каждом элементе geometry.rooms добавь sourceNumber — тот же напечатанный номер, что у rooms. Не назначай номер по порядку ответа и не различай две спальни только порядком контуров. Нет уверенной привязки — null.
 - geometry верни null, если на плане нельзя восстановить общий масштаб и связное положение хотя бы трёх стен. Не подменяй точную схему приблизительным рисунком.`
 
 /** Одна комната с плана, в сантиметрах: в них же меряет всё остальное приложение. */
@@ -197,12 +199,6 @@ function sideCm(millimetres: unknown): number | undefined {
   return centimetres >= MIN_SIDE_CM && centimetres <= MAX_SIDE_CM ? centimetres : undefined
 }
 
-function sourceNumber(raw: unknown): number | undefined {
-  if (typeof raw !== 'number' && typeof raw !== 'string') return undefined
-  const value = Number(raw)
-  return Number.isInteger(value) && value >= 1 && value <= 50 ? value : undefined
-}
-
 function aspectOf(raw: unknown): number | undefined {
   const value = Number(raw)
   return Number.isFinite(value) && value >= MIN_ASPECT && value <= MAX_ASPECT ? value : undefined
@@ -282,7 +278,7 @@ export function parseFloorPlan(raw: string): PlanReading {
     if (!entry || typeof entry !== 'object') continue
     const key = planRoomName(entry.name).toLowerCase()
     nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1)
-    const number = sourceNumber(entry.sourceNumber)
+    const number = planRoomSourceNumber(entry.sourceNumber)
     if (number !== undefined) numberCounts.set(number, (numberCounts.get(number) ?? 0) + 1)
   }
   // В плане БТИ трёшки все три комнаты подписаны «Комната». Одинаковые названия разводим
@@ -301,7 +297,7 @@ export function parseFloorPlan(raw: string): PlanReading {
     }
     const seen = (used.get(read.toLowerCase()) ?? 0) + 1
     used.set(read.toLowerCase(), seen)
-    const printedNumber = sourceNumber(source.sourceNumber)
+    const printedNumber = planRoomSourceNumber(source.sourceNumber)
     const number =
       printedNumber !== undefined && numberCounts.get(printedNumber) === 1
         ? printedNumber

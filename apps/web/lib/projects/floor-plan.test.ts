@@ -163,7 +163,92 @@ describe('геометрия плана', () => {
     const geometry = parsePlanGeometry(validGeometry)
     const checked = reconcilePlanGeometryRooms(geometry, [{ name: 'Гостиная', areaM2: 10 }])
     expect(checked?.rooms).toEqual([])
-    expect(checked?.warnings.at(-1)).toContain('контур комнаты отброшен')
+    expect(checked?.warnings.at(-1)).toContain('Контур «Гостиная» отброшен')
+    expect(checked?.warnings.at(-1)).toContain('геометрическая площадь')
+  })
+
+  it.each([null, '', false])(
+    'не превращает неизвестный отступ %s в проём у начала стены',
+    (offsetMm) => {
+      const geometry = parsePlanGeometry({
+        ...validGeometry,
+        openings: [{ ...validGeometry.openings[0], offsetMm }],
+      })
+      expect(geometry?.openings).toEqual([])
+    },
+  )
+
+  it('не заменяет отсутствующую координату угла нулём', () => {
+    const room = validGeometry.rooms[0]
+    if (!room) throw new Error('Missing reference room')
+    const geometry = parsePlanGeometry({
+      ...validGeometry,
+      rooms: [
+        {
+          name: 'Гостиная',
+          polygon: [{ xMm: null, yMm: 0 }, ...room.polygon.slice(1)],
+        },
+      ],
+    })
+    expect(geometry?.rooms).toEqual([])
+  })
+
+  it('не замыкает новый контур после потери одного невалидного угла', () => {
+    const room = validGeometry.rooms[0]
+    if (!room) throw new Error('Missing reference room')
+    const geometry = parsePlanGeometry({
+      ...validGeometry,
+      rooms: [
+        {
+          name: 'Гостиная',
+          polygon: [{ xMm: -1, yMm: 0 }, ...room.polygon.slice(1)],
+        },
+      ],
+    })
+    expect(geometry?.rooms).toEqual([])
+  })
+
+  it('не подставляет ноль вместо неизвестного угла при сохранении ручной схемы', () => {
+    const geometry = parsePlanGeometry(validGeometry)
+    if (!geometry) throw new Error('Missing geometry')
+    const room = geometry.rooms[0]
+    if (!room) throw new Error('Missing reference room')
+    const edit = {
+      ...geometry,
+      rooms: [
+        {
+          name: 'Гостиная',
+          polygon: [{ xCm: null, yCm: 0 }, ...room.polygon.slice(1)],
+        },
+      ],
+    }
+    expect(validatePlanGeometryEdit(edit, 'draft')?.rooms).toEqual([])
+  })
+
+  it('не обрезает длинный контур с созданием новой замыкающей стороны', () => {
+    const polygon = Array.from({ length: 31 }, (_, index) => {
+      const angle = (index * 2 * Math.PI) / 31
+      return { xMm: 2500 + 1500 * Math.cos(angle), yMm: 2000 + 1500 * Math.sin(angle) }
+    })
+    expect(
+      parsePlanGeometry({ ...validGeometry, rooms: [{ name: 'Гостиная', polygon }] })?.rooms,
+    ).toEqual([])
+    const geometry = parsePlanGeometry(validGeometry)
+    if (!geometry) throw new Error('Missing geometry')
+    expect(
+      validatePlanGeometryEdit(
+        {
+          ...geometry,
+          rooms: [
+            {
+              name: 'Гостиная',
+              polygon: polygon.map(({ xMm, yMm }) => ({ xCm: xMm / 10, yCm: yMm / 10 })),
+            },
+          ],
+        },
+        'draft',
+      )?.rooms,
+    ).toEqual([])
   })
 
   it('повторно проверяет схему после ручной правки в сантиметрах', () => {

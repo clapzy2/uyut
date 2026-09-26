@@ -97,7 +97,7 @@ export type PlanOpening = {
     hinge?: 'start' | 'end'
   }
 }
-export type PlanRoomShape = { name: string; polygon: PlanPoint[] }
+export type PlanRoomShape = { name: string; sourceNumber?: number; polygon: PlanPoint[] }
 export type PlanUtilityPoint = {
   id: string
   kind: 'water' | 'drain' | 'vent' | 'socket' | 'gas' | 'radiator'

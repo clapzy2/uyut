@@ -27,6 +27,13 @@
       "areaM2": 12.35,
       "widthMm": 2964,
       "depthMm": 4205,
+      "localContourMm": [[0, 0], [2964, 0], [2964, 4205], [229, 4205], [229, 3718], [0, 3718]],
+      "contourEvidence": "Габариты 2964 × 4205, нижний левый выступ 229 × 487. Координаты локальные, не положение комнаты в квартире.",
+      "openingChecks": [
+        { "type": "window", "side": "top", "offsetMm": 525, "widthMm": 563 },
+        { "type": "balcony", "side": "top", "offsetMm": 1088, "widthMm": 926 },
+        { "type": "door", "side": "bottom", "offsetMm": 1979, "widthMm": 900 }
+      ],
       "note": "Полный габарит: сверху 2964, слева 4205; в нижней части есть выступ, размер 2735 не заменяет верхнюю ширину."
     },
     {
@@ -35,6 +42,13 @@
       "areaM2": 17.05,
       "widthMm": 3389,
       "depthMm": 5158,
+      "localContourMm": [[0, 0], [3389, 0], [3389, 5158], [948, 5158], [0, 4244]],
+      "contourEvidence": "Габариты 3389 × 5158; скос: горизонтальная проекция 948, вертикальная 5158 − 4244 = 914. Подписанная диагональ 1317 согласуется с этими проекциями. Локальный контур, не глобальная схема.",
+      "openingChecks": [
+        { "type": "window", "side": "top", "offsetMm": 639, "widthMm": 1089 },
+        { "type": "balcony", "side": "top", "offsetMm": 2198, "widthMm": 576 },
+        { "type": "door", "side": "bottom", "offsetMm": 1318, "widthMm": 1300 }
+      ],
       "note": "Полный габарит: сверху 3389, справа 5158. Снизу слева скошенная граница; габаритный прямоугольник не является контуром комнаты."
     },
     {
@@ -43,7 +57,13 @@
       "areaM2": 15.39,
       "widthMm": 2985,
       "depthMm": 5156,
-      "ceilingMm": 2663
+      "ceilingMm": 2663,
+      "localContourMm": [[0, 0], [2985, 0], [2985, 5156], [0, 5156]],
+      "contourEvidence": "Прямоугольный внутренний контур по подписанным сторонам 2985 × 5156. Локальное начало координат.",
+      "openingChecks": [
+        { "type": "window", "side": "top", "offsetMm": 939, "widthMm": 1344 },
+        { "type": "door", "side": "bottom", "offsetMm": 140, "widthMm": 896 }
+      ]
     },
     {
       "number": 5,
@@ -59,14 +79,20 @@
       "areaM2": 12.23,
       "widthMm": 2945,
       "depthMm": 4154,
-      "ceilingMm": 2672
+      "ceilingMm": 2672,
+      "localContourMm": [[0, 0], [2945, 0], [2945, 4154], [0, 4154]],
+      "contourEvidence": "Прямоугольный внутренний контур 2945 × 4154. Верхняя цепочка 903 + 88 + 1954 содержит выступ/простенок у двери; дверь без полной привязки не добавлена.",
+      "openingChecks": [{ "type": "window", "side": "bottom", "offsetMm": 866, "widthMm": 1353 }]
     },
     {
       "number": 7,
       "name": "Ванная",
       "areaM2": 3.89,
       "widthMm": 1754,
-      "depthMm": 2218
+      "depthMm": 2218,
+      "localContourMm": [[0, 0], [1754, 0], [1754, 2218], [0, 2218]],
+      "contourEvidence": "Внутренний прямоугольник 1754 × 2218; дверь на левой стене по цепочке 292 + 905 + 1021. Шахты в толще стены не объявлены объектами внутри комнаты.",
+      "openingChecks": [{ "type": "door", "side": "left", "offsetMm": 292, "widthMm": 905 }]
     },
     {
       "number": 8,
@@ -83,6 +109,17 @@
     { "roomNumber": 4, "axis": "width", "segmentsMm": [939, 1344, 702], "totalMm": 2985 },
     { "roomNumber": 6, "axis": "width", "segmentsMm": [866, 1353, 726], "totalMm": 2945 }
   ],
+  "geometryAnnotation": {
+    "method": "manual review of sheet 03, local contours derived from printed dimensions",
+    "scope": "5 local room contours; not a complete apartment geometry and not an AI accuracy result",
+    "unknown": [
+      "Общая координатная привязка помещений и толщина всех стен не восстановлены.",
+      "Прихожая и коридор открыто связаны: границу помещений по одной экспликации не выдумываем.",
+      "Контур санузла не приравнен к прямоугольнику: произведение сторон не совпадает с подписанной площадью.",
+      "Точные объёмы шахт, размеры радиаторов, створки и зоны открывания дверей не размечены.",
+      "h1/h2 окон не назначены автоматической высотой подоконника/проёма."
+    ]
+  },
   "otherLabels": {
     "entranceDoorHeightMm": 2053,
     "balconyDoorHeightMm": 2281,
