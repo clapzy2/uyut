@@ -4,10 +4,11 @@
   "globalEnv": ["NODE_ENV", "CI"],
   "tasks": {
     "build": {
+      "cache": false,
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", "../../.env"],
       "env": ["NEXT_PUBLIC_*", "SENTRY_*"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**", "dist/**"]
     },
     "dev": {
       "cache": false,
