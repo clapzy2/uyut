@@ -110,12 +110,13 @@ function MatchRow({
   const [variantIndex, setVariantIndex] = useState(0)
   const variant = match.variants[variantIndex]
   const priceKopecks = variant?.priceKopecks ?? match.priceKopecks
+  const overBudget = object.window !== null && priceKopecks > object.window.maxKopecks
   const affiliateUrl = variant?.affiliateUrl ?? match.affiliateUrl
   const imageUrl = variant?.imageUrl ?? match.imageUrl
   const showVariants = match.variants.length > 1
 
   return (
-    <li className={cn('motion-list-row group py-3', match.overBudget && 'opacity-75')}>
+    <li className={cn('motion-list-row group py-3', overBudget && 'opacity-75')}>
       <div className="grid grid-cols-[64px_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[64px_minmax(0,1fr)_auto]">
         <a
           href={affiliateUrl}
@@ -177,7 +178,7 @@ function MatchRow({
                     value={index}
                   >
                     {entry.color ?? `Вариант ${index + 1}`}
-                    {entry.priceKopecks && entry.priceKopecks !== match.priceKopecks
+                    {entry.priceKopecks !== null && entry.priceKopecks !== match.priceKopecks
                       ? ` · ${formatPrice(entry.priceKopecks)}`
                       : ''}
                   </option>
@@ -191,11 +192,11 @@ function MatchRow({
         <span className="col-start-2 flex min-w-[112px] items-end justify-between gap-3 sm:col-start-3 sm:flex-col">
           <span className="flex flex-col items-end gap-1">
             <span className="font-mono text-[14px] text-ink">{formatPrice(priceKopecks)}</span>
-            {match.overBudget ? (
+            {overBudget ? (
               <span className="rounded-full border border-danger px-2 py-0.5 text-[11px] text-danger">
                 выше бюджета
               </span>
-            ) : match.oldPriceKopecks ? (
+            ) : match.oldPriceKopecks !== null && priceKopecks === match.priceKopecks ? (
               <span className="font-mono text-[12px] text-ink-2 line-through">
                 {formatPrice(match.oldPriceKopecks)}
               </span>
@@ -216,7 +217,7 @@ function MatchRow({
               }
               onClick={() => onAdd(match, object, variant)}
               className={cn(
-                'h-8 rounded-full border px-3 text-[12px] transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90 disabled:opacity-50',
+                'h-11 rounded-full border px-3 text-[12px] transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90 disabled:opacity-50 sm:h-8',
                 quantity > 0
                   ? 'border-accent bg-accent-tint text-accent shadow-[0_4px_14px_-10px_var(--accent)]'
                   : 'border-control text-ink-2 hover:border-accent hover:text-accent',
@@ -514,21 +515,29 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
       roomId: data.room.id,
       conceptObjectId: object.id,
       ...(selectedVariant ? { variant: selectedVariant } : {}),
-    }).then((result) => {
-      setAdding(null)
-      if (!result.ok) {
-        toast({ title: result.error, tone: 'danger' })
-        return
-      }
-      toast({
-        title:
-          result.data.quantity > 1
-            ? `В списке уже ${result.data.quantity}: ${match.title}`
-            : `В списке: ${match.title}`,
-        tone: 'success',
-      })
-      router.refresh()
     })
+      .then((result) => {
+        setAdding(null)
+        if (!result.ok) {
+          toast({ title: result.error, tone: 'danger' })
+          return
+        }
+        toast({
+          title:
+            result.data.quantity > 1
+              ? `В списке уже ${result.data.quantity}: ${match.title}`
+              : `В списке: ${match.title}`,
+          tone: 'success',
+        })
+        router.refresh()
+      })
+      .catch(() => {
+        setAdding(null)
+        toast({
+          title: 'Не удалось добавить товар. Проверьте соединение и повторите.',
+          tone: 'danger',
+        })
+      })
   }
 
   return (
