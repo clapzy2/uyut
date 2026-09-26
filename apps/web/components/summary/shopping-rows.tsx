@@ -47,6 +47,11 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
         return
       }
       router.refresh()
+    } catch {
+      toast({
+        title: 'Не удалось изменить список. Проверьте соединение и повторите.',
+        tone: 'danger',
+      })
     } finally {
       setBusy(false)
     }
@@ -114,13 +119,13 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
         {readOnly ? (
           <span className="shrink-0 font-mono text-[13px] text-ink-2">× {item.quantity}</span>
         ) : (
-          <span className="inline-flex h-8 shrink-0 items-stretch rounded-full border border-control font-mono text-[13px] text-ink">
+          <span className="inline-flex h-12 shrink-0 items-stretch rounded-full border border-control font-mono text-[13px] text-ink sm:h-8">
             <button
               type="button"
               disabled={busy}
               onClick={() => void run(() => setItemQuantity(item.id, item.quantity - 1))}
               aria-label={item.quantity === 1 ? 'Убрать из списка' : 'Меньше на один'}
-              className="w-8 text-ink-2 transition-[color,background-color,transform] duration-200 ease-ui hover:bg-muted hover:text-ink active:scale-75 disabled:opacity-50"
+              className="w-11 text-ink-2 transition-[color,background-color,transform] duration-200 ease-ui hover:bg-muted hover:text-ink active:scale-75 disabled:opacity-50 sm:w-8"
             >
               −
             </button>
@@ -132,7 +137,7 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
               disabled={busy || item.quantity >= 99}
               onClick={() => void run(() => setItemQuantity(item.id, item.quantity + 1))}
               aria-label="Больше на один"
-              className="w-8 text-ink-2 transition-[color,background-color,transform] duration-200 ease-ui hover:bg-muted hover:text-ink active:scale-75 disabled:opacity-50"
+              className="w-11 text-ink-2 transition-[color,background-color,transform] duration-200 ease-ui hover:bg-muted hover:text-ink active:scale-75 disabled:opacity-50 sm:w-8"
             >
               +
             </button>
@@ -145,7 +150,7 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
               type="button"
               disabled={busy}
               onClick={() => void run(() => removeItem(item.id))}
-              className="py-1 text-[12px] text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent disabled:opacity-50"
+              className="min-h-11 px-2 py-1 text-[12px] text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent disabled:opacity-50 sm:min-h-0 sm:px-0"
             >
               убрать
             </button>

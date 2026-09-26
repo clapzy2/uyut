@@ -25,25 +25,33 @@ export function CheckoutButton({
 
   function start() {
     setBusy(true)
-    void action().then((result) => {
-      if (!result.ok) {
+    void action()
+      .then((result) => {
+        if (!result.ok) {
+          setBusy(false)
+          toast({ title: result.error, tone: 'danger' })
+          return
+        }
+        if (result.data.next === 'redirect') {
+          window.location.assign(result.data.confirmationUrl)
+          return
+        }
         setBusy(false)
-        toast({ title: result.error, tone: 'danger' })
-        return
-      }
-      if (result.data.next === 'redirect') {
-        window.location.assign(result.data.confirmationUrl)
-        return
-      }
-      setBusy(false)
-      if (result.data.next === 'paid') {
-        toast({ title: 'Оплата прошла', tone: 'success' })
-        onPaid?.(result.data)
-        router.refresh()
-        return
-      }
-      toast({ title: 'Платёж ещё обрабатывается. Обновите страницу через минуту.' })
-    })
+        if (result.data.next === 'paid') {
+          toast({ title: 'Оплата прошла', tone: 'success' })
+          onPaid?.(result.data)
+          router.refresh()
+          return
+        }
+        toast({ title: 'Платёж ещё обрабатывается. Обновите страницу через минуту.' })
+      })
+      .catch(() => {
+        setBusy(false)
+        toast({
+          title: 'Не удалось перейти к оплате. Проверьте соединение и повторите.',
+          tone: 'danger',
+        })
+      })
   }
 
   return (

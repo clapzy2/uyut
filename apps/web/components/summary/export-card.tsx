@@ -192,39 +192,57 @@ export function ExportCard({
   // Чистый документ: проект оплачен или у владельца Pro
   const clean = paid || plan === 'pro'
 
-  function start() {
+  async function start() {
     setBusy(true)
-    void exportProjectPdf({
-      projectId,
-      options: { includeClientName, includeAddress, includePhone },
-      contact: { clientName, address, phone },
-    }).then((result) => {
-      setBusy(false)
+    try {
+      const result = await exportProjectPdf({
+        projectId,
+        options: { includeClientName, includeAddress, includePhone },
+        contact: { clientName, address, phone },
+      })
       if (!result.ok) {
         toast({ title: result.error, tone: 'danger' })
         return
       }
       setRun(result.data)
-    })
+    } catch {
+      toast({
+        title: 'Не удалось запустить PDF. Проверьте соединение и повторите.',
+        tone: 'danger',
+      })
+    } finally {
+      setBusy(false)
+    }
   }
 
-  function finished(failed: boolean) {
+  async function finished(failed: boolean) {
     const current = run
     if (!current) {
       return
     }
     setRun(null)
-    void loadExport(current.exportId).then((result) => {
-      if (result.ok) {
-        setLatest(result.data)
+    try {
+      const result = await loadExport(current.exportId)
+      if (!result.ok) {
+        toast({ title: result.error, tone: 'danger' })
+        return
       }
-      if (failed || (result.ok && result.data.status === 'failed')) {
+      setLatest(result.data)
+      if (result.data.status === 'ready' && result.data.pdfUrl) {
+        toast({ title: 'PDF готов', tone: 'success' })
+      } else if (failed || result.data.status === 'failed') {
         toast({ title: 'PDF не собрался. Попробуйте ещё раз.', tone: 'danger' })
       } else {
-        toast({ title: 'PDF готов', tone: 'success' })
+        toast({ title: 'PDF ещё собирается. Обновите страницу через минуту.' })
       }
+    } catch {
+      toast({
+        title: 'Не удалось проверить PDF. Обновите страницу, чтобы узнать статус.',
+        tone: 'danger',
+      })
+    } finally {
       router.refresh()
-    })
+    }
   }
 
   return (
@@ -412,7 +430,7 @@ export function ExportCard({
             <CheckoutButton
               variant="ghost"
               size="sm"
-              className="px-0 underline decoration-accent decoration-1 underline-offset-4"
+              className="min-h-11 px-0 underline decoration-accent decoration-1 underline-offset-4 sm:min-h-0"
               action={() => startProSubscription(`/projects/${projectId}/summary`)}
               pendingLabel="Переходим…"
             >
