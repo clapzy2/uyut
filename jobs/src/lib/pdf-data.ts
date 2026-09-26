@@ -2,11 +2,11 @@ import type { BriefInput } from '@uyut/ai'
 import {
   estimateProject,
   type LayoutItem,
-  layoutRoom,
   type RoomLayout,
   subcategoryFromText,
   type WorksRates,
 } from '@uyut/catalog'
+import { layoutWithMeasurements } from '@uyut/catalog/layout-with-measurements'
 import {
   type CatalogCategory,
   type Concept,
@@ -147,11 +147,11 @@ type ShoppingRow = {
  * Расстановка комнаты сверху для документа. Считается здесь же, из того же списка покупок,
  * что и на сайте: хранить её негде, а разойтись с сайтом она не должна.
  */
-function roomPlan(room: Room, shopping: readonly ShoppingRow[]): RoomLayout | null {
-  const { widthCm, depthCm } = room.measurements ?? {}
-  if (!widthCm || !depthCm) {
-    return null
-  }
+function roomPlan(
+  room: Room,
+  shopping: readonly ShoppingRow[],
+  project: Project,
+): RoomLayout | null {
   const items: LayoutItem[] = shopping
     .filter((row) => row.item.roomId === room.id)
     .map((row) => ({
@@ -165,7 +165,13 @@ function roomPlan(room: Room, shopping: readonly ShoppingRow[]): RoomLayout | nu
       quantity: row.item.quantity,
     }))
   return items.length > 0
-    ? layoutRoom({ widthCm, depthCm, layoutNotes: room.measurements?.layoutNotes }, items)
+    ? layoutWithMeasurements(
+        room.name,
+        room.measurements,
+        project.planReading?.geometry,
+        items,
+        room.kind,
+      )
     : null
 }
 
@@ -394,7 +400,7 @@ export async function buildPdfData(input: {
           ...object,
           category: categoryLabels[object.category],
         })),
-        plan: roomPlan(room, snapshot.shopping),
+        plan: roomPlan(room, snapshot.shopping, project),
       }
     }),
   )

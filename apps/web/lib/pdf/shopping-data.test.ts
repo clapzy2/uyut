@@ -1,6 +1,8 @@
+import type { Concept, Room } from '@uyut/db'
 import sharp from 'sharp'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildPdfData, type ProjectSnapshot } from '../../../../jobs/src/lib/pdf-data'
+import { layoutWithMeasurements } from '../projects/layout-with-measurements'
 
 function snapshot(): ProjectSnapshot {
   return {
@@ -76,12 +78,112 @@ async function build(data: ProjectSnapshot) {
   return { pdf, fetchImage }
 }
 
+function addRoom(data: ProjectSnapshot): Room {
+  const room: Room = {
+    id: 'test-room',
+    projectId: data.project.id,
+    name: 'Гостиная',
+    kind: 'living',
+    areaM2: 12,
+    condition: 'bare',
+    refreshFinish: false,
+    photoUrl: null,
+    planUrl: null,
+    notes: null,
+    measurements: { widthCm: 400, depthCm: 300 },
+    orderIndex: 0,
+    generationRunId: null,
+    generationStartedAt: null,
+    generationBatchId: null,
+  }
+  data.rooms = [room]
+  data.concepts.set(room.id, {
+    main: {
+      renderUrl: null,
+      editedRenderUrl: null,
+      note: null,
+    } as Concept,
+    alternates: [],
+  })
+  const row = data.shopping[0]
+  if (!row) throw new Error('Missing shopping fixture')
+  row.item.quantity = 1
+  return room
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
 })
 
 describe('selected shopping variant in PDF data without AI or external requests', () => {
+  it('matches the website lower-bound layout and carries its measurement warning', async () => {
+    const data = snapshot()
+    const room = addRoom(data)
+    room.measurements = {
+      widthCm: 400,
+      depthCm: 300,
+      toleranceCm: 2,
+      finishStage: 'after',
+      verification: {
+        widthCm: 400,
+        depthCm: 300,
+        toleranceCm: 2,
+        finishStage: 'after',
+        confirmedAt: '2026-09-26T10:00:00Z',
+      },
+    }
+    const { pdf } = await build(data)
+    const expected = layoutWithMeasurements(
+      room.name,
+      room.measurements,
+      undefined,
+      [
+        {
+          id: 'test-item',
+          title: 'Диван',
+          category: 'sofa',
+          quantity: 1,
+          dimensions: { width: 210, depth: 90 },
+        },
+      ],
+      room.kind,
+    )
+    expect(pdf.rooms[0]?.plan).toEqual(expected)
+    expect(pdf.rooms[0]?.plan?.widthCm).toBe(398)
+    expect(pdf.rooms[0]?.plan?.measurementNote).toContain('по нижней границе')
+  })
+
+  it('preserves a confirmed non-rectangular contour instead of printing a box', async () => {
+    const data = snapshot()
+    const room = addRoom(data)
+    const polygon = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 400, yCm: 0 },
+      { xCm: 400, yCm: 200 },
+      { xCm: 300, yCm: 200 },
+      { xCm: 300, yCm: 300 },
+      { xCm: 0, yCm: 300 },
+    ]
+    data.project.planReading = {
+      rooms: [],
+      readAt: '2026-09-26T10:00:00Z',
+      geometry: {
+        version: 1,
+        status: 'confirmed',
+        widthCm: 400,
+        heightCm: 300,
+        walls: [],
+        openings: [],
+        warnings: [],
+        rooms: [{ name: room.name, polygon }],
+      },
+    }
+    const { pdf } = await build(data)
+    expect(pdf.rooms[0]?.plan?.floorPolygon).toEqual(polygon)
+    expect(pdf.rooms[0]?.plan?.measurementNote).toContain('Схема предварительная')
+    expect(pdf.rooms[0]?.plan?.functionProfile).toBe('living')
+  })
   it('uses variant photo, link, price and user dimensions rather than the base product', async () => {
     const { pdf, fetchImage } = await build(snapshot())
     const item = pdf.shopping[0]?.items[0]
