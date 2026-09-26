@@ -1,6 +1,7 @@
 // Только синтетические данные: нет чтения базы, AI-вызовов, писем или загрузки в S3.
-import { mkdir } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { estimateProject, layoutRoom } from '@uyut/catalog'
 import { fontFaceCss, type PdfData, renderProjectHtml } from '@uyut/pdf'
 import { printPdf } from '../src/lib/print-pdf'
@@ -65,10 +66,10 @@ const data: PdfData = {
   rates,
   brief: null,
 }
-const outputDir = resolve(import.meta.dir, '../../output/pdf')
+const outputDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../output/pdf')
 await mkdir(outputDir, { recursive: true })
 const html = renderProjectHtml(data, { fontCss: fontFaceCss() })
 const pdf = await printPdf(html, data.project.title)
 const outputPath = resolve(outputDir, 'qa-shopping.pdf')
-await Bun.write(outputPath, pdf)
+await writeFile(outputPath, pdf)
 console.log(`Проверочный PDF: ${outputPath}`)

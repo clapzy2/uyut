@@ -8,7 +8,7 @@ export async function printPdf(html: string, title: string): Promise<Buffer> {
     const page = await browser.newPage()
     await page.setContent(html, { waitUntil: 'load' })
     await page.emulateMedia({ media: 'print' })
-    await page.evaluate(() => document.fonts.ready)
+    await page.evaluate('document.fonts.ready')
     return await page.pdf({
       format: 'A4',
       printBackground: true,
