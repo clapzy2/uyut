@@ -1,3 +1,4 @@
+import type { PlanMeasurementEvidence } from '@uyut/db'
 import type { RoomKind } from './detect'
 import { FalError, falQueue, toDataUri } from './fal-queue'
 import {
@@ -6,6 +7,7 @@ import {
   planRoomSourceNumber,
   reconcilePlanGeometryRooms,
 } from './floor-plan-geometry'
+import { planMeasurementTextItems, validatePlanMeasurement } from './floor-plan-measurements'
 
 /**
  * Чтение обмерного плана квартиры.
@@ -40,6 +42,10 @@ export const FLOOR_PLAN_PROMPT = `Ты читаешь план квартиры 
 - Не выводи стороны из площади, отношения сторон или вида картинки. Нет полной размерной цепочки этой стороны — null. Для непрямоугольной комнаты не подменяй габариты эквивалентным прямоугольником.
 - totalAreaM2 — общая площадь квартиры, если она подписана на плане. Не складывай её сам.
 - ceilingMm у комнаты — её подписанная высота потолка. Общий ceilingMm заполняй только при единой явно подписанной высоте всей квартиры. Диапазон высот не усредняй. H проёма, балки и H1/H2 окна не являются высотой потолка.
+- Для каждого непустого widthMm/depthMm/ceilingMm комнаты верни measurementEvidence с ключами width/depth/ceiling. Значение ключа: {"kind":"horizontal-chain или vertical-chain или ceiling","scope":"room","sourceNumber":напечатанный номер или null,"roomName":"название этой комнаты","complete":true,"segmentsMm":[подписанные отрезки в миллиметрах],"textItemIndexes":[индексы этих подписей в массиве текстового слоя, начиная с 0]}.
+- Привязку цепочки к комнате определяй по концам размерной линии и стенам; высоту — по выноске и её указателю. Близость текста, порядок комнат и совпадение площади не доказывают привязку. Не можешь связать всю цепочку с этой комнатой — соответствующий размер и evidence верни null. Для потолка segmentsMm содержит одно число, не диапазон и не сумму.
+- textItemIndexes нужны при наличии текстового слоя PDF, по одному на каждый отрезок; индекс относится к массиву переданных подписей той же страницы. Не повторяй индекс. Без текстового слоя это поле не добавляй. Подписи окон, высоты проёмов и балок не назначай потолкам.
+- Для общего ceilingMm нужен ceilingEvidence такого же вида, но kind ceiling, scope apartment, без sourceNumber/roomName: только явная единая высота всей квартиры. Высота одной комнаты или диапазон не годятся.
 - Балконы, лоджии, шахты и лестничные клетки в список не включай.
 - Ничего не додумывай: чего не видно, то null. Не округляй подписанные миллиметры и сотые доли площади.
 - geometry — единая 2D-схема квартиры в масштабе. Начало координат в левом верхнем углу внешнего контура; x вправо, y вниз, всё в миллиметрах.
@@ -61,6 +67,8 @@ export type PlanRoom = {
   /** Номер помещения, напечатанный на исходном листе, не позиция ответа. */
   sourceNumber?: number
   ceilingCm?: number
+  measurementEvidence?: Partial<Record<PlanSide | 'ceiling', PlanMeasurementEvidence>>
+  measurementWarnings?: string[]
   kind: RoomKind
   /** Видимая архитектура в ориентации чертежа; человек проверяет перед сохранением. */
   layoutNotes?: string
@@ -100,6 +108,7 @@ export type PlanReading = {
   sourcePage?: number
   pageCount?: number
   ceilingCm?: number
+  ceilingEvidence?: PlanMeasurementEvidence
   /** Общая площадь квартиры с плана: по ней проверяется, не потеряна ли комната и не выдумана ли лишняя */
   totalAreaM2?: number
   rooms: PlanRoom[]
@@ -252,7 +261,10 @@ function planRoomName(raw: unknown): string {
  * Разбор ответа модели. Строки без единого числа выбрасываем: комната, о которой не известно
  * ничего, кроме названия, в списке только мешает — человеку всё равно вводить всё руками.
  */
-export function parseFloorPlan(raw: string): PlanReading {
+export function parseFloorPlan(
+  raw: string,
+  options: { requireMeasurementEvidence?: boolean; planText?: string } = {},
+): PlanReading {
   const start = raw.indexOf('{')
   const end = raw.lastIndexOf('}')
   if (start === -1 || end <= start) {
@@ -261,6 +273,7 @@ export function parseFloorPlan(raw: string): PlanReading {
   let parsed: {
     planState?: unknown
     ceilingMm?: unknown
+    ceilingEvidence?: unknown
     totalAreaM2?: unknown
     rooms?: unknown
     geometry?: unknown
@@ -272,6 +285,7 @@ export function parseFloorPlan(raw: string): PlanReading {
   }
   const rooms: PlanRoom[] = []
   const entries = Array.isArray(parsed.rooms) ? parsed.rooms : []
+  const textItems = planMeasurementTextItems(options.planText)
   const nameCounts = new Map<string, number>()
   const numberCounts = new Map<number, number>()
   for (const entry of entries) {
@@ -316,25 +330,59 @@ export function parseFloorPlan(raw: string): PlanReading {
     }
     usedNames.add(name.toLowerCase())
     const aspect = aspectOf(source.aspect)
-    const roomCeiling = ceilingCm(source.ceilingMm)
+    const owner = { name: read, sourceNumber: number, uniqueName: !duplicateName }
+    const rawEvidence =
+      source.measurementEvidence && typeof source.measurementEvidence === 'object'
+        ? (source.measurementEvidence as Record<string, unknown>)
+        : undefined
+    const measurementEvidence: NonNullable<PlanRoom['measurementEvidence']> = {}
+    const measurementWarnings: string[] = []
+    const measurement = (side: PlanSide | 'ceiling'): number | undefined => {
+      const value = side === 'ceiling' ? ceilingCm(source.ceilingMm) : sideCm(source[`${side}Mm`])
+      if (value === undefined) return undefined
+      if (!options.requireMeasurementEvidence && source.measurementEvidence === undefined)
+        return value
+      const evidence = validatePlanMeasurement(
+        rawEvidence?.[side],
+        source[`${side}Mm`],
+        side,
+        owner,
+        textItems,
+      )
+      if (!evidence) {
+        const label = side === 'width' ? 'Ширина' : side === 'depth' ? 'Глубина' : 'Высота потолка'
+        measurementWarnings.push(
+          `${label}: сверьте подпись и её привязку к этой комнате — поле оставлено для уточнения.`,
+        )
+        return undefined
+      }
+      measurementEvidence[side] = evidence
+      return value
+    }
+    const widthCm = measurement('width')
+    const depthCm = measurement('depth')
+    const roomCeiling = measurement('ceiling')
     const layoutNotes =
       typeof source.layoutNotes === 'string' ? source.layoutNotes.trim().slice(0, 800) : ''
     const asRead = {
       name,
       ...(number === undefined ? {} : { sourceNumber: number }),
       ...(roomCeiling === undefined ? {} : { ceilingCm: roomCeiling }),
+      ...(Object.keys(measurementEvidence).length > 0 ? { measurementEvidence } : {}),
+      ...(measurementWarnings.length > 0 ? { measurementWarnings } : {}),
       kind: roomKindFromName(name),
       ...(layoutNotes ? { layoutNotes } : {}),
       ...(isUtilityRoom(name) ? { utility: true } : {}),
       ...(aspect === undefined ? {} : { aspect }),
-      widthCm: sideCm(source.widthMm),
-      depthCm: sideCm(source.depthMm),
+      widthCm,
+      depthCm,
       areaM2: areaM2(source.areaM2),
     }
     if (
       asRead.widthCm === undefined &&
       asRead.depthCm === undefined &&
-      asRead.areaM2 === undefined
+      asRead.areaM2 === undefined &&
+      measurementWarnings.length === 0
     ) {
       continue
     }
@@ -343,10 +391,20 @@ export function parseFloorPlan(raw: string): PlanReading {
     rooms.push(looksWrong(room) ? { ...room, suspicious: true } : room)
   }
   const readCeiling = ceilingCm(parsed.ceilingMm)
+  const ceilingEvidence = validatePlanMeasurement(
+    parsed.ceilingEvidence,
+    parsed.ceilingMm,
+    'ceiling',
+    undefined,
+    textItems,
+  )
   const ceilingsDiffer = rooms.some(
     (room) => room.ceilingCm !== undefined && room.ceilingCm !== readCeiling,
   )
-  const ceiling = ceilingsDiffer ? undefined : readCeiling
+  const requireCeilingEvidence =
+    options.requireMeasurementEvidence || parsed.ceilingEvidence != null
+  const ceiling =
+    ceilingsDiffer || (requireCeilingEvidence && !ceilingEvidence) ? undefined : readCeiling
   const total = areaM2(parsed.totalAreaM2)
   const geometry = reconcilePlanGeometryRooms(parsePlanGeometry(parsed.geometry), rooms)
   return {
@@ -355,6 +413,7 @@ export function parseFloorPlan(raw: string): PlanReading {
         ? parsed.planState
         : 'unknown',
     ...(ceiling === undefined ? {} : { ceilingCm: ceiling }),
+    ...(ceiling !== undefined && ceilingEvidence ? { ceilingEvidence } : {}),
     ...(total === undefined ? {} : { totalAreaM2: total }),
     ...(geometry === undefined ? {} : { geometry }),
     rooms,
@@ -544,10 +603,14 @@ export function mergeReadings(readings: readonly PlanReading[]): PlanReading {
   const rooms: PlanRoom[] = []
   const seen = new Set<string>()
   let ceilingCm: number | undefined
+  let ceilingEvidence: PlanMeasurementEvidence | undefined
   let totalAreaM2: number | undefined
   let geometry: PlanGeometry | undefined
   for (const reading of readings) {
-    ceilingCm ??= reading.ceilingCm
+    if (ceilingCm === undefined && reading.ceilingCm !== undefined) {
+      ceilingCm = reading.ceilingCm
+      ceilingEvidence = reading.ceilingEvidence
+    }
     totalAreaM2 ??= reading.totalAreaM2
     geometry ??= reading.geometry
     const onThisPage: string[] = []
@@ -563,9 +626,15 @@ export function mergeReadings(readings: readonly PlanReading[]): PlanReading {
       seen.add(key)
     }
   }
+  const ceilings = readings.flatMap((reading) => [
+    ...(reading.ceilingCm === undefined ? [] : [reading.ceilingCm]),
+    ...reading.rooms.flatMap((room) => (room.ceilingCm === undefined ? [] : [room.ceilingCm])),
+  ])
+  if (ceilings.some((value) => value !== ceilingCm)) ceilingCm = undefined
   return {
     ...(states.size === 1 ? { planState: [...states][0] } : {}),
     ...(ceilingCm === undefined ? {} : { ceilingCm }),
+    ...(ceilingCm !== undefined && ceilingEvidence ? { ceilingEvidence } : {}),
     ...(totalAreaM2 === undefined ? {} : { totalAreaM2 }),
     ...(geometry === undefined ? {} : { geometry }),
     rooms,
@@ -630,6 +699,6 @@ export function createFalPlanReader(apiKey: string): PlanReader {
     if (output.trim() === '') {
       throw new FalError('план не прочитан: пустой ответ')
     }
-    return parseFloorPlan(output)
+    return parseFloorPlan(output, { requireMeasurementEvidence: true, planText: image.planText })
   }
 }

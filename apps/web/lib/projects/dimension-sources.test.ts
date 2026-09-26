@@ -3,6 +3,7 @@ import {
   dimensionSourceLabel,
   editedDimensionSources,
   planDimensionSources,
+  retainedPlanMeasurementEvidence,
 } from './dimension-sources'
 
 const original = {
@@ -13,6 +14,31 @@ const original = {
   estimated: ['width' as const],
 }
 const input = { name: 'Кухня', kind: 'kitchen', widthCm: 200, depthCm: 300 }
+
+describe('цепочки после ручного подтверждения', () => {
+  const evidence = {
+    kind: 'horizontal-chain' as const,
+    scope: 'room' as const,
+    sourceNumber: 2,
+    complete: true as const,
+    segmentsMm: [2000],
+  }
+  const source = { ...original, sourceNumber: 2, measurementEvidence: { width: evidence } }
+  it('сохраняет цепочку только для неизменённого размера', () => {
+    expect(retainedPlanMeasurementEvidence({ ...input, sourceNumber: 2 }, source)).toEqual({
+      width: evidence,
+    })
+    expect(
+      retainedPlanMeasurementEvidence({ ...input, sourceNumber: 2, widthCm: 201 }, source),
+    ).toBeUndefined()
+  })
+  it('не переносит цепочку при смене номера или названия комнаты', () => {
+    expect(retainedPlanMeasurementEvidence({ ...input, sourceNumber: 3 }, source)).toBeUndefined()
+    expect(
+      retainedPlanMeasurementEvidence({ ...input, sourceNumber: 2, name: 'Спальня' }, source),
+    ).toBeUndefined()
+  })
+})
 
 describe('dimension provenance', () => {
   it('does not upgrade legacy saved plans to recognized dimensions', () => {

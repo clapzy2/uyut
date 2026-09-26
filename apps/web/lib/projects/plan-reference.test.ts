@@ -6,6 +6,7 @@ import {
   validatePlanGeometryEdit,
 } from '@uyut/ai'
 import { layoutRoom, roomLayoutInputFromGeometry } from '@uyut/catalog'
+import { rectBlocksFloorReservation, rectInsideFloor } from '@uyut/catalog/layout'
 import { describe, expect, it } from 'vitest'
 import reference from '../../../../docs/qa/fixtures/apartment-74-77.json'
 import { planRoomsSchema } from '../validation/projects'
@@ -303,5 +304,68 @@ describe('published apartment: parser regression, not a vision accuracy test', (
     expect(layout.safetyChecks).toContainEqual(
       expect.objectContaining({ id: 'operation-zone-access', status: 'needs-data' }),
     )
+  })
+
+  it.each([
+    {
+      number: 2,
+      name: 'Кухня',
+      kind: 'kitchen' as const,
+      category: 'storage' as const,
+      width: 180,
+      depth: 60,
+    },
+    {
+      number: 3,
+      name: 'Гостиная',
+      kind: 'living' as const,
+      category: 'sofa' as const,
+      width: 210,
+      depth: 90,
+    },
+  ])('keeps furniture inside room $number without blocking its labelled entrances', (scenario) => {
+    const referenceRoom = contourRooms.find((room) => room.number === scenario.number)
+    if (!referenceRoom) throw new Error('Missing manual reference')
+    const reading = parseFloorPlan(
+      JSON.stringify({ ...raw, geometry: localGeometry(referenceRoom) }),
+    )
+    if (!reading.geometry) throw new Error('Missing local geometry')
+    // Test geometry conversion and layout only; not actual confirmation or a catalog product.
+    const input = roomLayoutInputFromGeometry(
+      { ...reading.geometry, status: 'confirmed' },
+      scenario.name,
+      null,
+    )
+    if (!input?.floorPolygon) throw new Error('Missing floor outline')
+    const layout = layoutRoom({ ...input, roomKind: scenario.kind }, [
+      {
+        id: 'test-furniture',
+        title: 'Тестовый предмет',
+        category: scenario.category,
+        quantity: 1,
+        dimensions: { width: scenario.width, depth: scenario.depth, height: 90 },
+        operationClearance: { front: 90 },
+      },
+    ])
+    expect(layout.placed).toHaveLength(1)
+    for (const placed of layout.placed) {
+      expect(rectInsideFloor(placed, input.floorPolygon)).toBe(true)
+      for (const opening of input.floorReservations.filter(
+        (opening) => opening.kind !== 'window',
+      )) {
+        expect(rectBlocksFloorReservation(placed, opening)).toBe(false)
+      }
+    }
+    expect(layout.floorPolygon).toEqual(input.floorPolygon)
+    expect(layout.safetySummary.status).not.toBe('checked')
+    expect(input.missingSafetyData.join(' ')).toContain('зону открывания')
+    expect(input.floorReservations.filter((opening) => opening.kind !== 'window')).toHaveLength(2)
+    if (scenario.number === 3) {
+      // Printed balcony block is 576 mm, not proof of a 700 mm clear walkway.
+      expect(input.missingSafetyData.join(' ')).toContain('57.6 см')
+      expect(layout.safetyChecks).toContainEqual(
+        expect.objectContaining({ id: 'continuous-route', status: 'blocked' }),
+      )
+    }
   })
 })

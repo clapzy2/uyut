@@ -14,7 +14,10 @@ import { canCreateProject, PROJECT_LIMIT } from '@/lib/billing/repository'
 import { preparePlan, UploadError } from '@/lib/files/uploads'
 import { AccessError, assertOwner } from '@/lib/projects/access'
 import { openingClearancesSchema } from '@/lib/projects/clearance-zones'
-import { planDimensionSources } from '@/lib/projects/dimension-sources'
+import {
+  planDimensionSources,
+  retainedPlanMeasurementEvidence,
+} from '@/lib/projects/dimension-sources'
 import { roomKindLabels } from '@/lib/projects/format'
 import { kitchenItemsSchema } from '@/lib/projects/kitchen-items'
 import { kitchenSafetySchema } from '@/lib/projects/kitchen-safety'
@@ -526,6 +529,9 @@ export async function confirmPlanRooms(
       ...(project.planReading?.sourcePage ? { sourcePage: project.planReading.sourcePage } : {}),
       ...(project.planReading?.pageCount ? { pageCount: project.planReading.pageCount } : {}),
       ...(ceilingCm === null ? {} : { ceilingCm }),
+      ...(ceilingCm === project.planReading?.ceilingCm && project.planReading.ceilingEvidence
+        ? { ceilingEvidence: project.planReading.ceilingEvidence }
+        : {}),
       // Общую площадь человек не правит, но она остаётся частью записи о том, что было прочитано
       ...(project.planReading?.totalAreaM2 === undefined
         ? {}
@@ -538,6 +544,7 @@ export async function confirmPlanRooms(
           (source) => source.name === room.name,
         )
         const source = matches.length === 1 ? matches[0] : undefined
+        const measurementEvidence = retainedPlanMeasurementEvidence(room, source)
         return {
           dimensionSources: planDimensionSources(
             room,
@@ -551,6 +558,7 @@ export async function confirmPlanRooms(
           ...(source?.utility ? { utility: true } : {}),
           ...(room.sourceNumber === undefined ? {} : { sourceNumber: room.sourceNumber }),
           ...(room.ceilingCm == null ? {} : { ceilingCm: room.ceilingCm }),
+          ...(measurementEvidence ? { measurementEvidence } : {}),
           ...(room.widthCm === null ? {} : { widthCm: room.widthCm }),
           ...(room.depthCm === null ? {} : { depthCm: room.depthCm }),
           ...(room.areaM2 === null ? {} : { areaM2: room.areaM2 }),

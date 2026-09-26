@@ -434,6 +434,11 @@ export function PlanReadingCard({
                   отрезкам размерной цепочки: с первого раза площадь не сходилась, теперь сходится.
                 </p>
               ) : null}
+              {row.measurementWarnings?.map((warning) => (
+                <p key={warning} className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
+                  {warning}
+                </p>
+              ))}
               {row.chainMismatch ? (
                 <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-danger">
                   {row.chainMismatch === 'both' ? 'Обе стороны' : 'Одна сторона'} в размерной

@@ -15,6 +15,7 @@ export type PlanRow = {
   wish: string
   layoutNotes: string
   suspicious: boolean
+  measurementWarnings?: string[]
   /** Сторона или обе, которые пришлось перечитать отдельным вопросом, чтобы площадь сошлась */
   rechecked?: 'width' | 'depth' | 'both'
   /** Повторное чтение цепочки не подтвердило исходный размер. */
@@ -115,6 +116,9 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
       wish: match?.notes ?? '',
       layoutNotes: room.layoutNotes ?? '',
       suspicious: room.suspicious === true,
+      ...(room.measurementWarnings?.length
+        ? { measurementWarnings: room.measurementWarnings }
+        : {}),
       ...(unsupported
         ? { unsupportedReason: room.utility ? ('utility' as const) : ('kind' as const) }
         : {}),

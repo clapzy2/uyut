@@ -3,6 +3,23 @@ import { hasCurrentVerification } from './measurement-assurance'
 
 type Dimensions = { name: string; kind: string; widthCm: number | null; depthCm: number | null }
 
+/** После правки цепочка относится только к неизменённому числу и прежней комнате. */
+export function retainedPlanMeasurementEvidence(
+  input: Dimensions & { sourceNumber?: number; ceilingCm?: number | null },
+  original: PlanRoomReading | undefined,
+): PlanRoomReading['measurementEvidence'] {
+  if (!original || original.name !== input.name || original.sourceNumber !== input.sourceNumber) {
+    return undefined
+  }
+  const retained: NonNullable<PlanRoomReading['measurementEvidence']> = {}
+  for (const side of ['width', 'depth', 'ceiling'] as const) {
+    const key = `${side}Cm` as const
+    const evidence = original.measurementEvidence?.[side]
+    if (input[key] != null && input[key] === original[key] && evidence) retained[side] = evidence
+  }
+  return Object.keys(retained).length > 0 ? retained : undefined
+}
+
 /** Не доверяем меткам от клиента. Неоднозначное соответствие остаётся неизвестным. */
 export function planDimensionSources(
   input: Dimensions,

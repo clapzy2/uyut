@@ -50,11 +50,24 @@ export type ProjectContact = {
  * раньше комнат: сначала мы показываем прочитанное на правку, и только подтверждённое становится
  * комнатами проекта.
  */
+/** Связь чисел со строкой комнаты со слов читателя; не подтверждение натурного обмера. */
+export type PlanMeasurementEvidence = {
+  kind: 'horizontal-chain' | 'vertical-chain' | 'ceiling'
+  scope: 'room' | 'apartment'
+  sourceNumber?: number
+  roomName?: string
+  complete: true
+  segmentsMm: number[]
+  textItemIndexes?: number[]
+}
+
 export type PlanRoomReading = {
   dimensionSources?: RoomMeasurements['dimensionSources']
   name: string
   sourceNumber?: number
   ceilingCm?: number
+  measurementEvidence?: Partial<Record<'width' | 'depth' | 'ceiling', PlanMeasurementEvidence>>
+  measurementWarnings?: string[]
   kind: RoomKind
   layoutNotes?: string
   widthCm?: number
@@ -177,6 +190,7 @@ export type PlanReading = {
   sourcePage?: number
   pageCount?: number
   ceilingCm?: number
+  ceilingEvidence?: PlanMeasurementEvidence
   /** Общая площадь квартиры с плана: сверяется с суммой площадей комнат */
   totalAreaM2?: number
   rooms: PlanRoomReading[]
