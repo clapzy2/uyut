@@ -89,7 +89,9 @@ const CSS = `
      выезжал за поле и обрезался вместе со строкой «проход 65 см», которую и надо было прочесть */
   .plan svg { display: block; width: 100%; height: auto; max-height: 52mm; }
   .plan .verdict { font-size: 8pt; line-height: 1.45; color: #6d6656; margin-top: 1.5mm; }
+  .plan .status { font-size: 9.5pt; }
   .plan .bad { color: #7c2f3b; }
+  .plan-page .plan svg { max-height: 120mm; }
   .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; }
   .thumbs .img { height: 27mm; overflow: hidden; }
   .thumbs .cap { font-size: 7.5pt; color: #6d6656; margin-top: 1.5mm; }
@@ -243,12 +245,19 @@ function splitSummary(data: PdfData): [string, string | null] {
  * Рисуется сразу в SVG, без картинки: Chromium печатает вектор резко на любой бумаге.
  */
 function roomPlan(plan: RoomLayout | null): string {
-  if (!plan || plan.problems.some((problem) => problem.kind === 'noRoomSize')) {
+  if (!plan) {
     return ''
+  }
+  const safetyNote =
+    plan.safetySummary.status !== 'checked'
+      ? `<p class="verdict status${plan.safetySummary.status === 'blocked' ? ' bad' : ''}">${esc(plan.safetySummary.title)}. ${esc(plan.safetySummary.detail)}</p>`
+      : ''
+  if (plan.problems.some((problem) => problem.kind === 'noRoomSize')) {
+    return `<div class="plan">${safetyNote}</div>`
   }
   const trouble = plan.problems.filter((problem) => problem.kind !== 'noRoomSize')
   if (plan.placed.length === 0 && trouble.length === 0) {
-    return ''
+    return `<div class="plan">${safetyNote}</div>`
   }
   const width = 400
   const scale = width / plan.widthCm
@@ -282,16 +291,16 @@ function roomPlan(plan: RoomLayout | null): string {
     .join('')
   const verdict =
     trouble.length > 0
-      ? `<p class="verdict bad">${esc(planProblems(trouble))}</p>`
+      ? `<p class="verdict status bad">${esc(planProblems(trouble))}</p>`
       : plan.reservationSource === 'geometry'
-        ? `<p class="verdict">Выбранное помещается, проход посередине ${plan.walkwayCm} см. Двери и окна учтены по подтверждённой 2D-схеме; свободной стены ${plan.freeWallCm} см.</p>`
+        ? `<p class="verdict status">На схеме: проход посередине ${plan.walkwayCm} см, суммарно свободных участков стен ${plan.freeWallCm} см. Проёмы учтены по подтверждённой 2D-схеме.</p>`
         : plan.reservationSource === 'description'
-          ? `<p class="verdict">Выбранное помещается, проход посередине ${plan.walkwayCm} см. Проёмы учтены по описанию комнаты; свободной стены ${plan.freeWallCm} см.</p>`
-          : `<p class="verdict">Выбранное помещается, проход посередине ${plan.walkwayCm} см. Где дверь и окно, план не знает: свободной стены ${plan.freeWallCm} см.</p>`
+          ? `<p class="verdict status">На схеме: проход посередине ${plan.walkwayCm} см, суммарно свободных участков стен ${plan.freeWallCm} см. Проёмы учтены по описанию комнаты; уточните их на плане.</p>`
+          : `<p class="verdict status">На схеме: проход посередине ${plan.walkwayCm} см, суммарно свободных участков стен ${plan.freeWallCm} см. Для проверки доступа укажите двери и окна на плане.</p>`
   const missingOperations = plan.operationInputs.filter((item) => item.valueCm === undefined)
   const operationNote =
     missingOperations.length > 0
-      ? `<p class="verdict bad">Не указаны рабочие зоны: ${esc(missingOperations.map((item) => item.title).join(', '))}. До покупки уточните открывание, раскладывание и подход.</p>`
+      ? `<p class="verdict status bad">Не указаны рабочие зоны: ${esc(missingOperations.map((item) => item.title).join(', '))}. До покупки уточните открывание, раскладывание и подход.</p>`
       : plan.functionalZones.length > 0
         ? '<p class="verdict">Пунктиром показаны измеренные рабочие зоны мебели.</p>'
         : ''
@@ -317,7 +326,8 @@ function roomPlan(plan: RoomLayout | null): string {
   return `
       <div class="plan">
         <p class="eyebrow">Вид сверху · ${Math.round(plan.widthCm)} × ${Math.round(plan.depthCm)} см</p>
-        ${plan.measurementNote ? `<p class="verdict">${esc(plan.measurementNote)}</p>` : ''}
+        ${plan.measurementNote ? `<p class="verdict status">${esc(plan.measurementNote)}</p>` : ''}
+        ${safetyNote}
         ${drawing}
         ${legend}
         ${verdict}
@@ -370,7 +380,7 @@ function roomPage(room: PdfRoom, index: number, free: boolean): string {
         ${room.note ? `<p style="font-size:10pt;line-height:1.5">${esc(room.note)}</p>` : '<p class="small">Подпись к концепту появится после генерации.</p>'}
         ${
           room.before
-            ? `<div class="was">${img(room.before, 'img')}<p class="small">Было: ${esc(room.conditionLabel.toLowerCase())}. Расстановка на рендере учитывает реальную геометрию с фото.</p></div>`
+            ? `<div class="was">${img(room.before, 'img')}<p class="small">Было: ${esc(room.conditionLabel.toLowerCase())}. Сравните окна и двери на концепте с исходным фото.</p></div>`
             : ''
         }
       </div>
@@ -387,7 +397,6 @@ function roomPage(room: PdfRoom, index: number, free: boolean): string {
                 )
                 .join('')
         }
-        ${roomPlan(room.plan)}
       </div>
     </div>
     ${
@@ -401,6 +410,19 @@ function roomPage(room: PdfRoom, index: number, free: boolean): string {
             .join('')}</div>`
         : ''
     }
+  </section>`
+}
+
+function roomPlanPage(room: PdfRoom, free: boolean): string {
+  const plan = roomPlan(room.plan)
+  if (!plan) return ''
+  // Схема и её статусы печатаются в обычном потоке, а не внутри обрезаемого разворота рендера.
+  return `
+  <section class="page plan-page">
+    ${ribbon(free)}
+    <p class="eyebrow">2D-схема · выбранные товары</p>
+    <h1 style="margin-top:3mm">${esc(room.name)} · расстановка</h1>
+    ${plan}
   </section>`
 }
 
@@ -518,14 +540,15 @@ function estimatePage(data: PdfData, free: boolean): string {
         })
         .join('')}
       ${estimate.works.roomsWithoutArea.map((name) => `<div class="line"><span>${esc(name)}</span><span class="formula">площадь не указана</span><span class="price">—</span></div>`).join('')}
-      <div class="sum"><span>Итого проект</span><span class="price">${formatPrice(estimate.totalKopecks)}</span></div>
+      <div class="sum"><span>Итого по расчёту</span><span class="price">${formatPrice(estimate.totalKopecks)}</span></div>
+      <p style="font-size:9.5pt;margin-top:2mm">Мебель — по списку покупок, работы — по площади пола и ставкам ниже. Материалы для отделки в сумму не включены.${estimate.works.roomsWithoutArea.length > 0 ? ` Работы для комнат без площади ещё не включены: ${esc(estimate.works.roomsWithoutArea.join(', '))}.` : ''}</p>
     </div>
     <div style="display:grid;gap:3mm">
       <div class="bar"><span style="width:${estimate.shares.furniture * 100}%;background:#7c2f3b"></span><span style="width:${estimate.shares.works * 100}%;background:#b98a5a"></span><span style="width:${estimate.shares.free * 100}%;background:${estimate.overBudget ? '#d9a6ad' : '#ddd4c1'}"></span></div>
       <div class="legend"><span><i style="background:#7c2f3b"></i>Мебель ${formatShare(estimate.shares.furniture)}</span><span><i style="background:#b98a5a"></i>Работы ${formatShare(estimate.shares.works)}</span><span><i style="background:${estimate.overBudget ? '#d9a6ad' : '#ddd4c1'}"></i>${esc(freeLabel)}</span></div>
       ${estimate.budgetKopecks !== null ? `<p class="small">Бюджет проекта ${formatPrice(estimate.budgetKopecks)}.</p>` : ''}
     </div>
-    <p class="small">Стоимость работ — ориентир по средним ставкам: ${formatRubles(rates.roughRubPerM2)}/м² черновые и ${formatRubles(rates.finishRubPerM2)}/м² чистовые. Это примерная стоимость работ, уточняйте у мастеров. Материалы для отделки в оценку не входят.</p>
+    <p style="font-size:9.5pt">Ставки этого расчёта: ${formatRubles(rates.roughRubPerM2)}/м² черновые и ${formatRubles(rates.finishRubPerM2)}/м² чистовые. Стоимость и состав работ согласуйте с мастерами после осмотра квартиры.</p>
   </section>`
 }
 
@@ -537,12 +560,12 @@ function briefPages(data: PdfData, free: boolean): string {
   return `
   <section class="page">
     ${ribbon(free)}
-    <p class="eyebrow">ТЗ мастеру · для сметы бригады</p>
-    <h1 style="margin-top:3mm">Техническое задание</h1>
+    <p class="eyebrow">Интерьер · для обсуждения и сметы бригады</p>
+    <h1 style="margin-top:3mm">Задание для мастеров</h1>
     <div class="brief-warning">
-      <p class="brief-warning-title">Прочитайте до того, как отдадите бригаде</p>
-      <p>Задание составлено по вашему концепту и площади комнат. Сервис не был на объекте: он не знает обмеров, состояния проводки, где несущие стены и какая высота потолков. Количество материалов и точки электрики бригада обязана проверить на месте.</p>
-      <p>Этот документ нужен, чтобы вы и мастера говорили об одном и том же. Он не заменяет проект и расчёты инженера.</p>
+      <p class="brief-warning-title">Как использовать задание</p>
+      <p>Обсудите с мастерами отделку и обстановку по выбранным концептам. Перед согласованием сметы бригада сверяет обмеры, состояние основания и проводки, количество материалов и места установки оборудования на объекте.</p>
+      <p>Инженерные решения, расчёты конструкций и согласование перепланировки оформляются отдельно с профильными специалистами. Это задание не заменяет рабочую проектную документацию.</p>
     </div>
     <div class="rule strong" style="margin-top:5mm"></div>
     ${brief.rooms
@@ -574,24 +597,24 @@ function finalPage(data: PdfData, free: boolean): string {
     <div class="cols" style="margin-top:8mm">
       <div style="display:grid;gap:3mm;align-content:start">
         <p class="eyebrow">Что уточнить у заказчика</p>
-        ${questions.length > 0 ? `<ol class="qlist">${questions.map((question) => `<li>${esc(question)}</li>`).join('')}</ol>` : '<p class="small">Вопросы появятся вместе с техническим заданием.</p>'}
+        ${questions.length > 0 ? `<ol class="qlist">${questions.map((question) => `<li>${esc(question)}</li>`).join('')}</ol>` : '<p class="small">Вопросы появятся вместе с заданием для мастеров.</p>'}
       </div>
       <div style="display:grid;gap:5mm;align-content:start">
         <p class="eyebrow">Порядок</p>
-        <p style="font-size:10pt;line-height:1.5">Сначала черновые работы и электрика по заданию, потом чистовая отделка, и только затем — мебель из списка. Крупные предметы заказывайте после замера по месту: сроки поставки диванов и стеллажей — от двух недель.</p>
+        <p style="font-size:10pt;line-height:1.5">Согласуйте состав и порядок работ с бригадой, а электрику и другие инженерные решения — с профильными специалистами. Перед заказом крупных предметов сверьте размеры и доступ по месту; сроки доставки уточните в магазине.</p>
         <div class="rule"></div>
         <p class="eyebrow">Проект онлайн</p>
-        <p style="font-size:10pt;line-height:1.5">Все рендеры, варианты цвета и ссылки на магазины — в проекте по адресу <span class="mono" style="font-size:9pt">${esc(data.project.projectUrl)}</span>. Список покупок там можно менять, PDF пересобирается за минуту.</p>
+        <p style="font-size:10pt;line-height:1.5">Все рендеры, варианты цвета и ссылки на магазины — в проекте по адресу <span class="mono" style="font-size:9pt">${esc(data.project.projectUrl)}</span>. Список покупок там можно менять, после изменений соберите новый PDF.</p>
         ${data.project.contact?.phone ? `<p class="small">Телефон заказчика для мастера: <span class="mono">${esc(data.project.contact.phone)}</span></p>` : ''}
       </div>
     </div>
     <div class="rule" style="margin-top:10mm"></div>
-    <p class="small" style="margin-top:4mm">Документ собран сервисом «Домица» ${esc(formatLongDate(data.generatedAt))} по концептам, утверждённым заказчиком. Цены магазинов и оценка работ ориентировочные и могут измениться; ссылки на магазины партнёрские.${data.brief ? ' Техническое задание не заменяет проектную документацию и расчёты инженера.' : ''}</p>
+    <p class="small" style="margin-top:4mm">Документ собран сервисом «Домица» ${esc(formatLongDate(data.generatedAt))} по сохранённым концептам проекта. Цены магазинов и оценка работ ориентировочные и могут измениться; ссылки на магазины партнёрские.${data.brief ? ' Задание для мастеров не заменяет рабочую проектную документацию.' : ''}</p>
   </section>`
 }
 
 /**
- * Полный HTML документа для печати в PDF: обложка, о проекте, по странице на комнату,
+ * Полный HTML документа для печати в PDF: обложка, о проекте, рендеры и схемы комнат,
  * список покупок, смета, ТЗ мастеру и «что дальше». Все картинки — data URI, шрифты вшиты.
  */
 export function renderProjectHtml(data: PdfData, options: { fontCss: string }): string {
@@ -610,7 +633,7 @@ ${CSS}
 ${free ? '<div class="wm-layer"></div>' : ''}
 ${cover(data, free)}
 ${about(data, free)}
-${data.rooms.map((room, index) => roomPage(room, index, free)).join('')}
+${data.rooms.map((room, index) => roomPage(room, index, free) + roomPlanPage(room, free)).join('')}
 ${shopping(data, free)}
 ${estimatePage(data, free)}
 ${briefPages(data, free)}

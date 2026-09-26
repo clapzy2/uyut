@@ -109,7 +109,7 @@ describe('project PDF template', () => {
     expect(html).toContain('Гостиная')
     expect(html).toContain('Что купить')
     expect(html).toContain('Сколько это стоит')
-    expect(html).toContain('Техническое задание')
+    expect(html).toContain('Задание для мастеров')
     expect(html).toContain('Окрасить стены в два слоя.')
     expect(html).toContain('Уточнить расположение стола.')
     expect(html).toContain('Кухня: расстановка не утверждена')
@@ -120,11 +120,64 @@ describe('project PDF template', () => {
 
   it('оговорка про задание стоит до самого задания, а не мелким шрифтом в конце', () => {
     const html = renderProjectHtml(sample('paid'), { fontCss: '' })
-    const warning = html.indexOf('Прочитайте до того, как отдадите бригаде')
+    const warning = html.indexOf('Как использовать задание')
     const firstRoomSection = html.indexOf('Окрасить стены в два слоя.')
     expect(warning).toBeGreaterThan(-1)
     expect(warning).toBeLessThan(firstRoomSection)
-    expect(html).toContain('не знает обмеров, состояния проводки')
+    expect(html).toContain('бригада сверяет обмеры, состояние основания и проводки')
+    expect(html).toContain('Это задание не заменяет рабочую проектную документацию')
+    expect(html).not.toContain('не знает обмеров')
+  })
+
+  it('keeps material and missing-area exclusions beside the estimate total', () => {
+    const html = renderProjectHtml(sample('paid'), { fontCss: '' })
+    const total = html.indexOf('<span>Итого по расчёту</span>')
+    const exclusions = html.indexOf('Материалы для отделки в сумму не включены', total)
+    const budget = html.indexOf('class="bar"', total)
+    expect(total).toBeGreaterThan(-1)
+    expect(exclusions).toBeGreaterThan(total)
+    expect(exclusions).toBeLessThan(budget)
+    expect(html.slice(total, budget)).toContain('ещё не включены: Кухня')
+    expect(html).toContain('Ставки этого расчёта')
+    expect(html).not.toContain('по средним ставкам')
+    expect(html).toContain(`435${NBSP}900${NBSP}₽`)
+  })
+
+  it('does not promise complete fit without openings and preserves the shared safety result', () => {
+    const data = sample('paid')
+    const html = renderProjectHtml(data, { fontCss: '' })
+    const plan = data.rooms[0]?.plan
+    if (!plan) throw new Error('Missing fixture plan')
+    expect(html).toContain(plan.safetySummary.title)
+    expect(html).toContain(plan.safetySummary.detail)
+    expect(html).toContain('Для проверки доступа укажите двери и окна на плане')
+    expect(html).not.toContain('Выбранное помещается')
+  })
+
+  it('preserves a blocked safety verdict even if there are no placement problems', () => {
+    const data = sample('paid')
+    const plan = data.rooms[0]?.plan
+    if (!plan) throw new Error('Missing fixture plan')
+    plan.problems = []
+    plan.safetySummary = {
+      status: 'blocked',
+      title: 'Требуется перестановка',
+      detail: 'Кровать перекрывает <боковой подход>.',
+    }
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('class="verdict status bad">Требуется перестановка')
+    expect(html).toContain('Кровать перекрывает &lt;боковой подход&gt;')
+  })
+
+  it('shows the missing-data result when no drawing can be produced', () => {
+    const data = sample('paid')
+    const room = data.rooms[0]
+    if (!room) throw new Error('Missing fixture room')
+    room.plan = layoutRoom({}, [])
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain(room.plan.safetySummary.title)
+    expect(html).toContain(room.plan.safetySummary.detail)
+    expect(html).not.toContain('<svg viewBox="0 0 400')
   })
 
   it('печатает пометку рекламы одним блоком и не теряет erid', () => {
@@ -149,6 +202,10 @@ describe('project PDF template', () => {
     expect(html).toContain('Вид сверху · 340 × 540 см')
     expect(html).toContain('<svg viewBox="0 0 400')
     expect(html).toContain('проход посередине')
+    const planPage = html.split('<section class="page plan-page">')[1]?.split('</section>')[0]
+    expect(planPage).toContain('Гостиная · расстановка')
+    expect(planPage).toContain('<svg viewBox="0 0 400')
+    expect(planPage).toContain('Для проверки доступа укажите двери и окна на плане')
   })
 
   it('когда ничего не расставилось, причину всё равно печатаем', () => {
@@ -191,8 +248,8 @@ describe('project PDF template', () => {
     const html = renderProjectHtml(data, { fontCss: '' })
     expect(html).toContain(`67${NBSP}900${NBSP}₽`)
     expect(html).toContain(`435${NBSP}900${NBSP}₽`)
-    expect(html).not.toContain('Техническое задание')
-    expect(html).toContain('Вопросы появятся вместе с техническим заданием.')
+    expect(html).not.toContain('Задание для мастеров</h1>')
+    expect(html).toContain('Вопросы появятся вместе с заданием для мастеров.')
   })
 
   it('builds a footer with the page counter', () => {

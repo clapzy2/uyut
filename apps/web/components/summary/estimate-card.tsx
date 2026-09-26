@@ -175,11 +175,21 @@ export function EstimateCard({
           />
         </div>
         <div className="mt-2 flex items-baseline justify-between gap-4 border-t border-ink pt-3">
-          <span className="text-[15px] text-ink">Итого</span>
+          <span className="text-[15px] text-ink">Итого по расчёту</span>
           <span className="font-serif text-[30px] leading-none tracking-tight text-ink transition-colors duration-300">
             {formatPrice(estimate.totalKopecks)}
           </span>
         </div>
+        <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
+          Мебель — по списку покупок, работы — по площади пола и ставкам ниже. Материалы для отделки
+          в сумму не включены.
+        </p>
+        {estimate.works.roomsWithoutArea.length > 0 ? (
+          <p className="mt-2 text-[14px] leading-relaxed text-accent">
+            Работы для комнат без площади ещё не включены:{' '}
+            {estimate.works.roomsWithoutArea.join(', ')}.
+          </p>
+        ) : null}
         <BudgetBar
           className="mt-5"
           shares={estimate.shares}
@@ -215,9 +225,8 @@ export function EstimateCard({
           </ul>
         )}
         {estimate.works.roomsWithoutArea.length > 0 ? (
-          <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
-            Без площади работы не посчитать: {estimate.works.roomsWithoutArea.join(', ')}. Укажите
-            метры в настройках комнаты{' '}
+          <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
+            Чтобы дополнить расчёт, укажите площадь в настройках комнаты{' '}
             <Link
               href={`/projects/${projectId}`}
               className="text-accent underline decoration-accent/40 underline-offset-4"
@@ -227,10 +236,10 @@ export function EstimateCard({
             .
           </p>
         ) : null}
-        <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
-          Ориентир по средним ставкам: {rubles.format(rates.roughRubPerM2)} ₽/м² черновые и{' '}
-          {rubles.format(rates.finishRubPerM2)} ₽/м² чистовые. Это примерная стоимость работ,
-          уточняйте у мастеров. Материалы для отделки сюда не входят.
+        <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
+          Ставки этого расчёта: {rubles.format(rates.roughRubPerM2)} ₽/м² черновые и{' '}
+          {rubles.format(rates.finishRubPerM2)} ₽/м² чистовые. Стоимость и состав работ согласуйте с
+          мастерами после осмотра квартиры.
         </p>
       </section>
     </div>

@@ -19,11 +19,11 @@ const items = Array.from({ length: 18 }, (_, index) => ({
 }))
 const data: PdfData = {
   kind: 'free',
-  generatedAt: new Date('2026-09-26T10:00:00Z'),
+  generatedAt: new Date('2026-09-27T10:00:00Z'),
   project: {
     title: 'Тест печати — не проект квартиры',
     subtitle: 'Синтетические данные для проверки переноса длинных строк',
-    facts: [{ label: 'Проверка', value: 'Ткань, габариты, ссылки и многостраничный список' }],
+    facts: [{ label: 'Проверка', value: 'Покупки, границы сметы и задание для мастеров' }],
     contact: null,
     projectUrl: 'example.com/test',
   },
@@ -58,13 +58,28 @@ const data: PdfData = {
   roomsWithoutConcept: ['Кухня'],
   shopping: [{ roomName: 'Гостиная', items }],
   estimate: estimateProject({
-    rooms: [{ id: 'room', name: 'Гостиная', areaM2: 12, condition: 'bare', refreshFinish: false }],
+    rooms: [
+      { id: 'room', name: 'Гостиная', areaM2: 12, condition: 'bare', refreshFinish: false },
+      { id: 'kitchen', name: 'Кухня', areaM2: null, condition: 'bare', refreshFinish: false },
+    ],
     items,
     budgetKopecks: 950_000_00,
     rates,
   }),
   rates,
-  brief: null,
+  brief: {
+    summary: 'Тестовый текст для проверки печати, не задание на выполнение работ.',
+    rooms: [
+      {
+        name: 'Гостиная — синтетический пример',
+        sections: [
+          { title: 'Отделка', items: ['Обсудить цвет стен и состав работ после осмотра объекта.'] },
+          { title: 'Обстановка', items: ['Сверить выбранные товары с обмерами и зоной доступа.'] },
+        ],
+      },
+    ],
+    questions: ['Какие работы согласованы с мастерами?', 'Проверены ли размеры перед заказом?'],
+  },
 }
 const outputDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../output/pdf')
 await mkdir(outputDir, { recursive: true })

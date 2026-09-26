@@ -58,14 +58,15 @@ function RunProgress({
     return (
       <div className="flex flex-col gap-2">
         <p className="text-[13px] leading-relaxed text-ink-2">
-          Связь с очередью потерялась. Файл всё равно соберётся, обновите страницу через минуту.
+          Не удалось получить статус сборки. Она могла продолжиться — проверьте результат или
+          обновите страницу через минуту.
         </p>
         <button
           type="button"
           onClick={() => onFinished(false)}
           className="self-start py-1 text-[13px] text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent"
         >
-          Показать, что получилось
+          Проверить результат
         </button>
       </div>
     )
@@ -255,12 +256,16 @@ export function ExportCard({
       </p>
       <h2 className="mt-2 font-serif text-[24px] leading-tight text-ink">PDF как журнал</h2>
       <p className="mt-2 text-[15px] leading-relaxed text-ink-2">
-        Обложка, разворот каждой комнаты, список покупок, смета и техническое задание для бригады.{' '}
+        Обложка, разворот каждой комнаты, список покупок, расчёт бюджета и задание для мастеров.{' '}
         {clean
           ? paid
             ? 'Проект оплачен, документ выходит без водяного знака.'
             : 'У вас Pro, документ выходит без водяного знака.'
           : `Без оплаты документ выходит с водяным знаком «Домица» на каждой странице. Разовая покупка проекта — ${formatPrice(projectPriceKopecks)}.`}
+      </p>
+      <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
+        Документ поможет обсудить интерьер и смету с бригадой. Обмеры и состав работ уточните на
+        объекте; инженерные решения оформляются отдельно.
       </p>
 
       <div className="mt-5">
@@ -387,8 +392,8 @@ export function ExportCard({
               {/* Раньше сюда выводилась сырая ошибка задачи — владелец увидел стек вызовов
                   с путями к файлам внутри контейнера. Человеку это ничего не говорит,
                   а подробности и так лежат в журнале сервера. */}
-              Последняя сборка не удалась. Мы записали, что случилось, и уже смотрим. Попробуйте ещё
-              раз — обычно со второго выходит.
+              Последняя сборка не удалась. Попробуйте повторить её; если ошибка сохраняется,
+              напишите в поддержку, указав проект.
             </p>
           ) : latest.status === 'running' || latest.status === 'pending' ? (
             <p className="border-t border-line pt-4 text-[13px] leading-relaxed text-ink-2">
