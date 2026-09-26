@@ -1,0 +1,109 @@
+{
+  "source": {
+    "file": "apartment_74_77m2_full_project.pdf",
+    "sha256": "d79a89eba7d262f2615a9c9f99c03be4553d85c5f737423c51f98e8c9f5da1ab",
+    "pdfPage": 6,
+    "sheet": "03",
+    "title": "Обмерный план",
+    "state": "existing",
+    "annotationMethod": "manual visual review, not an AI reader result"
+  },
+  "totalAreaM2": 74.77,
+  "uniformCeilingMm": null,
+  "ceilingRangeMm": [2649, 2684],
+  "geometry": null,
+  "rooms": [
+    {
+      "number": 1,
+      "name": "Прихожая",
+      "areaM2": 4.21,
+      "widthMm": null,
+      "depthMm": null,
+      "note": "Общую горизонтальную цепочку прихожей и коридора нельзя назначать одному помещению."
+    },
+    {
+      "number": 2,
+      "name": "Кухня",
+      "areaM2": 12.35,
+      "widthMm": 2964,
+      "depthMm": 4205,
+      "note": "Полный габарит: сверху 2964, слева 4205; в нижней части есть выступ, размер 2735 не заменяет верхнюю ширину."
+    },
+    {
+      "number": 3,
+      "name": "Гостиная",
+      "areaM2": 17.05,
+      "widthMm": 3389,
+      "depthMm": 5158,
+      "note": "Полный габарит: сверху 3389, справа 5158. Снизу слева скошенная граница; габаритный прямоугольник не является контуром комнаты."
+    },
+    {
+      "number": 4,
+      "name": "Спальня",
+      "areaM2": 15.39,
+      "widthMm": 2985,
+      "depthMm": 5156,
+      "ceilingMm": 2663
+    },
+    {
+      "number": 5,
+      "name": "Коридор",
+      "areaM2": 7.7,
+      "widthMm": null,
+      "depthMm": null,
+      "note": "Непрямоугольное помещение; нет единой пары ширина/глубина, подтверждённой данной разметкой."
+    },
+    {
+      "number": 6,
+      "name": "Спальня",
+      "areaM2": 12.23,
+      "widthMm": 2945,
+      "depthMm": 4154,
+      "ceilingMm": 2672
+    },
+    {
+      "number": 7,
+      "name": "Ванная",
+      "areaM2": 3.89,
+      "widthMm": 1754,
+      "depthMm": 2218
+    },
+    {
+      "number": 8,
+      "name": "Санузел",
+      "areaM2": 1.95,
+      "widthMm": 1755,
+      "depthMm": 1180,
+      "note": "Подписанные габариты не означают, что всё помещение является свободным прямоугольником."
+    }
+  ],
+  "dimensionChains": [
+    { "roomNumber": 2, "axis": "width", "segmentsMm": [525, 563, 926, 950], "totalMm": 2964 },
+    { "roomNumber": 2, "axis": "depth", "segmentsMm": [3718, 487], "totalMm": 4205 },
+    { "roomNumber": 4, "axis": "width", "segmentsMm": [939, 1344, 702], "totalMm": 2985 },
+    { "roomNumber": 6, "axis": "width", "segmentsMm": [866, 1353, 726], "totalMm": 2945 }
+  ],
+  "otherLabels": {
+    "entranceDoorHeightMm": 2053,
+    "balconyDoorHeightMm": 2281,
+    "passageHeightMm": 2079,
+    "beamHeightMm": 2467,
+    "windowH1Mm": 700,
+    "windowH2Mm": [1663, 1651, 1659, 1666],
+    "note": "h1/h2 сохранены как подписи без утверждения о значении h2. Точные координаты и привязки всех проёмов/радиаторов/шахт ещё не размечены."
+  },
+  "sourceCautions": [
+    "Размеры уточнить после выравнивания стен, пола и потолка.",
+    "Площади указаны без пространства под дверными проёмами.",
+    "Выводы радиаторов существующего состояния идут из пола."
+  ],
+  "proposedComparison": {
+    "pdfPage": 12,
+    "sheet": "08",
+    "title": "План после перепланировки",
+    "state": "proposed",
+    "totalAreaM2": 74.32,
+    "roomCount": 7,
+    "note": "Кухня-гостиная 26,03 м² и детская 16,50 м² относятся к проектному состоянию, не к исходному обмеру. Выводы радиаторов обозначены из стены."
+  }
+}
