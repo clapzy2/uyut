@@ -173,7 +173,10 @@ export async function uploadPlan(projectId: string, formData: FormData): Promise
  * но «хорошо» — не «всегда», а ошибка в размере тихо испортит и расстановку, и смету.
  * Поэтому между чтением и комнатами стоит человек.
  */
-export async function readPlan(projectId: string): Promise<ActionResult<PlanReading>> {
+export async function readPlan(
+  projectId: string,
+  pageNumber = 1,
+): Promise<ActionResult<PlanReading>> {
   const userId = await currentUserId()
   if (!userId) {
     return { ok: false, error: SESSION_EXPIRED }
@@ -183,7 +186,7 @@ export async function readPlan(projectId: string): Promise<ActionResult<PlanRead
     if (!project.planUrl) {
       return { ok: false, error: 'Сначала загрузите план квартиры.' }
     }
-    const parsed = await readPlanFromStorage(project.planUrl)
+    const parsed = await readPlanFromStorage(project.planUrl, pageNumber)
     const reading: PlanReading = { ...parsed, readAt: new Date().toISOString() }
     await repository.setPlanReading(userId, projectId, reading)
     await recordAudit({
@@ -192,7 +195,11 @@ export async function readPlan(projectId: string): Promise<ActionResult<PlanRead
       targetType: 'project',
       targetId: projectId,
       headers: await headers(),
-      metadata: { rooms: reading.rooms.length },
+      metadata: {
+        rooms: reading.rooms.length,
+        page: reading.sourcePage,
+        planState: reading.planState,
+      },
     })
     revalidatePath(`/projects/${projectId}`)
     return { ok: true, data: reading }
@@ -515,6 +522,9 @@ export async function confirmPlanRooms(
   try {
     const project = await assertOwner(userId, projectId)
     const reading: PlanReading = {
+      ...(project.planReading?.planState ? { planState: project.planReading.planState } : {}),
+      ...(project.planReading?.sourcePage ? { sourcePage: project.planReading.sourcePage } : {}),
+      ...(project.planReading?.pageCount ? { pageCount: project.planReading.pageCount } : {}),
       ...(ceilingCm === null ? {} : { ceilingCm }),
       // Общую площадь человек не правит, но она остаётся частью записи о том, что было прочитано
       ...(project.planReading?.totalAreaM2 === undefined
@@ -523,19 +533,30 @@ export async function confirmPlanRooms(
       ...(project.planReading?.geometry === undefined
         ? {}
         : { geometry: project.planReading.geometry }),
-      rooms: rooms.map((room) => ({
-        dimensionSources: planDimensionSources(
-          room,
-          project.planReading?.rooms ?? [],
-          Boolean(project.planReading?.confirmedAt),
-        ),
-        name: room.name || roomKindLabels[room.kind],
-        kind: room.kind,
-        ...(room.widthCm === null ? {} : { widthCm: room.widthCm }),
-        ...(room.depthCm === null ? {} : { depthCm: room.depthCm }),
-        ...(room.areaM2 === null ? {} : { areaM2: room.areaM2 }),
-        ...(room.layoutNotes === undefined ? {} : { layoutNotes: room.layoutNotes }),
-      })),
+      rooms: rooms.map((room) => {
+        const matches = (project.planReading?.rooms ?? []).filter(
+          (source) => source.name === room.name,
+        )
+        const source = matches.length === 1 ? matches[0] : undefined
+        return {
+          dimensionSources: planDimensionSources(
+            room,
+            project.planReading?.rooms ?? [],
+            Boolean(project.planReading?.confirmedAt),
+          ),
+          name: room.name || roomKindLabels[room.kind],
+          // В форме неподдерживаемый тип имеет технический living, но в исходном плане
+          // ванная остаётся ванной, а коридор не становится обставляемой гостиной.
+          kind: !room.include && source ? source.kind : room.kind,
+          ...(source?.utility ? { utility: true } : {}),
+          ...(room.sourceNumber === undefined ? {} : { sourceNumber: room.sourceNumber }),
+          ...(room.ceilingCm == null ? {} : { ceilingCm: room.ceilingCm }),
+          ...(room.widthCm === null ? {} : { widthCm: room.widthCm }),
+          ...(room.depthCm === null ? {} : { depthCm: room.depthCm }),
+          ...(room.areaM2 === null ? {} : { areaM2: room.areaM2 }),
+          ...(room.layoutNotes === undefined ? {} : { layoutNotes: room.layoutNotes }),
+        }
+      }),
       readAt: project.planReading?.readAt ?? new Date().toISOString(),
       confirmedAt: new Date().toISOString(),
     }
@@ -549,7 +570,11 @@ export async function confirmPlanRooms(
             Boolean(project.planReading?.confirmedAt),
           ),
           ...(room.layoutNotes === undefined ? {} : { layoutNotes: room.layoutNotes }),
-          ...(ceilingCm === null ? {} : { ceilingCm }),
+          ...(room.ceilingCm != null
+            ? { ceilingCm: room.ceilingCm }
+            : ceilingCm === null
+              ? {}
+              : { ceilingCm }),
           ...(room.widthCm === null ? {} : { widthCm: room.widthCm }),
           ...(room.depthCm === null ? {} : { depthCm: room.depthCm }),
         }

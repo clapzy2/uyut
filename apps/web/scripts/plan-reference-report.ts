@@ -17,8 +17,9 @@ const raw = answerPath
   ? await readFile(resolve(answerPath), 'utf8')
   : JSON.stringify({
       totalAreaM2: reference.totalAreaM2,
+      planState: reference.source.state,
       ceilingMm: reference.uniformCeilingMm,
-      rooms: reference.rooms,
+      rooms: reference.rooms.map((room) => ({ ...room, sourceNumber: room.number })),
     })
 const reading = parseFloorPlan(raw)
 const nameCounts = new Map<string, number>()
@@ -27,11 +28,13 @@ const rooms = reference.rooms.map((expected) => {
   const count = (nameCounts.get(expected.name) ?? 0) + 1
   nameCounts.set(expected.name, count)
   const name = count === 1 ? expected.name : `${expected.name} ${count}`
-  const found = reading.rooms.find((room) => room.name === name)
+  const found =
+    reading.rooms.find((room) => room.sourceNumber === expected.number) ??
+    reading.rooms.find((room) => room.sourceNumber === undefined && room.name === name)
   const dimensions = (['width', 'depth'] as const).map((side) => {
     const expectedMm = expected[`${side}Mm`]
     const actualCm = found?.[`${side}Cm`]
-    const actualMm = actualCm === undefined ? null : actualCm * 10
+    const actualMm = actualCm === undefined ? null : Math.round(actualCm * 10)
     return {
       side,
       expectedMm,
@@ -42,11 +45,21 @@ const rooms = reference.rooms.map((expected) => {
   })
   return {
     sourceRoomNumber: expected.number,
-    name,
+    name: found?.name ?? name,
     found: found !== undefined,
     expectedAreaM2: expected.areaM2,
     actualAreaM2: found?.areaM2 ?? null,
     areaMatchesReference: found?.areaM2 === expected.areaM2,
+    sourceNumberMatches: found?.sourceNumber === expected.number,
+    ...('ceilingMm' in expected
+      ? {
+          expectedCeilingMm: expected.ceilingMm,
+          actualCeilingMm: found?.ceilingCm === undefined ? null : Math.round(found.ceilingCm * 10),
+          ceilingMatchesReference:
+            found?.ceilingCm !== undefined &&
+            Math.round(found.ceilingCm * 10) === expected.ceilingMm,
+        }
+      : {}),
     dimensions,
   }
 })
@@ -54,6 +67,9 @@ const rooms = reference.rooms.map((expected) => {
 const unknownSides = reference.rooms.filter(
   (room) => room.widthMm === null || room.depthMm === null,
 )
+const knownDimensions = rooms
+  .flatMap((room) => room.dimensions)
+  .filter((side) => side.expectedMm !== null)
 // aspect=1 — намеренно заданное демонстрационное значение, не измерение квартиры.
 // Оно показывает, что происходит с null, если модель вернёт оценку формы по промпту.
 const fallbackProbe = parseFloorPlan(
@@ -76,16 +92,28 @@ console.log(
       expectedTotalAreaM2: reference.totalAreaM2,
       actualTotalAreaM2: reading.totalAreaM2 ?? null,
       totalAreaMatchesReference: reading.totalAreaM2 === reference.totalAreaM2,
+      planState: reading.planState,
+      planStateMatchesReference: reading.planState === reference.source.state,
       expectedUniformCeilingMm: reference.uniformCeilingMm,
       actualUniformCeilingMm: reading.ceilingCm === undefined ? null : reading.ceilingCm * 10,
       rooms,
+      summary: {
+        correctAreas: rooms.filter((room) => room.areaMatchesReference).length,
+        expectedAreas: reference.rooms.length,
+        correctKnownDimensions: knownDimensions.filter((side) => side.matchesReference).length,
+        expectedKnownDimensions: knownDimensions.length,
+        missingKnownDimensions: knownDimensions.filter((side) => side.actualMm === null).length,
+        unknownReferenceSidesReturned: rooms
+          .flatMap((room) => room.dimensions)
+          .filter((side) => side.expectedMm === null && side.actualMm !== null).length,
+      },
       unknownSidesWithDemonstrationAspect: fallbackProbe.rooms,
       limitations: [
         'Без --answer это проверка парсера на ручном JSON, не точность OCR/AI.',
-        'Сопоставление одинаковых названий зависит от порядка; номера помещений модель пока не возвращает.',
+        'Если ответ не содержит номера помещения, сравнение одинаковых названий зависит от порядка.',
         'Габаритные размеры не являются полным контуром непрямоугольной комнаты.',
         'Контуры, координаты проёмов и препятствий этим эталоном пока не проверяются.',
-        'Схема ответа читателя пока не сохраняет потолки отдельных помещений и состояние листа.',
+        'Правильная арифметика не доказывает, что AI верно прочитал размерную линию.',
       ],
     },
     null,

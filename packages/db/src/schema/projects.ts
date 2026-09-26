@@ -53,6 +53,8 @@ export type ProjectContact = {
 export type PlanRoomReading = {
   dimensionSources?: RoomMeasurements['dimensionSources']
   name: string
+  sourceNumber?: number
+  ceilingCm?: number
   kind: RoomKind
   layoutNotes?: string
   widthCm?: number
@@ -170,6 +172,10 @@ export type PlanGeometry = {
  * «что прочитали» и «что поправил человек» видно, где чтение врёт, а спросить об этом больше некого.
  */
 export type PlanReading = {
+  /** Назначение выбранного листа; unknown нельзя считать подтверждённым обмером. */
+  planState?: 'existing' | 'proposed' | 'unknown'
+  sourcePage?: number
+  pageCount?: number
   ceilingCm?: number
   /** Общая площадь квартиры с плана: сверяется с суммой площадей комнат */
   totalAreaM2?: number

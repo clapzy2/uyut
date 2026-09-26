@@ -153,6 +153,8 @@ export const planRoomsSchema = z.object({
         roomId: z.union([z.uuid(), z.literal('')]),
         name: z.string().trim().max(40, { error: 'Слишком длинно: хватит 40 знаков' }),
         kind: roomKindSchema,
+        sourceNumber: z.number().int().min(1).max(50).optional(),
+        ceilingCm: spotWidthSchema.optional(),
         widthCm: spotWidthSchema,
         depthCm: spotWidthSchema,
         areaM2: areaSchema,

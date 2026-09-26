@@ -23,9 +23,6 @@ import {
 
 const numberFieldClassName = `${inputClassName} h-10 text-[14px]`
 
-const fixButtonClassName =
-  'inline-flex h-8 items-center rounded-full border border-control px-3 text-[13px] text-ink-2 transition-[color,border-color,transform] duration-200 ease-ui hover:border-ink hover:text-ink active:scale-[0.98]'
-
 /**
  * Подсказка в поле желания. Разная по типам комнат: «побольше света» в санузле и в спальне
  * значит разное, а пустое поле человек чаще всего пролистывает.
@@ -81,6 +78,8 @@ export function PlanReadingCard({
     reading?.ceilingCm && !reading.confirmedAt ? String(reading.ceilingCm) : '',
   )
   const [error, setError] = useState<string | undefined>(undefined)
+  const [activeReading, setActiveReading] = useState(reading)
+  const [page, setPage] = useState(String(reading?.sourcePage ?? 1))
   // Состояние квартиры решает, войдёт ли в смету ремонт. Спрашиваем один раз на все комнаты:
   // по плану их пять, и пять одинаковых ответов подряд человек давать не станет
   const [condition, setCondition] = useState<'bare' | 'finished'>('bare')
@@ -96,12 +95,13 @@ export function PlanReadingCard({
   function read() {
     setError(undefined)
     startReading(async () => {
-      const result = await readPlan(projectId)
+      const result = await readPlan(projectId, planIsPdf ? Number(page) : 1)
       if (!result.ok) {
         setError(result.error)
         return
       }
       setRows(planRows(result.data, existing))
+      setActiveReading(result.data)
       setCeiling(result.data.ceilingCm ? String(result.data.ceilingCm) : '')
       toast({ title: 'План прочитан', tone: 'success' })
     })
@@ -127,6 +127,8 @@ export function PlanReadingCard({
         roomId: row.roomId ?? '',
         name: row.name,
         kind: row.kind,
+        sourceNumber: row.sourceNumber,
+        ceilingCm: row.ceiling ?? '',
         widthCm: row.width,
         depthCm: row.depth,
         areaM2: row.area,
@@ -157,6 +159,29 @@ export function PlanReadingCard({
     return null
   }
 
+  const pageSelector = planIsPdf ? (
+    <div className="mt-4">
+      <label className="block text-[14px] text-ink-2">
+        Страница PDF с планом
+        <input
+          type="number"
+          min={1}
+          step={1}
+          max={activeReading?.pageCount}
+          value={page}
+          disabled={reading_ || saving}
+          onChange={(event) => setPage(event.currentTarget.value)}
+          className={`${numberFieldClassName} mt-2 block w-24`}
+        />
+      </label>
+      <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+        Читаем только выбранную страницу
+        {activeReading?.pageCount ? ` из ${activeReading.pageCount}` : ''}. Выберите обмерный лист,
+        а не титульный или план перепланировки.
+      </p>
+    </div>
+  ) : null
+
   if (!rows) {
     return (
       <div className="mt-6 border-t border-line pt-6">
@@ -165,11 +190,7 @@ export function PlanReadingCard({
             ? 'Данные с плана уже перенесены в комнаты. При повторном чтении обновим совпавшие комнаты, остальные предложим добавить. Окна и двери можно уточнить и в мерках комнаты.'
             : 'Прочитаем размеры, высоту потолка, видимые окна и двери. Вы сможете сверить и поправить результат перед сохранением.'}
         </p>
-        {planIsPdf ? (
-          <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
-            План в PDF: посмотрим первые три страницы, план обычно на первой.
-          </p>
-        ) : null}
+        {pageSelector}
         <div className="mt-4">
           <Button type="button" variant="secondary" onClick={read} pending={reading_}>
             {reading_ ? 'Читаем план…' : 'Прочитать размеры с плана'}
@@ -195,12 +216,21 @@ export function PlanReadingCard({
   // Ни у одной комнаты не прочитались обе стороны: план без размерных линий
   const noSides = rows.every((row) => row.width === '' || row.depth === '')
   // Сумма площадей против общей площади с плана: единственное, что ловит потерянную и выдуманную комнату
-  const total = totalAreaCheck(rows, reading?.totalAreaM2)
+  const total = totalAreaCheck(rows, activeReading?.totalAreaM2)
 
   return (
     <div className="mt-6 animate-[rise-in_350ms_var(--ease-appear)] border-t border-line pt-6">
       <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
         Мы прочитали так
+      </p>
+
+      <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
+        {planIsPdf ? `Страница ${activeReading?.sourcePage ?? page}. ` : ''}
+        {activeReading?.planState === 'existing'
+          ? 'Лист распознан как существующее состояние. Сверьте это с заголовком чертежа.'
+          : activeReading?.planState === 'proposed'
+            ? 'Это проектное состояние, не исходный обмер. Не принимайте изменения за существующие стены и размеры.'
+            : 'Назначение листа не определено. Проверьте, описывает ли он существующее или проектное состояние.'}
       </p>
       <p className="mt-3 text-[15px] leading-relaxed text-ink-2">
         Сверьте с планом и поправьте, что не сошлось. Напишите, чего хотите в каждой комнате: это
@@ -213,9 +243,9 @@ export function PlanReadingCard({
 
       {noSides ? (
         <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
-          Размерных линий на этом плане нет, поэтому стены мы не прочитали: взяли только названия и
-          площади. Так печатают рекламные планировки застройщика. Стороны комнат можно вписать
-          руками здесь или позже, в самой комнате.
+          Не удалось уверенно прочитать обе стороны помещений. Пустые размеры не рассчитаны из
+          площади: для комнаты с нишей такой расчёт неверен. Сверьте размерные линии и впишите
+          известные стороны здесь или позже, в самой комнате.
         </p>
       ) : null}
 
@@ -231,8 +261,8 @@ export function PlanReadingCard({
         <div className="max-w-[10rem]">
           <Input
             id="plan-ceiling"
-            label="Высота потолка, см"
-            inputMode="numeric"
+            label="Общая высота, см"
+            inputMode="decimal"
             value={ceiling}
             onChange={(event) => setCeiling(event.currentTarget.value)}
           />
@@ -258,6 +288,10 @@ export function PlanReadingCard({
           </div>
         </fieldset>
       </div>
+      <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+        Общую высоту указывайте только если она одинакова. Высота отдельной комнаты ниже имеет
+        приоритет. Диапазон высот не усредняем; пустое поле означает неизвестный размер.
+      </p>
       <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
         {roomConditionHints[condition]} Поставим это новым комнатам. У тех, что уже заведены,
         состояние не трогаем: вы могли выбрать его сами.
@@ -301,10 +335,15 @@ export function PlanReadingCard({
               </div>
 
               <div className="mt-3 flex flex-wrap gap-3 pl-[30px]">
+                {row.sourceNumber !== undefined ? (
+                  <p className="w-full text-[13px] text-ink-2">
+                    Помещение №{row.sourceNumber} на исходном листе
+                  </p>
+                ) : null}
                 <label className="text-[13px] text-ink-2">
                   Ширина, см
                   <input
-                    inputMode="numeric"
+                    inputMode="decimal"
                     value={row.width}
                     onChange={(event) => patch(index, { width: event.currentTarget.value })}
                     className={`${numberFieldClassName} mt-1 w-24`}
@@ -313,9 +352,18 @@ export function PlanReadingCard({
                 <label className="text-[13px] text-ink-2">
                   Глубина, см
                   <input
-                    inputMode="numeric"
+                    inputMode="decimal"
                     value={row.depth}
                     onChange={(event) => patch(index, { depth: event.currentTarget.value })}
+                    className={`${numberFieldClassName} mt-1 w-24`}
+                  />
+                </label>
+                <label className="text-[13px] text-ink-2">
+                  Потолок, см
+                  <input
+                    inputMode="decimal"
+                    value={row.ceiling ?? ''}
+                    onChange={(event) => patch(index, { ceiling: event.currentTarget.value })}
                     className={`${numberFieldClassName} mt-1 w-24`}
                   />
                 </label>
@@ -338,6 +386,13 @@ export function PlanReadingCard({
                     onChange={(layoutNotes) => patch(index, { layoutNotes })}
                   />
                 </div>
+              ) : null}
+
+              {row.width === '' || row.depth === '' ? (
+                <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
+                  Не все стороны прочитаны. Неизвестные поля оставлены пустыми; для проверки
+                  вмещаемости мебели понадобятся размеры или подтверждённый контур.
+                </p>
               ) : null}
 
               {row.include ? (
@@ -395,30 +450,14 @@ export function PlanReadingCard({
               {check ? (
                 <div className="mt-2 pl-[30px]">
                   <p className="text-[13px] leading-relaxed text-ink-2">
-                    {check.text} Одно из трёх чисел прочитано неверно. Площади на плане верить
-                    можно: её печатают, а не складывают из отрезков.
+                    {check.text} Возможны ошибка чтения или непрямоугольный контур с нишами. Сверьте
+                    размеры с чертежом: по одной площади нельзя исправить длину стены.
                   </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => patch(index, { width: String(check.widthCm) })}
-                      className={fixButtonClassName}
-                    >
-                      Ширина {check.widthCm} см
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => patch(index, { depth: String(check.depthCm) })}
-                      className={fixButtonClassName}
-                    >
-                      Глубина {check.depthCm} см
-                    </button>
-                  </div>
                 </div>
               ) : null}
               {row.suspicious && !row.chainMismatch ? (
                 <p className="mt-3 pl-[30px] text-[13px] leading-relaxed text-danger">
-                  Площадь не сходится с размерами. Одно из трёх чисел мы прочитали неверно.
+                  Площадь отличается от произведения сторон. Проверьте подписи и форму комнаты.
                 </p>
               ) : null}
             </li>
@@ -426,13 +465,31 @@ export function PlanReadingCard({
         })}
       </ul>
 
+      {pageSelector}
+      {planIsPdf ? (
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={read}
+          pending={reading_}
+          disabled={saving}
+        >
+          Прочитать выбранную страницу заново
+        </Button>
+      ) : null}
+
       <FormError message={error} />
 
       <div className="mt-5 flex flex-wrap gap-3">
-        <Button type="button" onClick={confirm} pending={saving} disabled={chosen === 0}>
+        <Button
+          type="button"
+          onClick={confirm}
+          pending={saving}
+          disabled={chosen === 0 || reading_}
+        >
           {saving ? 'Сохраняем…' : `Сохранить: ${chosen}`}
         </Button>
-        <Button type="button" variant="ghost" onClick={forget}>
+        <Button type="button" variant="ghost" onClick={forget} disabled={saving || reading_}>
           Впишу сам
         </Button>
       </div>

@@ -234,14 +234,16 @@ describe('геометрия плана', () => {
 })
 
 describe('описание архитектуры с плана', () => {
-  it('сохраняет проёмы при расчёте сторон и объединении страниц', () => {
+  it('сохраняет описание без выдуманных сторон', () => {
     const layoutNotes = 'Окно снизу, вход слева. Справа выступ.'
     const reading = parseFloorPlan(
       answer([{ name: 'Кухня', areaM2: 5.4, aspect: 0.8, layoutNotes }]),
     )
     const merged = mergeReadings([reading])
     expect(merged.rooms[0]?.layoutNotes).toBe(layoutNotes)
-    expect(merged.rooms[0]?.estimated).toEqual(['width', 'depth'])
+    expect(merged.rooms[0]?.estimated).toBeUndefined()
+    expect(merged.rooms[0]?.widthCm).toBeUndefined()
+    expect(merged.rooms[0]?.depthCm).toBeUndefined()
   })
 
   it('не превращает неизвестные проёмы в выдуманное описание', () => {
@@ -538,21 +540,21 @@ describe('подсобные помещения', () => {
   })
 })
 
-describe('стороны из площади', () => {
-  it('вторую сторону считает из площади и первой', () => {
+describe('неизвестные стороны не выводятся из площади', () => {
+  it('оставляет вторую сторону пустой даже при известной площади', () => {
     const reading = parseFloorPlan(answer([{ name: 'Кухня', depthMm: 1942, areaM2: 5.4 }]))
     const room = reading.rooms[0]
-    expect(room?.depthCm).toBe(194)
-    expect(room?.widthCm).toBe(278)
-    expect(room?.estimated).toEqual(['width'])
+    expect(room?.depthCm).toBe(194.2)
+    expect(room?.widthCm).toBeUndefined()
+    expect(room?.estimated).toBeUndefined()
   })
 
-  it('обе стороны берёт из площади и формы, когда размерных линий нет', () => {
+  it('не принимает форму на глаз за размерную линию', () => {
     const reading = parseFloorPlan(answer([{ name: 'Спальня', areaM2: 12, aspect: 1.2 }]))
     const room = reading.rooms[0]
-    expect(room?.widthCm).toBe(379)
-    expect(room?.depthCm).toBe(316)
-    expect(room?.estimated).toEqual(['width', 'depth'])
+    expect(room?.widthCm).toBeUndefined()
+    expect(room?.depthCm).toBeUndefined()
+    expect(room?.estimated).toBeUndefined()
   })
 
   it('без формы и без сторон ничего не выдумывает', () => {
@@ -677,32 +679,32 @@ describe('прочитанная сторона против формы комн
       answer([{ name: 'Гостиная', depthMm: 2520, areaM2: 14.9, aspect: 0.7 }]),
     )
     const room = reading.rooms[0]
-    expect(room?.widthCm).toBe(323)
-    expect(room?.depthCm).toBe(461)
-    expect(room?.estimated).toEqual(['width', 'depth'])
+    expect(room?.widthCm).toBeUndefined()
+    expect(room?.depthCm).toBe(252)
+    expect(room?.estimated).toBeUndefined()
   })
 
-  it('прочитанной стороне, которая сходится с формой, верит и делит на неё', () => {
+  it('не вычисляет вторую сторону даже при правдоподобной форме', () => {
     const reading = parseFloorPlan(
       answer([{ name: 'Кухня', depthMm: 1942, areaM2: 5.4, aspect: 1.2 }]),
     )
     const room = reading.rooms[0]
-    expect(room?.depthCm).toBe(194)
-    expect(room?.widthCm).toBe(278)
-    expect(room?.estimated).toEqual(['width'])
+    expect(room?.depthCm).toBe(194.2)
+    expect(room?.widthCm).toBeUndefined()
+    expect(room?.estimated).toBeUndefined()
   })
 
-  it('без формы сверять не с чем, и деление остаётся как было', () => {
+  it('отсутствие формы не разрешает деление площади', () => {
     const reading = parseFloorPlan(answer([{ name: 'Гостиная', depthMm: 2520, areaM2: 14.9 }]))
-    expect(reading.rooms[0]?.widthCm).toBe(591)
+    expect(reading.rooms[0]?.widthCm).toBeUndefined()
   })
 
-  it('ловит прихожую, растянутую делением в полосу', () => {
+  it('не заменяет прочитанную ширину прихожей оценкой формы', () => {
     const reading = parseFloorPlan(
       answer([{ name: 'Прихожая', widthMm: 6080, areaM2: 5.8, aspect: 2 }]),
     )
     const room = reading.rooms[0]
-    expect(room?.widthCm).toBe(341)
-    expect(room?.depthCm).toBe(170)
+    expect(room?.widthCm).toBe(608)
+    expect(room?.depthCm).toBeUndefined()
   })
 })

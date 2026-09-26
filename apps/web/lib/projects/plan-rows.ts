@@ -9,6 +9,8 @@ export type PlanRow = {
   width: string
   depth: string
   area: string
+  ceiling?: string
+  sourceNumber?: number
   /** Чего человек хочет в этой комнате: уходит в заметки комнаты и оттуда в задание модели */
   wish: string
   layoutNotes: string
@@ -103,6 +105,8 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
     return {
       include: !unsupported,
       name: room.name,
+      ...(room.sourceNumber === undefined ? {} : { sourceNumber: room.sourceNumber }),
+      ceiling: room.ceilingCm === undefined ? '' : String(room.ceilingCm),
       kind: unsupported ? 'living' : room.kind,
       width: room.widthCm ? String(room.widthCm) : '',
       depth: room.depthCm ? String(room.depthCm) : '',
@@ -167,10 +171,10 @@ export function totalAreaCheck(
     }
     sum += area
   }
-  const rounded = Math.round(sum * 10) / 10
+  const rounded = Math.round(sum * 100) / 100
   return {
-    sum: rounded.toFixed(1).replace('.', ','),
-    total: totalM2.toFixed(1).replace('.', ','),
+    sum: String(rounded).replace('.', ','),
+    total: String(totalM2).replace('.', ','),
     agrees: Math.abs(rounded - totalM2) / totalM2 <= 0.05,
   }
 }
