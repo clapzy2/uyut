@@ -82,6 +82,17 @@ function sample(kind: PdfData['kind']): PdfData {
 }
 
 describe('project PDF template', () => {
+  it('keeps the selected product link escaped and excludes unsafe protocols', () => {
+    const data = sample('paid')
+    const item = data.shopping[0]?.items[0]
+    if (!item) throw new Error('Missing shopping fixture')
+    item.affiliateUrl = 'https://shop.example/sofa?fabric=green&size=220'
+    expect(renderProjectHtml(data, { fontCss: '' })).toContain(
+      'href="https://shop.example/sofa?fabric=green&amp;size=220"',
+    )
+    item.affiliateUrl = 'javascript:alert(1)'
+    expect(renderProjectHtml(data, { fontCss: '' })).not.toContain('javascript:')
+  })
   it('includes escaped measurement limitations beside the plan', () => {
     const data = sample('paid')
     const room = data.rooms[0]

@@ -30,6 +30,8 @@ export type PdfRoom = {
 
 export type PdfShoppingItem = {
   title: string
+  /** Ссылка выбранной ткани или базового товара, если вариант не выбран. */
+  affiliateUrl?: string
   meta: string
   image: PdfImage | null
   quantity: number

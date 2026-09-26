@@ -410,10 +410,18 @@ function shoppingGroup(group: PdfShoppingGroup): string {
       <p class="eyebrow">${esc(group.roomName)}</p>
       <div class="shop">
         ${group.items
-          .map(
-            (item) =>
-              `<div class="item">${img(item.image, 'img')}<div class="title">${esc(item.title)}${item.meta ? `<span>${esc(item.meta)}</span>` : ''}</div><span class="qty">× ${item.quantity}</span><span class="price">${formatPrice(item.totalKopecks)}</span></div>`,
-          )
+          .map((item) => {
+            const productLink =
+              item.affiliateUrl && /^https?:\/\//i.test(item.affiliateUrl)
+                ? `<span><a href="${esc(item.affiliateUrl)}">Открыть выбранный товар в магазине</a></span>`
+                : ''
+            return `<div class="item">
+              ${img(item.image, 'img')}
+              <div class="title">${esc(item.title)}${item.meta ? `<span>${esc(item.meta)}</span>` : ''}${productLink}</div>
+              <span class="qty">× ${item.quantity}</span>
+              <span class="price">${formatPrice(item.totalKopecks)}</span>
+            </div>`
+          })
           .join('')}
       </div>
     </div>`

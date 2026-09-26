@@ -159,7 +159,9 @@ function roomPlan(room: Room, shopping: readonly ShoppingRow[]): RoomLayout | nu
       title: row.product.title,
       category: row.product.category,
       subcategory: subcategoryFromText(row.product.category, row.product.title),
-      dimensions: row.product.attributes?.dimensionsCm ?? null,
+      dimensions: row.item.dimensionsCm ?? row.product.attributes?.dimensionsCm ?? null,
+      operationClearance: row.item.operationClearanceCm,
+      placement: row.item.placementCm,
       quantity: row.item.quantity,
     }))
   return items.length > 0
@@ -402,16 +404,32 @@ export async function buildPdfData(input: {
     const key = row.item.roomId ?? 'none'
     const group = groups.get(key) ?? { roomName: row.roomName ?? 'Без комнаты', items: [] }
     const price = row.item.selectedVariant?.priceKopecks ?? row.product.priceKopecks
+    const dimensions = row.item.dimensionsCm ?? row.product.attributes?.dimensionsCm
+    const dimensionLabels = dimensions
+      ? [
+          dimensions.width ? `ширина ${dimensions.width} см` : null,
+          dimensions.depth ? `глубина ${dimensions.depth} см` : null,
+          dimensions.height ? `высота ${dimensions.height} см` : null,
+        ].filter(Boolean)
+      : []
     group.items.push({
       title: row.product.title,
       meta: [
         sourceLabels[row.product.source] ?? row.product.source,
         row.product.brand,
         row.item.selectedVariant?.color,
+        dimensionLabels.join(', '),
+        dimensionLabels.length
+          ? row.item.dimensionsCm
+            ? 'размеры введены вами'
+            : 'размеры магазина — проверьте перед покупкой'
+          : 'габариты не указаны — проверьте перед покупкой',
+        row.product.inStock ? null : 'нет в наличии',
       ]
         .filter(Boolean)
         .join(' · '),
-      image: await pdfImage(row.product.images[0]?.url, 360),
+      image: await pdfImage(row.item.selectedVariant?.imageUrl ?? row.product.images[0]?.url, 360),
+      affiliateUrl: row.item.selectedVariant?.affiliateUrl ?? row.product.affiliateUrl,
       quantity: row.item.quantity,
       priceKopecks: price,
       totalKopecks: price * row.item.quantity,
