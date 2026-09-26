@@ -158,6 +158,11 @@ function MatchRow({
               {fitLabel(match.fit)}
             </span>
           ) : null}
+          {match.catalogNotice ? (
+            <span className="mt-1 block text-[12px] leading-relaxed text-ink-2">
+              {match.catalogNotice}
+            </span>
+          ) : null}
           {showVariants ? (
             <label className="mt-2 block max-w-[260px] text-[11px] uppercase tracking-[0.1em] text-ink-2">
               Цвет и обивка

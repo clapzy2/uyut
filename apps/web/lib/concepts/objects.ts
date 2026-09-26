@@ -8,6 +8,7 @@ import {
   type SimilarItem,
   subcategoryForLabel,
 } from '@uyut/catalog'
+import { catalogFreshnessNotice } from '@uyut/catalog/freshness'
 import {
   type CatalogCategory,
   type ConceptBbox,
@@ -37,6 +38,7 @@ export type MatchView = {
   source: string
   priceKopecks: number
   oldPriceKopecks: number | null
+  catalogNotice?: string | null
   affiliateUrl: string
   /** Готовая пометка рекламы от партнёрской сети: показывается целиком, резать нельзя */
   adDisclosure: string | null
@@ -154,6 +156,7 @@ async function toMatch(
     source: item.source,
     priceKopecks: item.priceKopecks,
     oldPriceKopecks: item.oldPriceKopecks,
+    catalogNotice: catalogFreshnessNotice(item.lastSyncedAt),
     affiliateUrl: item.affiliateUrl,
     adDisclosure: item.attributes?.adDisclosure?.trim() || null,
     imageUrl,
