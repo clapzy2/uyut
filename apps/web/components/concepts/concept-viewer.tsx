@@ -298,7 +298,9 @@ function MatchesPanel({
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-serif text-xl text-ink">
-          {object.styleOnly ? `${label}: похожие по стилю` : `${label}: ${shown.length} похожих`}
+          {object.styleOnly
+            ? `${label}: похожие по стилю`
+            : `${label}: похожие товары (${shown.length})`}
         </p>
         {object.window ? (
           <span className="rounded-full border border-control px-2.5 py-0.5 text-[12px] text-ink-2">
@@ -339,16 +341,23 @@ function MatchesPanel({
       </ul>
       <p className="text-[14px] leading-relaxed text-ink-2">
         {object.styleOnly
-          ? 'Товары подобраны по стилю, но не являются точными копиями на изображении.'
-          : 'Товары подобраны по форме и цвету, но не являются точными копиями на изображении.'}{' '}
-        В карточке сравниваем габарит с длиной участка стены, а высоту — при наличии данных. Проходы
-        и рабочие зоны смотрите на 2D-схеме.
+          ? 'Похожие по стилю, не точные модели с картинки.'
+          : 'Похожие по форме и цвету, не точные модели с картинки.'}
       </p>
-      {oversized > 0 ? (
-        <p className="text-[14px] leading-relaxed text-ink-2">
-          Фильтр скрывает превышение размеров; товары без полной проверки остаются с пояснением.
+      <details className="text-[14px] leading-relaxed text-ink-2">
+        <summary className="cursor-pointer py-1 text-ink underline decoration-accent/60 underline-offset-4 hover:decoration-accent">
+          Как проверяем размеры
+        </summary>
+        <p className="mt-2">
+          Сравниваем габарит с длиной участка стены, а высоту — при наличии данных. Проходы и
+          рабочие зоны смотрите на 2D-схеме.
         </p>
-      ) : null}
+        {oversized > 0 ? (
+          <p className="mt-2">
+            Фильтр скрывает превышение размеров; товары без полной проверки остаются с пояснением.
+          </p>
+        ) : null}
+      </details>
     </div>
   )
 }
@@ -552,8 +561,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
     <div className="grid min-w-0 gap-8 lg:grid-cols-[minmax(0,7fr)_minmax(0,4fr)] lg:gap-12">
       <div className="min-w-0">
         <p className="mb-3 text-[14px] leading-relaxed text-ink-2">
-          Выберите стиль и сочетания. Это визуальный концепт; размещение проверяйте на 2D-схеме,
-          размеры и конкретные модели — по меркам и карточкам магазина.
+          Это визуальный концепт. Размеры и размещение проверяйте на 2D-схеме и по меркам.
         </p>
         <div className="relative overflow-hidden border border-line bg-muted">
           {concept.renderSrc ? (

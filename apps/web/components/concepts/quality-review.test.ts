@@ -20,24 +20,22 @@ function render(review: ConceptQualityReview | null, edited = false) {
 describe('concept quality explanation', () => {
   it('offers a source comparison when no automatic review exists', () => {
     const html = render(null)
-    expect(html).toContain('Концепт готов к просмотру')
-    expect(html).toContain('автосверка не выполнялась')
-    expect(html).toContain('сравните важные детали с исходным планом или фото')
-    expect(html).not.toContain('Автосверка выполнена')
+    expect(html).toContain('Автосверка не выполнялась')
+    expect(html).toContain('Сверьте окна и двери с исходным планом или фото')
+    expect(html).not.toContain('Автосверка изображения выполнена')
   })
 
   it('does not carry a previous review over to an edited image', () => {
     const html = render(reviewed, true)
     expect(html).toContain('Цвета обновлены')
     expect(html).toContain('новая автосверка не выполнялась')
-    expect(html).not.toContain('Автосверка выполнена')
+    expect(html).not.toContain('Автосверка изображения выполнена')
   })
 
   it('keeps the unavailable state distinct from a completed review', () => {
     const html = render({ ...reviewed, status: 'unavailable' })
-    expect(html).toContain('Концепт сохранён')
     expect(html).toContain('Автосверка сейчас недоступна')
-    expect(html).not.toContain('Автосверка выполнена')
+    expect(html).not.toContain('Автосверка изображения выполнена')
   })
 
   it('shows issues verbatim while keeping image review separate from dimensional checks', () => {
@@ -56,7 +54,25 @@ describe('concept quality explanation', () => {
   it('does not present an empty issue list as confirmation of every detail', () => {
     const html = render(reviewed)
     expect(html).toContain('Автосверка не нашла замечаний')
-    expect(html).toContain('отсутствие замечаний не подтверждает каждую деталь')
+    expect(html).toContain('не подтверждает каждую деталь')
     expect(html).toContain('по плану и меркам')
+  })
+
+  it('keeps every reported issue visible outside the collapsed methodology', () => {
+    const html = render({
+      ...reviewed,
+      status: 'review',
+      issues: [
+        { code: 'opening_conflict', detail: 'Окно слева заменено стеной.', confidence: 0.9 },
+        { code: 'requirement_unconfirmed', detail: 'Рабочий стол не виден.', confidence: 0.8 },
+      ],
+    })
+    const details = html.match(/<details\b[^>]*>[\s\S]*?<\/details>/)?.[0]
+    expect(details).toContain('Что проверяет автосверка')
+    expect(details).not.toContain('Окно слева заменено стеной.')
+    expect(details).not.toMatch(/<details[^>]*\bopen(?:[\s=>])/)
+    const outsideDetails = html.replace(/<details\b[^>]*>[\s\S]*?<\/details>/g, '')
+    expect(outsideDetails).toContain('Окно слева заменено стеной.')
+    expect(outsideDetails).toContain('Пожелание требует проверки. Рабочий стол не виден.')
   })
 })

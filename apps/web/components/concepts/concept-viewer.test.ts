@@ -106,9 +106,33 @@ describe('concept and product explanations', () => {
 
   it('keeps visual matching separate from dimensional and circulation checks', () => {
     const html = renderToStaticMarkup(createElement(ConceptViewer, { data }))
-    expect(html).toContain('не являются точными копиями')
-    expect(html).toContain('сравниваем габарит с длиной участка стены')
+    expect(html).toContain('не точные модели с картинки')
+    expect(html).toContain('Сравниваем габарит с длиной участка стены')
     expect(html).toContain('Проходы и рабочие зоны смотрите на 2D-схеме')
     expect(html).toContain('Не встанет: шире на 50 см')
+  })
+
+  it('collapses the methodology, not the product warnings or missing review status', () => {
+    const html = renderToStaticMarkup(createElement(ConceptViewer, { data }))
+    const details = html.match(/<details\b[^>]*>[\s\S]*?<\/details>/g) ?? []
+    expect(details).toHaveLength(1)
+    expect(details[0]).toContain('Как проверяем размеры')
+    expect(details[0]).toContain('Сравниваем габарит')
+    const outsideDetails = html.replace(/<details\b[^>]*>[\s\S]*?<\/details>/g, '')
+    expect(outsideDetails).toContain('Не встанет: шире на 50 см')
+    expect(outsideDetails).toContain('Для проверки уточните полные размеры товара')
+    expect(outsideDetails).toContain('Автосверка не выполнялась')
+    expect(outsideDetails).toContain('не точные модели с картинки')
+    expect(details[0]).not.toMatch(/<details[^>]*\bopen(?:[\s=>])/)
+  })
+
+  it('labels a single result without an incorrect plural ending', () => {
+    const single = {
+      ...data,
+      objects: data.objects.map((object) => ({ ...object, matches: [match] })),
+    }
+    const html = renderToStaticMarkup(createElement(ConceptViewer, { data: single }))
+    expect(html).toContain('Диван: похожие товары (1)')
+    expect(html).not.toContain('1 похожих')
   })
 })
