@@ -7,6 +7,7 @@ import {
   type Database,
 } from '@uyut/db'
 import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import { CATALOG_FRESH_FOR_MS } from './freshness'
 import type { CatalogSubcategory } from './subcategories'
 import type { FeedItem } from './types'
 
@@ -18,6 +19,11 @@ export function contentHash(item: Pick<FeedItem, 'title' | 'description' | 'imag
 }
 
 export type UpsertSummary = { inserted: number; updated: number; total: number }
+
+/** Новые рекомендации допускают только подтверждённый за последние 48 часов фид. */
+export function catalogFreshnessCondition() {
+  return sql`${catalogItems.lastSyncedAt} between now() - ${CATALOG_FRESH_FOR_MS} * interval '1 millisecond' and now()`
+}
 
 /**
  * Ежедневный upsert по паре источник плюс внешний id. Пачками по 200, чтобы не упираться
@@ -123,6 +129,7 @@ export async function itemsNeedingEmbedding(db: Database, limit: number): Promis
     .where(
       and(
         eq(catalogItems.inStock, true),
+        catalogFreshnessCondition(),
         or(
           isNull(catalogItems.embeddedHash),
           ne(catalogItems.embeddedHash, catalogItems.contentHash),
@@ -207,6 +214,7 @@ async function searchSimilar(
   const conditions = [
     eq(catalogItems.category, query.category),
     eq(catalogItems.inStock, true),
+    catalogFreshnessCondition(),
     sql`${column} is not null`,
   ]
   if (query.subcategory) {

@@ -1,4 +1,5 @@
 import { nearestStyles } from '@uyut/ai'
+import { catalogFreshnessNotice } from '@uyut/catalog/freshness'
 import { catalogItems, conceptObjects, concepts, rooms } from '@uyut/db'
 import { and, asc, desc, eq } from 'drizzle-orm'
 import { categoryLabels, formatPrice } from '@/lib/concepts/format'
@@ -86,10 +87,17 @@ export async function buildProjectContext(userId: string, scope: ChatScope): Pro
         .where(eq(conceptObjects.conceptId, current.concept.id))
         .orderBy(asc(conceptObjects.orderIndex))
       if (objects.length > 0) {
-        lines.push('Предметы на рендере и лучшие совпадения в каталоге:')
+        lines.push('Предметы на рендере и сохранённые совпадения в каталоге:')
         for (const { object, item } of objects) {
+          const product = item
+            ? `: ${item.title}, ${formatPrice(item.priceKopecks)}`
+            : ': в каталоге пока ничего'
+          const needsCheck = item && (!item.inStock || catalogFreshnessNotice(item.lastSyncedAt))
+          const warning = needsCheck
+            ? '; старое совпадение без свежего подтверждения цены/наличия, не рекомендовать без нового поиска'
+            : ''
           lines.push(
-            `- №${object.orderIndex + 1} ${categoryLabels[object.category]} (objectId ${object.id})${item ? `: ${item.title}, ${formatPrice(item.priceKopecks)}` : ': в каталоге пока ничего'}`,
+            `- №${object.orderIndex + 1} ${categoryLabels[object.category]} (objectId ${object.id})${product}${warning}`,
           )
         }
       }

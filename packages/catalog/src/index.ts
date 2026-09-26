@@ -73,6 +73,7 @@ export {
 } from './openings'
 export {
   type CatalogHealth,
+  catalogFreshnessCondition,
   contentHash,
   countItems,
   findSimilar,

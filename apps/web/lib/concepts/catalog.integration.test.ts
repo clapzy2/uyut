@@ -2,13 +2,16 @@ import { EMBEDDING_DIMENSIONS } from '@uyut/ai'
 import {
   countItems,
   findSimilar,
+  getCatalogItems,
+  itemsNeedingEmbedding,
   markMissingOutOfStock,
   saveEmbeddings,
   upsertFeedItems,
 } from '@uyut/catalog'
-import { catalogItems } from '@uyut/db'
+import { auditLog, catalogItems, projects, users } from '@uyut/db'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { runTool } from '@/lib/chat/tools'
 import { getDb } from '@/lib/db'
 
 // Единичные векторы по разным осям: косинус между ними ноль, с самим собой единица
@@ -208,4 +211,125 @@ describe('catalog in a real database', () => {
     expect(matches.map((item) => item.externalId)).toContain('it-chair-seat')
     expect(matches.map((item) => item.externalId)).not.toContain('it-chair-a')
   })
+
+  it('excludes stale and future records without deleting saved product lookups', async () => {
+    const db = getDb()
+    const [stale] = await db
+      .select()
+      .from(catalogItems)
+      .where(eq(catalogItems.externalId, 'it-sofa-a'))
+    const [future] = await db
+      .select()
+      .from(catalogItems)
+      .where(eq(catalogItems.externalId, 'it-sofa-b'))
+    if (!stale || !future) throw new Error('Missing freshness fixtures')
+    try {
+      await db
+        .update(catalogItems)
+        .set({ lastSyncedAt: new Date(Date.now() - 49 * 60 * 60 * 1000), embeddedHash: null })
+        .where(eq(catalogItems.id, stale.id))
+      await db
+        .update(catalogItems)
+        .set({ lastSyncedAt: new Date(Date.now() + 60 * 60 * 1000) })
+        .where(eq(catalogItems.id, future.id))
+      const recommendations = await findSimilar(db, {
+        embedding: axis(0),
+        category: 'sofa',
+        limit: 20,
+      })
+      expect(recommendations.map((item) => item.id)).not.toContain(stale.id)
+      expect(recommendations.map((item) => item.id)).not.toContain(future.id)
+      expect((await itemsNeedingEmbedding(db, 100)).map((item) => item.id)).not.toContain(stale.id)
+      expect(
+        (await getCatalogItems(db, [stale.id, future.id])).map((item) => item.id).sort(),
+      ).toEqual([stale.id, future.id].sort())
+    } finally {
+      await db
+        .update(catalogItems)
+        .set({ lastSyncedAt: stale.lastSyncedAt, embeddedHash: stale.embeddedHash })
+        .where(eq(catalogItems.id, stale.id))
+      await db
+        .update(catalogItems)
+        .set({ lastSyncedAt: future.lastSyncedAt })
+        .where(eq(catalogItems.id, future.id))
+    }
+  })
+
+  it('does not fill a subcategory shortage with stale products', async () => {
+    const db = getDb()
+    const [armchair] = await db
+      .select()
+      .from(catalogItems)
+      .where(eq(catalogItems.externalId, 'it-chair-a'))
+    if (!armchair) throw new Error('Missing armchair')
+    try {
+      await db
+        .update(catalogItems)
+        .set({ lastSyncedAt: new Date(Date.now() - 49 * 60 * 60 * 1000) })
+        .where(eq(catalogItems.id, armchair.id))
+      const relaxed = await findSimilar(db, {
+        embedding: axis(4),
+        category: 'chair',
+        subcategory: 'chair',
+        limit: 20,
+      })
+      expect(relaxed.map((item) => item.externalId)).toContain('it-chair-seat')
+      expect(relaxed.map((item) => item.id)).not.toContain(armchair.id)
+    } finally {
+      await db
+        .update(catalogItems)
+        .set({ lastSyncedAt: armchair.lastSyncedAt })
+        .where(eq(catalogItems.id, armchair.id))
+    }
+  })
+
+  it('does not use old or future prices in assistant fallback search without AI calls', async () => {
+    const db = getDb()
+    const [product] = await db
+      .select()
+      .from(catalogItems)
+      .where(eq(catalogItems.externalId, 'it-sofa-a'))
+    if (!product) throw new Error('Missing sofa')
+    const [owner] = await db
+      .insert(users)
+      .values({ email: `catalog-${randomUUID()}@example.test` })
+      .returning({ id: users.id })
+    if (!owner) throw new Error('Missing owner')
+    let projectId: string | null = null
+    try {
+      const [project] = await db
+        .insert(projects)
+        .values({ ownerId: owner.id, title: 'Fresh catalogue test' })
+        .returning({ id: projects.id })
+      if (!project) throw new Error('Missing project')
+      projectId = project.id
+      const scope = { projectId, userId: owner.id }
+      await db.update(catalogItems).set({ priceKopecks: 1 }).where(eq(catalogItems.id, product.id))
+      const fresh = await runTool('search_catalog', { category: 'sofa', maxPriceRub: 0.01 }, scope)
+      expect(fresh.cards?.map((card) => card.catalogItemId)).toContain(product.id)
+      for (const lastSyncedAt of [
+        new Date(Date.now() - 49 * 60 * 60 * 1000),
+        new Date(Date.now() + 60 * 60 * 1000),
+      ]) {
+        await db.update(catalogItems).set({ lastSyncedAt }).where(eq(catalogItems.id, product.id))
+        const result = await runTool(
+          'search_catalog',
+          { category: 'sofa', maxPriceRub: 0.01 },
+          scope,
+        )
+        expect(result.cards).toBeUndefined()
+        expect(result.text).toContain('В свежем каталоге нет')
+      }
+    } finally {
+      await db
+        .update(catalogItems)
+        .set({ priceKopecks: product.priceKopecks, lastSyncedAt: product.lastSyncedAt })
+        .where(eq(catalogItems.id, product.id))
+      if (projectId) await db.delete(projects).where(eq(projects.id, projectId))
+      await db.delete(auditLog).where(eq(auditLog.actorId, owner.id))
+      await db.delete(users).where(eq(users.id, owner.id))
+    }
+  })
 })
+
+import { randomUUID } from 'node:crypto'

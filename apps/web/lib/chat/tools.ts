@@ -1,5 +1,12 @@
 import { createVoyageEmbedder, priceWindow } from '@uyut/ai'
-import { findSimilar, getCatalogItems, isCatalogCategory, type SimilarItem } from '@uyut/catalog'
+import {
+  catalogFreshnessCondition,
+  findSimilar,
+  getCatalogItems,
+  isCatalogCategory,
+  type SimilarItem,
+} from '@uyut/catalog'
+import { catalogFreshnessNotice } from '@uyut/catalog/freshness'
 import {
   type CatalogCategory,
   type ChatCard,
@@ -127,6 +134,7 @@ async function searchCatalog(scope: Scope, args: Record<string, unknown>): Promi
         and(
           eq(catalogItems.category, category as CatalogCategory),
           eq(catalogItems.inStock, true),
+          catalogFreshnessCondition(),
           maxPriceKopecks ? sql`${catalogItems.priceKopecks} <= ${maxPriceKopecks}` : sql`true`,
         ),
       )
@@ -137,7 +145,7 @@ async function searchCatalog(scope: Scope, args: Record<string, unknown>): Promi
 
   if (items.length === 0) {
     return {
-      text: `В каталоге нет товаров категории «${categoryLabels[category as CatalogCategory]}»${maxPriceRub ? ` до ${maxPriceRub} ₽` : ''}.`,
+      text: `В свежем каталоге нет подходящих товаров категории «${categoryLabels[category as CatalogCategory]}»${maxPriceRub ? ` до ${maxPriceRub} ₽` : ''}. Устаревшие записи не используем для новых рекомендаций.`,
     }
   }
   const cards = await Promise.all(items.map((item) => cardFor(item, objectId)))
@@ -159,6 +167,11 @@ async function replaceMatch(scope: Scope, args: Record<string, unknown>): Promis
   const [item] = await getCatalogItems(getDb(), [catalogItemId])
   if (!item) {
     return { text: 'Такого товара в каталоге нет.' }
+  }
+  if (!item.inStock || catalogFreshnessNotice(item.lastSyncedAt)) {
+    return {
+      text: 'Нет свежего подтверждения цены и наличия этого товара. Выберите новый вариант через поиск.',
+    }
   }
   if (item.category !== object.category) {
     return {
@@ -203,6 +216,7 @@ async function estimate(scope: Scope, args: Record<string, unknown>): Promise<To
     )
   // Смета по самому свежему лайкнутому концепту каждой комнаты, чтобы не складывать дубли
   const perRoom = new Map<string, { room: string; total: number; items: string[] }>()
+  let needsPriceCheck = false
   const latestByRoom = new Map<string, string>()
   for (const { concept, room } of likedConcepts) {
     if (!latestByRoom.has(room.id)) {
@@ -217,6 +231,7 @@ async function estimate(scope: Scope, args: Record<string, unknown>): Promise<To
     if (!roomEntry) continue
     const entry = perRoom.get(roomEntry[0])
     if (!entry) continue
+    if (!item.inStock || catalogFreshnessNotice(item.lastSyncedAt)) needsPriceCheck = true
     entry.total += item.priceKopecks
     entry.items.push(
       `${categoryLabels[object.category]}: ${item.title} ${formatPrice(item.priceKopecks)}`,
@@ -233,8 +248,11 @@ async function estimate(scope: Scope, args: Record<string, unknown>): Promise<To
       ? `Это больше бюджета ${formatPrice(budget)} на ${formatPrice(total - budget)}.`
       : `Бюджет ${formatPrice(budget)}, остаётся ${formatPrice(budget - total)}.`
     : 'Бюджет в проекте не указан.'
+  const priceNote = needsPriceCheck
+    ? ' В смете есть товары без свежего подтверждения цены/наличия — суммы предварительные, уточните их в магазине.'
+    : ''
   return {
-    text: `${lines.join(' ')} Итого ${formatPrice(total)}. ${verdict} Смета по мебели с рендеров, без отделки.`,
+    text: `${lines.join(' ')} Итого ${formatPrice(total)}. ${verdict} Смета по мебели с рендеров, без отделки.${priceNote}`,
   }
 }
 
