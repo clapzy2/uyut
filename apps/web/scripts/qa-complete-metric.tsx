@@ -103,16 +103,28 @@ const result = planPageMetricDraft(
   reference.rooms.map((room) => room.number),
 )
 if (!result.ok) throw new Error(result.error)
+const cmPerPoint = result.geometry.pdfCalibration?.cmPerPoint
+if (!cmPerPoint) throw new Error('Отсутствует подтверждённый масштаб контрольного листа.')
 const wallCoverage = classifyPlanPageWallSpans(
   contours,
   pairPlanPageWallFaces(page.linework, source, contours),
 )
 const wallCoverageCounts = Object.fromEntries(
-  ['paired', 'opening', 'unmatched', 'ambiguous', 'unsupported-angle'].map((status) => [
-    status,
-    wallCoverage.filter((span) => span.status === status).length,
-  ]),
+  ['paired', 'opening', 'unmatched', 'unpaired-exterior', 'ambiguous', 'unsupported-angle'].map(
+    (status) => [status, wallCoverage.filter((span) => span.status === status).length],
+  ),
 )
+const wallReviewQueue = wallCoverage
+  .filter(
+    (span) =>
+      span.contourKey !== 'exterior' &&
+      (span.status === 'unmatched' || span.status === 'unsupported-angle'),
+  )
+  .map((span) => ({
+    ...span,
+    lengthCm: Math.hypot(span.end.x - span.start.x, span.end.y - span.start.y) * cmPerPoint,
+  }))
+  .sort((a, b) => b.lengthCm - a.lengthCm)
 const output = resolve('../../output/playwright/complete-metric')
 await mkdir(output, { recursive: true })
 const report = {
@@ -124,6 +136,7 @@ const report = {
   wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs,
   wallCoverage,
   wallCoverageCounts,
+  wallReviewQueue,
   confirmationIssues: inspectManualPlanCompleteness(result.geometry),
   unresolvedSourceFeatures: complete.unresolvedFeatures,
   qualification:
@@ -149,6 +162,7 @@ console.log(
     openingFacePairs: report.openingFacePairs.length,
     wallFacePairs: report.wallFacePairs?.length,
     wallCoverageCounts,
+    interiorReviewSpans: wallReviewQueue.length,
     derivedOpeningWidths: result.geometry.pdfCalibration?.derivedOpeningIds.length,
     geometryIssues: report.geometryIssues.length,
     confirmationIssues: report.confirmationIssues.length,

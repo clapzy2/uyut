@@ -9,7 +9,13 @@ export type PdfWallCoverageSpan = {
   wallEdgeIndex: number
   start: PagePoint
   end: PagePoint
-  status: 'paired' | 'opening' | 'unmatched' | 'ambiguous' | 'unsupported-angle'
+  status:
+    | 'paired'
+    | 'opening'
+    | 'unmatched'
+    | 'unpaired-exterior'
+    | 'ambiguous'
+    | 'unsupported-angle'
 }
 
 /** Diagnostics only: source-backed local pairs do not certify a complete physical wall model. */
@@ -75,7 +81,9 @@ export function classifyPlanPageWallSpans(
               ? 'opening'
               : pairCount === 1
                 ? 'paired'
-                : 'unmatched'
+                : zone.key === 'exterior'
+                  ? 'unpaired-exterior'
+                  : 'unmatched'
         result.push({
           contourKey: zone.key,
           wallEdgeIndex,

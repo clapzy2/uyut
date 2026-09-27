@@ -113,6 +113,21 @@ describe('diagnostic coverage of annotated PDF boundary spans', () => {
     expect(spans[0]).toMatchObject({ status: 'unsupported-angle' })
   })
 
+  it('separates unpaired exterior spans from unresolved interior boundaries', () => {
+    const { contours, pair } = sample()
+    contours.exterior = { polygon: rectangle(50, 50, 350, 250) }
+    const spans = classifyPlanPageWallSpans(contours, [pair])
+    expect(spans.filter((span) => span.status === 'unmatched').length).toBeGreaterThan(0)
+    expect(spans.filter((span) => span.contourKey === 'exterior')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ status: 'unpaired-exterior' })]),
+    )
+    expect(
+      spans
+        .filter((span) => span.contourKey === 'exterior')
+        .every((span) => span.status === 'unpaired-exterior'),
+    ).toBe(true)
+  })
+
   it('reports current fixture boundaries as local evidence, not a complete wall model', () => {
     const currentSource = {
       sha256: page.source.sha256,
@@ -158,7 +173,13 @@ describe('diagnostic coverage of annotated PDF boundary spans', () => {
       {},
     )
     expect(pairs).toHaveLength(51)
-    expect(counts).toEqual({ paired: 102, opening: 19, unmatched: 38, 'unsupported-angle': 3 })
+    expect(counts).toEqual({
+      paired: 102,
+      opening: 19,
+      unmatched: 13,
+      'unpaired-exterior': 25,
+      'unsupported-angle': 3,
+    })
     expect(contours).toEqual(before)
   })
 })
