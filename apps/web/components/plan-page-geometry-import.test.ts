@@ -48,6 +48,25 @@ const render = (value: PlanReading) =>
   )
 
 describe('explicit source page import choice', () => {
+  it('offers a shared physical zone only once with both printed identities', () => {
+    const value = structuredClone(reading)
+    value.rooms.push(
+      { name: 'Прихожая', kind: 'living', sourceNumber: 1 },
+      { name: 'Коридор', kind: 'living', sourceNumber: 5 },
+    )
+    value.pageReview?.contours.rooms.push({
+      roomSourceNumbers: [1, 5],
+      polygon: [
+        { x: 20, y: 10 },
+        { x: 30, y: 10 },
+        { x: 30, y: 20 },
+      ],
+    })
+    const html = render(value)
+    expect(html).toContain('№ 1+5 · Прихожая / Коридор')
+    expect(html).not.toContain('№ 1 · Прихожая')
+    expect(html).not.toContain('№ 5 · Коридор')
+  })
   it('offers only annotated unique rooms and starts with no implicit selection', () => {
     const html = render(reading)
     expect(html).toContain('№ 2 · Кухня')

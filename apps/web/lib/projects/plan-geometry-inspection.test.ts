@@ -41,6 +41,56 @@ const geometry: PlanGeometry = {
 }
 
 describe('проверка правок 2D-схемы', () => {
+  it('retains short native jamb edges and a door on its complete closure edge', () => {
+    const walls = [
+      {
+        id: 'threshold',
+        kind: 'inner' as const,
+        start: { xCm: 0, yCm: 0 },
+        end: { xCm: 90.3, yCm: 0 },
+      },
+      {
+        id: 'reveal',
+        kind: 'inner' as const,
+        start: { xCm: 90.3, yCm: 0 },
+        end: { xCm: 90.3, yCm: 7.5 },
+      },
+    ]
+    expect(
+      inspectPlanGeometry({
+        ...geometry,
+        walls,
+        openings: [{ id: 'door', type: 'door', wallId: 'threshold', offsetCm: 0, widthCm: 90.3 }],
+        rooms: [],
+      }),
+    ).toEqual([])
+  })
+
+  it('compares a shared physical zone with the sum of its two printed areas', () => {
+    const room = {
+      name: 'Прихожая / Коридор',
+      sourceNumbers: [1, 5],
+      polygon: geometry.rooms[0]?.polygon ?? [],
+    }
+    expect(
+      inspectPlanRoomAreas(
+        [room],
+        [
+          { name: 'Прихожая', sourceNumber: 1, areaM2: 8 },
+          { name: 'Коридор', sourceNumber: 5, areaM2: 12 },
+        ],
+      ),
+    ).toEqual([])
+    expect(
+      inspectPlanRoomAreas(
+        [room],
+        [
+          { name: 'Прихожая', sourceNumber: 1, areaM2: 4 },
+          { name: 'Коридор', sourceNumber: 5, areaM2: 6 },
+        ],
+      ),
+    ).toHaveLength(1)
+  })
   it('принимает связную схему', () => {
     expect(inspectPlanGeometry(geometry)).toEqual([])
   })

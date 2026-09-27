@@ -1,12 +1,27 @@
-import type { PlanPageContours } from '@uyut/db'
+import type { PlanPageContours, PlanPageRoomIdentity } from '@uyut/db'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 
 export type PdfPlanSource = { sha256: string; pdfPage: number; state: 'existing' | 'proposed' }
-export type PdfRoomContour = { roomSourceNumber: number; polygon: PagePoint[] }
+export type PdfRoomContour = PlanPageRoomIdentity & { polygon: PagePoint[] }
 export type PdfRoomContours = PlanPageContours
 export type PdfRoomBinding =
   | { status: 'candidate'; roomSourceNumber: number; basis: 'manual-page-contour' }
   | { status: 'unresolved' | 'ambiguous'; roomSourceNumber: null; reason: string }
+
+export function pdfContourRoomNumbers(contour: PlanPageRoomIdentity): readonly number[] {
+  return contour.roomSourceNumbers ?? [contour.roomSourceNumber]
+}
+
+export function pdfContourIdentity(contour: PlanPageRoomIdentity): PlanPageRoomIdentity {
+  return contour.roomSourceNumbers === undefined
+    ? { roomSourceNumber: contour.roomSourceNumber }
+    : { roomSourceNumbers: [...contour.roomSourceNumbers] }
+}
+
+/** Stable physical-zone identity, independent of the order of its printed labels. */
+export function pdfContourKey(contour: PlanPageRoomIdentity): string {
+  return [...pdfContourRoomNumbers(contour)].sort((a, b) => a - b).join('+')
+}
 
 export function pdfPointDistance(
   work: Pick<PdfLinework, 'pageWidth' | 'pageHeight'>,
@@ -131,15 +146,22 @@ export function pdfContourIssue(
   const numbers = new Set<number>()
   if (contours.rooms.length > 100) return 'invalid-room-contours'
   for (const room of contours.rooms) {
+    if (room.roomSourceNumbers !== undefined && !Array.isArray(room.roomSourceNumbers))
+      return 'invalid-room-contours'
+    const members = pdfContourRoomNumbers(room)
     if (
-      !Number.isSafeInteger(room.roomSourceNumber) ||
-      room.roomSourceNumber < 1 ||
-      numbers.has(room.roomSourceNumber) ||
+      (room.roomSourceNumbers !== undefined &&
+        (Object.hasOwn(room, 'roomSourceNumber') || members.length < 2 || members.length > 12)) ||
+      members.some((number) => !Number.isSafeInteger(number) || number < 1 || number > 10_000) ||
+      new Set(members).size !== members.length ||
+      members.some((number) => numbers.has(number)) ||
       !validPolygon(room.polygon)
     )
       return 'invalid-room-contours'
-    numbers.add(room.roomSourceNumber)
+    for (const number of members) numbers.add(number)
   }
+  if (contours.exterior && !validPolygon(contours.exterior.polygon))
+    return 'invalid-exterior-contour'
   return undefined
 }
 
@@ -164,6 +186,8 @@ export function pdfRoomAtPoint(
     }
   const owner = owners[0]
   if (!owner) return { status: 'unresolved', roomSourceNumber: null, reason: 'no-annotated-room' }
+  if (owner.roomSourceNumbers !== undefined)
+    return { status: 'ambiguous', roomSourceNumber: null, reason: 'shared-room-zone' }
   return {
     status: 'candidate',
     roomSourceNumber: owner.roomSourceNumber,

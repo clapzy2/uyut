@@ -6,7 +6,7 @@ import {
   reconcilePlanGeometryRooms,
   validatePlanGeometryEdit,
 } from '@uyut/ai'
-import type { PlanImageCalibration, PlanReading, RoomMeasurements } from '@uyut/db'
+import type { PlanGeometry, PlanImageCalibration, PlanReading, RoomMeasurements } from '@uyut/db'
 import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
 import { recordAudit } from '@/lib/audit'
@@ -21,11 +21,7 @@ import {
 import { roomKindLabels } from '@/lib/projects/format'
 import { kitchenItemsSchema } from '@/lib/projects/kitchen-items'
 import { kitchenSafetySchema } from '@/lib/projects/kitchen-safety'
-import {
-  manualPlanGeometry,
-  manualRoomNamesValid,
-  missingManualRoomNames,
-} from '@/lib/projects/manual-plan-geometry'
+import { manualPlanGeometry, manualRoomCoverage } from '@/lib/projects/manual-plan-geometry'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
 import {
   inspectManualPlanCompleteness,
@@ -394,7 +390,10 @@ export async function savePlanGeometry(
       }
     // Габарит схемы не редактируется здесь: координаты остаются внутри полотна,
     // полученного из плана или введённого владельцем при ручном старте.
-    const geometry = validatePlanGeometryEdit(
+    const geometry:
+      | (NonNullable<ReturnType<typeof validatePlanGeometryEdit>> &
+          Pick<PlanGeometry, 'pdfCalibration'>)
+      | undefined = validatePlanGeometryEdit(
       {
         ...submitted,
         widthCm: before.widthCm,
@@ -450,12 +449,8 @@ export async function savePlanGeometry(
     }
     if (manual) {
       const knownRoomNames = project.planReading.rooms.map((room) => room.name)
-      if (
-        !manualRoomNamesValid(
-          geometry.rooms.map((room) => room.name),
-          knownRoomNames,
-        )
-      ) {
+      const coverage = manualRoomCoverage(geometry.rooms, project.planReading.rooms)
+      if (!coverage.valid) {
         return { ok: false, error: 'Контуры должны соответствовать комнатам из списка проекта.' }
       }
       if (mode === 'confirm') {
@@ -466,16 +461,22 @@ export async function savePlanGeometry(
               'На плане есть одинаковые названия комнат. Уточните их перед подтверждением схемы.',
           }
         }
-        const missingRooms = missingManualRoomNames(
-          geometry.rooms.map((room) => room.name),
-          knownRoomNames,
-        )
+        const missingRooms = coverage.missing
         if (missingRooms.length > 0 || knownRoomNames.length === 0) {
           return {
             ok: false,
             error: `Добавьте контуры всех комнат перед подтверждением: ${missingRooms.slice(0, 3).join(', ') || 'список пуст'}.`,
           }
         }
+      }
+    }
+    // Calibration is server-owned provenance, not a client-editable certification.
+    if (before.pdfCalibration) geometry.pdfCalibration = before.pdfCalibration
+    if (mode === 'confirm' && geometry.pdfCalibration?.derivedOpeningIds.length) {
+      return {
+        ok: false,
+        error:
+          'Есть проёмы с шириной, перенесённой только по масштабу PDF. Для подтверждения нужна отдельная сверка их мерок.',
       }
     }
     const checked =

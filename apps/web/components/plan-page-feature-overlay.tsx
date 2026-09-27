@@ -1,31 +1,33 @@
 // biome-ignore-all lint/suspicious/noArrayIndexKey: ordered native vertices
+
+import { pdfContourKey, pdfContourRoomNumbers } from '@/lib/projects/plan-pdf-room-binding'
 import type { PageContourDraft, PageContourTarget } from './plan-page-contour-editor-model'
 import { finiteContourPoint } from './plan-page-contour-editor-model'
 import { pageFeatureLabels } from './plan-page-features'
 
 export function PlanPageFeatureOverlay({
   drafts,
-  roomNumber,
+  roomKey,
   target,
 }: {
   drafts: PageContourDraft[]
-  roomNumber: number
+  roomKey: string
   target: PageContourTarget
 }) {
   return (
     <g pointerEvents="none">
       {drafts.map((room) => (
-        <g key={room.roomSourceNumber}>
+        <g key={pdfContourKey(room)}>
           {room.openings?.map((opening) => {
             const selected =
-              room.roomSourceNumber === roomNumber &&
+              pdfContourKey(room) === roomKey &&
               target.kind === 'opening' &&
               target.id === opening.id
             const [start, end] = opening.points
             return (
               <g key={opening.id} className={selected ? 'text-accent' : 'text-ink-2'}>
                 <title>
-                  {pageFeatureLabels[opening.kind]}, комната № {room.roomSourceNumber}
+                  {`${pageFeatureLabels[opening.kind]}, зона № ${pdfContourRoomNumbers(room).join(' + ')}`}
                 </title>
                 {start && end && finiteContourPoint(start) && finiteContourPoint(end) ? (
                   <line
@@ -54,7 +56,7 @@ export function PlanPageFeatureOverlay({
           })}
           {room.obstacles?.map((obstacle) => {
             const selected =
-              room.roomSourceNumber === roomNumber &&
+              pdfContourKey(room) === roomKey &&
               target.kind === 'obstacle' &&
               target.id === obstacle.id
             const valid = obstacle.polygon.every(finiteContourPoint)
@@ -62,7 +64,7 @@ export function PlanPageFeatureOverlay({
             return (
               <g key={obstacle.id} className={selected ? 'text-accent' : 'text-ink-2'}>
                 <title>
-                  {pageFeatureLabels[obstacle.kind]}, комната № {room.roomSourceNumber}
+                  {`${pageFeatureLabels[obstacle.kind]}, зона № ${pdfContourRoomNumbers(room).join(' + ')}`}
                 </title>
                 {valid && obstacle.closed ? (
                   <polygon
@@ -96,7 +98,7 @@ export function PlanPageFeatureOverlay({
               </g>
             )
           })}
-          {room.roomSourceNumber === roomNumber && target.kind === 'opening'
+          {pdfContourKey(room) === roomKey && target.kind === 'opening'
             ? room.polygon.map((point, index) => {
                 const next = room.polygon[(index + 1) % room.polygon.length]
                 if (!next || !finiteContourPoint(point) || !finiteContourPoint(next)) return null

@@ -10,13 +10,20 @@ import {
 import { type PdfDimensionChain, pdfDepthChain, pdfWidthChain } from './plan-pdf-dimension-chain'
 import { pdfVectorArrow } from './plan-pdf-leaders'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
-import { type PdfPlanSource, pdfPointDistance } from './plan-pdf-room-binding'
+import {
+  type PdfPlanSource,
+  pdfContourKey,
+  pdfContourRoomNumbers,
+  pdfPointDistance,
+} from './plan-pdf-room-binding'
 
 type Context = {
   source: PdfPlanSource
   linework: PdfLinework
   planText?: string
   contours: PlanPageContours
+  /** Explicit anchors for one page-wide scale; absent keeps the legacy strict path. */
+  calibrationRoomNumbers?: number[]
 }
 type Result = { ok: true; geometry: PlanGeometry } | { ok: false; error: string }
 type Candidate = Extract<PdfDimensionChain, { status: 'candidate' }>
@@ -92,23 +99,46 @@ export function planPageMetricDraft(
     planPageFeaturesIssue(contours, { checkRoomOverlap: true })
   )
     return fail('Сверьте разметку с исходным обмерным листом: источник или вершины не совпали.')
-  const selected = [...roomNumbers]
-    .sort((a, b) => a - b)
-    .map((number) => ({
-      number,
-      contour: contours.rooms.find((room) => room.roomSourceNumber === number),
-      room: reading.rooms.find((room) => room.sourceNumber === number),
-    }))
+  const selected = contours.rooms
+    .filter((contour) =>
+      pdfContourRoomNumbers(contour).some((number) => roomNumbers.includes(number)),
+    )
+    .sort(
+      (left, right) =>
+        Math.min(...pdfContourRoomNumbers(left)) - Math.min(...pdfContourRoomNumbers(right)),
+    )
   if (
-    selected.some(
-      ({ contour, room }) =>
-        !contour ||
-        !room?.name.trim() ||
-        room.name.trim().length > 40 ||
-        reading.rooms.filter((other) => nameKey(other.name) === nameKey(room.name)).length !== 1,
+    roomNumbers.some(
+      (number) => !selected.some((contour) => pdfContourRoomNumbers(contour).includes(number)),
+    ) ||
+    selected.some((contour) =>
+      pdfContourRoomNumbers(contour).some((number) => {
+        const matches = reading.rooms.filter((room) => room.sourceNumber === number)
+        const room = matches[0]
+        return (
+          matches.length !== 1 ||
+          !room?.name.trim() ||
+          room.name.trim().length > 40 ||
+          reading.rooms.filter((other) => nameKey(other.name) === nameKey(room.name)).length !== 1
+        )
+      }),
     )
   )
     return fail('Каждая выбранная комната должна иметь один номер, уникальное название и контур.')
+
+  const globalCalibration = context.calibrationRoomNumbers !== undefined
+  const anchorNumbers = context.calibrationRoomNumbers ?? roomNumbers
+  if (
+    anchorNumbers.length < 1 ||
+    anchorNumbers.length > 12 ||
+    new Set(anchorNumbers).size !== anchorNumbers.length ||
+    anchorNumbers.some(
+      (number) =>
+        !Number.isSafeInteger(number) ||
+        !contours.rooms.some((contour) => contour.roomSourceNumber === number),
+    )
+  )
+    return fail('Для общего масштаба выберите отдельную комнату с двумя подписанными цепочками.')
 
   const textItems = planMeasurementTextItems(context.planText)
   if (!textItems) return fail('Для масштаба нужны подписи размеров из текстового слоя этого PDF.')
@@ -118,7 +148,8 @@ export function planPageMetricDraft(
     )
   const chains: Candidate[] = []
   const usedLabels = new Set<number>()
-  for (const { number, room } of selected) {
+  for (const number of anchorNumbers) {
+    const room = reading.rooms.find((room) => room.sourceNumber === number)
     if (!room) return fail('Комната отсутствует в прочитанном плане.')
     for (const side of ['width', 'depth'] as const) {
       const value = side === 'width' ? room.widthCm : room.depthCm
@@ -185,7 +216,10 @@ export function planPageMetricDraft(
   )
     return fail('Размерные цепочки не подтверждают единый масштаб листа. Уточните исходный чертёж.')
 
-  const points = selected.flatMap(({ contour }) => contour?.polygon ?? [])
+  const points = [
+    ...selected.flatMap((contour) => contour.polygon),
+    ...(globalCalibration ? (contours.exterior?.polygon ?? []) : []),
+  ]
   const origin = {
     x: Math.min(...points.map((point) => point.x)),
     y: Math.min(...points.map((point) => point.y)),
@@ -194,7 +228,7 @@ export function planPageMetricDraft(
     xCm: roundCm(((point.x - origin.x) * linework.pageWidth * scale) / 1000),
     yCm: roundCm(((point.y - origin.y) * linework.pageHeight * scale) / 1000),
   })
-  const id = (room: number, type: string, identity: string | number) =>
+  const id = (room: number | string, type: string, identity: string | number) =>
     `manual_${createHash('sha256')
       .update(JSON.stringify([source, room, type, identity]))
       .digest('hex')
@@ -219,25 +253,40 @@ export function planPageMetricDraft(
   if (geometry.widthCm > 5000 || geometry.heightCm > 5000)
     return fail('Размер схемы превышает допустимое полотно. Проверьте масштаб и выбранные комнаты.')
   const checks = verifyPlanPageOpenings(linework, source, contours, context.planText)
-  for (const { number, contour, room } of selected) {
-    if (!contour || !room) return fail('Отсутствует выбранный контур.')
+  const derivedOpeningIds: string[] = []
+  for (const contour of selected) {
+    const numbers = pdfContourRoomNumbers(contour)
+    const number = pdfContourKey(contour)
+    const names = numbers.map((number) =>
+      reading.rooms.find((room) => room.sourceNumber === number)?.name.trim(),
+    )
+    const name = names.join(' / ')
+    if (!name || name.length > 80) return fail('Уточните название общей зоны перед переносом.')
     const polygon = contour.polygon.map(convert)
-    geometry.rooms.push({ name: room.name.trim(), sourceNumber: number, polygon })
+    geometry.rooms.push({
+      name,
+      polygon,
+      ...(numbers.length === 1 ? { sourceNumber: numbers[0] } : { sourceNumbers: [...numbers] }),
+    })
     polygon.forEach((start, index) => {
       const end = polygon[(index + 1) % polygon.length]
       if (end) geometry.walls.push({ id: id(number, 'wall', index), start, end, kind: 'inner' })
     })
     for (const opening of contour.openings ?? []) {
       const check = checks.find(
-        (item) => item.roomSourceNumber === number && item.openingId === opening.id,
+        (item) => pdfContourKey(item) === number && item.openingId === opening.id,
       )
+      const printedWidth = check?.status === 'candidate'
       if (
-        check?.status !== 'candidate' ||
+        printedWidth &&
         !agrees(pdfPointDistance(linework, opening.start, opening.end), check.widthMm / 10)
       )
+        return fail(`Комната ${number}: подписанная ширина проёма расходится с общим масштабом.`)
+      if (!printedWidth && !globalCalibration)
         return fail(
           `Комната ${number}: ширина размеченного проёма не подтверждена в общем масштабе.`,
         )
+      if (!printedWidth) derivedOpeningIds.push(id(number, 'opening', opening.id))
       const wallStart = contour.polygon[opening.wallEdgeIndex]
       const wallEnd = contour.polygon[(opening.wallEdgeIndex + 1) % contour.polygon.length]
       if (!wallStart || !wallEnd) return fail('Не найдена стена проёма.')
@@ -281,6 +330,32 @@ export function planPageMetricDraft(
       })
     }
   }
+  if (globalCalibration) {
+    const exterior = contours.exterior?.polygon.map(convert)
+    exterior?.forEach((start, index) => {
+      const end = exterior[(index + 1) % exterior.length]
+      if (end) geometry.walls.push({ id: id('exterior', 'wall', index), start, end, kind: 'outer' })
+    })
+    geometry.pdfCalibration = {
+      sourceSha256: source.sha256,
+      pdfPage: source.pdfPage,
+      cmPerPoint: scale,
+      origin,
+      anchorRoomNumbers: [...anchorNumbers],
+      labelIndexes: [...usedLabels].sort((a, b) => a - b),
+      derivedOpeningIds,
+    }
+    geometry.warnings = [
+      'Координаты черновика перенесены из нативных линий PDF в едином масштабе. Подписанные мерки комнат сохранены отдельно и не заменены габаритами контуров.',
+      ...(contours.exterior ? [] : ['Дополните внешний контур квартиры.']),
+      ...(derivedOpeningIds.length
+        ? [
+            'Часть ширин проёмов перенесена по масштабу линий, без отдельной подписанной мерки. Подтвердите их обмером перед расстановкой.',
+          ]
+        : []),
+      'Сверьте все проёмы, неподвижные объекты, открывание дверей и высоты подоконников перед подтверждением. Неразмеченные элементы автоматически не добавляются.',
+    ]
+  }
   if (
     geometry.walls.length > 200 ||
     geometry.openings.length > 200 ||
@@ -290,28 +365,31 @@ export function planPageMetricDraft(
   // The existing geometry parser may discard unsupported objects. Refuse the complete
   // draft instead: no room, notch, door or obstacle may disappear during conversion.
   const mmPoint = (point: PlanPoint) => ({ xMm: point.xCm * 10, yMm: point.yCm * 10 })
-  const checked = parsePlanGeometry({
-    widthMm: geometry.widthCm * 10,
-    heightMm: geometry.heightCm * 10,
-    walls: geometry.walls.map((wall) => ({
-      ...wall,
-      start: mmPoint(wall.start),
-      end: mmPoint(wall.end),
-    })),
-    rooms: geometry.rooms.map((room) => ({ ...room, polygon: room.polygon.map(mmPoint) })),
-    openings: geometry.openings.map((opening) => ({
-      ...opening,
-      offsetMm: opening.offsetCm * 10,
-      widthMm: opening.widthCm * 10,
-    })),
-    obstacles: geometry.obstacles?.map((obstacle) => ({
-      ...obstacle,
-      xMm: obstacle.xCm * 10,
-      yMm: obstacle.yCm * 10,
-      widthMm: obstacle.widthCm * 10,
-      depthMm: obstacle.depthCm * 10,
-    })),
-  })
+  const checked = parsePlanGeometry(
+    {
+      widthMm: geometry.widthCm * 10,
+      heightMm: geometry.heightCm * 10,
+      walls: geometry.walls.map((wall) => ({
+        ...wall,
+        start: mmPoint(wall.start),
+        end: mmPoint(wall.end),
+      })),
+      rooms: geometry.rooms.map((room) => ({ ...room, polygon: room.polygon.map(mmPoint) })),
+      openings: geometry.openings.map((opening) => ({
+        ...opening,
+        offsetMm: opening.offsetCm * 10,
+        widthMm: opening.widthCm * 10,
+      })),
+      obstacles: geometry.obstacles?.map((obstacle) => ({
+        ...obstacle,
+        xMm: obstacle.xCm * 10,
+        yMm: obstacle.yCm * 10,
+        widthMm: obstacle.widthCm * 10,
+        depthMm: obstacle.depthCm * 10,
+      })),
+    },
+    { allowFullSpanOpenings: true },
+  )
   if (
     !checked ||
     checked.warnings.length > 0 ||

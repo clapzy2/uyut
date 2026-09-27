@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import {
   manualPlanGeometry,
+  manualRoomCoverage,
   manualRoomNamesValid,
   missingManualRoomNames,
 } from './manual-plan-geometry'
 
 describe('manual plan geometry', () => {
+  it('covers two schedule rows with one shared physical zone', () => {
+    const readings = [
+      { name: 'Прихожая', sourceNumber: 1 },
+      { name: 'Коридор', sourceNumber: 5 },
+    ]
+    const shared = { name: 'Прихожая / Коридор', sourceNumbers: [1, 5], polygon: [] }
+    expect(manualRoomCoverage([shared], readings)).toEqual({ valid: true, missing: [] })
+    expect(
+      manualRoomCoverage([shared, { name: 'Коридор', sourceNumber: 5, polygon: [] }], readings)
+        .valid,
+    ).toBe(false)
+    expect(manualRoomCoverage([{ ...shared, sourceNumbers: [1, 9] }], readings).valid).toBe(false)
+    expect(manualRoomCoverage([], readings).missing).toEqual(['Прихожая', 'Коридор'])
+  })
   it('starts with an empty draft instead of imagined walls or rooms', () => {
     expect(manualPlanGeometry({ widthCm: 850, heightCm: 620 })).toMatchObject({
       source: 'manual',

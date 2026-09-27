@@ -57,6 +57,122 @@ const linework: PdfLinework = {
 }
 
 describe('versioned source page review', () => {
+  it('requires exactly one explication row for every member of a shared contour', () => {
+    const input: PlanPageContours = {
+      ...contours,
+      rooms: [{ roomSourceNumbers: [1, 5], polygon: at(contours.rooms).polygon }],
+    }
+    const groupedReading: PlanReading = {
+      ...reading,
+      rooms: [
+        { name: 'Прихожая', kind: 'living', sourceNumber: 1 },
+        { name: 'Коридор', kind: 'living', sourceNumber: 5 },
+      ],
+    }
+    expect(planPageContoursSchema.safeParse(input).success).toBe(true)
+    expect(planPageReviewIssue(input, groupedReading, input.source, linework)).toBeUndefined()
+    expect(
+      planPageReviewIssue(
+        input,
+        { ...groupedReading, rooms: groupedReading.rooms.slice(0, 1) },
+        input.source,
+        linework,
+      ),
+    ).toBe('unknown-room-number')
+    expect(
+      planPageReviewIssue(
+        input,
+        { ...groupedReading, rooms: [...groupedReading.rooms, at(groupedReading.rooms)] },
+        input.source,
+        linework,
+      ),
+    ).toBe('unknown-room-number')
+  })
+
+  it.each([[1], [1, 1], [1, '5'], [1, 5, 1]].map((roomSourceNumbers) => ({ roomSourceNumbers })))(
+    'rejects invalid group membership %j',
+    ({ roomSourceNumbers }) => {
+      expect(
+        planPageContoursSchema.safeParse({
+          ...contours,
+          rooms: [{ roomSourceNumbers, polygon: at(contours.rooms).polygon }],
+        }).success,
+      ).toBe(false)
+    },
+  )
+
+  it('rejects group/scalar and group/group repeated ownership or simultaneous keys', () => {
+    const polygon = at(contours.rooms).polygon
+    for (const rooms of [
+      [
+        { roomSourceNumbers: [1, 5], polygon },
+        { roomSourceNumber: 5, polygon },
+      ],
+      [
+        { roomSourceNumbers: [1, 5], polygon },
+        { roomSourceNumbers: [5, 6], polygon },
+      ],
+      [{ roomSourceNumbers: [1, 5], roomSourceNumber: undefined, polygon }],
+    ])
+      expect(planPageContoursSchema.safeParse({ ...contours, rooms }).success).toBe(false)
+  })
+
+  it('requires native exterior vertices and full containment including concave edge crossings', () => {
+    const exterior = {
+      polygon: [
+        { x: 0, y: 0 },
+        { x: 40, y: 0 },
+        { x: 40, y: 40 },
+        { x: 0, y: 40 },
+      ],
+    }
+    const input = { ...contours, exterior }
+    expect(planPageContoursSchema.safeParse(input).success).toBe(true)
+    expect(planPageReviewIssue(input, reading, input.source, linework)).toBe(
+      'non-native-contour-vertex',
+    )
+    const nativeWork = {
+      ...linework,
+      paths: [...linework.paths, { ...at(linework.paths), points: exterior.polygon }],
+    }
+    expect(planPageReviewIssue(input, reading, input.source, nativeWork)).toBeUndefined()
+    const concave = {
+      polygon: [
+        { x: 0, y: 0 },
+        { x: 40, y: 0 },
+        { x: 40, y: 40 },
+        { x: 25, y: 40 },
+        { x: 25, y: 20 },
+        { x: 15, y: 20 },
+        { x: 15, y: 40 },
+        { x: 0, y: 40 },
+      ],
+    }
+    const crossing = {
+      ...input,
+      exterior: concave,
+      rooms: [
+        {
+          roomSourceNumber: 4,
+          polygon: [
+            { x: 10, y: 10 },
+            { x: 30, y: 10 },
+            { x: 30, y: 30 },
+            { x: 10, y: 30 },
+          ],
+        },
+      ],
+    }
+    expect(planPageFeaturesIssue(crossing)).toBe('room-outside-exterior-contour')
+    expect(planPageContoursSchema.safeParse(crossing).success).toBe(false)
+    expect(
+      planPageFeaturesIssue({
+        ...input,
+        rooms: [{ roomSourceNumber: 4, polygon: exterior.polygon }],
+      }),
+    ).toBeUndefined()
+  })
+
   it('checks intersecting polygon-only rooms for metric conversion without changing legacy saves', () => {
     const input: PlanPageContours = {
       ...contours,
@@ -488,7 +604,7 @@ describe('manual source opening and obstacle annotations', () => {
 
   it('preserves legacy contour parsing and source mismatch rejection with feature data', () => {
     const legacy = structuredClone(contours)
-    legacy.rooms.push({ ...at(legacy.rooms), roomSourceNumber: 5 })
+    legacy.rooms.push({ polygon: at(legacy.rooms).polygon, roomSourceNumber: 5 })
     expect(planPageContoursSchema.safeParse(legacy).success).toBe(true)
     const input = featureContours()
     expect(

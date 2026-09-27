@@ -1,7 +1,7 @@
 // biome-ignore-all lint/suspicious/noArrayIndexKey: ordered polygon vertices keep their coordinate-field identity
 'use client'
 
-import type { PlanReading } from '@uyut/db'
+import type { PlanPageContours, PlanReading } from '@uyut/db'
 import { Button, inputClassName } from '@uyut/ui'
 import { type MouseEvent, useEffect, useRef, useState } from 'react'
 import { savePlanPageReview } from '@/actions/plan-page-review'
@@ -10,12 +10,14 @@ import {
   canAddPageFeature,
   contourDraftsFromSaved,
   finiteContourPoint,
+  groupPageContourDraft,
   nativePointsFromResponse,
   numberedContourRooms,
   type PageContourDraft,
   type PageContourPoint,
   type PageContourTarget,
   type PlanPagePreview,
+  pageContourOptions,
   pageContourPoint,
   pageContourRoomsForSave,
   previewFromHeaders,
@@ -23,6 +25,11 @@ import {
   savedPageOpeningCheck,
   snapPageContourPoint,
 } from '@/components/plan-page-contour-editor-model'
+import {
+  pdfContourIdentity,
+  pdfContourKey,
+  pdfContourRoomNumbers,
+} from '@/lib/projects/plan-pdf-room-binding'
 import { PlanPageFeatureOverlay } from './plan-page-feature-overlay'
 import { type NewPageFeatureKind, PlanPageFeatures } from './plan-page-features'
 import { PlanPagePointControls } from './plan-page-point-controls'
@@ -51,6 +58,7 @@ export function PlanPageContourEditor({
   const eligibleRooms = numberedContourRooms(reading.rooms)
   const [selected, setSelected] = useState(String(eligibleRooms[0]?.sourceNumber ?? ''))
   const [drafts, setDrafts] = useState<PageContourDraft[]>([])
+  const [exterior, setExterior] = useState<PlanPageContours['exterior']>()
   const [target, setTarget] = useState<PageContourTarget>({ kind: 'room' })
   const [preview, setPreview] = useState<PlanPagePreview>()
   const [imageUrl, setImageUrl] = useState<string>()
@@ -73,7 +81,14 @@ export function PlanPageContourEditor({
   conflictCallback.current = onConflict
   const locked =
     disabled || saving || loading || stale || !preview || !imageReady || nativePoints.length === 0
-  const selectedDraft = drafts.find((draft) => draft.roomSourceNumber === Number(selected))
+  const options = pageContourOptions(reading.rooms, drafts)
+  const selectedIdentity = options.find((option) => option.key === selected)?.identity
+  const selectedDraft = drafts.find((draft) => pdfContourKey(draft) === selected)
+  const groupCandidates = eligibleRooms.filter(
+    (room) =>
+      room.sourceNumber !== selectedIdentity?.roomSourceNumber &&
+      !drafts.some((draft) => pdfContourRoomNumbers(draft).includes(room.sourceNumber as number)),
+  )
   const roomHasFeatures = Boolean(
     selectedDraft?.openings?.length || selectedDraft?.obstacles?.length,
   )
@@ -163,6 +178,7 @@ export function PlanPageContourEditor({
           const saved = initialReading.current.pageReview?.contours
           if (
             saved &&
+            saved.source.state === initialReading.current.planState &&
             samePlanPage(metadata, {
               sha256: saved.source.sha256,
               page: saved.source.pdfPage,
@@ -172,6 +188,13 @@ export function PlanPageContourEditor({
             })
           ) {
             setDrafts(contourDraftsFromSaved(saved.rooms))
+            const first = saved.rooms[0]
+            if (first) setSelected(pdfContourKey(first))
+            setExterior(
+              saved.exterior
+                ? { polygon: saved.exterior.polygon.map((point) => ({ ...point })) }
+                : undefined,
+            )
           }
         }
       } catch (cause) {
@@ -192,18 +215,27 @@ export function PlanPageContourEditor({
   }, [projectId, pageNumber, sourceRevision])
 
   function changeSelected(polygon: PageContourPoint[], closed = false) {
-    if (pointsLocked) return
-    const number = Number(selected)
+    if (pointsLocked || !selectedIdentity) return
     setDrafts((current) => {
       if (target.kind === 'room') {
-        const before = current.find((draft) => draft.roomSourceNumber === number)
+        const before = current.find((draft) => pdfContourKey(draft) === selected)
         return [
-          ...current.filter((draft) => draft.roomSourceNumber !== number),
-          ...(polygon.length ? [{ ...before, roomSourceNumber: number, polygon, closed }] : []),
+          ...current.filter((draft) => pdfContourKey(draft) !== selected),
+          ...(polygon.length || selectedIdentity.roomSourceNumbers
+            ? [
+                {
+                  ...pdfContourIdentity(selectedIdentity),
+                  polygon,
+                  closed,
+                  ...(before?.openings ? { openings: before.openings } : {}),
+                  ...(before?.obstacles ? { obstacles: before.obstacles } : {}),
+                },
+              ]
+            : []),
         ]
       }
       return current.map((draft) => {
-        if (draft.roomSourceNumber !== number) return draft
+        if (pdfContourKey(draft) !== selected) return draft
         if (target.kind === 'opening') {
           return {
             ...draft,
@@ -242,7 +274,7 @@ export function PlanPageContourEditor({
     const opening = kind === 'door' || kind === 'window' || kind === 'balcony'
     setDrafts((current) =>
       current.map((draft) => {
-        if (draft.roomSourceNumber !== Number(selected)) return draft
+        if (pdfContourKey(draft) !== selected) return draft
         return opening
           ? {
               ...draft,
@@ -262,7 +294,7 @@ export function PlanPageContourEditor({
     if (locked) return
     setDrafts((current) =>
       current.flatMap((draft) => {
-        if (draft.roomSourceNumber !== Number(selected)) return [draft]
+        if (pdfContourKey(draft) !== selected) return [draft]
         if (target.kind === 'room') return []
         return [
           {
@@ -275,6 +307,9 @@ export function PlanPageContourEditor({
       }),
     )
     setTarget({ kind: 'room' })
+    if (target.kind === 'room' && selectedIdentity?.roomSourceNumbers) {
+      setSelected(String(selectedIdentity.roomSourceNumbers[0]))
+    }
     resetReview()
   }
 
@@ -282,7 +317,7 @@ export function PlanPageContourEditor({
     if (locked || target.kind !== 'opening') return
     setDrafts((current) =>
       current.map((draft) =>
-        draft.roomSourceNumber === Number(selected)
+        pdfContourKey(draft) === selected
           ? {
               ...draft,
               openings: draft.openings?.map((item) =>
@@ -362,6 +397,7 @@ export function PlanPageContourEditor({
           pageWidth: preview.width,
           pageHeight: preview.height,
           rooms,
+          ...(exterior ? { exterior } : {}),
         },
         sourceRevision,
       )
@@ -424,9 +460,9 @@ export function PlanPageContourEditor({
             {eligibleRooms.length === 0 ? (
               <option value="">Нет комнат с уникальным номером</option>
             ) : null}
-            {eligibleRooms.map((room) => (
-              <option key={room.sourceNumber} value={room.sourceNumber}>
-                № {room.sourceNumber} · {room.name}
+            {options.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -448,6 +484,50 @@ export function PlanPageContourEditor({
           </select>
         </label>
       </div>
+      {selectedIdentity?.roomSourceNumbers === undefined &&
+      selectedIdentity &&
+      groupCandidates.length ? (
+        <label className="block max-w-sm space-y-1 text-sm">
+          <span className="block">Общая зона без стены между номерами</span>
+          <select
+            className={inputClassName}
+            value=""
+            disabled={locked}
+            onChange={(event) => {
+              const grouped = groupPageContourDraft(
+                drafts,
+                selectedIdentity,
+                Number(event.target.value),
+                reading.rooms,
+              )
+              if (!grouped) return
+              const group = grouped[grouped.length - 1]
+              if (!group) return
+              setDrafts(grouped)
+              setSelected(pdfContourKey(group))
+              selectTarget({ kind: 'room' })
+              resetReview()
+            }}
+          >
+            <option value="">Добавить второй номер…</option>
+            {groupCandidates.map((room) => (
+              <option key={room.sourceNumber} value={room.sourceNumber}>
+                № {room.sourceNumber} · {room.name}
+              </option>
+            ))}
+          </select>
+          <span className="block text-xs leading-relaxed text-ink-2">
+            Только если на исходном листе это одна открытая зона. Существующие отдельные контуры не
+            объединяются автоматически.
+          </span>
+        </label>
+      ) : null}
+      {selectedIdentity?.roomSourceNumbers ? (
+        <p className="text-xs leading-relaxed text-ink-2">
+          Номера {selectedIdentity.roomSourceNumbers.join(' и ')} размечаются одним контуром общей
+          зоны, без добавления перегородки.
+        </p>
+      ) : null}
       {selected ? (
         <PlanPageFeatures
           key={`features-${selected}-${target.kind}-${target.kind === 'room' ? '' : target.id}`}
@@ -533,14 +613,14 @@ export function PlanPageContourEditor({
                   </g>
                 ) : null}
                 {drafts.map((draft) => {
-                  const isSelected = draft.roomSourceNumber === Number(selected)
+                  const isSelected = pdfContourKey(draft) === selected
                   const valid = draft.polygon.every(finiteContourPoint)
                   const coordinates = draft.polygon
                     .map((point) => `${point.x},${point.y}`)
                     .join(' ')
                   return (
                     <g
-                      key={draft.roomSourceNumber}
+                      key={pdfContourKey(draft)}
                       className={isSelected ? 'text-accent' : 'text-ink-2'}
                       pointerEvents="none"
                     >
@@ -585,17 +665,13 @@ export function PlanPageContourEditor({
                           fontSize={18}
                           fontWeight={600}
                         >
-                          № {draft.roomSourceNumber}
+                          № {pdfContourRoomNumbers(draft).join(' + ')}
                         </text>
                       ) : null}
                     </g>
                   )
                 })}
-                <PlanPageFeatureOverlay
-                  drafts={drafts}
-                  roomNumber={Number(selected)}
-                  target={target}
-                />
+                <PlanPageFeatureOverlay drafts={drafts} roomKey={selected} target={target} />
               </svg>
             </button>
           </div>
@@ -659,7 +735,7 @@ export function PlanPageContourEditor({
       <FormError message={error} />
       <div className="space-y-3 border-t border-line pt-4">
         <p className="text-xs text-ink-2">
-          Размечено комнат: {drafts.filter((draft) => draft.closed).length}. Другие комнаты можно
+          Размечено зон: {drafts.filter((draft) => draft.closed).length}. Другие комнаты можно
           добавить позже; отсутствующие размеры не вычисляются из площади.
         </p>
         <label className="flex items-start gap-3 text-sm leading-relaxed">

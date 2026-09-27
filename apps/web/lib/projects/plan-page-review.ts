@@ -4,7 +4,9 @@ import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import {
   type PdfPlanSource,
   pdfBoundaryDistance,
+  pdfContourIdentity,
   pdfContourIssue,
+  pdfContourRoomNumbers,
   pdfPointInside,
 } from './plan-pdf-room-binding'
 
@@ -25,6 +27,19 @@ const obstacleSchema = z.strictObject({
   kind: z.enum(['shaft', 'column', 'fixed']),
   polygon: z.array(pointSchema).min(3).max(100),
 })
+const sourceNumberSchema = z.number().int().min(1).max(10_000)
+const contourFields = {
+  polygon: z.array(pointSchema).min(3).max(100),
+  openings: z.array(openingSchema).max(32).optional(),
+  obstacles: z.array(obstacleSchema).max(20).optional(),
+}
+const contourSchema = z.union([
+  z.strictObject({ roomSourceNumber: sourceNumberSchema, ...contourFields }),
+  z.strictObject({
+    roomSourceNumbers: z.array(sourceNumberSchema).min(2).max(12),
+    ...contourFields,
+  }),
+])
 
 /** Browser input is bounded before polygon intersection checks or PDF processing. */
 export const planPageContoursSchema = z
@@ -38,19 +53,13 @@ export const planPageContoursSchema = z
     review: z.literal('manual-source-review'),
     pageWidth: z.number().positive().max(100_000),
     pageHeight: z.number().positive().max(100_000),
-    rooms: z
-      .array(
-        z.strictObject({
-          roomSourceNumber: z.number().int().min(1).max(10_000),
-          polygon: z.array(pointSchema).min(3).max(100),
-          openings: z.array(openingSchema).max(32).optional(),
-          obstacles: z.array(obstacleSchema).max(20).optional(),
-        }),
-      )
-      .min(1)
-      .max(100),
+    exterior: z.strictObject({ polygon: z.array(pointSchema).min(3).max(100) }).optional(),
+    rooms: z.array(contourSchema).min(1).max(100),
   })
   .superRefine((input, context) => {
+    const numbers = input.rooms.flatMap((room) => [...pdfContourRoomNumbers(room)])
+    if (new Set(numbers).size !== numbers.length)
+      context.addIssue({ code: 'custom', message: 'duplicate-room-membership' })
     const issue = planPageFeaturesIssue(input)
     if (issue) context.addIssue({ code: 'custom', message: issue })
   })
@@ -191,7 +200,7 @@ export function planPageFeaturesIssue(
   )
   // Older polygon-only annotations keep their save contract. Metric conversion must also
   // check room intersections when there are no annotated openings or obstacles.
-  if (!hasFeatures && !options.checkRoomOverlap) return undefined
+  if (!hasFeatures && !options.checkRoomOverlap && !input.exterior) return undefined
   const featureCount = input.rooms.reduce(
     (total, room) => total + (room.openings?.length ?? 0) + (room.obstacles?.length ?? 0),
     0,
@@ -202,7 +211,7 @@ export function planPageFeaturesIssue(
       room.polygon.length +
       (room.obstacles ?? []).reduce((count, obstacle) => count + obstacle.polygon.length, 0) +
       (room.openings?.length ?? 0) * 2,
-    0,
+    input.exterior?.polygon.length ?? 0,
   )
   if (featureCount > 200 || vertexCount > 2000) return 'page-features-too-complex'
   const work: PdfLinework = {
@@ -217,6 +226,9 @@ export function planPageFeaturesIssue(
     truncated: false,
   }
   if (pdfContourIssue(work, input.source, input)) return 'invalid-room-contours'
+  const exterior = input.exterior
+  if (exterior && input.rooms.some((room) => !polygonWithin(room.polygon, exterior.polygon)))
+    return 'room-outside-exterior-contour'
   for (let roomIndex = 0; roomIndex < input.rooms.length; roomIndex++) {
     const room = input.rooms[roomIndex]
     if (!room) continue
@@ -266,7 +278,7 @@ export function planPageFeaturesIssue(
       if (!obstacle) continue
       const obstacleContours = {
         ...input,
-        rooms: [{ roomSourceNumber: room.roomSourceNumber, polygon: obstacle.polygon }],
+        rooms: [{ ...pdfContourIdentity(room), polygon: obstacle.polygon }],
       }
       if (pdfContourIssue(work, input.source, obstacleContours)) return 'invalid-page-obstacle'
       if (!polygonWithin(obstacle.polygon, room.polygon)) return 'obstacle-outside-room-contour'
@@ -284,9 +296,10 @@ export function pageReviewRoomsMatch(
   contours: PlanPageContours,
   reading: Pick<PlanReading, 'rooms'>,
 ): boolean {
-  return contours.rooms.every(
-    (contour) =>
-      reading.rooms.filter((room) => room.sourceNumber === contour.roomSourceNumber).length === 1,
+  return contours.rooms.every((contour) =>
+    pdfContourRoomNumbers(contour).every(
+      (number) => reading.rooms.filter((room) => room.sourceNumber === number).length === 1,
+    ),
   )
 }
 
@@ -313,7 +326,8 @@ export function planPageReviewIssue(
   if (
     input.rooms.some((room) =>
       room.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`)),
-    )
+    ) ||
+    input.exterior?.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`))
   )
     return 'non-native-contour-vertex'
   for (const room of input.rooms) {

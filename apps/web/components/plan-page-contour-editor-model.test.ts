@@ -4,9 +4,11 @@ import {
   canAddPageFeature,
   contourDraftsFromSaved,
   finiteContourPoint,
+  groupPageContourDraft,
   nativeContourPoint,
   nativePointsFromResponse,
   numberedContourRooms,
+  pageContourOptions,
   pageContourPoint,
   pageContourRoomsForSave,
   previewFromHeaders,
@@ -219,6 +221,73 @@ describe('room feature drafts', () => {
     expect(pageContourRoomsForSave(contourDraftsFromSaved([minimal]), native)).toEqual([minimal])
   })
 
+  it('round-trips a shared physical zone, preserving its features without scalar duplicates', () => {
+    const shared: PlanPageContours['rooms'][number] = {
+      roomSourceNumbers: [1, 5],
+      polygon: room.polygon,
+      openings: room.openings,
+      obstacles: room.obstacles,
+    }
+    const drafts = contourDraftsFromSaved([shared])
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]).not.toHaveProperty('roomSourceNumber')
+    expect(pageContourRoomsForSave(drafts, native)).toEqual([shared])
+    expect(drafts[0]?.roomSourceNumbers).not.toBe(shared.roomSourceNumbers)
+    const readings: PlanRoomReading[] = [
+      { name: 'Прихожая', kind: 'living', sourceNumber: 1 },
+      { name: 'Коридор', kind: 'living', sourceNumber: 5 },
+      { name: 'Кухня', kind: 'kitchen', sourceNumber: 2 },
+    ]
+    expect(pageContourOptions(readings, drafts).map(({ key }) => key)).toEqual(['1+5', '2'])
+    expect(pageContourOptions(readings, drafts)[0]?.label).toBe('№ 1 + 5 · Общая зона')
+  })
+
+  it('groups two explicit existing numbers but refuses foreign numbers or other contour claims', () => {
+    const readings: PlanRoomReading[] = [
+      { name: 'Прихожая', kind: 'living', sourceNumber: 1 },
+      { name: 'Коридор', kind: 'living', sourceNumber: 5 },
+    ]
+    const first = contourDraftsFromSaved([{ ...room, roomSourceNumber: 1 }])
+    const grouped = groupPageContourDraft(first, { roomSourceNumber: 1 }, 5, readings)
+    expect(grouped?.[0]?.roomSourceNumbers).toEqual([1, 5])
+    expect(grouped?.[0]?.openings).toEqual(first[0]?.openings)
+    expect(grouped?.[0]).not.toHaveProperty('roomSourceNumber')
+    expect(groupPageContourDraft([], { roomSourceNumber: 1 }, 6, readings)).toBeNull()
+    expect(groupPageContourDraft([], { roomSourceNumber: 1 }, 1, readings)).toBeNull()
+    expect(groupPageContourDraft([], { roomSourceNumbers: [1, 5] }, 6, readings)).toBeNull()
+    const second = contourDraftsFromSaved([{ ...room, roomSourceNumber: 5 }])
+    expect(
+      groupPageContourDraft([...first, ...second], { roomSourceNumber: 1 }, 5, readings),
+    ).toBeNull()
+    const empty = groupPageContourDraft([], { roomSourceNumber: 1 }, 5, readings)
+    expect(empty?.[0]?.closed).toBe(false)
+    expect(pageContourRoomsForSave(empty ?? [], native)).toBeNull()
+  })
+
+  it('refuses duplicated source claims and invalid shared membership before submitting', () => {
+    const shared = contourDraftsFromSaved([{ roomSourceNumbers: [1, 5], polygon: room.polygon }])
+    const individual = contourDraftsFromSaved([{ roomSourceNumber: 5, polygon: room.polygon }])
+    expect(pageContourRoomsForSave([...shared, ...individual], native)).toBeNull()
+    expect(
+      pageContourRoomsForSave(
+        contourDraftsFromSaved([{ roomSourceNumbers: [1, 1], polygon: room.polygon }]),
+        native,
+      ),
+    ).toBeNull()
+    expect(
+      pageContourRoomsForSave(
+        contourDraftsFromSaved([{ roomSourceNumbers: [1], polygon: room.polygon }]),
+        native,
+      ),
+    ).toBeNull()
+    expect(
+      pageContourRoomsForSave(
+        contourDraftsFromSaved([{ roomSourceNumbers: [1, 10_001], polygon: room.polygon }]),
+        native,
+      ),
+    ).toBeNull()
+  })
+
   it('uses the same per-type caps as the server and requires a closed room', () => {
     const draft = contourDraftsFromSaved([room])[0]
     if (!draft) throw new Error('Missing room')
@@ -274,5 +343,45 @@ describe('room feature drafts', () => {
     if (!point) throw new Error('Missing point')
     point.x += 1
     expect(savedPageOpeningCheck(review, draft, opening, preview)).toBeUndefined()
+  })
+
+  it('shows shared-zone checks only for the same full membership and unchanged annotation', () => {
+    const shared: PlanPageContours['rooms'][number] = {
+      roomSourceNumbers: [1, 5],
+      polygon: room.polygon,
+      openings: room.openings,
+    }
+    const check = {
+      roomSourceNumbers: [1, 5],
+      openingId: 'door',
+      status: 'candidate' as const,
+      widthMm: 900,
+      labelIndex: 10,
+    }
+    const review = {
+      version: 1 as const,
+      savedAt: '2026-09-28',
+      contours: {
+        source: { sha256: preview.sha256, pdfPage: 6, state: 'existing' as const },
+        coordinateSystem: 'page-0-1000' as const,
+        review: 'manual-source-review' as const,
+        pageWidth: preview.width,
+        pageHeight: preview.height,
+        rooms: [shared],
+      },
+      featureChecks: { openings: [check] },
+    }
+    const draft = contourDraftsFromSaved([shared])[0]
+    const opening = draft?.openings?.[0]
+    expect(savedPageOpeningCheck(review, draft, opening, preview)).toEqual(check)
+    if (!draft?.roomSourceNumbers) throw new Error('Missing shared draft')
+    expect(
+      savedPageOpeningCheck(review, { ...draft, roomSourceNumbers: [5, 1] }, opening, preview),
+    ).toEqual(check)
+    expect(
+      savedPageOpeningCheck(review, { ...draft, roomSourceNumbers: [1, 6] }, opening, preview),
+    ).toBeUndefined()
+    const scalar = contourDraftsFromSaved([{ ...room, roomSourceNumber: 1 }])[0]
+    expect(savedPageOpeningCheck(review, scalar, opening, preview)).toBeUndefined()
   })
 })

@@ -44,6 +44,12 @@ export function PlanGeometryPreview({
         ? 'Это ручной черновик. Программа не прочитала план и не добавила стен сама. Нанесите линии и контуры по оригиналу; пустая сетка не является планировкой квартиры.'
         : 'Схему составил и сверил с планом владелец. Она не заменяет обмер квартиры на месте: перед покупкой мебели проверьте ключевые размеры.'
   }
+  if (geometry.pdfCalibration) {
+    description =
+      geometry.status === 'draft'
+        ? 'Контуры перенесены из нативных линий PDF в едином масштабе, проверенном по двум направлениям. Это размерный черновик: сверьте состав проёмов, их мерки и неподвижные объекты перед подтверждением.'
+        : 'Метрическая схема перенесена из PDF и сверена владельцем. Перед покупкой мебели подтвердите ключевые размеры чистовым обмером.'
+  }
 
   return (
     <section className="mt-12 animate-[rise-in_450ms_var(--ease-appear)] border-t border-line pt-8">
@@ -51,12 +57,17 @@ export function PlanGeometryPreview({
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
             2D-схема · {geometry.status === 'confirmed' ? 'подтверждена' : 'черновик'}
-            {geometry.source === 'manual' ? ' · составлена вручную' : ''}
+            {geometry.pdfCalibration
+              ? ' · из PDF'
+              : geometry.source === 'manual'
+                ? ' · составлена вручную'
+                : ''}
           </p>
           <h2 className="mt-2 font-serif text-3xl text-ink">Стены и проёмы</h2>
         </div>
         <p className="font-mono text-[12px] text-ink-2">
-          {geometry.walls.length} стен · {geometry.openings.length} проёмов ·{' '}
+          {geometry.walls.length} {geometry.pdfCalibration ? 'отрезков границ' : 'стен'} ·{' '}
+          {geometry.openings.length} {geometry.pdfCalibration ? 'привязок проёмов' : 'проёмов'} ·{' '}
           {geometry.rooms.length} контуров
         </p>
       </div>
@@ -246,17 +257,19 @@ export function PlanGeometryPreview({
               </dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-ink-2">Препятствия</dt>
+              <dt className="text-ink-2">Добавленные препятствия</dt>
               <dd className="font-mono text-ink">{geometry.obstacles?.length ?? 0}</dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-ink-2">Окна</dt>
+              <dt className="text-ink-2">{geometry.pdfCalibration ? 'Привязки окон' : 'Окна'}</dt>
               <dd className="font-mono text-ink">
                 {geometry.openings.filter((opening) => opening.type === 'window').length}
               </dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-ink-2">Двери и балкон</dt>
+              <dt className="text-ink-2">
+                {geometry.pdfCalibration ? 'Привязки дверных проёмов' : 'Двери и балкон'}
+              </dt>
               <dd className="font-mono text-ink">
                 {
                   geometry.openings.filter(

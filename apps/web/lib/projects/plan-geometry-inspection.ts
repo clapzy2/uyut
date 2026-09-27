@@ -9,10 +9,15 @@ export type PlanGeometryIssue = {
   roomIndexes?: number[]
 }
 
-type EditableGeometry = Pick<PlanGeometry, 'widthCm' | 'heightCm' | 'walls' | 'openings' | 'rooms'>
+type EditableGeometry = Pick<
+  PlanGeometry,
+  'widthCm' | 'heightCm' | 'walls' | 'openings' | 'rooms'
+> &
+  Pick<PlanGeometry, 'pdfCalibration'>
 
 const ENDPOINT_TOLERANCE_CM = 2
-const MIN_WALL_CM = 20
+// Real door reveals may be under 20 cm; this is a geometry bound, not a safety clearance.
+const MIN_WALL_CM = 1
 const MAX_WALL_CM = 5_000
 
 function distance(a: PlanPoint, b: PlanPoint): number {
@@ -240,6 +245,15 @@ function edgeInPolygon(start: PlanPoint, end: PlanPoint, polygon: readonly PlanP
 /** Дополнительные требования к схеме, которую владелец хочет подтвердить. */
 export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanGeometryIssue[] {
   const issues: PlanGeometryIssue[] = []
+  if (geometry.pdfCalibration?.derivedOpeningIds.length) {
+    issues.push({
+      id: 'manual-pdf-opening-measurements',
+      severity: 'error',
+      message:
+        'Сверьте мерки проёмов, перенесённых только по масштабу PDF, перед подтверждением схемы.',
+      openingIds: geometry.pdfCalibration.derivedOpeningIds,
+    })
+  }
   const walls = geometry.walls
   if (walls.length === 0) return issues
 
@@ -274,8 +288,9 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
     issues.push({
       id: 'manual-disconnected-walls',
       severity: 'error',
-      message:
-        'Часть стен не соединена с остальной схемой. Сведите их концы или уберите лишние линии.',
+      message: geometry.pdfCalibration
+        ? 'Внутренние и наружные грани перенесены отдельно. Перед подтверждением сопоставьте их с физическими стенами; не соединяйте грани произвольными линиями.'
+        : 'Часть стен не соединена с остальной схемой. Сведите их концы или уберите лишние линии.',
       wallIds: groups.slice(1).flat(),
     })
   }
@@ -407,7 +422,7 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
 /** Подписанная площадь проверяет контур конкретной комнаты, не только сумму квартиры. */
 export function inspectPlanRoomAreas(
   rooms: readonly PlanRoomShape[],
-  labels: readonly { name: string; areaM2?: number }[],
+  labels: readonly { name: string; sourceNumber?: number; areaM2?: number }[],
 ): PlanGeometryIssue[] {
   const labelledAreas = new Map(
     labels
@@ -415,7 +430,14 @@ export function inspectPlanRoomAreas(
       .map((label) => [label.name.trim().toLocaleLowerCase('ru'), label.areaM2]),
   )
   return rooms.flatMap((room, index) => {
-    const expected = labelledAreas.get(room.name.trim().toLocaleLowerCase('ru'))
+    const members = room.sourceNumbers?.map((number) =>
+      labels.filter((label) => label.sourceNumber === number),
+    )
+    const expected = members
+      ? members.every((matches) => matches.length === 1 && matches[0]?.areaM2 !== undefined)
+        ? members.flat().reduce((sum, label) => sum + (label.areaM2 ?? 0), 0)
+        : undefined
+      : labelledAreas.get(room.name.trim().toLocaleLowerCase('ru'))
     if (expected === undefined || room.polygon.length < 3) return []
     const actual = polygonAreaM2(room.polygon)
     if (Math.abs(actual - expected) <= Math.max(0.3, expected * 0.1)) return []
@@ -483,8 +505,7 @@ export function inspectPlanGeometry(geometry: EditableGeometry): PlanGeometryIss
       opening.offsetCm < 0 ||
       opening.widthCm < 30 ||
       opening.widthCm > 1_000 ||
-      opening.offsetCm + opening.widthCm > wallLength ||
-      wallLength - opening.widthCm < 30
+      opening.offsetCm + opening.widthCm > wallLength
     ) {
       issues.push({
         id: `opening-bounds-${opening.id}`,

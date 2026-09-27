@@ -4,12 +4,17 @@ import type {
   PlanPageOpening,
   PlanPageOpeningCheck,
   PlanPageReview,
+  PlanPageRoomIdentity,
   PlanRoomReading,
 } from '@uyut/db'
+import {
+  pdfContourIdentity,
+  pdfContourKey,
+  pdfContourRoomNumbers,
+} from '@/lib/projects/plan-pdf-room-binding'
 
 export type PageContourPoint = { x: number; y: number }
-export type PageContourDraft = {
-  roomSourceNumber: number
+export type PageContourDraft = PlanPageRoomIdentity & {
   polygon: PageContourPoint[]
   closed: boolean
   openings?: PageOpeningDraft[]
@@ -26,7 +31,7 @@ export type PageContourTarget =
 
 export function contourDraftsFromSaved(rooms: PlanPageContours['rooms']): PageContourDraft[] {
   return rooms.map((room) => ({
-    roomSourceNumber: room.roomSourceNumber,
+    ...pdfContourIdentity(room),
     polygon: room.polygon.map((point) => ({ ...point })),
     closed: true,
     openings: room.openings?.map(({ start, end, ...opening }) => ({
@@ -52,7 +57,21 @@ export function pageContourRoomsForSave(
     points.length <= 100 &&
     points.every((point) => finiteContourPoint(point) && nativeContourPoint(point, nativePoints))
   const rooms: PlanPageContours['rooms'] = []
+  const claimed = new Set<number>()
   for (const draft of drafts) {
+    const numbers = pdfContourRoomNumbers(draft)
+    if (
+      numbers.length === 0 ||
+      numbers.length > 12 ||
+      (draft.roomSourceNumbers !== undefined && numbers.length < 2) ||
+      numbers.some(
+        (number) =>
+          !Number.isInteger(number) || number < 1 || number > 10_000 || claimed.has(number),
+      ) ||
+      new Set(numbers).size !== numbers.length
+    )
+      return null
+    for (const number of numbers) claimed.add(number)
     if (!draft.closed || !valid(draft.polygon, 3)) return null
     if ((draft.openings?.length ?? 0) > 32 || (draft.obstacles?.length ?? 0) > 20) return null
     const openings: PlanPageOpening[] = []
@@ -68,13 +87,69 @@ export function pageContourRoomsForSave(
       obstacles.push({ ...obstacle, polygon: obstacle.polygon.map((point) => ({ ...point })) })
     }
     rooms.push({
-      roomSourceNumber: draft.roomSourceNumber,
+      ...pdfContourIdentity(draft),
       polygon: draft.polygon.map((point) => ({ ...point })),
       ...(openings.length ? { openings } : {}),
       ...(obstacles.length ? { obstacles } : {}),
     })
   }
   return rooms
+}
+
+export function pageContourOptions(rooms: PlanRoomReading[], drafts: PageContourDraft[]) {
+  const eligible = numberedContourRooms(rooms)
+  const groups = drafts.filter((draft) => draft.roomSourceNumbers !== undefined)
+  const groupedNumbers = new Set(groups.flatMap((group) => [...pdfContourRoomNumbers(group)]))
+  const identities: PlanPageRoomIdentity[] = [
+    ...groups.map(pdfContourIdentity),
+    ...eligible
+      .filter((room) => !groupedNumbers.has(room.sourceNumber as number))
+      .map((room) => ({ roomSourceNumber: room.sourceNumber as number })),
+  ]
+  return identities.map((identity) => {
+    const numbers = pdfContourRoomNumbers(identity)
+    const names = numbers.map(
+      (number) => eligible.find((room) => room.sourceNumber === number)?.name,
+    )
+    return {
+      identity,
+      key: pdfContourKey(identity),
+      label: `№ ${numbers.join(' + ')} · ${numbers.length > 1 ? 'Общая зона' : names[0]}`,
+    }
+  })
+}
+
+/** Group only explicitly selected source numbers; never merge two drawn physical shapes. */
+export function groupPageContourDraft(
+  drafts: PageContourDraft[],
+  selected: PlanPageRoomIdentity,
+  otherNumber: number,
+  rooms: PlanRoomReading[],
+): PageContourDraft[] | null {
+  if (selected.roomSourceNumbers !== undefined) return null
+  const eligible = new Set(numberedContourRooms(rooms).map((room) => room.sourceNumber))
+  const selectedNumber = selected.roomSourceNumber
+  if (!eligible.has(selectedNumber) || !eligible.has(otherNumber) || selectedNumber === otherNumber)
+    return null
+  if (
+    drafts.some(
+      (draft) =>
+        pdfContourKey(draft) !== pdfContourKey(selected) &&
+        pdfContourRoomNumbers(draft).some(
+          (number) => number === selectedNumber || number === otherNumber,
+        ),
+    )
+  )
+    return null
+  const before = drafts.find((draft) => pdfContourKey(draft) === pdfContourKey(selected))
+  const grouped: PageContourDraft = {
+    roomSourceNumbers: [selectedNumber, otherNumber].sort((a, b) => a - b),
+    polygon: before?.polygon.map((point) => ({ ...point })) ?? [],
+    closed: before?.closed ?? false,
+    ...(before?.openings ? { openings: before.openings } : {}),
+    ...(before?.obstacles ? { obstacles: before.obstacles } : {}),
+  }
+  return [...drafts.filter((draft) => pdfContourKey(draft) !== pdfContourKey(selected)), grouped]
 }
 
 export function canAddPageFeature(
@@ -106,7 +181,7 @@ export function savedPageOpeningCheck(
     })
   )
     return undefined
-  const savedRoom = source.rooms.find((room) => room.roomSourceNumber === draft.roomSourceNumber)
+  const savedRoom = source.rooms.find((room) => pdfContourKey(room) === pdfContourKey(draft))
   const saved = savedRoom?.openings?.find((item) => item.id === opening.id)
   const samePoints = (left: PageContourPoint[], right: PageContourPoint[]) =>
     left.length === right.length &&
@@ -121,7 +196,7 @@ export function savedPageOpeningCheck(
   )
     return undefined
   return review.featureChecks?.openings.find(
-    (check) => check.roomSourceNumber === draft.roomSourceNumber && check.openingId === opening.id,
+    (check) => pdfContourKey(check) === pdfContourKey(draft) && check.openingId === opening.id,
   )
 }
 export type PlanPagePreview = {

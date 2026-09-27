@@ -98,6 +98,35 @@ describe('manual plan draft', () => {
     mocks.audit.mockResolvedValue(undefined)
   })
 
+  it('keeps server calibration and cannot confirm an unresolved opening by omitting it from input', async () => {
+    const pdfCalibration = {
+      sourceSha256: 'a'.repeat(64),
+      pdfPage: 6,
+      cmPerPoint: 1.7,
+      origin: { x: 10, y: 20 },
+      anchorRoomNumbers: [4],
+      labelIndexes: [1, 2],
+      derivedOpeningIds: ['manual_123456789012345678901234'],
+    }
+    source.planReading.geometry = { ...emptyManualGeometry, pdfCalibration }
+    const input = { ...emptyManualGeometry, walls: closedWalls, rooms: kitchenContour }
+    const draft = await savePlanGeometry(projectId, input, 'draft')
+    expect(draft.ok).toBe(true)
+    if (draft.ok) expect(draft.data.geometry.pdfCalibration).toEqual(pdfCalibration)
+    source.planReading.rooms = [{ name: 'Кухня', kind: 'kitchen', areaM2: 20 }]
+    const confirmed = await savePlanGeometry(
+      projectId,
+      {
+        ...input,
+        rooms: [{ name: 'Кухня', polygon: corners }],
+        pdfCalibration: { ...pdfCalibration, derivedOpeningIds: [] },
+      },
+      'confirm',
+    )
+    expect(confirmed.ok).toBe(false)
+    if (!confirmed.ok) expect(confirmed.error).toContain('проёмы')
+  })
+
   it('rejects an old editor revision without writing or announcing success', async () => {
     const result = await saveGeometryAction(projectId, emptyManualGeometry, 'draft', '0'.repeat(64))
     expect(result.ok).toBe(false)

@@ -25,7 +25,7 @@ import { KitchenPlanEditor } from '@/components/kitchen-plan-editor'
 import { PlanImageReference, type PlanUnderlay } from '@/components/plan-image-reference'
 import { PlanObstaclesEditor } from '@/components/plan-obstacles-editor'
 import { doorClearanceZone } from '@/lib/projects/clearance-zones'
-import { missingManualRoomNames } from '@/lib/projects/manual-plan-geometry'
+import { manualRoomCoverage } from '@/lib/projects/manual-plan-geometry'
 import {
   inspectManualPlanCompleteness,
   inspectPlanGeometry,
@@ -498,7 +498,7 @@ export function PlanGeometryEditor({
   projectId: string
   sourceRevision: string
   geometry: PlanGeometry
-  roomReadings: { name: string; areaM2?: number }[]
+  roomReadings: { name: string; sourceNumber?: number; areaM2?: number }[]
   planUrl: string | null
   planIsPdf: boolean
 }) {
@@ -593,13 +593,8 @@ export function PlanGeometryEditor({
   const wallErrorIds = new Set(confirmationIssues.flatMap((issue) => issue.wallIds ?? []))
   const openingErrorIds = new Set(confirmationIssues.flatMap((issue) => issue.openingIds ?? []))
   const roomErrorIndexes = new Set(confirmationIssues.flatMap((issue) => issue.roomIndexes ?? []))
-  const availableRoomNames = [...new Set(roomNames)].filter(
-    (name) => !rooms.some((room) => room.name === name),
-  )
-  const missingRoomNames = missingManualRoomNames(
-    rooms.map((room) => room.name),
-    roomNames,
-  )
+  const missingRoomNames = manualRoomCoverage(rooms, roomReadings).missing
+  const availableRoomNames = [...new Set(missingRoomNames)]
   const duplicateRoomNames = new Set(roomNames).size !== roomNames.length
 
   function selectIssue(issue: PlanGeometryIssue) {
@@ -1393,7 +1388,7 @@ export function PlanGeometryEditor({
           {geometry.source === 'manual' ? (
             <div className="mt-4 border-l-2 border-accent pl-4 text-[13px] leading-relaxed text-ink-2">
               <p>
-                Контуры комнат: {rooms.length} из {new Set(roomNames).size}.
+                Физические зоны: {rooms.length}. Не размечено помещений: {missingRoomNames.length}.
               </p>
               {missingRoomNames.length > 0 ? (
                 <p className="mt-1">Ещё не отмечены: {missingRoomNames.join(', ')}.</p>

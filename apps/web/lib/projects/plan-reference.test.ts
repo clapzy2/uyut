@@ -359,13 +359,13 @@ describe('published apartment: parser regression, not a vision accuracy test', (
     expect(layout.floorPolygon).toEqual(input.floorPolygon)
     expect(layout.safetySummary.status).not.toBe('checked')
     expect(input.missingSafetyData.join(' ')).toContain('зону открывания')
-    expect(input.floorReservations.filter((opening) => opening.kind !== 'window')).toHaveLength(2)
+    expect(input.floorReservations.filter((opening) => opening.kind !== 'window')).toHaveLength(
+      scenario.number === 2 ? 2 : 1,
+    )
     if (scenario.number === 3) {
-      // Printed balcony block is 576 mm, not proof of a 700 mm clear walkway.
-      expect(input.missingSafetyData.join(' ')).toContain('57.6 см')
-      expect(layout.safetyChecks).toContainEqual(
-        expect.objectContaining({ id: 'continuous-route', status: 'blocked' }),
-      )
+      // The 576 mm opening is a second window, not an entrance with a narrow route.
+      expect(input.floorReservations.filter((opening) => opening.kind === 'window')).toHaveLength(2)
+      expect(input.missingSafetyData.join(' ')).not.toContain('57.6 см')
     }
   })
 })

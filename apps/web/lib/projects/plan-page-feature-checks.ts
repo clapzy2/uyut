@@ -2,7 +2,12 @@ import { planMeasurementTextItems } from '@uyut/ai'
 import type { PlanPageContours, PlanPageOpeningCheck } from '@uyut/db'
 import { createPdfOpeningSpanVerifier } from './plan-pdf-dimension-chain'
 import type { PdfLinework } from './plan-pdf-linework'
-import { type PdfPlanSource, pdfBoundaryDistance, pdfPointInside } from './plan-pdf-room-binding'
+import {
+  type PdfPlanSource,
+  pdfBoundaryDistance,
+  pdfContourIdentity,
+  pdfPointInside,
+} from './plan-pdf-room-binding'
 
 /** Derived from this file's text/vector layer, not from browser-supplied dimensions. */
 export function verifyPlanPageOpenings(
@@ -20,7 +25,11 @@ export function verifyPlanPageOpenings(
   const verify = createPdfOpeningSpanVerifier(work, source, contours)
   for (const room of contours.rooms) {
     for (const opening of room.openings ?? []) {
-      const identity = { roomSourceNumber: room.roomSourceNumber, openingId: opening.id }
+      const identity = { ...pdfContourIdentity(room), openingId: opening.id }
+      if (room.roomSourceNumber === undefined) {
+        result.push({ ...identity, status: 'unresolved', reason: 'shared-zone-width-needs-review' })
+        continue
+      }
       const a = room.polygon[opening.wallEdgeIndex]
       const b = room.polygon[(opening.wallEdgeIndex + 1) % room.polygon.length]
       if (!a || !b || (a.x !== b.x && a.y !== b.y)) {

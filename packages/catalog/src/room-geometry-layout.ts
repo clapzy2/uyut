@@ -111,12 +111,13 @@ export function roomLayoutInputFromGeometry(
   roomName: string,
   measurements: RoomMeasurements | null | undefined,
 ): GeometryRoomLayoutInput | null {
-  if (geometry?.status !== 'confirmed') return null
+  if (geometry?.status !== 'confirmed' || geometry.pdfCalibration?.derivedOpeningIds.length)
+    return null
   const matchingRooms = geometry.rooms.filter(
     (candidate) => normalizedName(candidate.name) === normalizedName(roomName),
   )
   const room = matchingRooms.length === 1 ? matchingRooms[0] : undefined
-  if (!room || room.polygon.length < 3) return null
+  if (!room || room.sourceNumbers || room.polygon.length < 3) return null
 
   const xs = room.polygon.map((point) => point.xCm)
   const ys = room.polygon.map((point) => point.yCm)
@@ -134,10 +135,18 @@ export function roomLayoutInputFromGeometry(
   )
     return null
 
-  const widthCm =
-    measurements?.widthCm && measurements.widthCm > 0 ? measurements.widthCm : geometryWidth
-  const depthCm =
-    measurements?.depthCm && measurements.depthCm > 0 ? measurements.depthCm : geometryDepth
+  // A signed room side may measure only the rectangular body of a stepped contour.
+  // Never stretch verified PDF coordinates to that side's bounding box.
+  const widthCm = geometry.pdfCalibration
+    ? geometryWidth
+    : measurements?.widthCm && measurements.widthCm > 0
+      ? measurements.widthCm
+      : geometryWidth
+  const depthCm = geometry.pdfCalibration
+    ? geometryDepth
+    : measurements?.depthCm && measurements.depthCm > 0
+      ? measurements.depthCm
+      : geometryDepth
   if (!Number.isFinite(widthCm) || !Number.isFinite(depthCm)) return null
   const scaleX = widthCm / geometryWidth
   const scaleY = depthCm / geometryDepth

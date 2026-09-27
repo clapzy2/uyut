@@ -117,6 +117,25 @@ describe('create metric draft from reviewed source page', () => {
     )
   })
 
+  it('passes an explicit independently validated page-wide anchor choice', async () => {
+    const result = await createPlanPageGeometryDraft('project', [4], revision, [4])
+    expect(result.ok).toBe(true)
+    expect(mocks.convert).toHaveBeenCalledWith(
+      reading,
+      expect.objectContaining({ calibrationRoomNumbers: [4] }),
+      [4],
+    )
+  })
+
+  it.each([[], [4, 4], ['4'], [0], [51]].map((anchors) => ({ anchors })))(
+    'rejects invalid calibration anchor input: $anchors',
+    async ({ anchors }) => {
+      expect((await createPlanPageGeometryDraft('project', [4], revision, anchors)).ok).toBe(false)
+      expect(mocks.object).not.toHaveBeenCalled()
+      expect(mocks.save).not.toHaveBeenCalled()
+    },
+  )
+
   it.each(
     [
       null,

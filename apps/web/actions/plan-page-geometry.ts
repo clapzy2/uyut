@@ -12,6 +12,7 @@ import { PlanReadError, preparePlanPage } from '@/lib/projects/plan-document'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { planPageMetricDraft } from '@/lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema } from '@/lib/projects/plan-page-review'
+import { pdfContourRoomNumbers } from '@/lib/projects/plan-pdf-room-binding'
 import { setPlanReading } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { getObject } from '@/lib/storage'
@@ -27,11 +28,18 @@ export async function createPlanPageGeometryDraft(
   projectId: string,
   roomNumbers: unknown,
   expectedRevision: string,
+  calibrationRoomNumbers?: unknown,
 ): Promise<ActionResult<{ geometry: PlanGeometry; revision: string }>> {
   const session = await getSession()
   if (!session) return { ok: false, error: 'Сессия закончилась. Войдите снова.' }
   const selected = roomNumbersSchema.safeParse(roomNumbers)
   if (!selected.success) return { ok: false, error: 'Выберите от одной до двенадцати комнат.' }
+  const anchors =
+    calibrationRoomNumbers === undefined
+      ? undefined
+      : roomNumbersSchema.safeParse(calibrationRoomNumbers)
+  if (anchors && !anchors.success)
+    return { ok: false, error: 'Выберите комнаты для проверки единого масштаба.' }
 
   try {
     const project = await assertOwner(session.user.id, projectId)
@@ -50,7 +58,7 @@ export async function createPlanPageGeometryDraft(
       return { ok: false, error: 'Сначала сохраните разметку комнат на исходном обмерном листе.' }
     if (
       selected.data.some(
-        (number) => !review.data.rooms.some((room) => room.roomSourceNumber === number),
+        (number) => !review.data.rooms.some((room) => pdfContourRoomNumbers(room).includes(number)),
       )
     )
       return { ok: false, error: 'Выберите комнаты, размеченные на текущем листе.' }
@@ -68,7 +76,13 @@ export async function createPlanPageGeometryDraft(
       return { ok: false, error: 'Для переноса нужны нативные линии выбранного PDF-листа.' }
     const result = planPageMetricDraft(
       before,
-      { source, linework: page.linework, planText: page.image.planText, contours: review.data },
+      {
+        source,
+        linework: page.linework,
+        planText: page.image.planText,
+        contours: review.data,
+        ...(anchors?.success ? { calibrationRoomNumbers: anchors.data } : {}),
+      },
       selected.data,
     )
     if (!result.ok) return result

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { createPlanPageGeometryDraft } from '@/actions/plan-page-geometry'
 import { FormError } from '@/components/form-error'
+import { pdfContourKey, pdfContourRoomNumbers } from '@/lib/projects/plan-pdf-room-binding'
 
 export function PlanPageGeometryImport({
   projectId,
@@ -17,14 +18,40 @@ export function PlanPageGeometryImport({
   reading: PlanReading
 }) {
   const router = useRouter()
-  const numbers = new Set(reading.pageReview?.contours.rooms.map((room) => room.roomSourceNumber))
-  const options = reading.rooms.filter(
+  const options = (reading.pageReview?.contours.rooms ?? []).flatMap((contour) => {
+    const numbers = [...pdfContourRoomNumbers(contour)]
+    const members = numbers.map((number) =>
+      reading.rooms.filter((room) => room.sourceNumber === number),
+    )
+    return members.every((rooms) => rooms.length === 1)
+      ? [
+          {
+            key: pdfContourKey(contour),
+            numbers,
+            name: members
+              .flat()
+              .map((room) => room.name)
+              .join(' / '),
+          },
+        ]
+      : []
+  })
+  const anchors = reading.rooms.filter(
     (room) =>
       room.sourceNumber !== undefined &&
-      numbers.has(room.sourceNumber) &&
-      reading.rooms.filter((other) => other.sourceNumber === room.sourceNumber).length === 1,
+      reading.pageReview?.contours.rooms.some(
+        (contour) => contour.roomSourceNumber === room.sourceNumber,
+      ) &&
+      room.measurementEvidence?.width &&
+      room.measurementEvidence.depth &&
+      room.widthCm &&
+      room.depthCm &&
+      !room.estimated?.length &&
+      !room.chainMismatch?.length,
   )
   const [selected, setSelected] = useState<number[]>([])
+  const [globalScale, setGlobalScale] = useState(false)
+  const [anchor, setAnchor] = useState(String(anchors[0]?.sourceNumber ?? ''))
   const [error, setError] = useState<string>()
   const [conflict, setConflict] = useState(false)
   const [saving, startSaving] = useTransition()
@@ -40,7 +67,12 @@ export function PlanPageGeometryImport({
     setError(undefined)
     startSaving(async () => {
       try {
-        const result = await createPlanPageGeometryDraft(projectId, selected, sourceRevision)
+        const result = await createPlanPageGeometryDraft(
+          projectId,
+          selected,
+          sourceRevision,
+          globalScale ? [Number(anchor)] : undefined,
+        )
         if (!result.ok) {
           setError(result.error)
           if (result.code === 'plan-conflict') setConflict(true)
@@ -75,24 +107,57 @@ export function PlanPageGeometryImport({
       <fieldset disabled={saving || conflict} className="mt-4 space-y-2">
         <legend className="mb-2 text-sm">Какие комнаты перенести</legend>
         {options.map((room) => (
-          <label key={room.sourceNumber} className="flex min-h-11 items-center gap-3 text-sm">
+          <label key={room.key} className="flex min-h-11 items-center gap-3 text-sm">
             <input
               type="checkbox"
               className="size-4 shrink-0 accent-accent"
-              checked={selected.includes(room.sourceNumber as number)}
+              checked={room.numbers.every((number) => selected.includes(number))}
               onChange={(event) => {
-                const number = room.sourceNumber as number
                 setSelected((current) =>
                   event.target.checked
-                    ? [...current, number]
-                    : current.filter((item) => item !== number),
+                    ? [...new Set([...current, ...room.numbers])]
+                    : current.filter((item) => !room.numbers.includes(item)),
                 )
                 setError(undefined)
               }}
             />
-            № {room.sourceNumber} · {room.name}
+            № {room.key} · {room.name}
           </label>
         ))}
+        {anchors.length ? (
+          <div className="border-t border-line pt-3">
+            <label className="flex min-h-11 items-center gap-3 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 accent-accent"
+                checked={globalScale}
+                onChange={(event) => setGlobalScale(event.target.checked)}
+              />
+              Перенести все выбранные контуры в едином масштабе листа
+            </label>
+            {globalScale ? (
+              <label className="block text-sm">
+                Комната для проверки масштаба в двух направлениях
+                <select
+                  className="mt-2 block border border-line bg-surface p-2"
+                  value={anchor}
+                  onChange={(event) => setAnchor(event.target.value)}
+                >
+                  {anchors.map((room) => (
+                    <option key={room.sourceNumber} value={room.sourceNumber}>
+                      № {room.sourceNumber} · {room.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-2 block max-w-2xl text-xs leading-relaxed text-ink-2">
+                  Координаты остальных зон перенесём по нативным линиям, не подставляя им
+                  отсутствующие мерки. Общая зона остаётся одним контуром. Ширины проёмов без
+                  подписей потребуют отдельной сверки.
+                </span>
+              </label>
+            ) : null}
+          </div>
+        ) : null}
       </fieldset>
       <div className="mt-5 flex flex-wrap gap-3">
         <Button

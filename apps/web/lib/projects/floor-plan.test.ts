@@ -55,6 +55,145 @@ const validGeometry = {
 }
 
 describe('геометрия плана', () => {
+  const sharedGeometry = () => ({
+    ...validGeometry,
+    obstacles: [],
+    rooms: [{ ...validGeometry.rooms[0], name: 'Прихожая + Коридор', sourceNumbers: [1, 5] }],
+  })
+  const sharedReading = [
+    { name: 'Прихожая', sourceNumber: 1, areaM2: 8, widthCm: 100, depthCm: 100 },
+    { name: 'Коридор', sourceNumber: 5, areaM2: 12, widthCm: 150, depthCm: 150 },
+  ]
+
+  it('сохраняет одну физическую зону и сверяет только сумму площадей её номеров', () => {
+    const geometry = parsePlanGeometry(sharedGeometry())
+    const checked = reconcilePlanGeometryRooms(geometry, sharedReading)
+    expect(checked?.rooms).toEqual(geometry?.rooms)
+    expect(checked?.rooms[0]).toMatchObject({ sourceNumbers: [1, 5] })
+    expect(checked?.rooms[0]).not.toHaveProperty('sourceNumber')
+    expect(validatePlanGeometryEdit(checked)?.rooms).toEqual(checked?.rooms)
+  })
+
+  it.each([[1], [1, 1], [1, 51], [1, '5'], null].map((sourceNumbers) => ({ sourceNumbers })))(
+    'отбрасывает неоднозначные или невалидные номера общей зоны %j',
+    ({ sourceNumbers }) => {
+      const source = sharedGeometry()
+      expect(
+        parsePlanGeometry({ ...source, rooms: [{ ...source.rooms[0], sourceNumbers }] })?.rooms,
+      ).toEqual([])
+    },
+  )
+
+  it('не принимает одновременно scalar и plural identity, даже при undefined', () => {
+    const source = sharedGeometry()
+    expect(
+      parsePlanGeometry({ ...source, rooms: [{ ...source.rooms[0], sourceNumber: undefined }] })
+        ?.rooms,
+    ).toEqual([])
+    const geometry = parsePlanGeometry(source)
+    if (!geometry) throw new Error('Missing shared geometry')
+    expect(
+      validatePlanGeometryEdit({
+        ...geometry,
+        rooms: geometry.rooms.map((room) => ({ ...room, sourceNumber: 1 })),
+      })?.rooms,
+    ).toEqual([])
+  })
+
+  it('отбрасывает все контуры с повторным владением номером', () => {
+    const source = sharedGeometry()
+    expect(
+      parsePlanGeometry({
+        ...source,
+        rooms: [...source.rooms, { ...validGeometry.rooms[0], sourceNumber: 5 }],
+      })?.rooms,
+    ).toEqual([])
+    const geometry = parsePlanGeometry(source)
+    if (!geometry) throw new Error('Missing geometry')
+    const room = geometry.rooms[0]
+    if (!room) throw new Error('Missing shared room')
+    const repeated = {
+      ...geometry,
+      rooms: [...geometry.rooms, { name: 'Коридор', polygon: room.polygon }],
+    }
+    expect(reconcilePlanGeometryRooms(repeated, sharedReading)?.rooms).toEqual([])
+  })
+
+  it('не угадывает отсутствующего участника или площадь общей зоны', () => {
+    const geometry = parsePlanGeometry(sharedGeometry())
+    const firstReading = sharedReading[0]
+    if (!firstReading) throw new Error('Missing shared reading')
+    expect(reconcilePlanGeometryRooms(geometry, sharedReading.slice(0, 1))?.rooms).toEqual([])
+    expect(reconcilePlanGeometryRooms(geometry, [...sharedReading, firstReading])?.rooms).toEqual(
+      [],
+    )
+    const unknownArea = sharedReading.map(({ areaM2: _area, ...room }) => room)
+    expect(reconcilePlanGeometryRooms(geometry, unknownArea)?.rooms).toEqual(geometry?.rooms)
+    expect(
+      reconcilePlanGeometryRooms(
+        geometry,
+        sharedReading.map((room) => ({ ...room, areaM2: 2 })),
+      )?.rooms,
+    ).toEqual([])
+  })
+
+  it('сохраняет узкие уступы исходного контура, но не вырожденные рёбра', () => {
+    const geometry = parsePlanGeometry({
+      ...validGeometry,
+      walls: [
+        ...validGeometry.walls,
+        { id: 'step-75', start: { xMm: 100, yMm: 100 }, end: { xMm: 175, yMm: 100 } },
+        { id: 'step-88', start: { xMm: 175, yMm: 100 }, end: { xMm: 175, yMm: 188 } },
+        { id: 'tiny', start: { xMm: 100, yMm: 100 }, end: { xMm: 109, yMm: 100 } },
+      ],
+    })
+    expect(geometry?.walls.map((wall) => wall.id)).toEqual([
+      'w1',
+      'w2',
+      'w3',
+      'w4',
+      'step-75',
+      'step-88',
+    ])
+  })
+
+  it('разрешает full-span только для явно проверенной схемы, не для обычного AI-ответа', () => {
+    const source = {
+      ...validGeometry,
+      openings: [{ id: 'door', type: 'door', wallId: 'w1', offsetMm: 0, widthMm: 5000 }],
+    }
+    expect(parsePlanGeometry(source)?.openings).toEqual([])
+    const reviewed = parsePlanGeometry(source, { allowFullSpanOpenings: true })
+    expect(reviewed?.openings).toHaveLength(1)
+    expect(validatePlanGeometryEdit(reviewed)?.openings).toHaveLength(1)
+    expect(
+      parsePlanGeometry(
+        { ...source, openings: [{ ...source.openings[0], offsetMm: 20 }] },
+        { allowFullSpanOpenings: true },
+      )?.openings,
+    ).toEqual([])
+  })
+
+  it('не принимает калибровку из браузера или AI и ограничивает длинное имя только общей зоны', () => {
+    const source = sharedGeometry()
+    const geometry = parsePlanGeometry({
+      ...source,
+      pdfCalibration: { cmPerPoint: 99 },
+      rooms: [{ ...source.rooms[0], name: 'А'.repeat(90) }],
+    })
+    expect(geometry?.rooms[0]?.name).toHaveLength(80)
+    expect(geometry).not.toHaveProperty('pdfCalibration')
+    expect(
+      validatePlanGeometryEdit({ ...geometry, pdfCalibration: { cmPerPoint: 99 } }),
+    ).not.toHaveProperty('pdfCalibration')
+    expect(
+      parsePlanGeometry({
+        ...validGeometry,
+        rooms: [{ ...validGeometry.rooms[0], name: 'А'.repeat(90) }],
+      })?.rooms[0]?.name,
+    ).toHaveLength(40)
+  })
+
   it('отличает добавленные вручную элементы от ответа модели', () => {
     expect(isManualPlanGeometryId('manual_0123456789abcdef01234567')).toBe(true)
     expect(isManualPlanGeometryId('manual_0123456789abcdef')).toBe(false)

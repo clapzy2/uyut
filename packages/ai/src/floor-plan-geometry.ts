@@ -1,3 +1,5 @@
+import type { PlanRoomIdentity } from '@uyut/db'
+
 /** Точка обмерного плана. Координаты идут от левого верхнего угла, в сантиметрах. */
 export type PlanPoint = { xCm: number; yCm: number }
 
@@ -20,9 +22,8 @@ export type PlanOpening = {
 
 export type PlanRoomShape = {
   name: string
-  sourceNumber?: number
   polygon: PlanPoint[]
-}
+} & PlanRoomIdentity
 
 export type PlanObstacle = {
   id: string
@@ -68,9 +69,28 @@ export function planRoomSourceNumber(raw: unknown): number | undefined {
   return Number.isInteger(value) && value >= 1 && value <= 50 ? value : undefined
 }
 
+export function planShapeSourceNumbers(shape: PlanRoomIdentity): readonly number[] {
+  return shape.sourceNumbers ?? (shape.sourceNumber === undefined ? [] : [shape.sourceNumber])
+}
+
+function sharedSourceNumbers(raw: unknown): number[] | undefined {
+  if (
+    !Array.isArray(raw) ||
+    raw.length < 2 ||
+    raw.length > 12 ||
+    raw.some(
+      (number) => typeof number !== 'number' || planRoomSourceNumber(number) === undefined,
+    ) ||
+    new Set(raw).size !== raw.length
+  )
+    return undefined
+  return [...raw]
+}
+
 const MIN_CANVAS_CM = 100
 const MAX_CANVAS_CM = 10_000
-const MIN_WALL_CM = 20
+// Geometric edges include narrow, measured jambs and recesses, not only long walls.
+const MIN_WALL_CM = 1
 const MAX_WALL_CM = 5_000
 const MAX_POINTS = 30
 const MAX_WALLS = 200
@@ -196,7 +216,11 @@ export function isManualPlanGeometryId(value: unknown): value is string {
   return typeof value === 'string' && MANUAL_GEOMETRY_ID.test(value)
 }
 
-function parsePlanGeometryInternal(raw: unknown, minimumWalls: number): PlanGeometry | undefined {
+function parsePlanGeometryInternal(
+  raw: unknown,
+  minimumWalls: number,
+  allowFullSpanOpenings = false,
+): PlanGeometry | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const source = raw as Record<string, unknown>
   const widthCm = cm(source.widthMm)
@@ -271,7 +295,7 @@ function parsePlanGeometryInternal(raw: unknown, minimumWalls: number): PlanGeom
       offsetCm + openingWidthCm > wallLength + 1 ||
       // Host-wall проходит сквозь проём. Если проём занял весь короткий отрезок, модель
       // приняла нарисованное окно за отдельную стену, и доверять такой привязке нельзя.
-      wallLength - openingWidthCm < 30 ||
+      (!allowFullSpanOpenings && wallLength - openingWidthCm < 30) ||
       (type !== 'door' && type !== 'window' && type !== 'balcony')
     ) {
       warnings.push('Один проём отброшен: он не помещается на указанной стене.')
@@ -291,11 +315,12 @@ function parsePlanGeometryInternal(raw: unknown, minimumWalls: number): PlanGeom
     openings.push({ id, type, wallId, offsetCm, widthCm: openingWidthCm })
   }
 
-  const rooms: PlanRoomShape[] = []
+  const roomCandidates: PlanRoomShape[] = []
   for (const rawRoom of (Array.isArray(source.rooms) ? source.rooms : []).slice(0, MAX_ROOMS)) {
     if (!rawRoom || typeof rawRoom !== 'object') continue
     const room = rawRoom as Record<string, unknown>
-    const name = typeof room.name === 'string' ? room.name.trim().slice(0, 40) : ''
+    const nameLimit = Object.hasOwn(room, 'sourceNumbers') ? 80 : 40
+    const name = typeof room.name === 'string' ? room.name.trim().slice(0, nameLimit) : ''
     const rawPolygon = Array.isArray(room.polygon) ? room.polygon : []
     const vertices = rawPolygon.slice(0, MAX_POINTS).map((entry) => point(entry, widthCm, heightCm))
     const polygon = vertices.filter((entry): entry is PlanPoint => entry !== undefined)
@@ -310,9 +335,35 @@ function parsePlanGeometryInternal(raw: unknown, minimumWalls: number): PlanGeom
       warnings.push('Контур одной комнаты отброшен: он не образует многоугольник.')
       continue
     }
-    const sourceNumber = planRoomSourceNumber(room.sourceNumber)
-    rooms.push({ name, ...(sourceNumber === undefined ? {} : { sourceNumber }), polygon })
+    let identity: PlanRoomIdentity
+    if (Object.hasOwn(room, 'sourceNumbers')) {
+      const sourceNumbers = sharedSourceNumbers(room.sourceNumbers)
+      if (!sourceNumbers || Object.hasOwn(room, 'sourceNumber')) {
+        warnings.push('Контур одной общей зоны отброшен: номера помещений заданы неоднозначно.')
+        continue
+      }
+      identity = { sourceNumbers }
+    } else {
+      const sourceNumber = planRoomSourceNumber(room.sourceNumber)
+      identity = sourceNumber === undefined ? {} : { sourceNumber }
+    }
+    roomCandidates.push({ name, ...identity, polygon })
   }
+  const ownership = new Map<number, number>()
+  for (const room of roomCandidates) {
+    for (const number of planShapeSourceNumbers(room))
+      ownership.set(number, (ownership.get(number) ?? 0) + 1)
+  }
+  const rooms = roomCandidates.filter((room) => {
+    const duplicate = planShapeSourceNumbers(room).some(
+      (number) => (ownership.get(number) ?? 0) > 1,
+    )
+    if (duplicate)
+      warnings.push(
+        `Контур «${room.name}» отброшен: привязка неоднозначна — номер помещения принадлежит нескольким контурам.`,
+      )
+    return !duplicate
+  })
 
   const obstacles: PlanObstacle[] = []
   const obstacleIds = new Set<string>()
@@ -383,8 +434,11 @@ function parsePlanGeometryInternal(raw: unknown, minimumWalls: number): PlanGeom
 }
 
 /** Превращает непроверенный ответ vision-модели в безопасную для расчётов 2D-схему. */
-export function parsePlanGeometry(raw: unknown): PlanGeometry | undefined {
-  return parsePlanGeometryInternal(raw, 3)
+export function parsePlanGeometry(
+  raw: unknown,
+  options: { allowFullSpanOpenings?: boolean } = {},
+): PlanGeometry | undefined {
+  return parsePlanGeometryInternal(raw, 3, options.allowFullSpanOpenings === true)
 }
 
 /**
@@ -436,7 +490,12 @@ export function validatePlanGeometryEdit(
       const room = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
       return {
         name: room.name,
-        sourceNumber: room.sourceNumber,
+        ...(Object.hasOwn(room, 'sourceNumbers')
+          ? {
+              sourceNumbers: room.sourceNumbers,
+              ...(Object.hasOwn(room, 'sourceNumber') ? { sourceNumber: room.sourceNumber } : {}),
+            }
+          : { sourceNumber: room.sourceNumber }),
         polygon: (Array.isArray(room.polygon) ? room.polygon : [])
           .slice(0, MAX_POINTS + 1)
           .map(convertPoint),
@@ -451,6 +510,7 @@ export function validatePlanGeometryEdit(
       rooms,
     },
     mode === 'draft' ? 0 : 3,
+    true,
   )
 }
 
@@ -464,21 +524,65 @@ export function reconcilePlanGeometryRooms(
   const baseName = (name: string) => normalize(name).replace(/ \d+$/, '')
   const kept: PlanRoomShape[] = []
   const warnings: string[] = []
+  const candidatesFor = (room: PlanRoomShape): readonly PlanRoomArea[] => {
+    const numbers = planShapeSourceNumbers(room)
+    if (numbers.length)
+      return rooms.filter((candidate) => numbers.includes(candidate.sourceNumber ?? 0))
+    const exact = rooms.filter((candidate) => normalize(candidate.name) === normalize(room.name))
+    return exact.length > 0
+      ? exact
+      : rooms.filter((candidate) => baseName(candidate.name) === baseName(room.name))
+  }
+  const resolvedNumbers = (room: PlanRoomShape): readonly number[] => {
+    const numbers = planShapeSourceNumbers(room)
+    if (numbers.length) return numbers
+    const candidates = candidatesFor(room)
+    const number = candidates.length === 1 ? candidates[0]?.sourceNumber : undefined
+    return number === undefined ? [] : [number]
+  }
+  const ownership = new Map<number, number>()
   for (const room of geometry.rooms) {
-    let candidates: readonly PlanRoomArea[]
-    if (room.sourceNumber !== undefined) {
-      candidates = rooms.filter((candidate) => candidate.sourceNumber === room.sourceNumber)
-    } else {
-      const exact = rooms.filter((candidate) => normalize(candidate.name) === normalize(room.name))
-      candidates =
-        exact.length > 0
-          ? exact
-          : rooms.filter((candidate) => baseName(candidate.name) === baseName(room.name))
+    for (const number of resolvedNumbers(room))
+      ownership.set(number, (ownership.get(number) ?? 0) + 1)
+  }
+  for (const room of geometry.rooms) {
+    if (room.sourceNumbers !== undefined) {
+      const numbers = sharedSourceNumbers(room.sourceNumbers)
+      const members = numbers?.map((number) => {
+        const candidates = rooms.filter((candidate) => candidate.sourceNumber === number)
+        return candidates.length === 1 ? candidates[0] : undefined
+      })
+      if (
+        !numbers ||
+        Object.hasOwn(room, 'sourceNumber') ||
+        members?.some((member) => !member) ||
+        numbers.some((number) => (ownership.get(number) ?? 0) > 1)
+      ) {
+        warnings.push(
+          `Контур «${room.name}» отброшен: общая зона неоднозначно связана с экспликацией.`,
+        )
+        continue
+      }
+      // Compare only a complete sum of printed areas; never distribute it or infer sides.
+      const areas = (members ?? []).map((member) => member?.areaM2)
+      const expectedArea = areas.every((area) => area !== undefined && area > 0)
+        ? areas.reduce<number>((sum, area) => sum + (area ?? 0), 0)
+        : undefined
+      if (
+        expectedArea !== undefined &&
+        Math.abs(planPolygonAreaM2(room.polygon) - expectedArea) / expectedArea > 0.33
+      ) {
+        warnings.push(
+          `Контур «${room.name}» отброшен: площадь не совпала с суммой подписей общей зоны.`,
+        )
+        continue
+      }
+      kept.push({ ...room, sourceNumbers: numbers })
+      continue
     }
+    const candidates = candidatesFor(room)
     const expected = candidates.length === 1 ? candidates[0] : undefined
-    const duplicateNumber =
-      room.sourceNumber !== undefined &&
-      geometry.rooms.filter((candidate) => candidate.sourceNumber === room.sourceNumber).length > 1
+    const duplicateNumber = resolvedNumbers(room).some((number) => (ownership.get(number) ?? 0) > 1)
     if (!expected || duplicateNumber) {
       warnings.push(
         `Контур «${room.name}» отброшен: привязка к помещению неоднозначна или отсутствует.`,

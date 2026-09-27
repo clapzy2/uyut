@@ -66,13 +66,14 @@ export function roomArchitectureFromPlan(
   geometry: PlanGeometry | undefined,
   roomName: string,
 ): RoomArchitecture | null {
-  if (geometry?.status !== 'confirmed') return null
+  if (geometry?.status !== 'confirmed' || geometry.pdfCalibration?.derivedOpeningIds.length)
+    return null
   const normalizedName = roomName.trim().toLocaleLowerCase('ru').replaceAll('ё', 'е')
   const matches = geometry.rooms.filter(
     (room) => room.name.trim().toLocaleLowerCase('ru').replaceAll('ё', 'е') === normalizedName,
   )
   const room = matches.length === 1 ? matches[0] : undefined
-  if (!room || room.polygon.length < 3) return null
+  if (!room || room.sourceNumbers || room.polygon.length < 3) return null
 
   const xs = room.polygon.map((point) => point.xCm)
   const ys = room.polygon.map((point) => point.yCm)

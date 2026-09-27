@@ -1,4 +1,37 @@
-import type { PlanGeometry } from '@uyut/db'
+import type { PlanGeometry, PlanRoomShape } from '@uyut/db'
+
+type NamedRoom = { name: string; sourceNumber?: number }
+
+/** A shared physical zone covers its schedule rows once, without a fictitious divider. */
+export function manualRoomCoverage(
+  shapes: readonly PlanRoomShape[],
+  readings: readonly NamedRoom[],
+): { valid: boolean; missing: string[] } {
+  const covered = new Set<NamedRoom>()
+  for (const shape of shapes) {
+    const numbers =
+      shape.sourceNumbers ?? (shape.sourceNumber === undefined ? [] : [shape.sourceNumber])
+    if (
+      (shape.sourceNumbers &&
+        (shape.sourceNumbers.length < 2 || Object.hasOwn(shape, 'sourceNumber'))) ||
+      new Set(numbers).size !== numbers.length
+    )
+      return { valid: false, missing: [] }
+    const members = numbers.length
+      ? numbers.map((number) => readings.filter((room) => room.sourceNumber === number))
+      : [readings.filter((room) => room.name === shape.name)]
+    if (members.some((matches) => matches.length !== 1)) return { valid: false, missing: [] }
+    const rooms = members.flat()
+    if (rooms.some((room) => covered.has(room))) return { valid: false, missing: [] }
+    const expectedName = rooms.map((room) => room.name.trim()).join(' / ')
+    if (shape.name !== expectedName) return { valid: false, missing: [] }
+    for (const room of rooms) covered.add(room)
+  }
+  return {
+    valid: true,
+    missing: readings.filter((room) => !covered.has(room)).map((room) => room.name),
+  }
+}
 
 /** Создаёт только координатное полотно; геометрию квартиры не угадываем. */
 export function manualPlanGeometry(input: unknown): PlanGeometry | null {

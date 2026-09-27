@@ -110,7 +110,11 @@ export type PlanOpening = {
     hinge?: 'start' | 'end'
   }
 }
-export type PlanRoomShape = { name: string; sourceNumber?: number; polygon: PlanPoint[] }
+/** One physical floor contour can cover several printed labels, without a partition. */
+export type PlanRoomIdentity =
+  | { sourceNumber?: number; sourceNumbers?: never }
+  | { sourceNumber?: never; sourceNumbers: number[] }
+export type PlanRoomShape = { name: string; polygon: PlanPoint[] } & PlanRoomIdentity
 export type PlanUtilityPoint = {
   id: string
   kind: 'water' | 'drain' | 'vent' | 'socket' | 'gas' | 'radiator'
@@ -177,6 +181,16 @@ export type PlanGeometry = {
   routeStartOpeningId?: string
   /** Только отображение исходной картинки поверх координат; не подтверждает геометрию. */
   imageCalibration?: PlanImageCalibration
+  /** Server-derived native PDF scale; never trusted from a browser geometry edit. */
+  pdfCalibration?: {
+    sourceSha256: string
+    pdfPage: number
+    cmPerPoint: number
+    origin: { x: number; y: number }
+    anchorRoomNumbers: number[]
+    labelIndexes: number[]
+    derivedOpeningIds: string[]
+  }
   warnings: string[]
 }
 
@@ -195,29 +209,34 @@ export type PlanPageObstacle = {
   polygon: Array<{ x: number; y: number }>
 }
 
+export type PlanPageRoomIdentity =
+  | { roomSourceNumber: number; roomSourceNumbers?: never }
+  | { roomSourceNumber?: never; roomSourceNumbers: number[] }
+
 export type PlanPageContours = {
   source: { sha256: string; pdfPage: number; state: 'existing' | 'proposed' }
   coordinateSystem: 'page-0-1000'
   review: 'manual-source-review'
   pageWidth: number
   pageHeight: number
-  rooms: Array<{
-    roomSourceNumber: number
-    polygon: Array<{ x: number; y: number }>
-    /** Ручная разметка исходного листа, без автоматического перевода в сантиметры. */
-    openings?: PlanPageOpening[]
-    obstacles?: PlanPageObstacle[]
-  }>
+  exterior?: { polygon: Array<{ x: number; y: number }> }
+  rooms: Array<
+    PlanPageRoomIdentity & {
+      polygon: Array<{ x: number; y: number }>
+      /** Ручная разметка исходного листа, без автоматического перевода в сантиметры. */
+      openings?: PlanPageOpening[]
+      obstacles?: PlanPageObstacle[]
+    }
+  >
 }
 
 /** Only the server can derive a printed span from fresh native labels and arrows. */
-export type PlanPageOpeningCheck = {
-  roomSourceNumber: number
+export type PlanPageOpeningCheck = PlanPageRoomIdentity & {
   openingId: string
 } & (
-  | { status: 'candidate'; widthMm: number; labelIndex: number }
-  | { status: 'unresolved' | 'ambiguous'; reason: string }
-)
+    | { status: 'candidate'; widthMm: number; labelIndex: number }
+    | { status: 'unresolved' | 'ambiguous'; reason: string }
+  )
 export type PlanPageReview = {
   version: 1
   savedAt: string

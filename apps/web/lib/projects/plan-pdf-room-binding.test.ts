@@ -3,7 +3,12 @@ import native from '../../../../docs/qa/fixtures/apartment-74-77-native-leaders.
 import annotated from '../../../../docs/qa/fixtures/apartment-74-77-page-contours.json'
 import { pdfCalloutLeader } from './plan-pdf-leaders'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
-import { type PdfRoomContours, pdfRoomAtPoint } from './plan-pdf-room-binding'
+import {
+  type PdfRoomContours,
+  pdfContourIssue,
+  pdfContourKey,
+  pdfRoomAtPoint,
+} from './plan-pdf-room-binding'
 
 const contours = {
   ...annotated,
@@ -26,6 +31,47 @@ const bedroom = contours.rooms[0]
 if (!bedroom) throw new Error('Missing bedroom contour')
 
 describe('candidate ownership against manually reviewed page contours', () => {
+  it('preserves physical group identity without assigning a point to one printed number', () => {
+    const group = { roomSourceNumbers: [5, 1], polygon: bedroom.polygon }
+    const input = { ...contours, rooms: [group, ...contours.rooms.slice(1)] }
+    expect(pdfContourKey(group)).toBe('1+5')
+    expect(pdfContourIssue(work, source, input)).toBeUndefined()
+    expect(pdfRoomAtPoint(work, source, input, point)).toEqual({
+      status: 'ambiguous',
+      roomSourceNumber: null,
+      reason: 'shared-room-zone',
+    })
+  })
+
+  it('rejects repeated membership, duplicate group members and dual identity', () => {
+    for (const rooms of [
+      [
+        { roomSourceNumbers: [1, 5], polygon: bedroom.polygon },
+        { roomSourceNumber: 5, polygon: bedroom.polygon },
+      ],
+      [{ roomSourceNumbers: [1, 1], polygon: bedroom.polygon }],
+      [{ roomSourceNumbers: [1, 5], roomSourceNumber: 1, polygon: bedroom.polygon }],
+    ]) {
+      expect(pdfContourIssue(work, source, { ...contours, rooms } as PdfRoomContours)).toBe(
+        'invalid-room-contours',
+      )
+    }
+  })
+
+  it('rejects self-crossing exterior outlines', () => {
+    const exterior = {
+      polygon: [
+        { x: 10, y: 10 },
+        { x: 30, y: 30 },
+        { x: 30, y: 10 },
+        { x: 10, y: 30 },
+      ],
+    }
+    expect(pdfContourIssue(work, source, { ...contours, exterior })).toBe(
+      'invalid-exterior-contour',
+    )
+  })
+
   it.each([
     [{ x: 672, y: 262 }, 4],
     [{ x: 526, y: 643 }, 6],
@@ -60,7 +106,7 @@ describe('candidate ownership against manually reviewed page contours', () => {
     expect(pdfRoomAtPoint(work, source, contours, p).status).toBe('ambiguous')
   })
   it('does not choose the first overlapping room', () => {
-    const rooms = [{ ...bedroom, roomSourceNumber: 10 }, ...contours.rooms]
+    const rooms = [{ polygon: bedroom.polygon, roomSourceNumber: 10 }, ...contours.rooms]
     expect(pdfRoomAtPoint(work, source, { ...contours, rooms }, point)).toMatchObject({
       reason: 'overlapping-room-contours',
       status: 'ambiguous',

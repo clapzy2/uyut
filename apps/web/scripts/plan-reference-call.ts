@@ -15,7 +15,7 @@ import { falQueue, toDataUri } from '../../../packages/ai/src/fal-queue'
 import { planReaderPrompt } from '../../../packages/ai/src/floor-plan'
 import { preparePlanPage } from '../lib/projects/plan-document'
 import { planPageContoursSchema, planPageFeaturesIssue } from '../lib/projects/plan-page-review'
-import { pdfContourIssue } from '../lib/projects/plan-pdf-room-binding'
+import { pdfContourIssue, pdfContourRoomNumbers } from '../lib/projects/plan-pdf-room-binding'
 import { verifyPlanReadingGeometry } from '../lib/projects/plan-reading-geometry'
 import { evaluateDeclaredPlanReference, evaluatePlanReference } from './plan-reference-evaluation'
 
@@ -151,7 +151,7 @@ if (paid) {
     sourcePage: page.pageNumber,
     sourceSha256: reference.source.sha256,
     nativeText,
-    reviewedRoomNumbers: contours?.rooms.map((room) => room.roomSourceNumber) ?? [],
+    reviewedRoomNumbers: contours?.rooms.flatMap(pdfContourRoomNumbers) ?? [],
     promptSha256: createHash('sha256')
       .update(FLOOR_PLAN_PROMPT + planReaderPrompt(nativeText ? page.image.planText : undefined))
       .digest('hex'),
@@ -213,7 +213,7 @@ if (result) {
         .digest('hex'),
     paidCallsThisExecution: paid ? 1 : 0,
     providerReportedUsage: result.usage ?? null,
-    reviewedRoomNumbers: contours?.rooms.map((room) => room.roomSourceNumber) ?? [],
+    reviewedRoomNumbers: contours?.rooms.flatMap(pdfContourRoomNumbers) ?? [],
     declaredAnswer: evaluateDeclaredPlanReference(result.output),
     legacyParser: evaluatePlanReference(legacyReading),
     strictParser: evaluatePlanReference(parsed),
