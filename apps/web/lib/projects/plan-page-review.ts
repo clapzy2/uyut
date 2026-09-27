@@ -182,11 +182,16 @@ function polygonsOverlap(left: readonly PagePoint[], right: readonly PagePoint[]
 }
 
 /** Geometry checks do not infer a feature's semantic kind or a metric room dimension. */
-export function planPageFeaturesIssue(input: PlanPageContours): string | undefined {
+export function planPageFeaturesIssue(
+  input: PlanPageContours,
+  options: { checkRoomOverlap?: boolean } = {},
+): string | undefined {
   const hasFeatures = input.rooms.some(
     (room) => (room.openings?.length ?? 0) > 0 || (room.obstacles?.length ?? 0) > 0,
   )
-  if (!hasFeatures) return undefined
+  // Older polygon-only annotations keep their save contract. Metric conversion must also
+  // check room intersections when there are no annotated openings or obstacles.
+  if (!hasFeatures && !options.checkRoomOverlap) return undefined
   const featureCount = input.rooms.reduce(
     (total, room) => total + (room.openings?.length ?? 0) + (room.obstacles?.length ?? 0),
     0,

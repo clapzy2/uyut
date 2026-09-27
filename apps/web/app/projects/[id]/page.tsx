@@ -14,6 +14,7 @@ import { FileUploader } from '@/components/file-uploader'
 import { ManualPlanGeometryStart } from '@/components/manual-plan-geometry-start'
 import { PlanGeometryEditor } from '@/components/plan-geometry-editor'
 import { PlanGeometryPreview } from '@/components/plan-geometry-preview'
+import { PlanPageGeometryImport } from '@/components/plan-page-geometry-import'
 import { PlanReadingCard } from '@/components/plan-reading-card'
 import { ProjectSettingsDialog } from '@/components/project-settings-dialog'
 import { getCollaboration, ownerDisplayName } from '@/lib/collaboration/repository'
@@ -347,7 +348,17 @@ export default async function ProjectPage({ params }: { params: Params }) {
           }
         />
       ) : isOwner && planUrl && project.planReading?.confirmedAt ? (
-        <ManualPlanGeometryStart projectId={project.id} />
+        <>
+          {planIsPdf ? (
+            <PlanPageGeometryImport
+              key={sourceRevision}
+              projectId={project.id}
+              sourceRevision={sourceRevision}
+              reading={project.planReading}
+            />
+          ) : null}
+          <ManualPlanGeometryStart projectId={project.id} />
+        </>
       ) : null}
 
       {isOwner && collaboration ? (

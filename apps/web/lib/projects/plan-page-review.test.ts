@@ -57,6 +57,41 @@ const linework: PdfLinework = {
 }
 
 describe('versioned source page review', () => {
+  it('checks intersecting polygon-only rooms for metric conversion without changing legacy saves', () => {
+    const input: PlanPageContours = {
+      ...contours,
+      rooms: [
+        {
+          roomSourceNumber: 4,
+          polygon: [
+            { x: 10, y: 10 },
+            { x: 30, y: 10 },
+            { x: 30, y: 30 },
+            { x: 10, y: 30 },
+          ],
+        },
+        {
+          roomSourceNumber: 6,
+          polygon: [
+            { x: 20, y: 20 },
+            { x: 40, y: 20 },
+            { x: 40, y: 40 },
+            { x: 20, y: 40 },
+          ],
+        },
+      ],
+    }
+    expect(planPageFeaturesIssue(input)).toBeUndefined()
+    expect(planPageFeaturesIssue(input, { checkRoomOverlap: true })).toBe(
+      'overlapping-room-contours',
+    )
+    const separate = structuredClone(input)
+    const second = separate.rooms[1]
+    if (!second) throw new Error('Missing second room')
+    second.polygon = second.polygon.map((point) => ({ x: point.x + 10, y: point.y }))
+    expect(planPageFeaturesIssue(separate, { checkRoomOverlap: true })).toBeUndefined()
+  })
+
   it('accepts a bounded contour for the unique printed room number', () => {
     expect(planPageContoursSchema.safeParse(contours).success).toBe(true)
     expect(planPageReviewIssue(contours, reading, contours.source, linework)).toBeUndefined()
