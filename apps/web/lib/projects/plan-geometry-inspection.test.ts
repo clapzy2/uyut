@@ -109,6 +109,151 @@ describe('подтверждение ручной схемы', () => {
     expect(inspectManualPlanCompleteness(geometry)).toEqual([])
   })
 
+  it('не подтверждает комнату вне внешнего контура даже при связанных стенах', () => {
+    const outer = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 100, yCm: 0 },
+      { xCm: 100, yCm: 100 },
+      { xCm: 0, yCm: 100 },
+    ]
+    const polygon = [
+      { xCm: 150, yCm: 150 },
+      { xCm: 450, yCm: 150 },
+      { xCm: 450, yCm: 550 },
+      { xCm: 150, yCm: 550 },
+    ]
+    const plan: PlanGeometry = {
+      ...geometry,
+      widthCm: 600,
+      heightCm: 650,
+      openings: [],
+      rooms: [{ name: 'Спальня', polygon }],
+      walls: [
+        ...outer.map((start, index) => ({
+          id: `outer-${index}`,
+          kind: 'outer' as const,
+          start,
+          end: outer[(index + 1) % outer.length] as PlanPoint,
+        })),
+        ...polygon.map((start, index) => ({
+          id: `inner-${index}`,
+          kind: 'inner' as const,
+          start,
+          end: polygon[(index + 1) % polygon.length] as PlanPoint,
+        })),
+        {
+          id: 'bridge',
+          kind: 'inner',
+          start: { xCm: 100, yCm: 100 },
+          end: { xCm: 150, yCm: 150 },
+        },
+      ],
+    }
+    // Draft validation is unchanged: containment is a separate confirmation gate.
+    expect(inspectPlanGeometry(plan)).toEqual([])
+    expect(inspectPlanRoomAreas(plan.rooms, [{ name: 'Спальня', areaM2: 12 }])).toEqual([])
+    expect(inspectManualPlanCompleteness(plan)).toEqual([
+      expect.objectContaining({ id: 'manual-room-outside-outer-0', severity: 'error' }),
+    ])
+  })
+
+  it('принимает комнату внутри контура с неупорядоченными и развёрнутыми стенами', () => {
+    const walls = [...geometry.walls]
+      .reverse()
+      .map((wall, index) =>
+        index % 2 === 0 ? { ...wall, start: wall.end, end: wall.start } : wall,
+      )
+    const polygon = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 300, yCm: 0 },
+      { xCm: 300, yCm: 250 },
+      { xCm: 0, yCm: 250 },
+    ]
+    expect(
+      inspectManualPlanCompleteness({
+        ...geometry,
+        walls,
+        rooms: [{ name: 'Спальня', polygon }],
+      }),
+    ).toEqual([])
+  })
+
+  it.each([
+    {
+      title: 'ребро пересекает стороны вогнутого выреза',
+      room: [
+        { xCm: 150, yCm: 150 },
+        { xCm: 350, yCm: 150 },
+        { xCm: 350, yCm: 400 },
+        { xCm: 150, yCm: 400 },
+      ],
+    },
+    {
+      title: 'ребро проходит через вершины вогнутого выреза',
+      room: [
+        { xCm: 0, yCm: 0 },
+        { xCm: 500, yCm: 0 },
+        { xCm: 500, yCm: 500 },
+        { xCm: 0, yCm: 500 },
+      ],
+    },
+  ])('проверяет всё ребро комнаты, когда $title', ({ room }) => {
+    const boundary = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 500, yCm: 0 },
+      { xCm: 500, yCm: 500 },
+      { xCm: 300, yCm: 500 },
+      { xCm: 300, yCm: 200 },
+      { xCm: 200, yCm: 200 },
+      { xCm: 200, yCm: 500 },
+      { xCm: 0, yCm: 500 },
+    ]
+    const walls = boundary.map((start, index) => ({
+      id: `outer-${index}`,
+      kind: 'outer' as const,
+      start,
+      end: boundary[(index + 1) % boundary.length] as PlanPoint,
+    }))
+    expect(
+      inspectManualPlanCompleteness({
+        ...geometry,
+        heightCm: 500,
+        walls,
+        openings: [],
+        rooms: [{ name: 'Гостиная', polygon: room }],
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'manual-room-outside-outer-0', severity: 'error' }),
+      ]),
+    )
+  })
+
+  it('разрешает совпадение границ комнаты и вогнутого внешнего контура', () => {
+    const polygon = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 500, yCm: 0 },
+      { xCm: 500, yCm: 400 },
+      { xCm: 300, yCm: 400 },
+      { xCm: 300, yCm: 200 },
+      { xCm: 0, yCm: 200 },
+    ]
+    const walls = polygon.map((start, index) => ({
+      id: `outer-${index}`,
+      kind: 'outer' as const,
+      start,
+      end: polygon[(index + 1) % polygon.length] as PlanPoint,
+    }))
+    expect(
+      inspectManualPlanCompleteness({
+        ...geometry,
+        walls,
+        openings: [],
+        rooms: [{ name: 'Гостиная', polygon }],
+      }),
+    ).toEqual([])
+  })
+
   it('находит стену, не связанную с контуром', () => {
     const walls = [
       ...geometry.walls,

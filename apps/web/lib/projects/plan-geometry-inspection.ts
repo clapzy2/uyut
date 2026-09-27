@@ -145,6 +145,98 @@ function collinearOverlapCm(wall: PlanWall, other: PlanWall): number {
   )
 }
 
+/** Order an already checked outer ring, retaining the submitted wall endpoints. */
+function outerPolygon(walls: readonly PlanWall[]): PlanPoint[] | undefined {
+  const first = walls[0]
+  if (!first) return undefined
+  const points = [first.start, first.end]
+  const visited = new Set([first.id])
+  let current = first
+  let end = first.end
+  while (visited.size < walls.length) {
+    const next = outerEndpointNeighbours(end, current.id, walls).find(
+      (wall) => !visited.has(wall.id),
+    )
+    if (!next) return undefined
+    const forward = distance(end, next.start) <= ENDPOINT_TOLERANCE_CM
+    points.push(forward ? next.start : next.end, forward ? next.end : next.start)
+    end = forward ? next.end : next.start
+    current = next
+    visited.add(next.id)
+  }
+  // Only gaps already accepted by the endpoint check are closed for inspection.
+  // This does not move or modify a submitted wall.
+  return distance(end, first.start) <= ENDPOINT_TOLERANCE_CM ? points : undefined
+}
+
+function pointInPolygon(point: PlanPoint, polygon: readonly PlanPoint[]): boolean {
+  let inside = false
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index]
+    const end = polygon[(index + 1) % polygon.length]
+    if (!start || !end) continue
+    if (onSegment(start, end, point)) return true
+    const startAbove = start.yCm > point.yCm
+    const endAbove = end.yCm > point.yCm
+    if (
+      startAbove !== endAbove &&
+      point.xCm <
+        start.xCm + ((point.yCm - start.yCm) * (end.xCm - start.xCm)) / (end.yCm - start.yCm)
+    )
+      inside = !inside
+  }
+  return inside
+}
+
+/** Vertices alone miss a room edge that leaves and re-enters a concave outline. */
+function edgeInPolygon(start: PlanPoint, end: PlanPoint, polygon: readonly PlanPoint[]): boolean {
+  const dx = end.xCm - start.xCm
+  const dy = end.yCm - start.yCm
+  const squaredLength = dx * dx + dy * dy
+  if (squaredLength === 0) return pointInPolygon(start, polygon)
+  const cuts = [0, 1]
+  for (let index = 0; index < polygon.length; index += 1) {
+    const a = polygon[index]
+    const b = polygon[(index + 1) % polygon.length]
+    if (!a || !b) continue
+    const ex = b.xCm - a.xCm
+    const ey = b.yCm - a.yCm
+    const ax = a.xCm - start.xCm
+    const ay = a.yCm - start.yCm
+    const denominator = dx * ey - dy * ex
+    if (Math.abs(denominator) > 0.000001) {
+      const alongRoom = (ax * ey - ay * ex) / denominator
+      const alongBoundary = (ax * dy - ay * dx) / denominator
+      if (
+        alongRoom >= -0.000000001 &&
+        alongRoom <= 1.000000001 &&
+        alongBoundary >= -0.000000001 &&
+        alongBoundary <= 1.000000001
+      )
+        cuts.push(Math.max(0, Math.min(1, alongRoom)))
+    } else if (Math.abs(signedTurn(start, end, a)) < 0.001) {
+      // Boundary-collinear edges may extend beyond a corner; split at both endpoints.
+      for (const point of [a, b]) {
+        const position =
+          ((point.xCm - start.xCm) * dx + (point.yCm - start.yCm) * dy) / squaredLength
+        if (position > 0 && position < 1) cuts.push(position)
+      }
+    }
+  }
+  cuts.sort((a, b) => a - b)
+  for (let index = 1; index < cuts.length; index += 1) {
+    const before = cuts[index - 1]
+    const after = cuts[index]
+    if (before === undefined || after === undefined || after - before < 0.000000001) continue
+    const position = (before + after) / 2
+    if (
+      !pointInPolygon({ xCm: start.xCm + dx * position, yCm: start.yCm + dy * position }, polygon)
+    )
+      return false
+  }
+  return true
+}
+
 /** Дополнительные требования к схеме, которую владелец хочет подтвердить. */
 export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanGeometryIssue[] {
   const issues: PlanGeometryIssue[] = []
@@ -278,7 +370,25 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
     }
   }
 
+  const boundary =
+    outerWalls.length >= 3 && !issues.some((issue) => issue.id.startsWith('manual-outer-'))
+      ? outerPolygon(outerWalls)
+      : undefined
   for (const [roomIndex, room] of geometry.rooms.entries()) {
+    if (
+      boundary &&
+      room.polygon.some((point, index) => {
+        const next = room.polygon[(index + 1) % room.polygon.length]
+        return !pointInPolygon(point, boundary) || !next || !edgeInPolygon(point, next, boundary)
+      })
+    ) {
+      issues.push({
+        id: `manual-room-outside-outer-${roomIndex}`,
+        severity: 'error',
+        message: `${room.name}: контур выходит за внешнюю границу квартиры. Проверьте стены и положение комнаты.`,
+        roomIndexes: [roomIndex],
+      })
+    }
     const nearWall = room.polygon.some((point) =>
       walls.some((wall) => distanceToSegment(point, wall) <= 20),
     )

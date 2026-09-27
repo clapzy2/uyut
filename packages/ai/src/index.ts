@@ -101,6 +101,7 @@ export {
   markChainMismatch,
   mergeReadings,
   needsRecheck,
+  PLAN_READER_ENDPOINT,
   PLAN_READER_MODEL,
   type PlanReader,
   type PlanReading,
