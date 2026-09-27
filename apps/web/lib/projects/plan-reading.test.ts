@@ -22,6 +22,7 @@ import { readPlanFromStorage } from './plan-reading'
 
 const reviewed: PdfRoomContours = {
   ...annotated,
+  rooms: annotated.rooms.map(({ roomSourceNumber, polygon }) => ({ roomSourceNumber, polygon })),
   coordinateSystem: 'page-0-1000',
   review: 'manual-source-review',
   source: {
@@ -204,6 +205,31 @@ describe('single-page plan reader budget', () => {
     expect(reading.rooms[0]?.depthCm).toBeUndefined()
     expect(reading.rooms[0]?.areaM2).toBe(12.35)
     expect(mocks.read).toHaveBeenCalledTimes(1)
+  })
+  it('refuses a feature on a foreign edge before a paid reader invocation', async () => {
+    mocks.prepare.mockResolvedValue(reviewedPage())
+    const room = reviewed.rooms[0]
+    if (!room) throw new Error('Missing room')
+    await expect(
+      readPlanFromStorage('plan.pdf', 6, {
+        ...reviewed,
+        rooms: [
+          {
+            ...room,
+            openings: [
+              {
+                id: 'bad-door',
+                kind: 'door',
+                wallEdgeIndex: 0,
+                start: { x: 100, y: 400 },
+                end: { x: 110, y: 400 },
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toThrow('требуют уточнения')
+    expect(mocks.read).not.toHaveBeenCalled()
   })
   it('keeps default reading unchanged without asking for diagnostic vectors or a test fixture', async () => {
     const expected = { ...reviewedReading, sourcePage: 6, pageCount: 48 }

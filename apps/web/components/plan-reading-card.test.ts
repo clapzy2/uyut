@@ -90,7 +90,7 @@ describe('plan review form', () => {
       confirmedAt: '2026-09-27',
       rooms: [{ name: 'Спальня', kind: 'bedroom', sourceNumber: 4 }],
     })
-    expect(html).toContain('Разметить контуры на листе')
+    expect(html).toContain('Разметить комнаты и объекты')
     expect(html).toContain('Разметка не меняет ваши мерки и не запускает генерацию')
     expect(html).not.toContain('Прочитать со сверкой контуров')
   })
@@ -102,14 +102,14 @@ describe('plan review form', () => {
       readAt: '2026-09-27',
       rooms: [{ name: 'Спальня', kind: 'bedroom', sourceNumber: 4 }],
     })
-    expect(html).not.toContain('Разметить контуры на листе')
+    expect(html).not.toContain('Разметить комнаты и объекты')
     const unnumbered = render({
       sourcePage: 6,
       planState: 'existing',
       readAt: '2026-09-27',
       rooms: [{ name: 'Спальня', kind: 'bedroom' }],
     })
-    expect(unnumbered).not.toContain('Разметить контуры на листе')
+    expect(unnumbered).not.toContain('Разметить комнаты и объекты')
   })
 
   it('makes AI rereading explicit only for a saved review on the selected sheet', () => {
@@ -140,7 +140,7 @@ describe('plan review form', () => {
         },
       },
     })
-    expect(html).toContain('Изменить контуры на листе')
+    expect(html).toContain('Изменить разметку листа')
     expect(html).toContain('Прочитать со сверкой контуров')
     expect(html).toContain('Повторное чтение')
     expect(html).toContain('использует AI и заменит данные в форме')

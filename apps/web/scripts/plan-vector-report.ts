@@ -44,7 +44,10 @@ try {
   const page = await document.getPage(reference.source.pdfPage)
   const viewport = page.getViewport({ scale: 1 })
   const work = extractPdfLinework(await page.getOperatorList(), pdfjs.OPS, viewport)
-  const contours = annotated as PdfRoomContours
+  const contours = {
+    ...annotated,
+    rooms: annotated.rooms.map(({ roomSourceNumber, polygon }) => ({ roomSourceNumber, polygon })),
+  } as PdfRoomContours
   const text = await page.getTextContent()
   const actualLabels = text.items.flatMap((item) => {
     if (!('str' in item) || !item.str.trim()) return []

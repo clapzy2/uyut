@@ -10,6 +10,7 @@ import { recordAudit } from '@/lib/audit'
 import { AccessError, assertOwner } from '@/lib/projects/access'
 import { PlanReadError, preparePlanPage } from '@/lib/projects/plan-document'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
+import { verifyPlanPageOpenings } from '@/lib/projects/plan-page-feature-checks'
 import { planPageContoursSchema, planPageReviewIssue } from '@/lib/projects/plan-page-review'
 import { setPlanReading } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -63,11 +64,18 @@ export async function savePlanPageReview(
       return {
         ok: false,
         error:
-          'Проверьте контуры и печатные номера комнат на выбранном листе. Разметка не сохранена.',
+          'Проверьте контуры, стороны проёмов и неподвижные объекты внутри комнат на выбранном листе. Разметка не сохранена.',
       }
     const reading: PlanReading = {
       ...before,
-      pageReview: { version: 1, savedAt: new Date().toISOString(), contours },
+      pageReview: {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        contours,
+        featureChecks: {
+          openings: verifyPlanPageOpenings(page.linework, source, contours, page.image.planText),
+        },
+      },
     }
     // The repository compares both the file key and the complete JSONB reading atomically.
     await setPlanReading(session.user.id, projectId, reading, project)
@@ -81,6 +89,8 @@ export async function savePlanPageReview(
         page: source.pdfPage,
         planState: source.state,
         contours: contours.rooms.length,
+        openings: contours.rooms.reduce((count, room) => count + (room.openings?.length ?? 0), 0),
+        obstacles: contours.rooms.reduce((count, room) => count + (room.obstacles?.length ?? 0), 0),
       },
     })
     revalidatePath(`/projects/${projectId}`)

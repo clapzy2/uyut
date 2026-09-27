@@ -6,7 +6,10 @@ import { pdfDepthChain, pdfWidthChain } from './plan-pdf-dimension-chain'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import type { PdfRoomContours } from './plan-pdf-room-binding'
 
-const contours = annotated as PdfRoomContours
+const contours = {
+  ...annotated,
+  rooms: annotated.rooms.map(({ roomSourceNumber, polygon }) => ({ roomSourceNumber, polygon })),
+} as PdfRoomContours
 const work: PdfLinework = {
   coordinateSystem: 'page-0-1000',
   pageWidth: 842,

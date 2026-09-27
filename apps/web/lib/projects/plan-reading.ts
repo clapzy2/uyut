@@ -5,6 +5,7 @@ import { createFalPlanReader, type PlanReading, planMeasurementTextItems } from 
 import { getEnv } from '@/lib/env'
 import { getObject } from '@/lib/storage'
 import { PlanReadError, preparePlanPage } from './plan-document'
+import { planPageFeaturesIssue } from './plan-page-review'
 import { type PdfRoomContours, pdfContourIssue } from './plan-pdf-room-binding'
 import { verifyPlanReadingGeometry } from './plan-reading-geometry'
 
@@ -47,11 +48,12 @@ export async function readPlanFromStorage(
         throw new PlanReadError(
           'Для сверки разметки нужны нативные линии и подписи выбранного PDF-листа. Используйте обычное чтение или уточните источник.',
         )
-      const issue = pdfContourIssue(
-        page.linework,
-        { ...reviewedContours.source, sha256: sha256 ?? '', pdfPage: page.pageNumber },
-        reviewedContours,
-      )
+      const issue =
+        pdfContourIssue(
+          page.linework,
+          { ...reviewedContours.source, sha256: sha256 ?? '', pdfPage: page.pageNumber },
+          reviewedContours,
+        ) || planPageFeaturesIssue(reviewedContours)
       if (issue)
         throw new PlanReadError(
           'Разметка или векторный слой требуют уточнения. Чтение не запущено; проверьте контуры выбранного листа.',

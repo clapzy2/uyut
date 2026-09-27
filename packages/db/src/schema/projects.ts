@@ -181,16 +181,49 @@ export type PlanGeometry = {
 }
 
 /** Контуры на конкретном PDF-листе: координаты страницы, не размеры в сантиметрах. */
+export type PlanPageOpening = {
+  id: string
+  kind: 'door' | 'window' | 'balcony'
+  wallEdgeIndex: number
+  start: { x: number; y: number }
+  end: { x: number; y: number }
+}
+
+export type PlanPageObstacle = {
+  id: string
+  kind: 'shaft' | 'column' | 'fixed'
+  polygon: Array<{ x: number; y: number }>
+}
+
 export type PlanPageContours = {
   source: { sha256: string; pdfPage: number; state: 'existing' | 'proposed' }
   coordinateSystem: 'page-0-1000'
   review: 'manual-source-review'
   pageWidth: number
   pageHeight: number
-  rooms: Array<{ roomSourceNumber: number; polygon: Array<{ x: number; y: number }> }>
+  rooms: Array<{
+    roomSourceNumber: number
+    polygon: Array<{ x: number; y: number }>
+    /** Ручная разметка исходного листа, без автоматического перевода в сантиметры. */
+    openings?: PlanPageOpening[]
+    obstacles?: PlanPageObstacle[]
+  }>
 }
 
-export type PlanPageReview = { version: 1; savedAt: string; contours: PlanPageContours }
+/** Only the server can derive a printed span from fresh native labels and arrows. */
+export type PlanPageOpeningCheck = {
+  roomSourceNumber: number
+  openingId: string
+} & (
+  | { status: 'candidate'; widthMm: number; labelIndex: number }
+  | { status: 'unresolved' | 'ambiguous'; reason: string }
+)
+export type PlanPageReview = {
+  version: 1
+  savedAt: string
+  contours: PlanPageContours
+  featureChecks?: { openings: PlanPageOpeningCheck[] }
+}
 
 /**
  * Разбор загруженного плана. Хранится целиком, в том числе после подтверждения: по паре

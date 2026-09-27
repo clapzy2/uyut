@@ -2,6 +2,7 @@ import type { PlanPageContours, PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import {
   planPageContoursSchema,
+  planPageFeaturesIssue,
   planPageReviewIssue,
   retainedPlanPageReview,
 } from './plan-page-review'
@@ -170,5 +171,313 @@ describe('versioned source page review', () => {
     expect(planEditRevision('plan.pdf', reading)).not.toBe(
       planEditRevision('plan.pdf', { ...reading, pageReview: undefined }),
     )
+  })
+})
+
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error('Missing feature fixture value')
+  return value
+}
+function at<T>(items: readonly T[] | undefined, index = 0): T {
+  return required(items?.[index])
+}
+const rectangle = (left: number, top: number, right: number, bottom: number) => [
+  { x: left, y: top },
+  { x: right, y: top },
+  { x: right, y: bottom },
+  { x: left, y: bottom },
+]
+function featureContours(): PlanPageContours {
+  return {
+    ...structuredClone(contours),
+    rooms: [
+      {
+        roomSourceNumber: 4,
+        polygon: rectangle(10, 10, 90, 90),
+        openings: [
+          {
+            id: 'door-1',
+            kind: 'door',
+            wallEdgeIndex: 0,
+            start: { x: 20, y: 10 },
+            end: { x: 40, y: 10 },
+          },
+        ],
+        obstacles: [{ id: 'shaft-1', kind: 'shaft', polygon: rectangle(10, 50, 30, 70) }],
+      },
+    ],
+  }
+}
+function nativeFeatureWork(input: PlanPageContours): PdfLinework {
+  return {
+    ...linework,
+    pageWidth: input.pageWidth,
+    pageHeight: input.pageHeight,
+    paths: [
+      {
+        ...at(linework.paths),
+        points: structuredClone(
+          input.rooms.flatMap((room) => [
+            ...room.polygon,
+            ...(room.openings ?? []).flatMap((opening) => [opening.start, opening.end]),
+            ...(room.obstacles ?? []).flatMap((obstacle) => obstacle.polygon),
+          ]),
+        ),
+      },
+    ],
+  }
+}
+
+describe('manual source opening and obstacle annotations', () => {
+  it('accepts exact source nodes on a declared edge and an obstacle touching its room wall', () => {
+    const input = featureContours()
+    expect(planPageContoursSchema.safeParse(input).success).toBe(true)
+    expect(
+      planPageReviewIssue(input, reading, input.source, nativeFeatureWork(input)),
+    ).toBeUndefined()
+    expect(input.rooms[0]).not.toHaveProperty('widthCm')
+  })
+
+  it('retains the whole reviewed payload when printed identities remain stable', () => {
+    const input = featureContours()
+    const before = {
+      ...reading,
+      pageReview: { version: 1 as const, savedAt: 'now', contours: input },
+    }
+    expect(retainedPlanPageReview(before, reading)).toBe(before.pageReview)
+  })
+
+  it.each([
+    (input: PlanPageContours) => {
+      Reflect.set(at(at(input.rooms).openings), 'extra', true)
+    },
+    (input: PlanPageContours) => {
+      at(at(input.rooms).openings).wallEdgeIndex = -1
+    },
+    (input: PlanPageContours) => {
+      at(at(input.rooms).openings).id = ' '
+    },
+    (input: PlanPageContours) => {
+      at(at(at(input.rooms).obstacles).polygon).x = Infinity
+    },
+    (input: PlanPageContours) => {
+      at(at(input.rooms).obstacles).polygon = rectangle(0, 0, 1, 1).slice(0, 2)
+    },
+  ])('rejects malformed, unknown, or unbounded feature data', (change) => {
+    const input = featureContours()
+    change(input)
+    expect(planPageContoursSchema.safeParse(input).success).toBe(false)
+  })
+
+  it('refuses ids reused by an opening and obstacle in the same room', () => {
+    const input = featureContours()
+    at(at(input.rooms).obstacles).id = 'door-1'
+    expect(planPageFeaturesIssue(input)).toBe('duplicate-page-feature-id')
+    expect(planPageContoursSchema.safeParse(input).success).toBe(false)
+    const before = {
+      ...reading,
+      pageReview: { version: 1 as const, savedAt: 'now', contours: input },
+    }
+    expect(retainedPlanPageReview(before, reading)).toBeUndefined()
+  })
+
+  it.each([1, 4, 99])('refuses a foreign or missing declared wall edge %i', (edge) => {
+    const input = featureContours()
+    at(at(input.rooms).openings).wallEdgeIndex = edge
+    expect(planPageContoursSchema.safeParse(input).success).toBe(false)
+  })
+
+  it.each([
+    [
+      { x: 0, y: 10 },
+      { x: 40, y: 10 },
+    ],
+    [
+      { x: 20, y: 10 },
+      { x: 100, y: 10 },
+    ],
+    [
+      { x: 20, y: 10 },
+      { x: 90, y: 20 },
+    ],
+    [
+      { x: 20, y: 10 },
+      { x: 20, y: 10 },
+    ],
+  ])('refuses intervals outside an edge, across a corner, or of zero length', (start, end) => {
+    const input = featureContours()
+    Object.assign(at(at(input.rooms).openings), { start, end })
+    expect(planPageFeaturesIssue(input)).toBe('opening-outside-wall-edge')
+  })
+
+  it('uses physical PDF point tolerance and still requires exact native opening coordinates', () => {
+    const input = featureContours()
+    const work = nativeFeatureWork(input)
+    at(at(input.rooms).openings).start.y += 0.01
+    expect(planPageContoursSchema.safeParse(input).success).toBe(true)
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBe(
+      'non-native-opening-vertex',
+    )
+    at(at(input.rooms).openings).start.y = 10 + 0.12 / (1191 / 1000) + 0.0001
+    expect(planPageFeaturesIssue(input)).toBe('opening-outside-wall-edge')
+  })
+
+  it.each([
+    [
+      { x: 20, y: 10 },
+      { x: 40, y: 10 },
+    ],
+    [
+      { x: 30, y: 10 },
+      { x: 60, y: 10 },
+    ],
+    [
+      { x: 40, y: 10 },
+      { x: 20, y: 10 },
+    ],
+  ])('refuses duplicate, reversed, or intersecting opening intervals', (start, end) => {
+    const input = featureContours()
+    required(at(input.rooms).openings).push({
+      id: 'window-1',
+      kind: 'window',
+      wallEdgeIndex: 0,
+      start,
+      end,
+    })
+    expect(planPageFeaturesIssue(input)).toBe('overlapping-page-openings')
+  })
+
+  it('allows separate intervals, including an adjoining endpoint, on the same edge', () => {
+    const input = featureContours()
+    required(at(input.rooms).openings).push({
+      id: 'window-1',
+      kind: 'window',
+      wallEdgeIndex: 0,
+      start: { x: 40, y: 10 },
+      end: { x: 60, y: 10 },
+    })
+    expect(planPageFeaturesIssue(input)).toBeUndefined()
+  })
+
+  it('refuses an obstacle not using exact native PDF vertices', () => {
+    const input = featureContours()
+    const work = nativeFeatureWork(input)
+    at(at(at(input.rooms).obstacles).polygon, 1).x += 0.01
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBe(
+      'non-native-obstacle-vertex',
+    )
+  })
+
+  it.each([
+    rectangle(0, 50, 30, 70),
+    rectangle(10, 50, 30, 70).map(() => ({ x: 20, y: 60 })),
+    [
+      { x: 20, y: 50 },
+      { x: 40, y: 70 },
+      { x: 20, y: 70 },
+      { x: 40, y: 50 },
+    ],
+  ])('refuses outside, degenerate, and self-crossing obstacles', (...points) => {
+    const input = featureContours()
+    at(at(input.rooms).obstacles).polygon = points
+    expect(planPageContoursSchema.safeParse(input).success).toBe(false)
+  })
+
+  it('checks the complete obstacle edges through a concave room, not its vertices or centroid', () => {
+    const input = featureContours()
+    at(input.rooms).polygon = [
+      { x: 10, y: 10 },
+      { x: 90, y: 10 },
+      { x: 90, y: 90 },
+      { x: 60, y: 90 },
+      { x: 60, y: 40 },
+      { x: 40, y: 40 },
+      { x: 40, y: 90 },
+      { x: 10, y: 90 },
+    ]
+    at(at(input.rooms).obstacles).polygon = rectangle(20, 20, 80, 50)
+    expect(planPageFeaturesIssue(input)).toBe('obstacle-outside-room-contour')
+    at(at(input.rooms).obstacles).polygon = [
+      { x: 30, y: 50 },
+      { x: 50, y: 30 },
+      { x: 70, y: 50 },
+    ]
+    expect(planPageFeaturesIssue(input)).toBe('obstacle-outside-room-contour')
+    at(at(input.rooms).obstacles).polygon = rectangle(15, 45, 35, 70)
+    expect(planPageFeaturesIssue(input)).toBeUndefined()
+  })
+
+  it.each(
+    [rectangle(20, 60, 40, 80), rectangle(10, 50, 30, 70), rectangle(15, 55, 25, 65)].map(
+      (polygon) => [polygon],
+    ),
+  )('refuses partial, identical, and contained obstacle overlap', (polygon) => {
+    const input = featureContours()
+    required(at(input.rooms).obstacles).push({ id: 'column-2', kind: 'column', polygon })
+    expect(planPageFeaturesIssue(input)).toBe('overlapping-page-obstacles')
+  })
+
+  it('allows obstacles and rooms to adjoin without occupying the same interior', () => {
+    const input = featureContours()
+    required(at(input.rooms).obstacles).push({
+      id: 'column-2',
+      kind: 'column',
+      polygon: rectangle(30, 50, 40, 70),
+    })
+    input.rooms.push({ roomSourceNumber: 5, polygon: rectangle(90, 10, 150, 90) })
+    expect(planPageFeaturesIssue(input)).toBeUndefined()
+  })
+
+  it('has no outward epsilon allowance for obstacle containment or overlap', () => {
+    const input = featureContours()
+    at(input.rooms).obstacles = [
+      { id: 'outside', kind: 'shaft', polygon: rectangle(10 - 0.00000005, 20, 20, 30) },
+    ]
+    expect(planPageFeaturesIssue(input)).toBe('obstacle-outside-room-contour')
+    at(input.rooms).obstacles = [
+      { id: 'first', kind: 'shaft', polygon: rectangle(20, 20, 30, 30) },
+      { id: 'second', kind: 'fixed', polygon: rectangle(30 - 0.00000005, 20, 40, 30) },
+    ]
+    expect(planPageFeaturesIssue(input)).toBe('overlapping-page-obstacles')
+  })
+
+  it.each(
+    [rectangle(50, 50, 150, 150), rectangle(10, 10, 90, 90), rectangle(20, 20, 80, 80)].map(
+      (polygon) => [polygon],
+    ),
+  )('refuses rooms with overlapping interiors when interpreting their features', (polygon) => {
+    const input = featureContours()
+    input.rooms.push({ roomSourceNumber: 5, polygon })
+    expect(planPageFeaturesIssue(input)).toBe('overlapping-room-contours')
+  })
+
+  it('preserves legacy contour parsing and source mismatch rejection with feature data', () => {
+    const legacy = structuredClone(contours)
+    legacy.rooms.push({ ...at(legacy.rooms), roomSourceNumber: 5 })
+    expect(planPageContoursSchema.safeParse(legacy).success).toBe(true)
+    const input = featureContours()
+    expect(
+      planPageReviewIssue(
+        input,
+        reading,
+        { ...input.source, sha256: 'b'.repeat(64) },
+        nativeFeatureWork(input),
+      ),
+    ).toBe('different-plan-source')
+  })
+
+  it('bounds geometric intersection work for an entire annotated page', () => {
+    const input = featureContours()
+    input.rooms = Array.from({ length: 11 }, (_, index) => ({
+      roomSourceNumber: index + 1,
+      polygon: rectangle(10, 10, 90, 90),
+      obstacles: Array.from({ length: 20 }, (_, feature) => ({
+        id: `fixed-${feature}`,
+        kind: 'fixed' as const,
+        polygon: rectangle(20, 20, 30, 30),
+      })),
+    }))
+    expect(planPageFeaturesIssue(input)).toBe('page-features-too-complex')
+    expect(planPageContoursSchema.safeParse(input).success).toBe(false)
   })
 })

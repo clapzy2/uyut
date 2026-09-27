@@ -1,10 +1,128 @@
-import type { PlanRoomReading } from '@uyut/db'
+import type {
+  PlanPageContours,
+  PlanPageObstacle,
+  PlanPageOpening,
+  PlanPageOpeningCheck,
+  PlanPageReview,
+  PlanRoomReading,
+} from '@uyut/db'
 
 export type PageContourPoint = { x: number; y: number }
 export type PageContourDraft = {
   roomSourceNumber: number
   polygon: PageContourPoint[]
   closed: boolean
+  openings?: PageOpeningDraft[]
+  obstacles?: PageObstacleDraft[]
+}
+export type PageOpeningDraft = Omit<PlanPageOpening, 'start' | 'end'> & {
+  points: PageContourPoint[]
+}
+export type PageObstacleDraft = PlanPageObstacle & { closed: boolean }
+export type PageContourTarget =
+  | { kind: 'room' }
+  | { kind: 'opening'; id: string }
+  | { kind: 'obstacle'; id: string }
+
+export function contourDraftsFromSaved(rooms: PlanPageContours['rooms']): PageContourDraft[] {
+  return rooms.map((room) => ({
+    roomSourceNumber: room.roomSourceNumber,
+    polygon: room.polygon.map((point) => ({ ...point })),
+    closed: true,
+    openings: room.openings?.map(({ start, end, ...opening }) => ({
+      ...opening,
+      points: [{ ...start }, { ...end }],
+    })),
+    obstacles: room.obstacles?.map((obstacle) => ({
+      ...obstacle,
+      polygon: obstacle.polygon.map((point) => ({ ...point })),
+      closed: true,
+    })),
+  }))
+}
+
+/** Incomplete feature drafts never disappear silently from a save request. */
+export function pageContourRoomsForSave(
+  drafts: PageContourDraft[],
+  nativePoints: PageContourPoint[],
+): PlanPageContours['rooms'] | null {
+  if (!drafts.length || drafts.length > 100) return null
+  const valid = (points: PageContourPoint[], minimum: number) =>
+    points.length >= minimum &&
+    points.length <= 100 &&
+    points.every((point) => finiteContourPoint(point) && nativeContourPoint(point, nativePoints))
+  const rooms: PlanPageContours['rooms'] = []
+  for (const draft of drafts) {
+    if (!draft.closed || !valid(draft.polygon, 3)) return null
+    if ((draft.openings?.length ?? 0) > 32 || (draft.obstacles?.length ?? 0) > 20) return null
+    const openings: PlanPageOpening[] = []
+    for (const { points, ...opening } of draft.openings ?? []) {
+      if (points.length !== 2 || !valid(points, 2)) return null
+      const [start, end] = points
+      if (!start || !end) return null
+      openings.push({ ...opening, start: { ...start }, end: { ...end } })
+    }
+    const obstacles: PlanPageObstacle[] = []
+    for (const { closed, ...obstacle } of draft.obstacles ?? []) {
+      if (!closed || !valid(obstacle.polygon, 3)) return null
+      obstacles.push({ ...obstacle, polygon: obstacle.polygon.map((point) => ({ ...point })) })
+    }
+    rooms.push({
+      roomSourceNumber: draft.roomSourceNumber,
+      polygon: draft.polygon.map((point) => ({ ...point })),
+      ...(openings.length ? { openings } : {}),
+      ...(obstacles.length ? { obstacles } : {}),
+    })
+  }
+  return rooms
+}
+
+export function canAddPageFeature(
+  draft: PageContourDraft | undefined,
+  kind: 'door' | 'window' | 'balcony' | 'shaft' | 'column' | 'fixed',
+): boolean {
+  if (!draft?.closed) return false
+  return kind === 'door' || kind === 'window' || kind === 'balcony'
+    ? (draft.openings?.length ?? 0) < 32
+    : (draft.obstacles?.length ?? 0) < 20
+}
+
+/** A displayed width belongs only to the unchanged source annotation, never an edited draft. */
+export function savedPageOpeningCheck(
+  review: PlanPageReview | undefined,
+  draft: PageContourDraft | undefined,
+  opening: PageOpeningDraft | undefined,
+  preview: PlanPagePreview | undefined,
+): PlanPageOpeningCheck | undefined {
+  if (!review || !draft || !opening || !preview) return undefined
+  const source = review.contours
+  if (
+    !samePlanPage(preview, {
+      sha256: source.source.sha256,
+      page: source.source.pdfPage,
+      pageCount: preview.pageCount,
+      width: source.pageWidth,
+      height: source.pageHeight,
+    })
+  )
+    return undefined
+  const savedRoom = source.rooms.find((room) => room.roomSourceNumber === draft.roomSourceNumber)
+  const saved = savedRoom?.openings?.find((item) => item.id === opening.id)
+  const samePoints = (left: PageContourPoint[], right: PageContourPoint[]) =>
+    left.length === right.length &&
+    left.every((point, index) => point.x === right[index]?.x && point.y === right[index]?.y)
+  if (
+    !saved ||
+    !savedRoom ||
+    saved.kind !== opening.kind ||
+    saved.wallEdgeIndex !== opening.wallEdgeIndex ||
+    !samePoints(opening.points, [saved.start, saved.end]) ||
+    !samePoints(draft.polygon, savedRoom.polygon)
+  )
+    return undefined
+  return review.featureChecks?.openings.find(
+    (check) => check.roomSourceNumber === draft.roomSourceNumber && check.openingId === opening.id,
+  )
 }
 export type PlanPagePreview = {
   sha256: string

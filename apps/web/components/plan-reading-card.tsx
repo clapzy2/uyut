@@ -270,9 +270,9 @@ export function PlanReadingCard({
           Привязка к исходному листу
         </p>
         <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
-          Отметьте контуры комнат по их номерам на чертеже. При чтении со сверкой проверим,
-          относятся ли размерные цепочки и подписи высоты к этим помещениям. Разметка не меняет ваши
-          мерки и не запускает генерацию.
+          Отметьте контуры, проёмы и неподвижные объекты по номерам комнат на чертеже. При чтении со
+          сверкой проверим, относятся ли размерные цепочки и подписи высоты к этим помещениям.
+          Разметка не меняет ваши мерки и не запускает генерацию.
         </p>
         {reviewEditing ? (
           <PlanPageContourEditor
@@ -302,7 +302,7 @@ export function PlanReadingCard({
               onClick={() => setReviewEditing(true)}
               disabled={reading_ || saving || conflict}
             >
-              {reviewedPage ? 'Изменить контуры на листе' : 'Разметить контуры на листе'}
+              {reviewedPage ? 'Изменить разметку листа' : 'Разметить комнаты и объекты'}
             </Button>
             {reviewedPage ? (
               <Button
@@ -321,6 +321,14 @@ export function PlanReadingCard({
           <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
             Сохранено контуров: {review.contours.rooms.length}, страница {page}. Повторное чтение
             использует AI и заменит данные в форме; контуры проверим по тому же файлу.
+          </p>
+        ) : null}
+        {reviewedPage && review.featureChecks?.openings.length ? (
+          <p className="text-xs leading-relaxed text-ink-2">
+            По подписанным линиям сверено проёмов:{' '}
+            {review.featureChecks.openings.filter((check) => check.status === 'candidate').length}{' '}
+            из {review.featureChecks.openings.length}. Ширины и пояснения — в разметке листа. Эта
+            сверка не переносит координаты PDF в сантиметры 2D-схемы автоматически.
           </p>
         ) : null}
       </div>

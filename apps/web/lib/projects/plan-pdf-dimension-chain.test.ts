@@ -1,16 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import nativeLabels from '../../../../docs/qa/fixtures/apartment-74-77-native-labels.json'
 import annotated from '../../../../docs/qa/fixtures/apartment-74-77-page-contours.json'
+import nativeFeatures from '../../../../docs/qa/fixtures/apartment-74-77-page-features.json'
 import {
+  createPdfOpeningSpanVerifier,
   type PdfOpeningAnnotation,
   pdfDepthChain,
+  pdfOpeningFromNativeSpan,
   pdfOpeningFromWidthChain,
   pdfWidthChain,
 } from './plan-pdf-dimension-chain'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import { type PdfRoomContours, pdfRoomAtPoint } from './plan-pdf-room-binding'
 
-const contours = annotated as PdfRoomContours
+const contours: PdfRoomContours = {
+  ...annotated,
+  source: { ...annotated.source, state: 'existing' },
+  coordinateSystem: 'page-0-1000',
+  review: 'manual-source-review',
+  rooms: annotated.rooms.map((room) => ({
+    roomSourceNumber: room.roomSourceNumber,
+    polygon: room.polygon,
+  })),
+}
 const work: PdfLinework = {
   coordinateSystem: 'page-0-1000',
   pageWidth: 842,
@@ -192,6 +204,348 @@ describe('native horizontal dimension chains against page contours', () => {
   it('refuses another source state', () => {
     expect(
       pdfWidthChain(work, { ...contours.source, state: 'proposed' }, contours, 4, labels, 2985),
+    ).toMatchObject({ reason: 'different-plan-source' })
+  })
+})
+
+describe('individual native opening spans', () => {
+  const spanContours: PdfRoomContours = {
+    source: contours.source,
+    coordinateSystem: 'page-0-1000',
+    review: 'manual-source-review',
+    pageWidth: 1000,
+    pageHeight: 1000,
+    rooms: [
+      {
+        roomSourceNumber: 1,
+        polygon: [
+          { x: 100, y: 100 },
+          { x: 400, y: 100 },
+          { x: 400, y: 400 },
+          { x: 100, y: 400 },
+        ],
+      },
+    ],
+  }
+  const spanPaths: PdfVectorPath[] = [
+    {
+      operationIndex: 1,
+      subpathIndex: 0,
+      closed: false,
+      paint: 'stroke',
+      points: [
+        { x: 204, y: 390 },
+        { x: 296, y: 390 },
+      ],
+    },
+    {
+      operationIndex: 2,
+      subpathIndex: 0,
+      closed: true,
+      paint: 'fill',
+      points: [
+        { x: 200, y: 390 },
+        { x: 204, y: 389.5 },
+        { x: 204, y: 390.5 },
+      ],
+    },
+    {
+      operationIndex: 3,
+      subpathIndex: 0,
+      closed: true,
+      paint: 'fill',
+      points: [
+        { x: 300, y: 390 },
+        { x: 296, y: 389.5 },
+        { x: 296, y: 390.5 },
+      ],
+    },
+    {
+      operationIndex: 4,
+      subpathIndex: 0,
+      closed: false,
+      paint: 'stroke',
+      points: [
+        { x: 200, y: 400 },
+        { x: 200, y: 420 },
+      ],
+    },
+    {
+      operationIndex: 5,
+      subpathIndex: 0,
+      closed: false,
+      paint: 'stroke',
+      points: [
+        { x: 300, y: 400 },
+        { x: 300, y: 420 },
+      ],
+    },
+  ]
+  const spanWork = { ...work, pageWidth: 1000, pageHeight: 1000, paths: spanPaths }
+  const spanLabel = { index: 1, text: '905', x: 250, y: 388, rotation: 0 }
+  const opening = {
+    id: 'door-1',
+    kind: 'door' as const,
+    wallEdgeIndex: 2,
+    start: { x: 200, y: 400 },
+    end: { x: 300, y: 400 },
+  }
+  const checkSpan = (
+    annotation = opening,
+    paths = spanPaths,
+    label = spanLabel,
+    reviewed = spanContours,
+  ) =>
+    pdfOpeningFromNativeSpan(
+      { ...spanWork, paths },
+      contours.source,
+      reviewed,
+      1,
+      label,
+      annotation,
+    )
+
+  it.each(['door', 'window', 'balcony'] as const)(
+    'accepts a manually classified partial %s span without deriving dimensions from scale',
+    (kind) => {
+      const result = checkSpan({ ...opening, kind } as typeof opening)
+      expect(result).toMatchObject({
+        status: 'candidate',
+        roomSourceNumber: 1,
+        kind,
+        widthMm: 905,
+        axis: 'width',
+        start: opening.start,
+        end: opening.end,
+      })
+      for (const property of ['offsetMm', 'heightMm', 'sillHeightMm', 'swing', 'geometry'])
+        expect(result).not.toHaveProperty(property)
+    },
+  )
+  it('keeps printed 905 mm even though the page span is 100 PDF points', () => {
+    expect(checkSpan()).toMatchObject({ status: 'candidate', widthMm: 905 })
+  })
+  it('accepts a vertical partial span using a rotated printed width', () => {
+    const swap = (point: { x: number; y: number }) => ({ x: point.y, y: point.x })
+    const result = checkSpan(
+      { ...opening, wallEdgeIndex: 1, start: swap(opening.start), end: swap(opening.end) },
+      spanPaths.map((path) => ({ ...path, points: path.points.map(swap) })),
+      { ...spanLabel, ...swap(spanLabel), rotation: 90 },
+    )
+    expect(result).toMatchObject({ status: 'candidate', widthMm: 905, axis: 'depth' })
+  })
+  it('sorts reversed manually selected jambs along the declared wall', () => {
+    expect(checkSpan({ ...opening, start: opening.end, end: opening.start })).toMatchObject({
+      status: 'candidate',
+      start: opening.start,
+      end: opening.end,
+    })
+  })
+  it('refuses a free endpoint, even if only 0.01 PDF points from a native jamb', () => {
+    expect(checkSpan({ ...opening, start: { ...opening.start, x: 200.01 } })).toMatchObject({
+      reason: 'non-native-opening-endpoint',
+    })
+  })
+  it('refuses an endpoint on a different wall face', () => {
+    expect(checkSpan({ ...opening, start: { x: 200, y: 420 } })).toMatchObject({
+      reason: 'opening-span-not-on-declared-edge',
+    })
+  })
+  it.each([1, 2, 3])('refuses a missing stem or arrow operation %i', (operation) => {
+    expect(
+      checkSpan(
+        opening,
+        spanPaths.filter((path) => path.operationIndex !== operation),
+      ),
+    ).toMatchObject({
+      status: 'unresolved',
+      reason: 'no-connected-opening-dimension',
+    })
+  })
+  it.each([{ rotation: 90 }, { text: 'h-905' }, { text: '0' }, { index: -1 }, { x: Number.NaN }])(
+    'refuses an invalid printed label %j',
+    (change) => {
+      expect(checkSpan(opening, spanPaths, { ...spanLabel, ...change })).toMatchObject({
+        reason: 'invalid-dimension-labels',
+      })
+    },
+  )
+  it('refuses a nearby number outside the annotated room', () => {
+    expect(checkSpan(opening, spanPaths, { ...spanLabel, y: 425 })).toMatchObject({
+      reason: 'opening-label-outside-room',
+    })
+  })
+  it('refuses a printed span not aligned with both jamb coordinates', () => {
+    const shifted = spanPaths.map((path) =>
+      path.operationIndex <= 3
+        ? { ...path, points: path.points.map((point) => ({ ...point, x: point.x + 0.13 })) }
+        : path,
+    )
+    expect(checkSpan(opening, shifted)).toMatchObject({ reason: 'no-connected-opening-dimension' })
+  })
+  it('does not choose duplicate native stems or competing opposing arrows', () => {
+    for (const operation of [1, 2]) {
+      const duplicate = spanPaths.find((path) => path.operationIndex === operation)
+      if (!duplicate) throw new Error('Missing synthetic span path')
+      expect(
+        checkSpan(opening, [
+          ...spanPaths,
+          {
+            ...duplicate,
+            operationIndex: 99,
+            points: duplicate.points.map((point) => ({
+              ...point,
+              x: point.x + (operation === 2 ? 0.05 : 0),
+            })),
+          },
+        ]),
+      ).toMatchObject({
+        status: 'ambiguous',
+        reason: operation === 1 ? 'multiple-dimension-lines' : 'branched-dimension-line',
+      })
+    }
+  })
+  it('collapses only exact repeated arrow paint in the individual-span proof', () => {
+    const duplicate = spanPaths.find((path) => path.operationIndex === 2)
+    if (!duplicate) throw new Error('Missing synthetic arrow')
+    expect(checkSpan(opening, [...spanPaths, { ...duplicate, operationIndex: 99 }])).toMatchObject({
+      status: 'candidate',
+      widthMm: 905,
+    })
+  })
+  it('fails closed on many distinct arrowheads without enumerating their endpoint pairings', () => {
+    const left = spanPaths.find((path) => path.operationIndex === 2)
+    const right = spanPaths.find((path) => path.operationIndex === 3)
+    if (!left || !right) throw new Error('Missing synthetic opposing arrowheads')
+    const competing = Array.from({ length: 1000 }, (_, index) => {
+      const halfHeight = 0.2 + index * 0.0004
+      return [left, right].map((arrow, side) => ({
+        ...arrow,
+        operationIndex: 100 + index * 2 + side,
+        points: arrow.points.map((point, pointIndex) => ({
+          ...point,
+          y: pointIndex === 0 ? 390 : 390 + (pointIndex === 1 ? -halfHeight : halfHeight),
+        })),
+      }))
+    }).flat()
+    const paths = [
+      ...spanPaths.filter((path) => path.operationIndex !== 2 && path.operationIndex !== 3),
+      ...competing,
+    ]
+    const verify = createPdfOpeningSpanVerifier(
+      { ...spanWork, paths },
+      spanContours.source,
+      spanContours,
+    )
+    expect(verify(1, spanLabel, opening)).toMatchObject({
+      status: 'ambiguous',
+      reason: 'branched-dimension-line',
+    })
+    expect(verify(1, spanLabel, opening)).toMatchObject({ status: 'ambiguous' })
+  })
+  it('ignores only a provably collinear native retrace wholly inside the selected rail', () => {
+    const retrace: PdfVectorPath = {
+      operationIndex: 99,
+      subpathIndex: 0,
+      closed: false,
+      paint: 'stroke',
+      points: [
+        { x: 204, y: 390 },
+        { x: 210, y: 390 },
+      ],
+    }
+    expect(checkSpan(opening, [...spanPaths, retrace])).toMatchObject({ status: 'candidate' })
+    for (const end of [
+      { x: 200, y: 390 },
+      { x: 210, y: 390.001 },
+    ]) {
+      expect(
+        checkSpan(opening, [...spanPaths, { ...retrace, points: [{ x: 204, y: 390 }, end] }]),
+      ).toMatchObject({
+        status: 'ambiguous',
+        reason: 'branched-dimension-line',
+      })
+    }
+  })
+  it('does not ignore a stem endpoint branch', () => {
+    const branch: PdfVectorPath = {
+      operationIndex: 99,
+      subpathIndex: 0,
+      closed: false,
+      paint: 'stroke',
+      points: [
+        { x: 204, y: 390 },
+        { x: 204, y: 380 },
+      ],
+    }
+    expect(checkSpan(opening, [...spanPaths, branch])).toMatchObject({
+      status: 'ambiguous',
+      reason: 'branched-dimension-line',
+    })
+  })
+  it('does not project an opposite wall span onto the declared wall', () => {
+    const shifted = spanPaths.map((path) =>
+      path.operationIndex <= 3
+        ? { ...path, points: path.points.map((point) => ({ ...point, y: point.y - 270 })) }
+        : path,
+    )
+    expect(checkSpan(opening, shifted, { ...spanLabel, y: 118 })).toMatchObject({
+      reason: 'opening-edge-not-near-dimension',
+    })
+  })
+  it('does not choose equidistant parallel wall edges', () => {
+    const centered = spanPaths.map((path) =>
+      path.operationIndex <= 3
+        ? { ...path, points: path.points.map((point) => ({ ...point, y: point.y - 140 })) }
+        : path,
+    )
+    expect(checkSpan(opening, centered, { ...spanLabel, y: 248 })).toMatchObject({
+      status: 'ambiguous',
+      reason: 'opening-edge-equidistant',
+    })
+  })
+  it('does not bridge a narrow concavity between the label and span midpoint', () => {
+    const notched: PdfRoomContours = {
+      ...spanContours,
+      rooms: [
+        {
+          roomSourceNumber: 1,
+          polygon: [
+            { x: 100, y: 100 },
+            { x: 210, y: 100 },
+            { x: 210, y: 395 },
+            { x: 215, y: 395 },
+            { x: 215, y: 100 },
+            { x: 400, y: 100 },
+            { x: 400, y: 400 },
+            { x: 100, y: 400 },
+          ],
+        },
+      ],
+    }
+    expect(
+      checkSpan({ ...opening, wallEdgeIndex: 6 }, spanPaths, spanLabel, notched),
+    ).toMatchObject({
+      status: 'unresolved',
+      reason: 'opening-dimension-outside-room',
+    })
+  })
+  it('refuses incomplete or another-state vectors', () => {
+    expect(
+      pdfOpeningFromNativeSpan(
+        { ...spanWork, truncated: true },
+        contours.source,
+        spanContours,
+        1,
+        spanLabel,
+        opening,
+      ),
+    ).toMatchObject({ reason: 'incomplete-vector-layer' })
+    expect(
+      checkSpan(opening, spanPaths, spanLabel, {
+        ...spanContours,
+        source: { ...contours.source, state: 'proposed' },
+      }),
     ).toMatchObject({ reason: 'different-plan-source' })
   })
 })
@@ -448,4 +802,128 @@ describe('manually annotated openings with native printed dimensions', () => {
       }),
     ).toMatchObject({ reason: 'different-plan-source' })
   })
+})
+
+describe('original sheet 03 native door-opening evidence', () => {
+  const reviewed: PdfRoomContours = {
+    ...nativeFeatures,
+    source: { ...nativeFeatures.source, state: 'existing' },
+    coordinateSystem: 'page-0-1000',
+    review: 'manual-source-review',
+    rooms: nativeFeatures.rooms.map((room) => ({
+      roomSourceNumber: room.roomSourceNumber,
+      polygon: room.polygon,
+    })),
+  }
+  const nativeWork: PdfLinework = {
+    ...work,
+    paths: [...nativeFeatures.wallPaths, ...nativeFeatures.dimensionPaths] as PdfVectorPath[],
+  }
+  const cases = nativeFeatures.rooms.flatMap((room) =>
+    room.openings.map((opening) => ({ room, opening })),
+  )
+  it.each(cases)(
+    'checks the original printed $opening.widthMm mm opening in room $room.roomSourceNumber',
+    ({ room, opening }) => {
+      const label = nativeFeatures.labels.find((item) => item.index === opening.labelIndex)
+      if (!label) throw new Error('Missing original opening width label')
+      const result = pdfOpeningFromNativeSpan(
+        nativeWork,
+        reviewed.source,
+        reviewed,
+        room.roomSourceNumber,
+        label,
+        { ...opening, kind: 'door' },
+      )
+      expect(result).toMatchObject({
+        status: 'candidate',
+        widthMm: opening.widthMm,
+        roomSourceNumber: room.roomSourceNumber,
+        labelIndex: opening.labelIndex,
+        start: opening.start,
+        end: opening.end,
+        axis: room.roomSourceNumber === 7 ? 'depth' : 'width',
+      })
+    },
+  )
+  it('returns identical evidence for an entire request batch without modifying native data', () => {
+    const before = JSON.stringify({ work: nativeWork, reviewed })
+    const verify = createPdfOpeningSpanVerifier(nativeWork, reviewed.source, reviewed)
+    for (const { room, opening } of cases) {
+      for (const label of nativeFeatures.labels) {
+        expect(verify(room.roomSourceNumber, label, { ...opening, kind: 'door' })).toEqual(
+          pdfOpeningFromNativeSpan(
+            nativeWork,
+            reviewed.source,
+            reviewed,
+            room.roomSourceNumber,
+            label,
+            { ...opening, kind: 'door' },
+          ),
+        )
+      }
+    }
+    expect(JSON.stringify({ work: nativeWork, reviewed })).toBe(before)
+  })
+  it('keeps evidence request-local when another request has a changed vector layer', () => {
+    const item = cases[0]
+    if (!item) throw new Error('Missing original opening case')
+    const label = nativeFeatures.labels.find(
+      (candidate) => candidate.index === item.opening.labelIndex,
+    )
+    if (!label) throw new Error('Missing original opening label')
+    const complete = createPdfOpeningSpanVerifier(nativeWork, reviewed.source, reviewed)
+    const changed = createPdfOpeningSpanVerifier(
+      { ...nativeWork, truncated: true },
+      reviewed.source,
+      reviewed,
+    )
+    expect(
+      complete(item.room.roomSourceNumber, label, { ...item.opening, kind: 'door' }),
+    ).toMatchObject({ status: 'candidate' })
+    expect(
+      changed(item.room.roomSourceNumber, label, { ...item.opening, kind: 'door' }),
+    ).toMatchObject({ status: 'unresolved', reason: 'incomplete-vector-layer' })
+  })
+  it.each(cases)(
+    'does not substitute the duplicate corridor width for room $room.roomSourceNumber',
+    ({ room, opening }) => {
+      const duplicate = nativeFeatures.labels.find(
+        (item) => item.text === String(opening.widthMm) && item.index !== opening.labelIndex,
+      )
+      if (!duplicate) throw new Error('Missing duplicate corridor label')
+      expect(
+        pdfOpeningFromNativeSpan(
+          nativeWork,
+          reviewed.source,
+          reviewed,
+          room.roomSourceNumber,
+          duplicate,
+          { ...opening, kind: 'door' },
+        ),
+      ).toMatchObject({ status: 'unresolved', reason: 'opening-label-outside-room' })
+    },
+  )
+  it.each(cases)(
+    'refuses room $room.roomSourceNumber after its native dimension rail disappears',
+    ({ room, opening }) => {
+      const label = nativeFeatures.labels.find((item) => item.index === opening.labelIndex)
+      if (!label) throw new Error('Missing original opening width label')
+      expect(
+        pdfOpeningFromNativeSpan(
+          {
+            ...nativeWork,
+            paths: nativeWork.paths.filter(
+              (path) => path.operationIndex !== opening.dimensionOperations[0],
+            ),
+          },
+          reviewed.source,
+          reviewed,
+          room.roomSourceNumber,
+          label,
+          { ...opening, kind: 'door' },
+        ),
+      ).toMatchObject({ status: 'unresolved', reason: 'no-connected-opening-dimension' })
+    },
+  )
 })

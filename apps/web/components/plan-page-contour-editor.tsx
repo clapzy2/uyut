@@ -3,22 +3,29 @@
 
 import type { PlanReading } from '@uyut/db'
 import { Button, inputClassName } from '@uyut/ui'
-import { type MouseEvent, useEffect, useId, useRef, useState } from 'react'
+import { type MouseEvent, useEffect, useRef, useState } from 'react'
 import { savePlanPageReview } from '@/actions/plan-page-review'
 import { FormError } from '@/components/form-error'
 import {
+  canAddPageFeature,
+  contourDraftsFromSaved,
   finiteContourPoint,
-  nativeContourPoint,
   nativePointsFromResponse,
   numberedContourRooms,
   type PageContourDraft,
   type PageContourPoint,
+  type PageContourTarget,
   type PlanPagePreview,
   pageContourPoint,
+  pageContourRoomsForSave,
   previewFromHeaders,
   samePlanPage,
+  savedPageOpeningCheck,
   snapPageContourPoint,
 } from '@/components/plan-page-contour-editor-model'
+import { PlanPageFeatureOverlay } from './plan-page-feature-overlay'
+import { type NewPageFeatureKind, PlanPageFeatures } from './plan-page-features'
+import { PlanPagePointControls } from './plan-page-point-controls'
 
 const MAX_POINTS = 100
 
@@ -44,6 +51,7 @@ export function PlanPageContourEditor({
   const eligibleRooms = numberedContourRooms(reading.rooms)
   const [selected, setSelected] = useState(String(eligibleRooms[0]?.sourceNumber ?? ''))
   const [drafts, setDrafts] = useState<PageContourDraft[]>([])
+  const [target, setTarget] = useState<PageContourTarget>({ kind: 'room' })
   const [preview, setPreview] = useState<PlanPagePreview>()
   const [imageUrl, setImageUrl] = useState<string>()
   const [imageReady, setImageReady] = useState(false)
@@ -56,10 +64,7 @@ export function PlanPageContourEditor({
   const [stale, setStale] = useState(false)
   const [checked, setChecked] = useState(false)
   const [state, setState] = useState<'' | 'existing' | 'proposed'>('')
-  const [newX, setNewX] = useState('')
-  const [newY, setNewY] = useState('')
   const [zoom, setZoom] = useState('100')
-  const editorId = useId()
   const draftSource = useRef<PlanPagePreview | undefined>(undefined)
   const initialRevision = useRef(sourceRevision)
   const svgRef = useRef<SVGSVGElement>(null)
@@ -69,9 +74,37 @@ export function PlanPageContourEditor({
   const locked =
     disabled || saving || loading || stale || !preview || !imageReady || nativePoints.length === 0
   const selectedDraft = drafts.find((draft) => draft.roomSourceNumber === Number(selected))
-  const points = selectedDraft?.polygon ?? []
+  const roomHasFeatures = Boolean(
+    selectedDraft?.openings?.length || selectedDraft?.obstacles?.length,
+  )
+  const pointsLocked = locked || (target.kind === 'room' && roomHasFeatures)
+  const selectedOpening =
+    target.kind === 'opening'
+      ? selectedDraft?.openings?.find((item) => item.id === target.id)
+      : undefined
+  const selectedObstacle =
+    target.kind === 'obstacle'
+      ? selectedDraft?.obstacles?.find((item) => item.id === target.id)
+      : undefined
+  const points =
+    target.kind === 'room'
+      ? (selectedDraft?.polygon ?? [])
+      : (selectedOpening?.points ?? selectedObstacle?.polygon ?? [])
+  const sourceCheck =
+    reading.pageReview?.contours.source.state === reading.planState
+      ? savedPageOpeningCheck(reading.pageReview, selectedDraft, selectedOpening, preview)
+      : undefined
+  const closed =
+    target.kind === 'room'
+      ? Boolean(selectedDraft?.closed)
+      : target.kind === 'opening'
+        ? points.length === 2
+        : Boolean(selectedObstacle?.closed)
   const canDraw =
-    !locked && Boolean(selected) && !selectedDraft?.closed && points.length < MAX_POINTS
+    !pointsLocked &&
+    Boolean(selected) &&
+    !closed &&
+    points.length < (target.kind === 'opening' ? 2 : MAX_POINTS)
 
   useEffect(() => {
     const abort = new AbortController()
@@ -138,13 +171,7 @@ export function PlanPageContourEditor({
               height: saved.pageHeight,
             })
           ) {
-            setDrafts(
-              saved.rooms.map((room) => ({
-                roomSourceNumber: room.roomSourceNumber,
-                polygon: room.polygon.map((point) => ({ ...point })),
-                closed: true,
-              })),
-            )
+            setDrafts(contourDraftsFromSaved(saved.rooms))
           }
         }
       } catch (cause) {
@@ -165,19 +192,111 @@ export function PlanPageContourEditor({
   }, [projectId, pageNumber, sourceRevision])
 
   function changeSelected(polygon: PageContourPoint[], closed = false) {
+    if (pointsLocked) return
     const number = Number(selected)
-    setDrafts((current) => [
-      ...current.filter((draft) => draft.roomSourceNumber !== number),
-      ...(polygon.length ? [{ roomSourceNumber: number, polygon, closed }] : []),
-    ])
+    setDrafts((current) => {
+      if (target.kind === 'room') {
+        const before = current.find((draft) => draft.roomSourceNumber === number)
+        return [
+          ...current.filter((draft) => draft.roomSourceNumber !== number),
+          ...(polygon.length ? [{ ...before, roomSourceNumber: number, polygon, closed }] : []),
+        ]
+      }
+      return current.map((draft) => {
+        if (draft.roomSourceNumber !== number) return draft
+        if (target.kind === 'opening') {
+          return {
+            ...draft,
+            openings: draft.openings?.map((opening) =>
+              opening.id === target.id ? { ...opening, points: polygon } : opening,
+            ),
+          }
+        }
+        return {
+          ...draft,
+          obstacles: draft.obstacles?.map((obstacle) =>
+            obstacle.id === target.id ? { ...obstacle, polygon, closed } : obstacle,
+          ),
+        }
+      })
+    })
+    resetReview()
+  }
+
+  function resetReview() {
     setChecked(false)
     setProposal(undefined)
     setNodeFeedback(undefined)
     setError(undefined)
   }
 
+  function selectTarget(next: PageContourTarget) {
+    setTarget(next)
+    setProposal(undefined)
+    setNodeFeedback(undefined)
+  }
+
+  function addFeature(kind: NewPageFeatureKind) {
+    if (locked || !canAddPageFeature(selectedDraft, kind)) return
+    const id = crypto.randomUUID()
+    const opening = kind === 'door' || kind === 'window' || kind === 'balcony'
+    setDrafts((current) =>
+      current.map((draft) => {
+        if (draft.roomSourceNumber !== Number(selected)) return draft
+        return opening
+          ? {
+              ...draft,
+              openings: [...(draft.openings ?? []), { id, kind, wallEdgeIndex: 0, points: [] }],
+            }
+          : {
+              ...draft,
+              obstacles: [...(draft.obstacles ?? []), { id, kind, polygon: [], closed: false }],
+            }
+      }),
+    )
+    setTarget({ kind: opening ? 'opening' : 'obstacle', id })
+    resetReview()
+  }
+
+  function removeTarget() {
+    if (locked) return
+    setDrafts((current) =>
+      current.flatMap((draft) => {
+        if (draft.roomSourceNumber !== Number(selected)) return [draft]
+        if (target.kind === 'room') return []
+        return [
+          {
+            ...draft,
+            ...(target.kind === 'opening'
+              ? { openings: draft.openings?.filter((item) => item.id !== target.id) }
+              : { obstacles: draft.obstacles?.filter((item) => item.id !== target.id) }),
+          },
+        ]
+      }),
+    )
+    setTarget({ kind: 'room' })
+    resetReview()
+  }
+
+  function changeEdge(wallEdgeIndex: number) {
+    if (locked || target.kind !== 'opening') return
+    setDrafts((current) =>
+      current.map((draft) =>
+        draft.roomSourceNumber === Number(selected)
+          ? {
+              ...draft,
+              openings: draft.openings?.map((item) =>
+                item.id === target.id ? { ...item, wallEdgeIndex } : item,
+              ),
+            }
+          : draft,
+      ),
+    )
+    resetReview()
+  }
+
   function proposePoint(point: PageContourPoint, index?: number) {
-    if (locked || !preview || (index === undefined && !canDraw)) return
+    if (pointsLocked || !preview || (index === undefined && !canDraw)) return
     const candidate = snapPageContourPoint(point, nativePoints, preview)
     setChecked(false)
     setProposal(undefined)
@@ -198,12 +317,12 @@ export function PlanPageContourEditor({
   }
 
   function acceptNode() {
-    if (!proposal || locked) return
+    if (!proposal || pointsLocked) return
     const polygon =
       proposal.index === undefined
         ? [...points, { ...proposal.point }]
         : points.map((point, index) => (index === proposal.index ? { ...proposal.point } : point))
-    changeSelected(polygon, proposal.index === undefined ? false : selectedDraft?.closed)
+    changeSelected(polygon, proposal.index === undefined ? false : closed)
     setNodeFeedback(
       'Вершина привязана к узлу исходного PDF. Это привязка к линиям листа, не подтверждение размера в сантиметрах.',
     )
@@ -218,40 +337,16 @@ export function PlanPageContourEditor({
     if (point) proposePoint(point)
   }
 
-  function addCoordinates() {
-    const point = { x: Number(newX), y: Number(newY) }
-    if (newX.trim() === '' || newY.trim() === '' || !finiteContourPoint(point)) {
-      setError('Введите обе координаты от 0 до 1000.')
-      return
-    }
-    proposePoint(point)
-    setNewX('')
-    setNewY('')
-  }
-
   async function save() {
     if (locked || !preview || !checked || proposal) return
     if (!state || state !== reading.planState) {
       setError('Выберите состояние, которое обозначено на этом листе и в прочитанном плане.')
       return
     }
-    if (
-      drafts.length === 0 ||
-      drafts.some(
-        (draft) =>
-          !draft.closed || draft.polygon.length < 3 || !draft.polygon.every(finiteContourPoint),
-      )
-    ) {
-      setError('Замкните каждый начатый контур и проверьте координаты его вершин.')
-      return
-    }
-    if (
-      drafts.some((draft) =>
-        draft.polygon.some((point) => !nativeContourPoint(point, nativePoints)),
-      )
-    ) {
+    const rooms = pageContourRoomsForSave(drafts, nativePoints)
+    if (!rooms) {
       setError(
-        'Привяжите каждую вершину к проверенному узлу PDF. Свободные координаты не отправляются на сверку размерных линий.',
+        'Замкните начатые контуры, отметьте оба конца каждого проёма и привяжите все точки к узлам PDF. Незавершённые объекты не исключаются из сохранения автоматически.',
       )
       return
     }
@@ -266,7 +361,7 @@ export function PlanPageContourEditor({
           review: 'manual-source-review',
           pageWidth: preview.width,
           pageHeight: preview.height,
-          rooms: drafts.map(({ roomSourceNumber, polygon }) => ({ roomSourceNumber, polygon })),
+          rooms,
         },
         sourceRevision,
       )
@@ -296,7 +391,7 @@ export function PlanPageContourEditor({
             Исходный лист · страница {pageNumber}
           </p>
           <h3 id="page-contour-title" className="font-serif text-2xl text-ink">
-            Контуры комнат на плане
+            Комнаты и объекты на исходном плане
           </h3>
         </div>
         <Button variant="ghost" size="sm" disabled={saving} onClick={onClose}>
@@ -323,8 +418,7 @@ export function PlanPageContourEditor({
             disabled={locked}
             onChange={(event) => {
               setSelected(event.target.value)
-              setProposal(undefined)
-              setNodeFeedback(undefined)
+              selectTarget({ kind: 'room' })
             }}
           >
             {eligibleRooms.length === 0 ? (
@@ -354,6 +448,19 @@ export function PlanPageContourEditor({
           </select>
         </label>
       </div>
+      {selected ? (
+        <PlanPageFeatures
+          key={`features-${selected}-${target.kind}-${target.kind === 'room' ? '' : target.id}`}
+          draft={selectedDraft}
+          target={target}
+          locked={locked}
+          onSelect={selectTarget}
+          onAdd={addFeature}
+          onRemove={removeTarget}
+          onChangeEdge={changeEdge}
+          sourceCheck={sourceCheck}
+        />
+      ) : null}
       {loading ? (
         <p role="status" className="text-sm text-ink-2">
           Открываем выбранный лист…
@@ -381,7 +488,11 @@ export function PlanPageContourEditor({
               onClick={choosePoint}
               className="block w-full disabled:cursor-default enabled:cursor-crosshair"
               style={{ width: `${zoom}%` }}
-              aria-label="Добавить вершину контура на исходном листе"
+              aria-label={
+                target.kind === 'opening'
+                  ? 'Отметить конец проёма на исходном листе'
+                  : 'Добавить вершину контура на исходном листе'
+              }
               aria-describedby="page-contour-coordinate-help"
             >
               <svg
@@ -480,6 +591,11 @@ export function PlanPageContourEditor({
                     </g>
                   )
                 })}
+                <PlanPageFeatureOverlay
+                  drafts={drafts}
+                  roomNumber={Number(selected)}
+                  target={target}
+                />
               </svg>
             </button>
           </div>
@@ -517,129 +633,25 @@ export function PlanPageContourEditor({
         </div>
       ) : null}
       {selected ? (
-        <div className="space-y-3">
-          <p className="text-sm">
-            № {selected} · {points.length} вершин ·{' '}
-            {selectedDraft?.closed ? 'контур замкнут' : 'контур в работе'}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={
-                locked ||
-                points.length < 3 ||
-                !points.every(finiteContourPoint) ||
-                selectedDraft?.closed
-              }
-              onClick={() => changeSelected(points, true)}
-            >
-              Замкнуть контур
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={locked || points.length === 0}
-              onClick={() => changeSelected(points.slice(0, -1))}
-            >
-              Убрать последнюю вершину
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={locked || points.length === 0}
-              onClick={() => changeSelected([])}
-            >
-              Удалить контур комнаты
-            </Button>
-          </div>
-          {points.length ? (
-            <ol className="max-h-64 space-y-2 overflow-y-auto border-l border-line pl-3">
-              {points.map((point, index) => (
-                <li key={index} className="flex flex-wrap items-center gap-2">
-                  <span className="w-6 text-xs text-ink-2">{index + 1}.</span>
-                  {(['x', 'y'] as const).map((axis) => (
-                    <label
-                      key={axis}
-                      htmlFor={`${editorId}-${selected}-${index}-${axis}`}
-                      className="flex items-center gap-2 text-xs uppercase text-ink-2"
-                    >
-                      {axis}
-                      <input
-                        id={`${editorId}-${selected}-${index}-${axis}`}
-                        className={`${inputClassName} h-9 w-24`}
-                        type="number"
-                        min={0}
-                        max={1000}
-                        step="any"
-                        value={Number.isFinite(point[axis]) ? point[axis] : ''}
-                        disabled={locked}
-                        aria-label={`Вершина ${index + 1}, координата ${axis.toUpperCase()}`}
-                        onChange={(event) =>
-                          changeSelected(
-                            points.map((item, at) =>
-                              at === index
-                                ? {
-                                    ...item,
-                                    [axis]:
-                                      event.target.value === ''
-                                        ? Number.NaN
-                                        : Number(event.target.value),
-                                  }
-                                : item,
-                            ),
-                            selectedDraft?.closed,
-                          )
-                        }
-                      />
-                    </label>
-                  ))}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={locked || !finiteContourPoint(point)}
-                    onClick={() => proposePoint(point, index)}
-                  >
-                    {nativeContourPoint(point, nativePoints) ? 'Узел PDF' : 'Привязать вершину'}
-                  </Button>
-                </li>
-              ))}
-            </ol>
-          ) : null}
-          <div className="flex flex-wrap items-end gap-2">
-            <label htmlFor={`${editorId}-new-x`} className="space-y-1 text-xs text-ink-2">
-              <span className="block">Новая вершина · X</span>
-              <input
-                id={`${editorId}-new-x`}
-                className={`${inputClassName} h-9 w-28`}
-                type="number"
-                min={0}
-                max={1000}
-                step={0.1}
-                value={newX}
-                disabled={!canDraw}
-                onChange={(event) => setNewX(event.target.value)}
-              />
-            </label>
-            <label htmlFor={`${editorId}-new-y`} className="space-y-1 text-xs text-ink-2">
-              <span className="block">Y</span>
-              <input
-                id={`${editorId}-new-y`}
-                className={`${inputClassName} h-9 w-28`}
-                type="number"
-                min={0}
-                max={1000}
-                step={0.1}
-                value={newY}
-                disabled={!canDraw}
-                onChange={(event) => setNewY(event.target.value)}
-              />
-            </label>
-            <Button size="sm" variant="secondary" disabled={!canDraw} onClick={addCoordinates}>
-              Добавить по координатам
-            </Button>
-          </div>
-        </div>
+        <PlanPagePointControls
+          key={`points-${selected}-${target.kind}-${target.kind === 'room' ? '' : target.id}`}
+          points={points}
+          closed={closed}
+          opening={target.kind === 'opening'}
+          locked={pointsLocked}
+          canDraw={canDraw}
+          nativePoints={nativePoints}
+          onChange={changeSelected}
+          onPropose={proposePoint}
+          onError={setError}
+        />
+      ) : null}
+      {target.kind === 'room' && roomHasFeatures ? (
+        <p className="text-xs leading-relaxed text-ink-2">
+          У комнаты уже размечены объекты. Чтобы изменить порядок её вершин, сначала удалите эти
+          объекты: иначе номера сторон проёмов станут неверными. Каждый объект можно выбрать и
+          поправить отдельно.
+        </p>
       ) : null}
       {stale ? (
         <FormError message="Лист или версия плана изменились. Черновик не отправлен. Закройте разметку и откройте актуальный лист, чтобы начать новую сверку." />
@@ -658,7 +670,10 @@ export function PlanPageContourEditor({
             disabled={locked}
             onChange={(event) => setChecked(event.target.checked)}
           />
-          <span>Сверил контуры, номера комнат и состояние квартиры с исходным листом.</span>
+          <span>
+            Сверил контуры, проёмы, неподвижные объекты, номера комнат и состояние квартиры с
+            исходным листом.
+          </span>
         </label>
         <Button
           pending={saving}

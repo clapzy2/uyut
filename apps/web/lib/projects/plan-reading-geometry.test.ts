@@ -17,7 +17,10 @@ for (const { index, ...item } of native.items) textItems[index] = item
 const planText = JSON.stringify(textItems)
 const context: PlanReadingGeometryContext = {
   source: annotated.source as PlanReadingGeometryContext['source'],
-  contours: annotated as PlanReadingGeometryContext['contours'],
+  contours: {
+    ...annotated,
+    rooms: annotated.rooms.map(({ roomSourceNumber, polygon }) => ({ roomSourceNumber, polygon })),
+  } as PlanReadingGeometryContext['contours'],
   planText,
   linework: {
     coordinateSystem: 'page-0-1000',

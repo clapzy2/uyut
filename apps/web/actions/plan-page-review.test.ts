@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { PlanPageContours, PlanReading } from '@uyut/db'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
+import features from '../../../docs/qa/fixtures/apartment-74-77-page-features.json'
 
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
@@ -115,7 +116,7 @@ describe('save source page review action', () => {
       targetType: 'project',
       targetId: 'project',
       headers: expect.any(Headers),
-      metadata: { page: 6, planState: 'existing', contours: 1 },
+      metadata: { page: 6, planState: 'existing', contours: 1, openings: 0, obstacles: 0 },
     })
     const saveOrder = mocks.save.mock.invocationCallOrder[0]
     const auditOrder = mocks.audit.mock.invocationCallOrder[0]
@@ -132,6 +133,68 @@ describe('save source page review action', () => {
       ok: false,
       code: 'plan-conflict',
     })
+    expect(mocks.object).not.toHaveBeenCalled()
+    expect(mocks.save).not.toHaveBeenCalled()
+  })
+  it('derives a printed opening width from fresh native evidence without creating metric layout geometry', async () => {
+    const sourceRoom = features.rooms.find((room) => room.roomSourceNumber === 4)
+    if (!sourceRoom) throw new Error('Missing native source room')
+    const input: PlanPageContours = {
+      ...contours,
+      rooms: [
+        {
+          roomSourceNumber: 4,
+          polygon: sourceRoom.polygon,
+          openings: sourceRoom.openings.map(({ id, wallEdgeIndex, start, end }) => ({
+            id,
+            kind: 'door',
+            wallEdgeIndex,
+            start,
+            end,
+          })),
+        },
+      ],
+    }
+    const labels = Array.from({ length: 170 }, () => ({ text: '', x: 0, y: 0, rotation: 0 }))
+    for (const { index, ...label } of features.labels) labels[index] = label
+    mocks.prepare.mockResolvedValue({
+      ...page,
+      image: { ...page.image, planText: JSON.stringify(labels) },
+      linework: { ...page.linework, paths: [...features.wallPaths, ...features.dimensionPaths] },
+    })
+    const result = await savePlanPageReview('project', input, revision)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading.pageReview?.featureChecks?.openings).toEqual([
+      {
+        roomSourceNumber: 4,
+        openingId: 'room-4-existing-door',
+        status: 'candidate',
+        widthMm: 896,
+        labelIndex: 59,
+      },
+    ])
+    expect(result.data.reading).not.toHaveProperty('geometry')
+    expect(result.data.reading).not.toHaveProperty('confirmedAt')
+    expect(mocks.save).toHaveBeenCalledWith('owner', 'project', result.data.reading, project)
+  })
+
+  it('refuses dimensions injected into submitted feature annotations before storage access', async () => {
+    const input = structuredClone(contours)
+    const room = input.rooms[0]
+    if (!room) throw new Error('Missing room')
+    Object.assign(room, {
+      openings: [
+        {
+          id: 'door',
+          kind: 'door',
+          wallEdgeIndex: 0,
+          start: room.polygon[0],
+          end: room.polygon[1],
+          widthMm: 900,
+        },
+      ],
+    })
+    expect((await savePlanPageReview('project', input, revision)).ok).toBe(false)
     expect(mocks.object).not.toHaveBeenCalled()
     expect(mocks.save).not.toHaveBeenCalled()
   })

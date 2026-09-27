@@ -1,13 +1,17 @@
-import type { PlanRoomReading } from '@uyut/db'
+import type { PlanPageContours, PlanRoomReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import {
+  canAddPageFeature,
+  contourDraftsFromSaved,
   finiteContourPoint,
   nativeContourPoint,
   nativePointsFromResponse,
   numberedContourRooms,
   pageContourPoint,
+  pageContourRoomsForSave,
   previewFromHeaders,
   samePlanPage,
+  savedPageOpeningCheck,
   snapPageContourPoint,
 } from './plan-page-contour-editor-model'
 
@@ -143,5 +147,132 @@ describe('page contour editor model', () => {
     expect(
       nativePointsFromResponse({ points: Array.from({ length: 20_001 }, () => point) }),
     ).toBeNull()
+  })
+})
+
+describe('room feature drafts', () => {
+  const room: PlanPageContours['rooms'][number] = {
+    roomSourceNumber: 4,
+    polygon: [
+      { x: 10, y: 10 },
+      { x: 30, y: 10 },
+      { x: 30, y: 30 },
+      { x: 10, y: 30 },
+    ],
+    openings: [
+      {
+        id: 'door',
+        kind: 'door',
+        wallEdgeIndex: 0,
+        start: { x: 15, y: 10 },
+        end: { x: 20, y: 10 },
+      },
+    ],
+    obstacles: [
+      {
+        id: 'shaft',
+        kind: 'shaft',
+        polygon: [
+          { x: 11, y: 11 },
+          { x: 12, y: 11 },
+          { x: 12, y: 12 },
+        ],
+      },
+    ],
+  }
+  const native = [
+    ...room.polygon,
+    ...(room.openings ?? []).flatMap((opening) => [opening.start, opening.end]),
+    ...(room.obstacles ?? []).flatMap((obstacle) => obstacle.polygon),
+  ]
+
+  it('reopens and saves every annotation without converting page coordinates to centimetres', () => {
+    const drafts = contourDraftsFromSaved([room])
+    expect(pageContourRoomsForSave(drafts, native)).toEqual([room])
+    expect(drafts[0]?.polygon).not.toBe(room.polygon)
+    expect(drafts[0]?.openings?.[0]?.points[0]).not.toBe(room.openings?.[0]?.start)
+  })
+
+  it('refuses incomplete openings or obstacle polygons instead of dropping them', () => {
+    const drafts = contourDraftsFromSaved([room])
+    const opening = drafts[0]?.openings?.[0]
+    if (!opening) throw new Error('Missing draft opening')
+    opening.points.pop()
+    expect(pageContourRoomsForSave(drafts, native)).toBeNull()
+    const unfinished = contourDraftsFromSaved([room])
+    const obstacle = unfinished[0]?.obstacles?.[0]
+    if (!obstacle) throw new Error('Missing draft obstacle')
+    obstacle.closed = false
+    expect(pageContourRoomsForSave(unfinished, native)).toBeNull()
+  })
+
+  it('requires native points for features as well as room contours', () => {
+    const drafts = contourDraftsFromSaved([room])
+    const point = drafts[0]?.openings?.[0]?.points[0]
+    if (!point) throw new Error('Missing draft point')
+    point.x += 0.01
+    expect(pageContourRoomsForSave(drafts, native)).toBeNull()
+  })
+
+  it('keeps legacy contours saveable and does not include empty feature arrays', () => {
+    const minimal = { roomSourceNumber: room.roomSourceNumber, polygon: room.polygon }
+    expect(pageContourRoomsForSave(contourDraftsFromSaved([minimal]), native)).toEqual([minimal])
+  })
+
+  it('uses the same per-type caps as the server and requires a closed room', () => {
+    const draft = contourDraftsFromSaved([room])[0]
+    if (!draft) throw new Error('Missing room')
+    expect(canAddPageFeature({ ...draft, closed: false }, 'door')).toBe(false)
+    expect(
+      canAddPageFeature({ ...draft, openings: Array(32).fill(draft.openings?.[0]) }, 'door'),
+    ).toBe(false)
+    expect(
+      canAddPageFeature({ ...draft, obstacles: Array(20).fill(draft.obstacles?.[0]) }, 'shaft'),
+    ).toBe(false)
+    expect(canAddPageFeature(draft, 'window')).toBe(true)
+  })
+  it('shows a saved printed width only for unchanged points, edge, room polygon and source', () => {
+    const check = {
+      roomSourceNumber: 4,
+      openingId: 'door',
+      status: 'candidate' as const,
+      widthMm: 900,
+      labelIndex: 10,
+    }
+    const review = {
+      version: 1 as const,
+      savedAt: '2026-09-27',
+      contours: {
+        source: { sha256: preview.sha256, pdfPage: 6, state: 'existing' as const },
+        coordinateSystem: 'page-0-1000' as const,
+        review: 'manual-source-review' as const,
+        pageWidth: preview.width,
+        pageHeight: preview.height,
+        rooms: [room],
+      },
+      featureChecks: { openings: [check] },
+    }
+    const draft = contourDraftsFromSaved([room])[0]
+    const opening = draft?.openings?.[0]
+    expect(savedPageOpeningCheck(review, draft, opening, preview)).toEqual(check)
+    expect(
+      savedPageOpeningCheck(review, draft, opening, { ...preview, sha256: 'b'.repeat(64) }),
+    ).toBeUndefined()
+    if (!draft || !opening) throw new Error('Missing opening draft')
+    expect(
+      savedPageOpeningCheck(review, draft, { ...opening, wallEdgeIndex: 1 }, preview),
+    ).toBeUndefined()
+    expect(
+      savedPageOpeningCheck(
+        review,
+        { ...draft, polygon: draft.polygon.slice(0, 3) },
+        opening,
+        preview,
+      ),
+    ).toBeUndefined()
+    const point = opening.points[0]
+    if (!point) throw new Error('Missing point')
+    point.x += 1
+    expect(savedPageOpeningCheck(review, draft, opening, preview)).toBeUndefined()
   })
 })
