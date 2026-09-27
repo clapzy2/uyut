@@ -81,4 +81,68 @@ describe('plan review form', () => {
     expect(html).toContain('Пока неизвестные размеры оставлены пустыми')
     expect(html).not.toContain('Модель не может')
   })
+
+  it('offers sheet annotation without automatically rereading or confirming measurements', () => {
+    const html = render({
+      sourcePage: 6,
+      planState: 'existing',
+      readAt: '2026-09-27',
+      confirmedAt: '2026-09-27',
+      rooms: [{ name: 'Спальня', kind: 'bedroom', sourceNumber: 4 }],
+    })
+    expect(html).toContain('Разметить контуры на листе')
+    expect(html).toContain('Разметка не меняет ваши мерки и не запускает генерацию')
+    expect(html).not.toContain('Прочитать со сверкой контуров')
+  })
+
+  it('requires a known sheet state and printed room identity before offering annotation', () => {
+    const html = render({
+      sourcePage: 6,
+      planState: 'unknown',
+      readAt: '2026-09-27',
+      rooms: [{ name: 'Спальня', kind: 'bedroom', sourceNumber: 4 }],
+    })
+    expect(html).not.toContain('Разметить контуры на листе')
+    const unnumbered = render({
+      sourcePage: 6,
+      planState: 'existing',
+      readAt: '2026-09-27',
+      rooms: [{ name: 'Спальня', kind: 'bedroom' }],
+    })
+    expect(unnumbered).not.toContain('Разметить контуры на листе')
+  })
+
+  it('makes AI rereading explicit only for a saved review on the selected sheet', () => {
+    const html = render({
+      sourcePage: 6,
+      planState: 'existing',
+      readAt: '2026-09-27',
+      rooms: [{ name: 'Спальня', kind: 'bedroom', sourceNumber: 4 }],
+      pageReview: {
+        version: 1,
+        savedAt: '2026-09-27',
+        contours: {
+          source: { sha256: 'a'.repeat(64), pdfPage: 6, state: 'existing' },
+          coordinateSystem: 'page-0-1000',
+          review: 'manual-source-review',
+          pageWidth: 842,
+          pageHeight: 1191,
+          rooms: [
+            {
+              roomSourceNumber: 4,
+              polygon: [
+                { x: 100, y: 100 },
+                { x: 200, y: 100 },
+                { x: 200, y: 200 },
+              ],
+            },
+          ],
+        },
+      },
+    })
+    expect(html).toContain('Изменить контуры на листе')
+    expect(html).toContain('Прочитать со сверкой контуров')
+    expect(html).toContain('Повторное чтение')
+    expect(html).toContain('использует AI и заменит данные в форме')
+  })
 })

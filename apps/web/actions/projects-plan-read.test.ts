@@ -245,4 +245,72 @@ describe('plan reading actions', () => {
       await confirmPlanRooms(projectId, input(), planEditRevision('plan.pdf', reading)),
     ).toMatchObject({ ok: false, code: 'plan-conflict' })
   })
+
+  const pageReview: NonNullable<PlanReading['pageReview']> = {
+    version: 1,
+    savedAt: '2026-09-27',
+    contours: {
+      source: { sha256: 'a'.repeat(64), pdfPage: 6, state: 'existing' },
+      coordinateSystem: 'page-0-1000',
+      review: 'manual-source-review',
+      pageWidth: 842,
+      pageHeight: 1191,
+      rooms: [
+        {
+          roomSourceNumber: 4,
+          polygon: [
+            { x: 10, y: 10 },
+            { x: 30, y: 10 },
+            { x: 30, y: 30 },
+          ],
+        },
+      ],
+    },
+  }
+
+  it('requires a saved review before the explicitly requested reviewed read', async () => {
+    expect((await readPlan(projectId, 6, planEditRevision('plan.pdf', reading), true)).ok).toBe(
+      false,
+    )
+    expect(mocks.read).not.toHaveBeenCalled()
+  })
+
+  it('passes only saved contours to the reviewed reader and preserves the review on the same page', async () => {
+    const before = { ...reading, pageReview }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    const result = await readPlan(projectId, 6, planEditRevision('plan.pdf', before), true)
+    if (!result.ok) throw new Error(result.error)
+    expect(mocks.read).toHaveBeenCalledWith('plan.pdf', 6, pageReview.contours)
+    expect(result.data.reading.pageReview).toEqual(pageReview)
+  })
+
+  it('keeps saved contours after room confirmation without asserting measurement verification', async () => {
+    const before = { ...reading, pageReview }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    expect(
+      (await confirmPlanRooms(projectId, input(), planEditRevision('plan.pdf', before))).ok,
+    ).toBe(true)
+    expect(mocks.createRooms.mock.calls[0]?.[2].reading.pageReview).toEqual(pageReview)
+    expect(mocks.createRooms.mock.calls[0]?.[2].rooms[0].measurements).not.toHaveProperty(
+      'verification',
+    )
+  })
+
+  it('drops the review when ordinary reading switches to a different sheet', async () => {
+    const before = { ...reading, pageReview }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    mocks.read.mockResolvedValue({ ...reading, sourcePage: 12, planState: 'proposed' })
+    const result = await readPlan(projectId, 12, planEditRevision('plan.pdf', before))
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading).not.toHaveProperty('pageReview')
+  })
+
+  it('rejects another sheet before a paid reviewed read starts', async () => {
+    const before = { ...reading, pageReview }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    expect((await readPlan(projectId, 12, planEditRevision('plan.pdf', before), true)).ok).toBe(
+      false,
+    )
+    expect(mocks.read).not.toHaveBeenCalled()
+  })
 })

@@ -37,6 +37,7 @@ import {
   validPlanImageCalibration,
 } from '@/lib/projects/plan-image-calibration'
 import { planObstaclesSchema } from '@/lib/projects/plan-obstacles'
+import { retainedPlanPageReview } from '@/lib/projects/plan-page-review'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
 import * as repository from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -204,11 +205,14 @@ export async function readPlan(
   projectId: string,
   pageNumber = 1,
   expectedRevision?: string,
+  useReviewedContours = false,
 ): Promise<ActionResult<{ reading: PlanReading; revision: string }>> {
   const userId = await currentUserId()
   if (!userId) {
     return { ok: false, error: SESSION_EXPIRED }
   }
+  if (typeof useReviewedContours !== 'boolean')
+    return { ok: false, error: 'Проверьте режим чтения плана.' }
   try {
     const project = await assertOwner(userId, projectId)
     if (expectedRevision !== planEditRevision(project.planUrl, project.planReading)) {
@@ -217,8 +221,23 @@ export async function readPlan(
     if (!project.planUrl) {
       return { ok: false, error: 'Сначала загрузите план квартиры.' }
     }
-    const parsed = await readPlanFromStorage(project.planUrl, pageNumber)
+    const review = project.planReading?.pageReview
+    if (
+      useReviewedContours &&
+      (!project.planReading ||
+        !review ||
+        !retainedPlanPageReview(project.planReading, project.planReading) ||
+        review.contours.source.pdfPage !== pageNumber)
+    )
+      return { ok: false, error: 'Сначала сохраните разметку комнат на выбранном листе.' }
+    const parsed = useReviewedContours
+      ? await readPlanFromStorage(project.planUrl, pageNumber, review?.contours)
+      : await readPlanFromStorage(project.planUrl, pageNumber)
     const reading: PlanReading = { ...parsed, readAt: new Date().toISOString() }
+    const retainedReview = project.planReading
+      ? retainedPlanPageReview(project.planReading, reading)
+      : undefined
+    if (retainedReview) reading.pageReview = retainedReview
     await repository.setPlanReading(userId, projectId, reading, project)
     await recordAudit({
       action: 'project.plan_read',
@@ -620,6 +639,8 @@ export async function confirmPlanRooms(
       readAt: project.planReading?.readAt ?? new Date().toISOString(),
       confirmedAt: new Date().toISOString(),
     }
+    const pageReview = retainedPlanPageReview(project.planReading, reading)
+    if (pageReview) reading.pageReview = pageReview
     if (reading.geometry) {
       reading.geometry = { ...reading.geometry, status: 'draft' }
       delete reading.geometry.confirmedAt

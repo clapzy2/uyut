@@ -15,6 +15,7 @@ export type AuditAction =
   | 'project.created'
   | 'project.deleted'
   | 'project.plan_read'
+  | 'project.plan_page_reviewed'
   | 'project.plan_geometry_confirmed'
   | 'project.plan_geometry_drafted'
   | 'project.plan_rooms'

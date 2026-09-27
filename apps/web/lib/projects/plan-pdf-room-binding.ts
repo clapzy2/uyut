@@ -1,15 +1,9 @@
+import type { PlanPageContours } from '@uyut/db'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 
 export type PdfPlanSource = { sha256: string; pdfPage: number; state: 'existing' | 'proposed' }
 export type PdfRoomContour = { roomSourceNumber: number; polygon: PagePoint[] }
-export type PdfRoomContours = {
-  source: PdfPlanSource
-  coordinateSystem: 'page-0-1000'
-  review: 'manual-source-review'
-  pageWidth: number
-  pageHeight: number
-  rooms: PdfRoomContour[]
-}
+export type PdfRoomContours = PlanPageContours
 export type PdfRoomBinding =
   | { status: 'candidate'; roomSourceNumber: number; basis: 'manual-page-contour' }
   | { status: 'unresolved' | 'ambiguous'; roomSourceNumber: null; reason: string }

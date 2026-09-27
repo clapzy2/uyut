@@ -180,6 +180,18 @@ export type PlanGeometry = {
   warnings: string[]
 }
 
+/** Контуры на конкретном PDF-листе: координаты страницы, не размеры в сантиметрах. */
+export type PlanPageContours = {
+  source: { sha256: string; pdfPage: number; state: 'existing' | 'proposed' }
+  coordinateSystem: 'page-0-1000'
+  review: 'manual-source-review'
+  pageWidth: number
+  pageHeight: number
+  rooms: Array<{ roomSourceNumber: number; polygon: Array<{ x: number; y: number }> }>
+}
+
+export type PlanPageReview = { version: 1; savedAt: string; contours: PlanPageContours }
+
 /**
  * Разбор загруженного плана. Хранится целиком, в том числе после подтверждения: по паре
  * «что прочитали» и «что поправил человек» видно, где чтение врёт, а спросить об этом больше некого.
@@ -196,6 +208,8 @@ export type PlanReading = {
   rooms: PlanRoomReading[]
   /** Черновик от vision-модели или пустое ручное полотно. */
   geometry?: PlanGeometry
+  /** Ручная привязка комнат к исходному листу; не подтверждение натурного обмера. */
+  pageReview?: PlanPageReview
   /** Когда прочитали, ISO-строкой: в jsonb дата всё равно станет строкой */
   readAt: string
   confirmedAt?: string

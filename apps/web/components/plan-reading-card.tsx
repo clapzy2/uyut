@@ -2,6 +2,7 @@
 
 import type { PlanReading, RoomKind } from '@uyut/db'
 import { Button, chipClassName, Input, inputClassName, toast } from '@uyut/ui'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { confirmPlanRooms, forgetPlanReading, readPlan } from '@/actions/projects'
@@ -22,6 +23,10 @@ import {
 } from '@/lib/projects/plan-rows'
 
 const numberFieldClassName = `${inputClassName} h-10 text-[14px]`
+const PlanPageContourEditor = dynamic(
+  () => import('./plan-page-contour-editor').then((module) => module.PlanPageContourEditor),
+  { loading: () => <p role="status">Открываем исходный лист…</p> },
+)
 
 /**
  * Подсказка в поле желания. Разная по типам комнат: «побольше света» в санузле и в спальне
@@ -89,6 +94,7 @@ export function PlanReadingCard({
   const [condition, setCondition] = useState<'bare' | 'finished'>('bare')
   const [reading_, startReading] = useTransition()
   const [saving, setSaving] = useState(false)
+  const [reviewEditing, setReviewEditing] = useState(false)
 
   const confirmed = Boolean(reading?.confirmedAt)
 
@@ -112,13 +118,19 @@ export function PlanReadingCard({
     setBaseRevision(sourceRevision)
     setConflict(false)
     setError(undefined)
+    setReviewEditing(false)
   }
 
-  function read() {
+  function read(useReviewedContours = false) {
     setError(undefined)
     startReading(async () => {
       try {
-        const result = await readPlan(projectId, planIsPdf ? Number(page) : 1, baseRevision)
+        const result = await readPlan(
+          projectId,
+          planIsPdf ? Number(page) : 1,
+          baseRevision,
+          useReviewedContours,
+        )
         if (!result.ok) {
           showFailure(result)
           return
@@ -231,7 +243,7 @@ export function PlanReadingCard({
           step={1}
           max={activeReading?.pageCount}
           value={page}
-          disabled={reading_ || saving}
+          disabled={reading_ || saving || reviewEditing}
           onChange={(event) => setPage(event.currentTarget.value)}
           className={`${numberFieldClassName} mt-2 block w-24`}
         />
@@ -243,6 +255,76 @@ export function PlanReadingCard({
       </p>
     </div>
   ) : null
+
+  const review = activeReading?.pageReview
+  const reviewedPage = review?.contours.source.pdfPage === Number(page)
+  const canReviewPage =
+    planIsPdf &&
+    activeReading?.sourcePage === Number(page) &&
+    (activeReading.planState === 'existing' || activeReading.planState === 'proposed') &&
+    activeReading.rooms.some((room) => room.sourceNumber !== undefined)
+  const pageReviewControl =
+    canReviewPage && activeReading ? (
+      <div className="mt-5 border-t border-line pt-5">
+        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
+          Привязка к исходному листу
+        </p>
+        <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
+          Отметьте контуры комнат по их номерам на чертеже. При чтении со сверкой проверим,
+          относятся ли размерные цепочки и подписи высоты к этим помещениям. Разметка не меняет ваши
+          мерки и не запускает генерацию.
+        </p>
+        {reviewEditing ? (
+          <PlanPageContourEditor
+            projectId={projectId}
+            sourceRevision={baseRevision}
+            reading={activeReading}
+            pageNumber={Number(page)}
+            disabled={reading_ || saving || conflict}
+            onClose={() => setReviewEditing(false)}
+            onSaved={(data) => {
+              setActiveReading(data.reading)
+              setBaseRevision(data.revision)
+              setReviewEditing(false)
+              toast({ title: 'Контуры сохранены для этого листа', tone: 'success' })
+              router.refresh()
+            }}
+            onConflict={() => {
+              setConflict(true)
+              router.refresh()
+            }}
+          />
+        ) : (
+          <div className="mt-3 flex flex-wrap gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setReviewEditing(true)}
+              disabled={reading_ || saving || conflict}
+            >
+              {reviewedPage ? 'Изменить контуры на листе' : 'Разметить контуры на листе'}
+            </Button>
+            {reviewedPage ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => read(true)}
+                pending={reading_}
+                disabled={saving || conflict}
+              >
+                Прочитать со сверкой контуров
+              </Button>
+            ) : null}
+          </div>
+        )}
+        {reviewedPage ? (
+          <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+            Сохранено контуров: {review.contours.rooms.length}, страница {page}. Повторное чтение
+            использует AI и заменит данные в форме; контуры проверим по тому же файлу.
+          </p>
+        ) : null}
+      </div>
+    ) : null
 
   if (!rows) {
     return (
@@ -257,13 +339,14 @@ export function PlanReadingCard({
           <Button
             type="button"
             variant="secondary"
-            onClick={read}
+            onClick={() => read()}
             pending={reading_}
-            disabled={saving || conflict}
+            disabled={saving || conflict || reviewEditing}
           >
             {reading_ ? 'Читаем план…' : 'Прочитать размеры с плана'}
           </Button>
         </div>
+        {pageReviewControl}
         {reading_ ? (
           <div
             role="status"
@@ -544,13 +627,14 @@ export function PlanReadingCard({
       </ul>
 
       {pageSelector}
+      {pageReviewControl}
       {planIsPdf ? (
         <Button
           type="button"
           variant="secondary"
-          onClick={read}
+          onClick={() => read()}
           pending={reading_}
-          disabled={saving || conflict}
+          disabled={saving || conflict || reviewEditing}
         >
           Прочитать выбранную страницу заново
         </Button>
@@ -564,7 +648,7 @@ export function PlanReadingCard({
           type="button"
           onClick={confirm}
           pending={saving}
-          disabled={chosen === 0 || reading_ || conflict}
+          disabled={chosen === 0 || reading_ || conflict || reviewEditing}
         >
           {saving ? 'Сохраняем…' : `Сохранить: ${chosen}`}
         </Button>
@@ -572,7 +656,7 @@ export function PlanReadingCard({
           type="button"
           variant="ghost"
           onClick={forget}
-          disabled={saving || reading_ || conflict}
+          disabled={saving || reading_ || conflict || reviewEditing}
         >
           Впишу сам
         </Button>
