@@ -1,4 +1,32 @@
-import type { PlanGeometry, PlanOpeningFacePair } from '@uyut/db'
+import type {
+  PlanGeometry,
+  PlanOpening,
+  PlanOpeningFacePair,
+  PlanWall,
+  PlanWallFacePair,
+} from '@uyut/db'
+
+function sameWall(wall: PlanWall | undefined, snapshot: PlanWall): boolean {
+  return (
+    wall !== undefined &&
+    wall.kind === snapshot.kind &&
+    wall.thicknessCm === snapshot.thicknessCm &&
+    wall.start.xCm === snapshot.start.xCm &&
+    wall.start.yCm === snapshot.start.yCm &&
+    wall.end.xCm === snapshot.end.xCm &&
+    wall.end.yCm === snapshot.end.yCm
+  )
+}
+
+function sameOpening(opening: PlanOpening | undefined, snapshot: PlanOpening): boolean {
+  return (
+    opening !== undefined &&
+    opening.type === snapshot.type &&
+    opening.wallId === snapshot.wallId &&
+    opening.offsetCm === snapshot.offsetCm &&
+    opening.widthCm === snapshot.widthCm
+  )
+}
 
 /** A PDF face relation is evidence only while both annotated spans and hosts are unchanged. */
 export function currentOpeningFacePairs(
@@ -8,20 +36,51 @@ export function currentOpeningFacePairs(
     pair.bindings.every(({ opening: snapshot, wall: host }) => {
       const opening = geometry.openings.find((value) => value.id === snapshot.id)
       const wall = geometry.walls.find((value) => value.id === host.id)
-      return (
-        opening !== undefined &&
-        wall !== undefined &&
-        opening.type === snapshot.type &&
-        opening.wallId === snapshot.wallId &&
-        opening.offsetCm === snapshot.offsetCm &&
-        opening.widthCm === snapshot.widthCm &&
-        wall.kind === host.kind &&
-        wall.thicknessCm === host.thicknessCm &&
-        wall.start.xCm === host.start.xCm &&
-        wall.start.yCm === host.start.yCm &&
-        wall.end.xCm === host.end.xCm &&
-        wall.end.yCm === host.end.yCm
-      )
+      return sameOpening(opening, snapshot) && sameWall(wall, host)
     }),
   )
+}
+
+/** Source strips require unchanged hosts, cuts and the free-floor contours they avoid. */
+export function currentWallFacePairs(
+  geometry: Pick<PlanGeometry, 'walls' | 'openings' | 'rooms' | 'pdfCalibration'>,
+): PlanWallFacePair[] {
+  const polygons = geometry.pdfCalibration?.wallFaceRoomPolygons
+  if (
+    !polygons ||
+    polygons.length !== geometry.rooms.length ||
+    !polygons.every((snapshot) =>
+      geometry.rooms.some(
+        ({ polygon }) =>
+          polygon.length === snapshot.length &&
+          snapshot.every(
+            (point, index) =>
+              point.xCm === polygon[index]?.xCm && point.yCm === polygon[index]?.yCm,
+          ),
+      ),
+    )
+  )
+    return []
+  return (geometry.pdfCalibration?.wallFacePairs ?? []).filter((pair) => {
+    if (
+      !pair.faces.every(({ wall }) =>
+        sameWall(
+          geometry.walls.find((w) => w.id === wall.id),
+          wall,
+        ),
+      )
+    )
+      return false
+    const hostIds = new Set(pair.faces.map(({ wall }) => wall.id))
+    const cuts = geometry.openings.filter((opening) => hostIds.has(opening.wallId))
+    return (
+      cuts.length === pair.openings.length &&
+      pair.openings.every((snapshot) =>
+        sameOpening(
+          cuts.find((opening) => opening.id === snapshot.id),
+          snapshot,
+        ),
+      )
+    )
+  })
 }

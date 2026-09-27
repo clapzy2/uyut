@@ -26,10 +26,6 @@ export function verifyPlanPageOpenings(
   for (const room of contours.rooms) {
     for (const opening of room.openings ?? []) {
       const identity = { ...pdfContourIdentity(room), openingId: opening.id }
-      if (room.roomSourceNumber === undefined) {
-        result.push({ ...identity, status: 'unresolved', reason: 'shared-zone-width-needs-review' })
-        continue
-      }
       const a = room.polygon[opening.wallEdgeIndex]
       const b = room.polygon[(opening.wallEdgeIndex + 1) % room.polygon.length]
       if (!a || !b || (a.x !== b.x && a.y !== b.y)) {
@@ -52,7 +48,9 @@ export function verifyPlanPageOpenings(
         result.push({ ...identity, status: 'ambiguous', reason: 'too-many-opening-labels' })
         continue
       }
-      const bindings = possibleLabels.map((label) => verify(room.roomSourceNumber, label, opening))
+      const bindings = possibleLabels.map((label) =>
+        verify(pdfContourIdentity(room), label, opening),
+      )
       const candidates = bindings.filter((binding) => binding.status === 'candidate')
       if (candidates.length > 1 || bindings.some((binding) => binding.status === 'ambiguous')) {
         result.push({ ...identity, status: 'ambiguous', reason: 'competing-opening-dimensions' })

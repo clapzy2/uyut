@@ -1,4 +1,4 @@
-import type { PlanGeometry, PlanOpeningFacePair, PlanReading } from '@uyut/db'
+import type { PlanGeometry, PlanOpeningFacePair, PlanReading, PlanWallFacePair } from '@uyut/db'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AccessError } from '@/lib/projects/access'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
@@ -139,7 +139,7 @@ describe('manual plan draft', () => {
     expect(mocks.revalidate).not.toHaveBeenCalled()
   })
 
-  it.each(['unchanged', 'width', 'host', 'removed'] as const)(
+  it.each(['unchanged', 'width', 'host', 'removed', 'added'] as const)(
     'preserves only current server-owned face pairs after %s edits',
     async (edit) => {
       const firstWall = closedWalls[0]
@@ -165,6 +165,15 @@ describe('manual plan draft', () => {
           { operationIndex: 6, subpathIndex: 0, segmentIndex: 0 },
         ],
       }
+      const wallPair: PlanWallFacePair = {
+        faces: [firstWall, secondWall].map((wall, segmentIndex) => ({
+          wall: structuredClone(wall),
+          start: { ...wall.start },
+          end: { ...wall.end },
+          nativeSegment: { operationIndex: 7, subpathIndex: 0, segmentIndex },
+        })) as PlanWallFacePair['faces'],
+        openings: structuredClone(openings),
+      }
       const geometry: PlanGeometry = {
         ...emptyManualGeometry,
         walls: structuredClone(closedWalls),
@@ -178,6 +187,8 @@ describe('manual plan draft', () => {
           labelIndexes: [1, 2],
           derivedOpeningIds: [],
           openingFacePairs: [structuredClone(pair)],
+          wallFacePairs: [structuredClone(wallPair)],
+          wallFaceRoomPolygons: [],
         },
       }
       // The snapshots are separate from editable geometry; client metadata is not trusted.
@@ -186,16 +197,27 @@ describe('manual plan draft', () => {
       const jamb = input.pdfCalibration?.openingFacePairs?.[0]?.jambs[0]
       const opening = input.openings[0]
       const wall = input.walls[0]
-      if (!jamb || !opening || !wall) throw new Error('Missing editable fixtures')
+      const nativeSegment = input.pdfCalibration?.wallFacePairs?.[0]?.faces[0].nativeSegment
+      if (!jamb || !opening || !wall || !nativeSegment) throw new Error('Missing editable fixtures')
       jamb.operationIndex = 999
+      nativeSegment.operationIndex = 999
       if (edit === 'width') opening.widthCm += 1
       if (edit === 'host') wall.start.xCm += 1
       if (edit === 'removed') input.openings = input.openings.slice(1)
+      if (edit === 'added')
+        input.openings.push({
+          ...opening,
+          id: 'manual_000000000000000000000103',
+          offsetCm: 250,
+        })
       const result = await savePlanGeometry(projectId, input, 'draft')
       expect(result.ok).toBe(true)
       if (result.ok) {
         expect(result.data.geometry.pdfCalibration?.openingFacePairs).toEqual(
-          edit === 'unchanged' ? [pair] : [],
+          edit === 'unchanged' || edit === 'added' ? [pair] : [],
+        )
+        expect(result.data.geometry.pdfCalibration?.wallFacePairs).toEqual(
+          edit === 'unchanged' ? [wallPair] : [],
         )
       }
     },
@@ -204,7 +226,10 @@ describe('manual plan draft', () => {
   it('does not introduce client-provided PDF calibration or face proofs', async () => {
     const result = await savePlanGeometry(
       projectId,
-      { ...emptyManualGeometry, pdfCalibration: { openingFacePairs: [{ forged: true }] } },
+      {
+        ...emptyManualGeometry,
+        pdfCalibration: { openingFacePairs: [{ forged: true }], wallFacePairs: [{ forged: true }] },
+      },
       'draft',
     )
     expect(result.ok).toBe(true)

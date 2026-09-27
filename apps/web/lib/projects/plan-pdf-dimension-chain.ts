@@ -1,4 +1,4 @@
-import type { PlanPageOpening } from '@uyut/db'
+import type { PlanPageOpening, PlanPageRoomIdentity } from '@uyut/db'
 import { pdfVectorArrow } from './plan-pdf-leaders'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import {
@@ -10,7 +10,9 @@ import {
   type PdfPlanSource,
   type PdfRoomContours,
   pdfBoundaryDistance,
+  pdfContourIdentity,
   pdfContourIssue,
+  pdfContourKey,
   pdfPointDistance,
   pdfPointInside,
   pdfRoomAtPoint,
@@ -26,11 +28,31 @@ type NativeDimensionSpan = {
 }
 
 type NativeOpeningSpan = PlanPageOpening
+type OpeningRoomSelector = number | PlanPageRoomIdentity
+
+/** Whole physical-zone identity; a member number alone must not claim a grouped contour. */
+function openingRoomMatches(room: PlanPageRoomIdentity, selector: OpeningRoomSelector): boolean {
+  const identity = typeof selector === 'number' ? { roomSourceNumber: selector } : selector
+  if (identity.roomSourceNumbers === undefined)
+    return (
+      room.roomSourceNumbers === undefined && room.roomSourceNumber === identity.roomSourceNumber
+    )
+  const members = identity.roomSourceNumbers
+  if (
+    !Array.isArray(members) ||
+    Object.hasOwn(identity, 'roomSourceNumber') ||
+    members.length < 2 ||
+    members.length > 12 ||
+    members.some((number) => !Number.isSafeInteger(number) || number < 1 || number > 10_000) ||
+    new Set(members).size !== members.length
+  )
+    return false
+  return room.roomSourceNumbers !== undefined && pdfContourKey(room) === pdfContourKey(identity)
+}
 
 export type PdfNativeOpeningBinding =
-  | {
+  | (PlanPageRoomIdentity & {
       status: 'candidate'
-      roomSourceNumber: number
       id: string
       kind: NativeOpeningSpan['kind']
       wallEdgeIndex: number
@@ -40,7 +62,7 @@ export type PdfNativeOpeningBinding =
       start: PagePoint
       end: PagePoint
       basis: 'manual-opening-annotation-with-native-dimension'
-    }
+    })
   | { status: 'unresolved' | 'ambiguous'; roomSourceNumber: null; reason: string }
 
 /** Check one printed opening span, without requiring a complete room dimension chain. */
@@ -48,11 +70,11 @@ export function pdfOpeningFromNativeSpan(
   work: PdfLinework,
   source: PdfPlanSource,
   contours: PdfRoomContours,
-  roomSourceNumber: number,
+  roomIdentity: OpeningRoomSelector,
   label: NativeLabel,
   opening: NativeOpeningSpan,
 ): PdfNativeOpeningBinding {
-  return createPdfOpeningSpanVerifier(work, source, contours)(roomSourceNumber, label, opening)
+  return createPdfOpeningSpanVerifier(work, source, contours)(roomIdentity, label, opening)
 }
 
 /** Reuse native evidence only within one request's unchanged source/contour snapshot. */
@@ -61,7 +83,7 @@ export function createPdfOpeningSpanVerifier(
   source: PdfPlanSource,
   contours: PdfRoomContours,
 ): (
-  roomSourceNumber: number,
+  roomIdentity: OpeningRoomSelector,
   label: NativeLabel,
   opening: NativeOpeningSpan,
 ) => PdfNativeOpeningBinding {
@@ -78,14 +100,14 @@ export function createPdfOpeningSpanVerifier(
     spansByAxis[axis] = spans
     return spans
   }
-  const pointInRoom = (point: PagePoint, roomSourceNumber: number) => {
+  const pointInRoom = (point: PagePoint, roomIdentity: OpeningRoomSelector) => {
     if (contours.rooms.some((room) => pdfBoundaryDistance(work, point, room.polygon) <= 0.5))
       return false
     const owners = contours.rooms.filter((room) => pdfPointInside(point, room.polygon))
-    return owners.length === 1 && owners[0]?.roomSourceNumber === roomSourceNumber
+    return owners.length === 1 && !!owners[0] && openingRoomMatches(owners[0], roomIdentity)
   }
-  return (roomSourceNumber, label, opening) =>
-    pdfOpeningFromPreparedNativeSpan(work, source, contours, roomSourceNumber, label, opening, {
+  return (roomIdentity, label, opening) =>
+    pdfOpeningFromPreparedNativeSpan(work, source, contours, roomIdentity, label, opening, {
       issue,
       nativePoints,
       segments,
@@ -98,7 +120,7 @@ function pdfOpeningFromPreparedNativeSpan(
   work: PdfLinework,
   source: PdfPlanSource,
   contours: PdfRoomContours,
-  roomSourceNumber: number,
+  roomIdentity: OpeningRoomSelector,
   label: NativeLabel,
   opening: NativeOpeningSpan,
   evidence: {
@@ -106,7 +128,7 @@ function pdfOpeningFromPreparedNativeSpan(
     nativePoints: ReadonlySet<string>
     segments: readonly NativePageSegment[]
     spansFor(axis: DimensionAxis): NativeDimensionSpan[]
-    pointInRoom(point: PagePoint, roomSourceNumber: number): boolean
+    pointInRoom(point: PagePoint, roomIdentity: OpeningRoomSelector): boolean
   },
 ): PdfNativeOpeningBinding {
   const fail = (
@@ -114,7 +136,7 @@ function pdfOpeningFromPreparedNativeSpan(
     status: 'unresolved' | 'ambiguous' = 'unresolved',
   ): PdfNativeOpeningBinding => ({ status, reason, roomSourceNumber: null })
   if (evidence.issue) return fail(evidence.issue)
-  const room = contours.rooms.find((candidate) => candidate.roomSourceNumber === roomSourceNumber)
+  const room = contours.rooms.find((candidate) => openingRoomMatches(candidate, roomIdentity))
   if (!room) return fail('no-annotated-room')
   if (
     typeof opening.id !== 'string' ||
@@ -177,7 +199,7 @@ function pdfOpeningFromPreparedNativeSpan(
     ![label.x, label.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000)
   )
     return fail('invalid-dimension-labels')
-  if (!evidence.pointInRoom(label, roomSourceNumber)) return fail('opening-label-outside-room')
+  if (!evidence.pointInRoom(label, roomIdentity)) return fail('opening-label-outside-room')
   const matching = evidence
     .spansFor(axis)
     .filter(
@@ -201,13 +223,13 @@ function pdfOpeningFromPreparedNativeSpan(
     x: (span.start.x + span.end.x) / 2,
     y: (span.start.y + span.end.y) / 2,
   }
-  if (!evidence.pointInRoom(middle, roomSourceNumber)) return fail('opening-dimension-outside-room')
+  if (!evidence.pointInRoom(middle, roomIdentity)) return fail('opening-dimension-outside-room')
   if (
     !dimensionIntervalInsideRoom(
       work,
       source,
       contours,
-      roomSourceNumber,
+      roomIdentity,
       span.start,
       span.end,
       axis,
@@ -234,7 +256,7 @@ function pdfOpeningFromPreparedNativeSpan(
   }
   return {
     status: 'candidate',
-    roomSourceNumber,
+    ...pdfContourIdentity(room),
     id: opening.id,
     kind: opening.kind,
     wallEdgeIndex: opening.wallEdgeIndex,
@@ -514,11 +536,11 @@ function dimensionIntervalInsideRoom(
   work: PdfLinework,
   source: PdfPlanSource,
   contours: PdfRoomContours,
-  roomSourceNumber: number,
+  roomIdentity: OpeningRoomSelector,
   start: PagePoint,
   end: PagePoint,
   axis: DimensionAxis,
-  pointInRoom?: (point: PagePoint, roomSourceNumber: number) => boolean,
+  pointInRoom?: (point: PagePoint, roomIdentity: OpeningRoomSelector) => boolean,
 ): boolean {
   const along = (point: PagePoint) => (axis === 'width' ? point.x : point.y)
   const across = (point: PagePoint) => (axis === 'width' ? point.y : point.x)
@@ -550,10 +572,10 @@ function dimensionIntervalInsideRoom(
     if (left === undefined || right === undefined) continue
     const point = at((left + right) / 2, row)
     if (pointInRoom) {
-      if (!pointInRoom(point, roomSourceNumber)) return false
+      if (!pointInRoom(point, roomIdentity)) return false
     } else {
       const owner = pdfRoomAtPoint(work, source, contours, point)
-      if (owner.status !== 'candidate' || owner.roomSourceNumber !== roomSourceNumber) return false
+      if (owner.status !== 'candidate' || owner.roomSourceNumber !== roomIdentity) return false
     }
   }
   return true

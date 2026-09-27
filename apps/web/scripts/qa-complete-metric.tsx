@@ -109,6 +109,7 @@ const report = {
   geometry: result.geometry,
   geometryIssues: inspectPlanGeometry(result.geometry),
   openingFacePairs: pairPlanPageOpeningFaces(page.linework, source, contours),
+  wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs,
   confirmationIssues: inspectManualPlanCompleteness(result.geometry),
   unresolvedSourceFeatures: complete.unresolvedFeatures,
   qualification:
@@ -132,6 +133,8 @@ console.log(
     physicalZones: result.geometry.rooms.length,
     openingAnnotations: result.geometry.openings.length,
     openingFacePairs: report.openingFacePairs.length,
+    wallFacePairs: report.wallFacePairs?.length,
+    derivedOpeningWidths: result.geometry.pdfCalibration?.derivedOpeningIds.length,
     geometryIssues: report.geometryIssues.length,
     confirmationIssues: report.confirmationIssues.length,
     paidCalls: 0,

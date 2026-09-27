@@ -168,6 +168,15 @@ export type PlanOpeningFacePair = {
   bindings: [{ opening: PlanOpening; wall: PlanWall }, { opening: PlanOpening; wall: PlanWall }]
   jambs: [PlanPageSegmentRef, PlanPageSegmentRef]
 }
+/** Source-outline interval relations, not centreline walls or construction thickness. */
+export type PlanWallFacePair = {
+  faces: [
+    { wall: PlanWall; start: PlanPoint; end: PlanPoint; nativeSegment: PlanPageSegmentRef },
+    { wall: PlanWall; start: PlanPoint; end: PlanPoint; nativeSegment: PlanPageSegmentRef },
+  ]
+  /** Any edit to cuts on these hosts invalidates the source strip relation. */
+  openings: PlanOpening[]
+}
 export type PlanGeometry = {
   version: 1
   status: 'draft' | 'confirmed'
@@ -196,6 +205,9 @@ export type PlanGeometry = {
     labelIndexes: number[]
     derivedOpeningIds: string[]
     openingFacePairs?: PlanOpeningFacePair[]
+    wallFacePairs?: PlanWallFacePair[]
+    /** Shared snapshot of free-floor contours used by the interval proof. */
+    wallFaceRoomPolygons?: PlanPoint[][]
   }
   warnings: string[]
 }

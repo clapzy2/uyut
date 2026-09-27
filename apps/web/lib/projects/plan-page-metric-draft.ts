@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto'
 import { parsePlanGeometry, planMeasurementTextItems, validatePlanMeasurement } from '@uyut/ai'
-import type { PlanGeometry, PlanPageContours, PlanPoint, PlanReading } from '@uyut/db'
+import type {
+  PlanGeometry,
+  PlanPageContours,
+  PlanPoint,
+  PlanReading,
+  PlanWallFacePair,
+} from '@uyut/db'
 import { verifyPlanPageOpenings } from './plan-page-feature-checks'
 import {
   planPageContoursSchema,
@@ -17,6 +23,7 @@ import {
   pdfContourRoomNumbers,
   pdfPointDistance,
 } from './plan-pdf-room-binding'
+import { pairPlanPageWallFaces } from './plan-pdf-wall-faces'
 
 type Context = {
   source: PdfPlanSource
@@ -362,6 +369,34 @@ export function planPageMetricDraft(
         if (!refs[0] || !refs[1]) return []
         return [{ bindings: [bindings[0], bindings[1]], jambs: [refs[0], refs[1]] }]
       }),
+      wallFacePairs: pairPlanPageWallFaces(linework, source, contours).flatMap((pair) => {
+        const faces = pair.faces.flatMap((face) => {
+          const wall = geometry.walls.find(
+            (item) => item.id === id(face.contourKey, 'wall', face.wallEdgeIndex),
+          )
+          return wall
+            ? [
+                {
+                  wall: structuredClone(wall),
+                  start: convert(face.start),
+                  end: convert(face.end),
+                  nativeSegment: face.nativeSegment,
+                },
+              ]
+            : []
+        })
+        if (!faces[0] || !faces[1]) return []
+        const saved: PlanWallFacePair = {
+          faces: [faces[0], faces[1]],
+          openings: structuredClone(
+            geometry.openings.filter((opening) =>
+              faces.some((face) => face.wall.id === opening.wallId),
+            ),
+          ),
+        }
+        return [saved]
+      }),
+      wallFaceRoomPolygons: structuredClone(geometry.rooms.map((room) => room.polygon)),
     }
     geometry.warnings = [
       'Координаты черновика перенесены из нативных линий PDF в едином масштабе. Подписанные мерки комнат сохранены отдельно и не заменены габаритами контуров.',

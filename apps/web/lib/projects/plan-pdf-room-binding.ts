@@ -94,7 +94,7 @@ function segmentsTouch(a: PagePoint, b: PagePoint, c: PagePoint, d: PagePoint): 
   )
 }
 
-function validPolygon(points: readonly PagePoint[]): boolean {
+export function pdfPolygonIsValid(points: readonly PagePoint[]): boolean {
   if (points.length < 3 || points.length > 100 || points.some((point) => !pagePoint(point)))
     return false
   let area = 0
@@ -155,12 +155,12 @@ export function pdfContourIssue(
       members.some((number) => !Number.isSafeInteger(number) || number < 1 || number > 10_000) ||
       new Set(members).size !== members.length ||
       members.some((number) => numbers.has(number)) ||
-      !validPolygon(room.polygon)
+      !pdfPolygonIsValid(room.polygon)
     )
       return 'invalid-room-contours'
     for (const number of members) numbers.add(number)
   }
-  if (contours.exterior && !validPolygon(contours.exterior.polygon))
+  if (contours.exterior && !pdfPolygonIsValid(contours.exterior.polygon))
     return 'invalid-exterior-contour'
   return undefined
 }

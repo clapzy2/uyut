@@ -3,7 +3,7 @@ import type { PlanGeometry, PlanPageContours, PlanPageOpening, PlanReading } fro
 import { describe, expect, it } from 'vitest'
 import page from '../../../../docs/qa/fixtures/apartment-74-77-complete-page.json'
 import { inspectManualPlanCompleteness } from './plan-geometry-inspection'
-import { currentOpeningFacePairs } from './plan-opening-face-pairs'
+import { currentOpeningFacePairs, currentWallFacePairs } from './plan-opening-face-pairs'
 import { verifyPlanPageOpenings } from './plan-page-feature-checks'
 import { planPageMetricDraft } from './plan-page-metric-draft'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
@@ -133,7 +133,7 @@ describe('complete existing PDF page in one native metric scale', () => {
     const geometry = draft(fixture)
     expect(geometry.openings.filter((opening) => opening.type === 'window')).toHaveLength(5)
     expect(geometry.openings.filter((opening) => opening.type === 'balcony')).toHaveLength(1)
-    expect(geometry.pdfCalibration?.derivedOpeningIds).toHaveLength(7)
+    expect(geometry.pdfCalibration?.derivedOpeningIds).toHaveLength(1)
   })
 
   it.each(['missing-proof', 'wrong-path', 'moved-point'] as const)(
@@ -166,6 +166,66 @@ describe('complete existing PDF page in one native metric scale', () => {
     if (!wall) throw new Error('Missing paired host')
     wall.start.xCm += 1
     expect(currentOpeningFacePairs(geometry)).not.toContain(first)
+  })
+
+  it('stores source interval relations without claiming construction thickness or completing topology', () => {
+    const geometry = draft()
+    expect(currentWallFacePairs(geometry)).toHaveLength(51)
+    expect(geometry.walls.every((wall) => wall.thicknessCm === undefined)).toBe(true)
+    expect(inspectManualPlanCompleteness(geometry)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'manual-disconnected-walls' })]),
+    )
+    for (const pair of geometry.pdfCalibration?.wallFacePairs ?? []) {
+      expect(pair.faces[0].nativeSegment.operationIndex).toBe(
+        pair.faces[1].nativeSegment.operationIndex,
+      )
+      expect(pair.faces[0].nativeSegment.subpathIndex).toBe(
+        pair.faces[1].nativeSegment.subpathIndex,
+      )
+    }
+  })
+
+  it.each(['host-edit', 'added-cut', 'removed-cut', 'widened-cut'] as const)(
+    'invalidates saved boundary relations after %s',
+    (mode) => {
+      const geometry = draft()
+      const pair = geometry.pdfCalibration?.wallFacePairs?.find(
+        (value) => value.openings.length > 0,
+      )
+      if (!pair) throw new Error('Missing wall interval relation with cuts')
+      const wall = geometry.walls.find((value) => value.id === pair.faces[0].wall.id)
+      const cut = geometry.openings.find((value) => value.id === pair.openings[0]?.id)
+      if (!wall || !cut) throw new Error('Missing current host or cut')
+      if (mode === 'host-edit') wall.end.xCm += 1
+      if (mode === 'added-cut') geometry.openings.push({ ...cut, id: 'new-cut', wallId: wall.id })
+      if (mode === 'removed-cut')
+        geometry.openings = geometry.openings.filter((value) => value.id !== cut.id)
+      if (mode === 'widened-cut') cut.widthCm += 1
+      expect(currentWallFacePairs(geometry)).not.toContain(pair)
+    },
+  )
+
+  it('keeps boundary relations after unrelated edits or opening metadata changes', () => {
+    const geometry = draft()
+    const pair = geometry.pdfCalibration?.wallFacePairs?.find((value) => value.openings.length > 0)
+    if (!pair) throw new Error('Missing wall interval relation')
+    const cut = geometry.openings.find((value) => value.id === pair.openings[0]?.id)
+    if (!cut) throw new Error('Missing current cut')
+    cut.sillHeightCm = 80
+    const room = geometry.rooms[0]
+    if (!room) throw new Error('Missing room')
+    room.name = 'Новое название'
+    geometry.openings.reverse()
+    geometry.rooms.reverse()
+    expect(currentWallFacePairs(geometry)).toContain(pair)
+  })
+
+  it('invalidates boundary relations when free-floor contours change', () => {
+    const geometry = draft()
+    const vertex = geometry.rooms[0]?.polygon[0]
+    if (!vertex) throw new Error('Missing room vertex')
+    vertex.xCm += 1
+    expect(currentWallFacePairs(geometry)).toEqual([])
   })
   it('retains seven physical zones covering eight source numbers without changing readings', () => {
     const fixture = completeSheet()
@@ -300,11 +360,11 @@ describe('complete existing PDF page in one native metric scale', () => {
   it('retains an unlabelled interval as derived and blocks consumers even after status changes', () => {
     const fixture = completeSheet()
     // Remove one actual printed opening label, without altering vectors or room anchors.
-    fixture.labels[84] = { text: '', x: 0, y: 0, rotation: 0 }
+    fixture.labels[36] = { text: '', x: 0, y: 0, rotation: 0 }
     fixture.context.planText = JSON.stringify(fixture.labels)
     const geometry = draft(fixture)
     expect(geometry.openings).toHaveLength(19)
-    expect(geometry.pdfCalibration?.derivedOpeningIds.length).toBeGreaterThan(0)
+    expect(geometry.pdfCalibration?.derivedOpeningIds).toHaveLength(2)
     geometry.status = 'confirmed'
     expect(roomLayoutInputFromGeometry(geometry, 'Спальня 6', null)).toBeNull()
     expect(roomArchitectureFromPlan(geometry, 'Спальня 6')).toBeNull()

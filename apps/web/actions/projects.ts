@@ -33,7 +33,10 @@ import {
   validPlanImageCalibration,
 } from '@/lib/projects/plan-image-calibration'
 import { planObstaclesSchema } from '@/lib/projects/plan-obstacles'
-import { currentOpeningFacePairs } from '@/lib/projects/plan-opening-face-pairs'
+import {
+  currentOpeningFacePairs,
+  currentWallFacePairs,
+} from '@/lib/projects/plan-opening-face-pairs'
 import { retainedPlanPageReview } from '@/lib/projects/plan-page-review'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
 import * as repository from '@/lib/projects/repository'
@@ -478,6 +481,14 @@ export async function savePlanGeometry(
         ...(before.pdfCalibration.openingFacePairs
           ? {
               openingFacePairs: currentOpeningFacePairs({
+                ...geometry,
+                pdfCalibration: before.pdfCalibration,
+              }),
+            }
+          : {}),
+        ...(before.pdfCalibration.wallFacePairs
+          ? {
+              wallFacePairs: currentWallFacePairs({
                 ...geometry,
                 pdfCalibration: before.pdfCalibration,
               }),
