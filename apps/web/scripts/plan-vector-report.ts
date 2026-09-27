@@ -9,7 +9,12 @@ import reference from '../../../docs/qa/fixtures/apartment-74-77.json'
 import labels from '../../../docs/qa/fixtures/apartment-74-77-native-labels.json'
 import nativeLeaders from '../../../docs/qa/fixtures/apartment-74-77-native-leaders.json'
 import annotated from '../../../docs/qa/fixtures/apartment-74-77-page-contours.json'
-import { pdfWidthChain } from '../lib/projects/plan-pdf-dimension-chain'
+import {
+  type PdfOpeningAnnotation,
+  pdfDepthChain,
+  pdfOpeningFromWidthChain,
+  pdfWidthChain,
+} from '../lib/projects/plan-pdf-dimension-chain'
 import { pdfCalloutLeader } from '../lib/projects/plan-pdf-leaders'
 import { extractPdfLinework } from '../lib/projects/plan-pdf-linework'
 import {
@@ -108,26 +113,60 @@ try {
         roomBinding,
       }
     })
-  const widthChains = annotated.rooms.map((room) => {
-    const native = room.widthLabels.map((index) => {
+  const nativeLabels = (indexes: number[]) =>
+    indexes.map((index) => {
       const item = actualLabels[index]
       if (!item) throw new Error('Размерная подпись не найдена в PDF.')
       return { index, ...item }
     })
+  const widthChains = annotated.rooms.map((room) => {
     const result = pdfWidthChain(
       work,
       pageSource,
       contours,
       room.roomSourceNumber,
-      native,
+      nativeLabels(room.widthLabels),
       room.widthMm,
     )
     if (result.status !== 'candidate')
       throw new Error(
-        `Контрольная цепочка спальни ${room.roomSourceNumber} не прошла: ${result.reason}`,
+        `Контрольная ширина помещения ${room.roomSourceNumber} не прошла: ${result.reason}`,
       )
     return result
   })
+  const depthChains = annotated.rooms.map((room) => {
+    const result = pdfDepthChain(
+      work,
+      pageSource,
+      contours,
+      room.roomSourceNumber,
+      nativeLabels(room.depthLabels),
+      room.depthMm,
+    )
+    if (result.status !== 'candidate')
+      throw new Error(
+        `Контрольная глубина помещения ${room.roomSourceNumber} не прошла: ${result.reason}`,
+      )
+    return result
+  })
+  const openingBindings = annotated.rooms.flatMap((room) =>
+    room.openings.map((opening) => {
+      const result = pdfOpeningFromWidthChain(
+        work,
+        pageSource,
+        contours,
+        room.roomSourceNumber,
+        nativeLabels(room.widthLabels),
+        room.widthMm,
+        opening as PdfOpeningAnnotation,
+      )
+      if (result.status !== 'candidate')
+        throw new Error(
+          `Контрольный проём помещения ${room.roomSourceNumber} не прошёл: ${result.reason}`,
+        )
+      return result
+    }),
+  )
   for (const [index, expectedRoom] of [
     [186, 4],
     [188, 6],
@@ -156,6 +195,36 @@ try {
     rejectedForeignChain.reason !== 'dimension-outside-room'
   )
     throw new Error('Чужая цепочка с верной суммой не отклонена.')
+  const bedroom = annotated.rooms.find((room) => room.roomSourceNumber === 4)
+  const window = bedroom?.openings[0]
+  if (!bedroom || !window) throw new Error('Контрольная спальня или её окно отсутствует.')
+  const rejectedForeignDepth = pdfDepthChain(
+    work,
+    pageSource,
+    contours,
+    3,
+    nativeLabels(bedroom.depthLabels),
+    bedroom.depthMm,
+  )
+  if (
+    rejectedForeignDepth.status !== 'unresolved' ||
+    rejectedForeignDepth.reason !== 'dimension-outside-room'
+  )
+    throw new Error('Чужая вертикальная цепочка не отклонена.')
+  const rejectedOppositeOpening = pdfOpeningFromWidthChain(
+    work,
+    pageSource,
+    contours,
+    4,
+    nativeLabels(bedroom.widthLabels),
+    bedroom.widthMm,
+    { ...window, kind: 'window', wallEdgeIndex: 2 },
+  )
+  if (
+    rejectedOppositeOpening.status !== 'unresolved' ||
+    rejectedOppositeOpening.reason !== 'opening-edge-not-near-chain'
+  )
+    throw new Error('Окно ошибочно перенесено на противоположную стену.')
   const { paths, ...metadata } = work
   const report = {
     source: reference.source,
@@ -174,12 +243,17 @@ try {
     },
     callouts,
     widthChains,
+    depthChains,
+    openingBindings,
     rejectedForeignChain,
+    rejectedForeignDepth,
+    rejectedOppositeOpening,
     limitations: [
       'Векторные пути — не стены и не размеры в миллиметрах.',
-      'Привязки двух спален проверены относительно ручной разметки исходной страницы, не автоматически распознанных стен.',
+      'Привязки четырёх помещений проверены относительно ручной разметки исходной страницы, не автоматически распознанных стен.',
       'Ручные контуры закрывают дверные/оконные разрывы по внутренним граням и не являются свободной площадью для мебели.',
-      'Прихожая/коридор не разделены догадкой. Проверены только две горизонтальные цепочки; глубины и другие комнаты ещё не привязаны.',
+      'Прихожая/коридор не разделены догадкой. Проверены по две оси четырёх помещений; санузлы и общие зоны ещё не привязаны.',
+      'Шесть проёмов размечены вручную, ширина/отступ сверены по цепочке. Высота, подоконник и открывание не определены; это не готовые зоны безопасности.',
       'Кривые пропущены, формы/группы и не прямоугольные клипы не интерпретируются.',
       'Цвета, прозрачность и видимость PDF-слоёв не переносятся; диагностическая картинка не является копией исходного листа.',
       'Новые мерки не подставлены в проекты; точность AI-чтения заново не измерена.',
@@ -216,14 +290,20 @@ try {
         `<polygon points="${room.polygon.map((p) => `${p.x},${p.y}`).join(' ')}" fill="#2b6fba" fill-opacity="0.05" stroke="#2b6fba" stroke-width="1"/><text x="${room.numberLabel.x}" y="${room.numberLabel.y}" font-size="10" fill="#2b6fba">${room.roomSourceNumber}</text>`,
     )
     .join('\n')
-  const dimensionOverlays = widthChains
+  const dimensionOverlays = [...widthChains, ...depthChains]
     .map(
       (chain) =>
         `<line x1="${chain.ends[0].x}" y1="${chain.ends[0].y}" x2="${chain.ends[1].x}" y2="${chain.ends[1].y}" stroke="#23804a" stroke-width="1.5"/><text x="${chain.ends[0].x + 10}" y="${chain.ends[0].y - 5}" fill="#23804a" font-size="9">${chain.totalMm} mm</text>`,
     )
     .join('\n')
+  const openingOverlays = openingBindings
+    .map(
+      (opening) =>
+        `<line x1="${opening.start.x}" y1="${opening.start.y}" x2="${opening.end.x}" y2="${opening.end.y}" stroke="#ad238b" stroke-width="2.5"/>`,
+    )
+    .join('\n')
   // Source drawing only: omit the lower address/title block. This is not a new source PDF.
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1772" viewBox="180 50 680 710" preserveAspectRatio="none"><rect x="180" y="50" width="680" height="710" fill="white"/>${vectorPaths}${roomOverlays}${dimensionOverlays}${markers}</svg>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1772" viewBox="180 50 680 710" preserveAspectRatio="none"><rect x="180" y="50" width="680" height="710" fill="white"/>${vectorPaths}${roomOverlays}${dimensionOverlays}${openingOverlays}${markers}</svg>`
   const directory = resolve('../../output/quality-bench/plan-vector-74-77')
   await mkdir(directory, { recursive: true })
   await writeFile(resolve(directory, 'report.json'), JSON.stringify(report, null, 2))

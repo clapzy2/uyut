@@ -8,7 +8,7 @@
   "review": "manual-source-review",
   "pageWidth": 842,
   "pageHeight": 1191,
-  "annotationNote": "Two manually reviewed bedroom envelopes on sheet 03, not inferred from local mm contours. Corner coordinates occur in native wall outlines. Door/window gaps are logically closed across the inner wall faces; reveals, fixtures and swing clearances are not free-floor polygons. Hallway/corridor separation is unknown. No scale-to-mm conversion.",
+  "annotationNote": "Four manually reviewed room envelopes on sheet 03, not inferred from local mm contours. Native wall/obstacle outline corners retained, including kitchen projection and living-room diagonal. Door/window gaps logically closed across inner faces; reveals, fixtures and swing clearances are not free-floor polygons. Hallway/corridor separation unknown. No scale-to-mm conversion. Opening kinds below are manual visual annotations, not automatically classified from numbers.",
   "rooms": [
     {
       "roomSourceNumber": 4,
@@ -21,7 +21,12 @@
       "wallOperations": [607, 914],
       "numberLabel": { "index": 161, "text": "4", "x": 741, "y": 210 },
       "widthLabels": [55, 56, 57],
-      "widthMm": 2985
+      "widthMm": 2985,
+      "depthLabels": [62],
+      "depthMm": 5156,
+      "openings": [
+        { "kind": "window", "wallEdgeIndex": 0, "labelIndex": 56, "widthMm": 1344, "offsetMm": 939 }
+      ]
     },
     {
       "roomSourceNumber": 6,
@@ -34,10 +39,474 @@
       "wallOperations": [914, 1035],
       "numberLabel": { "index": 163, "text": "6", "x": 739, "y": 629 },
       "widthLabels": [87, 86, 88],
-      "widthMm": 2945
+      "widthMm": 2945,
+      "depthLabels": [90],
+      "depthMm": 4154,
+      "openings": [
+        { "kind": "window", "wallEdgeIndex": 2, "labelIndex": 86, "widthMm": 1353, "offsetMm": 866 }
+      ]
+    },
+    {
+      "roomSourceNumber": 2,
+      "polygon": [
+        { "x": 206.385, "y": 81.757 },
+        { "x": 405.956, "y": 81.757 },
+        { "x": 405.956, "y": 281.919 },
+        { "x": 221.804, "y": 281.919 },
+        { "x": 221.804, "y": 258.737 },
+        { "x": 206.385, "y": 258.737 }
+      ],
+      "wallOperations": [565, 737, 873],
+      "numberLabel": { "index": 159, "text": "2", "x": 306, "y": 181 },
+      "widthLabels": [7, 19, 8, 9],
+      "widthMm": 2964,
+      "depthLabels": [16, 17],
+      "depthMm": 4205,
+      "openings": [
+        { "kind": "window", "wallEdgeIndex": 0, "labelIndex": 19, "widthMm": 563, "offsetMm": 525 },
+        { "kind": "balcony", "wallEdgeIndex": 0, "labelIndex": 8, "widthMm": 926, "offsetMm": 1088 }
+      ]
+    },
+    {
+      "roomSourceNumber": 3,
+      "polygon": [
+        { "x": 410.697, "y": 82.233 },
+        { "x": 638.883, "y": 82.233 },
+        { "x": 638.883, "y": 327.76 },
+        { "x": 474.527, "y": 327.76 },
+        { "x": 410.697, "y": 284.251 }
+      ],
+      "wallOperations": [607, 737],
+      "numberLabel": { "index": 160, "text": "3", "x": 523, "y": 210 },
+      "widthLabels": [39, 40, 41, 42, 43],
+      "widthMm": 3389,
+      "depthLabels": [48],
+      "depthMm": 5158,
+      "openings": [
+        {
+          "kind": "window",
+          "wallEdgeIndex": 0,
+          "labelIndex": 40,
+          "widthMm": 1089,
+          "offsetMm": 639
+        },
+        {
+          "kind": "balcony",
+          "wallEdgeIndex": 0,
+          "labelIndex": 42,
+          "widthMm": 576,
+          "offsetMm": 2198
+        }
+      ]
     }
   ],
   "dimensionPaths": [
+    {
+      "operationIndex": 1050,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 211.434, "y": 96.555 }, { "x": 236.683, "y": 96.555 }]
+    },
+    {
+      "operationIndex": 1054,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 211.434, "y": 95.962 },
+        { "x": 211.434, "y": 97.151 },
+        { "x": 206.385, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1059,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 236.683, "y": 95.962 },
+        { "x": 236.683, "y": 97.151 },
+        { "x": 241.735, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1078,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 284.691, "y": 96.555 }, { "x": 336.94, "y": 96.555 }]
+    },
+    {
+      "operationIndex": 1082,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 284.691, "y": 95.962 },
+        { "x": 284.691, "y": 97.151 },
+        { "x": 279.642, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1087,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 336.94, "y": 95.962 },
+        { "x": 336.94, "y": 97.151 },
+        { "x": 341.99, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1104,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 347.041, "y": 96.555 }, { "x": 400.904, "y": 96.555 }]
+    },
+    {
+      "operationIndex": 1108,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 347.041, "y": 95.962 },
+        { "x": 347.041, "y": 97.151 },
+        { "x": 341.99, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1113,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 400.904, "y": 95.962 },
+        { "x": 400.904, "y": 97.151 },
+        { "x": 405.956, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1289,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 255.124, "y": 85.326 }, { "x": 255.124, "y": 255.167 }]
+    },
+    {
+      "operationIndex": 1293,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 254.281, "y": 85.326 },
+        { "x": 255.966, "y": 85.326 },
+        { "x": 255.124, "y": 81.757 }
+      ]
+    },
+    {
+      "operationIndex": 1298,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 254.281, "y": 255.167 },
+        { "x": 255.966, "y": 255.167 },
+        { "x": 255.124, "y": 258.737 }
+      ]
+    },
+    {
+      "operationIndex": 1315,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 255.124, "y": 262.308 }, { "x": 255.124, "y": 278.349 }]
+    },
+    {
+      "operationIndex": 1319,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 254.281, "y": 262.308 },
+        { "x": 255.966, "y": 262.308 },
+        { "x": 255.124, "y": 258.737 }
+      ]
+    },
+    {
+      "operationIndex": 1324,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 254.281, "y": 278.349 },
+        { "x": 255.966, "y": 278.349 },
+        { "x": 255.124, "y": 281.919 }
+      ]
+    },
+    {
+      "operationIndex": 1367,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 246.784, "y": 96.555 }, { "x": 274.592, "y": 96.555 }]
+    },
+    {
+      "operationIndex": 1371,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 246.784, "y": 95.962 },
+        { "x": 246.784, "y": 97.151 },
+        { "x": 241.735, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1376,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 274.592, "y": 95.962 },
+        { "x": 274.592, "y": 97.151 },
+        { "x": 279.642, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1894,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 415.747, "y": 96.555 }, { "x": 448.671, "y": 96.555 }]
+    },
+    {
+      "operationIndex": 1898,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 415.747, "y": 95.962 },
+        { "x": 415.747, "y": 97.151 },
+        { "x": 410.697, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1903,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 448.671, "y": 95.962 },
+        { "x": 448.671, "y": 97.151 },
+        { "x": 453.722, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1920,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 458.771, "y": 96.555 }, { "x": 521.996, "y": 96.555 }]
+    },
+    {
+      "operationIndex": 1924,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 458.771, "y": 95.962 },
+        { "x": 458.771, "y": 97.151 },
+        { "x": 453.722, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1929,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 521.996, "y": 95.962 },
+        { "x": 521.996, "y": 97.151 },
+        { "x": 527.045, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1946,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 532.095, "y": 96.555 }, { "x": 553.641, "y": 96.555 }]
+    },
+    {
+      "operationIndex": 1950,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 532.095, "y": 95.962 },
+        { "x": 532.095, "y": 97.151 },
+        { "x": 527.045, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1955,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 553.641, "y": 95.962 },
+        { "x": 553.641, "y": 97.151 },
+        { "x": 558.691, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1972,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 563.74, "y": 96.555 }, { "x": 592.425, "y": 96.555 }]
+    },
+    {
+      "operationIndex": 1976,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 563.74, "y": 95.962 },
+        { "x": 563.74, "y": 97.151 },
+        { "x": 558.691, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1981,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 592.425, "y": 95.962 },
+        { "x": 592.425, "y": 97.151 },
+        { "x": 597.474, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 1998,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 602.524, "y": 96.555 }, { "x": 633.833, "y": 96.555 }]
+    },
+    {
+      "operationIndex": 2002,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 602.524, "y": 95.962 },
+        { "x": 602.524, "y": 97.151 },
+        { "x": 597.474, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 2007,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 633.833, "y": 95.962 },
+        { "x": 633.833, "y": 97.151 },
+        { "x": 638.883, "y": 96.555 }
+      ]
+    },
+    {
+      "operationIndex": 2128,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 624.897, "y": 85.802 }, { "x": 624.897, "y": 324.19 }]
+    },
+    {
+      "operationIndex": 2132,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 624.057, "y": 85.802 },
+        { "x": 625.74, "y": 85.802 },
+        { "x": 624.897, "y": 82.233 }
+      ]
+    },
+    {
+      "operationIndex": 2137,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 624.057, "y": 324.19 },
+        { "x": 625.74, "y": 324.19 },
+        { "x": 624.897, "y": 327.76 }
+      ]
+    },
+    {
+      "operationIndex": 2497,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 785.206, "y": 85.898 }, { "x": 785.206, "y": 324.19 }]
+    },
+    {
+      "operationIndex": 2501,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 784.364, "y": 85.898 },
+        { "x": 786.049, "y": 85.898 },
+        { "x": 785.206, "y": 82.328 }
+      ]
+    },
+    {
+      "operationIndex": 2506,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 784.364, "y": 324.19 },
+        { "x": 786.049, "y": 324.19 },
+        { "x": 785.206, "y": 327.76 }
+      ]
+    },
+    {
+      "operationIndex": 3237,
+      "subpathIndex": 0,
+      "paint": "stroke",
+      "closed": false,
+      "points": [{ "x": 786.329, "y": 721.183 }, { "x": 786.329, "y": 530.588 }]
+    },
+    {
+      "operationIndex": 3241,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 785.489, "y": 721.183 },
+        { "x": 787.171, "y": 721.183 },
+        { "x": 786.329, "y": 724.752 }
+      ]
+    },
+    {
+      "operationIndex": 3246,
+      "subpathIndex": 0,
+      "paint": "fill-stroke",
+      "closed": true,
+      "points": [
+        { "x": 785.489, "y": 530.588 },
+        { "x": 787.171, "y": 530.588 },
+        { "x": 786.329, "y": 527.017 }
+      ]
+    },
     {
       "operationIndex": 2310,
       "subpathIndex": 0,

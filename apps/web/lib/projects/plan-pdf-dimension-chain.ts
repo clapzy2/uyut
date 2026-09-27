@@ -10,19 +10,120 @@ import {
 } from './plan-pdf-room-binding'
 
 type NativeLabel = PagePoint & { index: number; text: string; rotation: number }
+type DimensionAxis = 'width' | 'depth'
 export type PdfDimensionChain =
   | {
       status: 'candidate'
       roomSourceNumber: number
       totalMm: number
+      axis: DimensionAxis
       labelIndexes: number[]
       lineOperations: number[]
       ends: [PagePoint, PagePoint]
+      segments: Array<{ labelIndex: number; valueMm: number; start: PagePoint; end: PagePoint }>
       basis: 'manual-page-contour'
     }
   | { status: 'unresolved' | 'ambiguous'; roomSourceNumber: null; reason: string }
 
-/** Horizontal dimensions with tips facing the measured ends. Never derive mm from drawing scale. */
+export type PdfOpeningAnnotation = {
+  kind: 'window' | 'balcony'
+  wallEdgeIndex: number
+  labelIndex: number
+  widthMm: number
+  offsetMm: number
+}
+export type PdfOpeningBinding =
+  | {
+      status: 'candidate'
+      roomSourceNumber: number
+      kind: PdfOpeningAnnotation['kind']
+      widthMm: number
+      offsetFromLeftMm: number
+      labelIndex: number
+      start: PagePoint
+      end: PagePoint
+      basis: 'manual-opening-annotation-with-native-dimension'
+    }
+  | { status: 'unresolved' | 'ambiguous'; roomSourceNumber: null; reason: string }
+
+/** Opening kind/edge are manually reviewed. Only its printed horizontal span is checked here. */
+export function pdfOpeningFromWidthChain(
+  work: PdfLinework,
+  source: PdfPlanSource,
+  contours: PdfRoomContours,
+  roomSourceNumber: number,
+  labels: readonly NativeLabel[],
+  totalMm: number,
+  opening: PdfOpeningAnnotation,
+): PdfOpeningBinding {
+  const fail = (reason: string): PdfOpeningBinding => ({
+    status: 'unresolved',
+    roomSourceNumber: null,
+    reason,
+  })
+  const chain = pdfWidthChain(work, source, contours, roomSourceNumber, labels, totalMm)
+  if (chain.status !== 'candidate') return chain
+  if (
+    !['window', 'balcony'].includes(opening.kind) ||
+    !Number.isSafeInteger(opening.wallEdgeIndex) ||
+    opening.wallEdgeIndex < 0 ||
+    !Number.isSafeInteger(opening.widthMm) ||
+    opening.widthMm < 1 ||
+    !Number.isSafeInteger(opening.offsetMm) ||
+    opening.offsetMm < 0
+  )
+    return fail('invalid-opening-annotation')
+  const room = contours.rooms.find((r) => r.roomSourceNumber === roomSourceNumber)
+  if (!room) return fail('no-annotated-room')
+  const a = room.polygon[opening.wallEdgeIndex]
+  const b = room.polygon[(opening.wallEdgeIndex + 1) % room.polygon.length]
+  if (!a || !b || a.y !== b.y) return fail('opening-edge-not-horizontal')
+  const index = chain.segments.findIndex((segment) => segment.labelIndex === opening.labelIndex)
+  const span = chain.segments[index]
+  if (!span) return fail('opening-label-not-in-chain')
+  const offsetMm = chain.segments.slice(0, index).reduce((sum, segment) => sum + segment.valueMm, 0)
+  if (span.valueMm !== opening.widthMm || offsetMm !== opening.offsetMm)
+    return fail('opening-dimension-conflict')
+  const close = (p: PagePoint, q: PagePoint) => pdfPointDistance(work, p, q) <= 0.12
+  if (
+    !close({ x: Math.min(a.x, b.x), y: a.y }, { x: chain.ends[0].x, y: a.y }) ||
+    !close({ x: Math.max(a.x, b.x), y: a.y }, { x: chain.ends[1].x, y: a.y })
+  )
+    return fail('opening-edge-does-not-span-chain')
+  const edgeGap = Math.abs(a.y - chain.ends[0].y) * (work.pageHeight / 1000)
+  // A manually chosen edge must not project a nearby dimension row onto the opposite wall.
+  // This checks the annotation; it does not infer the opening kind or select another edge.
+  for (let i = 0; i < room.polygon.length; i++) {
+    if (i === opening.wallEdgeIndex) continue
+    const left = room.polygon[i]
+    const right = room.polygon[(i + 1) % room.polygon.length]
+    if (
+      !left ||
+      !right ||
+      left.y !== right.y ||
+      !close({ x: Math.min(left.x, right.x), y: a.y }, { x: chain.ends[0].x, y: a.y }) ||
+      !close({ x: Math.max(left.x, right.x), y: a.y }, { x: chain.ends[1].x, y: a.y })
+    )
+      continue
+    const otherGap = Math.abs(left.y - chain.ends[0].y) * (work.pageHeight / 1000)
+    if (Math.abs(otherGap - edgeGap) <= 0.12)
+      return { status: 'ambiguous', roomSourceNumber: null, reason: 'opening-edge-equidistant' }
+    if (otherGap < edgeGap) return fail('opening-edge-not-near-chain')
+  }
+  return {
+    status: 'candidate',
+    roomSourceNumber,
+    kind: opening.kind,
+    widthMm: span.valueMm,
+    offsetFromLeftMm: offsetMm,
+    labelIndex: span.labelIndex,
+    start: { x: span.start.x, y: a.y },
+    end: { x: span.end.x, y: a.y },
+    basis: 'manual-opening-annotation-with-native-dimension',
+  }
+}
+
+/** Preserve the original width API; both axes use the same connection and contour checks. */
 export function pdfWidthChain(
   work: PdfLinework,
   source: PdfPlanSource,
@@ -30,6 +131,30 @@ export function pdfWidthChain(
   roomSourceNumber: number,
   labels: readonly NativeLabel[],
   totalMm: number,
+): PdfDimensionChain {
+  return pdfDimensionChain(work, source, contours, roomSourceNumber, labels, totalMm, 'width')
+}
+
+export function pdfDepthChain(
+  work: PdfLinework,
+  source: PdfPlanSource,
+  contours: PdfRoomContours,
+  roomSourceNumber: number,
+  labels: readonly NativeLabel[],
+  totalMm: number,
+): PdfDimensionChain {
+  return pdfDimensionChain(work, source, contours, roomSourceNumber, labels, totalMm, 'depth')
+}
+
+/** Axis-aligned dimensions with tips facing measured ends. Never derive mm from drawing scale. */
+function pdfDimensionChain(
+  work: PdfLinework,
+  source: PdfPlanSource,
+  contours: PdfRoomContours,
+  roomSourceNumber: number,
+  labels: readonly NativeLabel[],
+  totalMm: number,
+  axis: DimensionAxis,
 ): PdfDimensionChain {
   const fail = (
     reason: string,
@@ -53,7 +178,7 @@ export function pdfWidthChain(
       label.index < 0 ||
       !/^\d{1,5}$/.test(label.text) ||
       Number(label.text) < 1 ||
-      label.rotation !== 0 ||
+      label.rotation !== (axis === 'width' ? 0 : 90) ||
       ![label.x, label.y].every((v) => Number.isFinite(v) && v >= 0 && v <= 1000)
     )
       return fail('invalid-dimension-labels')
@@ -61,9 +186,14 @@ export function pdfWidthChain(
   if (labels.reduce((sum, label) => sum + Number(label.text), 0) !== totalMm)
     return fail('dimension-sum-conflict')
   const close = (a: PagePoint, b: PagePoint) => pdfPointDistance(work, a, b) <= 0.12
+  const along = (point: PagePoint) => (axis === 'width' ? point.x : point.y)
+  const across = (point: PagePoint) => (axis === 'width' ? point.y : point.x)
+  const acrossScale = (axis === 'width' ? work.pageHeight : work.pageWidth) / 1000
+  const at = (position: number, row: number): PagePoint =>
+    axis === 'width' ? { x: position, y: row } : { x: row, y: position }
   const arrows = work.paths.flatMap((path) => {
     const arrow = pdfVectorArrow(work, path)
-    return arrow && Math.abs(((arrow.tip.y - arrow.base.y) * work.pageHeight) / 1000) <= 0.12
+    return arrow && Math.abs((across(arrow.tip) - across(arrow.base)) * acrossScale) <= 0.12
       ? [arrow]
       : []
   })
@@ -84,11 +214,12 @@ export function pdfWidthChain(
   }> = []
   for (const path of work.paths) {
     if (path.closed || path.paint !== 'stroke' || path.points.length !== 2) continue
-    const ordered = [...path.points].sort((a, b) => a.x - b.x)
+    const ordered = [...path.points].sort((a, b) => along(a) - along(b))
     const [a, b] = ordered
-    if (!a || !b || a.x === b.x || Math.abs(((a.y - b.y) * work.pageHeight) / 1000) > 0.12) continue
-    const left = arrows.filter((arrow) => close(a, arrow.base) && arrow.tip.x < a.x)
-    const right = arrows.filter((arrow) => close(b, arrow.base) && arrow.tip.x > b.x)
+    if (!a || !b || along(a) === along(b) || Math.abs((across(a) - across(b)) * acrossScale) > 0.12)
+      continue
+    const left = arrows.filter((arrow) => close(a, arrow.base) && along(arrow.tip) < along(a))
+    const right = arrows.filter((arrow) => close(b, arrow.base) && along(arrow.tip) > along(b))
     // Do not select one of two competing arrowheads at an endpoint.
     const branched = strokes.some(
       (stroke) =>
@@ -107,13 +238,14 @@ export function pdfWidthChain(
     }
   }
   const selected: typeof spans = []
-  for (const label of [...labels].sort((a, b) => a.x - b.x)) {
+  const sortedLabels = [...labels].sort((a, b) => along(a) - along(b))
+  for (const label of sortedLabels) {
     const matching = spans.filter(
       (span) =>
-        label.x > span.start.x &&
-        label.x < span.end.x &&
-        ((span.start.y - label.y) * work.pageHeight) / 1000 >= 0 &&
-        ((span.start.y - label.y) * work.pageHeight) / 1000 <= 4,
+        along(label) > along(span.start) &&
+        along(label) < along(span.end) &&
+        (across(span.start) - across(label)) * acrossScale >= 0 &&
+        (across(span.start) - across(label)) * acrossScale <= 4,
     )
     if (matching.length !== 1)
       return fail(
@@ -140,26 +272,33 @@ export function pdfWidthChain(
   const first = selected[0]
   const last = selected[selected.length - 1]
   if (!first || !last) return fail('no-connected-dimension-line')
-  const xs = room.polygon.map((p) => p.x)
-  const rowY = first.start.y
+  const positions = room.polygon.map(along)
+  const row = across(first.start)
   // Both tips must reach the reviewed contour, not only have a plausible sum.
   if (
     pdfBoundaryDistance(work, first.start, room.polygon) > 0.12 ||
     pdfBoundaryDistance(work, last.end, room.polygon) > 0.12 ||
-    !close(first.start, { x: Math.min(...xs), y: rowY }) ||
-    !close(last.end, { x: Math.max(...xs), y: rowY })
+    !close(first.start, at(Math.min(...positions), row)) ||
+    !close(last.end, at(Math.max(...positions), row))
   )
     return fail('dimension-does-not-span-room')
   // Split at all contour intersections: a concavity between segment midpoints is still a conflict.
-  const cuts = [first.start.x, last.end.x]
+  const cuts = [along(first.start), along(last.end)]
   for (const candidate of contours.rooms) {
     for (let i = 0; i < candidate.polygon.length; i++) {
       const a = candidate.polygon[i]
       const b = candidate.polygon[(i + 1) % candidate.polygon.length]
-      if (!a || !b || a.y === b.y || rowY < Math.min(a.y, b.y) || rowY > Math.max(a.y, b.y))
+      if (
+        !a ||
+        !b ||
+        across(a) === across(b) ||
+        row < Math.min(across(a), across(b)) ||
+        row > Math.max(across(a), across(b))
+      )
         continue
-      const x = a.x + ((b.x - a.x) * (rowY - a.y)) / (b.y - a.y)
-      if (x > first.start.x && x < last.end.x) cuts.push(x)
+      const position =
+        along(a) + ((along(b) - along(a)) * (row - across(a))) / (across(b) - across(a))
+      if (position > along(first.start) && position < along(last.end)) cuts.push(position)
     }
   }
   const orderedCuts = [...new Set(cuts)].sort((a, b) => a - b)
@@ -167,7 +306,7 @@ export function pdfWidthChain(
     const left = orderedCuts[i - 1]
     const right = orderedCuts[i]
     if (left === undefined || right === undefined) continue
-    const owner = pdfRoomAtPoint(work, source, contours, { x: (left + right) / 2, y: rowY })
+    const owner = pdfRoomAtPoint(work, source, contours, at((left + right) / 2, row))
     if (owner.status !== 'candidate' || owner.roomSourceNumber !== roomSourceNumber)
       return fail('dimension-outside-room')
   }
@@ -175,9 +314,23 @@ export function pdfWidthChain(
     status: 'candidate',
     roomSourceNumber,
     totalMm,
-    labelIndexes: [...labels].sort((a, b) => a.x - b.x).map((l) => l.index),
+    axis,
+    labelIndexes: sortedLabels.map((l) => l.index),
     lineOperations: selected.map((s) => s.operationIndex),
     ends: [first.start, last.end],
+    segments: selected.flatMap((span, i) => {
+      const label = sortedLabels[i]
+      return label
+        ? [
+            {
+              labelIndex: label.index,
+              valueMm: Number(label.text),
+              start: span.start,
+              end: span.end,
+            },
+          ]
+        : []
+    }),
     basis: 'manual-page-contour',
   }
 }
