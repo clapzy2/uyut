@@ -1,4 +1,7 @@
+import type { PlanReading } from '@uyut/db'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { AccessError } from '@/lib/projects/access'
+import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
 
 const mocks = vi.hoisted(() => ({
   assertOwner: vi.fn(),
@@ -22,7 +25,13 @@ vi.mock('@/lib/audit', () => ({ recordAudit: mocks.audit }))
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidate }))
 vi.mock('next/headers', () => ({ headers: async () => new Headers() }))
 
-import { savePlanGeometry } from './projects'
+import { savePlanGeometry as saveGeometryAction } from './projects'
+
+let source: { planUrl: string; planReading: PlanReading }
+
+function savePlanGeometry(id: string, input: unknown, mode: 'draft' | 'confirm') {
+  return saveGeometryAction(id, input, mode, planEditRevision(source.planUrl, source.planReading))
+}
 
 const projectId = 'f6fcb42e-2b4e-4b39-bb5c-31c9bfbe9f2f'
 const emptyManualGeometry = {
@@ -75,17 +84,114 @@ describe('manual plan draft', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.getSession.mockResolvedValue({ user: { id: 'owner' } })
-    mocks.assertOwner.mockResolvedValue({
+    source = {
       planUrl: 'plan.webp',
       planReading: {
         readAt: '2026-09-24T00:00:00.000Z',
         confirmedAt: '2026-09-24T00:00:00.000Z',
-        rooms: [{ name: 'Кухня', areaM2: 5.4 }],
+        rooms: [{ name: 'Кухня', kind: 'kitchen', areaM2: 5.4 }],
         geometry: emptyManualGeometry,
       },
-    })
+    }
+    mocks.assertOwner.mockResolvedValue(source)
     mocks.setPlanReading.mockResolvedValue(undefined)
     mocks.audit.mockResolvedValue(undefined)
+  })
+
+  it('rejects an old editor revision without writing or announcing success', async () => {
+    const result = await saveGeometryAction(projectId, emptyManualGeometry, 'draft', '0'.repeat(64))
+    expect(result.ok).toBe(false)
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
+    expect(mocks.revalidate).not.toHaveBeenCalled()
+  })
+
+  it('requires a source revision even when called outside the editor', async () => {
+    expect(await saveGeometryAction(projectId, emptyManualGeometry, 'draft')).toMatchObject({
+      ok: false,
+      code: 'plan-conflict',
+    })
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+  })
+
+  it('does not save without a session or owner permission', async () => {
+    mocks.getSession.mockResolvedValueOnce(null)
+    expect((await savePlanGeometry(projectId, emptyManualGeometry, 'draft')).ok).toBe(false)
+    expect(mocks.assertOwner).not.toHaveBeenCalled()
+    mocks.assertOwner.mockRejectedValueOnce(new AccessError('Проект не найден'))
+    expect(await savePlanGeometry(projectId, emptyManualGeometry, 'draft')).toEqual({
+      ok: false,
+      error: 'Проект не найден',
+    })
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+  })
+
+  it('returns a conflict if the source changes between validation and the database write', async () => {
+    mocks.setPlanReading.mockRejectedValueOnce(new PlanEditConflictError())
+    expect(await savePlanGeometry(projectId, emptyManualGeometry, 'draft')).toMatchObject({
+      ok: false,
+      code: 'plan-conflict',
+    })
+    expect(mocks.audit).not.toHaveBeenCalled()
+    expect(mocks.revalidate).not.toHaveBeenCalled()
+  })
+
+  it('allows retry after a failed write and only then records success', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      mocks.setPlanReading.mockRejectedValueOnce(new Error('Synthetic database failure'))
+      expect((await savePlanGeometry(projectId, emptyManualGeometry, 'draft')).ok).toBe(false)
+      expect(mocks.audit).not.toHaveBeenCalled()
+      expect(mocks.revalidate).not.toHaveBeenCalled()
+      const retry = await savePlanGeometry(projectId, emptyManualGeometry, 'draft')
+      expect(retry.ok).toBe(true)
+      if (retry.ok) {
+        expect(retry.data.revision).toBe(
+          planEditRevision(source.planUrl, {
+            ...source.planReading,
+            geometry: retry.data.geometry,
+          }),
+        )
+      }
+      expect(mocks.audit).toHaveBeenCalledOnce()
+      expect(mocks.revalidate).toHaveBeenCalledOnce()
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('revalidates a saved draft before giving it a new confirmation', async () => {
+    source.planReading.rooms = [{ name: 'Кухня', kind: 'kitchen', areaM2: 20 }]
+    const result = await savePlanGeometry(
+      projectId,
+      {
+        ...emptyManualGeometry,
+        walls: closedWalls,
+        rooms: [{ name: 'Кухня', polygon: corners }],
+        confirmedAt: 'forged-old-confirmation',
+      },
+      'confirm',
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.data.geometry.status).toBe('confirmed')
+      expect(result.data.geometry.confirmedAt).toMatch(/^2026-/)
+      expect(result.data.geometry.confirmedAt).not.toBe('forged-old-confirmation')
+    }
+  })
+
+  it('saves further edits as a draft and removes the old geometry confirmation', async () => {
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      status: 'confirmed',
+      confirmedAt: '2026-09-26T00:00:00.000Z',
+    }
+    const result = await savePlanGeometry(projectId, emptyManualGeometry, 'draft')
+    expect(result.ok).toBe(true)
+    const saved = mocks.setPlanReading.mock.calls[0]?.[2]
+    expect(saved.geometry.status).toBe('draft')
+    expect(saved.geometry).not.toHaveProperty('confirmedAt')
+    expect(saved.confirmedAt).toBe(source.planReading.confirmedAt)
   })
 
   it('saves an empty draft without upgrading it to confirmed geometry', async () => {
@@ -98,6 +204,7 @@ describe('manual plan draft', () => {
       expect.objectContaining({
         geometry: expect.objectContaining({ status: 'draft', walls: [], source: 'manual' }),
       }),
+      source,
     )
     expect(mocks.audit).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'project.plan_geometry_drafted' }),
@@ -127,6 +234,7 @@ describe('manual plan draft', () => {
       expect.objectContaining({
         geometry: expect.objectContaining({ imageCalibration: checkedCalibration }),
       }),
+      source,
     )
   })
 

@@ -489,12 +489,14 @@ function PlanGeometryCanvas({
 
 export function PlanGeometryEditor({
   projectId,
+  sourceRevision,
   geometry,
   roomReadings,
   planUrl,
   planIsPdf,
 }: {
   projectId: string
+  sourceRevision: string
   geometry: PlanGeometry
   roomReadings: { name: string; areaM2?: number }[]
   planUrl: string | null
@@ -522,7 +524,9 @@ export function PlanGeometryEditor({
   )
   const [error, setError] = useState<string>()
   const [newRoomName, setNewRoomName] = useState(roomNames[0] ?? '')
-  const [verified, setVerified] = useState(false)
+  const [baseRevision, setBaseRevision] = useState(sourceRevision)
+  const [verifiedEdit, setVerifiedEdit] = useState<string>()
+  const [conflict, setConflict] = useState(false)
   const [imageCalibration, setImageCalibration] = useState(geometry.imageCalibration)
   const [referenceRevision, setReferenceRevision] = useState(0)
   const [underlay, setUnderlay] = useState<PlanUnderlay | undefined>(() =>
@@ -538,6 +542,19 @@ export function PlanGeometryEditor({
       : undefined,
   )
   const [saving, startSaving] = useTransition()
+  const editSnapshot = JSON.stringify([
+    baseRevision,
+    walls,
+    openings,
+    rooms,
+    kitchenItems,
+    utilityPoints,
+    obstacles,
+    routeWidthCm,
+    routeStartOpeningId,
+    imageCalibration,
+  ])
+  const verified = verifiedEdit === editSnapshot
   const [selectionKind, selectionId] = selection.split(':')
   const selectedWall =
     selectionKind === 'wall' ? walls.find((wall) => wall.id === selectionId) : null
@@ -710,7 +727,7 @@ export function PlanGeometryEditor({
       },
     ])
     setSelection(`room:${rooms.length}`)
-    setVerified(false)
+    setVerifiedEdit(undefined)
   }
 
   function addOpening(type: PlanOpening['type']) {
@@ -766,53 +783,69 @@ export function PlanGeometryEditor({
     }
   }
 
-  function reset() {
-    setWalls(geometry.walls)
-    setOpenings(geometry.openings)
-    setRooms(geometry.rooms)
-    setKitchenItems(geometry.kitchenItems ?? [])
-    setUtilityPoints(geometry.utilityPoints ?? [])
-    setObstacles(geometry.obstacles ?? [])
-    setRouteWidthCm(geometry.routeWidthCm)
-    setRouteStartOpeningId(geometry.routeStartOpeningId)
-    setImageCalibration(geometry.imageCalibration)
+  function reset(nextGeometry = geometry, nextRevision = sourceRevision) {
+    setWalls(nextGeometry.walls)
+    setOpenings(nextGeometry.openings)
+    setRooms(nextGeometry.rooms)
+    setKitchenItems(nextGeometry.kitchenItems ?? [])
+    setUtilityPoints(nextGeometry.utilityPoints ?? [])
+    setObstacles(nextGeometry.obstacles ?? [])
+    setRouteWidthCm(nextGeometry.routeWidthCm)
+    setRouteStartOpeningId(nextGeometry.routeStartOpeningId)
+    setImageCalibration(nextGeometry.imageCalibration)
+    setBaseRevision(nextRevision)
+    setVerifiedEdit(undefined)
+    setConflict(false)
     setReferenceRevision((revision) => revision + 1)
     setUnderlay((current) =>
-      current ? { ...current, calibration: geometry.imageCalibration } : undefined,
+      current ? { ...current, calibration: nextGeometry.imageCalibration } : undefined,
     )
-    setSelection(nextSelection(geometry.walls, geometry.openings))
+    setSelection(nextSelection(nextGeometry.walls, nextGeometry.openings))
     setError(undefined)
   }
 
   function save(mode: 'draft' | 'confirm') {
     setError(undefined)
     startSaving(async () => {
-      const result = await savePlanGeometry(
-        projectId,
-        {
-          ...geometry,
-          walls,
-          openings,
-          rooms,
-          kitchenItems,
-          utilityPoints,
-          obstacles,
-          routeWidthCm,
-          routeStartOpeningId,
-          imageCalibration: imageCalibration ?? null,
-        },
-        mode,
-      )
-      if (!result.ok) {
-        setError(result.error)
-        return
+      try {
+        const result = await savePlanGeometry(
+          projectId,
+          {
+            ...geometry,
+            walls,
+            openings,
+            rooms,
+            kitchenItems,
+            utilityPoints,
+            obstacles,
+            routeWidthCm,
+            routeStartOpeningId,
+            imageCalibration: imageCalibration ?? null,
+          },
+          mode,
+          baseRevision,
+        )
+        if (!result.ok) {
+          setError(result.error)
+          if (result.code === 'plan-conflict') {
+            setConflict(true)
+            setVerifiedEdit(undefined)
+            router.refresh()
+          }
+          return
+        }
+        toast({
+          title: mode === 'draft' ? 'Черновик 2D-схемы сохранён' : '2D-схема подтверждена',
+          tone: 'success',
+        })
+        reset(result.data.geometry, result.data.revision)
+        setOpen(false)
+        router.refresh()
+      } catch {
+        setError(
+          'Не получилось получить ответ сервера. Правки остались в редакторе; попробуйте сохранить ещё раз.',
+        )
       }
-      toast({
-        title: mode === 'draft' ? 'Черновик 2D-схемы сохранён' : '2D-схема подтверждена',
-        tone: 'success',
-      })
-      setOpen(false)
-      router.refresh()
     })
   }
 
@@ -823,7 +856,10 @@ export function PlanGeometryEditor({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!saving) setOpen(next)
+        if (!saving) {
+          setVerifiedEdit(undefined)
+          setOpen(next)
+        }
       }}
     >
       <DialogTrigger asChild>
@@ -1369,34 +1405,33 @@ export function PlanGeometryEditor({
               ) : null}
             </div>
           ) : null}
-          {geometry.status === 'draft' ? (
-            <p className="mt-4 text-[13px] leading-relaxed text-ink-2">
-              Черновик не используется для точной расстановки мебели. Его можно сохранить даже без
-              стен и вернуться позже. Контур-заготовку каждой комнаты обязательно подгоните по
-              плану: её начальная форма ничего не говорит о реальной квартире.
-            </p>
-          ) : null}
+          <p className="mt-4 text-[13px] leading-relaxed text-ink-2">
+            Черновик не используется для точной расстановки мебели. Его можно сохранить даже без
+            стен и вернуться позже. Контур-заготовку каждой комнаты обязательно подгоните по плану:
+            её начальная форма ничего не говорит о реальной квартире. Сохранение в черновик снимает
+            прежнее подтверждение схемы.
+          </p>
           <label className="mt-4 flex items-start gap-3 text-[13px] leading-relaxed text-ink">
             <input
               type="checkbox"
               checked={verified}
-              onChange={(event) => setVerified(event.currentTarget.checked)}
+              onChange={(event) =>
+                setVerifiedEdit(event.currentTarget.checked ? editSnapshot : undefined)
+              }
               className="mt-1 accent-accent"
             />
             Я сверил стены, проёмы и контуры комнат с исходным планом. Это не обмер на месте.
           </label>
           <div className="mt-6 flex flex-wrap gap-3 border-t border-line pt-5">
-            {geometry.status === 'draft' ? (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => save('draft')}
-                pending={saving}
-                disabled={blockingIssues.length > 0}
-              >
-                Сохранить черновик
-              </Button>
-            ) : null}
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => save('draft')}
+              pending={saving}
+              disabled={blockingIssues.length > 0 || conflict}
+            >
+              Сохранить черновик
+            </Button>
             <Button
               type="button"
               onClick={() => save('confirm')}
@@ -1406,14 +1441,15 @@ export function PlanGeometryEditor({
                 rooms.length === 0 ||
                 confirmationIssues.length > 0 ||
                 !verified ||
+                conflict ||
                 (geometry.source === 'manual' &&
                   (missingRoomNames.length > 0 || duplicateRoomNames))
               }
             >
               {saving ? 'Проверяем…' : 'Подтвердить и сохранить'}
             </Button>
-            <Button type="button" variant="ghost" onClick={reset} disabled={saving}>
-              Сбросить правки
+            <Button type="button" variant="ghost" onClick={() => reset()} disabled={saving}>
+              {conflict ? 'Загрузить сохранённую схему' : 'Сбросить правки'}
             </Button>
           </div>
         </fieldset>

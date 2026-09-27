@@ -23,6 +23,7 @@ import { formatPrice } from '@/lib/concepts/format'
 import { PLAN_ACCEPT, PLAN_LIMIT_TEXT, PLAN_MAX_BYTES } from '@/lib/files/rules'
 import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
 import { fileNameFromKey, formatArea, pluralConcepts, projectMeta } from '@/lib/projects/format'
+import { planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { getProject } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { pluralItems } from '@/lib/shopping/format'
@@ -328,6 +329,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
             isOwner ? (
               <PlanGeometryEditor
                 projectId={project.id}
+                sourceRevision={planEditRevision(project.planUrl, project.planReading)}
                 geometry={project.planReading.geometry}
                 roomReadings={project.planReading.rooms.map((room) => ({
                   name: room.name,

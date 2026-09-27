@@ -15,6 +15,7 @@ import {
 import { and, asc, count, desc, eq, inArray, isNull, max, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { mergePlanMeasurements } from '@/lib/projects/measurement-assurance'
+import { PlanEditConflictError } from '@/lib/projects/plan-edit-revision'
 import {
   assertOwner,
   assertOwnerOrCollaborator,
@@ -160,9 +161,31 @@ export async function setPlanReading(
   userId: string,
   projectId: string,
   reading: PlanReading | null,
+  expected?: Pick<Project, 'planUrl' | 'planReading'>,
 ): Promise<void> {
   const project = await assertOwner(userId, projectId)
-  await getDb().update(projects).set({ planReading: reading }).where(eq(projects.id, project.id))
+  const [updated] = await getDb()
+    .update(projects)
+    .set({ planReading: reading })
+    .where(
+      and(
+        eq(projects.id, project.id),
+        eq(projects.ownerId, userId),
+        isNull(projects.deletedAt),
+        expected
+          ? and(
+              expected.planUrl === null
+                ? isNull(projects.planUrl)
+                : eq(projects.planUrl, expected.planUrl),
+              expected.planReading === null
+                ? isNull(projects.planReading)
+                : sql`${projects.planReading} = ${JSON.stringify(expected.planReading)}::jsonb`,
+            )
+          : undefined,
+      ),
+    )
+    .returning({ id: projects.id })
+  if (!updated) throw new PlanEditConflictError()
 }
 
 /** Комнаты с плана одной пачкой: подтверждение — это один жест, а не пять. */

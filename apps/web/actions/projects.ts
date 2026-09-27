@@ -26,6 +26,7 @@ import {
   manualRoomNamesValid,
   missingManualRoomNames,
 } from '@/lib/projects/manual-plan-geometry'
+import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
 import {
   inspectManualPlanCompleteness,
   inspectPlanGeometry,
@@ -47,7 +48,9 @@ import {
   projectSettingsSchema,
 } from '@/lib/validation/projects'
 
-export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string }
+export type ActionResult<T = undefined> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; code?: 'plan-conflict' }
 
 const SESSION_EXPIRED = 'Сессия закончилась. Войдите снова.'
 const GENERIC = 'Не получилось. Попробуйте ещё раз, а если повторится, напишите нам.'
@@ -57,7 +60,10 @@ async function currentUserId(): Promise<string | null> {
   return session?.user.id ?? null
 }
 
-function failure(error: unknown): { ok: false; error: string } {
+function failure(error: unknown): { ok: false; error: string; code?: 'plan-conflict' } {
+  if (error instanceof PlanEditConflictError) {
+    return { ok: false, error: error.message, code: 'plan-conflict' }
+  }
   if (
     error instanceof AccessError ||
     error instanceof UploadError ||
@@ -191,7 +197,7 @@ export async function readPlan(
     }
     const parsed = await readPlanFromStorage(project.planUrl, pageNumber)
     const reading: PlanReading = { ...parsed, readAt: new Date().toISOString() }
-    await repository.setPlanReading(userId, projectId, reading)
+    await repository.setPlanReading(userId, projectId, reading, project)
     await recordAudit({
       action: 'project.plan_read',
       actorId: userId,
@@ -248,10 +254,15 @@ export async function startManualPlanGeometry(
       return { ok: false, error: '2D-схема уже создана. Обновите страницу.' }
     }
 
-    await repository.setPlanReading(userId, projectId, {
-      ...project.planReading,
-      geometry,
-    })
+    await repository.setPlanReading(
+      userId,
+      projectId,
+      {
+        ...project.planReading,
+        geometry,
+      },
+      project,
+    )
     revalidatePath(`/projects/${projectId}`)
     return { ok: true, data: geometry }
   } catch (error) {
@@ -259,12 +270,13 @@ export async function startManualPlanGeometry(
   }
 }
 
-/** Сохранить ручную правку 2D-схемы и отметить её подтверждённой владельцем. */
+/** Сохранить правку именно той версии, которую владелец открыл в редакторе. */
 export async function savePlanGeometry(
   projectId: string,
   input: unknown,
   mode: 'draft' | 'confirm' = 'confirm',
-): Promise<ActionResult<NonNullable<PlanReading['geometry']>>> {
+  expectedRevision?: string,
+): Promise<ActionResult<{ geometry: NonNullable<PlanReading['geometry']>; revision: string }>> {
   const userId = await currentUserId()
   if (!userId) return { ok: false, error: SESSION_EXPIRED }
   if (mode !== 'draft' && mode !== 'confirm') {
@@ -272,12 +284,12 @@ export async function savePlanGeometry(
   }
   try {
     const project = await assertOwner(userId, projectId)
+    if (expectedRevision !== planEditRevision(project.planUrl, project.planReading)) {
+      throw new PlanEditConflictError()
+    }
     const before = project.planReading?.geometry
     if (!project.planReading || !before) {
       return { ok: false, error: 'Сначала прочитайте план и постройте 2D-схему.' }
-    }
-    if (mode === 'draft' && before.status === 'confirmed') {
-      return { ok: false, error: 'Подтверждённую схему нельзя вернуть в черновик.' }
     }
     const submitted = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
     const rawCalibration =
@@ -473,10 +485,11 @@ export async function savePlanGeometry(
       status: mode === 'draft' ? 'draft' : 'confirmed',
       ...(mode === 'confirm' ? { confirmedAt: new Date().toISOString() } : {}),
     }
-    await repository.setPlanReading(userId, projectId, {
+    const reading: PlanReading = {
       ...project.planReading,
       geometry: saved,
-    })
+    }
+    await repository.setPlanReading(userId, projectId, reading, project)
     await recordAudit({
       action:
         mode === 'draft' ? 'project.plan_geometry_drafted' : 'project.plan_geometry_confirmed',
@@ -493,7 +506,10 @@ export async function savePlanGeometry(
       },
     })
     revalidatePath(`/projects/${projectId}`)
-    return { ok: true, data: saved }
+    return {
+      ok: true,
+      data: { geometry: saved, revision: planEditRevision(project.planUrl, reading) },
+    }
   } catch (error) {
     return failure(error)
   }

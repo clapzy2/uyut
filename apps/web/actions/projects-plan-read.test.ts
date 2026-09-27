@@ -90,6 +90,7 @@ describe('plan reading actions', () => {
       'owner',
       projectId,
       expect.objectContaining({ sourcePage: 6, pageCount: 48, planState: 'existing' }),
+      { planUrl: 'plan.pdf', planReading: reading },
     )
   })
 
