@@ -113,6 +113,43 @@ describe('diagnostic coverage of annotated PDF boundary spans', () => {
     expect(spans[0]).toMatchObject({ status: 'unsupported-angle' })
   })
 
+  it('marks only the source-backed portion of a slanted edge as paired', () => {
+    const { contours } = sample()
+    const room = contours.rooms[0]
+    if (!room) throw new Error('Missing room')
+    room.polygon[0] = { x: 110, y: 100 }
+    const pair: PdfWallFacePair = {
+      faces: [
+        {
+          contourKey: '1',
+          wallEdgeIndex: 3,
+          start: { x: 102, y: 180 },
+          end: { x: 108, y: 120 },
+          nativeSegment: { operationIndex: 1, subpathIndex: 0, segmentIndex: 0 },
+        },
+        {
+          contourKey: '2',
+          wallEdgeIndex: 1,
+          start: { x: 220, y: 120 },
+          end: { x: 220, y: 180 },
+          nativeSegment: { operationIndex: 1, subpathIndex: 0, segmentIndex: 1 },
+        },
+      ],
+    }
+    const spans = classifyPlanPageWallSpans(contours, [pair]).filter(
+      (span) => span.contourKey === '1' && span.wallEdgeIndex === 3,
+    )
+    expect(spans.map(({ status }) => status)).toEqual([
+      'unsupported-angle',
+      'paired',
+      'unsupported-angle',
+    ])
+    expect(spans[1]).toMatchObject({
+      start: { x: 108, y: 120 },
+      end: { x: 102, y: 180 },
+    })
+  })
+
   it('separates unpaired exterior spans from unresolved interior boundaries', () => {
     const { contours, pair } = sample()
     contours.exterior = { polygon: rectangle(50, 50, 350, 250) }
@@ -172,9 +209,9 @@ describe('diagnostic coverage of annotated PDF boundary spans', () => {
       },
       {},
     )
-    expect(pairs).toHaveLength(51)
+    expect(pairs).toHaveLength(52)
     expect(counts).toEqual({
-      paired: 102,
+      paired: 104,
       opening: 19,
       unmatched: 13,
       'unpaired-exterior': 25,

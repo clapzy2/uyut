@@ -158,6 +158,201 @@ function pathPoints(path: PdfVectorPath): PagePoint[] | undefined {
   return pdfPolygonIsValid(points) ? points : undefined
 }
 
+type SlantedFace = {
+  contourKey: string
+  wallEdgeIndex: number
+  start: PagePoint
+  end: PagePoint
+}
+
+const dot = (a: PagePoint, b: PagePoint) => a.x * b.x + a.y * b.y
+const difference = (a: PagePoint, b: PagePoint): PagePoint => ({ x: a.x - b.x, y: a.y - b.y })
+
+/** Only the overlapping part of two exact segments of one closed native outline is evidence. */
+function slantedInterval(
+  path: PdfVectorPath,
+  points: PagePoint[],
+  contours: PlanPageContours,
+  first: SlantedFace & { segmentIndex: number },
+  second: SlantedFace & { segmentIndex: number },
+): [PdfWallFaceInterval, PdfWallFaceInterval] | undefined {
+  const direction = difference(first.end, first.start)
+  const otherDirection = difference(second.end, second.start)
+  const length = Math.hypot(direction.x, direction.y)
+  const otherLength = Math.hypot(otherDirection.x, otherDirection.y)
+  if (!length || !otherLength || dot(direction, otherDirection) >= 0) return
+  const unit = { x: direction.x / length, y: direction.y / length }
+  const local = (point: PagePoint): PagePoint => {
+    const relative = difference(point, first.start)
+    return { x: dot(relative, unit), y: unit.x * relative.y - unit.y * relative.x }
+  }
+  const otherStart = local(second.start)
+  const otherEnd = local(second.end)
+  // Native coordinates are rounded to 0.001 page units; do not fit visibly skewed faces.
+  if (Math.abs(otherStart.y - otherEnd.y) > 0.01 || Math.abs(otherStart.y) < 0.01) return
+  const parallelError =
+    Math.abs(direction.x * otherDirection.y - direction.y * otherDirection.x) /
+    (length * otherLength)
+  if (parallelError > 0.0001) return
+  const low = Math.max(0, Math.min(otherStart.x, otherEnd.x))
+  const high = Math.min(length, Math.max(otherStart.x, otherEnd.x))
+  if (high - low <= 0.01) return
+  const onFirst = (position: number): PagePoint => ({
+    x: first.start.x + unit.x * position,
+    y: first.start.y + unit.y * position,
+  })
+  const onSecond = (position: number): PagePoint => {
+    const fraction = (position - otherStart.x) / (otherEnd.x - otherStart.x)
+    return {
+      x: second.start.x + (second.end.x - second.start.x) * fraction,
+      y: second.start.y + (second.end.y - second.start.y) * fraction,
+    }
+  }
+  const midpoint = (low + high) / 2
+  const firstMiddle = onFirst(midpoint)
+  const secondMiddle = onSecond(midpoint)
+  const middle = {
+    x: (firstMiddle.x + secondMiddle.x) / 2,
+    y: (firstMiddle.y + secondMiddle.y) / 2,
+  }
+  if (
+    !pdfPointInside(middle, points) ||
+    contours.rooms.some(({ polygon }) => pdfPointInside(middle, polygon))
+  )
+    return
+
+  const lower = { x: low, y: Math.min(0, otherStart.y, otherEnd.y) }
+  const upper = { x: high, y: Math.max(0, otherStart.y, otherEnd.y) }
+  const crossesStrip = (a: PagePoint, b: PagePoint) =>
+    crossesOpenStrip(local(a), local(b), lower, upper)
+  if (
+    points.some((a, index) => {
+      if (index === first.segmentIndex || index === second.segmentIndex) return false
+      const b = points[(index + 1) % points.length]
+      return b && crossesStrip(a, b)
+    })
+  )
+    return
+  if (
+    contours.rooms.some((room) =>
+      room.polygon.some((a, index) => {
+        const key = pdfContourKey(room)
+        if (
+          (key === first.contourKey && index === first.wallEdgeIndex) ||
+          (key === second.contourKey && index === second.wallEdgeIndex)
+        )
+          return false
+        const b = room.polygon[(index + 1) % room.polygon.length]
+        return b && crossesStrip(a, b)
+      }),
+    )
+  )
+    return
+
+  const interval = (
+    face: SlantedFace & { segmentIndex: number },
+    start: PagePoint,
+    end: PagePoint,
+  ): PdfWallFaceInterval => ({
+    contourKey: face.contourKey,
+    wallEdgeIndex: face.wallEdgeIndex,
+    start,
+    end,
+    nativeSegment: {
+      operationIndex: path.operationIndex,
+      subpathIndex: path.subpathIndex,
+      segmentIndex: face.segmentIndex,
+    },
+  })
+  return [
+    interval(first, onFirst(low), onFirst(high)),
+    interval(second, onSecond(low), onSecond(high)),
+  ]
+}
+
+function pairSlantedFaces(
+  work: PdfLinework,
+  contours: PlanPageContours,
+  closedSubpaths: Map<number, number>,
+): PdfWallFacePair[] {
+  const faces: SlantedFace[] = contours.rooms.flatMap((room) =>
+    room.polygon.flatMap((start, wallEdgeIndex) => {
+      const end = room.polygon[(wallEdgeIndex + 1) % room.polygon.length]
+      if (
+        !end ||
+        start.x === end.x ||
+        start.y === end.y ||
+        room.openings?.some((opening) => opening.wallEdgeIndex === wallEdgeIndex)
+      )
+        return []
+      return [{ contourKey: pdfContourKey(room), wallEdgeIndex, start, end }]
+    }),
+  )
+  if (faces.length > 64) return []
+  const candidates: PdfWallFacePair[] = []
+  for (const path of work.paths) {
+    if ((closedSubpaths.get(path.operationIndex) ?? 0) !== 1) continue
+    const points = pathPoints(path)
+    if (!points) continue
+    const matched = faces.flatMap((face) =>
+      points.flatMap((start, segmentIndex) => {
+        const end = points[(segmentIndex + 1) % points.length]
+        return end &&
+          ((samePoint(start, face.start) && samePoint(end, face.end)) ||
+            (samePoint(start, face.end) && samePoint(end, face.start)))
+          ? [{ ...face, segmentIndex }]
+          : []
+      }),
+    )
+    for (const [index, first] of matched.entries()) {
+      for (const second of matched.slice(index + 1)) {
+        if (first.contourKey === second.contourKey) continue
+        const intervals = slantedInterval(path, points, contours, first, second)
+        if (!intervals) continue
+        candidates.push({ faces: intervals })
+        if (candidates.length > 2000) return []
+      }
+    }
+  }
+  const intervalFaceKey = (face: PdfWallFaceInterval) => `${face.contourKey}:${face.wallEdgeIndex}`
+  const partners = new Map<string, Set<string>>()
+  for (const candidate of candidates) {
+    const [first, second] = candidate.faces
+    for (const [face, other] of [
+      [first, second],
+      [second, first],
+    ] as const) {
+      const key = intervalFaceKey(face)
+      const peers = partners.get(key) ?? new Set<string>()
+      peers.add(intervalFaceKey(other))
+      partners.set(key, peers)
+    }
+  }
+  const accepted = new Map<string, PdfWallFacePair[]>()
+  for (const candidate of candidates) {
+    if (candidate.faces.some((face) => (partners.get(intervalFaceKey(face))?.size ?? 0) !== 1))
+      continue
+    const key = candidate.faces.map(intervalFaceKey).sort().join('|')
+    const group = accepted.get(key) ?? []
+    group.push(candidate)
+    accepted.set(key, group)
+  }
+  return [...accepted.values()].flatMap((group) => {
+    const first = group[0]
+    if (!first) return []
+    return group.every((candidate) =>
+      candidate.faces.every((face, index) => {
+        const expected = first.faces[index]
+        return (
+          expected && samePoint(face.start, expected.start) && samePoint(face.end, expected.end)
+        )
+      }),
+    )
+      ? [first]
+      : []
+  })
+}
+
 /** Exact partial face relations within one native closed outline; not complete wall topology. */
 export function pairPlanPageWallFaces(
   work: PdfLinework,
@@ -354,5 +549,5 @@ export function pairPlanPageWallFaces(
       if (result.length > 2000) return []
     }
   }
-  return result
+  return [...result, ...pairSlantedFaces(work, contours, closedSubpaths)]
 }

@@ -211,7 +211,7 @@ describe('complete existing PDF page in one native metric scale', () => {
 
   it('stores source interval relations without claiming construction thickness or completing topology', () => {
     const geometry = draft()
-    expect(currentWallFacePairs(geometry)).toHaveLength(51)
+    expect(currentWallFacePairs(geometry)).toHaveLength(52)
     expect(geometry.walls.every((wall) => wall.thicknessCm === undefined)).toBe(true)
     expect(inspectManualPlanCompleteness(geometry)).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'manual-disconnected-walls' })]),

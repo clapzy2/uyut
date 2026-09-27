@@ -64,6 +64,69 @@ function syntheticSheet() {
   return { contours, work, wall }
 }
 
+function slantedSheet() {
+  const contours: PlanPageContours = {
+    source,
+    coordinateSystem: 'page-0-1000',
+    review: 'manual-source-review',
+    pageWidth: 1000,
+    pageHeight: 1000,
+    rooms: [
+      {
+        roomSourceNumber: 1,
+        polygon: [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+          { x: 220, y: 200 },
+          { x: 100, y: 200 },
+        ],
+      },
+      {
+        roomSourceNumber: 2,
+        polygon: [
+          { x: 240, y: 100 },
+          { x: 340, y: 100 },
+          { x: 340, y: 200 },
+          { x: 260, y: 200 },
+        ],
+      },
+    ],
+  }
+  const wall: PdfVectorPath = {
+    operationIndex: 10,
+    subpathIndex: 0,
+    paint: 'stroke',
+    closed: true,
+    points: [
+      { x: 200, y: 100 },
+      { x: 240, y: 100 },
+      { x: 260, y: 200 },
+      { x: 220, y: 200 },
+    ],
+  }
+  const work: PdfLinework = {
+    coordinateSystem: 'page-0-1000',
+    pageWidth: 1000,
+    pageHeight: 1000,
+    paths: [
+      wall,
+      {
+        operationIndex: 11,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: contours.rooms.flatMap((room) => room.polygon),
+      },
+    ],
+    skippedCurves: 0,
+    unsupportedPaths: 0,
+    unsupportedContexts: 0,
+    clippedPaths: 0,
+    truncated: false,
+  }
+  return { contours, wall, work }
+}
+
 function completePageSheet() {
   const source = {
     sha256: page.source.sha256,
@@ -105,6 +168,77 @@ function completePageSheet() {
 }
 
 describe('exact native PDF wall-face intervals', () => {
+  it('pairs opposite slanted faces only within the same closed native wall outline', () => {
+    const input = slantedSheet()
+    const before = structuredClone(input)
+    const pairs = pairPlanPageWallFaces(input.work, source, input.contours)
+
+    expect(pairs).toHaveLength(1)
+    expect(pairs[0]?.faces).toMatchObject([
+      {
+        contourKey: '1',
+        wallEdgeIndex: 1,
+        nativeSegment: { operationIndex: 10, segmentIndex: 3 },
+      },
+      {
+        contourKey: '2',
+        wallEdgeIndex: 3,
+        nativeSegment: { operationIndex: 10, segmentIndex: 1 },
+      },
+    ])
+    expect(input).toEqual(before)
+  })
+
+  it.each(['open', 'fill', 'separate', 'compound', 'opening'] as const)(
+    'rejects slanted pairs without an intact solid outline (%s)',
+    (mutation) => {
+      const input = slantedSheet()
+      if (mutation === 'open') input.wall.closed = false
+      if (mutation === 'fill') input.wall.paint = 'fill'
+      if (mutation === 'separate') {
+        input.work.paths = [
+          { ...input.wall, points: input.wall.points.slice(0, 2), closed: false },
+          { ...input.wall, operationIndex: 12, points: input.wall.points.slice(2), closed: false },
+          input.work.paths[1] as PdfVectorPath,
+        ]
+      }
+      if (mutation === 'compound') {
+        input.work.paths.push({
+          ...input.wall,
+          subpathIndex: 1,
+          points: rectangle(210, 130, 220, 160),
+        })
+      }
+      if (mutation === 'opening') {
+        const room = input.contours.rooms[0]
+        if (!room) throw new Error('Missing synthetic room')
+        room.openings = [
+          {
+            id: 'door',
+            kind: 'door',
+            wallEdgeIndex: 1,
+            start: { x: 204, y: 120 },
+            end: { x: 206, y: 130 },
+          },
+        ]
+      }
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+    },
+  )
+
+  it('does not pair slanted faces across a third room inside the outlined strip', () => {
+    const input = slantedSheet()
+    input.contours.rooms.push({
+      roomSourceNumber: 3,
+      polygon: rectangle(218, 130, 222, 170),
+    })
+    const vertices = input.work.paths[1]
+    if (!vertices) throw new Error('Missing synthetic contour vertices')
+    vertices.points = input.contours.rooms.flatMap((room) => room.polygon)
+
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+  })
+
   it('keeps a long face paired to two shorter opposing faces only where both exist', () => {
     const input = syntheticSheet()
     const before = structuredClone(input)
@@ -352,7 +486,20 @@ describe('exact native PDF wall-face intervals', () => {
     const before = structuredClone(input)
     const pairs = pairPlanPageWallFaces(input.work, input.source, input.contours)
 
-    expect(pairs).toHaveLength(51)
+    expect(pairs).toHaveLength(52)
+    expect(
+      pairs
+        .find(({ faces }) =>
+          faces.some(
+            (face) =>
+              face.nativeSegment.operationIndex === 737 && face.nativeSegment.segmentIndex === 13,
+          ),
+        )
+        ?.faces.map(({ contourKey, wallEdgeIndex }) => ({ contourKey, wallEdgeIndex })),
+    ).toEqual([
+      { contourKey: '1+5', wallEdgeIndex: 1 },
+      { contourKey: '3', wallEdgeIndex: 3 },
+    ])
     for (const pair of pairs) {
       expect(pair.faces).toHaveLength(2)
       expect(pair.faces[0].contourKey).not.toBe(pair.faces[1].contourKey)
@@ -375,12 +522,16 @@ describe('exact native PDF wall-face intervals', () => {
         expect(start).toBeDefined()
         expect(end).toBeDefined()
         if (!start || !end) continue
-        const along = start.x === end.x ? 'y' : 'x'
-        const across = along === 'x' ? 'y' : 'x'
-        expect(face.start[across]).toBe(start[across])
-        expect(face.end[across]).toBe(end[across])
-        expect(Math.min(start[along], end[along])).toBeLessThanOrEqual(face.start[along])
-        expect(Math.max(start[along], end[along])).toBeGreaterThanOrEqual(face.end[along])
+        const direction = { x: end.x - start.x, y: end.y - start.y }
+        const length = Math.hypot(direction.x, direction.y)
+        for (const point of [face.start, face.end]) {
+          const relative = { x: point.x - start.x, y: point.y - start.y }
+          const cross = direction.x * relative.y - direction.y * relative.x
+          const projection = direction.x * relative.x + direction.y * relative.y
+          expect(Math.abs(cross) / length).toBeLessThan(0.01)
+          expect(projection / length).toBeGreaterThanOrEqual(-0.01)
+          expect(projection / length).toBeLessThanOrEqual(length + 0.01)
+        }
       }
       expect(pair).not.toHaveProperty('thicknessCm')
     }
