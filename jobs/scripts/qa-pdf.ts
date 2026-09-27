@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { estimateProject, layoutRoom } from '@uyut/catalog'
+import { layoutWithMeasurements } from '@uyut/catalog/layout-with-measurements'
 import { fontFaceCss, type PdfData, renderProjectHtml } from '@uyut/pdf'
 import { printPdf } from '../src/lib/print-pdf'
 
@@ -81,10 +82,106 @@ const data: PdfData = {
     questions: ['Какие работы согласованы с мастерами?', 'Проверены ли размеры перед заказом?'],
   },
 }
+
+function layoutFlowData(): PdfData {
+  const bedroomPlan = layoutWithMeasurements(
+    'Спальня',
+    { widthCm: 400, depthCm: 300 },
+    {
+      version: 1,
+      status: 'draft',
+      widthCm: 400,
+      heightCm: 300,
+      walls: [],
+      openings: [],
+      warnings: [],
+      rooms: [
+        {
+          name: 'Спальня',
+          polygon: [
+            { xCm: 0, yCm: 0 },
+            { xCm: 400, yCm: 0 },
+            { xCm: 400, yCm: 300 },
+            { xCm: 0, yCm: 300 },
+          ],
+        },
+      ],
+    },
+    [
+      {
+        id: 'bedroom-bed',
+        title: 'Кровать',
+        category: 'bed',
+        quantity: 1,
+        dimensions: { width: 140, depth: 200 },
+      },
+    ],
+    'bedroom',
+  )
+  const childPlan = layoutWithMeasurements(
+    'Детская',
+    { widthCm: 300, depthCm: 300 },
+    undefined,
+    [
+      {
+        id: 'child-bed',
+        title: 'Кровать со старым закреплённым положением',
+        category: 'bed',
+        quantity: 1,
+        dimensions: { width: 140, depth: 200 },
+        placement: { xCm: 250, yCm: 0, rotation: 0 },
+      },
+    ],
+    'kid',
+  )
+  if (
+    bedroomPlan?.safetySummary.status !== 'needs-data' ||
+    childPlan?.safetySummary.status !== 'blocked'
+  ) {
+    throw new Error(
+      'Проверочный PDF должен показать черновой контур и отказ после уменьшения мерки',
+    )
+  }
+  const rooms: PdfData['rooms'] = [
+    { id: 'bedroom', name: 'Спальня', areaM2: 12, plan: bedroomPlan },
+    { id: 'child', name: 'Детская', areaM2: 9, plan: childPlan },
+  ].map((room) => ({
+    ...room,
+    conditionLabel: 'Черновая отделка',
+    hasConcept: false,
+    render: null,
+    before: null,
+    alternates: [],
+    note: null,
+    objects: [],
+  }))
+  return {
+    ...data,
+    project: {
+      ...data.project,
+      title: 'Тест 2D-экспорта — синтетические данные',
+      subtitle: 'Спальня и детская без AI-концептов',
+      facts: [{ label: 'Проверка', value: 'Черновой контур и изменённая мерка' }],
+    },
+    rooms,
+    roomsWithoutConcept: rooms.map((room) => room.name),
+    shopping: [],
+    estimate: estimateProject({
+      rooms: rooms.map((room) => ({ ...room, condition: 'bare' as const, refreshFinish: false })),
+      items: [],
+      budgetKopecks: null,
+      rates,
+    }),
+    brief: null,
+  }
+}
+
+const isLayoutFlow = process.argv.includes('--layout-flow')
+const selectedData = isLayoutFlow ? layoutFlowData() : data
 const outputDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../output/pdf')
 await mkdir(outputDir, { recursive: true })
-const html = renderProjectHtml(data, { fontCss: fontFaceCss() })
-const pdf = await printPdf(html, data.project.title)
-const outputPath = resolve(outputDir, 'qa-shopping.pdf')
+const html = renderProjectHtml(selectedData, { fontCss: fontFaceCss() })
+const pdf = await printPdf(html, selectedData.project.title)
+const outputPath = resolve(outputDir, isLayoutFlow ? 'qa-layout-flow.pdf' : 'qa-shopping.pdf')
 await writeFile(outputPath, pdf)
 console.log(`Проверочный PDF: ${outputPath}`)

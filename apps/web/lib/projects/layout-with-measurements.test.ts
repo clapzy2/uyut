@@ -25,6 +25,37 @@ const sofa: LayoutItem = {
 }
 
 describe('layout measurement bounds', () => {
+  it('keeps a draft contour as unresolved when falling back to a rectangular preview', () => {
+    const geometry: PlanGeometry = {
+      version: 1,
+      status: 'draft',
+      widthCm: 400,
+      heightCm: 300,
+      walls: [],
+      openings: [],
+      warnings: [],
+      rooms: [
+        {
+          name: 'Спальня',
+          polygon: [
+            { xCm: 0, yCm: 0 },
+            { xCm: 400, yCm: 0 },
+            { xCm: 400, yCm: 300 },
+            { xCm: 0, yCm: 300 },
+          ],
+        },
+      ],
+    }
+    const layout = layoutWithMeasurements(
+      'Спальня',
+      { widthCm: 400, depthCm: 300 },
+      geometry,
+      [],
+      'bedroom',
+    )
+    expect(layout?.missingSafetyData.join(' ')).toContain('контур')
+    expect(layout?.safetySummary.status).toBe('needs-data')
+  })
   it('rejects an item fitting nominal dimensions but not their lower bounds', () => {
     const nominal = layoutWithMeasurements(
       'Комната',

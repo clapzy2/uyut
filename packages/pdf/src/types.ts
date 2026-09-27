@@ -16,6 +16,8 @@ export type PdfRoom = {
   name: string
   areaM2: number | null
   conditionLabel: string
+  /** false: печатаем только существующую 2D-схему, без пустой страницы рендера. */
+  hasConcept?: boolean
   render: PdfImage | null
   before: PdfImage | null
   alternates: Array<PdfImage & { caption: string }>
@@ -64,7 +66,7 @@ export type PdfData = {
   cover: PdfImage | null
   band: PdfImage | null
   rooms: PdfRoom[]
-  /** Комнаты без утверждённого концепта: в документе только упоминание */
+  /** Комнаты без выбранного концепта; их 2D-схемы могут быть в документе отдельно. */
   roomsWithoutConcept: string[]
   shopping: PdfShoppingGroup[]
   estimate: Estimate

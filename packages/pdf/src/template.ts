@@ -466,7 +466,7 @@ function shopping(data: PdfData, free: boolean): string {
         : `${data.shopping.map(shoppingGroup).join('')}
     <div class="shop"><div class="total"><span>Итого по мебели и декору</span><span class="price">${formatPrice(data.estimate.furnitureKopecks)}</span></div></div>`
     }
-    <p class="small" style="margin-top:6mm">Документ собран ${esc(formatLongDate(data.generatedAt))}. Цены ориентировочные: перед покупкой проверьте цену, наличие и выбранную ткань в магазине. Ссылки на товары — в этом документе; список можно менять в проекте на сайте.${data.roomsWithoutConcept.length > 0 ? ` ${esc(data.roomsWithoutConcept.join(', '))}: расстановка не утверждена.` : ''}</p>
+    <p class="small" style="margin-top:6mm">Документ собран ${esc(formatLongDate(data.generatedAt))}. Цены ориентировочные: перед покупкой проверьте цену, наличие и выбранную ткань в магазине. Ссылки на товары — в этом документе; список можно менять в проекте на сайте.${data.roomsWithoutConcept.length > 0 ? ` ${esc(data.roomsWithoutConcept.join(', '))}: концепт можно выбрать отдельно. При наличии 2D-схемы её статус указан на отдельной странице.` : ''}</p>
     ${adNotice(data)}
   </section>`
 }
@@ -609,7 +609,7 @@ function finalPage(data: PdfData, free: boolean): string {
       </div>
     </div>
     <div class="rule" style="margin-top:10mm"></div>
-    <p class="small" style="margin-top:4mm">Документ собран сервисом «Домица» ${esc(formatLongDate(data.generatedAt))} по сохранённым концептам проекта. Цены магазинов и оценка работ ориентировочные и могут измениться; ссылки на магазины партнёрские.${data.brief ? ' Задание для мастеров не заменяет рабочую проектную документацию.' : ''}</p>
+    <p class="small" style="margin-top:4mm">Документ собран сервисом «Домица» ${esc(formatLongDate(data.generatedAt))} по сохранённым данным проекта. Цены магазинов и оценка работ ориентировочные и могут измениться; ссылки на магазины партнёрские.${data.brief ? ' Задание для мастеров не заменяет рабочую проектную документацию.' : ''}</p>
   </section>`
 }
 
@@ -633,7 +633,7 @@ ${CSS}
 ${free ? '<div class="wm-layer"></div>' : ''}
 ${cover(data, free)}
 ${about(data, free)}
-${data.rooms.map((room, index) => roomPage(room, index, free) + roomPlanPage(room, free)).join('')}
+${data.rooms.map((room, index) => (room.hasConcept === false ? '' : roomPage(room, index, free)) + roomPlanPage(room, free)).join('')}
 ${shopping(data, free)}
 ${estimatePage(data, free)}
 ${briefPages(data, free)}

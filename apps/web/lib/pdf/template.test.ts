@@ -112,7 +112,7 @@ describe('project PDF template', () => {
     expect(html).toContain('Задание для мастеров')
     expect(html).toContain('Окрасить стены в два слоя.')
     expect(html).toContain('Уточнить расположение стола.')
-    expect(html).toContain('Кухня: расстановка не утверждена')
+    expect(html).toContain('Кухня: концепт можно выбрать отдельно')
     expect(html).toContain('uyut.ru/p/05ec84b4')
     expect(html).toContain('+7 900 000-00-00')
     expect(html).not.toContain('wm-layer"></div>')

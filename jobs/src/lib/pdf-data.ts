@@ -389,37 +389,46 @@ export async function buildPdfData(input: {
     rates,
   })
 
-  const roomsWithConcept = snapshot.rooms.filter((room) => snapshot.concepts.has(room.id))
+  const plans = new Map(
+    snapshot.rooms.map((room) => [room.id, roomPlan(room, snapshot.shopping, project)]),
+  )
+  const roomsWithContent = snapshot.rooms.filter(
+    (room) => snapshot.concepts.has(room.id) || plans.get(room.id),
+  )
   const pdfRooms: PdfRoom[] = await Promise.all(
-    roomsWithConcept.map(async (room): Promise<PdfRoom> => {
+    roomsWithContent.map(async (room): Promise<PdfRoom> => {
       const entry = snapshot.concepts.get(room.id)
-      if (!entry) {
-        throw new Error('концепт пропал между запросами')
-      }
-      const [render, before, alternates] = await Promise.all([
-        pdfImage(entry.main.editedRenderUrl ?? entry.main.renderUrl, 1400, `${room.name}, концепт`),
-        pdfImage(room.photoUrl, 700, `${room.name} до ремонта`),
-        Promise.all(
-          entry.alternates.map(async (concept, index) => {
-            const image = await pdfImage(concept.editedRenderUrl ?? concept.renderUrl, 700)
-            return image ? { ...image, caption: `Вариант ${index + 2}` } : null
-          }),
-        ),
-      ])
+      const [render, before, alternates] = entry
+        ? await Promise.all([
+            pdfImage(
+              entry.main.editedRenderUrl ?? entry.main.renderUrl,
+              1400,
+              `${room.name}, концепт`,
+            ),
+            pdfImage(room.photoUrl, 700, `${room.name} до ремонта`),
+            Promise.all(
+              entry.alternates.map(async (concept, index) => {
+                const image = await pdfImage(concept.editedRenderUrl ?? concept.renderUrl, 700)
+                return image ? { ...image, caption: `Вариант ${index + 2}` } : null
+              }),
+            ),
+          ])
+        : [null, null, []]
       return {
         id: room.id,
         name: room.name,
         areaM2: room.areaM2,
         conditionLabel: conditionLabel(room),
+        hasConcept: Boolean(entry),
         render,
         before,
         alternates: alternates.filter((alt): alt is PdfImage & { caption: string } => alt !== null),
-        note: clampText(entry.main.note, 330),
-        objects: (snapshot.objects.get(room.id) ?? []).map((object) => ({
+        note: clampText(entry?.main.note ?? null, 330),
+        objects: (entry ? (snapshot.objects.get(room.id) ?? []) : []).map((object) => ({
           ...object,
           category: categoryLabels[object.category],
         })),
-        plan: roomPlan(room, snapshot.shopping, project),
+        plan: plans.get(room.id) ?? null,
       }
     }),
   )
@@ -469,8 +478,12 @@ export async function buildPdfData(input: {
     groups.set(key, group)
   }
 
-  const cover = pdfRooms[0]?.render ?? null
-  const bandSource = pdfRooms[0]?.alternates[0] ?? pdfRooms[1]?.render ?? null
+  const coverRoom = pdfRooms.find((room) => room.render)
+  const cover = coverRoom?.render ?? null
+  const bandSource =
+    coverRoom?.alternates[0] ??
+    pdfRooms.find((room) => room.id !== coverRoom?.id && room.render)?.render ??
+    null
   const areaTotal =
     project.totalAreaM2 ?? (estimate.works.areaM2 > 0 ? estimate.works.areaM2 : null)
   const roomNames = snapshot.rooms.map((room) => room.name.toLowerCase())
@@ -521,7 +534,7 @@ export async function buildPdfData(input: {
     band: bandSource
       ? {
           src: bandSource.src,
-          alt: `${pdfRooms[0]?.name ?? 'Комната'}, ещё один понравившийся вариант.`,
+          alt: bandSource.alt ?? 'Ещё один выбранный вариант интерьера.',
         }
       : null,
     rooms: pdfRooms,

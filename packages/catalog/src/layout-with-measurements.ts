@@ -48,6 +48,13 @@ export function layoutWithMeasurements(
         layoutNotes: measurements?.layoutNotes,
         roomName: name,
         roomKind,
+        ...(geometry
+          ? {
+              missingSafetyData: [
+                'Уточните и подтвердите контур этой комнаты: пока показано прямоугольное превью по меркам, без проёмов и препятствий схемы.',
+              ],
+            }
+          : {}),
       },
       items,
     ),

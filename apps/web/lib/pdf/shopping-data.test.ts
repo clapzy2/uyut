@@ -1,4 +1,6 @@
-import type { Concept, Room } from '@uyut/db'
+import { subcategoryFromText } from '@uyut/catalog'
+import type { Concept, PlanGeometry, Room } from '@uyut/db'
+import { renderProjectHtml } from '@uyut/pdf'
 import sharp from 'sharp'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildPdfData, type ProjectSnapshot } from '../../../../jobs/src/lib/pdf-data'
@@ -111,12 +113,168 @@ function addRoom(data: ProjectSnapshot): Room {
   return room
 }
 
+function roomGeometry(name: string): PlanGeometry {
+  return {
+    version: 1,
+    status: 'confirmed',
+    widthCm: 400,
+    heightCm: 300,
+    warnings: [],
+    walls: [
+      { id: 'entry-wall', kind: 'outer', start: { xCm: 0, yCm: 0 }, end: { xCm: 0, yCm: 300 } },
+    ],
+    openings: [
+      {
+        id: 'entry',
+        type: 'door',
+        wallId: 'entry-wall',
+        offsetCm: 100,
+        widthCm: 90,
+        clearance: { side: 'right', depthCm: 90, shape: 'rectangle' },
+      },
+    ],
+    rooms: [
+      {
+        name,
+        polygon: [
+          { xCm: 0, yCm: 0 },
+          { xCm: 400, yCm: 0 },
+          { xCm: 400, yCm: 300 },
+          { xCm: 0, yCm: 300 },
+        ],
+      },
+    ],
+  }
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
 })
 
 describe('selected shopping variant in PDF data without AI or external requests', () => {
+  describe.each([
+    { name: 'Спальня', kind: 'bedroom' as const },
+    { name: 'Детская', kind: 'kid' as const },
+  ])('$name: saved measurements and layout status in PDF', ({ name, kind }) => {
+    function fixture() {
+      const data = snapshot()
+      const room = addRoom(data)
+      room.name = name
+      room.kind = kind
+      data.concepts.clear()
+      const row = data.shopping[0]
+      if (!row) throw new Error('Missing shopping fixture')
+      row.roomName = name
+      row.product.title = 'Кровать'
+      row.product.category = 'bed'
+      row.item.dimensionsCm = { width: 140, depth: 200 }
+      return { data, room, row }
+    }
+
+    it('recalculates a pinned bed after a smaller manual measurement without hiding the rejection', async () => {
+      const { data, room, row } = fixture()
+      row.item.placementCm = { xCm: 250, yCm: 0, rotation: 0 }
+      const before = await build(data)
+      expect(before.pdf.rooms[0]?.plan?.placed).toHaveLength(1)
+      room.measurements = { widthCm: 300, depthCm: 300 }
+      const { pdf } = await build(data)
+      expect(pdf.rooms[0]?.plan?.widthCm).toBe(300)
+      expect(pdf.rooms[0]?.plan?.placed).toHaveLength(0)
+      expect(pdf.rooms[0]?.plan?.safetySummary.status).toBe('blocked')
+      const html = renderProjectHtml(pdf, { fontCss: '' })
+      expect(html).toContain(`${name} · расстановка`)
+      expect(html).toContain('Требуется перестановка')
+      expect(html).toContain('Кровать')
+    })
+
+    it('keeps the same contour/measurement conflict as the website calculation', async () => {
+      const { data, room } = fixture()
+      room.measurements = { widthCm: 360, depthCm: 300 }
+      const geometry = roomGeometry(name)
+      data.project.planReading = { rooms: [], geometry, readAt: '2026-09-27T10:00:00Z' }
+      const { pdf } = await build(data)
+      const expected = layoutWithMeasurements(
+        name,
+        room.measurements,
+        geometry,
+        [
+          {
+            id: 'test-item',
+            title: 'Кровать',
+            category: 'bed',
+            subcategory: subcategoryFromText('bed', 'Кровать'),
+            quantity: 1,
+            dimensions: { width: 140, depth: 200 },
+          },
+        ],
+        kind,
+      )
+      expect(pdf.rooms[0]?.plan).toEqual(expected)
+      expect(pdf.rooms[0]?.plan?.functionProfile).toBe(kind)
+      expect(pdf.rooms[0]?.plan?.safetySummary.status).not.toBe('checked')
+      expect(pdf.rooms[0]?.plan?.missingSafetyData.join(' ')).toContain(
+        'контур 400.0 см, мерка 360.0 см',
+      )
+      expect(renderProjectHtml(pdf, { fontCss: '' })).toContain('контур 400.0 см, мерка 360.0 см')
+    })
+
+    it('keeps a blocked entrance in the document rather than approving the bed footprint alone', async () => {
+      const { data, row } = fixture()
+      const geometry = roomGeometry(name)
+      data.project.planReading = { rooms: [], geometry, readAt: '2026-09-27T10:00:00Z' }
+      row.item.placementCm = { xCm: 0, yCm: 100, rotation: 0 }
+      const { pdf } = await build(data)
+      expect(pdf.rooms[0]?.plan?.safetySummary.status).toBe('blocked')
+      expect(pdf.rooms[0]?.plan?.floorReservations).toHaveLength(1)
+      expect(renderProjectHtml(pdf, { fontCss: '' })).toContain('Требуется перестановка')
+    })
+
+    it('explains a draft contour fallback next to the printed scheme', async () => {
+      const { data } = fixture()
+      const geometry = { ...roomGeometry(name), status: 'draft' as const }
+      data.project.planReading = { rooms: [], geometry, readAt: '2026-09-27T10:00:00Z' }
+      const { pdf } = await build(data)
+      expect(pdf.rooms[0]?.plan?.safetySummary.status).toBe('needs-data')
+      expect(pdf.rooms[0]?.plan?.floorReservations).toHaveLength(0)
+      expect(renderProjectHtml(pdf, { fontCss: '' })).toContain('прямоугольное превью по меркам')
+    })
+  })
+
+  it('exports an existing 2D layout without requiring an AI concept', async () => {
+    const data = snapshot()
+    const room = addRoom(data)
+    data.concepts.clear()
+    const { pdf } = await build(data)
+    expect(pdf.rooms[0]?.plan).toBeDefined()
+    expect(pdf.rooms[0]?.plan).not.toBeNull()
+    expect(pdf.rooms[0]?.id).toBe(room.id)
+    const html = renderProjectHtml(pdf, { fontCss: '' })
+    expect(html).toContain('Гостиная · расстановка')
+    expect(html).not.toContain('Предметы на рендере')
+    expect(html).not.toContain('расстановка не утверждена')
+  })
+
+  it('takes the cover from a later concept when the first room has only a 2D scheme', async () => {
+    const data = snapshot()
+    const room = addRoom(data)
+    data.concepts.clear()
+    const kitchen: Room = { ...room, id: 'kitchen', name: 'Кухня', kind: 'kitchen', orderIndex: 1 }
+    data.rooms.push(kitchen)
+    data.concepts.set(kitchen.id, {
+      main: {
+        renderUrl: 'https://cdn.example/kitchen.png',
+        editedRenderUrl: null,
+        note: null,
+      } as Concept,
+      alternates: [],
+    })
+    const { pdf } = await build(data)
+    expect(pdf.rooms[0]?.render).toBeNull()
+    expect(pdf.rooms[0]?.hasConcept).toBe(false)
+    expect(pdf.cover).toEqual(pdf.rooms[1]?.render)
+    expect(pdf.cover?.alt).toBe('Кухня, концепт')
+  })
   it('matches the website lower-bound layout and carries its measurement warning', async () => {
     const data = snapshot()
     const room = addRoom(data)
