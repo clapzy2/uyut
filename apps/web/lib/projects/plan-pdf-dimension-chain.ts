@@ -20,6 +20,13 @@ import {
 
 type NativeLabel = PagePoint & { index: number; text: string; rotation: number }
 type DimensionAxis = 'width' | 'depth'
+
+function nativeDimensionMillimetres(text: string): number | undefined {
+  if (!/^(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{1,5})$/.test(text)) return
+  const value = Number(text.replace(/[ \u00a0\u202f]/g, ''))
+  return Number.isSafeInteger(value) && value > 0 && value <= 99_999 ? value : undefined
+}
+
 type NativeDimensionSpan = {
   start: PagePoint
   end: PagePoint
@@ -190,11 +197,11 @@ function pdfOpeningFromPreparedNativeSpan(
     )
   )
     return fail('non-native-opening-endpoint')
+  const widthMm = nativeDimensionMillimetres(label.text)
   if (
     !Number.isSafeInteger(label.index) ||
     label.index < 0 ||
-    !/^\d{1,5}$/.test(label.text) ||
-    Number(label.text) < 1 ||
+    widthMm === undefined ||
     label.rotation !== (axis === 'width' ? 0 : 90) ||
     ![label.x, label.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000)
   )
@@ -261,7 +268,7 @@ function pdfOpeningFromPreparedNativeSpan(
     kind: opening.kind,
     wallEdgeIndex: opening.wallEdgeIndex,
     axis,
-    widthMm: Number(label.text),
+    widthMm,
     labelIndex: label.index,
     start: { ...start },
     end: { ...end },
@@ -433,14 +440,16 @@ function pdfDimensionChain(
     if (
       !Number.isSafeInteger(label.index) ||
       label.index < 0 ||
-      !/^\d{1,5}$/.test(label.text) ||
-      Number(label.text) < 1 ||
+      nativeDimensionMillimetres(label.text) === undefined ||
       label.rotation !== (axis === 'width' ? 0 : 90) ||
       ![label.x, label.y].every((v) => Number.isFinite(v) && v >= 0 && v <= 1000)
     )
       return fail('invalid-dimension-labels')
   }
-  if (labels.reduce((sum, label) => sum + Number(label.text), 0) !== totalMm)
+  if (
+    labels.reduce((sum, label) => sum + (nativeDimensionMillimetres(label.text) ?? 0), 0) !==
+    totalMm
+  )
     return fail('dimension-sum-conflict')
   const close = (a: PagePoint, b: PagePoint) => pdfPointDistance(work, a, b) <= 0.12
   const along = (point: PagePoint) => (axis === 'width' ? point.x : point.y)
@@ -520,7 +529,7 @@ function pdfDimensionChain(
         ? [
             {
               labelIndex: label.index,
-              valueMm: Number(label.text),
+              valueMm: nativeDimensionMillimetres(label.text) ?? 0,
               start: span.start,
               end: span.end,
             },
@@ -581,12 +590,17 @@ function dimensionIntervalInsideRoom(
   return true
 }
 
-/** Shared bounded native arrow/stem proof; it does not classify a wall or opening. */
+/** Shared native dimension-line proof; it does not classify a wall or opening. */
 function nativeDimensionSpans(
   work: PdfLinework,
   axis: DimensionAxis,
   collapseRepeatedNativePaint = false,
 ): NativeDimensionSpan[] {
+  if (
+    work.paths.length > 3000 ||
+    work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000
+  )
+    return []
   const close = (a: PagePoint, b: PagePoint) => pdfPointDistance(work, a, b) <= 0.12
   const along = (point: PagePoint) => (axis === 'width' ? point.x : point.y)
   const across = (point: PagePoint) => (axis === 'width' ? point.y : point.x)
@@ -612,6 +626,32 @@ function nativeDimensionSpans(
         ? [{ start, end, operationIndex: path.operationIndex, subpathIndex: path.subpathIndex }]
         : []
     })
+  })
+  // Some architectural plans use diagonal stroke ticks instead of filled arrowheads.
+  // Their midpoint must sit on the rail endpoint, with both halves crossing the rail.
+  const ticks = work.paths.flatMap((path) => {
+    if (path.closed || path.paint !== 'stroke' || path.points.length !== 2) return []
+    const [start, end] = path.points
+    if (!start || !end) return []
+    const dx = ((end.x - start.x) * work.pageWidth) / 1000
+    const dy = ((end.y - start.y) * work.pageHeight) / 1000
+    const length = Math.hypot(dx, dy)
+    if (
+      length < 3 ||
+      length > 15 ||
+      Math.abs(dx) / length < 0.4 ||
+      Math.abs(dx) / length > 0.9 ||
+      Math.abs(dy) / length < 0.4 ||
+      Math.abs(dy) / length > 0.9
+    )
+      return []
+    return [
+      {
+        start,
+        end,
+        center: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 },
+      },
+    ]
   })
   const spans: NativeDimensionSpan[] = []
   for (const path of work.paths) {
@@ -664,6 +704,32 @@ function nativeDimensionSpans(
           operationIndex: path.operationIndex,
           branched,
         })
+    }
+    const tickAt = (point: PagePoint) =>
+      ticks.filter(
+        (tick) =>
+          close(point, tick.center) &&
+          (across(tick.start) - across(point)) * (across(tick.end) - across(point)) < 0,
+      )
+    const firstTicks = tickAt(a)
+    const lastTicks = tickAt(b)
+    if (firstTicks.length > 0 && lastTicks.length > 0) {
+      const offAxisBranch = strokes.some((stroke) => {
+        if (
+          stroke.operationIndex === path.operationIndex &&
+          stroke.subpathIndex === path.subpathIndex
+        )
+          return false
+        if (![stroke.start, stroke.end].some((point) => close(point, a) || close(point, b)))
+          return false
+        return Math.abs((across(stroke.end) - across(stroke.start)) * acrossScale) > 0.12
+      })
+      spans.push({
+        start: a,
+        end: b,
+        operationIndex: path.operationIndex,
+        branched: firstTicks.length !== 1 || lastTicks.length !== 1 || offAxisBranch,
+      })
     }
   }
   return spans

@@ -150,6 +150,18 @@ describe('measurement evidence ownership and arithmetic, not vision accuracy', (
     expect(reading.rooms[0]?.measurementWarnings).toBeUndefined()
   })
 
+  it('accepts only correctly grouped thousands in printed measurements', () => {
+    const withText = (text: string) =>
+      JSON.stringify(labels.map((label, index) => (index === 4 ? { ...label, text } : label)))
+    expect(read(kitchen, { ...strict, planText: withText('3 718') }).rooms[0]?.depthCm).toBe(420.5)
+    expect(read(kitchen, { ...strict, planText: withText('3\u202f718') }).rooms[0]?.depthCm).toBe(
+      420.5,
+    )
+    expect(
+      read(kitchen, { ...strict, planText: withText('3 71 8') }).rooms[0]?.depthCm,
+    ).toBeUndefined()
+  })
+
   it.each([
     ['neighbour room', { ...widthEvidence, sourceNumber: 3 }],
     ['wrong axis', { ...widthEvidence, kind: 'vertical-chain' }],

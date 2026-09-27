@@ -91,6 +91,21 @@ describe('native horizontal dimension chains against page contours', () => {
       labelIndexes: [55, 56, 57],
     })
   })
+  it('accepts a native label with a complete thousands group', () => {
+    const grouped = labelsFor(6).map((label) =>
+      label.text === '1353' ? { ...label, text: '1 353' } : label,
+    )
+    expect(pdfWidthChain(work, contours.source, contours, 6, grouped, 2945).status).toBe(
+      'candidate',
+    )
+    const malformed = grouped.map((label) =>
+      label.text === '1 353' ? { ...label, text: '1 35 3' } : label,
+    )
+    expect(pdfWidthChain(work, contours.source, contours, 6, malformed, 2945)).toMatchObject({
+      status: 'unresolved',
+      reason: 'invalid-dimension-labels',
+    })
+  })
   it('does not fit a bedroom 4 chain to bedroom 6 even with its original correct sum', () => {
     expect(pdfWidthChain(work, contours.source, contours, 6, labels, 2985)).toMatchObject({
       status: 'unresolved',
@@ -205,6 +220,160 @@ describe('native horizontal dimension chains against page contours', () => {
     expect(
       pdfWidthChain(work, { ...contours.source, state: 'proposed' }, contours, 4, labels, 2985),
     ).toMatchObject({ reason: 'different-plan-source' })
+  })
+})
+
+function tickDimensionSheet() {
+  const source = { sha256: 'b'.repeat(64), pdfPage: 2, state: 'existing' as const }
+  const polygon = [
+    { x: 100, y: 100 },
+    { x: 300, y: 100 },
+    { x: 300, y: 300 },
+    { x: 100, y: 300 },
+  ]
+  const contours: PdfRoomContours = {
+    source,
+    coordinateSystem: 'page-0-1000',
+    review: 'manual-source-review',
+    pageWidth: 1000,
+    pageHeight: 1000,
+    rooms: [{ roomSourceNumber: 5, polygon }],
+  }
+  const stroke = (operationIndex: number, points: PdfVectorPath['points']): PdfVectorPath => ({
+    operationIndex,
+    subpathIndex: 0,
+    paint: 'stroke',
+    closed: false,
+    points,
+  })
+  const work: PdfLinework = {
+    coordinateSystem: 'page-0-1000',
+    pageWidth: 1000,
+    pageHeight: 1000,
+    paths: [
+      { ...stroke(1, polygon), closed: true },
+      stroke(2, [
+        { x: 100, y: 170 },
+        { x: 300, y: 170 },
+      ]),
+      stroke(3, [
+        { x: 95, y: 175 },
+        { x: 105, y: 165 },
+      ]),
+      stroke(4, [
+        { x: 295, y: 175 },
+        { x: 305, y: 165 },
+      ]),
+      stroke(5, [
+        { x: 170, y: 100 },
+        { x: 170, y: 300 },
+      ]),
+      stroke(6, [
+        { x: 165, y: 95 },
+        { x: 175, y: 105 },
+      ]),
+      stroke(7, [
+        { x: 165, y: 295 },
+        { x: 175, y: 305 },
+      ]),
+    ],
+    skippedCurves: 0,
+    unsupportedPaths: 0,
+    unsupportedContexts: 0,
+    clippedPaths: 0,
+    truncated: false,
+  }
+  return { source, contours, work }
+}
+
+describe('architectural tick dimensions', () => {
+  const widthLabel = { index: 1, text: '200', x: 200, y: 168, rotation: 0 }
+  const depthLabel = { index: 2, text: '200', x: 168, y: 200, rotation: 90 }
+
+  it('accepts a rail with a single crossed native tick at each end on both axes', () => {
+    const { source, contours, work } = tickDimensionSheet()
+    expect(pdfWidthChain(work, source, contours, 5, [widthLabel], 200)).toMatchObject({
+      status: 'candidate',
+      ends: [
+        { x: 100, y: 170 },
+        { x: 300, y: 170 },
+      ],
+      lineOperations: [2],
+    })
+    expect(pdfDepthChain(work, source, contours, 5, [depthLabel], 200)).toMatchObject({
+      status: 'candidate',
+      ends: [
+        { x: 170, y: 100 },
+        { x: 170, y: 300 },
+      ],
+      lineOperations: [5],
+    })
+  })
+
+  it('refuses a missing, shifted, duplicate or one-sided tick', () => {
+    const { source, contours, work } = tickDimensionSheet()
+    const width = (paths: PdfVectorPath[]) =>
+      pdfWidthChain({ ...work, paths }, source, contours, 5, [widthLabel], 200)
+    const tick = work.paths.find((path) => path.operationIndex === 3)
+    if (!tick) throw new Error('Missing synthetic tick')
+    expect(width(work.paths.filter((path) => path.operationIndex !== 3)).status).toBe('unresolved')
+    expect(width([...work.paths, { ...tick, operationIndex: 8 }])).toMatchObject({
+      status: 'ambiguous',
+      reason: 'branched-dimension-line',
+    })
+    expect(
+      width([
+        ...work.paths,
+        {
+          ...tick,
+          operationIndex: 9,
+          points: [
+            { x: 100, y: 170 },
+            { x: 100, y: 180 },
+          ],
+        },
+      ]),
+    ).toMatchObject({ status: 'ambiguous', reason: 'branched-dimension-line' })
+    expect(
+      width(
+        work.paths.map((path) =>
+          path.operationIndex === 3
+            ? { ...path, points: path.points.map((point) => ({ ...point, x: point.x + 1 })) }
+            : path,
+        ),
+      ).status,
+    ).toBe('unresolved')
+    expect(
+      width(
+        work.paths.map((path) =>
+          path.operationIndex === 3
+            ? {
+                ...path,
+                points: [
+                  { x: 100, y: 170 },
+                  { x: 110, y: 180 },
+                ],
+              }
+            : path,
+        ),
+      ).status,
+    ).toBe('unresolved')
+  })
+
+  it('does not choose between two native rails with the same label', () => {
+    const { source, contours, work } = tickDimensionSheet()
+    const rail = work.paths.find((path) => path.operationIndex === 2)
+    if (!rail) throw new Error('Missing synthetic rail')
+    expect(
+      pdfWidthChain(
+        { ...work, paths: [...work.paths, { ...rail, operationIndex: 8 }] },
+        source,
+        contours,
+        5,
+        [widthLabel],
+        200,
+      ),
+    ).toMatchObject({ status: 'ambiguous', reason: 'multiple-dimension-lines' })
   })
 })
 

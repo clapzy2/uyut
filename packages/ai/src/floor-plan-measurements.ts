@@ -38,12 +38,15 @@ function labelMillimetres(text: string, ceiling: boolean, apartment: boolean): n
     return undefined
   }
   if (apartment && !/квартир|общая высота|единая высота/.test(normalized)) return undefined
+  // Architectural dimensions often group thousands with a regular or narrow space.
+  // Only complete three-digit groups are accepted; "1 90" is not a number.
+  const quantity = String.raw`((?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d+)?)`
   const match = ceiling
-    ? normalized.match(/(?:-|=|\s)(\d+(?:[.,]\d+)?)\s*(мм|см|м)$/)
-    : normalized.match(/^(\d+(?:[.,]\d+)?)\s*(мм|см|м)?$/)
+    ? normalized.match(new RegExp(String.raw`(?:-|=|\s)${quantity}\s*(мм|см|м)$`))
+    : normalized.match(new RegExp(String.raw`^${quantity}\s*(мм|см|м)?$`))
   if (!match?.[1]) return undefined
   const multiplier = match[2] === 'м' ? 1000 : match[2] === 'см' ? 10 : 1
-  return Number(match[1].replace(',', '.')) * multiplier
+  return Number(match[1].replace(/[ \u00a0\u202f]/g, '').replace(',', '.')) * multiplier
 }
 
 /** Проверяет назначение и арифметику цепочки, но не угадывает её комнату по близости текста. */
