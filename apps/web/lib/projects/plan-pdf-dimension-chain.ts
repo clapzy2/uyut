@@ -1,5 +1,11 @@
+import type { PlanPageOpening } from '@uyut/db'
 import { pdfVectorArrow } from './plan-pdf-leaders'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import {
+  type NativePageSegment,
+  nativePageSegments,
+  sourceOpeningEndpoint,
+} from './plan-pdf-opening-endpoint'
 import {
   type PdfPlanSource,
   type PdfRoomContours,
@@ -19,13 +25,7 @@ type NativeDimensionSpan = {
   branched: boolean
 }
 
-type NativeOpeningSpan = {
-  id: string
-  kind: 'door' | 'window' | 'balcony'
-  wallEdgeIndex: number
-  start: PagePoint
-  end: PagePoint
-}
+type NativeOpeningSpan = PlanPageOpening
 
 export type PdfNativeOpeningBinding =
   | {
@@ -70,6 +70,7 @@ export function createPdfOpeningSpanVerifier(
     issue ? [] : work.paths.flatMap((path) => path.points.map((point) => `${point.x}:${point.y}`)),
   )
   const spansByAxis: Partial<Record<DimensionAxis, NativeDimensionSpan[]>> = {}
+  const segments = nativePageSegments(work)
   const spansFor = (axis: DimensionAxis) => {
     const existing = spansByAxis[axis]
     if (existing) return existing
@@ -87,6 +88,7 @@ export function createPdfOpeningSpanVerifier(
     pdfOpeningFromPreparedNativeSpan(work, source, contours, roomSourceNumber, label, opening, {
       issue,
       nativePoints,
+      segments,
       spansFor,
       pointInRoom,
     })
@@ -102,6 +104,7 @@ function pdfOpeningFromPreparedNativeSpan(
   evidence: {
     issue: string | undefined
     nativePoints: ReadonlySet<string>
+    segments: readonly NativePageSegment[]
     spansFor(axis: DimensionAxis): NativeDimensionSpan[]
     pointInRoom(point: PagePoint, roomSourceNumber: number): boolean
   },
@@ -147,7 +150,23 @@ function pdfOpeningFromPreparedNativeSpan(
     )
   )
     return fail('opening-span-not-on-declared-edge')
-  if (endpoints.some((point) => !evidence.nativePoints.has(`${point.x}:${point.y}`)))
+  const segments = opening.endpointProofs ? evidence.segments : []
+  if (
+    !sourceOpeningEndpoint(
+      opening.start,
+      opening.endpointProofs?.start,
+      [a, b],
+      evidence.nativePoints,
+      segments,
+    ) ||
+    !sourceOpeningEndpoint(
+      opening.end,
+      opening.endpointProofs?.end,
+      [a, b],
+      evidence.nativePoints,
+      segments,
+    )
+  )
     return fail('non-native-opening-endpoint')
   if (
     !Number.isSafeInteger(label.index) ||

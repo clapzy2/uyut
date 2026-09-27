@@ -15,6 +15,7 @@ import {
 } from '../lib/projects/plan-geometry-inspection'
 import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema } from '../lib/projects/plan-page-review'
+import { pairPlanPageOpeningFaces } from '../lib/projects/plan-pdf-opening-faces'
 
 const sourcePath = process.argv[2]
 if (!sourcePath || sourcePath.startsWith('--')) throw new Error('Укажите исходный PDF.')
@@ -78,12 +79,13 @@ const contours: PlanPageContours = planPageContoursSchema.parse({
       ? { roomSourceNumbers: room.roomSourceNumbers }
       : { roomSourceNumber: room.roomSourceNumber }),
     polygon: room.polygon,
-    openings: room.openings.map(({ id, kind, wallEdgeIndex, start, end }) => ({
-      id,
-      kind,
-      wallEdgeIndex,
-      start,
-      end,
+    openings: room.openings.map((opening) => ({
+      id: opening.id,
+      kind: opening.kind,
+      wallEdgeIndex: opening.wallEdgeIndex,
+      start: opening.start,
+      end: opening.end,
+      ...('endpointProofs' in opening ? { endpointProofs: opening.endpointProofs } : {}),
     })),
   })),
 })
@@ -106,6 +108,7 @@ const report = {
   nativePaths: page.linework.paths.length,
   geometry: result.geometry,
   geometryIssues: inspectPlanGeometry(result.geometry),
+  openingFacePairs: pairPlanPageOpeningFaces(page.linework, source, contours),
   confirmationIssues: inspectManualPlanCompleteness(result.geometry),
   unresolvedSourceFeatures: complete.unresolvedFeatures,
   qualification:
@@ -121,13 +124,14 @@ const css = (
 const preview = renderToStaticMarkup(<PlanGeometryPreview geometry={result.geometry} />)
 await writeFile(
   resolve(output, 'preview.html'),
-  `<!doctype html><html lang="ru" data-theme="light"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Полная квартира — локальная 2D-проверка</title><style>${css}</style><body><main style="max-width:1200px;margin:auto;padding:24px"><p>Локальная проверка исходного листа 03 · не production</p>${preview}<p>Кухонное окно и балконная дверь: раздельную привязку ещё нужно уточнить. Это не подтверждённая расстановка.</p></main></body></html>`,
+  `<!doctype html><html lang="ru" data-theme="light"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Полная квартира — локальная 2D-проверка</title><style>${css}</style><body><main style="max-width:1200px;margin:auto;padding:24px"><p>Локальная проверка исходного листа 03 · не production</p>${preview}<p>Кухонное окно и балконная дверь разделены по проверенному пересечению исходных линий. Это не подтверждённая расстановка.</p></main></body></html>`,
 )
 console.log(
   JSON.stringify({
     output,
     physicalZones: result.geometry.rooms.length,
     openingAnnotations: result.geometry.openings.length,
+    openingFacePairs: report.openingFacePairs.length,
     geometryIssues: report.geometryIssues.length,
     confirmationIssues: report.confirmationIssues.length,
     paidCalls: 0,

@@ -4,6 +4,7 @@ import type { NextRequest } from 'next/server'
 import { AccessError, assertOwnerOrCollaborator } from '@/lib/projects/access'
 import { PlanReadError, preparePlanPage } from '@/lib/projects/plan-document'
 import { planEditRevision } from '@/lib/projects/plan-edit-revision'
+import { nativePageSegments } from '@/lib/projects/plan-pdf-opening-endpoint'
 import { getSession } from '@/lib/session'
 import { getObject } from '@/lib/storage'
 
@@ -70,13 +71,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       'X-Plan-Page': String(page.pageNumber),
     }
     if (format === 'points') {
-      // Extraction already caps the complete layer at 20,000 points. Return vertices only,
-      // without path structures or rounding that could change dimension-chain ownership.
+      // Bounded native vertices and stroke segments support exact endpoint crossings.
+      // No dimensions, inferred walls or source text are returned here.
       const unique = new Map<string, { x: number; y: number }>()
       for (const path of page.linework.paths) {
         for (const point of path.points) unique.set(`${point.x}:${point.y}`, point)
       }
-      return Response.json({ points: [...unique.values()] }, { headers: sourceHeaders })
+      return Response.json(
+        { points: [...unique.values()], segments: nativePageSegments(page.linework) },
+        { headers: sourceHeaders },
+      )
     }
     return new Response(new Uint8Array(page.image.body), {
       headers: { ...sourceHeaders, 'content-type': 'image/jpeg' },

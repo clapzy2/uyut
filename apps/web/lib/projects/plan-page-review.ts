@@ -1,6 +1,7 @@
 import type { PlanPageContours, PlanPageReview, PlanReading } from '@uyut/db'
 import { z } from 'zod'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import { nativePageSegments, sourceOpeningEndpoint } from './plan-pdf-opening-endpoint'
 import {
   type PdfPlanSource,
   pdfBoundaryDistance,
@@ -15,12 +16,24 @@ const pointSchema = z.strictObject({
   y: z.number().min(0).max(1000),
 })
 const featureIdSchema = z.string().min(1).max(80).regex(/^\S+$/)
+const endpointProofSchema = z.strictObject({
+  kind: z.literal('native-edge-crossing'),
+  operationIndex: z.number().int().min(0).max(99_999),
+  subpathIndex: z.number().int().min(0).max(19_999),
+  segmentIndex: z.number().int().min(0).max(19_999),
+})
 const openingSchema = z.strictObject({
   id: featureIdSchema,
   kind: z.enum(['door', 'window', 'balcony']),
   wallEdgeIndex: z.number().int().min(0).max(99),
   start: pointSchema,
   end: pointSchema,
+  endpointProofs: z
+    .strictObject({
+      start: endpointProofSchema.optional(),
+      end: endpointProofSchema.optional(),
+    })
+    .optional(),
 })
 const obstacleSchema = z.strictObject({
   id: featureIdSchema,
@@ -330,11 +343,28 @@ export function planPageReviewIssue(
     input.exterior?.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`))
   )
     return 'non-native-contour-vertex'
+  const segments = nativePageSegments(linework)
   for (const room of input.rooms) {
     for (const opening of room.openings ?? []) {
+      const a = room.polygon[opening.wallEdgeIndex]
+      const b = room.polygon[(opening.wallEdgeIndex + 1) % room.polygon.length]
       if (
-        !nativePoints.has(`${opening.start.x}:${opening.start.y}`) ||
-        !nativePoints.has(`${opening.end.x}:${opening.end.y}`)
+        !a ||
+        !b ||
+        !sourceOpeningEndpoint(
+          opening.start,
+          opening.endpointProofs?.start,
+          [a, b],
+          nativePoints,
+          segments,
+        ) ||
+        !sourceOpeningEndpoint(
+          opening.end,
+          opening.endpointProofs?.end,
+          [a, b],
+          nativePoints,
+          segments,
+        )
       )
         return 'non-native-opening-vertex'
     }

@@ -20,6 +20,7 @@
     "Room 8 free-floor contour excludes the visibly outlined service/riser box. The full interior envelope and fixed volume are retained separately.",
     "No global centimetre scale, fitted coordinates, unknown opening heights, door swing envelopes, radiator dimensions, or construction guarantees are introduced.",
     "Room 3 has two observed windows, widths 1089 and 576. The 576 opening is not classified as a balcony door.",
+    "Room 2 window and balcony spans share an exact bounded crossing of native operation 573/subpath 0/segment 0 with the declared top edge. Printed widths 563 and 926 are independently checked; the crossing is not an extracted vertex.",
     "The source address/title block is deliberately not transcribed."
   ],
   "apartmentEnvelope": {
@@ -395,6 +396,46 @@
         "labelIndex": 1
       },
       "openings": [
+        {
+          "id": "room-2-window",
+          "kind": "window",
+          "wallEdgeIndex": 0,
+          "start": { "x": 241.735, "y": 81.757 },
+          "end": { "x": 279.642, "y": 81.757 },
+          "endpointProofs": {
+            "end": {
+              "kind": "native-edge-crossing",
+              "operationIndex": 573,
+              "subpathIndex": 0,
+              "segmentIndex": 0
+            }
+          },
+          "printedWidth": { "status": "known", "widthMm": 563, "labelIndex": 19 },
+          "heightMm": null,
+          "swing": null
+        },
+        {
+          "id": "room-2-balcony",
+          "kind": "balcony",
+          "wallEdgeIndex": 0,
+          "start": { "x": 279.642, "y": 81.757 },
+          "end": { "x": 341.99, "y": 81.757 },
+          "endpointProofs": {
+            "start": {
+              "kind": "native-edge-crossing",
+              "operationIndex": 573,
+              "subpathIndex": 0,
+              "segmentIndex": 0
+            }
+          },
+          "printedWidth": { "status": "known", "widthMm": 926, "labelIndex": 8 },
+          "heightMm": {
+            "value": 2281,
+            "labelIndex": 168,
+            "status": "explicit-balcony-door-height-label"
+          },
+          "swing": null
+        },
         {
           "id": "room-2-door",
           "kind": "door",
@@ -905,7 +946,7 @@
       ]
     }
   ],
-  "unresolvedFeatures": [
+  "resolvedFeatures": [
     {
       "id": "room-2-window-split",
       "roomSourceNumber": 2,
@@ -919,7 +960,7 @@
         "x": 241.735,
         "y": 81.757
       },
-      "innerFaceEnd": null,
+      "innerFaceEnd": { "x": 279.642, "y": 81.757 },
       "partitionLine": {
         "operationIndex": 573,
         "start": {
@@ -933,7 +974,7 @@
       },
       "heightMm": null,
       "swing": null,
-      "reason": "The actual split intersects the inner face, but the intersection x279.642,y81.757 is not an extractor native vertex. Do not invent a node or use exterior-frame width as the inner width."
+      "reason": "Exact bounded intersection of native stroke operation 573/subpath 0/segment 0 with the declared top room edge. It is not an extractor vertex or an estimated point."
     },
     {
       "id": "room-2-balcony-split",
@@ -944,7 +985,7 @@
         "widthMm": 926,
         "labelIndex": 8
       },
-      "innerFaceStart": null,
+      "innerFaceStart": { "x": 279.642, "y": 81.757 },
       "innerFaceEnd": {
         "x": 341.99,
         "y": 81.757
@@ -966,8 +1007,10 @@
         "status": "explicit-balcony-door-height-label"
       },
       "swing": null,
-      "reason": "Explicit balcony-exit text and leaf are visible. Inner-face split requires a native line-intersection proof not a snapped invented vertex."
-    },
+      "reason": "Explicit balcony-exit text and leaf are visible. Inner-face split has the same exact native stroke/room-edge crossing proof; height label retained, not a fabricated sill or swing."
+    }
+  ],
+  "unresolvedFeatures": [
     {
       "kind": "shaft",
       "regions": ["kitchen external-wall thickness", "bathroom/WC external-wall thickness"],
@@ -1048,7 +1091,7 @@
     "edgeCoverage": "native wall lines or explicitly declared logical opening closures",
     "printedOpeningWidthsChecked": 17,
     "unresolvedFeatures": 2,
-    "qualification": "Full physical geometry draft coverage; kitchen window/balcony split remains unresolved. Manual labels are not automatic recognition accuracy or metric completeness.",
+    "qualification": "Full physical geometry draft coverage; kitchen window/balcony split has explicit native stroke/edge crossing proof. Manual labels are not automatic recognition accuracy or metric completeness.",
     "paidCalls": 0
   },
   "nativePaths": [

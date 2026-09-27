@@ -1,7 +1,7 @@
 // biome-ignore-all lint/suspicious/noArrayIndexKey: ordered polygon vertices keep their coordinate-field identity
 'use client'
 
-import type { PlanPageContours, PlanReading } from '@uyut/db'
+import type { PlanPageContours, PlanPageEndpointProof, PlanReading } from '@uyut/db'
 import { Button, inputClassName } from '@uyut/ui'
 import { type MouseEvent, useEffect, useRef, useState } from 'react'
 import { savePlanPageReview } from '@/actions/plan-page-review'
@@ -12,6 +12,7 @@ import {
   finiteContourPoint,
   groupPageContourDraft,
   nativePointsFromResponse,
+  nativeSegmentsFromResponse,
   numberedContourRooms,
   type PageContourDraft,
   type PageContourPoint,
@@ -20,11 +21,14 @@ import {
   pageContourOptions,
   pageContourPoint,
   pageContourRoomsForSave,
+  pageOpeningPointsChanged,
   previewFromHeaders,
   samePlanPage,
   savedPageOpeningCheck,
   snapPageContourPoint,
+  snapPageOpeningPoint,
 } from '@/components/plan-page-contour-editor-model'
+import type { NativePageSegment } from '@/lib/projects/plan-pdf-opening-endpoint'
 import {
   pdfContourIdentity,
   pdfContourKey,
@@ -64,7 +68,12 @@ export function PlanPageContourEditor({
   const [imageUrl, setImageUrl] = useState<string>()
   const [imageReady, setImageReady] = useState(false)
   const [nativePoints, setNativePoints] = useState<PageContourPoint[]>([])
-  const [proposal, setProposal] = useState<{ point: PageContourPoint; index?: number }>()
+  const [nativeSegments, setNativeSegments] = useState<NativePageSegment[]>([])
+  const [proposal, setProposal] = useState<{
+    point: PageContourPoint
+    index?: number
+    proof?: PlanPageEndpointProof
+  }>()
   const [nodeFeedback, setNodeFeedback] = useState<string>()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -161,10 +170,12 @@ export function PlanPageContourEditor({
         const [blob, pointsValue] = await Promise.all([response.blob(), pointsResponse.json()])
         if (abort.signal.aborted) return
         const nodes = nativePointsFromResponse(pointsValue)
-        if (!nodes) {
+        const segments = nativeSegmentsFromResponse(pointsValue)
+        if (!nodes || !segments) {
           throw new Error('На этом листе не удалось проверить векторные узлы для точной привязки.')
         }
         setNativePoints(nodes)
+        setNativeSegments(segments)
         url = URL.createObjectURL(blob)
         setImageUrl(url)
         setPreview(metadata)
@@ -214,7 +225,11 @@ export function PlanPageContourEditor({
     }
   }, [projectId, pageNumber, sourceRevision])
 
-  function changeSelected(polygon: PageContourPoint[], closed = false) {
+  function changeSelected(
+    polygon: PageContourPoint[],
+    closed = false,
+    replacement?: { index: number; proof?: PlanPageEndpointProof },
+  ) {
     if (pointsLocked || !selectedIdentity) return
     setDrafts((current) => {
       if (target.kind === 'room') {
@@ -240,7 +255,9 @@ export function PlanPageContourEditor({
           return {
             ...draft,
             openings: draft.openings?.map((opening) =>
-              opening.id === target.id ? { ...opening, points: polygon } : opening,
+              opening.id === target.id
+                ? pageOpeningPointsChanged(opening, polygon, replacement)
+                : opening,
             ),
           }
         }
@@ -332,7 +349,14 @@ export function PlanPageContourEditor({
 
   function proposePoint(point: PageContourPoint, index?: number) {
     if (pointsLocked || !preview || (index === undefined && !canDraw)) return
-    const candidate = snapPageContourPoint(point, nativePoints, preview)
+    const a = selectedOpening && selectedDraft?.polygon[selectedOpening.wallEdgeIndex]
+    const b =
+      selectedOpening &&
+      selectedDraft?.polygon[(selectedOpening.wallEdgeIndex + 1) % selectedDraft.polygon.length]
+    const candidate =
+      a && b
+        ? snapPageOpeningPoint(point, nativePoints, preview, [a, b], nativeSegments)
+        : snapPageContourPoint(point, nativePoints, preview)
     setChecked(false)
     setProposal(undefined)
     if (candidate.kind === 'none') {
@@ -344,9 +368,15 @@ export function PlanPageContourEditor({
         'Рядом несколько одинаково близких узлов. Увеличьте лист и уточните вершину — неоднозначная привязка не сохранится.',
       )
     } else {
-      setProposal({ point: candidate.point, ...(index !== undefined ? { index } : {}) })
+      setProposal({
+        point: candidate.point,
+        proof: candidate.proof,
+        ...(index !== undefined ? { index } : {}),
+      })
       setNodeFeedback(
-        'Проверьте отмеченный узел на листе и примите привязку. Координаты берутся из исходного PDF без округления.',
+        candidate.proof
+          ? 'Проверьте пересечение исходного отрезка со стороной комнаты. Сервер повторно вычислит его по этому PDF; произвольные координаты не принимаются.'
+          : 'Проверьте отмеченный узел на листе и примите привязку. Координаты берутся из исходного PDF без округления.',
       )
     }
   }
@@ -357,9 +387,12 @@ export function PlanPageContourEditor({
       proposal.index === undefined
         ? [...points, { ...proposal.point }]
         : points.map((point, index) => (index === proposal.index ? { ...proposal.point } : point))
-    changeSelected(polygon, proposal.index === undefined ? false : closed)
+    changeSelected(polygon, proposal.index === undefined ? false : closed, {
+      index: proposal.index ?? points.length,
+      proof: proposal.proof,
+    })
     setNodeFeedback(
-      'Вершина привязана к узлу исходного PDF. Это привязка к линиям листа, не подтверждение размера в сантиметрах.',
+      'Точка привязана к исходным линиям PDF. Подписанный размер сверяется отдельно после сохранения.',
     )
   }
 
@@ -378,10 +411,10 @@ export function PlanPageContourEditor({
       setError('Выберите состояние, которое обозначено на этом листе и в прочитанном плане.')
       return
     }
-    const rooms = pageContourRoomsForSave(drafts, nativePoints)
+    const rooms = pageContourRoomsForSave(drafts, nativePoints, nativeSegments)
     if (!rooms) {
       setError(
-        'Замкните начатые контуры, отметьте оба конца каждого проёма и привяжите все точки к узлам PDF. Незавершённые объекты не исключаются из сохранения автоматически.',
+        'Замкните начатые контуры и проверьте привязку концов проёмов к исходным узлам или точным пересечениям. Незавершённые объекты не исключаются из сохранения автоматически.',
       )
       return
     }

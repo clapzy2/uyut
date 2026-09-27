@@ -1,8 +1,13 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import type { PlanPageOpening } from '@uyut/db'
 import sharp from 'sharp'
 import { preparePlanPage } from '../lib/projects/plan-document'
+import {
+  nativePageSegments,
+  sourceOpeningEndpoint,
+} from '../lib/projects/plan-pdf-opening-endpoint'
 
 const sourcePath = process.argv[2]
 if (!sourcePath) throw new Error('Provide the source apartment PDF path as the first argument')
@@ -24,7 +29,7 @@ type Fixture = {
   source: { sha256: string }
   rooms: Array<
     Boundary & {
-      openings?: Array<Span & { printedWidth: { widthMm: number; labelIndex: number } }>
+      openings?: Array<PlanPageOpening & { printedWidth: { widthMm: number; labelIndex: number } }>
       observedCompoundOpening?: Span
     }
   >
@@ -76,8 +81,30 @@ function collectPoints(value: unknown) {
   }
 }
 collectPoints(fixture)
-if (points.some((point) => !nativeKeys.has(`${point.x}:${point.y}`))) {
-  throw new Error('An annotation point is not an exact fresh native source vertex')
+const sourceKeys = new Set(nativeKeys)
+const nativeSegments = nativePageSegments(page.linework)
+for (const room of fixture.rooms) {
+  for (const opening of room.openings ?? []) {
+    const a = room.polygon[opening.wallEdgeIndex]
+    const b = room.polygon[(opening.wallEdgeIndex + 1) % room.polygon.length]
+    if (!a || !b) throw new Error('Missing source edge')
+    for (const key of ['start', 'end'] as const) {
+      if (
+        !sourceOpeningEndpoint(
+          opening[key],
+          opening.endpointProofs?.[key],
+          [a, b],
+          nativeKeys,
+          nativeSegments,
+        )
+      )
+        throw new Error('Opening endpoint lacks an exact source proof')
+      sourceKeys.add(`${opening[key].x}:${opening[key].y}`)
+    }
+  }
+}
+if (points.some((point) => !sourceKeys.has(`${point.x}:${point.y}`))) {
+  throw new Error('An annotation point is neither a native vertex nor a verified edge crossing')
 }
 function boundaryChecks(boundary: Boundary, closures: Span[]): boolean[] {
   const segments: Array<[Point, Point]> = []
@@ -142,13 +169,15 @@ if (
 }
 console.log(
   JSON.stringify({
-    exactNativeAnnotationPoints: points.length,
+    sourceAnnotationPoints: points.length,
+    exactNativeAnnotationPoints: points.filter((p) => nativeKeys.has(`${p.x}:${p.y}`)).length,
+    verifiedCrossingAnnotationPoints: points.filter((p) => !nativeKeys.has(`${p.x}:${p.y}`)).length,
     uniqueAnnotationPoints: new Set(points.map((point) => `${point.x}:${point.y}`)).size,
     roomEdges: roomChecks.length,
     exteriorEdges: exteriorChecks.length,
     printedOpeningWidths: openings.length,
     qualification:
-      'Native lines plus explicitly declared logical opening closures; no inferred centimetre scale or unresolved kitchen split',
+      'Native vertices or verified bounded edge crossings; explicitly declared logical opening closures; no inferred centimetre scale',
   }),
 )
 await writeFile(

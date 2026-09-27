@@ -10,6 +10,7 @@ import {
 import { type PdfDimensionChain, pdfDepthChain, pdfWidthChain } from './plan-pdf-dimension-chain'
 import { pdfVectorArrow } from './plan-pdf-leaders'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import { pairPlanPageOpeningFaces } from './plan-pdf-opening-faces'
 import {
   type PdfPlanSource,
   pdfContourKey,
@@ -344,6 +345,23 @@ export function planPageMetricDraft(
       anchorRoomNumbers: [...anchorNumbers],
       labelIndexes: [...usedLabels].sort((a, b) => a - b),
       derivedOpeningIds,
+      openingFacePairs: pairPlanPageOpeningFaces(linework, source, contours).flatMap((pair) => {
+        const bindings = pair.openings.flatMap((ref) => {
+          const opening = geometry.openings.find(
+            (item) => item.id === id(pdfContourKey(ref), 'opening', ref.openingId),
+          )
+          const wall = geometry.walls.find((item) => item.id === opening?.wallId)
+          return opening && wall ? [structuredClone({ opening, wall })] : []
+        })
+        if (bindings.length !== 2 || !bindings[0] || !bindings[1]) return []
+        const refs = pair.jambs.map(({ operationIndex, subpathIndex, segmentIndex }) => ({
+          operationIndex,
+          subpathIndex,
+          segmentIndex,
+        }))
+        if (!refs[0] || !refs[1]) return []
+        return [{ bindings: [bindings[0], bindings[1]], jambs: [refs[0], refs[1]] }]
+      }),
     }
     geometry.warnings = [
       'Координаты черновика перенесены из нативных линий PDF в едином масштабе. Подписанные мерки комнат сохранены отдельно и не заменены габаритами контуров.',

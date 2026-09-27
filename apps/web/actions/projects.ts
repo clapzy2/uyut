@@ -33,6 +33,7 @@ import {
   validPlanImageCalibration,
 } from '@/lib/projects/plan-image-calibration'
 import { planObstaclesSchema } from '@/lib/projects/plan-obstacles'
+import { currentOpeningFacePairs } from '@/lib/projects/plan-opening-face-pairs'
 import { retainedPlanPageReview } from '@/lib/projects/plan-page-review'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
 import * as repository from '@/lib/projects/repository'
@@ -471,7 +472,19 @@ export async function savePlanGeometry(
       }
     }
     // Calibration is server-owned provenance, not a client-editable certification.
-    if (before.pdfCalibration) geometry.pdfCalibration = before.pdfCalibration
+    if (before.pdfCalibration) {
+      geometry.pdfCalibration = {
+        ...before.pdfCalibration,
+        ...(before.pdfCalibration.openingFacePairs
+          ? {
+              openingFacePairs: currentOpeningFacePairs({
+                ...geometry,
+                pdfCalibration: before.pdfCalibration,
+              }),
+            }
+          : {}),
+      }
+    }
     if (mode === 'confirm' && geometry.pdfCalibration?.derivedOpeningIds.length) {
       return {
         ok: false,

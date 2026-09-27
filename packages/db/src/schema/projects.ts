@@ -163,6 +163,11 @@ export type PlanImageDimensionLine = {
   pixelEnd: { x: number; y: number }
   lengthCm: number
 }
+/** Server-proved opposing door faces; snapshots prevent reuse after a geometry edit. */
+export type PlanOpeningFacePair = {
+  bindings: [{ opening: PlanOpening; wall: PlanWall }, { opening: PlanOpening; wall: PlanWall }]
+  jambs: [PlanPageSegmentRef, PlanPageSegmentRef]
+}
 export type PlanGeometry = {
   version: 1
   status: 'draft' | 'confirmed'
@@ -190,17 +195,26 @@ export type PlanGeometry = {
     anchorRoomNumbers: number[]
     labelIndexes: number[]
     derivedOpeningIds: string[]
+    openingFacePairs?: PlanOpeningFacePair[]
   }
   warnings: string[]
 }
 
 /** Контуры на конкретном PDF-листе: координаты страницы, не размеры в сантиметрах. */
+export type PlanPageSegmentRef = {
+  operationIndex: number
+  subpathIndex: number
+  segmentIndex: number
+}
+export type PlanPageEndpointProof = PlanPageSegmentRef & { kind: 'native-edge-crossing' }
 export type PlanPageOpening = {
   id: string
   kind: 'door' | 'window' | 'balcony'
   wallEdgeIndex: number
   start: { x: number; y: number }
   end: { x: number; y: number }
+  /** Exact intersection of a native straight segment and the declared room edge. */
+  endpointProofs?: { start?: PlanPageEndpointProof; end?: PlanPageEndpointProof }
 }
 
 export type PlanPageObstacle = {

@@ -1,8 +1,10 @@
 import { roomArchitectureFromPlan } from '@uyut/ai'
-import type { PlanGeometry, PlanPageContours, PlanReading } from '@uyut/db'
+import type { PlanGeometry, PlanPageContours, PlanPageOpening, PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import page from '../../../../docs/qa/fixtures/apartment-74-77-complete-page.json'
 import { inspectManualPlanCompleteness } from './plan-geometry-inspection'
+import { currentOpeningFacePairs } from './plan-opening-face-pairs'
+import { verifyPlanPageOpenings } from './plan-page-feature-checks'
 import { planPageMetricDraft } from './plan-page-metric-draft'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import { roomLayoutInputFromGeometry } from './room-geometry-layout'
@@ -28,12 +30,19 @@ function completeSheet() {
         ? { roomSourceNumbers: [...room.roomSourceNumbers] }
         : { roomSourceNumber: room.roomSourceNumber as number }),
       polygon: structuredClone(room.polygon),
-      openings: room.openings.map(({ id, kind, wallEdgeIndex, start, end }) => ({
-        id,
-        kind: kind as 'door' | 'window' | 'balcony',
-        wallEdgeIndex,
-        start: { ...start },
-        end: { ...end },
+      openings: room.openings.map((opening) => ({
+        id: opening.id,
+        kind: opening.kind as 'door' | 'window' | 'balcony',
+        wallEdgeIndex: opening.wallEdgeIndex,
+        start: { ...opening.start },
+        end: { ...opening.end },
+        ...('endpointProofs' in opening
+          ? {
+              endpointProofs: structuredClone(
+                opening.endpointProofs,
+              ) as PlanPageOpening['endpointProofs'],
+            }
+          : {}),
       })),
     })),
   }
@@ -107,6 +116,57 @@ function draft(fixture = completeSheet(), numbers = allNumbers): PlanGeometry {
 }
 
 describe('complete existing PDF page in one native metric scale', () => {
+  it('checks separate kitchen spans against printed 563 and 926 mm dimensions', () => {
+    const fixture = completeSheet()
+    const checks = verifyPlanPageOpenings(
+      fixture.context.linework,
+      fixture.context.source,
+      fixture.context.contours,
+      fixture.context.planText,
+    )
+    expect(checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ openingId: 'room-2-window', status: 'candidate', widthMm: 563 }),
+        expect.objectContaining({ openingId: 'room-2-balcony', status: 'candidate', widthMm: 926 }),
+      ]),
+    )
+    const geometry = draft(fixture)
+    expect(geometry.openings.filter((opening) => opening.type === 'window')).toHaveLength(5)
+    expect(geometry.openings.filter((opening) => opening.type === 'balcony')).toHaveLength(1)
+    expect(geometry.pdfCalibration?.derivedOpeningIds).toHaveLength(7)
+  })
+
+  it.each(['missing-proof', 'wrong-path', 'moved-point'] as const)(
+    'rejects kitchen crossing tampering: %s',
+    (mode) => {
+      const fixture = completeSheet()
+      const opening = fixture.context.contours.rooms
+        .find((room) => room.roomSourceNumber === 2)
+        ?.openings?.find((value) => value.id === 'room-2-window')
+      if (!opening) throw new Error('Missing kitchen window')
+      if (mode === 'missing-proof') delete opening.endpointProofs
+      if (mode === 'wrong-path' && opening.endpointProofs?.end)
+        opening.endpointProofs.end.operationIndex = 572
+      if (mode === 'moved-point') opening.end.x += 0.001
+      expect(planPageMetricDraft(fixture.reading, fixture.context, allNumbers).ok).toBe(false)
+    },
+  )
+
+  it('keeps only unchanged server-derived pairs after a host or opening edit', () => {
+    const geometry = draft()
+    expect(currentOpeningFacePairs(geometry)).toHaveLength(5)
+    const first = geometry.pdfCalibration?.openingFacePairs?.[0]
+    if (!first) throw new Error('Missing face pair')
+    const opening = geometry.openings.find((value) => value.id === first.bindings[0].opening.id)
+    if (!opening) throw new Error('Missing paired opening')
+    opening.widthCm += 1
+    expect(currentOpeningFacePairs(geometry)).not.toContain(first)
+    opening.widthCm -= 1
+    const wall = geometry.walls.find((value) => value.id === opening.wallId)
+    if (!wall) throw new Error('Missing paired host')
+    wall.start.xCm += 1
+    expect(currentOpeningFacePairs(geometry)).not.toContain(first)
+  })
   it('retains seven physical zones covering eight source numbers without changing readings', () => {
     const fixture = completeSheet()
     const before = structuredClone(fixture)
@@ -185,11 +245,11 @@ describe('complete existing PDF page in one native metric scale', () => {
     expect(fixture.reading.rooms.find((room) => room.sourceNumber === 6)?.depthCm).toBe(415.4)
   })
 
-  it('retains all seventeen annotated openings without invented heights or swing zones', () => {
+  it('retains all nineteen annotated openings without invented heights or swing zones', () => {
     const fixture = completeSheet()
     const geometry = draft(fixture)
-    expect(geometry.openings).toHaveLength(17)
-    expect(new Set(geometry.openings.map((opening) => opening.id)).size).toBe(17)
+    expect(geometry.openings).toHaveLength(19)
+    expect(new Set(geometry.openings.map((opening) => opening.id)).size).toBe(19)
     for (const id of geometry.pdfCalibration?.derivedOpeningIds ?? [])
       expect(geometry.openings.some((opening) => opening.id === id)).toBe(true)
     for (const opening of geometry.openings) {
@@ -243,7 +303,7 @@ describe('complete existing PDF page in one native metric scale', () => {
     fixture.labels[84] = { text: '', x: 0, y: 0, rotation: 0 }
     fixture.context.planText = JSON.stringify(fixture.labels)
     const geometry = draft(fixture)
-    expect(geometry.openings).toHaveLength(17)
+    expect(geometry.openings).toHaveLength(19)
     expect(geometry.pdfCalibration?.derivedOpeningIds.length).toBeGreaterThan(0)
     geometry.status = 'confirmed'
     expect(roomLayoutInputFromGeometry(geometry, 'Спальня 6', null)).toBeNull()

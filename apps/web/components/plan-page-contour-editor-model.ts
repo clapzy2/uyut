@@ -1,5 +1,6 @@
 import type {
   PlanPageContours,
+  PlanPageEndpointProof,
   PlanPageObstacle,
   PlanPageOpening,
   PlanPageOpeningCheck,
@@ -7,6 +8,11 @@ import type {
   PlanPageRoomIdentity,
   PlanRoomReading,
 } from '@uyut/db'
+import {
+  type NativePageSegment,
+  nativeEdgeCrossing,
+  sourceOpeningEndpoint,
+} from '@/lib/projects/plan-pdf-opening-endpoint'
 import {
   pdfContourIdentity,
   pdfContourKey,
@@ -50,6 +56,7 @@ export function contourDraftsFromSaved(rooms: PlanPageContours['rooms']): PageCo
 export function pageContourRoomsForSave(
   drafts: PageContourDraft[],
   nativePoints: PageContourPoint[],
+  segments: readonly NativePageSegment[] = [],
 ): PlanPageContours['rooms'] | null {
   if (!drafts.length || drafts.length > 100) return null
   const valid = (points: PageContourPoint[], minimum: number) =>
@@ -57,6 +64,7 @@ export function pageContourRoomsForSave(
     points.length <= 100 &&
     points.every((point) => finiteContourPoint(point) && nativeContourPoint(point, nativePoints))
   const rooms: PlanPageContours['rooms'] = []
+  const nativeSet = new Set(nativePoints.map((p) => `${p.x}:${p.y}`))
   const claimed = new Set<number>()
   for (const draft of drafts) {
     const numbers = pdfContourRoomNumbers(draft)
@@ -76,9 +84,19 @@ export function pageContourRoomsForSave(
     if ((draft.openings?.length ?? 0) > 32 || (draft.obstacles?.length ?? 0) > 20) return null
     const openings: PlanPageOpening[] = []
     for (const { points, ...opening } of draft.openings ?? []) {
-      if (points.length !== 2 || !valid(points, 2)) return null
+      if (points.length !== 2 || !points.every(finiteContourPoint)) return null
       const [start, end] = points
-      if (!start || !end) return null
+      const a = draft.polygon[opening.wallEdgeIndex]
+      const b = draft.polygon[(opening.wallEdgeIndex + 1) % draft.polygon.length]
+      if (
+        !start ||
+        !end ||
+        !a ||
+        !b ||
+        !sourceOpeningEndpoint(start, opening.endpointProofs?.start, [a, b], nativeSet, segments) ||
+        !sourceOpeningEndpoint(end, opening.endpointProofs?.end, [a, b], nativeSet, segments)
+      )
+        return null
       openings.push({ ...opening, start: { ...start }, end: { ...end } })
     }
     const obstacles: PlanPageObstacle[] = []
@@ -191,6 +209,7 @@ export function savedPageOpeningCheck(
     !savedRoom ||
     saved.kind !== opening.kind ||
     saved.wallEdgeIndex !== opening.wallEdgeIndex ||
+    JSON.stringify(saved.endpointProofs) !== JSON.stringify(opening.endpointProofs) ||
     !samePoints(opening.points, [saved.start, saved.end]) ||
     !samePoints(draft.polygon, savedRoom.polygon)
   )
@@ -208,7 +227,7 @@ export type PlanPagePreview = {
 }
 
 export type NativePointCandidate =
-  | { kind: 'candidate'; point: PageContourPoint; distance: number }
+  | { kind: 'candidate'; point: PageContourPoint; distance: number; proof?: PlanPageEndpointProof }
   | { kind: 'ambiguous' }
   | { kind: 'none' }
 
@@ -254,6 +273,128 @@ export function nativeContourPoint(
   nativePoints: PageContourPoint[],
 ): boolean {
   return nativePoints.some((native) => native.x === point.x && native.y === point.y)
+}
+
+/** Endpoint crossings are available only for a declared, locked room edge. */
+export function snapPageOpeningPoint(
+  point: PageContourPoint,
+  nativePoints: PageContourPoint[],
+  page: Pick<PlanPagePreview, 'width' | 'height'>,
+  edge: readonly [PageContourPoint, PageContourPoint],
+  segments: readonly NativePageSegment[],
+): NativePointCandidate {
+  const native = snapPageContourPoint(point, nativePoints, page)
+  if (native.kind === 'candidate' && native.distance === 0) return native
+  if (
+    !finiteContourPoint(point) ||
+    !Number.isFinite(page.width) ||
+    !Number.isFinite(page.height) ||
+    page.width <= 0 ||
+    page.height <= 0
+  )
+    return { kind: 'none' }
+  const crossings = new Map<
+    string,
+    { point: PageContourPoint; distance: number; proof: PlanPageEndpointProof }
+  >()
+  const nativeKeys = new Set(nativePoints.map((p) => `${p.x}:${p.y}`))
+  for (const segment of segments) {
+    const crossing = nativeEdgeCrossing(edge, segment)
+    if (!crossing) continue
+    const distance = Math.hypot(
+      ((point.x - crossing.x) * page.width) / 1000,
+      ((point.y - crossing.y) * page.height) / 1000,
+    )
+    const key = `${crossing.x}:${crossing.y}`
+    if (distance > 3 || nativeKeys.has(key) || crossings.has(key)) continue
+    // Coincident strokes prove the same coordinate, not alternative point locations.
+    crossings.set(key, {
+      point: crossing,
+      distance,
+      proof: {
+        kind: 'native-edge-crossing',
+        operationIndex: segment.operationIndex,
+        subpathIndex: segment.subpathIndex,
+        segmentIndex: segment.segmentIndex,
+      },
+    })
+  }
+  if (!crossings.size) return native
+  const candidates = [...crossings.values(), ...(native.kind === 'candidate' ? [native] : [])].sort(
+    (a, b) => a.distance - b.distance,
+  )
+  const first = candidates[0]
+  if (!first) return native
+  if (
+    first.distance !== 0 &&
+    (native.kind === 'ambiguous' ||
+      (candidates[1] && candidates[1].distance - first.distance <= 0.25))
+  )
+    return { kind: 'ambiguous' }
+  return { ...first, kind: 'candidate' }
+}
+
+/** Preserve a proof only for its unchanged endpoint; moving/undoing must not reuse it. */
+export function pageOpeningPointsChanged(
+  opening: PageOpeningDraft,
+  points: PageContourPoint[],
+  replacement?: { index: number; proof?: PlanPageEndpointProof },
+): PageOpeningDraft {
+  const endpointProofs: NonNullable<PlanPageOpening['endpointProofs']> = {}
+  for (const [index, key] of [
+    [0, 'start'],
+    [1, 'end'],
+  ] as const) {
+    if (!points[index]) continue
+    const before = opening.points[index]
+    const proof =
+      replacement?.index === index
+        ? replacement.proof
+        : before && before.x === points[index].x && before.y === points[index].y
+          ? opening.endpointProofs?.[key]
+          : undefined
+    if (proof) endpointProofs[key] = proof
+  }
+  const { endpointProofs: _beforeProofs, ...rest } = opening
+  return { ...rest, points, ...(Object.keys(endpointProofs).length ? { endpointProofs } : {}) }
+}
+
+export function nativeSegmentsFromResponse(value: unknown): NativePageSegment[] | null {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !('segments' in value) ||
+    !Array.isArray(value.segments) ||
+    value.segments.length > 20_000
+  )
+    return null
+  const segments: NativePageSegment[] = []
+  const keys = new Set<string>()
+  for (const raw of value.segments) {
+    if (!raw || typeof raw !== 'object') return null
+    const { operationIndex, subpathIndex, segmentIndex, start, end } = raw
+    if (
+      ![operationIndex, subpathIndex, segmentIndex].every(
+        (n) => Number.isSafeInteger(n) && n >= 0 && n < 100_000,
+      ) ||
+      !start ||
+      !end ||
+      !finiteContourPoint(start) ||
+      !finiteContourPoint(end)
+    )
+      return null
+    const key = `${operationIndex}:${subpathIndex}:${segmentIndex}`
+    if (keys.has(key)) return null
+    keys.add(key)
+    segments.push({
+      operationIndex,
+      subpathIndex,
+      segmentIndex,
+      start: { x: start.x, y: start.y },
+      end: { x: end.x, y: end.y },
+    })
+  }
+  return segments
 }
 
 export function nativePointsFromResponse(value: unknown): PageContourPoint[] | null {

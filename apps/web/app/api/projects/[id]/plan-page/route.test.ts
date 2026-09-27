@@ -45,12 +45,20 @@ const page = {
     pageHeight: 1191,
     paths: [
       {
+        operationIndex: 1,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
         points: [
           { x: 12.345678, y: 20 },
           { x: 30, y: 40 },
         ],
       },
       {
+        operationIndex: 2,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
         points: [
           { x: 30, y: 40 },
           { x: 50, y: 60 },
@@ -106,6 +114,22 @@ describe('private PDF page preview', () => {
         { x: 12.345678, y: 20 },
         { x: 30, y: 40 },
         { x: 50, y: 60 },
+      ],
+      segments: [
+        {
+          operationIndex: 1,
+          subpathIndex: 0,
+          segmentIndex: 0,
+          start: { x: 12.345678, y: 20 },
+          end: { x: 30, y: 40 },
+        },
+        {
+          operationIndex: 2,
+          subpathIndex: 0,
+          segmentIndex: 0,
+          start: { x: 30, y: 40 },
+          end: { x: 50, y: 60 },
+        },
       ],
     })
   })

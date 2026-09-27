@@ -1,4 +1,4 @@
-import type { PlanReading } from '@uyut/db'
+import type { PlanGeometry, PlanOpeningFacePair, PlanReading } from '@uyut/db'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AccessError } from '@/lib/projects/access'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
@@ -62,12 +62,16 @@ const corners = [
   { xCm: 500, yCm: 400 },
   { xCm: 0, yCm: 400 },
 ]
-const closedWalls = corners.map((start, index) => ({
-  id: `manual_${String(index + 1).padStart(24, '0')}`,
-  kind: 'outer' as const,
-  start,
-  end: corners[(index + 1) % corners.length],
-}))
+const closedWalls = corners.map((start, index) => {
+  const end = corners[(index + 1) % corners.length]
+  if (!end) throw new Error('Missing rectangle corner')
+  return {
+    id: `manual_${String(index + 1).padStart(24, '0')}`,
+    kind: 'outer' as const,
+    start,
+    end,
+  }
+})
 const kitchenContour = [
   {
     name: 'Кухня',
@@ -133,6 +137,78 @@ describe('manual plan draft', () => {
     expect(mocks.setPlanReading).not.toHaveBeenCalled()
     expect(mocks.audit).not.toHaveBeenCalled()
     expect(mocks.revalidate).not.toHaveBeenCalled()
+  })
+
+  it.each(['unchanged', 'width', 'host', 'removed'] as const)(
+    'preserves only current server-owned face pairs after %s edits',
+    async (edit) => {
+      const firstWall = closedWalls[0]
+      const secondWall = closedWalls[2]
+      if (!firstWall?.end || !secondWall?.end) throw new Error('Missing wall fixtures')
+      const openings = [firstWall, secondWall].map((wall, index) => ({
+        id: `manual_${String(index + 101).padStart(24, '0')}`,
+        type: 'door' as const,
+        wallId: wall.id,
+        offsetCm: 100,
+        widthCm: 90,
+      }))
+      const firstOpening = openings[0]
+      const secondOpening = openings[1]
+      if (!firstOpening || !secondOpening) throw new Error('Missing opening fixtures')
+      const pair: PlanOpeningFacePair = {
+        bindings: [
+          { opening: firstOpening, wall: firstWall },
+          { opening: secondOpening, wall: secondWall },
+        ],
+        jambs: [
+          { operationIndex: 5, subpathIndex: 0, segmentIndex: 0 },
+          { operationIndex: 6, subpathIndex: 0, segmentIndex: 0 },
+        ],
+      }
+      const geometry: PlanGeometry = {
+        ...emptyManualGeometry,
+        walls: structuredClone(closedWalls),
+        openings,
+        pdfCalibration: {
+          sourceSha256: 'a'.repeat(64),
+          pdfPage: 6,
+          cmPerPoint: 1.7,
+          origin: { x: 10, y: 20 },
+          anchorRoomNumbers: [4],
+          labelIndexes: [1, 2],
+          derivedOpeningIds: [],
+          openingFacePairs: [structuredClone(pair)],
+        },
+      }
+      // The snapshots are separate from editable geometry; client metadata is not trusted.
+      source.planReading.geometry = geometry
+      const input = structuredClone(geometry)
+      const jamb = input.pdfCalibration?.openingFacePairs?.[0]?.jambs[0]
+      const opening = input.openings[0]
+      const wall = input.walls[0]
+      if (!jamb || !opening || !wall) throw new Error('Missing editable fixtures')
+      jamb.operationIndex = 999
+      if (edit === 'width') opening.widthCm += 1
+      if (edit === 'host') wall.start.xCm += 1
+      if (edit === 'removed') input.openings = input.openings.slice(1)
+      const result = await savePlanGeometry(projectId, input, 'draft')
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.data.geometry.pdfCalibration?.openingFacePairs).toEqual(
+          edit === 'unchanged' ? [pair] : [],
+        )
+      }
+    },
+  )
+
+  it('does not introduce client-provided PDF calibration or face proofs', async () => {
+    const result = await savePlanGeometry(
+      projectId,
+      { ...emptyManualGeometry, pdfCalibration: { openingFacePairs: [{ forged: true }] } },
+      'draft',
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.data.geometry).not.toHaveProperty('pdfCalibration')
   })
 
   it('requires a source revision even when called outside the editor', async () => {

@@ -1,5 +1,5 @@
 import type { PlanPageContours, PlanRoomReading } from '@uyut/db'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   canAddPageFeature,
   contourDraftsFromSaved,
@@ -7,20 +7,117 @@ import {
   groupPageContourDraft,
   nativeContourPoint,
   nativePointsFromResponse,
+  nativeSegmentsFromResponse,
   numberedContourRooms,
   pageContourOptions,
   pageContourPoint,
   pageContourRoomsForSave,
+  pageOpeningPointsChanged,
   previewFromHeaders,
   samePlanPage,
   savedPageOpeningCheck,
   snapPageContourPoint,
+  snapPageOpeningPoint,
 } from './plan-page-contour-editor-model'
 
 const preview = { sha256: 'a'.repeat(64), page: 6, pageCount: 48, width: 842, height: 1191 }
 const rect = { left: 20, top: 40, width: 400, height: 600 }
 
 describe('page contour editor model', () => {
+  it('snaps an opening endpoint to a source crossing, preserving proof through reload and save', () => {
+    const left = { x: 10, y: 10 }
+    const right = { x: 30, y: 10 }
+    const polygon = [left, right, { x: 30, y: 30 }, { x: 10, y: 30 }]
+    const segment = {
+      operationIndex: 5,
+      subpathIndex: 0,
+      segmentIndex: 0,
+      start: { x: 20, y: 4 },
+      end: { x: 20, y: 12 },
+    }
+    const result = snapPageOpeningPoint(
+      { x: 20, y: 10 },
+      polygon,
+      preview,
+      [left, right],
+      [segment],
+    )
+    expect(result.kind).toBe('candidate')
+    if (result.kind !== 'candidate') throw new Error('Missing candidate')
+    expect(result.proof?.kind).toBe('native-edge-crossing')
+    const opening = pageOpeningPointsChanged(
+      { id: 'split', kind: 'window', wallEdgeIndex: 0, points: [left] },
+      [left, result.point],
+      { index: 1, proof: result.proof },
+    )
+    const drafts = [{ roomSourceNumber: 2, polygon, closed: true, openings: [opening] }]
+    const saved = pageContourRoomsForSave(drafts, polygon, [segment])
+    expect(saved?.[0]?.openings?.[0]?.endpointProofs).toEqual(opening.endpointProofs)
+    if (!saved) throw new Error('Missing save')
+    expect(contourDraftsFromSaved(saved)[0]?.openings?.[0]).toEqual(opening)
+    expect(pageContourRoomsForSave(drafts, polygon)).toBeNull()
+    const moved = pageOpeningPointsChanged(opening, [left, { x: 21, y: 10 }])
+    expect(moved.endpointProofs).toBeUndefined()
+    expect(
+      pageOpeningPointsChanged(opening, opening.points.slice(0, 1)).endpointProofs,
+    ).toBeUndefined()
+  })
+
+  it('validates segment response bounds and rejects competing crossing points', () => {
+    const segment = {
+      operationIndex: 5,
+      subpathIndex: 0,
+      segmentIndex: 0,
+      start: { x: 20, y: 4 },
+      end: { x: 20, y: 12 },
+    }
+    expect(nativeSegmentsFromResponse({ segments: [segment] })).toEqual([segment])
+    expect(nativeSegmentsFromResponse({ segments: [segment, segment] })).toBeNull()
+    expect(
+      nativeSegmentsFromResponse({ segments: [{ ...segment, start: { x: NaN, y: 4 } }] }),
+    ).toBeNull()
+    expect(nativeSegmentsFromResponse({ segments: new Array(20_001).fill(segment) })).toBeNull()
+    expect(
+      snapPageOpeningPoint(
+        { x: 20.05, y: 10 },
+        [],
+        preview,
+        [
+          { x: 10, y: 10 },
+          { x: 30, y: 10 },
+        ],
+        [
+          segment,
+          { ...segment, operationIndex: 6, start: { x: 20.1, y: 4 }, end: { x: 20.1, y: 12 } },
+        ],
+      ).kind,
+    ).toBe('ambiguous')
+  })
+
+  it('deduplicates repeated crossings without scanning the native node array for each segment', () => {
+    const nativePoints = Array.from({ length: 20_000 }, (_, i) => ({ x: i / 100, y: 50 }))
+    const segments = Array.from({ length: 20_000 }, (_, i) => ({
+      operationIndex: i,
+      subpathIndex: 0,
+      segmentIndex: 0,
+      start: { x: 20, y: 4 },
+      end: { x: 20, y: 12 },
+    }))
+    const reads = vi.spyOn(nativePoints, 'some')
+    expect(
+      snapPageOpeningPoint(
+        { x: 20, y: 10 },
+        nativePoints,
+        preview,
+        [
+          { x: 10, y: 10 },
+          { x: 30, y: 10 },
+        ],
+        segments,
+      ).kind,
+    ).toBe('candidate')
+    expect(reads).not.toHaveBeenCalled()
+  })
   it('maps the actual displayed page independently along each axis without inventing millimetres', () => {
     expect(pageContourPoint({ x: 220, y: 190 }, rect)).toEqual({ x: 500, y: 250 })
     expect(pageContourPoint({ x: 420, y: 640 }, rect)).toEqual({ x: 1000, y: 1000 })

@@ -2,6 +2,7 @@ import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall } from '@uyut/db'
 import type { ReactNode } from 'react'
 import { doorClearanceZone } from '@/lib/projects/clearance-zones'
 import { obstacleTitle } from '@/lib/projects/plan-obstacles'
+import { currentOpeningFacePairs } from '@/lib/projects/plan-opening-face-pairs'
 
 function along(wall: PlanWall, distanceCm: number): PlanPoint {
   const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
@@ -260,6 +261,12 @@ export function PlanGeometryPreview({
               <dt className="text-ink-2">Добавленные препятствия</dt>
               <dd className="font-mono text-ink">{geometry.obstacles?.length ?? 0}</dd>
             </div>
+            {geometry.pdfCalibration?.openingFacePairs ? (
+              <div className="flex justify-between gap-4">
+                <dt className="text-ink-2">Сопоставленные пары дверных граней</dt>
+                <dd className="font-mono text-ink">{currentOpeningFacePairs(geometry).length}</dd>
+              </div>
+            ) : null}
             <div className="flex justify-between gap-4">
               <dt className="text-ink-2">{geometry.pdfCalibration ? 'Привязки окон' : 'Окна'}</dt>
               <dd className="font-mono text-ink">
