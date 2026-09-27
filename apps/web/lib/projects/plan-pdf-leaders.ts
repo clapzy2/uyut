@@ -6,11 +6,59 @@ import {
 } from './plan-pdf-linework'
 
 type PathId = { operationIndex: number; subpathIndex: number }
-type Arrow = { path: PathId; tip: PagePoint; base: PagePoint }
+export type PdfVectorArrow = { path: PathId; tip: PagePoint; base: PagePoint }
+type Arrow = PdfVectorArrow
 type Segment = { path: PathId; start: PagePoint; end: PagePoint }
 export type PdfCalloutLeader =
   | { status: 'candidate'; box: PathId; arrow: Arrow; stem: PathId[]; roomSourceNumber: null }
   | { status: 'ambiguous' | 'unresolved'; reason: string; roomSourceNumber: null }
+
+/** Narrow filled triangles only; label glyphs and broad decorative triangles are excluded. */
+export function pdfVectorArrow(work: PdfLinework, path: PdfVectorPath): PdfVectorArrow | undefined {
+  if (!path.closed || path.paint === 'stroke' || path.points.length > 4) return undefined
+  const physical = (p: PagePoint) => ({
+    x: (p.x * work.pageWidth) / 1000,
+    y: (p.y * work.pageHeight) / 1000,
+  })
+  const distance = (a: PagePoint, b: PagePoint) => {
+    const p = physical(a)
+    const q = physical(b)
+    return Math.hypot(p.x - q.x, p.y - q.y)
+  }
+  const points = path.points.filter(
+    (p, i) => !path.points.slice(0, i).some((q) => distance(p, q) <= 0.12),
+  )
+  if (points.length !== 3) return undefined
+  for (const [index, tip] of points.entries()) {
+    const [a, b] = points.filter((_, i) => i !== index)
+    if (!a || !b) continue
+    const base = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+    const width = distance(a, b)
+    const length = distance(tip, base)
+    const ta = physical(tip)
+    const ba = physical(base)
+    const pa = physical(a)
+    const pb = physical(b)
+    const skew =
+      Math.abs((ta.x - ba.x) * (pa.x - pb.x) + (ta.y - ba.y) * (pa.y - pb.y)) / (length * width)
+    if (
+      width >= 0.2 &&
+      width <= 4 &&
+      length >= 1 &&
+      length <= 10 &&
+      length / width >= 2.5 &&
+      length / width <= 12 &&
+      skew <= 0.15
+    ) {
+      return {
+        path: { operationIndex: path.operationIndex, subpathIndex: path.subpathIndex },
+        tip,
+        base,
+      }
+    }
+  }
+  return undefined
+}
 
 /** Trace only endpoint connections. Crossed lines and the nearest room are not connections. */
 export function pdfCalloutLeader(work: PdfLinework, label: PagePoint): PdfCalloutLeader {
@@ -83,35 +131,8 @@ export function pdfCalloutLeader(work: PdfLinework, label: PagePoint): PdfCallou
   })
   for (const path of work.paths) {
     if (path.closed && path.paint !== 'stroke') {
-      if (path.points.length > 4) continue
-      const points = path.points.filter(
-        (p, index) => !path.points.slice(0, index).some((q) => matches(p, q)),
-      )
-      if (points.length !== 3) continue
-      for (const [index, tip] of points.entries()) {
-        const [a, b] = points.filter((_, i) => i !== index)
-        if (!a || !b) continue
-        const base = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
-        const width = distance(a, b)
-        const length = distance(tip, base)
-        const ta = physical(tip)
-        const ba = physical(base)
-        const pa = physical(a)
-        const pb = physical(b)
-        const skew =
-          Math.abs((ta.x - ba.x) * (pa.x - pb.x) + (ta.y - ba.y) * (pa.y - pb.y)) / (length * width)
-        if (
-          width >= 0.2 &&
-          width <= 4 &&
-          length >= 1 &&
-          length <= 10 &&
-          length / width >= 2.5 &&
-          length / width <= 12 &&
-          skew <= 0.15
-        ) {
-          arrows.push({ path: id(path), tip, base })
-        }
-      }
+      const arrow = pdfVectorArrow(work, path)
+      if (arrow) arrows.push(arrow)
     } else if (!path.closed && path.paint === 'stroke') {
       for (let index = 1; index < path.points.length; index++) {
         const start = path.points[index - 1]
