@@ -1,10 +1,13 @@
 import type { PlanMeasurementEvidence } from '@uyut/db'
+import type { PlanRoom } from './floor-plan'
 import { planRoomSourceNumber } from './floor-plan-geometry'
 
-type TextItem = { text: string; rotation: number }
+export type PlanMeasurementTextItem = { text: string; rotation: number; x?: number; y?: number }
 type MeasurementOwner = { name: string; sourceNumber?: number; uniqueName: boolean }
 
-export function planMeasurementTextItems(raw: string | undefined): TextItem[] | undefined {
+export function planMeasurementTextItems(
+  raw: string | undefined,
+): PlanMeasurementTextItem[] | undefined {
   if (!raw) return undefined
   try {
     const items: unknown = JSON.parse(raw)
@@ -12,6 +15,8 @@ export function planMeasurementTextItems(raw: string | undefined): TextItem[] | 
     return items.map((item) => ({
       text: typeof item?.text === 'string' ? item.text : '',
       rotation: typeof item?.rotation === 'number' ? item.rotation : Number.NaN,
+      x: item?.x === undefined ? undefined : typeof item.x === 'number' ? item.x : Number.NaN,
+      y: item?.y === undefined ? undefined : typeof item.y === 'number' ? item.y : Number.NaN,
     }))
   } catch {
     return undefined
@@ -47,7 +52,7 @@ export function validatePlanMeasurement(
   declaredMm: unknown,
   side: 'width' | 'depth' | 'ceiling',
   owner: MeasurementOwner | undefined,
-  textItems: readonly TextItem[] | undefined,
+  textItems: readonly PlanMeasurementTextItem[] | undefined,
 ): PlanMeasurementEvidence | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const evidence = raw as Record<string, unknown>
@@ -100,6 +105,33 @@ export function validatePlanMeasurement(
         if (!Number.isFinite(axisDifference) || axisDifference > 5) return undefined
       }
     }
+    if (side !== 'ceiling' && indexes.length > 1) {
+      const labels = indexes
+        .map((index) => textItems[index])
+        .filter((label): label is PlanMeasurementTextItem => label !== undefined)
+      if (labels.some((label) => label.x !== undefined || label.y !== undefined)) {
+        if (
+          labels.some(
+            (label) =>
+              typeof label.x !== 'number' ||
+              typeof label.y !== 'number' ||
+              !Number.isFinite(label.x) ||
+              !Number.isFinite(label.y) ||
+              label.x < 0 ||
+              label.x > 1000 ||
+              label.y < 0 ||
+              label.y > 1000,
+          )
+        )
+          return undefined
+        // Числа на разных параллельных линиях не становятся одной цепочкой от верной суммы.
+        // Допуск — 4/1000 страницы для округления и небольшого смещения текстовой базы.
+        const positions = labels.map((label) =>
+          side === 'width' ? (label.y ?? Number.NaN) : (label.x ?? Number.NaN),
+        )
+        if (Math.max(...positions) - Math.min(...positions) > 4) return undefined
+      }
+    }
     textItemIndexes = indexes
   }
   return {
@@ -110,5 +142,36 @@ export function validatePlanMeasurement(
     complete: true,
     segmentsMm,
     ...(textItemIndexes ? { textItemIndexes } : {}),
+  }
+}
+
+/** Общую подпись задают на уровне квартиры; повтор её индекса не доказывает локальные обмеры. */
+export function invalidateSharedMeasurementLabels(rooms: PlanRoom[]): void {
+  const owners = new Map<number, Set<number>>()
+  const sides = ['width', 'depth', 'ceiling'] as const
+  for (const [roomIndex, room] of rooms.entries()) {
+    for (const side of sides) {
+      for (const index of room.measurementEvidence?.[side]?.textItemIndexes ?? []) {
+        const assigned = owners.get(index) ?? new Set<number>()
+        assigned.add(roomIndex)
+        owners.set(index, assigned)
+      }
+    }
+  }
+  for (const room of rooms) {
+    for (const side of sides) {
+      const evidence = room.measurementEvidence?.[side]
+      if (!evidence?.textItemIndexes?.some((index) => (owners.get(index)?.size ?? 0) > 1)) continue
+      const field = side === 'width' ? 'widthCm' : side === 'depth' ? 'depthCm' : 'ceilingCm'
+      const label = side === 'width' ? 'Ширина' : side === 'depth' ? 'Глубина' : 'Высота потолка'
+      delete room[field]
+      delete room.measurementEvidence?.[side]
+      room.measurementWarnings ??= []
+      room.measurementWarnings.push(
+        `${label}: одна подпись назначена нескольким помещениям — уточните привязку на плане.`,
+      )
+    }
+    if (room.measurementEvidence && Object.keys(room.measurementEvidence).length === 0)
+      delete room.measurementEvidence
   }
 }

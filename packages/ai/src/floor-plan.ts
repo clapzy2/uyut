@@ -7,7 +7,12 @@ import {
   planRoomSourceNumber,
   reconcilePlanGeometryRooms,
 } from './floor-plan-geometry'
-import { planMeasurementTextItems, validatePlanMeasurement } from './floor-plan-measurements'
+import {
+  invalidateSharedMeasurementLabels,
+  planMeasurementTextItems,
+  validatePlanMeasurement,
+} from './floor-plan-measurements'
+import { planRoomSchedule, scheduleRoomNameMatches } from './floor-plan-schedule'
 
 /**
  * Чтение обмерного плана квартиры.
@@ -241,10 +246,7 @@ function ceilingCm(millimetres: unknown): number | undefined {
   return centimetres >= MIN_CEILING_CM && centimetres <= MAX_CEILING_CM ? centimetres : undefined
 }
 
-/**
- * Сходятся ли три числа между собой. Проверка бесплатная и ловит ровно ту ошибку,
- * которую иначе никто не заметит: размер, прочитанный с чужой размерной линии.
- */
+/** Несогласованность чисел — повод для сверки, но не доказательство чужой размерной линии. */
 function looksWrong(room: Omit<PlanRoom, 'suspicious'>): boolean {
   if (room.widthCm === undefined || room.depthCm === undefined || room.areaM2 === undefined) {
     return false
@@ -286,6 +288,7 @@ export function parseFloorPlan(
   const rooms: PlanRoom[] = []
   const entries = Array.isArray(parsed.rooms) ? parsed.rooms : []
   const textItems = planMeasurementTextItems(options.planText)
+  const schedule = planRoomSchedule(textItems)
   const nameCounts = new Map<string, number>()
   const numberCounts = new Map<number, number>()
   for (const entry of entries) {
@@ -337,9 +340,21 @@ export function parseFloorPlan(
         : undefined
     const measurementEvidence: NonNullable<PlanRoom['measurementEvidence']> = {}
     const measurementWarnings: string[] = []
+    const scheduledRoom = number === undefined ? undefined : schedule?.get(number)
+    // Не считаем отсутствие строки противоречием: таблица может читаться лишь частично.
+    const scheduleConflict =
+      scheduledRoom &&
+      number !== undefined &&
+      !scheduleRoomNameMatches(read, number, scheduledRoom.name)
+    if (scheduleConflict) {
+      measurementWarnings.push(
+        'Номер и название помещения не согласованы с читаемой экспликацией — уточните строку на плане; размеры и площадь оставлены пустыми.',
+      )
+    }
     const measurement = (side: PlanSide | 'ceiling'): number | undefined => {
       const value = side === 'ceiling' ? ceilingCm(source.ceilingMm) : sideCm(source[`${side}Mm`])
       if (value === undefined) return undefined
+      if (scheduleConflict) return undefined
       if (!options.requireMeasurementEvidence && source.measurementEvidence === undefined)
         return value
       const evidence = validatePlanMeasurement(
@@ -362,6 +377,14 @@ export function parseFloorPlan(
     const widthCm = measurement('width')
     const depthCm = measurement('depth')
     const roomCeiling = measurement('ceiling')
+    const readArea = areaM2(source.areaM2)
+    const areaConflict =
+      scheduledRoom && readArea !== undefined && Math.abs(readArea - scheduledRoom.areaM2) > 0.005
+    if (!scheduleConflict && areaConflict) {
+      measurementWarnings.push(
+        'Площадь: число не совпадает с экспликацией этого помещения — сверьте подпись; поле оставлено пустым.',
+      )
+    }
     const layoutNotes =
       typeof source.layoutNotes === 'string' ? source.layoutNotes.trim().slice(0, 800) : ''
     const asRead = {
@@ -376,7 +399,7 @@ export function parseFloorPlan(
       ...(aspect === undefined ? {} : { aspect }),
       widthCm,
       depthCm,
-      areaM2: areaM2(source.areaM2),
+      areaM2: scheduleConflict || areaConflict ? undefined : readArea,
     }
     if (
       asRead.widthCm === undefined &&
@@ -387,8 +410,11 @@ export function parseFloorPlan(
       continue
     }
     // Площадь и форма не доказывают длину стены, особенно при нишах и скошенных углах.
-    const room = asRead
-    rooms.push(looksWrong(room) ? { ...room, suspicious: true } : room)
+    rooms.push(asRead)
+  }
+  invalidateSharedMeasurementLabels(rooms)
+  for (const room of rooms) {
+    if (looksWrong(room)) room.suspicious = true
   }
   const readCeiling = ceilingCm(parsed.ceilingMm)
   const ceilingEvidence = validatePlanMeasurement(

@@ -53,6 +53,84 @@ const read = (room: unknown, options = strict) =>
   parseFloorPlan(JSON.stringify({ rooms: [room] }), options)
 
 describe('measurement evidence ownership and arithmetic, not vision accuracy', () => {
+  it('rejects a mathematically correct chain assembled from different drawing rows', () => {
+    const planText = JSON.stringify(
+      labels.map((label, index) => ({
+        ...label,
+        x: 200 + index * 30,
+        y: index === 3 ? 350 : 95,
+      })),
+    )
+    const room = read(kitchen, { ...strict, planText }).rooms[0]
+    expect(room?.widthCm).toBeUndefined()
+    expect(room?.areaM2).toBe(12.35)
+  })
+
+  it('does not accept the same ceiling label for two different numbered rooms', () => {
+    const evidence = {
+      kind: 'ceiling',
+      scope: 'room',
+      sourceNumber: 4,
+      complete: true,
+      segmentsMm: [2663],
+      textItemIndexes: [6],
+    }
+    const reading = parseFloorPlan(
+      JSON.stringify({
+        rooms: [
+          {
+            name: 'Спальня',
+            sourceNumber: 4,
+            areaM2: 15.39,
+            ceilingMm: 2663,
+            measurementEvidence: { ceiling: evidence },
+          },
+          {
+            name: 'Гостиная',
+            sourceNumber: 3,
+            areaM2: 17.05,
+            ceilingMm: 2663,
+            measurementEvidence: { ceiling: { ...evidence, sourceNumber: 3 } },
+          },
+        ],
+      }),
+      strict,
+    )
+    expect(reading.rooms.map((room) => room.ceilingCm)).toEqual([undefined, undefined])
+    expect(
+      reading.rooms.every((room) =>
+        room.measurementWarnings?.some((warning) => warning.includes('нескольким помещениям')),
+      ),
+    ).toBe(true)
+  })
+
+  it('cross-checks the declared room number/name against the native room schedule', () => {
+    const schedule = [
+      { text: 'ЭКСПЛИКАЦИЯ ПОМЕЩЕНИЙ', x: 120, y: 430, rotation: 0 },
+      { text: '2', x: 100, y: 470, rotation: 0 },
+      { text: 'Кухня', x: 140, y: 470, rotation: 0 },
+      { text: '12,35', x: 270, y: 470, rotation: 0 },
+      { text: '3', x: 100, y: 485, rotation: 0 },
+      { text: 'Гостиная', x: 140, y: 485, rotation: 0 },
+      { text: '17,05', x: 270, y: 485, rotation: 0 },
+    ]
+    const planText = JSON.stringify([...labels, ...schedule])
+    const wrongOwner = {
+      ...kitchen,
+      sourceNumber: 3,
+      measurementEvidence: {
+        width: { ...widthEvidence, sourceNumber: 3 },
+        depth: { ...kitchen.measurementEvidence.depth, sourceNumber: 3 },
+      },
+    }
+    const room = read(wrongOwner, { ...strict, planText }).rooms[0]
+    expect(room?.widthCm).toBeUndefined()
+    expect(room?.depthCm).toBeUndefined()
+    expect(room?.areaM2).toBeUndefined()
+    expect(room?.measurementWarnings?.join(' ')).toContain('экспликац')
+    expect(read(kitchen, { ...strict, planText }).rooms[0]?.widthCm).toBe(296.4)
+  })
+
   it('keeps the complete kitchen chains and their source labels', () => {
     const reading = read(kitchen)
     expect(reading.rooms[0]).toMatchObject({ widthCm: 296.4, depthCm: 420.5 })
