@@ -148,7 +148,11 @@ export async function deleteProject(projectId: string): Promise<ActionResult> {
   }
 }
 
-export async function uploadPlan(projectId: string, formData: FormData): Promise<ActionResult> {
+export async function uploadPlan(
+  projectId: string,
+  formData: FormData,
+  expectedRevision?: string,
+): Promise<ActionResult> {
   const userId = await currentUserId()
   if (!userId) {
     return { ok: false, error: SESSION_EXPIRED }
@@ -157,13 +161,19 @@ export async function uploadPlan(projectId: string, formData: FormData): Promise
   if (!(file instanceof File)) {
     return { ok: false, error: 'Выберите файл с планом.' }
   }
+  let uploadedKey: string | undefined
   try {
-    await assertOwner(userId, projectId)
+    const project = await assertOwner(userId, projectId)
+    if (expectedRevision !== planEditRevision(project.planUrl, project.planReading)) {
+      throw new PlanEditConflictError()
+    }
     // Проверяем и пересобираем файл до записи в хранилище, чтобы туда не попало ничего сырого
     const prepared = await preparePlan(file)
     const key = `projects/${projectId}/plan/${randomUUID()}.${prepared.extension}`
     await putObject(key, prepared.body, prepared.contentType)
-    const { previousKey } = await repository.setProjectPlan(userId, projectId, key)
+    uploadedKey = key
+    const { previousKey } = await repository.setProjectPlan(userId, projectId, key, project)
+    uploadedKey = undefined
     if (previousKey) {
       await deleteObject(previousKey).catch(() => undefined)
     }
@@ -171,6 +181,14 @@ export async function uploadPlan(projectId: string, formData: FormData): Promise
     revalidatePath(`/projects/${projectId}`)
     return { ok: true, data: undefined }
   } catch (error) {
+    if (uploadedKey) {
+      // При потере ответа база могла успеть записать ключ. Удаляем только доказанно
+      // неиспользованный файл этой попытки; прежний план никогда не чистим при отказе.
+      const current = await assertOwner(userId, projectId).catch(() => null)
+      if (current && current.planUrl !== uploadedKey) {
+        await deleteObject(uploadedKey).catch(() => undefined)
+      }
+    }
     return failure(error)
   }
 }
@@ -185,13 +203,17 @@ export async function uploadPlan(projectId: string, formData: FormData): Promise
 export async function readPlan(
   projectId: string,
   pageNumber = 1,
-): Promise<ActionResult<PlanReading>> {
+  expectedRevision?: string,
+): Promise<ActionResult<{ reading: PlanReading; revision: string }>> {
   const userId = await currentUserId()
   if (!userId) {
     return { ok: false, error: SESSION_EXPIRED }
   }
   try {
     const project = await assertOwner(userId, projectId)
+    if (expectedRevision !== planEditRevision(project.planUrl, project.planReading)) {
+      throw new PlanEditConflictError()
+    }
     if (!project.planUrl) {
       return { ok: false, error: 'Сначала загрузите план квартиры.' }
     }
@@ -211,22 +233,29 @@ export async function readPlan(
       },
     })
     revalidatePath(`/projects/${projectId}`)
-    return { ok: true, data: reading }
+    return { ok: true, data: { reading, revision: planEditRevision(project.planUrl, reading) } }
   } catch (error) {
     return failure(error)
   }
 }
 
 /** Забыть прочитанное: человек посмотрел и решил вписать всё сам. */
-export async function forgetPlanReading(projectId: string): Promise<ActionResult> {
+export async function forgetPlanReading(
+  projectId: string,
+  expectedRevision?: string,
+): Promise<ActionResult<{ revision: string }>> {
   const userId = await currentUserId()
   if (!userId) {
     return { ok: false, error: SESSION_EXPIRED }
   }
   try {
-    await repository.setPlanReading(userId, projectId, null)
+    const project = await assertOwner(userId, projectId)
+    if (expectedRevision !== planEditRevision(project.planUrl, project.planReading)) {
+      throw new PlanEditConflictError()
+    }
+    await repository.setPlanReading(userId, projectId, null, project)
     revalidatePath(`/projects/${projectId}`)
-    return { ok: true, data: undefined }
+    return { ok: true, data: { revision: planEditRevision(project.planUrl, null) } }
   } catch (error) {
     return failure(error)
   }
@@ -524,7 +553,8 @@ export async function savePlanGeometry(
 export async function confirmPlanRooms(
   projectId: string,
   input: unknown,
-): Promise<ActionResult<{ created: number; updated: number }>> {
+  expectedRevision?: string,
+): Promise<ActionResult<{ created: number; updated: number; revision: string }>> {
   const userId = await currentUserId()
   if (!userId) {
     return { ok: false, error: SESSION_EXPIRED }
@@ -540,6 +570,12 @@ export async function confirmPlanRooms(
   }
   try {
     const project = await assertOwner(userId, projectId)
+    if (expectedRevision !== planEditRevision(project.planUrl, project.planReading)) {
+      throw new PlanEditConflictError()
+    }
+    if (!project.planUrl || !project.planReading) {
+      return { ok: false, error: 'Сначала загрузите и прочитайте план квартиры.' }
+    }
     const reading: PlanReading = {
       ...(project.planReading?.planState ? { planState: project.planReading.planState } : {}),
       ...(project.planReading?.sourcePage ? { sourcePage: project.planReading.sourcePage } : {}),
@@ -584,35 +620,44 @@ export async function confirmPlanRooms(
       readAt: project.planReading?.readAt ?? new Date().toISOString(),
       confirmedAt: new Date().toISOString(),
     }
-    const saved = await repository.createRoomsFromPlan(userId, projectId, {
-      reading,
-      rooms: chosen.map((room) => {
-        const measurements: RoomMeasurements = {
-          dimensionSources: planDimensionSources(
-            room,
-            project.planReading?.rooms ?? [],
-            Boolean(project.planReading?.confirmedAt),
-          ),
-          ...(room.layoutNotes === undefined ? {} : { layoutNotes: room.layoutNotes }),
-          ...(room.ceilingCm != null
-            ? { ceilingCm: room.ceilingCm }
-            : ceilingCm === null
-              ? {}
-              : { ceilingCm }),
-          ...(room.widthCm === null ? {} : { widthCm: room.widthCm }),
-          ...(room.depthCm === null ? {} : { depthCm: room.depthCm }),
-        }
-        return {
-          ...(room.roomId ? { roomId: room.roomId } : {}),
-          condition,
-          kind: room.kind,
-          name: room.name || roomKindLabels[room.kind],
-          areaM2: room.areaM2,
-          measurements: Object.keys(measurements).length > 0 ? measurements : null,
-          notes: room.wish || null,
-        }
-      }),
-    })
+    if (reading.geometry) {
+      reading.geometry = { ...reading.geometry, status: 'draft' }
+      delete reading.geometry.confirmedAt
+    }
+    const saved = await repository.createRoomsFromPlan(
+      userId,
+      projectId,
+      {
+        reading,
+        rooms: chosen.map((room) => {
+          const measurements: RoomMeasurements = {
+            dimensionSources: planDimensionSources(
+              room,
+              project.planReading?.rooms ?? [],
+              Boolean(project.planReading?.confirmedAt),
+            ),
+            ...(room.layoutNotes === undefined ? {} : { layoutNotes: room.layoutNotes }),
+            ...(room.ceilingCm != null
+              ? { ceilingCm: room.ceilingCm }
+              : ceilingCm === null
+                ? {}
+                : { ceilingCm }),
+            ...(room.widthCm === null ? {} : { widthCm: room.widthCm }),
+            ...(room.depthCm === null ? {} : { depthCm: room.depthCm }),
+          }
+          return {
+            ...(room.roomId ? { roomId: room.roomId } : {}),
+            condition,
+            kind: room.kind,
+            name: room.name || roomKindLabels[room.kind],
+            areaM2: room.areaM2,
+            measurements: Object.keys(measurements).length > 0 ? measurements : null,
+            notes: room.wish || null,
+          }
+        }),
+      },
+      project,
+    )
     await recordAudit({
       action: 'project.plan_rooms',
       actorId: userId,
@@ -623,7 +668,7 @@ export async function confirmPlanRooms(
     })
     revalidatePath('/projects')
     revalidatePath(`/projects/${projectId}`)
-    return { ok: true, data: saved }
+    return { ok: true, data: { ...saved, revision: planEditRevision(project.planUrl, reading) } }
   } catch (error) {
     return failure(error)
   }

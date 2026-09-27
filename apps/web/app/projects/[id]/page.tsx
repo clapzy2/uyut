@@ -95,7 +95,11 @@ export default async function ProjectPage({ params }: { params: Params }) {
   const apartment = apartmentPlan(project.rooms)
   const planUrl = project.planUrl ? await presignedObjectUrl(project.planUrl) : null
   const planIsPdf = project.planUrl?.endsWith('.pdf') ?? false
-  const uploadPlanForProject = uploadPlan.bind(null, project.id)
+  const sourceRevision = planEditRevision(project.planUrl, project.planReading)
+  async function uploadPlanForProject(formData: FormData) {
+    'use server'
+    return uploadPlan(id, formData, sourceRevision)
+  }
   const [shopping, collaboration, inviteAllowed, ownerName] = await Promise.all([
     getShoppingList(session.user.id, project.id),
     isOwner ? getCollaboration(project.id) : Promise.resolve(null),
@@ -239,6 +243,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
               // должна исчезнуть вместе с ним, а не ждать сохранения чужих комнат
               key={project.planUrl}
               projectId={project.id}
+              sourceRevision={sourceRevision}
               reading={project.planReading}
               hasPlan={Boolean(project.planUrl)}
               planIsPdf={planIsPdf}
@@ -329,7 +334,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
             isOwner ? (
               <PlanGeometryEditor
                 projectId={project.id}
-                sourceRevision={planEditRevision(project.planUrl, project.planReading)}
+                sourceRevision={sourceRevision}
                 geometry={project.planReading.geometry}
                 roomReadings={project.planReading.rooms.map((room) => ({
                   name: room.name,

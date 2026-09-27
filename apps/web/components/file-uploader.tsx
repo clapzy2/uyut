@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 import { tooLargeMessage } from '@/lib/files/rules'
 
-type ActionResult = { ok: true; data: undefined } | { ok: false; error: string }
+type ActionResult =
+  | { ok: true; data: undefined }
+  | { ok: false; error: string; code?: 'plan-conflict' }
 
 type Props = {
   inputId: string
@@ -50,14 +52,24 @@ export function FileUploader({
     setPending(true)
     const formData = new FormData()
     formData.set(field, file)
-    const result = await action(formData)
-    setPending(false)
-    if (!result.ok) {
-      toast({ title: 'Файл не загрузился', description: result.error, tone: 'danger' })
-      return
+    try {
+      const result = await action(formData)
+      if (!result.ok) {
+        toast({ title: 'Файл не загрузился', description: result.error, tone: 'danger' })
+        if (result.code === 'plan-conflict') router.refresh()
+        return
+      }
+      toast({ title: successTitle, tone: 'success' })
+      router.refresh()
+    } catch {
+      toast({
+        title: 'Не удалось получить ответ сервера',
+        description: 'Обновите страницу и проверьте файл перед повторной загрузкой.',
+        tone: 'danger',
+      })
+    } finally {
+      setPending(false)
     }
-    toast({ title: successTitle, tone: 'success' })
-    router.refresh()
   }
 
   return (
@@ -67,6 +79,7 @@ export function FileUploader({
         id={inputId}
         type="file"
         accept={accept}
+        disabled={pending}
         onChange={onChange}
         className="sr-only"
         aria-label={label}

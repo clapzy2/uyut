@@ -55,6 +55,7 @@ function wishPlaceholder(kind: RoomKind): string {
  */
 export function PlanReadingCard({
   projectId,
+  sourceRevision,
   reading,
   hasPlan,
   planIsPdf,
@@ -62,6 +63,7 @@ export function PlanReadingCard({
   existing,
 }: {
   projectId: string
+  sourceRevision: string
   reading: PlanReading | null
   hasPlan: boolean
   planIsPdf: boolean
@@ -79,6 +81,8 @@ export function PlanReadingCard({
   )
   const [error, setError] = useState<string | undefined>(undefined)
   const [activeReading, setActiveReading] = useState(reading)
+  const [baseRevision, setBaseRevision] = useState(sourceRevision)
+  const [conflict, setConflict] = useState(false)
   const [page, setPage] = useState(String(reading?.sourcePage ?? 1))
   // Состояние квартиры решает, войдёт ли в смету ремонт. Спрашиваем один раз на все комнаты:
   // по плану их пять, и пять одинаковых ответов подряд человек давать не станет
@@ -92,25 +96,65 @@ export function PlanReadingCard({
     setRows((list) => (list ?? []).map((row, at) => (at === index ? { ...row, ...next } : row)))
   }
 
+  function showFailure(result: { error: string; code?: 'plan-conflict' }) {
+    setError(result.error)
+    if (result.code === 'plan-conflict') {
+      setConflict(true)
+      router.refresh()
+    }
+  }
+
+  function loadSaved() {
+    setActiveReading(reading)
+    setRows(reading && !reading.confirmedAt ? planRows(reading, existing) : null)
+    setCeiling(reading?.ceilingCm ? String(reading.ceilingCm) : '')
+    setPage(String(reading?.sourcePage ?? 1))
+    setBaseRevision(sourceRevision)
+    setConflict(false)
+    setError(undefined)
+  }
+
   function read() {
     setError(undefined)
     startReading(async () => {
-      const result = await readPlan(projectId, planIsPdf ? Number(page) : 1)
-      if (!result.ok) {
-        setError(result.error)
-        return
+      try {
+        const result = await readPlan(projectId, planIsPdf ? Number(page) : 1, baseRevision)
+        if (!result.ok) {
+          showFailure(result)
+          return
+        }
+        setRows(planRows(result.data.reading, existing))
+        setActiveReading(result.data.reading)
+        setBaseRevision(result.data.revision)
+        setCeiling(result.data.reading.ceilingCm ? String(result.data.reading.ceilingCm) : '')
+        toast({ title: 'План прочитан', tone: 'success' })
+        router.refresh()
+      } catch {
+        setError(
+          'Не удалось получить ответ сервера. Данные остались в форме. Перед повторным чтением обновите страницу: чтение могло уже завершиться.',
+        )
       }
-      setRows(planRows(result.data, existing))
-      setActiveReading(result.data)
-      setCeiling(result.data.ceilingCm ? String(result.data.ceilingCm) : '')
-      toast({ title: 'План прочитан', tone: 'success' })
     })
   }
 
   async function forget() {
-    setRows(null)
-    await forgetPlanReading(projectId)
-    router.refresh()
+    setError(undefined)
+    setSaving(true)
+    try {
+      const result = await forgetPlanReading(projectId, baseRevision)
+      if (!result.ok) {
+        showFailure(result)
+        return
+      }
+      setRows(null)
+      setActiveReading(null)
+      setBaseRevision(result.data.revision)
+      router.refresh()
+    } catch {
+      setError('Не удалось получить ответ сервера. Данные остались в форме; попробуйте ещё раз.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function confirm() {
@@ -119,45 +163,63 @@ export function PlanReadingCard({
     }
     setError(undefined)
     setSaving(true)
-    const result = await confirmPlanRooms(projectId, {
-      ceilingCm: ceiling,
-      condition,
-      rooms: rows.map((row) => ({
-        include: row.include,
-        roomId: row.roomId ?? '',
-        name: row.name,
-        kind: row.kind,
-        sourceNumber: row.sourceNumber,
-        ceilingCm: row.ceiling ?? '',
-        widthCm: row.width,
-        depthCm: row.depth,
-        areaM2: row.area,
-        wish: row.wish,
-        layoutNotes: row.layoutNotes,
-      })),
-    })
-    setSaving(false)
-    if (!result.ok) {
-      setError(result.error)
-      return
+    try {
+      const result = await confirmPlanRooms(
+        projectId,
+        {
+          ceilingCm: ceiling,
+          condition,
+          rooms: rows.map((row) => ({
+            include: row.include,
+            roomId: row.roomId ?? '',
+            name: row.name,
+            kind: row.kind,
+            sourceNumber: row.sourceNumber,
+            ceilingCm: row.ceiling ?? '',
+            widthCm: row.width,
+            depthCm: row.depth,
+            areaM2: row.area,
+            wish: row.wish,
+            layoutNotes: row.layoutNotes,
+          })),
+        },
+        baseRevision,
+      )
+      if (!result.ok) {
+        showFailure(result)
+        return
+      }
+      setRows(null)
+      setBaseRevision(result.data.revision)
+      const { created, updated } = result.data
+      toast({
+        title: [
+          created > 0 ? `новых комнат: ${created}` : null,
+          updated > 0 ? `размеры вписаны в ${updated}` : null,
+        ]
+          .filter(Boolean)
+          .join(', '),
+        tone: 'success',
+      })
+      router.refresh()
+    } catch {
+      setError(
+        'Не удалось получить ответ сервера. Правки остались в форме; попробуйте сохранить ещё раз.',
+      )
+    } finally {
+      setSaving(false)
     }
-    setRows(null)
-    const { created, updated } = result.data
-    toast({
-      title: [
-        created > 0 ? `новых комнат: ${created}` : null,
-        updated > 0 ? `размеры вписаны в ${updated}` : null,
-      ]
-        .filter(Boolean)
-        .join(', '),
-      tone: 'success',
-    })
-    router.refresh()
   }
 
   if (!hasPlan) {
     return null
   }
+
+  const reloadControl = conflict ? (
+    <Button type="button" variant="secondary" onClick={loadSaved} disabled={reading_ || saving}>
+      Загрузить актуальные данные плана
+    </Button>
+  ) : null
 
   const pageSelector = planIsPdf ? (
     <div className="mt-4">
@@ -192,7 +254,13 @@ export function PlanReadingCard({
         </p>
         {pageSelector}
         <div className="mt-4">
-          <Button type="button" variant="secondary" onClick={read} pending={reading_}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={read}
+            pending={reading_}
+            disabled={saving || conflict}
+          >
             {reading_ ? 'Читаем план…' : 'Прочитать размеры с плана'}
           </Button>
         </div>
@@ -208,6 +276,7 @@ export function PlanReadingCard({
           </div>
         ) : null}
         <FormError message={error} />
+        {reloadControl}
       </div>
     )
   }
@@ -219,7 +288,10 @@ export function PlanReadingCard({
   const total = totalAreaCheck(rows, activeReading?.totalAreaM2)
 
   return (
-    <div className="mt-6 animate-[rise-in_350ms_var(--ease-appear)] border-t border-line pt-6">
+    <fieldset
+      disabled={saving || reading_}
+      className="mt-6 min-w-0 animate-[rise-in_350ms_var(--ease-appear)] border-x-0 border-b-0 border-t border-line p-0 pt-6"
+    >
       <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
         Данные с чертежа
       </p>
@@ -239,7 +311,7 @@ export function PlanReadingCard({
         {roomCount > 0
           ? ` вдобавок к тем ${roomCount === 1 ? 'одной' : roomCount}, что уже есть`
           : ''}
-        .
+        . После переноса новых данных 2D-схему нужно сверить заново.
       </p>
 
       {noSides ? (
@@ -478,27 +550,33 @@ export function PlanReadingCard({
           variant="secondary"
           onClick={read}
           pending={reading_}
-          disabled={saving}
+          disabled={saving || conflict}
         >
           Прочитать выбранную страницу заново
         </Button>
       ) : null}
 
       <FormError message={error} />
+      {reloadControl}
 
       <div className="mt-5 flex flex-wrap gap-3">
         <Button
           type="button"
           onClick={confirm}
           pending={saving}
-          disabled={chosen === 0 || reading_}
+          disabled={chosen === 0 || reading_ || conflict}
         >
           {saving ? 'Сохраняем…' : `Сохранить: ${chosen}`}
         </Button>
-        <Button type="button" variant="ghost" onClick={forget} disabled={saving || reading_}>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={forget}
+          disabled={saving || reading_ || conflict}
+        >
           Впишу сам
         </Button>
       </div>
-    </div>
+    </fieldset>
   )
 }

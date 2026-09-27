@@ -12,6 +12,7 @@ import type { StepParams } from '@/lib/onboarding/guard'
 import { getOnboardingState } from '@/lib/onboarding/repository'
 import { AccessError } from '@/lib/projects/access'
 import { fileNameFromKey } from '@/lib/projects/format'
+import { planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { getSession } from '@/lib/session'
 import { presignedObjectUrl } from '@/lib/storage'
 
@@ -51,7 +52,12 @@ export default async function Step1({ searchParams }: StepParams) {
     project.planUrl && !project.planUrl.endsWith('.pdf')
       ? await presignedObjectUrl(project.planUrl)
       : null
-  const uploadPlanForProject = uploadPlan.bind(null, project.id)
+  const sourceRevision = planEditRevision(project.planUrl, project.planReading)
+  const uploadProjectId = project.id
+  async function uploadPlanForProject(formData: FormData) {
+    'use server'
+    return uploadPlan(uploadProjectId, formData, sourceRevision)
+  }
 
   return (
     <OnboardingShell
@@ -90,6 +96,7 @@ export default async function Step1({ searchParams }: StepParams) {
           <PlanReadingCard
             key={project.planUrl}
             projectId={project.id}
+            sourceRevision={sourceRevision}
             reading={project.planReading}
             hasPlan
             planIsPdf={project.planUrl.endsWith('.pdf')}

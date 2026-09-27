@@ -16,6 +16,7 @@ function render(reading: PlanReading | null) {
   return renderToStaticMarkup(
     createElement(PlanReadingCard, {
       projectId: 'project',
+      sourceRevision: 'revision',
       reading,
       hasPlan: true,
       planIsPdf: true,

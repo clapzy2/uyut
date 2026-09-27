@@ -138,19 +138,43 @@ export async function deleteProject(
   return { fileKeys }
 }
 
+type PlanSource = Pick<Project, 'planUrl' | 'planReading'>
+
+/** Проверяем источник в самой записи, а не только при чтении прав владельца. */
+function planWriteCondition(userId: string, projectId: string, expected?: PlanSource) {
+  return and(
+    eq(projects.id, projectId),
+    eq(projects.ownerId, userId),
+    isNull(projects.deletedAt),
+    expected
+      ? and(
+          expected.planUrl === null
+            ? isNull(projects.planUrl)
+            : eq(projects.planUrl, expected.planUrl),
+          expected.planReading === null
+            ? isNull(projects.planReading)
+            : sql`${projects.planReading} = ${JSON.stringify(expected.planReading)}::jsonb`,
+        )
+      : undefined,
+  )
+}
+
 export async function setProjectPlan(
   userId: string,
   projectId: string,
   key: string,
+  expected?: PlanSource,
 ): Promise<{ previousKey: string | null }> {
   const project = await assertOwner(userId, projectId)
   // Новый план — новые размеры: прочитанное со старого стирается, иначе человек подтвердит
   // чужие числа, глядя на свежую картинку.
-  await getDb()
+  const [updated] = await getDb()
     .update(projects)
     .set({ planUrl: key, planReading: null })
-    .where(eq(projects.id, project.id))
-  return { previousKey: project.planUrl }
+    .where(planWriteCondition(userId, project.id, expected ?? project))
+    .returning({ id: projects.id })
+  if (!updated) throw new PlanEditConflictError()
+  return { previousKey: (expected ?? project).planUrl }
 }
 
 /**
@@ -161,29 +185,13 @@ export async function setPlanReading(
   userId: string,
   projectId: string,
   reading: PlanReading | null,
-  expected?: Pick<Project, 'planUrl' | 'planReading'>,
+  expected?: PlanSource,
 ): Promise<void> {
   const project = await assertOwner(userId, projectId)
   const [updated] = await getDb()
     .update(projects)
     .set({ planReading: reading })
-    .where(
-      and(
-        eq(projects.id, project.id),
-        eq(projects.ownerId, userId),
-        isNull(projects.deletedAt),
-        expected
-          ? and(
-              expected.planUrl === null
-                ? isNull(projects.planUrl)
-                : eq(projects.planUrl, expected.planUrl),
-              expected.planReading === null
-                ? isNull(projects.planReading)
-                : sql`${projects.planReading} = ${JSON.stringify(expected.planReading)}::jsonb`,
-            )
-          : undefined,
-      ),
-    )
+    .where(planWriteCondition(userId, project.id, expected))
     .returning({ id: projects.id })
   if (!updated) throw new PlanEditConflictError()
 }
@@ -211,68 +219,78 @@ export async function createRoomsFromPlan(
     }>
     reading: PlanReading
   },
+  expected?: PlanSource,
 ): Promise<{ created: number; updated: number }> {
   const project = await assertOwner(userId, projectId)
-  const db = getDb()
-  const [last] = await db
-    .select({ maxIndex: max(rooms.orderIndex) })
-    .from(rooms)
-    .where(eq(rooms.projectId, project.id))
-  let order = (last?.maxIndex ?? -1) + 1
-  const wanted = input.rooms.filter((room) => room.roomId).map((room) => room.roomId as string)
-  const current =
-    wanted.length > 0
-      ? await db
-          .select()
-          .from(rooms)
-          .where(and(eq(rooms.projectId, project.id), inArray(rooms.id, wanted)))
-      : []
-  const byId = new Map(current.map((room) => [room.id, room]))
-  // Комнату успели удалить между чтением плана и подтверждением: заводим заново, а не теряем
-  const fresh = input.rooms.filter((room) => !room.roomId || !byId.has(room.roomId))
-  const existing = input.rooms.filter((room) => room.roomId && byId.has(room.roomId))
-  if (fresh.length > 0) {
-    await db.insert(rooms).values(
-      fresh.map((room) => ({
-        projectId: project.id,
-        condition: room.condition,
-        kind: room.kind,
-        name: room.name,
-        areaM2: room.areaM2,
-        measurements: room.measurements,
-        notes: room.notes,
-        orderIndex: order++,
-      })),
-    )
-  }
-  for (const room of existing) {
-    const before = byId.get(room.roomId as string)
-    if (!before) {
-      continue
+  return getDb().transaction(async (tx) => {
+    // Эта запись блокирует проект до конца транзакции. Комнаты и чтение либо сохраняются
+    // вместе, либо не сохраняются вовсе; второй запрос проверяет уже новое состояние.
+    const [updated] = await tx
+      .update(projects)
+      .set({ planReading: input.reading, updatedAt: new Date() })
+      .where(planWriteCondition(userId, project.id, expected ?? project))
+      .returning({ id: projects.id })
+    if (!updated) throw new PlanEditConflictError()
+
+    const [last] = await tx
+      .select({ maxIndex: max(rooms.orderIndex) })
+      .from(rooms)
+      .where(eq(rooms.projectId, project.id))
+    let order = (last?.maxIndex ?? -1) + 1
+    const wanted = input.rooms.filter((room) => room.roomId).map((room) => room.roomId as string)
+    if (new Set(wanted).size !== wanted.length) throw new PlanEditConflictError()
+    const current =
+      wanted.length > 0
+        ? await tx
+            .select()
+            .from(rooms)
+            .where(and(eq(rooms.projectId, project.id), inArray(rooms.id, wanted)))
+            .for('update')
+        : []
+    const byId = new Map(current.map((room) => [room.id, room]))
+    // Удалённая/чужая комната не становится новой незаметно для владельца.
+    if (current.length !== wanted.length) throw new PlanEditConflictError()
+    const fresh = input.rooms.filter((room) => !room.roomId)
+    const existing = input.rooms.filter((room) => room.roomId)
+    if (fresh.length > 0) {
+      await tx.insert(rooms).values(
+        fresh.map((room) => ({
+          projectId: project.id,
+          condition: room.condition,
+          kind: room.kind,
+          name: room.name,
+          areaM2: room.areaM2,
+          measurements: room.measurements,
+          notes: room.notes,
+          orderIndex: order++,
+        })),
+      )
     }
-    await db
-      .update(rooms)
-      .set({
-        kind: room.kind,
-        name: room.name,
-        // Состояние комнаты не трогаем. Ответ на экране плана относится к новым комнатам:
-        // у заведённой раньше человек мог выбрать «оставить как есть», и перезапись этого
-        // ответа по умолчанию добавила бы в смету ремонт, которого никто не просил.
-        // Площадь и мерки с плана дополняют, а не отменяют. Участки стен человек мерил
-        // рулеткой, и с плана их не прочитать: затереть их прочитанным — потерять
-        // единственные настоящие числа, какие у нас были.
-        areaM2: room.areaM2 ?? before.areaM2,
-        measurements: mergePlanMeasurements(before.measurements, room.measurements),
-        // Заметку не затираем пустой: человек мог написать её раньше и оставить поле плана пустым
-        ...(room.notes ? { notes: room.notes } : {}),
-      })
-      .where(and(eq(rooms.id, room.roomId as string), eq(rooms.projectId, project.id)))
-  }
-  await db
-    .update(projects)
-    .set({ planReading: input.reading, updatedAt: new Date() })
-    .where(eq(projects.id, project.id))
-  return { created: fresh.length, updated: existing.length }
+    for (const room of existing) {
+      const before = byId.get(room.roomId as string)
+      if (!before) {
+        continue
+      }
+      await tx
+        .update(rooms)
+        .set({
+          kind: room.kind,
+          name: room.name,
+          // Состояние комнаты не трогаем. Ответ на экране плана относится к новым комнатам:
+          // у заведённой раньше человек мог выбрать «оставить как есть», и перезапись этого
+          // ответа по умолчанию добавила бы в смету ремонт, которого никто не просил.
+          // Площадь и мерки с плана дополняют, а не отменяют. Участки стен человек мерил
+          // рулеткой, и с плана их не прочитать: затереть их прочитанным — потерять
+          // единственные настоящие числа, какие у нас были.
+          areaM2: room.areaM2 ?? before.areaM2,
+          measurements: mergePlanMeasurements(before.measurements, room.measurements),
+          // Заметку не затираем пустой: человек мог написать её раньше и оставить поле плана пустым
+          ...(room.notes ? { notes: room.notes } : {}),
+        })
+        .where(and(eq(rooms.id, room.roomId as string), eq(rooms.projectId, project.id)))
+    }
+    return { created: fresh.length, updated: existing.length }
+  })
 }
 
 export async function listRooms(userId: string, projectId: string): Promise<Room[]> {
