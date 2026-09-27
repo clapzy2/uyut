@@ -35,6 +35,7 @@ import {
 import { planObstaclesSchema } from '@/lib/projects/plan-obstacles'
 import {
   currentOpeningFacePairs,
+  currentOpeningWidthProofs,
   currentWallFacePairs,
 } from '@/lib/projects/plan-opening-face-pairs'
 import { retainedPlanPageReview } from '@/lib/projects/plan-page-review'
@@ -476,8 +477,18 @@ export async function savePlanGeometry(
     }
     // Calibration is server-owned provenance, not a client-editable certification.
     if (before.pdfCalibration) {
+      const currentWidthProofs = before.pdfCalibration.openingWidthProofs
+        ? currentOpeningWidthProofs({ ...geometry, pdfCalibration: before.pdfCalibration })
+        : undefined
+      const invalidWidthIds = (before.pdfCalibration.openingWidthProofs ?? [])
+        .filter((proof) => !currentWidthProofs?.includes(proof))
+        .map((proof) => proof.opening.id)
       geometry.pdfCalibration = {
         ...before.pdfCalibration,
+        derivedOpeningIds: [
+          ...new Set([...before.pdfCalibration.derivedOpeningIds, ...invalidWidthIds]),
+        ],
+        ...(currentWidthProofs ? { openingWidthProofs: currentWidthProofs } : {}),
         ...(before.pdfCalibration.openingFacePairs
           ? {
               openingFacePairs: currentOpeningFacePairs({

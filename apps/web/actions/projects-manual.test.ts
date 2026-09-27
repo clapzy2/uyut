@@ -1,4 +1,10 @@
-import type { PlanGeometry, PlanOpeningFacePair, PlanReading, PlanWallFacePair } from '@uyut/db'
+import type {
+  PlanGeometry,
+  PlanOpeningFacePair,
+  PlanOpeningWidthProof,
+  PlanReading,
+  PlanWallFacePair,
+} from '@uyut/db'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AccessError } from '@/lib/projects/access'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
@@ -220,6 +226,70 @@ describe('manual plan draft', () => {
           edit === 'unchanged' ? [wallPair] : [],
         )
       }
+    },
+  )
+
+  it.each(['unchanged', 'width', 'host', 'donor-width', 'contour'] as const)(
+    'retains printed-width evidence only after %s edits',
+    async (edit) => {
+      const firstWall = closedWalls[0]
+      const donorWall = closedWalls[2]
+      if (!firstWall || !donorWall) throw new Error('Missing walls')
+      const opening = {
+        id: 'manual_000000000000000000000201',
+        type: 'door' as const,
+        wallId: firstWall.id,
+        offsetCm: 100,
+        widthCm: 90,
+      }
+      const donor = { ...opening, id: 'manual_000000000000000000000202', wallId: donorWall.id }
+      const proof: PlanOpeningWidthProof = {
+        opening: structuredClone(opening),
+        wall: structuredClone(firstWall),
+        labelIndex: 84,
+        sameOpeningAs: { roomSourceNumber: 6, openingId: 'room-6-door' },
+        oppositeBinding: {
+          opening: structuredClone(donor),
+          wall: structuredClone(donorWall),
+        },
+      }
+      const geometry: PlanGeometry = {
+        ...emptyManualGeometry,
+        walls: structuredClone(closedWalls),
+        openings: [opening, donor],
+        rooms: structuredClone(kitchenContour),
+        pdfCalibration: {
+          sourceSha256: 'a'.repeat(64),
+          pdfPage: 6,
+          cmPerPoint: 1.7,
+          origin: { x: 10, y: 20 },
+          anchorRoomNumbers: [4],
+          labelIndexes: [84],
+          derivedOpeningIds: [],
+          openingWidthProofs: [proof],
+          wallFaceRoomPolygons: [structuredClone(kitchenContour[0]?.polygon ?? [])],
+        },
+      }
+      source.planReading.geometry = geometry
+      const input = structuredClone(geometry)
+      if (edit === 'width' && input.openings[0]) input.openings[0].widthCm += 1
+      if (edit === 'host' && input.walls[0]) input.walls[0].start.xCm += 1
+      if (edit === 'donor-width' && input.openings[1]) input.openings[1].widthCm += 1
+      if (edit === 'contour' && input.rooms[0]?.polygon[0]) {
+        input.rooms[0].polygon[0].xCm += 1
+      }
+      const clientProof = input.pdfCalibration?.openingWidthProofs?.[0]
+      if (clientProof) clientProof.labelIndex = 999
+
+      const result = await savePlanGeometry(projectId, input, 'draft')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.data.geometry.pdfCalibration?.openingWidthProofs).toEqual(
+        edit === 'unchanged' ? [proof] : [],
+      )
+      expect(result.data.geometry.pdfCalibration?.derivedOpeningIds).toEqual(
+        edit === 'unchanged' ? [] : [opening.id],
+      )
     },
   )
 

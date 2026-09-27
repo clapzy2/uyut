@@ -16,6 +16,8 @@ import {
 import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema } from '../lib/projects/plan-page-review'
 import { pairPlanPageOpeningFaces } from '../lib/projects/plan-pdf-opening-faces'
+import { classifyPlanPageWallSpans } from '../lib/projects/plan-pdf-wall-coverage'
+import { pairPlanPageWallFaces } from '../lib/projects/plan-pdf-wall-faces'
 
 const sourcePath = process.argv[2]
 if (!sourcePath || sourcePath.startsWith('--')) throw new Error('Укажите исходный PDF.')
@@ -101,6 +103,16 @@ const result = planPageMetricDraft(
   reference.rooms.map((room) => room.number),
 )
 if (!result.ok) throw new Error(result.error)
+const wallCoverage = classifyPlanPageWallSpans(
+  contours,
+  pairPlanPageWallFaces(page.linework, source, contours),
+)
+const wallCoverageCounts = Object.fromEntries(
+  ['paired', 'opening', 'unmatched', 'ambiguous', 'unsupported-angle'].map((status) => [
+    status,
+    wallCoverage.filter((span) => span.status === status).length,
+  ]),
+)
 const output = resolve('../../output/playwright/complete-metric')
 await mkdir(output, { recursive: true })
 const report = {
@@ -110,6 +122,8 @@ const report = {
   geometryIssues: inspectPlanGeometry(result.geometry),
   openingFacePairs: pairPlanPageOpeningFaces(page.linework, source, contours),
   wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs,
+  wallCoverage,
+  wallCoverageCounts,
   confirmationIssues: inspectManualPlanCompleteness(result.geometry),
   unresolvedSourceFeatures: complete.unresolvedFeatures,
   qualification:
@@ -134,6 +148,7 @@ console.log(
     openingAnnotations: result.geometry.openings.length,
     openingFacePairs: report.openingFacePairs.length,
     wallFacePairs: report.wallFacePairs?.length,
+    wallCoverageCounts,
     derivedOpeningWidths: result.geometry.pdfCalibration?.derivedOpeningIds.length,
     geometryIssues: report.geometryIssues.length,
     confirmationIssues: report.confirmationIssues.length,

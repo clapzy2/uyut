@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { parsePlanGeometry, planMeasurementTextItems, validatePlanMeasurement } from '@uyut/ai'
 import type {
   PlanGeometry,
+  PlanOpeningWidthProof,
   PlanPageContours,
   PlanPoint,
   PlanReading,
@@ -352,6 +353,34 @@ export function planPageMetricDraft(
       anchorRoomNumbers: [...anchorNumbers],
       labelIndexes: [...usedLabels].sort((a, b) => a - b),
       derivedOpeningIds,
+      openingWidthProofs: checks.flatMap((check): PlanOpeningWidthProof[] => {
+        if (check.status !== 'candidate') return []
+        const opening = geometry.openings.find(
+          (item) => item.id === id(pdfContourKey(check), 'opening', check.openingId),
+        )
+        const wall = geometry.walls.find((item) => item.id === opening?.wallId)
+        const sameOpeningAs = check.sameOpeningAs
+        const opposite = sameOpeningAs
+          ? geometry.openings.find(
+              (item) =>
+                item.id === id(pdfContourKey(sameOpeningAs), 'opening', sameOpeningAs.openingId),
+            )
+          : undefined
+        const oppositeWall = geometry.walls.find((item) => item.id === opposite?.wallId)
+        return opening && wall
+          ? [
+              {
+                opening: structuredClone(opening),
+                wall: structuredClone(wall),
+                labelIndex: check.labelIndex,
+                ...(check.sameOpeningAs ? { sameOpeningAs: check.sameOpeningAs } : {}),
+                ...(opposite && oppositeWall
+                  ? { oppositeBinding: structuredClone({ opening: opposite, wall: oppositeWall }) }
+                  : {}),
+              },
+            ]
+          : []
+      }),
       openingFacePairs: pairPlanPageOpeningFaces(linework, source, contours).flatMap((pair) => {
         const bindings = pair.openings.flatMap((ref) => {
           const opening = geometry.openings.find(

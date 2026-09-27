@@ -168,6 +168,14 @@ export type PlanOpeningFacePair = {
   bindings: [{ opening: PlanOpening; wall: PlanWall }, { opening: PlanOpening; wall: PlanWall }]
   jambs: [PlanPageSegmentRef, PlanPageSegmentRef]
 }
+/** Server-derived printed width, bound to the annotated opening and its host. */
+export type PlanOpeningWidthProof = {
+  opening: PlanOpening
+  wall: PlanWall
+  labelIndex: number
+  sameOpeningAs?: PlanPageRoomIdentity & { openingId: string }
+  oppositeBinding?: { opening: PlanOpening; wall: PlanWall }
+}
 /** Source-outline interval relations, not centreline walls or construction thickness. */
 export type PlanWallFacePair = {
   faces: [
@@ -204,6 +212,7 @@ export type PlanGeometry = {
     anchorRoomNumbers: number[]
     labelIndexes: number[]
     derivedOpeningIds: string[]
+    openingWidthProofs?: PlanOpeningWidthProof[]
     openingFacePairs?: PlanOpeningFacePair[]
     wallFacePairs?: PlanWallFacePair[]
     /** Shared snapshot of free-floor contours used by the interval proof. */
@@ -260,7 +269,13 @@ export type PlanPageContours = {
 export type PlanPageOpeningCheck = PlanPageRoomIdentity & {
   openingId: string
 } & (
-    | { status: 'candidate'; widthMm: number; labelIndex: number }
+    | {
+        status: 'candidate'
+        widthMm: number
+        labelIndex: number
+        /** Same exact physical cut, measured from the opposite annotated zone. */
+        sameOpeningAs?: PlanPageRoomIdentity & { openingId: string }
+      }
     | { status: 'unresolved' | 'ambiguous'; reason: string }
   )
 export type PlanPageReview = {

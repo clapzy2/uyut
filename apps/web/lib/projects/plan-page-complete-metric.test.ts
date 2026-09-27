@@ -3,7 +3,11 @@ import type { PlanGeometry, PlanPageContours, PlanPageOpening, PlanReading } fro
 import { describe, expect, it } from 'vitest'
 import page from '../../../../docs/qa/fixtures/apartment-74-77-complete-page.json'
 import { inspectManualPlanCompleteness } from './plan-geometry-inspection'
-import { currentOpeningFacePairs, currentWallFacePairs } from './plan-opening-face-pairs'
+import {
+  currentOpeningFacePairs,
+  currentOpeningWidthProofs,
+  currentWallFacePairs,
+} from './plan-opening-face-pairs'
 import { verifyPlanPageOpenings } from './plan-page-feature-checks'
 import { planPageMetricDraft } from './plan-page-metric-draft'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
@@ -133,7 +137,7 @@ describe('complete existing PDF page in one native metric scale', () => {
     const geometry = draft(fixture)
     expect(geometry.openings.filter((opening) => opening.type === 'window')).toHaveLength(5)
     expect(geometry.openings.filter((opening) => opening.type === 'balcony')).toHaveLength(1)
-    expect(geometry.pdfCalibration?.derivedOpeningIds).toHaveLength(1)
+    expect(geometry.pdfCalibration?.derivedOpeningIds).toHaveLength(0)
   })
 
   it.each(['missing-proof', 'wrong-path', 'moved-point'] as const)(
@@ -166,6 +170,43 @@ describe('complete existing PDF page in one native metric scale', () => {
     if (!wall) throw new Error('Missing paired host')
     wall.start.xCm += 1
     expect(currentOpeningFacePairs(geometry)).not.toContain(first)
+  })
+
+  it('binds all printed opening widths to the unchanged source cuts and contours', () => {
+    const geometry = draft()
+    const proofs = geometry.pdfCalibration?.openingWidthProofs
+    expect(proofs).toHaveLength(19)
+    expect(currentOpeningWidthProofs(geometry)).toHaveLength(19)
+
+    const transferred = proofs?.find((proof) => proof.sameOpeningAs)
+    if (!transferred?.oppositeBinding) throw new Error('Missing opposite opening proof')
+    expect(transferred.labelIndex).toBe(84)
+    expect(transferred.oppositeBinding.opening.widthCm).toBeCloseTo(90.3)
+
+    const donor = geometry.openings.find(
+      (opening) => opening.id === transferred.oppositeBinding?.opening.id,
+    )
+    if (!donor) throw new Error('Missing donor opening')
+    donor.widthCm += 1
+    expect(currentOpeningWidthProofs(geometry)).not.toContain(transferred)
+    donor.widthCm -= 1
+
+    const recipient = geometry.openings.find((opening) => opening.id === transferred.opening.id)
+    if (!recipient) throw new Error('Missing receiving opening')
+    recipient.offsetCm += 1
+    expect(currentOpeningWidthProofs(geometry)).not.toContain(transferred)
+    recipient.offsetCm -= 1
+
+    const wall = geometry.walls.find((item) => item.id === transferred.wall.id)
+    if (!wall) throw new Error('Missing receiving wall')
+    wall.end.xCm += 1
+    expect(currentOpeningWidthProofs(geometry)).not.toContain(transferred)
+    wall.end.xCm -= 1
+
+    const point = geometry.rooms[0]?.polygon[0]
+    if (!point) throw new Error('Missing source contour')
+    point.xCm += 1
+    expect(currentOpeningWidthProofs(geometry)).toEqual([])
   })
 
   it('stores source interval relations without claiming construction thickness or completing topology', () => {
@@ -246,7 +287,6 @@ describe('complete existing PDF page in one native metric scale', () => {
     expect(geometry.pdfCalibration?.cmPerPoint).toBeCloseTo(1.7638869966, 8)
     expect(inspectManualPlanCompleteness(geometry)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: 'manual-pdf-opening-measurements' }),
         expect.objectContaining({
           id: 'manual-disconnected-walls',
           message: expect.stringContaining('не соединяйте грани произвольными линиями'),
@@ -364,7 +404,7 @@ describe('complete existing PDF page in one native metric scale', () => {
     fixture.context.planText = JSON.stringify(fixture.labels)
     const geometry = draft(fixture)
     expect(geometry.openings).toHaveLength(19)
-    expect(geometry.pdfCalibration?.derivedOpeningIds).toHaveLength(2)
+    expect(geometry.pdfCalibration?.derivedOpeningIds).toHaveLength(1)
     geometry.status = 'confirmed'
     expect(roomLayoutInputFromGeometry(geometry, 'Спальня 6', null)).toBeNull()
     expect(roomArchitectureFromPlan(geometry, 'Спальня 6')).toBeNull()

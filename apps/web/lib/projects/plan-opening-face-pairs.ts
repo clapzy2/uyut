@@ -2,6 +2,7 @@ import type {
   PlanGeometry,
   PlanOpening,
   PlanOpeningFacePair,
+  PlanOpeningWidthProof,
   PlanWall,
   PlanWallFacePair,
 } from '@uyut/db'
@@ -28,6 +29,24 @@ function sameOpening(opening: PlanOpening | undefined, snapshot: PlanOpening): b
   )
 }
 
+function sameRoomPolygons(geometry: Pick<PlanGeometry, 'rooms' | 'pdfCalibration'>): boolean {
+  const polygons = geometry.pdfCalibration?.wallFaceRoomPolygons
+  return (
+    polygons !== undefined &&
+    polygons.length === geometry.rooms.length &&
+    polygons.every((snapshot) =>
+      geometry.rooms.some(
+        ({ polygon }) =>
+          polygon.length === snapshot.length &&
+          snapshot.every(
+            (point, index) =>
+              point.xCm === polygon[index]?.xCm && point.yCm === polygon[index]?.yCm,
+          ),
+      ),
+    )
+  )
+}
+
 /** A PDF face relation is evidence only while both annotated spans and hosts are unchanged. */
 export function currentOpeningFacePairs(
   geometry: Pick<PlanGeometry, 'walls' | 'openings' | 'pdfCalibration'>,
@@ -45,22 +64,7 @@ export function currentOpeningFacePairs(
 export function currentWallFacePairs(
   geometry: Pick<PlanGeometry, 'walls' | 'openings' | 'rooms' | 'pdfCalibration'>,
 ): PlanWallFacePair[] {
-  const polygons = geometry.pdfCalibration?.wallFaceRoomPolygons
-  if (
-    !polygons ||
-    polygons.length !== geometry.rooms.length ||
-    !polygons.every((snapshot) =>
-      geometry.rooms.some(
-        ({ polygon }) =>
-          polygon.length === snapshot.length &&
-          snapshot.every(
-            (point, index) =>
-              point.xCm === polygon[index]?.xCm && point.yCm === polygon[index]?.yCm,
-          ),
-      ),
-    )
-  )
-    return []
+  if (!sameRoomPolygons(geometry)) return []
   return (geometry.pdfCalibration?.wallFacePairs ?? []).filter((pair) => {
     if (
       !pair.faces.every(({ wall }) =>
@@ -83,4 +87,31 @@ export function currentWallFacePairs(
       )
     )
   })
+}
+
+/** A printed width cannot remain certified after the owner, cut or host has changed. */
+export function currentOpeningWidthProofs(
+  geometry: Pick<PlanGeometry, 'walls' | 'openings' | 'rooms' | 'pdfCalibration'>,
+): PlanOpeningWidthProof[] {
+  if (!sameRoomPolygons(geometry)) return []
+  return (geometry.pdfCalibration?.openingWidthProofs ?? []).filter(
+    ({ opening, wall, oppositeBinding }) =>
+      sameOpening(
+        geometry.openings.find((item) => item.id === opening.id),
+        opening,
+      ) &&
+      sameWall(
+        geometry.walls.find((item) => item.id === wall.id),
+        wall,
+      ) &&
+      (!oppositeBinding ||
+        (sameOpening(
+          geometry.openings.find((item) => item.id === oppositeBinding.opening.id),
+          oppositeBinding.opening,
+        ) &&
+          sameWall(
+            geometry.walls.find((item) => item.id === oppositeBinding.wall.id),
+            oppositeBinding.wall,
+          ))),
+  )
 }

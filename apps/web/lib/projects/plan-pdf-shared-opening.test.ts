@@ -71,7 +71,10 @@ describe('printed opening dimensions belong to a whole shared physical zone', ()
     }
     expect(checks.find((value) => value.openingId === 'zone-1-5-to-bedroom-6')).toMatchObject({
       roomSourceNumbers: [1, 5],
-      status: 'unresolved',
+      status: 'candidate',
+      widthMm: 903,
+      labelIndex: 84,
+      sameOpeningAs: { roomSourceNumber: 6, openingId: 'room-6-door' },
     })
     expect(contours).toEqual(before)
   })
@@ -126,7 +129,7 @@ describe('printed opening dimensions belong to a whole shared physical zone', ()
     ).toMatchObject({ status: 'unresolved', reason: 'opening-label-outside-room' })
   })
 
-  it('retains the bedroom 6 threshold as unresolved instead of propagating its opposing label', () => {
+  it('keeps direct group ownership strict even when the exact opposite cut has proof', () => {
     const { contours, work, group } = sharedSheet()
     const opening = group.openings?.find((value) => value.id === 'zone-1-5-to-bedroom-6')
     const label = page.nativeLabels.find((value) => value.index === 84)
@@ -138,6 +141,40 @@ describe('printed opening dimensions belong to a whole shared physical zone', ()
         opening,
       ),
     ).toMatchObject({ status: 'unresolved', reason: 'opening-label-outside-room' })
+  })
+
+  it.each(['missing-label', 'missing-rail', 'different-cut', 'duplicate-cut'] as const)(
+    'does not transfer a bedroom width with %s',
+    (mutation) => {
+      const { contours, work, labels, group } = sharedSheet()
+      const target = group.openings?.find((opening) => opening.id === 'zone-1-5-to-bedroom-6')
+      if (!target) throw new Error('Missing shared threshold')
+      if (mutation === 'missing-label') labels[84] = { text: '', x: 0, y: 0, rotation: 0 }
+      if (mutation === 'missing-rail')
+        work.paths = work.paths.filter((path) => path.operationIndex !== 3078)
+      if (mutation === 'different-cut') target.end.x += 0.001
+      if (mutation === 'duplicate-cut')
+        group.openings?.push({ ...structuredClone(target), id: 'duplicate-threshold' })
+      const checks = verifyPlanPageOpenings(work, contours.source, contours, JSON.stringify(labels))
+      expect(checks.find((value) => value.openingId === target.id)?.status).not.toBe('candidate')
+    },
+  )
+
+  it('works for other room numbers and contour order without special-casing bedroom 6', () => {
+    const { contours, work, labels } = sharedSheet()
+    const common = contours.rooms.find((room) => room.roomSourceNumbers)
+    const bedroom = contours.rooms.find((room) => room.roomSourceNumber === 6)
+    if (!common || !bedroom) throw new Error('Missing two-sided threshold')
+    common.roomSourceNumbers = [10, 11]
+    bedroom.roomSourceNumber = 12
+    contours.rooms.reverse()
+    const checks = verifyPlanPageOpenings(work, contours.source, contours, JSON.stringify(labels))
+    expect(checks.find((value) => value.openingId === 'zone-1-5-to-bedroom-6')).toMatchObject({
+      roomSourceNumbers: [10, 11],
+      status: 'candidate',
+      widthMm: 903,
+      sameOpeningAs: { roomSourceNumber: 12, openingId: 'room-6-door' },
+    })
   })
 
   it('checks every dimension interval, not just its label and midpoint', () => {

@@ -1,13 +1,76 @@
 import { planMeasurementTextItems } from '@uyut/ai'
-import type { PlanPageContours, PlanPageOpeningCheck } from '@uyut/db'
+import type { PlanPageContours, PlanPageOpening, PlanPageOpeningCheck } from '@uyut/db'
+import { planPageFeaturesIssue } from './plan-page-review'
 import { createPdfOpeningSpanVerifier } from './plan-pdf-dimension-chain'
 import type { PdfLinework } from './plan-pdf-linework'
 import {
   type PdfPlanSource,
   pdfBoundaryDistance,
   pdfContourIdentity,
+  pdfContourKey,
   pdfPointInside,
 } from './plan-pdf-room-binding'
+
+const pointKey = (point: { x: number; y: number }) => `${point.x}:${point.y}`
+const cutKey = (opening: PlanPageOpening) => {
+  const ends = [pointKey(opening.start), pointKey(opening.end)].sort()
+  return `${opening.kind}:${ends.join('|')}`
+}
+
+type OpeningLabel = { index: number; text: string; rotation: number; x: number; y: number }
+
+/** Transfer one verified label across a coincident declared door cut, never across a nearby wall. */
+function transferOppositeOpeningWidths(
+  result: PlanPageOpeningCheck[],
+  contours: PlanPageContours,
+  labels: OpeningLabel[],
+  verify: ReturnType<typeof createPdfOpeningSpanVerifier>,
+): PlanPageOpeningCheck[] {
+  if (planPageFeaturesIssue(contours, { checkRoomOverlap: true })) return result
+  const declared = contours.rooms.flatMap((room) =>
+    (room.openings ?? []).map((opening) => ({ room, opening })),
+  )
+  const byCut = new Map<string, typeof declared>()
+  for (const entry of declared) {
+    const key = cutKey(entry.opening)
+    const peers = byCut.get(key) ?? []
+    peers.push(entry)
+    byCut.set(key, peers)
+  }
+  return result.map((check) => {
+    if (check.status !== 'unresolved' || check.reason !== 'no-connected-opening-dimension')
+      return check
+    const target = declared.find(
+      ({ room, opening }) =>
+        pdfContourKey(room) === pdfContourKey(check) && opening.id === check.openingId,
+    )
+    if (target?.opening.kind !== 'door') return check
+    const peers = byCut.get(cutKey(target.opening))
+    if (peers?.length !== 2) return check
+    const donor = peers.find(({ room }) => pdfContourKey(room) !== pdfContourKey(target.room))
+    if (!donor) return check
+    const evidence = result.find(
+      (candidate) =>
+        candidate.status === 'candidate' &&
+        pdfContourKey(candidate) === pdfContourKey(donor.room) &&
+        candidate.openingId === donor.opening.id,
+    )
+    if (evidence?.status !== 'candidate') return check
+    const label = labels.find((item) => item.index === evidence.labelIndex)
+    if (!label) return check
+    const opposite = verify(pdfContourIdentity(target.room), label, target.opening)
+    if (opposite.status !== 'unresolved' || opposite.reason !== 'opening-label-outside-room')
+      return check
+    return {
+      ...pdfContourIdentity(target.room),
+      openingId: target.opening.id,
+      status: 'candidate',
+      widthMm: evidence.widthMm,
+      labelIndex: evidence.labelIndex,
+      sameOpeningAs: { ...pdfContourIdentity(donor.room), openingId: donor.opening.id },
+    }
+  })
+}
 
 /** Derived from this file's text/vector layer, not from browser-supplied dimensions. */
 export function verifyPlanPageOpenings(
@@ -66,5 +129,5 @@ export function verifyPlanPageOpenings(
       }
     }
   }
-  return result
+  return transferOppositeOpeningWidths(result, contours, labels, verify)
 }
