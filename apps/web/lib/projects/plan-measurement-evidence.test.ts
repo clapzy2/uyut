@@ -1,4 +1,4 @@
-import { createFalPlanReader, mergeReadings, parseFloorPlan } from '@uyut/ai'
+import { createFalPlanReader, FLOOR_PLAN_PROMPT, mergeReadings, parseFloorPlan } from '@uyut/ai'
 import { describe, expect, it, vi } from 'vitest'
 import { planRows } from './plan-rows'
 
@@ -53,6 +53,18 @@ const read = (room: unknown, options = strict) =>
   parseFloorPlan(JSON.stringify({ rooms: [room] }), options)
 
 describe('measurement evidence ownership and arithmetic, not vision accuracy', () => {
+  it('shows per-room evidence in the response template, not just later instructions', () => {
+    const template = FLOOR_PLAN_PROMPT.split('Правила:')[0] ?? ''
+    const roomsStart = template.indexOf('"rooms": [{')
+    const geometryStart = template.indexOf('"geometry":')
+    const roomTemplate = template.slice(roomsStart, geometryStart)
+    expect(roomTemplate).toContain('"measurementEvidence": {')
+    expect(roomTemplate).toContain('"width":')
+    expect(roomTemplate).toContain('"depth":')
+    expect(roomTemplate).toContain('"ceiling":')
+    expect(template.slice(0, roomsStart)).toContain('"ceilingEvidence":')
+    expect(FLOOR_PLAN_PROMPT).toContain('Не складывай общий размер вместе с его составляющими')
+  })
   it('rejects a mathematically correct chain assembled from different drawing rows', () => {
     const planText = JSON.stringify(
       labels.map((label, index) => ({

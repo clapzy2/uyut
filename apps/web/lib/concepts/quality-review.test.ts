@@ -15,6 +15,36 @@ afterEach(() => {
 })
 
 describe('проверка готового изображения', () => {
+  it('compares source first and result second in one paid submission when a reference exists', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        Response.json({
+          status_url: 'https://queue.fal.run/status',
+          response_url: 'https://queue.fal.run/result',
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ status: 'COMPLETED' }))
+      .mockResolvedValueOnce(
+        Response.json({ output: JSON.stringify({ description, issues: [issue] }) }),
+      )
+    const result = await reviewConceptImage(
+      'test',
+      { body: Buffer.from('result'), contentType: 'image/jpeg' },
+      { roomKind: 'kitchen', notes: 'Сохранить холодильник.' },
+      { body: Buffer.from('source'), contentType: 'image/png' },
+    )
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(request.image_urls).toEqual([
+      'data:image/png;base64,c291cmNl',
+      'data:image/jpeg;base64,cmVzdWx0',
+    ])
+    expect(request.prompt).toContain('Изображение 1 — исходник; изображение 2 — результат.')
+    expect(request.system_prompt).toContain('явно убранная или перенесённая сохраняемая техника')
+    expect(request.system_prompt).toContain('Не объявляй скрытый, обрезанный')
+    expect(fetchMock.mock.calls.filter((call) => call[1]?.method === 'POST')).toHaveLength(1)
+    expect(result.status).toBe('review')
+  })
   it('сохраняет описание картинки и замечания', () => {
     const result = parseQualityReview(JSON.stringify({ description, issues: [issue] }), now)
     expect(result).toMatchObject({
@@ -110,7 +140,12 @@ describe('проверка готового изображения', () => {
       ],
     })
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
-    expect(body.image_url).toBe('data:image/jpeg;base64,aW1hZ2U=')
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://queue.fal.run/openrouter/router/vision')
+    expect(body.model).toBe('anthropic/claude-sonnet-4.5')
+    expect(body.image_urls).toEqual(['data:image/jpeg;base64,aW1hZ2U='])
+    expect(body).not.toHaveProperty('image_url')
+    expect(body.temperature).toBe(0)
+    expect(body.max_tokens).toBe(2000)
     expect(body.prompt).toContain('Окно снизу')
     expect(body.prompt).toContain('"shape":"rectangular"')
     expect(body.prompt).toContain('"side":"top"')
@@ -154,6 +189,79 @@ describe('проверка готового изображения', () => {
     )
     expect(result.status).toBe('unavailable')
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('не повторяет отправку после ошибки очереди и сохраняет архитектуру', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        Response.json({
+          status_url: 'https://queue.fal.run/status',
+          response_url: 'https://queue.fal.run/result',
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ status: 'FAILED', detail: 'provider failure' }))
+    const architecture = {
+      shape: 'rectangular' as const,
+      openings: [{ type: 'door' as const, side: 'left' as const }],
+    }
+    const result = await reviewConceptImage(
+      'test',
+      { body: Buffer.from('image'), contentType: 'image/jpeg' },
+      { roomKind: 'kitchen', architecture },
+    )
+    expect(result.status).toBe('unavailable')
+    expect(result.architecture).toEqual(architecture)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls.filter((call) => call[1]?.method === 'POST')).toHaveLength(1)
+  })
+
+  it('отсутствующий output не становится проверкой без замечаний', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        Response.json({
+          status_url: 'https://queue.fal.run/status',
+          response_url: 'https://queue.fal.run/result',
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ status: 'COMPLETED' }))
+      .mockResolvedValueOnce(Response.json({ usage: { cost: 0.01 } }))
+    const result = await reviewConceptImage(
+      'test',
+      { body: Buffer.from('image'), contentType: 'image/jpeg' },
+      { roomKind: 'kitchen' },
+    )
+    expect(result.status).toBe('unavailable')
+    expect(result.description).toBeNull()
+  })
+
+  it('дожидается медленной очереди без повторного платного запроса', async () => {
+    vi.useFakeTimers()
+    const startedAt = Date.now()
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        Response.json({
+          status_url: 'https://queue.fal.run/status',
+          response_url: 'https://queue.fal.run/result',
+        }),
+      )
+      .mockImplementation(async (url) => {
+        if (url === 'https://queue.fal.run/status') {
+          return Response.json({
+            status: Date.now() - startedAt < 45_000 ? 'IN_PROGRESS' : 'COMPLETED',
+          })
+        }
+        return Response.json({ output: JSON.stringify({ description, issues: [] }) })
+      })
+    const pending = reviewConceptImage(
+      'test',
+      { body: Buffer.from('image'), contentType: 'image/jpeg' },
+      { roomKind: 'kitchen' },
+    )
+    await vi.advanceTimersByTimeAsync(45_000)
+    expect((await pending).status).toBe('checked')
+    expect(fetchMock.mock.calls.filter((call) => call[1]?.method === 'POST')).toHaveLength(1)
   })
 
   it('ограничивает даже зависшую отправку запроса', async () => {

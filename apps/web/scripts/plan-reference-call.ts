@@ -21,13 +21,44 @@ import { evaluateDeclaredPlanReference, evaluatePlanReference } from './plan-ref
 
 const path = process.argv[2]
 if (!path || path.startsWith('--')) throw new Error('Укажите исходный PDF.')
-const paid = process.argv.includes('--run-paid')
-const replay = process.argv.includes('--replay')
-const reviewedPage = process.argv.includes('--reviewed-page')
-const nativeText = reviewedPage || process.argv.includes('--with-native-text')
+const args = process.argv.slice(3)
+const flags = new Set(['--run-paid', '--replay', '--reviewed-page', '--with-native-text'])
+const values = new Map<string, string>()
+for (let index = 0; index < args.length; index += 1) {
+  const argument = args[index]
+  if (!argument) throw new Error('Пустой аргумент QA-сценария.')
+  if (argument === '--run-id' || argument === '--model') {
+    const value = args[index + 1]
+    if (!value || value.startsWith('--') || values.has(argument)) {
+      throw new Error(`Укажите единственное значение ${argument}.`)
+    }
+    values.set(argument, value)
+    index += 1
+  } else if (!flags.has(argument) || args.indexOf(argument) !== index) {
+    throw new Error(`Неизвестный или повторный аргумент: ${argument}`)
+  }
+}
+const runId = values.get('--run-id')
+if (runId !== undefined && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(runId)) {
+  throw new Error('--run-id: только строчные латинские буквы, цифры и одиночные дефисы.')
+}
+if (runId !== undefined && runId.length > 64) throw new Error('--run-id: максимум 64 символа.')
+const model = values.get('--model') ?? PLAN_READER_MODEL
+if (![PLAN_READER_MODEL, 'anthropic/claude-sonnet-5'].includes(model)) {
+  throw new Error('Модель не входит в проверенный список этого QA-сценария.')
+}
+if (model !== PLAN_READER_MODEL && !runId) {
+  throw new Error('Для независимого сравнения модели требуется --run-id.')
+}
+const paid = args.includes('--run-paid')
+const replay = args.includes('--replay')
+const reviewedPage = args.includes('--reviewed-page')
+const nativeText = reviewedPage || args.includes('--with-native-text')
 if (paid && replay) throw new Error('Повторная сверка не может запускать платное чтение.')
 const suffix = reviewedPage ? '-reviewed-page' : nativeText ? '-native-text' : ''
-const directory = resolve(`../../output/quality-bench/plan-74-77${suffix}`)
+const directory = resolve(
+  `../../output/quality-bench/plan-74-77${suffix}${runId ? `-${runId}` : ''}`,
+)
 const resultPath = resolve(directory, 'raw-answer.txt')
 if (paid) {
   const exists = await access(resolve(directory, 'request.json')).then(
@@ -109,7 +140,8 @@ if (paid) {
   const metadata = {
     startedAt,
     endpoint: PLAN_READER_ENDPOINT,
-    model: PLAN_READER_MODEL,
+    model,
+    runId: runId ?? null,
     paidRequestAttempts: 1,
     quotedEstimateUsd: null,
     actualChargeUsd: null,
@@ -131,7 +163,7 @@ if (paid) {
     process.env.FAL_KEY as string,
     metadata.endpoint,
     {
-      model: PLAN_READER_MODEL,
+      model,
       system_prompt: FLOOR_PLAN_PROMPT,
       prompt: planReaderPrompt(
         nativeText && 'planText' in page.image ? page.image.planText : undefined,

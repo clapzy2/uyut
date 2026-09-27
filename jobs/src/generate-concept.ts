@@ -349,6 +349,18 @@ export const generateConcept = task({
     // Без основы модель рисует комнату с нуля.
     const sourceKey = baseRenderKey ?? room.photoUrl
     const source = sourceKey ? await readObject(sourceKey) : null
+    // Исходное фото (или выбранный концепт при правке), не AI-якорь другого варианта.
+    const reviewReference = source
+      ? await sharp(source.body)
+          .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 85 })
+          .toBuffer()
+          .then((body) => ({ body, contentType: 'image/jpeg' }))
+          .catch(() => {
+            logger.warn('review reference preparation failed; keeping image-only review')
+            return undefined
+          })
+      : undefined
     const imageUrl = source
       ? `data:${source.contentType};base64,${source.body.toString('base64')}`
       : undefined
@@ -422,7 +434,7 @@ export const generateConcept = task({
             })
           }
           // Проверяем пиксели, а не промпт. Уменьшение ограничивает размер запроса;
-          // общий HTTP-дедлайн проверки — 35 секунд, её сбой не роняет результат.
+          // Общий дедлайн включает очередь; сбой проверки не роняет оплаченный результат.
           const reviewImage = await sharp(result.body)
             .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
             .jpeg({ quality: 85 })
@@ -432,6 +444,7 @@ export const generateConcept = task({
             requireEnv('FAL_KEY'),
             { body: reviewImage, contentType: 'image/jpeg' },
             brief,
+            reviewReference,
           )
           logger.info('concept quality review', {
             conceptId: concept.id,
@@ -459,6 +472,7 @@ export const generateConcept = task({
                 requireEnv('FAL_KEY'),
                 { body: correctedReviewImage, contentType: 'image/jpeg' },
                 brief,
+                reviewReference,
               )
               const accepted = isLayoutCorrectionImprovement(qualityReview, correctedReview)
               logger.info('layout correction reviewed', {
