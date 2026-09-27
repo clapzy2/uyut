@@ -6,10 +6,12 @@ const mocks = vi.hoisted(() => ({
   render: vi.fn(),
   viewport: vi.fn(),
   text: vi.fn(),
+  operators: vi.fn(),
 }))
 
 vi.mock('pdfjs-dist/legacy/build/pdf.worker.mjs', () => ({}))
 vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+  OPS: { constructPath: 6, stroke: 7 },
   getDocument: () => ({
     promise: Promise.resolve({ numPages: 48, getPage: mocks.getPage }),
     destroy: mocks.destroy,
@@ -38,8 +40,13 @@ describe('selected PDF page', () => {
       getViewport: mocks.viewport,
       render: mocks.render,
       getTextContent: mocks.text,
+      getOperatorList: mocks.operators,
     })
     mocks.text.mockResolvedValue({ items: [] })
+    mocks.operators.mockResolvedValue({
+      fnArray: [6],
+      argsArray: [[7, [[0, 100, 200, 1, 300, 400]], []]],
+    })
     mocks.viewport.mockReturnValue({
       width: 1000,
       height: 2000,
@@ -98,5 +105,36 @@ describe('selected PDF page', () => {
     mocks.text.mockRejectedValue(new Error('no text'))
     const result = await preparePlanPage(Buffer.from('pdf'), true, 6)
     expect(result.image).not.toHaveProperty('planText')
+  })
+  it('does not extract vectors for the default reading path', async () => {
+    const page = await preparePlanPage(Buffer.from('pdf'), true, 6)
+    expect(page).not.toHaveProperty('linework')
+    expect(mocks.operators).not.toHaveBeenCalled()
+  })
+  it('extracts the requested vector layer on the same selected page using the physical page format', async () => {
+    mocks.viewport.mockImplementation(({ scale }: { scale: number }) => ({
+      width: 842 * scale,
+      height: 1191 * scale,
+      convertToViewportPoint: (x: number, y: number) => [x * scale, (1191 - y) * scale],
+    }))
+    const page = await preparePlanPage(Buffer.from('pdf'), true, 6, true)
+    expect(mocks.getPage.mock.calls).toEqual([[6]])
+    expect(mocks.operators).toHaveBeenCalledTimes(1)
+    expect(mocks.viewport).toHaveBeenCalledWith({ scale: 1 })
+    expect(page.linework).toMatchObject({ pageWidth: 842, pageHeight: 1191, truncated: false })
+    expect(page.linework?.paths).toHaveLength(1)
+    expect(mocks.destroy).toHaveBeenCalledOnce()
+  })
+  it('renders the page after vector extraction fails but does not fabricate an empty valid layer', async () => {
+    mocks.operators.mockRejectedValue(new Error('missing vector layer'))
+    const page = await preparePlanPage(Buffer.from('pdf'), true, 6, true)
+    expect(page).not.toHaveProperty('linework')
+    expect(mocks.render).toHaveBeenCalledOnce()
+    expect(mocks.destroy).toHaveBeenCalledOnce()
+  })
+  it('does not produce vectors for a raster image even if review extraction was requested', async () => {
+    const page = await preparePlanPage(Buffer.from('image'), false, 1, true)
+    expect(page).not.toHaveProperty('linework')
+    expect(mocks.operators).not.toHaveBeenCalled()
   })
 })

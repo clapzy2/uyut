@@ -1,14 +1,16 @@
-// Free local vector probe of the existing measurement sheet; never imports an AI client.
+// Free local vector probe and synthetic reader gate; never calls a model or storage service.
 // bun run scripts/plan-vector-report.ts <source-pdf>
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { parseFloorPlan } from '@uyut/ai'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
 import sharp from 'sharp'
 import reference from '../../../docs/qa/fixtures/apartment-74-77.json'
 import labels from '../../../docs/qa/fixtures/apartment-74-77-native-labels.json'
 import nativeLeaders from '../../../docs/qa/fixtures/apartment-74-77-native-leaders.json'
 import annotated from '../../../docs/qa/fixtures/apartment-74-77-page-contours.json'
+import { preparePlanPage } from '../lib/projects/plan-document'
 import {
   type PdfOpeningAnnotation,
   pdfDepthChain,
@@ -22,6 +24,7 @@ import {
   type PdfRoomContours,
   pdfRoomAtPoint,
 } from '../lib/projects/plan-pdf-room-binding'
+import { verifyPlanReadingGeometry } from '../lib/projects/plan-reading-geometry'
 
 const source = process.argv[2]
 if (!source || source.startsWith('--')) throw new Error('Укажите исходный обмерный PDF.')
@@ -226,6 +229,74 @@ try {
   )
     throw new Error('Окно ошибочно перенесено на противоположную стену.')
   const { paths, ...metadata } = work
+  // Exercise the server's real preprocessing, but use explicitly synthetic model responses.
+  // Fixture values are QA input only, never a source for production user readings.
+  const prepared = await preparePlanPage(Buffer.from(body), true, pageSource.pdfPage, true)
+  if (JSON.stringify(prepared.linework) !== JSON.stringify(work))
+    throw new Error('Серверная подготовка не сохранила векторы выбранного листа.')
+  const syntheticRooms = annotated.rooms.map((room) => ({
+    name: reference.rooms.find((item) => item.number === room.roomSourceNumber)?.name,
+    sourceNumber: room.roomSourceNumber,
+    widthMm: room.widthMm,
+    depthMm: room.depthMm,
+    measurementEvidence: {
+      width: {
+        kind: 'horizontal-chain',
+        scope: 'room',
+        sourceNumber: room.roomSourceNumber,
+        complete: true,
+        segmentsMm: nativeLabels(room.widthLabels).map((item) => Number(item.text)),
+        textItemIndexes: room.widthLabels,
+      },
+      depth: {
+        kind: 'vertical-chain',
+        scope: 'room',
+        sourceNumber: room.roomSourceNumber,
+        complete: true,
+        segmentsMm: nativeLabels(room.depthLabels).map((item) => Number(item.text)),
+        textItemIndexes: room.depthLabels,
+      },
+    },
+  }))
+  const syntheticReading = (rooms: typeof syntheticRooms) =>
+    parseFloorPlan(JSON.stringify({ planState: 'existing', rooms }), {
+      requireMeasurementEvidence: true,
+      planText: prepared.image.planText,
+    })
+  const geometryContext = {
+    source: pageSource,
+    linework: work,
+    contours,
+    planText: prepared.image.planText,
+  }
+  const acceptedReading = verifyPlanReadingGeometry(
+    syntheticReading(syntheticRooms),
+    geometryContext,
+  )
+  const retainedDimensionCount = acceptedReading.rooms.reduce(
+    (count, room) =>
+      count + Number(room.widthCm !== undefined) + Number(room.depthCm !== undefined),
+    0,
+  )
+  if (retainedDimensionCount !== 8) throw new Error('Сквозная проверка потеряла верные цепочки.')
+  const syntheticBedroom = syntheticRooms.find((room) => room.sourceNumber === 4)
+  const syntheticLiving = syntheticRooms.find((room) => room.sourceNumber === 3)
+  if (!syntheticBedroom || !syntheticLiving) throw new Error('Контрольные помещения отсутствуют.')
+  const foreignReading = syntheticReading([
+    {
+      ...syntheticLiving,
+      widthMm: syntheticBedroom.widthMm,
+      measurementEvidence: {
+        ...syntheticLiving.measurementEvidence,
+        width: { ...syntheticBedroom.measurementEvidence.width, sourceNumber: 3 },
+      },
+    },
+  ])
+  if (foreignReading.rooms[0]?.widthCm !== 298.5)
+    throw new Error('Отрицательный пример не дошёл до геометрической проверки.')
+  const clearedReading = verifyPlanReadingGeometry(foreignReading, geometryContext)
+  if (clearedReading.rooms[0]?.widthCm !== undefined || clearedReading.rooms[0]?.depthCm !== 515.8)
+    throw new Error('Геометрическая проверка не убрала только чужую сторону.')
   const report = {
     source: reference.source,
     pdfjsVersion: pdfjs.version,
@@ -248,6 +319,15 @@ try {
     rejectedForeignChain,
     rejectedForeignDepth,
     rejectedOppositeOpening,
+    syntheticReaderGate: {
+      responseSource: 'synthetic QA data, not a new AI reading',
+      preparedSourcePage: prepared.pageNumber,
+      preparedPageCount: prepared.pageCount,
+      retainedDimensionCount,
+      foreignWidthBeforeCm: foreignReading.rooms[0]?.widthCm,
+      foreignWidthAfterCm: clearedReading.rooms[0]?.widthCm ?? null,
+      retainedDepthAfterCm: clearedReading.rooms[0]?.depthCm,
+    },
     limitations: [
       'Векторные пути — не стены и не размеры в миллиметрах.',
       'Привязки четырёх помещений проверены относительно ручной разметки исходной страницы, не автоматически распознанных стен.',
@@ -256,7 +336,8 @@ try {
       'Шесть проёмов размечены вручную, ширина/отступ сверены по цепочке. Высота, подоконник и открывание не определены; это не готовые зоны безопасности.',
       'Кривые пропущены, формы/группы и не прямоугольные клипы не интерпретируются.',
       'Цвета, прозрачность и видимость PDF-слоёв не переносятся; диагностическая картинка не является копией исходного листа.',
-      'Новые мерки не подставлены в проекты; точность AI-чтения заново не измерена.',
+      'Проверка читателя вызывается только с ручной разметкой страницы. Форма сайта пока её не передаёт; фикстура не импортируется в production.',
+      'Сквозная локальная проверка использует синтетические ответы, не новое чтение моделью; мерки не подставлены в проекты.',
     ],
   }
   const highlighted = new Set(

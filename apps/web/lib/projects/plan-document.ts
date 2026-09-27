@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import sharp from 'sharp'
+import { extractPdfLinework, type PdfLinework } from './plan-pdf-linework'
 
 export class PlanReadError extends Error {
   constructor(message: string) {
@@ -35,10 +36,12 @@ export async function preparePlanPage(
   body: Buffer,
   isPdf: boolean,
   pageNumber = 1,
+  includeLinework = false,
 ): Promise<{
   image: { body: Buffer; contentType: string; planText?: string }
   pageNumber: number
   pageCount: number
+  linework?: PdfLinework
 }> {
   if (!Number.isInteger(pageNumber) || pageNumber < 1) {
     throw new PlanReadError('Номер страницы должен быть целым числом от 1.')
@@ -77,6 +80,19 @@ export async function preparePlanPage(
       )
     }
     const page = await document.getPage(pageNumber)
+    // Only requested for a reviewed-page gate. No extra page or paid reader invocation.
+    let linework: PdfLinework | undefined
+    if (includeLinework) {
+      try {
+        linework = extractPdfLinework(
+          await page.getOperatorList(),
+          pdfjs.OPS,
+          page.getViewport({ scale: 1 }),
+        )
+      } catch {
+        // The caller must refuse geometry verification; never reinterpret a missing layer as valid.
+      }
+    }
     const full = page.getViewport({ scale: PDF_DPI / 72 })
     const textContent = await page.getTextContent().catch(() => undefined)
     const textItems: Array<{ text: string; x: number; y: number; rotation: number }> = []
@@ -112,6 +128,7 @@ export async function preparePlanPage(
       image: { ...(await toJpeg(canvas.toBuffer('image/png'))), ...(planText ? { planText } : {}) },
       pageNumber,
       pageCount: document.numPages,
+      ...(linework ? { linework } : {}),
     }
   } finally {
     await loading.destroy()

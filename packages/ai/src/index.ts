@@ -126,6 +126,7 @@ export {
   reconcilePlanGeometryRooms,
   validatePlanGeometryEdit,
 } from './floor-plan-geometry'
+export { planMeasurementTextItems, validatePlanMeasurement } from './floor-plan-measurements'
 export { isLayoutCorrectionImprovement, layoutCorrectionPrompt } from './layout-correction'
 export {
   ARCHITECTURE_ANCHOR_INSTRUCTION,
