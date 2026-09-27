@@ -1,6 +1,6 @@
 import type { FitVerdict } from '@uyut/catalog'
 import { describe, expect, it } from 'vitest'
-import { fitLabel } from './format'
+import { fitLabel, sizeLabel } from './format'
 
 describe('fitLabel', () => {
   it.each([
@@ -32,5 +32,20 @@ describe('fitLabel', () => {
   it('keeps incomplete positive verdicts as a request for dimensions', () => {
     expect(fitLabel({ state: 'fits' })).toBe('Для проверки подтвердите размеры')
     expect(fitLabel({ state: 'unknown' })).toBe('Для проверки подтвердите размеры')
+  })
+})
+
+describe('sizeLabel', () => {
+  it('labels partial dimensions by axis instead of implying a full footprint', () => {
+    expect(sizeLabel({ height: 80 })).toBe('высота 80 см')
+    expect(sizeLabel({ width: 210, height: 80 })).toBe('ширина 210 см, высота 80 см')
+    expect(sizeLabel({ depth: 90 })).toBe('глубина 90 см')
+    expect(sizeLabel({})).toBeNull()
+    expect(sizeLabel(null)).toBeNull()
+  })
+
+  it('keeps compact ordered dimensions when both footprint axes are known', () => {
+    expect(sizeLabel({ width: 210, depth: 90 })).toBe('210 × 90 см')
+    expect(sizeLabel({ width: 210, depth: 90, height: 80 })).toBe('210 × 90 × 80 см')
   })
 })

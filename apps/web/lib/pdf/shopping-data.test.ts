@@ -393,4 +393,38 @@ describe('selected shopping variant in PDF data without AI or external requests'
     expect(pdf.shopping[0]?.items[0]?.meta).toContain('габариты не указаны')
     expect(pdf.estimate.furnitureKopecks).toBe(1_400_000)
   })
+
+  it('prints the current variant price/photo and preserves the update notice', async () => {
+    const data = snapshot()
+    const row = data.shopping[0]
+    if (!row?.item.selectedVariant) throw new Error('Missing shopping fixture')
+    row.product.variants = [
+      {
+        ...row.item.selectedVariant,
+        priceKopecks: 900_000,
+        imageUrl: 'https://cdn.example/current.png',
+      },
+    ]
+    const { pdf, fetchImage } = await build(data)
+    expect(pdf.shopping[0]?.items[0]).toMatchObject({
+      priceKopecks: 900_000,
+      totalKopecks: 1_800_000,
+    })
+    expect(pdf.estimate.furnitureKopecks).toBe(1_800_000)
+    expect(fetchImage.mock.calls[0]?.[0]).toBe('https://cdn.example/current.png')
+    expect(renderProjectHtml(pdf, { fontCss: '' })).toContain('Цена выбранного варианта обновлена')
+  })
+
+  it('prints partial dimensions without implying a complete footprint', async () => {
+    const data = snapshot()
+    const row = data.shopping[0]
+    if (!row) throw new Error('Missing shopping fixture')
+    row.item.dimensionsCm = null
+    row.product.attributes = { dimensionsCm: { height: 70 } }
+    const { pdf } = await build(data)
+    const meta = pdf.shopping[0]?.items[0]?.meta
+    expect(meta).toContain('высота 70 см')
+    expect(meta).toContain('уточните ширину и глубину')
+    expect(meta).not.toContain('ширина 70')
+  })
 })

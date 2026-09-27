@@ -142,7 +142,7 @@ function MatchRow({
           >
             {match.title}
           </a>
-          <span className="block truncate text-[13px] text-ink-2">
+          <span className="block text-[13px] leading-relaxed text-ink-2">
             {[match.brand, sourceLabel(match.source), sizeLabel(match.dimensionsCm)]
               .filter(Boolean)
               .join(' · ')}

@@ -6,8 +6,8 @@ import {
   subcategoryFromText,
   type WorksRates,
 } from '@uyut/catalog'
-import { catalogFreshnessNotice } from '@uyut/catalog/freshness'
 import { layoutWithMeasurements } from '@uyut/catalog/layout-with-measurements'
+import { shoppingOffer } from '@uyut/catalog/shopping-offer'
 import {
   type CatalogCategory,
   type Concept,
@@ -282,10 +282,9 @@ export async function loadSnapshot(projectId: string): Promise<ProjectSnapshot |
           priceKopecks:
             chosen.length > 1
               ? null
-              : (selected?.item.selectedVariant?.priceKopecks ??
-                selected?.product.priceKopecks ??
-                product?.priceKopecks ??
-                null),
+              : selected
+                ? shoppingOffer(selected.product, selected.item.selectedVariant).priceKopecks
+                : (product?.priceKopecks ?? null),
         }
       }),
     )
@@ -381,9 +380,8 @@ export async function buildPdfData(input: {
   const estimate = estimateProject({
     rooms: snapshot.rooms,
     items: snapshot.shopping.map(({ item, product }) => ({
-      priceKopecks: product.priceKopecks,
+      priceKopecks: shoppingOffer(product, item.selectedVariant).priceKopecks,
       quantity: item.quantity,
-      variantPriceKopecks: item.selectedVariant?.priceKopecks ?? null,
     })),
     budgetKopecks: project.budgetKopecks,
     rates,
@@ -437,7 +435,8 @@ export async function buildPdfData(input: {
   for (const row of snapshot.shopping) {
     const key = row.item.roomId ?? 'none'
     const group = groups.get(key) ?? { roomName: row.roomName ?? 'Без комнаты', items: [] }
-    const price = row.item.selectedVariant?.priceKopecks ?? row.product.priceKopecks
+    const offer = shoppingOffer(row.product, row.item.selectedVariant)
+    const price = offer.priceKopecks
     const dimensions = row.item.dimensionsCm ?? row.product.attributes?.dimensionsCm
     const dimensionLabels = dimensions
       ? [
@@ -451,25 +450,28 @@ export async function buildPdfData(input: {
       meta: [
         sourceLabels[row.product.source] ?? row.product.source,
         row.product.brand,
-        row.item.selectedVariant?.color,
+        offer.variant?.color,
         dimensionLabels.join(', '),
         dimensionLabels.length
           ? row.item.dimensionsCm
             ? 'размеры введены вами'
             : 'размеры магазина — проверьте перед покупкой'
           : 'габариты не указаны — проверьте перед покупкой',
+        dimensionLabels.length && !(dimensions?.width && dimensions.depth)
+          ? 'для 2D-расстановки уточните ширину и глубину'
+          : null,
         row.product.inStock ? null : 'нет в наличии',
-        catalogFreshnessNotice(row.product.lastSyncedAt),
-        row.item.selectedVariant?.swatchId
+        offer.catalogNotice,
+        offer.variant?.swatchId
           ? 'цвет — пожелание из концепта; наличие этой ткани и цену уточните в магазине'
-          : row.item.selectedVariant
+          : offer.variant
             ? 'цену выбранного варианта уточните в магазине'
             : null,
       ]
         .filter(Boolean)
         .join(' · '),
-      image: await pdfImage(row.item.selectedVariant?.imageUrl ?? row.product.images[0]?.url, 360),
-      affiliateUrl: row.item.selectedVariant?.affiliateUrl ?? row.product.affiliateUrl,
+      image: await pdfImage(offer.variant?.imageUrl ?? row.product.images[0]?.url, 360),
+      affiliateUrl: offer.variant?.affiliateUrl ?? row.product.affiliateUrl,
       quantity: row.item.quantity,
       priceKopecks: price,
       totalKopecks: price * row.item.quantity,

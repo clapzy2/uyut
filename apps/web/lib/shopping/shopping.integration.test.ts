@@ -530,4 +530,87 @@ describe('shopping list in a real database', () => {
       await db.delete(projects).where(eq(projects.id, foreignProject.id))
     }
   })
+
+  it('keeps updated and missing store variants consistent in the list and PDF', async () => {
+    const db = getDb()
+    const [original] = await db.select().from(catalogItems).where(eq(catalogItems.id, sofaId))
+    const [project] = await db
+      .insert(projects)
+      .values({ ownerId, title: 'Обновление выбранной ткани' })
+      .returning({ id: projects.id })
+    if (!original || !project) throw new Error('Missing catalog fixture')
+    const selected = original.variants?.[0]
+    if (!selected) throw new Error('Missing variant fixture')
+    try {
+      const added = await addShoppingItem(ownerId, {
+        projectId: project.id,
+        catalogItemId: sofaId,
+        variant: selected,
+        quantity: 2,
+      })
+      const updated = {
+        ...selected,
+        priceKopecks: 84_900_00,
+        imageUrl: 'https://cdn.example/new.jpg',
+      }
+      await db
+        .update(catalogItems)
+        .set({ variants: [updated] })
+        .where(eq(catalogItems.id, sofaId))
+      let list = await getShoppingList(ownerId, project.id)
+      expect(list.items[0]).toMatchObject({
+        totalKopecks: 169_800_00,
+        variant: updated,
+        imageUrl: updated.imageUrl,
+      })
+      const again = await addShoppingItem(ownerId, {
+        projectId: project.id,
+        catalogItemId: sofaId,
+        variant: updated,
+      })
+      expect(again).toEqual({ itemId: added.itemId, quantity: 3 })
+      list = await getShoppingList(ownerId, project.id)
+      expect(list.items).toHaveLength(1)
+      await db
+        .update(catalogItems)
+        .set({ variants: null, inStock: false, lastSyncedAt: new Date(0) })
+        .where(eq(catalogItems.id, sofaId))
+      list = await getShoppingList(ownerId, project.id)
+      expect(list.items[0]?.totalKopecks).toBe(254_700_00)
+      expect(list.items[0]?.catalogNotice).toContain('последняя сохранённая цена')
+      expect(list.items[0]?.catalogNotice).toContain('48 часов')
+      expect(list.items[0]?.inStock).toBe(false)
+      expect(list.items[0]?.dimensionsCm).toBeNull()
+      const snapshot = await loadSnapshot(project.id)
+      if (!snapshot) throw new Error('Missing print snapshot')
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 404 })))
+      const pdf = await buildPdfData({
+        snapshot,
+        kind: 'free',
+        options: {},
+        rates: { roughRubPerM2: 15_000, finishRubPerM2: 5_000 },
+        brief: null,
+        summary: null,
+      })
+      const printed = pdf.shopping[0]?.items[0]
+      expect(printed?.priceKopecks).toBe(84_900_00)
+      expect(printed?.totalKopecks).toBe(list.items[0]?.totalKopecks)
+      expect(pdf.estimate.furnitureKopecks).toBe(list.items[0]?.totalKopecks)
+      expect(printed?.meta).toContain('последняя сохранённая цена')
+      expect(printed?.meta).toContain('нет в наличии')
+      expect(printed?.meta).toContain('габариты не указаны')
+      expect(renderProjectHtml(pdf, { fontCss: '' })).toContain('последняя сохранённая цена')
+    } finally {
+      vi.unstubAllGlobals()
+      await db
+        .update(catalogItems)
+        .set({
+          variants: original.variants,
+          inStock: original.inStock,
+          lastSyncedAt: original.lastSyncedAt,
+        })
+        .where(eq(catalogItems.id, sofaId))
+      await db.delete(projects).where(eq(projects.id, project.id))
+    }
+  })
 })

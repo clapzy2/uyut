@@ -94,7 +94,7 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
         >
           {item.title}
         </a>
-        <span className="block truncate text-[13px] text-ink-2">{meta.join(' · ')}</span>
+        <span className="block text-[13px] leading-relaxed text-ink-2">{meta.join(' · ')}</span>
         {item.variant?.swatchId ? (
           <span className="block text-[12px] text-ink-2">
             Цвет — пожелание из концепта. Наличие этой ткани и цену уточните в магазине.
@@ -104,10 +104,15 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
           <span className="block text-[12px] text-ink-2">{item.catalogNotice}</span>
         ) : null}
         {sizeSource ? <span className="block text-[12px] text-ink-2">{sizeSource}</span> : null}
+        {item.dimensionsCm && !(item.dimensionsCm.width && item.dimensionsCm.depth) ? (
+          <span className="block text-[12px] leading-relaxed text-ink-2">
+            Для 2D-расстановки уточните ширину и глубину.
+          </span>
+        ) : null}
         {fit ? (
           <span
             className={cn(
-              'block truncate text-[12px]',
+              'block text-[12px] leading-relaxed',
               item.fit.state === 'tooWide' || item.fit.state === 'tooTall'
                 ? 'text-danger'
                 : 'text-ink-2',

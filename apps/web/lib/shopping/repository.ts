@@ -1,5 +1,5 @@
 import { checkFit, type DimensionsCm, type FitVerdict, itemTotalKopecks } from '@uyut/catalog'
-import { catalogFreshnessNotice } from '@uyut/catalog/freshness'
+import { sameShoppingVariant, shoppingOffer } from '@uyut/catalog/shopping-offer'
 import {
   type CatalogCategory,
   catalogItems,
@@ -117,6 +117,7 @@ export async function getShoppingList(
   const items = await Promise.all(
     rows.map(async ({ item, product, roomName, measurements }): Promise<ShoppingItemView> => {
       const sizeReading = effectiveSizeReading(item, product)
+      const offer = shoppingOffer(product, item.selectedVariant)
       return {
         id: item.id,
         catalogItemId: product.id,
@@ -125,21 +126,18 @@ export async function getShoppingList(
         source: product.source,
         category: product.category,
         priceKopecks: product.priceKopecks,
-        affiliateUrl: item.selectedVariant?.affiliateUrl ?? product.affiliateUrl,
+        affiliateUrl: offer.variant?.affiliateUrl ?? product.affiliateUrl,
         adDisclosure: product.attributes?.adDisclosure?.trim() || null,
-        imageUrl: await productImage(
-          item.selectedVariant?.imageUrl ?? orderedImages(product.images)[0],
-        ),
+        imageUrl: await productImage(offer.variant?.imageUrl ?? orderedImages(product.images)[0]),
         imageFallbackUrl: await productImage(orderedImages(product.images)[1]),
         inStock: product.inStock,
-        catalogNotice: catalogFreshnessNotice(product.lastSyncedAt),
+        catalogNotice: offer.catalogNotice,
         quantity: item.quantity,
         totalKopecks: itemTotalKopecks({
-          priceKopecks: product.priceKopecks,
+          priceKopecks: offer.priceKopecks,
           quantity: item.quantity,
-          variantPriceKopecks: item.selectedVariant?.priceKopecks ?? null,
         }),
-        variant: item.selectedVariant ?? null,
+        variant: offer.variant,
         roomId: item.roomId,
         roomName,
         conceptObjectId: item.conceptObjectId,
@@ -265,8 +263,12 @@ export async function addShoppingItem(
       .from(shoppingLists)
       .where(eq(shoppingLists.id, listId))
       .for('update')
-    const [existing] = await tx
-      .select({ id: shoppingListItems.id, quantity: shoppingListItems.quantity })
+    const candidates = await tx
+      .select({
+        id: shoppingListItems.id,
+        quantity: shoppingListItems.quantity,
+        variant: shoppingListItems.selectedVariant,
+      })
       .from(shoppingListItems)
       .where(
         and(
@@ -274,15 +276,15 @@ export async function addShoppingItem(
           eq(shoppingListItems.catalogItemId, product.id),
           sql`${shoppingListItems.conceptObjectId} is not distinct from ${conceptObjectId}::uuid`,
           sql`${shoppingListItems.roomId} is not distinct from ${roomId}::uuid`,
-          sql`${shoppingListItems.selectedVariant} is not distinct from ${selectedVariant ? JSON.stringify(selectedVariant) : null}::jsonb`,
         ),
       )
-      .limit(1)
+      .orderBy(asc(shoppingListItems.createdAt))
+    const existing = candidates.find((item) => sameShoppingVariant(item.variant, selectedVariant))
     if (existing) {
       const next = Math.min(MAX_QUANTITY, existing.quantity + quantity)
       await tx
         .update(shoppingListItems)
-        .set({ quantity: next })
+        .set({ quantity: next, selectedVariant })
         .where(eq(shoppingListItems.id, existing.id))
       return { itemId: existing.id, quantity: next }
     }

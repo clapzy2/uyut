@@ -69,10 +69,18 @@ export function formatPrice(kopecks: number): string {
   return `${rubles.format(Math.round(kopecks / 100))} ₽`
 }
 
-/** Габариты одной строкой: «120 × 45 × 101 см». Порядок как у магазина, без букв Ш·Г·В. */
+/** Полный след — «120 × 45 × 101 см»; неполные габариты называем по осям. */
 export function sizeLabel(dimensions: DimensionsCm | null | undefined): string | null {
   if (!dimensions) {
     return null
+  }
+  if (!(dimensions.width && dimensions.depth)) {
+    const labels = [
+      dimensions.width ? `ширина ${dimensions.width} см` : null,
+      dimensions.depth ? `глубина ${dimensions.depth} см` : null,
+      dimensions.height ? `высота ${dimensions.height} см` : null,
+    ].filter(Boolean)
+    return labels.length ? labels.join(', ') : null
   }
   const sides = [dimensions.width, dimensions.depth, dimensions.height].filter(
     (side): side is number => typeof side === 'number' && side > 0,
