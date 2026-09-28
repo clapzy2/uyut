@@ -7,6 +7,11 @@ import { preparePlanPage } from '../lib/projects/plan-document'
 import { pdfNativePageDimensionChain } from '../lib/projects/plan-pdf-dimension-chain'
 import type { PagePoint } from '../lib/projects/plan-pdf-linework'
 import { pdfBoundaryDistance, pdfPointInside } from '../lib/projects/plan-pdf-room-binding'
+import {
+  type MeasuredOpening,
+  type PerimeterProbe,
+  verifyPdfPerimeterProbes,
+} from './qa-pdf-perimeter'
 
 type Label = { index: number; text: string }
 type Axis = 'width' | 'depth'
@@ -39,6 +44,7 @@ type Source = {
   labels: Label[]
   chains?: Chain[]
   standaloneDimensions?: StandaloneDimension[]
+  perimeterProbes?: PerimeterProbe[]
 }
 
 const sourceDirectory = process.argv[2]
@@ -111,6 +117,7 @@ for (const source of sources) {
     }>
   }> = []
   const nativeIssues: string[] = []
+  const openingSpans: MeasuredOpening[] = []
   let wallAnchoredDimensions = 0
   let sampledOpeningGaps = 0
   const sourceRef = {
@@ -285,6 +292,13 @@ for (const source of sources) {
       dimensionLabel.opening,
       dimensionLabel.wallAnchors,
     )
+    if (dimensionLabel.opening) {
+      openingSpans.push({
+        labelIndex: dimensionLabel.label.index,
+        axis: dimensionLabel.axis,
+        ends: native.ends,
+      })
+    }
     nativeProofs.push({
       scale: millimetres / 10 / pointLength(...native.ends),
       segments: native.segments,
@@ -308,6 +322,13 @@ for (const source of sources) {
     throw new Error(`${source.file}: native dimension segments disagree on one page scale`)
   }
 
+  const perimeterGaps = verifyPdfPerimeterProbes(
+    source.file,
+    linework,
+    source.perimeterProbes ?? [],
+    openingSpans,
+  )
+
   results.push({
     file: source.file,
     page: source.existingPage,
@@ -318,6 +339,7 @@ for (const source of sources) {
     nativeDimensionIssues: nativeIssues,
     wallAnchoredDimensions,
     sampledOpeningGaps,
+    perimeterGaps,
     clippedPaths: linework.clippedPaths,
     skippedCurves: linework.skippedCurves,
   })
