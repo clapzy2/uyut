@@ -248,6 +248,13 @@ export type PlanPageRoomIdentity =
   | { roomSourceNumber: number; roomSourceNumbers?: never }
   | { roomSourceNumber?: never; roomSourceNumbers: number[] }
 
+/** A reviewed zone divider in an open-plan room; it is never a physical wall. */
+export type PlanPageConditionalEdge = {
+  wallEdgeIndex: number
+  /** One end must be a native node; the other may be an exact crossing. */
+  endpointProofs?: { start?: PlanPageEndpointProof; end?: PlanPageEndpointProof }
+}
+
 export type PlanPageContours = {
   source: { sha256: string; pdfPage: number; state: 'existing' | 'proposed' }
   coordinateSystem: 'page-0-1000'
@@ -258,6 +265,7 @@ export type PlanPageContours = {
   rooms: Array<
     PlanPageRoomIdentity & {
       polygon: Array<{ x: number; y: number }>
+      conditionalEdges?: PlanPageConditionalEdge[]
       /** Ручная разметка исходного листа, без автоматического перевода в сантиметры. */
       openings?: PlanPageOpening[]
       obstacles?: PlanPageObstacle[]

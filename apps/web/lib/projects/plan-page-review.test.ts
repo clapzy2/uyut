@@ -57,6 +57,79 @@ const linework: PdfLinework = {
 }
 
 describe('versioned source page review', () => {
+  it('accepts a reviewed open-zone divider only when its non-node endpoint has native crossing proof', () => {
+    const input: PlanPageContours = {
+      ...contours,
+      rooms: [
+        {
+          roomSourceNumber: 4,
+          polygon: [
+            { x: 10, y: 20 },
+            { x: 30, y: 20 },
+            { x: 30, y: 30 },
+            { x: 10, y: 30 },
+          ],
+          conditionalEdges: [
+            {
+              wallEdgeIndex: 0,
+              endpointProofs: {
+                start: {
+                  kind: 'native-edge-crossing',
+                  operationIndex: 1,
+                  subpathIndex: 0,
+                  segmentIndex: 0,
+                },
+              },
+            },
+          ],
+        },
+      ],
+    }
+    const work: PdfLinework = {
+      ...linework,
+      paths: [
+        {
+          ...at(linework.paths),
+          points: [
+            { x: 10, y: 10 },
+            { x: 10, y: 30 },
+            { x: 30, y: 30 },
+            { x: 30, y: 20 },
+          ],
+        },
+      ],
+    }
+    expect(planPageContoursSchema.safeParse(input).success).toBe(true)
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBeUndefined()
+    const withoutProof = structuredClone(input)
+    withoutProof.rooms[0]?.conditionalEdges?.splice(0, 1, { wallEdgeIndex: 0 })
+    expect(planPageReviewIssue(withoutProof, reading, input.source, work)).toBe(
+      'non-native-contour-vertex',
+    )
+    const shifted = structuredClone(input)
+    at(at(shifted.rooms).polygon).x = 11
+    expect(planPageReviewIssue(shifted, reading, input.source, work)).toBe(
+      'non-native-contour-vertex',
+    )
+    const unanchored = structuredClone(input)
+    at(at(unanchored.rooms).polygon).y = 21
+    at(at(unanchored.rooms).polygon, 1).y = 21
+    expect(planPageReviewIssue(unanchored, reading, input.source, work)).toBe(
+      'non-native-contour-vertex',
+    )
+  })
+
+  it('rejects conditional edges with duplicates or a door on the same edge', () => {
+    const input = featureContours()
+    const room = at(input.rooms)
+    room.conditionalEdges = [{ wallEdgeIndex: 0 }]
+    expect(planPageFeaturesIssue(input)).toBe('opening-on-conditional-edge')
+    room.conditionalEdges = [{ wallEdgeIndex: 2 }, { wallEdgeIndex: 2 }]
+    expect(planPageFeaturesIssue(input)).toBe('invalid-conditional-edge')
+    room.conditionalEdges = [{ wallEdgeIndex: 4 }]
+    expect(planPageFeaturesIssue(input)).toBe('invalid-conditional-edge')
+  })
+
   it('requires exactly one explication row for every member of a shared contour', () => {
     const input: PlanPageContours = {
       ...contours,

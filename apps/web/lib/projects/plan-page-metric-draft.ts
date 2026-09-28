@@ -298,7 +298,9 @@ export function planPageMetricDraft(
     }
     polygon.forEach((start, index) => {
       const end = polygon[(index + 1) % polygon.length]
-      if (end) geometry.walls.push({ id: id(number, 'wall', index), start, end, kind: 'inner' })
+      if (end && !contour.conditionalEdges?.some((edge) => edge.wallEdgeIndex === index)) {
+        geometry.walls.push({ id: id(number, 'wall', index), start, end, kind: 'inner' })
+      }
     })
     for (const opening of contour.openings ?? []) {
       const check = checks.find(
@@ -456,6 +458,11 @@ export function planPageMetricDraft(
         : []),
       'Сверьте все проёмы, неподвижные объекты, открывание дверей и высоты подоконников перед подтверждением. Неразмеченные элементы автоматически не добавляются.',
     ]
+  }
+  if (selected.some((room) => room.conditionalEdges?.length)) {
+    geometry.warnings.push(
+      'Условные границы открытых зон показывают разделение площадей, но не являются стенами. Сверьте их положение на исходном плане перед расстановкой.',
+    )
   }
   if (
     geometry.walls.length > 200 ||

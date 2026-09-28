@@ -318,6 +318,60 @@ describe('room feature drafts', () => {
     expect(pageContourRoomsForSave(contourDraftsFromSaved([minimal]), native)).toEqual([minimal])
   })
 
+  it('round-trips an explicitly conditional side without dropping its source proof', () => {
+    const marked = {
+      roomSourceNumber: room.roomSourceNumber,
+      polygon: room.polygon,
+      conditionalEdges: [{ wallEdgeIndex: 0 }],
+    }
+    const drafts = contourDraftsFromSaved([marked])
+    expect(pageContourRoomsForSave(drafts, native)).toEqual([marked])
+    expect(drafts[0]?.conditionalEdges).not.toBe(marked.conditionalEdges)
+  })
+
+  it('preserves a conditional crossing anchored by another native vertex', () => {
+    const crossing = {
+      roomSourceNumber: 4,
+      polygon: [
+        { x: 10, y: 20 },
+        { x: 30, y: 20 },
+        { x: 30, y: 30 },
+        { x: 10, y: 30 },
+      ],
+      conditionalEdges: [
+        {
+          wallEdgeIndex: 0,
+          endpointProofs: {
+            start: {
+              kind: 'native-edge-crossing' as const,
+              operationIndex: 1,
+              subpathIndex: 0,
+              segmentIndex: 0,
+            },
+          },
+        },
+      ],
+    }
+    const native = [
+      { x: 10, y: 10 },
+      { x: 10, y: 30 },
+      { x: 30, y: 20 },
+      { x: 30, y: 30 },
+    ]
+    const segments = [
+      {
+        operationIndex: 1,
+        subpathIndex: 0,
+        segmentIndex: 0,
+        start: { x: 10, y: 10 },
+        end: { x: 10, y: 30 },
+      },
+    ]
+    const drafts = contourDraftsFromSaved([crossing])
+    expect(pageContourRoomsForSave(drafts, native, segments)).toEqual([crossing])
+    expect(pageContourRoomsForSave(drafts, native)).toBeNull()
+  })
+
   it('round-trips a shared physical zone, preserving its features without scalar duplicates', () => {
     const shared: PlanPageContours['rooms'][number] = {
       roomSourceNumbers: [1, 5],

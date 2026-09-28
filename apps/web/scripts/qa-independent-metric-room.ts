@@ -14,6 +14,7 @@ type ReviewedRoom = {
   kind: PlanReading['rooms'][number]['kind']
   areaM2: number
   polygon: PlanPageContours['rooms'][number]['polygon']
+  conditionalEdges?: PlanPageContours['rooms'][number]['conditionalEdges']
   widthMm: number
   depthMm: number
   width: Chain
@@ -88,6 +89,7 @@ const contours = planPageContoursSchema.parse({
   rooms: rooms.map((room) => ({
     roomSourceNumber: room.sourceNumber,
     polygon: room.polygon,
+    ...(room.conditionalEdges ? { conditionalEdges: room.conditionalEdges } : {}),
   })),
 })
 const evidence = (
@@ -130,6 +132,12 @@ const geometryIssues = inspectPlanGeometry(result.geometry)
 if (geometryIssues.length > 0) throw new Error(`Geometry issues: ${JSON.stringify(geometryIssues)}`)
 if (result.geometry.rooms.length !== rooms.length)
   throw new Error('Not every room was transferred.')
+const expectedWalls = rooms.reduce(
+  (count, room) => count + room.polygon.length - (room.conditionalEdges?.length ?? 0),
+  0,
+)
+if (result.geometry.walls.length !== expectedWalls)
+  throw new Error('A conditional zone divider was transferred as a physical wall.')
 const areaM2 = (polygon: NonNullable<(typeof result.geometry.rooms)[number]['polygon']>) =>
   Math.abs(
     polygon.reduce((sum, point, index) => {

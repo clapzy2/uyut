@@ -1,7 +1,11 @@
 import type { PlanPageContours, PlanPageReview, PlanReading } from '@uyut/db'
 import { z } from 'zod'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
-import { nativePageSegments, sourceOpeningEndpoint } from './plan-pdf-opening-endpoint'
+import {
+  type NativePageSegment,
+  nativePageSegments,
+  sourceOpeningEndpoint,
+} from './plan-pdf-opening-endpoint'
 import {
   type PdfPlanSource,
   pdfBoundaryDistance,
@@ -40,9 +44,16 @@ const obstacleSchema = z.strictObject({
   kind: z.enum(['shaft', 'column', 'fixed']),
   polygon: z.array(pointSchema).min(3).max(100),
 })
+const conditionalEdgeSchema = z.strictObject({
+  wallEdgeIndex: z.number().int().min(0).max(99),
+  endpointProofs: z
+    .strictObject({ start: endpointProofSchema.optional(), end: endpointProofSchema.optional() })
+    .optional(),
+})
 const sourceNumberSchema = z.number().int().min(1).max(10_000)
 const contourFields = {
   polygon: z.array(pointSchema).min(3).max(100),
+  conditionalEdges: z.array(conditionalEdgeSchema).max(100).optional(),
   openings: z.array(openingSchema).max(32).optional(),
   obstacles: z.array(obstacleSchema).max(20).optional(),
 }
@@ -209,7 +220,10 @@ export function planPageFeaturesIssue(
   options: { checkRoomOverlap?: boolean } = {},
 ): string | undefined {
   const hasFeatures = input.rooms.some(
-    (room) => (room.openings?.length ?? 0) > 0 || (room.obstacles?.length ?? 0) > 0,
+    (room) =>
+      (room.openings?.length ?? 0) > 0 ||
+      (room.obstacles?.length ?? 0) > 0 ||
+      (room.conditionalEdges?.length ?? 0) > 0,
   )
   // Older polygon-only annotations keep their save contract. Metric conversion must also
   // check room intersections when there are no annotated openings or obstacles.
@@ -251,11 +265,22 @@ export function planPageFeaturesIssue(
       return 'overlapping-room-contours'
     const ids = new Set<string>()
     const intervals = new Map<number, Array<{ start: number; end: number }>>()
+    const conditionalIndexes = (room.conditionalEdges ?? []).map((edge) => edge.wallEdgeIndex)
+    if (
+      new Set(conditionalIndexes).size !== conditionalIndexes.length ||
+      conditionalIndexes.some((index) => {
+        const start = room.polygon[index]
+        const end = room.polygon[(index + 1) % room.polygon.length]
+        return !start || !end || (start.x !== end.x && start.y !== end.y)
+      })
+    )
+      return 'invalid-conditional-edge'
     for (const feature of [...(room.openings ?? []), ...(room.obstacles ?? [])]) {
       if (ids.has(feature.id)) return 'duplicate-page-feature-id'
       ids.add(feature.id)
     }
     for (const opening of room.openings ?? []) {
+      if (conditionalIndexes.includes(opening.wallEdgeIndex)) return 'opening-on-conditional-edge'
       const a = room.polygon[opening.wallEdgeIndex]
       const b = room.polygon[(opening.wallEdgeIndex + 1) % room.polygon.length]
       if (!a || !b) return 'unknown-opening-wall-edge'
@@ -316,6 +341,53 @@ export function pageReviewRoomsMatch(
   )
 }
 
+/** A conditional endpoint may lie at a proven crossing, never at a guessed page coordinate. */
+export function sourceRoomContourVertices(
+  room: Pick<PlanPageContours['rooms'][number], 'polygon' | 'conditionalEdges'>,
+  nativePoints: ReadonlySet<string>,
+  segments: readonly NativePageSegment[],
+): boolean {
+  for (const edge of room.conditionalEdges ?? []) {
+    const start = room.polygon[edge.wallEdgeIndex]
+    const end = room.polygon[(edge.wallEdgeIndex + 1) % room.polygon.length]
+    if (
+      !start ||
+      !end ||
+      (start.x !== end.x && start.y !== end.y) ||
+      (!nativePoints.has(`${start.x}:${start.y}`) && !nativePoints.has(`${end.x}:${end.y}`))
+    )
+      return false
+  }
+  return room.polygon.every((point, index) => {
+    if (nativePoints.has(`${point.x}:${point.y}`)) return true
+    const ownEdge = room.conditionalEdges?.find((edge) => edge.wallEdgeIndex === index)
+    const priorIndex = (index - 1 + room.polygon.length) % room.polygon.length
+    const priorEdge = room.conditionalEdges?.find((edge) => edge.wallEdgeIndex === priorIndex)
+    const ownEnd = room.polygon[(index + 1) % room.polygon.length]
+    const priorStart = room.polygon[priorIndex]
+    return Boolean(
+      (ownEdge &&
+        ownEnd &&
+        sourceOpeningEndpoint(
+          point,
+          ownEdge.endpointProofs?.start,
+          [point, ownEnd],
+          nativePoints,
+          segments,
+        )) ||
+        (priorEdge &&
+          priorStart &&
+          sourceOpeningEndpoint(
+            point,
+            priorEdge.endpointProofs?.end,
+            [priorStart, point],
+            nativePoints,
+            segments,
+          )),
+    )
+  })
+}
+
 export function planPageReviewIssue(
   input: PlanPageContours,
   reading: PlanReading,
@@ -336,15 +408,9 @@ export function planPageReviewIssue(
   for (const path of linework.paths) {
     for (const point of path.points) nativePoints.add(`${point.x}:${point.y}`)
   }
-  if (
-    input.rooms.some((room) =>
-      room.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`)),
-    ) ||
-    input.exterior?.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`))
-  )
-    return 'non-native-contour-vertex'
   const segments = nativePageSegments(linework)
   for (const room of input.rooms) {
+    if (!sourceRoomContourVertices(room, nativePoints, segments)) return 'non-native-contour-vertex'
     for (const opening of room.openings ?? []) {
       const a = room.polygon[opening.wallEdgeIndex]
       const b = room.polygon[(opening.wallEdgeIndex + 1) % room.polygon.length]
@@ -375,6 +441,8 @@ export function planPageReviewIssue(
     )
       return 'non-native-obstacle-vertex'
   }
+  if (input.exterior?.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`)))
+    return 'non-native-contour-vertex'
   return undefined
 }
 

@@ -16,6 +16,7 @@ export type PdfWallCoverageSpan = {
     | 'unpaired-exterior'
     | 'ambiguous'
     | 'unsupported-angle'
+    | 'conditional'
 }
 
 /** Diagnostics only: source-backed local pairs do not certify a complete physical wall model. */
@@ -29,9 +30,17 @@ export function classifyPlanPageWallSpans(
       key: pdfContourKey(room),
       polygon: room.polygon,
       openings: room.openings ?? [],
+      conditionalEdges: room.conditionalEdges ?? [],
     })),
     ...(contours.exterior
-      ? [{ key: 'exterior', polygon: contours.exterior.polygon, openings: [] }]
+      ? [
+          {
+            key: 'exterior',
+            polygon: contours.exterior.polygon,
+            openings: [],
+            conditionalEdges: [],
+          },
+        ]
       : []),
   ]
   const result: PdfWallCoverageSpan[] = []
@@ -39,6 +48,10 @@ export function classifyPlanPageWallSpans(
     for (const [wallEdgeIndex, start] of zone.polygon.entries()) {
       const end = zone.polygon[(wallEdgeIndex + 1) % zone.polygon.length]
       if (!end) continue
+      if (zone.conditionalEdges.some((edge) => edge.wallEdgeIndex === wallEdgeIndex)) {
+        result.push({ contourKey: zone.key, wallEdgeIndex, start, end, status: 'conditional' })
+        continue
+      }
       const slanted = start.x !== end.x && start.y !== end.y
       const along = Math.abs(end.x - start.x) >= Math.abs(end.y - start.y) ? 'x' : 'y'
       const across = along === 'x' ? 'y' : 'x'

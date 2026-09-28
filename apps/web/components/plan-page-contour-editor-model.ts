@@ -8,6 +8,7 @@ import type {
   PlanPageRoomIdentity,
   PlanRoomReading,
 } from '@uyut/db'
+import { sourceRoomContourVertices } from '@/lib/projects/plan-page-review'
 import {
   type NativePageSegment,
   nativeEdgeCrossing,
@@ -23,6 +24,7 @@ export type PageContourPoint = { x: number; y: number }
 export type PageContourDraft = PlanPageRoomIdentity & {
   polygon: PageContourPoint[]
   closed: boolean
+  conditionalEdges?: PlanPageContours['rooms'][number]['conditionalEdges']
   openings?: PageOpeningDraft[]
   obstacles?: PageObstacleDraft[]
 }
@@ -40,6 +42,7 @@ export function contourDraftsFromSaved(rooms: PlanPageContours['rooms']): PageCo
     ...pdfContourIdentity(room),
     polygon: room.polygon.map((point) => ({ ...point })),
     closed: true,
+    ...(room.conditionalEdges ? { conditionalEdges: structuredClone(room.conditionalEdges) } : {}),
     openings: room.openings?.map(({ start, end, ...opening }) => ({
       ...opening,
       points: [{ ...start }, { ...end }],
@@ -80,7 +83,14 @@ export function pageContourRoomsForSave(
     )
       return null
     for (const number of numbers) claimed.add(number)
-    if (!draft.closed || !valid(draft.polygon, 3)) return null
+    if (
+      !draft.closed ||
+      draft.polygon.length < 3 ||
+      draft.polygon.length > 100 ||
+      !draft.polygon.every(finiteContourPoint) ||
+      !sourceRoomContourVertices(draft, nativeSet, segments)
+    )
+      return null
     if ((draft.openings?.length ?? 0) > 32 || (draft.obstacles?.length ?? 0) > 20) return null
     const openings: PlanPageOpening[] = []
     for (const { points, ...opening } of draft.openings ?? []) {
@@ -93,6 +103,7 @@ export function pageContourRoomsForSave(
         !end ||
         !a ||
         !b ||
+        draft.conditionalEdges?.some((edge) => edge.wallEdgeIndex === opening.wallEdgeIndex) ||
         !sourceOpeningEndpoint(start, opening.endpointProofs?.start, [a, b], nativeSet, segments) ||
         !sourceOpeningEndpoint(end, opening.endpointProofs?.end, [a, b], nativeSet, segments)
       )
@@ -107,6 +118,9 @@ export function pageContourRoomsForSave(
     rooms.push({
       ...pdfContourIdentity(draft),
       polygon: draft.polygon.map((point) => ({ ...point })),
+      ...(draft.conditionalEdges?.length
+        ? { conditionalEdges: structuredClone(draft.conditionalEdges) }
+        : {}),
       ...(openings.length ? { openings } : {}),
       ...(obstacles.length ? { obstacles } : {}),
     })
@@ -165,6 +179,7 @@ export function groupPageContourDraft(
     polygon: before?.polygon.map((point) => ({ ...point })) ?? [],
     closed: before?.closed ?? false,
     ...(before?.openings ? { openings: before.openings } : {}),
+    ...(before?.conditionalEdges ? { conditionalEdges: before.conditionalEdges } : {}),
     ...(before?.obstacles ? { obstacles: before.obstacles } : {}),
   }
   return [...drafts.filter((draft) => pdfContourKey(draft) !== pdfContourKey(selected)), grouped]

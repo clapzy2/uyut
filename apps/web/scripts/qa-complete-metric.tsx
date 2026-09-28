@@ -110,9 +110,15 @@ const wallCoverage = classifyPlanPageWallSpans(
   pairPlanPageWallFaces(page.linework, source, contours),
 )
 const wallCoverageCounts = Object.fromEntries(
-  ['paired', 'opening', 'unmatched', 'unpaired-exterior', 'ambiguous', 'unsupported-angle'].map(
-    (status) => [status, wallCoverage.filter((span) => span.status === status).length],
-  ),
+  [
+    'paired',
+    'opening',
+    'conditional',
+    'unmatched',
+    'unpaired-exterior',
+    'ambiguous',
+    'unsupported-angle',
+  ].map((status) => [status, wallCoverage.filter((span) => span.status === status).length]),
 )
 const wallReviewQueue = wallCoverage
   .filter(

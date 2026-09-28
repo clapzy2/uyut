@@ -63,6 +63,17 @@ function sample() {
 }
 
 describe('diagnostic coverage of annotated PDF boundary spans', () => {
+  it('reports an open-zone boundary as conditional rather than an unmatched wall', () => {
+    const { contours, pair } = sample()
+    const room = contours.rooms[0]
+    if (!room) throw new Error('Sample room is missing.')
+    room.conditionalEdges = [{ wallEdgeIndex: 0 }]
+    const spans = classifyPlanPageWallSpans(contours, [pair]).filter(
+      (span) => span.contourKey === '1' && span.wallEdgeIndex === 0,
+    )
+    expect(spans).toEqual([expect.objectContaining({ status: 'conditional' })])
+  })
+
   it('distinguishes gaps, declared openings and local pairs without filling missing segments', () => {
     const { contours, pair } = sample()
     const before = structuredClone(contours)

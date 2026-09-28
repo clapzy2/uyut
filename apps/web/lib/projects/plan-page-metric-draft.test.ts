@@ -199,6 +199,24 @@ function realSheet() {
 }
 
 describe('native PDF page to metric draft', () => {
+  it('keeps an open-zone divider in the room polygon without creating a physical wall', () => {
+    const { reading, context } = synthetic()
+    const room = context.contours.rooms[0]
+    if (!room) throw new Error('Synthetic room is missing.')
+    room.conditionalEdges = [{ wallEdgeIndex: 0 }]
+    const result = planPageMetricDraft(reading, context, [4])
+    expect(result.ok, result.ok ? '' : result.error).toBe(true)
+    if (!result.ok) return
+    expect(result.geometry.rooms[0]?.polygon).toHaveLength(4)
+    expect(result.geometry.walls).toHaveLength(3)
+    expect(result.geometry.walls.some((wall) => wall.start.yCm === 0 && wall.end.yCm === 0)).toBe(
+      false,
+    )
+    expect(result.geometry.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('Условные границы открытых зон')]),
+    )
+  })
+
   it('uses two perpendicular native chains and preserves door position in a draft', () => {
     const { reading, context } = synthetic()
     const before = structuredClone({ reading, context })

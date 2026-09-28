@@ -99,7 +99,9 @@ export function PlanPageContourEditor({
       !drafts.some((draft) => pdfContourRoomNumbers(draft).includes(room.sourceNumber as number)),
   )
   const roomHasFeatures = Boolean(
-    selectedDraft?.openings?.length || selectedDraft?.obstacles?.length,
+    selectedDraft?.openings?.length ||
+      selectedDraft?.obstacles?.length ||
+      selectedDraft?.conditionalEdges?.length,
   )
   const pointsLocked = locked || (target.kind === 'room' && roomHasFeatures)
   const selectedOpening =
@@ -243,6 +245,9 @@ export function PlanPageContourEditor({
                   polygon,
                   closed,
                   ...(before?.openings ? { openings: before.openings } : {}),
+                  ...(before?.conditionalEdges
+                    ? { conditionalEdges: before.conditionalEdges }
+                    : {}),
                   ...(before?.obstacles ? { obstacles: before.obstacles } : {}),
                 },
               ]
@@ -343,6 +348,25 @@ export function PlanPageContourEditor({
             }
           : draft,
       ),
+    )
+    resetReview()
+  }
+
+  function toggleConditionalEdge(wallEdgeIndex: number) {
+    if (locked || !selectedDraft?.closed || target.kind !== 'room') return
+    if (selectedDraft.openings?.some((opening) => opening.wallEdgeIndex === wallEdgeIndex)) return
+    setDrafts((current) =>
+      current.map((draft) => {
+        if (pdfContourKey(draft) !== selected) return draft
+        const existing = draft.conditionalEdges ?? []
+        const marked = existing.some((edge) => edge.wallEdgeIndex === wallEdgeIndex)
+        return {
+          ...draft,
+          conditionalEdges: marked
+            ? existing.filter((edge) => edge.wallEdgeIndex !== wallEdgeIndex)
+            : [...existing, { wallEdgeIndex }],
+        }
+      }),
     )
     resetReview()
   }
@@ -561,6 +585,39 @@ export function PlanPageContourEditor({
           зоны, без добавления перегородки.
         </p>
       ) : null}
+      {selectedDraft?.closed && target.kind === 'room' ? (
+        <div className="space-y-2 border-l-2 border-accent pl-3 text-sm">
+          <p className="font-medium text-ink">Открытая зона без перегородки</p>
+          <p className="text-xs leading-relaxed text-ink-2">
+            Если сторона делит помещения только условно, отметьте её. Она останется границей
+            площади, но не станет стеной в 2D-схеме и 3D. Концы должны быть привязаны к исходному
+            PDF.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {selectedDraft.polygon.map((_, index) => {
+              const marked = selectedDraft.conditionalEdges?.some(
+                (edge) => edge.wallEdgeIndex === index,
+              )
+              const occupied = selectedDraft.openings?.some(
+                (opening) => opening.wallEdgeIndex === index,
+              )
+              return (
+                <Button
+                  key={index}
+                  size="sm"
+                  variant={marked ? 'secondary' : 'ghost'}
+                  disabled={locked || occupied}
+                  onClick={() => toggleConditionalEdge(index)}
+                  aria-pressed={Boolean(marked)}
+                  title={occupied ? 'На этой стороне уже размечен проём' : undefined}
+                >
+                  Сторона {index + 1}: {marked ? 'условная' : 'стена'}
+                </Button>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
       {selected ? (
         <PlanPageFeatures
           key={`features-${selected}-${target.kind}-${target.kind === 'room' ? '' : target.id}`}
@@ -667,6 +724,25 @@ export function PlanPageContourEditor({
                           vectorEffect="non-scaling-stroke"
                         />
                       ) : null}
+                      {valid && draft.closed
+                        ? draft.conditionalEdges?.map(({ wallEdgeIndex }) => {
+                            const start = draft.polygon[wallEdgeIndex]
+                            const end = draft.polygon[(wallEdgeIndex + 1) % draft.polygon.length]
+                            return start && end ? (
+                              <line
+                                key={wallEdgeIndex}
+                                x1={start.x}
+                                y1={start.y}
+                                x2={end.x}
+                                y2={end.y}
+                                stroke="white"
+                                strokeWidth={3}
+                                strokeDasharray="6 5"
+                                vectorEffect="non-scaling-stroke"
+                              />
+                            ) : null
+                          })
+                        : null}
                       {valid && !draft.closed ? (
                         <polyline
                           points={coordinates}

@@ -1,5 +1,9 @@
 import type { PlanPageContours, PlanPageSegmentRef } from '@uyut/db'
-import { planPageContoursSchema, planPageFeaturesIssue } from './plan-page-review'
+import {
+  planPageContoursSchema,
+  planPageFeaturesIssue,
+  sourceRoomContourVertices,
+} from './plan-page-review'
 import type { PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import { nativePageSegments, sourceOpeningEndpoint } from './plan-pdf-opening-endpoint'
 import {
@@ -50,13 +54,26 @@ function facesFromContours(contours: PlanPageContours): Face[] {
   const zones = [
     ...contours.rooms.map((room) => ({ key: pdfContourKey(room), ...room, exterior: false })),
     ...(contours.exterior
-      ? [{ key: 'exterior', ...contours.exterior, exterior: true, openings: [] }]
+      ? [
+          {
+            key: 'exterior',
+            ...contours.exterior,
+            exterior: true,
+            openings: [],
+            conditionalEdges: [],
+          },
+        ]
       : []),
   ]
   return zones.flatMap((zone) =>
     zone.polygon.flatMap((start, wallEdgeIndex) => {
       const end = zone.polygon[(wallEdgeIndex + 1) % zone.polygon.length]
-      if (!end || (start.x !== end.x && start.y !== end.y)) return []
+      if (
+        !end ||
+        zone.conditionalEdges?.some((edge) => edge.wallEdgeIndex === wallEdgeIndex) ||
+        (start.x !== end.x && start.y !== end.y)
+      )
+        return []
       const along = start.y === end.y ? 'x' : 'y'
       const across = along === 'x' ? 'y' : 'x'
       const low = Math.min(start[along], end[along])
@@ -282,7 +299,8 @@ function pairSlantedFaces(
         !end ||
         start.x === end.x ||
         start.y === end.y ||
-        room.openings?.some((opening) => opening.wallEdgeIndex === wallEdgeIndex)
+        room.openings?.some((opening) => opening.wallEdgeIndex === wallEdgeIndex) ||
+        room.conditionalEdges?.some((edge) => edge.wallEdgeIndex === wallEdgeIndex)
       )
         return []
       return [{ contourKey: pdfContourKey(room), wallEdgeIndex, start, end }]
@@ -372,7 +390,7 @@ export function pairPlanPageWallFaces(
   const native = new Set(work.paths.flatMap((path) => path.points.map((p) => `${p.x}:${p.y}`)))
   const segments = nativePageSegments(work)
   for (const room of contours.rooms) {
-    if (room.polygon.some((p) => !native.has(`${p.x}:${p.y}`))) return []
+    if (!sourceRoomContourVertices(room, native, segments)) return []
     for (const opening of room.openings ?? []) {
       const a = room.polygon[opening.wallEdgeIndex]
       const b = room.polygon[(opening.wallEdgeIndex + 1) % room.polygon.length]

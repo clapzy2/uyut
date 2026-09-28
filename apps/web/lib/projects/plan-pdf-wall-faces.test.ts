@@ -293,6 +293,14 @@ describe('exact native PDF wall-face intervals', () => {
     expect(pairs[0]).not.toHaveProperty('thicknessCm')
   })
 
+  it('never treats a reviewed conditional divider as a native wall face', () => {
+    const input = syntheticSheet()
+    const left = input.contours.rooms[0]
+    if (!left) throw new Error('Missing synthetic room')
+    left.conditionalEdges = [{ wallEdgeIndex: 1 }]
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+  })
+
   it('subtracts declared openings from both face intervals', () => {
     const input = syntheticSheet()
     input.contours.rooms = input.contours.rooms.slice(0, 2)
