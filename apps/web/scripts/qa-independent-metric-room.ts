@@ -1,4 +1,4 @@
-/** Local-only source check for one manually reviewed room; no AI or database calls. */
+/** Local-only source check for manually reviewed rooms; no AI or database calls. */
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import type { PlanPageContours, PlanReading } from '@uyut/db'
@@ -8,19 +8,21 @@ import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema } from '../lib/projects/plan-page-review'
 
 type Chain = { textItemIndexes: number[]; segmentsMm: number[] }
+type ReviewedRoom = {
+  sourceNumber: number
+  name: string
+  kind: PlanReading['rooms'][number]['kind']
+  areaM2: number
+  polygon: PlanPageContours['rooms'][number]['polygon']
+  widthMm: number
+  depthMm: number
+  width: Chain
+  depth: Chain
+}
 type Fixture = {
   source: { sha256: string; pdfPage: number; state: 'existing' }
-  room: {
-    sourceNumber: number
-    name: string
-    kind: PlanReading['rooms'][number]['kind']
-    areaM2: number
-    polygon: PlanPageContours['rooms'][number]['polygon']
-    widthMm: number
-    depthMm: number
-    width: Chain
-    depth: Chain
-  }
+  room?: ReviewedRoom
+  rooms?: ReviewedRoom[]
 }
 
 const [pdfPath, fixturePath] = process.argv.slice(2)
@@ -28,6 +30,15 @@ if (!pdfPath || !fixturePath) {
   throw new Error('Usage: bun run scripts/qa-independent-metric-room.ts <PDF> <fixture.json>')
 }
 const fixture = JSON.parse(await readFile(fixturePath, 'utf8')) as Fixture
+const rooms = fixture.rooms ?? (fixture.room ? [fixture.room] : [])
+if (
+  rooms.length < 1 ||
+  rooms.length > 12 ||
+  new Set(rooms.map((room) => room.sourceNumber)).size !== rooms.length ||
+  rooms.some((room) => !['living', 'bedroom', 'kitchen', 'bath', 'kid'].includes(room.kind))
+) {
+  throw new Error('Fixture needs distinct numbered rooms with supported room kinds.')
+}
 const body = await readFile(pdfPath)
 const sha256 = createHash('sha256').update(body).digest('hex')
 if (fixture.source.state !== 'existing' || sha256 !== fixture.source.sha256) {
@@ -36,16 +47,23 @@ if (fixture.source.state !== 'existing' || sha256 !== fixture.source.sha256) {
 const page = await preparePlanPage(body, true, fixture.source.pdfPage, true)
 if (!page.linework || !page.image.planText) throw new Error('Native geometry or text is missing.')
 
-const { room, source } = fixture
+const { source } = fixture
 const contours = planPageContoursSchema.parse({
   source,
   coordinateSystem: 'page-0-1000',
   review: 'manual-source-review',
   pageWidth: page.linework.pageWidth,
   pageHeight: page.linework.pageHeight,
-  rooms: [{ roomSourceNumber: room.sourceNumber, polygon: room.polygon }],
+  rooms: rooms.map((room) => ({
+    roomSourceNumber: room.sourceNumber,
+    polygon: room.polygon,
+  })),
 })
-const evidence = (kind: 'horizontal-chain' | 'vertical-chain', chain: Chain) => ({
+const evidence = (
+  kind: 'horizontal-chain' | 'vertical-chain',
+  room: ReviewedRoom,
+  chain: Chain,
+) => ({
   kind,
   scope: 'room' as const,
   sourceNumber: room.sourceNumber,
@@ -56,40 +74,60 @@ const reading: PlanReading = {
   readAt: new Date().toISOString(),
   sourcePage: source.pdfPage,
   planState: 'existing',
-  rooms: [
-    {
-      sourceNumber: room.sourceNumber,
-      name: room.name,
-      kind: room.kind,
-      areaM2: room.areaM2,
-      widthCm: room.widthMm / 10,
-      depthCm: room.depthMm / 10,
-      measurementEvidence: {
-        width: evidence('horizontal-chain', room.width),
-        depth: evidence('vertical-chain', room.depth),
-      },
+  rooms: rooms.map((room) => ({
+    sourceNumber: room.sourceNumber,
+    name: room.name,
+    kind: room.kind,
+    areaM2: room.areaM2,
+    widthCm: room.widthMm / 10,
+    depthCm: room.depthMm / 10,
+    measurementEvidence: {
+      width: evidence('horizontal-chain', room, room.width),
+      depth: evidence('vertical-chain', room, room.depth),
     },
-  ],
+  })),
 }
 const result = planPageMetricDraft(
   reading,
   { source, contours, linework: page.linework, planText: page.image.planText },
-  [room.sourceNumber],
+  rooms.map((room) => room.sourceNumber),
 )
 if (!result.ok) throw new Error(result.error)
 const geometryIssues = inspectPlanGeometry(result.geometry)
 if (geometryIssues.length > 0) throw new Error(`Geometry issues: ${JSON.stringify(geometryIssues)}`)
-const polygon = result.geometry.rooms[0]?.polygon
-if (!polygon) throw new Error('No room was transferred.')
+if (result.geometry.rooms.length !== rooms.length)
+  throw new Error('Not every room was transferred.')
+const areaM2 = (polygon: NonNullable<(typeof result.geometry.rooms)[number]['polygon']>) =>
+  Math.abs(
+    polygon.reduce((sum, point, index) => {
+      const next = polygon[(index + 1) % polygon.length]
+      return next ? sum + point.xCm * next.yCm - next.xCm * point.yCm : sum
+    }, 0),
+  ) / 20_000
+const verifiedRooms = result.geometry.rooms.map((geometryRoom) => {
+  const reviewedRoom = rooms.find((room) => room.sourceNumber === geometryRoom.sourceNumber)
+  const polygon = geometryRoom.polygon
+  if (!reviewedRoom || !polygon) throw new Error('A reviewed room has no transferred contour.')
+  const calculatedAreaM2 = areaM2(polygon)
+  const differenceM2 = Math.abs(calculatedAreaM2 - reviewedRoom.areaM2)
+  if (differenceM2 > Math.max(0.1, reviewedRoom.areaM2 * 0.02)) {
+    throw new Error(`Room ${reviewedRoom.sourceNumber}: contour and signed area disagree.`)
+  }
+  return {
+    sourceNumber: reviewedRoom.sourceNumber,
+    printedWidthMm: reviewedRoom.widthMm,
+    printedDepthMm: reviewedRoom.depthMm,
+    signedAreaM2: reviewedRoom.areaM2,
+    calculatedAreaM2: Math.round(calculatedAreaM2 * 100) / 100,
+    polygon,
+  }
+})
 
 console.log(
   JSON.stringify({
     sourcePage: source.pdfPage,
     sourceSha256: sha256,
-    roomSourceNumber: room.sourceNumber,
-    printedWidthMm: room.widthMm,
-    printedDepthMm: room.depthMm,
-    polygon,
+    rooms: verifiedRooms,
     geometryIssues: geometryIssues.length,
     paidCalls: 0,
   }),

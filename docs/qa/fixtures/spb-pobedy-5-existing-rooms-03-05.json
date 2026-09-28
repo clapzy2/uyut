@@ -1,0 +1,53 @@
+{
+  "source": {
+    "sha256": "180ac586af50432ecbd9c166251a8de7d008a6f1f98f72b946d9ce2cfe7ee4e9",
+    "pdfPage": 2,
+    "state": "existing"
+  },
+  "rooms": [
+    {
+      "sourceNumber": 3,
+      "name": "Санузел №03",
+      "kind": "bath",
+      "areaM2": 4.65,
+      "polygon": [
+        { "x": 430.573, "y": 321.096 },
+        { "x": 591.57, "y": 321.096 },
+        { "x": 591.57, "y": 413.684 },
+        { "x": 430.573, "y": 413.684 }
+      ],
+      "widthMm": 2392,
+      "depthMm": 1945,
+      "width": {
+        "textItemIndexes": [44],
+        "segmentsMm": [2392]
+      },
+      "depth": {
+        "textItemIndexes": [19],
+        "segmentsMm": [1945]
+      }
+    },
+    {
+      "sourceNumber": 5,
+      "name": "Спальня №05",
+      "kind": "bedroom",
+      "areaM2": 16.54,
+      "polygon": [
+        { "x": 342.92, "y": 99.921 },
+        { "x": 591.57, "y": 99.921 },
+        { "x": 591.57, "y": 313.006 },
+        { "x": 342.92, "y": 313.006 }
+      ],
+      "widthMm": 3694,
+      "depthMm": 4477,
+      "width": {
+        "textItemIndexes": [26, 27, 28],
+        "segmentsMm": [1194, 1900, 600]
+      },
+      "depth": {
+        "textItemIndexes": [20],
+        "segmentsMm": [4477]
+      }
+    }
+  ]
+}
