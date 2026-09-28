@@ -16,8 +16,57 @@ export type MeasuredOpening = {
   labelIndex: number
   axis: Axis
   ends: [PagePoint, PagePoint]
+  /** Reviewed transverse coordinates of the two existing wall faces at the gap. */
+  wallFaceAcross?: [number, number]
+}
+export type InteriorSpan = {
+  axis: Axis
+  ends: [PagePoint, PagePoint]
+  freeProbeAcross: number
+  blockedProbeAcross: number
+  blockerWallFillOperation: number
 }
 type Gap = { from: number; to: number }
+
+/** A printed clear span does not prove a through-route when a wall closes its side. */
+export function verifyPdfBlockedInteriorSpan(
+  sourceFile: string,
+  work: PdfLinework,
+  span: InteriorSpan,
+): void {
+  const along = span.axis === 'width' ? 'x' : 'y'
+  const across = span.axis === 'width' ? 'y' : 'x'
+  const from = Math.min(span.ends[0][along], span.ends[1][along])
+  const to = Math.max(span.ends[0][along], span.ends[1][along])
+  const blockers = work.paths.filter(
+    (path) => path.operationIndex === span.blockerWallFillOperation,
+  )
+  const blocker = blockers[0]
+  if (
+    blockers.length !== 1 ||
+    blocker?.paint !== 'fill' ||
+    !blocker.closed ||
+    !Number.isFinite(span.freeProbeAcross) ||
+    !Number.isFinite(span.blockedProbeAcross) ||
+    span.freeProbeAcross === span.blockedProbeAcross ||
+    to <= from
+  ) {
+    throw new Error(`${sourceFile}: invalid reviewed interior span`)
+  }
+  for (const fraction of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+    const position = from + (to - from) * fraction
+    const free = { [along]: position, [across]: span.freeProbeAcross } as PagePoint
+    const blocked = { [along]: position, [across]: span.blockedProbeAcross } as PagePoint
+    if (
+      work.paths.some(
+        (path) => path.paint === 'fill' && path.closed && pdfPointInside(free, path.points),
+      ) ||
+      !pdfPointInside(blocked, blocker.points)
+    ) {
+      throw new Error(`${sourceFile}: reviewed interior span is not clear beside a continuous wall`)
+    }
+  }
+}
 
 /** Source-reviewed wall bodies only; one section per side is not full-contour certification. */
 export function verifyPdfPerimeterProbes(

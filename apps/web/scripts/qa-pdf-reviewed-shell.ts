@@ -68,8 +68,18 @@ export function verifyReviewedPdfShell(
     const pageSize = opening.axis === 'width' ? work.pageWidth : work.pageHeight
     const expected = opening.ends.map((point) => point[along]).sort((a, b) => a - b)
     const actual = [start[along], end[along]].sort((a, b) => a - b)
+    // Dimension lines can be offset from the wall. A closure must still sit on
+    // one of the reviewed wall-face levels, including a stepped wall face.
+    const faceLevels = opening.wallFaceAcross
     if (
       start[across] !== end[across] ||
+      !faceLevels?.some(
+        (level) =>
+          (Math.abs(start[across] - level) *
+            (opening.axis === 'width' ? work.pageHeight : work.pageWidth)) /
+            1000 <=
+          0.12,
+      ) ||
       actual.some(
         (value, position) =>
           expected[position] === undefined ||

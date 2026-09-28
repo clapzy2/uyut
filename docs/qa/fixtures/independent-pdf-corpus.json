@@ -291,6 +291,19 @@
       },
       {
         "axis": "depth",
+        "label": { "index": 43, "text": "950" },
+        "wallAnchors": [
+          { "operationIndex": 1629, "point": { "x": 377.801, "y": 337.415 } },
+          { "operationIndex": 1567, "point": { "x": 377.801, "y": 401.398 } }
+        ],
+        "blockedInteriorSpan": {
+          "freeProbeAcross": 377.801,
+          "blockedProbeAcross": 395,
+          "blockerWallFillOperation": 3078
+        }
+      },
+      {
+        "axis": "depth",
         "label": { "index": 81, "text": "5 345" },
         "wallAnchors": [
           { "operationIndex": 2481, "point": { "x": 524.242, "y": 337.415 } },

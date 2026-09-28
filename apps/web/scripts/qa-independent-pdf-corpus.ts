@@ -11,6 +11,7 @@ import { assessPdfAreaEnvelope } from './qa-pdf-area-envelope'
 import {
   type MeasuredOpening,
   type PerimeterProbe,
+  verifyPdfBlockedInteriorSpan,
   verifyPdfPerimeterProbes,
 } from './qa-pdf-perimeter'
 import { type ReviewedShell, verifyReviewedPdfShell } from './qa-pdf-reviewed-shell'
@@ -36,6 +37,11 @@ type StandaloneDimension = {
     ignoredAnnotationFills?: number[]
     /** The source has filled glazing; inspect only separately reviewed wall bodies. */
     reviewedWallBodiesOnly?: true
+  }
+  blockedInteriorSpan?: {
+    freeProbeAcross: number
+    blockedProbeAcross: number
+    blockerWallFillOperation: number
   }
 }
 type Source = {
@@ -133,6 +139,7 @@ for (const source of sources) {
   let wallAnchoredDimensions = 0
   let sampledOpeningGaps = 0
   let reviewedWallOnlyGaps = 0
+  let blockedInteriorSpans = 0
   const sourceRef = {
     sha256: source.sha256,
     pdfPage: source.existingPage,
@@ -319,11 +326,26 @@ for (const source of sources) {
       dimensionLabel.opening,
       dimensionLabel.wallAnchors,
     )
+    if (dimensionLabel.blockedInteriorSpan) {
+      if (!dimensionLabel.wallAnchors || dimensionLabel.opening) {
+        throw new Error(`${source.file}: interior span needs wall anchors and is not an opening`)
+      }
+      verifyPdfBlockedInteriorSpan(source.file, linework, {
+        axis: dimensionLabel.axis,
+        ends: native.ends,
+        ...dimensionLabel.blockedInteriorSpan,
+      })
+      blockedInteriorSpans++
+    }
     if (dimensionLabel.opening) {
+      const across = dimensionLabel.axis === 'width' ? 'y' : 'x'
+      const anchors = dimensionLabel.wallAnchors
+      if (!anchors) throw new Error(`${source.file}: missing reviewed opening wall faces`)
       openingSpans.push({
         labelIndex: dimensionLabel.label.index,
         axis: dimensionLabel.axis,
         ends: native.ends,
+        wallFaceAcross: [anchors[0].point[across], anchors[1].point[across]],
       })
     }
     nativeProofs.push({
@@ -422,6 +444,7 @@ for (const source of sources) {
     wallAnchoredDimensions,
     sampledOpeningGaps,
     reviewedWallOnlyGaps,
+    blockedInteriorSpans,
     perimeterGaps,
     areaEnvelope,
     reviewedShell,

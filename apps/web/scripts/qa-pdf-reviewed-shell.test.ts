@@ -77,6 +77,7 @@ const openings = [
       { x: 40, y: -10 },
       { x: 60, y: -10 },
     ] as [{ x: number; y: number }, { x: number; y: number }],
+    wallFaceAcross: [0, 0] as [number, number],
   },
 ]
 
@@ -124,12 +125,24 @@ describe('source-reviewed open-shell draft', () => {
               { x: 41, y: -10 },
               { x: 60, y: -10 },
             ],
+            wallFaceAcross: [0, 0],
           },
         ],
         scale,
         1,
       ),
     ).toThrow('closure disagrees')
+  })
+
+  it('rejects a parallel closure shifted off the reviewed wall face', () => {
+    const shiftedFace = openings.map((opening) => ({
+      ...opening,
+      wallFaceAcross: [1, 1] as [number, number],
+    }))
+    const scale = { widthCmPerPt: 1, depthCmPerPt: 1 }
+    expect(() => verifyReviewedPdfShell('sample.pdf', work, shell, shiftedFace, scale, 1)).toThrow(
+      'closure disagrees',
+    )
   })
 
   it('reports an area conflict without upgrading the draft', () => {

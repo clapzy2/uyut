@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { PdfLinework } from '../lib/projects/plan-pdf-linework'
 import {
+  type InteriorSpan,
   type MeasuredOpening,
   type PerimeterProbe,
+  verifyPdfBlockedInteriorSpan,
   verifyPdfPerimeterProbes,
 } from './qa-pdf-perimeter'
 
@@ -124,5 +126,81 @@ describe('source-reviewed perimeter probes', () => {
         ],
       ),
     ).toEqual({ right: [{ from: 40, to: 60 }] })
+  })
+})
+
+describe('source-reviewed interior clearance', () => {
+  const interiorWork: PdfLinework = {
+    ...work,
+    paths: [
+      {
+        ...wall(1, 0, 100),
+        points: [
+          { x: 0, y: 0 },
+          { x: 100, y: 0 },
+          { x: 100, y: 40 },
+          { x: 0, y: 40 },
+        ],
+      },
+      {
+        ...wall(2, 0, 100),
+        points: [
+          { x: 0, y: 60 },
+          { x: 100, y: 60 },
+          { x: 100, y: 100 },
+          { x: 0, y: 100 },
+        ],
+      },
+      {
+        ...wall(3, 50, 60),
+        points: [
+          { x: 50, y: 40 },
+          { x: 60, y: 40 },
+          { x: 60, y: 60 },
+          { x: 50, y: 60 },
+        ],
+      },
+    ],
+  }
+  const span: InteriorSpan = {
+    axis: 'depth',
+    ends: [
+      { x: 25, y: 40 },
+      { x: 25, y: 60 },
+    ],
+    freeProbeAcross: 25,
+    blockedProbeAcross: 55,
+    blockerWallFillOperation: 3,
+  }
+
+  it('does not turn a clear printed width into a through-route past a wall', () => {
+    expect(() => verifyPdfBlockedInteriorSpan('sample.pdf', interiorWork, span)).not.toThrow()
+    expect(() =>
+      verifyPdfBlockedInteriorSpan('sample.pdf', interiorWork, {
+        ...span,
+        blockedProbeAcross: 75,
+      }),
+    ).toThrow('not clear beside a continuous wall')
+  })
+
+  it('rejects a hidden obstruction on the free side', () => {
+    const obstructed: PdfLinework = {
+      ...interiorWork,
+      paths: [
+        ...interiorWork.paths,
+        {
+          ...wall(4, 20, 30),
+          points: [
+            { x: 20, y: 45 },
+            { x: 30, y: 45 },
+            { x: 30, y: 55 },
+            { x: 20, y: 55 },
+          ],
+        },
+      ],
+    }
+    expect(() => verifyPdfBlockedInteriorSpan('sample.pdf', obstructed, span)).toThrow(
+      'not clear beside a continuous wall',
+    )
   })
 })
