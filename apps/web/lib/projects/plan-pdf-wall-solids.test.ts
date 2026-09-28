@@ -61,6 +61,32 @@ function fixture(gap = 0) {
   return { work, contours }
 }
 describe('native wall solid candidates and exact joints', () => {
+  it('excludes wall bodies crossing a reviewed technical void and keeps their source', () => {
+    const input = fixture()
+    const voidPolygon = rect(205, 150, 215, 180)
+    input.contours.voids = [{ id: 'shaft', polygon: voidPolygon }]
+    input.work.paths.push({
+      operationIndex: 70,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: true,
+      points: voidPolygon,
+    })
+    const result = inspectPlanPageWallSolids(input.work, source, input.contours)
+    expect(result.solids.find((solid) => solid.source.operationIndex === 1)).toMatchObject({
+      status: 'conflict',
+      reasons: ['void'],
+      conflicts: { voidIds: ['shaft'] },
+    })
+    expect(result.solids.find((solid) => solid.source.operationIndex === 2)?.status).toBe(
+      'candidate',
+    )
+    expect(result.junctions).toEqual([])
+    expect(result.components).toEqual([[{ operationIndex: 2, subpathIndex: 0 }]])
+    input.work.paths.pop()
+    expect(inspectPlanPageWallSolids(input.work, source, input.contours).solids).toEqual([])
+  })
+
   it('reports the exact source edges escaping the exterior without changing them', () => {
     const input = fixture()
     const body = input.work.paths[0]

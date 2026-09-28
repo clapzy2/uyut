@@ -451,6 +451,12 @@ export function validPlanPageWallSource(
     }
   }
   if (contours.exterior?.polygon.some((p) => !native.has(`${p.x}:${p.y}`))) return false
+  if (
+    contours.voids?.some((voidArea) =>
+      voidArea.polygon.some((point) => !native.has(`${point.x}:${point.y}`)),
+    )
+  )
+    return false
   return true
 }
 

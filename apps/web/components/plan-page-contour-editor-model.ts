@@ -32,6 +32,7 @@ export type PageOpeningDraft = Omit<PlanPageOpening, 'start' | 'end'> & {
   points: PageContourPoint[]
 }
 export type PageObstacleDraft = PlanPageObstacle & { closed: boolean }
+export type PageVoidDraft = NonNullable<PlanPageContours['voids']>[number] & { closed: boolean }
 export type PageContourTarget =
   | { kind: 'room' }
   | { kind: 'opening'; id: string }
@@ -53,6 +54,43 @@ export function contourDraftsFromSaved(rooms: PlanPageContours['rooms']): PageCo
       closed: true,
     })),
   }))
+}
+
+export function voidDraftsFromSaved(voids: PlanPageContours['voids'] = []): PageVoidDraft[] {
+  return voids.map((voidArea) => ({
+    id: voidArea.id,
+    polygon: voidArea.polygon.map((point) => ({ ...point })),
+    closed: true,
+  }))
+}
+
+/** A started void must be closed and bound to original PDF vertices before saving. */
+export function pageContourVoidsForSave(
+  drafts: PageVoidDraft[],
+  nativePoints: PageContourPoint[],
+): NonNullable<PlanPageContours['voids']> | null {
+  if (drafts.length > 20) return null
+  const nativeSet = new Set(nativePoints.map((point) => `${point.x}:${point.y}`))
+  const ids = new Set<string>()
+  const voids: NonNullable<PlanPageContours['voids']> = []
+  for (const draft of drafts) {
+    if (
+      !draft.id ||
+      draft.id.length > 80 ||
+      /\s/.test(draft.id) ||
+      ids.has(draft.id) ||
+      !draft.closed ||
+      draft.polygon.length < 3 ||
+      draft.polygon.length > 100 ||
+      !draft.polygon.every(
+        (point) => finiteContourPoint(point) && nativeSet.has(`${point.x}:${point.y}`),
+      )
+    )
+      return null
+    ids.add(draft.id)
+    voids.push({ id: draft.id, polygon: draft.polygon.map((point) => ({ ...point })) })
+  }
+  return voids
 }
 
 /** Incomplete feature drafts never disappear silently from a save request. */

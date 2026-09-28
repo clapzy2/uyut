@@ -277,6 +277,8 @@ export type PlanPageContours = {
   pageWidth: number
   pageHeight: number
   exterior?: { polygon: Array<{ x: number; y: number }> }
+  /** Reviewed non-room space such as a technical shaft; never inferred from a gap. */
+  voids?: Array<{ id: string; polygon: Array<{ x: number; y: number }> }>
   rooms: Array<
     PlanPageRoomIdentity & {
       polygon: Array<{ x: number; y: number }>

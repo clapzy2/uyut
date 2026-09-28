@@ -12,18 +12,41 @@ import {
   pageContourOptions,
   pageContourPoint,
   pageContourRoomsForSave,
+  pageContourVoidsForSave,
   pageOpeningPointsChanged,
   previewFromHeaders,
   samePlanPage,
   savedPageOpeningCheck,
   snapPageContourPoint,
   snapPageOpeningPoint,
+  voidDraftsFromSaved,
 } from './plan-page-contour-editor-model'
 
 const preview = { sha256: 'a'.repeat(64), page: 6, pageCount: 48, width: 842, height: 1191 }
 const rect = { left: 20, top: 40, width: 400, height: 600 }
 
 describe('page contour editor model', () => {
+  it('saves only closed, native-vertex technical voids and reloads them independently', () => {
+    const polygon = [
+      { x: 10, y: 10 },
+      { x: 30, y: 10 },
+      { x: 30, y: 30 },
+    ]
+    const draft = { id: 'shaft-1', polygon, closed: true }
+    const saved = pageContourVoidsForSave([draft], polygon)
+    expect(saved).toEqual([{ id: 'shaft-1', polygon }])
+    expect(voidDraftsFromSaved(saved ?? [])).toEqual([draft])
+    expect(pageContourVoidsForSave([{ ...draft, closed: false }], polygon)).toBeNull()
+    expect(pageContourVoidsForSave([draft], polygon.slice(1))).toBeNull()
+    expect(pageContourVoidsForSave([draft, draft], polygon)).toBeNull()
+    expect(
+      pageContourVoidsForSave(
+        Array.from({ length: 21 }, (_, index) => ({ ...draft, id: `shaft-${index}` })),
+        polygon,
+      ),
+    ).toBeNull()
+  })
+
   it('snaps an opening endpoint to a source crossing, preserving proof through reload and save', () => {
     const left = { x: 10, y: 10 }
     const right = { x: 30, y: 10 }

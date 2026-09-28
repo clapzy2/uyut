@@ -17,16 +17,19 @@ import {
   type PageContourDraft,
   type PageContourPoint,
   type PageContourTarget,
+  type PageVoidDraft,
   type PlanPagePreview,
   pageContourOptions,
   pageContourPoint,
   pageContourRoomsForSave,
+  pageContourVoidsForSave,
   pageOpeningPointsChanged,
   previewFromHeaders,
   samePlanPage,
   savedPageOpeningCheck,
   snapPageContourPoint,
   snapPageOpeningPoint,
+  voidDraftsFromSaved,
 } from '@/components/plan-page-contour-editor-model'
 import type { NativePageSegment } from '@/lib/projects/plan-pdf-opening-endpoint'
 import {
@@ -62,6 +65,8 @@ export function PlanPageContourEditor({
   const eligibleRooms = numberedContourRooms(reading.rooms)
   const [selected, setSelected] = useState(String(eligibleRooms[0]?.sourceNumber ?? ''))
   const [drafts, setDrafts] = useState<PageContourDraft[]>([])
+  const [voids, setVoids] = useState<PageVoidDraft[]>([])
+  const [selectedVoidId, setSelectedVoidId] = useState<string>()
   const [exterior, setExterior] = useState<PlanPageContours['exterior']>()
   const [target, setTarget] = useState<PageContourTarget>({ kind: 'room' })
   const [preview, setPreview] = useState<PlanPagePreview>()
@@ -93,6 +98,7 @@ export function PlanPageContourEditor({
   const options = pageContourOptions(reading.rooms, drafts)
   const selectedIdentity = options.find((option) => option.key === selected)?.identity
   const selectedDraft = drafts.find((draft) => pdfContourKey(draft) === selected)
+  const selectedVoid = voids.find((draft) => draft.id === selectedVoidId)
   const groupCandidates = eligibleRooms.filter(
     (room) =>
       room.sourceNumber !== selectedIdentity?.roomSourceNumber &&
@@ -103,7 +109,7 @@ export function PlanPageContourEditor({
       selectedDraft?.obstacles?.length ||
       selectedDraft?.conditionalEdges?.length,
   )
-  const pointsLocked = locked || (target.kind === 'room' && roomHasFeatures)
+  const pointsLocked = locked || (!selectedVoid && target.kind === 'room' && roomHasFeatures)
   const selectedOpening =
     target.kind === 'opening'
       ? selectedDraft?.openings?.find((item) => item.id === target.id)
@@ -112,25 +118,27 @@ export function PlanPageContourEditor({
     target.kind === 'obstacle'
       ? selectedDraft?.obstacles?.find((item) => item.id === target.id)
       : undefined
-  const points =
-    target.kind === 'room'
+  const points = selectedVoid
+    ? selectedVoid.polygon
+    : target.kind === 'room'
       ? (selectedDraft?.polygon ?? [])
       : (selectedOpening?.points ?? selectedObstacle?.polygon ?? [])
   const sourceCheck =
     reading.pageReview?.contours.source.state === reading.planState
       ? savedPageOpeningCheck(reading.pageReview, selectedDraft, selectedOpening, preview)
       : undefined
-  const closed =
-    target.kind === 'room'
+  const closed = selectedVoid
+    ? selectedVoid.closed
+    : target.kind === 'room'
       ? Boolean(selectedDraft?.closed)
       : target.kind === 'opening'
         ? points.length === 2
         : Boolean(selectedObstacle?.closed)
   const canDraw =
     !pointsLocked &&
-    Boolean(selected) &&
+    Boolean(selectedVoid || selected) &&
     !closed &&
-    points.length < (target.kind === 'opening' ? 2 : MAX_POINTS)
+    points.length < (!selectedVoid && target.kind === 'opening' ? 2 : MAX_POINTS)
 
   useEffect(() => {
     const abort = new AbortController()
@@ -138,6 +146,8 @@ export function PlanPageContourEditor({
     setLoading(true)
     setImageReady(false)
     setError(undefined)
+    setVoids([])
+    setSelectedVoidId(undefined)
     const query = new URLSearchParams({ page: String(pageNumber), revision: sourceRevision })
 
     async function load() {
@@ -201,6 +211,7 @@ export function PlanPageContourEditor({
             })
           ) {
             setDrafts(contourDraftsFromSaved(saved.rooms))
+            setVoids(voidDraftsFromSaved(saved.voids))
             const first = saved.rooms[0]
             if (first) setSelected(pdfContourKey(first))
             setExterior(
@@ -232,7 +243,17 @@ export function PlanPageContourEditor({
     closed = false,
     replacement?: { index: number; proof?: PlanPageEndpointProof },
   ) {
-    if (pointsLocked || !selectedIdentity) return
+    if (pointsLocked) return
+    if (selectedVoid) {
+      setVoids((current) =>
+        current.map((draft) =>
+          draft.id === selectedVoid.id ? { ...draft, polygon, closed } : draft,
+        ),
+      )
+      resetReview()
+      return
+    }
+    if (!selectedIdentity) return
     setDrafts((current) => {
       if (target.kind === 'room') {
         const before = current.find((draft) => pdfContourKey(draft) === selected)
@@ -285,9 +306,27 @@ export function PlanPageContourEditor({
   }
 
   function selectTarget(next: PageContourTarget) {
+    setSelectedVoidId(undefined)
     setTarget(next)
     setProposal(undefined)
     setNodeFeedback(undefined)
+  }
+
+  function addVoid() {
+    if (locked || voids.length >= 20) return
+    const id = crypto.randomUUID()
+    setVoids((current) => [...current, { id, polygon: [], closed: false }])
+    setSelectedVoidId(id)
+    setTarget({ kind: 'room' })
+    resetReview()
+  }
+
+  function removeVoid() {
+    if (locked || !selectedVoid) return
+    setVoids((current) => current.filter((draft) => draft.id !== selectedVoid.id))
+    setSelectedVoidId(undefined)
+    setTarget({ kind: 'room' })
+    resetReview()
   }
 
   function addFeature(kind: NewPageFeatureKind) {
@@ -373,8 +412,10 @@ export function PlanPageContourEditor({
 
   function proposePoint(point: PageContourPoint, index?: number) {
     if (pointsLocked || !preview || (index === undefined && !canDraw)) return
-    const a = selectedOpening && selectedDraft?.polygon[selectedOpening.wallEdgeIndex]
+    const a =
+      !selectedVoid && selectedOpening && selectedDraft?.polygon[selectedOpening.wallEdgeIndex]
     const b =
+      !selectedVoid &&
       selectedOpening &&
       selectedDraft?.polygon[(selectedOpening.wallEdgeIndex + 1) % selectedDraft.polygon.length]
     const candidate =
@@ -436,9 +477,10 @@ export function PlanPageContourEditor({
       return
     }
     const rooms = pageContourRoomsForSave(drafts, nativePoints, nativeSegments)
-    if (!rooms) {
+    const savedVoids = pageContourVoidsForSave(voids, nativePoints)
+    if (!rooms || !savedVoids) {
       setError(
-        'Замкните начатые контуры и проверьте привязку концов проёмов к исходным узлам или точным пересечениям. Незавершённые объекты не исключаются из сохранения автоматически.',
+        'Замкните начатые контуры комнат, объектов и технических пустот. Проверьте привязку вершин к узлам PDF и концов проёмов к узлам или точным пересечениям.',
       )
       return
     }
@@ -454,6 +496,7 @@ export function PlanPageContourEditor({
           pageWidth: preview.width,
           pageHeight: preview.height,
           rooms,
+          ...(savedVoids.length ? { voids: savedVoids } : {}),
           ...(exterior ? { exterior } : {}),
         },
         sourceRevision,
@@ -585,7 +628,47 @@ export function PlanPageContourEditor({
           зоны, без добавления перегородки.
         </p>
       ) : null}
-      {selectedDraft?.closed && target.kind === 'room' ? (
+      <div className="space-y-2 border-l-2 border-amber-600 pl-3 text-sm">
+        <p className="font-medium text-ink">Технические пустоты на листе</p>
+        <p className="text-xs leading-relaxed text-ink-2">
+          Отметьте шахту или другую явно показанную пустоту отдельно от комнат. Обведите её по
+          исходным узлам PDF. Промежутки между комнатами сами пустотами не считаются.
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="min-w-56 space-y-1 text-xs">
+            <span className="block">Выбранная пустота</span>
+            <select
+              className={inputClassName}
+              value={selectedVoidId ?? ''}
+              disabled={locked}
+              onChange={(event) => {
+                setSelectedVoidId(event.target.value || undefined)
+                setTarget({ kind: 'room' })
+                resetReview()
+              }}
+            >
+              <option value="">Работать с комнатой</option>
+              {voids.map((draft, index) => (
+                <option key={draft.id} value={draft.id}>
+                  Пустота {index + 1} · {draft.closed ? 'замкнута' : 'в работе'}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={locked || voids.length >= 20}
+            onClick={addVoid}
+          >
+            Добавить пустоту
+          </Button>
+          <Button size="sm" variant="ghost" disabled={locked || !selectedVoid} onClick={removeVoid}>
+            Удалить выбранную
+          </Button>
+        </div>
+      </div>
+      {!selectedVoid && selectedDraft?.closed && target.kind === 'room' ? (
         <div className="space-y-2 border-l-2 border-accent pl-3 text-sm">
           <p className="font-medium text-ink">Открытая зона без перегородки</p>
           <p className="text-xs leading-relaxed text-ink-2">
@@ -618,7 +701,7 @@ export function PlanPageContourEditor({
           </div>
         </div>
       ) : null}
-      {selected ? (
+      {selected && !selectedVoid ? (
         <PlanPageFeatures
           key={`features-${selected}-${target.kind}-${target.kind === 'room' ? '' : target.id}`}
           draft={selectedDraft}
@@ -659,9 +742,11 @@ export function PlanPageContourEditor({
               className="block w-full disabled:cursor-default enabled:cursor-crosshair"
               style={{ width: `${zoom}%` }}
               aria-label={
-                target.kind === 'opening'
+                !selectedVoid && target.kind === 'opening'
                   ? 'Отметить конец проёма на исходном листе'
-                  : 'Добавить вершину контура на исходном листе'
+                  : selectedVoid
+                    ? 'Добавить вершину технической пустоты на исходном листе'
+                    : 'Добавить вершину контура на исходном листе'
               }
               aria-describedby="page-contour-coordinate-help"
             >
@@ -780,16 +865,76 @@ export function PlanPageContourEditor({
                     </g>
                   )
                 })}
-                <PlanPageFeatureOverlay drafts={drafts} roomKey={selected} target={target} />
+                {voids.map((draft, index) => {
+                  const valid = draft.polygon.every(finiteContourPoint)
+                  const coordinates = draft.polygon
+                    .map((point) => `${point.x},${point.y}`)
+                    .join(' ')
+                  const isSelectedVoid = draft.id === selectedVoidId
+                  return (
+                    <g key={draft.id} pointerEvents="none">
+                      {valid && draft.closed ? (
+                        <polygon
+                          points={coordinates}
+                          fill="#d97706"
+                          fillOpacity={isSelectedVoid ? 0.3 : 0.18}
+                          stroke="#b45309"
+                          strokeWidth={isSelectedVoid ? 3 : 2}
+                          strokeDasharray="7 4"
+                          vectorEffect="non-scaling-stroke"
+                        />
+                      ) : null}
+                      {valid && !draft.closed ? (
+                        <polyline
+                          points={coordinates}
+                          fill="none"
+                          stroke="#b45309"
+                          strokeWidth={3}
+                          strokeDasharray="7 4"
+                          vectorEffect="non-scaling-stroke"
+                        />
+                      ) : null}
+                      {draft.polygon.filter(finiteContourPoint).map((point, pointIndex) => (
+                        <circle
+                          key={pointIndex}
+                          cx={point.x}
+                          cy={point.y}
+                          r={4}
+                          fill="#b45309"
+                          stroke="white"
+                          strokeWidth={1}
+                        />
+                      ))}
+                      {draft.polygon[0] && finiteContourPoint(draft.polygon[0]) ? (
+                        <text
+                          x={draft.polygon[0].x + 8}
+                          y={draft.polygon[0].y - 8}
+                          fill="#92400e"
+                          stroke="white"
+                          strokeWidth={3}
+                          paintOrder="stroke"
+                          fontSize={18}
+                          fontWeight={600}
+                        >
+                          Пустота {index + 1}
+                        </text>
+                      ) : null}
+                    </g>
+                  )
+                })}
+                {!selectedVoid ? (
+                  <PlanPageFeatureOverlay drafts={drafts} roomKey={selected} target={target} />
+                ) : null}
               </svg>
             </button>
           </div>
         </div>
       ) : null}
       <p id="page-contour-coordinate-help" className="text-xs leading-relaxed text-ink-2">
-        Лист можно прокручивать внутри окна и увеличивать. Нажмите возле угла комнаты, проверьте
-        предложенный узел и нажмите «Принять узел PDF». Для клавиатуры используйте поля ниже: X —
-        слева направо, Y — сверху вниз, от 0 до 1000. Это координаты листа, не размеры комнаты.
+        Лист можно прокручивать внутри окна и увеличивать. Нажмите возле угла выбранного контура,
+        проверьте предложенный узел и нажмите «Принять узел PDF». Для клавиатуры используйте поля
+        ниже: X — слева направо, Y — сверху вниз, от 0 до 1000. Это координаты листа, не размеры
+        комнаты.
       </p>
       {nodeFeedback ? (
         <p role="status" className="text-sm leading-relaxed text-ink-2">
@@ -817,12 +962,16 @@ export function PlanPageContourEditor({
           </Button>
         </div>
       ) : null}
-      {selected ? (
+      {selected || selectedVoid ? (
         <PlanPagePointControls
-          key={`points-${selected}-${target.kind}-${target.kind === 'room' ? '' : target.id}`}
+          key={
+            selectedVoid
+              ? `void-${selectedVoid.id}`
+              : `points-${selected}-${target.kind}-${target.kind === 'room' ? '' : target.id}`
+          }
           points={points}
           closed={closed}
-          opening={target.kind === 'opening'}
+          opening={!selectedVoid && target.kind === 'opening'}
           locked={pointsLocked}
           canDraw={canDraw}
           nativePoints={nativePoints}
@@ -831,7 +980,7 @@ export function PlanPageContourEditor({
           onError={setError}
         />
       ) : null}
-      {target.kind === 'room' && roomHasFeatures ? (
+      {!selectedVoid && target.kind === 'room' && roomHasFeatures ? (
         <p className="text-xs leading-relaxed text-ink-2">
           У комнаты уже размечены объекты. Чтобы изменить порядок её вершин, сначала удалите эти
           объекты: иначе номера сторон проёмов станут неверными. Каждый объект можно выбрать и
@@ -844,8 +993,9 @@ export function PlanPageContourEditor({
       <FormError message={error} />
       <div className="space-y-3 border-t border-line pt-4">
         <p className="text-xs text-ink-2">
-          Размечено зон: {drafts.filter((draft) => draft.closed).length}. Другие комнаты можно
-          добавить позже; отсутствующие размеры не вычисляются из площади.
+          Размечено зон: {drafts.filter((draft) => draft.closed).length}; технических пустот:{' '}
+          {voids.filter((draft) => draft.closed).length}. Другие комнаты можно добавить позже;
+          отсутствующие размеры не вычисляются из площади.
         </p>
         <label className="flex items-start gap-3 text-sm leading-relaxed">
           <input
@@ -856,8 +1006,8 @@ export function PlanPageContourEditor({
             onChange={(event) => setChecked(event.target.checked)}
           />
           <span>
-            Сверил контуры, проёмы, неподвижные объекты, номера комнат и состояние квартиры с
-            исходным листом.
+            Сверил контуры комнат и технических пустот, проёмы, неподвижные объекты, номера комнат и
+            состояние квартиры с исходным листом.
           </span>
         </label>
         <Button

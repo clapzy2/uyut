@@ -57,6 +57,70 @@ const linework: PdfLinework = {
 }
 
 describe('versioned source page review', () => {
+  it('accepts only source-backed technical voids outside room floors', () => {
+    const polygon = [
+      { x: 40, y: 40 },
+      { x: 50, y: 40 },
+      { x: 50, y: 50 },
+      { x: 40, y: 50 },
+    ]
+    const input: PlanPageContours = { ...contours, voids: [{ id: 'shaft-a', polygon }] }
+    const work: PdfLinework = {
+      ...linework,
+      paths: [
+        ...linework.paths,
+        { operationIndex: 2, subpathIndex: 0, paint: 'stroke', closed: true, points: polygon },
+      ],
+    }
+    expect(planPageContoursSchema.safeParse(input).success).toBe(true)
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBeUndefined()
+    expect(planPageReviewIssue(input, reading, input.source, linework)).toBe(
+      'non-native-void-vertex',
+    )
+    const room = contours.rooms[0]
+    if (!room) throw new Error('Missing room fixture')
+    expect(
+      planPageFeaturesIssue({ ...input, voids: [{ id: 'shaft-a', polygon: room.polygon }] }),
+    ).toBe('void-overlaps-room-contour')
+    expect(
+      planPageFeaturesIssue({
+        ...input,
+        voids: [
+          { id: 'shaft-a', polygon },
+          { id: 'shaft-a', polygon },
+        ],
+      }),
+    ).toBe('duplicate-page-void-id')
+    expect(
+      planPageFeaturesIssue({
+        ...input,
+        voids: [
+          { id: 'shaft-a', polygon },
+          { id: 'shaft-b', polygon },
+        ],
+      }),
+    ).toBe('overlapping-page-voids')
+    expect(planPageFeaturesIssue({ ...input, exterior: { polygon: room.polygon } })).toBe(
+      'void-outside-exterior-contour',
+    )
+    expect(
+      planPageFeaturesIssue({
+        ...input,
+        voids: [
+          {
+            id: 'shaft-a',
+            polygon: [
+              { x: 40, y: 40 },
+              { x: 50, y: 50 },
+              { x: 50, y: 40 },
+              { x: 40, y: 50 },
+            ],
+          },
+        ],
+      }),
+    ).toBe('invalid-page-void')
+  })
+
   it('accepts a reviewed open-zone divider only when its non-node endpoint has native crossing proof', () => {
     const input: PlanPageContours = {
       ...contours,

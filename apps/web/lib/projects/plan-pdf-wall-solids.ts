@@ -11,12 +11,13 @@ export type PdfWallSolidCandidate = {
   polygon: PagePoint[]
   boundarySupports: PdfWallBodySupport[]
   status: 'candidate' | 'conflict'
-  reasons: Array<'room-floor' | 'opening' | 'outside-exterior' | 'overlapping-solid'>
+  reasons: Array<'room-floor' | 'opening' | 'outside-exterior' | 'void' | 'overlapping-solid'>
   conflicts: {
     roomContours: string[]
     openings: Array<{ contourKey: string; openingId: string }>
     overlappingSources: SourcePath[]
     exteriorEdges: Array<{ segmentIndex: number; start: PagePoint; end: PagePoint }>
+    voidIds: string[]
   }
 }
 export type PdfWallJunction = {
@@ -108,13 +109,18 @@ export function inspectPlanPageWallSolids(
         })
       : []
     if (exteriorEdges.length) reasons.push('outside-exterior')
+    const voidIds = (contours.voids ?? [])
+      .filter((voidArea) => polygonsOverlap(polygon, voidArea.polygon))
+      .map((voidArea) => voidArea.id)
+      .sort()
+    if (voidIds.length) reasons.push('void')
     solids.push({
       source: { operationIndex: path.operationIndex, subpathIndex: path.subpathIndex },
       polygon,
       boundarySupports: supports.filter((support) => key(support.source) === key(path)),
       status: reasons.length ? 'conflict' : 'candidate',
       reasons,
-      conflicts: { roomContours, openings, overlappingSources: [], exteriorEdges },
+      conflicts: { roomContours, openings, overlappingSources: [], exteriorEdges, voidIds },
     })
   }
   solids.sort((a, b) => sourceOrder(a.source, b.source))

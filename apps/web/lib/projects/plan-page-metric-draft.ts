@@ -465,6 +465,11 @@ export function planPageMetricDraft(
     ]
   }
   geometry.warnings.push(...areaWarnings)
+  if (contours.voids?.length) {
+    geometry.warnings.push(
+      'Технические пустоты сохранены в разметке исходного листа и проверяются как исключения для стен. Их объём в этом черновике 2D ещё нужно сверить отдельно.',
+    )
+  }
   if (selected.some((room) => room.conditionalEdges?.length)) {
     geometry.warnings.push(
       'Условные границы открытых зон показывают разделение площадей, но не являются стенами. Сверьте их положение на исходном плане перед расстановкой.',

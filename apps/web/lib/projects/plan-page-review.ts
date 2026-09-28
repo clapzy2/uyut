@@ -13,6 +13,7 @@ import {
   pdfContourIssue,
   pdfContourRoomNumbers,
   pdfPointInside,
+  pdfPolygonIsValid,
 } from './plan-pdf-room-binding'
 
 const pointSchema = z.strictObject({
@@ -78,6 +79,10 @@ export const planPageContoursSchema = z
     pageWidth: z.number().positive().max(100_000),
     pageHeight: z.number().positive().max(100_000),
     exterior: z.strictObject({ polygon: z.array(pointSchema).min(3).max(100) }).optional(),
+    voids: z
+      .array(z.strictObject({ id: featureIdSchema, polygon: z.array(pointSchema).min(3).max(100) }))
+      .max(20)
+      .optional(),
     rooms: z.array(contourSchema).min(1).max(100),
   })
   .superRefine((input, context) => {
@@ -271,10 +276,11 @@ export function planPageFeaturesIssue(
   )
   // Older polygon-only annotations keep their save contract. Metric conversion must also
   // check room intersections when there are no annotated openings or obstacles.
-  if (!hasFeatures && !options.checkRoomOverlap && !input.exterior) return undefined
+  if (!hasFeatures && !options.checkRoomOverlap && !input.exterior && !input.voids?.length)
+    return undefined
   const featureCount = input.rooms.reduce(
     (total, room) => total + (room.openings?.length ?? 0) + (room.obstacles?.length ?? 0),
-    0,
+    input.voids?.length ?? 0,
   )
   const vertexCount = input.rooms.reduce(
     (total, room) =>
@@ -282,7 +288,8 @@ export function planPageFeaturesIssue(
       room.polygon.length +
       (room.obstacles ?? []).reduce((count, obstacle) => count + obstacle.polygon.length, 0) +
       (room.openings?.length ?? 0) * 2,
-    input.exterior?.polygon.length ?? 0,
+    (input.exterior?.polygon.length ?? 0) +
+      (input.voids ?? []).reduce((total, voidArea) => total + voidArea.polygon.length, 0),
   )
   if (featureCount > 200 || vertexCount > 2000) return 'page-features-too-complex'
   const work: PdfLinework = {
@@ -300,6 +307,19 @@ export function planPageFeaturesIssue(
   const exterior = input.exterior
   if (exterior && input.rooms.some((room) => !polygonWithin(room.polygon, exterior.polygon)))
     return 'room-outside-exterior-contour'
+  const voids = input.voids ?? []
+  if (voids.length > 20) return 'too-many-page-voids'
+  if (new Set(voids.map((voidArea) => voidArea.id)).size !== voids.length)
+    return 'duplicate-page-void-id'
+  for (const [index, voidArea] of voids.entries()) {
+    if (!pdfPolygonIsValid(voidArea.polygon)) return 'invalid-page-void'
+    if (exterior && !polygonWithin(voidArea.polygon, exterior.polygon))
+      return 'void-outside-exterior-contour'
+    if (input.rooms.some((room) => polygonsOverlap(voidArea.polygon, room.polygon)))
+      return 'void-overlaps-room-contour'
+    if (voids.slice(index + 1).some((other) => polygonsOverlap(voidArea.polygon, other.polygon)))
+      return 'overlapping-page-voids'
+  }
   for (let roomIndex = 0; roomIndex < input.rooms.length; roomIndex++) {
     const room = input.rooms[roomIndex]
     if (!room) continue
@@ -487,6 +507,12 @@ export function planPageReviewIssue(
   }
   if (input.exterior?.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`)))
     return 'non-native-contour-vertex'
+  if (
+    input.voids?.some((voidArea) =>
+      voidArea.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`)),
+    )
+  )
+    return 'non-native-void-vertex'
   return undefined
 }
 
