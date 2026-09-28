@@ -285,13 +285,32 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
     groups.push(group)
   }
   if (groups.length > 1) {
+    // Anchor diagnostics to the exterior, not the order in which walls were submitted.
+    // Several exterior components still fail this gate and the outer-ring checks below.
+    const outerIds = new Set(walls.filter((wall) => wall.kind === 'outer').map((wall) => wall.id))
+    const rankedGroups = groups
+      .map((group) => {
+        const ids = [...group].sort()
+        const exteriorIds = ids.filter((id) => outerIds.has(id))
+        return { ids, exteriorCount: exteriorIds.length, anchorId: exteriorIds[0] ?? ids[0] ?? '' }
+      })
+      .sort((first, second) => {
+        const exteriorDifference = second.exteriorCount - first.exteriorCount
+        if (exteriorDifference !== 0) return exteriorDifference
+        if (first.exteriorCount === 0 && first.ids.length !== second.ids.length)
+          return second.ids.length - first.ids.length
+        return first.anchorId < second.anchorId ? -1 : first.anchorId > second.anchorId ? 1 : 0
+      })
     issues.push({
       id: 'manual-disconnected-walls',
       severity: 'error',
       message: geometry.pdfCalibration
         ? 'Внутренние и наружные грани перенесены отдельно. Перед подтверждением сопоставьте их с физическими стенами; не соединяйте грани произвольными линиями.'
         : 'Часть стен не соединена с остальной схемой. Сведите их концы или уберите лишние линии.',
-      wallIds: groups.slice(1).flat(),
+      wallIds: rankedGroups
+        .slice(1)
+        .flatMap((group) => group.ids)
+        .sort(),
     })
   }
 

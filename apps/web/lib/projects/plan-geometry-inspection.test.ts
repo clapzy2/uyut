@@ -319,6 +319,112 @@ describe('подтверждение ручной схемы', () => {
     )
   })
 
+  it.each(['first', 'last', 'reversed'] as const)(
+    'highlights the disconnected island with %s wall order',
+    (order) => {
+      const island = {
+        id: 'island',
+        kind: 'inner' as const,
+        start: { xCm: 150, yCm: 150 },
+        end: { xCm: 250, yCm: 150 },
+      }
+      const walls = order === 'first' ? [island, ...geometry.walls] : [...geometry.walls, island]
+      if (order === 'reversed') walls.reverse()
+      const before = structuredClone(walls)
+      const issue = inspectManualPlanCompleteness({ ...geometry, walls }).find(
+        (value) => value.id === 'manual-disconnected-walls',
+      )
+      expect(issue).toMatchObject({ severity: 'error', wallIds: ['island'] })
+      expect(walls).toEqual(before)
+    },
+  )
+
+  it.each([false, true])(
+    'anchors multiple exterior groups deterministically (reverse=%s)',
+    (reverse) => {
+      const walls = [
+        {
+          id: 'z-one',
+          kind: 'outer' as const,
+          start: { xCm: 0, yCm: 0 },
+          end: { xCm: 100, yCm: 0 },
+        },
+        {
+          id: 'z-two',
+          kind: 'outer' as const,
+          start: { xCm: 100, yCm: 0 },
+          end: { xCm: 100, yCm: 100 },
+        },
+        {
+          id: 'a-one',
+          kind: 'outer' as const,
+          start: { xCm: 200, yCm: 0 },
+          end: { xCm: 300, yCm: 0 },
+        },
+        {
+          id: 'a-two',
+          kind: 'outer' as const,
+          start: { xCm: 300, yCm: 0 },
+          end: { xCm: 300, yCm: 100 },
+        },
+      ]
+      if (reverse) walls.reverse()
+      const issues = inspectManualPlanCompleteness({ ...geometry, walls, openings: [], rooms: [] })
+      expect(issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'manual-disconnected-walls',
+            severity: 'error',
+            wallIds: ['z-one', 'z-two'],
+          }),
+          expect.objectContaining({ id: 'manual-outer-disconnected', severity: 'error' }),
+        ]),
+      )
+
+      walls.push({
+        id: 'z-three',
+        kind: 'outer',
+        start: { xCm: 100, yCm: 100 },
+        end: { xCm: 0, yCm: 100 },
+      })
+      expect(
+        inspectManualPlanCompleteness({ ...geometry, walls, openings: [], rooms: [] }),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'manual-disconnected-walls',
+            severity: 'error',
+            wallIds: ['a-one', 'a-two'],
+          }),
+        ]),
+      )
+    },
+  )
+
+  it('uses the largest component when no exterior is marked, retaining the missing-exterior error', () => {
+    const walls = [
+      {
+        id: 'island',
+        kind: 'inner' as const,
+        start: { xCm: 150, yCm: 150 },
+        end: { xCm: 250, yCm: 150 },
+      },
+      ...geometry.walls.map((wall) => ({ ...wall, kind: 'inner' as const })),
+    ]
+    for (const order of [walls, [...walls].reverse()]) {
+      expect(inspectManualPlanCompleteness({ ...geometry, walls: order })).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'manual-disconnected-walls',
+            severity: 'error',
+            wallIds: ['island'],
+          }),
+          expect.objectContaining({ id: 'manual-missing-outer-walls', severity: 'error' }),
+        ]),
+      )
+    }
+  })
+
   it('не считает внутреннюю стену замыканием внешнего контура', () => {
     const walls = geometry.walls.map((wall) =>
       wall.id === 'top' ? { ...wall, end: { xCm: 480, yCm: 0 } } : wall,

@@ -1,7 +1,7 @@
 import type { PlanPageContours } from '@uyut/db'
 import { planPageContoursSchema } from './plan-page-review'
 import type { PagePoint } from './plan-pdf-linework'
-import { pdfContourKey } from './plan-pdf-room-binding'
+import { pdfContourKey, pdfPointDistance } from './plan-pdf-room-binding'
 import type { PdfWallFacePair } from './plan-pdf-wall-faces'
 
 export type PdfWallCoverageSpan = {
@@ -17,6 +17,27 @@ export type PdfWallCoverageSpan = {
     | 'ambiguous'
     | 'unsupported-angle'
     | 'conditional'
+}
+
+/** Review lengths use PDF points, not the independently normalized page axes. */
+export function planPageWallReviewQueue(
+  contours: PlanPageContours,
+  spans: readonly PdfWallCoverageSpan[],
+  cmPerPoint: number,
+): Array<PdfWallCoverageSpan & { lengthCm: number }> {
+  if (!Number.isFinite(cmPerPoint) || cmPerPoint <= 0)
+    throw new Error('Wall review requires a positive finite PDF scale.')
+  return spans
+    .filter(
+      (span) =>
+        span.contourKey !== 'exterior' &&
+        ['unmatched', 'unsupported-angle', 'ambiguous'].includes(span.status),
+    )
+    .map((span) => ({
+      ...span,
+      lengthCm: pdfPointDistance(contours, span.start, span.end) * cmPerPoint,
+    }))
+    .sort((a, b) => b.lengthCm - a.lengthCm)
 }
 
 /** Diagnostics only: source-backed local pairs do not certify a complete physical wall model. */

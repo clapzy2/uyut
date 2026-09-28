@@ -13,6 +13,11 @@ import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema, planPageReviewIssue } from '../lib/projects/plan-page-review'
 import { pdfDepthChain, pdfWidthChain } from '../lib/projects/plan-pdf-dimension-chain'
 import { verifyPlanPageOpeningFaces } from '../lib/projects/plan-pdf-opening-faces'
+import {
+  classifyPlanPageWallSpans,
+  planPageWallReviewQueue,
+} from '../lib/projects/plan-pdf-wall-coverage'
+import { pairPlanPageWallFaces } from '../lib/projects/plan-pdf-wall-faces'
 
 type Chain = { textItemIndexes: number[]; segmentsMm: number[] }
 type ReviewedRoom = {
@@ -216,6 +221,13 @@ const result = planPageMetricDraft(
   rooms.map((room) => room.sourceNumber),
 )
 if (!result.ok) throw new Error(result.error)
+const cmPerPoint = result.geometry.pdfCalibration?.cmPerPoint
+if (!cmPerPoint) throw new Error('Missing verified PDF scale.')
+const wallCoverage = classifyPlanPageWallSpans(
+  contours,
+  pairPlanPageWallFaces(linework, source, contours),
+)
+const wallReviewQueue = planPageWallReviewQueue(contours, wallCoverage, cmPerPoint)
 const geometryIssues = inspectPlanGeometry(result.geometry)
 if (geometryIssues.length > 0) throw new Error(`Geometry issues: ${JSON.stringify(geometryIssues)}`)
 if (result.geometry.rooms.length !== rooms.length)
@@ -321,6 +333,8 @@ console.log(
     openings: result.geometry.openings.length,
     openingFacePairs: result.geometry.pdfCalibration?.openingFacePairs?.length ?? 0,
     wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs?.length ?? 0,
+    wallCoverage,
+    wallReviewQueue,
     openingFaceChecks: verifyPlanPageOpeningFaces(linework, source, contours),
     warnings: result.geometry.warnings,
     geometryIssues: geometryIssues.length,

@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest'
 import page from '../../../../docs/qa/fixtures/apartment-74-77-complete-page.json'
 import { planPageContoursSchema } from './plan-page-review'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
-import { classifyPlanPageWallSpans } from './plan-pdf-wall-coverage'
+import {
+  classifyPlanPageWallSpans,
+  type PdfWallCoverageSpan,
+  planPageWallReviewQueue,
+} from './plan-pdf-wall-coverage'
 import { type PdfWallFacePair, pairPlanPageWallFaces } from './plan-pdf-wall-faces'
 
 const source = { sha256: 'a'.repeat(64), pdfPage: 1, state: 'existing' as const }
@@ -63,6 +67,74 @@ function sample() {
 }
 
 describe('diagnostic coverage of annotated PDF boundary spans', () => {
+  it('measures and sorts review spans using both physical PDF axes', () => {
+    const { contours } = sample()
+    contours.pageWidth = 600
+    contours.pageHeight = 800
+    const spans: PdfWallCoverageSpan[] = [
+      {
+        contourKey: '1',
+        wallEdgeIndex: 0,
+        start: { x: 0, y: 0 },
+        end: { x: 100, y: 0 },
+        status: 'unmatched',
+      },
+      {
+        contourKey: '1',
+        wallEdgeIndex: 1,
+        start: { x: 0, y: 0 },
+        end: { x: 0, y: 100 },
+        status: 'unmatched',
+      },
+      {
+        contourKey: '1',
+        wallEdgeIndex: 2,
+        start: { x: 0, y: 0 },
+        end: { x: 100, y: 100 },
+        status: 'unsupported-angle',
+      },
+    ]
+    const original = structuredClone(spans)
+    const queue = planPageWallReviewQueue(contours, spans, 2)
+    expect(queue.map(({ lengthCm }) => lengthCm)).toEqual([200, 160, 120])
+    expect(queue.map(({ wallEdgeIndex }) => wallEdgeIndex)).toEqual([2, 1, 0])
+    expect(spans).toEqual(original)
+  })
+
+  it('includes ambiguous interior spans but not openings, pairs or exterior', () => {
+    const { contours } = sample()
+    const statuses: PdfWallCoverageSpan['status'][] = [
+      'paired',
+      'opening',
+      'unmatched',
+      'unpaired-exterior',
+      'ambiguous',
+      'unsupported-angle',
+      'conditional',
+    ]
+    const spans = statuses.map(
+      (status): PdfWallCoverageSpan => ({
+        contourKey: status === 'unpaired-exterior' ? 'exterior' : '1',
+        wallEdgeIndex: 0,
+        start: { x: 0, y: 0 },
+        end: { x: 100, y: 0 },
+        status,
+      }),
+    )
+    expect(planPageWallReviewQueue(contours, spans, 1).map(({ status }) => status)).toEqual([
+      'unmatched',
+      'ambiguous',
+      'unsupported-angle',
+    ])
+  })
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid review scale %s',
+    (scale) => {
+      expect(() => planPageWallReviewQueue(sample().contours, [], scale)).toThrow('PDF scale')
+    },
+  )
+
   it('reports an open-zone boundary as conditional rather than an unmatched wall', () => {
     const { contours, pair } = sample()
     const room = contours.rooms[0]

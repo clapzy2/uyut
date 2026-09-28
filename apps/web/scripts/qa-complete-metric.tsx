@@ -16,7 +16,10 @@ import {
 import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema } from '../lib/projects/plan-page-review'
 import { pairPlanPageOpeningFaces } from '../lib/projects/plan-pdf-opening-faces'
-import { classifyPlanPageWallSpans } from '../lib/projects/plan-pdf-wall-coverage'
+import {
+  classifyPlanPageWallSpans,
+  planPageWallReviewQueue,
+} from '../lib/projects/plan-pdf-wall-coverage'
 import { pairPlanPageWallFaces } from '../lib/projects/plan-pdf-wall-faces'
 
 const sourcePath = process.argv[2]
@@ -120,17 +123,7 @@ const wallCoverageCounts = Object.fromEntries(
     'unsupported-angle',
   ].map((status) => [status, wallCoverage.filter((span) => span.status === status).length]),
 )
-const wallReviewQueue = wallCoverage
-  .filter(
-    (span) =>
-      span.contourKey !== 'exterior' &&
-      (span.status === 'unmatched' || span.status === 'unsupported-angle'),
-  )
-  .map((span) => ({
-    ...span,
-    lengthCm: Math.hypot(span.end.x - span.start.x, span.end.y - span.start.y) * cmPerPoint,
-  }))
-  .sort((a, b) => b.lengthCm - a.lengthCm)
+const wallReviewQueue = planPageWallReviewQueue(contours, wallCoverage, cmPerPoint)
 const output = resolve('../../output/playwright/complete-metric')
 await mkdir(output, { recursive: true })
 const report = {
