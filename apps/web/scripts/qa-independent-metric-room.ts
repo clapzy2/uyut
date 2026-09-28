@@ -18,6 +18,7 @@ import {
   planPageWallReviewQueue,
 } from '../lib/projects/plan-pdf-wall-coverage'
 import { pairPlanPageWallFaces } from '../lib/projects/plan-pdf-wall-faces'
+import { inspectPlanPageWallSolids } from '../lib/projects/plan-pdf-wall-solids'
 
 type Chain = { textItemIndexes: number[]; segmentsMm: number[] }
 type ReviewedRoom = {
@@ -335,6 +336,7 @@ console.log(
     wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs?.length ?? 0,
     wallCoverage,
     wallReviewQueue,
+    wallSolids: inspectPlanPageWallSolids(linework, source, contours),
     openingFaceChecks: verifyPlanPageOpeningFaces(linework, source, contours),
     warnings: result.geometry.warnings,
     geometryIssues: geometryIssues.length,

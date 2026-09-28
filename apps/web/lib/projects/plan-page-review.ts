@@ -158,7 +158,10 @@ function edgeSamples(a: PagePoint, b: PagePoint, polygon: readonly PagePoint[]):
   return samples
 }
 
-function polygonWithin(polygon: readonly PagePoint[], boundary: readonly PagePoint[]): boolean {
+export function polygonWithin(
+  polygon: readonly PagePoint[],
+  boundary: readonly PagePoint[],
+): boolean {
   const within = (point: PagePoint) =>
     pointOnBoundary(point, boundary) || pdfPointInside(point, boundary)
   return polygon.every((a, index) => {
@@ -168,7 +171,7 @@ function polygonWithin(polygon: readonly PagePoint[], boundary: readonly PagePoi
 }
 
 /** Positive-area overlap is refused; adjoining contours may share a wall or a corner. */
-function polygonsOverlap(left: readonly PagePoint[], right: readonly PagePoint[]): boolean {
+export function polygonsOverlap(left: readonly PagePoint[], right: readonly PagePoint[]): boolean {
   for (let leftIndex = 0; leftIndex < left.length; leftIndex++) {
     const a = left[leftIndex]
     const b = left[(leftIndex + 1) % left.length]
@@ -212,6 +215,15 @@ function polygonsOverlap(left: readonly PagePoint[], right: readonly PagePoint[]
     }
     return false
   })
+}
+
+/** Boundary contact is allowed; any open subinterval inside the polygon is not. */
+export function segmentEntersPolygon(
+  a: PagePoint,
+  b: PagePoint,
+  polygon: readonly PagePoint[],
+): boolean {
+  return edgeSamples(a, b, polygon).some((point) => strictlyInside(point, polygon))
 }
 
 /** Geometry checks do not infer a feature's semantic kind or a metric room dimension. */

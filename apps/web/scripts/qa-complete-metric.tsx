@@ -21,6 +21,7 @@ import {
   planPageWallReviewQueue,
 } from '../lib/projects/plan-pdf-wall-coverage'
 import { pairPlanPageWallFaces } from '../lib/projects/plan-pdf-wall-faces'
+import { inspectPlanPageWallSolids } from '../lib/projects/plan-pdf-wall-solids'
 
 const sourcePath = process.argv[2]
 if (!sourcePath || sourcePath.startsWith('--')) throw new Error('Укажите исходный PDF.')
@@ -127,6 +128,7 @@ const wallReviewQueue = planPageWallReviewQueue(contours, wallCoverage, cmPerPoi
 const output = resolve('../../output/playwright/complete-metric')
 await mkdir(output, { recursive: true })
 const report = {
+  wallSolids: inspectPlanPageWallSolids(page.linework, source, contours),
   source,
   nativePaths: page.linework.paths.length,
   geometry: result.geometry,
