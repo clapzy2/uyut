@@ -1,7 +1,7 @@
 /** Local-only source check for manually reviewed rooms; no AI or database calls. */
 import { createHash } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import type { PlanPageContours, PlanReading } from '@uyut/db'
 import sharp from 'sharp'
 import { preparePlanPage } from '../lib/projects/plan-document'
@@ -19,7 +19,7 @@ type ReviewedRoom = {
   name: string
   kind: PlanReading['rooms'][number]['kind']
   utility?: boolean
-  areaM2: number
+  areaM2?: number
   polygon: PlanPageContours['rooms'][number]['polygon']
   conditionalEdges?: PlanPageContours['rooms'][number]['conditionalEdges']
   openings?: PlanPageContours['rooms'][number]['openings']
@@ -33,6 +33,8 @@ type Fixture = {
   room?: ReviewedRoom
   rooms?: ReviewedRoom[]
   calibrationRoomNumbers?: number[]
+  sourceRoomNumbers?: number[]
+  exterior?: PlanPageContours['exterior']
   expectedDimensionIssues?: Array<{ sourceNumber: number; side: 'width' | 'depth'; reason: string }>
   areaConflicts?: Array<{
     sourceNumber: number
@@ -98,12 +100,24 @@ const areaConflicts = (fixture.areaConflicts ?? []).map((conflict) => {
 })
 
 const { source } = fixture
+for (const room of rooms) {
+  const conflict = areaConflicts.find((item) => item.sourceNumber === room.sourceNumber)
+  if (conflict && room.areaM2 !== undefined)
+    throw new Error(
+      `Room ${room.sourceNumber}: conflicting source areas must not be resolved by the fixture.`,
+    )
+  if (!conflict && room.areaM2 === undefined)
+    throw new Error(
+      `Room ${room.sourceNumber}: missing signed area without a documented source conflict.`,
+    )
+}
 const contours = planPageContoursSchema.parse({
   source,
   coordinateSystem: 'page-0-1000',
   review: 'manual-source-review',
   pageWidth: page.linework.pageWidth,
   pageHeight: page.linework.pageHeight,
+  ...(fixture.exterior ? { exterior: fixture.exterior } : {}),
   rooms: rooms.map((room) => ({
     roomSourceNumber: room.sourceNumber,
     polygon: room.polygon,
@@ -131,7 +145,7 @@ const reading: PlanReading = {
     name: room.name,
     kind: room.kind,
     ...(room.utility ? { utility: true } : {}),
-    areaM2: room.areaM2,
+    ...(room.areaM2 === undefined ? {} : { areaM2: room.areaM2 }),
     ...(room.widthMm === undefined ? {} : { widthCm: room.widthMm / 10 }),
     ...(room.depthMm === undefined ? {} : { depthCm: room.depthMm / 10 }),
     measurementEvidence: {
@@ -205,10 +219,12 @@ const geometryIssues = inspectPlanGeometry(result.geometry)
 if (geometryIssues.length > 0) throw new Error(`Geometry issues: ${JSON.stringify(geometryIssues)}`)
 if (result.geometry.rooms.length !== rooms.length)
   throw new Error('Not every room was transferred.')
-const expectedWalls = rooms.reduce(
-  (count, room) => count + room.polygon.length - (room.conditionalEdges?.length ?? 0),
-  0,
-)
+const expectedWalls =
+  (fixture.exterior?.polygon.length ?? 0) +
+  rooms.reduce(
+    (count, room) => count + room.polygon.length - (room.conditionalEdges?.length ?? 0),
+    0,
+  )
 if (result.geometry.walls.length !== expectedWalls)
   throw new Error('A conditional zone divider was transferred as a physical wall.')
 const areaM2 = (polygon: NonNullable<(typeof result.geometry.rooms)[number]['polygon']>) =>
@@ -223,10 +239,13 @@ const verifiedRooms = result.geometry.rooms.map((geometryRoom) => {
   const polygon = geometryRoom.polygon
   if (!reviewedRoom || !polygon) throw new Error('A reviewed room has no transferred contour.')
   const calculatedAreaM2 = areaM2(polygon)
-  const differenceM2 = Math.abs(calculatedAreaM2 - reviewedRoom.areaM2)
-  if (differenceM2 > Math.max(0.1, reviewedRoom.areaM2 * 0.02)) {
+  const signedArea = reviewedRoom.areaM2
+  if (
+    signedArea !== undefined &&
+    Math.abs(calculatedAreaM2 - signedArea) > Math.max(0.1, signedArea * 0.02)
+  ) {
     throw new Error(
-      `Room ${reviewedRoom.sourceNumber}: contour ${calculatedAreaM2.toFixed(2)} m2 and signed ${reviewedRoom.areaM2.toFixed(2)} m2 disagree.`,
+      `Room ${reviewedRoom.sourceNumber}: contour ${calculatedAreaM2.toFixed(2)} m2 and signed ${signedArea.toFixed(2)} m2 disagree.`,
     )
   }
   return {
@@ -242,6 +261,7 @@ const verifiedRooms = result.geometry.rooms.map((geometryRoom) => {
         ? undefined
         : reviewedRoom.depthMm,
     signedAreaM2: reviewedRoom.areaM2,
+    areaStatus: signedArea === undefined ? 'source-conflict' : 'within-tolerance',
     calculatedAreaM2: Math.round(calculatedAreaM2 * 100) / 100,
     polygon,
   }
@@ -263,11 +283,16 @@ if (overlayPath) {
             return `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" stroke="#da2657" stroke-width="3" stroke-dasharray="6 4"/>`
           })
           .join('') ?? ''
-      return `<polygon points="${points}" fill="#008080" fill-opacity="0.12" stroke="#008080" stroke-width="1.5"/>${conditional}`
+      const color = room.areaM2 === undefined ? '#bf7500' : '#008080'
+      return `<polygon points="${points}" fill="${color}" fill-opacity="0.12" stroke="${color}" stroke-width="1.5"/>${conditional}`
     })
     .join('')
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${metadata.width}" height="${metadata.height}" viewBox="0 0 1000 1000" preserveAspectRatio="none">${shapes}</svg>`
-  await mkdir(dirname(overlayPath), { recursive: true })
+  const exteriorPoints = fixture.exterior?.polygon.map((point) => `${point.x},${point.y}`).join(' ')
+  const exterior = exteriorPoints
+    ? `<polygon points="${exteriorPoints}" fill="none" stroke="#3546ac" stroke-width="2"/>`
+    : ''
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${metadata.width}" height="${metadata.height}" viewBox="0 0 1000 1000" preserveAspectRatio="none">${shapes}${exterior}</svg>`
+  await mkdir(dirname(resolve(overlayPath)), { recursive: true })
   await sharp(page.image.body)
     .composite([{ input: Buffer.from(svg) }])
     .png()
@@ -278,6 +303,12 @@ console.log(
   JSON.stringify({
     sourcePage: source.pdfPage,
     sourceSha256: sha256,
+    missingRoomNumbers: fixture.sourceRoomNumbers?.filter(
+      (number) => !rooms.some((room) => room.sourceNumber === number),
+    ),
+    unresolvedAreaRoomNumbers: rooms
+      .filter((room) => room.areaM2 === undefined)
+      .map((room) => room.sourceNumber),
     rooms: verifiedRooms,
     areaConflicts,
     dimensionChecks,
