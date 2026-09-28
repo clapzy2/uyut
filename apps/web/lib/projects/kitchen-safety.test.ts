@@ -90,6 +90,30 @@ describe('инженерия кухни и непрерывные маршрут
       ),
     ).toContain('Нет непрерывного маршрута')
   })
+  it('не переносит точку доступа к фасаду на другую сторону стены', () => {
+    const barrier = {
+      id: 'barrier',
+      kind: 'inner' as const,
+      start: { xCm: 250, yCm: 0 },
+      end: { xCm: 250, yCm: 400 },
+    }
+    const behindWall = { ...fridge, xCm: 280, front: 'left' as const }
+    const result = inspectRoutes([behindWall], {
+      ...geometry,
+      walls: [...geometry.walls, barrier],
+    })
+    expect(result.issues.join(' ')).toContain('Нет непрерывного маршрута')
+    expect(result.paths).toEqual([])
+  })
+  it('не переносит старт с неверной стороны входной двери внутрь комнаты', () => {
+    const outwardDoor = {
+      ...door,
+      clearance: { ...door.clearance, side: 'right' as const },
+    }
+    const result = inspectRoutes([fridge], { ...geometry, openings: [outwardDoor] })
+    expect(result.issues.join(' ')).toContain('У двери не найдено место')
+    expect(result.paths).toEqual([])
+  })
   it('не пропускает маршрут сквозь неподвижное препятствие', () => {
     const obstacle = {
       id: 'manual_0123456789abcdef01234567',

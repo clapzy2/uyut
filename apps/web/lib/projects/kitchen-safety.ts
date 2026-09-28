@@ -187,8 +187,7 @@ export function inspectRoutes(items: PlanKitchenItem[], geometry: PlanGeometry):
   const cols = Math.ceil(geometry.widthCm / step)
   const rows = Math.ceil(geometry.heightCm / step)
   const half = width / 2
-  const free = (col: number, row: number) => {
-    const point = { xCm: (col + 0.5) * step, yCm: (row + 0.5) * step }
+  const freeAt = (point: PlanPoint) => {
     const around = [
       point,
       { xCm: point.xCm + half, yCm: point.yCm },
@@ -217,27 +216,36 @@ export function inspectRoutes(items: PlanKitchenItem[], geometry: PlanGeometry):
       !wallBlocksPoint(point, geometry, half)
     )
   }
+  const free = (col: number, row: number) =>
+    col >= 0 &&
+    row >= 0 &&
+    col < cols &&
+    row < rows &&
+    freeAt({ xCm: (col + 0.5) * step, yCm: (row + 0.5) * step })
   const nearest = (point: PlanPoint) => {
+    // A target or entrance cannot be moved across a wall to a distant free cell.
+    if (!freeAt(point)) return undefined
     const origin = {
       col: Math.max(0, Math.min(cols - 1, Math.floor(point.xCm / step))),
       row: Math.max(0, Math.min(rows - 1, Math.floor(point.yCm / step))),
     }
-    if (free(origin.col, origin.row)) return origin
-    for (let radius = 1; radius <= 8; radius += 1) {
-      for (let dc = -radius; dc <= radius; dc += 1) {
-        for (const dr of [-radius, radius]) {
-          if (free(origin.col + dc, origin.row + dr))
-            return { col: origin.col + dc, row: origin.row + dr }
+    let closest: { col: number; row: number; distanceCm: number } | undefined
+    for (let dc = -1; dc <= 1; dc += 1) {
+      for (let dr = -1; dr <= 1; dr += 1) {
+        const col = origin.col + dc
+        const row = origin.row + dr
+        if (!free(col, row)) continue
+        const distanceCm = Math.hypot(
+          (col + 0.5) * step - point.xCm,
+          (row + 0.5) * step - point.yCm,
+        )
+        if (distanceCm > step * Math.SQRT2 || (closest && distanceCm >= closest.distanceCm)) {
+          continue
         }
-      }
-      for (let dr = -radius + 1; dr < radius; dr += 1) {
-        for (const dc of [-radius, radius]) {
-          if (free(origin.col + dc, origin.row + dr))
-            return { col: origin.col + dc, row: origin.row + dr }
-        }
+        closest = { col, row, distanceCm }
       }
     }
-    return undefined
+    return closest && { col: closest.col, row: closest.row }
   }
   const firstDoor = geometry.routeStartOpeningId
     ? doors.find((door) => door.ownerId === geometry.routeStartOpeningId)
