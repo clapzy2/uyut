@@ -34,6 +34,8 @@ type StandaloneDimension = {
     kind: 'window' | 'door'
     probeAcross: number
     ignoredAnnotationFills?: number[]
+    /** The source has filled glazing; inspect only separately reviewed wall bodies. */
+    reviewedWallBodiesOnly?: true
   }
 }
 type Source = {
@@ -130,6 +132,7 @@ for (const source of sources) {
   const provenWallChains = new Map<number, { axis: Axis; millimetres: number; scale: number }>()
   let wallAnchoredDimensions = 0
   let sampledOpeningGaps = 0
+  let reviewedWallOnlyGaps = 0
   const sourceRef = {
     sha256: source.sha256,
     pdfPage: source.existingPage,
@@ -178,21 +181,26 @@ for (const source of sources) {
     anchors: StandaloneDimension['wallAnchors'],
   ) => {
     if (!opening) return
-    if (axis !== 'width' || !anchors || anchors[0].operationIndex === anchors[1].operationIndex) {
+    if (!anchors || anchors[0].operationIndex === anchors[1].operationIndex) {
       throw new Error(`${source.file}: an opening needs two separate wall bodies on one axis`)
     }
+    const along = axis === 'width' ? 'x' : 'y'
+    const across = axis === 'width' ? 'y' : 'x'
     for (const anchor of anchors) {
       const path = linework.paths.find(
         (candidate) => candidate.operationIndex === anchor.operationIndex,
       )
-      const across = path?.points.map((point) => point.y) ?? []
+      const transverse = path?.points.map((point) => point[across]) ?? []
       if (
-        across.length === 0 ||
-        opening.probeAcross <= Math.min(...across) ||
-        opening.probeAcross >= Math.max(...across)
+        transverse.length === 0 ||
+        opening.probeAcross <= Math.min(...transverse) ||
+        opening.probeAcross >= Math.max(...transverse)
       ) {
         throw new Error(`${source.file}: opening probe misses an adjacent wall body`)
       }
+    }
+    if (opening.reviewedWallBodiesOnly && opening.ignoredAnnotationFills?.length) {
+      throw new Error(`${source.file}: reviewed wall-only probe cannot ignore extra native fills`)
     }
     const ignored = new Set(opening.ignoredAnnotationFills ?? [])
     for (const operationIndex of ignored) {
@@ -206,24 +214,26 @@ for (const source of sources) {
         throw new Error(`${source.file}: ignored annotation mark is too large to exclude`)
       }
     }
+    const checkedPaths = opening.reviewedWallBodiesOnly
+      ? linework.paths.filter((path) =>
+          anchors.some((anchor) => anchor.operationIndex === path.operationIndex),
+        )
+      : linework.paths.filter((path) => !ignored.has(path.operationIndex))
     for (const fraction of [0.1, 0.3, 0.5, 0.7, 0.9]) {
       const point = {
-        x: ends[0].x + (ends[1].x - ends[0].x) * fraction,
-        y: opening.probeAcross,
-      }
+        [along]: ends[0][along] + (ends[1][along] - ends[0][along]) * fraction,
+        [across]: opening.probeAcross,
+      } as PagePoint
       if (
-        linework.paths.some(
-          (path) =>
-            path.paint === 'fill' &&
-            path.closed &&
-            !ignored.has(path.operationIndex) &&
-            pdfPointInside(point, path.points),
+        checkedPaths.some(
+          (path) => path.paint === 'fill' && path.closed && pdfPointInside(point, path.points),
         )
       ) {
         throw new Error(`${source.file}: a reviewed ${opening.kind} gap contains native fill`)
       }
     }
     sampledOpeningGaps++
+    if (opening.reviewedWallBodiesOnly) reviewedWallOnlyGaps++
   }
   for (const chain of source.chains ?? []) {
     checkLabel(chain.total)
@@ -345,6 +355,17 @@ for (const source of sources) {
     source.perimeterProbes ?? [],
     openingSpans,
   )
+  const probedOpeningIndexes = (source.perimeterProbes ?? []).flatMap(
+    (probe) => probe.openingLabelIndexes,
+  )
+  for (const dimensionLabel of source.standaloneDimensions ?? []) {
+    if (
+      dimensionLabel.opening?.reviewedWallBodiesOnly &&
+      probedOpeningIndexes.filter((index) => index === dimensionLabel.label.index).length !== 1
+    ) {
+      throw new Error(`${source.file}: reviewed wall-only opening lacks one perimeter probe`)
+    }
+  }
   let areaEnvelope: ReturnType<typeof assessPdfAreaEnvelope> | undefined
   let shellScales: { widthCmPerPt: number; depthCmPerPt: number } | undefined
   if (source.areaEnvelope) {
@@ -400,6 +421,7 @@ for (const source of sources) {
     nativeDimensionIssues: nativeIssues,
     wallAnchoredDimensions,
     sampledOpeningGaps,
+    reviewedWallOnlyGaps,
     perimeterGaps,
     areaEnvelope,
     reviewedShell,

@@ -82,4 +82,47 @@ describe('source-reviewed perimeter probes', () => {
       'opening lacks a reviewed dimension',
     )
   })
+
+  it('checks a vertical window gap between reviewed wall bodies', () => {
+    const verticalWork: PdfLinework = {
+      ...work,
+      paths: [
+        {
+          ...wall(1, 0, 10),
+          points: [
+            { x: 0, y: 0 },
+            { x: 10, y: 0 },
+            { x: 10, y: 40 },
+            { x: 0, y: 40 },
+          ],
+        },
+        {
+          ...wall(2, 0, 10),
+          points: [
+            { x: 0, y: 60 },
+            { x: 10, y: 60 },
+            { x: 10, y: 100 },
+            { x: 0, y: 100 },
+          ],
+        },
+      ],
+    }
+    expect(
+      verifyPdfPerimeterProbes(
+        'sample.pdf',
+        verticalWork,
+        [{ ...probe, axis: 'depth', side: 'right', at: 5, wallFillOperations: [1, 2] }],
+        [
+          {
+            labelIndex: 7,
+            axis: 'depth',
+            ends: [
+              { x: 5, y: 40 },
+              { x: 5, y: 60 },
+            ],
+          },
+        ],
+      ),
+    ).toEqual({ right: [{ from: 40, to: 60 }] })
+  })
 })

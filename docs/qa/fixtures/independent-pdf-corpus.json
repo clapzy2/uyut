@@ -304,6 +304,83 @@
           { "operationIndex": 2926, "point": { "x": 557.985, "y": 697.395 } },
           { "operationIndex": 1756, "point": { "x": 775.395, "y": 697.395 } }
         ]
+      },
+      {
+        "axis": "depth",
+        "label": { "index": 20, "text": "1 605" },
+        "wallAnchors": [
+          { "operationIndex": 1260, "point": { "x": 96.495, "y": 202.045 } },
+          { "operationIndex": 1265, "point": { "x": 96.495, "y": 310.14 } }
+        ],
+        "opening": { "kind": "window", "probeAcross": 86, "reviewedWallBodiesOnly": true }
+      },
+      {
+        "axis": "depth",
+        "label": { "index": 77, "text": "1 630" },
+        "wallAnchors": [
+          { "operationIndex": 1746, "point": { "x": 775.395, "y": 277.475 } },
+          { "operationIndex": 1751, "point": { "x": 775.395, "y": 387.253 } }
+        ],
+        "opening": { "kind": "window", "probeAcross": 785, "reviewedWallBodiesOnly": true }
+      },
+      {
+        "axis": "depth",
+        "label": { "index": 73, "text": "1 605" },
+        "wallAnchors": [
+          { "operationIndex": 1751, "point": { "x": 775.395, "y": 505.788 } },
+          { "operationIndex": 1756, "point": { "x": 775.395, "y": 613.883 } }
+        ],
+        "opening": { "kind": "window", "probeAcross": 785, "reviewedWallBodiesOnly": true }
+      },
+      {
+        "axis": "depth",
+        "label": { "index": 69, "text": "1 605" },
+        "wallAnchors": [
+          { "operationIndex": 1756, "point": { "x": 775.395, "y": 728.715 } },
+          { "operationIndex": 1761, "point": { "x": 775.395, "y": 836.809 } }
+        ],
+        "opening": { "kind": "window", "probeAcross": 785, "reviewedWallBodiesOnly": true }
+      },
+      {
+        "axis": "width",
+        "label": { "index": 61, "text": "1 010" },
+        "wallAnchors": [
+          { "operationIndex": 2660, "point": { "x": 416.537, "y": 697.395 } },
+          { "operationIndex": 2665, "point": { "x": 464.639, "y": 697.395 } }
+        ],
+        "opening": { "kind": "door", "probeAcross": 704 }
+      }
+    ],
+    "perimeterProbes": [
+      {
+        "side": "left",
+        "axis": "depth",
+        "at": 86,
+        "from": 190,
+        "to": 350,
+        "wallFillOperations": [1260, 1265],
+        "openingLabelIndexes": [20],
+        "gapBoundaryTolerance": 0.02
+      },
+      {
+        "side": "right",
+        "axis": "depth",
+        "at": 785,
+        "from": 190,
+        "to": 840,
+        "wallFillOperations": [1746, 1751, 1756, 1761],
+        "openingLabelIndexes": [77, 73, 69],
+        "gapBoundaryTolerance": 0.02
+      },
+      {
+        "side": "entry",
+        "axis": "width",
+        "at": 704,
+        "from": 400,
+        "to": 475,
+        "wallFillOperations": [2660, 2665],
+        "openingLabelIndexes": [61],
+        "gapBoundaryTolerance": 0.02
       }
     ]
   }
