@@ -270,6 +270,7 @@ export function planPageMetricDraft(
     return fail('Размер схемы превышает допустимое полотно. Проверьте масштаб и выбранные комнаты.')
   const checks = verifyPlanPageOpenings(linework, source, contours, context.planText)
   const derivedOpeningIds: string[] = []
+  const areaWarnings: string[] = []
   for (const contour of selected) {
     const numbers = pdfContourRoomNumbers(contour)
     const number = pdfContourKey(contour)
@@ -291,7 +292,7 @@ export function planPageMetricDraft(
       const printedAreaM2 = printedAreas.reduce((sum, area) => sum + area, 0)
       const contourAreaM2 = polygonAreaM2(polygon)
       if (Math.abs(contourAreaM2 - printedAreaM2) > Math.max(0.1, printedAreaM2 * 0.02)) {
-        geometry.warnings.push(
+        areaWarnings.push(
           `${name}: площадь по контуру ${contourAreaM2.toFixed(2)} м², на плане ${printedAreaM2.toFixed(2)} м². Сверьте границы помещения.`,
         )
       }
@@ -459,6 +460,7 @@ export function planPageMetricDraft(
       'Сверьте все проёмы, неподвижные объекты, открывание дверей и высоты подоконников перед подтверждением. Неразмеченные элементы автоматически не добавляются.',
     ]
   }
+  geometry.warnings.push(...areaWarnings)
   if (selected.some((room) => room.conditionalEdges?.length)) {
     geometry.warnings.push(
       'Условные границы открытых зон показывают разделение площадей, но не являются стенами. Сверьте их положение на исходном плане перед расстановкой.',

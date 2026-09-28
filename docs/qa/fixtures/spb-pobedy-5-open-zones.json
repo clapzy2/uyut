@@ -1,0 +1,296 @@
+{
+  "source": {
+    "sha256": "180ac586af50432ecbd9c166251a8de7d008a6f1f98f72b946d9ce2cfe7ee4e9",
+    "pdfPage": 2,
+    "state": "existing"
+  },
+  "calibrationRoomNumbers": [3, 5],
+  "expectedDimensionIssues": [
+    { "sourceNumber": 1, "side": "width", "reason": "dimension-outside-room" }
+  ],
+  "areaConflicts": [
+    {
+      "sourceNumber": 9,
+      "planTextItemIndex": 100,
+      "legendTextItemIndex": 130,
+      "planAreaM2": 8.93,
+      "legendAreaM2": 8.51
+    }
+  ],
+  "rooms": [
+    {
+      "sourceNumber": 1,
+      "name": "Прихожая №01",
+      "kind": "living",
+      "utility": true,
+      "areaM2": 9.99,
+      "polygon": [
+        { "x": 342.92, "y": 539.042 },
+        { "x": 423.842, "y": 539.042 },
+        { "x": 591.57, "y": 539.042 },
+        { "x": 591.57, "y": 667.771 },
+        { "x": 342.92, "y": 667.771 }
+      ],
+      "conditionalEdges": [
+        {
+          "wallEdgeIndex": 0,
+          "endpointProofs": {
+            "start": {
+              "kind": "native-edge-crossing",
+              "operationIndex": 2888,
+              "subpathIndex": 0,
+              "segmentIndex": 0
+            }
+          }
+        }
+      ],
+      "openings": [
+        {
+          "id": "entry",
+          "kind": "door",
+          "wallEdgeIndex": 2,
+          "start": { "x": 591.57, "y": 566.473 },
+          "end": { "x": 591.57, "y": 613.118 }
+        },
+        {
+          "id": "living-passage",
+          "kind": "door",
+          "wallEdgeIndex": 3,
+          "start": { "x": 349.263, "y": 667.771 },
+          "end": { "x": 450.223, "y": 667.771 }
+        },
+        {
+          "id": "kitchen-passage",
+          "kind": "door",
+          "wallEdgeIndex": 4,
+          "start": { "x": 342.92, "y": 599.694 },
+          "end": { "x": 342.92, "y": 642.53 }
+        }
+      ],
+      "widthMm": 3694,
+      "depthMm": 2705,
+      "width": { "textItemIndexes": [59], "segmentsMm": [3694] },
+      "depth": { "textItemIndexes": [15], "segmentsMm": [2705] }
+    },
+    {
+      "sourceNumber": 2,
+      "name": "Гостевой санузел №02",
+      "kind": "bath",
+      "areaM2": 5.17,
+      "polygon": [
+        { "x": 430.573, "y": 418.444 },
+        { "x": 567.613, "y": 418.444 },
+        { "x": 567.613, "y": 505.858 },
+        { "x": 591.57, "y": 505.858 },
+        { "x": 591.57, "y": 534.282 },
+        { "x": 430.573, "y": 534.282 }
+      ],
+      "openings": [
+        {
+          "id": "corridor-passage",
+          "kind": "door",
+          "wallEdgeIndex": 5,
+          "start": { "x": 430.573, "y": 467.646 },
+          "end": { "x": 430.573, "y": 505.723 }
+        }
+      ],
+      "depthMm": 2434,
+      "depth": { "textItemIndexes": [18], "segmentsMm": [2434] }
+    },
+    {
+      "sourceNumber": 3,
+      "name": "Санузел №03",
+      "kind": "bath",
+      "areaM2": 4.65,
+      "polygon": [
+        { "x": 430.573, "y": 321.096 },
+        { "x": 591.57, "y": 321.096 },
+        { "x": 591.57, "y": 413.684 },
+        { "x": 430.573, "y": 413.684 }
+      ],
+      "openings": [
+        {
+          "id": "corridor-passage",
+          "kind": "door",
+          "wallEdgeIndex": 3,
+          "start": { "x": 430.573, "y": 342.289 },
+          "end": { "x": 430.573, "y": 380.368 }
+        }
+      ],
+      "widthMm": 2392,
+      "depthMm": 1945,
+      "width": { "textItemIndexes": [44], "segmentsMm": [2392] },
+      "depth": { "textItemIndexes": [19], "segmentsMm": [1945] }
+    },
+    {
+      "sourceNumber": 4,
+      "name": "Санузел №04",
+      "kind": "bath",
+      "areaM2": 9.65,
+      "polygon": [
+        { "x": 84.374, "y": 424.294 },
+        { "x": 336.189, "y": 424.294 },
+        { "x": 336.189, "y": 556.859 },
+        { "x": 111.057, "y": 556.859 },
+        { "x": 111.057, "y": 497.825 },
+        { "x": 122.689, "y": 497.825 },
+        { "x": 122.689, "y": 474.965 },
+        { "x": 84.374, "y": 474.965 }
+      ],
+      "openings": [
+        {
+          "id": "bedroom-passage",
+          "kind": "door",
+          "wallEdgeIndex": 0,
+          "start": { "x": 272.836, "y": 424.294 },
+          "end": { "x": 326.683, "y": 424.294 }
+        }
+      ],
+      "widthMm": 3741,
+      "depthMm": 2785,
+      "width": { "textItemIndexes": [43], "segmentsMm": [3741] },
+      "depth": { "textItemIndexes": [38], "segmentsMm": [2785] }
+    },
+    {
+      "sourceNumber": 5,
+      "name": "Спальня №05",
+      "kind": "bedroom",
+      "areaM2": 16.54,
+      "polygon": [
+        { "x": 342.92, "y": 99.921 },
+        { "x": 591.57, "y": 99.921 },
+        { "x": 591.57, "y": 313.006 },
+        { "x": 342.92, "y": 313.006 }
+      ],
+      "openings": [
+        {
+          "id": "window",
+          "kind": "window",
+          "wallEdgeIndex": 0,
+          "start": { "x": 427.337, "y": 99.921 },
+          "end": { "x": 547.149, "y": 99.921 }
+        },
+        {
+          "id": "corridor-passage",
+          "kind": "door",
+          "wallEdgeIndex": 2,
+          "start": { "x": 342.92, "y": 313.006 },
+          "end": { "x": 423.842, "y": 313.006 }
+        }
+      ],
+      "widthMm": 3694,
+      "depthMm": 4477,
+      "width": { "textItemIndexes": [26, 27, 28], "segmentsMm": [1194, 1900, 600] },
+      "depth": { "textItemIndexes": [20], "segmentsMm": [4477] }
+    },
+    {
+      "sourceNumber": 8,
+      "name": "Коридор №08",
+      "kind": "living",
+      "utility": true,
+      "areaM2": 5.59,
+      "polygon": [
+        { "x": 342.92, "y": 317.765 },
+        { "x": 423.842, "y": 317.765 },
+        { "x": 423.842, "y": 539.042 },
+        { "x": 342.92, "y": 539.042 }
+      ],
+      "conditionalEdges": [
+        {
+          "wallEdgeIndex": 2,
+          "endpointProofs": {
+            "end": {
+              "kind": "native-edge-crossing",
+              "operationIndex": 2888,
+              "subpathIndex": 0,
+              "segmentIndex": 0
+            }
+          }
+        }
+      ],
+      "openings": [
+        {
+          "id": "bedroom-05",
+          "kind": "door",
+          "wallEdgeIndex": 0,
+          "start": { "x": 342.92, "y": 317.765 },
+          "end": { "x": 423.842, "y": 317.765 }
+        },
+        {
+          "id": "bath-03",
+          "kind": "door",
+          "wallEdgeIndex": 1,
+          "start": { "x": 423.842, "y": 342.289 },
+          "end": { "x": 423.842, "y": 380.368 }
+        },
+        {
+          "id": "bath-02",
+          "kind": "door",
+          "wallEdgeIndex": 1,
+          "start": { "x": 423.842, "y": 467.646 },
+          "end": { "x": 423.842, "y": 505.723 }
+        },
+        {
+          "id": "bedroom-06",
+          "kind": "door",
+          "wallEdgeIndex": 3,
+          "start": { "x": 342.92, "y": 330.527 },
+          "end": { "x": 342.92, "y": 373.365 }
+        }
+      ]
+    },
+    {
+      "sourceNumber": 10,
+      "name": "Гостиная №10",
+      "kind": "living",
+      "areaM2": 46.54,
+      "polygon": [
+        { "x": 84.374, "y": 672.53 },
+        { "x": 336.189, "y": 672.53 },
+        { "x": 591.57, "y": 672.53 },
+        { "x": 591.57, "y": 966.514 },
+        { "x": 84.374, "y": 966.514 }
+      ],
+      "conditionalEdges": [
+        {
+          "wallEdgeIndex": 0,
+          "endpointProofs": {
+            "start": {
+              "kind": "native-edge-crossing",
+              "operationIndex": 135,
+              "subpathIndex": 0,
+              "segmentIndex": 0
+            }
+          }
+        }
+      ],
+      "openings": [
+        {
+          "id": "hall-passage",
+          "kind": "door",
+          "wallEdgeIndex": 1,
+          "start": { "x": 349.263, "y": 672.53 },
+          "end": { "x": 450.223, "y": 672.53 }
+        },
+        {
+          "id": "window-left",
+          "kind": "window",
+          "wallEdgeIndex": 3,
+          "start": { "x": 142.258, "y": 966.514 },
+          "end": { "x": 262.067, "y": 966.514 }
+        },
+        {
+          "id": "window-right",
+          "kind": "window",
+          "wallEdgeIndex": 3,
+          "start": { "x": 393.684, "y": 966.514 },
+          "end": { "x": 513.492, "y": 966.514 }
+        }
+      ],
+      "widthMm": 7535,
+      "depthMm": 6177,
+      "width": { "textItemIndexes": [10], "segmentsMm": [7535] },
+      "depth": { "textItemIndexes": [11], "segmentsMm": [6177] }
+    }
+  ]
+}

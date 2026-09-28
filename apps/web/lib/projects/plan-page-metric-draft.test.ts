@@ -250,13 +250,14 @@ describe('native PDF page to metric draft', () => {
     expect({ reading, context }).toEqual(before)
   })
 
-  it('marks an area disagreement without fitting the contour to the printed value', () => {
+  it.each([false, true])('preserves an area disagreement with global calibration %s', (global) => {
     const { reading, context } = synthetic()
+    const calibratedContext = global ? { ...context, calibrationRoomNumbers: [4] } : context
     const room = reading.rooms[0]
     if (!room) throw new Error('Synthetic room is missing.')
     room.areaM2 = 11.5
 
-    const result = planPageMetricDraft(reading, context, [4])
+    const result = planPageMetricDraft(reading, calibratedContext, [4])
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.geometry.rooms[0]?.polygon).toEqual([
@@ -270,7 +271,7 @@ describe('native PDF page to metric draft', () => {
     )
 
     room.areaM2 = 12
-    const matching = planPageMetricDraft(reading, context, [4])
+    const matching = planPageMetricDraft(reading, calibratedContext, [4])
     expect(matching.ok).toBe(true)
     if (!matching.ok) return
     expect(
