@@ -175,6 +175,54 @@ function completePageSheet() {
 }
 
 describe('exact native PDF wall-face intervals', () => {
+  it.each(['continuous', 'gap', 'shifted', 'reversed', 'duplicate', 'overlong'] as const)(
+    'supports separately stroked portions without filling missing evidence: %s',
+    (mode) => {
+      const input = syntheticSheet()
+      input.wall.paint = 'fill'
+      const stroke = (id: number, x: number, start: number, end: number): PdfVectorPath => ({
+        operationIndex: id,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x, y: start },
+          { x, y: end },
+        ],
+      })
+      input.work.paths.push(
+        stroke(501, 220, 100, 190),
+        stroke(503, 220, 210, 300),
+        stroke(505, 200, mode === 'overlong' ? 90 : 100, 150),
+        stroke(506, mode === 'shifted' ? 200.001 : 200, mode === 'gap' ? 160 : 150, 300),
+      )
+      if (mode === 'reversed') {
+        for (const path of input.work.paths.filter((path) => path.operationIndex >= 500))
+          path.points.reverse()
+        input.work.paths.reverse()
+      }
+      if (mode === 'duplicate') input.work.paths.push(stroke(507, 200, 150, 300))
+      const before = structuredClone(input)
+      const pairs = pairPlanPageWallFaces(input.work, source, input.contours)
+      const intervals = pairs.flatMap(({ faces }) =>
+        faces
+          .filter((face) => face.contourKey === '1')
+          .map((face) => [face.start.y, face.end.y, face.strokeSegment?.operationIndex]),
+      )
+      expect(intervals).toEqual(
+        mode === 'shifted'
+          ? [[100, 150, 505]]
+          : [
+              [100, 150, 505],
+              [mode === 'gap' ? 160 : 150, 190, 506],
+              [210, 300, 506],
+            ],
+      )
+      // Adjacent portions retain different witnesses instead of becoming one unprovable span.
+      expect(input).toEqual(before)
+    },
+  )
+
   it('pairs a filled wall only with exact independently stroked faces and preserves both references', () => {
     const input = syntheticSheet()
     input.wall.paint = 'fill'

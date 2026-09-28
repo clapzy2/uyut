@@ -50,6 +50,15 @@ const refKey = (ref: PlanPageSegmentRef) =>
   [ref.operationIndex, ref.subpathIndex, ref.segmentIndex]
     .map((n) => String(n).padStart(6, '0'))
     .join(':')
+const candidateRefKey = (candidate: Candidate) =>
+  [
+    candidate.first.ref,
+    candidate.second.ref,
+    candidate.first.strokeSegment,
+    candidate.second.strokeSegment,
+  ]
+    .map((ref) => (ref ? refKey(ref) : ''))
+    .join('|')
 const areaSign = (points: readonly PagePoint[]) =>
   Math.sign(
     points.reduce((sum, point, index) => {
@@ -428,25 +437,27 @@ export function pairPlanPageWallFaces(
       closedSubpaths.set(path.operationIndex, (closedSubpaths.get(path.operationIndex) ?? 0) + 1)
   }
   const candidates: Candidate[] = []
-  // Exact independent strokes only: no nearest-line matching or invented closing segment.
-  const segmentKey = (a: PagePoint, b: PagePoint) =>
-    [JSON.stringify(a), JSON.stringify(b)].sort().join('|')
-  const strokes = new Map<string, PlanPageSegmentRef>()
+  // Index exact collinear strokes. Each accepted interval retains its own witness;
+  // adjacent strokes never authorize the gap between them or an invented closing edge.
+  const strokes = new Map<string, Array<{ low: number; high: number; ref: PlanPageSegmentRef }>>()
   for (const path of work.paths) {
     if (path.paint === 'fill') continue
     const count = path.closed ? path.points.length : path.points.length - 1
     for (let index = 0; index < count; index++) {
       const a = path.points[index]
       const b = path.points[(index + 1) % path.points.length]
-      if (!a || !b || samePoint(a, b)) continue
-      const key = segmentKey(a, b)
+      if (!a || !b || samePoint(a, b) || (a.x !== b.x && a.y !== b.y)) continue
+      const along = a.y === b.y ? 'x' : 'y'
+      const across = along === 'x' ? 'y' : 'x'
+      const key = `${along}:${a[across]}`
       const ref = {
         operationIndex: path.operationIndex,
         subpathIndex: path.subpathIndex,
         segmentIndex: index,
       }
-      const previous = strokes.get(key)
-      if (!previous || refKey(ref) < refKey(previous)) strokes.set(key, ref)
+      const group = strokes.get(key) ?? []
+      group.push({ low: Math.min(a[along], b[along]), high: Math.max(a[along], b[along]), ref })
+      strokes.set(key, group)
     }
   }
   for (const path of work.paths) {
@@ -458,29 +469,40 @@ export function pairPlanPageWallFaces(
     for (const [segmentIndex, a] of points.entries()) {
       const b = points[(segmentIndex + 1) % points.length]
       if (!b || (a.x !== b.x && a.y !== b.y)) continue
-      const strokeSegment = path.paint === 'fill' ? strokes.get(segmentKey(a, b)) : undefined
-      if (path.paint === 'fill' && !strokeSegment) continue
       const along = a.y === b.y ? 'x' : 'y'
       const across = along === 'x' ? 'y' : 'x'
+      const witnesses =
+        path.paint === 'fill'
+          ? (strokes.get(`${along}:${a[across]}`) ?? [])
+          : [
+              {
+                low: Math.min(a[along], b[along]),
+                high: Math.max(a[along], b[along]),
+                ref: undefined,
+              },
+            ]
       const inside = sign * Math.sign(b[along] - a[along]) * (along === 'x' ? 1 : -1)
       for (const face of faces) {
         if (face.along !== along || face.coordinate !== a[across] || face.freeSide === inside)
           continue
         for (const interval of face.intervals) {
-          const low = Math.max(interval[0], Math.min(a[along], b[along]))
-          const high = Math.min(interval[1], Math.max(a[along], b[along]))
-          if (low < high)
-            supports.push({
-              face,
-              low,
-              high,
-              ...(strokeSegment ? { strokeSegment } : {}),
-              ref: {
-                operationIndex: path.operationIndex,
-                subpathIndex: path.subpathIndex,
-                segmentIndex,
-              },
-            })
+          for (const witness of witnesses) {
+            const low = Math.max(interval[0], Math.min(a[along], b[along]), witness.low)
+            const high = Math.min(interval[1], Math.max(a[along], b[along]), witness.high)
+            if (low < high)
+              supports.push({
+                face,
+                low,
+                high,
+                ...(witness.ref ? { strokeSegment: witness.ref } : {}),
+                ref: {
+                  operationIndex: path.operationIndex,
+                  subpathIndex: path.subpathIndex,
+                  segmentIndex,
+                },
+              })
+            if (supports.length > 2000) return []
+          }
         }
       }
     }
@@ -549,11 +571,7 @@ export function pairPlanPageWallFaces(
       if (low === undefined || high === undefined) continue
       const witnesses = group
         .filter((candidate) => candidate.low <= low && candidate.high >= high)
-        .sort((a, b) =>
-          `${refKey(a.first.ref)}|${refKey(a.second.ref)}`.localeCompare(
-            `${refKey(b.first.ref)}|${refKey(b.second.ref)}`,
-          ),
-        )
+        .sort((a, b) => candidateRefKey(a).localeCompare(candidateRefKey(b)))
       const witness = witnesses[0]
       if (
         !witness ||
@@ -587,7 +605,9 @@ export function pairPlanPageWallFaces(
           return (
             next &&
             samePoint(face.end, next.start) &&
-            refKey(face.nativeSegment) === refKey(next.nativeSegment)
+            refKey(face.nativeSegment) === refKey(next.nativeSegment) &&
+            (face.strokeSegment ? refKey(face.strokeSegment) : '') ===
+              (next.strokeSegment ? refKey(next.strokeSegment) : '')
           )
         })
       ) {
