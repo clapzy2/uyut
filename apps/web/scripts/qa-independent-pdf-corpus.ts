@@ -13,6 +13,7 @@ import {
   type PerimeterProbe,
   verifyPdfPerimeterProbes,
 } from './qa-pdf-perimeter'
+import { type ReviewedShell, verifyReviewedPdfShell } from './qa-pdf-reviewed-shell'
 
 type Label = { index: number; text: string }
 type Axis = 'width' | 'depth'
@@ -52,6 +53,7 @@ type Source = {
     depthChainTotalIndex: number
     expectedAreaStatus: 'mismatch' | 'within-rounding'
   }
+  reviewedShell?: ReviewedShell & { expectedAreaStatus: 'mismatch' | 'within-rounding' }
 }
 
 const sourceDirectory = process.argv[2]
@@ -125,7 +127,7 @@ for (const source of sources) {
   }> = []
   const nativeIssues: string[] = []
   const openingSpans: MeasuredOpening[] = []
-  const provenWallChains = new Map<number, { axis: Axis; millimetres: number }>()
+  const provenWallChains = new Map<number, { axis: Axis; millimetres: number; scale: number }>()
   let wallAnchoredDimensions = 0
   let sampledOpeningGaps = 0
   const sourceRef = {
@@ -266,7 +268,11 @@ for (const source of sources) {
     }
     checkWallAnchors(native.ends, chain.axis, chain.wallAnchors)
     if (chain.wallAnchors) {
-      provenWallChains.set(chain.total.index, { axis: chain.axis, millimetres: sum })
+      provenWallChains.set(chain.total.index, {
+        axis: chain.axis,
+        millimetres: sum,
+        scale: sum / 10 / pointLength(...native.ends),
+      })
     }
     nativeProofs.push({
       scale: sum / 10 / pointLength(...native.ends),
@@ -340,6 +346,7 @@ for (const source of sources) {
     openingSpans,
   )
   let areaEnvelope: ReturnType<typeof assessPdfAreaEnvelope> | undefined
+  let shellScales: { widthCmPerPt: number; depthCmPerPt: number } | undefined
   if (source.areaEnvelope) {
     const { signedAreaLabel, widthChainTotalIndex, depthChainTotalIndex, expectedAreaStatus } =
       source.areaEnvelope
@@ -349,6 +356,10 @@ for (const source of sources) {
     if (width?.axis !== 'width' || depth?.axis !== 'depth') {
       throw new Error(`${source.file}: area envelope lacks two wall-anchored native chains`)
     }
+    if (Math.abs(width.scale - depth.scale) / width.scale > 0.00001) {
+      throw new Error(`${source.file}: perpendicular wall dimensions disagree on page scale`)
+    }
+    shellScales = { widthCmPerPt: width.scale, depthCmPerPt: depth.scale }
     if (!/^\d{1,4},\d{1,2}$/.test(signedAreaLabel.text)) {
       throw new Error(`${source.file}: signed area label is not an area`)
     }
@@ -359,6 +370,23 @@ for (const source of sources) {
     )
     if (areaEnvelope.areaStatus !== expectedAreaStatus) {
       throw new Error(`${source.file}: measured envelope and signed area relation changed`)
+    }
+  }
+  let reviewedShell: ReturnType<typeof verifyReviewedPdfShell> | undefined
+  if (source.reviewedShell) {
+    if (!areaEnvelope || !shellScales || Object.keys(perimeterGaps).length !== 4) {
+      throw new Error(`${source.file}: shell draft lacks area, scale or four perimeter probes`)
+    }
+    reviewedShell = verifyReviewedPdfShell(
+      source.file,
+      linework,
+      source.reviewedShell,
+      openingSpans,
+      shellScales,
+      areaEnvelope.signedAreaM2,
+    )
+    if (reviewedShell.areaStatus !== source.reviewedShell.expectedAreaStatus) {
+      throw new Error(`${source.file}: reviewed shell area relation changed`)
     }
   }
 
@@ -374,6 +402,7 @@ for (const source of sources) {
     sampledOpeningGaps,
     perimeterGaps,
     areaEnvelope,
+    reviewedShell,
     clippedPaths: linework.clippedPaths,
     skippedCurves: linework.skippedCurves,
   })
