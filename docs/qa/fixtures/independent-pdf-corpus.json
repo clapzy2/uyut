@@ -1,0 +1,108 @@
+[
+  {
+    "file": "moscow_basis_47m2.pdf",
+    "sha256": "eacadf4cf2a58a2f595ba192f3b9be49062f0215b49dffb3ccc920ee669b7eeb",
+    "pages": 33,
+    "existingPage": 3,
+    "minNativePaths": 1000,
+    "textLayer": "extractable",
+    "labels": [
+      { "index": 9, "text": "Обмерочный план" },
+      { "index": 15, "text": "Помещение" },
+      { "index": 16, "text": "Балкон 01" },
+      { "index": 17, "text": "Балкон 02" },
+      { "index": 19, "text": "40,13" },
+      { "index": 45, "text": "7 088" }
+    ]
+  },
+  {
+    "file": "moscow_basman_68m2.pdf",
+    "sha256": "f3a94ec764d645fdadff4f1b44813c7990d55479853afff2ea202cd793d7aec2",
+    "pages": 43,
+    "existingPage": 3,
+    "minNativePaths": 900,
+    "textLayer": "extractable",
+    "labels": [
+      { "index": 6, "text": "План обмерочный" },
+      { "index": 43, "text": "Квартира" },
+      { "index": 59, "text": "План обмерочный М 1:40" },
+      { "index": 67, "text": "68,56" }
+    ],
+    "chains": [
+      {
+        "total": { "index": 40, "text": "9 655" },
+        "parts": [
+          { "index": 30, "text": "555" },
+          { "index": 31, "text": "750" },
+          { "index": 32, "text": "1 420" },
+          { "index": 33, "text": "795" },
+          { "index": 34, "text": "2 370" },
+          { "index": 35, "text": "800" },
+          { "index": 36, "text": "1 510" },
+          { "index": 37, "text": "1 040" },
+          { "index": 38, "text": "415" }
+        ]
+      },
+      {
+        "total": { "index": 40, "text": "9 655" },
+        "parts": [
+          { "index": 18, "text": "310" },
+          { "index": 19, "text": "1 540" },
+          { "index": 20, "text": "1 060" },
+          { "index": 21, "text": "170" },
+          { "index": 22, "text": "950" },
+          { "index": 23, "text": "340" },
+          { "index": 24, "text": "1 300" },
+          { "index": 25, "text": "2 845" },
+          { "index": 26, "text": "500" },
+          { "index": 27, "text": "640" }
+        ]
+      },
+      {
+        "total": { "index": 39, "text": "7 135" },
+        "parts": [{ "index": 28, "text": "475" }, { "index": 29, "text": "6 660" }]
+      }
+    ]
+  },
+  {
+    "file": "moscow_life_kutuzovsky.pdf",
+    "sha256": "1463e5fdae669984ae959dcf6b90402b5b095dddbddca6a1020f31cb938cb5c4",
+    "pages": 27,
+    "existingPage": 3,
+    "minNativePaths": 50,
+    "textLayer": "extractable",
+    "labels": [
+      { "index": 2, "text": "Обмерный план" },
+      { "index": 21, "text": "Помещение 1" },
+      { "index": 23, "text": "101,9" },
+      { "index": 57, "text": "3 500" },
+      { "index": 59, "text": "3 220" },
+      { "index": 153, "text": "1. План выполнен по черновым обмерам, предоставленным" }
+    ]
+  },
+  {
+    "file": "spb_designgroup.pdf",
+    "sha256": "04bcf9ab700cfa4ba78fd3ee59f40bf5ebf2294c05f2067d707f44d789580e5c",
+    "pages": 22,
+    "existingPage": 3,
+    "minNativePaths": 2000,
+    "textLayer": "outlined",
+    "labels": []
+  },
+  {
+    "file": "moscow_ryazansky_remplanner.pdf",
+    "sha256": "26b6a49e0512205ee50b1179b7b7447859864db8d3e92375b69a45edadcbc69c",
+    "pages": 14,
+    "existingPage": 3,
+    "minNativePaths": 600,
+    "textLayer": "extractable",
+    "labels": [
+      { "index": 6, "text": "ВСЕ РАЗМЕРЫ УТОЧНЯЮТСЯ ПРИ" },
+      { "index": 8, "text": "Размеры указаны в миллиметрах." },
+      { "index": 40, "text": "5 290" },
+      { "index": 49, "text": "6 220" },
+      { "index": 98, "text": "Обмерный план" },
+      { "index": 100, "text": "Высота потолков = 2810 мм" }
+    ]
+  }
+]
