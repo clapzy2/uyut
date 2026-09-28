@@ -47,10 +47,11 @@ function sameRoomPolygons(geometry: Pick<PlanGeometry, 'rooms' | 'pdfCalibration
   )
 }
 
-/** A PDF face relation is evidence only while both annotated spans and hosts are unchanged. */
+/** A PDF face relation requires unchanged spans, hosts and room interiors. */
 export function currentOpeningFacePairs(
-  geometry: Pick<PlanGeometry, 'walls' | 'openings' | 'pdfCalibration'>,
+  geometry: Pick<PlanGeometry, 'walls' | 'openings' | 'rooms' | 'pdfCalibration'>,
 ): PlanOpeningFacePair[] {
+  if (!sameRoomPolygons(geometry)) return []
   return (geometry.pdfCalibration?.openingFacePairs ?? []).filter((pair) =>
     pair.bindings.every(({ opening: snapshot, wall: host }) => {
       const opening = geometry.openings.find((value) => value.id === snapshot.id)

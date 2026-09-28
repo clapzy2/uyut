@@ -145,7 +145,7 @@ describe('manual plan draft', () => {
     expect(mocks.revalidate).not.toHaveBeenCalled()
   })
 
-  it.each(['unchanged', 'width', 'host', 'removed', 'added'] as const)(
+  it.each(['unchanged', 'width', 'host', 'removed', 'added', 'contour', 'forged-contour'] as const)(
     'preserves only current server-owned face pairs after %s edits',
     async (edit) => {
       const firstWall = closedWalls[0]
@@ -184,6 +184,7 @@ describe('manual plan draft', () => {
         ...emptyManualGeometry,
         walls: structuredClone(closedWalls),
         openings,
+        rooms: structuredClone(kitchenContour),
         pdfCalibration: {
           sourceSha256: 'a'.repeat(64),
           pdfPage: 6,
@@ -194,7 +195,7 @@ describe('manual plan draft', () => {
           derivedOpeningIds: [],
           openingFacePairs: [structuredClone(pair)],
           wallFacePairs: [structuredClone(wallPair)],
-          wallFaceRoomPolygons: [],
+          wallFaceRoomPolygons: [structuredClone(kitchenContour[0]?.polygon ?? [])],
         },
       }
       // The snapshots are separate from editable geometry; client metadata is not trusted.
@@ -210,6 +211,15 @@ describe('manual plan draft', () => {
       if (edit === 'width') opening.widthCm += 1
       if (edit === 'host') wall.start.xCm += 1
       if (edit === 'removed') input.openings = input.openings.slice(1)
+      if (edit === 'contour' || edit === 'forged-contour') {
+        const point = input.rooms[0]?.polygon[0]
+        if (!point) throw new Error('Missing editable contour')
+        point.xCm += 1
+        if (edit === 'forged-contour' && input.pdfCalibration)
+          input.pdfCalibration.wallFaceRoomPolygons = input.rooms.map(({ polygon }) =>
+            structuredClone(polygon),
+          )
+      }
       if (edit === 'added')
         input.openings.push({
           ...opening,

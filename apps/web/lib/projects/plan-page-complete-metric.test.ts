@@ -172,6 +172,29 @@ describe('complete existing PDF page in one native metric scale', () => {
     expect(currentOpeningFacePairs(geometry)).not.toContain(first)
   })
 
+  it.each(['moved-point', 'removed-room', 'missing-snapshot'] as const)(
+    'invalidates opening face evidence when source room interiors change: %s',
+    (mode) => {
+      const geometry = draft()
+      expect(currentOpeningFacePairs(geometry)).toHaveLength(5)
+      if (mode === 'moved-point') {
+        const point = geometry.rooms[0]?.polygon[0]
+        if (!point) throw new Error('Missing source contour')
+        point.xCm += 1
+      }
+      if (mode === 'removed-room') geometry.rooms.pop()
+      if (mode === 'missing-snapshot' && geometry.pdfCalibration)
+        delete geometry.pdfCalibration.wallFaceRoomPolygons
+      expect(currentOpeningFacePairs(geometry)).toEqual([])
+    },
+  )
+
+  it('preserves opening face evidence when unchanged rooms are reordered', () => {
+    const geometry = draft()
+    geometry.rooms.reverse()
+    expect(currentOpeningFacePairs(geometry)).toHaveLength(5)
+  })
+
   it('binds all printed opening widths to the unchanged source cuts and contours', () => {
     const geometry = draft()
     const proofs = geometry.pdfCalibration?.openingWidthProofs
