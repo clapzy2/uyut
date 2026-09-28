@@ -21,6 +21,8 @@ export type PdfWallFaceInterval = {
   start: PagePoint
   end: PagePoint
   nativeSegment: PlanPageSegmentRef
+  /** Separate exact stroke when nativeSegment belongs to a fill-only outline. */
+  strokeSegment?: PlanPageSegmentRef
 }
 export type PdfWallFacePair = { faces: [PdfWallFaceInterval, PdfWallFaceInterval] }
 
@@ -33,7 +35,13 @@ type Face = {
   freeSide: number
   intervals: Array<[number, number]>
 }
-type Support = { face: Face; low: number; high: number; ref: PlanPageSegmentRef }
+type Support = {
+  face: Face
+  low: number
+  high: number
+  ref: PlanPageSegmentRef
+  strokeSegment?: PlanPageSegmentRef
+}
 type Candidate = { first: Support; second: Support; low: number; high: number }
 
 const samePoint = (a: PagePoint, b: PagePoint) => a.x === b.x && a.y === b.y
@@ -165,8 +173,8 @@ function stripWithinPath(
   })
 }
 
-function pathPoints(path: PdfVectorPath): PagePoint[] | undefined {
-  if (!path.closed || path.paint === 'fill' || path.points.length > 100) return
+function pathPoints(path: PdfVectorPath, allowFill = false): PagePoint[] | undefined {
+  if (!path.closed || (path.paint === 'fill' && !allowFill) || path.points.length > 100) return
   const first = path.points[0]
   const last = path.points.at(-1)
   if (!first || !last) return
@@ -420,15 +428,38 @@ export function pairPlanPageWallFaces(
       closedSubpaths.set(path.operationIndex, (closedSubpaths.get(path.operationIndex) ?? 0) + 1)
   }
   const candidates: Candidate[] = []
+  // Exact independent strokes only: no nearest-line matching or invented closing segment.
+  const segmentKey = (a: PagePoint, b: PagePoint) =>
+    [JSON.stringify(a), JSON.stringify(b)].sort().join('|')
+  const strokes = new Map<string, PlanPageSegmentRef>()
+  for (const path of work.paths) {
+    if (path.paint === 'fill') continue
+    const count = path.closed ? path.points.length : path.points.length - 1
+    for (let index = 0; index < count; index++) {
+      const a = path.points[index]
+      const b = path.points[(index + 1) % path.points.length]
+      if (!a || !b || samePoint(a, b)) continue
+      const key = segmentKey(a, b)
+      const ref = {
+        operationIndex: path.operationIndex,
+        subpathIndex: path.subpathIndex,
+        segmentIndex: index,
+      }
+      const previous = strokes.get(key)
+      if (!previous || refKey(ref) < refKey(previous)) strokes.set(key, ref)
+    }
+  }
   for (const path of work.paths) {
     if ((closedSubpaths.get(path.operationIndex) ?? 0) > 1) continue
-    const points = pathPoints(path)
+    const points = pathPoints(path, true)
     if (!points) continue
     const supports: Support[] = []
     const sign = areaSign(points)
     for (const [segmentIndex, a] of points.entries()) {
       const b = points[(segmentIndex + 1) % points.length]
       if (!b || (a.x !== b.x && a.y !== b.y)) continue
+      const strokeSegment = path.paint === 'fill' ? strokes.get(segmentKey(a, b)) : undefined
+      if (path.paint === 'fill' && !strokeSegment) continue
       const along = a.y === b.y ? 'x' : 'y'
       const across = along === 'x' ? 'y' : 'x'
       const inside = sign * Math.sign(b[along] - a[along]) * (along === 'x' ? 1 : -1)
@@ -443,6 +474,7 @@ export function pairPlanPageWallFaces(
               face,
               low,
               high,
+              ...(strokeSegment ? { strokeSegment } : {}),
               ref: {
                 operationIndex: path.operationIndex,
                 subpathIndex: path.subpathIndex,
@@ -546,6 +578,7 @@ export function pairPlanPageWallFaces(
           [support.face.across]: support.face.coordinate,
         } as PagePoint,
         nativeSegment: support.ref,
+        ...(support.strokeSegment ? { strokeSegment: support.strokeSegment } : {}),
       })
       const pair: PdfWallFacePair = { faces: [interval(witness.first), interval(witness.second)] }
       if (

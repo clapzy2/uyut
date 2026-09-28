@@ -179,8 +179,20 @@ export type PlanOpeningWidthProof = {
 /** Source-outline interval relations, not centreline walls or construction thickness. */
 export type PlanWallFacePair = {
   faces: [
-    { wall: PlanWall; start: PlanPoint; end: PlanPoint; nativeSegment: PlanPageSegmentRef },
-    { wall: PlanWall; start: PlanPoint; end: PlanPoint; nativeSegment: PlanPageSegmentRef },
+    {
+      wall: PlanWall
+      start: PlanPoint
+      end: PlanPoint
+      nativeSegment: PlanPageSegmentRef
+      strokeSegment?: PlanPageSegmentRef
+    },
+    {
+      wall: PlanWall
+      start: PlanPoint
+      end: PlanPoint
+      nativeSegment: PlanPageSegmentRef
+      strokeSegment?: PlanPageSegmentRef
+    },
   ]
   /** Any edit to cuts on these hosts invalidates the source strip relation. */
   openings: PlanOpening[]

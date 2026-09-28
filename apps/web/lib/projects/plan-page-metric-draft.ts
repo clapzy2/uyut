@@ -432,6 +432,7 @@ export function planPageMetricDraft(
                   start: convert(face.start),
                   end: convert(face.end),
                   nativeSegment: face.nativeSegment,
+                  ...(face.strokeSegment ? { strokeSegment: face.strokeSegment } : {}),
                 },
               ]
             : []

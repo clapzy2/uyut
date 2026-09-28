@@ -54,7 +54,14 @@ function syntheticSheet() {
     coordinateSystem: 'page-0-1000',
     pageWidth: 1000,
     pageHeight: 1000,
-    paths: [wall, vertices],
+    paths: [
+      wall,
+      ...vertices.points.map((point, index) => ({
+        ...vertices,
+        operationIndex: 100 + index,
+        points: [point],
+      })),
+    ],
     skippedCurves: 0,
     unsupportedPaths: 0,
     unsupportedContexts: 0,
@@ -168,6 +175,46 @@ function completePageSheet() {
 }
 
 describe('exact native PDF wall-face intervals', () => {
+  it('pairs a filled wall only with exact independently stroked faces and preserves both references', () => {
+    const input = syntheticSheet()
+    input.wall.paint = 'fill'
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+    for (const index of [1, 3, 5]) {
+      const start = input.wall.points[index]
+      const end = input.wall.points[(index + 1) % input.wall.points.length]
+      if (!start || !end) throw new Error('Missing source face')
+      input.work.paths.push({
+        operationIndex: 500 + index,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [start, end],
+      })
+    }
+    const before = structuredClone(input)
+    const result = pairPlanPageWallFaces(input.work, source, input.contours)
+    expect(result).toHaveLength(2)
+    for (const pair of result)
+      for (const face of pair.faces) {
+        expect(face.nativeSegment.operationIndex).toBe(10)
+        expect(face.strokeSegment?.operationIndex).toBe(500 + face.nativeSegment.segmentIndex)
+      }
+    expect(input).toEqual(before)
+    const noStroke = structuredClone(input)
+    noStroke.work.paths = noStroke.work.paths.filter((path) => path.operationIndex !== 505)
+    expect(pairPlanPageWallFaces(noStroke.work, source, noStroke.contours)).toEqual([])
+    const compound = structuredClone(input)
+    compound.work.paths.push({
+      ...structuredClone(compound.wall),
+      subpathIndex: 1,
+      points: rectangle(205, 120, 215, 130),
+    })
+    expect(pairPlanPageWallFaces(compound.work, source, compound.contours)).toEqual([])
+    const stroke = input.work.paths.find((path) => path.operationIndex === 505)
+    if (!stroke) throw new Error('Missing stroke')
+    stroke.points = stroke.points.map((point) => ({ ...point, x: point.x + 0.001 }))
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+  })
   it('pairs opposite slanted faces only within the same closed native wall outline', () => {
     const input = slantedSheet()
     const before = structuredClone(input)
