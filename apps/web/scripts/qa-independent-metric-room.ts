@@ -12,6 +12,7 @@ import {
 import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema, planPageReviewIssue } from '../lib/projects/plan-page-review'
 import { pdfDepthChain, pdfWidthChain } from '../lib/projects/plan-pdf-dimension-chain'
+import { verifyPlanPageOpeningFaces } from '../lib/projects/plan-pdf-opening-faces'
 
 type Chain = { textItemIndexes: number[]; segmentsMm: number[] }
 type ReviewedRoom = {
@@ -318,6 +319,9 @@ console.log(
       0,
     ),
     openings: result.geometry.openings.length,
+    openingFacePairs: result.geometry.pdfCalibration?.openingFacePairs?.length ?? 0,
+    wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs?.length ?? 0,
+    openingFaceChecks: verifyPlanPageOpeningFaces(linework, source, contours),
     warnings: result.geometry.warnings,
     geometryIssues: geometryIssues.length,
     confirmationIssues: inspectManualPlanCompleteness(result.geometry),

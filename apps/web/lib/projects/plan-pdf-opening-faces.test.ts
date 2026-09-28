@@ -46,6 +46,25 @@ function pairs(input = fixture()) {
 }
 
 describe('physical door face candidates from two native reveals', () => {
+  it('rejects a moved room corner even when both door reveals remain unchanged', () => {
+    const input = fixture()
+    const room = input.contours.rooms.find((room) => room.roomSourceNumber === 2)
+    const point = room?.polygon[0]
+    if (!point) throw new Error('Missing room corner')
+    point.x += 0.001
+    expect(pairs(input)).toEqual([])
+    expect(verifyPlanPageOpeningFaces(input.work, input.source, input.contours)).toContainEqual(
+      expect.objectContaining({ reason: 'non-native-contour-vertex', status: 'unresolved' }),
+    )
+  })
+
+  it('rejects a moved exterior corner without changing the door annotations', () => {
+    const input = fixture()
+    const point = input.contours.exterior?.polygon[0]
+    if (!point) throw new Error('Missing exterior corner')
+    point.x += 0.001
+    expect(pairs(input)).toEqual([])
+  })
   it('pairs five existing door spans without changing any annotation or native point', () => {
     const input = fixture()
     const before = structuredClone(input)
@@ -168,6 +187,15 @@ describe('physical door face candidates from two native reveals', () => {
         { x: 100, y: 200 },
       ],
     }))
+    input.work.paths.push(
+      ...input.contours.rooms.map((room, index) => ({
+        operationIndex: 100 + index,
+        subpathIndex: 0,
+        paint: 'stroke' as const,
+        closed: true,
+        points: structuredClone(room.polygon),
+      })),
+    )
     const result = verifyPlanPageOpeningFaces(input.work, input.source, input.contours)
     expect(result.find((check) => check.openingId === 'door-1')).toMatchObject({
       status: 'ambiguous',

@@ -1,6 +1,11 @@
 import type { PlanPageContours, PlanPageOpening, PlanPageRoomIdentity } from '@uyut/db'
-import { planPageFeaturesIssue } from './plan-page-review'
+import {
+  planPageContoursSchema,
+  planPageFeaturesIssue,
+  sourceRoomContourVertices,
+} from './plan-page-review'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import { nativePageSegments } from './plan-pdf-opening-endpoint'
 import {
   type PdfPlanSource,
   pdfContourIdentity,
@@ -106,18 +111,32 @@ export function verifyPlanPageOpeningFaces(
     ) > 2000
   )
     return []
+  if (!planPageContoursSchema.safeParse(contours).success) return []
   const openings = contours.rooms.flatMap((room) =>
     (room.openings ?? [])
       .filter((opening) => opening.kind === 'door')
       .map((opening) => ({ room, opening })),
   )
-  const sourceIssue =
+  let sourceIssue =
     source.state !== 'existing'
       ? 'not-existing-state'
       : work.clippedPaths > 0
         ? 'incomplete-vector-layer'
         : (pdfContourIssue(work, source, contours) ??
           planPageFeaturesIssue(contours, { checkRoomOverlap: true }))
+  if (!sourceIssue) {
+    const nativePoints = new Set(
+      work.paths.flatMap((path) => path.points.map((point) => `${point.x}:${point.y}`)),
+    )
+    const nativeSegments = nativePageSegments(work)
+    if (
+      contours.rooms.some(
+        (room) => !sourceRoomContourVertices(room, nativePoints, nativeSegments),
+      ) ||
+      contours.exterior?.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`))
+    )
+      sourceIssue = 'non-native-contour-vertex'
+  }
   if (sourceIssue)
     return openings.map(({ room, opening }) => ({
       ...pdfContourIdentity(room),
