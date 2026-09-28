@@ -7,6 +7,7 @@ import { preparePlanPage } from '../lib/projects/plan-document'
 import { pdfNativePageDimensionChain } from '../lib/projects/plan-pdf-dimension-chain'
 import type { PagePoint } from '../lib/projects/plan-pdf-linework'
 import { pdfBoundaryDistance, pdfPointInside } from '../lib/projects/plan-pdf-room-binding'
+import { assessPdfAreaEnvelope } from './qa-pdf-area-envelope'
 import {
   type MeasuredOpening,
   type PerimeterProbe,
@@ -45,6 +46,12 @@ type Source = {
   chains?: Chain[]
   standaloneDimensions?: StandaloneDimension[]
   perimeterProbes?: PerimeterProbe[]
+  areaEnvelope?: {
+    signedAreaLabel: Label
+    widthChainTotalIndex: number
+    depthChainTotalIndex: number
+    expectedAreaStatus: 'mismatch' | 'within-rounding'
+  }
 }
 
 const sourceDirectory = process.argv[2]
@@ -118,6 +125,7 @@ for (const source of sources) {
   }> = []
   const nativeIssues: string[] = []
   const openingSpans: MeasuredOpening[] = []
+  const provenWallChains = new Map<number, { axis: Axis; millimetres: number }>()
   let wallAnchoredDimensions = 0
   let sampledOpeningGaps = 0
   const sourceRef = {
@@ -257,6 +265,9 @@ for (const source of sources) {
       }
     }
     checkWallAnchors(native.ends, chain.axis, chain.wallAnchors)
+    if (chain.wallAnchors) {
+      provenWallChains.set(chain.total.index, { axis: chain.axis, millimetres: sum })
+    }
     nativeProofs.push({
       scale: sum / 10 / pointLength(...native.ends),
       segments: native.segments,
@@ -328,6 +339,28 @@ for (const source of sources) {
     source.perimeterProbes ?? [],
     openingSpans,
   )
+  let areaEnvelope: ReturnType<typeof assessPdfAreaEnvelope> | undefined
+  if (source.areaEnvelope) {
+    const { signedAreaLabel, widthChainTotalIndex, depthChainTotalIndex, expectedAreaStatus } =
+      source.areaEnvelope
+    checkLabel(signedAreaLabel)
+    const width = provenWallChains.get(widthChainTotalIndex)
+    const depth = provenWallChains.get(depthChainTotalIndex)
+    if (width?.axis !== 'width' || depth?.axis !== 'depth') {
+      throw new Error(`${source.file}: area envelope lacks two wall-anchored native chains`)
+    }
+    if (!/^\d{1,4},\d{1,2}$/.test(signedAreaLabel.text)) {
+      throw new Error(`${source.file}: signed area label is not an area`)
+    }
+    areaEnvelope = assessPdfAreaEnvelope(
+      width.millimetres,
+      depth.millimetres,
+      Number(signedAreaLabel.text.replace(',', '.')),
+    )
+    if (areaEnvelope.areaStatus !== expectedAreaStatus) {
+      throw new Error(`${source.file}: measured envelope and signed area relation changed`)
+    }
+  }
 
   results.push({
     file: source.file,
@@ -340,6 +373,7 @@ for (const source of sources) {
     wallAnchoredDimensions,
     sampledOpeningGaps,
     perimeterGaps,
+    areaEnvelope,
     clippedPaths: linework.clippedPaths,
     skippedCurves: linework.skippedCurves,
   })

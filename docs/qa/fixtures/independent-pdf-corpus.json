@@ -166,7 +166,13 @@
         "openingLabelIndexes": [],
         "gapBoundaryTolerance": 0.02
       }
-    ]
+    ],
+    "areaEnvelope": {
+      "signedAreaLabel": { "index": 67, "text": "68,56" },
+      "widthChainTotalIndex": 40,
+      "depthChainTotalIndex": 39,
+      "expectedAreaStatus": "mismatch"
+    }
   },
   {
     "file": "moscow_life_kutuzovsky.pdf",
