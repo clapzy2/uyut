@@ -412,12 +412,12 @@ function pairSlantedFaces(
   })
 }
 
-/** Exact partial face relations within one native closed outline; not complete wall topology. */
-export function pairPlanPageWallFaces(
+/** Shared trust boundary for native wall faces and whole-body diagnostics. */
+export function validPlanPageWallSource(
   work: PdfLinework,
   source: PdfPlanSource,
   contours: PlanPageContours,
-): PdfWallFacePair[] {
+): boolean {
   if (
     source.state !== 'existing' ||
     work.clippedPaths > 0 ||
@@ -427,11 +427,11 @@ export function pairPlanPageWallFaces(
     pdfContourIssue(work, source, contours) ||
     planPageFeaturesIssue(contours, { checkRoomOverlap: true })
   )
-    return []
+    return false
   const native = new Set(work.paths.flatMap((path) => path.points.map((p) => `${p.x}:${p.y}`)))
   const segments = nativePageSegments(work)
   for (const room of contours.rooms) {
-    if (!sourceRoomContourVertices(room, native, segments)) return []
+    if (!sourceRoomContourVertices(room, native, segments)) return false
     for (const opening of room.openings ?? []) {
       const a = room.polygon[opening.wallEdgeIndex]
       const b = room.polygon[(opening.wallEdgeIndex + 1) % room.polygon.length]
@@ -447,10 +447,20 @@ export function pairPlanPageWallFaces(
         ) ||
         !sourceOpeningEndpoint(opening.end, opening.endpointProofs?.end, [a, b], native, segments)
       )
-        return []
+        return false
     }
   }
-  if (contours.exterior?.polygon.some((p) => !native.has(`${p.x}:${p.y}`))) return []
+  if (contours.exterior?.polygon.some((p) => !native.has(`${p.x}:${p.y}`))) return false
+  return true
+}
+
+/** Exact partial face relations within one native closed outline; not complete wall topology. */
+export function pairPlanPageWallFaces(
+  work: PdfLinework,
+  source: PdfPlanSource,
+  contours: PlanPageContours,
+): PdfWallFacePair[] {
+  if (!validPlanPageWallSource(work, source, contours)) return []
   const faces = facesFromContours(contours)
   if (faces.length > 200) return []
   // Multiple closed subpaths can represent a hole or a compound outline. Their winding

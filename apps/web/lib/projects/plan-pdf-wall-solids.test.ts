@@ -61,6 +61,63 @@ function fixture(gap = 0) {
   return { work, contours }
 }
 describe('native wall solid candidates and exact joints', () => {
+  it('retains one-sided evidence while still rejecting whole-body floor intrusion', () => {
+    const input = fixture()
+    const body = input.work.paths[0]
+    if (!body) throw new Error('Missing body')
+    body.paint = 'fill'
+    input.work.paths = input.work.paths.filter((path) => path.operationIndex !== 2)
+    input.work.paths.push({
+      operationIndex: 40,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 200, y: 100 },
+        { x: 200, y: 200 },
+      ],
+    })
+    input.contours.rooms = input.contours.rooms.slice(0, 1)
+    const result = inspectPlanPageWallSolids(input.work, source, input.contours)
+    expect(result.solids).toHaveLength(1)
+    expect(result.solids[0]).toMatchObject({
+      status: 'candidate',
+      boundarySupports: [{ strokeSegment: { operationIndex: 40 }, contourKey: '1' }],
+    })
+    expect(
+      inspectPlanPageWallSolids(input.work, { ...source, pdfPage: 2 }, input.contours).solids,
+    ).toEqual([])
+    input.contours.rooms.push({ roomSourceNumber: 3, polygon: rect(210, 150, 220, 200) })
+    input.work.paths.push({
+      operationIndex: 41,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: true,
+      points: rect(210, 150, 220, 200),
+    })
+    expect(inspectPlanPageWallSolids(input.work, source, input.contours).solids[0]).toMatchObject({
+      status: 'conflict',
+      reasons: ['room-floor'],
+    })
+  })
+
+  it('reports stable connected components independently of source path ordering', () => {
+    const input = fixture()
+    const result = inspectPlanPageWallSolids(input.work, source, input.contours)
+    expect(result.components).toEqual([
+      [
+        { operationIndex: 1, subpathIndex: 0 },
+        { operationIndex: 2, subpathIndex: 0 },
+      ],
+    ])
+    input.work.paths.reverse()
+    expect(inspectPlanPageWallSolids(input.work, source, input.contours)).toEqual(result)
+    const separated = fixture(0.001)
+    expect(
+      inspectPlanPageWallSolids(separated.work, source, separated.contours).components,
+    ).toEqual([[{ operationIndex: 1, subpathIndex: 0 }], [{ operationIndex: 2, subpathIndex: 0 }]])
+  })
+
   it('refuses an unsplit body closing an annotated door on its face', () => {
     const input = fixture()
     const room = input.contours.rooms[0]
@@ -212,6 +269,6 @@ describe('native wall solid candidates and exact joints', () => {
     const input = fixture()
     expect(
       inspectPlanPageWallSolids(input.work, { ...source, sha256: 'b'.repeat(64) }, input.contours),
-    ).toEqual({ solids: [], junctions: [] })
+    ).toEqual({ solids: [], junctions: [], components: [] })
   })
 })

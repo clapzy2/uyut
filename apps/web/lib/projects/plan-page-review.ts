@@ -147,6 +147,15 @@ function boundaryRatios(a: PagePoint, b: PagePoint, polygon: readonly PagePoint[
 }
 
 function edgeSamples(a: PagePoint, b: PagePoint, polygon: readonly PagePoint[]): PagePoint[] {
+  // Preserve exact source-edge incidence instead of re-testing a rounded midpoint.
+  // An interpolated point on a diagonal can have a nonzero floating determinant.
+  if (
+    polygon.some((c, index) => {
+      const d = polygon[(index + 1) % polygon.length]
+      return d && pointOnSegment(a, c, d) && pointOnSegment(b, c, d)
+    })
+  )
+    return []
   const ratios = boundaryRatios(a, b, polygon)
   const samples: PagePoint[] = []
   for (let index = 1; index < ratios.length; index++) {
@@ -197,23 +206,38 @@ export function polygonsOverlap(left: readonly PagePoint[], right: readonly Page
       )
     })
   if (edgeInside(left, right) || edgeInside(right, left)) return true
-  // Identical polygons (or shared boundary runs enclosing the same area) have no edge
-  // midpoint strictly inside the other polygon. Probe both sides of each boundary edge.
+  // Coincident boundary runs overlap in area only when both interiors lie on the
+  // same side. Use original edge directions, never tiny offset probes that round
+  // onto a shared diagonal and invent a positive-area intersection.
+  const winding = (polygon: readonly PagePoint[]) =>
+    Math.sign(
+      polygon.reduce((sum, a, index) => {
+        const b = polygon[(index + 1) % polygon.length]
+        return b ? sum + cross(a, b) : sum
+      }, 0),
+    )
+  const leftSign = winding(left)
+  const rightSign = winding(right)
   return left.some((a, index) => {
     const b = left[(index + 1) % left.length]
     if (!b) return false
-    const length = Math.hypot(b.x - a.x, b.y - a.y)
-    const midpoint = between(a, b, 0.5)
-    for (const distance of [0.001, 0.00001, 0.0000001, 0.000000001, 0.00000000001]) {
-      for (const side of [-1, 1]) {
-        const point = {
-          x: midpoint.x - ((b.y - a.y) * distance * side) / length,
-          y: midpoint.y + ((b.x - a.x) * distance * side) / length,
-        }
-        if (strictlyInside(point, left) && strictlyInside(point, right)) return true
-      }
-    }
-    return false
+    const direction = difference(b, a)
+    const axis = Math.abs(direction.x) >= Math.abs(direction.y) ? 'x' : 'y'
+    return right.some((c, otherIndex) => {
+      const d = right[(otherIndex + 1) % right.length]
+      if (
+        !d ||
+        cross(direction, difference(c, a)) !== 0 ||
+        cross(direction, difference(d, a)) !== 0
+      )
+        return false
+      const low = Math.max(Math.min(a[axis], b[axis]), Math.min(c[axis], d[axis]))
+      const high = Math.min(Math.max(a[axis], b[axis]), Math.max(c[axis], d[axis]))
+      return (
+        low < high &&
+        leftSign * Math.sign(b[axis] - a[axis]) === rightSign * Math.sign(d[axis] - c[axis])
+      )
+    })
   })
 }
 
