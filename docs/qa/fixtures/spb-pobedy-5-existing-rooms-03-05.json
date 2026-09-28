@@ -4,6 +4,15 @@
     "pdfPage": 2,
     "state": "existing"
   },
+  "areaConflicts": [
+    {
+      "sourceNumber": 9,
+      "planTextItemIndex": 100,
+      "legendTextItemIndex": 130,
+      "planAreaM2": 8.93,
+      "legendAreaM2": 8.51
+    }
+  ],
   "rooms": [
     {
       "sourceNumber": 3,

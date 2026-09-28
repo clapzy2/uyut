@@ -232,6 +232,34 @@ describe('native PDF page to metric draft', () => {
     expect({ reading, context }).toEqual(before)
   })
 
+  it('marks an area disagreement without fitting the contour to the printed value', () => {
+    const { reading, context } = synthetic()
+    const room = reading.rooms[0]
+    if (!room) throw new Error('Synthetic room is missing.')
+    room.areaM2 = 11.5
+
+    const result = planPageMetricDraft(reading, context, [4])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.geometry.rooms[0]?.polygon).toEqual([
+      { xCm: 0, yCm: 0 },
+      { xCm: 300, yCm: 0 },
+      { xCm: 300, yCm: 400 },
+      { xCm: 0, yCm: 400 },
+    ])
+    expect(result.geometry.warnings).toContain(
+      'Спальня: площадь по контуру 12.00 м², на плане 11.50 м². Сверьте границы помещения.',
+    )
+
+    room.areaM2 = 12
+    const matching = planPageMetricDraft(reading, context, [4])
+    expect(matching.ok).toBe(true)
+    if (!matching.ok) return
+    expect(
+      matching.geometry.warnings.some((warning) => warning.includes('площадь по контуру')),
+    ).toBe(false)
+  })
+
   it('derives a real original bedroom draft and existing door without asserting AI accuracy', () => {
     const { reading, context } = realSheet()
     const result = planPageMetricDraft(reading, context, [4])

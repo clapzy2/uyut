@@ -39,6 +39,13 @@ type Candidate = Extract<PdfDimensionChain, { status: 'candidate' }>
 
 const roundCm = (value: number) => Math.round(value * 10) / 10
 const nameKey = (name: string) => name.trim().toLocaleLowerCase('ru').replaceAll('ё', 'е')
+const polygonAreaM2 = (polygon: PlanPoint[]) =>
+  Math.abs(
+    polygon.reduce((sum, point, index) => {
+      const next = polygon[(index + 1) % polygon.length]
+      return next ? sum + point.xCm * next.yCm - next.xCm * point.yCm : sum
+    }, 0),
+  ) / 20_000
 // Two independently extracted PDF endpoints may differ by 0.12 physical points each.
 // This allowance is never a room-specific scale, endpoint correction or fitting budget.
 const toleranceCm = (scale: number) => Math.min(0.5, 0.24 * scale + 0.05)
@@ -277,6 +284,18 @@ export function planPageMetricDraft(
       polygon,
       ...(numbers.length === 1 ? { sourceNumber: numbers[0] } : { sourceNumbers: [...numbers] }),
     })
+    const printedAreas = numbers.map(
+      (sourceNumber) => reading.rooms.find((room) => room.sourceNumber === sourceNumber)?.areaM2,
+    )
+    if (printedAreas.every((area): area is number => area !== undefined && area > 0)) {
+      const printedAreaM2 = printedAreas.reduce((sum, area) => sum + area, 0)
+      const contourAreaM2 = polygonAreaM2(polygon)
+      if (Math.abs(contourAreaM2 - printedAreaM2) > Math.max(0.1, printedAreaM2 * 0.02)) {
+        geometry.warnings.push(
+          `${name}: площадь по контуру ${contourAreaM2.toFixed(2)} м², на плане ${printedAreaM2.toFixed(2)} м². Сверьте границы помещения.`,
+        )
+      }
+    }
     polygon.forEach((start, index) => {
       const end = polygon[(index + 1) % polygon.length]
       if (end) geometry.walls.push({ id: id(number, 'wall', index), start, end, kind: 'inner' })
