@@ -2,6 +2,7 @@ import { roomArchitectureFromPlan } from '@uyut/ai'
 import type { PlanGeometry, PlanPageContours, PlanPageOpening, PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import page from '../../../../docs/qa/fixtures/apartment-74-77-complete-page.json'
+import { inspectDoorAdjacency } from './plan-door-adjacency'
 import { inspectManualPlanCompleteness } from './plan-geometry-inspection'
 import {
   currentOpeningFacePairs,
@@ -120,6 +121,97 @@ function draft(fixture = completeSheet(), numbers = allNumbers): PlanGeometry {
 }
 
 describe('complete existing PDF page in one native metric scale', () => {
+  it('groups only rooms connected by unchanged, source-backed door faces', () => {
+    const geometry = draft()
+    const review = inspectDoorAdjacency(geometry)
+    expect(review.links).toHaveLength(5)
+    expect(review.unresolvedFacePairCount).toBe(0)
+    const sourceNumbers = review.provenGroups.map((group) =>
+      group.map(
+        (index) => geometry.rooms[index]?.sourceNumbers ?? geometry.rooms[index]?.sourceNumber,
+      ),
+    )
+    expect(sourceNumbers).toEqual([[[1, 5], 2, 3, 4, 7, 8], [6]])
+  })
+
+  it('does not infer a passage from touching room contours or unpaired doors', () => {
+    const geometry = draft()
+    if (!geometry.pdfCalibration) throw new Error('Missing PDF calibration')
+    geometry.pdfCalibration.openingFacePairs = []
+    const review = inspectDoorAdjacency(geometry)
+    expect(review.links).toEqual([])
+    expect(review.provenGroups).toHaveLength(geometry.rooms.length)
+  })
+
+  it('withdraws an adjacency when a source-backed door is edited', () => {
+    const geometry = draft()
+    const first = geometry.pdfCalibration?.openingFacePairs?.[0]
+    if (!first) throw new Error('Missing door face pair')
+    const opening = geometry.openings.find((value) => value.id === first.bindings[0].opening.id)
+    if (!opening) throw new Error('Missing paired opening')
+    opening.widthCm += 1
+    const review = inspectDoorAdjacency(geometry)
+    expect(review.links).toHaveLength(4)
+    expect(review.unresolvedFacePairCount).toBe(1)
+  })
+
+  it('does not assign a door face to a room without an exact boundary owner', () => {
+    const geometry = draft()
+    const pair = geometry.pdfCalibration?.openingFacePairs?.[0]
+    if (!pair || !geometry.pdfCalibration) throw new Error('Missing door face pair')
+    geometry.pdfCalibration.openingFacePairs = [pair]
+    const host = pair.bindings[0].wall
+    const ownerIndex = geometry.rooms.findIndex(
+      (room) =>
+        room.polygon.some(
+          (point) => point.xCm === host.start.xCm && point.yCm === host.start.yCm,
+        ) && room.polygon.some((point) => point.xCm === host.end.xCm && point.yCm === host.end.yCm),
+    )
+    if (ownerIndex < 0) throw new Error('Missing host owner')
+    const owner = geometry.rooms[ownerIndex]
+    if (!owner) throw new Error('Missing host owner room')
+    owner.polygon = owner.polygon.map((point) => ({ ...point, xCm: point.xCm + 1 }))
+    geometry.pdfCalibration.wallFaceRoomPolygons = geometry.rooms.map((room) =>
+      structuredClone(room.polygon),
+    )
+    expect(currentOpeningFacePairs(geometry)).toHaveLength(1)
+    const review = inspectDoorAdjacency(geometry)
+    expect(review.links).toEqual([])
+    expect(review.unresolvedFacePairCount).toBe(1)
+  })
+
+  it('does not count ambiguous face ownership or a balcony opening as an interior door', () => {
+    const geometry = draft()
+    const pair = geometry.pdfCalibration?.openingFacePairs?.[0]
+    if (!pair || !geometry.pdfCalibration) throw new Error('Missing door face pair')
+    geometry.pdfCalibration.openingFacePairs = [pair]
+    const owner = geometry.rooms.find((room) =>
+      room.polygon.some(
+        (point) =>
+          point.xCm === pair.bindings[0].wall.start.xCm &&
+          point.yCm === pair.bindings[0].wall.start.yCm,
+      ),
+    )
+    if (!owner) throw new Error('Missing face owner')
+    geometry.rooms.push({ name: 'Дублирующий контур', polygon: structuredClone(owner.polygon) })
+    geometry.pdfCalibration.wallFaceRoomPolygons = geometry.rooms.map((room) =>
+      structuredClone(room.polygon),
+    )
+    expect(currentOpeningFacePairs(geometry)).toHaveLength(1)
+    expect(inspectDoorAdjacency(geometry)).toMatchObject({ links: [], unresolvedFacePairCount: 1 })
+
+    geometry.rooms.pop()
+    geometry.pdfCalibration.wallFaceRoomPolygons = geometry.rooms.map((room) =>
+      structuredClone(room.polygon),
+    )
+    const opening = geometry.openings.find((item) => item.id === pair.bindings[0].opening.id)
+    if (!opening) throw new Error('Missing paired door')
+    opening.type = 'balcony'
+    pair.bindings[0].opening.type = 'balcony'
+    expect(currentOpeningFacePairs(geometry)).toHaveLength(1)
+    expect(inspectDoorAdjacency(geometry)).toMatchObject({ links: [], unresolvedFacePairCount: 1 })
+  })
+
   it('checks separate kitchen spans against printed 563 and 926 mm dimensions', () => {
     const fixture = completeSheet()
     const checks = verifyPlanPageOpenings(

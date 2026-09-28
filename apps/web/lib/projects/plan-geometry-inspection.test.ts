@@ -159,6 +159,51 @@ describe('подтверждение ручной схемы', () => {
     expect(inspectManualPlanCompleteness(geometry)).toEqual([])
   })
 
+  it('не подтверждает две комнаты с общей площадью пола', () => {
+    const rooms = [
+      {
+        name: 'Гостиная',
+        polygon: [
+          { xCm: 0, yCm: 0 },
+          { xCm: 300, yCm: 0 },
+          { xCm: 300, yCm: 400 },
+          { xCm: 0, yCm: 400 },
+        ],
+      },
+      {
+        name: 'Спальня',
+        polygon: [
+          { xCm: 250, yCm: 0 },
+          { xCm: 500, yCm: 0 },
+          { xCm: 500, yCm: 400 },
+          { xCm: 250, yCm: 400 },
+        ],
+      },
+    ]
+    expect(inspectManualPlanCompleteness({ ...geometry, rooms })).toContainEqual(
+      expect.objectContaining({ id: 'manual-room-overlap-0-1', severity: 'error' }),
+    )
+    expect(inspectManualPlanCompleteness({ ...geometry, walls: [], rooms })).toContainEqual(
+      expect.objectContaining({ id: 'manual-room-overlap-0-1', severity: 'error' }),
+    )
+    const firstRoom = rooms[0]
+    const secondRoom = rooms[1]
+    if (!firstRoom || !secondRoom) throw new Error('Missing test room')
+    const adjoining = [
+      firstRoom,
+      {
+        ...secondRoom,
+        polygon: secondRoom.polygon.map((point) => ({
+          ...point,
+          xCm: point.xCm === 250 ? 300 : point.xCm,
+        })),
+      },
+    ]
+    expect(inspectManualPlanCompleteness({ ...geometry, rooms: adjoining })).not.toContainEqual(
+      expect.objectContaining({ id: 'manual-room-overlap-0-1' }),
+    )
+  })
+
   it('не подтверждает комнату вне внешнего контура даже при связанных стенах', () => {
     const outer = [
       { xCm: 0, yCm: 0 },

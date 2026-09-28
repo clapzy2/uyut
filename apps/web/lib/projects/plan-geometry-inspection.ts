@@ -1,4 +1,5 @@
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanRoomShape, PlanWall } from '@uyut/db'
+import { polygonsOverlap } from './plan-page-review'
 
 export type PlanGeometryIssue = {
   id: string
@@ -255,6 +256,22 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
     })
   }
   const walls = geometry.walls
+  for (const [index, room] of geometry.rooms.entries()) {
+    const first = room.polygon.map((point) => ({ x: point.xCm, y: point.yCm }))
+    for (let otherIndex = index + 1; otherIndex < geometry.rooms.length; otherIndex++) {
+      const other = geometry.rooms[otherIndex]
+      if (!other) continue
+      const second = other.polygon.map((point) => ({ x: point.xCm, y: point.yCm }))
+      if (polygonsOverlap(first, second)) {
+        issues.push({
+          id: `manual-room-overlap-${index}-${otherIndex}`,
+          severity: 'error',
+          message: `${room.name} и ${other.name}: контуры занимают одну площадь пола. Разделите помещения без наложения.`,
+          roomIndexes: [index, otherIndex],
+        })
+      }
+    }
+  }
   if (walls.length === 0) return issues
 
   const visited = new Set<string>()
