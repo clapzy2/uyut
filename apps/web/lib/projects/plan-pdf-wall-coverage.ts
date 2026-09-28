@@ -24,15 +24,23 @@ export function planPageWallReviewQueue(
   contours: PlanPageContours,
   spans: readonly PdfWallCoverageSpan[],
   cmPerPoint: number,
+  scope: 'interior' | 'exterior' = 'interior',
 ): Array<PdfWallCoverageSpan & { lengthCm: number }> {
   if (!Number.isFinite(cmPerPoint) || cmPerPoint <= 0)
     throw new Error('Wall review requires a positive finite PDF scale.')
   return spans
-    .filter(
-      (span) =>
+    .filter((span) => {
+      if (scope === 'exterior') {
+        return (
+          span.contourKey === 'exterior' &&
+          ['unpaired-exterior', 'unsupported-angle', 'ambiguous'].includes(span.status)
+        )
+      }
+      return (
         span.contourKey !== 'exterior' &&
-        ['unmatched', 'unsupported-angle', 'ambiguous'].includes(span.status),
-    )
+        ['unmatched', 'unsupported-angle', 'ambiguous'].includes(span.status)
+      )
+    })
     .map((span) => ({
       ...span,
       lengthCm: pdfPointDistance(contours, span.start, span.end) * cmPerPoint,

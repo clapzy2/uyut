@@ -126,6 +126,45 @@ describe('diagnostic coverage of annotated PDF boundary spans', () => {
       'ambiguous',
       'unsupported-angle',
     ])
+    expect(
+      planPageWallReviewQueue(contours, spans, 1, 'exterior').map(({ status }) => status),
+    ).toEqual(['unpaired-exterior'])
+  })
+
+  it('prioritizes unsupported exterior edges by physical length without treating them as walls', () => {
+    const { contours } = sample()
+    const spans: PdfWallCoverageSpan[] = [
+      {
+        contourKey: 'exterior',
+        wallEdgeIndex: 0,
+        start: { x: 0, y: 0 },
+        end: { x: 20, y: 0 },
+        status: 'unpaired-exterior',
+      },
+      {
+        contourKey: 'exterior',
+        wallEdgeIndex: 1,
+        start: { x: 0, y: 0 },
+        end: { x: 30, y: 40 },
+        status: 'unsupported-angle',
+      },
+      {
+        contourKey: 'exterior',
+        wallEdgeIndex: 2,
+        start: { x: 0, y: 0 },
+        end: { x: 100, y: 0 },
+        status: 'paired',
+      },
+    ]
+    expect(
+      planPageWallReviewQueue(contours, spans, 2, 'exterior').map((span) => [
+        span.wallEdgeIndex,
+        span.lengthCm,
+      ]),
+    ).toEqual([
+      [1, 100],
+      [0, 40],
+    ])
   })
 
   it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
@@ -285,13 +324,11 @@ describe('diagnostic coverage of annotated PDF boundary spans', () => {
     }
     const before = structuredClone(contours)
     const pairs = pairPlanPageWallFaces(work, currentSource, contours)
-    const counts = classifyPlanPageWallSpans(contours, pairs).reduce<Record<string, number>>(
-      (total, { status }) => {
-        total[status] = (total[status] ?? 0) + 1
-        return total
-      },
-      {},
-    )
+    const spans = classifyPlanPageWallSpans(contours, pairs)
+    const counts = spans.reduce<Record<string, number>>((total, { status }) => {
+      total[status] = (total[status] ?? 0) + 1
+      return total
+    }, {})
     expect(pairs).toHaveLength(52)
     expect(counts).toEqual({
       paired: 104,
@@ -300,6 +337,8 @@ describe('diagnostic coverage of annotated PDF boundary spans', () => {
       'unpaired-exterior': 25,
       'unsupported-angle': 3,
     })
+    expect(planPageWallReviewQueue(contours, spans, 1, 'exterior')).toHaveLength(26)
+    expect(planPageWallReviewQueue(contours, spans, 1)).toHaveLength(15)
     expect(contours).toEqual(before)
   })
 })

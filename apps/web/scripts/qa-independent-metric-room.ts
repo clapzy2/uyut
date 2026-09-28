@@ -229,6 +229,12 @@ const wallCoverage = classifyPlanPageWallSpans(
   pairPlanPageWallFaces(linework, source, contours),
 )
 const wallReviewQueue = planPageWallReviewQueue(contours, wallCoverage, cmPerPoint)
+const exteriorWallReviewQueue = planPageWallReviewQueue(
+  contours,
+  wallCoverage,
+  cmPerPoint,
+  'exterior',
+)
 const geometryIssues = inspectPlanGeometry(result.geometry)
 if (geometryIssues.length > 0) throw new Error(`Geometry issues: ${JSON.stringify(geometryIssues)}`)
 if (result.geometry.rooms.length !== rooms.length)
@@ -336,6 +342,7 @@ console.log(
     wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs?.length ?? 0,
     wallCoverage,
     wallReviewQueue,
+    exteriorWallReviewQueue,
     wallSolids: inspectPlanPageWallSolids(linework, source, contours),
     openingFaceChecks: verifyPlanPageOpeningFaces(linework, source, contours),
     warnings: result.geometry.warnings,

@@ -128,6 +128,12 @@ const wallCoverageCounts = Object.fromEntries(
   ].map((status) => [status, wallCoverage.filter((span) => span.status === status).length]),
 )
 const wallReviewQueue = planPageWallReviewQueue(contours, wallCoverage, cmPerPoint)
+const exteriorWallReviewQueue = planPageWallReviewQueue(
+  contours,
+  wallCoverage,
+  cmPerPoint,
+  'exterior',
+)
 const reconciled = reconcilePlanGeometryRooms(
   { ...result.geometry, obstacles: result.geometry.obstacles ?? [] },
   reading.rooms,
@@ -153,6 +159,7 @@ const report = {
   wallCoverage,
   wallCoverageCounts,
   wallReviewQueue,
+  exteriorWallReviewQueue,
   confirmationIssues,
   localConfirmationChecksPass:
     reconciled !== undefined &&
@@ -185,6 +192,7 @@ console.log(
     wallFacePairs: report.wallFacePairs?.length,
     wallCoverageCounts,
     interiorReviewSpans: wallReviewQueue.length,
+    exteriorReviewSpans: exteriorWallReviewQueue.length,
     derivedOpeningWidths: result.geometry.pdfCalibration?.derivedOpeningIds.length,
     geometryIssues: report.geometryIssues.length,
     confirmationIssues: report.confirmationIssues.length,
