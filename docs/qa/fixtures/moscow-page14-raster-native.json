@@ -1,0 +1,887 @@
+{
+  "source": {
+    "sha256": "a5fe85e59603a0ea7adec88ac0fe703f29cb903c4aa163dfaddd3170d754f577",
+    "pdfPage": 14,
+    "state": "existing"
+  },
+  "linework": {
+    "coordinateSystem": "page-0-1000",
+    "pageWidth": 1008,
+    "pageHeight": 756,
+    "paths": [
+      {
+        "operationIndex": 7,
+        "subpathIndex": 0,
+        "paint": "fill",
+        "closed": true,
+        "points": [
+          {
+            "x": 496.991,
+            "y": 984.102
+          },
+          {
+            "x": 17.829,
+            "y": 984.102
+          },
+          {
+            "x": 17.829,
+            "y": 7.948
+          },
+          {
+            "x": 976.125,
+            "y": 7.948
+          },
+          {
+            "x": 976.125,
+            "y": 984.102
+          },
+          {
+            "x": 496.991,
+            "y": 984.102
+          }
+        ]
+      },
+      {
+        "operationIndex": 13,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": true,
+        "points": [
+          {
+            "x": 496.991,
+            "y": 984.102
+          },
+          {
+            "x": 17.829,
+            "y": 984.102
+          },
+          {
+            "x": 17.829,
+            "y": 7.948
+          },
+          {
+            "x": 976.125,
+            "y": 7.948
+          },
+          {
+            "x": 976.125,
+            "y": 984.102
+          },
+          {
+            "x": 496.991,
+            "y": 984.102
+          }
+        ]
+      },
+      {
+        "operationIndex": 224,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 7.948
+          },
+          {
+            "x": 976.182,
+            "y": 7.948
+          }
+        ]
+      },
+      {
+        "operationIndex": 230,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 827.39,
+            "y": 7.386
+          },
+          {
+            "x": 827.39,
+            "y": 525.61
+          }
+        ]
+      },
+      {
+        "operationIndex": 236,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 126.996
+          },
+          {
+            "x": 976.182,
+            "y": 126.996
+          }
+        ]
+      },
+      {
+        "operationIndex": 242,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 153.056
+          },
+          {
+            "x": 976.603,
+            "y": 153.056
+          }
+        ]
+      },
+      {
+        "operationIndex": 248,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 863.104,
+            "y": 152.493
+          },
+          {
+            "x": 863.104,
+            "y": 322.048
+          }
+        ]
+      },
+      {
+        "operationIndex": 254,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 976.182,
+            "y": 152.493
+          },
+          {
+            "x": 976.182,
+            "y": 322.048
+          }
+        ]
+      },
+      {
+        "operationIndex": 260,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 192.463
+          },
+          {
+            "x": 976.603,
+            "y": 192.463
+          }
+        ]
+      },
+      {
+        "operationIndex": 266,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 231.87
+          },
+          {
+            "x": 976.603,
+            "y": 231.87
+          }
+        ]
+      },
+      {
+        "operationIndex": 272,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 265.204
+          },
+          {
+            "x": 976.603,
+            "y": 265.204
+          }
+        ]
+      },
+      {
+        "operationIndex": 278,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 295.5
+          },
+          {
+            "x": 976.603,
+            "y": 295.5
+          }
+        ]
+      },
+      {
+        "operationIndex": 284,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 321.485
+          },
+          {
+            "x": 976.603,
+            "y": 321.485
+          }
+        ]
+      },
+      {
+        "operationIndex": 290,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 525.046
+          },
+          {
+            "x": 976.182,
+            "y": 525.046
+          }
+        ]
+      },
+      {
+        "operationIndex": 436,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 560.217
+          },
+          {
+            "x": 976.378,
+            "y": 560.217
+          }
+        ]
+      },
+      {
+        "operationIndex": 442,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 827.39,
+            "y": 559.655
+          },
+          {
+            "x": 827.39,
+            "y": 979.078
+          }
+        ]
+      },
+      {
+        "operationIndex": 448,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 662.43
+          },
+          {
+            "x": 976.378,
+            "y": 662.43
+          }
+        ]
+      },
+      {
+        "operationIndex": 454,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 734.57
+          },
+          {
+            "x": 976.378,
+            "y": 734.57
+          }
+        ]
+      },
+      {
+        "operationIndex": 460,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 762.317
+          },
+          {
+            "x": 976.8,
+            "y": 762.317
+          }
+        ]
+      },
+      {
+        "operationIndex": 466,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 910.911,
+            "y": 761.755
+          },
+          {
+            "x": 910.911,
+            "y": 832.058
+          }
+        ]
+      },
+      {
+        "operationIndex": 472,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 976.378,
+            "y": 761.755
+          },
+          {
+            "x": 976.378,
+            "y": 832.058
+          }
+        ]
+      },
+      {
+        "operationIndex": 478,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 785.377
+          },
+          {
+            "x": 976.8,
+            "y": 785.377
+          }
+        ]
+      },
+      {
+        "operationIndex": 484,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 808.436
+          },
+          {
+            "x": 976.8,
+            "y": 808.436
+          }
+        ]
+      },
+      {
+        "operationIndex": 490,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 831.496
+          },
+          {
+            "x": 976.8,
+            "y": 831.496
+          }
+        ]
+      },
+      {
+        "operationIndex": 496,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 891.676
+          },
+          {
+            "x": 976.8,
+            "y": 891.676
+          }
+        ]
+      },
+      {
+        "operationIndex": 502,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 910.911,
+            "y": 891.114
+          },
+          {
+            "x": 910.911,
+            "y": 979.078
+          }
+        ]
+      },
+      {
+        "operationIndex": 508,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 976.378,
+            "y": 891.114
+          },
+          {
+            "x": 976.378,
+            "y": 979.078
+          }
+        ]
+      },
+      {
+        "operationIndex": 514,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 948.481
+          },
+          {
+            "x": 976.8,
+            "y": 948.481
+          }
+        ]
+      },
+      {
+        "operationIndex": 520,
+        "subpathIndex": 0,
+        "paint": "stroke",
+        "closed": false,
+        "points": [
+          {
+            "x": 826.968,
+            "y": 978.515
+          },
+          {
+            "x": 976.8,
+            "y": 978.515
+          }
+        ]
+      }
+    ],
+    "skippedCurves": 2,
+    "unsupportedPaths": 0,
+    "unsupportedContexts": 0,
+    "clippedPaths": 2,
+    "truncated": false
+  },
+  "text": [
+    {
+      "text": "[redacted]",
+      "x": 882,
+      "y": 106,
+      "rotation": 0,
+      "index": 0
+    },
+    {
+      "text": "[redacted]",
+      "x": 859,
+      "y": 120,
+      "rotation": 0,
+      "index": 1
+    },
+    {
+      "text": "[redacted]",
+      "x": 835,
+      "y": 145,
+      "rotation": 0,
+      "index": 2
+    },
+    {
+      "text": "[redacted]",
+      "x": 870,
+      "y": 170,
+      "rotation": 0,
+      "index": 3
+    },
+    {
+      "text": "[redacted]",
+      "x": 870,
+      "y": 185,
+      "rotation": 0,
+      "index": 4
+    },
+    {
+      "text": "[redacted]",
+      "x": 870,
+      "y": 209,
+      "rotation": 0,
+      "index": 5
+    },
+    {
+      "text": "[redacted]",
+      "x": 870,
+      "y": 224,
+      "rotation": 0,
+      "index": 6
+    },
+    {
+      "text": "[redacted]",
+      "x": 870,
+      "y": 253,
+      "rotation": 0,
+      "index": 7
+    },
+    {
+      "text": "[redacted]",
+      "x": 870,
+      "y": 285,
+      "rotation": 0,
+      "index": 8
+    },
+    {
+      "text": "[redacted]",
+      "x": 870,
+      "y": 313,
+      "rotation": 0,
+      "index": 9
+    },
+    {
+      "text": "[redacted]",
+      "x": 872,
+      "y": 339,
+      "rotation": 0,
+      "index": 10
+    },
+    {
+      "text": "[redacted]",
+      "x": 835,
+      "y": 368,
+      "rotation": 0,
+      "index": 11
+    },
+    {
+      "text": "[redacted]",
+      "x": 852,
+      "y": 368,
+      "rotation": 0,
+      "index": 12
+    },
+    {
+      "text": "[redacted]",
+      "x": 879,
+      "y": 368,
+      "rotation": 0,
+      "index": 13
+    },
+    {
+      "text": "[redacted]",
+      "x": 930,
+      "y": 368,
+      "rotation": 0,
+      "index": 14
+    },
+    {
+      "text": "[redacted]",
+      "x": 964,
+      "y": 368,
+      "rotation": 0,
+      "index": 15
+    },
+    {
+      "text": "[redacted]",
+      "x": 852,
+      "y": 383,
+      "rotation": 0,
+      "index": 16
+    },
+    {
+      "text": "[redacted]",
+      "x": 927,
+      "y": 383,
+      "rotation": 0,
+      "index": 17
+    },
+    {
+      "text": "[redacted]",
+      "x": 958,
+      "y": 383,
+      "rotation": 0,
+      "index": 18
+    },
+    {
+      "text": "[redacted]",
+      "x": 852,
+      "y": 398,
+      "rotation": 0,
+      "index": 19
+    },
+    {
+      "text": "[redacted]",
+      "x": 835,
+      "y": 413,
+      "rotation": 0,
+      "index": 20
+    },
+    {
+      "text": "[redacted]",
+      "x": 852,
+      "y": 413,
+      "rotation": 0,
+      "index": 21
+    },
+    {
+      "text": "[redacted]",
+      "x": 921,
+      "y": 413,
+      "rotation": 0,
+      "index": 22
+    },
+    {
+      "text": "[redacted]",
+      "x": 852,
+      "y": 428,
+      "rotation": 0,
+      "index": 23
+    },
+    {
+      "text": "[redacted]",
+      "x": 852,
+      "y": 443,
+      "rotation": 0,
+      "index": 24
+    },
+    {
+      "text": "[redacted]",
+      "x": 852,
+      "y": 458,
+      "rotation": 0,
+      "index": 25
+    },
+    {
+      "text": "[redacted]",
+      "x": 835,
+      "y": 473,
+      "rotation": 0,
+      "index": 26
+    },
+    {
+      "text": "[redacted]",
+      "x": 852,
+      "y": 473,
+      "rotation": 0,
+      "index": 27
+    },
+    {
+      "text": "[redacted]",
+      "x": 896,
+      "y": 473,
+      "rotation": 0,
+      "index": 28
+    },
+    {
+      "text": "[redacted]",
+      "x": 964,
+      "y": 473,
+      "rotation": 0,
+      "index": 29
+    },
+    {
+      "text": "[redacted]",
+      "x": 852,
+      "y": 488,
+      "rotation": 0,
+      "index": 30
+    },
+    {
+      "text": "[redacted]",
+      "x": 852,
+      "y": 503,
+      "rotation": 0,
+      "index": 31
+    },
+    {
+      "text": "[redacted]",
+      "x": 908,
+      "y": 503,
+      "rotation": 0,
+      "index": 32
+    },
+    {
+      "text": "[redacted]",
+      "x": 958,
+      "y": 503,
+      "rotation": 0,
+      "index": 33
+    },
+    {
+      "text": "[redacted]",
+      "x": 852,
+      "y": 518,
+      "rotation": 0,
+      "index": 34
+    },
+    {
+      "text": "[redacted]",
+      "x": 386,
+      "y": 970,
+      "rotation": 0,
+      "index": 35
+    },
+    {
+      "text": "[redacted]",
+      "x": 523,
+      "y": 970,
+      "rotation": 0,
+      "index": 36
+    },
+    {
+      "text": "[redacted]",
+      "x": 60,
+      "y": 970,
+      "rotation": 0,
+      "index": 37
+    },
+    {
+      "text": "[redacted]",
+      "x": 853,
+      "y": 633,
+      "rotation": 0,
+      "index": 38
+    },
+    {
+      "text": "[redacted]",
+      "x": 847,
+      "y": 654,
+      "rotation": 0,
+      "index": 39
+    },
+    {
+      "text": "[redacted]",
+      "x": 862,
+      "y": 679,
+      "rotation": 0,
+      "index": 40
+    },
+    {
+      "text": "[redacted]",
+      "x": 852,
+      "y": 694,
+      "rotation": 0,
+      "index": 41
+    },
+    {
+      "text": "[redacted]",
+      "x": 835,
+      "y": 753,
+      "rotation": 0,
+      "index": 42
+    },
+    {
+      "text": "[redacted]",
+      "x": 835,
+      "y": 778,
+      "rotation": 0,
+      "index": 43
+    },
+    {
+      "text": "[redacted]",
+      "x": 835,
+      "y": 801,
+      "rotation": 0,
+      "index": 44
+    },
+    {
+      "text": "[redacted]",
+      "x": 835,
+      "y": 824,
+      "rotation": 0,
+      "index": 45
+    },
+    {
+      "text": "[redacted]",
+      "x": 867,
+      "y": 847,
+      "rotation": 0,
+      "index": 46
+    },
+    {
+      "text": "Обмерный план",
+      "x": 857,
+      "y": 864,
+      "rotation": 0,
+      "index": 47
+    },
+    {
+      "text": "[redacted]",
+      "x": 835,
+      "y": 941,
+      "rotation": 0,
+      "index": 48
+    },
+    {
+      "text": "14",
+      "x": 918,
+      "y": 940,
+      "rotation": 0,
+      "index": 49
+    },
+    {
+      "text": "[redacted]",
+      "x": 835,
+      "y": 971,
+      "rotation": 0,
+      "index": 50
+    },
+    {
+      "text": "1:50 А3",
+      "x": 918,
+      "y": 971,
+      "rotation": 0,
+      "index": 51
+    }
+  ],
+  "raster": {
+    "operationIndex": 525,
+    "width": 1591,
+    "height": 1977,
+    "transform": [401.981, 0, 0, 499.465, 204.009, 167.074]
+  }
+}

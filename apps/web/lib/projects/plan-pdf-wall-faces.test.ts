@@ -175,6 +175,55 @@ function completePageSheet() {
 }
 
 describe('exact native PDF wall-face intervals', () => {
+  it.each([0, 1, 2])('pairs slanted faces independently of room winding (%s)', (reversed) => {
+    const input = slantedSheet()
+    const reference = pairPlanPageWallFaces(input.work, source, input.contours)
+    if (reversed === 2) {
+      for (const room of input.contours.rooms) room.polygon.reverse()
+    } else input.contours.rooms[reversed]?.polygon.reverse()
+    const pairs = pairPlanPageWallFaces(input.work, source, input.contours)
+    const evidence = (values: typeof pairs) =>
+      values.map(({ faces }) => faces.map(({ wallEdgeIndex: _index, ...face }) => face))
+    expect(pairs).toHaveLength(1)
+    expect(evidence(pairs)).toEqual(evidence(reference))
+  })
+
+  it.each([false, true])('pairs a native slanted exterior face (reverse=%s)', (reverse) => {
+    const input = slantedSheet()
+    input.contours.rooms = input.contours.rooms.slice(0, 1)
+    input.contours.exterior = {
+      polygon: [
+        { x: 80, y: 80 },
+        { x: 236, y: 80 },
+        { x: 264, y: 220 },
+        { x: 80, y: 220 },
+      ],
+    }
+    input.wall.points = [
+      { x: 200, y: 100 },
+      { x: 236, y: 80 },
+      { x: 264, y: 220 },
+      { x: 220, y: 200 },
+    ]
+    input.work.paths.push(
+      ...input.contours.exterior.polygon.map((point, index) => ({
+        operationIndex: 100 + index,
+        subpathIndex: 0,
+        paint: 'stroke' as const,
+        closed: false,
+        points: [point],
+      })),
+    )
+    if (reverse) input.contours.exterior.polygon.reverse()
+    const before = structuredClone(input)
+    const pairs = pairPlanPageWallFaces(input.work, source, input.contours)
+    expect(pairs).toHaveLength(1)
+    expect(pairs[0]?.faces.map(({ contourKey }) => contourKey)).toEqual(['1', 'exterior'])
+    expect(input).toEqual(before)
+    input.wall.closed = false
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+  })
+
   it.each(['continuous', 'gap', 'shifted', 'reversed', 'duplicate', 'overlong'] as const)(
     'supports separately stroked portions without filling missing evidence: %s',
     (mode) => {

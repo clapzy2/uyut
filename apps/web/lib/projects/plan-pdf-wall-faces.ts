@@ -309,7 +309,21 @@ function pairSlantedFaces(
   contours: PlanPageContours,
   closedSubpaths: Map<number, number>,
 ): PdfWallFacePair[] {
-  const faces: SlantedFace[] = contours.rooms.flatMap((room) =>
+  const zones = [
+    ...contours.rooms.map((room) => ({ ...room, key: pdfContourKey(room), exterior: false })),
+    ...(contours.exterior
+      ? [
+          {
+            ...contours.exterior,
+            key: 'exterior',
+            exterior: true,
+            openings: [],
+            conditionalEdges: [],
+          },
+        ]
+      : []),
+  ]
+  const faces: SlantedFace[] = zones.flatMap((room) =>
     room.polygon.flatMap((start, wallEdgeIndex) => {
       const end = room.polygon[(wallEdgeIndex + 1) % room.polygon.length]
       if (
@@ -320,7 +334,17 @@ function pairSlantedFaces(
         room.conditionalEdges?.some((edge) => edge.wallEdgeIndex === wallEdgeIndex)
       )
         return []
-      return [{ contourKey: pdfContourKey(room), wallEdgeIndex, start, end }]
+      // Orient by free-floor side, independently of submitted polygon winding.
+      // For the exterior the free side lies outside, opposite to a room contour.
+      const forward = areaSign(room.polygon) * (room.exterior ? -1 : 1) > 0
+      return [
+        {
+          contourKey: room.key,
+          wallEdgeIndex,
+          start: forward ? start : end,
+          end: forward ? end : start,
+        },
+      ]
     }),
   )
   if (faces.length > 64) return []
