@@ -167,15 +167,23 @@ function edgeSamples(a: PagePoint, b: PagePoint, polygon: readonly PagePoint[]):
   return samples
 }
 
-export function polygonWithin(
-  polygon: readonly PagePoint[],
+export function segmentWithinPolygon(
+  a: PagePoint,
+  b: PagePoint,
   boundary: readonly PagePoint[],
 ): boolean {
   const within = (point: PagePoint) =>
     pointOnBoundary(point, boundary) || pdfPointInside(point, boundary)
+  return within(a) && within(b) && edgeSamples(a, b, boundary).every(within)
+}
+
+export function polygonWithin(
+  polygon: readonly PagePoint[],
+  boundary: readonly PagePoint[],
+): boolean {
   return polygon.every((a, index) => {
     const b = polygon[(index + 1) % polygon.length]
-    return b !== undefined && within(a) && edgeSamples(a, b, boundary).every(within)
+    return b !== undefined && segmentWithinPolygon(a, b, boundary)
   })
 }
 

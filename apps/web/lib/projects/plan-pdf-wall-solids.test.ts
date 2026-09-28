@@ -61,6 +61,25 @@ function fixture(gap = 0) {
   return { work, contours }
 }
 describe('native wall solid candidates and exact joints', () => {
+  it('reports the exact source edges escaping the exterior without changing them', () => {
+    const input = fixture()
+    const body = input.work.paths[0]
+    if (!body) throw new Error('Missing body')
+    body.points = rect(200, 90, 220, 200)
+    input.contours.exterior = { polygon: rect(100, 100, 320, 300) }
+    const before = structuredClone(input)
+    const result = inspectPlanPageWallSolids(input.work, source, input.contours)
+    const solid = result.solids.find((candidate) => candidate.source.operationIndex === 1)
+    expect(solid?.reasons).toEqual(['outside-exterior'])
+    expect(solid?.conflicts.exteriorEdges).toEqual([
+      { segmentIndex: 0, start: { x: 200, y: 90 }, end: { x: 220, y: 90 } },
+      { segmentIndex: 1, start: { x: 220, y: 90 }, end: { x: 220, y: 200 } },
+      { segmentIndex: 3, start: { x: 200, y: 200 }, end: { x: 200, y: 90 } },
+    ])
+    expect(result.junctions).toEqual([])
+    expect(input).toEqual(before)
+  })
+
   it('retains one-sided evidence while still rejecting whole-body floor intrusion', () => {
     const input = fixture()
     const body = input.work.paths[0]
@@ -144,6 +163,7 @@ describe('native wall solid candidates and exact joints', () => {
     expect(result.solids.find((solid) => solid.source.operationIndex === 1)).toMatchObject({
       status: 'conflict',
       reasons: ['opening'],
+      conflicts: { openings: [{ contourKey: '1', openingId: 'door' }] },
     })
     expect(result.junctions).toEqual([])
   })
@@ -153,6 +173,12 @@ describe('native wall solid candidates and exact joints', () => {
     const result = inspectPlanPageWallSolids(input.work, source, input.contours)
     expect(result.solids).toHaveLength(2)
     expect(result.solids.every((solid) => solid.reasons.includes('overlapping-solid'))).toBe(true)
+    expect(result.solids[0]?.conflicts.overlappingSources).toEqual([
+      { operationIndex: 2, subpathIndex: 0 },
+    ])
+    expect(result.solids[1]?.conflicts.overlappingSources).toEqual([
+      { operationIndex: 1, subpathIndex: 0 },
+    ])
     expect(result.junctions).toEqual([])
   })
 
@@ -262,6 +288,7 @@ describe('native wall solid candidates and exact joints', () => {
     expect(result.solids.find((s) => s.source.operationIndex === 1)).toMatchObject({
       status: 'conflict',
       reasons: ['room-floor'],
+      conflicts: { roomContours: ['2'] },
     })
     expect(result.junctions).toEqual([])
   })

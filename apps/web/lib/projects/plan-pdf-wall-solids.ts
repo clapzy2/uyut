@@ -1,7 +1,7 @@
 import type { PlanPageContours } from '@uyut/db'
-import { polygonsOverlap, polygonWithin, segmentEntersPolygon } from './plan-page-review'
+import { polygonsOverlap, segmentEntersPolygon, segmentWithinPolygon } from './plan-page-review'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
-import type { PdfPlanSource } from './plan-pdf-room-binding'
+import { type PdfPlanSource, pdfContourKey } from './plan-pdf-room-binding'
 import { findPlanPageWallBodySupports, type PdfWallBodySupport } from './plan-pdf-wall-body-support'
 import { pairPlanPageWallFaces, validPlanPageWallSource } from './plan-pdf-wall-faces'
 
@@ -12,6 +12,12 @@ export type PdfWallSolidCandidate = {
   boundarySupports: PdfWallBodySupport[]
   status: 'candidate' | 'conflict'
   reasons: Array<'room-floor' | 'opening' | 'outside-exterior' | 'overlapping-solid'>
+  conflicts: {
+    roomContours: string[]
+    openings: Array<{ contourKey: string; openingId: string }>
+    overlappingSources: SourcePath[]
+    exteriorEdges: Array<{ segmentIndex: number; start: PagePoint; end: PagePoint }>
+  }
 }
 export type PdfWallJunction = {
   first: SourcePath
@@ -69,29 +75,46 @@ export function inspectPlanPageWallSolids(
       ...p,
     }))
     const reasons: PdfWallSolidCandidate['reasons'] = []
-    if (contours.rooms.some((room) => polygonsOverlap(polygon, room.polygon)))
-      reasons.push('room-floor')
-    if (
-      contours.rooms.some((room) =>
-        room.openings?.some(
-          (opening) =>
-            segmentEntersPolygon(opening.start, opening.end, polygon) ||
-            polygon.some((a, index) => {
-              const b = polygon[(index + 1) % polygon.length]
-              return b && sharedEdge(opening.start, opening.end, a, b)
-            }),
-        ),
+    const roomContours = contours.rooms
+      .filter((room) => polygonsOverlap(polygon, room.polygon))
+      .map(pdfContourKey)
+      .sort()
+    if (roomContours.length) reasons.push('room-floor')
+    const openings = contours.rooms
+      .flatMap((room) =>
+        (room.openings ?? [])
+          .filter(
+            (opening) =>
+              segmentEntersPolygon(opening.start, opening.end, polygon) ||
+              polygon.some((a, index) => {
+                const b = polygon[(index + 1) % polygon.length]
+                return b && sharedEdge(opening.start, opening.end, a, b)
+              }),
+          )
+          .map((opening) => ({ contourKey: pdfContourKey(room), openingId: opening.id })),
       )
-    )
-      reasons.push('opening')
-    if (contours.exterior && !polygonWithin(polygon, contours.exterior.polygon))
-      reasons.push('outside-exterior')
+      .sort(
+        (a, b) =>
+          a.contourKey.localeCompare(b.contourKey) || a.openingId.localeCompare(b.openingId),
+      )
+    if (openings.length) reasons.push('opening')
+    const exterior = contours.exterior
+    const exteriorEdges = exterior
+      ? polygon.flatMap((start, segmentIndex) => {
+          const end = polygon[(segmentIndex + 1) % polygon.length]
+          return end && !segmentWithinPolygon(start, end, exterior.polygon)
+            ? [{ segmentIndex, start: { ...start }, end: { ...end } }]
+            : []
+        })
+      : []
+    if (exteriorEdges.length) reasons.push('outside-exterior')
     solids.push({
       source: { operationIndex: path.operationIndex, subpathIndex: path.subpathIndex },
       polygon,
       boundarySupports: supports.filter((support) => key(support.source) === key(path)),
       status: reasons.length ? 'conflict' : 'candidate',
       reasons,
+      conflicts: { roomContours, openings, overlappingSources: [], exteriorEdges },
     })
   }
   solids.sort((a, b) => sourceOrder(a.source, b.source))
@@ -101,6 +124,8 @@ export function inspectPlanPageWallSolids(
     if (!first) continue
     for (const second of solids.slice(i + 1)) {
       if (polygonsOverlap(first.polygon, second.polygon)) {
+        first.conflicts.overlappingSources.push({ ...second.source })
+        second.conflicts.overlappingSources.push({ ...first.source })
         for (const solid of [first, second]) {
           solid.status = 'conflict'
           if (!solid.reasons.includes('overlapping-solid')) solid.reasons.push('overlapping-solid')
