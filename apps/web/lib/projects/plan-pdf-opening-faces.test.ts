@@ -45,7 +45,108 @@ function pairs(input = fixture()) {
   return pairPlanPageOpeningFaces(input.work, input.source, input.contours)
 }
 
+function separatelyPaintedFixture() {
+  const input = fixture()
+  const strokes: PdfVectorPath[] = []
+  input.contours.exterior = undefined
+  input.contours.rooms = [100, 200].map((top, index) => ({
+    roomSourceNumber: index + 1,
+    polygon: [
+      { x: 25, y: top },
+      { x: 125, y: top },
+      { x: 125, y: top + 50 },
+      { x: 25, y: top + 50 },
+    ],
+    openings: [
+      {
+        id: `door-${index}`,
+        kind: 'door',
+        wallEdgeIndex: index === 0 ? 2 : 0,
+        start: { x: 50, y: index === 0 ? 150 : 200 },
+        end: { x: 100, y: index === 0 ? 150 : 200 },
+      },
+    ],
+  }))
+  input.work.paths = [25, 100].map((left, index) => ({
+    operationIndex: index + 1,
+    subpathIndex: 0,
+    paint: 'stroke',
+    closed: true,
+    points: [
+      { x: left, y: 150 },
+      { x: left + 25, y: 150 },
+      { x: left + 25, y: 200 },
+      { x: left, y: 200 },
+    ],
+  }))
+  input.work.paths.push(
+    ...input.contours.rooms
+      .flatMap((room) => room.polygon)
+      .map((point, index) => ({
+        operationIndex: 100 + index,
+        subpathIndex: 0,
+        paint: 'stroke' as const,
+        closed: false,
+        points: [point],
+      })),
+  )
+  for (const path of input.work.paths) {
+    if (!path.closed || path.paint === 'fill') continue
+    path.paint = 'fill'
+    for (const [index, start] of path.points.entries()) {
+      const end = path.points[(index + 1) % path.points.length]
+      if (!end) continue
+      strokes.push({
+        operationIndex: 10000 + strokes.length,
+        subpathIndex: 0,
+        closed: false,
+        paint: 'stroke',
+        points: [{ ...start }, { ...end }],
+      })
+    }
+  }
+  input.work.paths.push(...strokes)
+  return input
+}
+
 describe('physical door face candidates from two native reveals', () => {
+  it('preserves both fill and stroke evidence for independently painted reveals', () => {
+    const input = separatelyPaintedFixture()
+    const before = structuredClone(input)
+    const result = pairs(input)
+    expect(result).toHaveLength(1)
+    for (const pair of result)
+      for (const jamb of pair.jambs) {
+        expect(jamb.strokeSegment).toBeDefined()
+        const stroke = input.work.paths.find(
+          (path) => path.operationIndex === jamb.strokeSegment?.operationIndex,
+        )
+        expect(stroke?.points).toEqual([jamb.start, jamb.end])
+      }
+    expect(input).toEqual(before)
+  })
+
+  it.each(['remove-strokes', 'move-strokes', 'fill-only', 'compound-fill'] as const)(
+    'does not accept separately painted reveals after %s',
+    (mutation) => {
+      const input = separatelyPaintedFixture()
+      if (mutation === 'remove-strokes')
+        input.work.paths = input.work.paths.filter((path) => path.paint === 'fill')
+      if (mutation === 'move-strokes')
+        for (const path of input.work.paths) {
+          if (path.operationIndex >= 10000)
+            path.points = path.points.map((point) => ({ ...point, x: point.x + 0.001 }))
+        }
+      if (mutation === 'fill-only') for (const path of input.work.paths) path.paint = 'fill'
+      if (mutation === 'compound-fill')
+        input.work.paths.push(
+          ...input.work.paths
+            .filter((path) => path.closed)
+            .map((path) => ({ ...structuredClone(path), subpathIndex: path.subpathIndex + 100 })),
+        )
+      expect(pairs(input)).toEqual([])
+    },
+  )
   it('rejects a moved room corner even when both door reveals remain unchanged', () => {
     const input = fixture()
     const room = input.contours.rooms.find((room) => room.roomSourceNumber === 2)

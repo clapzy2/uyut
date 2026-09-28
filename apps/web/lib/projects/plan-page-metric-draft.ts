@@ -412,11 +412,14 @@ export function planPageMetricDraft(
           return opening && wall ? [structuredClone({ opening, wall })] : []
         })
         if (bindings.length !== 2 || !bindings[0] || !bindings[1]) return []
-        const refs = pair.jambs.map(({ operationIndex, subpathIndex, segmentIndex }) => ({
-          operationIndex,
-          subpathIndex,
-          segmentIndex,
-        }))
+        const refs = pair.jambs.map(
+          ({ operationIndex, subpathIndex, segmentIndex, strokeSegment }) => ({
+            operationIndex,
+            subpathIndex,
+            segmentIndex,
+            ...(strokeSegment ? { strokeSegment } : {}),
+          }),
+        )
         if (!refs[0] || !refs[1]) return []
         return [{ bindings: [bindings[0], bindings[1]], jambs: [refs[0], refs[1]] }]
       }),

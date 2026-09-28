@@ -1,4 +1,9 @@
-import type { PlanPageContours, PlanPageOpening, PlanPageRoomIdentity } from '@uyut/db'
+import type {
+  PlanPageContours,
+  PlanPageOpening,
+  PlanPageRoomIdentity,
+  PlanPageSegmentRef,
+} from '@uyut/db'
 import {
   planPageContoursSchema,
   planPageFeaturesIssue,
@@ -11,6 +16,7 @@ import {
   pdfContourIdentity,
   pdfContourIssue,
   pdfContourKey,
+  pdfPolygonIsValid,
 } from './plan-pdf-room-binding'
 
 export type PdfOpeningFaceReference = PlanPageRoomIdentity & { openingId: string }
@@ -20,6 +26,7 @@ export type PdfOpeningJamb = {
   segmentIndex: number
   start: PagePoint
   end: PagePoint
+  strokeSegment?: PlanPageSegmentRef
 }
 export type PdfOpeningFaceCheck = PdfOpeningFaceReference &
   (
@@ -146,20 +153,61 @@ export function verifyPlanPageOpeningFaces(
     }))
 
   const segments = new Map<string, PdfOpeningJamb>()
+  const strokes = new Map<string, PlanPageSegmentRef>()
+  const closedSubpaths = new Map<number, number>()
+  const refKey = (ref: PlanPageSegmentRef) =>
+    [ref.operationIndex, ref.subpathIndex, ref.segmentIndex]
+      .map((n) => String(n).padStart(6, '0'))
+      .join(':')
   for (const path of work.paths) {
-    // Open dimension leaders and fill-only arrowheads cannot prove a door reveal.
-    if (!path.closed || path.paint === 'fill') continue
+    if (path.closed)
+      closedSubpaths.set(path.operationIndex, (closedSubpaths.get(path.operationIndex) ?? 0) + 1)
+    if (path.paint === 'fill') continue
+    const count = path.closed ? path.points.length : path.points.length - 1
+    for (let index = 0; index < count; index++) {
+      const start = path.points[index]
+      const end = path.points[(index + 1) % path.points.length]
+      if (!start || !end || samePoint(start, end)) continue
+      const key = segmentKey(start, end)
+      const ref = {
+        operationIndex: path.operationIndex,
+        subpathIndex: path.subpathIndex,
+        segmentIndex: index,
+      }
+      const previous = strokes.get(key)
+      if (!previous || refKey(ref) < refKey(previous)) strokes.set(key, ref)
+    }
+  }
+  for (const path of work.paths) {
+    // A fill needs its own simple outline and an exact independently painted reveal.
+    // Open leaders alone never become reveals; compound fills may contain holes.
+    if (!path.closed) continue
+    if (path.paint === 'fill') {
+      const first = path.points[0]
+      const last = path.points.at(-1)
+      const points =
+        first && last && samePoint(first, last) ? path.points.slice(0, -1) : path.points
+      if (
+        points.length > 100 ||
+        closedSubpaths.get(path.operationIndex) !== 1 ||
+        !pdfPolygonIsValid(points)
+      )
+        continue
+    }
     for (let index = 0; index < path.points.length; index++) {
       const start = path.points[index]
       const end = path.points[(index + 1) % path.points.length]
       if (!start || !end || samePoint(start, end)) continue
       const key = segmentKey(start, end)
+      const strokeSegment = path.paint === 'fill' ? strokes.get(key) : undefined
+      if (path.paint === 'fill' && !strokeSegment) continue
       const jamb: PdfOpeningJamb = {
         operationIndex: path.operationIndex,
         subpathIndex: path.subpathIndex,
         segmentIndex: index,
         start: { ...start },
         end: { ...end },
+        ...(strokeSegment ? { strokeSegment } : {}),
       }
       const before = segments.get(key)
       // PDF drawings may paint the same wall outline several times. Identical native

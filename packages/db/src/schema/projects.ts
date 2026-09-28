@@ -166,7 +166,10 @@ export type PlanImageDimensionLine = {
 /** Server-proved opposing door faces; snapshots prevent reuse after a geometry edit. */
 export type PlanOpeningFacePair = {
   bindings: [{ opening: PlanOpening; wall: PlanWall }, { opening: PlanOpening; wall: PlanWall }]
-  jambs: [PlanPageSegmentRef, PlanPageSegmentRef]
+  jambs: [
+    PlanPageSegmentRef & { strokeSegment?: PlanPageSegmentRef },
+    PlanPageSegmentRef & { strokeSegment?: PlanPageSegmentRef },
+  ]
 }
 /** Server-derived printed width, bound to the annotated opening and its host. */
 export type PlanOpeningWidthProof = {
