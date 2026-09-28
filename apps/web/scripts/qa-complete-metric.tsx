@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { reconcilePlanGeometryRooms } from '@uyut/ai'
 import type { PlanPageContours, PlanReading } from '@uyut/db'
 import { renderToStaticMarkup } from 'react-dom/server'
 import reference from '../../../docs/qa/fixtures/apartment-74-77.json'
@@ -9,9 +10,11 @@ import complete from '../../../docs/qa/fixtures/apartment-74-77-complete-page.js
 import chains from '../../../docs/qa/fixtures/apartment-74-77-page-contours.json'
 import { PlanGeometryPreview } from '../components/plan-geometry-preview'
 import { preparePlanPage } from '../lib/projects/plan-document'
+import { inspectDoorAdjacency } from '../lib/projects/plan-door-adjacency'
 import {
   inspectManualPlanCompleteness,
   inspectPlanGeometry,
+  inspectPlanRoomAreas,
 } from '../lib/projects/plan-geometry-inspection'
 import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema } from '../lib/projects/plan-page-review'
@@ -125,6 +128,17 @@ const wallCoverageCounts = Object.fromEntries(
   ].map((status) => [status, wallCoverage.filter((span) => span.status === status).length]),
 )
 const wallReviewQueue = planPageWallReviewQueue(contours, wallCoverage, cmPerPoint)
+const reconciled = reconcilePlanGeometryRooms(
+  { ...result.geometry, obstacles: result.geometry.obstacles ?? [] },
+  reading.rooms,
+)
+const checked = reconciled ? { ...result.geometry, rooms: reconciled.rooms } : result.geometry
+const geometryIssues = inspectPlanGeometry(checked)
+const confirmationIssues = [
+  ...inspectManualPlanCompleteness(checked),
+  ...inspectPlanRoomAreas(checked.rooms, reading.rooms),
+]
+const doorAdjacency = inspectDoorAdjacency(result.geometry)
 const output = resolve('../../output/playwright/complete-metric')
 await mkdir(output, { recursive: true })
 const report = {
@@ -132,13 +146,18 @@ const report = {
   source,
   nativePaths: page.linework.paths.length,
   geometry: result.geometry,
-  geometryIssues: inspectPlanGeometry(result.geometry),
+  geometryIssues,
+  doorAdjacency,
   openingFacePairs: pairPlanPageOpeningFaces(page.linework, source, contours),
   wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs,
   wallCoverage,
   wallCoverageCounts,
   wallReviewQueue,
-  confirmationIssues: inspectManualPlanCompleteness(result.geometry),
+  confirmationIssues,
+  localConfirmationChecksPass:
+    reconciled !== undefined &&
+    reconciled.rooms.length === result.geometry.rooms.length &&
+    ![...geometryIssues, ...confirmationIssues].some((issue) => issue.severity === 'error'),
   unresolvedSourceFeatures: complete.unresolvedFeatures,
   qualification:
     'Manual source annotation, not automatic recognition accuracy. Draft only; source measurements not replaced by contour bounds.',
@@ -161,12 +180,15 @@ console.log(
     physicalZones: result.geometry.rooms.length,
     openingAnnotations: result.geometry.openings.length,
     openingFacePairs: report.openingFacePairs.length,
+    provenDoorLinks: doorAdjacency.links.length,
+    provenZoneGroups: doorAdjacency.provenGroups.length,
     wallFacePairs: report.wallFacePairs?.length,
     wallCoverageCounts,
     interiorReviewSpans: wallReviewQueue.length,
     derivedOpeningWidths: result.geometry.pdfCalibration?.derivedOpeningIds.length,
     geometryIssues: report.geometryIssues.length,
     confirmationIssues: report.confirmationIssues.length,
+    localConfirmationChecksPass: report.localConfirmationChecksPass,
     paidCalls: 0,
   }),
 )
