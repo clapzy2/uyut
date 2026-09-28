@@ -5,18 +5,29 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { preparePlanPage } from '../lib/projects/plan-document'
 import { pdfNativePageDimensionChain } from '../lib/projects/plan-pdf-dimension-chain'
+import type { PagePoint } from '../lib/projects/plan-pdf-linework'
+import { pdfBoundaryDistance, pdfPointInside } from '../lib/projects/plan-pdf-room-binding'
 
 type Label = { index: number; text: string }
+type Axis = 'width' | 'depth'
+type WallAnchor = { operationIndex: number; point: PagePoint }
 type Chain = {
-  axis: 'width' | 'depth'
+  axis: Axis
   total: Label
   parts: Label[]
   expectedNativeIssue?: string
+  wallAnchors?: [WallAnchor, WallAnchor]
 }
 type StandaloneDimension = {
-  axis: 'width' | 'depth'
+  axis: Axis
   label: Label
   expectedNativeIssue?: string
+  wallAnchors?: [WallAnchor, WallAnchor]
+  opening?: {
+    kind: 'window' | 'door'
+    probeAcross: number
+    ignoredAnnotationFills?: number[]
+  }
 }
 type Source = {
   file: string
@@ -100,6 +111,8 @@ for (const source of sources) {
     }>
   }> = []
   const nativeIssues: string[] = []
+  let wallAnchoredDimensions = 0
+  let sampledOpeningGaps = 0
   const sourceRef = {
     sha256: source.sha256,
     pdfPage: source.existingPage,
@@ -115,6 +128,86 @@ for (const source of sources) {
       ((end.x - start.x) * linework.pageWidth) / 1000,
       ((end.y - start.y) * linework.pageHeight) / 1000,
     )
+  const checkWallAnchors = (
+    ends: [PagePoint, PagePoint],
+    axis: Axis,
+    anchors: [WallAnchor, WallAnchor] | undefined,
+  ) => {
+    if (!anchors) return
+    const along = axis === 'width' ? 'x' : 'y'
+    const pageSize = axis === 'width' ? linework.pageWidth : linework.pageHeight
+    for (const [index, anchor] of anchors.entries()) {
+      const path = linework.paths.find(
+        (candidate) => candidate.operationIndex === anchor.operationIndex,
+      )
+      const end = ends[index]
+      if (
+        !path ||
+        !end ||
+        path.paint !== 'fill' ||
+        !path.closed ||
+        pdfBoundaryDistance(linework, anchor.point, path.points) > 0.12 ||
+        (Math.abs(anchor.point[along] - end[along]) * pageSize) / 1000 > 0.12
+      ) {
+        throw new Error(`${source.file}: printed dimension no longer reaches a reviewed wall face`)
+      }
+    }
+    wallAnchoredDimensions++
+  }
+  const checkOpeningGap = (
+    ends: [PagePoint, PagePoint],
+    axis: Axis,
+    opening: StandaloneDimension['opening'],
+    anchors: StandaloneDimension['wallAnchors'],
+  ) => {
+    if (!opening) return
+    if (axis !== 'width' || !anchors || anchors[0].operationIndex === anchors[1].operationIndex) {
+      throw new Error(`${source.file}: an opening needs two separate wall bodies on one axis`)
+    }
+    for (const anchor of anchors) {
+      const path = linework.paths.find(
+        (candidate) => candidate.operationIndex === anchor.operationIndex,
+      )
+      const across = path?.points.map((point) => point.y) ?? []
+      if (
+        across.length === 0 ||
+        opening.probeAcross <= Math.min(...across) ||
+        opening.probeAcross >= Math.max(...across)
+      ) {
+        throw new Error(`${source.file}: opening probe misses an adjacent wall body`)
+      }
+    }
+    const ignored = new Set(opening.ignoredAnnotationFills ?? [])
+    for (const operationIndex of ignored) {
+      const path = linework.paths.find((candidate) => candidate.operationIndex === operationIndex)
+      if (path?.paint !== 'fill' || !path.closed) {
+        throw new Error(`${source.file}: ignored annotation mark is no longer a native fill`)
+      }
+      const xs = path.points.map((point) => point.x)
+      const ys = path.points.map((point) => point.y)
+      if (Math.max(...xs) - Math.min(...xs) > 8 || Math.max(...ys) - Math.min(...ys) > 8) {
+        throw new Error(`${source.file}: ignored annotation mark is too large to exclude`)
+      }
+    }
+    for (const fraction of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+      const point = {
+        x: ends[0].x + (ends[1].x - ends[0].x) * fraction,
+        y: opening.probeAcross,
+      }
+      if (
+        linework.paths.some(
+          (path) =>
+            path.paint === 'fill' &&
+            path.closed &&
+            !ignored.has(path.operationIndex) &&
+            pdfPointInside(point, path.points),
+        )
+      ) {
+        throw new Error(`${source.file}: a reviewed ${opening.kind} gap contains native fill`)
+      }
+    }
+    sampledOpeningGaps++
+  }
   for (const chain of source.chains ?? []) {
     checkLabel(chain.total)
     for (const part of chain.parts) checkLabel(part)
@@ -156,6 +249,7 @@ for (const source of sources) {
         throw new Error(`${source.file}: the total label spans different native endpoints`)
       }
     }
+    checkWallAnchors(native.ends, chain.axis, chain.wallAnchors)
     nativeProofs.push({
       scale: sum / 10 / pointLength(...native.ends),
       segments: native.segments,
@@ -181,6 +275,16 @@ for (const source of sources) {
     if (native.status !== 'candidate') {
       throw new Error(`${source.file}: standalone dimension lacks a unique native line`)
     }
+    if (dimensionLabel.opening && !dimensionLabel.wallAnchors) {
+      throw new Error(`${source.file}: an opening review needs both wall-face anchors`)
+    }
+    checkWallAnchors(native.ends, dimensionLabel.axis, dimensionLabel.wallAnchors)
+    checkOpeningGap(
+      native.ends,
+      dimensionLabel.axis,
+      dimensionLabel.opening,
+      dimensionLabel.wallAnchors,
+    )
     nativeProofs.push({
       scale: millimetres / 10 / pointLength(...native.ends),
       segments: native.segments,
@@ -210,8 +314,10 @@ for (const source of sources) {
     nativePaths: linework.paths.length,
     nativeLabels: text.length,
     closedPrintedChains: source.chains?.length ?? 0,
-    nativeDimensionChains: nativeProofs.length,
+    nativeDimensionProofs: nativeProofs.length,
     nativeDimensionIssues: nativeIssues,
+    wallAnchoredDimensions,
+    sampledOpeningGaps,
     clippedPaths: linework.clippedPaths,
     skippedCurves: linework.skippedCurves,
   })

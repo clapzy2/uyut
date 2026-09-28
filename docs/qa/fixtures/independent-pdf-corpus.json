@@ -38,6 +38,10 @@
       {
         "axis": "width",
         "total": { "index": 40, "text": "9 655" },
+        "wallAnchors": [
+          { "operationIndex": 5113, "point": { "x": 275.486, "y": 147.372 } },
+          { "operationIndex": 2458, "point": { "x": 850.19, "y": 147.372 } }
+        ],
         "parts": [
           { "index": 30, "text": "555" },
           { "index": 31, "text": "750" },
@@ -70,7 +74,53 @@
       {
         "axis": "depth",
         "total": { "index": 39, "text": "7 135" },
+        "wallAnchors": [
+          { "operationIndex": 7768, "point": { "x": 850.19, "y": 147.372 } },
+          { "operationIndex": 11858, "point": { "x": 850.19, "y": 747.961 } }
+        ],
         "parts": [{ "index": 28, "text": "475" }, { "index": 29, "text": "6 660" }]
+      }
+    ],
+    "standaloneDimensions": [
+      {
+        "axis": "width",
+        "label": { "index": 32, "text": "1 420" },
+        "wallAnchors": [
+          { "operationIndex": 9823, "point": { "x": 353.165, "y": 143.163 } },
+          { "operationIndex": 9471, "point": { "x": 437.689, "y": 143.163 } }
+        ],
+        "opening": { "kind": "window", "probeAcross": 130 }
+      },
+      {
+        "axis": "width",
+        "label": { "index": 34, "text": "2 370" },
+        "wallAnchors": [
+          { "operationIndex": 9471, "point": { "x": 485.011, "y": 143.163 } },
+          { "operationIndex": 9059, "point": { "x": 626.083, "y": 147.372 } }
+        ],
+        "opening": { "kind": "window", "probeAcross": 130 }
+      },
+      {
+        "axis": "width",
+        "label": { "index": 36, "text": "1 510" },
+        "wallAnchors": [
+          { "operationIndex": 9059, "point": { "x": 673.702, "y": 147.372 } },
+          { "operationIndex": 8038, "point": { "x": 763.583, "y": 143.163 } }
+        ],
+        "opening": {
+          "kind": "window",
+          "probeAcross": 130,
+          "ignoredAnnotationFills": [18736]
+        }
+      },
+      {
+        "axis": "width",
+        "label": { "index": 22, "text": "950" },
+        "wallAnchors": [
+          { "operationIndex": 923, "point": { "x": 458.82, "y": 747.961 } },
+          { "operationIndex": 2038, "point": { "x": 515.368, "y": 747.961 } }
+        ],
+        "opening": { "kind": "door", "probeAcross": 757 }
       }
     ]
   },
@@ -122,10 +172,38 @@
       { "index": 100, "text": "Высота потолков = 2810 мм" }
     ],
     "standaloneDimensions": [
-      { "axis": "width", "label": { "index": 40, "text": "5 290" } },
-      { "axis": "width", "label": { "index": 49, "text": "6 220" } },
-      { "axis": "depth", "label": { "index": 81, "text": "5 345" } },
-      { "axis": "width", "label": { "index": 66, "text": "4 565" } }
+      {
+        "axis": "width",
+        "label": { "index": 40, "text": "5 290" },
+        "wallAnchors": [
+          { "operationIndex": 1213, "point": { "x": 96.495, "y": 179.146 } },
+          { "operationIndex": 1587, "point": { "x": 348.434, "y": 179.146 } }
+        ]
+      },
+      {
+        "axis": "width",
+        "label": { "index": 49, "text": "6 220" },
+        "wallAnchors": [
+          { "operationIndex": 1608, "point": { "x": 479.165, "y": 210.127 } },
+          { "operationIndex": 1746, "point": { "x": 775.395, "y": 210.127 } }
+        ]
+      },
+      {
+        "axis": "depth",
+        "label": { "index": 81, "text": "5 345" },
+        "wallAnchors": [
+          { "operationIndex": 2481, "point": { "x": 524.242, "y": 337.415 } },
+          { "operationIndex": 3057, "point": { "x": 524.242, "y": 697.395 } }
+        ]
+      },
+      {
+        "axis": "width",
+        "label": { "index": 66, "text": "4 565" },
+        "wallAnchors": [
+          { "operationIndex": 2926, "point": { "x": 557.985, "y": 697.395 } },
+          { "operationIndex": 1756, "point": { "x": 775.395, "y": 697.395 } }
+        ]
+      }
     ]
   }
 ]
