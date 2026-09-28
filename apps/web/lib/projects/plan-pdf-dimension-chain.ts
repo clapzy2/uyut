@@ -410,24 +410,44 @@ export function pdfDepthChain(
   return pdfDimensionChain(work, source, contours, roomSourceNumber, labels, totalMm, 'depth')
 }
 
-/** Axis-aligned dimensions with tips facing measured ends. Never derive mm from drawing scale. */
-function pdfDimensionChain(
+export type PdfNativePageDimensionChain =
+  | {
+      status: 'candidate'
+      totalMm: number
+      axis: DimensionAxis
+      labelIndexes: number[]
+      lineOperations: number[]
+      ends: [PagePoint, PagePoint]
+      segments: Array<{ labelIndex: number; valueMm: number; start: PagePoint; end: PagePoint }>
+      basis: 'native-page-dimension'
+    }
+  | { status: 'unresolved' | 'ambiguous'; reason: string }
+
+/** Proves one native chain, not completeness of the page or ownership by a room or wall. */
+export function pdfNativePageDimensionChain(
   work: PdfLinework,
   source: PdfPlanSource,
-  contours: PdfRoomContours,
-  roomSourceNumber: number,
   labels: readonly NativeLabel[],
   totalMm: number,
   axis: DimensionAxis,
-): PdfDimensionChain {
+): PdfNativePageDimensionChain {
+  if (source.state !== 'existing') return { status: 'unresolved', reason: 'not-existing-state' }
+  if (work.coordinateSystem !== 'page-0-1000' || work.truncated)
+    return { status: 'unresolved', reason: 'incomplete-native-page' }
+  return nativePageDimensionChain(work, labels, totalMm, axis)
+}
+
+/** Axis-aligned dimensions with tips facing measured ends. Never derive mm from drawing scale. */
+function nativePageDimensionChain(
+  work: PdfLinework,
+  labels: readonly NativeLabel[],
+  totalMm: number,
+  axis: DimensionAxis,
+): PdfNativePageDimensionChain {
   const fail = (
     reason: string,
     status: 'unresolved' | 'ambiguous' = 'unresolved',
-  ): PdfDimensionChain => ({ status, reason, roomSourceNumber: null })
-  const issue = pdfContourIssue(work, source, contours)
-  if (issue) return fail(issue)
-  const room = contours.rooms.find((r) => r.roomSourceNumber === roomSourceNumber)
-  if (!room) return fail('no-annotated-room')
+  ): PdfNativePageDimensionChain => ({ status, reason })
   if (
     !Number.isSafeInteger(totalMm) ||
     totalMm < 1 ||
@@ -455,8 +475,6 @@ function pdfDimensionChain(
   const along = (point: PagePoint) => (axis === 'width' ? point.x : point.y)
   const across = (point: PagePoint) => (axis === 'width' ? point.y : point.x)
   const acrossScale = (axis === 'width' ? work.pageHeight : work.pageWidth) / 1000
-  const at = (position: number, row: number): PagePoint =>
-    axis === 'width' ? { x: position, y: row } : { x: row, y: position }
   const spans = nativeDimensionSpans(work, axis)
   const selected: typeof spans = []
   const sortedLabels = [...labels].sort((a, b) => along(a) - along(b))
@@ -478,10 +496,6 @@ function pdfDimensionChain(
     if (span.branched) return fail('branched-dimension-line', 'ambiguous')
     if (selected.some((s) => s.operationIndex === span.operationIndex))
       return fail('reused-dimension-line')
-    const middle = { x: (span.start.x + span.end.x) / 2, y: (span.start.y + span.end.y) / 2 }
-    const owner = pdfRoomAtPoint(work, source, contours, middle)
-    if (owner.status !== 'candidate' || owner.roomSourceNumber !== roomSourceNumber)
-      return fail('dimension-outside-room')
     selected.push(span)
   }
   for (let i = 1; i < selected.length; i++) {
@@ -493,31 +507,8 @@ function pdfDimensionChain(
   const first = selected[0]
   const last = selected[selected.length - 1]
   if (!first || !last) return fail('no-connected-dimension-line')
-  const positions = room.polygon.map(along)
-  const row = across(first.start)
-  // Both tips must reach the reviewed contour, not only have a plausible sum.
-  if (
-    pdfBoundaryDistance(work, first.start, room.polygon) > 0.12 ||
-    pdfBoundaryDistance(work, last.end, room.polygon) > 0.12 ||
-    !close(first.start, at(Math.min(...positions), row)) ||
-    !close(last.end, at(Math.max(...positions), row))
-  )
-    return fail('dimension-does-not-span-room')
-  if (
-    !dimensionIntervalInsideRoom(
-      work,
-      source,
-      contours,
-      roomSourceNumber,
-      first.start,
-      last.end,
-      axis,
-    )
-  )
-    return fail('dimension-outside-room')
   return {
     status: 'candidate',
-    roomSourceNumber,
     totalMm,
     axis,
     labelIndexes: sortedLabels.map((l) => l.index),
@@ -536,8 +527,56 @@ function pdfDimensionChain(
           ]
         : []
     }),
-    basis: 'manual-page-contour',
+    basis: 'native-page-dimension',
   }
+}
+
+function pdfDimensionChain(
+  work: PdfLinework,
+  source: PdfPlanSource,
+  contours: PdfRoomContours,
+  roomSourceNumber: number,
+  labels: readonly NativeLabel[],
+  totalMm: number,
+  axis: DimensionAxis,
+): PdfDimensionChain {
+  const fail = (
+    reason: string,
+    status: 'unresolved' | 'ambiguous' = 'unresolved',
+  ): PdfDimensionChain => ({ status, reason, roomSourceNumber: null })
+  const issue = pdfContourIssue(work, source, contours)
+  if (issue) return fail(issue)
+  const room = contours.rooms.find((candidate) => candidate.roomSourceNumber === roomSourceNumber)
+  if (!room) return fail('no-annotated-room')
+  const native = nativePageDimensionChain(work, labels, totalMm, axis)
+  if (native.status !== 'candidate') return fail(native.reason, native.status)
+
+  for (const segment of native.segments) {
+    const middle = {
+      x: (segment.start.x + segment.end.x) / 2,
+      y: (segment.start.y + segment.end.y) / 2,
+    }
+    const owner = pdfRoomAtPoint(work, source, contours, middle)
+    if (owner.status !== 'candidate' || owner.roomSourceNumber !== roomSourceNumber)
+      return fail('dimension-outside-room')
+  }
+  const [start, end] = native.ends
+  const along = (point: PagePoint) => (axis === 'width' ? point.x : point.y)
+  const across = (point: PagePoint) => (axis === 'width' ? point.y : point.x)
+  const row = across(start)
+  const at = (position: number): PagePoint =>
+    axis === 'width' ? { x: position, y: row } : { x: row, y: position }
+  const positions = room.polygon.map(along)
+  if (
+    pdfBoundaryDistance(work, start, room.polygon) > 0.12 ||
+    pdfBoundaryDistance(work, end, room.polygon) > 0.12 ||
+    pdfPointDistance(work, start, at(Math.min(...positions))) > 0.12 ||
+    pdfPointDistance(work, end, at(Math.max(...positions))) > 0.12
+  )
+    return fail('dimension-does-not-span-room')
+  if (!dimensionIntervalInsideRoom(work, source, contours, roomSourceNumber, start, end, axis))
+    return fail('dimension-outside-room')
+  return { ...native, roomSourceNumber, basis: 'manual-page-contour' }
 }
 
 /** A narrow concavity or overlapping contour between midpoints is still a conflict. */

@@ -13,6 +13,12 @@
       { "index": 17, "text": "Балкон 02" },
       { "index": 19, "text": "40,13" },
       { "index": 45, "text": "7 088" }
+    ],
+    "standaloneDimensions": [
+      { "axis": "width", "label": { "index": 45, "text": "7 088" } },
+      { "axis": "width", "label": { "index": 46, "text": "4 042" } },
+      { "axis": "depth", "label": { "index": 28, "text": "4 291" } },
+      { "axis": "depth", "label": { "index": 47, "text": "2 763" } }
     ]
   },
   {
@@ -30,6 +36,7 @@
     ],
     "chains": [
       {
+        "axis": "width",
         "total": { "index": 40, "text": "9 655" },
         "parts": [
           { "index": 30, "text": "555" },
@@ -44,6 +51,8 @@
         ]
       },
       {
+        "axis": "width",
+        "expectedNativeIssue": "reused-dimension-line",
         "total": { "index": 40, "text": "9 655" },
         "parts": [
           { "index": 18, "text": "310" },
@@ -59,6 +68,7 @@
         ]
       },
       {
+        "axis": "depth",
         "total": { "index": 39, "text": "7 135" },
         "parts": [{ "index": 28, "text": "475" }, { "index": 29, "text": "6 660" }]
       }
@@ -78,6 +88,13 @@
       { "index": 57, "text": "3 500" },
       { "index": 59, "text": "3 220" },
       { "index": 153, "text": "1. План выполнен по черновым обмерам, предоставленным" }
+    ],
+    "standaloneDimensions": [
+      {
+        "axis": "width",
+        "label": { "index": 57, "text": "3 500" },
+        "expectedNativeIssue": "no-connected-dimension-line"
+      }
     ]
   },
   {
@@ -103,6 +120,12 @@
       { "index": 49, "text": "6 220" },
       { "index": 98, "text": "Обмерный план" },
       { "index": 100, "text": "Высота потолков = 2810 мм" }
+    ],
+    "standaloneDimensions": [
+      { "axis": "width", "label": { "index": 40, "text": "5 290" } },
+      { "axis": "width", "label": { "index": 49, "text": "6 220" } },
+      { "axis": "depth", "label": { "index": 81, "text": "5 345" } },
+      { "axis": "width", "label": { "index": 66, "text": "4 565" } }
     ]
   }
 ]

@@ -6,6 +6,7 @@ import {
   createPdfOpeningSpanVerifier,
   type PdfOpeningAnnotation,
   pdfDepthChain,
+  pdfNativePageDimensionChain,
   pdfOpeningFromNativeSpan,
   pdfOpeningFromWidthChain,
   pdfWidthChain,
@@ -65,6 +66,58 @@ const check = (
   total = 2985,
   rooms = contours.rooms,
 ) => pdfWidthChain({ ...work, paths }, contours.source, { ...contours, rooms }, 4, input, total)
+
+describe('native page dimension without invented room ownership', () => {
+  it('proves a printed chain using its connected native spans', () => {
+    expect(pdfNativePageDimensionChain(work, contours.source, labels, 2985, 'width')).toMatchObject(
+      {
+        status: 'candidate',
+        totalMm: 2985,
+        lineOperations: [2310, 2338, 2364],
+        basis: 'native-page-dimension',
+      },
+    )
+  })
+
+  it('refuses proposed state and a truncated native extraction', () => {
+    expect(
+      pdfNativePageDimensionChain(
+        work,
+        { ...contours.source, state: 'proposed' },
+        labels,
+        2985,
+        'width',
+      ),
+    ).toMatchObject({ status: 'unresolved', reason: 'not-existing-state' })
+    expect(
+      pdfNativePageDimensionChain(
+        { ...work, truncated: true },
+        contours.source,
+        labels,
+        2985,
+        'width',
+      ),
+    ).toMatchObject({ status: 'unresolved', reason: 'incomplete-native-page' })
+  })
+
+  it('does not accept a sum without matching connected lines', () => {
+    expect(pdfNativePageDimensionChain(work, contours.source, labels, 2984, 'width')).toMatchObject(
+      {
+        status: 'unresolved',
+        reason: 'dimension-sum-conflict',
+      },
+    )
+    expect(
+      pdfNativePageDimensionChain(
+        { ...work, paths: work.paths.filter((path) => path.operationIndex !== 2310) },
+        contours.source,
+        labels,
+        2985,
+        'width',
+      ),
+    ).toMatchObject({ status: 'unresolved', reason: 'no-connected-dimension-line' })
+  })
+})
 
 describe('native horizontal dimension chains against page contours', () => {
   it.each([
