@@ -115,6 +115,7 @@ if (!cmPerPoint) throw new Error('Отсутствует подтверждён�
 const wallCoverage = classifyPlanPageWallSpans(
   contours,
   pairPlanPageWallFaces(page.linework, source, contours),
+  complete.apartmentEnvelope.logicalOpeningClosures,
 )
 const wallCoverageCounts = Object.fromEntries(
   [
@@ -158,6 +159,7 @@ const report = {
   wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs,
   wallCoverage,
   wallCoverageCounts,
+  exteriorOpeningClosures: complete.apartmentEnvelope.logicalOpeningClosures,
   wallReviewQueue,
   exteriorWallReviewQueue,
   confirmationIssues,

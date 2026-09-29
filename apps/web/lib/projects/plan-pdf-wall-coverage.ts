@@ -19,6 +19,23 @@ export type PdfWallCoverageSpan = {
     | 'conditional'
 }
 
+export type PdfExteriorOpening = {
+  wallEdgeIndex: number
+  start: PagePoint
+  end: PagePoint
+}
+
+function pointOnEdge(point: PagePoint, start: PagePoint, end: PagePoint): boolean {
+  const cross = (end.x - start.x) * (point.y - start.y) - (end.y - start.y) * (point.x - start.x)
+  return (
+    cross === 0 &&
+    point.x >= Math.min(start.x, end.x) &&
+    point.x <= Math.max(start.x, end.x) &&
+    point.y >= Math.min(start.y, end.y) &&
+    point.y <= Math.max(start.y, end.y)
+  )
+}
+
 /** Review lengths use PDF points, not the independently normalized page axes. */
 export function planPageWallReviewQueue(
   contours: PlanPageContours,
@@ -48,12 +65,33 @@ export function planPageWallReviewQueue(
     .sort((a, b) => b.lengthCm - a.lengthCm)
 }
 
-/** Diagnostics only: source-backed local pairs do not certify a complete physical wall model. */
+/** Diagnostics only: supplied exterior closures must be source-reviewed by the caller.
+ * Local pairs and openings do not certify a complete physical wall model.
+ */
 export function classifyPlanPageWallSpans(
   contours: PlanPageContours,
   pairs: readonly PdfWallFacePair[],
+  exteriorOpenings: readonly PdfExteriorOpening[] = [],
 ): PdfWallCoverageSpan[] {
   if (!planPageContoursSchema.safeParse(contours).success) return []
+  if (exteriorOpenings.length > 32 || (exteriorOpenings.length && !contours.exterior)) {
+    throw new Error('Exterior opening review requires a bounded exterior contour.')
+  }
+  for (const opening of exteriorOpenings) {
+    const polygon = contours.exterior?.polygon
+    const start = polygon?.[opening.wallEdgeIndex]
+    const end = polygon?.[(opening.wallEdgeIndex + 1) % polygon.length]
+    if (
+      !Number.isInteger(opening.wallEdgeIndex) ||
+      !start ||
+      !end ||
+      (opening.start.x === opening.end.x && opening.start.y === opening.end.y) ||
+      !pointOnEdge(opening.start, start, end) ||
+      !pointOnEdge(opening.end, start, end)
+    ) {
+      throw new Error('Reviewed exterior opening must lie on one declared boundary edge.')
+    }
+  }
   const zones = [
     ...contours.rooms.map((room) => ({
       key: pdfContourKey(room),
@@ -66,7 +104,7 @@ export function classifyPlanPageWallSpans(
           {
             key: 'exterior',
             polygon: contours.exterior.polygon,
-            openings: [],
+            openings: exteriorOpenings,
             conditionalEdges: [],
           },
         ]

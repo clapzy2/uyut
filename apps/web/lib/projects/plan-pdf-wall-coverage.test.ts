@@ -9,6 +9,7 @@ import {
   planPageWallReviewQueue,
 } from './plan-pdf-wall-coverage'
 import { type PdfWallFacePair, pairPlanPageWallFaces } from './plan-pdf-wall-faces'
+import { inspectPlanPageWallSolids } from './plan-pdf-wall-solids'
 
 const source = { sha256: 'a'.repeat(64), pdfPage: 1, state: 'existing' as const }
 
@@ -287,6 +288,33 @@ describe('diagnostic coverage of annotated PDF boundary spans', () => {
     ).toBe(true)
   })
 
+  it('accepts only reviewed openings on their exact exterior edge', () => {
+    const { contours } = sample()
+    contours.exterior = { polygon: rectangle(50, 50, 350, 250) }
+    const opening = {
+      wallEdgeIndex: 0,
+      start: { x: 100, y: 50 },
+      end: { x: 150, y: 50 },
+    }
+    expect(() => classifyPlanPageWallSpans(sample().contours, [], [opening])).toThrow(
+      'requires a bounded exterior contour',
+    )
+    const spans = classifyPlanPageWallSpans(contours, [], [opening]).filter(
+      (span) => span.contourKey === 'exterior' && span.wallEdgeIndex === 0,
+    )
+    expect(spans.map(({ status }) => status)).toEqual([
+      'unpaired-exterior',
+      'opening',
+      'unpaired-exterior',
+    ])
+    expect(() =>
+      classifyPlanPageWallSpans(contours, [], [{ ...opening, end: { x: 150, y: 51 } }]),
+    ).toThrow('one declared boundary edge')
+    expect(() =>
+      classifyPlanPageWallSpans(contours, [], [{ ...opening, wallEdgeIndex: 1 }]),
+    ).toThrow('one declared boundary edge')
+  })
+
   it('reports current fixture boundaries as local evidence, not a complete wall model', () => {
     const currentSource = {
       sha256: page.source.sha256,
@@ -324,7 +352,11 @@ describe('diagnostic coverage of annotated PDF boundary spans', () => {
     }
     const before = structuredClone(contours)
     const pairs = pairPlanPageWallFaces(work, currentSource, contours)
-    const spans = classifyPlanPageWallSpans(contours, pairs)
+    const spans = classifyPlanPageWallSpans(
+      contours,
+      pairs,
+      page.apartmentEnvelope.logicalOpeningClosures,
+    )
     const counts = spans.reduce<Record<string, number>>((total, { status }) => {
       total[status] = (total[status] ?? 0) + 1
       return total
@@ -332,13 +364,26 @@ describe('diagnostic coverage of annotated PDF boundary spans', () => {
     expect(pairs).toHaveLength(52)
     expect(counts).toEqual({
       paired: 104,
-      opening: 19,
+      opening: 21,
       unmatched: 13,
       'unpaired-exterior': 25,
       'unsupported-angle': 3,
     })
     expect(planPageWallReviewQueue(contours, spans, 1, 'exterior')).toHaveLength(26)
     expect(planPageWallReviewQueue(contours, spans, 1)).toHaveLength(15)
+    expect(
+      spans.filter(
+        (span) =>
+          span.contourKey === 'exterior' &&
+          [10, 14].includes(span.wallEdgeIndex) &&
+          span.status === 'opening',
+      ),
+    ).toHaveLength(2)
+    const solids = inspectPlanPageWallSolids(work, currentSource, contours)
+    expect(solids.solids.map((solid) => solid.source.operationIndex)).not.toContain(546)
+    expect(solids.solids.map((solid) => solid.source.operationIndex)).not.toContain(565)
+    expect(solids.junctions).toHaveLength(0)
+    expect(solids.components).toHaveLength(6)
     expect(contours).toEqual(before)
   })
 })

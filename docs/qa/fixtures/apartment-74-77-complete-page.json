@@ -106,6 +106,8 @@
     ],
     "logicalOpeningClosures": [
       {
+        "id": "room-6-exterior-window-closure",
+        "wallEdgeIndex": 10,
         "kind": "window",
         "sourceNumbers": [6],
         "start": {
@@ -119,6 +121,8 @@
         "note": "Envelope closure at exterior wall-face alignment, not the recessed actual window frame."
       },
       {
+        "id": "entrance-exterior-door-closure",
+        "wallEdgeIndex": 14,
         "kind": "door",
         "sourceNumbers": [1, 5],
         "start": {
