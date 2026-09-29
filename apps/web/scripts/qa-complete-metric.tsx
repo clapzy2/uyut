@@ -205,6 +205,64 @@ const paintedUnionBoundaryAudit = inspectPaintedBodyBoundarySpans(
 const remainingBoundarySpans = paintedUnionBoundaryAudit.filter(
   (assessment) => assessment.status !== 'supported',
 )
+const sourceStrokeEvidence = remainingBoundarySpans.map(({ span, status }) => {
+  const zone =
+    span.contourKey === 'exterior'
+      ? contours.exterior
+      : contours.rooms.find(
+          (room) =>
+            (room.roomSourceNumbers ?? [room.roomSourceNumber]).join('+') === span.contourKey,
+        )
+  const edgeStart = zone?.polygon[span.wallEdgeIndex]
+  const edgeEnd = zone?.polygon[(span.wallEdgeIndex + 1) % zone.polygon.length]
+  if (!edgeStart || !edgeEnd) throw new Error('Reviewed boundary edge is missing.')
+  const axis =
+    Math.abs(span.end.x - span.start.x) >= Math.abs(span.end.y - span.start.y) ? 'x' : 'y'
+  const low = Math.min(span.start[axis], span.end[axis])
+  const high = Math.max(span.start[axis], span.end[axis])
+  const turn = (point: { x: number; y: number }) =>
+    (edgeEnd.x - edgeStart.x) * (point.y - edgeStart.y) -
+    (edgeEnd.y - edgeStart.y) * (point.x - edgeStart.x)
+  const contacts =
+    page.linework?.paths.flatMap((path) => {
+      if (path.paint !== 'stroke') return []
+      return path.points.slice(0, -1).flatMap((start, segmentIndex) => {
+        const end = path.points[segmentIndex + 1]
+        if (!end || turn(start) !== 0 || turn(end) !== 0) return []
+        const begin = Math.max(low, Math.min(start[axis], end[axis]))
+        const finish = Math.min(high, Math.max(start[axis], end[axis]))
+        return begin < finish
+          ? [
+              {
+                begin,
+                finish,
+                source: {
+                  operationIndex: path.operationIndex,
+                  subpathIndex: path.subpathIndex,
+                  segmentIndex,
+                },
+              },
+            ]
+          : []
+      })
+    }) ?? []
+  contacts.sort((a, b) => a.begin - b.begin || b.finish - a.finish)
+  let coveredUntil = low
+  const sourceSegments: (typeof contacts)[number]['source'][] = []
+  for (const contact of contacts) {
+    if (contact.begin > coveredUntil) break
+    if (contact.finish <= coveredUntil) continue
+    coveredUntil = contact.finish
+    sourceSegments.push(contact.source)
+    if (coveredUntil >= high) break
+  }
+  return { span, status, strokeCoversSpan: coveredUntil >= high, sourceSegments }
+})
+if (sourceStrokeEvidence.some((evidence) => !evidence.strokeCoversSpan)) {
+  throw new Error(
+    `Reviewed source stroke evidence changed: ${JSON.stringify(sourceStrokeEvidence.map(({ span, strokeCoversSpan }) => ({ contourKey: span.contourKey, wallEdgeIndex: span.wallEdgeIndex, strokeCoversSpan })))}`,
+  )
+}
 const unionStatusCounts = {
   supported: paintedUnionBoundaryAudit.filter((assessment) => assessment.status === 'supported')
     .length,
@@ -265,6 +323,7 @@ const report = {
   paintedUnionBoundaryAudit,
   unionStatusCounts,
   remainingBoundarySpans,
+  sourceStrokeEvidence,
   paintedWallAudit,
   confirmationIssues,
   localConfirmationChecksPass:
@@ -323,6 +382,9 @@ console.log(
     unresolvedBoundarySpans: unresolvedBoundarySpans.length,
     unionStatusCounts,
     remainingBoundarySpans: remainingBoundarySpans.length,
+    sourceStrokeSupportedRemainders: sourceStrokeEvidence.filter(
+      (evidence) => evidence.strokeCoversSpan,
+    ).length,
     paintedBodyComponents: paintedWallAudit.body.length,
     acceptedPaintTriangles: paintedWallAudit.acceptedSources.length,
     degeneratePaintTriangles: paintedWallAudit.degenerateSources.length,
@@ -350,3 +412,4 @@ console.log(
     paidCalls: 0,
   }),
 )
+if (process.argv.includes('--strict') && !report.localConfirmationChecksPass) process.exitCode = 1
