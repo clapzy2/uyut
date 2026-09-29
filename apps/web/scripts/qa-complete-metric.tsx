@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { reconcilePlanGeometryRooms } from '@uyut/ai'
+import { WALKWAY_CM } from '@uyut/catalog'
 import type { PlanPageContours, PlanReading } from '@uyut/db'
 import { renderToStaticMarkup } from 'react-dom/server'
 import reference from '../../../docs/qa/fixtures/apartment-74-77.json'
@@ -16,6 +17,7 @@ import {
   inspectPlanGeometry,
   inspectPlanRoomAreas,
 } from '../lib/projects/plan-geometry-inspection'
+import { inspectPlanPageClearanceRoutes } from '../lib/projects/plan-page-clearance-route'
 import { inspectPlanPageDoorFloorConnectivity } from '../lib/projects/plan-page-door-floor-connectivity'
 import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema } from '../lib/projects/plan-page-review'
@@ -193,6 +195,13 @@ const confirmationIssues = [
 ]
 const doorAdjacency = inspectDoorAdjacency(result.geometry)
 const doorFloorConnectivity = inspectPlanPageDoorFloorConnectivity(contours, paintedWallAudit.body)
+const clearanceRoutes = inspectPlanPageClearanceRoutes(
+  contours,
+  paintedWallAudit.body,
+  page.linework,
+  cmPerPoint,
+  WALKWAY_CM,
+)
 const output = resolve('../../output/playwright/complete-metric')
 await mkdir(output, { recursive: true })
 const report = {
@@ -203,6 +212,7 @@ const report = {
   geometryIssues,
   doorAdjacency,
   doorFloorConnectivity,
+  clearanceRoutes,
   openingFacePairs: pairPlanPageOpeningFaces(page.linework, source, contours),
   wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs,
   wallCoverage,
@@ -250,6 +260,12 @@ console.log(
         freeComponentCount,
       }),
     ),
+    clearanceRoutes: clearanceRoutes.map(({ contourKey, status, reason, reachedDoorIds }) => ({
+      contourKey,
+      status,
+      reason,
+      reachedDoorIds,
+    })),
     wallFacePairs: report.wallFacePairs?.length,
     wallCoverageCounts,
     paintedTriangleCounts,
