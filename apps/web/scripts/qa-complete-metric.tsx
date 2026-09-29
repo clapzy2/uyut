@@ -128,6 +128,18 @@ const wallCoverageCounts = Object.fromEntries(
     'unsupported-angle',
   ].map((status) => [status, wallCoverage.filter((span) => span.status === status).length]),
 )
+const lineworkPaths = page.linework.paths
+const paintedTriangleCounts = Object.fromEntries(
+  [...new Set(lineworkPaths.map((path) => path.fillColor).filter((color) => color))]
+    .sort()
+    .map((color) => [
+      color,
+      lineworkPaths.filter(
+        (path) =>
+          path.paint === 'fill-stroke' && path.points.length === 3 && path.fillColor === color,
+      ).length,
+    ]),
+)
 const wallReviewQueue = planPageWallReviewQueue(contours, wallCoverage, cmPerPoint)
 const exteriorWallReviewQueue = planPageWallReviewQueue(
   contours,
@@ -159,6 +171,7 @@ const report = {
   wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs,
   wallCoverage,
   wallCoverageCounts,
+  paintedTriangleCounts,
   exteriorOpeningClosures: complete.apartmentEnvelope.logicalOpeningClosures,
   wallReviewQueue,
   exteriorWallReviewQueue,
@@ -193,6 +206,7 @@ console.log(
     provenZoneGroups: doorAdjacency.provenGroups.length,
     wallFacePairs: report.wallFacePairs?.length,
     wallCoverageCounts,
+    paintedTriangleCounts,
     interiorReviewSpans: wallReviewQueue.length,
     exteriorReviewSpans: exteriorWallReviewQueue.length,
     derivedOpeningWidths: result.geometry.pdfCalibration?.derivedOpeningIds.length,

@@ -5,6 +5,8 @@ export type PdfVectorPath = {
   operationIndex: number
   subpathIndex: number
   paint: 'stroke' | 'fill' | 'fill-stroke'
+  fillColor?: string
+  strokeColor?: string
   closed: boolean
   points: PagePoint[]
 }
@@ -25,7 +27,13 @@ type Viewport = {
   height: number
   convertToViewportPoint(x: number, y: number): number[]
 }
-type GraphicsState = { matrix: Matrix; clip?: Bounds; supported: boolean }
+type GraphicsState = {
+  matrix: Matrix
+  clip?: Bounds
+  supported: boolean
+  fillColor?: string
+  strokeColor?: string
+}
 type Subpath = { points: PagePoint[]; closed: boolean; curved: boolean }
 const MAX_OPERATIONS = 100_000
 const MAX_POINTS = 20_000
@@ -198,6 +206,15 @@ export function extractPdfLinework(
       } else state.matrix = multiply(state.matrix, transform)
       continue
     }
+    if (fn === ops.setFillRGBColor || fn === ops.setStrokeRGBColor) {
+      const color = args[0]
+      // Keep only explicit PDF.js RGB values; an absent style is unknown, not black.
+      const verifiedColor =
+        typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : undefined
+      if (fn === ops.setFillRGBColor) state.fillColor = verifiedColor
+      else state.strokeColor = verifiedColor
+      continue
+    }
     if (fn === ops.clip || fn === ops.eoClip) {
       pendingClip = true
       continue
@@ -297,6 +314,8 @@ export function extractPdfLinework(
         operationIndex,
         subpathIndex,
         paint: filled ? (stroked ? 'fill-stroke' : 'fill') : 'stroke',
+        ...(filled && state.fillColor ? { fillColor: state.fillColor } : {}),
+        ...(stroked && state.strokeColor ? { strokeColor: state.strokeColor } : {}),
         closed,
         points: path.points,
       })

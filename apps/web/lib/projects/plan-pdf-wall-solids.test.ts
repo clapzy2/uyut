@@ -74,6 +74,7 @@ describe('native wall solid candidates and exact joints', () => {
     })
     const result = inspectPlanPageWallSolids(input.work, source, input.contours)
     expect(result.solids.find((solid) => solid.source.operationIndex === 1)).toMatchObject({
+      sourcePaint: 'stroke',
       status: 'conflict',
       reasons: ['void'],
       conflicts: { voidIds: ['shaft'] },
@@ -126,6 +127,7 @@ describe('native wall solid candidates and exact joints', () => {
     const result = inspectPlanPageWallSolids(input.work, source, input.contours)
     expect(result.solids).toHaveLength(1)
     expect(result.solids[0]).toMatchObject({
+      sourcePaint: 'fill',
       status: 'candidate',
       boundarySupports: [{ strokeSegment: { operationIndex: 40 }, contourKey: '1' }],
     })

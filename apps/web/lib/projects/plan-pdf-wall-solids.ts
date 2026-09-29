@@ -1,6 +1,6 @@
 import type { PlanPageContours } from '@uyut/db'
 import { polygonsOverlap, segmentEntersPolygon, segmentWithinPolygon } from './plan-page-review'
-import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import type { PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import { type PdfPlanSource, pdfContourKey } from './plan-pdf-room-binding'
 import { findPlanPageWallBodySupports, type PdfWallBodySupport } from './plan-pdf-wall-body-support'
 import { pairPlanPageWallFaces, validPlanPageWallSource } from './plan-pdf-wall-faces'
@@ -8,6 +8,8 @@ import { pairPlanPageWallFaces, validPlanPageWallSource } from './plan-pdf-wall-
 type SourcePath = { operationIndex: number; subpathIndex: number }
 export type PdfWallSolidCandidate = {
   source: SourcePath
+  /** A closed stroke is an outline candidate, not proof of filled wall material. */
+  sourcePaint: PdfVectorPath['paint']
   polygon: PagePoint[]
   boundarySupports: PdfWallBodySupport[]
   status: 'candidate' | 'conflict'
@@ -116,6 +118,7 @@ export function inspectPlanPageWallSolids(
     if (voidIds.length) reasons.push('void')
     solids.push({
       source: { operationIndex: path.operationIndex, subpathIndex: path.subpathIndex },
+      sourcePaint: path.paint,
       polygon,
       boundarySupports: supports.filter((support) => key(support.source) === key(path)),
       status: reasons.length ? 'conflict' : 'candidate',

@@ -23,6 +23,8 @@ const ops = {
   endGroup: 19,
   beginAnnotation: 20,
   endAnnotation: 21,
+  setFillRGBColor: 22,
+  setStrokeRGBColor: 23,
 }
 const viewport = {
   width: 100,
@@ -89,6 +91,31 @@ describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
     expect(result.paths).toHaveLength(2)
     expect(result.paths.every((path) => path.closed && path.paint === 'fill-stroke')).toBe(true)
     expect(result.paths.map((path) => path.subpathIndex)).toEqual([0, 1])
+  })
+
+  it('retains only valid source colors for painted paths and restores the parent style', () => {
+    const filled: Operation = [
+      ops.constructPath,
+      [ops.fillStroke, [[0, 10, 20, 1, 20, 20, 1, 20, 30, 4]], []],
+    ]
+    const result = extract([
+      [ops.setFillRGBColor, ['#989898']],
+      [ops.setStrokeRGBColor, ['#545454']],
+      filled,
+      [ops.save, null],
+      [ops.setFillRGBColor, ['#FF00FF']],
+      [ops.setStrokeRGBColor, ['invalid']],
+      filled,
+      [ops.restore, null],
+      filled,
+      stroke([0, 10, 20, 1, 20, 20]),
+    ])
+    expect(result.paths.map(({ fillColor, strokeColor }) => [fillColor, strokeColor])).toEqual([
+      ['#989898', '#545454'],
+      ['#ff00ff', undefined],
+      ['#989898', '#545454'],
+      [undefined, '#545454'],
+    ])
   })
 
   it('skips a curved subpath instead of drawing an invented door-arc chord or closing edge', () => {
