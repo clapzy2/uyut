@@ -1,7 +1,9 @@
 import type { PlanPageContours } from '@uyut/db'
+import type { MultiPolygon } from 'polygon-clipping'
 import { describe, expect, it } from 'vitest'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import {
+  inspectPaintedBodyBoundarySpans,
   inspectPlanPagePaintedWallSolids,
   supportsOnPaintedBodyBoundary,
 } from './plan-pdf-painted-solids'
@@ -72,6 +74,90 @@ function fixture() {
 }
 
 describe('reviewed PDF paint body audit', () => {
+  it('requires complete union-perimeter coverage on the wall side, not merely an aligned edge', () => {
+    const { contours } = fixture()
+    const span = {
+      contourKey: '1',
+      wallEdgeIndex: 1,
+      start: { x: 200, y: 100 },
+      end: { x: 200, y: 200 },
+      status: 'unmatched' as const,
+    }
+    const wallSideBody: MultiPolygon = [
+      [
+        [
+          [200, 100],
+          [220, 100],
+          [220, 200],
+          [200, 200],
+          [200, 100],
+        ],
+      ],
+    ]
+    const floorSideBody: MultiPolygon = [
+      [
+        [
+          [180, 100],
+          [200, 100],
+          [200, 200],
+          [180, 200],
+          [180, 100],
+        ],
+      ],
+    ]
+    expect(inspectPaintedBodyBoundarySpans(wallSideBody, contours, [span])[0]?.status).toBe(
+      'supported',
+    )
+    expect(inspectPaintedBodyBoundarySpans(floorSideBody, contours, [span])[0]?.status).toBe(
+      'opposite-side',
+    )
+    const partial = { ...span, end: { x: 200, y: 230 } }
+    expect(inspectPaintedBodyBoundarySpans(wallSideBody, contours, [partial])[0]?.status).toBe(
+      'no-boundary',
+    )
+  })
+
+  it('keeps exterior paint on the apartment side and rejects a boundary outside its edge', () => {
+    const { contours } = fixture()
+    const span = {
+      contourKey: 'exterior',
+      wallEdgeIndex: 0,
+      start: { x: 100, y: 100 },
+      end: { x: 200, y: 100 },
+      status: 'unpaired-exterior' as const,
+    }
+    const inside: MultiPolygon = [
+      [
+        [
+          [100, 100],
+          [200, 100],
+          [200, 120],
+          [100, 120],
+          [100, 100],
+        ],
+      ],
+    ]
+    const outside: MultiPolygon = [
+      [
+        [
+          [100, 80],
+          [200, 80],
+          [200, 100],
+          [100, 100],
+          [100, 80],
+        ],
+      ],
+    ]
+    expect(inspectPaintedBodyBoundarySpans(inside, contours, [span])[0]?.status).toBe('supported')
+    expect(inspectPaintedBodyBoundarySpans(outside, contours, [span])[0]?.status).toBe(
+      'opposite-side',
+    )
+    expect(
+      inspectPaintedBodyBoundarySpans(inside, contours, [{ ...span, end: { x: 400, y: 100 } }])[0]
+        ?.status,
+    ).toBe('no-boundary')
+  })
+
   it('unites only source triangles and preserves their references', () => {
     const { contours, work } = fixture()
     const before = structuredClone({ contours, work })

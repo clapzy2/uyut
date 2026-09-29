@@ -24,6 +24,7 @@ import { planPageContoursSchema } from '../lib/projects/plan-page-review'
 import { pairPlanPageOpeningFaces } from '../lib/projects/plan-pdf-opening-faces'
 import { findPlanPagePaintedBoundarySpans } from '../lib/projects/plan-pdf-painted-boundary'
 import {
+  inspectPaintedBodyBoundarySpans,
   inspectPlanPagePaintedWallSolids,
   supportsOnPaintedBodyBoundary,
 } from '../lib/projects/plan-pdf-painted-solids'
@@ -196,6 +197,30 @@ const paintedBoundaryKeys = new Set(paintedBodyBoundarySupports.map(boundaryKey)
 const unresolvedBoundarySpans = [...wallReviewQueue, ...exteriorWallReviewQueue].filter(
   (span) => !paintedBoundaryKeys.has(boundaryKey(span)),
 )
+const paintedUnionBoundaryAudit = inspectPaintedBodyBoundarySpans(
+  paintedWallAudit.body,
+  contours,
+  unresolvedBoundarySpans,
+)
+const remainingBoundarySpans = paintedUnionBoundaryAudit.filter(
+  (assessment) => assessment.status !== 'supported',
+)
+const unionStatusCounts = {
+  supported: paintedUnionBoundaryAudit.filter((assessment) => assessment.status === 'supported')
+    .length,
+  oppositeSide: paintedUnionBoundaryAudit.filter(
+    (assessment) => assessment.status === 'opposite-side',
+  ).length,
+  noBoundary: paintedUnionBoundaryAudit.filter((assessment) => assessment.status === 'no-boundary')
+    .length,
+}
+if (
+  unionStatusCounts.supported !== 3 ||
+  unionStatusCounts.oppositeSide !== 3 ||
+  unionStatusCounts.noBoundary !== 2
+) {
+  throw new Error('Reviewed source boundary evidence changed; recheck the original sheet.')
+}
 const reconciled = reconcilePlanGeometryRooms(
   { ...result.geometry, obstacles: result.geometry.obstacles ?? [] },
   reading.rooms,
@@ -237,6 +262,9 @@ const report = {
   paintedBoundarySupports,
   paintedBodyBoundarySupports,
   unresolvedBoundarySpans,
+  paintedUnionBoundaryAudit,
+  unionStatusCounts,
+  remainingBoundarySpans,
   paintedWallAudit,
   confirmationIssues,
   localConfirmationChecksPass:
@@ -293,6 +321,8 @@ console.log(
     ).length,
     paintedBodyBoundarySupports: paintedBodyBoundarySupports.length,
     unresolvedBoundarySpans: unresolvedBoundarySpans.length,
+    unionStatusCounts,
+    remainingBoundarySpans: remainingBoundarySpans.length,
     paintedBodyComponents: paintedWallAudit.body.length,
     acceptedPaintTriangles: paintedWallAudit.acceptedSources.length,
     degeneratePaintTriangles: paintedWallAudit.degenerateSources.length,

@@ -5,6 +5,7 @@ import type { PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import type { PdfPaintedBoundarySupport } from './plan-pdf-painted-boundary'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
 import { pdfContourKey, pdfPolygonIsValid } from './plan-pdf-room-binding'
+import type { PdfWallCoverageSpan } from './plan-pdf-wall-coverage'
 import { validPlanPageWallSource } from './plan-pdf-wall-faces'
 
 type SourcePath = { operationIndex: number; subpathIndex: number }
@@ -41,6 +42,11 @@ export type ReviewedPaintRegion = {
   polygon: PagePoint[]
 }
 
+export type PaintedBodyBoundaryAssessment = {
+  span: PdfWallCoverageSpan
+  status: 'supported' | 'opposite-side' | 'no-boundary'
+}
+
 const sourceOf = (path: PdfVectorPath): SourcePath => ({
   operationIndex: path.operationIndex,
   subpathIndex: path.subpathIndex,
@@ -67,6 +73,105 @@ function multiPolygonArea(polygons: MultiPolygon): number {
       polygon.reduce((area, ring, index) => area + (index === 0 ? 1 : -1) * ringArea(ring), 0),
     0,
   )
+}
+
+function signedArea(points: readonly (readonly number[])[]): number {
+  return points.reduce((sum, point, index) => {
+    const next = points[(index + 1) % points.length]
+    return next ? sum + (point[0] ?? 0) * (next[1] ?? 0) - (next[0] ?? 0) * (point[1] ?? 0) : sum
+  }, 0)
+}
+
+function spanIsCovered(intervals: Array<[number, number]>, low: number, high: number): boolean {
+  intervals.sort((a, b) => a[0] - b[0] || b[1] - a[1])
+  let coveredUntil = low
+  for (const [begin, finish] of intervals) {
+    if (begin > coveredUntil) break
+    coveredUntil = Math.max(coveredUntil, finish)
+    if (coveredUntil >= high) return true
+  }
+  return false
+}
+
+/** Exact union-perimeter evidence, with paint required on the wall side of the contour.
+ * This supplements local triangle-edge evidence but does not certify a complete wall.
+ */
+export function inspectPaintedBodyBoundarySpans(
+  body: MultiPolygon,
+  contours: PlanPageContours,
+  spans: readonly PdfWallCoverageSpan[],
+): PaintedBodyBoundaryAssessment[] {
+  const zones = new Map(contours.rooms.map((room) => [pdfContourKey(room), room.polygon] as const))
+  if (contours.exterior) zones.set('exterior', contours.exterior.polygon)
+  return spans.map((span) => {
+    const zone = zones.get(span.contourKey)
+    const edgeStart = zone?.[span.wallEdgeIndex]
+    const edgeEnd = zone?.[(span.wallEdgeIndex + 1) % zone.length]
+    const fallback = { span, status: 'no-boundary' as const }
+    if (!zone || !edgeStart || !edgeEnd) return fallback
+    const turn = (point: PagePoint) =>
+      (span.end.x - span.start.x) * (point.y - span.start.y) -
+      (span.end.y - span.start.y) * (point.x - span.start.x)
+    if (turn(edgeStart) !== 0 || turn(edgeEnd) !== 0) return fallback
+    const axis = Math.abs(span.end.x - span.start.x) >= Math.abs(span.end.y - span.start.y) ? 0 : 1
+    const low = Math.min(
+      axis === 0 ? span.start.x : span.start.y,
+      axis === 0 ? span.end.x : span.end.y,
+    )
+    const high = Math.max(
+      axis === 0 ? span.start.x : span.start.y,
+      axis === 0 ? span.end.x : span.end.y,
+    )
+    const edgeLow = Math.min(
+      axis === 0 ? edgeStart.x : edgeStart.y,
+      axis === 0 ? edgeEnd.x : edgeEnd.y,
+    )
+    const edgeHigh = Math.max(
+      axis === 0 ? edgeStart.x : edgeStart.y,
+      axis === 0 ? edgeEnd.x : edgeEnd.y,
+    )
+    if (low >= high || low < edgeLow || high > edgeHigh) return fallback
+    const zoneSign = Math.sign(signedArea(zone.map((point) => [point.x, point.y])))
+    const expectedSide = zoneSign * (span.contourKey === 'exterior' ? 1 : -1)
+    if (expectedSide === 0) return fallback
+    const supported: Array<[number, number]> = []
+    const opposite: Array<[number, number]> = []
+    for (const polygon of body) {
+      const exteriorRing = polygon[0]
+      if (!exteriorRing) continue
+      const bodySign = Math.sign(signedArea(exteriorRing))
+      if (bodySign === 0) continue
+      for (const ring of polygon) {
+        for (let index = 0; index < ring.length - 1; index++) {
+          const start = ring[index]
+          const end = ring[index + 1]
+          if (!start || !end) continue
+          if (
+            turn({ x: start[0] ?? 0, y: start[1] ?? 0 }) !== 0 ||
+            turn({ x: end[0] ?? 0, y: end[1] ?? 0 }) !== 0
+          )
+            continue
+          const begin = Math.max(low, Math.min(start[axis] ?? 0, end[axis] ?? 0))
+          const finish = Math.min(high, Math.max(start[axis] ?? 0, end[axis] ?? 0))
+          if (begin >= finish) continue
+          const alignment = Math.sign(
+            (span.end.x - span.start.x) * ((end[0] ?? 0) - (start[0] ?? 0)) +
+              (span.end.y - span.start.y) * ((end[1] ?? 0) - (start[1] ?? 0)),
+          )
+          if (bodySign * alignment === expectedSide) supported.push([begin, finish])
+          else opposite.push([begin, finish])
+        }
+      }
+    }
+    return {
+      span,
+      status: spanIsCovered(supported, low, high)
+        ? 'supported'
+        : spanIsCovered(opposite, low, high)
+          ? 'opposite-side'
+          : 'no-boundary',
+    }
+  })
 }
 
 /** The triangle edge must remain on the union perimeter, not become an internal seam. */
