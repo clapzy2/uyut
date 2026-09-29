@@ -113,10 +113,12 @@ describe('reviewed PDF paint body audit', () => {
     expect(inspectPlanPagePaintedWallSolids(work, source, contours, '#989898')?.body).toHaveLength(
       2,
     )
-    expect(inspectPlanPagePaintedWallSolids(work, source, contours, '#222222')?.body).toEqual([])
+    expect(inspectPlanPagePaintedWallSolids(work, source, contours, '#222222')).toBeUndefined()
     expect(
       inspectPlanPagePaintedWallSolids(work, { ...source, pdfPage: 2 }, contours, '#989898'),
     ).toBeUndefined()
+    for (const path of work.paths.slice(2)) path.paint = 'fill'
+    expect(inspectPlanPagePaintedWallSolids(work, source, contours, '#989898')).toBeUndefined()
   })
 
   it('reports degenerate, outside, crossing and room-floor paint separately', () => {
@@ -151,5 +153,62 @@ describe('reviewed PDF paint body audit', () => {
       expect.objectContaining({ contourKey: '1', areaPageSquared: 500 }),
     ])
     expect(result?.acceptedSources).toHaveLength(3)
+  })
+
+  it('reports paint inside an opening and a reviewed fixed volume without subtracting either', () => {
+    const { contours, work, triangle } = fixture()
+    const room = contours.rooms[0]
+    if (!room) throw new Error('Missing room')
+    room.openings = [
+      {
+        id: 'door-1',
+        kind: 'door',
+        wallEdgeIndex: 1,
+        start: { x: 200, y: 110 },
+        end: { x: 200, y: 190 },
+      },
+    ]
+    work.paths.push({
+      operationIndex: 6,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 200, y: 110 },
+        { x: 200, y: 190 },
+      ],
+    })
+    work.paths.push({
+      operationIndex: 7,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: true,
+      points: rect(205, 110, 215, 150),
+    })
+    work.paths.push(
+      triangle(5, [
+        { x: 190, y: 100 },
+        { x: 210, y: 100 },
+        { x: 190, y: 200 },
+      ]),
+    )
+    const result = inspectPlanPagePaintedWallSolids(work, source, contours, '#989898', [
+      { id: 'reviewed-box', kind: 'fixed', polygon: rect(205, 110, 215, 150) },
+    ])
+    expect(result?.openingPenetrations).toEqual([
+      expect.objectContaining({
+        contourKey: '1',
+        openingId: 'door-1',
+        paintedSources: [{ operationIndex: 5, subpathIndex: 0 }],
+      }),
+    ])
+    expect(result?.reviewedRegionOverlaps).toEqual([
+      expect.objectContaining({ id: 'reviewed-box', kind: 'fixed', areaPageSquared: 400 }),
+    ])
+    expect(
+      inspectPlanPagePaintedWallSolids(work, source, contours, '#989898', [
+        { id: 'off-page-box', kind: 'fixed', polygon: rect(280, 110, 320, 150) },
+      ]),
+    ).toBeUndefined()
   })
 })

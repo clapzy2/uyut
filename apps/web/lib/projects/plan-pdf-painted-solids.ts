@@ -1,9 +1,10 @@
 import type { PlanPageContours } from '@uyut/db'
 import { difference, intersection, type MultiPolygon, type Polygon, union } from 'polygon-clipping'
-import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
+import { segmentEntersPolygon } from './plan-page-review'
+import type { PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import type { PdfPaintedBoundarySupport } from './plan-pdf-painted-boundary'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
-import { pdfContourKey } from './plan-pdf-room-binding'
+import { pdfContourKey, pdfPolygonIsValid } from './plan-pdf-room-binding'
 import { validPlanPageWallSource } from './plan-pdf-wall-faces'
 
 type SourcePath = { operationIndex: number; subpathIndex: number }
@@ -20,6 +21,24 @@ export type PdfPaintedWallAudit = {
     overlap: MultiPolygon
     areaPageSquared: number
   }>
+  openingPenetrations: Array<{
+    contourKey: string
+    openingId: string
+    kind: 'door' | 'window' | 'balcony'
+    paintedSources: SourcePath[]
+  }>
+  reviewedRegionOverlaps: Array<{
+    id: string
+    kind: 'shaft' | 'column' | 'fixed' | 'void'
+    overlap: MultiPolygon
+    areaPageSquared: number
+  }>
+}
+
+export type ReviewedPaintRegion = {
+  id: string
+  kind: 'shaft' | 'column' | 'fixed' | 'void'
+  polygon: PagePoint[]
 }
 
 const sourceOf = (path: PdfVectorPath): SourcePath => ({
@@ -99,6 +118,7 @@ export function inspectPlanPagePaintedWallSolids(
   source: PdfPlanSource,
   contours: PlanPageContours,
   reviewedFillColor: string,
+  reviewedRegions: readonly ReviewedPaintRegion[] = [],
 ): PdfPaintedWallAudit | undefined {
   if (
     !contours.exterior ||
@@ -108,6 +128,20 @@ export function inspectPlanPagePaintedWallSolids(
     return undefined
 
   const exterior: Polygon = [contours.exterior.polygon.map((point) => [point.x, point.y])]
+  const nativePoints = new Set(
+    work.paths.flatMap((path) => path.points.map((point) => `${point.x}:${point.y}`)),
+  )
+  if (
+    reviewedRegions.some((region) => {
+      const polygon: Polygon = [region.polygon.map((point) => [point.x, point.y])]
+      return (
+        !pdfPolygonIsValid(region.polygon) ||
+        region.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`)) ||
+        difference(polygon, exterior).length > 0
+      )
+    })
+  )
+    return undefined
   const accepted: Polygon[] = []
   const acceptedSources: SourcePath[] = []
   const degenerateSources: SourcePath[] = []
@@ -138,7 +172,16 @@ export function inspectPlanPagePaintedWallSolids(
     accepted.push(polygon)
     acceptedSources.push(sourceOf(path))
   }
-  if (accepted.length > 500) return undefined
+  if (
+    accepted.length > 500 ||
+    reviewedRegions.length > 100 ||
+    acceptedSources.length +
+      degenerateSources.length +
+      outsideSources.length +
+      crossingSources.length ===
+      0
+  )
+    return undefined
   const first = accepted[0]
   const second = accepted[1]
   const body = !first ? [] : !second ? [first] : union(first, second, ...accepted.slice(2))
@@ -151,6 +194,45 @@ export function inspectPlanPagePaintedWallSolids(
       ? [{ contourKey: pdfContourKey(room), overlap, areaPageSquared }]
       : []
   })
+  const openingPenetrations = contours.rooms.flatMap((room) =>
+    (room.openings ?? []).flatMap((opening) => {
+      const paintedSources = accepted.flatMap((polygon, index) => {
+        const source = acceptedSources[index]
+        return source &&
+          segmentEntersPolygon(
+            opening.start,
+            opening.end,
+            polygon[0]?.map(([x, y]) => ({ x, y })) ?? [],
+          )
+          ? [source]
+          : []
+      })
+      return paintedSources.length > 0
+        ? [
+            {
+              contourKey: pdfContourKey(room),
+              openingId: opening.id,
+              kind: opening.kind,
+              paintedSources,
+            },
+          ]
+        : []
+    }),
+  )
+  const regions: ReviewedPaintRegion[] = [
+    ...reviewedRegions,
+    ...(contours.voids ?? []).map((area) => ({ ...area, kind: 'void' as const })),
+    ...contours.rooms.flatMap((room) => room.obstacles ?? []),
+  ]
+  const reviewedRegionOverlaps = regions.flatMap((region) => {
+    if (body.length === 0) return []
+    const polygon: Polygon = [region.polygon.map((point) => [point.x, point.y])]
+    const overlap = intersection(body, polygon)
+    const areaPageSquared = multiPolygonArea(overlap)
+    return areaPageSquared > 0
+      ? [{ id: region.id, kind: region.kind, overlap, areaPageSquared }]
+      : []
+  })
   return {
     reviewedFillColor: color,
     body,
@@ -159,5 +241,7 @@ export function inspectPlanPagePaintedWallSolids(
     outsideSources,
     crossingSources,
     roomFloorConflicts,
+    openingPenetrations,
+    reviewedRegionOverlaps,
   }
 }

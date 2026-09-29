@@ -165,6 +165,15 @@ const paintedWallAudit = inspectPlanPagePaintedWallSolids(
   source,
   contours,
   '#989898',
+  complete.rooms.flatMap((room) =>
+    'fixedVolumes' in room && room.fixedVolumes
+      ? room.fixedVolumes.map((volume) => ({
+          id: volume.id,
+          kind: 'fixed' as const,
+          polygon: volume.polygon,
+        }))
+      : [],
+  ),
 )
 if (!paintedWallAudit) throw new Error('Source-painted wall audit unavailable')
 const paintedBodyBoundarySupports = supportsOnPaintedBodyBoundary(
@@ -250,6 +259,17 @@ console.log(
     crossingPaintTriangles: paintedWallAudit.crossingSources.length,
     paintedRoomFloorConflicts: paintedWallAudit.roomFloorConflicts.map((conflict) => ({
       contourKey: conflict.contourKey,
+      areaPageSquared: conflict.areaPageSquared,
+    })),
+    paintedOpeningPenetrations: paintedWallAudit.openingPenetrations.map((conflict) => ({
+      contourKey: conflict.contourKey,
+      openingId: conflict.openingId,
+      kind: conflict.kind,
+      triangleCount: conflict.paintedSources.length,
+    })),
+    paintedReviewedRegionOverlaps: paintedWallAudit.reviewedRegionOverlaps.map((conflict) => ({
+      id: conflict.id,
+      kind: conflict.kind,
       areaPageSquared: conflict.areaPageSquared,
     })),
     derivedOpeningWidths: result.geometry.pdfCalibration?.derivedOpeningIds.length,
