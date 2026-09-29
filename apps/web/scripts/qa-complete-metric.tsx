@@ -326,6 +326,7 @@ const report = {
   sourceStrokeEvidence,
   paintedWallAudit,
   confirmationIssues,
+  sourceBoundaryChecksPass: remainingBoundarySpans.length === 0,
   localConfirmationChecksPass:
     reconciled !== undefined &&
     reconciled.rooms.length === result.geometry.rooms.length &&
@@ -408,8 +409,14 @@ console.log(
     derivedOpeningWidths: result.geometry.pdfCalibration?.derivedOpeningIds.length,
     geometryIssues: report.geometryIssues.length,
     confirmationIssues: report.confirmationIssues.length,
+    sourceBoundaryChecksPass: report.sourceBoundaryChecksPass,
     localConfirmationChecksPass: report.localConfirmationChecksPass,
     paidCalls: 0,
   }),
 )
-if (process.argv.includes('--strict') && !report.localConfirmationChecksPass) process.exitCode = 1
+if (
+  process.argv.includes('--strict') &&
+  (!report.localConfirmationChecksPass || !report.sourceBoundaryChecksPass)
+) {
+  process.exitCode = 1
+}
