@@ -183,6 +183,19 @@ const paintedBodyBoundarySupports = supportsOnPaintedBodyBoundary(
   paintedWallAudit.body,
   paintedBoundarySupports,
 )
+const boundaryKey = (span: {
+  contourKey: string
+  wallEdgeIndex: number
+  start: { x: number; y: number }
+  end: { x: number; y: number }
+}) =>
+  [span.contourKey, span.wallEdgeIndex, span.start.x, span.start.y, span.end.x, span.end.y].join(
+    ':',
+  )
+const paintedBoundaryKeys = new Set(paintedBodyBoundarySupports.map(boundaryKey))
+const unresolvedBoundarySpans = [...wallReviewQueue, ...exteriorWallReviewQueue].filter(
+  (span) => !paintedBoundaryKeys.has(boundaryKey(span)),
+)
 const reconciled = reconcilePlanGeometryRooms(
   { ...result.geometry, obstacles: result.geometry.obstacles ?? [] },
   reading.rooms,
@@ -223,6 +236,7 @@ const report = {
   exteriorWallReviewQueue,
   paintedBoundarySupports,
   paintedBodyBoundarySupports,
+  unresolvedBoundarySpans,
   paintedWallAudit,
   confirmationIssues,
   localConfirmationChecksPass:
@@ -278,6 +292,7 @@ console.log(
       (support) => support.contourKey === 'exterior',
     ).length,
     paintedBodyBoundarySupports: paintedBodyBoundarySupports.length,
+    unresolvedBoundarySpans: unresolvedBoundarySpans.length,
     paintedBodyComponents: paintedWallAudit.body.length,
     acceptedPaintTriangles: paintedWallAudit.acceptedSources.length,
     degeneratePaintTriangles: paintedWallAudit.degenerateSources.length,

@@ -106,6 +106,66 @@
     ],
     "logicalOpeningClosures": [
       {
+        "id": "room-2-exterior-window-balcony-closure",
+        "wallEdgeIndex": 1,
+        "kind": "window-and-balcony",
+        "sourceNumbers": [2],
+        "start": {
+          "x": 246.446,
+          "y": 59.86
+        },
+        "end": {
+          "x": 337.278,
+          "y": 59.86
+        },
+        "note": "Exterior frame run across the separately annotated kitchen window and balcony door. This is not one window or a solid wall."
+      },
+      {
+        "id": "room-3-exterior-main-window-closure",
+        "wallEdgeIndex": 3,
+        "kind": "window",
+        "sourceNumbers": [3],
+        "start": {
+          "x": 458.434,
+          "y": 59.86
+        },
+        "end": {
+          "x": 522.332,
+          "y": 59.86
+        },
+        "note": "Reviewed exterior frame run; the actual room-side opening and its printed width remain separate."
+      },
+      {
+        "id": "room-3-exterior-small-window-closure",
+        "wallEdgeIndex": 5,
+        "kind": "window",
+        "sourceNumbers": [3],
+        "start": {
+          "x": 563.405,
+          "y": 59.86
+        },
+        "end": {
+          "x": 592.76,
+          "y": 59.86
+        },
+        "note": "Reviewed exterior frame run; not a new measured window width."
+      },
+      {
+        "id": "room-4-exterior-window-closure",
+        "wallEdgeIndex": 7,
+        "kind": "window",
+        "sourceNumbers": [4],
+        "start": {
+          "x": 711.466,
+          "y": 59.86
+        },
+        "end": {
+          "x": 792.533,
+          "y": 59.955
+        },
+        "note": "Reviewed slightly slanted exterior frame run; not a wall or a replacement for the printed room-side width."
+      },
+      {
         "id": "room-6-exterior-window-closure",
         "wallEdgeIndex": 10,
         "kind": "window",

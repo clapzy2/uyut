@@ -364,21 +364,46 @@ describe('diagnostic coverage of annotated PDF boundary spans', () => {
     expect(pairs).toHaveLength(52)
     expect(counts).toEqual({
       paired: 104,
-      opening: 21,
+      opening: 25,
       unmatched: 13,
-      'unpaired-exterior': 25,
-      'unsupported-angle': 3,
+      'unpaired-exterior': 22,
+      'unsupported-angle': 2,
     })
-    expect(planPageWallReviewQueue(contours, spans, 1, 'exterior')).toHaveLength(26)
+    expect(planPageWallReviewQueue(contours, spans, 1, 'exterior')).toHaveLength(22)
     expect(planPageWallReviewQueue(contours, spans, 1)).toHaveLength(15)
     expect(
       spans.filter(
         (span) =>
           span.contourKey === 'exterior' &&
-          [10, 14].includes(span.wallEdgeIndex) &&
+          [1, 3, 5, 7, 10, 14].includes(span.wallEdgeIndex) &&
           span.status === 'opening',
       ),
-    ).toHaveLength(2)
+    ).toHaveLength(6)
+    const nativePoints = new Set(
+      work.paths.flatMap((path) => path.points.map((point) => `${point.x}:${point.y}`)),
+    )
+    for (const edgeIndex of [1, 3, 5, 7]) {
+      const closure = page.apartmentEnvelope.logicalOpeningClosures.find(
+        (item) => item.wallEdgeIndex === edgeIndex,
+      )
+      if (!closure) throw new Error(`Missing reviewed exterior opening on edge ${edgeIndex}`)
+      expect(nativePoints.has(`${closure.start.x}:${closure.start.y}`)).toBe(true)
+      expect(nativePoints.has(`${closure.end.x}:${closure.end.y}`)).toBe(true)
+      const room = page.rooms.find(
+        (item) =>
+          item.roomSourceNumbers?.includes(closure.sourceNumbers[0] ?? -1) ||
+          item.roomSourceNumber === closure.sourceNumbers[0],
+      )
+      const roomOpenings = room?.openings.filter((opening) =>
+        ['window', 'balcony'].includes(opening.kind),
+      )
+      expect(
+        roomOpenings?.some(
+          (opening) =>
+            Math.max(opening.start.x, closure.start.x) < Math.min(opening.end.x, closure.end.x),
+        ),
+      ).toBe(true)
+    }
     const solids = inspectPlanPageWallSolids(work, currentSource, contours)
     expect(solids.solids.map((solid) => solid.source.operationIndex)).not.toContain(546)
     expect(solids.solids.map((solid) => solid.source.operationIndex)).not.toContain(565)
