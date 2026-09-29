@@ -19,6 +19,7 @@ import {
 import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema } from '../lib/projects/plan-page-review'
 import { pairPlanPageOpeningFaces } from '../lib/projects/plan-pdf-opening-faces'
+import { findPlanPagePaintedBoundarySpans } from '../lib/projects/plan-pdf-painted-boundary'
 import {
   classifyPlanPageWallSpans,
   planPageWallReviewQueue,
@@ -147,6 +148,14 @@ const exteriorWallReviewQueue = planPageWallReviewQueue(
   cmPerPoint,
   'exterior',
 )
+// This color is manually reviewed for this source page, not inferred for other PDFs.
+const paintedBoundarySupports = findPlanPagePaintedBoundarySpans(
+  page.linework,
+  source,
+  contours,
+  wallCoverage,
+  '#989898',
+)
 const reconciled = reconcilePlanGeometryRooms(
   { ...result.geometry, obstacles: result.geometry.obstacles ?? [] },
   reading.rooms,
@@ -175,6 +184,7 @@ const report = {
   exteriorOpeningClosures: complete.apartmentEnvelope.logicalOpeningClosures,
   wallReviewQueue,
   exteriorWallReviewQueue,
+  paintedBoundarySupports,
   confirmationIssues,
   localConfirmationChecksPass:
     reconciled !== undefined &&
@@ -209,6 +219,12 @@ console.log(
     paintedTriangleCounts,
     interiorReviewSpans: wallReviewQueue.length,
     exteriorReviewSpans: exteriorWallReviewQueue.length,
+    paintedInteriorSupports: paintedBoundarySupports.filter(
+      (support) => support.contourKey !== 'exterior',
+    ).length,
+    paintedExteriorSupports: paintedBoundarySupports.filter(
+      (support) => support.contourKey === 'exterior',
+    ).length,
     derivedOpeningWidths: result.geometry.pdfCalibration?.derivedOpeningIds.length,
     geometryIssues: report.geometryIssues.length,
     confirmationIssues: report.confirmationIssues.length,
