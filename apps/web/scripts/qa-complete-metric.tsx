@@ -400,10 +400,26 @@ const reviewStyles = `
   .cards h2 { font-size: 17px; margin: 0 0 8px; }
   .cards p { font-size: 13px; margin: 0; }
   .cards svg { width: 150px; height: 150px; border: 1px solid #d9d0c8; }
+  .request { margin-top: 24px; padding: 16px 20px; background: white; border: 1px solid #d9d0c8; }
+  .request h2 { margin: 0 0 8px; font-size: 20px; }
+  .request ol { margin: 8px 0 0; padding-left: 22px; }
+  .request li { margin: 6px 0; }
   @media (max-width: 760px) {
     .layout { grid-template-columns: 1fr; }
     .cards article { grid-template-columns: 1fr 120px; }
     .cards svg { width: 120px; height: 120px; }
+  }
+  @page { size: A4; margin: 15mm; }
+  @media print {
+    body { background: white; font-size: 12px; }
+    main { max-width: none; padding: 0; }
+    h1 { font-size: 24px; }
+    .layout { display: block; }
+    .page { display: block; width: min(100%, 140mm); margin: 14px auto 22px; }
+    .cards { grid-template-columns: 1fr 1fr; }
+    .cards article { break-inside: avoid; box-shadow: none; grid-template-columns: 1fr 80px; }
+    .cards svg { width: 80px; height: 80px; }
+    .request { break-inside: avoid; }
   }`
 await writeFile(
   resolve(output, 'source-review.html'),
@@ -424,7 +440,15 @@ await writeFile(
         </svg>
         <div class="cards">${reviewCards.join('')}</div>
       </div>
-      <p>Для закрытия точного 2D нужен обмерный DWG/IFC или проверенная разметка этих граней на плане с толщинами стен, коробами и проёмами. Проектные листы не заменяют исходный обмер.</p>
+      <section class="request">
+        <h2>Что запросить у автора обмера или обмерщика</h2>
+        <ol>
+          <li>Обмерный DWG/IFC существующего состояния с физическими гранями стен, коробами и проёмами; либо этот лист с проверенной разметкой всех пяти пронумерованных мест.</li>
+          <li>Для каждого места - какая линия является гранью стены со стороны комнаты, где находится тело стены и его толщина. Для диагональных стыков - точки начала и конца, привязанные к соседним стенам.</li>
+          <li>У входа - положение двери и граница наружной стены. Технические короба отмечать отдельно от стен. Если мерка не известна, так и указать; приблизительное число не требуется.</li>
+        </ol>
+        <p>Нужен именно исходный обмер, не проектная перепланировка. После получения проверим его заново: решение этих пяти мест само по себе ещё не доказывает точность всех остальных стен и проёмов.</p>
+      </section>
     </main>
   </html>`,
 )
