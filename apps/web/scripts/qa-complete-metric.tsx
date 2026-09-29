@@ -20,6 +20,7 @@ import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema } from '../lib/projects/plan-page-review'
 import { pairPlanPageOpeningFaces } from '../lib/projects/plan-pdf-opening-faces'
 import { findPlanPagePaintedBoundarySpans } from '../lib/projects/plan-pdf-painted-boundary'
+import { inspectPlanPagePaintedWallSolids } from '../lib/projects/plan-pdf-painted-solids'
 import {
   classifyPlanPageWallSpans,
   planPageWallReviewQueue,
@@ -156,6 +157,13 @@ const paintedBoundarySupports = findPlanPagePaintedBoundarySpans(
   wallCoverage,
   '#989898',
 )
+const paintedWallAudit = inspectPlanPagePaintedWallSolids(
+  page.linework,
+  source,
+  contours,
+  '#989898',
+)
+if (!paintedWallAudit) throw new Error('Source-painted wall audit unavailable')
 const reconciled = reconcilePlanGeometryRooms(
   { ...result.geometry, obstacles: result.geometry.obstacles ?? [] },
   reading.rooms,
@@ -185,6 +193,7 @@ const report = {
   wallReviewQueue,
   exteriorWallReviewQueue,
   paintedBoundarySupports,
+  paintedWallAudit,
   confirmationIssues,
   localConfirmationChecksPass:
     reconciled !== undefined &&
@@ -225,6 +234,15 @@ console.log(
     paintedExteriorSupports: paintedBoundarySupports.filter(
       (support) => support.contourKey === 'exterior',
     ).length,
+    paintedBodyComponents: paintedWallAudit.body.length,
+    acceptedPaintTriangles: paintedWallAudit.acceptedSources.length,
+    degeneratePaintTriangles: paintedWallAudit.degenerateSources.length,
+    outsidePaintTriangles: paintedWallAudit.outsideSources.length,
+    crossingPaintTriangles: paintedWallAudit.crossingSources.length,
+    paintedRoomFloorConflicts: paintedWallAudit.roomFloorConflicts.map((conflict) => ({
+      contourKey: conflict.contourKey,
+      areaPageSquared: conflict.areaPageSquared,
+    })),
     derivedOpeningWidths: result.geometry.pdfCalibration?.derivedOpeningIds.length,
     geometryIssues: report.geometryIssues.length,
     confirmationIssues: report.confirmationIssues.length,
