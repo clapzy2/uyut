@@ -1,9 +1,13 @@
 /** Local-only source check for manually reviewed rooms; no AI or database calls. */
 import { createHash } from 'node:crypto'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
+import { estimateProject } from '@uyut/catalog'
+import { layoutWithMeasurements } from '@uyut/catalog/layout-with-measurements'
 import type { PlanPageContours, PlanReading } from '@uyut/db'
+import { fontFaceCss, type PdfData, renderProjectHtml } from '@uyut/pdf'
 import sharp from 'sharp'
+import { printPdf } from '../../../jobs/src/lib/print-pdf'
 import { preparePlanPage } from '../lib/projects/plan-document'
 import {
   inspectManualPlanCompleteness,
@@ -13,6 +17,7 @@ import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema, planPageReviewIssue } from '../lib/projects/plan-page-review'
 import { pdfDepthChain, pdfWidthChain } from '../lib/projects/plan-pdf-dimension-chain'
 import { verifyPlanPageOpeningFaces } from '../lib/projects/plan-pdf-opening-faces'
+import { pdfPointDistance } from '../lib/projects/plan-pdf-room-binding'
 import {
   classifyPlanPageWallSpans,
   planPageWallReviewQueue,
@@ -52,10 +57,10 @@ type Fixture = {
   }>
 }
 
-const [pdfPath, fixturePath, overlayPath] = process.argv.slice(2)
+const [pdfPath, fixturePath, overlayPath, layoutPdfPath] = process.argv.slice(2)
 if (!pdfPath || !fixturePath) {
   throw new Error(
-    'Usage: bun run scripts/qa-independent-metric-room.ts <PDF> <fixture.json> [overlay.png]',
+    'Usage: bun run scripts/qa-independent-metric-room.ts <PDF> <fixture.json> [overlay.png] [layout.pdf]',
   )
 }
 const fixture = JSON.parse(await readFile(fixturePath, 'utf8')) as Fixture
@@ -222,8 +227,33 @@ const result = planPageMetricDraft(
   rooms.map((room) => room.sourceNumber),
 )
 if (!result.ok) throw new Error(result.error)
-const cmPerPoint = result.geometry.pdfCalibration?.cmPerPoint
-if (!cmPerPoint) throw new Error('Missing verified PDF scale.')
+const verifiedWidth = dimensionChecks.find(
+  (check) => check.side === 'width' && check.status === 'candidate',
+)
+const widthRoom = rooms.find((room) => room.sourceNumber === verifiedWidth?.sourceNumber)
+const widthChain = widthRoom?.width
+const widthLabels = widthChain?.textItemIndexes.map((index) => {
+  const label = textItems[index]
+  if (!label) throw new Error(`Missing text item ${index}`)
+  return { ...label, index }
+})
+const widthCandidate =
+  widthRoom?.widthMm && widthLabels
+    ? pdfWidthChain(
+        linework,
+        source,
+        contours,
+        widthRoom.sourceNumber,
+        widthLabels,
+        widthRoom.widthMm,
+      )
+    : null
+const cmPerPoint =
+  result.geometry.pdfCalibration?.cmPerPoint ??
+  (widthCandidate?.status === 'candidate'
+    ? widthCandidate.totalMm / 10 / pdfPointDistance(linework, ...widthCandidate.ends)
+    : undefined)
+if (!cmPerPoint || !Number.isFinite(cmPerPoint)) throw new Error('Missing verified PDF scale.')
 const wallCoverage = classifyPlanPageWallSpans(
   contours,
   pairPlanPageWallFaces(linework, source, contours),
@@ -317,6 +347,96 @@ if (overlayPath) {
     .composite([{ input: Buffer.from(svg) }])
     .png()
     .toFile(overlayPath)
+}
+
+if (layoutPdfPath) {
+  if (!layoutPdfPath.endsWith('.pdf') || resolve(layoutPdfPath) === resolve(pdfPath)) {
+    throw new Error('The QA layout PDF must be a separate output file.')
+  }
+  if (rooms.length !== 1) {
+    throw new Error('The partial-source PDF check requires exactly one reviewed room.')
+  }
+  const room = rooms[0]
+  if (
+    room?.kind !== 'bedroom' ||
+    room.widthMm === undefined ||
+    room.depthMm === undefined ||
+    dimensionChecks.some((check) => check.status !== 'candidate')
+  ) {
+    throw new Error('The PDF check requires a bedroom with two source-verified dimensions.')
+  }
+  const layout = layoutWithMeasurements(
+    room.name,
+    { widthCm: room.widthMm / 10, depthCm: room.depthMm / 10 },
+    result.geometry,
+    [
+      {
+        id: 'qa-bed',
+        title: 'Тестовая кровать 140 × 200 см',
+        category: 'bed',
+        quantity: 1,
+        dimensions: { width: 140, depth: 200 },
+      },
+    ],
+    'bedroom',
+  )
+  if (layout?.safetySummary.status !== 'needs-data') {
+    throw new Error('A partial apartment must produce a needs-data layout preview.')
+  }
+  const rates = { roughRubPerM2: 15_000, finishRubPerM2: 5_000 }
+  const data: PdfData = {
+    kind: 'free',
+    generatedAt: new Date(),
+    project: {
+      title: 'Проверка мерок фрагмента плана',
+      subtitle: 'Не проект квартиры и не предложение мебели',
+      facts: [{ label: 'Источник', value: `Существующее состояние, страница ${source.pdfPage}` }],
+      contact: null,
+      projectUrl: 'example.com/local-qa',
+    },
+    summary:
+      'Размеры одной комнаты сверены с опубликованным обмерным планом. Внешний контур и остальные помещения не подтверждены. Смета и состояние отделки в этом тесте не определялись.',
+    cover: null,
+    band: null,
+    rooms: [
+      {
+        id: 'source-room',
+        name: room.name,
+        areaM2: room.areaM2 ?? null,
+        conditionLabel: 'Отделка не установлена по источнику',
+        hasConcept: false,
+        render: null,
+        before: null,
+        alternates: [],
+        note: 'Кровать — только тестовый объект заданного размера, не товар из каталога.',
+        objects: [],
+        plan: layout,
+      },
+    ],
+    roomsWithoutConcept: [room.name],
+    shopping: [],
+    estimate: estimateProject({
+      rooms: [
+        {
+          id: 'source-room',
+          name: room.name,
+          areaM2: room.areaM2 ?? null,
+          condition: 'keep',
+          refreshFinish: false,
+        },
+      ],
+      items: [],
+      budgetKopecks: null,
+      rates,
+    }),
+    rates,
+    brief: null,
+  }
+  await mkdir(dirname(resolve(layoutPdfPath)), { recursive: true })
+  await writeFile(
+    layoutPdfPath,
+    await printPdf(renderProjectHtml(data, { fontCss: fontFaceCss() }), data.project.title),
+  )
 }
 
 console.log(
