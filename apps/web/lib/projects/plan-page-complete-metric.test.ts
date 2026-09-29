@@ -121,23 +121,33 @@ function draft(fixture = completeSheet(), numbers = allNumbers): PlanGeometry {
 }
 
 describe('complete existing PDF page in one native metric scale', () => {
-  it('groups only rooms connected by unchanged, source-backed door faces', () => {
+  it('groups rooms connected by unchanged door faces or the proven common threshold', () => {
     const geometry = draft()
     const review = inspectDoorAdjacency(geometry)
-    expect(review.links).toHaveLength(5)
+    expect(review.links).toHaveLength(6)
     expect(review.unresolvedFacePairCount).toBe(0)
     const sourceNumbers = review.provenGroups.map((group) =>
       group.map(
         (index) => geometry.rooms[index]?.sourceNumbers ?? geometry.rooms[index]?.sourceNumber,
       ),
     )
-    expect(sourceNumbers).toEqual([[[1, 5], 2, 3, 4, 7, 8], [6]])
+    expect(sourceNumbers).toEqual([[[1, 5], 2, 3, 4, 6, 7, 8]])
   })
 
-  it('does not infer a passage from touching room contours or unpaired doors', () => {
+  it('recognizes the common threshold without a false second wall-face pair', () => {
     const geometry = draft()
     if (!geometry.pdfCalibration) throw new Error('Missing PDF calibration')
     geometry.pdfCalibration.openingFacePairs = []
+    const review = inspectDoorAdjacency(geometry)
+    expect(review.links).toEqual([expect.objectContaining({ roomIndexes: [0, 4] })])
+    expect(review.provenGroups).toHaveLength(geometry.rooms.length - 1)
+  })
+
+  it('does not infer a passage from touching contours without either source proof', () => {
+    const geometry = draft()
+    if (!geometry.pdfCalibration) throw new Error('Missing PDF calibration')
+    geometry.pdfCalibration.openingFacePairs = []
+    geometry.pdfCalibration.openingWidthProofs = []
     const review = inspectDoorAdjacency(geometry)
     expect(review.links).toEqual([])
     expect(review.provenGroups).toHaveLength(geometry.rooms.length)
@@ -151,8 +161,25 @@ describe('complete existing PDF page in one native metric scale', () => {
     if (!opening) throw new Error('Missing paired opening')
     opening.widthCm += 1
     const review = inspectDoorAdjacency(geometry)
-    expect(review.links).toHaveLength(4)
+    expect(review.links).toHaveLength(5)
     expect(review.unresolvedFacePairCount).toBe(1)
+  })
+
+  it('withdraws the shared-threshold link after an opening edit or mismatched cut', () => {
+    const geometry = draft()
+    if (!geometry.pdfCalibration) throw new Error('Missing PDF calibration')
+    geometry.pdfCalibration.openingFacePairs = []
+    const proof = geometry.pdfCalibration.openingWidthProofs?.find((item) => item.sameOpeningAs)
+    if (!proof) throw new Error('Missing common-threshold source proof')
+    const opening = geometry.openings.find((item) => item.id === proof.opening.id)
+    if (!opening) throw new Error('Missing shared opening')
+    opening.offsetCm += 1
+    expect(inspectDoorAdjacency(geometry).links).toEqual([])
+
+    opening.offsetCm = proof.opening.offsetCm
+    proof.opening.offsetCm += 1
+    opening.offsetCm += 1
+    expect(inspectDoorAdjacency(geometry).links).toEqual([])
   })
 
   it('does not assign a door face to a room without an exact boundary owner', () => {
@@ -160,6 +187,7 @@ describe('complete existing PDF page in one native metric scale', () => {
     const pair = geometry.pdfCalibration?.openingFacePairs?.[0]
     if (!pair || !geometry.pdfCalibration) throw new Error('Missing door face pair')
     geometry.pdfCalibration.openingFacePairs = [pair]
+    geometry.pdfCalibration.openingWidthProofs = []
     const host = pair.bindings[0].wall
     const ownerIndex = geometry.rooms.findIndex(
       (room) =>
@@ -185,6 +213,7 @@ describe('complete existing PDF page in one native metric scale', () => {
     const pair = geometry.pdfCalibration?.openingFacePairs?.[0]
     if (!pair || !geometry.pdfCalibration) throw new Error('Missing door face pair')
     geometry.pdfCalibration.openingFacePairs = [pair]
+    geometry.pdfCalibration.openingWidthProofs = []
     const owner = geometry.rooms.find((room) =>
       room.polygon.some(
         (point) =>
