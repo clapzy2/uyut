@@ -16,6 +16,7 @@ import {
   inspectPlanGeometry,
   inspectPlanRoomAreas,
 } from '../lib/projects/plan-geometry-inspection'
+import { inspectPlanPageDoorFloorConnectivity } from '../lib/projects/plan-page-door-floor-connectivity'
 import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema } from '../lib/projects/plan-page-review'
 import { pairPlanPageOpeningFaces } from '../lib/projects/plan-pdf-opening-faces'
@@ -191,6 +192,7 @@ const confirmationIssues = [
   ...inspectPlanRoomAreas(checked.rooms, reading.rooms),
 ]
 const doorAdjacency = inspectDoorAdjacency(result.geometry)
+const doorFloorConnectivity = inspectPlanPageDoorFloorConnectivity(contours, paintedWallAudit.body)
 const output = resolve('../../output/playwright/complete-metric')
 await mkdir(output, { recursive: true })
 const report = {
@@ -200,6 +202,7 @@ const report = {
   geometry: result.geometry,
   geometryIssues,
   doorAdjacency,
+  doorFloorConnectivity,
   openingFacePairs: pairPlanPageOpeningFaces(page.linework, source, contours),
   wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs,
   wallCoverage,
@@ -240,6 +243,13 @@ console.log(
     openingFacePairs: report.openingFacePairs.length,
     provenDoorLinks: doorAdjacency.links.length,
     provenZoneGroups: doorAdjacency.provenGroups.length,
+    doorFloorConnectivity: doorFloorConnectivity.map(
+      ({ contourKey, status, freeComponentCount }) => ({
+        contourKey,
+        status,
+        freeComponentCount,
+      }),
+    ),
     wallFacePairs: report.wallFacePairs?.length,
     wallCoverageCounts,
     paintedTriangleCounts,
