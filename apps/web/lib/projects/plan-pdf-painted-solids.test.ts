@@ -1,7 +1,10 @@
 import type { PlanPageContours } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
-import { inspectPlanPagePaintedWallSolids } from './plan-pdf-painted-solids'
+import {
+  inspectPlanPagePaintedWallSolids,
+  supportsOnPaintedBodyBoundary,
+} from './plan-pdf-painted-solids'
 
 const source = { sha256: 'a'.repeat(64), pdfPage: 1, state: 'existing' as const }
 const rect = (left: number, top: number, right: number, bottom: number) => [
@@ -79,6 +82,24 @@ describe('reviewed PDF paint body audit', () => {
     ])
     expect(result?.body).toHaveLength(1)
     expect(result?.roomFloorConflicts).toEqual([])
+    expect(
+      supportsOnPaintedBodyBoundary(result?.body ?? [], [
+        {
+          contourKey: '1',
+          wallEdgeIndex: 1,
+          start: { x: 200, y: 100 },
+          end: { x: 200, y: 200 },
+          sourceSegments: [],
+        },
+        {
+          contourKey: '1',
+          wallEdgeIndex: 1,
+          start: { x: 220, y: 100 },
+          end: { x: 200, y: 200 },
+          sourceSegments: [],
+        },
+      ]),
+    ).toEqual([expect.objectContaining({ start: { x: 200, y: 100 }, end: { x: 200, y: 200 } })])
     expect({ contours, work }).toEqual(before)
   })
 

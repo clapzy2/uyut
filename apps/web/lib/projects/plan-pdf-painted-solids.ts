@@ -1,6 +1,7 @@
 import type { PlanPageContours } from '@uyut/db'
 import { difference, intersection, type MultiPolygon, type Polygon, union } from 'polygon-clipping'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
+import type { PdfPaintedBoundarySupport } from './plan-pdf-painted-boundary'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
 import { pdfContourKey } from './plan-pdf-room-binding'
 import { validPlanPageWallSource } from './plan-pdf-wall-faces'
@@ -47,6 +48,49 @@ function multiPolygonArea(polygons: MultiPolygon): number {
       polygon.reduce((area, ring, index) => area + (index === 0 ? 1 : -1) * ringArea(ring), 0),
     0,
   )
+}
+
+/** The triangle edge must remain on the union perimeter, not become an internal seam. */
+export function supportsOnPaintedBodyBoundary(
+  body: MultiPolygon,
+  supports: readonly PdfPaintedBoundarySupport[],
+): PdfPaintedBoundarySupport[] {
+  const boundaryEdges = body.flatMap((polygon) =>
+    polygon.flatMap((ring) =>
+      ring.slice(0, -1).flatMap((start, index) => {
+        const end = ring[index + 1]
+        return end ? [{ start, end }] : []
+      }),
+    ),
+  )
+  return supports.filter((support) => {
+    const axis =
+      Math.abs(support.end.x - support.start.x) >= Math.abs(support.end.y - support.start.y) ? 0 : 1
+    const low = Math.min(support.start.x, support.end.x)
+    const high = Math.max(support.start.x, support.end.x)
+    const startCoordinate = axis === 0 ? low : Math.min(support.start.y, support.end.y)
+    const endCoordinate = axis === 0 ? high : Math.max(support.start.y, support.end.y)
+    const cross = (point: number[]) =>
+      (support.end.x - support.start.x) * ((point[1] ?? 0) - support.start.y) -
+      (support.end.y - support.start.y) * ((point[0] ?? 0) - support.start.x)
+    const intervals = boundaryEdges.flatMap(({ start, end }) => {
+      if (cross(start) !== 0 || cross(end) !== 0) return []
+      const startValue = start[axis]
+      const endValue = end[axis]
+      if (startValue === undefined || endValue === undefined) return []
+      const begin = Math.max(startCoordinate, Math.min(startValue, endValue))
+      const finish = Math.min(endCoordinate, Math.max(startValue, endValue))
+      return begin < finish ? [[begin, finish] as const] : []
+    })
+    intervals.sort((a, b) => a[0] - b[0])
+    let coveredUntil = startCoordinate
+    for (const [begin, finish] of intervals) {
+      if (begin > coveredUntil) break
+      coveredUntil = Math.max(coveredUntil, finish)
+      if (coveredUntil >= endCoordinate) return true
+    }
+    return false
+  })
 }
 
 /** Source triangles only. Boolean union does not repair input gaps or certify construction walls. */
