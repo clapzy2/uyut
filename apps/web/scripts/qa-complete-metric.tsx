@@ -347,6 +347,87 @@ await writeFile(
   resolve(output, 'preview.html'),
   `<!doctype html><html lang="ru" data-theme="light"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Полная квартира — локальная 2D-проверка</title><style>${css}</style><body><main style="max-width:1200px;margin:auto;padding:24px"><p>Локальная проверка исходного листа 03 · не production</p>${preview}<p>Кухонное окно и балконная дверь разделены по проверенному пересечению исходных линий. Это не подтверждённая расстановка.</p></main></body></html>`,
 )
+await writeFile(resolve(output, 'source-page-6.jpg'), page.image.body)
+const reviewLabels: Record<string, string> = {
+  '4': 'Спальня №4 - торец у входа',
+  '2': 'Кухня №2 - нижний правый стык',
+  '1+5': 'Прихожая и коридор - диагональный стык',
+  exterior: 'Внешний контур - участок у входа',
+}
+const reviewMarkers = sourceStrokeEvidence.map(({ span }, index) => {
+  const middleX = (span.start.x + span.end.x) / 2
+  const middleY = (span.start.y + span.end.y) / 2
+  return `
+    <g>
+      <circle cx="${middleX}" cy="${middleY}" r="9" fill="#b42345" stroke="white" stroke-width="2"/>
+      <text x="${middleX}" y="${middleY + 3}" text-anchor="middle" fill="white" font-size="9" font-family="Arial">${index + 1}</text>
+    </g>`
+})
+const reviewCards = sourceStrokeEvidence.map(({ span, status, sourceSegments }, index) => {
+  const middleX = (span.start.x + span.end.x) / 2
+  const middleY = (span.start.y + span.end.y) / 2
+  const note =
+    status === 'opposite-side'
+      ? 'Заливка находится с другой стороны проверяемой линии.'
+      : 'Край заливки не совпадает с исходной линией.'
+  const operations = [...new Set(sourceSegments.map((segment) => segment.operationIndex))].join(
+    ', ',
+  )
+  return `
+    <article>
+      <div>
+        <h2>${index + 1}. ${reviewLabels[span.contourKey] ?? span.contourKey}</h2>
+        <p>${note} Исходный штрих: операция PDF ${operations}. Нужно подтвердить, где проходит физическая грань стены; длина выделения не является обмером.</p>
+      </div>
+      <svg viewBox="${middleX - 35} ${middleY - 35} 70 70" preserveAspectRatio="none" role="img" aria-label="Увеличение спорного участка ${index + 1}">
+        <image href="source-page-6.jpg" width="1000" height="1000" preserveAspectRatio="none"/>
+        <line x1="${span.start.x}" y1="${span.start.y}" x2="${span.end.x}" y2="${span.end.y}" stroke="#b42345" stroke-width="5" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+        <circle cx="${middleX}" cy="${middleY}" r="2" fill="#b42345"/>
+      </svg>
+    </article>`
+})
+const reviewStyles = `
+  body { margin: 0; background: #f6f2ed; color: #251e1a; font: 16px/1.5 Arial, sans-serif; }
+  main { max-width: 1100px; margin: auto; padding: 24px; }
+  h1 { font-size: 30px; line-height: 1.15; }
+  p { max-width: 65ch; }
+  .lead { color: #5d5550; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 1fr); gap: 24px; align-items: start; }
+  .page, .cards article { background: white; border: 1px solid #d9d0c8; box-shadow: 0 2px 9px #251e1a12; }
+  .page { width: 100%; aspect-ratio: ${page.linework.pageWidth}/${page.linework.pageHeight}; }
+  .cards { display: grid; gap: 12px; }
+  .cards article { padding: 14px; display: grid; grid-template-columns: 1fr 150px; gap: 12px; }
+  .cards h2 { font-size: 17px; margin: 0 0 8px; }
+  .cards p { font-size: 13px; margin: 0; }
+  .cards svg { width: 150px; height: 150px; border: 1px solid #d9d0c8; }
+  @media (max-width: 760px) {
+    .layout { grid-template-columns: 1fr; }
+    .cards article { grid-template-columns: 1fr 120px; }
+    .cards svg { width: 120px; height: 120px; }
+  }`
+await writeFile(
+  resolve(output, 'source-review.html'),
+  `<!doctype html>
+  <html lang="ru">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Пять участков для уточнения - лист 03</title>
+    <style>${reviewStyles}</style>
+    <main>
+      <p class="lead">Локальная проверка · обмерный лист 03 · существующее состояние</p>
+      <h1>Участки, где нужна проверенная грань стены</h1>
+      <p>Это карта вопросов к источнику, а не исправленный план. Красные метки показывают спорные места; по одному PDF нельзя выбирать толщину стены или подменять её соседней линией.</p>
+      <div class="layout">
+        <svg class="page" viewBox="0 0 1000 1000" preserveAspectRatio="none" role="img" aria-label="Исходный обмерный план с пятью спорными местами">
+          <image href="source-page-6.jpg" width="1000" height="1000" preserveAspectRatio="none"/>
+          ${reviewMarkers.join('')}
+        </svg>
+        <div class="cards">${reviewCards.join('')}</div>
+      </div>
+      <p>Для закрытия точного 2D нужен обмерный DWG/IFC или проверенная разметка этих граней на плане с толщинами стен, коробами и проёмами. Проектные листы не заменяют исходный обмер.</p>
+    </main>
+  </html>`,
+)
 console.log(
   JSON.stringify({
     output,
