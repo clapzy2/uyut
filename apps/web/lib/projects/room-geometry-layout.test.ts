@@ -175,6 +175,104 @@ describe('проёмы комнаты из 2D-схемы', () => {
     expect(result?.missingSafetyData.join(' ')).toContain('Проём window не совпадает')
   })
 
+  it('проецирует проём с подтверждённой оси стены на грань пола без изменения ширины', () => {
+    const walls = geometry.walls.map((wall) =>
+      wall.id === 'top'
+        ? {
+            ...wall,
+            start: { xCm: 100, yCm: 60 },
+            end: { xCm: 500, yCm: 60 },
+            thicknessCm: 20,
+          }
+        : wall,
+    )
+    const result = roomLayoutInputFromGeometry({ ...geometry, walls }, 'Гостиная', null)
+
+    expect(result?.floorReservations.find((opening) => opening.kind === 'window')).toMatchObject({
+      start: { xCm: 120, yCm: 0 },
+      end: { xCm: 220, yCm: 0 },
+    })
+    expect(result?.reservations.find((opening) => opening.kind === 'window')).toMatchObject({
+      wall: 'top',
+      fromCm: 120,
+      toCm: 220,
+    })
+  })
+
+  it('сдвигает подтверждённую зону двери вместе с гранью пола', () => {
+    const walls = geometry.walls.map((wall) =>
+      wall.id === 'left'
+        ? {
+            ...wall,
+            start: { xCm: 110, yCm: 50 },
+            end: { xCm: 110, yCm: 350 },
+            thicknessCm: 20,
+          }
+        : wall,
+    )
+    const result = roomLayoutInputFromGeometry({ ...geometry, walls }, 'Гостиная', null)
+
+    expect(result?.floorReservations.find((opening) => opening.kind === 'door')).toMatchObject({
+      start: { xCm: 0, yCm: 180 },
+      end: { xCm: 0, yCm: 270 },
+    })
+    expect(result?.keepClearZones.find((zone) => zone.kind === 'door')?.polygon).toEqual([
+      { xCm: 0, yCm: 180 },
+      { xCm: 0, yCm: 270 },
+      { xCm: 90, yCm: 270 },
+      { xCm: 90, yCm: 180 },
+    ])
+  })
+
+  it('не приписывает проём комнате дальше половины толщины стены', () => {
+    const walls = geometry.walls.map((wall) =>
+      wall.id === 'top'
+        ? {
+            ...wall,
+            start: { xCm: 100, yCm: 65 },
+            end: { xCm: 500, yCm: 65 },
+            thicknessCm: 20,
+          }
+        : wall,
+    )
+    const result = roomLayoutInputFromGeometry({ ...geometry, walls }, 'Гостиная', null)
+
+    expect(result?.floorReservations.some((opening) => opening.kind === 'window')).toBe(false)
+    expect(result?.missingSafetyData.join(' ')).toContain('Проём window не совпадает')
+  })
+
+  it('выбирает грань у проёма, а не близкий короткий уступ той же комнаты', () => {
+    const rooms = [
+      {
+        name: 'Гостиная',
+        polygon: [
+          { xCm: 100, yCm: 50 },
+          { xCm: 150, yCm: 50 },
+          { xCm: 150, yCm: 51.5 },
+          { xCm: 500, yCm: 51.5 },
+          { xCm: 500, yCm: 350 },
+          { xCm: 100, yCm: 350 },
+        ],
+      },
+    ]
+    const walls = geometry.walls.map((wall) =>
+      wall.id === 'top'
+        ? {
+            ...wall,
+            start: { xCm: 100, yCm: 61.5 },
+            end: { xCm: 500, yCm: 61.5 },
+            thicknessCm: 20,
+          }
+        : wall,
+    )
+    const result = roomLayoutInputFromGeometry({ ...geometry, rooms, walls }, 'Гостиная', null)
+
+    expect(result?.floorReservations.find((opening) => opening.kind === 'window')).toMatchObject({
+      start: { xCm: 120, yCm: 1.5 },
+      end: { xCm: 220, yCm: 1.5 },
+    })
+  })
+
   it('не использует неподтверждённый план', () => {
     expect(
       roomLayoutInputFromGeometry({ ...geometry, status: 'draft' }, 'Гостиная', null),

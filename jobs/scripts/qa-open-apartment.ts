@@ -4,10 +4,15 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { validatePlanGeometryEdit } from '@uyut/ai'
 import { estimateProject, type LayoutItem } from '@uyut/catalog'
 import { layoutWithMeasurements } from '@uyut/catalog/layout-with-measurements'
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import { fontFaceCss, type PdfData, renderProjectHtml } from '@uyut/pdf'
+import {
+  inspectManualPlanCompleteness,
+  inspectPlanGeometry,
+} from '../../apps/web/lib/projects/plan-geometry-inspection'
 import { printPdf } from '../src/lib/print-pdf'
 
 const DATASET = 'philippds/modified-swiss-dwellings-enriched'
@@ -78,6 +83,30 @@ function openingAxis(polygon: PlanPoint[]): [PlanPoint, PlanPoint] {
   return length(a, b) < length(b, c)
     ? [midpoint(a, b), midpoint(c, d)]
     : [midpoint(b, c), midpoint(d, a)]
+}
+
+function rectangularBody(polygon: PlanPoint[]): {
+  axis: [PlanPoint, PlanPoint]
+  thicknessCm: number
+  areaM2: number
+} {
+  if (polygon.length !== 4) throw new Error('Тело стены должно иметь четыре угла')
+  const [a, b, c, d] = polygon as [PlanPoint, PlanPoint, PlanPoint, PlanPoint]
+  const first = length(a, b)
+  const second = length(b, c)
+  const third = length(c, d)
+  const fourth = length(d, a)
+  const thicknessCm = Math.min(first, second)
+  const bodyAreaM2 = areaM2(polygon)
+  const expectedAreaM2 = (thicknessCm * Math.max(first, second)) / 10_000
+  if (
+    Math.abs(first - third) > 0.01 ||
+    Math.abs(second - fourth) > 0.01 ||
+    Math.abs(bodyAreaM2 - expectedAreaM2) > 0.0001
+  ) {
+    throw new Error('Полигон стены не является прямоугольником; центрлиния не доказана')
+  }
+  return { axis: openingAxis(polygon), thicknessCm, areaM2: bodyAreaM2 }
 }
 
 function openingOnEdge(
@@ -155,19 +184,40 @@ const polygons = areaRows.map((row, index) => {
     subtype: row.entity_subtype,
   }
 })
-const allPoints = areaRows.flatMap((row) => polygonFromWkt(row.geom))
+const allPoints = rows.flatMap((row) => polygonFromWkt(row.geom))
+const wallBodies = wallRows.map((row, index) => ({
+  sourceIndex: index + areaRows.length,
+  ...rectangularBody(polygonFromWkt(row.geom)),
+}))
+const physicalOpeningSupports = openingRows.map((row, openingIndex) => {
+  const axis = openingAxis(polygonFromWkt(row.geom))
+  const supportedBy = wallBodies.flatMap((wall) => {
+    const match = openingOnEdge(axis, wall.axis[0], wall.axis[1])
+    return match && match.distanceCm <= (wall.thicknessCm + 2) / 2 ? [wall.sourceIndex] : []
+  })
+  return { openingIndex, supportedBy }
+})
 const minX = Math.min(...allPoints.map((point) => point.xCm))
 const minY = Math.min(...allPoints.map((point) => point.yCm))
 const shift = (point: PlanPoint): PlanPoint => ({ xCm: point.xCm - minX, yCm: point.yCm - minY })
 
 const geometry: PlanGeometry = {
   version: 1,
+  // Controlled downstream fixture only. The server gate below must still approve a real project.
   status: 'confirmed',
   widthCm: Math.max(...allPoints.map((point) => point.xCm)) - minX,
   heightCm: Math.max(...allPoints.map((point) => point.yCm)) - minY,
-  walls: [],
+  walls: wallBodies.map((body) => ({
+    id: `source-wall-${body.sourceIndex}`,
+    start: shift(body.axis[0]),
+    end: shift(body.axis[1]),
+    kind: 'inner',
+    thicknessCm: body.thicknessCm,
+  })),
   openings: [],
-  rooms: polygons.map(({ name, polygon }) => ({ name, polygon: polygon.map(shift) })),
+  rooms: polygons
+    .filter(({ subtype }) => subtype !== 'SHAFT')
+    .map(({ name, polygon }) => ({ name, polygon: polygon.map(shift) })),
   warnings: [
     'Открытая модельная геометрия Swiss Dwellings, не обмер реальной квартиры.',
     'Высоты подоконников и зоны распахивания не представлены в источнике.',
@@ -177,6 +227,20 @@ const geometry: PlanGeometry = {
 const openingMatches: string[] = []
 for (const [openingIndex, openingRow] of openingRows.entries()) {
   const axis = openingAxis(polygonFromWkt(openingRow.geom))
+  const supports = physicalOpeningSupports[openingIndex]?.supportedBy
+  if (supports?.length !== 1) {
+    throw new Error(`Проём ${openingIndex}: нет единственного исходного тела стены`)
+  }
+  const host = wallBodies.find((body) => body.sourceIndex === supports[0])
+  const hostMatch = host && openingOnEdge(axis, host.axis[0], host.axis[1])
+  if (!hostMatch) throw new Error(`Проём ${openingIndex}: нет привязки к оси стены`)
+  geometry.openings.push({
+    id: `${openingRow.entity_subtype.toLowerCase()}-${openingIndex}`,
+    type: openingRow.entity_subtype === 'WINDOW' ? 'window' : 'door',
+    wallId: `source-wall-${host.sourceIndex}`,
+    offsetCm: hostMatch.offsetCm,
+    widthCm: hostMatch.widthCm,
+  })
   for (const room of polygons) {
     const candidates = room.polygon.flatMap((start, edgeIndex) => {
       const end = room.polygon[(edgeIndex + 1) % room.polygon.length]
@@ -187,23 +251,14 @@ for (const [openingIndex, openingRow] of openingRows.entries()) {
     candidates.sort((a, b) => a.distanceCm - b.distanceCm)
     const match = candidates[0]
     if (!match) continue
-    const wallId = `${room.name}-opening-wall-${openingIndex}`
-    geometry.walls.push({
-      id: wallId,
-      start: shift(match.start),
-      end: shift(match.end),
-      kind: 'inner',
-    })
-    geometry.openings.push({
-      id: `${openingRow.entity_subtype.toLowerCase()}-${openingIndex}-${room.name}`,
-      type: openingRow.entity_subtype === 'WINDOW' ? 'window' : 'door',
-      wallId,
-      offsetCm: match.offsetCm,
-      widthCm: match.widthCm,
-    })
     openingMatches.push(`${openingIndex}:${room.name}:${match.distanceCm.toFixed(1)}cm`)
   }
 }
+
+const serverParsed = validatePlanGeometryEdit(geometry)
+const serverIssues = serverParsed
+  ? [...inspectPlanGeometry(serverParsed), ...inspectManualPlanCompleteness(serverParsed)]
+  : []
 
 const examples: Record<string, LayoutItem[]> = {
   Спальня: [
@@ -245,6 +300,12 @@ const rooms: PdfData['rooms'] = polygons.map(({ name, kind, polygon, sourceId, s
     }
     if (plan.safetySummary.status !== 'needs-data') {
       throw new Error(`Неожиданный статус достоверности комнаты ${name}`)
+    }
+    const sourceOpeningCount = openingMatches.filter((match) => match.includes(`:${name}:`)).length
+    if (plan.floorReservations.length !== sourceOpeningCount) {
+      throw new Error(
+        `${name}: из ${sourceOpeningCount} исходных проёмов учтено ${plan.floorReservations.length}; ${plan.missingSafetyData.join('; ')}`,
+      )
     }
     console.log(
       `${name}: ${plan.safetySummary.status}; предметов: ${plan.placed.length}; проблемы: ${plan.problems.length}`,
@@ -316,12 +377,39 @@ const report = {
   apartmentId: APARTMENT_ID,
   unitId: rows[0]?.unit_id,
   sourceCounts: { areas: areaRows.length, walls: wallRows.length, openings: openingRows.length },
+  wallBodies: {
+    rectangular: wallBodies.length,
+    minThicknessCm: Math.min(...wallBodies.map((wall) => wall.thicknessCm)),
+    maxThicknessCm: Math.max(...wallBodies.map((wall) => wall.thicknessCm)),
+    totalAreaM2: wallBodies.reduce((sum, wall) => sum + wall.areaM2, 0),
+  },
+  physicalOpeningSupports,
+  structuralVoidsNotRepresented: polygons
+    .filter(({ subtype }) => subtype === 'SHAFT')
+    .map(({ name, sourceId, polygon }) => ({ name, sourceId, areaM2: areaM2(polygon) })),
+  serverGate: {
+    parsed: Boolean(serverParsed),
+    parsedWalls: serverParsed?.walls.length ?? 0,
+    parsedOpenings: serverParsed?.openings.length ?? 0,
+    parsedRooms: serverParsed?.rooms.length ?? 0,
+    rejectedWalls: geometry.walls.length - (serverParsed?.walls.length ?? 0),
+    rejectedOpenings: geometry.openings.length - (serverParsed?.openings.length ?? 0),
+    rejectedRooms: geometry.rooms.length - (serverParsed?.rooms.length ?? 0),
+    canConfirm:
+      Boolean(serverParsed) &&
+      serverParsed?.walls.length === geometry.walls.length &&
+      serverParsed?.openings.length === geometry.openings.length &&
+      serverParsed?.rooms.length === geometry.rooms.length &&
+      !serverIssues.some((issue) => issue.severity === 'error'),
+    issues: serverIssues.filter((issue) => issue.severity === 'error').slice(0, 20),
+  },
   mappedOpeningHosts: openingMatches,
   rooms: rooms.map((room) => ({
     name: room.name,
     sourceAreaM2: room.areaM2,
     status: room.plan?.safetySummary.status,
     placements: room.plan?.placed.length,
+    roomOpenings: room.plan?.floorReservations.length,
     problems: room.plan?.problems,
   })),
   caveat:

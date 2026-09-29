@@ -102,6 +102,77 @@ function openingBelongsToRoom(
   return false
 }
 
+/** A measured wall axis can sit half a wall thickness behind the room's floor edge. */
+function openingOnRoomBoundary(
+  start: PlanPoint,
+  end: PlanPoint,
+  wall: PlanWall,
+  polygon: readonly PlanPoint[],
+): [PlanPoint, PlanPoint] | null {
+  if (openingBelongsToRoom(start, end, polygon, GEOMETRY_ALIGNMENT_TOLERANCE_CM)) {
+    return [start, end]
+  }
+  if (wall.thicknessCm === undefined || wall.thicknessCm < 5) return null
+
+  const openingLength = Math.hypot(end.xCm - start.xCm, end.yCm - start.yCm)
+  if (openingLength === 0) return null
+  const expectedFaceOffset = wall.thicknessCm / 2
+  const candidates: Array<{ start: PlanPoint; end: PlanPoint; faceError: number }> = []
+  for (let index = 0; index < polygon.length; index += 1) {
+    const edgeStart = polygon[index]
+    const edgeEnd = polygon[(index + 1) % polygon.length]
+    if (!edgeStart || !edgeEnd) continue
+    const edgeLength = Math.hypot(edgeEnd.xCm - edgeStart.xCm, edgeEnd.yCm - edgeStart.yCm)
+    if (edgeLength === 0) continue
+    const dx = (edgeEnd.xCm - edgeStart.xCm) / edgeLength
+    const dy = (edgeEnd.yCm - edgeStart.yCm) / edgeLength
+    const alongStart = (start.xCm - edgeStart.xCm) * dx + (start.yCm - edgeStart.yCm) * dy
+    const alongEnd = (end.xCm - edgeStart.xCm) * dx + (end.yCm - edgeStart.yCm) * dy
+    const overlap =
+      Math.min(edgeLength, Math.max(alongStart, alongEnd)) -
+      Math.max(0, Math.min(alongStart, alongEnd))
+    if (overlap <= GEOMETRY_ALIGNMENT_TOLERANCE_CM) continue
+    const parallel = Math.abs(
+      ((end.xCm - start.xCm) * dx + (end.yCm - start.yCm) * dy) / openingLength,
+    )
+    if (parallel < 0.999) continue
+    const offsetStart = (start.xCm - edgeStart.xCm) * dy - (start.yCm - edgeStart.yCm) * dx
+    const offsetEnd = (end.xCm - edgeStart.xCm) * dy - (end.yCm - edgeStart.yCm) * dx
+    const faceError = Math.max(
+      Math.abs(Math.abs(offsetStart) - expectedFaceOffset),
+      Math.abs(Math.abs(offsetEnd) - expectedFaceOffset),
+    )
+    if (
+      faceError > GEOMETRY_ALIGNMENT_TOLERANCE_CM ||
+      Math.abs(offsetStart - offsetEnd) > GEOMETRY_ALIGNMENT_TOLERANCE_CM
+    ) {
+      continue
+    }
+    const projectedStart = {
+      xCm: start.xCm - offsetStart * dy,
+      yCm: start.yCm + offsetStart * dx,
+    }
+    const projectedEnd = {
+      xCm: end.xCm - offsetEnd * dy,
+      yCm: end.yCm + offsetEnd * dx,
+    }
+    if (
+      openingBelongsToRoom(projectedStart, projectedEnd, polygon, GEOMETRY_ALIGNMENT_TOLERANCE_CM)
+    ) {
+      candidates.push({
+        start: projectedStart,
+        end: projectedEnd,
+        faceError,
+      })
+    }
+  }
+  candidates.sort((first, second) => first.faceError - second.faceError)
+  const nearest = candidates[0]
+  const other = candidates[1]
+  if (!nearest || (other && Math.abs(other.faceError - nearest.faceError) < 0.5)) return null
+  return [nearest.start, nearest.end]
+}
+
 /**
  * Переводит глобальный контур и проёмы плана в локальные координаты комнаты.
  * Размеры ручного обмера имеют приоритет, поэтому вместе с рамкой масштабируется и сам контур.
@@ -178,13 +249,15 @@ export function roomLayoutInputFromGeometry(
     const wall = wallById.get(opening.wallId)
     if (!wall) continue
     const [start, end] = openingPoints(opening, wall)
-    if (!openingBelongsToRoom(start, end, room.polygon, BOUNDARY_TOLERANCE_CM)) continue
-    if (!openingBelongsToRoom(start, end, room.polygon, GEOMETRY_ALIGNMENT_TOLERANCE_CM)) {
+    const aligned = openingOnRoomBoundary(start, end, wall, room.polygon)
+    if (!aligned) {
+      if (!openingBelongsToRoom(start, end, room.polygon, BOUNDARY_TOLERANCE_CM)) continue
       missingSafetyData.push(
         `Проём ${opening.id} не совпадает с границей комнаты. Уточните стену или контур, прежде чем учитывать его в расстановке.`,
       )
       continue
     }
+    const [boundaryStart, boundaryEnd] = aligned
     if (opening.type !== 'window' && opening.widthCm < WALKWAY_CM) {
       missingSafetyData.push(
         `${opening.type === 'balcony' ? 'Балконный блок' : 'Дверь'} ${opening.id}: ширина проёма по плану ${opening.widthCm} см меньше принятого свободного прохода ${WALKWAY_CM} см. Уточните чистую ширину проёма перед покупкой мебели.`,
@@ -202,10 +275,14 @@ export function roomLayoutInputFromGeometry(
           `${opening.type === 'balcony' ? 'Балконный блок' : 'Дверь'} ${opening.id}: задайте свободную зону открывания.`,
         )
       } else {
-        const centre = clearance.polygon.reduce(
+        const alignedClearance = clearance.polygon.map((point) => ({
+          xCm: point.xCm + boundaryStart.xCm - start.xCm,
+          yCm: point.yCm + boundaryStart.yCm - start.yCm,
+        }))
+        const centre = alignedClearance.reduce(
           (sum, point) => ({
-            xCm: sum.xCm + point.xCm / clearance.polygon.length,
-            yCm: sum.yCm + point.yCm / clearance.polygon.length,
+            xCm: sum.xCm + point.xCm / alignedClearance.length,
+            yCm: sum.yCm + point.yCm / alignedClearance.length,
           }),
           { xCm: 0, yCm: 0 },
         )
@@ -213,21 +290,21 @@ export function roomLayoutInputFromGeometry(
           keepClearZones.push({
             kind: opening.type,
             label: clearance.label,
-            polygon: clearance.polygon.map(localPoint),
+            polygon: alignedClearance.map(localPoint),
           })
       }
     }
     floorReservations.push({
       kind: reservationKind(opening.type),
-      start: localPoint(start),
-      end: localPoint(end),
+      start: localPoint(boundaryStart),
+      end: localPoint(boundaryEnd),
       clearanceCm: 0,
       ...(opening.sillHeightCm === undefined ? {} : { sillHeightCm: opening.sillHeightCm }),
     })
     const horizontal =
-      Math.abs(wall.end.xCm - wall.start.xCm) >= Math.abs(wall.end.yCm - wall.start.yCm)
+      Math.abs(boundaryEnd.xCm - boundaryStart.xCm) >= Math.abs(boundaryEnd.yCm - boundaryStart.yCm)
     if (horizontal) {
-      const y = (start.yCm + end.yCm) / 2
+      const y = (boundaryStart.yCm + boundaryEnd.yCm) / 2
       const wallSide =
         Math.abs(y - minY) <= BOUNDARY_TOLERANCE_CM
           ? 'top'
@@ -235,8 +312,8 @@ export function roomLayoutInputFromGeometry(
             ? 'bottom'
             : null
       if (!wallSide) continue
-      const clippedStart = Math.max(minX, Math.min(start.xCm, end.xCm))
-      const clippedEnd = Math.min(maxX, Math.max(start.xCm, end.xCm))
+      const clippedStart = Math.max(minX, Math.min(boundaryStart.xCm, boundaryEnd.xCm))
+      const clippedEnd = Math.min(maxX, Math.max(boundaryStart.xCm, boundaryEnd.xCm))
       if (clippedEnd <= clippedStart) continue
       reservations.push({
         kind: reservationKind(opening.type),
@@ -249,7 +326,7 @@ export function roomLayoutInputFromGeometry(
       continue
     }
 
-    const x = (start.xCm + end.xCm) / 2
+    const x = (boundaryStart.xCm + boundaryEnd.xCm) / 2
     const wallSide =
       Math.abs(x - minX) <= BOUNDARY_TOLERANCE_CM
         ? 'left'
@@ -257,8 +334,8 @@ export function roomLayoutInputFromGeometry(
           ? 'right'
           : null
     if (!wallSide) continue
-    const clippedStart = Math.max(minY, Math.min(start.yCm, end.yCm))
-    const clippedEnd = Math.min(maxY, Math.max(start.yCm, end.yCm))
+    const clippedStart = Math.max(minY, Math.min(boundaryStart.yCm, boundaryEnd.yCm))
+    const clippedEnd = Math.min(maxY, Math.max(boundaryStart.yCm, boundaryEnd.yCm))
     if (clippedEnd <= clippedStart) continue
     reservations.push({
       kind: reservationKind(opening.type),

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "qa:pdf": "bun run scripts/qa-pdf.ts",
+    "qa:open-apartment": "bun run scripts/qa-open-apartment.ts",
     "dev": "bun --env-file=../.env run trigger dev",
     "deploy": "trigger deploy",
     "typecheck": "tsc --noEmit",
