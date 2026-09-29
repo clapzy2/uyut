@@ -364,6 +364,78 @@ describe('подтверждение ручной схемы', () => {
     )
   })
 
+  it('считает примыкающие тела стен связанными, даже если их оси не сходятся', () => {
+    const first = {
+      id: 'horizontal',
+      kind: 'inner' as const,
+      start: { xCm: 100, yCm: 100 },
+      end: { xCm: 200, yCm: 100 },
+      thicknessCm: 20,
+    }
+    const second = {
+      id: 'vertical',
+      kind: 'inner' as const,
+      start: { xCm: 210, yCm: 100 },
+      end: { xCm: 210, yCm: 200 },
+      thicknessCm: 20,
+    }
+    for (const walls of [
+      [first, second],
+      [second, first],
+    ]) {
+      const issues = inspectManualPlanCompleteness({ ...geometry, walls, openings: [], rooms: [] })
+      expect(issues).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: 'manual-disconnected-walls' })]),
+      )
+    }
+  })
+
+  it('не соединяет стены через пустой зазор между телами', () => {
+    const walls = [
+      {
+        id: 'horizontal',
+        kind: 'inner' as const,
+        start: { xCm: 100, yCm: 100 },
+        end: { xCm: 200, yCm: 100 },
+        thicknessCm: 20,
+      },
+      {
+        id: 'vertical',
+        kind: 'inner' as const,
+        start: { xCm: 211, yCm: 111 },
+        end: { xCm: 211, yCm: 200 },
+        thicknessCm: 20,
+      },
+    ]
+    expect(inspectManualPlanCompleteness({ ...geometry, walls, openings: [], rooms: [] })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'manual-disconnected-walls', severity: 'error' }),
+      ]),
+    )
+  })
+
+  it('не скрывает продольный зазор двух обмеренных стен прежним допуском осей', () => {
+    const walls = [
+      {
+        id: 'left',
+        kind: 'inner' as const,
+        start: { xCm: 100, yCm: 100 },
+        end: { xCm: 200, yCm: 100 },
+        thicknessCm: 20,
+      },
+      {
+        id: 'right',
+        kind: 'inner' as const,
+        start: { xCm: 201, yCm: 100 },
+        end: { xCm: 300, yCm: 100 },
+        thicknessCm: 20,
+      },
+    ]
+    expect(inspectManualPlanCompleteness({ ...geometry, walls, openings: [], rooms: [] })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'manual-disconnected-walls' })]),
+    )
+  })
+
   it.each(['first', 'last', 'reversed'] as const)(
     'highlights the disconnected island with %s wall order',
     (order) => {

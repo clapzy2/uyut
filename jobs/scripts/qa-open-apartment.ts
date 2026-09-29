@@ -9,6 +9,7 @@ import { estimateProject, type LayoutItem } from '@uyut/catalog'
 import { layoutWithMeasurements } from '@uyut/catalog/layout-with-measurements'
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import { fontFaceCss, type PdfData, renderProjectHtml } from '@uyut/pdf'
+import { intersection, type MultiPolygon, type Polygon, union } from 'polygon-clipping'
 import {
   inspectManualPlanCompleteness,
   inspectPlanGeometry,
@@ -71,6 +72,168 @@ function areaM2(polygon: PlanPoint[]): number {
     twiceArea += a.xCm * b.yCm - b.xCm * a.yCm
   }
   return Math.abs(twiceArea) / 20_000
+}
+
+function sourcePolygon(row: SourceRow): Polygon {
+  // Clip only for topology diagnostics. Sub-millimetre rounding avoids floating-point
+  // seams after rotation; the metric geometry sent to the product remains unchanged.
+  const ring = polygonFromWkt(row.geom).map(
+    (point) =>
+      [Math.round(point.xCm * 100) / 100, Math.round(point.yCm * 100) / 100] as [number, number],
+  )
+  const first = ring[0]
+  if (!first) throw new Error('Пустой исходный полигон')
+  return [[...ring, first]]
+}
+
+function footprint(rows: SourceRow[]): MultiPolygon {
+  const [first, second, ...rest] = rows.map(sourcePolygon)
+  if (!first) throw new Error('Нет исходных полигонов для внешнего контура')
+  if (!second) return [first]
+  return union(first, second, ...rest)
+}
+
+function footprintSummary(body: MultiPolygon) {
+  return {
+    components: body.length,
+    holes: body.reduce((sum, polygon) => sum + polygon.length - 1, 0),
+    outerVertices: body.map((polygon) => (polygon[0]?.length ?? 1) - 1),
+    outerAreasM2: body.map((polygon) =>
+      areaM2((polygon[0] ?? []).slice(0, -1).map(([xCm, yCm]) => ({ xCm, yCm }))),
+    ),
+  }
+}
+
+function clippedAreaM2(body: MultiPolygon): number {
+  return body.reduce(
+    (total, polygon) =>
+      total +
+      polygon.reduce((area, ring, index) => {
+        const points = ring.slice(0, -1).map(([xCm, yCm]) => ({ xCm, yCm }))
+        return area + (index === 0 ? 1 : -1) * areaM2(points)
+      }, 0),
+    0,
+  )
+}
+
+function sourceVoid(row: SourceRow, body: MultiPolygon) {
+  const shape = sourcePolygon(row)
+  const area = clippedAreaM2([shape])
+  const holes = body.flatMap((polygon) => polygon.slice(1))
+  const containingHole = holes.findIndex((ring) => {
+    const coveredArea = clippedAreaM2(intersection(shape, [ring]))
+    return Math.abs(coveredArea - area) < 0.0001
+  })
+  if (containingHole < 0 || clippedAreaM2(intersection(shape, body)) > 0.0001) {
+    throw new Error(`Техническая шахта ${row.area_id}: форма не лежит в пустоте плана`)
+  }
+  return {
+    sourceId: row.area_id,
+    areaM2: area,
+    vertices: polygonFromWkt(row.geom)
+      .slice(0)
+      .map((point) => ({
+        xCm: Math.round(point.xCm * 100) / 100,
+        yCm: Math.round(point.yCm * 100) / 100,
+      })),
+    holeIndex: containingHole,
+  }
+}
+
+function distanceToEdge(point: PlanPoint, start: PlanPoint, end: PlanPoint): number {
+  const dx = end.xCm - start.xCm
+  const dy = end.yCm - start.yCm
+  const squaredLength = dx * dx + dy * dy
+  if (squaredLength === 0) return length(point, start)
+  const ratio = Math.max(
+    0,
+    Math.min(1, ((point.xCm - start.xCm) * dx + (point.yCm - start.yCm) * dy) / squaredLength),
+  )
+  return length(point, { xCm: start.xCm + dx * ratio, yCm: start.yCm + dy * ratio })
+}
+
+function boundaryEvidence(body: MultiPolygon, sources: SourceRow[]) {
+  const outerRing = body[0]?.[0]
+  if (!outerRing) throw new Error('Внешний контур исходной квартиры не найден')
+  const sourceEdges = sources.flatMap((row) => {
+    const ring = sourcePolygon(row)[0] ?? []
+    return ring.slice(0, -1).flatMap(([xCm, yCm], index) => {
+      const next = ring[index + 1]
+      if (!next) return []
+      return [
+        {
+          type: row.entity_type,
+          subtype: row.entity_subtype,
+          sourceId: row.area_id,
+          start: { xCm, yCm },
+          end: { xCm: next[0], yCm: next[1] },
+        },
+      ]
+    })
+  })
+  const sourcePriority = { separator: 0, opening: 1, area: 2 }
+  sourceEdges.sort((first, second) => sourcePriority[first.type] - sourcePriority[second.type])
+  const byType = { separator: 0, opening: 0, area: 0, unsupported: 0 }
+  const areaOnly: Array<{
+    sourceId: number | null
+    subtype: string
+    lengthCm: number
+    start: PlanPoint
+    end: PlanPoint
+  }> = []
+  const unsupported: Array<{ start: PlanPoint; end: PlanPoint }> = []
+  for (const [index, [xCm, yCm]] of outerRing.slice(0, -1).entries()) {
+    const next = outerRing[index + 1]
+    if (!next) continue
+    const start = { xCm, yCm }
+    const end = { xCm: next[0], yCm: next[1] }
+    const segmentLength = length(start, end)
+    const fractions = [0, 1]
+    for (const edge of sourceEdges) {
+      for (const point of [edge.start, edge.end]) {
+        if (distanceToEdge(point, start, end) > 0.05) continue
+        const fraction =
+          ((point.xCm - start.xCm) * (end.xCm - start.xCm) +
+            (point.yCm - start.yCm) * (end.yCm - start.yCm)) /
+          (segmentLength * segmentLength)
+        if (fraction > 0 && fraction < 1) fractions.push(fraction)
+      }
+    }
+    fractions.sort((first, second) => first - second)
+    for (let part = 0; part < fractions.length - 1; part += 1) {
+      const from = fractions[part]
+      const to = fractions[part + 1]
+      if (from === undefined || to === undefined || to - from < 0.000001) continue
+      const pointAt = (fraction: number): PlanPoint => ({
+        xCm: start.xCm + (end.xCm - start.xCm) * fraction,
+        yCm: start.yCm + (end.yCm - start.yCm) * fraction,
+      })
+      const partStart = pointAt(from)
+      const partEnd = pointAt(to)
+      const support = sourceEdges.find(
+        (edge) =>
+          distanceToEdge(partStart, edge.start, edge.end) <= 0.05 &&
+          distanceToEdge(partEnd, edge.start, edge.end) <= 0.05,
+      )
+      if (support) {
+        const partLength = length(partStart, partEnd)
+        byType[support.type] += partLength
+        if (support.type === 'area') {
+          areaOnly.push({
+            sourceId: support.sourceId,
+            subtype: support.subtype,
+            lengthCm: partLength,
+            start: partStart,
+            end: partEnd,
+          })
+        }
+      } else {
+        byType.unsupported += length(partStart, partEnd)
+        unsupported.push({ start: partStart, end: partEnd })
+      }
+    }
+  }
+  return { lengthCmBySourceType: byType, areaOnly, unsupported }
 }
 
 function openingAxis(polygon: PlanPoint[]): [PlanPoint, PlanPoint] {
@@ -154,6 +317,30 @@ rotationRadians = Math.atan2(
   entranceAxis[1].yCm - entranceAxis[0].yCm,
   entranceAxis[1].xCm - entranceAxis[0].xCm,
 )
+
+const sourceFootprints = {
+  allBodies: footprint(rows),
+  withoutShafts: footprint(rows.filter((row) => row.entity_subtype !== 'SHAFT')),
+  floorsAndWalls: footprint([...areaRows, ...wallRows]),
+  wallsOnly: footprint(wallRows),
+  roomFloors: footprint(areaRows.filter((row) => row.entity_subtype !== 'SHAFT')),
+}
+const continuousFootprint = footprintSummary(sourceFootprints.withoutShafts)
+const allSourceBodies = footprintSummary(sourceFootprints.allBodies)
+if (
+  continuousFootprint.components !== 1 ||
+  allSourceBodies.components !== 3 ||
+  footprintSummary(sourceFootprints.wallsOnly).components !== 1
+) {
+  throw new Error('Топология открытой квартиры изменилась: внешний контур нужно проверить заново')
+}
+const sourceVoids = areaRows
+  .filter((row) => row.entity_subtype === 'SHAFT')
+  .map((row) => sourceVoid(row, sourceFootprints.withoutShafts))
+const outerBoundaryEvidence = boundaryEvidence(sourceFootprints.withoutShafts, rows)
+if (outerBoundaryEvidence.unsupported.length > 0) {
+  throw new Error('Часть внешнего контура не подтверждена ни одним исходным полигоном')
+}
 
 const zoneNames = [
   'Коридор',
@@ -259,6 +446,9 @@ const serverParsed = validatePlanGeometryEdit(geometry)
 const serverIssues = serverParsed
   ? [...inspectPlanGeometry(serverParsed), ...inspectManualPlanCompleteness(serverParsed)]
   : []
+if (serverIssues.some((issue) => issue.id === 'manual-disconnected-walls')) {
+  throw new Error('Исходные тела стен касаются друг друга, но проверка считает их разорванными')
+}
 
 const examples: Record<string, LayoutItem[]> = {
   Спальня: [
@@ -384,9 +574,30 @@ const report = {
     totalAreaM2: wallBodies.reduce((sum, wall) => sum + wall.areaM2, 0),
   },
   physicalOpeningSupports,
-  structuralVoidsNotRepresented: polygons
-    .filter(({ subtype }) => subtype === 'SHAFT')
-    .map(({ name, sourceId, polygon }) => ({ name, sourceId, areaM2: areaM2(polygon) })),
+  sourceFootprints: {
+    allBodies: footprintSummary(sourceFootprints.allBodies),
+    withoutShafts: footprintSummary(sourceFootprints.withoutShafts),
+    floorsAndWalls: footprintSummary(sourceFootprints.floorsAndWalls),
+    wallsOnly: footprintSummary(sourceFootprints.wallsOnly),
+    wallFloorOverlapM2: clippedAreaM2(
+      intersection(sourceFootprints.wallsOnly, sourceFootprints.roomFloors),
+    ),
+  },
+  outerBoundaryEvidence: {
+    ...outerBoundaryEvidence,
+    contourCm: (sourceFootprints.withoutShafts[0]?.[0] ?? [])
+      .slice(0, -1)
+      .map(([xCm, yCm]) => shift({ xCm, yCm })),
+    areaOnly: outerBoundaryEvidence.areaOnly.map((segment) => ({
+      ...segment,
+      start: shift(segment.start),
+      end: shift(segment.end),
+    })),
+  },
+  structuralVoidsNotRepresented: sourceVoids.map((voidShape) => ({
+    ...voidShape,
+    vertices: voidShape.vertices.map(shift),
+  })),
   serverGate: {
     parsed: Boolean(serverParsed),
     parsedWalls: serverParsed?.walls.length ?? 0,
@@ -413,7 +624,7 @@ const report = {
     problems: room.plan?.problems,
   })),
   caveat:
-    'Open model geometry, not an as-built survey. Source wall polygons are not converted to thickness-bearing walls. Furniture dimensions are test inputs. Door swing and window sill data are absent.',
+    'Открытая модельная геометрия, не обмер квартиры. Тела стен перенесены как прямоугольники с толщиной; внешние стены пока не классифицированы. Мебель задана для теста. Зоны открывания дверей и высоты подоконников отсутствуют.',
 }
 await writeFile(resolve(outputDir, 'qa-open-swiss-apartment.json'), JSON.stringify(report, null, 2))
 console.log(`PDF: ${pdfPath}`)

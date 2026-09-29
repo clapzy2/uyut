@@ -17,6 +17,7 @@ type EditableGeometry = Pick<
   Pick<PlanGeometry, 'pdfCalibration'>
 
 const ENDPOINT_TOLERANCE_CM = 2
+const BODY_CONTACT_TOLERANCE_CM = 0.05
 // Real door reveals may be under 20 cm; this is a geometry bound, not a safety clearance.
 const MIN_WALL_CM = 1
 const MAX_WALL_CM = 5_000
@@ -65,6 +66,48 @@ function distanceToSegment(point: PlanPoint, wall: PlanWall): number {
     xCm: wall.start.xCm + dx * position,
     yCm: wall.start.yCm + dy * position,
   })
+}
+
+function wallBody(wall: PlanWall): PlanPoint[] | undefined {
+  if (!wall.thicknessCm || wall.thicknessCm <= 0) return undefined
+  const length = distance(wall.start, wall.end)
+  if (length === 0) return undefined
+  const normalX = ((wall.end.yCm - wall.start.yCm) * wall.thicknessCm) / (2 * length)
+  const normalY = ((wall.start.xCm - wall.end.xCm) * wall.thicknessCm) / (2 * length)
+  return [
+    { xCm: wall.start.xCm + normalX, yCm: wall.start.yCm + normalY },
+    { xCm: wall.end.xCm + normalX, yCm: wall.end.yCm + normalY },
+    { xCm: wall.end.xCm - normalX, yCm: wall.end.yCm - normalY },
+    { xCm: wall.start.xCm - normalX, yCm: wall.start.yCm - normalY },
+  ]
+}
+
+/** Rectangular measured wall bodies can meet even when their axes stop short of each other. */
+function wallBodiesTouch(first: PlanWall, second: PlanWall): boolean {
+  const firstBody = wallBody(first)
+  const secondBody = wallBody(second)
+  if (!firstBody || !secondBody) return false
+  for (const body of [firstBody, secondBody]) {
+    for (let index = 0; index < body.length; index += 1) {
+      const start = body[index]
+      const end = body[(index + 1) % body.length]
+      if (!start || !end) continue
+      const axisX = end.yCm - start.yCm
+      const axisY = start.xCm - end.xCm
+      const axisLength = Math.hypot(axisX, axisY)
+      if (axisLength === 0) continue
+      const project = (point: PlanPoint) => (point.xCm * axisX + point.yCm * axisY) / axisLength
+      const firstValues = firstBody.map(project)
+      const secondValues = secondBody.map(project)
+      if (
+        Math.max(...firstValues) < Math.min(...secondValues) - BODY_CONTACT_TOLERANCE_CM ||
+        Math.max(...secondValues) < Math.min(...firstValues) - BODY_CONTACT_TOLERANCE_CM
+      ) {
+        return false
+      }
+    }
+  }
+  return true
 }
 
 function endpointIsConnected(
@@ -288,11 +331,13 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
       for (const other of walls) {
         if (visited.has(other.id)) continue
         const touches =
-          distanceToSegment(current.start, other) <= ENDPOINT_TOLERANCE_CM ||
-          distanceToSegment(current.end, other) <= ENDPOINT_TOLERANCE_CM ||
-          distanceToSegment(other.start, current) <= ENDPOINT_TOLERANCE_CM ||
-          distanceToSegment(other.end, current) <= ENDPOINT_TOLERANCE_CM ||
-          segmentsIntersect(current.start, current.end, other.start, other.end)
+          current.thicknessCm && other.thicknessCm
+            ? wallBodiesTouch(current, other)
+            : distanceToSegment(current.start, other) <= ENDPOINT_TOLERANCE_CM ||
+              distanceToSegment(current.end, other) <= ENDPOINT_TOLERANCE_CM ||
+              distanceToSegment(other.start, current) <= ENDPOINT_TOLERANCE_CM ||
+              distanceToSegment(other.end, current) <= ENDPOINT_TOLERANCE_CM ||
+              segmentsIntersect(current.start, current.end, other.start, other.end)
         if (touches) {
           visited.add(other.id)
           pending.push(other)
