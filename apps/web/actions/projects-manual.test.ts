@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   revalidate: vi.fn(),
   setPlanReading: vi.fn(),
+  getObject: vi.fn(),
+  preparePlanPage: vi.fn(),
 }))
 
 vi.mock('@/lib/projects/access', () => ({
@@ -26,6 +28,12 @@ vi.mock('@/lib/projects/access', () => ({
   assertOwner: mocks.assertOwner,
 }))
 vi.mock('@/lib/projects/repository', () => ({ setPlanReading: mocks.setPlanReading }))
+vi.mock('@/lib/projects/plan-document', () => ({ preparePlanPage: mocks.preparePlanPage }))
+vi.mock('@/lib/storage', () => ({
+  deleteObject: vi.fn(),
+  getObject: mocks.getObject,
+  putObject: vi.fn(),
+}))
 vi.mock('@/lib/projects/plan-reading', () => ({
   PlanReadError: class PlanReadError extends Error {},
   readPlanFromStorage: vi.fn(),
@@ -214,6 +222,89 @@ describe('manual plan draft', () => {
     )
     expect(confirmed.ok).toBe(false)
     if (!confirmed.ok) expect(confirmed.error).toContain('проёмы')
+  })
+
+  it('не подтверждает квартиру, если экспликация PDF содержит пропущенную комнату', async () => {
+    source.planReading.rooms = [{ name: 'Кухня №09', sourceNumber: 9, kind: 'kitchen', areaM2: 20 }]
+    source.planReading.pageReview = {
+      version: 1,
+      savedAt: '2026-09-30T00:00:00.000Z',
+      contours: {
+        source: { sha256: 'a'.repeat(64), pdfPage: 2, state: 'existing' },
+        coordinateSystem: 'page-0-1000',
+        review: 'manual-source-review',
+        pageWidth: 1000,
+        pageHeight: 1000,
+        rooms: [
+          {
+            roomSourceNumber: 9,
+            polygon: corners.map((point) => ({ x: point.xCm, y: point.yCm })),
+          },
+        ],
+      },
+      sourceRooms: [
+        { sourceNumber: 6, name: 'Спальня' },
+        { sourceNumber: 9, name: 'Кухня' },
+      ],
+    }
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      rooms: [{ name: 'Кухня №09', sourceNumber: 9, polygon: corners }],
+    }
+    const result = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
+    expect(result).toMatchObject({ ok: false })
+    if (!result.ok) expect(result.error).toContain('№06 Спальня')
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+  })
+
+  it('сверяет экспликацию PDF и для старого черновика без сохранённого списка', async () => {
+    const body = Buffer.from('old reviewed plan')
+    const sha256 = createHash('sha256').update(body).digest('hex')
+    source.planUrl = 'plan.pdf'
+    source.planReading.rooms = [{ name: 'Кухня №01', sourceNumber: 1, kind: 'kitchen', areaM2: 20 }]
+    source.planReading.pageReview = {
+      version: 1,
+      savedAt: '2026-09-30T00:00:00.000Z',
+      contours: {
+        source: { sha256, pdfPage: 2, state: 'existing' },
+        coordinateSystem: 'page-0-1000',
+        review: 'manual-source-review',
+        pageWidth: 1000,
+        pageHeight: 1000,
+        rooms: [
+          {
+            roomSourceNumber: 1,
+            polygon: corners.map((point) => ({ x: point.xCm, y: point.yCm })),
+          },
+        ],
+      },
+    }
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      rooms: [{ name: 'Кухня №01', sourceNumber: 1, polygon: corners }],
+    }
+    mocks.getObject.mockResolvedValue({ body })
+    mocks.preparePlanPage.mockResolvedValue({
+      image: {
+        body: Buffer.from('image'),
+        contentType: 'image/jpeg',
+        planText: JSON.stringify([
+          { text: 'Экспликация помещений:', x: 630, y: 100, rotation: 0 },
+          { text: '01-Кухня - 20,00м', x: 630, y: 120, rotation: 0 },
+          { text: '02-Спальня - 15,00м', x: 630, y: 139, rotation: 0 },
+          { text: '03-Санузел - 5,00м', x: 630, y: 158, rotation: 0 },
+        ]),
+      },
+    })
+
+    const result = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('№02 Спальня')
+    expect(mocks.preparePlanPage).toHaveBeenCalledWith(body, true, 2)
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
   })
 
   it('rejects an old editor revision without writing or announcing success', async () => {

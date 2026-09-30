@@ -316,6 +316,8 @@ export type PlanPageReview = {
   version: 1
   savedAt: string
   contours: PlanPageContours
+  /** Numbered source legend, only when every row was unambiguously read from this PDF page. */
+  sourceRooms?: Array<{ sourceNumber: number; name: string }>
   featureChecks?: { openings: PlanPageOpeningCheck[] }
 }
 

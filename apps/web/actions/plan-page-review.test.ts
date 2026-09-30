@@ -125,6 +125,31 @@ describe('save source page review action', () => {
     expect(saveOrder).toBeLessThan(auditOrder)
   })
 
+  it('сохраняет найденный на том же листе перечень помещений без добавления размеров', async () => {
+    mocks.prepare.mockResolvedValue({
+      ...page,
+      image: {
+        ...page.image,
+        planText: JSON.stringify([
+          { text: 'Экспликация помещений:', x: 630, y: 642, rotation: 0 },
+          { text: '01-Прихожая - 9,99 м', x: 630, y: 660, rotation: 0 },
+          { text: '02-Кухня - 8,51м', x: 630, y: 679, rotation: 0 },
+          { text: '03-Спальня - 25,51м', x: 630, y: 697, rotation: 0 },
+          { text: '04-Спальня - 16,54м', x: 630, y: 715, rotation: 0 },
+        ]),
+      },
+    })
+    const result = await savePlanPageReview('project', contours, revision)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading.pageReview?.sourceRooms).toEqual([
+      { sourceNumber: 1, name: 'Прихожая' },
+      { sourceNumber: 2, name: 'Кухня' },
+      { sourceNumber: 3, name: 'Спальня' },
+      { sourceNumber: 4, name: 'Спальня' },
+    ])
+    expect(result.data.reading.rooms).toEqual(reading.rooms)
+  })
+
   it('refuses a missing session, malformed payload, or stale revision before reading storage', async () => {
     mocks.session.mockResolvedValueOnce(null)
     expect((await savePlanPageReview('project', contours, revision)).ok).toBe(false)

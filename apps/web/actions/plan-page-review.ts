@@ -12,6 +12,7 @@ import { PlanReadError, preparePlanPage } from '@/lib/projects/plan-document'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { verifyPlanPageOpenings } from '@/lib/projects/plan-page-feature-checks'
 import { planPageContoursSchema, planPageReviewIssue } from '@/lib/projects/plan-page-review'
+import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
 import { setPlanReading } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { getObject } from '@/lib/storage'
@@ -66,12 +67,14 @@ export async function savePlanPageReview(
         error:
           'Проверьте контуры, стороны проёмов и неподвижные объекты внутри комнат на выбранном листе. Разметка не сохранена.',
       }
+    const sourceRooms = planPageRoomInventory(page.image.planText)
     const reading: PlanReading = {
       ...before,
       pageReview: {
         version: 1,
         savedAt: new Date().toISOString(),
         contours,
+        ...(sourceRooms ? { sourceRooms } : {}),
         featureChecks: {
           openings: verifyPlanPageOpenings(page.linework, source, contours, page.image.planText),
         },

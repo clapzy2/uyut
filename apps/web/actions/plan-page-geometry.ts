@@ -12,6 +12,7 @@ import { PlanReadError, preparePlanPage } from '@/lib/projects/plan-document'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { planPageMetricDraft } from '@/lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema } from '@/lib/projects/plan-page-review'
+import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
 import { pdfContourRoomNumbers } from '@/lib/projects/plan-pdf-room-binding'
 import { setPlanReading } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -87,7 +88,17 @@ export async function createPlanPageGeometryDraft(
     )
     if (!result.ok) return result
 
-    const reading = { ...before, geometry: result.geometry }
+    const sourceRooms = planPageRoomInventory(page.image.planText)
+    const reading = {
+      ...before,
+      pageReview: before.pageReview
+        ? {
+            ...before.pageReview,
+            ...(sourceRooms ? { sourceRooms } : {}),
+          }
+        : undefined,
+      geometry: result.geometry,
+    }
     // File, reading, source review and the absence of geometry are guarded atomically.
     await setPlanReading(session.user.id, projectId, reading, project)
     await recordAudit({

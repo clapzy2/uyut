@@ -15,6 +15,7 @@ import {
 } from '../lib/projects/plan-geometry-inspection'
 import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema, planPageReviewIssue } from '../lib/projects/plan-page-review'
+import { planPageRoomInventory } from '../lib/projects/plan-page-room-inventory'
 import { pdfDepthChain, pdfWidthChain } from '../lib/projects/plan-pdf-dimension-chain'
 import { verifyPlanPageOpeningFaces } from '../lib/projects/plan-pdf-opening-faces'
 import { pdfPointDistance } from '../lib/projects/plan-pdf-room-binding'
@@ -87,6 +88,14 @@ const textItems = JSON.parse(page.image.planText) as Array<{
   y: number
   rotation: number
 }>
+const sourceRooms = planPageRoomInventory(page.image.planText)
+if (
+  fixture.sourceRoomNumbers &&
+  JSON.stringify(sourceRooms?.map((room) => room.sourceNumber)) !==
+    JSON.stringify(fixture.sourceRoomNumbers)
+) {
+  throw new Error('The numbered source schedule no longer matches the reviewed fixture.')
+}
 const areaConflicts = (fixture.areaConflicts ?? []).map((conflict) => {
   const planText = textItems[conflict.planTextItemIndex]?.text ?? ''
   const legendText = textItems[conflict.legendTextItemIndex]?.text ?? ''
@@ -443,6 +452,7 @@ console.log(
   JSON.stringify({
     sourcePage: source.pdfPage,
     sourceSha256: sha256,
+    sourceRooms,
     missingRoomNumbers: fixture.sourceRoomNumbers?.filter(
       (number) => !rooms.some((room) => room.sourceNumber === number),
     ),

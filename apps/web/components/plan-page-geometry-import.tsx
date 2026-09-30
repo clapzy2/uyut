@@ -36,6 +36,14 @@ export function PlanPageGeometryImport({
         ]
       : []
   })
+  const sourceRooms = reading.pageReview?.sourceRooms ?? []
+  const reviewedNumbers = new Set(options.flatMap((room) => room.numbers))
+  const readingNumbers = new Set(
+    reading.rooms.flatMap((room) => (room.sourceNumber === undefined ? [] : [room.sourceNumber])),
+  )
+  const unreviewedSourceRooms = sourceRooms.filter(
+    (room) => !reviewedNumbers.has(room.sourceNumber) || !readingNumbers.has(room.sourceNumber),
+  )
   const anchors = reading.rooms.filter(
     (room) =>
       room.sourceNumber !== undefined &&
@@ -104,6 +112,31 @@ export function PlanPageGeometryImport({
         комнат, проёмов и неподвижных объектов. Неизвестные размеры не подставляются: если данных не
         хватит, покажем, что уточнить. AI-баланс не расходуется.
       </p>
+      {sourceRooms.length > 0 ? (
+        <div className="mt-5 max-w-2xl border-l-2 border-accent bg-accent-tint/20 py-3 pl-4 pr-3">
+          <p className="text-[13px] font-medium text-ink">
+            По экспликации листа размечено {sourceRooms.length - unreviewedSourceRooms.length} из{' '}
+            {sourceRooms.length} помещений.
+          </p>
+          {unreviewedSourceRooms.length > 0 ? (
+            <>
+              <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
+                Черновик можно создать по готовым контурам. Всю квартиру подтвердить пока нельзя:
+              </p>
+              <ul className="mt-2 space-y-1 text-[13px] leading-relaxed text-ink">
+                {unreviewedSourceRooms.map((room) => (
+                  <li key={room.sourceNumber}>
+                    № {String(room.sourceNumber).padStart(2, '0')} · {room.name} —{' '}
+                    {readingNumbers.has(room.sourceNumber)
+                      ? 'нужен контур по исходному листу'
+                      : 'сначала добавьте в список комнат, затем разметьте контур'}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </div>
+      ) : null}
       <fieldset disabled={saving || conflict} className="mt-4 space-y-2">
         <legend className="mb-2 text-sm">Какие комнаты перенести</legend>
         {options.map((room) => (

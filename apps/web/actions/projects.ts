@@ -1,6 +1,6 @@
 'use server'
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   isManualPlanGeometryId,
   reconcilePlanGeometryRooms,
@@ -22,6 +22,7 @@ import { roomKindLabels } from '@/lib/projects/format'
 import { kitchenItemsSchema } from '@/lib/projects/kitchen-items'
 import { kitchenSafetySchema } from '@/lib/projects/kitchen-safety'
 import { manualPlanGeometry, manualRoomCoverage } from '@/lib/projects/manual-plan-geometry'
+import { preparePlanPage } from '@/lib/projects/plan-document'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
 import {
   inspectManualPlanCompleteness,
@@ -39,10 +40,11 @@ import {
   currentWallFacePairs,
 } from '@/lib/projects/plan-opening-face-pairs'
 import { retainedPlanPageReview } from '@/lib/projects/plan-page-review'
+import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
 import * as repository from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
-import { deleteObject, putObject } from '@/lib/storage'
+import { deleteObject, getObject, putObject } from '@/lib/storage'
 import {
   createProjectSchema,
   planRoomsSchema,
@@ -452,6 +454,23 @@ export async function savePlanGeometry(
     ) {
       return { ok: false, error: 'В схеме появились неизвестные элементы. Обновите страницу.' }
     }
+    let sourceRooms = project.planReading.pageReview?.sourceRooms
+    if (
+      manual &&
+      mode === 'confirm' &&
+      !sourceRooms &&
+      project.planUrl?.toLowerCase().endsWith('.pdf') &&
+      project.planReading.pageReview
+    ) {
+      const review = project.planReading.pageReview.contours.source
+      const object = await getObject(project.planUrl)
+      const body = Buffer.from(object.body)
+      if (createHash('sha256').update(body).digest('hex') !== review.sha256) {
+        throw new PlanEditConflictError()
+      }
+      const page = await preparePlanPage(body, true, review.pdfPage)
+      sourceRooms = planPageRoomInventory(page.image.planText)
+    }
     if (manual) {
       const knownRoomNames = project.planReading.rooms.map((room) => room.name)
       const coverage = manualRoomCoverage(geometry.rooms, project.planReading.rooms)
@@ -459,6 +478,23 @@ export async function savePlanGeometry(
         return { ok: false, error: 'Контуры должны соответствовать комнатам из списка проекта.' }
       }
       if (mode === 'confirm') {
+        const readingNumbers = new Set(
+          project.planReading.rooms.flatMap((room) =>
+            room.sourceNumber === undefined ? [] : [room.sourceNumber],
+          ),
+        )
+        const missingFromReading = (sourceRooms ?? []).filter(
+          (room) => !readingNumbers.has(room.sourceNumber),
+        )
+        if (missingFromReading.length > 0) {
+          return {
+            ok: false,
+            error: `На исходном листе есть помещения, которых нет в списке проекта: ${missingFromReading
+              .slice(0, 3)
+              .map((room) => `№${String(room.sourceNumber).padStart(2, '0')} ${room.name}`)
+              .join(', ')}. Добавьте их без догадки о размерах.`,
+          }
+        }
         if (new Set(knownRoomNames).size !== knownRoomNames.length) {
           return {
             ok: false,
@@ -590,6 +626,9 @@ export async function savePlanGeometry(
     }
     const reading: PlanReading = {
       ...project.planReading,
+      ...(sourceRooms && project.planReading.pageReview
+        ? { pageReview: { ...project.planReading.pageReview, sourceRooms } }
+        : {}),
       geometry: saved,
     }
     await repository.setPlanReading(userId, projectId, reading, project)
