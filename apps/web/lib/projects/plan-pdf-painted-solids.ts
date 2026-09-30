@@ -1,5 +1,5 @@
 import type { PlanPageContours } from '@uyut/db'
-import { difference, intersection, type MultiPolygon, type Polygon, union } from 'polygon-clipping'
+import polygonClipping, { type MultiPolygon, type Polygon } from 'polygon-clipping'
 import { segmentEntersPolygon } from './plan-page-review'
 import type { PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import type { PdfPaintedBoundarySupport } from './plan-pdf-painted-boundary'
@@ -242,7 +242,7 @@ export function inspectPlanPagePaintedWallSolids(
       return (
         !pdfPolygonIsValid(region.polygon) ||
         region.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`)) ||
-        difference(polygon, exterior).length > 0
+        polygonClipping.difference(polygon, exterior).length > 0
       )
     })
   )
@@ -266,11 +266,11 @@ export function inspectPlanPagePaintedWallSolids(
       degenerateSources.push(sourceOf(path))
       continue
     }
-    if (intersection(polygon, exterior).length === 0) {
+    if (polygonClipping.intersection(polygon, exterior).length === 0) {
       outsideSources.push(sourceOf(path))
       continue
     }
-    if (difference(polygon, exterior).length > 0) {
+    if (polygonClipping.difference(polygon, exterior).length > 0) {
       crossingSources.push(sourceOf(path))
       continue
     }
@@ -289,11 +289,15 @@ export function inspectPlanPagePaintedWallSolids(
     return undefined
   const first = accepted[0]
   const second = accepted[1]
-  const body = !first ? [] : !second ? [first] : union(first, second, ...accepted.slice(2))
+  const body = !first
+    ? []
+    : !second
+      ? [first]
+      : polygonClipping.union(first, second, ...accepted.slice(2))
   const roomFloorConflicts = contours.rooms.flatMap((room) => {
     if (body.length === 0) return []
     const floor: Polygon = [room.polygon.map((point) => [point.x, point.y])]
-    const overlap = intersection(body, floor)
+    const overlap = polygonClipping.intersection(body, floor)
     const areaPageSquared = multiPolygonArea(overlap)
     return areaPageSquared > 0
       ? [{ contourKey: pdfContourKey(room), overlap, areaPageSquared }]
@@ -332,7 +336,7 @@ export function inspectPlanPagePaintedWallSolids(
   const reviewedRegionOverlaps = regions.flatMap((region) => {
     if (body.length === 0) return []
     const polygon: Polygon = [region.polygon.map((point) => [point.x, point.y])]
-    const overlap = intersection(body, polygon)
+    const overlap = polygonClipping.intersection(body, polygon)
     const areaPageSquared = multiPolygonArea(overlap)
     return areaPageSquared > 0
       ? [{ id: region.id, kind: region.kind, overlap, areaPageSquared }]

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { roomLayoutInputFromGeometry } from '@uyut/catalog/geometry'
 import { type PlanReading, projectCollaborators, users } from '@uyut/db'
 import { inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -218,6 +219,48 @@ describe('atomic owner-scoped plan editing', () => {
     expect(rejected?.status === 'rejected' && rejected.reason).toBeInstanceOf(PlanEditConflictError)
     const winner = results.findIndex((result) => result.status === 'fulfilled')
     expect((await getProject(owner, source.id)).planReading).toEqual(edits[winner])
+  })
+
+  it('keeps the reviewed floor and technical void after a database round trip', async () => {
+    const source = await fixture()
+    const floor = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 400, yCm: 0 },
+      { xCm: 400, yCm: 300 },
+      { xCm: 0, yCm: 300 },
+    ]
+    const room = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 350, yCm: 0 },
+      { xCm: 350, yCm: 300 },
+      { xCm: 0, yCm: 300 },
+    ]
+    const originalGeometry = reading.geometry
+    if (!originalGeometry) throw new Error('Missing geometry fixture')
+    const geometry: NonNullable<PlanReading['geometry']> = {
+      ...originalGeometry,
+      status: 'confirmed',
+      footprint: floor,
+      voids: [
+        {
+          id: 'source-shaft',
+          polygon: [
+            { xCm: 350, yCm: 0 },
+            { xCm: 400, yCm: 0 },
+            { xCm: 400, yCm: 300 },
+            { xCm: 350, yCm: 300 },
+          ],
+        },
+      ],
+      rooms: [{ name: 'Спальня', polygon: room }],
+    }
+
+    await setPlanReading(owner, source.id, { ...reading, geometry }, source)
+    const restored = (await getProject(owner, source.id)).planReading?.geometry
+
+    expect(restored?.footprint).toEqual(floor)
+    expect(restored?.voids).toEqual(geometry.voids)
+    expect(roomLayoutInputFromGeometry(restored, 'Спальня', null)?.floorPolygon).toEqual(room)
   })
 
   it('does not attach a stale scheme to a replacement file', async () => {

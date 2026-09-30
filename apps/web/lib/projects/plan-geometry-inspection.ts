@@ -1,5 +1,5 @@
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanRoomShape, PlanWall } from '@uyut/db'
-import { difference, type MultiPolygon, type Polygon } from 'polygon-clipping'
+import polygonClipping, { type MultiPolygon, type Polygon } from 'polygon-clipping'
 import { polygonsOverlap } from './plan-page-review'
 
 export type PlanGeometryIssue = {
@@ -50,7 +50,11 @@ function clippedAreaCm2(polygons: MultiPolygon): number {
 
 function extendsBeyondFootprint(points: readonly PlanPoint[], footprint: readonly PlanPoint[]) {
   if (points.length < 3 || footprint.length < 3) return false
-  return clippedAreaCm2(difference(clippingPolygon(points), clippingPolygon(footprint))) > 0.01
+  return (
+    clippedAreaCm2(
+      polygonClipping.difference(clippingPolygon(points), clippingPolygon(footprint)),
+    ) > 0.01
+  )
 }
 
 function distance(a: PlanPoint, b: PlanPoint): number {

@@ -1,5 +1,5 @@
 import type { PlanPageContours } from '@uyut/db'
-import { difference, type MultiPolygon, type Polygon } from 'polygon-clipping'
+import polygonClipping, { type MultiPolygon, type Polygon } from 'polygon-clipping'
 import type { PagePoint } from './plan-pdf-linework'
 import { pdfContourKey, pdfPointInside } from './plan-pdf-room-binding'
 
@@ -54,7 +54,8 @@ export function inspectPlanPageDoorFloorConnectivity(
   return contours.rooms.map((room) => {
     const doors = (room.openings ?? []).filter((opening) => opening.kind === 'door')
     const floor: Polygon = [room.polygon.map((point) => [point.x, point.y])]
-    const freeFloor = paintedBody.length > 0 ? difference(floor, paintedBody) : [floor]
+    const freeFloor =
+      paintedBody.length > 0 ? polygonClipping.difference(floor, paintedBody) : [floor]
     const doorLocations = doors.map((opening) => {
       const center = {
         x: (opening.start.x + opening.end.x) / 2,

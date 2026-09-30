@@ -1,5 +1,5 @@
 import type { PlanPageContours } from '@uyut/db'
-import { difference, type MultiPolygon, type Polygon } from 'polygon-clipping'
+import polygonClipping, { type MultiPolygon, type Polygon } from 'polygon-clipping'
 import type { PdfLinework } from './plan-pdf-linework'
 import { pdfContourKey } from './plan-pdf-room-binding'
 
@@ -101,7 +101,7 @@ function inspectRoom(
     return { ...base, status: 'not-applicable', reachedDoorIds: [], checkedNodes: 0 }
   const floorPoints = room.polygon.map((point) => toCm(point, work, cmPerPoint))
   const floor: Polygon = [floorPoints.map(({ x, y }) => [x, y])]
-  const freeFloor = scaledBody.length > 0 ? difference(floor, scaledBody) : [floor]
+  const freeFloor = scaledBody.length > 0 ? polygonClipping.difference(floor, scaledBody) : [floor]
   const half = widthCm / 2
   const sign = roomSign(floorPoints)
   const anchors: Array<Point & { id: string }> = []
@@ -153,7 +153,7 @@ function inspectRoom(
       reachedDoorIds: [],
       checkedNodes: 0,
     }
-  const contains = (polygon: Polygon) => difference(polygon, freeFloor).length === 0
+  const contains = (polygon: Polygon) => polygonClipping.difference(polygon, freeFloor).length === 0
   const fits = (x: number, y: number) => contains(rectangle(x - half, y - half, x + half, y + half))
   if (anchors.some((anchor) => !fits(anchor.x, anchor.y)))
     return {
