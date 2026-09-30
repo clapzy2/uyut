@@ -356,7 +356,7 @@ function PlanGeometryCanvas({
             vectorEffect="non-scaling-stroke"
             className="pointer-events-none"
           >
-            <title>Техническая пустота {voidShape.id}</title>
+            <title>{`Техническая пустота ${voidShape.id}`}</title>
           </polygon>
         ))}
 
@@ -510,6 +510,8 @@ function PlanGeometryCanvas({
       <p className="mt-3 text-[12px] leading-relaxed text-ink-2">
         Нажмите на стену, проём или комнату. Концы стен магнитятся друг к другу вблизи, проёмы
         двигаются вдоль стены, а точки контура меняют форму комнаты.
+        {geometry.footprint ? ' Пунктиром отмечена исходная граница пола, не линия стены.' : ''}
+        {geometry.voids?.length ? ' Красные области — технические пустоты.' : ''}
       </p>
     </div>
   )

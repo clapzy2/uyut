@@ -459,7 +459,7 @@ for (const [openingIndex, openingRow] of openingRows.entries()) {
 }
 
 const parsedGeometry = validatePlanGeometryEdit(geometry)
-const serverParsed = parsedGeometry
+const serverParsed: PlanGeometry | undefined = parsedGeometry
   ? { ...parsedGeometry, footprint: geometry.footprint, voids: geometry.voids }
   : undefined
 const serverIssues = serverParsed
@@ -477,6 +477,8 @@ if (
 ) {
   throw new Error('Структурный 2D-допуск открытой квартиры не пройден')
 }
+// Match the action's confirmed state after validation; downstream never sees the raw WKT object.
+const confirmedGeometry: PlanGeometry = { ...serverParsed, status: 'confirmed' }
 
 const examples: Record<string, LayoutItem[]> = {
   Спальня: [
@@ -509,7 +511,7 @@ const examples: Record<string, LayoutItem[]> = {
 }
 const rooms: PdfData['rooms'] = polygons.map(({ name, kind, polygon, sourceId, subtype }) => {
   const plan = examples[name]
-    ? layoutWithMeasurements(name, null, geometry, examples[name], kind)
+    ? layoutWithMeasurements(name, null, confirmedGeometry, examples[name], kind)
     : null
   if (examples[name] && !plan) throw new Error(`Схема комнаты ${name} не построена`)
   if (plan) {

@@ -1,3 +1,4 @@
+import { roomLayoutInputFromGeometry } from '@uyut/catalog/geometry'
 import type {
   PlanGeometry,
   PlanOpeningFacePair,
@@ -133,6 +134,54 @@ describe('manual plan draft', () => {
       expect(result.data.geometry.voids).toEqual(voids)
     }
     expect(mocks.setPlanReading.mock.calls[0]?.[2].geometry.voids).toEqual(voids)
+  })
+
+  it('передаёт подтверждённый контур из сохранения схемы в расстановку', async () => {
+    const innerWall = {
+      id: 'manual_000000000000000000000005',
+      kind: 'inner' as const,
+      start: { xCm: 450, yCm: 0 },
+      end: { xCm: 450, yCm: 400 },
+    }
+    const room = {
+      name: 'Кухня',
+      polygon: [
+        { xCm: 0, yCm: 0 },
+        { xCm: 450, yCm: 0 },
+        { xCm: 450, yCm: 400 },
+        { xCm: 0, yCm: 400 },
+      ],
+    }
+    const voids = [
+      {
+        id: 'shaft',
+        polygon: [
+          { xCm: 450, yCm: 0 },
+          { xCm: 500, yCm: 0 },
+          { xCm: 500, yCm: 400 },
+          { xCm: 450, yCm: 400 },
+        ],
+      },
+    ]
+    source.planReading.rooms = [{ name: 'Кухня', kind: 'kitchen', areaM2: 18 }]
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      walls: [...closedWalls, innerWall],
+      rooms: [room],
+      footprint: corners,
+      voids,
+    }
+
+    const result = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.data.geometry.status).toBe('confirmed')
+    expect(result.data.geometry.footprint).toEqual(corners)
+    expect(result.data.geometry.voids).toEqual(voids)
+    expect(roomLayoutInputFromGeometry(result.data.geometry, 'Кухня', null)?.floorPolygon).toEqual(
+      room.polygon,
+    )
   })
 
   it('keeps server calibration and cannot confirm an unresolved opening by omitting it from input', async () => {

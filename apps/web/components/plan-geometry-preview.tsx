@@ -147,19 +147,6 @@ export function PlanGeometryPreview({
               </text>
             </g>
 
-            {geometry.footprint ? (
-              <polygon
-                points={geometry.footprint.map((point) => `${point.xCm},${point.yCm}`).join(' ')}
-                fill="none"
-                stroke="var(--accent)"
-                strokeWidth="2"
-                strokeDasharray="8 5"
-                vectorEffect="non-scaling-stroke"
-              >
-                <title>Граница пола, не оси наружных стен</title>
-              </polygon>
-            ) : null}
-
             {geometry.rooms.map((room) => {
               const label = centre(room.polygon)
               const points = room.polygon.map((point) => `${point.xCm},${point.yCm}`).join(' ')
@@ -191,7 +178,7 @@ export function PlanGeometryPreview({
                 strokeWidth="1.5"
                 vectorEffect="non-scaling-stroke"
               >
-                <title>Техническая пустота {voidShape.id}</title>
+                <title>{`Техническая пустота ${voidShape.id}`}</title>
               </polygon>
             ))}
 
@@ -208,6 +195,19 @@ export function PlanGeometryPreview({
                 vectorEffect="non-scaling-stroke"
               />
             ))}
+
+            {geometry.footprint ? (
+              <polygon
+                points={geometry.footprint.map((point) => `${point.xCm},${point.yCm}`).join(' ')}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth="2"
+                strokeDasharray="8 5"
+                vectorEffect="non-scaling-stroke"
+              >
+                <title>Граница пола, не оси наружных стен</title>
+              </polygon>
+            ) : null}
 
             {geometry.openings.map((opening) => {
               const zone = doorClearanceZone(opening, geometry)
@@ -329,6 +329,18 @@ export function PlanGeometryPreview({
             </div>
           ) : null}
           <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[12px] text-ink-2">
+            {geometry.footprint ? (
+              <span>
+                <i className="mr-2 inline-block w-5 border-t-2 border-dashed border-accent align-middle" />
+                граница пола
+              </span>
+            ) : null}
+            {geometry.voids?.length ? (
+              <span>
+                <i className="mr-2 inline-block h-3 w-5 border border-danger bg-danger/20 align-middle" />
+                техническая пустота
+              </span>
+            ) : null}
             <span>
               <i className="mr-2 inline-block h-0.5 w-5 bg-accent align-middle" />
               окно
