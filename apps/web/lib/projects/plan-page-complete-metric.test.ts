@@ -386,7 +386,7 @@ describe('complete existing PDF page in one native metric scale', () => {
       if (mode === 'removed-cut')
         geometry.openings = geometry.openings.filter((value) => value.id !== cut.id)
       if (mode === 'widened-cut') cut.widthCm += 1
-      expect(currentWallFacePairs(geometry)).not.toContain(pair)
+      expect(currentWallFacePairs(geometry)).not.toContainEqual(pair)
     },
   )
 
@@ -402,7 +402,7 @@ describe('complete existing PDF page in one native metric scale', () => {
     room.name = 'Новое название'
     geometry.openings.reverse()
     geometry.rooms.reverse()
-    expect(currentWallFacePairs(geometry)).toContain(pair)
+    expect(currentWallFacePairs(geometry)).toContainEqual(pair)
   })
 
   it('invalidates boundary relations when free-floor contours change', () => {

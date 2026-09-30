@@ -466,6 +466,12 @@ export function planPageMetricDraft(
       }),
       wallFaceRoomPolygons: structuredClone(geometry.rooms.map((room) => room.polygon)),
     }
+    geometry.pdfCalibration.sourceWallFacePairs = structuredClone(
+      geometry.pdfCalibration.wallFacePairs ?? [],
+    )
+    geometry.pdfCalibration.sourceOpeningFacePairs = structuredClone(
+      geometry.pdfCalibration.openingFacePairs ?? [],
+    )
     geometry.warnings = [
       'Координаты черновика перенесены из нативных линий PDF в едином масштабе. Подписанные мерки комнат сохранены отдельно и не заменены габаритами контуров.',
       ...(contours.exterior ? [] : ['Дополните внешний контур квартиры.']),

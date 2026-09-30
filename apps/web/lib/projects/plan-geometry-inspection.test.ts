@@ -1,4 +1,10 @@
-import type { PlanGeometry, PlanOpening, PlanPoint } from '@uyut/db'
+import type {
+  PlanGeometry,
+  PlanOpening,
+  PlanOpeningFacePair,
+  PlanPoint,
+  PlanWallFacePair,
+} from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import {
   inspectManualPlanCompleteness,
@@ -41,6 +47,116 @@ const geometry: PlanGeometry = {
 }
 
 describe('проверка правок 2D-схемы', () => {
+  it('не теряет исходное доказательство связи граней после сохранения черновика', () => {
+    const top = geometry.walls[0]
+    const bottom = geometry.walls[2]
+    if (!top || !bottom) throw new Error('В тесте нужны две грани стены')
+    const face = (wall: typeof top) => ({
+      wall,
+      start: wall.start,
+      end: wall.end,
+      nativeSegment: { operationIndex: 1, subpathIndex: 0, segmentIndex: 0 },
+    })
+    const sourcePair: PlanWallFacePair = {
+      faces: [face(top), face(bottom)],
+      openings: [windowOpening],
+    }
+    const calibration: NonNullable<PlanGeometry['pdfCalibration']> = {
+      sourceSha256: 'a'.repeat(64),
+      pdfPage: 6,
+      cmPerPoint: 1,
+      origin: { x: 0, y: 0 },
+      anchorRoomNumbers: [1],
+      labelIndexes: [1, 2],
+      derivedOpeningIds: [],
+      wallFacePairs: [],
+      sourceWallFacePairs: [sourcePair],
+      wallFaceRoomPolygons: geometry.rooms.map((room) => room.polygon),
+    }
+    expect(
+      inspectManualPlanCompleteness({ ...geometry, pdfCalibration: calibration }).some(
+        (issue) => issue.id === 'manual-pdf-wall-proof-lost',
+      ),
+    ).toBe(false)
+    const changedGeometry = {
+      ...geometry,
+      walls: geometry.walls.map((wall) =>
+        wall.id === 'top' ? { ...wall, end: { xCm: 490, yCm: 0 } } : wall,
+      ),
+    }
+    const issues = inspectManualPlanCompleteness({
+      ...changedGeometry,
+      pdfCalibration: calibration,
+    })
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'manual-pdf-wall-proof-lost',
+          severity: 'error',
+          wallIds: ['top', 'bottom'],
+        }),
+      ]),
+    )
+    expect(
+      inspectManualPlanCompleteness({
+        ...changedGeometry,
+        pdfCalibration: { ...calibration, sourceWallFacePairs: [sourcePair] },
+      }),
+    ).toEqual(issues)
+  })
+
+  it('помнит исходную связь сторон двери после промежуточного сохранения', () => {
+    const top = geometry.walls[0]
+    const bottom = geometry.walls[2]
+    if (!top || !bottom) throw new Error('В тесте нужны две стены')
+    const opposite: PlanOpening = { ...windowOpening, id: 'opposite', wallId: 'bottom' }
+    const pair: PlanOpeningFacePair = {
+      bindings: [
+        { opening: windowOpening, wall: top },
+        { opening: opposite, wall: bottom },
+      ],
+      jambs: [
+        { operationIndex: 1, subpathIndex: 0, segmentIndex: 0 },
+        { operationIndex: 1, subpathIndex: 0, segmentIndex: 1 },
+      ],
+    }
+    const calibration: NonNullable<PlanGeometry['pdfCalibration']> = {
+      sourceSha256: 'a'.repeat(64),
+      pdfPage: 6,
+      cmPerPoint: 1,
+      origin: { x: 0, y: 0 },
+      anchorRoomNumbers: [1],
+      labelIndexes: [1, 2],
+      derivedOpeningIds: [],
+      openingFacePairs: [],
+      sourceOpeningFacePairs: [pair],
+      wallFaceRoomPolygons: geometry.rooms.map((room) => room.polygon),
+    }
+    const unchanged = {
+      ...geometry,
+      openings: [windowOpening, opposite],
+      pdfCalibration: calibration,
+    }
+    expect(
+      inspectManualPlanCompleteness(unchanged).some(
+        (issue) => issue.id === 'manual-pdf-door-proof-lost',
+      ),
+    ).toBe(false)
+    const edited = {
+      ...unchanged,
+      openings: [{ ...windowOpening, widthCm: 130 }, opposite],
+    }
+    expect(inspectManualPlanCompleteness(edited)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'manual-pdf-door-proof-lost',
+          severity: 'error',
+          openingIds: ['window', 'opposite'],
+        }),
+      ]),
+    )
+  })
+
   it('retains short native jamb edges and a door on its complete closure edge', () => {
     const walls = [
       {

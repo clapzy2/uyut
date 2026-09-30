@@ -1,5 +1,6 @@
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanRoomShape, PlanWall } from '@uyut/db'
 import polygonClipping, { type MultiPolygon, type Polygon } from 'polygon-clipping'
+import { currentOpeningFacePairs, currentWallFacePairs } from './plan-opening-face-pairs'
 import { polygonsOverlap } from './plan-page-review'
 
 export type PlanGeometryIssue = {
@@ -334,6 +335,43 @@ function edgeInPolygon(start: PlanPoint, end: PlanPoint, polygon: readonly PlanP
 /** Дополнительные требования к схеме, которую владелец хочет подтвердить. */
 export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanGeometryIssue[] {
   const issues: PlanGeometryIssue[] = []
+  const sourcePairs =
+    geometry.pdfCalibration?.sourceWallFacePairs ?? geometry.pdfCalibration?.wallFacePairs ?? []
+  const currentPairs = currentWallFacePairs(geometry)
+  if (currentPairs.length < sourcePairs.length) {
+    const current = new Set(currentPairs)
+    const lostPairs = sourcePairs.filter((pair) => !current.has(pair))
+    issues.push({
+      id: 'manual-pdf-wall-proof-lost',
+      severity: 'error',
+      message:
+        'Часть стен или контуров изменена после переноса из PDF: исходная связь граней больше не подтверждена. Сверьте эти участки с обмерным листом; черновик можно сохранить.',
+      wallIds: [...new Set(lostPairs.flatMap((pair) => pair.faces.map(({ wall }) => wall.id)))],
+    })
+  }
+  const sourceOpeningPairs =
+    geometry.pdfCalibration?.sourceOpeningFacePairs ??
+    geometry.pdfCalibration?.openingFacePairs ??
+    []
+  const currentOpeningPairs = currentOpeningFacePairs({
+    ...geometry,
+    pdfCalibration: geometry.pdfCalibration
+      ? { ...geometry.pdfCalibration, openingFacePairs: sourceOpeningPairs }
+      : undefined,
+  })
+  if (currentOpeningPairs.length < sourceOpeningPairs.length) {
+    const current = new Set(currentOpeningPairs)
+    const lostPairs = sourceOpeningPairs.filter((pair) => !current.has(pair))
+    issues.push({
+      id: 'manual-pdf-door-proof-lost',
+      severity: 'error',
+      message:
+        'После правки проёма или стены перестала подтверждаться связь двух сторон двери по исходному PDF. Сверьте её с обмерным листом; черновик можно сохранить.',
+      openingIds: [
+        ...new Set(lostPairs.flatMap((pair) => pair.bindings.map(({ opening }) => opening.id))),
+      ],
+    })
+  }
   if (geometry.pdfCalibration?.derivedOpeningIds.length) {
     issues.push({
       id: 'manual-pdf-opening-measurements',

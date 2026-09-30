@@ -314,6 +314,15 @@ describe('manual plan draft', () => {
         expect(result.data.geometry.pdfCalibration?.wallFacePairs).toEqual(
           edit === 'unchanged' ? [wallPair] : [],
         )
+        expect(result.data.geometry.pdfCalibration?.sourceOpeningFacePairs).toEqual([pair])
+        expect(result.data.geometry.pdfCalibration?.sourceWallFacePairs).toEqual([wallPair])
+        if (edit === 'width') {
+          source.planReading = mocks.setPlanReading.mock.calls[0]?.[2] as PlanReading
+          const confirmed = await savePlanGeometry(projectId, result.data.geometry, 'confirm')
+          expect(confirmed.ok).toBe(false)
+          if (!confirmed.ok) expect(confirmed.error).toContain('PDF')
+          expect(mocks.setPlanReading).toHaveBeenCalledTimes(1)
+        }
       }
     },
   )

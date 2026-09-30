@@ -66,7 +66,9 @@ export function currentWallFacePairs(
   geometry: Pick<PlanGeometry, 'walls' | 'openings' | 'rooms' | 'pdfCalibration'>,
 ): PlanWallFacePair[] {
   if (!sameRoomPolygons(geometry)) return []
-  return (geometry.pdfCalibration?.wallFacePairs ?? []).filter((pair) => {
+  const sourcePairs =
+    geometry.pdfCalibration?.sourceWallFacePairs ?? geometry.pdfCalibration?.wallFacePairs ?? []
+  return sourcePairs.filter((pair) => {
     if (
       !pair.faces.every(({ wall }) =>
         sameWall(

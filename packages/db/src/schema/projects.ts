@@ -234,7 +234,11 @@ export type PlanGeometry = {
     derivedOpeningIds: string[]
     openingWidthProofs?: PlanOpeningWidthProof[]
     openingFacePairs?: PlanOpeningFacePair[]
+    /** Immutable native-PDF door relation evidence, retained across draft edits. */
+    sourceOpeningFacePairs?: PlanOpeningFacePair[]
     wallFacePairs?: PlanWallFacePair[]
+    /** Immutable native-PDF wall evidence, retained when an edited draft loses a relation. */
+    sourceWallFacePairs?: PlanWallFacePair[]
     /** Shared snapshot of free-floor contours used by the interval proof. */
     wallFaceRoomPolygons?: PlanPoint[][]
   }

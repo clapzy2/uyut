@@ -485,6 +485,19 @@ export async function savePlanGeometry(
         .map((proof) => proof.opening.id)
       geometry.pdfCalibration = {
         ...before.pdfCalibration,
+        ...(before.pdfCalibration.sourceWallFacePairs || before.pdfCalibration.wallFacePairs
+          ? {
+              sourceWallFacePairs:
+                before.pdfCalibration.sourceWallFacePairs ?? before.pdfCalibration.wallFacePairs,
+            }
+          : {}),
+        ...(before.pdfCalibration.sourceOpeningFacePairs || before.pdfCalibration.openingFacePairs
+          ? {
+              sourceOpeningFacePairs:
+                before.pdfCalibration.sourceOpeningFacePairs ??
+                before.pdfCalibration.openingFacePairs,
+            }
+          : {}),
         derivedOpeningIds: [
           ...new Set([...before.pdfCalibration.derivedOpeningIds, ...invalidWidthIds]),
         ],
