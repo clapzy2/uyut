@@ -115,6 +115,7 @@ export type PlanRoomIdentity =
   | { sourceNumber?: number; sourceNumbers?: never }
   | { sourceNumber?: never; sourceNumbers: number[] }
 export type PlanRoomShape = { name: string; polygon: PlanPoint[] } & PlanRoomIdentity
+export type PlanVoid = { id: string; polygon: PlanPoint[] }
 export type PlanUtilityPoint = {
   id: string
   kind: 'water' | 'drain' | 'vent' | 'socket' | 'gas' | 'radiator'
@@ -211,6 +212,10 @@ export type PlanGeometry = {
   walls: PlanWall[]
   openings: PlanOpening[]
   rooms: PlanRoomShape[]
+  /** Reviewed extent of the apartment floor, including open balcony edges; not wall axes. */
+  footprint?: PlanPoint[]
+  /** Reviewed non-floor regions, retained as polygons rather than enclosing rectangles. */
+  voids?: PlanVoid[]
   kitchenItems?: PlanKitchenItem[]
   utilityPoints?: PlanUtilityPoint[]
   obstacles?: PlanObstacle[]

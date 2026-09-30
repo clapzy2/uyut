@@ -476,6 +476,7 @@ describe('complete existing PDF page in one native metric scale', () => {
       expect(room?.polygon).toEqual(contour.polygon.map(project))
     }
     const outer = geometry.walls.filter((wall) => wall.kind === 'outer')
+    expect(geometry.footprint).toEqual(page.apartmentEnvelope.polygon.map(project))
     expect(outer).toHaveLength(18)
     expect(outer.map((wall) => wall.start)).toEqual(page.apartmentEnvelope.polygon.map(project))
     expect(geometry.walls).toHaveLength(63)

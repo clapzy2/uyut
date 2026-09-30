@@ -1,4 +1,5 @@
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanRoomShape, PlanWall } from '@uyut/db'
+import { difference, type MultiPolygon, type Polygon } from 'polygon-clipping'
 import { polygonsOverlap } from './plan-page-review'
 
 export type PlanGeometryIssue = {
@@ -14,13 +15,43 @@ type EditableGeometry = Pick<
   PlanGeometry,
   'widthCm' | 'heightCm' | 'walls' | 'openings' | 'rooms'
 > &
-  Pick<PlanGeometry, 'pdfCalibration'>
+  Pick<PlanGeometry, 'pdfCalibration' | 'footprint' | 'voids'>
 
 const ENDPOINT_TOLERANCE_CM = 2
 const BODY_CONTACT_TOLERANCE_CM = 0.05
 // Real door reveals may be under 20 cm; this is a geometry bound, not a safety clearance.
 const MIN_WALL_CM = 1
 const MAX_WALL_CM = 5_000
+
+function clippingPolygon(points: readonly PlanPoint[]): Polygon {
+  const ring = points.map((point) => [point.xCm, point.yCm] as [number, number])
+  const first = ring[0]
+  if (!first) throw new Error('Пустой контур нельзя сравнить с границей пола')
+  return [[...ring, first]]
+}
+
+function clippedAreaCm2(polygons: MultiPolygon): number {
+  return polygons.reduce(
+    (total, polygon) =>
+      total +
+      polygon.reduce((area, ring, index) => {
+        const ringArea = Math.abs(
+          ring.reduce((sum, point, position) => {
+            const next = ring[(position + 1) % ring.length]
+            if (!next) return sum
+            return sum + point[0] * next[1] - next[0] * point[1]
+          }, 0) / 2,
+        )
+        return area + (index === 0 ? ringArea : -ringArea)
+      }, 0),
+    0,
+  )
+}
+
+function extendsBeyondFootprint(points: readonly PlanPoint[], footprint: readonly PlanPoint[]) {
+  if (points.length < 3 || footprint.length < 3) return false
+  return clippedAreaCm2(difference(clippingPolygon(points), clippingPolygon(footprint))) > 0.01
+}
 
 function distance(a: PlanPoint, b: PlanPoint): number {
   return Math.hypot(b.xCm - a.xCm, b.yCm - a.yCm)
@@ -154,22 +185,32 @@ function segmentsIntersect(a: PlanPoint, b: PlanPoint, c: PlanPoint, d: PlanPoin
   return onSegment(a, b, c) || onSegment(a, b, d) || onSegment(c, d, a) || onSegment(c, d, b)
 }
 
-function roomCrossesItself(room: PlanRoomShape): boolean {
-  const count = room.polygon.length
+function polygonCrossesItself(polygon: readonly PlanPoint[]): boolean {
+  const count = polygon.length
   for (let first = 0; first < count; first += 1) {
     const firstEnd = (first + 1) % count
-    const a = room.polygon[first]
-    const b = room.polygon[firstEnd]
+    const a = polygon[first]
+    const b = polygon[firstEnd]
     if (!a || !b) continue
     for (let second = first + 1; second < count; second += 1) {
       const secondEnd = (second + 1) % count
       if (first === second || firstEnd === second || secondEnd === first) continue
-      const c = room.polygon[second]
-      const d = room.polygon[secondEnd]
+      const c = polygon[second]
+      const d = polygon[secondEnd]
       if (c && d && segmentsIntersect(a, b, c, d)) return true
     }
   }
   return false
+}
+
+function validMetricPolygon(polygon: readonly PlanPoint[], geometry: EditableGeometry): boolean {
+  return (
+    polygon.length >= 3 &&
+    polygon.length <= 200 &&
+    polygon.every((point) => pointIsInside(point, geometry)) &&
+    polygonAreaM2(polygon) > 0.0001 &&
+    !polygonCrossesItself(polygon)
+  )
 }
 
 function openingInterval(opening: PlanOpening): [number, number] {
@@ -298,6 +339,24 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
       openingIds: geometry.pdfCalibration.derivedOpeningIds,
     })
   }
+  if (geometry.footprint && !validMetricPolygon(geometry.footprint, geometry)) {
+    issues.push({
+      id: 'manual-footprint-invalid',
+      severity: 'error',
+      message: 'Внешняя граница пола неполная или пересекает сама себя. Сверьте исходный контур.',
+    })
+  }
+  const voidIds = new Set<string>()
+  for (const voidShape of geometry.voids ?? []) {
+    if (voidIds.has(voidShape.id) || !validMetricPolygon(voidShape.polygon, geometry)) {
+      issues.push({
+        id: `manual-void-invalid-${voidShape.id}`,
+        severity: 'error',
+        message: 'Контур технической пустоты неполный или повторяется. Сверьте исходный план.',
+      })
+    }
+    voidIds.add(voidShape.id)
+  }
   const walls = geometry.walls
   for (const [index, room] of geometry.rooms.entries()) {
     const first = room.polygon.map((point) => ({ x: point.xCm, y: point.yCm }))
@@ -377,14 +436,14 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
   }
 
   const outerWalls = walls.filter((wall) => wall.kind === 'outer')
-  if (outerWalls.length === 0) {
+  if (!geometry.footprint && outerWalls.length === 0) {
     issues.push({
       id: 'manual-missing-outer-walls',
       severity: 'error',
       message: 'Отметьте внешний контур квартиры, прежде чем подтверждать схему.',
     })
   }
-  if (outerWalls.length > 0 && outerWalls.length < 3) {
+  if (!geometry.footprint && outerWalls.length > 0 && outerWalls.length < 3) {
     issues.push({
       id: 'manual-outer-too-few-walls',
       severity: 'error',
@@ -392,7 +451,7 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
       wallIds: outerWalls.map((wall) => wall.id),
     })
   }
-  for (const wall of outerWalls) {
+  for (const wall of geometry.footprint ? [] : outerWalls) {
     const startNeighbours = outerEndpointNeighbours(wall.start, wall.id, outerWalls)
     const endNeighbours = outerEndpointNeighbours(wall.end, wall.id, outerWalls)
     if (startNeighbours.length === 0 || endNeighbours.length === 0) {
@@ -413,7 +472,7 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
     }
   }
 
-  if (outerWalls.length > 0) {
+  if (!geometry.footprint && outerWalls.length > 0) {
     const connected = new Set([outerWalls[0]?.id])
     const pending = [outerWalls[0]]
     while (pending.length > 0) {
@@ -437,7 +496,7 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
     }
   }
 
-  for (let first = 0; first < outerWalls.length; first += 1) {
+  for (let first = 0; !geometry.footprint && first < outerWalls.length; first += 1) {
     const wall = outerWalls[first]
     if (!wall) continue
     for (let second = first + 1; second < outerWalls.length; second += 1) {
@@ -466,17 +525,24 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
     }
   }
 
-  const boundary =
-    outerWalls.length >= 3 && !issues.some((issue) => issue.id.startsWith('manual-outer-'))
+  const boundary = geometry.footprint
+    ? validMetricPolygon(geometry.footprint, geometry)
+      ? geometry.footprint
+      : undefined
+    : outerWalls.length >= 3 && !issues.some((issue) => issue.id.startsWith('manual-outer-'))
       ? outerPolygon(outerWalls)
       : undefined
   for (const [roomIndex, room] of geometry.rooms.entries()) {
     if (
       boundary &&
-      room.polygon.some((point, index) => {
-        const next = room.polygon[(index + 1) % room.polygon.length]
-        return !pointInPolygon(point, boundary) || !next || !edgeInPolygon(point, next, boundary)
-      })
+      (geometry.footprint
+        ? extendsBeyondFootprint(room.polygon, boundary)
+        : room.polygon.some((point, index) => {
+            const next = room.polygon[(index + 1) % room.polygon.length]
+            return (
+              !pointInPolygon(point, boundary) || !next || !edgeInPolygon(point, next, boundary)
+            )
+          }))
     ) {
       issues.push({
         id: `manual-room-outside-outer-${roomIndex}`,
@@ -494,6 +560,47 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
         severity: 'error',
         message: `${room.name}: контур не касается ни одной нанесённой стены. Проверьте положение комнаты.`,
         roomIndexes: [roomIndex],
+      })
+    }
+  }
+  for (const [index, voidShape] of (geometry.voids ?? []).entries()) {
+    if (!validMetricPolygon(voidShape.polygon, geometry)) continue
+    if (
+      boundary &&
+      (geometry.footprint
+        ? extendsBeyondFootprint(voidShape.polygon, boundary)
+        : voidShape.polygon.some((point, edgeIndex) => {
+            const next = voidShape.polygon[(edgeIndex + 1) % voidShape.polygon.length]
+            return (
+              !pointInPolygon(point, boundary) || !next || !edgeInPolygon(point, next, boundary)
+            )
+          }))
+    ) {
+      issues.push({
+        id: `manual-void-outside-${voidShape.id}`,
+        severity: 'error',
+        message: 'Техническая пустота выходит за проверенную границу пола.',
+      })
+    }
+    const shape = voidShape.polygon.map((point) => ({ x: point.xCm, y: point.yCm }))
+    if (
+      geometry.rooms.some((room) =>
+        polygonsOverlap(
+          shape,
+          room.polygon.map((point) => ({ x: point.xCm, y: point.yCm })),
+        ),
+      ) ||
+      (geometry.voids ?? []).slice(index + 1).some((other) =>
+        polygonsOverlap(
+          shape,
+          other.polygon.map((point) => ({ x: point.xCm, y: point.yCm })),
+        ),
+      )
+    ) {
+      issues.push({
+        id: `manual-void-overlap-${voidShape.id}`,
+        severity: 'error',
+        message: 'Техническая пустота пересекает пол комнаты или другую пустоту.',
       })
     }
   }
@@ -626,7 +733,7 @@ export function inspectPlanGeometry(geometry: EditableGeometry): PlanGeometryIss
         message: `${room.name}: точка контура вышла за границы плана.`,
         roomIndexes: [roomIndex],
       })
-    } else if (roomCrossesItself(room)) {
+    } else if (polygonCrossesItself(room.polygon)) {
       issues.push({
         id: `room-cross-${roomIndex}`,
         severity: 'error',

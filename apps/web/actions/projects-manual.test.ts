@@ -108,6 +108,33 @@ describe('manual plan draft', () => {
     mocks.audit.mockResolvedValue(undefined)
   })
 
+  it('сохраняет проверенные границу пола и пустоты из источника, а не из правки браузера', async () => {
+    const voids = [
+      {
+        id: 'shaft',
+        polygon: [
+          { xCm: 20, yCm: 20 },
+          { xCm: 40, yCm: 20 },
+          { xCm: 40, yCm: 40 },
+          { xCm: 20, yCm: 40 },
+        ],
+      },
+    ]
+    source.planReading.geometry = { ...emptyManualGeometry, footprint: corners, voids }
+    const result = await savePlanGeometry(
+      projectId,
+      { ...emptyManualGeometry, footprint: [], voids: [] },
+      'draft',
+    )
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.data.geometry.footprint).toEqual(corners)
+      expect(result.data.geometry.voids).toEqual(voids)
+    }
+    expect(mocks.setPlanReading.mock.calls[0]?.[2].geometry.voids).toEqual(voids)
+  })
+
   it('keeps server calibration and cannot confirm an unresolved opening by omitting it from input', async () => {
     const pdfCalibration = {
       sourceSha256: 'a'.repeat(64),

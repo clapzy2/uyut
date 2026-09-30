@@ -514,9 +514,15 @@ export async function savePlanGeometry(
           'Есть проёмы с шириной, перенесённой только по масштабу PDF. Для подтверждения нужна отдельная сверка их мерок.',
       }
     }
-    const checked =
+    const checkedRooms =
       mode === 'draft' ? geometry : reconcilePlanGeometryRooms(geometry, project.planReading.rooms)
-    if (!checked) return { ok: false, error: 'В схеме должно остаться не меньше трёх стен.' }
+    if (!checkedRooms) return { ok: false, error: 'В схеме должно остаться не меньше трёх стен.' }
+    // The reviewed floor outline and voids belong to the saved source, never to browser edits.
+    const checked = {
+      ...checkedRooms,
+      ...(before.footprint ? { footprint: structuredClone(before.footprint) } : {}),
+      ...(before.voids ? { voids: structuredClone(before.voids) } : {}),
+    }
     if (checked.rooms.length !== geometry.rooms.length) {
       return {
         ok: false,

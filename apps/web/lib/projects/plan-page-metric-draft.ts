@@ -235,6 +235,7 @@ export function planPageMetricDraft(
   const points = [
     ...selected.flatMap((contour) => contour.polygon),
     ...(globalCalibration ? (contours.exterior?.polygon ?? []) : []),
+    ...(globalCalibration ? (contours.voids?.flatMap((item) => item.polygon) ?? []) : []),
   ]
   const origin = {
     x: Math.min(...points.map((point) => point.x)),
@@ -363,10 +364,22 @@ export function planPageMetricDraft(
   }
   if (globalCalibration) {
     const exterior = contours.exterior?.polygon.map(convert)
-    exterior?.forEach((start, index) => {
-      const end = exterior[(index + 1) % exterior.length]
-      if (end) geometry.walls.push({ id: id('exterior', 'wall', index), start, end, kind: 'outer' })
-    })
+    if (exterior) {
+      geometry.footprint = exterior
+      // Keep the native face references used by wall-strip proofs. They are not
+      // construction centre-lines; the separate footprint owns floor containment.
+      exterior.forEach((start, index) => {
+        const end = exterior[(index + 1) % exterior.length]
+        if (end)
+          geometry.walls.push({ id: id('exterior', 'wall', index), start, end, kind: 'outer' })
+      })
+    }
+    if (contours.voids?.length) {
+      geometry.voids = contours.voids.map((item) => ({
+        id: item.id,
+        polygon: item.polygon.map(convert),
+      }))
+    }
     geometry.pdfCalibration = {
       sourceSha256: source.sha256,
       pdfPage: source.pdfPage,
@@ -467,7 +480,9 @@ export function planPageMetricDraft(
   geometry.warnings.push(...areaWarnings)
   if (contours.voids?.length) {
     geometry.warnings.push(
-      'Технические пустоты сохранены в разметке исходного листа и проверяются как исключения для стен. Их объём в этом черновике 2D ещё нужно сверить отдельно.',
+      globalCalibration
+        ? 'Технические пустоты перенесены как исходные многоугольники. Сверьте их на обмерном плане перед подтверждением.'
+        : 'Технические пустоты сохранены в разметке исходного листа, но для метрического переноса требуется общий масштаб.',
     )
   }
   if (selected.some((room) => room.conditionalEdges?.length)) {

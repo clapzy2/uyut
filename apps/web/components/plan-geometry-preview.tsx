@@ -147,6 +147,19 @@ export function PlanGeometryPreview({
               </text>
             </g>
 
+            {geometry.footprint ? (
+              <polygon
+                points={geometry.footprint.map((point) => `${point.xCm},${point.yCm}`).join(' ')}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth="2"
+                strokeDasharray="8 5"
+                vectorEffect="non-scaling-stroke"
+              >
+                <title>Граница пола, не оси наружных стен</title>
+              </polygon>
+            ) : null}
+
             {geometry.rooms.map((room) => {
               const label = centre(room.polygon)
               const points = room.polygon.map((point) => `${point.xCm},${point.yCm}`).join(' ')
@@ -167,6 +180,20 @@ export function PlanGeometryPreview({
                 </g>
               )
             })}
+
+            {(geometry.voids ?? []).map((voidShape) => (
+              <polygon
+                key={voidShape.id}
+                points={voidShape.polygon.map((point) => `${point.xCm},${point.yCm}`).join(' ')}
+                fill="var(--danger)"
+                fillOpacity="0.2"
+                stroke="var(--danger)"
+                strokeWidth="1.5"
+                vectorEffect="non-scaling-stroke"
+              >
+                <title>Техническая пустота {voidShape.id}</title>
+              </polygon>
+            ))}
 
             {geometry.walls.map((wall) => (
               <line

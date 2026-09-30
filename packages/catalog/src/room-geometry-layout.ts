@@ -403,6 +403,18 @@ export function roomLayoutInputFromGeometry(
     })
   }
 
+  for (const voidShape of geometry.voids ?? []) {
+    const touchesRoom =
+      voidShape.polygon.some((point) => pointInPolygon(point, room.polygon)) ||
+      room.polygon.some((point) => pointInPolygon(point, voidShape.polygon))
+    if (!touchesRoom) continue
+    keepClearZones.push({
+      kind: 'obstacle',
+      label: `Техническая пустота ${voidShape.id}`,
+      polygon: voidShape.polygon.map(localPoint),
+    })
+  }
+
   return {
     widthCm,
     depthCm,

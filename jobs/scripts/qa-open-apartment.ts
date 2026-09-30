@@ -75,11 +75,11 @@ function areaM2(polygon: PlanPoint[]): number {
 }
 
 function sourcePolygon(row: SourceRow): Polygon {
-  // Clip only for topology diagnostics. Sub-millimetre rounding avoids floating-point
-  // seams after rotation; the metric geometry sent to the product remains unchanged.
+  // Match the product parser's 0.1 cm grid when comparing source polygons.
+  // This avoids floating-point seams after rotation without changing source measurements.
   const ring = polygonFromWkt(row.geom).map(
     (point) =>
-      [Math.round(point.xCm * 100) / 100, Math.round(point.yCm * 100) / 100] as [number, number],
+      [Math.round(point.xCm * 10) / 10, Math.round(point.yCm * 10) / 10] as [number, number],
   )
   const first = ring[0]
   if (!first) throw new Error('Пустой исходный полигон')
@@ -133,8 +133,8 @@ function sourceVoid(row: SourceRow, body: MultiPolygon) {
     vertices: polygonFromWkt(row.geom)
       .slice(0)
       .map((point) => ({
-        xCm: Math.round(point.xCm * 100) / 100,
-        yCm: Math.round(point.yCm * 100) / 100,
+        xCm: Math.round(point.xCm * 10) / 10,
+        yCm: Math.round(point.yCm * 10) / 10,
       })),
     holeIndex: containingHole,
   }
@@ -372,6 +372,9 @@ const polygons = areaRows.map((row, index) => {
   }
 })
 const allPoints = rows.flatMap((row) => polygonFromWkt(row.geom))
+const footprintPoints = (sourceFootprints.withoutShafts[0]?.[0] ?? [])
+  .slice(0, -1)
+  .map(([xCm, yCm]) => ({ xCm, yCm }))
 const wallBodies = wallRows.map((row, index) => ({
   sourceIndex: index + areaRows.length,
   ...rectangularBody(polygonFromWkt(row.geom)),
@@ -384,16 +387,22 @@ const physicalOpeningSupports = openingRows.map((row, openingIndex) => {
   })
   return { openingIndex, supportedBy }
 })
-const minX = Math.min(...allPoints.map((point) => point.xCm))
-const minY = Math.min(...allPoints.map((point) => point.yCm))
+const envelopePoints = [...allPoints, ...footprintPoints]
+const minX = Math.floor(Math.min(...envelopePoints.map((point) => point.xCm)) * 10) / 10
+const minY = Math.floor(Math.min(...envelopePoints.map((point) => point.yCm)) * 10) / 10
 const shift = (point: PlanPoint): PlanPoint => ({ xCm: point.xCm - minX, yCm: point.yCm - minY })
+const topologyPoint = (point: PlanPoint): PlanPoint =>
+  shift({
+    xCm: Math.round(point.xCm * 10) / 10,
+    yCm: Math.round(point.yCm * 10) / 10,
+  })
 
 const geometry: PlanGeometry = {
   version: 1,
   // Controlled downstream fixture only. The server gate below must still approve a real project.
   status: 'confirmed',
-  widthCm: Math.max(...allPoints.map((point) => point.xCm)) - minX,
-  heightCm: Math.max(...allPoints.map((point) => point.yCm)) - minY,
+  widthCm: Math.ceil((Math.max(...envelopePoints.map((point) => point.xCm)) - minX) * 10) / 10,
+  heightCm: Math.ceil((Math.max(...envelopePoints.map((point) => point.yCm)) - minY) * 10) / 10,
   walls: wallBodies.map((body) => ({
     id: `source-wall-${body.sourceIndex}`,
     start: shift(body.axis[0]),
@@ -404,7 +413,14 @@ const geometry: PlanGeometry = {
   openings: [],
   rooms: polygons
     .filter(({ subtype }) => subtype !== 'SHAFT')
-    .map(({ name, polygon }) => ({ name, polygon: polygon.map(shift) })),
+    .map(({ name, polygon }) => ({ name, polygon: polygon.map(topologyPoint) })),
+  footprint: (sourceFootprints.withoutShafts[0]?.[0] ?? [])
+    .slice(0, -1)
+    .map(([xCm, yCm]) => shift({ xCm, yCm })),
+  voids: sourceVoids.map((voidShape) => ({
+    id: `source-void-${voidShape.sourceId}`,
+    polygon: voidShape.vertices.map(shift),
+  })),
   warnings: [
     'Открытая модельная геометрия Swiss Dwellings, не обмер реальной квартиры.',
     'Высоты подоконников и зоны распахивания не представлены в источнике.',
@@ -442,12 +458,24 @@ for (const [openingIndex, openingRow] of openingRows.entries()) {
   }
 }
 
-const serverParsed = validatePlanGeometryEdit(geometry)
+const parsedGeometry = validatePlanGeometryEdit(geometry)
+const serverParsed = parsedGeometry
+  ? { ...parsedGeometry, footprint: geometry.footprint, voids: geometry.voids }
+  : undefined
 const serverIssues = serverParsed
   ? [...inspectPlanGeometry(serverParsed), ...inspectManualPlanCompleteness(serverParsed)]
   : []
 if (serverIssues.some((issue) => issue.id === 'manual-disconnected-walls')) {
   throw new Error('Исходные тела стен касаются друг друга, но проверка считает их разорванными')
+}
+if (
+  !serverParsed ||
+  serverParsed.walls.length !== geometry.walls.length ||
+  serverParsed.openings.length !== geometry.openings.length ||
+  serverParsed.rooms.length !== geometry.rooms.length ||
+  serverIssues.some((issue) => issue.severity === 'error')
+) {
+  throw new Error('Структурный 2D-допуск открытой квартиры не пройден')
 }
 
 const examples: Record<string, LayoutItem[]> = {

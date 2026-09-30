@@ -297,6 +297,19 @@ function PlanGeometryCanvas({
             className="pointer-events-none"
           />
         ) : null}
+        {geometry.footprint ? (
+          <polygon
+            points={geometry.footprint.map((point) => `${point.xCm},${point.yCm}`).join(' ')}
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth="2"
+            strokeDasharray="8 5"
+            vectorEffect="non-scaling-stroke"
+            className="pointer-events-none"
+          >
+            <title>Граница пола из исходного плана</title>
+          </polygon>
+        ) : null}
         {rooms.map((room, roomIndex) => {
           const centre = roomCentre(room.polygon)
           const points = room.polygon.map((point) => `${point.xCm},${point.yCm}`).join(' ')
@@ -331,6 +344,21 @@ function PlanGeometryCanvas({
             </g>
           )
         })}
+
+        {(geometry.voids ?? []).map((voidShape) => (
+          <polygon
+            key={voidShape.id}
+            points={voidShape.polygon.map((point) => `${point.xCm},${point.yCm}`).join(' ')}
+            fill="var(--danger)"
+            fillOpacity="0.2"
+            stroke="var(--danger)"
+            strokeWidth="1.5"
+            vectorEffect="non-scaling-stroke"
+            className="pointer-events-none"
+          >
+            <title>Техническая пустота {voidShape.id}</title>
+          </polygon>
+        ))}
 
         {openings.map((opening) => {
           const zone = doorClearanceZone(opening, editableGeometry)

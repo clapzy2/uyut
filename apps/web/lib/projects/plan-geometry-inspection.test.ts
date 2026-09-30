@@ -149,6 +149,73 @@ describe('проверка правок 2D-схемы', () => {
 })
 
 describe('подтверждение ручной схемы', () => {
+  it('разделяет границу пола и стены, не отклоняя комнату на вогнутом краю', () => {
+    const footprint = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 500, yCm: 0 },
+      { xCm: 500, yCm: 400 },
+      { xCm: 300, yCm: 400 },
+      { xCm: 300, yCm: 300 },
+      { xCm: 0, yCm: 300 },
+    ]
+    const room = {
+      name: 'Комната',
+      polygon: footprint,
+    }
+    const plan = {
+      ...geometry,
+      footprint,
+      walls: geometry.walls.map((wall) => ({ ...wall, kind: 'inner' as const })),
+      openings: [],
+      rooms: [room],
+    }
+
+    expect(inspectManualPlanCompleteness(plan)).toEqual([])
+    expect(
+      inspectManualPlanCompleteness({
+        ...plan,
+        rooms: [
+          {
+            ...room,
+            polygon: [
+              { xCm: 0, yCm: 0 },
+              { xCm: 500, yCm: 0 },
+              { xCm: 500, yCm: 400 },
+              { xCm: 0, yCm: 400 },
+            ],
+          },
+        ],
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'manual-room-outside-outer-0', severity: 'error' }),
+      ]),
+    )
+  })
+
+  it('не принимает техническую пустоту поверх пола комнаты', () => {
+    const voidShape = {
+      id: 'shaft',
+      polygon: [
+        { xCm: 100, yCm: 100 },
+        { xCm: 200, yCm: 100 },
+        { xCm: 200, yCm: 200 },
+        { xCm: 100, yCm: 200 },
+      ],
+    }
+    expect(
+      inspectManualPlanCompleteness({
+        ...geometry,
+        footprint: geometry.rooms[0]?.polygon,
+        voids: [voidShape],
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'manual-void-overlap-shaft', severity: 'error' }),
+      ]),
+    )
+  })
+
   it('проверяет площадь каждой комнаты, а не только сумму квартиры', () => {
     expect(inspectPlanRoomAreas(geometry.rooms, [{ name: 'Гостиная', areaM2: 18 }])).toEqual([
       expect.objectContaining({ id: 'manual-room-area-0', severity: 'error' }),
