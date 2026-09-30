@@ -24,6 +24,10 @@ const fixturePath = resolve(
   dirname(fileURLToPath(import.meta.url)),
   '../fixtures/open-swiss-apartment-35063.json',
 )
+const geometryFixturePath = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../fixtures/open-swiss-apartment-35063-geometry.json',
+)
 const EXPECTED_SOURCE_SHA256 = '64cc131632e6cc15cbef566c98fad8eb8db00b876fb65197f0446fe7931eafbc'
 
 type SourceRow = {
@@ -480,6 +484,29 @@ if (
 // Match the action's confirmed state after validation; downstream never sees the raw WKT object.
 const confirmedGeometry: PlanGeometry = { ...serverParsed, status: 'confirmed' }
 
+if (process.argv.includes('--write-geometry-fixture')) {
+  await writeFile(
+    geometryFixturePath,
+    `${JSON.stringify(
+      {
+        sourceSha256,
+        // Exercise the same reviewed/manual confirmation gate used for metric PDF drafts.
+        geometry: { ...confirmedGeometry, source: 'manual', status: 'draft' },
+        rooms: polygons
+          .filter(({ subtype }) => subtype !== 'SHAFT')
+          .map(({ name, kind, polygon }) => ({
+            name,
+            kind: kind ?? 'living',
+            areaM2: areaM2(polygon),
+            ...(kind ? {} : { utility: true }),
+          })),
+      },
+      null,
+      2,
+    )}\n`,
+  )
+}
+
 const examples: Record<string, LayoutItem[]> = {
   Спальня: [
     {
@@ -563,7 +590,7 @@ const data: PdfData = {
       { label: 'Смета', value: 'Не тестируется; 0 ₽ — техническое значение, не цена ремонта' },
     ],
     contact: null,
-    projectUrl: 'archilyse.standfest.science/swiss-dwellings',
+    projectUrl: null,
   },
   summary: null,
   cover: null,

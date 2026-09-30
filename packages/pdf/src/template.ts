@@ -602,9 +602,13 @@ function finalPage(data: PdfData, free: boolean): string {
       <div style="display:grid;gap:5mm;align-content:start">
         <p class="eyebrow">Порядок</p>
         <p style="font-size:10pt;line-height:1.5">Согласуйте состав и порядок работ с бригадой, а электрику и другие инженерные решения — с профильными специалистами. Перед заказом крупных предметов сверьте размеры и доступ по месту; сроки доставки уточните в магазине.</p>
-        <div class="rule"></div>
+        ${
+          data.project.projectUrl
+            ? `<div class="rule"></div>
         <p class="eyebrow">Проект онлайн</p>
-        <p style="font-size:10pt;line-height:1.5">Все рендеры, варианты цвета и ссылки на магазины — в проекте по адресу <span class="mono" style="font-size:9pt">${esc(data.project.projectUrl)}</span>. Список покупок там можно менять, после изменений соберите новый PDF.</p>
+        <p style="font-size:10pt;line-height:1.5">Все рендеры, варианты цвета и ссылки на магазины — в проекте по адресу <span class="mono" style="font-size:9pt">${esc(data.project.projectUrl)}</span>. Список покупок там можно менять, после изменений соберите новый PDF.</p>`
+            : ''
+        }
         ${data.project.contact?.phone ? `<p class="small">Телефон заказчика для мастера: <span class="mono">${esc(data.project.contact.phone)}</span></p>` : ''}
       </div>
     </div>

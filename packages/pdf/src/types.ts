@@ -59,7 +59,8 @@ export type PdfData = {
     subtitle: string
     facts: Array<{ label: string; value: string }>
     contact: PdfContact | null
-    projectUrl: string
+    /** Отсутствует у автономных проверочных документов без проекта на сайте. */
+    projectUrl: string | null
   }
   /** Два-три предложения о доме от помощника; без них страница «О проекте» обходится фактами */
   summary: string | null

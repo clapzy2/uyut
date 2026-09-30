@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { roomLayoutInputFromGeometry } from '@uyut/catalog/geometry'
+import { layoutWithMeasurements } from '@uyut/catalog/layout-with-measurements'
 import { type PlanReading, projectCollaborators, users } from '@uyut/db'
 import { inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { getDb } from '@/lib/db'
+import openApartment from '../../../../jobs/fixtures/open-swiss-apartment-35063-geometry.json'
 import { NotFoundError, OwnerOnlyError } from './access'
 import { PlanEditConflictError } from './plan-edit-revision'
 import {
@@ -261,6 +263,72 @@ describe('atomic owner-scoped plan editing', () => {
     expect(restored?.footprint).toEqual(floor)
     expect(restored?.voids).toEqual(geometry.voids)
     expect(roomLayoutInputFromGeometry(restored, 'Спальня', null)?.floorPolygon).toEqual(room)
+  })
+
+  it('keeps a complete independent apartment usable for layout after a database round trip', async () => {
+    const source = await fixture(false)
+    const geometry = openApartment.geometry as NonNullable<PlanReading['geometry']>
+    const confirmedGeometry = { ...geometry, status: 'confirmed' as const }
+    await setPlanReading(
+      owner,
+      source.id,
+      {
+        readAt: '2026-09-30T00:00:00.000Z',
+        planState: 'unknown',
+        rooms: openApartment.rooms as PlanReading['rooms'],
+        geometry: confirmedGeometry,
+      },
+      source,
+    )
+
+    const restored = (await getProject(owner, source.id)).planReading?.geometry
+    expect(restored?.walls).toHaveLength(38)
+    expect(restored?.openings).toHaveLength(9)
+    expect(restored?.rooms).toHaveLength(8)
+    expect(restored?.footprint).toEqual(geometry.footprint)
+    expect(restored?.voids).toEqual(geometry.voids)
+    if (!restored) throw new Error('Missing restored independent geometry')
+
+    for (const [name, kind, item] of [
+      [
+        'Спальня',
+        'bedroom',
+        {
+          id: 'bed',
+          title: 'Тестовая кровать',
+          category: 'bed',
+          quantity: 1,
+          dimensions: { width: 160, depth: 200 },
+        },
+      ],
+      [
+        'Гостиная',
+        'living',
+        {
+          id: 'sofa',
+          title: 'Тестовый диван',
+          category: 'sofa',
+          quantity: 1,
+          dimensions: { width: 210, depth: 90 },
+        },
+      ],
+      [
+        'Кухня',
+        'kitchen',
+        {
+          id: 'table',
+          title: 'Тестовый стол',
+          category: 'table',
+          quantity: 1,
+          dimensions: { width: 100, depth: 70 },
+        },
+      ],
+    ] as const) {
+      const layout = layoutWithMeasurements(name, null, restored, [item], kind)
+      expect(layout?.placed).toHaveLength(1)
+      expect(layout?.problems).toEqual([])
+      expect(layout?.safetySummary.status).toBe('needs-data')
+    }
   })
 
   it('does not attach a stale scheme to a replacement file', async () => {

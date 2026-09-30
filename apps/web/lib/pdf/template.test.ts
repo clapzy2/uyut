@@ -82,6 +82,14 @@ function sample(kind: PdfData['kind']): PdfData {
 }
 
 describe('project PDF template', () => {
+  it('does not invent an online project link for an offline QA document', () => {
+    const data = sample('free')
+    data.project.projectUrl = null
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).not.toContain('Проект онлайн')
+    expect(html).not.toContain('в проекте по адресу')
+  })
+
   it('keeps the selected product link escaped and excludes unsafe protocols', () => {
     const data = sample('paid')
     const item = data.shopping[0]?.items[0]

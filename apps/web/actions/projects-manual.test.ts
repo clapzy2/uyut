@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { roomLayoutInputFromGeometry } from '@uyut/catalog/geometry'
 import type {
   PlanGeometry,
@@ -9,6 +10,8 @@ import type {
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AccessError } from '@/lib/projects/access'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
+import openApartmentSource from '../../../jobs/fixtures/open-swiss-apartment-35063.json'
+import openApartment from '../../../jobs/fixtures/open-swiss-apartment-35063-geometry.json'
 
 const mocks = vi.hoisted(() => ({
   assertOwner: vi.fn(),
@@ -647,5 +650,62 @@ describe('manual plan draft', () => {
 
     const draft = await savePlanGeometry(projectId, submitted, 'draft')
     expect(draft.ok).toBe(true)
+  })
+
+  it('confirms a complete independent apartment without losing its floor or shafts', async () => {
+    const sourceSha256 = createHash('sha256')
+      .update(JSON.stringify(openApartmentSource.rows.map(({ row }) => row)))
+      .digest('hex')
+    expect(openApartment.sourceSha256).toBe(sourceSha256)
+    const geometry = openApartment.geometry as PlanGeometry
+    source.planReading = {
+      readAt: '2026-09-30T00:00:00.000Z',
+      planState: 'unknown',
+      rooms: openApartment.rooms as PlanReading['rooms'],
+      geometry,
+    }
+
+    const result = await savePlanGeometry(
+      projectId,
+      { ...geometry, footprint: [], voids: [] },
+      'confirm',
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.data.geometry.status).toBe('confirmed')
+    expect(result.data.geometry.walls).toHaveLength(38)
+    expect(result.data.geometry.openings).toHaveLength(9)
+    expect(result.data.geometry.rooms).toHaveLength(8)
+    expect(result.data.geometry.footprint).toEqual(geometry.footprint)
+    expect(result.data.geometry.voids).toEqual(geometry.voids)
+    const bedroom = geometry.rooms.find((room) => room.name === 'Спальня')
+    const layoutFloor = roomLayoutInputFromGeometry(
+      result.data.geometry,
+      'Спальня',
+      null,
+    )?.floorPolygon
+    const firstPoint = bedroom?.polygon[0]
+    const localFirstPoint = layoutFloor?.[0]
+    if (!bedroom || !firstPoint || !localFirstPoint) {
+      throw new Error('Missing bedroom in independent fixture or layout')
+    }
+    expect(layoutFloor).toHaveLength(bedroom.polygon.length)
+    expect(localFirstPoint.xCm).toBeCloseTo(
+      firstPoint.xCm - Math.min(...bedroom.polygon.map((point) => point.xCm)),
+    )
+    expect(localFirstPoint.yCm).toBeCloseTo(
+      firstPoint.yCm - Math.min(...bedroom.polygon.map((point) => point.yCm)),
+    )
+    expect(mocks.setPlanReading).toHaveBeenCalledOnce()
+
+    mocks.setPlanReading.mockClear()
+    const incomplete = await savePlanGeometry(
+      projectId,
+      { ...geometry, walls: geometry.walls.slice(0, 3) },
+      'confirm',
+    )
+    expect(incomplete.ok).toBe(false)
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
   })
 })
