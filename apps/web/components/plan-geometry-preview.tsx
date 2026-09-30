@@ -31,6 +31,13 @@ function centre(points: PlanPoint[]): PlanPoint {
   return { xCm: sum.xCm / points.length, yCm: sum.yCm / points.length }
 }
 
+const russianPlural = new Intl.PluralRules('ru')
+
+function countLabel(count: number, one: string, few: string, many: string): string {
+  const form = russianPlural.select(count)
+  return `${count} ${form === 'one' ? one : form === 'few' ? few : many}`
+}
+
 export function PlanGeometryPreview({
   geometry,
   action,
@@ -70,9 +77,24 @@ export function PlanGeometryPreview({
           <h2 className="mt-2 font-serif text-3xl text-ink">Стены и проёмы</h2>
         </div>
         <p className="font-mono text-[12px] text-ink-2">
-          {geometry.walls.length} {geometry.pdfCalibration ? 'отрезков границ' : 'стен'} ·{' '}
-          {geometry.openings.length} {geometry.pdfCalibration ? 'привязок проёмов' : 'проёмов'} ·{' '}
-          {geometry.rooms.length} контуров
+          {geometry.pdfCalibration
+            ? countLabel(
+                geometry.walls.length,
+                'отрезок границы',
+                'отрезка границ',
+                'отрезков границ',
+              )
+            : countLabel(geometry.walls.length, 'стена', 'стены', 'стен')}{' '}
+          ·{' '}
+          {geometry.pdfCalibration
+            ? countLabel(
+                geometry.openings.length,
+                'привязка проёма',
+                'привязки проёмов',
+                'привязок проёмов',
+              )
+            : countLabel(geometry.openings.length, 'проём', 'проёма', 'проёмов')}{' '}
+          · {countLabel(geometry.rooms.length, 'контур', 'контура', 'контуров')}
         </p>
       </div>
 

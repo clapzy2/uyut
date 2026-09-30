@@ -40,7 +40,8 @@ export function contentSecurityPolicy(
     ['connect-src', ["'self'", 'https:', storageOrigin, ...(dev ? ['ws:'] : [])]],
     ['media-src', ["'self'", 'data:', 'blob:']],
     ['worker-src', ["'self'", 'blob:']],
-    ['frame-src', ["'none'"]],
+    // Исходный PDF показываем рядом с 2D-редактором только из нашего хранилища.
+    ['frame-src', [storageOrigin]],
     ['object-src', ["'none'"]],
     ['base-uri', ["'self'"]],
     ['form-action', ["'self'"]],

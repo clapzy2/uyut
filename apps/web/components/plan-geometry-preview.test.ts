@@ -46,6 +46,7 @@ describe('предпросмотр 2D-схемы', () => {
 
     expect(html).toContain('граница пола')
     expect(html).toContain('техническая пустота')
+    expect(html).toContain('1 стена · 0 проёмов · 0 контуров')
     expect(html).toContain('Граница пола, не оси наружных стен')
     expect(html).toContain('Техническая пустота shaft')
     expect(html.indexOf('stroke="var(--ink)"')).toBeLessThan(

@@ -33,10 +33,14 @@ describe('content security policy', () => {
   it('refuses framing and raises the protocol on a secure site', () => {
     const policy = contentSecurityPolicy('abc123', production)
     expect(directive(policy, 'frame-ancestors')).toBe("frame-ancestors 'none'")
+    expect(directive(policy, 'frame-src')).toBe('frame-src https://s3.storage.example')
     expect(policy.endsWith('upgrade-insecure-requests')).toBe(true)
   })
 
   it('lets the file storage through by its own address', () => {
+    expect(directive(contentSecurityPolicy('n', local), 'frame-src')).toBe(
+      'frame-src http://localhost:9000',
+    )
     expect(directive(contentSecurityPolicy('n', local), 'img-src')).toContain(
       'http://localhost:9000',
     )
