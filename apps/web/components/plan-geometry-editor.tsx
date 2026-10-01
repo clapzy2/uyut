@@ -24,6 +24,7 @@ import { FormError } from '@/components/form-error'
 import { KitchenPlanEditor } from '@/components/kitchen-plan-editor'
 import { PlanImageReference, type PlanUnderlay } from '@/components/plan-image-reference'
 import { PlanObstaclesEditor } from '@/components/plan-obstacles-editor'
+import { PlanRouteCheck } from '@/components/plan-route-check'
 import { doorClearanceZone } from '@/lib/projects/clearance-zones'
 import { manualRoomCoverage } from '@/lib/projects/manual-plan-geometry'
 import {
@@ -1045,6 +1046,18 @@ export function PlanGeometryEditor({
             geometry={{ ...geometry, walls, rooms }}
             obstacles={obstacles}
             onChange={setObstacles}
+          />
+          <PlanRouteCheck
+            geometry={{
+              ...geometry,
+              walls,
+              openings,
+              rooms,
+              obstacles,
+              kitchenItems,
+              routeWidthCm,
+              routeStartOpeningId,
+            }}
           />
           <KitchenPlanEditor
             geometry={{
