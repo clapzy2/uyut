@@ -13,6 +13,7 @@ import {
   inspectManualPlanCompleteness,
   inspectPlanGeometry,
 } from '../lib/projects/plan-geometry-inspection'
+import { planPageAreaConflicts } from '../lib/projects/plan-page-area-conflicts'
 import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema, planPageReviewIssue } from '../lib/projects/plan-page-review'
 import { planPageRoomInventory } from '../lib/projects/plan-page-room-inventory'
@@ -119,7 +120,6 @@ const areaConflicts = (fixture.areaConflicts ?? []).map((conflict) => {
     legendAreaM2: conflict.legendAreaM2,
   }
 })
-
 const { source } = fixture
 for (const room of rooms) {
   const conflict = areaConflicts.find((item) => item.sourceNumber === room.sourceNumber)
@@ -146,6 +146,24 @@ const contours = planPageContoursSchema.parse({
     ...(room.openings ? { openings: room.openings } : {}),
   })),
 })
+const detectedAreaConflicts = planPageAreaConflicts({
+  source,
+  linework,
+  contours,
+  planText: page.image.planText,
+})
+if (
+  JSON.stringify(detectedAreaConflicts) !==
+  JSON.stringify(
+    areaConflicts.map(({ sourceNumber, planAreaM2, legendAreaM2 }) => ({
+      sourceNumber,
+      planAreaM2,
+      scheduleAreaM2: legendAreaM2,
+    })),
+  )
+) {
+  throw new Error('Product area conflict check disagrees with the reviewed source evidence.')
+}
 const evidence = (
   kind: 'horizontal-chain' | 'vertical-chain',
   room: ReviewedRoom,

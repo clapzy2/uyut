@@ -2,6 +2,38 @@ import type { PlanMeasurementTextItem } from './floor-plan-measurements'
 
 type ScheduleRoom = { name: string; areaM2: number }
 
+function combinedScheduleRows(
+  items: readonly (PlanMeasurementTextItem & { x: number; y: number })[],
+  heading: PlanMeasurementTextItem & { x: number; y: number },
+): Map<number, ScheduleRoom> | undefined {
+  const aligned = items.filter(
+    (item) => item.rotation === 0 && item.y > heading.y && Math.abs(item.x - heading.x) <= 30,
+  )
+  const numbered = aligned.filter((item) => /^\s*\d{1,2}\s*[-–—.]/u.test(item.text))
+  const rows = numbered
+    .flatMap((item) => {
+      const match =
+        /^\s*(\d{1,2})\s*[-–—.]\s*(.{1,80}?)\s*[-–—]\s*(\d{1,3}[,.]\d{1,2})\s*[мm]/iu.exec(
+          item.text,
+        )
+      return match?.[1] && match[2] && match[3]
+        ? [
+            {
+              number: Number(match[1]),
+              name: match[2].trim(),
+              areaM2: Number(match[3].replace(',', '.')),
+              y: item.y,
+            },
+          ]
+        : []
+    })
+    .sort((left, right) => left.y - right.y)
+  if (rows.length < 2 || rows.length !== numbered.length) return undefined
+  if (rows.some((row, index) => row.number !== index + 1 || !row.name || row.areaM2 <= 0))
+    return undefined
+  return new Map(rows.map((row) => [row.number, { name: row.name, areaM2: row.areaM2 }]))
+}
+
 function positioned(
   item: PlanMeasurementTextItem,
 ): item is PlanMeasurementTextItem & { x: number; y: number } {
@@ -56,7 +88,7 @@ export function planRoomSchedule(
     })
   }
   const first = rows[0]
-  if (!first || rows.length < 2) return undefined
+  if (!first || rows.length < 2) return combinedScheduleRows(located, heading)
   // Не соединяем строки разных таблиц или подписи внутри самой планировки.
   if (
     rows.some((row) =>

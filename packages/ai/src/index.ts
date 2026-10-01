@@ -128,6 +128,7 @@ export {
   validatePlanGeometryEdit,
 } from './floor-plan-geometry'
 export { planMeasurementTextItems, validatePlanMeasurement } from './floor-plan-measurements'
+export { planRoomSchedule } from './floor-plan-schedule'
 export { isLayoutCorrectionImprovement, layoutCorrectionPrompt } from './layout-correction'
 export {
   ARCHITECTURE_ANCHOR_INSTRUCTION,

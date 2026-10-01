@@ -1,4 +1,5 @@
 import { type PlanReading, planMeasurementTextItems, validatePlanMeasurement } from '@uyut/ai'
+import { type PageAreaConflict, planPageAreaConflicts } from './plan-page-area-conflicts'
 import { pdfDepthChain, pdfWidthChain } from './plan-pdf-dimension-chain'
 import { pdfCalloutLeader } from './plan-pdf-leaders'
 import type { PdfLinework } from './plan-pdf-linework'
@@ -33,6 +34,11 @@ export function verifyPlanReadingGeometry(
   const sameState = reading.planState === source.state
   const samePage = reading.sourcePage === undefined || reading.sourcePage === source.pdfPage
   const textItems = planMeasurementTextItems(context.planText)
+  const areaConflicts = new Map<number, PageAreaConflict>(
+    !sourceIssue && sameState && samePage
+      ? planPageAreaConflicts(context).map((conflict) => [conflict.sourceNumber, conflict])
+      : [],
+  )
   const counts = new Map<number, number>()
   for (const room of reading.rooms) {
     if (room.sourceNumber !== undefined)
@@ -121,6 +127,13 @@ export function verifyPlanReadingGeometry(
     }
     if (room.measurementEvidence && Object.keys(room.measurementEvidence).length === 0)
       delete room.measurementEvidence
+    const areaConflict =
+      room.sourceNumber === undefined ? undefined : areaConflicts.get(room.sourceNumber)
+    if (areaConflict) {
+      delete room.areaM2
+      const warning = `Площадь: на плане ${areaConflict.planAreaM2.toLocaleString('ru-RU')} м², в экспликации ${areaConflict.scheduleAreaM2.toLocaleString('ru-RU')} м². Уточните исходный обмер; значение оставлено пустым.`
+      room.measurementWarnings = [...new Set([...(room.measurementWarnings ?? []), warning])]
+    }
     return room
   })
   const result = { ...reading, rooms }
