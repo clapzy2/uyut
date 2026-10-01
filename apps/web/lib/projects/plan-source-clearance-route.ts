@@ -1,4 +1,4 @@
-import type { PlanPoint } from '@uyut/db'
+import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import polygonClipping, { type MultiPolygon, type Polygon } from 'polygon-clipping'
 
 function rectangle(left: number, top: number, right: number, bottom: number): Polygon {
@@ -21,6 +21,7 @@ export function inspectSourceClearanceRoutes(input: {
   widthCm: number
   stepCm?: number
   maxNodes?: number
+  metricObstacles?: Pick<PlanGeometry, 'obstacles' | 'voids'>
 }) {
   const step = input.stepCm ?? 10
   const maxNodes = input.maxNodes ?? 40_000
@@ -33,12 +34,42 @@ export function inspectSourceClearanceRoutes(input: {
     throw new Error('Некорректные параметры поиска маршрута')
   }
   const half = input.widthCm / 2
+  const obstacleBodies: Polygon[] = (input.metricObstacles?.voids ?? []).map((region) => [
+    region.polygon.map(({ xCm, yCm }) => [xCm, yCm]),
+  ])
+  for (const obstacle of input.metricObstacles?.obstacles ?? []) {
+    if (
+      ![obstacle.xCm, obstacle.yCm, obstacle.widthCm, obstacle.depthCm].every(Number.isFinite) ||
+      obstacle.widthCm <= 0 ||
+      obstacle.depthCm <= 0
+    ) {
+      throw new Error('Некорректные размеры неподвижного препятствия')
+    }
+    obstacleBodies.push(
+      rectangle(
+        obstacle.xCm,
+        obstacle.yCm,
+        obstacle.xCm + obstacle.widthCm,
+        obstacle.yCm + obstacle.depthCm,
+      ),
+    )
+  }
+  for (const region of input.metricObstacles?.voids ?? []) {
+    if (
+      region.polygon.length < 3 ||
+      region.polygon.some((point) => !Number.isFinite(point.xCm) || !Number.isFinite(point.yCm))
+    )
+      throw new Error('Некорректный контур технической пустоты')
+  }
+  const freeFloor = obstacleBodies.length
+    ? polygonClipping.difference(input.freeFloor, ...obstacleBodies)
+    : input.freeFloor
   const fits = (shape: Polygon, floor: MultiPolygon) =>
     polygonClipping.difference(shape, floor).length === 0
   const square = (point: PlanPoint) =>
     rectangle(point.xCm - half, point.yCm - half, point.xCm + half, point.yCm + half)
   const base = { widthCm: input.widthCm, stepCm: step, footprint: 'axis-aligned-square' as const }
-  if (!fits(square(input.start), input.freeFloor)) {
+  if (!fits(square(input.start), freeFloor)) {
     return {
       ...base,
       status: 'unresolved' as const,
@@ -80,7 +111,7 @@ export function inspectSourceClearanceRoutes(input: {
         Math.max(point.xCm, node.point.xCm) + half,
         Math.max(point.yCm, node.point.yCm) + half,
       )
-      if (!fits(sweep, input.freeFloor)) continue
+      if (!fits(sweep, freeFloor)) continue
       if (queue.length >= maxNodes) {
         limited = true
         continue

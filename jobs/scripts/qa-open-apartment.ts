@@ -16,6 +16,7 @@ import {
 } from '../../apps/web/lib/projects/plan-geometry-inspection'
 import { inspectSourceClearanceRoutes } from '../../apps/web/lib/projects/plan-source-clearance-route'
 import { inspectSourceDoorConnectivity } from '../../apps/web/lib/projects/plan-source-door-connectivity'
+import { renderSourceRoutePreview } from '../../apps/web/lib/projects/plan-source-route-preview'
 import { printPdf } from '../src/lib/print-pdf'
 
 const DATASET = 'philippds/modified-swiss-dwellings-enriched'
@@ -386,7 +387,67 @@ const sourceClearanceRoutes = inspectSourceClearanceRoutes({
   },
   widthCm: 70,
   stepCm: 5,
+  metricObstacles: {
+    voids: areaRows
+      .filter((row) => row.entity_subtype === 'SHAFT')
+      .map((row) => ({ id: String(row.area_id), polygon: polygonFromWkt(row.geom).map(rotate) })),
+  },
 })
+if (process.argv.includes('--route-preview')) {
+  const previewDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../output/playwright')
+  await mkdir(previewDir, { recursive: true })
+  const previewPath = resolve(previewDir, 'swiss-clearance-routes.svg')
+  const names = [
+    'Коридор',
+    'Спальня',
+    'Кладовая',
+    'Шахта 1',
+    'Гостиная',
+    'Балкон 1',
+    'Ванная',
+    'Балкон 2',
+    'Шахта 2',
+    'Кухня',
+  ]
+  await writeFile(
+    previewPath,
+    renderSourceRoutePreview({
+      freeFloor: doorConnectivity.freeFloor.map((body) =>
+        body.map((ring) =>
+          ring.map(([xCm, yCm]) => {
+            const point = rotate({ xCm, yCm })
+            return [point.xCm, point.yCm]
+          }),
+        ),
+      ),
+      rooms: areaRows.flatMap((row, index) =>
+        row.entity_subtype === 'SHAFT'
+          ? []
+          : [
+              {
+                id: String(row.area_id),
+                name: names[index] ?? String(row.area_id),
+                polygon: polygonFromWkt(row.geom).map(rotate),
+              },
+            ],
+      ),
+      result: sourceClearanceRoutes,
+      start: {
+        xCm: rotatedEntry.xCm,
+        yCm: rotatedEntry.yCm + insideSign * (35 + entryBody.thicknessCm / 2),
+      },
+    }),
+    'utf8',
+  )
+  console.log(
+    JSON.stringify({
+      previewPath,
+      reachedZones: sourceClearanceRoutes.routes.length,
+      unresolvedRoomIds: sourceClearanceRoutes.unresolvedRoomIds,
+    }),
+  )
+  process.exit(0)
+}
 if (process.argv.includes('--topology-only')) {
   const { freeFloor: _freeFloor, ...connectivitySummary } = doorConnectivity
   console.log(

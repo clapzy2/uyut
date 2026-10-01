@@ -33,6 +33,59 @@ function fixture(doorWidth = 80) {
 }
 
 describe('continuous source clearance routes', () => {
+  it('subtracts fixed obstacles from the metric model before searching', () => {
+    const result = inspectSourceClearanceRoutes({
+      ...fixture(),
+      metricObstacles: {
+        obstacles: [{ id: 'fixed', kind: 'fixed', xCm: 204, yCm: 0, widthCm: 2, depthCm: 200 }],
+      },
+    })
+    expect(result.status).toBe('unresolved')
+    expect(result.unresolvedRoomIds).toEqual(['1'])
+  })
+
+  it('keeps a polygonal metric void instead of its enclosing rectangle', () => {
+    const input = fixture()
+    input.start = { xCm: 130, yCm: 130 }
+    const result = inspectSourceClearanceRoutes({
+      ...input,
+      widthCm: 20,
+      metricObstacles: {
+        voids: [
+          {
+            id: 'void',
+            polygon: [
+              { xCm: 50, yCm: 50 },
+              { xCm: 150, yCm: 50 },
+              { xCm: 50, yCm: 150 },
+            ],
+          },
+        ],
+      },
+    })
+    expect(result.status).toBe('constructive-routes')
+    const enclosingRectangle = inspectSourceClearanceRoutes({
+      ...input,
+      widthCm: 20,
+      metricObstacles: {
+        obstacles: [
+          { id: 'enclosure', kind: 'shaft', xCm: 50, yCm: 50, widthCm: 100, depthCm: 100 },
+        ],
+      },
+    })
+    expect(enclosingRectangle.status).toBe('unresolved')
+  })
+
+  it('rejects invalid obstacle dimensions instead of ignoring them', () => {
+    expect(() =>
+      inspectSourceClearanceRoutes({
+        ...fixture(),
+        metricObstacles: {
+          obstacles: [{ id: 'bad', kind: 'fixed', xCm: 0, yCm: 0, widthCm: -2, depthCm: 100 }],
+        },
+      }),
+    ).toThrow('Некорректные размеры')
+  })
   it('returns a complete path through an 80 cm doorway', () => {
     const result = inspectSourceClearanceRoutes(fixture())
     expect(result.status).toBe('constructive-routes')
