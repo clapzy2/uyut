@@ -13,6 +13,7 @@ export function PlanRouteCheck({ geometry }: { geometry: PlanGeometry }) {
   }>()
   const [error, setError] = useState<string>()
   const current = checked?.snapshot === snapshot ? checked.inspection : undefined
+  const routeStart = current?.result?.routes[0]?.points[0]
   function check() {
     setError(undefined)
     try {
@@ -99,7 +100,30 @@ export function PlanRouteCheck({ geometry }: { geometry: PlanGeometry }) {
                   strokeWidth="6"
                 />
               ))}
+              {routeStart ? (
+                <g>
+                  <title>Стартовая свободная зона</title>
+                  <rect
+                    x={routeStart.xCm - current.result.widthCm / 2}
+                    y={routeStart.yCm - current.result.widthCm / 2}
+                    width={current.result.widthCm}
+                    height={current.result.widthCm}
+                    fill="#247752"
+                    fillOpacity="0.12"
+                    stroke="#247752"
+                    strokeWidth="2"
+                    strokeDasharray="5 3"
+                  />
+                  <circle cx={routeStart.xCm} cy={routeStart.yCm} r="5" fill="#247752" />
+                </g>
+              ) : null}
             </svg>
+            {routeStart ? (
+              <p className="mt-1 text-xs text-ink-2">
+                Пунктирный квадрат — стартовая свободная зона {current.result.widthCm}×
+                {current.result.widthCm} см. Зелёные линии — найденные пути.
+              </p>
+            ) : null}
             <p className="mt-1 text-xs text-ink-2">
               Сетка поиска {current.result.stepCm} см. Это проверка конкретных путей, не всей
               площади комнат и не внешнего входа.

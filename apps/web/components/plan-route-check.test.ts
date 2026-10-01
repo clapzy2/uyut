@@ -52,9 +52,9 @@ const checked = {
   },
 }
 
-function render(current: PlanGeometry) {
+function render(current: PlanGeometry, saved = checked) {
   vi.mocked(useState)
-    .mockReturnValueOnce([checked, vi.fn()])
+    .mockReturnValueOnce([saved, vi.fn()])
     .mockReturnValueOnce([undefined, vi.fn()])
   return renderToStaticMarkup(createElement(PlanRouteCheck, { geometry: current }))
 }
@@ -69,9 +69,25 @@ it('hides old route lines immediately after an obstacle edit', () => {
     obstacles: [{ id: 'column', kind: 'column', xCm: 50, yCm: 50, widthCm: 20, depthCm: 20 }],
   })
   expect(html).not.toContain('<polyline')
+  expect(html).not.toContain('Стартовая свободная зона')
   expect(html).toContain('Схема изменилась')
 })
 
 it('hides old route lines after the requested width changes', () => {
   expect(render({ ...geometry, routeWidthCm: 100 })).not.toContain('<polyline')
+})
+
+it('shows the start footprint even when the only route has one point', () => {
+  const html = render(geometry, {
+    ...checked,
+    inspection: {
+      result: {
+        ...checked.inspection.result,
+        routes: [{ roomId: '0', points: [{ xCm: 70, yCm: 70 }] }],
+      },
+    },
+  })
+  expect(html).toContain('Стартовая свободная зона')
+  expect(html).toContain('x="35" y="35" width="70" height="70"')
+  expect(html).toContain('<circle cx="70" cy="70"')
 })
