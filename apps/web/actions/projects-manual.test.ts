@@ -317,89 +317,92 @@ describe('manual plan draft', () => {
     expect(mocks.setPlanReading).not.toHaveBeenCalled()
   })
 
-  it('не подтверждает PDF-схему с выбранной вручную противоречивой площадью', async () => {
-    const body = Buffer.from('reviewed area conflict')
-    const sha256 = createHash('sha256').update(body).digest('hex')
-    const firstPolygon = [
-      { xCm: 0, yCm: 0 },
-      { xCm: 220, yCm: 0 },
-      { xCm: 220, yCm: 400 },
-      { xCm: 0, yCm: 400 },
-    ]
-    const secondPolygon = [
-      { xCm: 250, yCm: 100 },
-      { xCm: 450, yCm: 100 },
-      { xCm: 450, yCm: 300 },
-      { xCm: 250, yCm: 300 },
-    ]
-    source.planUrl = 'plan.pdf'
-    source.planReading.rooms = [
-      { name: 'Кухня', sourceNumber: 1, kind: 'kitchen', areaM2: 8.51 },
-      { name: 'Спальня', sourceNumber: 2, kind: 'bedroom', areaM2: 16.54 },
-    ]
-    source.planReading.pageReview = {
-      version: 1,
-      savedAt: '2026-09-30T00:00:00.000Z',
-      contours: {
-        source: { sha256, pdfPage: 2, state: 'existing' },
-        coordinateSystem: 'page-0-1000',
-        review: 'manual-source-review',
-        pageWidth: 1000,
-        pageHeight: 1000,
+  it.each([8.51, 8.93])(
+    'не подтверждает PDF-схему с выбранной площадью %s м² при противоречии в источнике',
+    async (selectedAreaM2) => {
+      const body = Buffer.from('reviewed area conflict')
+      const sha256 = createHash('sha256').update(body).digest('hex')
+      const firstPolygon = [
+        { xCm: 0, yCm: 0 },
+        { xCm: 220, yCm: 0 },
+        { xCm: 220, yCm: 400 },
+        { xCm: 0, yCm: 400 },
+      ]
+      const secondPolygon = [
+        { xCm: 250, yCm: 100 },
+        { xCm: 450, yCm: 100 },
+        { xCm: 450, yCm: 300 },
+        { xCm: 250, yCm: 300 },
+      ]
+      source.planUrl = 'plan.pdf'
+      source.planReading.rooms = [
+        { name: 'Кухня', sourceNumber: 1, kind: 'kitchen', areaM2: selectedAreaM2 },
+        { name: 'Спальня', sourceNumber: 2, kind: 'bedroom', areaM2: 16.54 },
+      ]
+      source.planReading.pageReview = {
+        version: 1,
+        savedAt: '2026-09-30T00:00:00.000Z',
+        contours: {
+          source: { sha256, pdfPage: 2, state: 'existing' },
+          coordinateSystem: 'page-0-1000',
+          review: 'manual-source-review',
+          pageWidth: 1000,
+          pageHeight: 1000,
+          rooms: [
+            {
+              roomSourceNumber: 1,
+              polygon: firstPolygon.map((point) => ({ x: point.xCm, y: point.yCm })),
+            },
+            {
+              roomSourceNumber: 2,
+              polygon: secondPolygon.map((point) => ({ x: point.xCm, y: point.yCm })),
+            },
+          ],
+        },
+      }
+      source.planReading.geometry = {
+        ...emptyManualGeometry,
+        walls: closedWalls,
         rooms: [
-          {
-            roomSourceNumber: 1,
-            polygon: firstPolygon.map((point) => ({ x: point.xCm, y: point.yCm })),
-          },
-          {
-            roomSourceNumber: 2,
-            polygon: secondPolygon.map((point) => ({ x: point.xCm, y: point.yCm })),
-          },
+          { name: 'Кухня', sourceNumber: 1, polygon: firstPolygon },
+          { name: 'Спальня', sourceNumber: 2, polygon: secondPolygon },
         ],
-      },
-    }
-    source.planReading.geometry = {
-      ...emptyManualGeometry,
-      walls: closedWalls,
-      rooms: [
-        { name: 'Кухня', sourceNumber: 1, polygon: firstPolygon },
-        { name: 'Спальня', sourceNumber: 2, polygon: secondPolygon },
-      ],
-    }
-    mocks.getObject.mockResolvedValue({ body })
-    mocks.preparePlanPage.mockResolvedValue({
-      pageNumber: 2,
-      linework: {
-        coordinateSystem: 'page-0-1000',
-        pageWidth: 1000,
-        pageHeight: 1000,
-        paths: [],
-        unsupportedContexts: 0,
-        unsupportedPaths: 0,
-        truncated: false,
-      },
-      image: {
-        planText: JSON.stringify([
-          { text: 'Экспликация помещений:', x: 700, y: 500, rotation: 0 },
-          { text: '01-Кухня - 8,51м', x: 700, y: 520, rotation: 0 },
-          { text: '02-Спальня - 16,54м', x: 700, y: 540, rotation: 0 },
-          { text: '01', x: 180, y: 190, rotation: 0 },
-          { text: '8,93', x: 180, y: 204, rotation: 0 },
-          { text: 'м', x: 220, y: 204, rotation: 0 },
-        ]),
-      },
-    })
+      }
+      mocks.getObject.mockResolvedValue({ body })
+      mocks.preparePlanPage.mockResolvedValue({
+        pageNumber: 2,
+        linework: {
+          coordinateSystem: 'page-0-1000',
+          pageWidth: 1000,
+          pageHeight: 1000,
+          paths: [],
+          unsupportedContexts: 0,
+          unsupportedPaths: 0,
+          truncated: false,
+        },
+        image: {
+          planText: JSON.stringify([
+            { text: 'Экспликация помещений:', x: 700, y: 500, rotation: 0 },
+            { text: '01-Кухня - 8,51м', x: 700, y: 520, rotation: 0 },
+            { text: '02-Спальня - 16,54м', x: 700, y: 540, rotation: 0 },
+            { text: '01', x: 180, y: 190, rotation: 0 },
+            { text: '8,93', x: 180, y: 204, rotation: 0 },
+            { text: 'м', x: 220, y: 204, rotation: 0 },
+          ]),
+        },
+      })
 
-    const result = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
+      const result = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
 
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.error).toContain('8,93')
-      expect(result.error).toContain('8,51')
-      expect(result.error).toContain('Данные с чертежа')
-    }
-    expect(mocks.setPlanReading).not.toHaveBeenCalled()
-  })
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.error).toContain('8,93')
+        expect(result.error).toContain('8,51')
+        expect(result.error).toContain('Данные с чертежа')
+      }
+      expect(mocks.setPlanReading).not.toHaveBeenCalled()
+    },
+  )
 
   it('rejects an old editor revision without writing or announcing success', async () => {
     const result = await saveGeometryAction(projectId, emptyManualGeometry, 'draft', '0'.repeat(64))

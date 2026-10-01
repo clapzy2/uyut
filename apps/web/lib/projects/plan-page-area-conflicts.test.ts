@@ -45,24 +45,27 @@ const context: PlanReadingGeometryContext = {
 }
 
 describe('противоречие двух площадей на одном обмерном листе', () => {
-  it('снимает площадь кухни, сохраняя обе исходные подписи в пояснении', () => {
-    const reading = parseFloorPlan(
-      JSON.stringify({
-        planState: 'existing',
-        rooms: [{ name: 'Кухня', sourceNumber: 1, areaM2: 8.51 }],
-      }),
-      { planText: context.planText },
-    )
-    expect(reading.rooms[0]?.areaM2).toBe(8.51)
-    expect(planPageAreaConflicts(context)).toEqual([
-      { sourceNumber: 1, planAreaM2: 8.93, scheduleAreaM2: 8.51 },
-    ])
+  it.each([8.51, 8.93])(
+    'снимает выбранную площадь %s м², сохраняя обе исходные подписи в пояснении',
+    (selectedAreaM2) => {
+      const reading = parseFloorPlan(
+        JSON.stringify({
+          planState: 'existing',
+          rooms: [{ name: 'Кухня', sourceNumber: 1, areaM2: selectedAreaM2 }],
+        }),
+        { planText: context.planText },
+      )
+      expect(reading.rooms[0]?.areaM2).toBe(selectedAreaM2 === 8.51 ? selectedAreaM2 : undefined)
+      expect(planPageAreaConflicts(context)).toEqual([
+        { sourceNumber: 1, planAreaM2: 8.93, scheduleAreaM2: 8.51 },
+      ])
 
-    const checked = verifyPlanReadingGeometry(reading, context)
-    expect(checked.rooms[0]?.areaM2).toBeUndefined()
-    expect(checked.rooms[0]?.measurementWarnings?.join(' ')).toContain('8,93')
-    expect(checked.rooms[0]?.measurementWarnings?.join(' ')).toContain('8,51')
-  })
+      const checked = verifyPlanReadingGeometry(reading, context)
+      expect(checked.rooms[0]?.areaM2).toBeUndefined()
+      expect(checked.rooms[0]?.measurementWarnings?.join(' ')).toContain('8,93')
+      expect(checked.rooms[0]?.measurementWarnings?.join(' ')).toContain('8,51')
+    },
+  )
 
   it('не объявляет конфликт без единственной подписанной площади внутри нужного контура', () => {
     const changed = (index: number, replacement: ReturnType<typeof item>) => ({
