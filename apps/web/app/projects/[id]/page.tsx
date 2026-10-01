@@ -339,6 +339,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
                 geometry={project.planReading.geometry}
                 roomReadings={project.planReading.rooms.map((room) => ({
                   name: room.name,
+                  sourceNumber: room.sourceNumber,
                   areaM2: room.areaM2,
                 }))}
                 planUrl={planUrl}

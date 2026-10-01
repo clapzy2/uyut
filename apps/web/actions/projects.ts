@@ -517,7 +517,7 @@ export async function savePlanGeometry(
         if (unresolvedArea) {
           return {
             ok: false,
-            error: `Площадь №${String(unresolvedArea.sourceNumber).padStart(2, '0')} противоречит исходному листу: на плане ${unresolvedArea.planAreaM2.toLocaleString('ru-RU')} м², в экспликации ${unresolvedArea.scheduleAreaM2.toLocaleString('ru-RU')} м². Оставьте поле пустым до уточнения обмера.`,
+            error: `Площадь №${String(unresolvedArea.sourceNumber).padStart(2, '0')} противоречит исходному листу: на плане ${unresolvedArea.planAreaM2.toLocaleString('ru-RU')} м², в экспликации ${unresolvedArea.scheduleAreaM2.toLocaleString('ru-RU')} м². Очистите поле «Площадь» у этого помещения в блоке «Данные с чертежа» до уточнения обмера.`,
           }
         }
         if (new Set(knownRoomNames).size !== knownRoomNames.length) {

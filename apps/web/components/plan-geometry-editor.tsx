@@ -620,6 +620,12 @@ export function PlanGeometryEditor({
     (issue) => issue.severity === 'error' && !issue.id.startsWith('manual-'),
   )
   const confirmationIssues = issues.filter((issue) => issue.severity === 'error')
+  const visibleIssues = [
+    ...confirmationIssues,
+    ...issues
+      .filter((issue) => issue.severity !== 'error')
+      .slice(0, Math.max(0, 8 - confirmationIssues.length)),
+  ]
   const wallErrorIds = new Set(confirmationIssues.flatMap((issue) => issue.wallIds ?? []))
   const openingErrorIds = new Set(confirmationIssues.flatMap((issue) => issue.openingIds ?? []))
   const roomErrorIndexes = new Set(confirmationIssues.flatMap((issue) => issue.roomIndexes ?? []))
@@ -999,7 +1005,8 @@ export function PlanGeometryEditor({
               </p>
             ) : issues.length === 0 ? (
               <p className="mt-2 text-[14px] leading-relaxed text-ink">
-                Явных ошибок нет: стены соединены, а проёмы помещаются на своих стенах.
+                Автоматические проверки не нашли противоречий в нанесённой схеме. Сверьте её с
+                исходным планом.
               </p>
             ) : (
               <>
@@ -1009,7 +1016,7 @@ export function PlanGeometryEditor({
                     : 'Схему можно сохранить, но внешний контур стоит перепроверить.'}
                 </p>
                 <ul className="mt-3 space-y-2">
-                  {issues.slice(0, 8).map((issue) => (
+                  {visibleIssues.map((issue) => (
                     <li key={issue.id}>
                       <button
                         type="button"
@@ -1022,6 +1029,14 @@ export function PlanGeometryEditor({
                     </li>
                   ))}
                 </ul>
+                {issues.length > visibleIssues.length ? (
+                  <p className="mt-3 text-[13px] text-ink-2">
+                    Ещё замечаний: {issues.length - visibleIssues.length}.
+                    {confirmationIssues.length > 0
+                      ? ' Сначала исправьте показанные ошибки.'
+                      : ' Проверьте остальные предупреждения после основных.'}
+                  </p>
+                ) : null}
               </>
             )}
           </div>
@@ -1108,7 +1123,7 @@ export function PlanGeometryEditor({
                           onClick={() => patchWall({ kind })}
                           className={`rounded-full border px-3 py-2 text-[13px] transition-colors ${selectedWall.kind === kind ? 'border-accent bg-accent-tint text-ink' : 'border-control text-ink-2 hover:border-ink'}`}
                         >
-                          {kind === 'outer' ? 'Несущая/внешняя' : 'Перегородка'}
+                          {kind === 'outer' ? 'Внешняя граница' : 'Внутренняя стена'}
                         </button>
                       ))}
                     </div>

@@ -396,6 +396,7 @@ describe('manual plan draft', () => {
     if (!result.ok) {
       expect(result.error).toContain('8,93')
       expect(result.error).toContain('8,51')
+      expect(result.error).toContain('Данные с чертежа')
     }
     expect(mocks.setPlanReading).not.toHaveBeenCalled()
   })
