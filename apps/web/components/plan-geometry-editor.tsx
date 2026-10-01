@@ -901,7 +901,7 @@ export function PlanGeometryEditor({
       <DialogContent
         title="Проверка 2D-схемы"
         description="Двигайте элементы на чертеже или задайте сантиметры вручную. Пустые и новые контуры — только заготовки, не результат распознавания плана."
-        className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-y-auto"
+        className="max-h-[calc(100dvh-2rem)] max-w-4xl! overflow-y-auto"
       >
         <fieldset disabled={saving} inert={saving} className="min-w-0 border-0 p-0">
           {planUrl ? (
