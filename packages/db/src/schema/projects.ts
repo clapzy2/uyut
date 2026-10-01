@@ -245,6 +245,13 @@ export type PlanGeometry = {
     sourceWallFacePairs?: PlanWallFacePair[]
     /** Shared snapshot of free-floor contours used by the interval proof. */
     wallFaceRoomPolygons?: PlanPoint[][]
+    /** Server-reviewed open-zone dividers, not physical walls or inferred doorways. */
+    sourceOpenZoneBoundaries?: Array<{
+      polygon: PlanPoint[]
+      edgeIndex: number
+      /** Page coordinates before metric rounding; distinct spans must not collapse into a link. */
+      sourceEdge: [{ x: number; y: number }, { x: number; y: number }]
+    }>
   }
   warnings: string[]
 }

@@ -103,12 +103,117 @@ function pair(geometry: PlanGeometry) {
   return value
 }
 
+function openZones(): PlanGeometry {
+  const geometry = fixture()
+  const second = required(geometry.rooms[1])
+  second.polygon = box(200, 0, 400, 200)
+  geometry.walls = geometry.walls.filter((wall) => wall.id === 'entry-wall')
+  geometry.openings = geometry.openings.filter((opening) => opening.id === 'entry')
+  const calibration = required(geometry.pdfCalibration)
+  calibration.openingFacePairs = []
+  calibration.wallFaceRoomPolygons = structuredClone(geometry.rooms.map((room) => room.polygon))
+  calibration.sourceOpenZoneBoundaries = geometry.rooms.map((room, index) => ({
+    polygon: structuredClone(room.polygon),
+    edgeIndex: index === 0 ? 1 : 3,
+    sourceEdge: (index === 0
+      ? [point(200, 0), point(200, 200)]
+      : [point(200, 200), point(200, 0)]
+    ).map(({ xCm, yCm }) => ({ x: xCm, y: yCm })) as [
+      { x: number; y: number },
+      { x: number; y: number },
+    ],
+  }))
+  return geometry
+}
+
 function required<T>(value: T | undefined): T {
   if (value === undefined) throw new Error('Неполный тестовый пример')
   return value
 }
 
 describe('проходы между исходными PDF-контурами', () => {
+  it('соединяет доказанные открытые зоны без вымышленной двери', () => {
+    const geometry = openZones()
+    geometry.routeWidthCm = 90
+    expect(inspectPdfClearanceRoutes(geometry).result?.routes).toHaveLength(2)
+    expect(geometry.openings).toHaveLength(1)
+    expect(inspectPdfClearanceRoutes(JSON.parse(JSON.stringify(geometry))).result).toEqual(
+      inspectPdfClearanceRoutes(geometry).result,
+    )
+  })
+
+  it.each(['missing', 'one-sided', 'different-span'] as const)(
+    'оставляет общую границу закрытой без взаимного исходного доказательства: %s',
+    (mode) => {
+      const geometry = openZones()
+      const calibration = required(geometry.pdfCalibration)
+      if (mode === 'missing') delete calibration.sourceOpenZoneBoundaries
+      if (mode === 'one-sided') calibration.sourceOpenZoneBoundaries?.pop()
+      if (mode === 'different-span') {
+        const room = required(geometry.rooms[1])
+        room.polygon = box(200, 40, 400, 240)
+        calibration.wallFaceRoomPolygons = structuredClone(
+          geometry.rooms.map((room) => room.polygon),
+        )
+        required(calibration.sourceOpenZoneBoundaries)[1] = {
+          polygon: structuredClone(room.polygon),
+          edgeIndex: 3,
+          sourceEdge: [
+            { x: 200, y: 240 },
+            { x: 200, y: 40 },
+          ],
+        }
+      }
+      expect(inspectPdfClearanceRoutes(geometry).result?.unresolvedRoomIds).toEqual(['1'])
+    },
+  )
+
+  it.each(['edge', 'polygon', 'duplicate'] as const)(
+    'отклоняет устаревшую или неоднозначную разметку открытых зон: %s',
+    (mode) => {
+      const geometry = openZones()
+      const proofs = required(required(geometry.pdfCalibration).sourceOpenZoneBoundaries)
+      const proof = required(proofs[0])
+      if (mode === 'edge') proof.edgeIndex = 100
+      if (mode === 'polygon') required(proof.polygon[0]).xCm += 1
+      if (mode === 'duplicate') proofs.push(structuredClone(proof))
+      expect(inspectPdfClearanceRoutes(geometry).result).toBeUndefined()
+    },
+  )
+
+  it('не открывает разные исходные границы, совпавшие только после округления', () => {
+    const geometry = openZones()
+    const proof = required(required(required(geometry.pdfCalibration).sourceOpenZoneBoundaries)[1])
+    proof.sourceEdge[0].x += 0.01
+    proof.sourceEdge[1].x += 0.01
+    expect(inspectPdfClearanceRoutes(geometry).result?.unresolvedRoomIds).toEqual(['1'])
+  })
+
+  it('сохраняет исходные привязки открытых зон при перестановке списка комнат', () => {
+    const geometry = openZones()
+    geometry.rooms.reverse()
+    expect(inspectPdfClearanceRoutes(geometry).result?.routes).toHaveLength(2)
+  })
+
+  it('не удаляет добавленную стену на границе открытых зон', () => {
+    const geometry = openZones()
+    geometry.walls.push({
+      id: 'new-divider',
+      kind: 'inner',
+      start: point(200, 0),
+      end: point(200, 200),
+    })
+    expect(inspectPdfClearanceRoutes(geometry).result?.unresolvedRoomIds).toEqual(['1'])
+  })
+
+  it('учитывает препятствие поперёк доказанной открытой границы', () => {
+    const geometry = openZones()
+    geometry.obstacles = [
+      { id: 'fixed', kind: 'fixed', xCm: 195, yCm: 0, widthCm: 10, depthCm: 200 },
+    ]
+    expect(inspectPdfClearanceRoutes(geometry).result?.unresolvedRoomIds).toEqual(['1'])
+  })
+
   it('соединяет две комнаты через точные дверные грани без осей и толщины стен', () => {
     const geometry = fixture()
     expect(inspectMetricClearanceRoutes(geometry).result).toMatchObject({

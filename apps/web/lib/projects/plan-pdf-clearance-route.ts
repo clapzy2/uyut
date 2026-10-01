@@ -10,7 +10,78 @@ import { pdfPolygonIsValid } from './plan-pdf-room-binding'
 import { inspectSourceClearanceRoutes } from './plan-source-clearance-route'
 
 const samePoint = (a: PlanPoint, b: PlanPoint) => a.xCm === b.xCm && a.yCm === b.yCm
+const samePagePoint = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+  a.x === b.x && a.y === b.y
 const body = (points: PlanPoint[]): Polygon => [points.map(({ xCm, yCm }) => [xCm, yCm])]
+
+function polygonWinding(polygon: PlanPoint[]) {
+  return Math.sign(
+    polygon.reduce((sum, point, index) => {
+      const next = polygon[(index + 1) % polygon.length]
+      return next ? sum + point.xCm * next.yCm - next.xCm * point.yCm : sum
+    }, 0),
+  )
+}
+
+/** Only reciprocal, coincident source dividers join open zones; gaps stay unknown. */
+function openZoneEdges(geometry: PlanGeometry) {
+  const edges = (geometry.pdfCalibration?.sourceOpenZoneBoundaries ?? []).map((proof) => {
+    const owners = geometry.rooms.flatMap((room, roomIndex) =>
+      room.polygon.length === proof.polygon.length &&
+      room.polygon.every((point, index) => {
+        const saved = proof.polygon[index]
+        return saved !== undefined && samePoint(point, saved)
+      })
+        ? [roomIndex]
+        : [],
+    )
+    const start = proof.polygon[proof.edgeIndex]
+    const end = proof.polygon[(proof.edgeIndex + 1) % proof.polygon.length]
+    if (
+      owners.length !== 1 ||
+      !Number.isInteger(proof.edgeIndex) ||
+      proof.edgeIndex < 0 ||
+      proof.edgeIndex >= proof.polygon.length ||
+      !start ||
+      !end ||
+      proof.sourceEdge?.length !== 2 ||
+      !proof.sourceEdge.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)) ||
+      samePoint(start, end) ||
+      (start.xCm !== end.xCm && start.yCm !== end.yCm)
+    )
+      return undefined
+    const along = start.yCm === end.yCm ? 'xCm' : 'yCm'
+    return {
+      roomIndex: owners[0],
+      edgeIndex: proof.edgeIndex,
+      start,
+      end,
+      sourceEdge: proof.sourceEdge,
+      side: polygonWinding(proof.polygon) * Math.sign(end[along] - start[along]),
+    }
+  })
+  const keys = edges.map((edge) => `${edge?.roomIndex}:${edge?.edgeIndex}`)
+  if (edges.some((edge) => !edge) || new Set(keys).size !== keys.length) return undefined
+  return new Set(
+    edges.flatMap((edge, index) => {
+      if (!edge) return []
+      const opposite = edges.filter(
+        (other, otherIndex) =>
+          otherIndex !== index &&
+          other &&
+          other.roomIndex !== edge.roomIndex &&
+          other.side === -edge.side &&
+          ((samePagePoint(edge.sourceEdge[0], other.sourceEdge[0]) &&
+            samePagePoint(edge.sourceEdge[1], other.sourceEdge[1])) ||
+            (samePagePoint(edge.sourceEdge[0], other.sourceEdge[1]) &&
+              samePagePoint(edge.sourceEdge[1], other.sourceEdge[0]))) &&
+          ((samePoint(edge.start, other.start) && samePoint(edge.end, other.end)) ||
+            (samePoint(edge.start, other.end) && samePoint(edge.end, other.start))),
+      )
+      return opposite.length === 1 ? [keys[index]] : []
+    }),
+  )
+}
 
 function face(binding: PlanOpeningBinding, geometry: PlanGeometry) {
   const { opening, wall, cut } = binding
@@ -43,12 +114,7 @@ function face(binding: PlanOpeningBinding, geometry: PlanGeometry) {
         )
       )
         return []
-      const winding = Math.sign(
-        room.polygon.reduce((sum, point, index) => {
-          const next = room.polygon[(index + 1) % room.polygon.length]
-          return next ? sum + point.xCm * next.yCm - next.xCm * point.yCm : sum
-        }, 0),
-      )
+      const winding = polygonWinding(room.polygon)
       return [{ roomIndex, edgeIndex, side: winding * Math.sign(end[along] - start[along]) }]
     }),
   )
@@ -107,6 +173,9 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
     return missing(
       'В PDF-схеме смешаны грани и стены с толщиной. Сверьте физическую модель перед расчётом.',
     )
+  const openEdges = openZoneEdges(geometry)
+  if (!openEdges)
+    return missing('После правки открытых зон повторно сверьте их границы с исходным PDF.')
   const floors = geometry.rooms.map((room) => body(room.polygon))
   if (
     floors.some((floor, index) =>
@@ -223,7 +292,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
   const boundaryBarriers = geometry.rooms.flatMap((room, roomIndex) =>
     room.polygon.flatMap((start, edgeIndex) => {
       const end = room.polygon[(edgeIndex + 1) % room.polygon.length]
-      if (!end) return []
+      if (!end || openEdges.has(`${roomIndex}:${edgeIndex}`)) return []
       const edgeCuts = cuts.filter(
         (cut) => cut.roomIndex === roomIndex && cut.edgeIndex === edgeIndex,
       )

@@ -476,6 +476,16 @@ describe('manual plan draft', () => {
         })) as PlanWallFacePair['faces'],
         openings: structuredClone(openings),
       }
+      const openBoundaries = [
+        {
+          polygon: structuredClone(kitchenContour[0]?.polygon ?? []),
+          edgeIndex: 1,
+          sourceEdge: [
+            { x: 500, y: 0 },
+            { x: 500, y: 400 },
+          ] as [{ x: number; y: number }, { x: number; y: number }],
+        },
+      ]
       const geometry: PlanGeometry = {
         ...emptyManualGeometry,
         walls: structuredClone(closedWalls),
@@ -492,6 +502,7 @@ describe('manual plan draft', () => {
           openingFacePairs: [structuredClone(pair)],
           wallFacePairs: [structuredClone(wallPair)],
           wallFaceRoomPolygons: [structuredClone(kitchenContour[0]?.polygon ?? [])],
+          sourceOpenZoneBoundaries: structuredClone(openBoundaries),
         },
       }
       // The snapshots are separate from editable geometry; client metadata is not trusted.
@@ -504,6 +515,10 @@ describe('manual plan draft', () => {
       if (!jamb || !opening || !wall || !nativeSegment) throw new Error('Missing editable fixtures')
       jamb.operationIndex = 999
       nativeSegment.operationIndex = 999
+      const clientBoundary = input.pdfCalibration?.sourceOpenZoneBoundaries?.[0]
+      if (!clientBoundary) throw new Error('Missing editable open-boundary snapshot')
+      clientBoundary.edgeIndex = 2
+      clientBoundary.polygon = []
       if (edit === 'width') opening.widthCm += 1
       if (edit === 'host') wall.start.xCm += 1
       if (edit === 'removed') input.openings = input.openings.slice(1)
@@ -533,6 +548,9 @@ describe('manual plan draft', () => {
         )
         expect(result.data.geometry.pdfCalibration?.sourceOpeningFacePairs).toEqual([pair])
         expect(result.data.geometry.pdfCalibration?.sourceWallFacePairs).toEqual([wallPair])
+        expect(result.data.geometry.pdfCalibration?.sourceOpenZoneBoundaries).toEqual(
+          openBoundaries,
+        )
         if (edit === 'width') {
           source.planReading = mocks.setPlanReading.mock.calls[0]?.[2] as PlanReading
           const confirmed = await savePlanGeometry(projectId, result.data.geometry, 'confirm')

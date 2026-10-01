@@ -1,7 +1,9 @@
-import { accounts, createDb, type PlanGeometry, projects, users } from '@uyut/db'
+import { readFile } from 'node:fs/promises'
+import { accounts, createDb, type PlanGeometry, type PlanReading, projects, users } from '@uyut/db'
 import { hashPassword } from '../lib/password'
+import { inspectPlanGeometry } from '../lib/projects/plan-geometry-inspection'
 
-// Синтетический пример для браузерного теста, только в локальной базе.
+// Браузерный тест только в локальной базе; опубликованный PDF остаётся черновиком.
 const connection = process.env.DATABASE_URL
 if (!connection || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(connection).hostname))
   throw new Error('Этот тест разрешён только в локальной базе')
@@ -15,7 +17,7 @@ const box = (left: number, top: number, right: number, bottom: number) => [
   point(right, bottom),
   point(left, bottom),
 ]
-const geometry: PlanGeometry = {
+let geometry: PlanGeometry = {
   version: 1,
   source: 'manual',
   status: 'draft',
@@ -102,6 +104,28 @@ if (process.argv.includes('--pdf-faces')) {
     geometry.pdfCalibration.openingFacePairs,
   )
 }
+let sourceReading: PlanReading | undefined
+const reviewedIndex = process.argv.indexOf('--reviewed-pdf')
+if (reviewedIndex !== -1) {
+  const path = process.argv[reviewedIndex + 1]
+  if (!path?.endsWith('.json')) throw new Error('Укажите JSON локальной проверки PDF')
+  const reviewed = JSON.parse(await readFile(path, 'utf8')) as {
+    source: { sha256: string; pdfPage: number; state: string }
+    reading: PlanReading
+    geometry: PlanGeometry
+  }
+  if (
+    reviewed.source.state !== 'existing' ||
+    !/^[a-f0-9]{64}$/.test(reviewed.source.sha256) ||
+    reviewed.geometry.status !== 'draft' ||
+    reviewed.geometry.pdfCalibration?.sourceSha256 !== reviewed.source.sha256 ||
+    reviewed.geometry.pdfCalibration.pdfPage !== reviewed.source.pdfPage ||
+    inspectPlanGeometry(reviewed.geometry).length > 0
+  )
+    throw new Error('Исходная схема не прошла локальную проверку PDF')
+  geometry = reviewed.geometry
+  sourceReading = reviewed.reading
+}
 await db.transaction(async (tx) => {
   await tx
     .insert(users)
@@ -115,13 +139,22 @@ await db.transaction(async (tx) => {
   await tx.insert(projects).values({
     id,
     ownerId: id,
-    title: 'Локальный тест проходов — синтетические данные',
-    planUrl: 'qa/synthetic-route.svg',
+    title: sourceReading
+      ? 'Локальная проверка PDF — неполный обмер'
+      : 'Локальный тест проходов — синтетические данные',
+    planUrl: sourceReading ? 'qa/reviewed-pdf-route.svg' : 'qa/synthetic-route.svg',
     planReading: {
-      rooms: [
+      rooms: sourceReading?.rooms ?? [
         { name: 'Коридор', kind: 'living', utility: true },
         { name: 'Гостиная', kind: 'living' },
       ],
+      ...(sourceReading
+        ? {
+            sourcePage: sourceReading.sourcePage,
+            planState: 'existing',
+            pageReview: sourceReading.pageReview,
+          }
+        : {}),
       readAt: new Date().toISOString(),
       confirmedAt: new Date().toISOString(),
       geometry,

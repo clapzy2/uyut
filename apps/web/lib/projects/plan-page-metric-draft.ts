@@ -489,6 +489,16 @@ export function planPageMetricDraft(
         return [saved]
       }),
       wallFaceRoomPolygons: structuredClone(geometry.rooms.map((room) => room.polygon)),
+      sourceOpenZoneBoundaries: selected.flatMap((contour) =>
+        (contour.conditionalEdges ?? []).map((edge) => ({
+          polygon: contour.polygon.map(convert),
+          edgeIndex: edge.wallEdgeIndex,
+          sourceEdge: structuredClone([
+            contour.polygon[edge.wallEdgeIndex],
+            contour.polygon[(edge.wallEdgeIndex + 1) % contour.polygon.length],
+          ]) as [{ x: number; y: number }, { x: number; y: number }],
+        })),
+      ),
     }
     geometry.pdfCalibration.sourceWallFacePairs = structuredClone(
       geometry.pdfCalibration.wallFacePairs ?? [],

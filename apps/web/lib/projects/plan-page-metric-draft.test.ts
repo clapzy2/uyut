@@ -204,11 +204,18 @@ describe('native PDF page to metric draft', () => {
     const room = context.contours.rooms[0]
     if (!room) throw new Error('Synthetic room is missing.')
     room.conditionalEdges = [{ wallEdgeIndex: 0 }]
-    const result = planPageMetricDraft(reading, context, [4])
+    const result = planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [4] }, [4])
     expect(result.ok, result.ok ? '' : result.error).toBe(true)
     if (!result.ok) return
     expect(result.geometry.rooms[0]?.polygon).toHaveLength(4)
     expect(result.geometry.walls).toHaveLength(3)
+    expect(result.geometry.pdfCalibration?.sourceOpenZoneBoundaries).toEqual([
+      {
+        polygon: result.geometry.rooms[0]?.polygon,
+        edgeIndex: 0,
+        sourceEdge: [room.polygon[0], room.polygon[1]],
+      },
+    ])
     expect(result.geometry.walls.some((wall) => wall.start.yCm === 0 && wall.end.yCm === 0)).toBe(
       false,
     )

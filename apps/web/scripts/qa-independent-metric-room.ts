@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { estimateProject } from '@uyut/catalog'
 import { layoutWithMeasurements } from '@uyut/catalog/layout-with-measurements'
-import type { PlanPageContours, PlanReading } from '@uyut/db'
+import type { PlanOpening, PlanPageContours, PlanReading } from '@uyut/db'
 import { fontFaceCss, type PdfData, renderProjectHtml } from '@uyut/pdf'
 import sharp from 'sharp'
 import { printPdf } from '../../../jobs/src/lib/print-pdf'
@@ -14,9 +14,13 @@ import {
   inspectPlanGeometry,
 } from '../lib/projects/plan-geometry-inspection'
 import { planPageAreaConflicts } from '../lib/projects/plan-page-area-conflicts'
-import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
+import {
+  planPageGeometryElementId,
+  planPageMetricDraft,
+} from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema, planPageReviewIssue } from '../lib/projects/plan-page-review'
 import { planPageRoomInventory } from '../lib/projects/plan-page-room-inventory'
+import { inspectPdfClearanceRoutes } from '../lib/projects/plan-pdf-clearance-route'
 import { pdfDepthChain, pdfWidthChain } from '../lib/projects/plan-pdf-dimension-chain'
 import { verifyPlanPageOpeningFaces } from '../lib/projects/plan-pdf-opening-faces'
 import { pdfPointDistance } from '../lib/projects/plan-pdf-room-binding'
@@ -57,12 +61,18 @@ type Fixture = {
     planAreaM2: number
     legendAreaM2: number
   }>
+  routeCheck?: {
+    startRoomNumber: number
+    startOpeningId: string
+    clearance: NonNullable<PlanOpening['clearance']>
+    widthsCm: number[]
+  }
 }
 
-const [pdfPath, fixturePath, overlayPath, layoutPdfPath] = process.argv.slice(2)
+const [pdfPath, fixturePath, overlayPath, layoutPdfPath, geometryPath] = process.argv.slice(2)
 if (!pdfPath || !fixturePath) {
   throw new Error(
-    'Usage: bun run scripts/qa-independent-metric-room.ts <PDF> <fixture.json> [overlay.png] [layout.pdf]',
+    'Usage: bun run scripts/qa-independent-metric-room.ts <PDF> <fixture.json> [overlay.png] [layout.pdf] [geometry.json]',
   )
 }
 const fixture = JSON.parse(await readFile(fixturePath, 'utf8')) as Fixture
@@ -349,6 +359,69 @@ const verifiedRooms = result.geometry.rooms.map((geometryRoom) => {
   }
 })
 
+let routeGeometry = result.geometry
+const routeChecks = fixture.routeCheck?.widthsCm.map((widthCm, index) => {
+  const check = fixture.routeCheck
+  if (!check) throw new Error('Missing route check')
+  const geometry = structuredClone(result.geometry)
+  geometry.routeStartOpeningId = planPageGeometryElementId(
+    source,
+    String(check.startRoomNumber),
+    'opening',
+    check.startOpeningId,
+  )
+  geometry.routeWidthCm = widthCm
+  const entry = geometry.openings.find((opening) => opening.id === geometry.routeStartOpeningId)
+  if (!entry) throw new Error('The reviewed starting opening is missing.')
+  // QA search setup only: the source PDF does not certify a door swing or this depth.
+  entry.clearance = structuredClone(check.clearance)
+  if (index === 0) routeGeometry = geometry
+  const checked = inspectPdfClearanceRoutes(geometry)
+  const reloaded = inspectPdfClearanceRoutes(JSON.parse(JSON.stringify(geometry)))
+  if (JSON.stringify(checked) !== JSON.stringify(reloaded))
+    throw new Error('The route result changed after geometry serialization.')
+  return {
+    widthCm,
+    missing: checked.missing,
+    status: checked.result?.status,
+    checkedNodes: checked.result?.checkedNodes,
+    reachedRooms: checked.result?.routes.map((route) => geometry.rooms[Number(route.roomId)]?.name),
+    unresolvedRooms: checked.result?.unresolvedRoomIds.map(
+      (id) => geometry.rooms[Number(id)]?.name,
+    ),
+    serialization: 'unchanged',
+  }
+})
+
+if (geometryPath) {
+  if (
+    !geometryPath.endsWith('.json') ||
+    [pdfPath, fixturePath].some((path) => resolve(path) === resolve(geometryPath))
+  )
+    throw new Error('Geometry output must be a separate JSON, never the reviewed source.')
+  await mkdir(dirname(resolve(geometryPath)), { recursive: true })
+  await writeFile(
+    geometryPath,
+    JSON.stringify(
+      {
+        source,
+        reading: {
+          ...reading,
+          pageReview: {
+            version: 1,
+            savedAt: new Date().toISOString(),
+            contours,
+            sourceRooms,
+          },
+        },
+        geometry: routeGeometry,
+      },
+      null,
+      2,
+    ),
+  )
+}
+
 if (overlayPath) {
   if (!overlayPath.endsWith('.png'))
     throw new Error('Overlay output must be a PNG, never the source PDF.')
@@ -501,6 +574,7 @@ console.log(
     warnings: result.geometry.warnings,
     geometryIssues: geometryIssues.length,
     confirmationIssues: inspectManualPlanCompleteness(result.geometry),
+    routeChecks,
     paidCalls: 0,
   }),
 )

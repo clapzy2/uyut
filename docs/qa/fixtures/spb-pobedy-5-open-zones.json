@@ -6,6 +6,12 @@
   },
   "calibrationRoomNumbers": [3, 5],
   "sourceRoomNumbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "routeCheck": {
+    "startRoomNumber": 1,
+    "startOpeningId": "kitchen-passage",
+    "clearance": { "side": "left", "depthCm": 100, "shape": "rectangle" },
+    "widthsCm": [70, 90]
+  },
   "exterior": {
     "polygon": [
       { "x": 72.931, "y": 14.248 },
