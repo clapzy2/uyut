@@ -14,6 +14,7 @@ import {
   inspectManualPlanCompleteness,
   inspectPlanGeometry,
 } from '../../apps/web/lib/projects/plan-geometry-inspection'
+import { inspectSourceClearanceRoutes } from '../../apps/web/lib/projects/plan-source-clearance-route'
 import { inspectSourceDoorConnectivity } from '../../apps/web/lib/projects/plan-source-door-connectivity'
 import { printPdf } from '../src/lib/print-pdf'
 
@@ -348,13 +349,61 @@ if (
   throw new Error('Исходные дверные переходы не подтвердили связность восьми зон')
 }
 const narrowSourceDoors = doorConnectivity.doors.filter((door) => door.widthCm < 70)
+if (!entrance) throw new Error('Не найдена входная дверь для проверки маршрута')
+const entryBody = rectangularBody(polygonFromWkt(entrance.geom))
+const [entryA, entryB] = entryBody.axis
+const angle = Math.atan2(entryB.yCm - entryA.yCm, entryB.xCm - entryA.xCm)
+const rotate = (point: PlanPoint): PlanPoint => ({
+  xCm: point.xCm * Math.cos(angle) + point.yCm * Math.sin(angle),
+  yCm: -point.xCm * Math.sin(angle) + point.yCm * Math.cos(angle),
+})
+const entryRoomId = doorConnectivity.doors.find((door) => door.kind === 'entrance')?.roomIds[0]
+const entryRoom = areaRows.find((row) => String(row.area_id) === entryRoomId)
+if (!entryRoom) throw new Error('Не найден пол входной зоны')
+const rotatedEntry = rotate({
+  xCm: (entryA.xCm + entryB.xCm) / 2,
+  yCm: (entryA.yCm + entryB.yCm) / 2,
+})
+const entryRoomPoints = polygonFromWkt(entryRoom.geom).map(rotate)
+const insideSign = Math.sign(
+  entryRoomPoints.reduce((sum, point) => sum + point.yCm - rotatedEntry.yCm, 0),
+)
+const sourceClearanceRoutes = inspectSourceClearanceRoutes({
+  freeFloor: doorConnectivity.freeFloor.map((body) =>
+    body.map((ring) =>
+      ring.map(([xCm, yCm]) => {
+        const point = rotate({ xCm, yCm })
+        return [point.xCm, point.yCm]
+      }),
+    ),
+  ),
+  rooms: areaRows
+    .filter((row) => row.entity_subtype !== 'SHAFT')
+    .map((row) => ({ id: String(row.area_id), polygon: polygonFromWkt(row.geom).map(rotate) })),
+  start: {
+    xCm: rotatedEntry.xCm,
+    yCm: rotatedEntry.yCm + insideSign * (35 + entryBody.thicknessCm / 2),
+  },
+  widthCm: 70,
+  stepCm: 5,
+})
 if (process.argv.includes('--topology-only')) {
+  const { freeFloor: _freeFloor, ...connectivitySummary } = doorConnectivity
   console.log(
     JSON.stringify(
       {
         sourceSha256,
-        doorConnectivity,
+        doorConnectivity: connectivitySummary,
         narrowSourceDoors,
+        sourceClearanceRoutes: {
+          ...sourceClearanceRoutes,
+          routes: sourceClearanceRoutes.routes.map((route) => ({
+            roomId: route.roomId,
+            pointCount: route.points.length,
+            start: route.points[0],
+            end: route.points.at(-1),
+          })),
+        },
         minimumWidthCm: 70,
         widthClearanceCertified: false,
       },
@@ -672,6 +721,7 @@ const report = {
   sourceSha256,
   doorConnectivity,
   narrowSourceDoors,
+  sourceClearanceRoutes,
   apartmentId: APARTMENT_ID,
   unitId: rows[0]?.unit_id,
   sourceCounts: { areas: areaRows.length, walls: wallRows.length, openings: openingRows.length },

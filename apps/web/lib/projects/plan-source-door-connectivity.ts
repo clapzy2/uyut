@@ -185,6 +185,7 @@ export function inspectSourceDoorConnectivity(input: {
   return {
     status: connected ? ('connected-topology' as const) : ('unresolved' as const),
     freeComponentCount: freeFloor.length,
+    freeFloor,
     reachedRoomIds: [...reached],
     roomComponents,
     doors: portals.map((portal) => portal.connection),
