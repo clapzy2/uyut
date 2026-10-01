@@ -1,3 +1,4 @@
+import { planRoomSchedule } from '@uyut/ai'
 import { describe, expect, it } from 'vitest'
 import { planPageRoomInventory } from './plan-page-room-inventory'
 
@@ -67,5 +68,48 @@ describe('экспликация помещений из PDF', () => {
       item('04-Коридор - 4,20м', 600),
     ])
     expect(planPageRoomInventory(text)).toHaveLength(4)
+  })
+
+  it('читает три строки обмерной таблицы, не переименовывая единое помещение', () => {
+    const table = [
+      item('№', 147, 707),
+      item('Наименование', 147, 802),
+      item('Площадь', 147, 939),
+      item('01', 186, 708),
+      item('Помещение', 186, 741),
+      item('40,13', 186, 948),
+      item('02', 213, 707),
+      item('Балкон 01', 213, 741),
+      item('4,75', 213, 950),
+      item('03', 240, 707),
+      item('Балкон 02', 240, 741),
+      item('3,34', 240, 950),
+      item('48,22 м²', 263, 940),
+    ]
+    expect(planPageRoomInventory(JSON.stringify(table))).toEqual([
+      { sourceNumber: 1, name: 'Помещение' },
+      { sourceNumber: 2, name: 'Балкон 01' },
+      { sourceNumber: 3, name: 'Балкон 02' },
+    ])
+    expect(planRoomSchedule(table)).toEqual(
+      new Map([
+        [1, { name: 'Помещение', areaM2: 40.13 }],
+        [2, { name: 'Балкон 01', areaM2: 4.75 }],
+        [3, { name: 'Балкон 02', areaM2: 3.34 }],
+      ]),
+    )
+    expect(
+      planPageRoomInventory(JSON.stringify(table.filter((row) => row.text !== '4,75'))),
+    ).toBeUndefined()
+    expect(
+      planPageRoomInventory(
+        JSON.stringify(table.map((row) => (row.text === '03' ? { ...row, text: '02' } : row))),
+      ),
+    ).toBeUndefined()
+    expect(
+      planPageRoomInventory(
+        JSON.stringify(table.map((row) => (row.text === '3,34' ? { ...row, y: 270 } : row))),
+      ),
+    ).toBeUndefined()
   })
 })

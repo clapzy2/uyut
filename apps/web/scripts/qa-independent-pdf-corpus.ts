@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { preparePlanPage } from '../lib/projects/plan-document'
+import { planPageRoomInventory } from '../lib/projects/plan-page-room-inventory'
 import { pdfNativePageDimensionChain } from '../lib/projects/plan-pdf-dimension-chain'
 import type { PagePoint } from '../lib/projects/plan-pdf-linework'
 import { pdfBoundaryDistance, pdfPointInside } from '../lib/projects/plan-pdf-room-binding'
@@ -52,6 +53,7 @@ type Source = {
   minNativePaths: number
   textLayer: 'extractable' | 'outlined'
   labels: Label[]
+  sourceRooms?: Array<{ sourceNumber: number; name: string }>
   chains?: Chain[]
   standaloneDimensions?: StandaloneDimension[]
   perimeterProbes?: PerimeterProbe[]
@@ -125,6 +127,10 @@ for (const source of sources) {
     }
   }
   for (const label of source.labels) checkLabel(label)
+  const sourceRooms = planPageRoomInventory(page.image.planText)
+  if (source.sourceRooms && JSON.stringify(sourceRooms) !== JSON.stringify(source.sourceRooms)) {
+    throw new Error(`${source.file}: numbered source room table changed`)
+  }
   const nativeProofs: Array<{
     scale: number
     segments: Array<{
@@ -438,6 +444,7 @@ for (const source of sources) {
     page: source.existingPage,
     nativePaths: linework.paths.length,
     nativeLabels: text.length,
+    sourceRooms: sourceRooms ?? [],
     closedPrintedChains: source.chains?.length ?? 0,
     nativeDimensionProofs: nativeProofs.length,
     nativeDimensionIssues: nativeIssues,

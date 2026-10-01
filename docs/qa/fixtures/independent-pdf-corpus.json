@@ -14,6 +14,11 @@
       { "index": 19, "text": "40,13" },
       { "index": 45, "text": "7 088" }
     ],
+    "sourceRooms": [
+      { "sourceNumber": 1, "name": "Помещение" },
+      { "sourceNumber": 2, "name": "Балкон 01" },
+      { "sourceNumber": 3, "name": "Балкон 02" }
+    ],
     "standaloneDimensions": [
       { "axis": "width", "label": { "index": 45, "text": "7 088" } },
       { "axis": "width", "label": { "index": 46, "text": "4 042" } },

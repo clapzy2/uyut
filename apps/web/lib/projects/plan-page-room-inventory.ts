@@ -1,4 +1,4 @@
-import { planMeasurementTextItems } from '@uyut/ai'
+import { planMeasurementTextItems, planRoomSchedule } from '@uyut/ai'
 
 export type SourceRoom = { sourceNumber: number; name: string }
 
@@ -13,6 +13,11 @@ export function planPageRoomInventory(planText: string | undefined): SourceRoom[
       Number.isFinite(item.y) &&
       item.rotation === 0,
   )
+  if (headings.length === 0) {
+    const schedule = planRoomSchedule(items)
+    if (!schedule) return undefined
+    return [...schedule].map(([sourceNumber, room]) => ({ sourceNumber, name: room.name }))
+  }
   if (headings.length !== 1) return undefined
   const heading = headings[0]
   if (heading?.x === undefined || heading.y === undefined) return undefined

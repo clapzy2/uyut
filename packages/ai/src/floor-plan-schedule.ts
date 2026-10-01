@@ -49,13 +49,77 @@ function positioned(
   )
 }
 
-/** Только явно озаглавленная таблица с несколькими строками в одинаковых колонках. */
+function tabularScheduleRows(
+  items: readonly (PlanMeasurementTextItem & { x: number; y: number })[],
+): Map<number, ScheduleRoom> | undefined {
+  const header = (text: string) =>
+    items.filter((item) => item.rotation === 0 && item.text.trim().toLocaleLowerCase('ru') === text)
+  const numbers = header('№')
+  const names = header('наименование')
+  const areas = header('площадь')
+  if (numbers.length !== 1 || names.length !== 1 || areas.length !== 1) return undefined
+
+  const numberHeader = numbers[0]
+  const nameHeader = names[0]
+  const areaHeader = areas[0]
+  if (!numberHeader || !nameHeader || !areaHeader) return undefined
+  if (
+    Math.abs(numberHeader.y - nameHeader.y) > 2 ||
+    Math.abs(numberHeader.y - areaHeader.y) > 2 ||
+    nameHeader.x - numberHeader.x < 40 ||
+    areaHeader.x - nameHeader.x < 40
+  )
+    return undefined
+
+  const rowNumbers = items
+    .filter(
+      (item) =>
+        item.rotation === 0 &&
+        Math.abs(item.x - numberHeader.x) <= 15 &&
+        item.y > numberHeader.y &&
+        /^0?[1-9]\d?$/.test(item.text.trim()),
+    )
+    .sort((left, right) => left.y - right.y)
+  if (rowNumbers.length < 3 || rowNumbers.length > 50) return undefined
+
+  const rooms: Array<{ number: number; room: ScheduleRoom }> = []
+  for (const rowNumber of rowNumbers) {
+    const sameLine = items.filter(
+      (item) => item.rotation === 0 && Math.abs(item.y - rowNumber.y) <= 2,
+    )
+    const rowNames = sameLine.filter(
+      (item) =>
+        item.x > numberHeader.x + 15 &&
+        item.x < areaHeader.x - 15 &&
+        item.text.trim().length > 0 &&
+        item.text.trim().length <= 80 &&
+        !/^\d+[,.]?\d*$/.test(item.text.trim()),
+    )
+    const rowAreas = sameLine.filter(
+      (item) =>
+        Math.abs(item.x - areaHeader.x) <= 40 &&
+        /^\d{1,3}[,.]\d{1,2}(?:\s*м²)?$/iu.test(item.text.trim()),
+    )
+    if (rowNames.length !== 1 || rowAreas.length !== 1) return undefined
+    const name = rowNames[0]?.text.trim()
+    const areaText = rowAreas[0]?.text.trim()
+    if (!name || !areaText) return undefined
+    const areaM2 = Number(areaText.replace(/\s*м²$/iu, '').replace(',', '.'))
+    if (areaM2 <= 0) return undefined
+    rooms.push({ number: Number(rowNumber.text), room: { name, areaM2 } })
+  }
+  if (rooms.some((row, index) => row.number !== index + 1)) return undefined
+  return new Map(rooms.map(({ number, room }) => [number, room]))
+}
+
+/** Только явная экспликация или нумерованная таблица помещений с проверенными колонками. */
 export function planRoomSchedule(
   items: readonly PlanMeasurementTextItem[] | undefined,
 ): Map<number, ScheduleRoom> | undefined {
   if (!items) return undefined
   const located = items.filter(positioned)
   const headings = located.filter((item) => /экспликац.*помещен/iu.test(item.text))
+  if (headings.length === 0) return tabularScheduleRows(located)
   if (headings.length !== 1) return undefined
   const heading = headings[0]
   if (!heading) return undefined
