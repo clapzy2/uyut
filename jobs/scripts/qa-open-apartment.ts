@@ -14,6 +14,7 @@ import {
   inspectManualPlanCompleteness,
   inspectPlanGeometry,
 } from '../../apps/web/lib/projects/plan-geometry-inspection'
+import { inspectSourceDoorConnectivity } from '../../apps/web/lib/projects/plan-source-door-connectivity'
 import { printPdf } from '../src/lib/print-pdf'
 
 const DATASET = 'philippds/modified-swiss-dwellings-enriched'
@@ -315,6 +316,54 @@ if (areaRows.length !== 10 || wallRows.length !== 38 || openingRows.length !== 9
   throw new Error('Типы объектов открытого источника изменились')
 }
 const entrance = openingRows.find((row) => row.entity_subtype === 'ENTRANCE_DOOR')
+// Raw source coordinates: no rotation, rounding or proximity-based attachment.
+const doorConnectivity = inspectSourceDoorConnectivity({
+  rooms: areaRows
+    .filter((row) => row.entity_subtype !== 'SHAFT')
+    .map((row) => ({ id: String(row.area_id), polygon: polygonFromWkt(row.geom) })),
+  walls: wallRows.map((row, index) => ({ id: `wall-${index}`, polygon: polygonFromWkt(row.geom) })),
+  voids: areaRows
+    .filter((row) => row.entity_subtype === 'SHAFT')
+    .map((row) => ({ id: String(row.area_id), polygon: polygonFromWkt(row.geom) })),
+  openings: openingRows.map((row, index) => {
+    const polygon = polygonFromWkt(row.geom)
+    return {
+      id: `opening-${index}`,
+      polygon,
+      axis: rectangularBody(polygon).axis,
+      kind:
+        row.entity_subtype === 'WINDOW'
+          ? 'window'
+          : row.entity_subtype === 'ENTRANCE_DOOR'
+            ? 'entrance'
+            : 'door',
+    }
+  }),
+})
+if (
+  doorConnectivity.status !== 'connected-topology' ||
+  doorConnectivity.doors.length !== 8 ||
+  doorConnectivity.reachedRoomIds.length !== 8
+) {
+  throw new Error('Исходные дверные переходы не подтвердили связность восьми зон')
+}
+const narrowSourceDoors = doorConnectivity.doors.filter((door) => door.widthCm < 70)
+if (process.argv.includes('--topology-only')) {
+  console.log(
+    JSON.stringify(
+      {
+        sourceSha256,
+        doorConnectivity,
+        narrowSourceDoors,
+        minimumWidthCm: 70,
+        widthClearanceCertified: false,
+      },
+      null,
+      2,
+    ),
+  )
+  process.exit(0)
+}
 if (!entrance) throw new Error('Не найдена входная дверь для нормализации осей')
 const entranceAxis = openingAxis(polygonFromWkt(entrance.geom))
 rotationRadians = Math.atan2(
@@ -621,6 +670,8 @@ await writeFile(pdfPath, pdf)
 const report = {
   source: SOURCE_URL,
   sourceSha256,
+  doorConnectivity,
+  narrowSourceDoors,
   apartmentId: APARTMENT_ID,
   unitId: rows[0]?.unit_id,
   sourceCounts: { areas: areaRows.length, walls: wallRows.length, openings: openingRows.length },
