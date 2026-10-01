@@ -13,6 +13,37 @@ function rectangle(left: number, top: number, right: number, bottom: number): Po
   ]
 }
 
+function intersectsOpenRectangle(
+  barrier: { start: PlanPoint; end: PlanPoint },
+  left: number,
+  top: number,
+  right: number,
+  bottom: number,
+): boolean {
+  let lower = 0
+  let upper = 1
+  for (const [start, end, minimum, maximum] of [
+    [barrier.start.xCm, barrier.end.xCm, left, right],
+    [barrier.start.yCm, barrier.end.yCm, top, bottom],
+  ] as const) {
+    if (start === end) {
+      if (start <= minimum || start >= maximum) return false
+      continue
+    }
+    // Clip the segment parameter to each axis's open interval. Equality means
+    // boundary-only contact, so neither thickness nor a physical epsilon is needed.
+    // Halving only when subtraction overflows keeps finite source endpoints valid.
+    const scale = Number.isFinite(end - start) ? 1 : 2
+    const delta = end / scale - start / scale
+    const first = (minimum / scale - start / scale) / delta
+    const second = (maximum / scale - start / scale) / delta
+    lower = Math.max(lower, Math.min(first, second))
+    upper = Math.min(upper, Math.max(first, second))
+    if (lower >= upper) return false
+  }
+  return true
+}
+
 /** Constructive, axis-aligned square routes. Failure on this grid is not proof of impassability. */
 export function inspectSourceClearanceRoutes(input: {
   freeFloor: MultiPolygon
@@ -22,6 +53,8 @@ export function inspectSourceClearanceRoutes(input: {
   stepCm?: number
   maxNodes?: number
   metricObstacles?: Pick<PlanGeometry, 'obstacles' | 'voids'>
+  /** Zero-thickness physical wall spans in source centimetres. */
+  boundaryBarriers?: Array<{ start: PlanPoint; end: PlanPoint }>
 }) {
   const step = input.stepCm ?? 10
   const maxNodes = input.maxNodes ?? 40_000
@@ -32,6 +65,15 @@ export function inspectSourceClearanceRoutes(input: {
     maxNodes < 1
   ) {
     throw new Error('Некорректные параметры поиска маршрута')
+  }
+  const boundaryBarriers = input.boundaryBarriers ?? []
+  for (const { start, end } of boundaryBarriers) {
+    if (
+      ![start.xCm, start.yCm, end.xCm, end.yCm].every(Number.isFinite) ||
+      (start.xCm === end.xCm && start.yCm === end.yCm)
+    ) {
+      throw new Error('Некорректный отрезок физической границы')
+    }
   }
   const half = input.widthCm / 2
   const obstacleBodies: Polygon[] = (input.metricObstacles?.voids ?? []).map((region) => [
@@ -68,8 +110,19 @@ export function inspectSourceClearanceRoutes(input: {
     polygonClipping.difference(shape, floor).length === 0
   const square = (point: PlanPoint) =>
     rectangle(point.xCm - half, point.yCm - half, point.xCm + half, point.yCm + half)
+  const clearRectangle = (left: number, top: number, right: number, bottom: number) =>
+    !boundaryBarriers.some((barrier) =>
+      intersectsOpenRectangle(barrier, left, top, right, bottom),
+    ) && fits(rectangle(left, top, right, bottom), freeFloor)
   const base = { widthCm: input.widthCm, stepCm: step, footprint: 'axis-aligned-square' as const }
-  if (!fits(square(input.start), freeFloor)) {
+  if (
+    !clearRectangle(
+      input.start.xCm - half,
+      input.start.yCm - half,
+      input.start.xCm + half,
+      input.start.yCm + half,
+    )
+  ) {
     return {
       ...base,
       status: 'unresolved' as const,
@@ -105,13 +158,15 @@ export function inspectSourceClearanceRoutes(input: {
       const key = `${Math.round((point.xCm - input.start.xCm) / step)},${Math.round((point.yCm - input.start.yCm) / step)}`
       if (visited.has(key)) continue
       // Swept rectangle proves the entire translation, not just both endpoint squares.
-      const sweep = rectangle(
-        Math.min(point.xCm, node.point.xCm) - half,
-        Math.min(point.yCm, node.point.yCm) - half,
-        Math.max(point.xCm, node.point.xCm) + half,
-        Math.max(point.yCm, node.point.yCm) + half,
+      if (
+        !clearRectangle(
+          Math.min(point.xCm, node.point.xCm) - half,
+          Math.min(point.yCm, node.point.yCm) - half,
+          Math.max(point.xCm, node.point.xCm) + half,
+          Math.max(point.yCm, node.point.yCm) + half,
+        )
       )
-      if (!fits(sweep, freeFloor)) continue
+        continue
       if (queue.length >= maxNodes) {
         limited = true
         continue

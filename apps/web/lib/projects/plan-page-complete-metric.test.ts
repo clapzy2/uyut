@@ -10,8 +10,10 @@ import {
   currentWallFacePairs,
 } from './plan-opening-face-pairs'
 import { verifyPlanPageOpenings } from './plan-page-feature-checks'
-import { planPageMetricDraft } from './plan-page-metric-draft'
+import { planPageGeometryElementId, planPageMetricDraft } from './plan-page-metric-draft'
+import { inspectPdfClearanceRoutes } from './plan-pdf-clearance-route'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
+import { pdfContourKey } from './plan-pdf-room-binding'
 import { roomLayoutInputFromGeometry } from './room-geometry-layout'
 
 const allNumbers = [1, 2, 3, 4, 5, 6, 7, 8]
@@ -121,6 +123,80 @@ function draft(fixture = completeSheet(), numbers = allNumbers): PlanGeometry {
 }
 
 describe('complete existing PDF page in one native metric scale', () => {
+  it('сохраняет концы дверей напрямую из исходной разметки, включая общий порог', () => {
+    const fixture = completeSheet()
+    const geometry = draft(fixture)
+    const calibration = geometry.pdfCalibration
+    if (!calibration) throw new Error('Нет калибровки PDF')
+    const convert = (point: { x: number; y: number }) => ({
+      xCm:
+        Math.round(
+          ((point.x - calibration.origin.x) *
+            fixture.context.linework.pageWidth *
+            calibration.cmPerPoint) /
+            100,
+        ) / 10,
+      yCm:
+        Math.round(
+          ((point.y - calibration.origin.y) *
+            fixture.context.linework.pageHeight *
+            calibration.cmPerPoint) /
+            100,
+        ) / 10,
+    })
+    const expected = new Map(
+      fixture.context.contours.rooms.flatMap((room) =>
+        (room.openings ?? []).map(
+          (opening) =>
+            [
+              planPageGeometryElementId(
+                fixture.context.source,
+                pdfContourKey(room),
+                'opening',
+                opening.id,
+              ),
+              [convert(opening.start), convert(opening.end)],
+            ] as const,
+        ),
+      ),
+    )
+    for (const pair of calibration.openingFacePairs ?? []) {
+      for (const binding of pair.bindings)
+        expect(binding.cut).toEqual(expected.get(binding.opening.id))
+    }
+    for (const proof of calibration.openingWidthProofs ?? []) {
+      expect(proof.cut).toEqual(expected.get(proof.opening.id))
+      if (proof.oppositeBinding)
+        expect(proof.oppositeBinding.cut).toEqual(expected.get(proof.oppositeBinding.opening.id))
+    }
+    expect(calibration.sourceOpeningFacePairs).toEqual(calibration.openingFacePairs)
+  })
+
+  it('передаёт реальный PDF-черновик в расчёт без подмены его граней осями', () => {
+    const geometry = draft()
+    const entry = geometry.pdfCalibration?.openingWidthProofs?.find(
+      (proof) =>
+        proof.opening.id ===
+        planPageGeometryElementId(
+          completeSheet().context.source,
+          '1+5',
+          'opening',
+          'zone-1-5-entrance',
+        ),
+    )
+    if (!entry) throw new Error('Нет исходного входного проёма')
+    const opening = geometry.openings.find((opening) => opening.id === entry.opening.id)
+    if (!opening) throw new Error('Нет стартовой двери')
+    opening.clearance = { side: 'left', depthCm: 100, shape: 'rectangle' }
+    geometry.routeStartOpeningId = opening.id
+    geometry.routeWidthCm = 70
+    const review = inspectPdfClearanceRoutes(geometry)
+    expect(review.missing).toBeUndefined()
+    expect(review.result?.status).toBe('constructive-routes')
+    expect(review.result?.routes).toHaveLength(7)
+    expect(review.result?.unresolvedRoomIds).toEqual([])
+    expect(geometry.status).toBe('draft')
+  })
   it('groups rooms connected by unchanged door faces or the proven common threshold', () => {
     const geometry = draft()
     const review = inspectDoorAdjacency(geometry)

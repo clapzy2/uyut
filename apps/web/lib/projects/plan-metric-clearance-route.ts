@@ -1,6 +1,7 @@
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import polygonClipping, { type Polygon } from 'polygon-clipping'
 import { doorClearanceZone } from './clearance-zones'
+import { inspectPdfClearanceRoutes } from './plan-pdf-clearance-route'
 import { inspectSourceClearanceRoutes } from './plan-source-clearance-route'
 
 function body(start: PlanPoint, end: PlanPoint, thicknessCm: number): Polygon {
@@ -17,13 +18,9 @@ function body(start: PlanPoint, end: PlanPoint, thicknessCm: number): Polygon {
   ]
 }
 
-/** Explicit wall-axis model only. PDF face pairs must not be expanded as wall centre lines. */
+/** Осевые стены и исходные PDF-грани рассчитываются раздельно, без подмены одной модели другой. */
 export function inspectMetricClearanceRoutes(geometry: PlanGeometry) {
-  if (geometry.pdfCalibration)
-    return {
-      missing: 'Для этой PDF-схемы сначала подтвердите физические тела стен.',
-      result: undefined,
-    }
+  if (geometry.pdfCalibration) return inspectPdfClearanceRoutes(geometry)
   if (!geometry.footprint || geometry.footprint.length < 3)
     return { missing: 'Укажите границу пола квартиры для проверки переходов.', result: undefined }
   if (!geometry.rooms.length || !geometry.walls.length)

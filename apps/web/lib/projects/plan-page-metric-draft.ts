@@ -281,6 +281,7 @@ export function planPageMetricDraft(
     return fail('Размер схемы превышает допустимое полотно. Проверьте масштаб и выбранные комнаты.')
   const checks = verifyPlanPageOpenings(linework, source, contours, context.planText)
   const derivedOpeningIds: string[] = []
+  const openingCuts = new Map<string, [PlanPoint, PlanPoint]>()
   const areaWarnings: string[] = []
   for (const contour of selected) {
     const numbers = pdfContourRoomNumbers(contour)
@@ -345,6 +346,10 @@ export function planPageMetricDraft(
         offsetCm: roundCm(pdfPointDistance(linework, wallStart, near) * scale),
         widthCm: roundCm(pdfPointDistance(linework, opening.start, opening.end) * scale),
       })
+      openingCuts.set(id(number, 'opening', opening.id), [
+        convert(opening.start),
+        convert(opening.end),
+      ])
     }
     for (const obstacle of contour.obstacles ?? []) {
       const xs = [...new Set(obstacle.polygon.map((point) => point.x))]
@@ -417,10 +422,17 @@ export function planPageMetricDraft(
               {
                 opening: structuredClone(opening),
                 wall: structuredClone(wall),
+                cut: structuredClone(openingCuts.get(opening.id)),
                 labelIndex: check.labelIndex,
                 ...(check.sameOpeningAs ? { sameOpeningAs: check.sameOpeningAs } : {}),
                 ...(opposite && oppositeWall
-                  ? { oppositeBinding: structuredClone({ opening: opposite, wall: oppositeWall }) }
+                  ? {
+                      oppositeBinding: structuredClone({
+                        opening: opposite,
+                        wall: oppositeWall,
+                        cut: openingCuts.get(opposite.id),
+                      }),
+                    }
                   : {}),
               },
             ]
@@ -432,7 +444,9 @@ export function planPageMetricDraft(
             (item) => item.id === id(pdfContourKey(ref), 'opening', ref.openingId),
           )
           const wall = geometry.walls.find((item) => item.id === opening?.wallId)
-          return opening && wall ? [structuredClone({ opening, wall })] : []
+          return opening && wall
+            ? [structuredClone({ opening, wall, cut: openingCuts.get(opening.id) })]
+            : []
         })
         if (bindings.length !== 2 || !bindings[0] || !bindings[1]) return []
         const refs = pair.jambs.map(

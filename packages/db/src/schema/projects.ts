@@ -164,21 +164,25 @@ export type PlanImageDimensionLine = {
   pixelEnd: { x: number; y: number }
   lengthCm: number
 }
-/** Server-proved opposing door faces; snapshots prevent reuse after a geometry edit. */
+/** Серверная привязка проёма к исходной грани стены. */
+export type PlanOpeningBinding = {
+  opening: PlanOpening
+  wall: PlanWall
+  /** Концы исходного проёма в сантиметрах, не восстановленные из округлённых ширины и смещения. */
+  cut?: [PlanPoint, PlanPoint]
+}
 export type PlanOpeningFacePair = {
-  bindings: [{ opening: PlanOpening; wall: PlanWall }, { opening: PlanOpening; wall: PlanWall }]
+  bindings: [PlanOpeningBinding, PlanOpeningBinding]
   jambs: [
     PlanPageSegmentRef & { strokeSegment?: PlanPageSegmentRef },
     PlanPageSegmentRef & { strokeSegment?: PlanPageSegmentRef },
   ]
 }
 /** Server-derived printed width, bound to the annotated opening and its host. */
-export type PlanOpeningWidthProof = {
-  opening: PlanOpening
-  wall: PlanWall
+export type PlanOpeningWidthProof = PlanOpeningBinding & {
   labelIndex: number
   sameOpeningAs?: PlanPageRoomIdentity & { openingId: string }
-  oppositeBinding?: { opening: PlanOpening; wall: PlanWall }
+  oppositeBinding?: PlanOpeningBinding
 }
 /** Source-outline interval relations, not centreline walls or construction thickness. */
 export type PlanWallFacePair = {

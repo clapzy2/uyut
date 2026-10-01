@@ -32,7 +32,156 @@ function fixture(doorWidth = 80) {
   }
 }
 
+function adjoiningRooms() {
+  const floors = [box(0, 0, 200, 200), box(200, 0, 400, 200)] as const
+  return {
+    freeFloor: polygonClipping.union(...floors),
+    rooms: floors.map((floor, index) => ({
+      id: String(index),
+      polygon: (floor[0] ?? []).map(([xCm, yCm]) => ({ xCm, yCm })),
+    })),
+    start: { xCm: 100, yCm: 100 },
+    widthCm: 70,
+  }
+}
+
 describe('continuous source clearance routes', () => {
+  it('does not pass an uncut physical boundary between adjoining room polygons', () => {
+    const input = adjoiningRooms()
+    expect(inspectSourceClearanceRoutes(input).status).toBe('constructive-routes')
+    const result = inspectSourceClearanceRoutes({
+      ...input,
+      boundaryBarriers: [{ start: { xCm: 200, yCm: 0 }, end: { xCm: 200, yCm: 200 } }],
+    })
+    expect(result.status).toBe('unresolved')
+    expect(result.unresolvedRoomIds).toEqual(['1'])
+  })
+
+  it.each([
+    [70, 'constructive-routes'],
+    [80, 'constructive-routes'],
+    [90, 'unresolved'],
+  ] as const)(
+    'checks a %i cm footprint through an 80 cm gap in a physical boundary',
+    (widthCm, status) => {
+      const result = inspectSourceClearanceRoutes({
+        ...adjoiningRooms(),
+        widthCm,
+        boundaryBarriers: [
+          { start: { xCm: 200, yCm: 0 }, end: { xCm: 200, yCm: 60 } },
+          { start: { xCm: 200, yCm: 140 }, end: { xCm: 200, yCm: 200 } },
+        ],
+      })
+      expect(result.status).toBe(status)
+    },
+  )
+
+  it('rejects a zero-thickness boundary between grid nodes throughout the swept movement', () => {
+    const result = inspectSourceClearanceRoutes({
+      ...fixture(),
+      widthCm: 1,
+      stepCm: 20,
+      boundaryBarriers: [{ start: { xCm: 205, yCm: 0 }, end: { xCm: 205, yCm: 200 } }],
+    })
+    expect(result.status).toBe('unresolved')
+    expect(result.unresolvedRoomIds).toEqual(['1'])
+  })
+
+  it.each([
+    [
+      { xCm: 60, yCm: 60 },
+      { xCm: 140, yCm: 140 },
+    ],
+    [
+      { xCm: 100, yCm: 100 },
+      { xCm: 180, yCm: 180 },
+    ],
+    [
+      { xCm: 100, yCm: 100 },
+      { xCm: 101, yCm: 101 },
+    ],
+  ])('rejects diagonal spans and endpoints inside the initial square', (start, end) => {
+    const result = inspectSourceClearanceRoutes({
+      ...adjoiningRooms(),
+      boundaryBarriers: [{ start, end }],
+    })
+    expect(result.reason).toBe('entry-footprint')
+    expect(result.checkedNodes).toBe(0)
+  })
+
+  it('does not move through a diagonal boundary crossing the floor', () => {
+    const result = inspectSourceClearanceRoutes({
+      ...adjoiningRooms(),
+      widthCm: 20,
+      rooms: [
+        {
+          id: 'across',
+          polygon: [
+            { xCm: 300, yCm: 100 },
+            { xCm: 400, yCm: 100 },
+            { xCm: 400, yCm: 200 },
+            { xCm: 300, yCm: 200 },
+          ],
+        },
+      ],
+      boundaryBarriers: [{ start: { xCm: 150, yCm: 0 }, end: { xCm: 250, yCm: 200 } }],
+    })
+    expect(result.status).toBe('unresolved')
+    expect(result.unresolvedRoomIds).toEqual(['across'])
+  })
+
+  it.each([
+    [
+      { xCm: 65, yCm: 65 },
+      { xCm: 135, yCm: 65 },
+    ],
+    [
+      { xCm: 65, yCm: 65 },
+      { xCm: 65, yCm: 135 },
+    ],
+    [
+      { xCm: 40, yCm: 90 },
+      { xCm: 90, yCm: 40 },
+    ],
+    [
+      { xCm: 65, yCm: 65 },
+      { xCm: 40, yCm: 40 },
+    ],
+  ])('allows a span touching only the initial square boundary', (start, end) => {
+    const result = inspectSourceClearanceRoutes({
+      ...adjoiningRooms(),
+      boundaryBarriers: [{ start, end }],
+    })
+    expect(result.status).toBe('constructive-routes')
+  })
+
+  it.each([
+    [
+      { xCm: 100, yCm: 100 },
+      { xCm: 100, yCm: 100 },
+    ],
+    [
+      { xCm: Number.NaN, yCm: 0 },
+      { xCm: 200, yCm: 200 },
+    ],
+    [
+      { xCm: 200, yCm: 0 },
+      { xCm: Number.POSITIVE_INFINITY, yCm: 200 },
+    ],
+    [
+      { xCm: 200, yCm: Number.NEGATIVE_INFINITY },
+      { xCm: 200, yCm: 200 },
+    ],
+    [
+      { xCm: 200, yCm: 0 },
+      { xCm: 200, yCm: Number.NaN },
+    ],
+  ])('rejects invalid physical boundary segments', (start, end) => {
+    expect(() =>
+      inspectSourceClearanceRoutes({ ...fixture(), boundaryBarriers: [{ start, end }] }),
+    ).toThrow('Некорректный отрезок')
+  })
+
   it('subtracts fixed obstacles from the metric model before searching', () => {
     const result = inspectSourceClearanceRoutes({
       ...fixture(),

@@ -48,6 +48,60 @@ const geometry: PlanGeometry = {
   routeWidthCm: 70,
   routeStartOpeningId: 'entry',
 }
+if (process.argv.includes('--pdf-faces')) {
+  // Имитируем контракт доказательств, а не распознавание реального PDF.
+  geometry.rooms = [
+    { name: 'Коридор', polygon: box(0, 0, 200, 200) },
+    { name: 'Гостиная', polygon: box(210, 0, 410, 200) },
+  ]
+  geometry.walls = [
+    { id: 'top', kind: 'inner', start: point(0, 0), end: point(200, 0) },
+    { id: 'middle', kind: 'inner', start: point(200, 0), end: point(200, 200) },
+    { id: 'opposite', kind: 'inner', start: point(210, 0), end: point(210, 200) },
+  ]
+  geometry.openings.push({
+    id: 'opposite-door',
+    type: 'door',
+    wallId: 'opposite',
+    offsetCm: 60,
+    widthCm: 80,
+  })
+  const binding = (
+    openingId: string,
+    cut: [{ xCm: number; yCm: number }, { xCm: number; yCm: number }],
+  ) => {
+    const opening = geometry.openings.find((item) => item.id === openingId)
+    const wall = geometry.walls.find((item) => item.id === opening?.wallId)
+    if (!opening || !wall) throw new Error('Неполный локальный пример проёма')
+    return structuredClone({ opening, wall, cut })
+  }
+  geometry.pdfCalibration = {
+    sourceSha256: 'a'.repeat(64),
+    pdfPage: 1,
+    cmPerPoint: 1,
+    origin: { x: 0, y: 0 },
+    anchorRoomNumbers: [],
+    labelIndexes: [],
+    derivedOpeningIds: [],
+    openingWidthProofs: [{ ...binding('entry', [point(50, 0), point(150, 0)]), labelIndex: 0 }],
+    openingFacePairs: [
+      {
+        bindings: [
+          binding('between', [point(200, 60), point(200, 140)]),
+          binding('opposite-door', [point(210, 60), point(210, 140)]),
+        ],
+        jambs: [
+          { operationIndex: 0, subpathIndex: 0, segmentIndex: 0 },
+          { operationIndex: 0, subpathIndex: 0, segmentIndex: 1 },
+        ],
+      },
+    ],
+    wallFaceRoomPolygons: structuredClone(geometry.rooms.map((room) => room.polygon)),
+  }
+  geometry.pdfCalibration.sourceOpeningFacePairs = structuredClone(
+    geometry.pdfCalibration.openingFacePairs,
+  )
+}
 await db.transaction(async (tx) => {
   await tx
     .insert(users)
