@@ -152,14 +152,19 @@ const detectedAreaConflicts = planPageAreaConflicts({
   contours,
   planText: page.image.planText,
 })
+// The source text can document a conflict outside the contours selected for this run.
+// Product detection is expected only for a room whose contour was actually reviewed.
+const reviewedNumbers = new Set(rooms.map((room) => room.sourceNumber))
 if (
   JSON.stringify(detectedAreaConflicts) !==
   JSON.stringify(
-    areaConflicts.map(({ sourceNumber, planAreaM2, legendAreaM2 }) => ({
-      sourceNumber,
-      planAreaM2,
-      scheduleAreaM2: legendAreaM2,
-    })),
+    areaConflicts
+      .filter(({ sourceNumber }) => reviewedNumbers.has(sourceNumber))
+      .map(({ sourceNumber, planAreaM2, legendAreaM2 }) => ({
+        sourceNumber,
+        planAreaM2,
+        scheduleAreaM2: legendAreaM2,
+      })),
   )
 ) {
   throw new Error('Product area conflict check disagrees with the reviewed source evidence.')

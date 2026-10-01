@@ -39,6 +39,7 @@ import {
   currentOpeningWidthProofs,
   currentWallFacePairs,
 } from '@/lib/projects/plan-opening-face-pairs'
+import { planPageAreaConflicts } from '@/lib/projects/plan-page-area-conflicts'
 import { retainedPlanPageReview } from '@/lib/projects/plan-page-review'
 import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
@@ -455,10 +456,10 @@ export async function savePlanGeometry(
       return { ok: false, error: 'В схеме появились неизвестные элементы. Обновите страницу.' }
     }
     let sourceRooms = project.planReading.pageReview?.sourceRooms
+    let areaConflicts: ReturnType<typeof planPageAreaConflicts> = []
     if (
       manual &&
       mode === 'confirm' &&
-      !sourceRooms &&
       project.planUrl?.toLowerCase().endsWith('.pdf') &&
       project.planReading.pageReview
     ) {
@@ -468,8 +469,20 @@ export async function savePlanGeometry(
       if (createHash('sha256').update(body).digest('hex') !== review.sha256) {
         throw new PlanEditConflictError()
       }
-      const page = await preparePlanPage(body, true, review.pdfPage)
-      sourceRooms = planPageRoomInventory(page.image.planText)
+      const page = await preparePlanPage(body, true, review.pdfPage, true)
+      if (page.pageNumber !== review.pdfPage || !page.linework) {
+        return {
+          ok: false,
+          error: 'Не удалось повторно сверить исходный PDF-лист перед подтверждением схемы.',
+        }
+      }
+      sourceRooms = planPageRoomInventory(page.image.planText) ?? sourceRooms
+      areaConflicts = planPageAreaConflicts({
+        source: review,
+        linework: page.linework,
+        contours: project.planReading.pageReview.contours,
+        planText: page.image.planText,
+      })
     }
     if (manual) {
       const knownRoomNames = project.planReading.rooms.map((room) => room.name)
@@ -493,6 +506,18 @@ export async function savePlanGeometry(
               .slice(0, 3)
               .map((room) => `№${String(room.sourceNumber).padStart(2, '0')} ${room.name}`)
               .join(', ')}. Добавьте их без догадки о размерах.`,
+          }
+        }
+        const readingRooms = project.planReading.rooms
+        const unresolvedArea = areaConflicts.find((conflict) =>
+          readingRooms.some(
+            (room) => room.sourceNumber === conflict.sourceNumber && room.areaM2 !== undefined,
+          ),
+        )
+        if (unresolvedArea) {
+          return {
+            ok: false,
+            error: `Площадь №${String(unresolvedArea.sourceNumber).padStart(2, '0')} противоречит исходному листу: на плане ${unresolvedArea.planAreaM2.toLocaleString('ru-RU')} м², в экспликации ${unresolvedArea.scheduleAreaM2.toLocaleString('ru-RU')} м². Оставьте поле пустым до уточнения обмера.`,
           }
         }
         if (new Set(knownRoomNames).size !== knownRoomNames.length) {
