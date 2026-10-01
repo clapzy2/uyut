@@ -53,14 +53,44 @@ export function verifyPdfBlockedInteriorSpan(
   ) {
     throw new Error(`${sourceFile}: invalid reviewed interior span`)
   }
-  for (const fraction of [0.1, 0.3, 0.5, 0.7, 0.9]) {
-    const position = from + (to - from) * fraction
+
+  const fills = work.paths.filter((path) => path.paint === 'fill' && path.closed)
+  const cuts = [from, to]
+  for (const path of fills) {
+    for (const probeAcross of [span.freeProbeAcross, span.blockedProbeAcross]) {
+      for (let index = 0; index < path.points.length; index++) {
+        const first = path.points[index]
+        const second = path.points[(index + 1) % path.points.length]
+        if (!first || !second) continue
+        const firstOffset = first[across] - probeAcross
+        const secondOffset = second[across] - probeAcross
+        if (firstOffset === 0 && secondOffset === 0) {
+          if (
+            Math.max(first[along], second[along]) > from &&
+            Math.min(first[along], second[along]) < to
+          ) {
+            throw new Error(`${sourceFile}: reviewed interior probe follows a fill boundary`)
+          }
+          continue
+        }
+        if (firstOffset * secondOffset > 0 || firstOffset === secondOffset) continue
+        const ratio = -firstOffset / (secondOffset - firstOffset)
+        if (ratio < 0 || ratio > 1) continue
+        const cut = first[along] + ratio * (second[along] - first[along])
+        if (cut > from && cut < to) cuts.push(cut)
+      }
+    }
+  }
+  cuts.sort((a, b) => a - b)
+  for (let index = 1; index < cuts.length; index++) {
+    const left = cuts[index - 1]
+    const right = cuts[index]
+    if (left === undefined || right === undefined || right - left < 1e-8) continue
+    const position = (left + right) / 2
     const free = { [along]: position, [across]: span.freeProbeAcross } as PagePoint
     const blocked = { [along]: position, [across]: span.blockedProbeAcross } as PagePoint
     if (
-      work.paths.some(
-        (path) => path.paint === 'fill' && path.closed && pdfPointInside(free, path.points),
-      ) ||
+      fills.some((path) => pdfPointInside(free, path.points)) ||
       !pdfPointInside(blocked, blocker.points)
     ) {
       throw new Error(`${sourceFile}: reviewed interior span is not clear beside a continuous wall`)

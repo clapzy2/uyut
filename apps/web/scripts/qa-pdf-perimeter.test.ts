@@ -203,4 +203,51 @@ describe('source-reviewed interior clearance', () => {
       'not clear beside a continuous wall',
     )
   })
+
+  it('finds a narrow obstruction between former sample positions', () => {
+    const obstructed: PdfLinework = {
+      ...interiorWork,
+      paths: [
+        ...interiorWork.paths,
+        {
+          ...wall(4, 20, 30),
+          points: [
+            { x: 20, y: 43 },
+            { x: 30, y: 43 },
+            { x: 30, y: 44 },
+            { x: 20, y: 44 },
+          ],
+        },
+      ],
+    }
+    expect(() => verifyPdfBlockedInteriorSpan('sample.pdf', obstructed, span)).toThrow(
+      'not clear beside a continuous wall',
+    )
+  })
+
+  it('does not call a notched wall continuous between sample positions', () => {
+    const notched: PdfLinework = {
+      ...interiorWork,
+      paths: interiorWork.paths.map((path) =>
+        path.operationIndex === 3
+          ? {
+              ...path,
+              points: [
+                { x: 50, y: 40 },
+                { x: 60, y: 40 },
+                { x: 60, y: 60 },
+                { x: 50, y: 60 },
+                { x: 50, y: 44 },
+                { x: 57, y: 44 },
+                { x: 57, y: 43 },
+                { x: 50, y: 43 },
+              ],
+            }
+          : path,
+      ),
+    }
+    expect(() => verifyPdfBlockedInteriorSpan('sample.pdf', notched, span)).toThrow(
+      'not clear beside a continuous wall',
+    )
+  })
 })
