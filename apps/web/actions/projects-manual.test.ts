@@ -258,64 +258,93 @@ describe('manual plan draft', () => {
     expect(mocks.setPlanReading).not.toHaveBeenCalled()
   })
 
-  it('сверяет экспликацию PDF и для старого черновика без сохранённого списка', async () => {
-    const body = Buffer.from('old reviewed plan')
-    const sha256 = createHash('sha256').update(body).digest('hex')
-    source.planUrl = 'plan.pdf'
-    source.planReading.rooms = [{ name: 'Кухня №01', sourceNumber: 1, kind: 'kitchen', areaM2: 20 }]
-    source.planReading.pageReview = {
-      version: 1,
-      savedAt: '2026-09-30T00:00:00.000Z',
-      contours: {
-        source: { sha256, pdfPage: 2, state: 'existing' },
-        coordinateSystem: 'page-0-1000',
-        review: 'manual-source-review',
-        pageWidth: 1000,
-        pageHeight: 1000,
-        rooms: [
-          {
-            roomSourceNumber: 1,
-            polygon: corners.map((point) => ({ x: point.xCm, y: point.yCm })),
-          },
-        ],
-      },
-    }
-    source.planReading.geometry = {
-      ...emptyManualGeometry,
-      walls: closedWalls,
-      rooms: [{ name: 'Кухня №01', sourceNumber: 1, polygon: corners }],
-    }
-    mocks.getObject.mockResolvedValue({ body })
-    mocks.preparePlanPage.mockResolvedValue({
-      pageNumber: 2,
-      linework: {
-        coordinateSystem: 'page-0-1000',
-        pageWidth: 1000,
-        pageHeight: 1000,
-        paths: [],
-        unsupportedContexts: 0,
-        unsupportedPaths: 0,
-        truncated: false,
-      },
-      image: {
-        body: Buffer.from('image'),
-        contentType: 'image/jpeg',
-        planText: JSON.stringify([
-          { text: 'Экспликация помещений:', x: 630, y: 100, rotation: 0 },
-          { text: '01-Кухня - 20,00м', x: 630, y: 120, rotation: 0 },
-          { text: '02-Спальня - 15,00м', x: 630, y: 139, rotation: 0 },
-          { text: '03-Санузел - 5,00м', x: 630, y: 158, rotation: 0 },
-        ]),
-      },
-    })
+  it.each([
+    {
+      format: 'экспликация',
+      planText: [
+        { text: 'Экспликация помещений:', x: 630, y: 100, rotation: 0 },
+        { text: '01-Кухня - 20,00м', x: 630, y: 120, rotation: 0 },
+        { text: '02-Спальня - 15,00м', x: 630, y: 139, rotation: 0 },
+        { text: '03-Санузел - 5,00м', x: 630, y: 158, rotation: 0 },
+      ],
+      missing: '№02 Спальня',
+    },
+    {
+      format: 'таблица обмера',
+      planText: [
+        { text: '№', x: 707, y: 147, rotation: 0 },
+        { text: 'Наименование', x: 802, y: 147, rotation: 0 },
+        { text: 'Площадь', x: 939, y: 147, rotation: 0 },
+        { text: '01', x: 707, y: 186, rotation: 0 },
+        { text: 'Помещение', x: 741, y: 186, rotation: 0 },
+        { text: '40,13', x: 948, y: 186, rotation: 0 },
+        { text: '02', x: 707, y: 213, rotation: 0 },
+        { text: 'Балкон 01', x: 741, y: 213, rotation: 0 },
+        { text: '4,75', x: 950, y: 213, rotation: 0 },
+        { text: '03', x: 707, y: 240, rotation: 0 },
+        { text: 'Балкон 02', x: 741, y: 240, rotation: 0 },
+        { text: '3,34', x: 950, y: 240, rotation: 0 },
+      ],
+      missing: '№02 Балкон 01',
+    },
+  ])(
+    'сверяет $format PDF и для старого черновика без сохранённого списка',
+    async ({ planText, missing }) => {
+      const body = Buffer.from('old reviewed plan')
+      const sha256 = createHash('sha256').update(body).digest('hex')
+      source.planUrl = 'plan.pdf'
+      source.planReading.rooms = [
+        { name: 'Кухня №01', sourceNumber: 1, kind: 'kitchen', areaM2: 20 },
+      ]
+      source.planReading.pageReview = {
+        version: 1,
+        savedAt: '2026-09-30T00:00:00.000Z',
+        contours: {
+          source: { sha256, pdfPage: 2, state: 'existing' },
+          coordinateSystem: 'page-0-1000',
+          review: 'manual-source-review',
+          pageWidth: 1000,
+          pageHeight: 1000,
+          rooms: [
+            {
+              roomSourceNumber: 1,
+              polygon: corners.map((point) => ({ x: point.xCm, y: point.yCm })),
+            },
+          ],
+        },
+      }
+      source.planReading.geometry = {
+        ...emptyManualGeometry,
+        walls: closedWalls,
+        rooms: [{ name: 'Кухня №01', sourceNumber: 1, polygon: corners }],
+      }
+      mocks.getObject.mockResolvedValue({ body })
+      mocks.preparePlanPage.mockResolvedValue({
+        pageNumber: 2,
+        linework: {
+          coordinateSystem: 'page-0-1000',
+          pageWidth: 1000,
+          pageHeight: 1000,
+          paths: [],
+          unsupportedContexts: 0,
+          unsupportedPaths: 0,
+          truncated: false,
+        },
+        image: {
+          body: Buffer.from('image'),
+          contentType: 'image/jpeg',
+          planText: JSON.stringify(planText),
+        },
+      })
 
-    const result = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
+      const result = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
 
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error).toContain('№02 Спальня')
-    expect(mocks.preparePlanPage).toHaveBeenCalledWith(body, true, 2, true)
-    expect(mocks.setPlanReading).not.toHaveBeenCalled()
-  })
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.error).toContain(missing)
+      expect(mocks.preparePlanPage).toHaveBeenCalledWith(body, true, 2, true)
+      expect(mocks.setPlanReading).not.toHaveBeenCalled()
+    },
+  )
 
   it.each([8.51, 8.93])(
     'не подтверждает PDF-схему с выбранной площадью %s м² при противоречии в источнике',

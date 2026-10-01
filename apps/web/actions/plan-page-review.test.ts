@@ -150,6 +150,38 @@ describe('save source page review action', () => {
     expect(result.data.reading.rooms).toEqual(reading.rooms)
   })
 
+  it('сохраняет исходную таблицу обмера без переименования помещения', async () => {
+    mocks.prepare.mockResolvedValue({
+      ...page,
+      image: {
+        ...page.image,
+        planText: JSON.stringify([
+          { text: '№', x: 707, y: 147, rotation: 0 },
+          { text: 'Наименование', x: 802, y: 147, rotation: 0 },
+          { text: 'Площадь', x: 939, y: 147, rotation: 0 },
+          { text: '01', x: 707, y: 186, rotation: 0 },
+          { text: 'Помещение', x: 741, y: 186, rotation: 0 },
+          { text: '40,13', x: 948, y: 186, rotation: 0 },
+          { text: '02', x: 707, y: 213, rotation: 0 },
+          { text: 'Балкон 01', x: 741, y: 213, rotation: 0 },
+          { text: '4,75', x: 950, y: 213, rotation: 0 },
+          { text: '03', x: 707, y: 240, rotation: 0 },
+          { text: 'Балкон 02', x: 741, y: 240, rotation: 0 },
+          { text: '3,34', x: 950, y: 240, rotation: 0 },
+        ]),
+      },
+    })
+
+    const result = await savePlanPageReview('project', contours, revision)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading.pageReview?.sourceRooms).toEqual([
+      { sourceNumber: 1, name: 'Помещение' },
+      { sourceNumber: 2, name: 'Балкон 01' },
+      { sourceNumber: 3, name: 'Балкон 02' },
+    ])
+    expect(result.data.reading.rooms).toEqual(reading.rooms)
+  })
+
   it('refuses a missing session, malformed payload, or stale revision before reading storage', async () => {
     mocks.session.mockResolvedValueOnce(null)
     expect((await savePlanPageReview('project', contours, revision)).ok).toBe(false)
