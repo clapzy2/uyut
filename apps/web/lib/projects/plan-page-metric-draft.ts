@@ -37,6 +37,19 @@ type Context = {
 type Result = { ok: true; geometry: PlanGeometry } | { ok: false; error: string }
 type Candidate = Extract<PdfDimensionChain, { status: 'candidate' }>
 
+/** Stable correspondence between a source annotation and its metric element. */
+export function planPageGeometryElementId(
+  source: PdfPlanSource,
+  room: number | string,
+  type: string,
+  identity: string | number,
+): string {
+  return `manual_${createHash('sha256')
+    .update(JSON.stringify([source, room, type, identity]))
+    .digest('hex')
+    .slice(0, 24)}`
+}
+
 const roundCm = (value: number) => Math.round(value * 10) / 10
 const nameKey = (name: string) => name.trim().toLocaleLowerCase('ru').replaceAll('ё', 'е')
 const polygonAreaM2 = (polygon: PlanPoint[]) =>
@@ -246,10 +259,7 @@ export function planPageMetricDraft(
     yCm: roundCm(((point.y - origin.y) * linework.pageHeight * scale) / 1000),
   })
   const id = (room: number | string, type: string, identity: string | number) =>
-    `manual_${createHash('sha256')
-      .update(JSON.stringify([source, room, type, identity]))
-      .digest('hex')
-      .slice(0, 24)}`
+    planPageGeometryElementId(source, room, type, identity)
   const geometry: PlanGeometry = {
     version: 1,
     source: 'manual',

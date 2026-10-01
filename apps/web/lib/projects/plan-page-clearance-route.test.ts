@@ -44,11 +44,110 @@ function room(): PlanPageContours {
 }
 
 describe('constructive square-clearance route', () => {
+  it('checks the entry footprint in a room with one door', () => {
+    const input = room()
+    const firstRoom = input.rooms[0]
+    if (!firstRoom?.openings) throw new Error('Missing room doors')
+    firstRoom.openings.pop()
+    expect(inspectPlanPageClearanceRoutes(input, [], page, 1, 70)[0]).toMatchObject({
+      status: 'entry-clearance',
+      reachedDoorIds: ['left'],
+      checkedNodes: 1,
+    })
+    const block: MultiPolygon = [
+      [
+        [
+          [100, 160],
+          [120, 160],
+          [120, 240],
+          [100, 240],
+          [100, 160],
+        ],
+      ],
+    ]
+    expect(inspectPlanPageClearanceRoutes(input, block, page, 1, 70)[0]).toMatchObject({
+      status: 'unresolved',
+      reason: 'entry-footprint',
+      reachedDoorIds: [],
+    })
+  })
+
+  it('checks the width of the only door and distinguishes a room with no door', () => {
+    const input = room()
+    const firstRoom = input.rooms[0]
+    const firstDoor = firstRoom?.openings?.[0]
+    if (!firstRoom?.openings || !firstDoor) throw new Error('Missing room door')
+    firstRoom.openings.pop()
+    firstDoor.end.y = 210
+    expect(inspectPlanPageClearanceRoutes(input, [], page, 1, 70)[0]).toMatchObject({
+      status: 'unresolved',
+      reason: 'door-too-narrow',
+    })
+    firstRoom.openings = []
+    expect(inspectPlanPageClearanceRoutes(input, [], page, 1, 70)[0]).toMatchObject({
+      status: 'not-applicable',
+    })
+  })
+
+  it.each(['shifted', 'outside-edge', 'wrong-edge', 'nonfinite'])(
+    'rejects a %s door before checking a free square',
+    (mutation) => {
+      const input = room()
+      const door = input.rooms[0]?.openings?.[0]
+      if (!door) throw new Error('Missing door')
+      if (mutation === 'shifted') {
+        door.start.x = 120
+        door.end.x = 120
+      }
+      if (mutation === 'outside-edge') {
+        door.start.y = 80
+        door.end.y = 160
+      }
+      if (mutation === 'wrong-edge') door.wallEdgeIndex = 1
+      if (mutation === 'nonfinite') door.start.x = Number.NaN
+      expect(inspectPlanPageClearanceRoutes(input, [], page, 1, 70)[0]).toMatchObject({
+        status: 'unresolved',
+        reason: 'door-off-boundary',
+        reachedDoorIds: [],
+      })
+    },
+  )
+
   it('finds a 70 cm route and retains both reached door ids', () => {
     expect(inspectPlanPageClearanceRoutes(room(), [], page, 1, 70)[0]).toMatchObject({
       widthCm: 70,
       status: 'constructive-route',
       reachedDoorIds: ['left', 'right'],
+    })
+  })
+
+  it('places the whole axis-aligned square inside a diagonal single-door entry', () => {
+    const input = room()
+    const firstRoom = input.rooms[0]
+    if (!firstRoom) throw new Error('Missing room')
+    firstRoom.polygon = [
+      { x: 100, y: 300 },
+      { x: 300, y: 100 },
+      { x: 500, y: 300 },
+      { x: 300, y: 500 },
+    ]
+    const door = {
+      id: 'diagonal',
+      kind: 'door' as const,
+      wallEdgeIndex: 0,
+      start: { x: 150, y: 250 },
+      end: { x: 250, y: 150 },
+    }
+    firstRoom.openings = [door]
+    expect(inspectPlanPageClearanceRoutes(input, [], page, 1, 70)[0]).toMatchObject({
+      status: 'entry-clearance',
+      reachedDoorIds: ['diagonal'],
+    })
+    door.start = { x: 170, y: 230 }
+    door.end = { x: 230, y: 170 }
+    expect(inspectPlanPageClearanceRoutes(input, [], page, 1, 70)[0]).toMatchObject({
+      status: 'unresolved',
+      reason: 'door-too-narrow',
     })
   })
 

@@ -9,8 +9,13 @@ type Point = { x: number; y: number }
 export type PageClearanceRoute = {
   contourKey: string
   widthCm: number
-  status: 'constructive-route' | 'unresolved' | 'not-applicable'
-  reason?: 'door-too-narrow' | 'entry-footprint' | 'search-limit' | 'no-constructed-route'
+  status: 'constructive-route' | 'entry-clearance' | 'unresolved' | 'not-applicable'
+  reason?:
+    | 'door-off-boundary'
+    | 'door-too-narrow'
+    | 'entry-footprint'
+    | 'search-limit'
+    | 'no-constructed-route'
   doorIds: string[]
   reachedDoorIds: string[]
   checkedNodes: number
@@ -48,6 +53,21 @@ function roomSign(points: readonly Point[]): number {
   )
 }
 
+function onEdge(point: Point, start: Point, end: Point): boolean {
+  if (![point.x, point.y, start.x, start.y, end.x, end.y].every(Number.isFinite)) return false
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const squaredLength = dx * dx + dy * dy
+  if (squaredLength === 0) return false
+  const ratio = ((point.x - start.x) * dx + (point.y - start.y) * dy) / squaredLength
+  // Arithmetic precision only; the source endpoints are not moved onto the edge.
+  return (
+    ratio >= 0 &&
+    ratio <= 1 &&
+    Math.hypot(point.x - start.x - ratio * dx, point.y - start.y - ratio * dy) <= 1e-7
+  )
+}
+
 function positions(low: number, high: number, step: number, anchors: number[]): number[] {
   const result = anchors.filter((value) => value >= low && value <= high)
   for (let value = low; value <= high; value += step) result.push(value)
@@ -66,6 +86,10 @@ export function inspectPlanPageClearanceRoutes(
   if (
     !Number.isFinite(cmPerPoint) ||
     cmPerPoint <= 0 ||
+    !Number.isFinite(work.pageWidth) ||
+    !Number.isFinite(work.pageHeight) ||
+    work.pageWidth <= 0 ||
+    work.pageHeight <= 0 ||
     !Number.isFinite(widthCm) ||
     widthCm <= 0 ||
     !Number.isFinite(gridStepCm) ||
@@ -97,7 +121,7 @@ function inspectRoom(
   const doors = (room.openings ?? []).filter((opening) => opening.kind === 'door')
   const doorIds = doors.map((door) => door.id)
   const base = { contourKey, widthCm, doorIds }
-  if (doors.length < 2)
+  if (doors.length === 0)
     return { ...base, status: 'not-applicable', reachedDoorIds: [], checkedNodes: 0 }
   const floorPoints = room.polygon.map((point) => toCm(point, work, cmPerPoint))
   const floor: Polygon = [floorPoints.map(({ x, y }) => [x, y])]
@@ -116,8 +140,24 @@ function inspectRoom(
       !edgeStart ||
       !edgeEnd ||
       edgeLength === 0 ||
-      Math.hypot(end.x - start.x, end.y - start.y) < widthCm
+      sign === 0 ||
+      !onEdge(start, edgeStart, edgeEnd) ||
+      !onEdge(end, edgeStart, edgeEnd)
     )
+      return {
+        ...base,
+        status: 'unresolved',
+        reason: 'door-off-boundary',
+        reachedDoorIds: [],
+        checkedNodes: 0,
+      }
+    const normal = {
+      x: (-sign * (edgeEnd.y - edgeStart.y)) / edgeLength,
+      y: (sign * (edgeEnd.x - edgeStart.x)) / edgeLength,
+    }
+    // The square remains aligned with the page axes, including at diagonal door faces.
+    const projection = Math.abs(normal.x) + Math.abs(normal.y)
+    if (Math.hypot(end.x - start.x, end.y - start.y) < widthCm * projection)
       return {
         ...base,
         status: 'unresolved',
@@ -127,12 +167,29 @@ function inspectRoom(
       }
     anchors.push({
       id: door.id,
-      x: (start.x + end.x) / 2 - ((sign * (edgeEnd.y - edgeStart.y)) / edgeLength) * half,
-      y: (start.y + end.y) / 2 + ((sign * (edgeEnd.x - edgeStart.x)) / edgeLength) * half,
+      x: (start.x + end.x) / 2 + normal.x * half * projection,
+      y: (start.y + end.y) / 2 + normal.y * half * projection,
     })
   }
   const xs = floorPoints.map((point) => point.x)
   const ys = floorPoints.map((point) => point.y)
+  const contains = (polygon: Polygon) => polygonClipping.difference(polygon, freeFloor).length === 0
+  const fits = (x: number, y: number) => contains(rectangle(x - half, y - half, x + half, y + half))
+  if (anchors.some((anchor) => !fits(anchor.x, anchor.y)))
+    return {
+      ...base,
+      status: 'unresolved',
+      reason: 'entry-footprint',
+      reachedDoorIds: [],
+      checkedNodes: 0,
+    }
+  if (doors.length === 1)
+    return {
+      ...base,
+      status: 'entry-clearance',
+      reachedDoorIds: doorIds,
+      checkedNodes: 1,
+    }
   const xValues = positions(
     Math.min(...xs) + half,
     Math.max(...xs) - half,
@@ -150,16 +207,6 @@ function inspectRoom(
       ...base,
       status: 'unresolved',
       reason: 'search-limit',
-      reachedDoorIds: [],
-      checkedNodes: 0,
-    }
-  const contains = (polygon: Polygon) => polygonClipping.difference(polygon, freeFloor).length === 0
-  const fits = (x: number, y: number) => contains(rectangle(x - half, y - half, x + half, y + half))
-  if (anchors.some((anchor) => !fits(anchor.x, anchor.y)))
-    return {
-      ...base,
-      status: 'unresolved',
-      reason: 'entry-footprint',
       reachedDoorIds: [],
       checkedNodes: 0,
     }

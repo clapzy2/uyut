@@ -18,6 +18,7 @@ import {
   inspectPlanRoomAreas,
 } from '../lib/projects/plan-geometry-inspection'
 import { inspectPlanPageClearanceRoutes } from '../lib/projects/plan-page-clearance-route'
+import { inspectPlanPageDoorAccess } from '../lib/projects/plan-page-door-access'
 import { inspectPlanPageDoorFloorConnectivity } from '../lib/projects/plan-page-door-floor-connectivity'
 import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema } from '../lib/projects/plan-page-review'
@@ -298,6 +299,10 @@ const clearanceRoutes = inspectPlanPageClearanceRoutes(
   cmPerPoint,
   WALKWAY_CM,
 )
+const doorAccess = inspectPlanPageDoorAccess(result.geometry, contours, clearanceRoutes)
+if (doorAccess.length !== 6 || doorAccess.some((link) => link.status !== 'both-entry-clear')) {
+  throw new Error('Проверка входных площадок изменилась — сверить обе стороны исходных дверей.')
+}
 const output = resolve('../../output/playwright/complete-metric')
 await mkdir(output, { recursive: true })
 const report = {
@@ -309,6 +314,7 @@ const report = {
   doorAdjacency,
   doorFloorConnectivity,
   clearanceRoutes,
+  doorAccess,
   openingFacePairs: pairPlanPageOpeningFaces(page.linework, source, contours),
   wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs,
   wallCoverage,
@@ -460,6 +466,7 @@ console.log(
     openingFacePairs: report.openingFacePairs.length,
     provenDoorLinks: doorAdjacency.links.length,
     provenZoneGroups: doorAdjacency.provenGroups.length,
+    bothSideDoorEntries: doorAccess.filter((link) => link.status === 'both-entry-clear').length,
     doorFloorConnectivity: doorFloorConnectivity.map(
       ({ contourKey, status, freeComponentCount }) => ({
         contourKey,
