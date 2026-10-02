@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import page from '../../../../docs/qa/fixtures/apartment-74-77-complete-page.json'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
-import { pairPlanPageWallFaces } from './plan-pdf-wall-faces'
+import { pairPlanPageWallFaces, validPlanPageWallSource } from './plan-pdf-wall-faces'
 
 const source = { sha256: 'a'.repeat(64), pdfPage: 1, state: 'existing' as const }
 
@@ -631,6 +631,46 @@ describe('exact native PDF wall-face intervals', () => {
     if (mutation === 'clipped') input.work.clippedPaths = 1
 
     expect(pairPlanPageWallFaces(input.work, inputSource, input.contours)).toEqual([])
+  })
+
+  it('keeps only face intervals disjoint from every recorded clipped path', () => {
+    const input = syntheticSheet()
+    const complete = pairPlanPageWallFaces(input.work, source, input.contours)
+    expect(complete.length).toBeGreaterThan(1)
+    const firstPair = complete[0]
+    if (!firstPair) throw new Error('Expected an independently backed wall-face pair.')
+
+    input.work.clippedPaths = 1
+    input.work.clippedPathBounds = [
+      {
+        operationIndex: 99,
+        bounds: { left: 0, top: 120, right: 1000, bottom: 150 },
+      },
+    ]
+    const partial = pairPlanPageWallFaces(input.work, source, input.contours)
+    expect(partial.length).toBeGreaterThan(0)
+    expect(partial.length).toBeLessThan(complete.length)
+    expect(partial.every(({ faces }) => faces[0].start.y >= 150)).toBe(true)
+    expect(validPlanPageWallSource(input.work, source, input.contours)).toBe(false)
+
+    input.work.clippedPathBounds = [
+      {
+        operationIndex: 99,
+        bounds: { left: 0, top: 0, right: 1000, bottom: 1000 },
+      },
+    ]
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+
+    input.work.clippedPathBounds = [
+      {
+        operationIndex: firstPair.faces[0].nativeSegment.operationIndex,
+        bounds: { left: 0, top: 120, right: 1000, bottom: 150 },
+      },
+    ]
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).not.toContainEqual(firstPair)
+
+    input.work.clippedPathBoundsTruncated = true
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
   })
 
   it('returns only source-backed partial relations from the complete apartment page', () => {

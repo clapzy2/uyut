@@ -1,6 +1,6 @@
 type Matrix = [number, number, number, number, number, number]
 export type PagePoint = { x: number; y: number }
-type Bounds = { left: number; top: number; right: number; bottom: number }
+export type Bounds = { left: number; top: number; right: number; bottom: number }
 export type PdfVectorPath = {
   operationIndex: number
   subpathIndex: number
@@ -19,6 +19,9 @@ export type PdfLinework = {
   unsupportedPaths: number
   unsupportedContexts: number
   clippedPaths: number
+  /** Diagnostic bounds of omitted paths; never evidence that their visible part was absent. */
+  clippedPathBounds?: Array<{ operationIndex: number; bounds: Bounds }>
+  clippedPathBoundsTruncated?: boolean
   truncated: boolean
 }
 type Operators = Readonly<Record<string, number>>
@@ -264,6 +267,8 @@ export function extractPdfLinework(
     unsupportedPaths: 0,
     unsupportedContexts: 0,
     clippedPaths: 0,
+    clippedPathBounds: [],
+    clippedPathBoundsTruncated: false,
     truncated: list.fnArray.length > MAX_OPERATIONS,
   }
   let state: GraphicsState = { matrix: [1, 0, 0, 1, 0, 0], supported: true }
@@ -421,6 +426,19 @@ export function extractPdfLinework(
         )
       ) {
         result.clippedPaths++
+        if (result.clippedPathBounds && result.clippedPathBounds.length < MAX_PATHS) {
+          result.clippedPathBounds.push({
+            operationIndex,
+            bounds: {
+              left: Math.min(...path.points.map((p) => p.x)),
+              top: Math.min(...path.points.map((p) => p.y)),
+              right: Math.max(...path.points.map((p) => p.x)),
+              bottom: Math.max(...path.points.map((p) => p.y)),
+            },
+          })
+        } else {
+          result.clippedPathBoundsTruncated = true
+        }
         continue
       }
       const first = path.points[0]

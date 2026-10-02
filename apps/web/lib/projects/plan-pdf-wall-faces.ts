@@ -412,15 +412,21 @@ function pairSlantedFaces(
   })
 }
 
-/** Shared trust boundary for native wall faces and whole-body diagnostics. */
-export function validPlanPageWallSource(
+/** Whole-body checks need a complete page. Partial face pairs may use recorded, disjoint clips. */
+function validWallSource(
   work: PdfLinework,
   source: PdfPlanSource,
   contours: PlanPageContours,
+  allowRecordedClips: boolean,
 ): boolean {
+  const clipsKnown =
+    work.clippedPaths === 0 ||
+    (allowRecordedClips &&
+      !work.clippedPathBoundsTruncated &&
+      work.clippedPathBounds?.length === work.clippedPaths)
   if (
     source.state !== 'existing' ||
-    work.clippedPaths > 0 ||
+    !clipsKnown ||
     work.paths.length > 3000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
     !planPageContoursSchema.safeParse(contours).success ||
@@ -460,13 +466,43 @@ export function validPlanPageWallSource(
   return true
 }
 
+/** Shared trust boundary for diagnostics that inspect complete wall bodies. */
+export function validPlanPageWallSource(
+  work: PdfLinework,
+  source: PdfPlanSource,
+  contours: PlanPageContours,
+): boolean {
+  return validWallSource(work, source, contours, false)
+}
+
+function unaffectedByClippedPaths(pair: PdfWallFacePair, work: PdfLinework): boolean {
+  if (work.clippedPaths === 0) return true
+  const first = pair.faces[0]
+  const along = first.start.x === first.end.x ? 'y' : 'x'
+  const low = Math.min(first.start[along], first.end[along])
+  const high = Math.max(first.start[along], first.end[along])
+  return !work.clippedPathBounds?.some(({ operationIndex, bounds }) => {
+    if (
+      pair.faces.some(
+        (face) =>
+          face.nativeSegment.operationIndex === operationIndex ||
+          face.strokeSegment?.operationIndex === operationIndex,
+      )
+    )
+      return true
+    const clipLow = along === 'x' ? bounds.left : bounds.top
+    const clipHigh = along === 'x' ? bounds.right : bounds.bottom
+    return clipLow < high && clipHigh > low
+  })
+}
+
 /** Exact partial face relations within one native closed outline; not complete wall topology. */
 export function pairPlanPageWallFaces(
   work: PdfLinework,
   source: PdfPlanSource,
   contours: PlanPageContours,
 ): PdfWallFacePair[] {
-  if (!validPlanPageWallSource(work, source, contours)) return []
+  if (!validWallSource(work, source, contours, true)) return []
   const faces = facesFromContours(contours)
   if (faces.length > 200) return []
   // Multiple closed subpaths can represent a hole or a compound outline. Their winding
@@ -660,5 +696,9 @@ export function pairPlanPageWallFaces(
       if (result.length > 2000) return []
     }
   }
-  return [...result, ...pairSlantedFaces(work, contours, closedSubpaths)]
+  const axisAligned = result.filter((pair) => unaffectedByClippedPaths(pair, work))
+  // The interval-only clip check above does not apply to diagonal faces.
+  return work.clippedPaths > 0
+    ? axisAligned
+    : [...axisAligned, ...pairSlantedFaces(work, contours, closedSubpaths)]
 }

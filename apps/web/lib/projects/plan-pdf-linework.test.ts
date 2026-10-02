@@ -142,6 +142,12 @@ describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
     ])
     expect(result.paths).toHaveLength(2)
     expect(result.clippedPaths).toBe(1)
+    expect(result.clippedPathBounds).toEqual([
+      {
+        operationIndex: 4,
+        bounds: { left: 150, top: 825, right: 350, bottom: 925 },
+      },
+    ])
     expect(result.unsupportedContexts).toBe(0)
   })
 
