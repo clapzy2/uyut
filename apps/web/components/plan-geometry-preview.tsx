@@ -10,6 +10,8 @@ import {
   currentOpeningFacePairs,
   currentWallFacePairs,
 } from '@/lib/projects/plan-opening-face-pairs'
+import { planVolume } from '@/lib/projects/plan-volume'
+import { PlanVolumeLaunch } from './plan-volume-launch'
 
 function along(wall: PlanWall, distanceCm: number): PlanPoint {
   const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
@@ -406,6 +408,13 @@ export function PlanGeometryPreview({
             </span>
           </div>
           {action ? <div className="mt-6">{action}</div> : null}
+          {planVolume(geometry) ? <PlanVolumeLaunch geometry={geometry} /> : null}
+          {geometry.status === 'confirmed' && geometry.pdfCalibration ? (
+            <p className="mt-6 border-t border-line pt-5 text-[13px] leading-relaxed text-ink-2">
+              Объёмный просмотр для этого PDF появится после проверки пар граней стен и высот
+              проёмов. Пока линии показывают границы на плане, а не готовые объёмные стены.
+            </p>
+          ) : null}
         </div>
       </div>
     </section>
