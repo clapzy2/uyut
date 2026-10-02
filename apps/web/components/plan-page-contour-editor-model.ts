@@ -64,6 +64,29 @@ export function voidDraftsFromSaved(voids: PlanPageContours['voids'] = []): Page
   }))
 }
 
+/** Reject an unfinished or unclassified outer boundary instead of saving it silently. */
+export function pageExteriorForSave(
+  draft: PlanPageContours['exterior'],
+  closed: boolean,
+  nativePoints: PageContourPoint[],
+): PlanPageContours['exterior'] | null {
+  if (!draft) return undefined
+  if (
+    !closed ||
+    !draft.boundaryRole ||
+    draft.polygon.length < 3 ||
+    draft.polygon.length > 100 ||
+    !draft.polygon.every(
+      (point) => finiteContourPoint(point) && nativeContourPoint(point, nativePoints),
+    )
+  )
+    return null
+  return {
+    boundaryRole: draft.boundaryRole,
+    polygon: draft.polygon.map((point) => ({ ...point })),
+  }
+}
+
 /** A started void must be closed and bound to original PDF vertices before saving. */
 export function pageContourVoidsForSave(
   drafts: PageVoidDraft[],

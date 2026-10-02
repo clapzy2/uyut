@@ -23,6 +23,7 @@ import {
   pageContourPoint,
   pageContourRoomsForSave,
   pageContourVoidsForSave,
+  pageExteriorForSave,
   pageOpeningPointsChanged,
   previewFromHeaders,
   samePlanPage,
@@ -68,6 +69,8 @@ export function PlanPageContourEditor({
   const [voids, setVoids] = useState<PageVoidDraft[]>([])
   const [selectedVoidId, setSelectedVoidId] = useState<string>()
   const [exterior, setExterior] = useState<PlanPageContours['exterior']>()
+  const [exteriorClosed, setExteriorClosed] = useState(false)
+  const [editingExterior, setEditingExterior] = useState(false)
   const [target, setTarget] = useState<PageContourTarget>({ kind: 'room' })
   const [preview, setPreview] = useState<PlanPagePreview>()
   const [imageUrl, setImageUrl] = useState<string>()
@@ -109,7 +112,8 @@ export function PlanPageContourEditor({
       selectedDraft?.obstacles?.length ||
       selectedDraft?.conditionalEdges?.length,
   )
-  const pointsLocked = locked || (!selectedVoid && target.kind === 'room' && roomHasFeatures)
+  const pointsLocked =
+    locked || (!editingExterior && !selectedVoid && target.kind === 'room' && roomHasFeatures)
   const selectedOpening =
     target.kind === 'opening'
       ? selectedDraft?.openings?.find((item) => item.id === target.id)
@@ -118,27 +122,32 @@ export function PlanPageContourEditor({
     target.kind === 'obstacle'
       ? selectedDraft?.obstacles?.find((item) => item.id === target.id)
       : undefined
-  const points = selectedVoid
-    ? selectedVoid.polygon
-    : target.kind === 'room'
-      ? (selectedDraft?.polygon ?? [])
-      : (selectedOpening?.points ?? selectedObstacle?.polygon ?? [])
+  const points = editingExterior
+    ? (exterior?.polygon ?? [])
+    : selectedVoid
+      ? selectedVoid.polygon
+      : target.kind === 'room'
+        ? (selectedDraft?.polygon ?? [])
+        : (selectedOpening?.points ?? selectedObstacle?.polygon ?? [])
   const sourceCheck =
     reading.pageReview?.contours.source.state === reading.planState
       ? savedPageOpeningCheck(reading.pageReview, selectedDraft, selectedOpening, preview)
       : undefined
-  const closed = selectedVoid
-    ? selectedVoid.closed
-    : target.kind === 'room'
-      ? Boolean(selectedDraft?.closed)
-      : target.kind === 'opening'
-        ? points.length === 2
-        : Boolean(selectedObstacle?.closed)
+  const closed = editingExterior
+    ? exteriorClosed
+    : selectedVoid
+      ? selectedVoid.closed
+      : target.kind === 'room'
+        ? Boolean(selectedDraft?.closed)
+        : target.kind === 'opening'
+          ? points.length === 2
+          : Boolean(selectedObstacle?.closed)
   const canDraw =
     !pointsLocked &&
-    Boolean(selectedVoid || selected) &&
+    Boolean(editingExterior || selectedVoid || selected) &&
     !closed &&
-    points.length < (!selectedVoid && target.kind === 'opening' ? 2 : MAX_POINTS)
+    points.length <
+      (!editingExterior && !selectedVoid && target.kind === 'opening' ? 2 : MAX_POINTS)
 
   useEffect(() => {
     const abort = new AbortController()
@@ -148,6 +157,9 @@ export function PlanPageContourEditor({
     setError(undefined)
     setVoids([])
     setSelectedVoidId(undefined)
+    setExterior(undefined)
+    setExteriorClosed(false)
+    setEditingExterior(false)
     const query = new URLSearchParams({ page: String(pageNumber), revision: sourceRevision })
 
     async function load() {
@@ -224,6 +236,7 @@ export function PlanPageContourEditor({
                   }
                 : undefined,
             )
+            setExteriorClosed(Boolean(saved.exterior))
           }
         }
       } catch (cause) {
@@ -249,6 +262,12 @@ export function PlanPageContourEditor({
     replacement?: { index: number; proof?: PlanPageEndpointProof },
   ) {
     if (pointsLocked) return
+    if (editingExterior) {
+      setExterior((current) => ({ ...current, polygon }))
+      setExteriorClosed(closed)
+      resetReview()
+      return
+    }
     if (selectedVoid) {
       setVoids((current) =>
         current.map((draft) =>
@@ -312,6 +331,7 @@ export function PlanPageContourEditor({
 
   function selectTarget(next: PageContourTarget) {
     setSelectedVoidId(undefined)
+    setEditingExterior(false)
     setTarget(next)
     setProposal(undefined)
     setNodeFeedback(undefined)
@@ -322,6 +342,7 @@ export function PlanPageContourEditor({
     const id = crypto.randomUUID()
     setVoids((current) => [...current, { id, polygon: [], closed: false }])
     setSelectedVoidId(id)
+    setEditingExterior(false)
     setTarget({ kind: 'room' })
     resetReview()
   }
@@ -418,8 +439,12 @@ export function PlanPageContourEditor({
   function proposePoint(point: PageContourPoint, index?: number) {
     if (pointsLocked || !preview || (index === undefined && !canDraw)) return
     const a =
-      !selectedVoid && selectedOpening && selectedDraft?.polygon[selectedOpening.wallEdgeIndex]
+      !editingExterior &&
+      !selectedVoid &&
+      selectedOpening &&
+      selectedDraft?.polygon[selectedOpening.wallEdgeIndex]
     const b =
+      !editingExterior &&
       !selectedVoid &&
       selectedOpening &&
       selectedDraft?.polygon[(selectedOpening.wallEdgeIndex + 1) % selectedDraft.polygon.length]
@@ -483,9 +508,10 @@ export function PlanPageContourEditor({
     }
     const rooms = pageContourRoomsForSave(drafts, nativePoints, nativeSegments)
     const savedVoids = pageContourVoidsForSave(voids, nativePoints)
-    if (!rooms || !savedVoids) {
+    const savedExterior = pageExteriorForSave(exterior, exteriorClosed, nativePoints)
+    if (!rooms || !savedVoids || savedExterior === null) {
       setError(
-        'Замкните начатые контуры комнат, объектов и технических пустот. Проверьте привязку вершин к узлам PDF и концов проёмов к узлам или точным пересечениям.',
+        'Замкните начатые контуры комнат, объектов, пустот и внешней границы. Укажите, проходит она по полу или по наружной стороне стен. Проверьте привязку вершин к узлам PDF и концов проёмов к узлам или точным пересечениям.',
       )
       return
     }
@@ -502,7 +528,7 @@ export function PlanPageContourEditor({
           pageHeight: preview.height,
           rooms,
           ...(savedVoids.length ? { voids: savedVoids } : {}),
-          ...(exterior ? { exterior } : {}),
+          ...(savedExterior ? { exterior: savedExterior } : {}),
         },
         sourceRevision,
       )
@@ -589,7 +615,8 @@ export function PlanPageContourEditor({
           </select>
         </label>
       </div>
-      {selectedIdentity?.roomSourceNumbers === undefined &&
+      {!editingExterior &&
+      selectedIdentity?.roomSourceNumbers === undefined &&
       selectedIdentity &&
       groupCandidates.length ? (
         <label className="block max-w-sm space-y-1 text-sm">
@@ -627,12 +654,80 @@ export function PlanPageContourEditor({
           </span>
         </label>
       ) : null}
-      {selectedIdentity?.roomSourceNumbers ? (
+      {!editingExterior && selectedIdentity?.roomSourceNumbers ? (
         <p className="text-xs leading-relaxed text-ink-2">
           Номера {selectedIdentity.roomSourceNumbers.join(' и ')} размечаются одним контуром общей
           зоны, без добавления перегородки.
         </p>
       ) : null}
+      <div className="space-y-2 border-l-2 border-teal-600 pl-3 text-sm">
+        <p className="font-medium text-ink">Внешняя граница квартиры</p>
+        <p className="max-w-2xl text-xs leading-relaxed text-ink-2">
+          Обводите только явно видимую линию исходного листа. Наружная сторона толстых стен не равна
+          внутренней границе пола: выберите её отдельно, чтобы схема не завысила доступное
+          пространство.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant={editingExterior ? 'secondary' : 'ghost'}
+            disabled={locked}
+            aria-pressed={editingExterior}
+            onClick={() => {
+              setEditingExterior((current) => !current)
+              setSelectedVoidId(undefined)
+              setTarget({ kind: 'room' })
+              resetReview()
+            }}
+          >
+            {editingExterior
+              ? 'Вернуться к комнате'
+              : exterior
+                ? 'Изменить границу'
+                : 'Добавить границу'}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={locked || !exterior}
+            onClick={() => {
+              setExterior(undefined)
+              setExteriorClosed(false)
+              setEditingExterior(false)
+              resetReview()
+            }}
+          >
+            Удалить границу
+          </Button>
+        </div>
+        {editingExterior ? (
+          <label className="block max-w-sm space-y-1 text-xs">
+            <span className="block">Что обозначает линия на исходном листе</span>
+            <select
+              className={inputClassName}
+              value={exterior?.boundaryRole ?? ''}
+              disabled={locked}
+              onChange={(event) => {
+                const boundaryRole = event.target.value as 'floor' | 'outer-wall-envelope' | ''
+                setExterior((current) => ({
+                  polygon: current?.polygon ?? [],
+                  ...(boundaryRole ? { boundaryRole } : {}),
+                }))
+                resetReview()
+              }}
+            >
+              <option value="">Выберите после сверки листа</option>
+              <option value="floor">Внутренняя граница пола</option>
+              <option value="outer-wall-envelope">Наружная сторона стен</option>
+            </select>
+          </label>
+        ) : exterior?.boundaryRole ? (
+          <p className="text-xs text-ink-2">
+            Выбранный тип:{' '}
+            {exterior.boundaryRole === 'floor' ? 'граница пола' : 'наружная сторона стен'}.
+          </p>
+        ) : null}
+      </div>
       <div className="space-y-2 border-l-2 border-amber-600 pl-3 text-sm">
         <p className="font-medium text-ink">Технические пустоты на листе</p>
         <p className="text-xs leading-relaxed text-ink-2">
@@ -648,6 +743,7 @@ export function PlanPageContourEditor({
               disabled={locked}
               onChange={(event) => {
                 setSelectedVoidId(event.target.value || undefined)
+                setEditingExterior(false)
                 setTarget({ kind: 'room' })
                 resetReview()
               }}
@@ -673,7 +769,7 @@ export function PlanPageContourEditor({
           </Button>
         </div>
       </div>
-      {!selectedVoid && selectedDraft?.closed && target.kind === 'room' ? (
+      {!editingExterior && !selectedVoid && selectedDraft?.closed && target.kind === 'room' ? (
         <div className="space-y-2 border-l-2 border-accent pl-3 text-sm">
           <p className="font-medium text-ink">Открытая зона без перегородки</p>
           <p className="text-xs leading-relaxed text-ink-2">
@@ -706,7 +802,7 @@ export function PlanPageContourEditor({
           </div>
         </div>
       ) : null}
-      {selected && !selectedVoid ? (
+      {selected && !selectedVoid && !editingExterior ? (
         <PlanPageFeatures
           key={`features-${selected}-${target.kind}-${target.kind === 'room' ? '' : target.id}`}
           draft={selectedDraft}
@@ -747,11 +843,13 @@ export function PlanPageContourEditor({
               className="block w-full disabled:cursor-default enabled:cursor-crosshair"
               style={{ width: `${zoom}%` }}
               aria-label={
-                !selectedVoid && target.kind === 'opening'
-                  ? 'Отметить конец проёма на исходном листе'
-                  : selectedVoid
-                    ? 'Добавить вершину технической пустоты на исходном листе'
-                    : 'Добавить вершину контура на исходном листе'
+                editingExterior
+                  ? 'Добавить вершину внешней границы на исходном листе'
+                  : !selectedVoid && target.kind === 'opening'
+                    ? 'Отметить конец проёма на исходном листе'
+                    : selectedVoid
+                      ? 'Добавить вершину технической пустоты на исходном листе'
+                      : 'Добавить вершину контура на исходном листе'
               }
               aria-describedby="page-contour-coordinate-help"
             >
@@ -778,6 +876,42 @@ export function PlanPageContourEditor({
                     )
                   }}
                 />
+                {exterior?.polygon.length ? (
+                  <g pointerEvents="none">
+                    {exterior.polygon.every(finiteContourPoint) && exteriorClosed ? (
+                      <polygon
+                        points={exterior.polygon.map((point) => `${point.x},${point.y}`).join(' ')}
+                        fill="none"
+                        stroke="#0f766e"
+                        strokeWidth={editingExterior ? 4 : 2}
+                        strokeDasharray="9 5"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    ) : (
+                      <polyline
+                        points={exterior.polygon
+                          .filter(finiteContourPoint)
+                          .map((point) => `${point.x},${point.y}`)
+                          .join(' ')}
+                        fill="none"
+                        stroke="#0f766e"
+                        strokeWidth={3}
+                        strokeDasharray="9 5"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    )}
+                    {exterior.polygon.filter(finiteContourPoint).map((point, index) => (
+                      <circle
+                        key={index}
+                        cx={point.x}
+                        cy={point.y}
+                        r={4}
+                        fill="#0f766e"
+                        stroke="white"
+                      />
+                    ))}
+                  </g>
+                ) : null}
                 {proposal ? (
                   <g pointerEvents="none">
                     <circle
@@ -927,7 +1061,7 @@ export function PlanPageContourEditor({
                     </g>
                   )
                 })}
-                {!selectedVoid ? (
+                {!selectedVoid && !editingExterior ? (
                   <PlanPageFeatureOverlay drafts={drafts} roomKey={selected} target={target} />
                 ) : null}
               </svg>
@@ -967,16 +1101,18 @@ export function PlanPageContourEditor({
           </Button>
         </div>
       ) : null}
-      {selected || selectedVoid ? (
+      {selected || selectedVoid || editingExterior ? (
         <PlanPagePointControls
           key={
-            selectedVoid
-              ? `void-${selectedVoid.id}`
-              : `points-${selected}-${target.kind}-${target.kind === 'room' ? '' : target.id}`
+            editingExterior
+              ? 'exterior'
+              : selectedVoid
+                ? `void-${selectedVoid.id}`
+                : `points-${selected}-${target.kind}-${target.kind === 'room' ? '' : target.id}`
           }
           points={points}
           closed={closed}
-          opening={!selectedVoid && target.kind === 'opening'}
+          opening={!editingExterior && !selectedVoid && target.kind === 'opening'}
           locked={pointsLocked}
           canDraw={canDraw}
           nativePoints={nativePoints}
@@ -985,7 +1121,7 @@ export function PlanPageContourEditor({
           onError={setError}
         />
       ) : null}
-      {!selectedVoid && target.kind === 'room' && roomHasFeatures ? (
+      {!editingExterior && !selectedVoid && target.kind === 'room' && roomHasFeatures ? (
         <p className="text-xs leading-relaxed text-ink-2">
           У комнаты уже размечены объекты. Чтобы изменить порядок её вершин, сначала удалите эти
           объекты: иначе номера сторон проёмов станут неверными. Каждый объект можно выбрать и
@@ -1011,8 +1147,8 @@ export function PlanPageContourEditor({
             onChange={(event) => setChecked(event.target.checked)}
           />
           <span>
-            Сверил контуры комнат и технических пустот, проёмы, неподвижные объекты, номера комнат и
-            состояние квартиры с исходным листом.
+            Сверил контуры комнат и технических пустот, проёмы, неподвижные объекты, номера комнат,
+            тип внешней границы и состояние квартиры с исходным листом.
           </span>
         </label>
         <Button

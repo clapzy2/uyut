@@ -6,6 +6,11 @@
   },
   "calibrationRoomNumbers": [3, 5],
   "sourceRoomNumbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "expectedConfirmationIssueIds": [
+    "manual-pdf-opening-measurements",
+    "manual-missing-floor-boundary",
+    "manual-disconnected-walls"
+  ],
   "expectedOpeningFacePairs": [
     [{ "room": 1, "opening": "kitchen-passage" }, { "room": 9, "opening": "hall-passage" }],
     [{ "room": 1, "opening": "living-passage" }, { "room": 10, "opening": "hall-passage" }],
@@ -20,6 +25,7 @@
     "widthsCm": [70, 90]
   },
   "exterior": {
+    "boundaryRole": "outer-wall-envelope",
     "polygon": [
       { "x": 72.931, "y": 14.248 },
       { "x": 362.357, "y": 14.248 },

@@ -13,6 +13,7 @@ import {
   pageContourPoint,
   pageContourRoomsForSave,
   pageContourVoidsForSave,
+  pageExteriorForSave,
   pageOpeningPointsChanged,
   previewFromHeaders,
   samePlanPage,
@@ -26,6 +27,27 @@ const preview = { sha256: 'a'.repeat(64), page: 6, pageCount: 48, width: 842, he
 const rect = { left: 20, top: 40, width: 400, height: 600 }
 
 describe('page contour editor model', () => {
+  it('requires an explicit role and native closed vertices for an outer boundary', () => {
+    const polygon = [
+      { x: 10, y: 10 },
+      { x: 30, y: 10 },
+      { x: 30, y: 30 },
+    ]
+    expect(pageExteriorForSave(undefined, false, polygon)).toBeUndefined()
+    expect(pageExteriorForSave({ polygon }, true, polygon)).toBeNull()
+    expect(pageExteriorForSave({ polygon, boundaryRole: 'floor' }, false, polygon)).toBeNull()
+    expect(
+      pageExteriorForSave({ polygon, boundaryRole: 'floor' }, true, polygon.slice(1)),
+    ).toBeNull()
+    expect(pageExteriorForSave({ polygon, boundaryRole: 'floor' }, true, polygon)).toEqual({
+      polygon,
+      boundaryRole: 'floor',
+    })
+    expect(
+      pageExteriorForSave({ polygon, boundaryRole: 'outer-wall-envelope' }, true, polygon),
+    ).toEqual({ polygon, boundaryRole: 'outer-wall-envelope' })
+  })
+
   it('saves only closed, native-vertex technical voids and reloads them independently', () => {
     const polygon = [
       { x: 10, y: 10 },
