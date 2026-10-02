@@ -472,13 +472,22 @@ function validWallSource(
   return true
 }
 
-/** Shared trust boundary for diagnostics that inspect complete wall bodies. */
+/** Trust boundary for diagnostics that inspect complete wall bodies. */
 export function validPlanPageWallSource(
   work: PdfLinework,
   source: PdfPlanSource,
   contours: PlanPageContours,
 ): boolean {
   return validWallSource(work, source, contours, false)
+}
+
+/** Recorded omissions are allowed only when the caller excludes nearby bodies. */
+export function validPlanPageWallSourceForLocalAudit(
+  work: PdfLinework,
+  source: PdfPlanSource,
+  contours: PlanPageContours,
+): boolean {
+  return validWallSource(work, source, contours, true)
 }
 
 function unaffectedByOmittedPaths(pair: PdfWallFacePair, work: PdfLinework): boolean {

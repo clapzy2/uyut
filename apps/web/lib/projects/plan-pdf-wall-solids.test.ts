@@ -61,6 +61,51 @@ function fixture(gap = 0) {
   return { work, contours }
 }
 describe('native wall solid candidates and exact joints', () => {
+  it('retains only wall bodies outside recorded curve bounds and marks the audit partial', () => {
+    const input = fixture()
+    input.work.skippedCurves = 1
+    input.work.skippedCurveBounds = [
+      { operationIndex: 99, bounds: { left: 205, top: 105, right: 215, bottom: 115 } },
+    ]
+
+    const result = inspectPlanPageWallSolids(input.work, source, input.contours)
+    expect(result).toMatchObject({ partial: true })
+    expect(result.solids.map((solid) => solid.source.operationIndex)).toEqual([2])
+    expect(result.components).toEqual([[{ operationIndex: 2, subpathIndex: 0 }]])
+
+    input.work.skippedCurveBounds = undefined
+    expect(inspectPlanPageWallSolids(input.work, source, input.contours).solids).toEqual([])
+  })
+
+  it('excludes a wall body even when a missing curve is only near its outline', () => {
+    const input = fixture()
+    input.work.skippedCurves = 1
+    input.work.skippedCurveBounds = [
+      { operationIndex: 99, bounds: { left: 224, top: 105, right: 225, bottom: 115 } },
+    ]
+
+    const result = inspectPlanPageWallSolids(input.work, source, input.contours)
+    expect(result).toMatchObject({ partial: true })
+    expect(result.solids.map((solid) => solid.source.operationIndex)).toEqual([2])
+  })
+
+  it('refuses unbounded clipped paths but keeps bodies away from fully recorded clips', () => {
+    const input = fixture()
+    input.work.clippedPaths = 1
+    input.work.clippedPathBounds = [
+      { operationIndex: 99, bounds: { left: 205, top: 105, right: 215, bottom: 115 } },
+    ]
+
+    expect(
+      inspectPlanPageWallSolids(input.work, source, input.contours).solids.map(
+        (solid) => solid.source.operationIndex,
+      ),
+    ).toEqual([2])
+
+    input.work.clippedPathBoundsTruncated = true
+    expect(inspectPlanPageWallSolids(input.work, source, input.contours).solids).toEqual([])
+  })
+
   it('excludes wall bodies crossing a reviewed technical void and keeps their source', () => {
     const input = fixture()
     const voidPolygon = rect(205, 150, 215, 180)

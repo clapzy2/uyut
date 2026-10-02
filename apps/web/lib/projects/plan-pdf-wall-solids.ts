@@ -1,9 +1,9 @@
 import type { PlanPageContours } from '@uyut/db'
 import { polygonsOverlap, segmentEntersPolygon, segmentWithinPolygon } from './plan-page-review'
-import type { PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
+import type { Bounds, PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import { type PdfPlanSource, pdfContourKey } from './plan-pdf-room-binding'
 import { findPlanPageWallBodySupports, type PdfWallBodySupport } from './plan-pdf-wall-body-support'
-import { pairPlanPageWallFaces, validPlanPageWallSource } from './plan-pdf-wall-faces'
+import { pairPlanPageWallFaces, validPlanPageWallSourceForLocalAudit } from './plan-pdf-wall-faces'
 
 type SourcePath = { operationIndex: number; subpathIndex: number }
 export type PdfWallSolidCandidate = {
@@ -34,6 +34,25 @@ const sourceOrder = (a: SourcePath, b: SourcePath) =>
 const same = (a: PagePoint, b: PagePoint) => a.x === b.x && a.y === b.y
 const cross = (a: PagePoint, b: PagePoint, c: PagePoint) =>
   (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+// Conservative page-coordinate safety band; it excludes evidence, never creates it.
+const OMISSION_CLEARANCE = 5
+
+/** Discard the complete body when an omitted native path may touch any part of it. */
+function nearOmission(polygon: PagePoint[], omitted: Bounds[]): boolean {
+  const xs = polygon.map((point) => point.x)
+  const ys = polygon.map((point) => point.y)
+  const left = Math.min(...xs)
+  const right = Math.max(...xs)
+  const top = Math.min(...ys)
+  const bottom = Math.max(...ys)
+  return omitted.some(
+    (bounds) =>
+      left <= bounds.right + OMISSION_CLEARANCE &&
+      right >= bounds.left - OMISSION_CLEARANCE &&
+      top <= bounds.bottom + OMISSION_CLEARANCE &&
+      bottom >= bounds.top - OMISSION_CLEARANCE,
+  )
+}
 
 /** Exact positive-length contact, including mitred edges; a nearby line is not a joint. */
 function sharedEdge(a: PagePoint, b: PagePoint, c: PagePoint, d: PagePoint) {
@@ -50,6 +69,7 @@ function sharedEdge(a: PagePoint, b: PagePoint, c: PagePoint, d: PagePoint) {
 
 /** Diagnostic native solids only. Never unions polygons or certifies complete wall topology.
  * Candidates require checked face pairs or independently stroked room-boundary evidence.
+ * Recorded vector omissions make the result partial; bodies near them are excluded.
  * Unannotated voids and unseeded wall pieces remain unresolved.
  */
 export function inspectPlanPageWallSolids(
@@ -57,8 +77,11 @@ export function inspectPlanPageWallSolids(
   source: PdfPlanSource,
   contours: PlanPageContours,
 ) {
-  if (!validPlanPageWallSource(work, source, contours))
+  if (!validPlanPageWallSourceForLocalAudit(work, source, contours))
     return { solids: [], junctions: [], components: [] }
+  const omitted = [...(work.clippedPathBounds ?? []), ...(work.skippedCurveBounds ?? [])].map(
+    (item) => item.bounds,
+  )
   const pairs = pairPlanPageWallFaces(work, source, contours)
   const supports = findPlanPageWallBodySupports(work, contours)
   const seeds = new Set(
@@ -77,6 +100,7 @@ export function inspectPlanPageWallSolids(
     const polygon = (same(first, last) ? path.points.slice(0, -1) : path.points).map((p) => ({
       ...p,
     }))
+    if (nearOmission(polygon, omitted)) continue
     const reasons: PdfWallSolidCandidate['reasons'] = []
     const roomContours = contours.rooms
       .filter((room) => polygonsOverlap(polygon, room.polygon))
@@ -191,5 +215,6 @@ export function inspectPlanPageWallSolids(
     junctions: validJunctions,
     // Connectivity within candidates only, never a certificate of full apartment coverage.
     components,
+    ...(omitted.length ? { partial: true } : {}),
   }
 }

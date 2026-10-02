@@ -65,6 +65,13 @@ type Fixture = {
     opening: string
     reason: string
   }>
+  expectedWallSolidAudit?: {
+    partial: boolean
+    candidates: number
+    conflicts: number
+    junctions: number
+    components: number
+  }
   expectedOpeningWidthProofs?: Array<{
     sourceNumber: number
     openingId: string
@@ -382,6 +389,18 @@ const wallCoverage = classifyPlanPageWallSpans(
   contours,
   pairPlanPageWallFaces(linework, source, contours),
 )
+const wallSolids = inspectPlanPageWallSolids(linework, source, contours)
+if (fixture.expectedWallSolidAudit) {
+  const actual = {
+    partial: 'partial' in wallSolids && wallSolids.partial === true,
+    candidates: wallSolids.solids.filter((solid) => solid.status === 'candidate').length,
+    conflicts: wallSolids.solids.filter((solid) => solid.status === 'conflict').length,
+    junctions: wallSolids.junctions.length,
+    components: wallSolids.components.length,
+  }
+  if (JSON.stringify(actual) !== JSON.stringify(fixture.expectedWallSolidAudit))
+    throw new Error(`Wall solid audit changed: ${JSON.stringify(actual)}`)
+}
 const wallReviewQueue = planPageWallReviewQueue(contours, wallCoverage, cmPerPoint)
 const exteriorWallReviewQueue = planPageWallReviewQueue(
   contours,
@@ -676,7 +695,7 @@ console.log(
     wallCoverage,
     wallReviewQueue,
     exteriorWallReviewQueue,
-    wallSolids: inspectPlanPageWallSolids(linework, source, contours),
+    wallSolids,
     openingFaceChecks: verifyPlanPageOpeningFaces(linework, source, contours),
     warnings: result.geometry.warnings,
     geometryIssues: geometryIssues.length,

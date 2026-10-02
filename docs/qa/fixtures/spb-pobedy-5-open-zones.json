@@ -24,6 +24,13 @@
     { "room": 7, "opening": "bedroom-passage", "reason": "no-opposing-door-face" },
     { "room": 8, "opening": "bedroom-06", "reason": "no-opposing-door-face" }
   ],
+  "expectedWallSolidAudit": {
+    "partial": true,
+    "candidates": 31,
+    "conflicts": 1,
+    "junctions": 21,
+    "components": 12
+  },
   "routeCheck": {
     "startRoomNumber": 1,
     "startOpeningId": "kitchen-passage",
