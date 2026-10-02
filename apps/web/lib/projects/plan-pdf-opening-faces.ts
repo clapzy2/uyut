@@ -309,6 +309,7 @@ export function verifyPlanPageOpeningFaces(
     const face = faces[index]
     if (!face) return { ...reference, status: 'unresolved', reason: 'non-exact-axis-aligned-face' }
     const matches: Array<{ face: Face; jambs: [PdfOpeningJamb, PdfOpeningJamb] }> = []
+    let hasOppositeFace = false
     for (const other of faces) {
       if (
         !other ||
@@ -327,6 +328,7 @@ export function verifyPlanPageOpeningFaces(
         Math.sign(separation) !== other.interiorSide
       )
         continue
+      hasOppositeFace = true
       const low = jambBetween(face.low, other.low)
       const high = jambBetween(face.high, other.high)
       if (low && high) matches.push({ face: other, jambs: [low, high] })
@@ -336,7 +338,11 @@ export function verifyPlanPageOpeningFaces(
     const match = matches[0]
     return match
       ? { ...reference, status: 'candidate', opposite: match.face.reference, jambs: match.jambs }
-      : { ...reference, status: 'unresolved', reason: 'no-two-native-jambs' }
+      : {
+          ...reference,
+          status: 'unresolved',
+          reason: hasOppositeFace ? 'no-two-native-jambs' : 'no-opposing-door-face',
+        }
   })
 }
 

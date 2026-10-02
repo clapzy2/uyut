@@ -60,6 +60,11 @@ type Fixture = {
   expectedOpeningFacePairs?: Array<
     [{ room: number; opening: string }, { room: number; opening: string }]
   >
+  expectedUnpairedOpeningReasons?: Array<{
+    room: number
+    opening: string
+    reason: string
+  }>
   expectedOpeningWidthProofs?: Array<{
     sourceNumber: number
     openingId: string
@@ -328,6 +333,23 @@ if (fixture.expectedOpeningFacePairs) {
     .sort()
   if (JSON.stringify(actual) !== JSON.stringify(expected))
     throw new Error(`Source opening face pairs changed: ${actual.join(', ')}`)
+}
+if (fixture.expectedUnpairedOpeningReasons) {
+  const key = (item: { room: number; opening: string; reason: string }) =>
+    `${item.room}:${item.opening}:${item.reason}`
+  const expected = fixture.expectedUnpairedOpeningReasons.map(key).sort()
+  const actual = verifyPlanPageOpeningFaces(linework, source, contours)
+    .filter((check) => check.status !== 'candidate')
+    .map((check) =>
+      key({
+        room: check.roomSourceNumber ?? -1,
+        opening: check.openingId,
+        reason: check.reason,
+      }),
+    )
+    .sort()
+  if (JSON.stringify(actual) !== JSON.stringify(expected))
+    throw new Error(`Unpaired opening reasons changed: ${actual.join(', ')}`)
 }
 const verifiedWidth = dimensionChecks.find(
   (check) => check.side === 'width' && check.status === 'candidate',
@@ -646,6 +668,10 @@ console.log(
     })),
     derivedOpeningIds: result.geometry.pdfCalibration?.derivedOpeningIds,
     openingFacePairs: result.geometry.pdfCalibration?.openingFacePairs?.length ?? 0,
+    vectorOmissions: {
+      clippedPaths: linework.clippedPaths,
+      skippedCurves: linework.skippedCurves,
+    },
     wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs?.length ?? 0,
     wallCoverage,
     wallReviewQueue,

@@ -292,6 +292,31 @@ describe('physical door face candidates from two native reveals', () => {
     expect(result.some((check) => check.openingId.includes('window'))).toBe(false)
   })
 
+  it('distinguishes a missing opposing door annotation from missing native jambs', () => {
+    const input = fixture()
+    const kitchen = input.contours.rooms.find((room) => room.roomSourceNumber === 2)
+    if (!kitchen) throw new Error('Missing kitchen room')
+    kitchen.openings = []
+
+    const check = verifyPlanPageOpeningFaces(input.work, input.source, input.contours).find(
+      (item) => item.openingId === 'zone-1-5-to-kitchen',
+    )
+    expect(check).toMatchObject({ status: 'unresolved', reason: 'no-opposing-door-face' })
+  })
+
+  it('keeps the native-jamb reason when both annotated faces exist', () => {
+    const input = mixedRevealFixture()
+    input.work.paths = input.work.paths.filter((path) => path.operationIndex !== 10)
+
+    const checks = verifyPlanPageOpeningFaces(input.work, input.source, input.contours)
+    expect(checks).toHaveLength(2)
+    expect(checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'unresolved', reason: 'no-two-native-jambs' }),
+      ]),
+    )
+  })
+
   it.each(['remove', 'open', 'fill', 'shorten'] as const)(
     'refuses a kitchen pair after a native jamb is made %s',
     (mutation) => {

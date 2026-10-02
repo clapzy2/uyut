@@ -18,6 +18,12 @@
     [{ "room": 3, "opening": "corridor-passage" }, { "room": 8, "opening": "bath-03" }],
     [{ "room": 5, "opening": "corridor-passage" }, { "room": 8, "opening": "bedroom-05" }]
   ],
+  "expectedUnpairedOpeningReasons": [
+    { "room": 1, "opening": "entry", "reason": "no-opposing-door-face" },
+    { "room": 4, "opening": "bedroom-passage", "reason": "no-opposing-door-face" },
+    { "room": 7, "opening": "bedroom-passage", "reason": "no-opposing-door-face" },
+    { "room": 8, "opening": "bedroom-06", "reason": "no-opposing-door-face" }
+  ],
   "routeCheck": {
     "startRoomNumber": 1,
     "startOpeningId": "kitchen-passage",
