@@ -112,4 +112,37 @@ describe('экспликация помещений из PDF', () => {
       ),
     ).toBeUndefined()
   })
+
+  it('читает компактную таблицу восьми комнат с обмерного листа', () => {
+    // Нативные позиции экспликации на странице 3 опубликованного обмера CHI DESIGN.
+    const rows = [
+      ['Прихожая', '11,6', 602, 205],
+      ['Спальня', '16,6', 624, 205],
+      ['Гардеробная', '1,5', 645, 207],
+      ['Ванная', '3,2', 667, 207],
+      ['Туалет', '1,6', 688, 207],
+      ['Детская', '16,8', 710, 205],
+      ['Кухня', '17,0', 731, 205],
+      ['Балкон', '5,5', 753, 207],
+    ] as const
+    const table = [
+      item('№', 574, 105),
+      item('Наименование', 574, 124),
+      item('Площадь', 574, 194),
+      ...rows.flatMap(([name, area, y, areaX], index) => [
+        item(String(index + 1), y, 108),
+        item(name, y, 119),
+        item(area, y, areaX),
+      ]),
+      item('73,8 м²', 774, 199),
+    ]
+
+    expect(planPageRoomInventory(JSON.stringify(table))).toEqual(
+      rows.map(([name], index) => ({ sourceNumber: index + 1, name })),
+    )
+    expect(planRoomSchedule(table)?.get(8)).toEqual({ name: 'Балкон', areaM2: 5.5 })
+    expect(
+      planPageRoomInventory(JSON.stringify(table.filter((row) => row.text !== '1,5'))),
+    ).toBeUndefined()
+  })
 })

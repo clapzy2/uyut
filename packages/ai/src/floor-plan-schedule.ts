@@ -66,7 +66,7 @@ function tabularScheduleRows(
   if (
     Math.abs(numberHeader.y - nameHeader.y) > 2 ||
     Math.abs(numberHeader.y - areaHeader.y) > 2 ||
-    nameHeader.x - numberHeader.x < 40 ||
+    nameHeader.x - numberHeader.x < 12 ||
     areaHeader.x - nameHeader.x < 40
   )
     return undefined
@@ -89,7 +89,7 @@ function tabularScheduleRows(
     )
     const rowNames = sameLine.filter(
       (item) =>
-        item.x > numberHeader.x + 15 &&
+        item.x > numberHeader.x + 8 &&
         item.x < areaHeader.x - 15 &&
         item.text.trim().length > 0 &&
         item.text.trim().length <= 80 &&
