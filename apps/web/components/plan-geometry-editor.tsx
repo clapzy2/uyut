@@ -599,7 +599,7 @@ export function PlanGeometryEditor({
       ...(geometry.source === 'manual'
         ? [
             ...inspectManualPlanCompleteness({ ...geometry, walls, openings, rooms }),
-            ...inspectPlanRoomAreas(rooms, roomReadings),
+            ...inspectPlanRoomAreas(rooms, roomReadings, Boolean(geometry.pdfCalibration)),
           ]
         : []),
       ...(imageCalibration?.verificationLines?.some(
@@ -1017,18 +1017,25 @@ export function PlanGeometryEditor({
                     : 'Схему можно сохранить, но внешний контур стоит перепроверить.'}
                 </p>
                 <ul className="mt-3 space-y-2">
-                  {visibleIssues.map((issue) => (
-                    <li key={issue.id}>
-                      <button
-                        type="button"
-                        onClick={() => selectIssue(issue)}
-                        className={`text-left text-[13px] leading-relaxed underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink ${issue.severity === 'error' ? 'text-danger' : 'text-ink-2'}`}
-                      >
-                        {issue.severity === 'error' ? 'Ошибка: ' : 'Проверьте: '}
-                        {issue.message}
-                      </button>
-                    </li>
-                  ))}
+                  {visibleIssues.map((issue) => {
+                    const needsAreaReview = issue.id.startsWith('manual-room-area-')
+                    return (
+                      <li key={issue.id}>
+                        <button
+                          type="button"
+                          onClick={() => selectIssue(issue)}
+                          className={`text-left text-[13px] leading-relaxed underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink ${issue.severity === 'error' ? 'text-danger' : 'text-ink-2'}`}
+                        >
+                          {needsAreaReview
+                            ? 'Сверьте площадь: '
+                            : issue.severity === 'error'
+                              ? 'Ошибка: '
+                              : 'Проверьте: '}
+                          {issue.message}
+                        </button>
+                      </li>
+                    )
+                  })}
                 </ul>
                 {issues.length > visibleIssues.length ? (
                   <p className="mt-3 text-[13px] text-ink-2">
