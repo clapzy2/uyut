@@ -1,4 +1,4 @@
-import { doorClearanceZone } from '@uyut/catalog/geometry'
+import { doorClearanceZone, openingDisplayLabel } from '@uyut/catalog/geometry'
 import { rectInsideFloor } from '@uyut/catalog/layout'
 import type { PlanGeometry, PlanKitchenItem, PlanPoint } from '@uyut/db'
 import { z } from 'zod'
@@ -108,7 +108,7 @@ export function inspectClearances(items: PlanKitchenItem[], geometry: PlanGeomet
   for (const opening of geometry.openings.filter((o) => o.type !== 'window')) {
     const zone = doorClearanceZone(opening, geometry)
     if (zone) zones.push(zone)
-    else missing.push(`Дверь ${opening.id}: свободная зона не задана.`)
+    else missing.push(`${openingDisplayLabel(opening, geometry)}: свободная зона не задана.`)
   }
   for (const zone of zones) {
     for (const [index, item] of items.entries()) {

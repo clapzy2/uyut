@@ -502,7 +502,9 @@ function adNotice(data: PdfData): string {
 
 function estimatePage(data: PdfData, free: boolean): string {
   const { estimate, rates } = data
-  const counted = estimate.works.rooms.filter((room) => room.kind !== 'no-area')
+  const counted = estimate.works.rooms.filter(
+    (room) => room.kind !== 'no-area' && room.kind !== 'separate',
+  )
   const remaining = estimate.remainingKopecks
   const freeLabel =
     remaining === null
@@ -544,8 +546,9 @@ function estimatePage(data: PdfData, free: boolean): string {
         })
         .join('')}
       ${estimate.works.roomsWithoutArea.map((name) => `<div class="line"><span>${esc(name)}</span><span class="formula">площадь не указана</span><span class="price">—</span></div>`).join('')}
+      ${estimate.works.roomsSeparate.map((name) => `<div class="line"><span>${esc(name)}</span><span class="formula">отдельный расчёт работ</span><span class="price">—</span></div>`).join('')}
       <div class="sum"><span>Итого по расчёту</span><span class="price">${formatPrice(estimate.totalKopecks)}</span></div>
-      <p style="font-size:9.5pt;margin-top:2mm">Мебель — по списку покупок, работы — по площади пола и ставкам ниже. Материалы для отделки в сумму не включены.${estimate.works.roomsWithoutArea.length > 0 ? ` Работы для комнат без площади ещё не включены: ${esc(estimate.works.roomsWithoutArea.join(', '))}.` : ''}</p>
+      <p style="font-size:9.5pt;margin-top:2mm">Мебель — по списку покупок, работы — по площади пола и ставкам ниже. Материалы для отделки в сумму не включены.${estimate.works.roomsWithoutArea.length > 0 ? ` Работы для комнат без площади ещё не включены: ${esc(estimate.works.roomsWithoutArea.join(', '))}.` : ''}${estimate.works.roomsSeparate.length > 0 ? ` Работы на балконах и лоджиях в итог не включены: нужен отдельный расчёт по месту (${esc(estimate.works.roomsSeparate.join(', '))}).` : ''}</p>
     </div>
     <div style="display:grid;gap:3mm">
       <div class="bar"><span style="width:${estimate.shares.furniture * 100}%;background:#7c2f3b"></span><span style="width:${estimate.shares.works * 100}%;background:#b98a5a"></span><span style="width:${estimate.shares.free * 100}%;background:${estimate.overBudget ? '#d9a6ad' : '#ddd4c1'}"></span></div>
@@ -593,6 +596,9 @@ function briefPages(data: PdfData, free: boolean): string {
 
 function finalPage(data: PdfData, free: boolean): string {
   const questions = data.brief?.questions ?? []
+  const onlineDescription = data.rooms.some((room) => room.render)
+    ? 'Рендеры и данные проекта'
+    : 'Данные проекта'
   return `
   <section class="page">
     ${ribbon(free)}
@@ -610,7 +616,7 @@ function finalPage(data: PdfData, free: boolean): string {
           data.project.projectUrl
             ? `<div class="rule"></div>
         <p class="eyebrow">Проект онлайн</p>
-        <p style="font-size:10pt;line-height:1.5">Все рендеры, варианты цвета и ссылки на магазины — в проекте по адресу <span class="mono" style="font-size:9pt">${esc(data.project.projectUrl)}</span>. Список покупок там можно менять, после изменений соберите новый PDF.</p>`
+        <p style="font-size:10pt;line-height:1.5">${onlineDescription} — по адресу <span class="mono" style="font-size:9pt">${esc(data.project.projectUrl)}</span>. Список покупок там можно менять, после изменений соберите новый PDF.</p>`
             : ''
         }
         ${data.project.contact?.phone ? `<p class="small">Телефон заказчика для мастера: <span class="mono">${esc(data.project.contact.phone)}</span></p>` : ''}

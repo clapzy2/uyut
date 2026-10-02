@@ -57,14 +57,14 @@ function RoomWorksRow({
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
-  const kindLabel =
-    works.kind === 'full'
-      ? 'черновые и чистовые'
-      : works.kind === 'finish'
-        ? 'только чистовые'
-        : works.kind === 'none'
-          ? 'без работ'
-          : 'площадь не указана'
+  const kindLabel = {
+    full: 'черновые и чистовые',
+    finish: 'только чистовые',
+    separate: 'стоимость работ уточняется отдельно',
+    none: 'без работ',
+    'no-area': 'площадь не указана',
+  }[works.kind]
+  const canRefreshFinish = works.kind !== 'separate' && room.condition !== 'bare'
 
   function toggle(value: boolean) {
     setBusy(true)
@@ -88,14 +88,14 @@ function RoomWorksRow({
           </span>
         </span>
         <span className="shrink-0 font-mono text-[14px] text-ink">
-          {formatPrice(works.totalKopecks)}
+          {works.kind === 'separate' ? '—' : formatPrice(works.totalKopecks)}
         </span>
       </div>
-      {room.condition !== 'bare' && readOnly ? (
+      {canRefreshFinish && readOnly ? (
         <span className="text-[13px] text-ink-2">
           {room.refreshFinish ? 'с обновлением чистовой отделки' : 'без обновления отделки'}
         </span>
-      ) : room.condition !== 'bare' ? (
+      ) : canRefreshFinish ? (
         <Checkbox
           id={`refresh-${room.id}`}
           label={<span className="text-[13px] text-ink-2">Обновить чистовую отделку</span>}
@@ -188,6 +188,12 @@ export function EstimateCard({
           <p className="mt-2 text-[14px] leading-relaxed text-accent">
             Работы для комнат без площади ещё не включены:{' '}
             {estimate.works.roomsWithoutArea.join(', ')}.
+          </p>
+        ) : null}
+        {estimate.works.roomsSeparate.length > 0 ? (
+          <p className="mt-2 text-[14px] leading-relaxed text-accent">
+            Работы на балконах и лоджиях не включены в итог: для них нужен отдельный расчёт по месту
+            ({estimate.works.roomsSeparate.join(', ')}).
           </p>
         ) : null}
         <BudgetBar

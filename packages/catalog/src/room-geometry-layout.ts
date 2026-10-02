@@ -1,5 +1,5 @@
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall, RoomMeasurements } from '@uyut/db'
-import { doorClearanceZone } from './door-clearance'
+import { doorClearanceZone, openingDisplayLabel } from './door-clearance'
 import type { FloorKeepClearZone, FloorReservation, RoomLayoutInput } from './layout'
 import { WALKWAY_CM } from './layout'
 import type { WallReservation } from './openings'
@@ -246,6 +246,7 @@ export function roomLayoutInputFromGeometry(
   })
 
   for (const opening of geometry.openings) {
+    const openingLabel = openingDisplayLabel(opening, geometry)
     const wall = wallById.get(opening.wallId)
     if (!wall) continue
     const [start, end] = openingPoints(opening, wall)
@@ -253,27 +254,25 @@ export function roomLayoutInputFromGeometry(
     if (!aligned) {
       if (!openingBelongsToRoom(start, end, room.polygon, BOUNDARY_TOLERANCE_CM)) continue
       missingSafetyData.push(
-        `Проём ${opening.id} не совпадает с границей комнаты. Уточните стену или контур, прежде чем учитывать его в расстановке.`,
+        `${openingLabel} не совпадает с границей комнаты. Уточните стену или контур, прежде чем учитывать его в расстановке.`,
       )
       continue
     }
     const [boundaryStart, boundaryEnd] = aligned
     if (opening.type !== 'window' && opening.widthCm < WALKWAY_CM) {
       missingSafetyData.push(
-        `${opening.type === 'balcony' ? 'Балконный блок' : 'Дверь'} ${opening.id}: ширина проёма по плану ${opening.widthCm} см меньше принятого свободного прохода ${WALKWAY_CM} см. Уточните чистую ширину проёма перед покупкой мебели.`,
+        `${openingLabel}: ширина проёма по плану ${opening.widthCm} см меньше принятого свободного прохода ${WALKWAY_CM} см. Уточните чистую ширину проёма перед покупкой мебели.`,
       )
     }
     if (opening.type === 'window' && opening.sillHeightCm === undefined) {
       missingSafetyData.push(
-        `Окно ${opening.id}: укажите высоту подоконника, чтобы проверить низкую мебель под ним.`,
+        `${openingLabel}: укажите высоту подоконника, чтобы проверить низкую мебель под ним.`,
       )
     }
     const clearance = doorClearanceZone(opening, geometry)
     if (opening.type !== 'window') {
       if (!clearance) {
-        missingSafetyData.push(
-          `${opening.type === 'balcony' ? 'Балконный блок' : 'Дверь'} ${opening.id}: задайте свободную зону открывания.`,
-        )
+        missingSafetyData.push(`${openingLabel}: задайте свободную зону открывания.`)
       } else {
         const alignedClearance = clearance.polygon.map((point) => ({
           xCm: point.xCm + boundaryStart.xCm - start.xCm,

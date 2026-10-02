@@ -8,6 +8,13 @@ export type DoorClearanceZone = {
   polygon: PlanPoint[]
 }
 
+export function openingDisplayLabel(opening: PlanOpening, geometry: PlanGeometry): string {
+  const kind =
+    opening.type === 'window' ? 'Окно' : opening.type === 'balcony' ? 'Балконный блок' : 'Дверь'
+  const index = geometry.openings.findIndex((item) => item.id === opening.id)
+  return index === -1 ? kind : `${kind} ${index + 1}`
+}
+
 export function doorClearanceZone(
   opening: PlanOpening,
   geometry: PlanGeometry,
@@ -60,7 +67,7 @@ export function doorClearanceZone(
     id: `door-${opening.id}`,
     ownerId: opening.id,
     door: true,
-    label: `${opening.type === 'balcony' ? 'Балконный блок' : 'Дверь'} ${opening.id}: свободная зона`,
+    label: `${openingDisplayLabel(opening, geometry)}: свободная зона`,
     polygon,
   }
 }

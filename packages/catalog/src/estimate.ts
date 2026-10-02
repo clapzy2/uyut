@@ -17,7 +17,7 @@ export type EstimateItem = {
   variantPriceKopecks?: number | null
 }
 
-export type RoomWorksKind = 'full' | 'finish' | 'none' | 'no-area'
+export type RoomWorksKind = 'full' | 'finish' | 'none' | 'no-area' | 'separate'
 
 export type RoomWorks = {
   id: string
@@ -40,6 +40,8 @@ export type Estimate = {
     rooms: RoomWorks[]
     /** Комнаты без площади: их работы не посчитаны, страница просит указать метры */
     roomsWithoutArea: string[]
+    /** Балконы и лоджии не оцениваются по общей ставке комнат. */
+    roomsSeparate: string[]
   }
   totalKopecks: number
   budgetKopecks: number | null
@@ -57,6 +59,11 @@ export function itemTotalKopecks(item: EstimateItem): number {
 
 function roomWorks(room: EstimateRoom, rates: WorksRates): RoomWorks {
   const base = { id: room.id, name: room.name, areaM2: room.areaM2 }
+  // Пока в БД нет отдельного типа для балкона. Не подменяем его стоимость комнатной ставкой,
+  // если название явно указывает на балкон или лоджию.
+  if (/^(балкон|лоджия)(?:\s|$)/iu.test(room.name.trim())) {
+    return { ...base, kind: 'separate', roughKopecks: 0, finishKopecks: 0, totalKopecks: 0 }
+  }
   if (room.areaM2 === null || !(room.areaM2 > 0)) {
     return { ...base, kind: 'no-area', roughKopecks: 0, finishKopecks: 0, totalKopecks: 0 }
   }
@@ -91,7 +98,7 @@ export function estimateProject(input: {
 }): Estimate {
   const furnitureKopecks = input.items.reduce((sum, item) => sum + itemTotalKopecks(item), 0)
   const rooms = input.rooms.map((room) => roomWorks(room, input.rates))
-  const counted = rooms.filter((room) => room.kind !== 'no-area')
+  const counted = rooms.filter((room) => room.kind !== 'no-area' && room.kind !== 'separate')
   const roughKopecks = counted.reduce((sum, room) => sum + room.roughKopecks, 0)
   const finishKopecks = counted.reduce((sum, room) => sum + room.finishKopecks, 0)
   const worksTotal = roughKopecks + finishKopecks
@@ -111,6 +118,7 @@ export function estimateProject(input: {
       areaM2: counted.reduce((sum, room) => sum + (room.areaM2 ?? 0), 0),
       rooms,
       roomsWithoutArea: rooms.filter((room) => room.kind === 'no-area').map((room) => room.name),
+      roomsSeparate: rooms.filter((room) => room.kind === 'separate').map((room) => room.name),
     },
     totalKopecks,
     budgetKopecks,

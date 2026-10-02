@@ -95,7 +95,7 @@ describe('явные резервы открывания и монтажа', () 
   })
   it('резерв двери ловит мебель не только на линии проёма', () => {
     expect(inspectClearances([item], { ...geometry, openings: [door] }).issues.join(' ')).toContain(
-      'Дверь d: свободная зона занята',
+      'Дверь 1: свободная зона занята',
     )
     const flipped = doorClearanceZone(
       { ...door, clearance: { side: 'right', depthCm: 120 } },
@@ -105,7 +105,7 @@ describe('явные резервы открывания и монтажа', () 
   })
   it('не называет балконный блок обычной дверью', () => {
     expect(doorClearanceZone({ ...door, type: 'balcony' }, geometry)?.label).toBe(
-      'Балконный блок d: свободная зона',
+      'Балконный блок: свободная зона',
     )
   })
   it('строит четверть окружности от выбранных петель', () => {

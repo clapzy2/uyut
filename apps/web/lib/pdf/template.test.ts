@@ -100,6 +100,32 @@ describe('project PDF template', () => {
     expect(html).not.toContain('в проекте по адресу')
   })
 
+  it('does not promise renders when a project only has a 2D plan', () => {
+    const data = sample('free')
+    data.rooms = data.rooms.map((room) => ({ ...room, render: null, alternates: [] }))
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('Данные проекта — по адресу')
+    expect(html).not.toContain('Все рендеры')
+    expect(html).not.toContain('Рендеры и данные проекта')
+    expect(renderProjectHtml(sample('free'), { fontCss: '' })).toContain('Рендеры и данные проекта')
+  })
+
+  it('marks balcony works as requiring a separate estimate', () => {
+    const data = sample('free')
+    data.estimate = estimateProject({
+      rooms: [
+        { id: 'balcony', name: 'Балкон 1', areaM2: 5, condition: 'bare', refreshFinish: false },
+      ],
+      items: [],
+      budgetKopecks: null,
+      rates,
+    })
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('отдельный расчёт работ')
+    expect(html).toContain('Работы на балконах и лоджиях в итог не включены')
+    expect(data.estimate.works.totalKopecks).toBe(0)
+  })
+
   it('keeps the selected product link escaped and excludes unsafe protocols', () => {
     const data = sample('paid')
     const item = data.shopping[0]?.items[0]

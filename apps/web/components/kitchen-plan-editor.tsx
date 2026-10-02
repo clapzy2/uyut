@@ -1,5 +1,6 @@
 'use client'
 
+import { openingDisplayLabel } from '@uyut/catalog/geometry'
 import type { PlanGeometry, PlanKitchenItem, PlanOpening, PlanUtilityPoint } from '@uyut/db'
 import { useDeferredValue, useMemo, useRef, useState } from 'react'
 import { KitchenSafetyEditor } from '@/components/kitchen-safety-editor'
@@ -367,7 +368,7 @@ export function KitchenPlanEditor({
             .filter((o) => o.type !== 'window')
             .map((o) => (
               <fieldset key={o.id} className="my-3 space-y-2">
-                <legend className="text-sm">Дверь {o.id}</legend>
+                <legend className="text-sm">{openingDisplayLabel(o, geometry)}</legend>
                 <label className="block text-sm">
                   Сторона
                   <select

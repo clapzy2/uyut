@@ -1,5 +1,6 @@
 'use client'
 
+import { openingDisplayLabel } from '@uyut/catalog/geometry'
 import type { PlanGeometry, PlanOpening, PlanUtilityPoint } from '@uyut/db'
 import { utilityLabels } from '@/lib/projects/kitchen-safety'
 
@@ -74,8 +75,7 @@ export function KitchenSafetyEditor({
           <option value="">Не выбрана</option>
           {routeDoorOptions.map((opening) => (
             <option key={opening.id} value={opening.id}>
-              {opening.type === 'balcony' ? 'Балконный блок' : 'Дверь'} {opening.id} ·{' '}
-              {opening.widthCm} см
+              {openingDisplayLabel(opening, geometry)} · {opening.widthCm} см
             </option>
           ))}
         </select>
@@ -148,7 +148,7 @@ export function KitchenSafetyEditor({
               .filter((opening) => opening.type === 'window')
               .map((opening) => (
                 <label key={opening.id} className="block text-sm">
-                  Окно {opening.id}: высота подоконника, см
+                  {openingDisplayLabel(opening, geometry)}: высота подоконника, см
                   <input
                     type="number"
                     min="1"

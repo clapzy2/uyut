@@ -103,7 +103,7 @@ describe('проёмы комнаты из 2D-схемы', () => {
       keepClearZones: [
         {
           kind: 'door',
-          label: 'Дверь door: свободная зона',
+          label: 'Дверь 2: свободная зона',
           polygon: [
             { xCm: 0, yCm: 180 },
             { xCm: 0, yCm: 270 },
@@ -172,7 +172,7 @@ describe('проёмы комнаты из 2D-схемы', () => {
     )
     const result = roomLayoutInputFromGeometry({ ...geometry, walls }, 'Гостиная', null)
     expect(result?.floorReservations.some((entry) => entry.kind === 'window')).toBe(false)
-    expect(result?.missingSafetyData.join(' ')).toContain('Проём window не совпадает')
+    expect(result?.missingSafetyData.join(' ')).toContain('Окно 1 не совпадает')
   })
 
   it('проецирует проём с подтверждённой оси стены на грань пола без изменения ширины', () => {
@@ -238,7 +238,7 @@ describe('проёмы комнаты из 2D-схемы', () => {
     const result = roomLayoutInputFromGeometry({ ...geometry, walls }, 'Гостиная', null)
 
     expect(result?.floorReservations.some((opening) => opening.kind === 'window')).toBe(false)
-    expect(result?.missingSafetyData.join(' ')).toContain('Проём window не совпадает')
+    expect(result?.missingSafetyData.join(' ')).toContain('Окно 1 не совпадает')
   })
 
   it('выбирает грань у проёма, а не близкий короткий уступ той же комнаты', () => {
@@ -297,7 +297,7 @@ describe('проёмы комнаты из 2D-схемы', () => {
     expect(result?.floorReservations.find((entry) => entry.kind === 'door')?.clearanceCm).toBe(0)
     expect(result?.keepClearZones).toHaveLength(1)
     expect(result?.keepClearZones[0]?.kind).toBe('radiator')
-    expect(result?.missingSafetyData.join(' ')).toContain('Дверь door')
+    expect(result?.missingSafetyData.join(' ')).toContain('Дверь 2')
     expect(result?.missingSafetyData.join(' ')).toContain('Радиатор unknown-radius')
   })
 
@@ -414,7 +414,7 @@ describe('проёмы комнаты из 2D-схемы', () => {
     const result = roomLayoutInputFromGeometry({ ...geometry, rooms }, 'Гостиная', null)
 
     expect(result?.floorReservations.some((opening) => opening.kind === 'window')).toBe(false)
-    expect(result?.missingSafetyData.join(' ')).toContain('Проём window не совпадает')
+    expect(result?.missingSafetyData.join(' ')).toContain('Окно 1 не совпадает')
   })
 
   it('просит высоту подоконника, если без неё нельзя проверить мебель', () => {
@@ -426,7 +426,7 @@ describe('проёмы комнаты из 2D-схемы', () => {
     }
 
     expect(roomLayoutInputFromGeometry(withoutSill, 'Гостиная', null)?.missingSafetyData).toContain(
-      'Окно window: укажите высоту подоконника, чтобы проверить низкую мебель под ним.',
+      'Окно 1: укажите высоту подоконника, чтобы проверить низкую мебель под ним.',
     )
   })
 

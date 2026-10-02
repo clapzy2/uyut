@@ -55,6 +55,29 @@ describe('estimateProject', () => {
     expect(estimate.works.totalKopecks).toBe(200_000_00)
   })
 
+  it('does not price a named balcony or loggia with the standard room rate', () => {
+    const estimate = estimateProject({
+      rooms: [
+        { id: 'r1', name: 'Балкон 1', areaM2: 5, condition: 'bare', refreshFinish: false },
+        { id: 'r2', name: 'Лоджия', areaM2: 4, condition: 'finished', refreshFinish: true },
+        {
+          id: 'r3',
+          name: 'Гостиная с балконом',
+          areaM2: 12,
+          condition: 'bare',
+          refreshFinish: false,
+        },
+      ],
+      items: [],
+      budgetKopecks: null,
+      rates,
+    })
+    expect(estimate.works.roomsSeparate).toEqual(['Балкон 1', 'Лоджия'])
+    expect(estimate.works.rooms.map((room) => room.kind)).toEqual(['separate', 'separate', 'full'])
+    expect(estimate.works.areaM2).toBe(12)
+    expect(estimate.works.totalKopecks).toBe(240_000_00)
+  })
+
   it('sums furniture with quantity and variant price', () => {
     expect(itemTotalKopecks({ priceKopecks: 2_990_00, quantity: 2 })).toBe(5_980_00)
     expect(
