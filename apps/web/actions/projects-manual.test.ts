@@ -875,6 +875,29 @@ describe('manual plan draft', () => {
     expect(mocks.setPlanReading).not.toHaveBeenCalled()
   })
 
+  it('keeps a nearly complete apartment as a draft when one source room has no contour', async () => {
+    const kitchen = kitchenContour[0]
+    if (!kitchen) throw new Error('Missing kitchen test contour')
+    source.planReading.rooms = [
+      { name: 'Кухня', sourceNumber: 1, kind: 'kitchen', areaM2: 5.4 },
+      { name: 'Спальня', sourceNumber: 2, kind: 'bedroom', areaM2: 10 },
+    ]
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      rooms: [{ ...kitchen, sourceNumber: 1 }],
+    }
+
+    const confirmed = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
+    expect(confirmed.ok).toBe(false)
+    if (!confirmed.ok) expect(confirmed.error).toContain('Спальня')
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+
+    const draft = await savePlanGeometry(projectId, source.planReading.geometry, 'draft')
+    expect(draft.ok).toBe(true)
+    if (draft.ok) expect(draft.data.geometry.status).toBe('draft')
+  })
+
   it('rejects an isolated wall when confirming, but still saves the draft', async () => {
     const walls = [
       ...closedWalls,
