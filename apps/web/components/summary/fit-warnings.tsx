@@ -68,7 +68,15 @@ function lines(layout: RoomLayout): string[] {
   return [...result]
 }
 
-export function FitWarnings({ rooms, projectId }: { rooms: RoomFit[]; projectId: string }) {
+export function FitWarnings({
+  rooms,
+  projectId,
+  canEdit,
+}: {
+  rooms: RoomFit[]
+  projectId: string
+  canEdit: boolean
+}) {
   const trouble = rooms
     .map((room) => ({ ...room, lines: lines(room.layout) }))
     .filter((room) => room.lines.length > 0)
@@ -103,6 +111,14 @@ export function FitWarnings({ rooms, projectId }: { rooms: RoomFit[]; projectId:
             ? 'Для части комнат двери и окна взяты из подтверждённой 2D-схемы. В остальных их положение нужно проверить по месту.'
             : 'Считаем по размерам комнаты и габаритам из карточек магазинов. Где дверь и окно, план не знает, поэтому проверьте по месту, прежде чем покупать.'}
       </p>
+      {geometryRooms > 0 && canEdit ? (
+        <Link
+          href={`/projects/${projectId}#plan-geometry`}
+          className="mt-3 inline-block text-[13px] text-accent underline underline-offset-4"
+        >
+          Открыть раздел 2D-схемы
+        </Link>
+      ) : null}
     </div>
   )
 }

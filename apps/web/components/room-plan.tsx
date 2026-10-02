@@ -7,6 +7,7 @@ import type {
   WallReservationKind,
 } from '@uyut/catalog'
 import { WALKWAY_CM } from '@uyut/catalog'
+import Link from 'next/link'
 import { ItemOperationForm } from '@/components/item-operation-form'
 import { ItemPlacementForm } from '@/components/item-placement-form'
 import { ItemSizeForm } from '@/components/item-size-form'
@@ -395,7 +396,15 @@ export function RoomPlanDrawing({
   )
 }
 
-export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canEdit?: boolean }) {
+export function RoomPlan({
+  layout,
+  canEdit = false,
+  projectId,
+}: {
+  layout: RoomLayout
+  canEdit?: boolean
+  projectId: string
+}) {
   const problems = layout.problems
   const hasOpenings =
     layout.reservations.length > 0 ||
@@ -620,6 +629,14 @@ export function RoomPlan({ layout, canEdit = false }: { layout: RoomLayout; canE
               <li key={message}>{message}</li>
             ))}
           </ul>
+          {canEdit && layout.reservationSource === 'geometry' ? (
+            <Link
+              href={`/projects/${projectId}#plan-geometry`}
+              className="mt-3 inline-block text-[13px] text-accent underline underline-offset-4"
+            >
+              Открыть раздел 2D-схемы и уточнить данные
+            </Link>
+          ) : null}
         </div>
       ) : null}
 

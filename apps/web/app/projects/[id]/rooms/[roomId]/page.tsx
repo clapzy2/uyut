@@ -182,7 +182,9 @@ export default async function RoomPage({ params }: { params: Params }) {
               hasGeometryOutline={layout?.reservationSource === 'geometry'}
             />
           ) : null}
-          {layout ? <RoomPlan layout={layout} canEdit={isOwner} /> : null}
+          {layout ? (
+            <RoomPlan layout={layout} canEdit={isOwner} projectId={room.projectId} />
+          ) : null}
           {isOwner ? (
             <RoomNotesForm roomId={room.id} notes={room.notes} />
           ) : room.notes ? (

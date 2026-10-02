@@ -165,7 +165,7 @@ export default async function SummaryPage({
               .map((room) => room.roomId)}
             readOnly={!isOwner}
           />
-          <FitWarnings rooms={layouts} projectId={project.id} />
+          <FitWarnings rooms={layouts} projectId={project.id} canEdit={isOwner} />
         </div>
         <aside className="flex flex-col gap-8">
           {isOwner ? (
