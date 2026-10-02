@@ -99,14 +99,12 @@ export function verifyPlanPageOpenings(
       const along = horizontal ? 'x' : 'y'
       const low = Math.min(opening.start[along], opening.end[along])
       const high = Math.max(opening.start[along], opening.end[along])
-      const possibleLabels = labels.filter(
-        (label) =>
-          label.rotation === (horizontal ? 0 : 90) &&
-          label[along] > low &&
-          label[along] < high &&
-          pdfPointInside(label, room.polygon) &&
-          pdfBoundaryDistance(work, label, room.polygon) > 0.5,
-      )
+      const possibleLabels = labels.filter((label) => {
+        if (label.rotation !== (horizontal ? 0 : 90) || label[along] <= low || label[along] >= high)
+          return false
+        const boundaryDistance = pdfBoundaryDistance(work, label, room.polygon)
+        return pdfPointInside(label, room.polygon) ? boundaryDistance > 0.5 : boundaryDistance <= 50
+      })
       if (possibleLabels.length > 8) {
         result.push({ ...identity, status: 'ambiguous', reason: 'too-many-opening-labels' })
         continue

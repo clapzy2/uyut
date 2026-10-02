@@ -60,6 +60,13 @@ type Fixture = {
   expectedOpeningFacePairs?: Array<
     [{ room: number; opening: string }, { room: number; opening: string }]
   >
+  expectedOpeningWidthProofs?: Array<{
+    sourceNumber: number
+    openingId: string
+    widthCm: number
+    labelIndex: number
+  }>
+  expectedConfirmationIssueIds?: string[]
   areaConflicts?: Array<{
     sourceNumber: number
     planTextItemIndex: number
@@ -276,6 +283,29 @@ const result = planPageMetricDraft(
   rooms.map((room) => room.sourceNumber),
 )
 if (!result.ok) throw new Error(result.error)
+if (fixture.expectedOpeningWidthProofs) {
+  const actual = result.geometry.pdfCalibration?.openingWidthProofs ?? []
+  const expected = fixture.expectedOpeningWidthProofs
+  if (
+    actual.length !== expected.length ||
+    expected.some((proof) => {
+      const id = planPageGeometryElementId(
+        source,
+        String(proof.sourceNumber),
+        'opening',
+        proof.openingId,
+      )
+      return !actual.some(
+        (candidate) =>
+          candidate.opening.id === id &&
+          candidate.opening.widthCm === proof.widthCm &&
+          candidate.labelIndex === proof.labelIndex,
+      )
+    })
+  ) {
+    throw new Error('The source opening width proofs changed.')
+  }
+}
 if (fixture.expectedOpeningFacePairs) {
   const pairKey = (faces: Array<{ room: number; opening: string }>) =>
     faces
@@ -336,6 +366,13 @@ const exteriorWallReviewQueue = planPageWallReviewQueue(
 )
 const geometryIssues = inspectPlanGeometry(result.geometry)
 if (geometryIssues.length > 0) throw new Error(`Geometry issues: ${JSON.stringify(geometryIssues)}`)
+const confirmationIssues = inspectManualPlanCompleteness(result.geometry)
+if (fixture.expectedConfirmationIssueIds) {
+  const expected = [...fixture.expectedConfirmationIssueIds].sort()
+  const actual = confirmationIssues.map((issue) => issue.id).sort()
+  if (JSON.stringify(actual) !== JSON.stringify(expected))
+    throw new Error(`Confirmation issues changed: ${actual.join(', ')}`)
+}
 if (result.geometry.rooms.length !== rooms.length)
   throw new Error('Not every room was transferred.')
 const expectedWalls =
@@ -591,6 +628,12 @@ console.log(
       0,
     ),
     openings: result.geometry.openings.length,
+    openingWidthProofs: result.geometry.pdfCalibration?.openingWidthProofs?.map((proof) => ({
+      openingId: proof.opening.id,
+      widthCm: proof.opening.widthCm,
+      labelIndex: proof.labelIndex,
+    })),
+    derivedOpeningIds: result.geometry.pdfCalibration?.derivedOpeningIds,
     openingFacePairs: result.geometry.pdfCalibration?.openingFacePairs?.length ?? 0,
     wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs?.length ?? 0,
     wallCoverage,
@@ -600,7 +643,7 @@ console.log(
     openingFaceChecks: verifyPlanPageOpeningFaces(linework, source, contours),
     warnings: result.geometry.warnings,
     geometryIssues: geometryIssues.length,
-    confirmationIssues: inspectManualPlanCompleteness(result.geometry),
+    confirmationIssues,
     routeChecks,
     paidCalls: 0,
   }),

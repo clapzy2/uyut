@@ -6,6 +6,18 @@
   },
   "calibrationRoomNumbers": [2, 3],
   "sourceRoomNumbers": [1, 2, 3],
+  "expectedOpeningWidthProofs": [
+    { "sourceNumber": 1, "openingId": "entry-door-820", "widthCm": 82, "labelIndex": 24 }
+  ],
+  "expectedConfirmationIssueIds": ["manual-disconnected-walls"],
+  "exterior": {
+    "polygon": [
+      { "x": 143.046, "y": 117.911 },
+      { "x": 587.987, "y": 117.911 },
+      { "x": 587.987, "y": 754.779 },
+      { "x": 143.046, "y": 754.779 }
+    ]
+  },
   "rooms": [
     {
       "sourceNumber": 1,
@@ -21,6 +33,15 @@
         { "x": 578.463, "y": 250.402 },
         { "x": 578.463, "y": 741.311 },
         { "x": 156.558, "y": 741.311 }
+      ],
+      "openings": [
+        {
+          "id": "entry-door-820",
+          "kind": "door",
+          "wallEdgeIndex": 6,
+          "start": { "x": 412.987, "y": 741.311 },
+          "end": { "x": 461.796, "y": 741.311 }
+        }
       ]
     },
     {

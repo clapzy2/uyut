@@ -206,7 +206,12 @@ function pdfOpeningFromPreparedNativeSpan(
     ![label.x, label.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000)
   )
     return fail('invalid-dimension-labels')
-  if (!evidence.pointInRoom(label, roomIdentity)) return fail('opening-label-outside-room')
+  const labelInside = evidence.pointInRoom(label, roomIdentity)
+  if (!labelInside) {
+    const owner = pdfRoomAtPoint(work, source, contours, label)
+    if (owner.status !== 'unresolved' || owner.reason !== 'no-annotated-room')
+      return fail('opening-label-outside-room')
+  }
   const matching = evidence
     .spansFor(axis)
     .filter(
@@ -218,6 +223,7 @@ function pdfOpeningFromPreparedNativeSpan(
         Math.abs((along(span.start) - along(start)) * alongScale) <= 0.12 &&
         Math.abs((along(span.end) - along(end)) * alongScale) <= 0.12,
     )
+  if (!labelInside && matching.length === 0) return fail('opening-label-outside-room')
   if (matching.length !== 1)
     return fail(
       matching.length > 1 ? 'multiple-dimension-lines' : 'no-connected-opening-dimension',
@@ -230,20 +236,20 @@ function pdfOpeningFromPreparedNativeSpan(
     x: (span.start.x + span.end.x) / 2,
     y: (span.start.y + span.end.y) / 2,
   }
-  if (!evidence.pointInRoom(middle, roomIdentity)) return fail('opening-dimension-outside-room')
-  if (
-    !dimensionIntervalInsideRoom(
-      work,
-      source,
-      contours,
-      roomIdentity,
-      span.start,
-      span.end,
-      axis,
-      evidence.pointInRoom,
-    )
-  )
-    return fail('opening-dimension-outside-room')
+  const spanVerified = labelInside
+    ? evidence.pointInRoom(middle, roomIdentity) &&
+      dimensionIntervalInsideRoom(
+        work,
+        source,
+        contours,
+        roomIdentity,
+        span.start,
+        span.end,
+        axis,
+        evidence.pointInRoom,
+      )
+    : exteriorOpeningDimension(work, source, contours, room, a, span, axis)
+  if (!spanVerified) return fail('opening-dimension-outside-room')
   const gap = Math.abs(across(a) - across(span.start)) * acrossScale
   for (let index = 0; index < room.polygon.length; index++) {
     if (index === opening.wallEdgeIndex) continue
@@ -274,6 +280,73 @@ function pdfOpeningFromPreparedNativeSpan(
     end: { ...end },
     basis: 'manual-opening-annotation-with-native-dimension',
   }
+}
+
+/** A printed opening width can sit outside the outer wall. Its two exact
+ * extension strokes must lead back to the declared face, with no nearer room.
+ */
+function exteriorOpeningDimension(
+  work: PdfLinework,
+  source: PdfPlanSource,
+  contours: PdfRoomContours,
+  room: PdfRoomContours['rooms'][number],
+  edgeStart: PagePoint,
+  span: NativeDimensionSpan,
+  axis: DimensionAxis,
+): boolean {
+  const along = axis === 'width' ? 'x' : 'y'
+  const across = axis === 'width' ? 'y' : 'x'
+  const alongScale = (along === 'x' ? work.pageWidth : work.pageHeight) / 1000
+  const acrossScale = (across === 'x' ? work.pageWidth : work.pageHeight) / 1000
+  const row = span.start[across]
+  const boundary = edgeStart[across]
+  const roomAcross = room.polygon.map((point) => point[across])
+  const outsideLow = boundary === Math.min(...roomAcross) && row < boundary
+  const outsideHigh = boundary === Math.max(...roomAcross) && row > boundary
+  if (!outsideLow && !outsideHigh) return false
+  const distance = Math.abs(row - boundary) * acrossScale
+  if (distance <= 0.12 || distance > 50) return false
+
+  const middle = {
+    x: (span.start.x + span.end.x) / 2,
+    y: (span.start.y + span.end.y) / 2,
+  }
+  const owner = pdfRoomAtPoint(work, source, contours, middle)
+  if (owner.status !== 'unresolved' || owner.reason !== 'no-annotated-room') return false
+
+  for (const other of contours.rooms) {
+    if (other === room) continue
+    const otherAlong = other.polygon.map((point) => point[along])
+    if (Math.min(...otherAlong) >= span.end[along] || Math.max(...otherAlong) <= span.start[along])
+      continue
+    const otherAcross = other.polygon.map((point) => point[across])
+    const otherLow = Math.min(...otherAcross)
+    const otherHigh = Math.max(...otherAcross)
+    const otherDistance =
+      otherLow > row
+        ? (otherLow - row) * acrossScale
+        : row > otherHigh
+          ? (row - otherHigh) * acrossScale
+          : 0
+    if (otherDistance <= distance + 0.12) return false
+  }
+
+  return [span.start, span.end].every((tip) =>
+    work.paths.some((path) => {
+      if (path.closed || path.paint !== 'stroke' || path.points.length !== 2) return false
+      const [first, last] = path.points
+      if (!first || !last) return false
+      return (
+        Math.abs(first[along] - tip[along]) * alongScale <= 0.12 &&
+        Math.abs(last[along] - tip[along]) * alongScale <= 0.12 &&
+        Math.min(first[across], last[across]) <= row &&
+        Math.max(first[across], last[across]) >= row &&
+        Math.min(Math.abs(first[across] - boundary), Math.abs(last[across] - boundary)) *
+          acrossScale <=
+          5
+      )
+    }),
+  )
 }
 export type PdfDimensionChain =
   | {

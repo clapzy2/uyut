@@ -640,6 +640,50 @@ describe('individual native opening spans', () => {
       reason: 'opening-label-outside-room',
     })
   })
+  it('verifies an outside opening width only with both extension lines and no nearer room', () => {
+    const outsidePaths = spanPaths.map((path) =>
+      path.operationIndex <= 3
+        ? { ...path, points: path.points.map((point) => ({ ...point, y: point.y + 35 })) }
+        : path,
+    )
+    const extensions: PdfVectorPath[] = [200, 300].map((x, index) => ({
+      operationIndex: 10 + index,
+      subpathIndex: 0,
+      closed: false,
+      paint: 'stroke',
+      points: [
+        { x, y: 395 },
+        { x, y: 430 },
+      ],
+    }))
+    const outsideLabel = { ...spanLabel, y: 423 }
+    expect(checkSpan(opening, outsidePaths, outsideLabel)).toMatchObject({
+      status: 'unresolved',
+      reason: 'opening-dimension-outside-room',
+    })
+    expect(checkSpan(opening, [...outsidePaths, ...extensions], outsideLabel)).toMatchObject({
+      status: 'candidate',
+      widthMm: 905,
+    })
+    expect(
+      checkSpan(opening, [...outsidePaths, ...extensions.slice(0, 1)], outsideLabel),
+    ).toMatchObject({ status: 'unresolved', reason: 'opening-dimension-outside-room' })
+    const nearerRoom: PdfRoomContours['rooms'][number] = {
+      roomSourceNumber: 2,
+      polygon: [
+        { x: 180, y: 405 },
+        { x: 320, y: 405 },
+        { x: 320, y: 410 },
+        { x: 180, y: 410 },
+      ],
+    }
+    expect(
+      checkSpan(opening, [...outsidePaths, ...extensions], outsideLabel, {
+        ...spanContours,
+        rooms: [...spanContours.rooms, nearerRoom],
+      }),
+    ).toMatchObject({ status: 'unresolved', reason: 'opening-dimension-outside-room' })
+  })
   it('refuses a printed span not aligned with both jamb coordinates', () => {
     const shifted = spanPaths.map((path) =>
       path.operationIndex <= 3
