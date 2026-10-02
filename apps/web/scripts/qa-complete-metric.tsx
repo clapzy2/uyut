@@ -180,7 +180,24 @@ const paintedWallAudit = inspectPlanPagePaintedWallSolids(
       : [],
   ),
 )
-if (!paintedWallAudit) throw new Error('Source-painted wall audit unavailable')
+if (!paintedWallAudit) {
+  console.log(
+    JSON.stringify({
+      status: 'blocked-source',
+      sourcePage: source.pdfPage,
+      sourceSha256: source.sha256,
+      vectorOmissions: {
+        clippedPaths: page.linework.clippedPaths,
+        skippedCurves: page.linework.skippedCurves,
+      },
+      confirmationReady: false,
+      reason:
+        'Нативный слой не позволяет проверить целые тела стен. Пропущенные участки нельзя замыкать по изображению.',
+      paidCalls: 0,
+    }),
+  )
+  process.exit(1)
+}
 const paintedBodyBoundarySupports = supportsOnPaintedBodyBoundary(
   paintedWallAudit.body,
   paintedBoundarySupports,

@@ -18,12 +18,23 @@ const page = await preparePlanPage(body, true, source.pdfPage, true)
 const linework = page.linework
 if (!linework || !page.image.planText) throw new Error('Missing page evidence.')
 const text = JSON.parse(page.image.planText) as Array<{ text: string }>
-// The archived negative control predates colour extraction; only compare its saved fields.
+// The archived negative control predates colour and omission-bound extraction.
 const nativePaths = linework.paths.map(
   ({ fillColor: _fill, strokeColor: _stroke, ...path }) => path,
 )
+const {
+  clippedPathBounds,
+  clippedPathBoundsTruncated,
+  skippedCurveBounds,
+  skippedCurveBoundsTruncated,
+  ...archivedLinework
+} = linework
 if (
-  !isDeepStrictEqual({ ...linework, paths: nativePaths }, fixture.linework) ||
+  clippedPathBoundsTruncated ||
+  skippedCurveBoundsTruncated ||
+  clippedPathBounds?.length !== linework.clippedPaths ||
+  skippedCurveBounds?.length !== linework.skippedCurves ||
+  !isDeepStrictEqual({ ...archivedLinework, paths: nativePaths }, fixture.linework) ||
   text.length !== fixture.text.length ||
   fixture.text.some((saved) => {
     const current = text[saved.index] as typeof saved | undefined
