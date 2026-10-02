@@ -285,7 +285,7 @@ export type PdfDimensionChain =
       lineOperations: number[]
       ends: [PagePoint, PagePoint]
       segments: Array<{ labelIndex: number; valueMm: number; start: PagePoint; end: PagePoint }>
-      basis: 'manual-page-contour'
+      basis: 'manual-page-contour' | 'native-exterior-dimension'
     }
   | { status: 'unresolved' | 'ambiguous'; roomSourceNumber: null; reason: string }
 
@@ -551,6 +551,9 @@ function pdfDimensionChain(
   const native = nativePageDimensionChain(work, labels, totalMm, axis)
   if (native.status !== 'candidate') return fail(native.reason, native.status)
 
+  if (externalRectangleDimension(work, source, contours, room, native, axis))
+    return { ...native, roomSourceNumber, basis: 'native-exterior-dimension' }
+
   for (const segment of native.segments) {
     const middle = {
       x: (segment.start.x + segment.end.x) / 2,
@@ -577,6 +580,93 @@ function pdfDimensionChain(
   if (!dimensionIntervalInsideRoom(work, source, contours, roomSourceNumber, start, end, axis))
     return fail('dimension-outside-room')
   return { ...native, roomSourceNumber, basis: 'manual-page-contour' }
+}
+
+/** Outside dimensions are common on architectural sheets. Accept one only when
+ * its whole span and two independently painted extension lines identify one
+ * rectangular room; this does not change any contour or move a dimension tip.
+ */
+function externalRectangleDimension(
+  work: PdfLinework,
+  source: PdfPlanSource,
+  contours: PdfRoomContours,
+  room: PdfRoomContours['rooms'][number],
+  native: Extract<PdfNativePageDimensionChain, { status: 'candidate' }>,
+  axis: DimensionAxis,
+): boolean {
+  if (room.polygon.length !== 4) return false
+  const along = axis === 'width' ? 'x' : 'y'
+  const across = axis === 'width' ? 'y' : 'x'
+  const alongScale = (along === 'x' ? work.pageWidth : work.pageHeight) / 1000
+  const acrossScale = (across === 'x' ? work.pageWidth : work.pageHeight) / 1000
+  const alongValues = [...new Set(room.polygon.map((point) => point[along]))]
+  const acrossValues = [...new Set(room.polygon.map((point) => point[across]))]
+  if (
+    alongValues.length !== 2 ||
+    acrossValues.length !== 2 ||
+    new Set(room.polygon.map((point) => `${point.x}:${point.y}`)).size !== 4
+  )
+    return false
+  const [start, end] = native.ends
+  if (!start || !end) return false
+  const lowAlong = Math.min(...alongValues)
+  const highAlong = Math.max(...alongValues)
+  if (
+    Math.abs(start[along] - lowAlong) * alongScale > 0.12 ||
+    Math.abs(end[along] - highAlong) * alongScale > 0.12 ||
+    Math.abs(start[across] - end[across]) * acrossScale > 0.12
+  )
+    return false
+  const row = start[across]
+  const lowAcross = Math.min(...acrossValues)
+  const highAcross = Math.max(...acrossValues)
+  if (row >= lowAcross && row <= highAcross) return false
+  const boundary = row < lowAcross ? lowAcross : highAcross
+  const distance = Math.abs(row - boundary) * acrossScale
+  if (distance <= 0.12 || distance > 50) return false
+
+  for (const other of contours.rooms) {
+    if (other === room) continue
+    const otherAlong = other.polygon.map((point) => point[along])
+    if (
+      Math.abs(Math.min(...otherAlong) - lowAlong) * alongScale > 0.12 ||
+      Math.abs(Math.max(...otherAlong) - highAlong) * alongScale > 0.12
+    )
+      continue
+    const otherAcross = other.polygon.map((point) => point[across])
+    const otherLow = Math.min(...otherAcross)
+    const otherHigh = Math.max(...otherAcross)
+    const otherDistance =
+      otherLow > row
+        ? (otherLow - row) * acrossScale
+        : row > otherHigh
+          ? (row - otherHigh) * acrossScale
+          : 0
+    if (otherDistance <= distance + 0.12) return false
+  }
+
+  const extensionAt = (tip: PagePoint) =>
+    work.paths.some((path) => {
+      if (path.closed || path.paint !== 'stroke' || path.points.length !== 2) return false
+      const [a, b] = path.points
+      if (!a || !b) return false
+      return (
+        Math.abs(a[along] - tip[along]) * alongScale <= 0.12 &&
+        Math.abs(b[along] - tip[along]) * alongScale <= 0.12 &&
+        Math.min(a[across], b[across]) <= tip[across] &&
+        Math.max(a[across], b[across]) >= tip[across] &&
+        Math.min(Math.abs(a[across] - boundary), Math.abs(b[across] - boundary)) * acrossScale <= 5
+      )
+    })
+  if (!extensionAt(start) || !extensionAt(end)) return false
+  return native.segments.every((segment) => {
+    const middle = {
+      x: (segment.start.x + segment.end.x) / 2,
+      y: (segment.start.y + segment.end.y) / 2,
+    }
+    const owner = pdfRoomAtPoint(work, source, contours, middle)
+    return owner.status === 'unresolved' && owner.reason === 'no-annotated-room'
+  })
 }
 
 /** A narrow concavity or overlapping contour between midpoints is still a conflict. */

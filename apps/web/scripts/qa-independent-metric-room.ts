@@ -258,6 +258,7 @@ const dimensionChecks = rooms.flatMap((room) =>
       side,
       status: checked.status,
       totalMm: checked.totalMm,
+      basis: checked.basis,
     }
   }),
 )

@@ -1,0 +1,61 @@
+{
+  "source": {
+    "sha256": "eacadf4cf2a58a2f595ba192f3b9be49062f0215b49dffb3ccc920ee669b7eeb",
+    "pdfPage": 3,
+    "state": "existing"
+  },
+  "calibrationRoomNumbers": [2, 3],
+  "sourceRoomNumbers": [1, 2, 3],
+  "rooms": [
+    {
+      "sourceNumber": 1,
+      "name": "Помещение №01",
+      "kind": "living",
+      "areaM2": 40.13,
+      "polygon": [
+        { "x": 156.558, "y": 250.402 },
+        { "x": 397.153, "y": 250.402 },
+        { "x": 397.153, "y": 611.597 },
+        { "x": 409.832, "y": 611.597 },
+        { "x": 409.832, "y": 250.402 },
+        { "x": 578.463, "y": 250.402 },
+        { "x": 578.463, "y": 741.311 },
+        { "x": 156.558, "y": 741.311 }
+      ]
+    },
+    {
+      "sourceNumber": 2,
+      "name": "Балкон 01",
+      "kind": "living",
+      "utility": true,
+      "areaM2": 4.75,
+      "polygon": [
+        { "x": 149.891, "y": 127.17 },
+        { "x": 399.356, "y": 127.17 },
+        { "x": 399.356, "y": 222.625 },
+        { "x": 149.891, "y": 222.625 }
+      ],
+      "widthMm": 4191,
+      "depthMm": 1134,
+      "width": { "textItemIndexes": [42], "segmentsMm": [4191] },
+      "depth": { "textItemIndexes": [29], "segmentsMm": [1134] }
+    },
+    {
+      "sourceNumber": 3,
+      "name": "Балкон 02",
+      "kind": "living",
+      "utility": true,
+      "areaM2": 3.34,
+      "polygon": [
+        { "x": 406.201, "y": 127.17 },
+        { "x": 581.321, "y": 127.17 },
+        { "x": 581.321, "y": 222.625 },
+        { "x": 406.201, "y": 222.625 }
+      ],
+      "widthMm": 2942,
+      "depthMm": 1134,
+      "width": { "textItemIndexes": [43], "segmentsMm": [2942] },
+      "depth": { "textItemIndexes": [41], "segmentsMm": [1134] }
+    }
+  ]
+}

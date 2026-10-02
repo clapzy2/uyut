@@ -165,6 +165,49 @@ describe('native horizontal dimension chains against page contours', () => {
       reason: 'dimension-outside-room',
     })
   })
+  it('accepts an exterior dimension only with two native extension lines to a unique rectangle', () => {
+    const shiftedRoom = {
+      ...bedroom,
+      polygon: bedroom.polygon.map((point) => ({ ...point, y: point.y + 48 })),
+    }
+    const extensions: PdfVectorPath[] = [643.528, 844.512].map((x, index) => ({
+      operationIndex: 9000 + index,
+      subpathIndex: 0,
+      closed: false,
+      paint: 'stroke',
+      points: [
+        { x, y: 90 },
+        { x, y: 134 },
+      ],
+    }))
+    const roomOnly = [shiftedRoom]
+    expect(check(work.paths, labels, 2985, roomOnly)).toMatchObject({
+      status: 'unresolved',
+      reason: 'dimension-outside-room',
+    })
+    expect(check([...work.paths, ...extensions], labels, 2985, roomOnly)).toMatchObject({
+      status: 'candidate',
+      basis: 'native-exterior-dimension',
+    })
+    expect(check([...work.paths, ...extensions.slice(0, 1)], labels, 2985, roomOnly)).toMatchObject(
+      {
+        status: 'unresolved',
+        reason: 'dimension-outside-room',
+      },
+    )
+    const nearerRoom: PdfRoomContours['rooms'][number] = {
+      roomSourceNumber: 99,
+      polygon: [
+        { x: 643.528, y: 105 },
+        { x: 844.512, y: 105 },
+        { x: 844.512, y: 125 },
+        { x: 643.528, y: 125 },
+      ],
+    }
+    expect(
+      check([...work.paths, ...extensions], labels, 2985, [shiftedRoom, nearerRoom]),
+    ).toMatchObject({ status: 'unresolved', reason: 'dimension-outside-room' })
+  })
   it.each([2310, 2314, 2319])('does not bridge a missing stem or arrow %i', (operation) => {
     expect(check(work.paths.filter((p) => p.operationIndex !== operation)).status).toBe(
       'unresolved',
