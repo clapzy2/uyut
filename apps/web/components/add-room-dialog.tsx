@@ -19,7 +19,12 @@ export function AddRoomDialog({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(false)
   const form = useForm<RoomInput, unknown, RoomOutput>({
     resolver: zodResolver(roomSchema),
-    defaultValues: { kind: 'living', name: roomKindLabels.living, areaM2: '' },
+    defaultValues: {
+      kind: 'living',
+      spaceKind: 'interior',
+      name: roomKindLabels.living,
+      areaM2: '',
+    },
   })
   const { errors, isSubmitting } = form.formState
   const kind = form.watch('kind')
@@ -64,6 +69,17 @@ export function AddRoomDialog({ projectId }: { projectId: string }) {
           className="flex flex-col gap-5"
         >
           <KindPicker registration={form.register('kind')} error={errors.kind?.message} />
+          <label className="flex flex-col gap-2 text-sm text-ink-2">
+            Помещение для расчёта работ
+            <select
+              className="h-10 rounded border border-control bg-paper px-3 text-ink"
+              {...form.register('spaceKind')}
+            >
+              <option value="interior">Внутри квартиры</option>
+              <option value="balcony">Балкон — отдельный расчёт</option>
+              <option value="loggia">Лоджия — отдельный расчёт</option>
+            </select>
+          </label>
           <Input
             id="room-name"
             label="Название"

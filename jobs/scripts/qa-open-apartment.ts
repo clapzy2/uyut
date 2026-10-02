@@ -762,6 +762,7 @@ const data: PdfData = {
     rooms: rooms.map((room) => ({
       id: room.id,
       name: room.name,
+      spaceKind: room.name.startsWith('Балкон') ? 'balcony' : 'interior',
       areaM2: room.areaM2,
       condition: 'bare' as const,
       refreshFinish: false,

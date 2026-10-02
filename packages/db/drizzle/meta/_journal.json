@@ -162,6 +162,13 @@
       "when": 1790224423424,
       "tag": "0022_sparkling_mandarin",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790947533526,
+      "tag": "0023_exotic_stephen_strange",
+      "breakpoints": true
     }
   ]
 }

@@ -86,6 +86,7 @@ function addRoom(data: ProjectSnapshot): Room {
     projectId: data.project.id,
     name: 'Гостиная',
     kind: 'living',
+    spaceKind: 'interior',
     areaM2: 12,
     condition: 'bare',
     refreshFinish: false,

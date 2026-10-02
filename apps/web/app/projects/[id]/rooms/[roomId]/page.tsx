@@ -102,7 +102,13 @@ export default async function RoomPage({ params }: { params: Params }) {
         </div>
         {isOwner ? (
           <RoomSettingsDialog
-            room={{ id: room.id, name: room.name, kind: room.kind, areaM2: room.areaM2 }}
+            room={{
+              id: room.id,
+              name: room.name,
+              kind: room.kind,
+              spaceKind: room.spaceKind,
+              areaM2: room.areaM2,
+            }}
           />
         ) : null}
       </div>

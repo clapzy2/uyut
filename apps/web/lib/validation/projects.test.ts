@@ -112,8 +112,13 @@ describe('project validation', () => {
     expect(roomSchema.safeParse({ kind: 'bath', name: 'Ванная', areaM2: '' }).success).toBe(false)
     expect(roomSchema.parse({ kind: 'kitchen', name: 'Кухня', areaM2: '9,3' })).toEqual({
       kind: 'kitchen',
+      spaceKind: 'interior',
       name: 'Кухня',
       areaM2: 9.3,
     })
+    expect(
+      roomSchema.parse({ kind: 'living', spaceKind: 'balcony', name: 'Зона отдыха', areaM2: '5' })
+        .spaceKind,
+    ).toBe('balcony')
   })
 })

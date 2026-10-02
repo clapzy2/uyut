@@ -57,6 +57,7 @@ export const roomConditionSchema = z.enum(roomConditionOptions, {
 
 export const roomSchema = z.object({
   kind: roomKindSchema,
+  spaceKind: z.enum(['interior', 'balcony', 'loggia']).default('interior'),
   name: z
     .string()
     .trim()

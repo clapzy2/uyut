@@ -114,7 +114,14 @@ describe('project PDF template', () => {
     const data = sample('free')
     data.estimate = estimateProject({
       rooms: [
-        { id: 'balcony', name: 'Балкон 1', areaM2: 5, condition: 'bare', refreshFinish: false },
+        {
+          id: 'balcony',
+          name: 'Балкон 1',
+          spaceKind: 'balcony',
+          areaM2: 5,
+          condition: 'bare',
+          refreshFinish: false,
+        },
       ],
       items: [],
       budgetKopecks: null,

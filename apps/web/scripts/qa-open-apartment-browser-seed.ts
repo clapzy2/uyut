@@ -85,6 +85,7 @@ const roomUrls = await db.transaction(async (tx) => {
       fixture.rooms.map((room, orderIndex) => ({
         projectId,
         kind: room.kind,
+        spaceKind: room.name.startsWith('Балкон') ? ('balcony' as const) : ('interior' as const),
         name: room.name,
         areaM2: room.areaM2 == null ? null : Math.round(room.areaM2 * 100) / 100,
         orderIndex,

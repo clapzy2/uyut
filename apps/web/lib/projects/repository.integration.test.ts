@@ -73,6 +73,17 @@ describe('project isolation between users', () => {
     ).rejects.toBeInstanceOf(NotFoundError)
   })
 
+  it('keeps the work area type when a balcony is renamed', async () => {
+    const balcony = await createRoom(alice, projectId, {
+      kind: 'living',
+      spaceKind: 'balcony',
+      name: 'Балкон',
+      areaM2: 5,
+    })
+    await updateRoom(alice, balcony.id, { name: 'Зона отдыха' })
+    expect((await getRoom(alice, balcony.id)).spaceKind).toBe('balcony')
+  })
+
   it('refuses edits and deletion by a stranger', async () => {
     await expect(updateProject(bob, projectId, { title: 'Взлом' })).rejects.toBeInstanceOf(
       NotFoundError,

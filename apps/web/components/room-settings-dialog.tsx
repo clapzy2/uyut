@@ -1,7 +1,7 @@
 'use client'
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import type { RoomKind } from '@uyut/db'
+import type { RoomKind, RoomSpaceKind } from '@uyut/db'
 import { Button, Dialog, DialogContent, DialogTrigger, Input, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -16,7 +16,13 @@ import { type RoomInput, type RoomOutput, roomSchema } from '@/lib/validation/pr
 export function RoomSettingsDialog({
   room,
 }: {
-  room: { id: string; name: string; kind: RoomKind; areaM2: number | null }
+  room: {
+    id: string
+    name: string
+    kind: RoomKind
+    spaceKind: RoomSpaceKind
+    areaM2: number | null
+  }
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -27,6 +33,7 @@ export function RoomSettingsDialog({
       // Детская там теперь есть, и подменять её нельзя: сохранение настроек молча меняло тип
       // комнаты, а вместе с ним задание модели и список предметов для детектора.
       kind: room.kind === 'bath' ? 'living' : room.kind,
+      spaceKind: room.spaceKind,
       name: room.name,
       areaM2: formatAreaInput(room.areaM2),
     },
@@ -58,6 +65,17 @@ export function RoomSettingsDialog({
           className="flex flex-col gap-5"
         >
           <KindPicker registration={form.register('kind')} error={errors.kind?.message} />
+          <label className="flex flex-col gap-2 text-sm text-ink-2">
+            Помещение для расчёта работ
+            <select
+              className="h-10 rounded border border-control bg-paper px-3 text-ink"
+              {...form.register('spaceKind')}
+            >
+              <option value="interior">Внутри квартиры</option>
+              <option value="balcony">Балкон — отдельный расчёт</option>
+              <option value="loggia">Лоджия — отдельный расчёт</option>
+            </select>
+          </label>
           <Input
             id="room-name"
             label="Название"

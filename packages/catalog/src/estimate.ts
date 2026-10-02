@@ -1,4 +1,4 @@
-import type { RoomCondition } from '@uyut/db'
+import type { RoomCondition, RoomSpaceKind } from '@uyut/db'
 
 /** Ставки работ, рублей за квадратный метр; берутся из env, по умолчанию 15 000 и 5 000 */
 export type WorksRates = { roughRubPerM2: number; finishRubPerM2: number }
@@ -6,6 +6,7 @@ export type WorksRates = { roughRubPerM2: number; finishRubPerM2: number }
 export type EstimateRoom = {
   id: string
   name: string
+  spaceKind?: RoomSpaceKind
   areaM2: number | null
   condition: RoomCondition
   refreshFinish: boolean
@@ -59,9 +60,8 @@ export function itemTotalKopecks(item: EstimateItem): number {
 
 function roomWorks(room: EstimateRoom, rates: WorksRates): RoomWorks {
   const base = { id: room.id, name: room.name, areaM2: room.areaM2 }
-  // Пока в БД нет отдельного типа для балкона. Не подменяем его стоимость комнатной ставкой,
-  // если название явно указывает на балкон или лоджию.
-  if (/^(балкон|лоджия)(?:\s|$)/iu.test(room.name.trim())) {
+  // Для открытых пространств нужна отдельная смета; название комнаты на расчёт не влияет.
+  if (room.spaceKind === 'balcony' || room.spaceKind === 'loggia') {
     return { ...base, kind: 'separate', roughKopecks: 0, finishKopecks: 0, totalKopecks: 0 }
   }
   if (room.areaM2 === null || !(room.areaM2 > 0)) {

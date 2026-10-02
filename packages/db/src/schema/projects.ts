@@ -17,6 +17,8 @@ import { users } from './users'
 
 export const roomKinds = ['living', 'bedroom', 'kitchen', 'bath', 'kid'] as const
 export type RoomKind = (typeof roomKinds)[number]
+export const roomSpaceKinds = ['interior', 'balcony', 'loggia'] as const
+export type RoomSpaceKind = (typeof roomSpaceKinds)[number]
 
 // Черновая отделка или готовый ремонт: от этого зависит, просит ли промпт сделать ремонт
 /**
@@ -442,6 +444,7 @@ export const rooms = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
     kind: text('kind', { enum: roomKinds }).notNull(),
+    spaceKind: text('space_kind', { enum: roomSpaceKinds }).notNull().default('interior'),
     name: text('name').notNull(),
     areaM2: numeric('area_m2', { precision: 6, scale: 2, mode: 'number' }),
     condition: text('condition', { enum: roomConditions }).notNull().default('bare'),

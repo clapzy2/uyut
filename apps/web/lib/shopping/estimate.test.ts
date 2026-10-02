@@ -55,11 +55,25 @@ describe('estimateProject', () => {
     expect(estimate.works.totalKopecks).toBe(200_000_00)
   })
 
-  it('does not price a named balcony or loggia with the standard room rate', () => {
+  it('excludes balconies and loggias by explicit type, regardless of name', () => {
     const estimate = estimateProject({
       rooms: [
-        { id: 'r1', name: 'Балкон 1', areaM2: 5, condition: 'bare', refreshFinish: false },
-        { id: 'r2', name: 'Лоджия', areaM2: 4, condition: 'finished', refreshFinish: true },
+        {
+          id: 'r1',
+          name: 'Зона отдыха',
+          spaceKind: 'balcony',
+          areaM2: 5,
+          condition: 'bare',
+          refreshFinish: false,
+        },
+        {
+          id: 'r2',
+          name: 'Лоджия',
+          spaceKind: 'loggia',
+          areaM2: 4,
+          condition: 'finished',
+          refreshFinish: true,
+        },
         {
           id: 'r3',
           name: 'Гостиная с балконом',
@@ -72,7 +86,7 @@ describe('estimateProject', () => {
       budgetKopecks: null,
       rates,
     })
-    expect(estimate.works.roomsSeparate).toEqual(['Балкон 1', 'Лоджия'])
+    expect(estimate.works.roomsSeparate).toEqual(['Зона отдыха', 'Лоджия'])
     expect(estimate.works.rooms.map((room) => room.kind)).toEqual(['separate', 'separate', 'full'])
     expect(estimate.works.areaM2).toBe(12)
     expect(estimate.works.totalKopecks).toBe(240_000_00)

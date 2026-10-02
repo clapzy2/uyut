@@ -9,6 +9,7 @@ import {
   type RoomCondition,
   type RoomKind,
   type RoomMeasurements,
+  type RoomSpaceKind,
   rooms,
   users,
 } from '@uyut/db'
@@ -301,7 +302,13 @@ export async function listRooms(userId: string, projectId: string): Promise<Room
 export async function createRoom(
   userId: string,
   projectId: string,
-  input: { kind: RoomKind; name: string; areaM2?: number | null; condition?: RoomCondition },
+  input: {
+    kind: RoomKind
+    name: string
+    areaM2?: number | null
+    condition?: RoomCondition
+    spaceKind?: RoomSpaceKind
+  },
 ): Promise<Room> {
   const project = await assertOwner(userId, projectId)
   const db = getDb()
@@ -314,6 +321,7 @@ export async function createRoom(
     .values({
       projectId: project.id,
       kind: input.kind,
+      spaceKind: input.spaceKind ?? 'interior',
       name: input.name,
       areaM2: input.areaM2 ?? null,
       ...(input.condition ? { condition: input.condition } : {}),
@@ -359,6 +367,7 @@ export async function getRoom(userId: string, roomId: string): Promise<RoomWithP
 export type RoomPatch = {
   name?: string
   kind?: RoomKind
+  spaceKind?: RoomSpaceKind
   areaM2?: number | null
   condition?: RoomCondition
   measurements?: RoomMeasurements | null

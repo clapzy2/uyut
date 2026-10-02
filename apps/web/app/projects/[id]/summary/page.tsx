@@ -110,6 +110,7 @@ export default async function SummaryPage({
   const rooms = project.rooms.map((room) => ({
     id: room.id,
     name: room.name,
+    spaceKind: room.spaceKind,
     areaM2: room.areaM2,
     condition: room.condition,
     refreshFinish: room.refreshFinish,
