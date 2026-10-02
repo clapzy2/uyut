@@ -109,7 +109,94 @@ function separatelyPaintedFixture() {
   return input
 }
 
+function mixedRevealFixture() {
+  const input = separatelyPaintedFixture()
+  input.work.paths = input.work.paths.filter((path) => path.points.length === 1)
+  input.work.paths.push(
+    {
+      operationIndex: 1,
+      subpathIndex: 0,
+      paint: 'fill',
+      closed: true,
+      points: [
+        { x: 50, y: 150 },
+        { x: 50.15, y: 150 },
+        { x: 50.15, y: 200 },
+        { x: 50, y: 200 },
+      ],
+    },
+    {
+      operationIndex: 2,
+      subpathIndex: 0,
+      paint: 'fill',
+      closed: true,
+      points: [
+        { x: 100, y: 125 },
+        { x: 125, y: 125 },
+        { x: 125, y: 225 },
+        { x: 100, y: 225 },
+      ],
+    },
+    {
+      operationIndex: 10,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 50.15, y: 150 },
+        { x: 50.15, y: 200 },
+      ],
+    },
+    {
+      operationIndex: 11,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 100, y: 150 },
+        { x: 100, y: 200 },
+      ],
+    },
+  )
+  return input
+}
+
 describe('physical door face candidates from two native reveals', () => {
+  it('accepts two native reveals painted with a hairline fill and a backed partial stroke', () => {
+    const input = mixedRevealFixture()
+    const before = structuredClone(input)
+    const result = pairs(input)
+    expect(result).toHaveLength(1)
+    expect(result[0]?.jambs.map((jamb) => jamb.strokeSegment?.operationIndex)).toEqual([10, 11])
+    expect(input).toEqual(before)
+  })
+
+  it.each(['missing-stroke', 'shifted-stroke', 'wide-fill', 'unsupported-stroke'] as const)(
+    'rejects a mixed reveal with %s',
+    (mutation) => {
+      const input = mixedRevealFixture()
+      const stroke = input.work.paths.find((path) => path.operationIndex === 10)
+      const fill = input.work.paths.find((path) => path.operationIndex === 1)
+      const backing = input.work.paths.find((path) => path.operationIndex === 2)
+      if (!stroke || !fill || !backing) throw new Error('Missing reveal test path')
+      if (mutation === 'missing-stroke') {
+        input.work.paths = input.work.paths.filter((path) => path.operationIndex !== 10)
+      } else if (mutation === 'shifted-stroke') {
+        stroke.points = stroke.points.map((point) => ({ ...point, x: point.x + 0.001 }))
+      } else if (mutation === 'wide-fill') {
+        fill.points = fill.points.map((point) =>
+          point.x === 50.15 ? { ...point, x: 50.5 } : point,
+        )
+        stroke.points = stroke.points.map((point) => ({ ...point, x: 50.5 }))
+      } else {
+        backing.points = backing.points.map((point) =>
+          point.x === 100 ? { ...point, x: 100.01 } : point,
+        )
+      }
+      expect(pairs(input)).toEqual([])
+    },
+  )
+
   it('preserves both fill and stroke evidence for independently painted reveals', () => {
     const input = separatelyPaintedFixture()
     const before = structuredClone(input)

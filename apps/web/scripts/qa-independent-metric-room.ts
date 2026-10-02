@@ -22,7 +22,10 @@ import { planPageContoursSchema, planPageReviewIssue } from '../lib/projects/pla
 import { planPageRoomInventory } from '../lib/projects/plan-page-room-inventory'
 import { inspectPdfClearanceRoutes } from '../lib/projects/plan-pdf-clearance-route'
 import { pdfDepthChain, pdfWidthChain } from '../lib/projects/plan-pdf-dimension-chain'
-import { verifyPlanPageOpeningFaces } from '../lib/projects/plan-pdf-opening-faces'
+import {
+  pairPlanPageOpeningFaces,
+  verifyPlanPageOpeningFaces,
+} from '../lib/projects/plan-pdf-opening-faces'
 import { pdfPointDistance } from '../lib/projects/plan-pdf-room-binding'
 import {
   classifyPlanPageWallSpans,
@@ -54,6 +57,9 @@ type Fixture = {
   sourceRoomNumbers?: number[]
   exterior?: PlanPageContours['exterior']
   expectedDimensionIssues?: Array<{ sourceNumber: number; side: 'width' | 'depth'; reason: string }>
+  expectedOpeningFacePairs?: Array<
+    [{ room: number; opening: string }, { room: number; opening: string }]
+  >
   areaConflicts?: Array<{
     sourceNumber: number
     planTextItemIndex: number
@@ -269,6 +275,26 @@ const result = planPageMetricDraft(
   rooms.map((room) => room.sourceNumber),
 )
 if (!result.ok) throw new Error(result.error)
+if (fixture.expectedOpeningFacePairs) {
+  const pairKey = (faces: Array<{ room: number; opening: string }>) =>
+    faces
+      .map(({ room, opening }) => `${room}:${opening}`)
+      .sort()
+      .join(' <-> ')
+  const expected = fixture.expectedOpeningFacePairs.map(pairKey).sort()
+  const actual = pairPlanPageOpeningFaces(linework, source, contours)
+    .map((pair) =>
+      pairKey(
+        pair.openings.map((opening) => ({
+          room: opening.roomSourceNumber ?? -1,
+          opening: opening.openingId,
+        })),
+      ),
+    )
+    .sort()
+  if (JSON.stringify(actual) !== JSON.stringify(expected))
+    throw new Error(`Source opening face pairs changed: ${actual.join(', ')}`)
+}
 const verifiedWidth = dimensionChecks.find(
   (check) => check.side === 'width' && check.status === 'candidate',
 )

@@ -6,6 +6,13 @@
   },
   "calibrationRoomNumbers": [3, 5],
   "sourceRoomNumbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "expectedOpeningFacePairs": [
+    [{ "room": 1, "opening": "kitchen-passage" }, { "room": 9, "opening": "hall-passage" }],
+    [{ "room": 1, "opening": "living-passage" }, { "room": 10, "opening": "hall-passage" }],
+    [{ "room": 2, "opening": "corridor-passage" }, { "room": 8, "opening": "bath-02" }],
+    [{ "room": 3, "opening": "corridor-passage" }, { "room": 8, "opening": "bath-03" }],
+    [{ "room": 5, "opening": "corridor-passage" }, { "room": 8, "opening": "bedroom-05" }]
+  ],
   "routeCheck": {
     "startRoomNumber": 1,
     "startOpeningId": "kitchen-passage",

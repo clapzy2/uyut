@@ -58,6 +58,44 @@ const segmentKey = (a: PagePoint, b: PagePoint) =>
     ? JSON.stringify([a.x, a.y, b.x, b.y])
     : JSON.stringify([b.x, b.y, a.x, a.y])
 
+/** A PDF may fill a hairline-wide reveal and paint only its inner outline.
+ * The outer edge is still native geometry, but the painted edge must belong to
+ * the same exact rectangular fill; nearby unrelated strokes do not count.
+ */
+function thinRevealOutline(
+  points: PagePoint[],
+  start: PagePoint,
+  end: PagePoint,
+  strokes: Map<string, PlanPageSegmentRef>,
+): PlanPageSegmentRef | undefined {
+  const first = points[0]
+  const last = points.at(-1)
+  const corners = first && last && samePoint(first, last) ? points.slice(0, -1) : points
+  if (corners.length !== 4) return undefined
+  const xs = [...new Set(corners.map((point) => point.x))]
+  const ys = [...new Set(corners.map((point) => point.y))]
+  if (xs.length !== 2 || ys.length !== 2) return undefined
+  if (new Set(corners.map((point) => `${point.x}:${point.y}`)).size !== 4) return undefined
+
+  const vertical = start.x === end.x
+  const horizontal = start.y === end.y
+  if (vertical === horizontal) return undefined
+  const across = vertical ? xs : ys
+  const alongLength = vertical ? Math.abs(end.y - start.y) : Math.abs(end.x - start.x)
+  if (
+    across[0] === undefined ||
+    across[1] === undefined ||
+    alongLength < 1 ||
+    Math.abs(across[1] - across[0]) > 0.25
+  )
+    return undefined
+
+  const other = across[0] === (vertical ? start.x : start.y) ? across[1] : across[0]
+  const oppositeStart = vertical ? { x: other, y: start.y } : { x: start.x, y: other }
+  const oppositeEnd = vertical ? { x: other, y: end.y } : { x: end.x, y: other }
+  return strokes.get(segmentKey(oppositeStart, oppositeEnd))
+}
+
 function openingFace(
   room: PlanPageContours['rooms'][number],
   opening: PlanPageOpening,
@@ -155,6 +193,9 @@ export function verifyPlanPageOpeningFaces(
   const segments = new Map<string, PdfOpeningJamb>()
   const strokes = new Map<string, PlanPageSegmentRef>()
   const closedSubpaths = new Map<number, number>()
+  const paintedFillEdges = new Map<string, PdfOpeningJamb[]>()
+  const lineKey = (a: PagePoint, b: PagePoint) =>
+    a.x === b.x ? `x:${a.x}` : a.y === b.y ? `y:${a.y}` : undefined
   const refKey = (ref: PlanPageSegmentRef) =>
     [ref.operationIndex, ref.subpathIndex, ref.segmentIndex]
       .map((n) => String(n).padStart(6, '0'))
@@ -199,8 +240,10 @@ export function verifyPlanPageOpeningFaces(
       const end = path.points[(index + 1) % path.points.length]
       if (!start || !end || samePoint(start, end)) continue
       const key = segmentKey(start, end)
-      const strokeSegment = path.paint === 'fill' ? strokes.get(key) : undefined
-      if (path.paint === 'fill' && !strokeSegment) continue
+      const strokeSegment =
+        path.paint === 'fill'
+          ? (strokes.get(key) ?? thinRevealOutline(path.points, start, end, strokes))
+          : undefined
       const jamb: PdfOpeningJamb = {
         operationIndex: path.operationIndex,
         subpathIndex: path.subpathIndex,
@@ -209,6 +252,15 @@ export function verifyPlanPageOpeningFaces(
         end: { ...end },
         ...(strokeSegment ? { strokeSegment } : {}),
       }
+      if (path.paint === 'fill') {
+        const line = lineKey(start, end)
+        if (line) {
+          const edges = paintedFillEdges.get(line) ?? []
+          edges.push(jamb)
+          paintedFillEdges.set(line, edges)
+        }
+      }
+      if (path.paint === 'fill' && !strokeSegment) continue
       const before = segments.get(key)
       // PDF drawings may paint the same wall outline several times. Identical native
       // segments prove one geometry; retain a deterministic reference without moving it.
@@ -221,6 +273,34 @@ export function verifyPlanPageOpeningFaces(
       )
         segments.set(key, jamb)
     }
+  }
+  for (const path of work.paths) {
+    // A two-point painted line is a reveal only when it follows a native filled
+    // wall outline. An unsupported dimension leader remains just a stroke.
+    if (path.closed || path.paint === 'fill' || path.points.length !== 2) continue
+    const [start, end] = path.points
+    if (!start || !end || samePoint(start, end)) continue
+    const line = lineKey(start, end)
+    if (!line) continue
+    const along = start.x === end.x ? 'y' : 'x'
+    const supports = (paintedFillEdges.get(line) ?? []).filter(
+      (edge) =>
+        Math.min(edge.start[along], edge.end[along]) <= Math.min(start[along], end[along]) &&
+        Math.max(edge.start[along], edge.end[along]) >= Math.max(start[along], end[along]),
+    )
+    if (new Set(supports.map((edge) => segmentKey(edge.start, edge.end))).size !== 1) continue
+    const support = supports[0]
+    if (!support) continue
+    const key = segmentKey(start, end)
+    if (segments.has(key)) continue
+    segments.set(key, {
+      ...support,
+      strokeSegment: {
+        operationIndex: path.operationIndex,
+        subpathIndex: path.subpathIndex,
+        segmentIndex: 0,
+      },
+    })
   }
   const jambBetween = (a: PagePoint, b: PagePoint) => segments.get(segmentKey(a, b))
   const faces = openings.map(({ room, opening }) => openingFace(room, opening))
