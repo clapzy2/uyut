@@ -82,10 +82,13 @@ type Fixture = {
   }
 }
 
-const [pdfPath, fixturePath, overlayPath, layoutPdfPath, geometryPath] = process.argv.slice(2)
+const strict = process.argv.includes('--strict')
+const [pdfPath, fixturePath, overlayPath, layoutPdfPath, geometryPath] = process.argv
+  .slice(2)
+  .filter((argument) => argument !== '--strict')
 if (!pdfPath || !fixturePath) {
   throw new Error(
-    'Usage: bun run scripts/qa-independent-metric-room.ts <PDF> <fixture.json> [overlay.png] [layout.pdf] [geometry.json]',
+    'Usage: bun run scripts/qa-independent-metric-room.ts <PDF> <fixture.json> [overlay.png] [layout.pdf] [geometry.json] [--strict]',
   )
 }
 const fixture = JSON.parse(await readFile(fixturePath, 'utf8')) as Fixture
@@ -608,14 +611,22 @@ if (layoutPdfPath) {
   )
 }
 
+const missingRoomNumbers = fixture.sourceRoomNumbers?.filter(
+  (number) => !rooms.some((room) => room.sourceNumber === number),
+)
+const confirmationReady =
+  sourceRooms !== undefined &&
+  Boolean(fixture.sourceRoomNumbers?.length) &&
+  !missingRoomNumbers?.length &&
+  geometryIssues.length === 0 &&
+  confirmationIssues.length === 0
 console.log(
   JSON.stringify({
     sourcePage: source.pdfPage,
     sourceSha256: sha256,
     sourceRooms,
-    missingRoomNumbers: fixture.sourceRoomNumbers?.filter(
-      (number) => !rooms.some((room) => room.sourceNumber === number),
-    ),
+    missingRoomNumbers,
+    confirmationReady,
     unresolvedAreaRoomNumbers: rooms
       .filter((room) => room.areaM2 === undefined)
       .map((room) => room.sourceNumber),
@@ -648,3 +659,4 @@ console.log(
     paidCalls: 0,
   }),
 )
+if (strict && !confirmationReady) process.exitCode = 1

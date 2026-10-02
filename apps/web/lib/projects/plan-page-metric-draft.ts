@@ -380,9 +380,11 @@ export function planPageMetricDraft(
   if (globalCalibration) {
     const exterior = contours.exterior?.polygon.map(convert)
     if (exterior) {
-      geometry.footprint = exterior
+      if (contours.exterior?.boundaryRole !== 'outer-wall-envelope') {
+        geometry.footprint = exterior
+      }
       // Keep the native face references used by wall-strip proofs. They are not
-      // construction centre-lines; the separate footprint owns floor containment.
+      // construction centre-lines or a substitute for a reviewed floor boundary.
       exterior.forEach((start, index) => {
         const end = exterior[(index + 1) % exterior.length]
         if (end)
@@ -398,6 +400,9 @@ export function planPageMetricDraft(
     geometry.pdfCalibration = {
       sourceSha256: source.sha256,
       pdfPage: source.pdfPage,
+      ...(contours.exterior?.boundaryRole
+        ? { exteriorBoundaryRole: contours.exterior.boundaryRole }
+        : {}),
       cmPerPoint: scale,
       origin,
       anchorRoomNumbers: [...anchorNumbers],
@@ -509,6 +514,11 @@ export function planPageMetricDraft(
     geometry.warnings = [
       'Координаты черновика перенесены из нативных линий PDF в едином масштабе. Подписанные мерки комнат сохранены отдельно и не заменены габаритами контуров.',
       ...(contours.exterior ? [] : ['Дополните внешний контур квартиры.']),
+      ...(contours.exterior?.boundaryRole === 'outer-wall-envelope'
+        ? [
+            'Наружная огибающая проходит по внешней грани стен и не является границей пола. Уточните внутреннюю границу до точной расстановки.',
+          ]
+        : []),
       ...(derivedOpeningIds.length
         ? [
             'Часть ширин проёмов перенесена по масштабу линий, без отдельной подписанной мерки. Подтвердите их обмером перед расстановкой.',

@@ -231,6 +231,8 @@ export type PlanGeometry = {
   pdfCalibration?: {
     sourceSha256: string
     pdfPage: number
+    /** The reviewed exterior may be the outside of construction, not usable floor. */
+    exteriorBoundaryRole?: 'floor' | 'outer-wall-envelope'
     cmPerPoint: number
     origin: { x: number; y: number }
     anchorRoomNumbers: number[]
@@ -296,7 +298,11 @@ export type PlanPageContours = {
   review: 'manual-source-review'
   pageWidth: number
   pageHeight: number
-  exterior?: { polygon: Array<{ x: number; y: number }> }
+  exterior?: {
+    polygon: Array<{ x: number; y: number }>
+    /** Omitted on older reviews, which treated this polygon as the floor boundary. */
+    boundaryRole?: 'floor' | 'outer-wall-envelope'
+  }
   /** Reviewed non-room space such as a technical shaft; never inferred from a gap. */
   voids?: Array<{ id: string; polygon: Array<{ x: number; y: number }> }>
   rooms: Array<

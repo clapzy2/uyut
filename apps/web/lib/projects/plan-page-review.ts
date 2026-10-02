@@ -78,7 +78,12 @@ export const planPageContoursSchema = z
     review: z.literal('manual-source-review'),
     pageWidth: z.number().positive().max(100_000),
     pageHeight: z.number().positive().max(100_000),
-    exterior: z.strictObject({ polygon: z.array(pointSchema).min(3).max(100) }).optional(),
+    exterior: z
+      .strictObject({
+        polygon: z.array(pointSchema).min(3).max(100),
+        boundaryRole: z.enum(['floor', 'outer-wall-envelope']).optional(),
+      })
+      .optional(),
     voids: z
       .array(z.strictObject({ id: featureIdSchema, polygon: z.array(pointSchema).min(3).max(100) }))
       .max(20)

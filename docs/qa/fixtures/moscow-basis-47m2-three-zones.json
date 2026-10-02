@@ -9,8 +9,9 @@
   "expectedOpeningWidthProofs": [
     { "sourceNumber": 1, "openingId": "entry-door-820", "widthCm": 82, "labelIndex": 24 }
   ],
-  "expectedConfirmationIssueIds": ["manual-disconnected-walls"],
+  "expectedConfirmationIssueIds": ["manual-disconnected-walls", "manual-missing-floor-boundary"],
   "exterior": {
+    "boundaryRole": "outer-wall-envelope",
     "polygon": [
       { "x": 143.046, "y": 117.911 },
       { "x": 587.987, "y": 117.911 },

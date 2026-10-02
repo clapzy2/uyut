@@ -216,7 +216,12 @@ export function PlanPageContourEditor({
             if (first) setSelected(pdfContourKey(first))
             setExterior(
               saved.exterior
-                ? { polygon: saved.exterior.polygon.map((point) => ({ ...point })) }
+                ? {
+                    polygon: saved.exterior.polygon.map((point) => ({ ...point })),
+                    ...(saved.exterior.boundaryRole
+                      ? { boundaryRole: saved.exterior.boundaryRole }
+                      : {}),
+                  }
                 : undefined,
             )
           }

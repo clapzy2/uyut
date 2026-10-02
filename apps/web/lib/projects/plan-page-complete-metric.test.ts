@@ -566,6 +566,20 @@ describe('complete existing PDF page in one native metric scale', () => {
     expect(fixture.reading.rooms.find((room) => room.sourceNumber === 6)?.depthCm).toBe(415.4)
   })
 
+  it('keeps an outside wall envelope separate from the floor boundary', () => {
+    const fixture = completeSheet()
+    if (!fixture.context.contours.exterior) throw new Error('Missing reviewed exterior')
+    fixture.context.contours.exterior.boundaryRole = 'outer-wall-envelope'
+
+    const geometry = draft(fixture)
+    expect(geometry.footprint).toBeUndefined()
+    expect(geometry.walls.filter((wall) => wall.kind === 'outer')).toHaveLength(18)
+    expect(geometry.pdfCalibration?.exteriorBoundaryRole).toBe('outer-wall-envelope')
+    expect(inspectManualPlanCompleteness(geometry)).toContainEqual(
+      expect.objectContaining({ id: 'manual-missing-floor-boundary', severity: 'error' }),
+    )
+  })
+
   it('retains all nineteen annotated openings without invented heights or swing zones', () => {
     const fixture = completeSheet()
     const geometry = draft(fixture)

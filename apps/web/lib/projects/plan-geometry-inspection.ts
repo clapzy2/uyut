@@ -388,6 +388,17 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
       message: 'Внешняя граница пола неполная или пересекает сама себя. Сверьте исходный контур.',
     })
   }
+  if (
+    geometry.pdfCalibration?.exteriorBoundaryRole === 'outer-wall-envelope' &&
+    !geometry.footprint
+  ) {
+    issues.push({
+      id: 'manual-missing-floor-boundary',
+      severity: 'error',
+      message:
+        'Наружный контур стен не задаёт полезную площадь пола. Сверьте отдельную внутреннюю границу по исходному обмеру перед подтверждением.',
+    })
+  }
   const voidIds = new Set<string>()
   for (const voidShape of geometry.voids ?? []) {
     if (voidIds.has(voidShape.id) || !validMetricPolygon(voidShape.polygon, geometry)) {
