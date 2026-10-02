@@ -1,0 +1,28 @@
+{
+  "source": {
+    "sha256": "d0ab7f756492e4c2bc11a7870bfcb6815a96daf04127095ba73bcdc6f5a6e058",
+    "pdfPage": 3,
+    "state": "existing"
+  },
+  "sourceRoomNumbers": [1, 2, 3, 4, 5, 6, 7, 8],
+  "expectedConfirmationIssueIds": ["manual-missing-outer-walls"],
+  "room": {
+    "sourceNumber": 1,
+    "name": "Прихожая",
+    "kind": "living",
+    "utility": true,
+    "areaM2": 11.6,
+    "polygon": [
+      { "x": 388.537, "y": 314.268 },
+      { "x": 585.573, "y": 314.268 },
+      { "x": 585.573, "y": 683.91 },
+      { "x": 488.72, "y": 683.91 },
+      { "x": 488.72, "y": 418.256 },
+      { "x": 388.537, "y": 418.256 }
+    ],
+    "widthMm": 3724,
+    "depthMm": 4940,
+    "width": { "textItemIndexes": [124], "segmentsMm": [3724] },
+    "depth": { "textItemIndexes": [123], "segmentsMm": [4940] }
+  }
+}

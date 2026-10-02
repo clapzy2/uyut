@@ -1,0 +1,28 @@
+{
+  "source": {
+    "sha256": "d0ab7f756492e4c2bc11a7870bfcb6815a96daf04127095ba73bcdc6f5a6e058",
+    "pdfPage": 3,
+    "state": "existing"
+  },
+  "sourceRoomNumbers": [1, 2, 3, 4, 5, 6, 7, 8],
+  "expectedConfirmationIssueIds": ["manual-missing-outer-walls"],
+  "room": {
+    "sourceNumber": 8,
+    "name": "Балкон",
+    "kind": "living",
+    "utility": true,
+    "areaM2": 5.5,
+    "polygon": [
+      { "x": 878.695, "y": 392.071 },
+      { "x": 952.241, "y": 392.071 },
+      { "x": 952.241, "y": 696.61 },
+      { "x": 917.321, "y": 696.61 },
+      { "x": 917.321, "y": 681.664 },
+      { "x": 878.695, "y": 681.664 }
+    ],
+    "widthMm": 1390,
+    "depthMm": 4070,
+    "width": { "textItemIndexes": [137, 138], "segmentsMm": [730, 660] },
+    "depth": { "textItemIndexes": [139], "segmentsMm": [4070] }
+  }
+}
