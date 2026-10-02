@@ -445,6 +445,29 @@ describe('architectural tick dimensions', () => {
     ).toMatchObject({ status: 'unresolved', reason: 'no-connected-dimension-line' })
   })
 
+  it('does not mistake nearby unconnected wall hatching for a dimension branch', () => {
+    const { source, contours, work } = tickDimensionSheet()
+    const paths: PdfVectorPath[] = [
+      ...work.paths,
+      {
+        operationIndex: 8,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: 100, y: 170.08 },
+          { x: 104, y: 164.08 },
+        ],
+      },
+    ]
+    expect(pdfWidthChain({ ...work, paths }, source, contours, 5, [widthLabel], 200)).toMatchObject(
+      {
+        status: 'candidate',
+        lineOperations: [2],
+      },
+    )
+  })
+
   it('ignores a sub-point drafting offset at a verified dimension endpoint', () => {
     const { source, contours, work } = tickDimensionSheet()
     const paths = work.paths.map((path) => {

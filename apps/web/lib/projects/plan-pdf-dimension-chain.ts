@@ -934,7 +934,12 @@ function nativeDimensionSpans(
           stroke.subpathIndex === path.subpathIndex
         )
           return false
-        if (![stroke.start, stroke.end].some((point) => close(point, a) || close(point, b)))
+        // Nearby wall hatching is not a connected branch of the dimension rail.
+        if (
+          ![stroke.start, stroke.end].some(
+            (point) => (point.x === a.x && point.y === a.y) || (point.x === b.x && point.y === b.y),
+          )
+        )
           return false
         return Math.abs((across(stroke.end) - across(stroke.start)) * acrossScale) > 0.12
       })

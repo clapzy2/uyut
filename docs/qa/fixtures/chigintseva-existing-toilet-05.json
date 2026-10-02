@@ -1,0 +1,24 @@
+{
+  "source": {
+    "sha256": "d0ab7f756492e4c2bc11a7870bfcb6815a96daf04127095ba73bcdc6f5a6e058",
+    "pdfPage": 3,
+    "state": "existing"
+  },
+  "sourceRoomNumbers": [1, 2, 3, 4, 5, 6, 7, 8],
+  "room": {
+    "sourceNumber": 5,
+    "name": "Туалет",
+    "kind": "bath",
+    "areaM2": 1.6,
+    "polygon": [
+      { "x": 533.297, "y": 173.621 },
+      { "x": 580.916, "y": 173.621 },
+      { "x": 580.916, "y": 308.283 },
+      { "x": 533.297, "y": 308.283 }
+    ],
+    "widthMm": 900,
+    "depthMm": 1800,
+    "width": { "textItemIndexes": [81], "segmentsMm": [900] },
+    "depth": { "textItemIndexes": [125], "segmentsMm": [1800] }
+  }
+}

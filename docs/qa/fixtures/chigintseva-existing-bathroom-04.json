@@ -1,0 +1,24 @@
+{
+  "source": {
+    "sha256": "d0ab7f756492e4c2bc11a7870bfcb6815a96daf04127095ba73bcdc6f5a6e058",
+    "pdfPage": 3,
+    "state": "existing"
+  },
+  "sourceRoomNumbers": [1, 2, 3, 4, 5, 6, 7, 8],
+  "room": {
+    "sourceNumber": 4,
+    "name": "Ванная",
+    "kind": "bath",
+    "areaM2": 3.2,
+    "polygon": [
+      { "x": 435.837, "y": 173.621 },
+      { "x": 529.063, "y": 173.621 },
+      { "x": 529.063, "y": 308.283 },
+      { "x": 435.837, "y": 308.283 }
+    ],
+    "widthMm": 1762,
+    "depthMm": 1800,
+    "width": { "textItemIndexes": [79], "segmentsMm": [1762] },
+    "depth": { "textItemIndexes": [94], "segmentsMm": [1800] }
+  }
+}
