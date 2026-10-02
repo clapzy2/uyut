@@ -659,6 +659,7 @@ const confirmationReady =
   sourceRooms !== undefined &&
   Boolean(fixture.sourceRoomNumbers?.length) &&
   !missingRoomNumbers?.length &&
+  !('partial' in wallSolids && wallSolids.partial === true) &&
   geometryIssues.length === 0 &&
   confirmationIssues.length === 0
 console.log(
