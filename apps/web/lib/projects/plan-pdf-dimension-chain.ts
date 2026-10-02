@@ -650,7 +650,19 @@ function pdfDimensionChain(
     pdfPointDistance(work, end, at(Math.max(...positions))) > 0.12
   )
     return fail('dimension-does-not-span-room')
-  if (!dimensionIntervalInsideRoom(work, source, contours, roomSourceNumber, start, end, axis))
+  const intervalStart = at(Math.max(along(start), Math.min(...positions)))
+  const intervalEnd = at(Math.min(along(end), Math.max(...positions)))
+  if (
+    !dimensionIntervalInsideRoom(
+      work,
+      source,
+      contours,
+      roomSourceNumber,
+      intervalStart,
+      intervalEnd,
+      axis,
+    )
+  )
     return fail('dimension-outside-room')
   return { ...native, roomSourceNumber, basis: 'manual-page-contour' }
 }
@@ -839,7 +851,7 @@ function nativeDimensionSpans(
     const dy = ((end.y - start.y) * work.pageHeight) / 1000
     const length = Math.hypot(dx, dy)
     if (
-      length < 3 ||
+      length < 2 ||
       length > 15 ||
       Math.abs(dx) / length < 0.4 ||
       Math.abs(dx) / length > 0.9 ||

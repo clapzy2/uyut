@@ -145,16 +145,53 @@ describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
     expect(result.unsupportedContexts).toBe(0)
   })
 
-  it('does not treat a nonrectangular or curved clipping path as its bounding box', () => {
+  it('uses a polygonal clip without exposing paths outside its shape', () => {
     const result = extract([
       [ops.save, null],
       [ops.eoClip, null],
       [ops.constructPath, [ops.endPath, [[0, 10, 10, 1, 30, 10, 1, 20, 30, 4]], []]],
+      stroke([0, 20, 12, 1, 20, 20]),
       stroke([0, 15, 15, 1, 25, 25]),
       [ops.restore, null],
       stroke([0, 15, 15, 1, 25, 25]),
     ])
+    expect(result.paths).toHaveLength(2)
+    expect(result.clippedPaths).toBe(1)
+    expect(result.unsupportedContexts).toBe(0)
+  })
+
+  it('rejects a segment that crosses the missing corner of a concave clip', () => {
+    const result = extract([
+      [ops.clip, null],
+      [
+        ops.constructPath,
+        [ops.endPath, [[0, 10, 10, 1, 30, 10, 1, 30, 20, 1, 20, 20, 1, 20, 30, 1, 10, 30, 4]], []],
+      ],
+      stroke([0, 15, 28, 1, 28, 15]),
+      stroke([0, 12, 12, 1, 28, 12]),
+    ])
     expect(result.paths).toHaveLength(1)
+    expect(result.clippedPaths).toBe(1)
+    expect(result.unsupportedContexts).toBe(0)
+  })
+
+  it('still refuses a curved clipping path instead of replacing it with a chord', () => {
+    const result = extract([
+      [ops.clip, null],
+      [ops.constructPath, [ops.endPath, [[0, 10, 10, 2, 20, 20, 20, 30, 30, 30, 4]], []]],
+      stroke([0, 15, 15, 1, 25, 25]),
+    ])
+    expect(result.paths).toHaveLength(0)
+    expect(result.unsupportedContexts).toBe(1)
+  })
+
+  it('refuses a self-intersecting clipping polygon', () => {
+    const result = extract([
+      [ops.clip, null],
+      [ops.constructPath, [ops.endPath, [[0, 10, 10, 1, 30, 30, 1, 10, 30, 1, 30, 10, 4]], []]],
+      stroke([0, 15, 15, 1, 25, 15]),
+    ])
+    expect(result.paths).toHaveLength(0)
     expect(result.unsupportedContexts).toBe(1)
   })
 

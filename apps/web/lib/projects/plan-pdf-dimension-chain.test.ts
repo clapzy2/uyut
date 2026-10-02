@@ -406,6 +406,74 @@ describe('architectural tick dimensions', () => {
     })
   })
 
+  it('accepts short architectural ticks while still requiring both native endpoints', () => {
+    const { source, contours, work } = tickDimensionSheet()
+    const paths = work.paths.map((path) => {
+      if (path.operationIndex === 3)
+        return {
+          ...path,
+          points: [
+            { x: 99.2, y: 170.8 },
+            { x: 100.8, y: 169.2 },
+          ],
+        }
+      if (path.operationIndex === 4)
+        return {
+          ...path,
+          points: [
+            { x: 299.2, y: 170.8 },
+            { x: 300.8, y: 169.2 },
+          ],
+        }
+      return path
+    })
+    expect(pdfWidthChain({ ...work, paths }, source, contours, 5, [widthLabel], 200)).toMatchObject(
+      {
+        status: 'candidate',
+        lineOperations: [2],
+      },
+    )
+    expect(
+      pdfWidthChain(
+        { ...work, paths: paths.filter((path) => path.operationIndex !== 4) },
+        source,
+        contours,
+        5,
+        [widthLabel],
+        200,
+      ),
+    ).toMatchObject({ status: 'unresolved', reason: 'no-connected-dimension-line' })
+  })
+
+  it('ignores a sub-point drafting offset at a verified dimension endpoint', () => {
+    const { source, contours, work } = tickDimensionSheet()
+    const paths = work.paths.map((path) => {
+      if (path.operationIndex === 5)
+        return {
+          ...path,
+          points: [
+            { x: 170, y: 99.98 },
+            { x: 170, y: 300 },
+          ],
+        }
+      if (path.operationIndex === 6)
+        return {
+          ...path,
+          points: [
+            { x: 165, y: 94.98 },
+            { x: 175, y: 104.98 },
+          ],
+        }
+      return path
+    })
+    expect(pdfDepthChain({ ...work, paths }, source, contours, 5, [depthLabel], 200)).toMatchObject(
+      {
+        status: 'candidate',
+        lineOperations: [5],
+      },
+    )
+  })
+
   it('refuses a missing, shifted, duplicate or one-sided tick', () => {
     const { source, contours, work } = tickDimensionSheet()
     const width = (paths: PdfVectorPath[]) =>

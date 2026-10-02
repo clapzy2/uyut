@@ -30,6 +30,7 @@ type Viewport = {
 type GraphicsState = {
   matrix: Matrix
   clip?: Bounds
+  polygonClips?: PagePoint[][]
   supported: boolean
   fillColor?: string
   strokeColor?: string
@@ -117,6 +118,123 @@ function contains(bounds: Bounds, point: PagePoint): boolean {
     point.y >= bounds.top &&
     point.y <= bounds.bottom
   )
+}
+
+const CLIP_EPSILON = 0.00001
+
+function cross(a: PagePoint, b: PagePoint, c: PagePoint): number {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+}
+
+function pointOnSegment(point: PagePoint, a: PagePoint, b: PagePoint): boolean {
+  return (
+    Math.abs(cross(a, b, point)) <= CLIP_EPSILON &&
+    point.x >= Math.min(a.x, b.x) - CLIP_EPSILON &&
+    point.x <= Math.max(a.x, b.x) + CLIP_EPSILON &&
+    point.y >= Math.min(a.y, b.y) - CLIP_EPSILON &&
+    point.y <= Math.max(a.y, b.y) + CLIP_EPSILON
+  )
+}
+
+function pointInsidePolygon(point: PagePoint, polygon: PagePoint[]): boolean {
+  let inside = false
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i]
+    const b = polygon[(i + 1) % polygon.length]
+    if (!a || !b) return false
+    if (pointOnSegment(point, a, b)) return true
+    if (
+      a.y > point.y !== b.y > point.y &&
+      point.x < a.x + ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y)
+    )
+      inside = !inside
+  }
+  return inside
+}
+
+/** Endpoints alone are insufficient for a concave mask: check every interval between crossings. */
+function segmentInsidePolygon(a: PagePoint, b: PagePoint, polygon: PagePoint[]): boolean {
+  if (!pointInsidePolygon(a, polygon) || !pointInsidePolygon(b, polygon)) return false
+  const parameters = [0, 1]
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  for (let i = 0; i < polygon.length; i++) {
+    const c = polygon[i]
+    const d = polygon[(i + 1) % polygon.length]
+    if (!c || !d) return false
+    const ex = d.x - c.x
+    const ey = d.y - c.y
+    const denominator = dx * ey - dy * ex
+    if (Math.abs(denominator) <= CLIP_EPSILON) {
+      if (pointOnSegment(c, a, b) || pointOnSegment(d, a, b)) {
+        const lengthSquared = dx * dx + dy * dy
+        if (lengthSquared > 0) {
+          for (const point of [c, d]) {
+            parameters.push(((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared)
+          }
+        }
+      }
+      continue
+    }
+    const t = ((c.x - a.x) * ey - (c.y - a.y) * ex) / denominator
+    const u = ((c.x - a.x) * dy - (c.y - a.y) * dx) / denominator
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) parameters.push(t)
+  }
+  const sorted = [...new Set(parameters.filter((t) => t >= 0 && t <= 1))].sort((x, y) => x - y)
+  for (let i = 1; i < sorted.length; i++) {
+    const start = sorted[i - 1]
+    const end = sorted[i]
+    if (start === undefined || end === undefined || end - start <= Number.EPSILON) continue
+    const middle = (start + end) / 2
+    if (!pointInsidePolygon({ x: a.x + dx * middle, y: a.y + dy * middle }, polygon)) return false
+  }
+  return true
+}
+
+/** Only one straight, simple polygon is supported; curved or compound clips still fail closed. */
+function simpleClipPolygon(path: Subpath): PagePoint[] | undefined {
+  if (path.curved) return undefined
+  const points = path.points
+  const first = points[0]
+  const last = points.at(-1)
+  if (!first || !last || (!path.closed && (first.x !== last.x || first.y !== last.y)))
+    return undefined
+  const corners = first.x === last.x && first.y === last.y ? points.slice(0, -1) : points
+  if (corners.length < 3 || corners.length > 100) return undefined
+  let area = 0
+  for (let i = 0; i < corners.length; i++) {
+    const a = corners[i]
+    const b = corners[(i + 1) % corners.length]
+    if (!a || !b || (a.x === b.x && a.y === b.y)) return undefined
+    area += a.x * b.y - a.y * b.x
+    for (let j = i + 2; j < corners.length; j++) {
+      if (i === 0 && j === corners.length - 1) continue
+      const c = corners[j]
+      const d = corners[(j + 1) % corners.length]
+      if (!c || !d) return undefined
+      const opposite = cross(a, b, c) * cross(a, b, d) < 0
+      const reverse = cross(c, d, a) * cross(c, d, b) < 0
+      if (
+        (opposite && reverse) ||
+        pointOnSegment(c, a, b) ||
+        pointOnSegment(d, a, b) ||
+        pointOnSegment(a, c, d) ||
+        pointOnSegment(b, c, d)
+      )
+        return undefined
+    }
+  }
+  return Math.abs(area) > CLIP_EPSILON ? corners : undefined
+}
+
+function pathInsidePolygon(path: Subpath, polygon: PagePoint[], closed: boolean): boolean {
+  const segmentCount = closed ? path.points.length : path.points.length - 1
+  for (let i = 0; i < segmentCount; i++) {
+    const a = path.points[i]
+    const b = path.points[(i + 1) % path.points.length]
+    if (!a || !b || !segmentInsidePolygon(a, b, polygon)) return false
+  }
+  return true
 }
 
 export function pdfVectorRectangle(path: PdfVectorPath): Bounds | undefined {
@@ -241,10 +359,11 @@ export function extractPdfLinework(
       const path = transformed[0]
       const box =
         transformed.length === 1 && path && !path.curved ? rectangle(path.points) : undefined
-      if (!box) {
+      const polygon = transformed.length === 1 && path ? simpleClipPolygon(path) : undefined
+      if (!polygon) {
         state.supported = false
         result.unsupportedContexts++
-      } else {
+      } else if (box) {
         state.clip = state.clip
           ? {
               left: Math.max(state.clip.left, box.left),
@@ -253,6 +372,8 @@ export function extractPdfLinework(
               bottom: Math.min(state.clip.bottom, box.bottom),
             }
           : box
+      } else {
+        state.polygonClips = [...(state.polygonClips ?? []), polygon]
       }
       pendingClip = false
     }
@@ -294,6 +415,9 @@ export function extractPdfLinework(
           (p) =>
             !contains({ left: 0, top: 0, right: 1000, bottom: 1000 }, p) ||
             (clip && !contains(clip, p)),
+        ) ||
+        (state.polygonClips ?? []).some(
+          (polygon) => !pathInsidePolygon(path, polygon, path.closed || filled),
         )
       ) {
         result.clippedPaths++
