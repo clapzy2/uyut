@@ -53,6 +53,7 @@ export function PlanGeometryPreview({
 }) {
   const padding = Math.max(20, Math.min(geometry.widthCm, geometry.heightCm) * 0.06)
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
+  const volume = planVolume(geometry)
   const confirmationIssues =
     geometry.status === 'draft'
       ? [
@@ -408,11 +409,12 @@ export function PlanGeometryPreview({
             </span>
           </div>
           {action ? <div className="mt-6">{action}</div> : null}
-          {planVolume(geometry) ? <PlanVolumeLaunch geometry={geometry} /> : null}
-          {geometry.status === 'confirmed' && geometry.pdfCalibration ? (
+          {volume ? <PlanVolumeLaunch model={volume} /> : null}
+          {geometry.status === 'confirmed' && geometry.pdfCalibration && !volume ? (
             <p className="mt-6 border-t border-line pt-5 text-[13px] leading-relaxed text-ink-2">
-              Объёмный просмотр для этого PDF появится после проверки пар граней стен и высот
-              проёмов. Пока линии показывают границы на плане, а не готовые объёмные стены.
+              Для объёмного просмотра этого PDF нужны подтверждённая граница пола и действующие
+              связи пар граней с исходным листом. Пока линии показывают границы на плане, а не
+              готовые объёмные стены.
             </p>
           ) : null}
         </div>

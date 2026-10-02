@@ -88,5 +88,30 @@ describe('предпросмотр 2D-схемы', () => {
     expect(html.indexOf('stroke="var(--ink)"')).toBeLessThan(
       html.indexOf('Граница пола, не оси наружных стен'),
     )
+
+    const confirmed = renderToStaticMarkup(
+      createElement(PlanGeometryPreview, { geometry: { ...geometry, status: 'confirmed' } }),
+    )
+    expect(confirmed).toContain('Посмотреть объёмную схему')
+
+    const unverifiedPdf = renderToStaticMarkup(
+      createElement(PlanGeometryPreview, {
+        geometry: {
+          ...geometry,
+          status: 'confirmed',
+          pdfCalibration: {
+            sourceSha256: 'source',
+            pdfPage: 1,
+            cmPerPoint: 1,
+            origin: { x: 0, y: 0 },
+            anchorRoomNumbers: [],
+            labelIndexes: [],
+            derivedOpeningIds: [],
+          },
+        },
+      }),
+    )
+    expect(unverifiedPdf).toContain('нужны подтверждённая граница пола')
+    expect(unverifiedPdf).not.toContain('Посмотреть объёмную схему')
   })
 })

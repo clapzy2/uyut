@@ -1,14 +1,14 @@
 'use client'
 
-import type { PlanGeometry } from '@uyut/db'
 import dynamic from 'next/dynamic'
 import { useState } from 'react'
+import type { PlanVolume } from '@/lib/projects/plan-volume'
 
 const PlanVolumeViewer = dynamic(() => import('./plan-volume-viewer'), {
   loading: () => <p className="mt-4 text-sm text-ink-2">Открываем объёмную схему…</p>,
 })
 
-export function PlanVolumeLaunch({ geometry }: { geometry: PlanGeometry }) {
+export function PlanVolumeLaunch({ model }: { model: PlanVolume }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -19,9 +19,13 @@ export function PlanVolumeLaunch({ geometry }: { geometry: PlanGeometry }) {
         onClick={() => setOpen((value) => !value)}
         className="border border-line-strong px-4 py-2 text-sm text-ink transition-colors hover:border-accent hover:text-accent"
       >
-        {open ? 'Скрыть объёмную схему' : 'Посмотреть объёмную схему'}
+        {open
+          ? 'Скрыть объёмную схему'
+          : model.wallSource === 'pdf-faces'
+            ? 'Посмотреть проверенные грани в объёме'
+            : 'Посмотреть объёмную схему'}
       </button>
-      {open ? <PlanVolumeViewer geometry={geometry} /> : null}
+      {open ? <PlanVolumeViewer model={model} /> : null}
     </div>
   )
 }

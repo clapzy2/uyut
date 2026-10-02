@@ -1,4 +1,4 @@
-import type { PlanGeometry } from '@uyut/db'
+import type { PlanGeometry, PlanWallFacePair } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import { planVolume } from './plan-volume'
 
@@ -57,7 +57,7 @@ describe('planVolume', () => {
     ])
   })
 
-  it('does not promote an unfinished or PDF boundary-face plan to wall volume', () => {
+  it('does not promote an unfinished or unverified PDF plan to wall volume', () => {
     expect(planVolume({ ...geometry, status: 'draft' })).toBeNull()
     expect(planVolume({ ...geometry, footprint: undefined })).toBeNull()
     expect(
@@ -68,5 +68,75 @@ describe('planVolume', () => {
         >,
       }),
     ).toBeNull()
+  })
+
+  it('shows only source-proven PDF faces and removes known opening spans', () => {
+    const firstWall = geometry.walls[0]
+    const firstOpening = geometry.openings[0]
+    const footprint = geometry.footprint
+    if (!firstWall || !firstOpening || !footprint) throw new Error('Missing test geometry')
+    const secondWall = {
+      ...firstWall,
+      id: 'wall-2',
+      start: { xCm: 0, yCm: 20 },
+      end: { xCm: 400, yCm: 20 },
+    }
+    const secondOpening = { ...firstOpening, id: 'door-2', wallId: secondWall.id }
+    const room = { name: 'Комната', polygon: footprint }
+    const segment = { operationIndex: 1, subpathIndex: 1, segmentIndex: 1 }
+    const pair: PlanWallFacePair = {
+      faces: [
+        {
+          wall: structuredClone(firstWall),
+          start: { xCm: 50, yCm: 0 },
+          end: { xCm: 350, yCm: 0 },
+          nativeSegment: segment,
+        },
+        {
+          wall: structuredClone(secondWall),
+          start: { xCm: 50, yCm: 20 },
+          end: { xCm: 350, yCm: 20 },
+          nativeSegment: segment,
+        },
+      ],
+      openings: [structuredClone(firstOpening), structuredClone(secondOpening)],
+    }
+    const pdfGeometry: PlanGeometry = {
+      ...geometry,
+      walls: [firstWall, secondWall],
+      openings: [firstOpening, secondOpening],
+      rooms: [room],
+      pdfCalibration: {
+        sourceSha256: 'source',
+        pdfPage: 1,
+        exteriorBoundaryRole: 'floor',
+        cmPerPoint: 1,
+        origin: { x: 0, y: 0 },
+        anchorRoomNumbers: [],
+        labelIndexes: [],
+        derivedOpeningIds: [],
+        sourceWallFacePairs: [pair],
+        wallFaceRoomPolygons: [room.polygon],
+      },
+    }
+
+    const result = planVolume(pdfGeometry)
+    expect(result?.wallSource).toBe('pdf-faces')
+    expect(result?.walls.map(({ start, end }) => [start.xCm, end.xCm])).toEqual([
+      [50, 100],
+      [190, 350],
+      [50, 100],
+      [190, 350],
+    ])
+    expect(result?.openings).toHaveLength(2)
+
+    const editedWall = pdfGeometry.walls[0]
+    const calibration = pdfGeometry.pdfCalibration
+    if (!editedWall || !calibration) throw new Error('Missing PDF proof')
+    editedWall.end.xCm += 1
+    expect(planVolume(pdfGeometry)).toBeNull()
+    editedWall.end.xCm -= 1
+    calibration.exteriorBoundaryRole = 'outer-wall-envelope'
+    expect(planVolume(pdfGeometry)).toBeNull()
   })
 })

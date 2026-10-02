@@ -1,8 +1,8 @@
 'use client'
 
-import type { PlanGeometry, PlanPoint } from '@uyut/db'
+import type { PlanPoint } from '@uyut/db'
 import { useMemo, useState } from 'react'
-import { planVolume } from '@/lib/projects/plan-volume'
+import type { PlanVolume } from '@/lib/projects/plan-volume'
 
 const VIEW_ANGLES = [0, 90, 180, 270] as const
 const COS_45 = Math.SQRT1_2
@@ -30,20 +30,19 @@ function pathRing(points: ScreenPoint[]): string {
   return `M ${points.map((point) => `${point.x} ${point.y}`).join(' L ')} Z`
 }
 
-export default function PlanVolumeViewer({ geometry }: { geometry: PlanGeometry }) {
+export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
   const [angleIndex, setAngleIndex] = useState(0)
-  const model = useMemo(() => planVolume(geometry), [geometry])
   const angle = VIEW_ANGLES[angleIndex] ?? 0
   const project = useMemo(() => projector(angle), [angle])
 
-  if (!model) {
-    return (
-      <p className="mt-4 text-sm text-ink-2">Для этой схемы объёмный просмотр пока недоступен.</p>
-    )
-  }
-
   // This rise is a drawing parameter, not a ceiling measurement or saved geometry.
-  const displayRise = Math.min(geometry.widthCm, geometry.heightCm) * 0.3
+  const xCoordinates = model.floor.map((point) => point.xCm)
+  const yCoordinates = model.floor.map((point) => point.yCm)
+  const displayRise =
+    Math.min(
+      Math.max(...xCoordinates) - Math.min(...xCoordinates),
+      Math.max(...yCoordinates) - Math.min(...yCoordinates),
+    ) * 0.3
   const floor = model.floor.map((point) => project(point))
   const voids = model.voids.map((polygon) => polygon.map((point) => project(point)))
   const projectedCorners = model.floor.flatMap((point) => [
@@ -115,8 +114,16 @@ export default function PlanVolumeViewer({ geometry }: { geometry: PlanGeometry 
           <polygon
             key={wall.id}
             points={polygonPoints(wall.points)}
-            fill={wall.kind === 'outer' ? 'var(--ink-2)' : 'var(--paper)'}
-            fillOpacity={wall.kind === 'outer' ? 0.65 : 0.82}
+            fill={
+              model.wallSource === 'pdf-faces'
+                ? 'var(--accent)'
+                : wall.kind === 'outer'
+                  ? 'var(--ink-2)'
+                  : 'var(--paper)'
+            }
+            fillOpacity={
+              model.wallSource === 'pdf-faces' ? 0.24 : wall.kind === 'outer' ? 0.65 : 0.82
+            }
             stroke="var(--ink)"
             strokeWidth="1.5"
             vectorEffect="non-scaling-stroke"
@@ -143,9 +150,12 @@ export default function PlanVolumeViewer({ geometry }: { geometry: PlanGeometry 
         })}
       </svg>
       <p className="mt-3 text-xs leading-relaxed text-ink-2">
-        Это объёмный просмотр подтверждённых 2D-контуров. Высота стен условная и не является
-        обмером. Цветные линии показывают положение проёмов, но не их высоту, подоконник или
-        створки. Для проектирования и покупки мебели сверяйте размеры с обмером квартиры.
+        {model.wallSource === 'pdf-faces'
+          ? 'Показаны только подтверждённые участки граней из PDF — это не конструктивная толщина стен. '
+          : 'Показаны стены подтверждённой 2D-схемы. '}
+        Высота отображения условная и не является обмером. Цветные линии показывают положение
+        проёмов, но не их высоту, подоконник или створки. Перед проектированием и покупкой мебели
+        сверьте размеры с обмером квартиры.
       </p>
     </div>
   )
