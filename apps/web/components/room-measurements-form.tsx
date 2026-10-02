@@ -34,9 +34,11 @@ function initialRows(measurements: RoomMeasurements | null): Row[] {
 export function RoomMeasurementsForm({
   roomId,
   measurements,
+  hasGeometryOutline = false,
 }: {
   roomId: string
   measurements: RoomMeasurements | null
+  hasGeometryOutline?: boolean
 }) {
   const router = useRouter()
   const [ceiling, setCeiling] = useState(
@@ -210,9 +212,12 @@ export function RoomMeasurementsForm({
             : measurementNotice(draft)}
         </p>
         <p className="-mt-1 text-[13px] leading-relaxed text-ink-2">
-          Размеры комнаты подставим с загруженного плана. Для проверки конкретного места добавьте
-          замер свободного участка стены — например, простенка под окном. Общие размеры помогают
-          исключить слишком крупные предметы, а участок уточняет подбор для выбранного места.
+          {hasGeometryOutline
+            ? 'Контур комнаты уже показан на 2D-схеме. Поля выше предназначены для отдельного замера; размеры контура не подставляем вместо него.'
+            : 'Если на плане есть читаемые размеры, подставим их сюда. Проверьте их замером после отделки.'}{' '}
+          Для проверки конкретного места добавьте ширину свободного участка стены — например,
+          простенка под окном. Общие размеры помогают исключить слишком крупные предметы, а участок
+          уточняет подбор для выбранного места.
         </p>
 
         <div className="flex flex-col gap-3">

@@ -176,7 +176,11 @@ export default async function RoomPage({ params }: { params: Params }) {
         <div className="flex flex-col gap-10">
           {isOwner ? <RoomConditionForm roomId={room.id} condition={room.condition} /> : null}
           {isOwner ? (
-            <RoomMeasurementsForm roomId={room.id} measurements={room.measurements} />
+            <RoomMeasurementsForm
+              roomId={room.id}
+              measurements={room.measurements}
+              hasGeometryOutline={layout?.reservationSource === 'geometry'}
+            />
           ) : null}
           {layout ? <RoomPlan layout={layout} canEdit={isOwner} /> : null}
           {isOwner ? (
