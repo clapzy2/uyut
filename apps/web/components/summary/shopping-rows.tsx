@@ -34,7 +34,15 @@ function groupByRoom(items: ShoppingItemView[]): Group[] {
   return ordered
 }
 
-function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) {
+function Row({
+  item,
+  readOnly,
+  hasGeometryLayout,
+}: {
+  item: ShoppingItemView
+  readOnly: boolean
+  hasGeometryLayout: boolean
+}) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
 
@@ -64,7 +72,10 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
     item.variant?.color,
     item.inStock ? null : 'нет в наличии',
   ].filter(Boolean)
-  const fit = fitLabel(item.fit)
+  const fit =
+    hasGeometryLayout && item.fit.state === 'unknown' && item.fit.reason === 'roomDimensions'
+      ? '2D-проверка доступна в комнате. Перед покупкой сверьте размеры на месте.'
+      : fitLabel(item.fit)
   const sizeSource = itemSizeSourceLabel(item.sizeReading)
 
   return (
@@ -177,10 +188,13 @@ function Row({ item, readOnly }: { item: ShoppingItemView; readOnly: boolean }) 
 export function ShoppingRows({
   items,
   projectId,
+  geometryRoomIds = [],
   readOnly = false,
 }: {
   items: ShoppingItemView[]
   projectId: string
+  /** Комнаты, для которых расстановка уже рассчитана по подтверждённому 2D-контуру. */
+  geometryRoomIds?: string[]
   /** Второй участник видит список, но не меняет его */
   readOnly?: boolean
 }) {
@@ -205,6 +219,7 @@ export function ShoppingRows({
       </div>
     )
   }
+  const geometryRooms = new Set(geometryRoomIds)
   return (
     <div className="flex flex-col gap-8">
       {groupByRoom(items).map((group) => (
@@ -214,7 +229,12 @@ export function ShoppingRows({
           </p>
           <ul className="divide-y divide-line border-y border-line">
             {group.items.map((item) => (
-              <Row key={item.id} item={item} readOnly={readOnly} />
+              <Row
+                key={item.id}
+                item={item}
+                readOnly={readOnly}
+                hasGeometryLayout={item.roomId !== null && geometryRooms.has(item.roomId)}
+              />
             ))}
           </ul>
         </section>

@@ -156,7 +156,14 @@ export default async function SummaryPage({
               ? ` · ${pluralPositions(list.items.length)} · ${pluralItems(list.count)}`
               : ''}
           </p>
-          <ShoppingRows items={list.items} projectId={project.id} readOnly={!isOwner} />
+          <ShoppingRows
+            items={list.items}
+            projectId={project.id}
+            geometryRoomIds={layouts
+              .filter((room) => room.layout.reservationSource === 'geometry')
+              .map((room) => room.roomId)}
+            readOnly={!isOwner}
+          />
           <FitWarnings rooms={layouts} projectId={project.id} />
         </div>
         <aside className="flex flex-col gap-8">
