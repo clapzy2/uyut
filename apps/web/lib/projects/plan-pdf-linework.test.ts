@@ -123,6 +123,12 @@ describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
       stroke([0, 10, 20, 1, 20, 20, 2, 20, 30, 30, 40, 40, 40, 4, 0, 50, 50, 1, 60, 60]),
     ])
     expect(result.skippedCurves).toBe(1)
+    expect(result.skippedCurveBounds).toEqual([
+      {
+        operationIndex: 0,
+        bounds: { left: 100, top: 800, right: 400, bottom: 900 },
+      },
+    ])
     expect(result.paths).toHaveLength(1)
     expect(result.paths[0]?.points).toEqual([
       { x: 500, y: 750 },

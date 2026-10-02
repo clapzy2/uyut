@@ -673,10 +673,64 @@ describe('exact native PDF wall-face intervals', () => {
     expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
   })
 
+  it('applies the same local exclusion to omitted curves, including their control points', () => {
+    const input = syntheticSheet()
+    const complete = pairPlanPageWallFaces(input.work, source, input.contours)
+    expect(complete.length).toBeGreaterThan(1)
+
+    input.work.skippedCurves = 1
+    input.work.skippedCurveBounds = [
+      {
+        operationIndex: 99,
+        bounds: { left: 0, top: 120, right: 1000, bottom: 150 },
+      },
+    ]
+    const partial = pairPlanPageWallFaces(input.work, source, input.contours)
+    expect(partial.length).toBeGreaterThan(0)
+    expect(partial.length).toBeLessThan(complete.length)
+    expect(validPlanPageWallSource(input.work, source, input.contours)).toBe(false)
+
+    input.work.skippedCurveBoundsTruncated = true
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+  })
+
+  it('does not use a shorter-than-thickness corner sliver as partial wall evidence', () => {
+    const input = syntheticSheet()
+    const second = input.contours.rooms[1]
+    if (!second) throw new Error('Expected the adjacent test room.')
+    second.polygon = rectangle(220, 100, 320, 110)
+    for (const [index, point] of second.polygon.entries()) {
+      input.work.paths.push({
+        operationIndex: 200 + index,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [point],
+      })
+    }
+    const complete = pairPlanPageWallFaces(input.work, source, input.contours)
+    expect(complete.some((pair) => pair.faces.some((face) => face.contourKey === '2'))).toBe(true)
+
+    input.work.skippedCurves = 1
+    input.work.skippedCurveBounds = [
+      { operationIndex: 99, bounds: { left: 500, top: 500, right: 510, bottom: 510 } },
+    ]
+    const partial = pairPlanPageWallFaces(input.work, source, input.contours)
+    expect(partial.some((pair) => pair.faces.some((face) => face.contourKey === '2'))).toBe(false)
+    expect(partial.some((pair) => pair.faces.some((face) => face.contourKey === '3'))).toBe(true)
+  })
+
   it('returns only source-backed partial relations from the complete apartment page', () => {
     const input = completePageSheet()
     const before = structuredClone(input)
-    const pairs = pairPlanPageWallFaces(input.work, input.source, input.contours)
+    // The stored page predates curve-bound recording. It is not safe to use as a
+    // production proof; the idealized no-omissions copy only checks pairing logic.
+    expect(pairPlanPageWallFaces(input.work, input.source, input.contours)).toEqual([])
+    const pairs = pairPlanPageWallFaces(
+      { ...input.work, skippedCurves: 0 },
+      input.source,
+      input.contours,
+    )
 
     expect(pairs).toHaveLength(52)
     expect(

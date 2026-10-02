@@ -350,8 +350,11 @@ describe('diagnostic coverage of annotated PDF boundary spans', () => {
       paths: structuredClone(page.nativePaths) as PdfVectorPath[],
       ...page.nativeLayer,
     }
+    // Archived source omits 45 curve bounds, so it cannot certify wall pairs.
+    expect(pairPlanPageWallFaces(work, currentSource, contours)).toEqual([])
+    const idealizedWork = { ...work, skippedCurves: 0 }
     const before = structuredClone(contours)
-    const pairs = pairPlanPageWallFaces(work, currentSource, contours)
+    const pairs = pairPlanPageWallFaces(idealizedWork, currentSource, contours)
     const spans = classifyPlanPageWallSpans(
       contours,
       pairs,
@@ -404,7 +407,8 @@ describe('diagnostic coverage of annotated PDF boundary spans', () => {
         ),
       ).toBe(true)
     }
-    const solids = inspectPlanPageWallSolids(work, currentSource, contours)
+    expect(inspectPlanPageWallSolids(work, currentSource, contours).components).toEqual([])
+    const solids = inspectPlanPageWallSolids(idealizedWork, currentSource, contours)
     expect(solids.solids.map((solid) => solid.source.operationIndex)).not.toContain(546)
     expect(solids.solids.map((solid) => solid.source.operationIndex)).not.toContain(565)
     expect(solids.junctions).toHaveLength(0)

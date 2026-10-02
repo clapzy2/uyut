@@ -22,6 +22,9 @@ export type PdfLinework = {
   /** Diagnostic bounds of omitted paths; never evidence that their visible part was absent. */
   clippedPathBounds?: Array<{ operationIndex: number; bounds: Bounds }>
   clippedPathBoundsTruncated?: boolean
+  /** Control-point bounds of omitted curves; the curve is never flattened into a wall. */
+  skippedCurveBounds?: Array<{ operationIndex: number; bounds: Bounds }>
+  skippedCurveBoundsTruncated?: boolean
   truncated: boolean
 }
 type Operators = Readonly<Record<string, number>>
@@ -38,7 +41,12 @@ type GraphicsState = {
   fillColor?: string
   strokeColor?: string
 }
-type Subpath = { points: PagePoint[]; closed: boolean; curved: boolean }
+type Subpath = {
+  points: PagePoint[]
+  controlPoints: PagePoint[]
+  closed: boolean
+  curved: boolean
+}
 const MAX_OPERATIONS = 100_000
 const MAX_POINTS = 20_000
 const MAX_PATHS = 3000
@@ -78,10 +86,15 @@ function subpaths(raw: unknown): Subpath[] | undefined {
     const point = { x: raw[i + size - 2], y: raw[i + size - 1] }
     if (typeof point.x !== 'number' || typeof point.y !== 'number') return undefined
     if (command === 0) {
-      current = { points: [point], closed: false, curved: false }
+      current = { points: [point], controlPoints: [], closed: false, curved: false }
       paths.push(current)
     } else if (current) {
-      if (command === 2 || command === 3) current.curved = true
+      if (command === 2 || command === 3) {
+        current.curved = true
+        for (let control = i; control < i + size - 2; control += 2) {
+          current.controlPoints.push({ x: raw[control], y: raw[control + 1] })
+        }
+      }
       current.points.push(point)
     }
     i += size
@@ -121,6 +134,19 @@ function contains(bounds: Bounds, point: PagePoint): boolean {
     point.y >= bounds.top &&
     point.y <= bounds.bottom
   )
+}
+
+function pointBounds(points: PagePoint[]): Bounds {
+  const first = points[0]
+  if (!first) throw new Error('Cannot bound an empty PDF path')
+  const bounds = { left: first.x, top: first.y, right: first.x, bottom: first.y }
+  for (const point of points.slice(1)) {
+    bounds.left = Math.min(bounds.left, point.x)
+    bounds.top = Math.min(bounds.top, point.y)
+    bounds.right = Math.max(bounds.right, point.x)
+    bounds.bottom = Math.max(bounds.bottom, point.y)
+  }
+  return bounds
 }
 
 const CLIP_EPSILON = 0.00001
@@ -269,6 +295,8 @@ export function extractPdfLinework(
     clippedPaths: 0,
     clippedPathBounds: [],
     clippedPathBoundsTruncated: false,
+    skippedCurveBounds: [],
+    skippedCurveBoundsTruncated: false,
     truncated: list.fnArray.length > MAX_OPERATIONS,
   }
   let state: GraphicsState = { matrix: [1, 0, 0, 1, 0, 0], supported: true }
@@ -350,9 +378,15 @@ export function extractPdfLinework(
       pendingClip = false
       continue
     }
-    const transformed = rawPaths.map((path) => ({ ...path, points: path.points.map(point) }))
+    const transformed = rawPaths.map((path) => ({
+      ...path,
+      points: path.points.map(point),
+      controlPoints: path.controlPoints.map(point),
+    }))
     const invalid = transformed.some((path) =>
-      path.points.some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.y)),
+      [...path.points, ...path.controlPoints].some(
+        (p) => !Number.isFinite(p.x) || !Number.isFinite(p.y),
+      ),
     )
     if (invalid) {
       result.unsupportedPaths++
@@ -411,6 +445,14 @@ export function extractPdfLinework(
     for (const [subpathIndex, path] of transformed.entries()) {
       if (path.curved) {
         result.skippedCurves++
+        if (result.skippedCurveBounds && result.skippedCurveBounds.length < MAX_PATHS) {
+          result.skippedCurveBounds.push({
+            operationIndex,
+            bounds: pointBounds([...path.points, ...path.controlPoints]),
+          })
+        } else {
+          result.skippedCurveBoundsTruncated = true
+        }
         continue
       }
       if (path.points.length < 2) continue
@@ -429,12 +471,7 @@ export function extractPdfLinework(
         if (result.clippedPathBounds && result.clippedPathBounds.length < MAX_PATHS) {
           result.clippedPathBounds.push({
             operationIndex,
-            bounds: {
-              left: Math.min(...path.points.map((p) => p.x)),
-              top: Math.min(...path.points.map((p) => p.y)),
-              right: Math.max(...path.points.map((p) => p.x)),
-              bottom: Math.max(...path.points.map((p) => p.y)),
-            },
+            bounds: pointBounds(path.points),
           })
         } else {
           result.clippedPathBoundsTruncated = true

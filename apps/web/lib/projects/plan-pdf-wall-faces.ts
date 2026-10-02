@@ -412,21 +412,27 @@ function pairSlantedFaces(
   })
 }
 
-/** Whole-body checks need a complete page. Partial face pairs may use recorded, disjoint clips. */
+/** Whole-body checks need a complete page. Partial pairs may use recorded, disjoint omissions. */
 function validWallSource(
   work: PdfLinework,
   source: PdfPlanSource,
   contours: PlanPageContours,
-  allowRecordedClips: boolean,
+  allowRecordedOmissions: boolean,
 ): boolean {
   const clipsKnown =
     work.clippedPaths === 0 ||
-    (allowRecordedClips &&
+    (allowRecordedOmissions &&
       !work.clippedPathBoundsTruncated &&
       work.clippedPathBounds?.length === work.clippedPaths)
+  const curvesKnown =
+    work.skippedCurves === 0 ||
+    (allowRecordedOmissions &&
+      !work.skippedCurveBoundsTruncated &&
+      work.skippedCurveBounds?.length === work.skippedCurves)
   if (
     source.state !== 'existing' ||
     !clipsKnown ||
+    !curvesKnown ||
     work.paths.length > 3000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
     !planPageContoursSchema.safeParse(contours).success ||
@@ -475,13 +481,19 @@ export function validPlanPageWallSource(
   return validWallSource(work, source, contours, false)
 }
 
-function unaffectedByClippedPaths(pair: PdfWallFacePair, work: PdfLinework): boolean {
-  if (work.clippedPaths === 0) return true
+function unaffectedByOmittedPaths(pair: PdfWallFacePair, work: PdfLinework): boolean {
+  if (work.clippedPaths === 0 && work.skippedCurves === 0) return true
   const first = pair.faces[0]
   const along = first.start.x === first.end.x ? 'y' : 'x'
+  const across = along === 'x' ? 'y' : 'x'
   const low = Math.min(first.start[along], first.end[along])
   const high = Math.max(first.start[along], first.end[along])
-  return !work.clippedPathBounds?.some(({ operationIndex, bounds }) => {
+  const separation = Math.abs(pair.faces[0].start[across] - pair.faces[1].start[across])
+  // A corner sliver shorter than the wall's own thickness is not enough to
+  // establish a shared wall when nearby vector content was omitted.
+  if (high - low < separation) return false
+  const omitted = [...(work.clippedPathBounds ?? []), ...(work.skippedCurveBounds ?? [])]
+  return !omitted.some(({ operationIndex, bounds }) => {
     if (
       pair.faces.some(
         (face) =>
@@ -696,9 +708,9 @@ export function pairPlanPageWallFaces(
       if (result.length > 2000) return []
     }
   }
-  const axisAligned = result.filter((pair) => unaffectedByClippedPaths(pair, work))
-  // The interval-only clip check above does not apply to diagonal faces.
-  return work.clippedPaths > 0
+  const axisAligned = result.filter((pair) => unaffectedByOmittedPaths(pair, work))
+  // The interval-only omission check above does not apply to diagonal faces.
+  return work.clippedPaths > 0 || work.skippedCurves > 0
     ? axisAligned
     : [...axisAligned, ...pairSlantedFaces(work, contours, closedSubpaths)]
 }

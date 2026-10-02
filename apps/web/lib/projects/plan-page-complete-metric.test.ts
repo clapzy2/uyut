@@ -18,7 +18,9 @@ import { roomLayoutInputFromGeometry } from './room-geometry-layout'
 
 const allNumbers = [1, 2, 3, 4, 5, 6, 7, 8]
 
-/** Strip QA observations: only exact source vertices and declared openings enter production. */
+/** Idealized native-line regression: the archived fixture predates curve-bound recording.
+ * Actual source proof must keep its 45 unlocalized curves and therefore rejects wall pairs.
+ */
 function completeSheet() {
   const source = {
     sha256: page.source.sha256,
@@ -59,6 +61,7 @@ function completeSheet() {
     pageHeight: page.pageHeight,
     paths: structuredClone(page.nativePaths) as PdfVectorPath[],
     ...page.nativeLayer,
+    skippedCurves: 0,
   }
   // Original indexes are retained; omitted address/title items cannot shift evidence indexes.
   const labels = Array.from({ length: 192 }, () => ({ text: '', x: 0, y: 0, rotation: 0 }))
