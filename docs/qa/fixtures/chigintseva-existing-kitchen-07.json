@@ -1,0 +1,25 @@
+{
+  "source": {
+    "sha256": "d0ab7f756492e4c2bc11a7870bfcb6815a96daf04127095ba73bcdc6f5a6e058",
+    "pdfPage": 3,
+    "state": "existing"
+  },
+  "sourceRoomNumbers": [1, 2, 3, 4, 5, 6, 7, 8],
+  "expectedConfirmationIssueIds": ["manual-missing-outer-walls"],
+  "room": {
+    "sourceNumber": 7,
+    "name": "Кухня",
+    "kind": "kitchen",
+    "areaM2": 17.0,
+    "polygon": [
+      { "x": 597.742, "y": 428.017 },
+      { "x": 860.176, "y": 428.017 },
+      { "x": 860.176, "y": 683.91 },
+      { "x": 597.742, "y": 683.91 }
+    ],
+    "widthMm": 4960,
+    "depthMm": 3420,
+    "width": { "textItemIndexes": [64], "segmentsMm": [4960] },
+    "depth": { "textItemIndexes": [57], "segmentsMm": [3420] }
+  }
+}

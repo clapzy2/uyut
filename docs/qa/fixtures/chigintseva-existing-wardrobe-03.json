@@ -1,0 +1,26 @@
+{
+  "source": {
+    "sha256": "d0ab7f756492e4c2bc11a7870bfcb6815a96daf04127095ba73bcdc6f5a6e058",
+    "pdfPage": 3,
+    "state": "existing"
+  },
+  "sourceRoomNumbers": [1, 2, 3, 4, 5, 6, 7, 8],
+  "expectedConfirmationIssueIds": ["manual-missing-outer-walls"],
+  "room": {
+    "sourceNumber": 3,
+    "name": "Гардеробная",
+    "kind": "living",
+    "utility": true,
+    "areaM2": 1.5,
+    "polygon": [
+      { "x": 388.537, "y": 168.384 },
+      { "x": 431.603, "y": 168.384 },
+      { "x": 431.603, "y": 308.283 },
+      { "x": 388.537, "y": 308.283 }
+    ],
+    "widthMm": 814,
+    "depthMm": 1870,
+    "width": { "textItemIndexes": [77], "segmentsMm": [814] },
+    "depth": { "textItemIndexes": [95], "segmentsMm": [1870] }
+  }
+}

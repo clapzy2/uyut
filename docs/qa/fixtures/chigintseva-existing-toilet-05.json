@@ -5,6 +5,9 @@
     "state": "existing"
   },
   "sourceRoomNumbers": [1, 2, 3, 4, 5, 6, 7, 8],
+  "calibrationRoomNumbers": [5],
+  "expectedOpeningWidthProofs": [],
+  "expectedConfirmationIssueIds": ["manual-pdf-opening-measurements", "manual-missing-outer-walls"],
   "room": {
     "sourceNumber": 5,
     "name": "Туалет",
@@ -15,6 +18,15 @@
       { "x": 580.916, "y": 173.621 },
       { "x": 580.916, "y": 308.283 },
       { "x": 533.297, "y": 308.283 }
+    ],
+    "openings": [
+      {
+        "id": "toilet-door-700",
+        "kind": "door",
+        "wallEdgeIndex": 2,
+        "start": { "x": 538.482, "y": 308.283 },
+        "end": { "x": 575.518, "y": 308.283 }
+      }
     ],
     "widthMm": 900,
     "depthMm": 1800,
