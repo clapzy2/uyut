@@ -1,6 +1,10 @@
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall } from '@uyut/db'
 import type { ReactNode } from 'react'
 import { doorClearanceZone } from '@/lib/projects/clearance-zones'
+import {
+  inspectManualPlanCompleteness,
+  inspectPlanGeometry,
+} from '@/lib/projects/plan-geometry-inspection'
 import { obstacleTitle } from '@/lib/projects/plan-obstacles'
 import {
   currentOpeningFacePairs,
@@ -47,6 +51,13 @@ export function PlanGeometryPreview({
 }) {
   const padding = Math.max(20, Math.min(geometry.widthCm, geometry.heightCm) * 0.06)
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
+  const confirmationIssues =
+    geometry.status === 'draft'
+      ? [
+          ...inspectPlanGeometry(geometry),
+          ...(geometry.source === 'manual' ? inspectManualPlanCompleteness(geometry) : []),
+        ].filter((issue) => issue.severity === 'error')
+      : []
   let description =
     'Схема построена по изображению плана и прошла машинную проверку размеров. Она пока не является обмерным чертежом: перед расчётом мебели нужно сверить стены и проёмы с оригиналом.'
   if (geometry.source === 'manual') {
@@ -302,6 +313,21 @@ export function PlanGeometryPreview({
 
         <div className="border border-line bg-paper p-5 sm:p-6">
           <p className="text-[15px] leading-relaxed text-ink">{description}</p>
+          {confirmationIssues.length > 0 ? (
+            <div className="mt-5 border-l-2 border-danger/60 pl-3 text-[13px] leading-relaxed text-ink-2">
+              <p className="font-medium text-ink">
+                Уточнения перед подтверждением схемы ({confirmationIssues.length}):
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pl-4">
+                {confirmationIssues.slice(0, 3).map((issue) => (
+                  <li key={issue.id}>{issue.message}</li>
+                ))}
+              </ul>
+              {confirmationIssues.length > 3 ? (
+                <p className="mt-2">Остальные замечания — в проверке схемы.</p>
+              ) : null}
+            </div>
+          ) : null}
           <dl className="mt-5 space-y-3 border-t border-line pt-4 text-[14px]">
             <div className="flex justify-between gap-4">
               <dt className="text-ink-2">Габарит схемы</dt>

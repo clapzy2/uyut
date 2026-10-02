@@ -12,7 +12,7 @@ vi.mock('@/actions/projects', () => ({
 
 import { PlanReadingCard } from './plan-reading-card'
 
-function render(reading: PlanReading | null) {
+function render(reading: PlanReading | null, roomCount = 0) {
   return renderToStaticMarkup(
     createElement(PlanReadingCard, {
       projectId: 'project',
@@ -20,13 +20,25 @@ function render(reading: PlanReading | null) {
       reading,
       hasPlan: true,
       planIsPdf: true,
-      roomCount: 0,
+      roomCount,
       existing: [],
     }),
   )
 }
 
 describe('plan review form', () => {
+  it('does not claim rooms were imported when the project has none', () => {
+    const reading: PlanReading = {
+      readAt: '2026-10-02',
+      confirmedAt: '2026-10-02',
+      rooms: [{ name: 'Гостиная', kind: 'living' }],
+    }
+
+    expect(render(reading)).toContain('комнат проекта сейчас нет')
+    expect(render(reading)).not.toContain('Данные с плана уже перенесены в комнаты')
+    expect(render(reading, 1)).toContain('Данные с плана уже перенесены в комнаты')
+  })
+
   it('shows a PDF page selector instead of promising to read the first three pages', () => {
     const html = render(null)
     expect(html).toContain('Страница PDF с планом')

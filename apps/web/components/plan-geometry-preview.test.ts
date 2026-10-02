@@ -5,6 +5,42 @@ import { describe, expect, it } from 'vitest'
 import { PlanGeometryPreview } from './plan-geometry-preview'
 
 describe('предпросмотр 2D-схемы', () => {
+  it('shows confirmation blockers before opening the editor', () => {
+    const geometry: PlanGeometry = {
+      version: 1,
+      source: 'manual',
+      status: 'draft',
+      widthCm: 500,
+      heightCm: 400,
+      warnings: [],
+      walls: [
+        {
+          id: 'first',
+          kind: 'inner',
+          start: { xCm: 50, yCm: 50 },
+          end: { xCm: 150, yCm: 50 },
+        },
+        {
+          id: 'second',
+          kind: 'inner',
+          start: { xCm: 350, yCm: 350 },
+          end: { xCm: 450, yCm: 350 },
+        },
+      ],
+      openings: [],
+      rooms: [],
+    }
+
+    const draft = renderToStaticMarkup(createElement(PlanGeometryPreview, { geometry }))
+    expect(draft).toContain('Уточнения перед подтверждением схемы')
+    expect(draft).toContain('Часть стен не соединена с остальной схемой')
+
+    const confirmed = renderToStaticMarkup(
+      createElement(PlanGeometryPreview, { geometry: { ...geometry, status: 'confirmed' } }),
+    )
+    expect(confirmed).not.toContain('Уточнения перед подтверждением схемы')
+  })
+
   it('объясняет границу пола и техническую пустоту отдельно от стен', () => {
     const geometry: PlanGeometry = {
       version: 1,
