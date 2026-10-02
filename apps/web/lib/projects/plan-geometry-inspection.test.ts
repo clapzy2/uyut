@@ -338,6 +338,45 @@ describe('подтверждение ручной схемы', () => {
     ])
     expect(inspectPlanRoomAreas(geometry.rooms, [{ name: 'Гостиная', areaM2: 20 }])).toEqual([])
   })
+  it('flags a PDF area discrepancy while allowing small source differences', () => {
+    const room = {
+      name: 'Помещение',
+      polygon: [
+        { xCm: 0, yCm: 0 },
+        { xCm: 500, yCm: 0 },
+        { xCm: 500, yCm: 808.4 },
+        { xCm: 0, yCm: 808.4 },
+      ],
+    }
+    expect(inspectPlanRoomAreas([room], [{ name: 'Помещение', areaM2: 40.13 }])).toEqual([])
+    expect(
+      inspectPlanRoomAreas([room], [{ name: 'Помещение', areaM2: 40.13 }], true),
+    ).toContainEqual(
+      expect.objectContaining({
+        id: 'manual-room-area-0',
+        severity: 'error',
+        message: expect.stringContaining('40,42 м², на плане подписано 40,13 м²'),
+      }),
+    )
+    expect(inspectPlanRoomAreas([room], [{ name: 'Помещение', areaM2: 40.36 }], true)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'manual-room-area-0' })]),
+    )
+    expect(inspectPlanRoomAreas([room], [{ name: 'Помещение', areaM2: 40.38 }], true)).toEqual([])
+    expect(inspectPlanRoomAreas([room], [{ name: 'Помещение', areaM2: 40.4 }], true)).toEqual([])
+
+    const wardrobe = {
+      name: 'Гардеробная',
+      polygon: [
+        { xCm: 0, yCm: 0 },
+        { xCm: 100, yCm: 0 },
+        { xCm: 100, yCm: 152 },
+        { xCm: 0, yCm: 152 },
+      ],
+    }
+    expect(inspectPlanRoomAreas([wardrobe], [{ name: 'Гардеробная', areaM2: 1.5 }], true)).toEqual(
+      [],
+    )
+  })
   it('принимает замкнутую комнату', () => {
     expect(inspectManualPlanCompleteness(geometry)).toEqual([])
   })

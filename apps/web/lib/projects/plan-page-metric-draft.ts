@@ -8,6 +8,7 @@ import type {
   PlanReading,
   PlanWallFacePair,
 } from '@uyut/db'
+import { PDF_AREA_REVIEW_TOLERANCE_M2 } from './plan-geometry-inspection'
 import { verifyPlanPageOpenings } from './plan-page-feature-checks'
 import {
   planPageContoursSchema,
@@ -303,7 +304,7 @@ export function planPageMetricDraft(
     if (printedAreas.every((area): area is number => area !== undefined && area > 0)) {
       const printedAreaM2 = printedAreas.reduce((sum, area) => sum + area, 0)
       const contourAreaM2 = polygonAreaM2(polygon)
-      if (Math.abs(contourAreaM2 - printedAreaM2) > Math.max(0.1, printedAreaM2 * 0.02)) {
+      if (Math.abs(contourAreaM2 - printedAreaM2) > PDF_AREA_REVIEW_TOLERANCE_M2) {
         areaWarnings.push(
           `${name}: площадь по контуру ${contourAreaM2.toFixed(2)} м², на плане ${printedAreaM2.toFixed(2)} м². Сверьте границы помещения.`,
         )

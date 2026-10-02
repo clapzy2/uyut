@@ -12,6 +12,7 @@ import { preparePlanPage } from '../lib/projects/plan-document'
 import {
   inspectManualPlanCompleteness,
   inspectPlanGeometry,
+  PDF_AREA_REVIEW_TOLERANCE_M2,
 } from '../lib/projects/plan-geometry-inspection'
 import { planPageAreaConflicts } from '../lib/projects/plan-page-area-conflicts'
 import {
@@ -79,6 +80,7 @@ type Fixture = {
     labelIndex: number
   }>
   expectedConfirmationIssueIds?: string[]
+  expectedAreaReviewRoomNumbers?: number[]
   areaConflicts?: Array<{
     sourceNumber: number
     planTextItemIndex: number
@@ -440,9 +442,11 @@ const verifiedRooms = result.geometry.rooms.map((geometryRoom) => {
   if (!reviewedRoom || !polygon) throw new Error('A reviewed room has no transferred contour.')
   const calculatedAreaM2 = areaM2(polygon)
   const signedArea = reviewedRoom.areaM2
+  const differenceM2 = signedArea === undefined ? undefined : calculatedAreaM2 - signedArea
   if (
     signedArea !== undefined &&
-    Math.abs(calculatedAreaM2 - signedArea) > Math.max(0.1, signedArea * 0.02)
+    differenceM2 !== undefined &&
+    Math.abs(differenceM2) > Math.max(0.1, signedArea * 0.02)
   ) {
     throw new Error(
       `Room ${reviewedRoom.sourceNumber}: contour ${calculatedAreaM2.toFixed(2)} m2 and signed ${signedArea.toFixed(2)} m2 disagree.`,
@@ -461,11 +465,27 @@ const verifiedRooms = result.geometry.rooms.map((geometryRoom) => {
         ? undefined
         : reviewedRoom.depthMm,
     signedAreaM2: reviewedRoom.areaM2,
-    areaStatus: signedArea === undefined ? 'source-conflict' : 'within-tolerance',
+    areaDifferenceM2: differenceM2 === undefined ? undefined : Math.round(differenceM2 * 100) / 100,
+    areaStatus:
+      differenceM2 === undefined
+        ? 'source-conflict'
+        : Math.abs(differenceM2) > PDF_AREA_REVIEW_TOLERANCE_M2
+          ? 'needs-review'
+          : 'within-review-threshold',
     calculatedAreaM2: Math.round(calculatedAreaM2 * 100) / 100,
     polygon,
   }
 })
+if (fixture.expectedAreaReviewRoomNumbers) {
+  const actual = verifiedRooms
+    .filter((room) => room.areaStatus === 'needs-review')
+    .map((room) => room.sourceNumber)
+    .sort((a, b) => a - b)
+  const expected = [...fixture.expectedAreaReviewRoomNumbers].sort((a, b) => a - b)
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`Room area review list changed: ${actual.join(', ')}`)
+  }
+}
 
 let routeGeometry = result.geometry
 const routeChecks = fixture.routeCheck?.widthsCm.map((widthCm, index) => {
@@ -660,6 +680,7 @@ const confirmationReady =
   Boolean(fixture.sourceRoomNumbers?.length) &&
   !missingRoomNumbers?.length &&
   !('partial' in wallSolids && wallSolids.partial === true) &&
+  !verifiedRooms.some((room) => room.areaStatus === 'needs-review') &&
   geometryIssues.length === 0 &&
   confirmationIssues.length === 0
 console.log(

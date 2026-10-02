@@ -660,10 +660,14 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
   return issues
 }
 
+/** Порог запроса сверки PDF, а не допуск точности натурного обмера. */
+export const PDF_AREA_REVIEW_TOLERANCE_M2 = 0.05
+
 /** Подписанная площадь проверяет контур конкретной комнаты, не только сумму квартиры. */
 export function inspectPlanRoomAreas(
   rooms: readonly PlanRoomShape[],
   labels: readonly { name: string; sourceNumber?: number; areaM2?: number }[],
+  fromReviewedPdf = false,
 ): PlanGeometryIssue[] {
   const labelledAreas = new Map(
     labels
@@ -681,12 +685,19 @@ export function inspectPlanRoomAreas(
       : labelledAreas.get(room.name.trim().toLocaleLowerCase('ru'))
     if (expected === undefined || room.polygon.length < 3) return []
     const actual = polygonAreaM2(room.polygon)
-    if (Math.abs(actual - expected) <= Math.max(0.3, expected * 0.1)) return []
+    const tolerance = fromReviewedPdf ? PDF_AREA_REVIEW_TOLERANCE_M2 : Math.max(0.3, expected * 0.1)
+    if (Math.abs(actual - expected) <= tolerance + 0.000001) return []
+    const digits = fromReviewedPdf ? 2 : 1
+    const formatArea = (areaM2: number) =>
+      areaM2.toLocaleString('ru-RU', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      })
     return [
       {
         id: `manual-room-area-${index}`,
         severity: 'error' as const,
-        message: `${room.name}: контур даёт ${actual.toFixed(1)} м², на плане подписано ${expected.toFixed(1)} м². Проверьте границу комнаты.`,
+        message: `${room.name}: контур даёт ${formatArea(actual)} м², на плане подписано ${formatArea(expected)} м². Проверьте границу комнаты.`,
         roomIndexes: [index],
       },
     ]

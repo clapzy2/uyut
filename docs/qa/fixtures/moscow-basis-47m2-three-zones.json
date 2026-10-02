@@ -6,6 +6,7 @@
   },
   "calibrationRoomNumbers": [2, 3],
   "sourceRoomNumbers": [1, 2, 3],
+  "expectedAreaReviewRoomNumbers": [1],
   "expectedOpeningWidthProofs": [
     { "sourceNumber": 1, "openingId": "entry-door-820", "widthCm": 82, "labelIndex": 24 }
   ],

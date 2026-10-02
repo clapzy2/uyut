@@ -619,7 +619,11 @@ export async function savePlanGeometry(
       const issue = [
         ...inspectPlanGeometry(checked),
         ...inspectManualPlanCompleteness(checked),
-        ...inspectPlanRoomAreas(checked.rooms, project.planReading.rooms),
+        ...inspectPlanRoomAreas(
+          checked.rooms,
+          project.planReading.rooms,
+          Boolean(before.pdfCalibration),
+        ),
       ].find((item) => item.severity === 'error')
       if (issue) return { ok: false, error: issue.message }
     }

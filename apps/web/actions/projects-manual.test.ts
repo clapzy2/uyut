@@ -848,6 +848,29 @@ describe('manual plan draft', () => {
     expect(mocks.setPlanReading).not.toHaveBeenCalled()
   })
 
+  it('does not confirm a reviewed PDF contour with a smaller but material area discrepancy', async () => {
+    source.planReading.rooms = [{ name: 'Кухня', kind: 'kitchen', areaM2: 19.71 }]
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      rooms: [{ name: 'Кухня', polygon: corners }],
+      pdfCalibration: {
+        sourceSha256: 'a'.repeat(64),
+        pdfPage: 1,
+        cmPerPoint: 1,
+        origin: { x: 0, y: 0 },
+        anchorRoomNumbers: [1],
+        labelIndexes: [0],
+        derivedOpeningIds: [],
+      },
+    }
+
+    const result = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('на плане подписано')
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+  })
+
   it('never confirms an unfinished apartment', async () => {
     const walls = [
       [
