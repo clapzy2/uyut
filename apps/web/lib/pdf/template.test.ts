@@ -82,6 +82,16 @@ function sample(kind: PdfData['kind']): PdfData {
 }
 
 describe('project PDF template', () => {
+  it('does not present an unpriced geometry check as a zero-cost estimate', () => {
+    const data = sample('free')
+    data.estimateStatus = 'not-calculated'
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('Стоимость не рассчитывалась')
+    expect(html).not.toContain('Сколько это стоит')
+    expect(html).not.toContain('<div>Смета</div>')
+    expect(renderProjectHtml(sample('free'), { fontCss: '' })).toContain('Сколько это стоит')
+  })
+
   it('does not invent an online project link for an offline QA document', () => {
     const data = sample('free')
     data.project.projectUrl = null

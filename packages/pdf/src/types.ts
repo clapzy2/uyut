@@ -72,5 +72,7 @@ export type PdfData = {
   shopping: PdfShoppingGroup[]
   estimate: Estimate
   rates: WorksRates
+  /** For geometry-only reports with no price inputs; never display zero as a quote. */
+  estimateStatus?: 'not-calculated'
   brief: ContractorBrief | null
 }

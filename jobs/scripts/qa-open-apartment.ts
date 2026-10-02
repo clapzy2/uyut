@@ -746,7 +746,7 @@ const data: PdfData = {
     facts: [
       { label: 'Источник', value: `Swiss Dwellings, apartment_id ${APARTMENT_ID}` },
       { label: 'Оговорка', value: 'Не исполнительный обмер и не проект к ремонту' },
-      { label: 'Смета', value: 'Не тестируется; 0 ₽ — техническое значение, не цена ремонта' },
+      { label: 'Смета', value: 'Не рассчитывалась: цены и ставки не заданы' },
     ],
     contact: null,
     projectUrl: null,
@@ -757,6 +757,7 @@ const data: PdfData = {
   rooms,
   roomsWithoutConcept: rooms.filter((room) => room.plan).map((room) => room.name),
   shopping: [],
+  estimateStatus: 'not-calculated',
   estimate: estimateProject({
     rooms: rooms.map((room) => ({
       id: room.id,

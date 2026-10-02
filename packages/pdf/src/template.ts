@@ -184,7 +184,7 @@ function about(data: PdfData, free: boolean): string {
   const contents = [
     ...data.rooms.map((room) => room.name),
     'Список покупок',
-    'Смета',
+    data.estimateStatus === 'not-calculated' ? null : 'Смета',
     data.brief ? 'Техническое задание' : null,
     'Что дальше',
   ].filter((entry): entry is string => Boolean(entry))
@@ -202,14 +202,18 @@ function about(data: PdfData, free: boolean): string {
       <div style="display:grid;gap:5mm;align-content:start">
         ${rest ? `<p style="font-size:10.5pt;line-height:1.5">${esc(rest)}</p>` : ''}
         <div class="rule"></div>
-        <p class="bigfig">${formatPrice(estimate.totalKopecks)}</p>
+        ${
+          data.estimateStatus === 'not-calculated'
+            ? '<p class="bigfig" style="font-size:21pt">Стоимость не рассчитывалась</p><p class="small">Для расчёта нужны выбранные товары, состав работ и ставки. Итоговая стоимость пока неизвестна.</p>'
+            : `<p class="bigfig">${formatPrice(estimate.totalKopecks)}</p>
         <p class="small">Смета проекта: мебель и декор по каталогу ${formatPrice(estimate.furnitureKopecks)}, работы по комнатам ≈ ${formatPrice(estimate.works.totalKopecks)}. ${
           remaining === null
             ? 'Бюджет в проекте не указан.'
             : remaining >= 0
               ? `Остаётся ${formatPrice(remaining)} запаса от бюджета.`
               : `Перерасход бюджета ${formatPrice(-remaining)}.`
-        }</p>
+        }</p>`
+        }
       </div>
       <div style="display:grid;gap:5mm;align-content:start">
         <div class="facts">
@@ -639,7 +643,7 @@ ${cover(data, free)}
 ${about(data, free)}
 ${data.rooms.map((room, index) => (room.hasConcept === false ? '' : roomPage(room, index, free)) + roomPlanPage(room, free)).join('')}
 ${shopping(data, free)}
-${estimatePage(data, free)}
+${data.estimateStatus === 'not-calculated' ? '' : estimatePage(data, free)}
 ${briefPages(data, free)}
 ${finalPage(data, free)}
 </body>
