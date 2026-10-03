@@ -11,7 +11,9 @@ import Link from 'next/link'
 import { ItemOperationForm } from '@/components/item-operation-form'
 import { ItemPlacementForm } from '@/components/item-placement-form'
 import { ItemSizeForm } from '@/components/item-size-form'
+import { PlanVolumeLaunch } from '@/components/plan-volume-launch'
 import { RoomPlacementOverlay } from '@/components/room-placement-overlay'
+import { roomVolume } from '@/lib/projects/room-volume'
 
 /**
  * План комнаты сверху: реальный контур комнаты и прямоугольники мебели в масштабе.
@@ -406,6 +408,7 @@ export function RoomPlan({
   projectId: string
 }) {
   const problems = layout.problems
+  const volume = layout.placed.length > 0 ? roomVolume(layout) : null
   const hasOpenings =
     layout.reservations.length > 0 ||
     layout.floorReservations.length > 0 ||
@@ -437,6 +440,7 @@ export function RoomPlan({
         <p className="mb-4 text-[14px] leading-relaxed text-ink-2">{layout.measurementNote}</p>
       ) : null}
       <RoomPlanDrawing layout={layout} editable={canEdit} />
+      {volume ? <PlanVolumeLaunch model={volume} /> : null}
 
       <section
         className={`mt-4 border p-3 ${

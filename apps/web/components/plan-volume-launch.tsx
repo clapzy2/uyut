@@ -21,9 +21,11 @@ export function PlanVolumeLaunch({ model }: { model: PlanVolume }) {
       >
         {open
           ? 'Скрыть объёмную схему'
-          : model.wallSource === 'pdf-faces'
-            ? 'Посмотреть проверенные грани в объёме'
-            : 'Посмотреть объёмную схему'}
+          : model.wallSource === 'room-layout'
+            ? 'Посмотреть мебель в объёме'
+            : model.wallSource === 'pdf-faces'
+              ? 'Посмотреть проверенные грани в объёме'
+              : 'Посмотреть объёмную схему'}
       </button>
       {open ? <PlanVolumeViewer model={model} /> : null}
     </div>

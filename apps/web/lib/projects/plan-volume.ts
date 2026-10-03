@@ -41,10 +41,19 @@ export type PlanVolume = {
   voids: PlanPoint[][]
   walls: WallSpan[]
   openings: OpeningSpan[]
-  wallSource: 'centerline' | 'pdf-faces'
+  wallSource: 'centerline' | 'pdf-faces' | 'room-layout'
   solidFaces: PlanSolidFace[]
   joinedSolids: boolean
   issues: PlanGeometryIssue[]
+  furniture?: VolumeFurniture[]
+  layoutNote?: string
+}
+
+export type VolumeFurniture = {
+  id: string
+  title: string
+  floor: PlanPoint[]
+  heightCm?: number
 }
 
 function interpolate(start: PlanPoint, end: PlanPoint, ratio: number): PlanPoint {

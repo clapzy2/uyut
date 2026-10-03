@@ -1,37 +1,27 @@
 'use client'
 
-import type { PlanPoint } from '@uyut/db'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { PlanVolume } from '@/lib/projects/plan-volume'
+import {
+  DEFAULT_VOLUME_TILT,
+  type VolumeScreenPoint,
+  volumeOrbit,
+  volumeProjector,
+  volumeViewBox,
+} from '@/lib/projects/plan-volume-camera'
 import { volumeSection } from '@/lib/projects/plan-volume-section'
+import { furnitureFaces } from '@/lib/projects/room-volume'
+import { PlanVolumeControls } from './plan-volume-controls'
 
-const VIEW_ANGLES = [0, 90, 180, 270] as const
-const COS_30 = Math.sqrt(3) / 2
-const SIN_30 = 0.5
-
-type ScreenPoint = { x: number; y: number }
-
-function projector(angle: number) {
-  const radians = (angle * Math.PI) / 180
-  const cosine = Math.cos(radians)
-  const sine = Math.sin(radians)
-
-  return (point: PlanPoint, rise = 0): ScreenPoint => {
-    const x = point.xCm * cosine - point.yCm * sine
-    const y = point.xCm * sine + point.yCm * cosine
-    return { x: (x - y) * COS_30, y: (x + y) * SIN_30 - rise }
-  }
-}
-
-function polygonPoints(points: ScreenPoint[]): string {
+function polygonPoints(points: VolumeScreenPoint[]): string {
   return points.map((point) => `${point.x},${point.y}`).join(' ')
 }
 
-function pathRing(points: ScreenPoint[]): string {
+function pathRing(points: VolumeScreenPoint[]): string {
   return `M ${points.map((point) => `${point.x} ${point.y}`).join(' L ')} Z`
 }
 
-function facesViewer(points: ScreenPoint[]): boolean {
+function facesViewer(points: VolumeScreenPoint[]): boolean {
   return (
     points.reduce((area, point, index) => {
       const next = points[(index + 1) % points.length]
@@ -41,11 +31,22 @@ function facesViewer(points: ScreenPoint[]): boolean {
 }
 
 export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
-  const [angleIndex, setAngleIndex] = useState(0)
+  const [angle, setAngle] = useState(0)
+  const [tilt, setTilt] = useState(DEFAULT_VOLUME_TILT)
+  const [zoom, setZoom] = useState(1)
   const [section, setSection] = useState(false)
   const [sectionHeight, setSectionHeight] = useState(90)
-  const angle = VIEW_ANGLES[angleIndex] ?? 0
-  const project = useMemo(() => projector(angle), [angle])
+  const drag = useRef<{
+    pointerId: number
+    x: number
+    y: number
+    angle: number
+    tilt: number
+  } | null>(null)
+  const project = useMemo(() => volumeProjector(angle, tilt), [angle, tilt])
+  const roomLayout = model.wallSource === 'room-layout'
+  const furniture = model.furniture ?? []
+  const unknownHeights = furniture.filter((item) => item.heightCm === undefined)
 
   // This rise is a drawing parameter, not a ceiling measurement or saved geometry.
   const xCoordinates = model.floor.map((point) => point.xCm)
@@ -68,7 +69,7 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
       const floorEnd = project(wall.end)
       return {
         ...wall,
-        depth: (floorStart.y + floorEnd.y) / 2,
+        depth: (floorStart.depth + floorEnd.depth) / 2,
         points: [
           project(wall.start, wall.bottomCm),
           project(wall.end, wall.bottomCm),
@@ -87,6 +88,8 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
         ],
         holes: [],
         cutEdge: [],
+        furnitureTitle: undefined,
+        footprintOnly: false,
       }
     })
   const surfaces = [
@@ -96,17 +99,25 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
       measured: wall.topCm !== undefined,
       solid: false,
     })),
-    ...model.solidFaces
+    ...[
+      ...model.solidFaces.map((face) => ({
+        ...face,
+        furnitureTitle: undefined,
+        footprintOnly: false,
+      })),
+      ...furnitureFaces(furniture),
+    ]
       .map((face) => {
-        const points = section ? volumeSection(face.points, sectionHeight) : face.points
+        const cut = section && face.furnitureTitle === undefined
+        const points = cut ? volumeSection(face.points, sectionHeight) : face.points
         return {
           ...face,
           points,
           holes: (face.holes ?? []).map((hole) =>
-            section ? volumeSection(hole, sectionHeight) : hole,
+            cut ? volumeSection(hole, sectionHeight) : hole,
           ),
           cutEdge:
-            section && face.points.some((point) => point.zCm > sectionHeight)
+            cut && face.points.some((point) => point.zCm > sectionHeight)
               ? points.filter((point) => point.zCm === sectionHeight)
               : [],
         }
@@ -114,9 +125,11 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
       .filter((face) => face.points.length >= 3)
       .map((face) => ({
         ...face,
-        measured: true,
+        measured: !face.footprintOnly,
         solid: true,
-        depth: face.points.reduce((sum, point) => sum + project(point).y, 0) / face.points.length,
+        depth:
+          face.points.reduce((sum, point) => sum + project(point, point.zCm).depth, 0) /
+          face.points.length,
         points: face.points.map((point) => project(point, point.zCm)),
         holes: face.holes.map((hole) => hole.map((point) => project(point, point.zCm))),
         cutEdge: face.cutEdge.map((point) => project(point, point.zCm)),
@@ -145,13 +158,15 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
         : [],
     ),
   ]
-  const xValues = projectedCorners.map((point) => point.x)
-  const yValues = projectedCorners.map((point) => point.y)
-  const minX = Math.min(...xValues)
-  const maxX = Math.max(...xValues)
-  const minY = Math.min(...yValues)
-  const maxY = Math.max(...yValues)
-  const padding = Math.max(maxX - minX, maxY - minY) * 0.08
+
+  function resetView() {
+    setAngle(0)
+    setTilt(DEFAULT_VOLUME_TILT)
+    setZoom(1)
+    setSection(false)
+    setSectionHeight(90)
+    drag.current = null
+  }
 
   return (
     <div className="mt-4">
@@ -165,58 +180,64 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
           </ul>
         </div>
       ) : null}
-      <div className="flex flex-wrap items-center justify-between gap-3 border border-line bg-paper px-4 py-3">
-        <p className="text-sm text-ink-2">Поверните схему, чтобы осмотреть стены и проёмы.</p>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setAngleIndex((index) => (index + 3) % 4)}
-            className="border border-line-strong px-3 py-1 text-sm text-ink hover:border-accent"
-            aria-label="Повернуть схему влево"
-          >
-            ↶ Влево
-          </button>
-          <button
-            type="button"
-            onClick={() => setAngleIndex((index) => (index + 1) % 4)}
-            className="border border-line-strong px-3 py-1 text-sm text-ink hover:border-accent"
-            aria-label="Повернуть схему вправо"
-          >
-            Вправо ↷
-          </button>
-        </div>
-        <div className="flex w-full flex-wrap items-center gap-4 border-t border-line pt-3">
-          <label className="flex items-center gap-2 text-sm text-ink">
-            <input
-              type="checkbox"
-              checked={section}
-              onChange={(event) => setSection(event.currentTarget.checked)}
-              className="accent-accent"
-            />
-            Открыть обзор комнат
-          </label>
-          {section ? (
-            <label className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
-              Срез на высоте {sectionHeight} см
-              <input
-                type="range"
-                min="20"
-                max="300"
-                step="10"
-                value={sectionHeight}
-                onChange={(event) => setSectionHeight(Number(event.currentTarget.value))}
-                aria-label="Высота среза стен, см"
-                className="accent-accent"
-              />
-            </label>
-          ) : null}
-        </div>
-      </div>
+      <PlanVolumeControls
+        angle={angle}
+        tilt={tilt}
+        zoom={zoom}
+        section={section}
+        sectionHeight={sectionHeight}
+        roomLayout={roomLayout}
+        setAngle={setAngle}
+        setTilt={setTilt}
+        setZoom={setZoom}
+        setSection={setSection}
+        setSectionHeight={setSectionHeight}
+        onReset={resetView}
+      />
       <svg
-        viewBox={`${minX - padding} ${minY - padding} ${maxX - minX + padding * 2} ${maxY - minY + padding * 2}`}
-        className="block aspect-[4/3] w-full border-x border-b border-line bg-paper"
+        viewBox={volumeViewBox(projectedCorners, zoom)}
+        className="block aspect-[4/3] w-full cursor-grab select-none border-x border-b border-line bg-paper active:cursor-grabbing"
+        style={{ touchAction: 'pan-y' }}
+        onPointerDown={(event) => {
+          if (event.pointerType !== 'mouse' || event.button !== 0) return
+          drag.current = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            angle,
+            tilt,
+          }
+          event.currentTarget.setPointerCapture(event.pointerId)
+        }}
+        onPointerMove={(event) => {
+          const start = drag.current
+          if (!start || start.pointerId !== event.pointerId) return
+          const next = volumeOrbit(
+            start.angle,
+            start.tilt,
+            event.clientX - start.x,
+            event.clientY - start.y,
+          )
+          setAngle(next.angle)
+          setTilt(next.tilt)
+        }}
+        onPointerUp={(event) => {
+          if (drag.current?.pointerId !== event.pointerId) return
+          drag.current = null
+          event.currentTarget.releasePointerCapture(event.pointerId)
+        }}
+        onPointerCancel={() => {
+          drag.current = null
+        }}
+        onLostPointerCapture={() => {
+          drag.current = null
+        }}
         role="img"
-        aria-label="Объёмный просмотр подтверждённой двухмерной схемы"
+        aria-label={
+          roomLayout
+            ? 'Объёмный просмотр текущей расстановки мебели'
+            : 'Объёмный просмотр подтверждённой двухмерной схемы'
+        }
       >
         <path
           d={[pathRing(floor), ...voids.map(pathRing)].join(' ')}
@@ -232,27 +253,48 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
               d={[pathRing(wall.points), ...wall.holes.map(pathRing)].join(' ')}
               fillRule="evenodd"
               fill={
-                model.wallSource === 'pdf-faces'
+                wall.furnitureTitle !== undefined
                   ? 'var(--accent)'
-                  : wall.role !== 'face'
-                    ? 'var(--line-strong)'
-                    : 'var(--ink-2)'
+                  : model.wallSource === 'pdf-faces'
+                    ? 'var(--accent)'
+                    : wall.role !== 'face'
+                      ? 'var(--line-strong)'
+                      : 'var(--ink-2)'
               }
               fillOpacity={
-                model.wallSource === 'pdf-faces' ? 0.24 : wall.kind === 'outer' ? 0.65 : 0.35
+                wall.furnitureTitle !== undefined
+                  ? wall.footprintOnly
+                    ? 0.12
+                    : wall.role === 'cap'
+                      ? 0.75
+                      : 0.45
+                  : model.wallSource === 'pdf-faces'
+                    ? 0.24
+                    : wall.kind === 'outer'
+                      ? 0.65
+                      : 0.35
               }
-              stroke={wall.solid && wall.role === 'face' ? 'none' : 'var(--ink)'}
+              stroke={
+                wall.furnitureTitle !== undefined
+                  ? 'var(--accent)'
+                  : wall.solid && wall.role === 'face'
+                    ? 'none'
+                    : 'var(--ink)'
+              }
+              strokeDasharray={wall.footprintOnly ? '5 4' : undefined}
               strokeWidth="1.5"
               vectorEffect="non-scaling-stroke"
             >
               <title>
-                {wall.role === 'reveal'
-                  ? 'Откос проёма · толщина по обмеру'
-                  : wall.role !== 'face'
-                    ? 'Торец стены · толщина по обмеру'
-                    : wall.measured
-                      ? 'Стена · высота по введённым меркам'
-                      : 'Стена · условная высота'}
+                {wall.furnitureTitle !== undefined
+                  ? `${wall.furnitureTitle} · ${wall.footprintOnly ? 'габарит на полу; высота не указана' : 'габаритный объём по размерам из 2D-расстановки'}`
+                  : wall.role === 'reveal'
+                    ? 'Откос проёма · толщина по обмеру'
+                    : wall.role !== 'face'
+                      ? 'Торец стены · толщина по обмеру'
+                      : wall.measured
+                        ? 'Стена · высота по введённым меркам'
+                        : 'Стена · условная высота'}
               </title>
             </path>
             {wall.cutEdge.length === 2 ? (
@@ -312,28 +354,84 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
             </line>
           )
         })}
+        {roomLayout
+          ? furniture.map((item, index) => {
+              const center = project(
+                {
+                  xCm: item.floor.reduce((sum, point) => sum + point.xCm, 0) / item.floor.length,
+                  yCm: item.floor.reduce((sum, point) => sum + point.yCm, 0) / item.floor.length,
+                },
+                item.heightCm ?? 0,
+              )
+              return (
+                <text
+                  key={`label-${item.id}`}
+                  x={center.x}
+                  y={center.y}
+                  fill="var(--ink)"
+                  stroke="var(--paper)"
+                  strokeWidth="3"
+                  paintOrder="stroke"
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontSize="18"
+                  pointerEvents="none"
+                >
+                  {index + 1}
+                </text>
+              )
+            })
+          : null}
       </svg>
-      <p className="mt-3 text-xs leading-relaxed text-ink-2">
-        {section
-          ? `Стены показаны в срезе на ${sectionHeight} см для обзора комнат. Исходные высоты и мерки сохранены. `
-          : null}
-        {model.wallSource === 'pdf-faces'
-          ? 'Показаны только подтверждённые участки граней из PDF — это не конструктивная толщина стен. '
-          : 'Показаны стены подтверждённой 2D-схемы. '}
-        {hasMeasuredWalls
-          ? hasIllustrativeWalls
-            ? 'Для стен с мерками использованы введённые высоты. Остальные стены показаны с условной высотой. '
-            : 'Высоты стен показаны по меркам, введённым при проверке схемы. '
-          : 'Высота стен показана условно. Добавьте мерки стен и проёмов в редакторе для просмотра по высоте. '}
-        {model.solidFaces.length > 0
-          ? model.joinedSolids
-            ? 'Стыки стен с мерками объединены без внутренних граней. Это просмотр планировки, а не строительная ведомость объёмов. '
-            : 'Толщина и откосы показаны только для стен с отдельно сверенной толщиной и осью. '
-          : null}
-        Цветной контур показывает проём с заданными нижней гранью и высотой; линия на полу — его
-        положение, когда этих мерок ещё нет. Перед покупкой мебели сверьте размеры с обмером
-        квартиры.
-      </p>
+      {furniture.length > 0 ? (
+        <div className="mt-3 border border-line px-3 py-2 text-sm text-ink-2">
+          <p>Мебель показана габаритными блоками, а не точными моделями изделий.</p>
+          {unknownHeights.length > 0 ? (
+            <p className="mt-1">
+              Пунктиром — только место на полу, высоту нужно уточнить:{' '}
+              {[...new Set(unknownHeights.map((item) => item.title))].join(', ')}.
+            </p>
+          ) : null}
+          <ul className="mt-2 space-y-1">
+            {furniture.map((item, index) => (
+              <li key={item.id}>
+                {index + 1}. {item.title}
+                {item.heightCm === undefined
+                  ? ' · высота не указана'
+                  : ` · высота ${item.heightCm} см`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {roomLayout ? (
+        <p className="mt-3 text-xs leading-relaxed text-ink-2">
+          {model.layoutNote} Положения и габариты мебели совпадают с видом сверху; проверки проходов
+          и рабочих зон смотрите на 2D-плане.
+        </p>
+      ) : (
+        <p className="mt-3 text-xs leading-relaxed text-ink-2">
+          {section
+            ? `Стены показаны в срезе на ${sectionHeight} см для обзора комнат. Исходные высоты и мерки сохранены. `
+            : null}
+          {model.wallSource === 'pdf-faces'
+            ? 'Показаны только подтверждённые участки граней из PDF — это не конструктивная толщина стен. '
+            : 'Показаны стены подтверждённой 2D-схемы. '}
+          {hasMeasuredWalls
+            ? hasIllustrativeWalls
+              ? 'Для стен с мерками использованы введённые высоты. Остальные стены показаны с условной высотой. '
+              : 'Высоты стен показаны по меркам, введённым при проверке схемы. '
+            : 'Высота стен показана условно. Добавьте мерки стен и проёмов в редакторе для просмотра по высоте. '}
+          {model.solidFaces.length > 0
+            ? model.joinedSolids
+              ? 'Стыки стен с мерками объединены без внутренних граней. Это просмотр планировки, а не строительная ведомость объёмов. '
+              : 'Толщина и откосы показаны только для стен с отдельно сверенной толщиной и осью. '
+            : null}
+          Цветной контур показывает проём с заданными нижней гранью и высотой; линия на полу — его
+          положение, когда этих мерок ещё нет. Перед покупкой мебели сверьте размеры с обмером
+          квартиры.
+        </p>
+      )}
     </div>
   )
 }

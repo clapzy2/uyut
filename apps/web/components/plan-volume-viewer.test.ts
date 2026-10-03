@@ -1,8 +1,10 @@
+import { layoutRoom } from '@uyut/catalog'
 import type { PlanGeometry } from '@uyut/db'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { planVolume } from '@/lib/projects/plan-volume'
+import { roomVolume } from '@/lib/projects/room-volume'
 import PlanVolumeViewer from './plan-volume-viewer'
 
 const geometry: PlanGeometry = {
@@ -47,6 +49,36 @@ function render(source: PlanGeometry) {
 }
 
 describe('объёмный просмотр с мерками', () => {
+  it('показывает управление камерой и различает известную и неизвестную высоту мебели', () => {
+    const layout = layoutRoom({ widthCm: 500, depthCm: 400 }, [
+      {
+        id: 'desk',
+        title: 'Рабочий стол',
+        category: 'table',
+        dimensions: { width: 120, depth: 60, height: 75 },
+        quantity: 1,
+      },
+      {
+        id: 'sofa',
+        title: 'Диван',
+        category: 'sofa',
+        dimensions: { width: 200, depth: 90 },
+        quantity: 1,
+      },
+    ])
+    const model = roomVolume(layout)
+    if (!model) throw new Error('Missing room volume')
+    const html = renderToStaticMarkup(createElement(PlanVolumeViewer, { model }))
+    expect(html).toContain('Поворот камеры, градусы')
+    expect(html).toContain('Наклон камеры, градусы')
+    expect(html).toContain('Приближение камеры')
+    expect(html).toContain('Исходный вид')
+    expect(html).toContain('высота 75 см')
+    expect(html).toContain('Диван · высота не указана')
+    expect(html).toContain('stroke-dasharray="5 4"')
+    expect(html).not.toContain('Высоты стен показаны по меркам')
+    expect(html).not.toContain('Открыть обзор комнат')
+  })
   it('показывает толщину и откосы только после ввода отдельной мерки', () => {
     const html = render({
       ...geometry,
