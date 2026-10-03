@@ -150,4 +150,81 @@ describe('перенос расстановки в объём', () => {
     expect(model?.furniture?.[0]?.heightCm).toBeUndefined()
     expect(furnitureFaces(model?.furniture ?? [])).toHaveLength(1)
   })
+  it('переносит препятствия и рабочие запасы без изменения координат и высот', () => {
+    const source: RoomLayout = {
+      ...layout(),
+      keepClearZones: [
+        {
+          kind: 'obstacle',
+          label: 'Технический короб',
+          polygon: [
+            { xCm: 0, yCm: 0 },
+            { xCm: 40, yCm: 0 },
+            { xCm: 40, yCm: 60 },
+            { xCm: 0, yCm: 60 },
+          ],
+        },
+        {
+          kind: 'door',
+          label: 'Открывание двери',
+          polygon: [
+            { xCm: 0, yCm: 100 },
+            { xCm: 90, yCm: 100 },
+            { xCm: 0, yCm: 190 },
+          ],
+        },
+      ],
+      functionalZones: [
+        {
+          itemId: 'table',
+          placementId: 'table-1',
+          title: 'Стол',
+          kind: 'front',
+          direction: 'down',
+          source: 'preliminary',
+          clearanceCm: 60,
+          xCm: 250,
+          yCm: 90,
+          widthCm: 100,
+          depthCm: 60,
+        },
+      ],
+    }
+    const before = structuredClone(source)
+    const zones = roomVolume(source)?.floorZones
+    expect(zones).toHaveLength(3)
+    expect(zones?.[0]?.floor).toEqual(source.keepClearZones[0]?.polygon)
+    expect(zones?.[1]?.floor).toEqual(source.keepClearZones[1]?.polygon)
+    expect(zones?.[2]).toMatchObject({
+      kind: 'operation',
+      preliminary: true,
+      floor: [
+        { xCm: 250, yCm: 90 },
+        { xCm: 350, yCm: 90 },
+        { xCm: 350, yCm: 150 },
+        { xCm: 250, yCm: 150 },
+      ],
+    })
+    expect(zones?.[0]).not.toHaveProperty('heightCm')
+    if (zones?.[0]?.floor[0]) zones[0].floor[0].xCm = 99
+    expect(source).toEqual(before)
+  })
+  it('не передаёт нечисловые зоны в SVG', () => {
+    const source: RoomLayout = {
+      ...layout(),
+      keepClearZones: [
+        { kind: 'radiator', label: 'Радиатор', polygon: [] },
+        {
+          kind: 'obstacle',
+          label: 'Короб',
+          polygon: [
+            { xCm: 0, yCm: 0 },
+            { xCm: Number.NaN, yCm: 0 },
+            { xCm: 40, yCm: 40 },
+          ],
+        },
+      ],
+    }
+    expect(roomVolume(source)?.floorZones).toEqual([])
+  })
 })

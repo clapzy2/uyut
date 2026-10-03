@@ -1,6 +1,6 @@
 import type { RoomLayout } from '@uyut/catalog'
 import type { PlanPoint } from '@uyut/db'
-import type { PlanSolidFace, PlanVolume, VolumeFurniture } from './plan-volume'
+import type { PlanSolidFace, PlanVolume, VolumeFloorZone, VolumeFurniture } from './plan-volume'
 
 function rectangle(x: number, y: number, width: number, depth: number): PlanPoint[] {
   return [
@@ -47,6 +47,25 @@ export function roomVolume(layout: RoomLayout): PlanVolume | null {
         : {}),
     }
   })
+  const floorZones: VolumeFloorZone[] = [
+    ...layout.keepClearZones.map((zone, index) => ({
+      id: `keep-clear-${index}`,
+      title: zone.label,
+      kind: zone.kind,
+      floor: zone.polygon.map((point) => ({ ...point })),
+    })),
+    ...layout.functionalZones.map((zone, index) => ({
+      id: `operation-${zone.placementId}-${index}`,
+      title: `${zone.title} · зона использования · запас ${zone.clearanceCm} см`,
+      kind: 'operation' as const,
+      floor: rectangle(zone.xCm, zone.yCm, zone.widthCm, zone.depthCm),
+      preliminary: zone.source === 'preliminary',
+    })),
+  ].filter(
+    (zone) =>
+      zone.floor.length >= 3 &&
+      zone.floor.every((point) => Number.isFinite(point.xCm) && Number.isFinite(point.yCm)),
+  )
   const openings: PlanVolume['openings'] = layout.floorReservations
     .filter(
       (opening) =>
@@ -91,6 +110,7 @@ export function roomVolume(layout: RoomLayout): PlanVolume | null {
     joinedSolids: false,
     wallSource: 'room-layout',
     furniture,
+    floorZones,
     openings,
     layoutNote:
       `${layout.floorPolygon ? 'Контур пола перенесён из текущей 2D-расстановки.' : 'Пол показан прямоугольным по габариту текущей 2D-расстановки.'} Стены и высоты проёмов здесь не достраиваются. ${layout.measurementNote ?? ''}`.trim(),

@@ -46,7 +46,16 @@ export type PlanVolume = {
   joinedSolids: boolean
   issues: PlanGeometryIssue[]
   furniture?: VolumeFurniture[]
+  floorZones?: VolumeFloorZone[]
   layoutNote?: string
+}
+
+export type VolumeFloorZone = {
+  id: string
+  title: string
+  kind: 'door' | 'balcony' | 'radiator' | 'obstacle' | 'operation'
+  floor: PlanPoint[]
+  preliminary?: boolean
 }
 
 export type VolumeFurniture = {

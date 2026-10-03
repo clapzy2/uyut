@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { ChatDrawer } from '@/components/chat/chat-drawer'
+import { PlanVolumeLaunch } from '@/components/plan-volume-launch'
 import { EstimateCard } from '@/components/summary/estimate-card'
 import { ExportCard, type PaymentState } from '@/components/summary/export-card'
 import { FitWarnings } from '@/components/summary/fit-warnings'
@@ -15,6 +16,7 @@ import { getEnv } from '@/lib/env'
 import { listExports } from '@/lib/exports/repository'
 import type { ExportRun } from '@/lib/exports/start'
 import { isUuid, NotFoundError, ProjectClosedError } from '@/lib/projects/access'
+import { apartmentVolume } from '@/lib/projects/apartment-volume'
 import { formatArea, pluralRooms } from '@/lib/projects/format'
 import { getProject } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -105,6 +107,8 @@ export default async function SummaryPage({
     getPlan(session.user.id),
   ])
   const layouts = projectLayouts(project.rooms, list, project.planReading?.geometry)
+  const geometry = project.planReading?.geometry
+  const overview = geometry && layouts.length > 0 ? apartmentVolume(geometry, layouts) : null
   const rates = getWorksRates()
   const env = getEnv()
   const rooms = project.rooms.map((room) => ({
@@ -193,6 +197,25 @@ export default async function SummaryPage({
           />
         </aside>
       </div>
+      {overview?.model ? (
+        <section className="mt-10 border-t border-line pt-6" aria-labelledby="apartment-overview">
+          <h2 id="apartment-overview" className="font-serif text-2xl text-ink">
+            Расстановка в квартире
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-ink-2">
+            Общий обзор по подтверждённой схеме. Положения мебели совпадают с планами комнат; оценку
+            проходов и недостающие мерки смотрите в проверках 2D.
+          </p>
+          {overview.notes.length > 0 ? (
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink-2">
+              {[...new Set(overview.notes)].map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          ) : null}
+          <PlanVolumeLaunch model={overview.model} />
+        </section>
+      ) : null}
       <ChatDrawer projectId={project.id} canRun={isOwner} />
     </section>
   )

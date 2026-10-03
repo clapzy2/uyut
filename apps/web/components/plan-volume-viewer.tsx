@@ -36,6 +36,7 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
   const [zoom, setZoom] = useState(1)
   const [section, setSection] = useState(false)
   const [sectionHeight, setSectionHeight] = useState(90)
+  const [showZones, setShowZones] = useState(true)
   const drag = useRef<{
     pointerId: number
     x: number
@@ -47,6 +48,11 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
   const roomLayout = model.wallSource === 'room-layout'
   const furniture = model.furniture ?? []
   const unknownHeights = furniture.filter((item) => item.heightCm === undefined)
+  const floorZones = model.floorZones ?? []
+  const zones = floorZones.map((zone) => ({
+    ...zone,
+    points: zone.floor.map((point) => project(point)),
+  }))
 
   // This rise is a drawing parameter, not a ceiling measurement or saved geometry.
   const xCoordinates = model.floor.map((point) => point.xCm)
@@ -138,6 +144,7 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
   ].sort((a, b) => a.depth - b.depth)
   const projectedCorners = [
     ...floor,
+    ...zones.flatMap((zone) => zone.points),
     ...surfaces.flatMap((wall) => wall.points),
     ...model.openings.flatMap((opening) =>
       opening.cut && opening.bottomCm !== undefined && opening.heightCm !== undefined
@@ -165,6 +172,7 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
     setZoom(1)
     setSection(false)
     setSectionHeight(90)
+    setShowZones(true)
     drag.current = null
   }
 
@@ -194,6 +202,17 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
         setSectionHeight={setSectionHeight}
         onReset={resetView}
       />
+      {floorZones.length > 0 ? (
+        <label className="flex items-center gap-2 border-x border-line px-3 py-2 text-sm text-ink-2">
+          <input
+            type="checkbox"
+            checked={showZones}
+            onChange={(event) => setShowZones(event.target.checked)}
+            className="accent-accent"
+          />
+          Показать препятствия и зоны использования
+        </label>
+      ) : null}
       <svg
         viewBox={volumeViewBox(projectedCorners, zoom)}
         className="block aspect-[4/3] w-full cursor-grab select-none border-x border-b border-line bg-paper active:cursor-grabbing"
@@ -247,6 +266,25 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
           strokeWidth="2"
           vectorEffect="non-scaling-stroke"
         />
+        {showZones
+          ? zones.map((zone) => (
+              <polygon
+                key={`zone-${zone.id}`}
+                points={polygonPoints(zone.points)}
+                fill={zone.kind === 'operation' ? 'var(--accent)' : 'var(--danger)'}
+                fillOpacity={zone.kind === 'obstacle' ? 0.25 : 0.1}
+                stroke={zone.kind === 'operation' ? 'var(--accent)' : 'var(--danger)'}
+                strokeDasharray={zone.kind === 'obstacle' ? undefined : '5 4'}
+                strokeWidth="1.5"
+                vectorEffect="non-scaling-stroke"
+              >
+                <title>
+                  {zone.title}
+                  {zone.preliminary ? ' · предварительный запас' : ''}
+                </title>
+              </polygon>
+            ))
+          : null}
         {surfaces.map((wall) => (
           <g key={wall.id}>
             <path
@@ -354,7 +392,7 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
             </line>
           )
         })}
-        {roomLayout
+        {furniture.length > 0
           ? furniture.map((item, index) => {
               const center = project(
                 {
@@ -383,6 +421,22 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
             })
           : null}
       </svg>
+      {floorZones.length > 0 ? (
+        <div className="mt-3 text-sm leading-relaxed text-ink-2">
+          <p>
+            Красным — препятствия и зоны, которые нужно оставить свободными; розовым пунктиром —
+            место для использования мебели. Они перенесены из 2D без изменения размеров.
+          </p>
+          {floorZones.some((zone) => zone.kind === 'obstacle') ? (
+            <p className="mt-1">Препятствия отмечены на полу: их высота здесь не достраивается.</p>
+          ) : null}
+          {floorZones.some((zone) => zone.preliminary) ? (
+            <p className="mt-1">
+              Есть предварительные рабочие запасы — уточните их по данным изделия.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       {furniture.length > 0 ? (
         <div className="mt-3 border border-line px-3 py-2 text-sm text-ink-2">
           <p>Мебель показана габаритными блоками, а не точными моделями изделий.</p>
