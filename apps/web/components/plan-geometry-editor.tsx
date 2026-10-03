@@ -34,6 +34,7 @@ import {
   type PlanGeometryIssue,
 } from '@/lib/projects/plan-geometry-inspection'
 import { planImageMatrix, planImageScaleCheck } from '@/lib/projects/plan-image-calibration'
+import { inspectPlanVerticalDimensions } from '@/lib/projects/plan-vertical-dimensions'
 import {
   addRoomContourPoint,
   MAX_ROOM_CONTOUR_POINTS,
@@ -596,6 +597,7 @@ export function PlanGeometryEditor({
   const issues = useMemo(
     () => [
       ...inspectPlanGeometry({ ...geometry, walls, openings, rooms }),
+      ...inspectPlanVerticalDimensions({ walls, openings }),
       ...(geometry.source === 'manual'
         ? [
             ...inspectManualPlanCompleteness({ ...geometry, walls, openings, rooms }),
@@ -1202,6 +1204,20 @@ export function PlanGeometryEditor({
                       }
                     />
                   </div>
+                  <Input
+                    id="wall-height"
+                    label="Высота стены, см"
+                    hint="По обмеру или исходному чертежу. Пустое поле оставляет условную высоту в объёмной схеме."
+                    type="number"
+                    min="1"
+                    max="600"
+                    step="0.1"
+                    value={selectedWall.heightCm ?? ''}
+                    onChange={(event) => {
+                      const value = event.currentTarget.valueAsNumber
+                      patchWall({ heightCm: Number.isFinite(value) ? value : undefined })
+                    }}
+                  />
                 </div>
               ) : null}
 
@@ -1263,6 +1279,36 @@ export function PlanGeometryEditor({
                       onChange={(event) =>
                         patchOpening({ widthCm: Number(event.currentTarget.value) })
                       }
+                    />
+                  </div>
+                  <div className={numberClassName}>
+                    <Input
+                      id="opening-bottom"
+                      label="Нижняя грань от пола, см"
+                      hint="Для двери до пола укажите 0. У окна измерьте нижнюю грань проёма."
+                      type="number"
+                      min="0"
+                      max="600"
+                      step="0.1"
+                      value={selectedOpening.bottomCm ?? ''}
+                      onChange={(event) => {
+                        const value = event.currentTarget.valueAsNumber
+                        patchOpening({ bottomCm: Number.isFinite(value) ? value : undefined })
+                      }}
+                    />
+                    <Input
+                      id="opening-height"
+                      label="Высота проёма, см"
+                      hint="От нижней до верхней грани. Для выреза в объёмной схеме нужны обе мерки и высота стены."
+                      type="number"
+                      min="1"
+                      max="600"
+                      step="0.1"
+                      value={selectedOpening.heightCm ?? ''}
+                      onChange={(event) => {
+                        const value = event.currentTarget.valueAsNumber
+                        patchOpening({ heightCm: Number.isFinite(value) ? value : undefined })
+                      }}
                     />
                   </div>
                   {selectedOpening.type === 'window' ? (
@@ -1480,7 +1526,7 @@ export function PlanGeometryEditor({
               }
               className="mt-1 accent-accent"
             />
-            Я сверил стены, проёмы и контуры комнат с исходным планом. Это не обмер на месте.
+            Я сверил стены, проёмы, контуры комнат и введённые мерки с исходным планом или обмером.
           </label>
           <div className="mt-6 flex flex-wrap gap-3 border-t border-line pt-5">
             <Button

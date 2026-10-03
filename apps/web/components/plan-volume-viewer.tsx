@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react'
 import type { PlanVolume } from '@/lib/projects/plan-volume'
 
 const VIEW_ANGLES = [0, 90, 180, 270] as const
-const COS_45 = Math.SQRT1_2
+const COS_30 = Math.sqrt(3) / 2
 const SIN_30 = 0.5
 
 type ScreenPoint = { x: number; y: number }
@@ -18,7 +18,7 @@ function projector(angle: number) {
   return (point: PlanPoint, rise = 0): ScreenPoint => {
     const x = point.xCm * cosine - point.yCm * sine
     const y = point.xCm * sine + point.yCm * cosine
-    return { x: (x - y) * COS_45, y: (x + y) * SIN_30 - rise }
+    return { x: (x - y) * COS_30, y: (x + y) * SIN_30 - rise }
   }
 }
 
@@ -38,17 +38,45 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
   // This rise is a drawing parameter, not a ceiling measurement or saved geometry.
   const xCoordinates = model.floor.map((point) => point.xCm)
   const yCoordinates = model.floor.map((point) => point.yCm)
-  const displayRise =
+  const illustrativeRise =
     Math.min(
       Math.max(...xCoordinates) - Math.min(...xCoordinates),
       Math.max(...yCoordinates) - Math.min(...yCoordinates),
     ) * 0.3
   const floor = model.floor.map((point) => project(point))
   const voids = model.voids.map((polygon) => polygon.map((point) => project(point)))
-  const projectedCorners = model.floor.flatMap((point) => [
-    project(point),
-    project(point, displayRise),
-  ])
+  const hasMeasuredWalls =
+    model.walls.some((wall) => wall.topCm !== undefined) ||
+    model.openings.some((opening) => opening.cut)
+  const hasIllustrativeWalls = model.walls.some((wall) => wall.topCm === undefined)
+  const wallFaces = model.walls
+    .map((wall) => {
+      const floorStart = project(wall.start)
+      const floorEnd = project(wall.end)
+      return {
+        ...wall,
+        depth: (floorStart.y + floorEnd.y) / 2,
+        points: [
+          project(wall.start, wall.bottomCm),
+          project(wall.end, wall.bottomCm),
+          project(wall.end, wall.topCm ?? illustrativeRise),
+          project(wall.start, wall.topCm ?? illustrativeRise),
+        ],
+      }
+    })
+    .sort((a, b) => a.depth - b.depth)
+  const projectedCorners = [
+    ...floor,
+    ...wallFaces.flatMap((wall) => wall.points),
+    ...model.openings.flatMap((opening) =>
+      opening.cut && opening.bottomCm !== undefined && opening.heightCm !== undefined
+        ? [
+            project(opening.start, opening.bottomCm + opening.heightCm),
+            project(opening.end, opening.bottomCm + opening.heightCm),
+          ]
+        : [],
+    ),
+  ]
   const xValues = projectedCorners.map((point) => point.x)
   const yValues = projectedCorners.map((point) => point.y)
   const minX = Math.min(...xValues)
@@ -56,22 +84,6 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
   const minY = Math.min(...yValues)
   const maxY = Math.max(...yValues)
   const padding = Math.max(maxX - minX, maxY - minY) * 0.08
-  const wallFaces = model.walls
-    .map((wall) => {
-      const bottomStart = project(wall.start)
-      const bottomEnd = project(wall.end)
-      return {
-        ...wall,
-        depth: (bottomStart.y + bottomEnd.y) / 2,
-        points: [
-          bottomStart,
-          bottomEnd,
-          project(wall.end, displayRise),
-          project(wall.start, displayRise),
-        ],
-      }
-    })
-    .sort((a, b) => a.depth - b.depth)
 
   return (
     <div className="mt-4">
@@ -127,9 +139,37 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
             stroke="var(--ink)"
             strokeWidth="1.5"
             vectorEffect="non-scaling-stroke"
-          />
+          >
+            <title>
+              {wall.topCm === undefined
+                ? 'Стена · условная высота'
+                : 'Стена · высота по введённым меркам'}
+            </title>
+          </polygon>
         ))}
         {model.openings.map((opening) => {
+          const title = opening.type === 'window' ? 'Окно' : 'Дверной проём'
+          const color = opening.type === 'window' ? 'var(--accent)' : 'var(--danger)'
+          if (opening.cut && opening.bottomCm !== undefined && opening.heightCm !== undefined) {
+            const top = opening.bottomCm + opening.heightCm
+            return (
+              <polygon
+                key={opening.id}
+                points={polygonPoints([
+                  project(opening.start, opening.bottomCm),
+                  project(opening.end, opening.bottomCm),
+                  project(opening.end, top),
+                  project(opening.start, top),
+                ])}
+                fill="none"
+                stroke={color}
+                strokeWidth="3"
+                vectorEffect="non-scaling-stroke"
+              >
+                <title>{`${title} · низ ${opening.bottomCm} см · высота ${opening.heightCm} см`}</title>
+              </polygon>
+            )
+          }
           const start = project(opening.start)
           const end = project(opening.end)
           return (
@@ -139,12 +179,12 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
               y1={start.y}
               x2={end.x}
               y2={end.y}
-              stroke={opening.type === 'window' ? 'var(--accent)' : 'var(--danger)'}
+              stroke={color}
               strokeWidth="5"
               strokeLinecap="round"
               vectorEffect="non-scaling-stroke"
             >
-              <title>{opening.type === 'window' ? 'Окно' : 'Дверной проём'}</title>
+              <title>{`${title} · положение на плане`}</title>
             </line>
           )
         })}
@@ -153,10 +193,14 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
         {model.wallSource === 'pdf-faces'
           ? 'Показаны только подтверждённые участки граней из PDF — это не конструктивная толщина стен. '
           : 'Показаны стены подтверждённой 2D-схемы. '}
-        Высота отображения условная и не является обмером. Цветные линии показывают положение
-        проёмов, но не их высоту, подоконник или створки. Пока вертикальные размеры неизвестны,
-        поверхности стен показаны без вырезов. Перед проектированием и покупкой мебели сверьте
-        размеры с обмером квартиры.
+        {hasMeasuredWalls
+          ? hasIllustrativeWalls
+            ? 'Для стен с мерками использованы введённые высоты. Остальные стены показаны с условной высотой. '
+            : 'Высоты стен показаны по меркам, введённым при проверке схемы. '
+          : 'Высота стен показана условно. Добавьте мерки стен и проёмов в редакторе для просмотра по высоте. '}
+        Цветной контур показывает проём с заданными нижней гранью и высотой; линия на полу — его
+        положение, когда этих мерок ещё нет. Перед покупкой мебели сверьте размеры с обмером
+        квартиры.
       </p>
     </div>
   )

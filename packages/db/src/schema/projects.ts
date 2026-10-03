@@ -96,6 +96,8 @@ export type PlanWall = {
   end: PlanPoint
   kind: 'outer' | 'inner'
   thicknessCm?: number
+  /** Высота, отдельно введённая и сверенная владельцем; 2D-распознавание её не заполняет. */
+  heightCm?: number
 }
 export type PlanOpening = {
   id: string
@@ -104,6 +106,10 @@ export type PlanOpening = {
   offsetCm: number
   widthCm: number
   sillHeightCm?: number
+  /** От чистого пола до нижней грани проёма; не высота поверхности подоконника. */
+  bottomCm?: number
+  /** Высота самого проёма, отдельно введённая владельцем. */
+  heightCm?: number
   /** Explicit keep-clear envelope; legacy values without shape remain rectangular. */
   clearance?: {
     side: 'left' | 'right'

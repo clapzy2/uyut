@@ -1,11 +1,15 @@
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import { currentWallFacePairs } from './plan-opening-face-pairs'
+import { inspectPlanVerticalDimensions } from './plan-vertical-dimensions'
+import { wallElevationPanels } from './wall-elevation'
 
 export type WallSpan = {
   id: string
   start: PlanPoint
   end: PlanPoint
   kind: 'outer' | 'inner'
+  bottomCm: number
+  topCm?: number
 }
 
 export type OpeningSpan = {
@@ -13,6 +17,9 @@ export type OpeningSpan = {
   type: 'door' | 'window' | 'balcony'
   start: PlanPoint
   end: PlanPoint
+  bottomCm?: number
+  heightCm?: number
+  cut: boolean
 }
 
 export type PlanVolume = {
@@ -30,7 +37,7 @@ function interpolate(start: PlanPoint, end: PlanPoint, ratio: number): PlanPoint
   }
 }
 
-/** Mark the horizontal opening span; its unknown vertical extent cannot cut a wall surface. */
+/** Only complete vertical measurements can remove part of a wall surface. */
 function addWallInterval(
   walls: WallSpan[],
   openings: OpeningSpan[],
@@ -53,13 +60,6 @@ function addWallInterval(
   if (high - low < 0.001) return
 
   const pointAt = (distanceCm: number) => interpolate(wall.start, wall.end, distanceCm / length)
-  walls.push({
-    id: `${wall.id}-${low}-${high}`,
-    start: pointAt(low),
-    end: pointAt(high),
-    kind: wall.kind,
-  })
-
   const spans = sourceOpenings
     .filter((opening) => opening.wallId === wall.id && opening.widthCm > 0)
     .map((opening) => ({
@@ -69,12 +69,46 @@ function addWallInterval(
     }))
     .filter((cut) => cut.end > cut.start)
 
+  const measuredCuts = spans.flatMap(({ opening, start, end }) =>
+    opening.bottomCm !== undefined && opening.heightCm !== undefined
+      ? [
+          {
+            startCm: start - low,
+            endCm: end - low,
+            bottomCm: opening.bottomCm,
+            heightCm: opening.heightCm,
+          },
+        ]
+      : [],
+  )
+  const panels =
+    wall.heightCm === undefined
+      ? [{ startCm: 0, endCm: high - low, bottomCm: 0, topCm: undefined }]
+      : wallElevationPanels(high - low, wall.heightCm, measuredCuts)
+  if (!panels) return
+  for (const panel of panels) {
+    walls.push({
+      id: `${wall.id}-${low}-${high}-${panel.startCm}-${panel.bottomCm}`,
+      start: pointAt(low + panel.startCm),
+      end: pointAt(low + panel.endCm),
+      kind: wall.kind,
+      bottomCm: panel.bottomCm,
+      topCm: panel.topCm,
+    })
+  }
+
   for (const cut of spans) {
     openings.push({
       id: `${cut.opening.id}-${low}`,
       type: cut.opening.type,
       start: pointAt(cut.start),
       end: pointAt(cut.end),
+      bottomCm: cut.opening.bottomCm,
+      heightCm: cut.opening.heightCm,
+      cut:
+        wall.heightCm !== undefined &&
+        cut.opening.bottomCm !== undefined &&
+        cut.opening.heightCm !== undefined,
     })
   }
 }
@@ -84,6 +118,7 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
   if (geometry.status !== 'confirmed' || !geometry.footprint || geometry.footprint.length < 3) {
     return null
   }
+  if (inspectPlanVerticalDimensions(geometry).length > 0) return null
 
   const walls: WallSpan[] = []
   const openings: OpeningSpan[] = []
@@ -96,7 +131,12 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
 
     for (const pair of currentPairs) {
       for (const face of pair.faces) {
-        addWallInterval(walls, openings, face.wall, face.start, face.end, pair.openings)
+        const wall = geometry.walls.find((item) => item.id === face.wall.id)
+        if (!wall) return null
+        const currentOpenings = geometry.openings.filter((item) =>
+          pair.openings.some((o) => o.id === item.id),
+        )
+        addWallInterval(walls, openings, wall, face.start, face.end, currentOpenings)
       }
     }
   } else {

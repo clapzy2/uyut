@@ -66,6 +66,34 @@ describe('planVolume', () => {
     ).toBeNull()
   })
 
+  it('строит оконный вырез с подоконной частью и перемычкой только при всех мерках', () => {
+    const window = geometry.openings[1]
+    if (!window) throw new Error('Missing test window')
+    const measured = {
+      ...geometry,
+      walls: geometry.walls.map((wall) => ({ ...wall, heightCm: 200 })),
+      openings: [{ ...window, bottomCm: 50, heightCm: 100 }],
+    }
+    const result = planVolume(measured)
+    expect(
+      result?.walls.map((wall) => [wall.start.xCm, wall.end.xCm, wall.bottomCm, wall.topCm]),
+    ).toEqual([
+      [0, 250, 0, 200],
+      [250, 350, 0, 50],
+      [250, 350, 150, 200],
+      [350, 400, 0, 200],
+    ])
+    expect(result?.openings[0]?.cut).toBe(true)
+
+    const incomplete = { ...measured, openings: [{ ...window, heightCm: 100, sillHeightCm: 50 }] }
+    expect(planVolume(incomplete)?.walls).toHaveLength(1)
+    expect(planVolume(incomplete)?.openings[0]?.cut).toBe(false)
+    expect(planVolume({ ...measured, walls: geometry.walls })?.openings[0]?.cut).toBe(false)
+    expect(
+      planVolume({ ...measured, openings: [{ ...window, heightCm: 100, bottomCm: 150 }] }),
+    ).toBeNull()
+  })
+
   it('shows only source-proven PDF face intervals and marks opening positions', () => {
     const firstWall = geometry.walls[0]
     const firstOpening = geometry.openings[0]
@@ -123,6 +151,17 @@ describe('planVolume', () => {
       [50, 350],
     ])
     expect(result?.openings).toHaveLength(2)
+
+    // Vertical user measurements do not alter the source-proven horizontal face relation.
+    pdfGeometry.walls = pdfGeometry.walls.map((wall) => ({ ...wall, heightCm: 270 }))
+    pdfGeometry.openings = pdfGeometry.openings.map((opening) => ({
+      ...opening,
+      bottomCm: 0,
+      heightCm: 210,
+    }))
+    const vertical = planVolume(pdfGeometry)
+    expect(vertical?.openings.every((opening) => opening.cut)).toBe(true)
+    expect(vertical?.walls.filter((wall) => wall.bottomCm === 210)).toHaveLength(2)
 
     const editedWall = pdfGeometry.walls[0]
     const calibration = pdfGeometry.pdfCalibration

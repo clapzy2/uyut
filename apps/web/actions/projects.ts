@@ -43,6 +43,7 @@ import { planPageAreaConflicts } from '@/lib/projects/plan-page-area-conflicts'
 import { retainedPlanPageReview } from '@/lib/projects/plan-page-review'
 import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
+import { applyPlanVerticalDimensions } from '@/lib/projects/plan-vertical-dimensions'
 import * as repository from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { deleteObject, getObject, putObject } from '@/lib/storage'
@@ -591,9 +592,11 @@ export async function savePlanGeometry(
     const checkedRooms =
       mode === 'draft' ? geometry : reconcilePlanGeometryRooms(geometry, project.planReading.rooms)
     if (!checkedRooms) return { ok: false, error: 'В схеме должно остаться не меньше трёх стен.' }
+    const verticalDimensions = applyPlanVerticalDimensions(checkedRooms, submitted)
+    if (!verticalDimensions.ok) return verticalDimensions
     // The reviewed floor outline and voids belong to the saved source, never to browser edits.
     const checked = {
-      ...checkedRooms,
+      ...verticalDimensions.geometry,
       ...(before.footprint ? { footprint: structuredClone(before.footprint) } : {}),
       ...(before.voids ? { voids: structuredClone(before.voids) } : {}),
     }

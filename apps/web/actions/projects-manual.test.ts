@@ -147,6 +147,78 @@ describe('manual plan draft', () => {
     expect(mocks.setPlanReading.mock.calls[0]?.[2].geometry.voids).toEqual(voids)
   })
 
+  it('сохраняет и очищает отдельно введённые высоты после проверки схемы', async () => {
+    const wall = closedWalls[0]
+    if (!wall) throw new Error('Missing manual wall')
+    const measured: PlanGeometry = {
+      ...emptyManualGeometry,
+      walls: [{ ...wall, heightCm: 270.5 }],
+      openings: [
+        {
+          id: 'manual_000000000000000000000005',
+          type: 'window',
+          wallId: wall.id,
+          offsetCm: 100,
+          widthCm: 100,
+          bottomCm: 50.5,
+          heightCm: 140.2,
+        },
+      ],
+    }
+    const result = await savePlanGeometry(projectId, measured, 'draft')
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.geometry.walls[0]?.heightCm).toBe(270.5)
+    expect(result.data.geometry.openings[0]).toMatchObject({ bottomCm: 50.5, heightCm: 140.2 })
+
+    source.planReading.geometry = result.data.geometry
+    const cleared = await savePlanGeometry(
+      projectId,
+      {
+        ...result.data.geometry,
+        walls: result.data.geometry.walls.map((item) => ({ ...item, heightCm: undefined })),
+        openings: result.data.geometry.openings.map((item) => ({
+          ...item,
+          bottomCm: undefined,
+          heightCm: undefined,
+        })),
+      },
+      'draft',
+    )
+    expect(cleared.ok).toBe(true)
+    if (!cleared.ok) throw new Error(cleared.error)
+    expect(cleared.data.geometry.walls[0]).not.toHaveProperty('heightCm')
+    expect(cleared.data.geometry.openings[0]).not.toHaveProperty('bottomCm')
+    expect(cleared.data.geometry.openings[0]).not.toHaveProperty('heightCm')
+  })
+
+  it('не сохраняет проём выше стены', async () => {
+    const wall = closedWalls[0]
+    if (!wall) throw new Error('Missing manual wall')
+    const result = await savePlanGeometry(
+      projectId,
+      {
+        ...emptyManualGeometry,
+        walls: [{ ...wall, heightCm: 270 }],
+        openings: [
+          {
+            id: 'manual_000000000000000000000005',
+            type: 'window',
+            wallId: wall.id,
+            offsetCm: 100,
+            widthCm: 100,
+            bottomCm: 150,
+            heightCm: 140,
+          },
+        ],
+      },
+      'draft',
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('по высоте стены')
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+  })
+
   it('передаёт подтверждённый контур из сохранения схемы в расстановку', async () => {
     const innerWall = {
       id: 'manual_000000000000000000000005',
