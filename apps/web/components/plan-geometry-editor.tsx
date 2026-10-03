@@ -1218,6 +1218,29 @@ export function PlanGeometryEditor({
                       patchWall({ heightCm: Number.isFinite(value) ? value : undefined })
                     }}
                   />
+                  {!geometry.pdfCalibration ? (
+                    <Input
+                      id="wall-measured-thickness"
+                      label="Толщина стены по обмеру, см"
+                      hint="Для объёма: сверьте толщину и убедитесь, что линия проходит по середине стены. Пустое поле оставляет стену поверхностью."
+                      type="number"
+                      min="1"
+                      max="100"
+                      step="0.1"
+                      value={selectedWall.measuredThicknessCm ?? ''}
+                      onChange={(event) => {
+                        const value = event.currentTarget.valueAsNumber
+                        patchWall({
+                          measuredThicknessCm: Number.isFinite(value) ? value : undefined,
+                        })
+                      }}
+                    />
+                  ) : (
+                    <p className="text-xs leading-relaxed text-ink-2">
+                      Линии из PDF показывают грани, а не оси стен. Толщина к ним автоматически не
+                      добавляется.
+                    </p>
+                  )}
                 </div>
               ) : null}
 
@@ -1527,6 +1550,10 @@ export function PlanGeometryEditor({
               className="mt-1 accent-accent"
             />
             Я сверил стены, проёмы, контуры комнат и введённые мерки с исходным планом или обмером.
+            {!geometry.pdfCalibration &&
+            walls.some((wall) => wall.measuredThicknessCm !== undefined)
+              ? ' Для стен с толщиной по обмеру линия проходит по середине стены.'
+              : null}
           </label>
           <div className="mt-6 flex flex-wrap gap-3 border-t border-line pt-5">
             <Button

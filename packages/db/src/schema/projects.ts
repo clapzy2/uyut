@@ -96,6 +96,8 @@ export type PlanWall = {
   end: PlanPoint
   kind: 'outer' | 'inner'
   thicknessCm?: number
+  /** Отдельно сверенная толщина для объёма; линия стены должна быть её физической осью. */
+  measuredThicknessCm?: number
   /** Высота, отдельно введённая и сверенная владельцем; 2D-распознавание её не заполняет. */
   heightCm?: number
 }

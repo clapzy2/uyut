@@ -20,10 +20,32 @@ const geometry: PlanGeometry = {
 }
 
 describe('мерки по высоте', () => {
+  it('не принимает некорректную толщину и не переносит распознанную в мерку', () => {
+    const source = {
+      ...geometry,
+      walls: geometry.walls.map((wall) => ({ ...wall, thicknessCm: 20 })),
+    }
+    const result = applyPlanVerticalDimensions(source, source)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.geometry.walls[0]?.thicknessCm).toBe(20)
+    expect(result.geometry.walls[0]).not.toHaveProperty('measuredThicknessCm')
+    for (const measuredThicknessCm of [0, -1, 101, Number.NaN, Infinity]) {
+      const invalid = {
+        ...source,
+        walls: source.walls.map((wall) => ({ ...wall, measuredThicknessCm })),
+      }
+      expect(applyPlanVerticalDimensions(source, invalid).ok).toBe(false)
+      expect(inspectPlanVerticalDimensions(invalid)[0]?.wallIds).toEqual(['wall'])
+    }
+  })
   it('добавляет отдельно заданные мерки после проверки горизонтальной геометрии', () => {
     const input = {
       ...geometry,
-      walls: geometry.walls.map((wall) => ({ ...wall, heightCm: 270.5 })),
+      walls: geometry.walls.map((wall) => ({
+        ...wall,
+        heightCm: 270.5,
+        measuredThicknessCm: 12.5,
+      })),
       openings: geometry.openings.map((opening) => ({
         ...opening,
         bottomCm: 50.5,
@@ -32,12 +54,14 @@ describe('мерки по высоте', () => {
     }
     const horizontal = validatePlanGeometryEdit(input, 'draft')
     expect(horizontal?.walls[0]).not.toHaveProperty('heightCm')
+    expect(horizontal?.walls[0]).not.toHaveProperty('measuredThicknessCm')
     expect(horizontal?.openings[0]).not.toHaveProperty('bottomCm')
     if (!horizontal) throw new Error('Missing horizontal geometry')
     const result = applyPlanVerticalDimensions(horizontal, input)
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error(result.error)
     expect(result.geometry.walls[0]?.heightCm).toBe(270.5)
+    expect(result.geometry.walls[0]?.measuredThicknessCm).toBe(12.5)
     expect(result.geometry.openings[0]).toMatchObject({ bottomCm: 50.5, heightCm: 140.2 })
   })
 
@@ -53,12 +77,13 @@ describe('мерки по высоте', () => {
   it('очищает прежние мерки при удалении значений в редакторе', () => {
     const before = {
       ...geometry,
-      walls: geometry.walls.map((wall) => ({ ...wall, heightCm: 270 })),
+      walls: geometry.walls.map((wall) => ({ ...wall, heightCm: 270, measuredThicknessCm: 12 })),
       openings: geometry.openings.map((opening) => ({ ...opening, bottomCm: 50, heightCm: 140 })),
     }
     const result = applyPlanVerticalDimensions(before, geometry)
     if (!result.ok) throw new Error(result.error)
     expect(result.geometry.walls[0]).not.toHaveProperty('heightCm')
+    expect(result.geometry.walls[0]).not.toHaveProperty('measuredThicknessCm')
     expect(result.geometry.openings[0]).not.toHaveProperty('bottomCm')
   })
 

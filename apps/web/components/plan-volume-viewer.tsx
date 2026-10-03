@@ -30,6 +30,15 @@ function pathRing(points: ScreenPoint[]): string {
   return `M ${points.map((point) => `${point.x} ${point.y}`).join(' L ')} Z`
 }
 
+function facesViewer(points: ScreenPoint[]): boolean {
+  return (
+    points.reduce((area, point, index) => {
+      const next = points[(index + 1) % points.length]
+      return next ? area + point.x * next.y - next.x * point.y : area
+    }, 0) > 1e-7
+  )
+}
+
 export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
   const [angleIndex, setAngleIndex] = useState(0)
   const angle = VIEW_ANGLES[angleIndex] ?? 0
@@ -50,6 +59,7 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
     model.openings.some((opening) => opening.cut)
   const hasIllustrativeWalls = model.walls.some((wall) => wall.topCm === undefined)
   const wallFaces = model.walls
+    .filter((wall) => !wall.solid)
     .map((wall) => {
       const floorStart = project(wall.start)
       const floorEnd = project(wall.end)
@@ -64,10 +74,26 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
         ],
       }
     })
-    .sort((a, b) => a.depth - b.depth)
+  const surfaces = [
+    ...wallFaces.map((wall) => ({
+      ...wall,
+      role: 'face' as const,
+      measured: wall.topCm !== undefined,
+      solid: false,
+    })),
+    ...model.solidFaces
+      .map((face) => ({
+        ...face,
+        measured: true,
+        solid: true,
+        depth: face.points.reduce((sum, point) => sum + project(point).y, 0) / face.points.length,
+        points: face.points.map((point) => project(point, point.zCm)),
+      }))
+      .filter((face) => facesViewer(face.points)),
+  ].sort((a, b) => a.depth - b.depth)
   const projectedCorners = [
     ...floor,
-    ...wallFaces.flatMap((wall) => wall.points),
+    ...surfaces.flatMap((wall) => wall.points),
     ...model.openings.flatMap((opening) =>
       opening.cut && opening.bottomCm !== undefined && opening.heightCm !== undefined
         ? [
@@ -122,28 +148,34 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
           strokeWidth="2"
           vectorEffect="non-scaling-stroke"
         />
-        {wallFaces.map((wall) => (
+        {surfaces.map((wall) => (
           <polygon
             key={wall.id}
             points={polygonPoints(wall.points)}
             fill={
               model.wallSource === 'pdf-faces'
                 ? 'var(--accent)'
-                : wall.kind === 'outer'
-                  ? 'var(--ink-2)'
-                  : 'var(--paper)'
+                : wall.role !== 'face'
+                  ? 'var(--line-strong)'
+                  : wall.kind === 'outer'
+                    ? 'var(--ink-2)'
+                    : 'var(--paper)'
             }
             fillOpacity={
               model.wallSource === 'pdf-faces' ? 0.24 : wall.kind === 'outer' ? 0.65 : 0.82
             }
-            stroke="var(--ink)"
+            stroke={wall.solid && wall.role === 'face' ? 'none' : 'var(--ink)'}
             strokeWidth="1.5"
             vectorEffect="non-scaling-stroke"
           >
             <title>
-              {wall.topCm === undefined
-                ? 'Стена · условная высота'
-                : 'Стена · высота по введённым меркам'}
+              {wall.role === 'reveal'
+                ? 'Откос проёма · толщина по обмеру'
+                : wall.role !== 'face'
+                  ? 'Торец стены · толщина по обмеру'
+                  : wall.measured
+                    ? 'Стена · высота по введённым меркам'
+                    : 'Стена · условная высота'}
             </title>
           </polygon>
         ))}
@@ -198,6 +230,9 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
             ? 'Для стен с мерками использованы введённые высоты. Остальные стены показаны с условной высотой. '
             : 'Высоты стен показаны по меркам, введённым при проверке схемы. '
           : 'Высота стен показана условно. Добавьте мерки стен и проёмов в редакторе для просмотра по высоте. '}
+        {model.solidFaces.length > 0
+          ? 'Толщина и откосы показаны только для стен с отдельно сверенной толщиной и осью. Стыки разных стен не объединены в конструктивную модель. '
+          : null}
         Цветной контур показывает проём с заданными нижней гранью и высотой; линия на полу — его
         положение, когда этих мерок ещё нет. Перед покупкой мебели сверьте размеры с обмером
         квартиры.

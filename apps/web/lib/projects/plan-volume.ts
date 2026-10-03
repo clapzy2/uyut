@@ -2,6 +2,7 @@ import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import { currentWallFacePairs } from './plan-opening-face-pairs'
 import { inspectPlanVerticalDimensions } from './plan-vertical-dimensions'
 import { wallElevationPanels } from './wall-elevation'
+import { type WallSolidFace, wallSolidFaces } from './wall-solid'
 
 export type WallSpan = {
   id: string
@@ -10,6 +11,14 @@ export type WallSpan = {
   kind: 'outer' | 'inner'
   bottomCm: number
   topCm?: number
+  solid?: boolean
+}
+
+export type PlanSolidFace = {
+  id: string
+  kind: 'outer' | 'inner'
+  role: WallSolidFace['role']
+  points: (PlanPoint & { zCm: number })[]
 }
 
 export type OpeningSpan = {
@@ -28,6 +37,7 @@ export type PlanVolume = {
   walls: WallSpan[]
   openings: OpeningSpan[]
   wallSource: 'centerline' | 'pdf-faces'
+  solidFaces: PlanSolidFace[]
 }
 
 function interpolate(start: PlanPoint, end: PlanPoint, ratio: number): PlanPoint {
@@ -45,6 +55,8 @@ function addWallInterval(
   intervalStart: PlanPoint,
   intervalEnd: PlanPoint,
   sourceOpenings: PlanGeometry['openings'],
+  solidFaces: PlanSolidFace[],
+  allowThickness: boolean,
 ) {
   const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
   if (length <= 0) return
@@ -81,11 +93,18 @@ function addWallInterval(
         ]
       : [],
   )
+  const measuredPanels =
+    wall.heightCm === undefined
+      ? undefined
+      : wallElevationPanels(high - low, wall.heightCm, measuredCuts)
   const panels =
     wall.heightCm === undefined
       ? [{ startCm: 0, endCm: high - low, bottomCm: 0, topCm: undefined }]
-      : wallElevationPanels(high - low, wall.heightCm, measuredCuts)
+      : measuredPanels
   if (!panels) return
+  // A PDF face is not a centreline, even when its wall carries a reviewed thickness.
+  const solid =
+    allowThickness && wall.heightCm !== undefined && wall.measuredThicknessCm !== undefined
   for (const panel of panels) {
     walls.push({
       id: `${wall.id}-${low}-${high}-${panel.startCm}-${panel.bottomCm}`,
@@ -94,7 +113,38 @@ function addWallInterval(
       kind: wall.kind,
       bottomCm: panel.bottomCm,
       topCm: panel.topCm,
+      ...(solid ? { solid: true } : {}),
     })
+  }
+  if (
+    solid &&
+    measuredPanels &&
+    wall.heightCm !== undefined &&
+    wall.measuredThicknessCm !== undefined
+  ) {
+    const localFaces = wallSolidFaces(
+      measuredPanels,
+      high - low,
+      wall.heightCm,
+      wall.measuredThicknessCm,
+    )
+    const normalX = -(wall.end.yCm - wall.start.yCm) / length
+    const normalY = (wall.end.xCm - wall.start.xCm) / length
+    for (const [index, face] of localFaces.entries()) {
+      solidFaces.push({
+        id: `${wall.id}-${low}-${high}-solid-${index}`,
+        kind: wall.kind,
+        role: face.role,
+        points: face.points.map((point) => {
+          const onAxis = pointAt(low + point.distanceCm)
+          return {
+            xCm: onAxis.xCm + normalX * point.depthCm,
+            yCm: onAxis.yCm + normalY * point.depthCm,
+            zCm: point.heightCm,
+          }
+        }),
+      })
+    }
   }
 
   for (const cut of spans) {
@@ -122,6 +172,7 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
 
   const walls: WallSpan[] = []
   const openings: OpeningSpan[] = []
+  const solidFaces: PlanSolidFace[] = []
 
   if (geometry.pdfCalibration) {
     if (geometry.pdfCalibration.exteriorBoundaryRole !== 'floor') return null
@@ -136,12 +187,30 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
         const currentOpenings = geometry.openings.filter((item) =>
           pair.openings.some((o) => o.id === item.id),
         )
-        addWallInterval(walls, openings, wall, face.start, face.end, currentOpenings)
+        addWallInterval(
+          walls,
+          openings,
+          wall,
+          face.start,
+          face.end,
+          currentOpenings,
+          solidFaces,
+          false,
+        )
       }
     }
   } else {
     for (const wall of geometry.walls) {
-      addWallInterval(walls, openings, wall, wall.start, wall.end, geometry.openings)
+      addWallInterval(
+        walls,
+        openings,
+        wall,
+        wall.start,
+        wall.end,
+        geometry.openings,
+        solidFaces,
+        true,
+      )
     }
   }
 
@@ -151,5 +220,6 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
     walls,
     openings,
     wallSource: geometry.pdfCalibration ? 'pdf-faces' : 'centerline',
+    solidFaces,
   }
 }

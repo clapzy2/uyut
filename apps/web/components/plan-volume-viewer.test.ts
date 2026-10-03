@@ -47,6 +47,17 @@ function render(source: PlanGeometry) {
 }
 
 describe('объёмный просмотр с мерками', () => {
+  it('показывает толщину и откосы только после ввода отдельной мерки', () => {
+    const html = render({
+      ...geometry,
+      walls: geometry.walls.map((wall) => ({ ...wall, measuredThicknessCm: 30 })),
+    })
+    expect(html).toContain('Откос проёма · толщина по обмеру')
+    expect(html).toContain('Торец стены · толщина по обмеру')
+    expect(html).toContain('Стыки разных стен не объединены')
+    expect(html).not.toContain('NaN')
+    expect(render(geometry)).not.toContain('толщина по обмеру')
+  })
   it('показывает оконный контур с заданным низом и высотой', () => {
     const html = render(geometry)
     expect(html).toContain('Окно · низ 50 см · высота 100 см')

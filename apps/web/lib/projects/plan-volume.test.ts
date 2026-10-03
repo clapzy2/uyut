@@ -1,5 +1,6 @@
 import type { PlanGeometry, PlanWallFacePair } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
+import openApartment from '../../../../jobs/fixtures/open-swiss-apartment-35063-geometry.json'
 import { planVolume } from './plan-volume'
 
 const geometry: PlanGeometry = {
@@ -41,6 +42,93 @@ const geometry: PlanGeometry = {
 }
 
 describe('planVolume', () => {
+  it('строит толщину перпендикулярно наклонной оси в обоих направлениях', () => {
+    const sourceWall = geometry.walls[0]
+    if (!sourceWall) throw new Error('Missing source wall')
+    for (const reverse of [false, true]) {
+      const start = { xCm: 50, yCm: 40 }
+      const end = { xCm: 290, yCm: 220 }
+      const wall = {
+        ...sourceWall,
+        start: reverse ? end : start,
+        end: reverse ? start : end,
+        heightCm: 200,
+        measuredThicknessCm: 30,
+      }
+      const model = planVolume({ ...geometry, walls: [wall], openings: [] })
+      expect(model?.solidFaces).toHaveLength(6)
+      for (const face of model?.solidFaces ?? []) {
+        for (const point of face.points) {
+          const perpendicular =
+            ((point.xCm - start.xCm) * 180 - (point.yCm - start.yCm) * 240) / 300
+          expect(Math.abs(perpendicular)).toBeCloseTo(15, 6)
+        }
+      }
+    }
+  })
+  it('не превращает прежнюю распознанную толщину в объём без отдельной мерки', () => {
+    const source = {
+      ...geometry,
+      walls: geometry.walls.map((wall) => ({ ...wall, heightCm: 270, thicknessCm: 20 })),
+    }
+    expect(planVolume(source)?.solidFaces).toHaveLength(0)
+    const measured = {
+      ...source,
+      walls: source.walls.map((wall) => ({ ...wall, measuredThicknessCm: 20 })),
+    }
+    const model = planVolume(measured)
+    expect(model?.solidFaces).toHaveLength(6)
+    expect(model?.walls.every((wall) => wall.solid)).toBe(true)
+    expect(model?.solidFaces.flatMap((face) => face.points.map((point) => point.yCm))).toContain(
+      -10,
+    )
+    expect(
+      planVolume({
+        ...measured,
+        walls: measured.walls.map((wall) => ({ ...wall, heightCm: undefined })),
+      })?.solidFaces,
+    ).toHaveLength(0)
+  })
+
+  it('проводит всю структурированную квартиру через объём, не меняя её 2D-координаты', () => {
+    // Test-only vertical values: the dataset does not prove measured heights.
+    const source = openApartment.geometry as PlanGeometry
+    const measured: PlanGeometry = {
+      ...source,
+      status: 'confirmed',
+      walls: source.walls.map((wall) => ({
+        ...wall,
+        heightCm: 270,
+        measuredThicknessCm: wall.thicknessCm,
+      })),
+      openings: source.openings.map((opening) => ({
+        ...opening,
+        bottomCm: opening.type === 'window' ? 80 : 0,
+        heightCm: opening.type === 'window' ? 140 : 210,
+      })),
+    }
+    const before = structuredClone(measured)
+    const model = planVolume(measured)
+    expect(model).not.toBeNull()
+    expect(model?.floor).toEqual(source.footprint)
+    expect(model?.voids).toHaveLength(source.voids?.length ?? 0)
+    expect(model?.openings).toHaveLength(source.openings.length)
+    expect(model?.openings.every((opening) => opening.cut)).toBe(true)
+    expect(model?.walls.every((wall) => wall.solid)).toBe(true)
+    expect(model?.solidFaces.length).toBeGreaterThan(source.walls.length * 6)
+    expect(
+      model?.solidFaces.every((face) =>
+        face.points.every(
+          (point) =>
+            Number.isFinite(point.xCm) &&
+            Number.isFinite(point.yCm) &&
+            point.zCm >= 0 &&
+            point.zCm <= 270,
+        ),
+      ),
+    ).toBe(true)
+    expect(measured).toEqual(before)
+  })
   it('keeps the floor and walls intact when opening heights are unknown', () => {
     const result = planVolume(geometry)
 
@@ -153,7 +241,11 @@ describe('planVolume', () => {
     expect(result?.openings).toHaveLength(2)
 
     // Vertical user measurements do not alter the source-proven horizontal face relation.
-    pdfGeometry.walls = pdfGeometry.walls.map((wall) => ({ ...wall, heightCm: 270 }))
+    pdfGeometry.walls = pdfGeometry.walls.map((wall) => ({
+      ...wall,
+      heightCm: 270,
+      measuredThicknessCm: 20,
+    }))
     pdfGeometry.openings = pdfGeometry.openings.map((opening) => ({
       ...opening,
       bottomCm: 0,
@@ -162,6 +254,7 @@ describe('planVolume', () => {
     const vertical = planVolume(pdfGeometry)
     expect(vertical?.openings.every((opening) => opening.cut)).toBe(true)
     expect(vertical?.walls.filter((wall) => wall.bottomCm === 210)).toHaveLength(2)
+    expect(vertical?.solidFaces).toHaveLength(0)
 
     const editedWall = pdfGeometry.walls[0]
     const calibration = pdfGeometry.pdfCalibration

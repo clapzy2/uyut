@@ -3,8 +3,11 @@ import { z } from 'zod'
 import type { PlanGeometryIssue } from './plan-geometry-inspection'
 
 const height = z.number().finite().positive().max(600).optional()
+const thickness = z.number().finite().min(1).max(100).optional()
 const verticalDimensionsSchema = z.object({
-  walls: z.array(z.object({ id: z.string(), heightCm: height })).max(200),
+  walls: z
+    .array(z.object({ id: z.string(), heightCm: height, measuredThicknessCm: thickness }))
+    .max(200),
   openings: z
     .array(
       z.object({
@@ -21,6 +24,14 @@ export function inspectPlanVerticalDimensions(
 ): PlanGeometryIssue[] {
   const issues: PlanGeometryIssue[] = []
   for (const wall of geometry.walls) {
+    if (!thickness.safeParse(wall.measuredThicknessCm).success) {
+      issues.push({
+        id: `wall-thickness-${wall.id}`,
+        severity: 'error',
+        message: 'Толщина стены по обмеру должна быть от 1 до 100 см.',
+        wallIds: [wall.id],
+      })
+    }
     if (!height.safeParse(wall.heightCm).success) {
       issues.push({
         id: `wall-height-${wall.id}`,
@@ -62,16 +73,29 @@ export function applyPlanVerticalDimensions(
 ): { ok: true; geometry: PlanGeometry } | { ok: false; error: string } {
   const parsed = verticalDimensionsSchema.safeParse(input)
   if (!parsed.success) {
-    return { ok: false, error: 'Проверьте высоты стен и проёмов: допустимы размеры до 600 см.' }
+    return {
+      ok: false,
+      error: 'Проверьте мерки: высоты до 600 см, толщина стены от 1 до 100 см.',
+    }
   }
-  const wallDimensions = new Map(parsed.data.walls.map((wall) => [wall.id, wall.heightCm]))
+  const wallDimensions = new Map(parsed.data.walls.map((wall) => [wall.id, wall]))
   const openingDimensions = new Map(parsed.data.openings.map((opening) => [opening.id, opening]))
   const result: PlanGeometry = {
     ...geometry,
     walls: geometry.walls.map((wall) => {
-      const { heightCm: _previousHeight, ...horizontal } = wall
-      const heightCm = wallDimensions.get(wall.id)
-      return { ...horizontal, ...(heightCm === undefined ? {} : { heightCm }) }
+      const {
+        heightCm: _previousHeight,
+        measuredThicknessCm: _previousThickness,
+        ...horizontal
+      } = wall
+      const dimensions = wallDimensions.get(wall.id)
+      return {
+        ...horizontal,
+        ...(dimensions?.heightCm === undefined ? {} : { heightCm: dimensions.heightCm }),
+        ...(dimensions?.measuredThicknessCm === undefined
+          ? {}
+          : { measuredThicknessCm: dimensions.measuredThicknessCm }),
+      }
     }),
     openings: geometry.openings.map((opening) => {
       const { bottomCm: _previousBottom, heightCm: _previousHeight, ...horizontal } = opening

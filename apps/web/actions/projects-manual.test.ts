@@ -147,12 +147,12 @@ describe('manual plan draft', () => {
     expect(mocks.setPlanReading.mock.calls[0]?.[2].geometry.voids).toEqual(voids)
   })
 
-  it('сохраняет и очищает отдельно введённые высоты после проверки схемы', async () => {
+  it('сохраняет и очищает отдельно введённые высоты и толщину после проверки схемы', async () => {
     const wall = closedWalls[0]
     if (!wall) throw new Error('Missing manual wall')
     const measured: PlanGeometry = {
       ...emptyManualGeometry,
-      walls: [{ ...wall, heightCm: 270.5 }],
+      walls: [{ ...wall, heightCm: 270.5, measuredThicknessCm: 12.5 }],
       openings: [
         {
           id: 'manual_000000000000000000000005',
@@ -169,6 +169,7 @@ describe('manual plan draft', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error(result.error)
     expect(result.data.geometry.walls[0]?.heightCm).toBe(270.5)
+    expect(result.data.geometry.walls[0]?.measuredThicknessCm).toBe(12.5)
     expect(result.data.geometry.openings[0]).toMatchObject({ bottomCm: 50.5, heightCm: 140.2 })
 
     source.planReading.geometry = result.data.geometry
@@ -176,7 +177,11 @@ describe('manual plan draft', () => {
       projectId,
       {
         ...result.data.geometry,
-        walls: result.data.geometry.walls.map((item) => ({ ...item, heightCm: undefined })),
+        walls: result.data.geometry.walls.map((item) => ({
+          ...item,
+          heightCm: undefined,
+          measuredThicknessCm: undefined,
+        })),
         openings: result.data.geometry.openings.map((item) => ({
           ...item,
           bottomCm: undefined,
@@ -188,8 +193,25 @@ describe('manual plan draft', () => {
     expect(cleared.ok).toBe(true)
     if (!cleared.ok) throw new Error(cleared.error)
     expect(cleared.data.geometry.walls[0]).not.toHaveProperty('heightCm')
+    expect(cleared.data.geometry.walls[0]).not.toHaveProperty('measuredThicknessCm')
     expect(cleared.data.geometry.openings[0]).not.toHaveProperty('bottomCm')
     expect(cleared.data.geometry.openings[0]).not.toHaveProperty('heightCm')
+  })
+
+  it('отклоняет недопустимую толщину до записи в проект', async () => {
+    const wall = closedWalls[0]
+    if (!wall) throw new Error('Missing manual wall')
+    const result = await savePlanGeometry(
+      projectId,
+      {
+        ...emptyManualGeometry,
+        walls: [{ ...wall, measuredThicknessCm: 101 }],
+      },
+      'draft',
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('толщина стены от 1 до 100 см')
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
   })
 
   it('не сохраняет проём выше стены', async () => {
