@@ -11,6 +11,7 @@ import {
   Mesh,
   MeshStandardMaterial,
   PerspectiveCamera,
+  Plane,
   Raycaster,
   Scene,
   Vector2,
@@ -22,7 +23,7 @@ import type { VolumeSelection } from '@/components/plan-volume-selection'
 import { buildPlanScene } from './plan-scene-geometry'
 import type { PlanVolume } from './plan-volume'
 
-export type SceneCameraAction = 'left' | 'right' | 'top' | 'reset' | 'closer' | 'farther'
+export type SceneCameraAction = 'left' | 'right' | 'top' | 'reset' | 'closer' | 'farther' | 'focus'
 
 /** Owns only viewing resources. Never writes to the plan, layout or catalogue. */
 export function mountPlanScene(
@@ -42,6 +43,9 @@ export function mountPlanScene(
   const meshes: { surface: (typeof data.surfaces)[number]; mesh: Mesh }[] = []
   const wallObjects: (Mesh | LineSegments)[] = []
   const zoneObjects: (Mesh | LineSegments)[] = []
+  const sectionMaterials = new Set<MeshStandardMaterial | LineBasicMaterial | LineDashedMaterial>()
+  const sectionPlane = new Plane(new Vector3(0, -1, 0), 0.9)
+  let sectionEnabled = false
   let renderer: WebGLRenderer | undefined
   let controls: OrbitControls | undefined
   let observer: ResizeObserver | undefined
@@ -107,6 +111,7 @@ export function mountPlanScene(
   try {
     renderer = new WebGLRenderer({ canvas, antialias: true, alpha: false })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+    renderer.localClippingEnabled = true
     controls = new OrbitControls(camera, canvas)
     controls.enabled = false
     controls.enableDamping = false
@@ -147,7 +152,10 @@ export function mountPlanScene(
       mesh.userData.surface = surface
       scene.add(mesh)
       meshes.push({ surface, mesh })
-      if (surface.kind === 'wall') wallObjects.push(mesh)
+      if (surface.kind === 'wall') {
+        wallObjects.push(mesh)
+        sectionMaterials.add(material)
+      }
       if (surface.kind === 'zone') zoneObjects.push(mesh)
       if (surface.kind === 'wall' || surface.kind === 'furniture' || surface.kind === 'zone') {
         const edges = new EdgesGeometry(surface.geometry)
@@ -163,7 +171,10 @@ export function mountPlanScene(
           outline.computeLineDistances()
         }
         scene.add(outline)
-        if (surface.kind === 'wall') wallObjects.push(outline)
+        if (surface.kind === 'wall') {
+          wallObjects.push(outline)
+          sectionMaterials.add(edgeMaterial)
+        }
         if (surface.kind === 'zone') zoneObjects.push(outline)
       }
     }
@@ -176,6 +187,7 @@ export function mountPlanScene(
       outline.position.y = 0.005
       outline.computeLineDistances()
       scene.add(outline)
+      sectionMaterials.add(material)
       if (line.kind === 'wall') wallObjects.push(outline)
     }
 
@@ -186,6 +198,7 @@ export function mountPlanScene(
     const center = bounds.getCenter(new Vector3())
     const size = bounds.getSize(new Vector3())
     const radius = Math.max(size.length() / 2, 0.1)
+    let viewingRadius = radius
     controls.minDistance = radius * 0.25
     controls.maxDistance = radius * 12
     camera.near = Math.max(radius / 10000, 0.001)
@@ -195,14 +208,37 @@ export function mountPlanScene(
     function fittingDistance() {
       const verticalFov = (camera.fov * Math.PI) / 180
       const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect)
-      return (radius / Math.sin(Math.min(verticalFov, horizontalFov) / 2)) * 1.15
+      return (viewingRadius / Math.sin(Math.min(verticalFov, horizontalFov) / 2)) * 1.15
     }
 
     function reset() {
       if (!controls) return
+      viewingRadius = radius
+      controls.minDistance = radius * 0.25
       const distance = fittingDistance()
       controls.target.copy(center)
       camera.position.copy(center).add(new Vector3(1, 1.1, 1).normalize().multiplyScalar(distance))
+      controls.update()
+      invalidate()
+    }
+
+    function focusSelection() {
+      if (!controls || !selection) return
+      const selectedBounds = new Box3()
+      for (const { mesh, surface } of meshes) {
+        const included =
+          selection.kind === 'room'
+            ? surface.roomId === selection.id &&
+              (surface.kind === 'room' || surface.kind === 'furniture')
+            : surface.furnitureId === selection.id
+        if (included) selectedBounds.expandByObject(mesh)
+      }
+      if (selectedBounds.isEmpty()) return
+      viewingRadius = Math.max(selectedBounds.getSize(new Vector3()).length() / 2, 0.1)
+      controls.minDistance = viewingRadius * 0.25
+      const direction = camera.position.clone().sub(controls.target).normalize()
+      controls.target.copy(selectedBounds.getCenter(new Vector3()))
+      camera.position.copy(controls.target).add(direction.multiplyScalar(fittingDistance()))
       controls.update()
       invalidate()
     }
@@ -286,12 +322,19 @@ export function mountPlanScene(
         ),
         camera,
       )
-      const hit = ray.intersectObjects(
+      const hits = ray.intersectObjects(
         meshes
           .filter(({ surface, mesh }) => surface.kind !== 'zone' && mesh.visible)
           .map(({ mesh }) => mesh),
         false,
-      )[0]
+      )
+      // Raycasting does not apply GPU clipping: invisible wall fragments must not block picking.
+      const hit = hits.find(
+        (candidate) =>
+          !sectionEnabled ||
+          candidate.object.userData.surface.kind !== 'wall' ||
+          sectionPlane.distanceToPoint(candidate.point) >= -0.00001,
+      )
       const surface = hit?.object.userData.surface as (typeof data.surfaces)[number] | undefined
       if (surface?.furnitureId) onSelect({ kind: 'furniture', id: surface.furnitureId })
       else if (surface?.kind === 'room' && surface.roomId)
@@ -322,6 +365,17 @@ export function mountPlanScene(
     return {
       dispose,
       select: updateSelection,
+      setSection: (enabled: boolean, heightCm: number) => {
+        if (!Number.isFinite(heightCm) || heightCm <= 0) return
+        const changedMode = sectionEnabled !== enabled
+        sectionEnabled = enabled
+        sectionPlane.constant = heightCm / 100
+        for (const material of sectionMaterials) {
+          material.clippingPlanes = enabled ? [sectionPlane] : null
+          if (changedMode) material.needsUpdate = true
+        }
+        invalidate()
+      },
       setWalls: (visible: boolean) => {
         for (const object of wallObjects) object.visible = visible
         invalidate()
@@ -337,6 +391,7 @@ export function mountPlanScene(
       camera: (action: SceneCameraAction) => {
         if (!controls) return
         if (action === 'reset') reset()
+        else if (action === 'focus') focusSelection()
         else if (action === 'top') {
           const distance = controls.getDistance()
           camera.position.copy(controls.target).add(new Vector3(0, distance, 0.001))

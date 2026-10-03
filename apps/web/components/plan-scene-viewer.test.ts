@@ -51,12 +51,39 @@ describe('3D-просмотр', () => {
     expect(html).toContain('3D-сцена планировки квартиры')
     expect(html).toContain('Сверху')
     expect(html).toContain('Исходный вид')
+    expect(html).toContain('Показать выбранное крупнее')
+    expect(html).not.toContain('Срез стен')
     expect(html).toContain('Управлять мышью и жестами')
     expect(html).toContain('data-scene-ready="false"')
     expect(html).toContain('Стол · высота 75 см')
     expect(html).toContain('Кресло · высоту нужно уточнить')
     expect(html).not.toContain('Зоны из 2D')
     expect(html).not.toContain('Высота 270')
+  })
+
+  it('предлагает срез только при известной высоте стен', () => {
+    const html = renderToStaticMarkup(
+      createElement(PlanSceneViewer, {
+        model: {
+          ...model,
+          walls: [
+            {
+              id: 'wall',
+              wallId: 'wall',
+              kind: 'outer',
+              start: { xCm: 0, yCm: 0 },
+              end: { xCm: 400, yCm: 0 },
+              bottomCm: 0,
+              topCm: 270,
+            },
+          ],
+        },
+        onFallback: () => {},
+      }),
+    )
+    expect(html).toContain('Срез стен — заглянуть внутрь')
+    expect(html).not.toContain('type="range"')
+    expect(html).not.toContain('checked="" disabled=""')
   })
 
   it('показывает зоны и предупреждения текущей геометрии, не обещая модель реального изделия', () => {
