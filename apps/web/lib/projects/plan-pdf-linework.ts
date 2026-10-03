@@ -371,6 +371,17 @@ export function extractPdfLinework(
       continue
     }
     if (fn !== ops.constructPath) continue
+    // PDF.js выдаёт [endPath, [null], null] для пустого сброса без геометрии.
+    // Пустая/непонятная маска всё ещё требует отказа, а не отмены отсечения.
+    if (
+      args[0] === ops.endPath &&
+      Array.isArray(args[1]) &&
+      args[1].length === 1 &&
+      args[1][0] === null &&
+      args[2] === null &&
+      !pendingClip
+    )
+      continue
     const rawPaths = Array.isArray(args[1]) ? subpaths(args[1][0]) : undefined
     if (!rawPaths) {
       result.unsupportedPaths++

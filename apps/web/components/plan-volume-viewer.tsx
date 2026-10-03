@@ -91,9 +91,7 @@ export default function PlanVolumeViewer({
     ) * 0.3
   const floor = model.floor.map((point) => project(point))
   const voids = model.voids.map((polygon) => polygon.map((point) => project(point)))
-  const hasMeasuredWalls =
-    model.walls.some((wall) => wall.topCm !== undefined) ||
-    model.openings.some((opening) => opening.cut)
+  const hasMeasuredWalls = model.walls.some((wall) => wall.topCm !== undefined)
   const hasIllustrativeWalls = model.walls.some((wall) => wall.topCm === undefined)
   const wallFaces = model.walls
     .filter((wall) => !wall.solid && (!section || wall.bottomCm < sectionHeight))
@@ -176,7 +174,7 @@ export default function PlanVolumeViewer({
     ...zones.flatMap((zone) => zone.points),
     ...surfaces.flatMap((wall) => wall.points),
     ...model.openings.flatMap((opening) =>
-      opening.cut && opening.bottomCm !== undefined && opening.heightCm !== undefined
+      opening.bottomCm !== undefined && opening.heightCm !== undefined
         ? [
             project(
               opening.start,
@@ -254,7 +252,7 @@ export default function PlanVolumeViewer({
       ) : null}
       <svg
         viewBox={volumeViewBox(projectedCorners, zoom)}
-        className="block aspect-[4/3] w-full cursor-grab select-none border-x border-b border-line bg-paper active:cursor-grabbing"
+        className="block h-[420px] w-full cursor-grab select-none border-x border-b border-line bg-paper active:cursor-grabbing sm:h-[520px]"
         style={{ touchAction: 'pan-y' }}
         onPointerDown={(event) => {
           press.current = {
@@ -441,7 +439,7 @@ export default function PlanVolumeViewer({
         {model.openings.map((opening) => {
           const title = opening.type === 'window' ? 'Окно' : 'Дверной проём'
           const color = opening.type === 'window' ? 'var(--accent)' : 'var(--danger)'
-          if (opening.cut && opening.bottomCm !== undefined && opening.heightCm !== undefined) {
+          if (opening.bottomCm !== undefined && opening.heightCm !== undefined) {
             const top = section
               ? Math.min(opening.bottomCm + opening.heightCm, sectionHeight)
               : opening.bottomCm + opening.heightCm

@@ -63,6 +63,7 @@ function input(ceilingCm = '') {
     ceilingCm,
     rooms: reading.rooms.map((room) => ({
       include: true,
+      utility: false,
       roomId: '',
       name: room.name,
       kind: room.kind,
@@ -83,6 +84,119 @@ describe('plan reading actions', () => {
     mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: reading })
     mocks.read.mockResolvedValue(reading)
     mocks.createRooms.mockResolvedValue({ created: 2, updated: 0 })
+  })
+
+  it('saves added source rows with unknown measurements and no selected furniture rooms', async () => {
+    const data = input()
+    const first = data.rooms[0]
+    if (!first) throw new Error('Missing fixture')
+    data.rooms = [
+      {
+        ...first,
+        include: false,
+        name: 'Лоджия',
+        sourceNumber: 9,
+        ceilingCm: '',
+        widthCm: '',
+        depthCm: '',
+        areaM2: '',
+        utility: true,
+      },
+    ]
+    const result = await confirmPlanRooms(projectId, data, planEditRevision('plan.pdf', reading))
+    expect(result.ok).toBe(true)
+    expect(mocks.read).not.toHaveBeenCalled()
+    const saved = mocks.createRooms.mock.calls[0]?.[2]
+    expect(saved.rooms).toEqual([])
+    expect(saved.reading.rooms).toEqual([
+      expect.objectContaining({ name: 'Лоджия', sourceNumber: 9, utility: true }),
+    ])
+    expect(saved.reading.rooms[0]).not.toHaveProperty('widthCm')
+    expect(saved.reading.rooms[0]).not.toHaveProperty('depthCm')
+    expect(saved.reading.rooms[0]).not.toHaveProperty('areaM2')
+  })
+
+  it('keeps a renamed numbered contour and utility identity without modifying its polygon', async () => {
+    const before: PlanReading = {
+      ...reading,
+      rooms: [
+        ...reading.rooms,
+        { name: 'Коридор', kind: 'living', utility: true, sourceNumber: 5 },
+      ],
+      geometry: {
+        version: 1,
+        source: 'manual',
+        status: 'confirmed',
+        confirmedAt: '2026-10-03',
+        widthCm: 500,
+        heightCm: 500,
+        walls: [],
+        openings: [],
+        warnings: [],
+        rooms: [
+          {
+            name: 'Коридор',
+            sourceNumber: 5,
+            polygon: [
+              { xCm: 0, yCm: 0 },
+              { xCm: 200, yCm: 0 },
+              { xCm: 0, yCm: 200 },
+            ],
+          },
+        ],
+      },
+    }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    const data = input()
+    const first = data.rooms[0]
+    if (!first) throw new Error('Missing fixture')
+    data.rooms.push({ ...first, include: false, name: 'Прихожая', kind: 'living', sourceNumber: 5 })
+    expect((await confirmPlanRooms(projectId, data, planEditRevision('plan.pdf', before))).ok).toBe(
+      true,
+    )
+    const saved = mocks.createRooms.mock.calls[0]?.[2].reading
+    expect(saved.rooms[2]).toMatchObject({ name: 'Прихожая', sourceNumber: 5, utility: true })
+    expect(saved.geometry.rooms[0]).toEqual({ ...before.geometry?.rooms[0], name: 'Прихожая' })
+    expect(saved.geometry.status).toBe('draft')
+    expect(saved.geometry).not.toHaveProperty('confirmedAt')
+  })
+
+  it('refuses duplicate printed identities without saving or reading again', async () => {
+    const data = input()
+    const first = data.rooms[0]
+    if (!first) throw new Error('Missing fixture')
+    data.rooms.push({ ...first, name: 'Другая комната' })
+    expect(
+      (await confirmPlanRooms(projectId, data, planEditRevision('plan.pdf', reading))).ok,
+    ).toBe(false)
+    expect(mocks.createRooms).not.toHaveBeenCalled()
+    expect(mocks.read).not.toHaveBeenCalled()
+  })
+
+  it('saves a new bathroom source row but rejects selecting it for furniture', async () => {
+    const data = input()
+    const first = data.rooms[0]
+    if (!first) throw new Error('Missing fixture')
+    const bathroom = { ...first, include: false, name: 'Санузел', kind: 'bath', sourceNumber: 7 }
+    const result = await confirmPlanRooms(
+      projectId,
+      { ...data, rooms: [bathroom] },
+      planEditRevision('plan.pdf', reading),
+    )
+    expect(result.ok).toBe(true)
+    const saved = mocks.createRooms.mock.calls[0]?.[2]
+    expect(saved.reading.rooms[0]).toMatchObject({ name: 'Санузел', kind: 'bath', sourceNumber: 7 })
+    expect(saved.rooms).toEqual([])
+    mocks.createRooms.mockClear()
+    expect(
+      await confirmPlanRooms(
+        projectId,
+        { ...data, rooms: [{ ...bathroom, include: true }] },
+        planEditRevision('plan.pdf', reading),
+      ),
+    ).toMatchObject({ ok: false })
+    expect(mocks.createRooms).not.toHaveBeenCalled()
+    expect(mocks.read).not.toHaveBeenCalled()
   })
 
   it('passes the selected page through the owner-scoped action', async () => {

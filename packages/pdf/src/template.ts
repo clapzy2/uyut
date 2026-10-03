@@ -3,6 +3,7 @@ import { WALKWAY_CM } from '@uyut/catalog'
 import {
   escapeHtml as esc,
   formatArea,
+  formatDimensionCm,
   formatLongDate,
   formatMonthYear,
   formatPrice,
@@ -260,12 +261,18 @@ function roomPlan(plan: RoomLayout | null): string {
     return `<div class="plan">${safetyNote}</div>`
   }
   const trouble = plan.problems.filter((problem) => problem.kind !== 'noRoomSize')
-  if (plan.placed.length === 0 && trouble.length === 0) {
+  const hasGeometry = Boolean(plan.floorPolygon?.length || plan.keepClearZones.length)
+  if (plan.placed.length === 0 && trouble.length === 0 && !hasGeometry) {
     return `<div class="plan">${safetyNote}</div>`
   }
   const width = 400
   const scale = width / plan.widthCm
   const height = Math.max(1, Math.round(plan.depthCm * scale))
+  const zonePoints = plan.keepClearZones.flatMap((zone) => zone.polygon)
+  const left = Math.min(0, ...zonePoints.map((point) => point.xCm * scale))
+  const top = Math.min(0, ...zonePoints.map((point) => point.yCm * scale))
+  const right = Math.max(width, ...zonePoints.map((point) => point.xCm * scale))
+  const bottom = Math.max(height, ...zonePoints.map((point) => point.yCm * scale))
   // В прямоугольнике только номер: название не помещается в шкаф глубиной 60 см
   // и на печати наезжает на соседей. Что под каким номером, говорит список ниже.
   const boxes = plan.placed
@@ -287,11 +294,23 @@ function roomPlan(plan: RoomLayout | null): string {
         `<line x1="${(reservation.start.xCm * scale).toFixed(1)}" y1="${(reservation.start.yCm * scale).toFixed(1)}" x2="${(reservation.end.xCm * scale).toFixed(1)}" y2="${(reservation.end.yCm * scale).toFixed(1)}" stroke="${reservation.clearanceCm > 0 ? '#b42338' : '#7c2f3b'}" stroke-width="5" stroke-linecap="round"/>`,
     )
     .join('')
+  const fixedZones = plan.keepClearZones
+    .map((zone) => {
+      const points = zone.polygon
+        .map((point) => `${(point.xCm * scale).toFixed(1)},${(point.yCm * scale).toFixed(1)}`)
+        .join(' ')
+      return `<polygon points="${points}" fill="#b4233822" stroke="#b42338" stroke-width="1" stroke-dasharray="3 3"><title>${esc(zone.label)}</title></polygon>`
+    })
+    .join('')
   const legend = plan.placed
-    .map(
-      (place, index) =>
-        `<p class="verdict">${index + 1} · ${esc(place.title)} · ${Math.round(Math.max(place.widthCm, place.depthCm))} × ${Math.round(Math.min(place.widthCm, place.depthCm))} см</p>`,
-    )
+    .map((place, index) => {
+      const input = plan.placementInputs.find((item) => item.id === place.itemId)
+      const height =
+        input?.heightCm === undefined
+          ? 'высота не указана'
+          : `высота ${formatDimensionCm(input.heightCm)} см`
+      return `<p class="verdict">${index + 1} · ${esc(place.title)} · на схеме ${formatDimensionCm(place.widthCm)} × ${formatDimensionCm(place.depthCm)} см; ${height}</p>`
+    })
     .join('')
   const verdict =
     trouble.length > 0
@@ -308,10 +327,10 @@ function roomPlan(plan: RoomLayout | null): string {
       : plan.functionalZones.length > 0
         ? '<p class="verdict">Пунктиром показаны измеренные рабочие зоны мебели.</p>'
         : ''
-  // Чертёж без картинки, если расставить не удалось ничего: сама причина важнее рамки
+  // Пустой подтверждённый пол и неподвижные зоны сохраняются даже без покупок.
   const drawing =
-    plan.placed.length > 0
-      ? `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+    plan.placed.length > 0 || hasGeometry
+      ? `<svg viewBox="${left} ${top} ${right - left} ${bottom - top}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
           ${
             plan.floorPolygon
               ? `<polygon points="${plan.floorPolygon
@@ -323,17 +342,19 @@ function roomPlan(plan: RoomLayout | null): string {
               : `<rect x="0" y="0" width="${width}" height="${height}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>`
           }
           ${openings}
+          ${fixedZones}
           ${functionalZones}
           ${boxes}
         </svg>`
       : ''
   return `
       <div class="plan">
-        <p class="eyebrow">Вид сверху · ${Math.round(plan.widthCm)} × ${Math.round(plan.depthCm)} см</p>
+        <p class="eyebrow">Вид сверху · ${formatDimensionCm(plan.widthCm)} × ${formatDimensionCm(plan.depthCm)} см</p>
         ${plan.measurementNote ? `<p class="verdict status">${esc(plan.measurementNote)}</p>` : ''}
         ${safetyNote}
         ${drawing}
         ${legend}
+        ${plan.keepClearZones.length > 0 ? `<p class="verdict">Красным пунктиром: ${esc([...new Set(plan.keepClearZones.map((zone) => zone.label))].join('; '))}. Эти участки учтены в проверке расстановки; рабочие зоны оставьте свободными.</p>` : ''}
         ${verdict}
         ${operationNote}
       </div>`
@@ -343,13 +364,13 @@ function planProblems(problems: readonly LayoutProblem[]): string {
   return problems
     .map((problem) => {
       if (problem.kind === 'noWall') {
-        return `${problem.title} шириной ${problem.widthCm} см не встаёт ни к одной стене.`
+        return `${problem.title} шириной ${formatDimensionCm(problem.widthCm)} см не встаёт ни к одной стене.`
       }
       if (problem.kind === 'noCenter') {
         return `${problem.title} посреди комнаты не помещается.`
       }
       if (problem.kind === 'narrowWalkway') {
-        return `Проход посередине ${problem.gapCm} см, свободно ходить получается от ${WALKWAY_CM} см.`
+        return `Проход посередине ${formatDimensionCm(problem.gapCm)} см, свободно ходить получается от ${WALKWAY_CM} см.`
       }
       if (problem.kind === 'invalidPlacement') {
         const reason =
@@ -427,6 +448,7 @@ function roomPlanPage(room: PdfRoom, free: boolean): string {
     <p class="eyebrow">2D-схема · выбранные товары</p>
     <h1 style="margin-top:3mm">${esc(room.name)} · расстановка</h1>
     ${plan}
+    ${(room.measurementNotes ?? []).map((note) => `<p class="verdict">${esc(note)}</p>`).join('')}
   </section>`
 }
 

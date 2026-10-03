@@ -658,6 +658,125 @@ describe('подтверждение ручной схемы', () => {
     )
   })
 
+  it('учитывает введённую толщину осевых стен при физическом примыкании', () => {
+    const walls = [
+      {
+        id: 'horizontal',
+        kind: 'inner' as const,
+        start: { xCm: 100, yCm: 100 },
+        end: { xCm: 200, yCm: 100 },
+        measuredThicknessCm: 20,
+      },
+      {
+        id: 'vertical',
+        kind: 'inner' as const,
+        start: { xCm: 210, yCm: 100 },
+        end: { xCm: 210, yCm: 200 },
+        measuredThicknessCm: 20,
+      },
+    ]
+    for (const order of [walls, [...walls].reverse()]) {
+      expect(
+        inspectManualPlanCompleteness({ ...geometry, walls: order, openings: [], rooms: [] }),
+      ).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: 'manual-disconnected-walls' })]),
+      )
+    }
+  })
+
+  it('сохраняет продольный зазор после ввода толщины осевых стен', () => {
+    const walls = [
+      {
+        id: 'left',
+        kind: 'inner' as const,
+        start: { xCm: 100, yCm: 100 },
+        end: { xCm: 200, yCm: 100 },
+        measuredThicknessCm: 20,
+      },
+      {
+        id: 'right',
+        kind: 'inner' as const,
+        start: { xCm: 201, yCm: 100 },
+        end: { xCm: 300, yCm: 100 },
+        measuredThicknessCm: 20,
+      },
+    ]
+    expect(inspectManualPlanCompleteness({ ...geometry, walls, openings: [], rooms: [] })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'manual-disconnected-walls' })]),
+    )
+  })
+
+  it('использует введённую толщину вместо прежней распознанной при проверке стыка', () => {
+    const walls = [
+      {
+        id: 'horizontal',
+        kind: 'inner' as const,
+        start: { xCm: 100, yCm: 100 },
+        end: { xCm: 200, yCm: 100 },
+        thicknessCm: 40,
+        measuredThicknessCm: 10,
+      },
+      {
+        id: 'vertical',
+        kind: 'inner' as const,
+        start: { xCm: 210, yCm: 100 },
+        end: { xCm: 210, yCm: 200 },
+        thicknessCm: 40,
+        measuredThicknessCm: 10,
+      },
+    ]
+    expect(inspectManualPlanCompleteness({ ...geometry, walls, openings: [], rooms: [] })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'manual-disconnected-walls' })]),
+    )
+  })
+
+  it.each([
+    ['measuredThicknessCm', false],
+    ['thicknessCm', false],
+    ['measuredThicknessCm', true],
+    ['thicknessCm', true],
+  ] as const)(
+    'не превращает линии PDF в оси через поле %s (ручной ID: %s)',
+    (thicknessField, manualId) => {
+      const walls = [
+        {
+          id: manualId ? 'manual_000000000000000000000001' : 'horizontal-face',
+          kind: 'inner' as const,
+          start: { xCm: 100, yCm: 100 },
+          end: { xCm: 200, yCm: 100 },
+          [thicknessField]: 20,
+        },
+        {
+          id: manualId ? 'manual_000000000000000000000002' : 'vertical-face',
+          kind: 'inner' as const,
+          start: { xCm: 210, yCm: 100 },
+          end: { xCm: 210, yCm: 200 },
+          [thicknessField]: 20,
+        },
+      ]
+      const pdfCalibration: NonNullable<PlanGeometry['pdfCalibration']> = {
+        sourceSha256: 'a'.repeat(64),
+        pdfPage: 1,
+        cmPerPoint: 1,
+        origin: { x: 0, y: 0 },
+        anchorRoomNumbers: [1],
+        labelIndexes: [1, 2],
+        derivedOpeningIds: [],
+      }
+      expect(
+        inspectManualPlanCompleteness({
+          ...geometry,
+          walls,
+          openings: [],
+          rooms: [],
+          pdfCalibration,
+        }),
+      ).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: 'manual-disconnected-walls' })]),
+      )
+    },
+  )
+
   it.each(['first', 'last', 'reversed'] as const)(
     'highlights the disconnected island with %s wall order',
     (order) => {

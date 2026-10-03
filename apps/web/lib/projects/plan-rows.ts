@@ -43,6 +43,46 @@ export type ExistingRoom = {
   notes: string | null
 }
 
+/** Add an identified schedule row, never inferred measurements or an automatic project-room match. */
+export function appendSourcePlanRow(
+  rows: readonly PlanRow[],
+  source: { name: string; sourceNumber: number },
+  kind: RoomKind | 'utility',
+): PlanRow[] | null {
+  if (
+    rows.length >= 20 ||
+    !Number.isInteger(source.sourceNumber) ||
+    source.sourceNumber < 1 ||
+    source.sourceNumber > 10_000 ||
+    !source.name.trim() ||
+    source.name.trim().length > 40 ||
+    rows.some((row) => row.sourceNumber === source.sourceNumber)
+  )
+    return null
+  const utility = kind === 'utility'
+  const unsupported = utility || !mvpRoomKinds.some((value) => value === kind)
+  return [
+    ...rows,
+    {
+      name: source.name.trim(),
+      sourceNumber: source.sourceNumber,
+      kind: utility ? 'living' : kind,
+      include: false,
+      unsupported,
+      ...(unsupported
+        ? { unsupportedReason: utility ? ('utility' as const) : ('kind' as const) }
+        : {}),
+      width: '',
+      depth: '',
+      area: '',
+      ceiling: '',
+      wish: '',
+      layoutNotes: '',
+      suspicious: false,
+    },
+  ]
+}
+
 /** Название без регистра, лишних пробелов и ё: по нему ищется точное совпадение. */
 function plainName(value: string): string {
   return value.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim()

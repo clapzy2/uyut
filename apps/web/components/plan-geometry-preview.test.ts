@@ -1,8 +1,9 @@
 import type { PlanGeometry } from '@uyut/db'
-import { createElement } from 'react'
+import { Children, createElement, isValidElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { PlanGeometryPreview } from './plan-geometry-preview'
+import { PlanVolumeLaunch } from './plan-volume-launch'
 
 describe('предпросмотр 2D-схемы', () => {
   it('shows confirmation blockers before opening the editor', () => {
@@ -93,6 +94,14 @@ describe('предпросмотр 2D-схемы', () => {
       createElement(PlanGeometryPreview, { geometry: { ...geometry, status: 'confirmed' } }),
     )
     expect(confirmed).toContain('Посмотреть объёмную схему')
+    expect(confirmed).toContain('aria-label="Объёмный просмотр"')
+    expect(confirmed).toContain('aria-expanded="false"')
+
+    // Объёмный просмотр — сосед 2D-сетки, а не часть её узкой колонки пояснений.
+    const preview = PlanGeometryPreview({ geometry: { ...geometry, status: 'confirmed' } })
+    const sections = Children.toArray(preview.props.children)
+    const volumeSection = sections.at(-1)
+    expect(isValidElement(volumeSection) && volumeSection.type).toBe(PlanVolumeLaunch)
 
     const unverifiedPdf = renderToStaticMarkup(
       createElement(PlanGeometryPreview, {

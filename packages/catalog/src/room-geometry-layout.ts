@@ -1,5 +1,6 @@
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall, RoomMeasurements } from '@uyut/db'
 import { doorClearanceZone, openingDisplayLabel } from './door-clearance'
+import { kitchenClearanceZones, rectPolygon } from './kitchen-clearance'
 import type { FloorKeepClearZone, FloorReservation, RoomLayoutInput } from './layout'
 import { WALKWAY_CM } from './layout'
 import type { WallReservation } from './openings'
@@ -68,6 +69,44 @@ function pointDistanceToSegment(point: PlanPoint, start: PlanPoint, end: PlanPoi
   return Math.hypot(point.xCm - (start.xCm + dx * ratio), point.yCm - (start.yCm + dy * ratio))
 }
 
+/** Include edge crossings too: neither polygon needs to contain the other's vertices. */
+function polygonsTouch(first: readonly PlanPoint[], second: readonly PlanPoint[]): boolean {
+  if (
+    first.some((point) => pointInPolygon(point, second)) ||
+    second.some((point) => pointInPolygon(point, first))
+  ) {
+    return true
+  }
+  const cross = (start: PlanPoint, end: PlanPoint, point: PlanPoint) =>
+    (end.xCm - start.xCm) * (point.yCm - start.yCm) -
+    (end.yCm - start.yCm) * (point.xCm - start.xCm)
+  for (const [index, start] of first.entries()) {
+    const end = first[(index + 1) % first.length]
+    if (!end) continue
+    for (const [otherIndex, otherStart] of second.entries()) {
+      const otherEnd = second[(otherIndex + 1) % second.length]
+      if (!otherEnd) continue
+      if (
+        pointDistanceToSegment(start, otherStart, otherEnd) <= 1e-7 ||
+        pointDistanceToSegment(end, otherStart, otherEnd) <= 1e-7 ||
+        pointDistanceToSegment(otherStart, start, end) <= 1e-7 ||
+        pointDistanceToSegment(otherEnd, start, end) <= 1e-7
+      ) {
+        return true
+      }
+      if (
+        Math.sign(cross(start, end, otherStart)) * Math.sign(cross(start, end, otherEnd)) < 0 &&
+        Math.sign(cross(otherStart, otherEnd, start)) *
+          Math.sign(cross(otherStart, otherEnd, end)) <
+          0
+      ) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
 function openingBelongsToRoom(
   start: PlanPoint,
   end: PlanPoint,
@@ -108,15 +147,19 @@ function openingOnRoomBoundary(
   end: PlanPoint,
   wall: PlanWall,
   polygon: readonly PlanPoint[],
+  nativePdfFaces: boolean,
 ): [PlanPoint, PlanPoint] | null {
   if (openingBelongsToRoom(start, end, polygon, GEOMETRY_ALIGNMENT_TOLERANCE_CM)) {
     return [start, end]
   }
-  if (wall.thicknessCm === undefined || wall.thicknessCm < 5) return null
+  // Native PDF paths are faces, not measured wall axes.
+  if (nativePdfFaces) return null
+  const thickness = wall.measuredThicknessCm ?? wall.thicknessCm
+  if (thickness === undefined || !Number.isFinite(thickness) || thickness < 5) return null
 
   const openingLength = Math.hypot(end.xCm - start.xCm, end.yCm - start.yCm)
   if (openingLength === 0) return null
-  const expectedFaceOffset = wall.thicknessCm / 2
+  const expectedFaceOffset = thickness / 2
   const candidates: Array<{ start: PlanPoint; end: PlanPoint; faceError: number }> = []
   for (let index = 0; index < polygon.length; index += 1) {
     const edgeStart = polygon[index]
@@ -250,7 +293,7 @@ export function roomLayoutInputFromGeometry(
     const wall = wallById.get(opening.wallId)
     if (!wall) continue
     const [start, end] = openingPoints(opening, wall)
-    const aligned = openingOnRoomBoundary(start, end, wall, room.polygon)
+    const aligned = openingOnRoomBoundary(start, end, wall, room.polygon, !!geometry.pdfCalibration)
     if (!aligned) {
       if (!openingBelongsToRoom(start, end, room.polygon, BOUNDARY_TOLERANCE_CM)) continue
       missingSafetyData.push(
@@ -278,14 +321,7 @@ export function roomLayoutInputFromGeometry(
           xCm: point.xCm + boundaryStart.xCm - start.xCm,
           yCm: point.yCm + boundaryStart.yCm - start.yCm,
         }))
-        const centre = alignedClearance.reduce(
-          (sum, point) => ({
-            xCm: sum.xCm + point.xCm / alignedClearance.length,
-            yCm: sum.yCm + point.yCm / alignedClearance.length,
-          }),
-          { xCm: 0, yCm: 0 },
-        )
-        if (pointInPolygon(centre, room.polygon))
+        if (polygonsTouch(alignedClearance, room.polygon))
           keepClearZones.push({
             kind: opening.type,
             label: clearance.label,
@@ -373,22 +409,8 @@ export function roomLayoutInputFromGeometry(
   }
 
   for (const obstacle of geometry.obstacles ?? []) {
-    const corners: PlanPoint[] = [
-      { xCm: obstacle.xCm, yCm: obstacle.yCm },
-      { xCm: obstacle.xCm + obstacle.widthCm, yCm: obstacle.yCm },
-      { xCm: obstacle.xCm + obstacle.widthCm, yCm: obstacle.yCm + obstacle.depthCm },
-      { xCm: obstacle.xCm, yCm: obstacle.yCm + obstacle.depthCm },
-    ]
-    const roomTouchesObstacle =
-      corners.some((corner) => pointInPolygon(corner, room.polygon)) ||
-      room.polygon.some(
-        (point) =>
-          point.xCm >= obstacle.xCm &&
-          point.xCm <= obstacle.xCm + obstacle.widthCm &&
-          point.yCm >= obstacle.yCm &&
-          point.yCm <= obstacle.yCm + obstacle.depthCm,
-      )
-    if (!roomTouchesObstacle) continue
+    const corners = rectPolygon(obstacle)
+    if (!polygonsTouch(corners, room.polygon)) continue
     keepClearZones.push({
       kind: 'obstacle',
       label:
@@ -403,15 +425,39 @@ export function roomLayoutInputFromGeometry(
   }
 
   for (const voidShape of geometry.voids ?? []) {
-    const touchesRoom =
-      voidShape.polygon.some((point) => pointInPolygon(point, room.polygon)) ||
-      room.polygon.some((point) => pointInPolygon(point, voidShape.polygon))
-    if (!touchesRoom) continue
+    if (!polygonsTouch(voidShape.polygon, room.polygon)) continue
     keepClearZones.push({
       kind: 'obstacle',
       label: `Техническая пустота ${voidShape.id}`,
       polygon: voidShape.polygon.map(localPoint),
     })
+  }
+
+  for (const [index, item] of (geometry.kitchenItems ?? []).entries()) {
+    const footprint = rectPolygon(item)
+    const zones = kitchenClearanceZones(item, index)
+    const belongs = polygonsTouch(footprint, room.polygon)
+    if (belongs) {
+      keepClearZones.push({
+        kind: 'obstacle',
+        label: `Кухонный модуль ${index + 1}`,
+        polygon: footprint.map(localPoint),
+      })
+      if (!item.front || item.openingDepthCm === undefined || item.passageCm === undefined) {
+        missingSafetyData.push(`Модуль ${index + 1}: уточните фасад, вылет дверцы и проход.`)
+      }
+      if (!item.installationGaps) {
+        missingSafetyData.push(`Модуль ${index + 1}: монтажные зазоры не заданы.`)
+      }
+    }
+    for (const zone of zones) {
+      if (!polygonsTouch(zone.polygon, room.polygon)) continue
+      keepClearZones.push({
+        kind: 'obstacle',
+        label: zone.label,
+        polygon: zone.polygon.map(localPoint),
+      })
+    }
   }
 
   return {

@@ -57,6 +57,137 @@ const linework: PdfLinework = {
 }
 
 describe('versioned source page review', () => {
+  it('accepts a separate floor only inside an explicit outer-wall envelope with native vertices', () => {
+    const exterior = {
+      boundaryRole: 'outer-wall-envelope' as const,
+      polygon: [
+        { x: 0, y: 0 },
+        { x: 40, y: 0 },
+        { x: 40, y: 40 },
+        { x: 0, y: 40 },
+      ],
+    }
+    const floor = {
+      polygon: [
+        { x: 5, y: 5 },
+        { x: 35, y: 5 },
+        { x: 35, y: 35 },
+        { x: 5, y: 35 },
+      ],
+    }
+    const input = { ...contours, exterior, floor }
+    const nativeWork = {
+      ...linework,
+      paths: [
+        ...linework.paths,
+        { ...at(linework.paths), points: exterior.polygon },
+        { ...at(linework.paths), points: floor.polygon },
+      ],
+    }
+    expect(planPageContoursSchema.safeParse(input).success).toBe(true)
+    expect(planPageReviewIssue(input, reading, input.source, nativeWork)).toBeUndefined()
+    expect(
+      planPageReviewIssue(input, reading, input.source, {
+        ...nativeWork,
+        paths: nativeWork.paths.slice(0, -1),
+      }),
+    ).toBe('non-native-floor-vertex')
+    expect(planPageFeaturesIssue({ ...input, exterior: { polygon: exterior.polygon } })).toBe(
+      'floor-requires-outer-wall-envelope',
+    )
+    expect(
+      planPageFeaturesIssue({ ...input, exterior: { ...exterior, boundaryRole: 'floor' } }),
+    ).toBe('floor-requires-outer-wall-envelope')
+    expect(planPageFeaturesIssue({ ...input, exterior: undefined })).toBe(
+      'floor-requires-outer-wall-envelope',
+    )
+    expect(planPageContoursSchema.safeParse({ ...input, exterior: undefined }).success).toBe(false)
+    expect(
+      planPageFeaturesIssue({
+        ...input,
+        floor: {
+          polygon: [
+            at(floor.polygon),
+            at(floor.polygon, 2),
+            at(floor.polygon, 1),
+            at(floor.polygon, 3),
+          ],
+        },
+      }),
+    ).toBe('invalid-floor-contour')
+    expect(
+      planPageContoursSchema.safeParse({ ...input, floor: { polygon: floor.polygon.slice(0, 2) } })
+        .success,
+    ).toBe(false)
+    expect(
+      planPageContoursSchema.safeParse({
+        ...input,
+        floor: { polygon: Array.from({ length: 101 }, () => ({ x: 5, y: 5 })) },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('checks all floor, room and void edges across concave boundary gaps', () => {
+    const rectangle = [
+      { x: 0, y: 0 },
+      { x: 40, y: 0 },
+      { x: 40, y: 40 },
+      { x: 0, y: 40 },
+    ]
+    const concave = [
+      { x: 0, y: 0 },
+      { x: 40, y: 0 },
+      { x: 40, y: 40 },
+      { x: 25, y: 40 },
+      { x: 25, y: 20 },
+      { x: 15, y: 20 },
+      { x: 15, y: 40 },
+      { x: 0, y: 40 },
+    ]
+    const crossing = [
+      { x: 10, y: 10 },
+      { x: 30, y: 10 },
+      { x: 30, y: 30 },
+      { x: 10, y: 30 },
+    ]
+    const input: PlanPageContours = {
+      ...contours,
+      exterior: { boundaryRole: 'outer-wall-envelope', polygon: rectangle },
+      floor: { polygon: concave },
+      rooms: [
+        {
+          roomSourceNumber: 4,
+          polygon: [
+            { x: 1, y: 1 },
+            { x: 3, y: 1 },
+            { x: 3, y: 3 },
+          ],
+        },
+      ],
+    }
+    expect(planPageFeaturesIssue(input)).toBeUndefined()
+    expect(
+      planPageFeaturesIssue({
+        ...input,
+        exterior: { ...input.exterior, boundaryRole: 'outer-wall-envelope', polygon: concave },
+        floor: { polygon: crossing },
+      }),
+    ).toBe('floor-outside-exterior-contour')
+    expect(
+      planPageFeaturesIssue({ ...input, rooms: [{ roomSourceNumber: 4, polygon: crossing }] }),
+    ).toBe('room-outside-floor-contour')
+    expect(planPageFeaturesIssue({ ...input, voids: [{ id: 'shaft', polygon: crossing }] })).toBe(
+      'void-outside-floor-contour',
+    )
+    expect(
+      planPageFeaturesIssue({
+        ...input,
+        floor: { polygon: rectangle },
+        rooms: [{ roomSourceNumber: 4, polygon: rectangle }],
+      }),
+    ).toBeUndefined()
+  })
+
   it('accepts only source-backed technical voids outside room floors', () => {
     const polygon = [
       { x: 40, y: 40 },

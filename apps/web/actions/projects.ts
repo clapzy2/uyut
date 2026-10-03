@@ -18,10 +18,15 @@ import {
   planDimensionSources,
   retainedPlanMeasurementEvidence,
 } from '@/lib/projects/dimension-sources'
-import { roomKindLabels } from '@/lib/projects/format'
+import { mvpRoomKinds, roomKindLabels } from '@/lib/projects/format'
 import { kitchenItemsSchema } from '@/lib/projects/kitchen-items'
 import { kitchenSafetySchema } from '@/lib/projects/kitchen-safety'
-import { manualPlanGeometry, manualRoomCoverage } from '@/lib/projects/manual-plan-geometry'
+import {
+  findPlanRoomReading,
+  manualPlanGeometry,
+  manualRoomCoverage,
+  renamedManualRoomShapes,
+} from '@/lib/projects/manual-plan-geometry'
 import { preparePlanPage } from '@/lib/projects/plan-document'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
 import {
@@ -39,6 +44,7 @@ import {
   currentOpeningWidthProofs,
   currentWallFacePairs,
 } from '@/lib/projects/plan-opening-face-pairs'
+import { applyOpeningMeasurementRequests } from '@/lib/projects/plan-opening-measurements'
 import { planPageAreaConflicts } from '@/lib/projects/plan-page-area-conflicts'
 import { retainedPlanPageReview } from '@/lib/projects/plan-page-review'
 import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
@@ -582,11 +588,20 @@ export async function savePlanGeometry(
           : {}),
       }
     }
+    const openingMeasurements = applyOpeningMeasurementRequests(
+      geometry,
+      submitted.openingMeasurementRequests,
+      userId,
+      new Date().toISOString(),
+    )
+    if (!openingMeasurements.ok) return openingMeasurements
+    if (openingMeasurements.pdfCalibration)
+      geometry.pdfCalibration = openingMeasurements.pdfCalibration
     if (mode === 'confirm' && geometry.pdfCalibration?.derivedOpeningIds.length) {
       return {
         ok: false,
         error:
-          'Есть проёмы с шириной, перенесённой только по масштабу PDF. Для подтверждения нужна отдельная сверка их мерок.',
+          'Есть проёмы, мерки которых ещё не сверены или изменились после сверки. Укажите ширину, привязку и источник в блоке «Сверка ширины и привязки».',
       }
     }
     const checkedRooms =
@@ -632,6 +647,10 @@ export async function savePlanGeometry(
     }
     const saved: NonNullable<PlanReading['geometry']> = {
       ...checked,
+      // Keep trusted source explanations; browser warnings cannot erase or certify evidence.
+      ...(before.pdfCalibration
+        ? { warnings: [...new Set([...before.warnings, ...checked.warnings])] }
+        : {}),
       ...(manual ? { source: 'manual' as const } : {}),
       ...(imageCalibration ? { imageCalibration } : {}),
       openings: checked.openings.map((opening) => {
@@ -674,6 +693,7 @@ export async function savePlanGeometry(
       metadata: {
         walls: saved.walls.length,
         openings: saved.openings.length,
+        openingMeasurements: saved.pdfCalibration?.openingMeasurements?.length ?? 0,
         roomContours: saved.rooms.length,
         utilityPoints: saved.utilityPoints?.length ?? 0,
         obstacles: saved.obstacles?.length ?? 0,
@@ -710,9 +730,6 @@ export async function confirmPlanRooms(
   }
   const { ceilingCm, condition, rooms } = parsed.data
   const chosen = rooms.filter((room) => room.include)
-  if (chosen.length === 0) {
-    return { ok: false, error: 'Отметьте хотя бы одну комнату.' }
-  }
   try {
     const project = await assertOwner(userId, projectId)
     if (expectedRevision !== planEditRevision(project.planUrl, project.planReading)) {
@@ -721,6 +738,27 @@ export async function confirmPlanRooms(
     if (!project.planUrl || !project.planReading) {
       return { ok: false, error: 'Сначала загрузите и прочитайте план квартиры.' }
     }
+    const beforeReading = project.planReading
+    const numbered = rooms.flatMap((room) =>
+      room.sourceNumber === undefined ? [] : [room.sourceNumber],
+    )
+    if (new Set(numbered).size !== numbered.length)
+      return {
+        ok: false,
+        error: 'Каждый номер исходного помещения должен быть указан только один раз.',
+      }
+    if (
+      chosen.some(
+        (room) =>
+          room.utility ||
+          findPlanRoomReading(room, beforeReading.rooms)?.utility ||
+          !mvpRoomKinds.some((kind) => kind === room.kind),
+      )
+    )
+      return {
+        ok: false,
+        error: 'Вспомогательные помещения и санузлы сохраняйте в плане без выбора для интерьера.',
+      }
     const reading: PlanReading = {
       ...(project.planReading?.planState ? { planState: project.planReading.planState } : {}),
       ...(project.planReading?.sourcePage ? { sourcePage: project.planReading.sourcePage } : {}),
@@ -737,10 +775,7 @@ export async function confirmPlanRooms(
         ? {}
         : { geometry: project.planReading.geometry }),
       rooms: rooms.map((room) => {
-        const matches = (project.planReading?.rooms ?? []).filter(
-          (source) => source.name === room.name,
-        )
-        const source = matches.length === 1 ? matches[0] : undefined
+        const source = findPlanRoomReading(room, beforeReading.rooms)
         const measurementEvidence = retainedPlanMeasurementEvidence(room, source)
         return {
           dimensionSources: planDimensionSources(
@@ -752,7 +787,7 @@ export async function confirmPlanRooms(
           // В форме неподдерживаемый тип имеет технический living, но в исходном плане
           // ванная остаётся ванной, а коридор не становится обставляемой гостиной.
           kind: !room.include && source ? source.kind : room.kind,
-          ...(source?.utility ? { utility: true } : {}),
+          ...(source?.utility || room.utility ? { utility: true } : {}),
           ...(room.sourceNumber === undefined ? {} : { sourceNumber: room.sourceNumber }),
           ...(room.ceilingCm == null ? {} : { ceilingCm: room.ceilingCm }),
           ...(measurementEvidence ? { measurementEvidence } : {}),
@@ -768,7 +803,19 @@ export async function confirmPlanRooms(
     const pageReview = retainedPlanPageReview(project.planReading, reading)
     if (pageReview) reading.pageReview = pageReview
     if (reading.geometry) {
-      reading.geometry = { ...reading.geometry, status: 'draft' }
+      reading.geometry = {
+        ...reading.geometry,
+        ...(reading.geometry.source === 'manual'
+          ? {
+              rooms: renamedManualRoomShapes(
+                reading.geometry.rooms,
+                project.planReading.rooms,
+                reading.rooms,
+              ),
+            }
+          : {}),
+        status: 'draft',
+      }
       delete reading.geometry.confirmedAt
     }
     const saved = await repository.createRoomsFromPlan(

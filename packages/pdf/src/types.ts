@@ -28,6 +28,8 @@ export type PdfRoom = {
    * а у рендера сантиметров нет, поэтому план отвечает на то, на что рендер ответить не может.
    */
   plan: RoomLayout | null
+  /** Сохранённые мерки неподвижных модулей и потолка; неизвестные высоты не подставляются. */
+  measurementNotes?: string[]
 }
 
 export type PdfShoppingItem = {

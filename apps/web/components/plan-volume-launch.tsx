@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { PlanVolume } from '@/lib/projects/plan-volume'
 
 const PlanVolumeViewer = dynamic(() => import('./plan-volume-viewer'), {
@@ -16,14 +16,16 @@ const PlanSceneViewer = dynamic(() => import('./plan-scene-viewer'), {
 export function PlanVolumeLaunch({ model, projectId }: { model: PlanVolume; projectId?: string }) {
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<'scheme' | 'scene'>('scheme')
+  const viewerId = useId()
 
   return (
-    <div className="mt-6 border-t border-line pt-5">
+    <section aria-label="Объёмный просмотр" className="mt-6 border-t border-line pt-5">
       <button
         type="button"
         aria-expanded={open}
+        aria-controls={open ? viewerId : undefined}
         onClick={() => setOpen((value) => !value)}
-        className="border border-line-strong px-4 py-2 text-sm text-ink transition-colors hover:border-accent hover:text-accent"
+        className="min-h-11 border border-line-strong px-4 py-2 text-sm text-ink transition-colors hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-accent"
       >
         {open
           ? 'Скрыть объёмную схему'
@@ -34,7 +36,7 @@ export function PlanVolumeLaunch({ model, projectId }: { model: PlanVolume; proj
               : 'Посмотреть объёмную схему'}
       </button>
       {open ? (
-        <>
+        <div id={viewerId}>
           <fieldset className="mt-4 flex flex-wrap gap-2" aria-label="Режим объёмного просмотра">
             <button
               type="button"
@@ -62,8 +64,8 @@ export function PlanVolumeLaunch({ model, projectId }: { model: PlanVolume; proj
           ) : (
             <PlanVolumeViewer model={model} projectId={projectId} />
           )}
-        </>
+        </div>
       ) : null}
-    </div>
+    </section>
   )
 }

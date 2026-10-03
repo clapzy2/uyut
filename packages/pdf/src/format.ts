@@ -11,6 +11,11 @@ const monthYear = new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numer
 /** Неразрывные пробелы внутри чисел, чтобы «18,4 м²» и «694 250 ₽» не рвались на переносе */
 const NBSP = ' '
 
+/** Только подпись: убираем машинный шум, не меняя исходные координаты и расчёты. */
+export function formatDimensionCm(value: number): string {
+  return Number(value.toPrecision(15)).toString()
+}
+
 export function formatPrice(kopecks: number): string {
   return `${rubles.format(Math.round(kopecks / 100)).replace(/\s/g, NBSP)}${NBSP}₽`
 }

@@ -6,6 +6,7 @@ import {
   subcategoryFromText,
   type WorksRates,
 } from '@uyut/catalog'
+import { effectiveSize, effectiveSizeReading, itemSizeSourceLabel } from '@uyut/catalog/item-size'
 import { layoutWithMeasurements } from '@uyut/catalog/layout-with-measurements'
 import { shoppingOffer } from '@uyut/catalog/shopping-offer'
 import {
@@ -25,7 +26,7 @@ import {
   shoppingLists,
 } from '@uyut/db'
 import type { PdfData, PdfImage, PdfRoom, PdfShoppingGroup } from '@uyut/pdf'
-import { formatArea, formatPrice } from '@uyut/pdf'
+import { formatArea, formatDimensionCm, formatPrice } from '@uyut/pdf'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db } from './db'
@@ -160,20 +161,18 @@ function roomPlan(
       title: row.product.title,
       category: row.product.category,
       subcategory: subcategoryFromText(row.product.category, row.product.title),
-      dimensions: row.item.dimensionsCm ?? row.product.attributes?.dimensionsCm ?? null,
+      dimensions: effectiveSize(row.item, row.product),
       operationClearance: row.item.operationClearanceCm,
       placement: row.item.placementCm,
       quantity: row.item.quantity,
     }))
-  return items.length > 0
-    ? layoutWithMeasurements(
-        room.name,
-        room.measurements,
-        project.planReading?.geometry,
-        items,
-        room.kind,
-      )
-    : null
+  return layoutWithMeasurements(
+    room.name,
+    room.measurements,
+    project.planReading?.geometry,
+    items,
+    room.kind,
+  )
 }
 
 export type ProjectSnapshot = {
@@ -195,107 +194,114 @@ export type ProjectSnapshot = {
 
 /** Всё, что нужно документу, одним проходом по базе; картинки читаются позже */
 export async function loadSnapshot(projectId: string): Promise<ProjectSnapshot | null> {
-  const database = db()
-  const [projectRow] = await database
-    .select()
-    .from(projects)
-    .where(eq(projects.id, projectId))
-    .limit(1)
-  if (!projectRow) {
-    return null
-  }
-  const roomRows = await database
-    .select()
-    .from(rooms)
-    .where(eq(rooms.projectId, projectId))
-    .orderBy(rooms.orderIndex)
-  const shopping = await database
-    .select({ item: shoppingListItems, product: catalogItems, roomName: rooms.name })
-    .from(shoppingListItems)
-    .innerJoin(shoppingLists, eq(shoppingLists.id, shoppingListItems.listId))
-    .innerJoin(catalogItems, eq(catalogItems.id, shoppingListItems.catalogItemId))
-    .leftJoin(rooms, eq(rooms.id, shoppingListItems.roomId))
-    .where(eq(shoppingLists.projectId, projectId))
-    .orderBy(rooms.orderIndex, shoppingListItems.createdAt)
+  // Все SELECT видят одну версию: правка во время чтения не смешает старый план с новыми покупками.
+  return db().transaction(
+    async (database) => {
+      const [projectRow] = await database
+        .select()
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .limit(1)
+      if (!projectRow) {
+        return null
+      }
+      const roomRows = await database
+        .select()
+        .from(rooms)
+        .where(eq(rooms.projectId, projectId))
+        .orderBy(rooms.orderIndex)
+      const shopping = await database
+        .select({ item: shoppingListItems, product: catalogItems, roomName: rooms.name })
+        .from(shoppingListItems)
+        .innerJoin(shoppingLists, eq(shoppingLists.id, shoppingListItems.listId))
+        .innerJoin(catalogItems, eq(catalogItems.id, shoppingListItems.catalogItemId))
+        .leftJoin(rooms, eq(rooms.id, shoppingListItems.roomId))
+        .where(eq(shoppingLists.projectId, projectId))
+        .orderBy(rooms.orderIndex, shoppingListItems.createdAt)
 
-  // Концепт, из которого добавляли товары, становится главным; иначе последний понравившийся
-  const objectIds = shopping
-    .map((row) => row.item.conceptObjectId)
-    .filter((id): id is string => id !== null)
-  const objectConcepts = objectIds.length
-    ? await database
-        .select({ id: conceptObjects.id, conceptId: conceptObjects.conceptId })
-        .from(conceptObjects)
-        .where(inArray(conceptObjects.id, objectIds))
-    : []
-  const votes = new Map<string, number>()
-  for (const row of objectConcepts) {
-    votes.set(row.conceptId, (votes.get(row.conceptId) ?? 0) + 1)
-  }
-  const selectedConceptIds = [...votes.keys()]
+      // Концепт, из которого добавляли товары, становится главным; иначе последний понравившийся
+      const objectIds = shopping
+        .map((row) => row.item.conceptObjectId)
+        .filter((id): id is string => id !== null)
+      const objectConcepts = objectIds.length
+        ? await database
+            .select({ id: conceptObjects.id, conceptId: conceptObjects.conceptId })
+            .from(conceptObjects)
+            .where(inArray(conceptObjects.id, objectIds))
+        : []
+      const votes = new Map<string, number>()
+      for (const row of objectConcepts) {
+        votes.set(row.conceptId, (votes.get(row.conceptId) ?? 0) + 1)
+      }
+      const selectedConceptIds = [...votes.keys()]
 
-  const conceptMap: ProjectSnapshot['concepts'] = new Map()
-  const objectsMap: ProjectSnapshot['objects'] = new Map()
-  for (const room of roomRows) {
-    const candidates = await database
-      .select()
-      .from(concepts)
-      .where(
-        and(
-          eq(concepts.roomId, room.id),
-          eq(concepts.status, 'ready'),
-          selectedConceptIds.length > 0
-            ? or(eq(concepts.likedByOwner, true), inArray(concepts.id, selectedConceptIds))
-            : eq(concepts.likedByOwner, true),
-        ),
-      )
-      .orderBy(desc(concepts.createdAt))
-    const voted = [...candidates].sort((a, b) => (votes.get(b.id) ?? 0) - (votes.get(a.id) ?? 0))
-    const main = voted.find((concept) => (votes.get(concept.id) ?? 0) > 0) ?? candidates[0]
-    if (!main) {
-      continue
-    }
-    conceptMap.set(room.id, {
-      main,
-      alternates: candidates
-        .filter((concept) => concept.id !== main.id && concept.likedByOwner === true)
-        .slice(0, 3),
-    })
-    const rows = await database
-      .select({ object: conceptObjects, product: catalogItems })
-      .from(conceptObjects)
-      .leftJoin(catalogItems, eq(catalogItems.id, conceptObjects.matchedCatalogItemId))
-      .where(eq(conceptObjects.conceptId, main.id))
-      .orderBy(conceptObjects.orderIndex)
-    objectsMap.set(
-      room.id,
-      rows.map(({ object, product }) => {
-        const chosen = shopping.filter((row) => row.item.conceptObjectId === object.id)
-        const selected = chosen.length === 1 ? chosen[0] : undefined
-        return {
-          index: object.orderIndex + 1,
-          category: object.category,
-          product:
-            chosen.length > 1
-              ? 'Несколько выбранных позиций — см. список покупок'
-              : (selected?.product.title ?? product?.title ?? null),
-          priceKopecks:
-            chosen.length > 1
-              ? null
-              : selected
-                ? shoppingOffer(selected.product, selected.item.selectedVariant).priceKopecks
-                : (product?.priceKopecks ?? null),
+      const conceptMap: ProjectSnapshot['concepts'] = new Map()
+      const objectsMap: ProjectSnapshot['objects'] = new Map()
+      for (const room of roomRows) {
+        const candidates = await database
+          .select()
+          .from(concepts)
+          .where(
+            and(
+              eq(concepts.roomId, room.id),
+              eq(concepts.status, 'ready'),
+              selectedConceptIds.length > 0
+                ? or(eq(concepts.likedByOwner, true), inArray(concepts.id, selectedConceptIds))
+                : eq(concepts.likedByOwner, true),
+            ),
+          )
+          .orderBy(desc(concepts.createdAt))
+        const voted = [...candidates].sort(
+          (a, b) => (votes.get(b.id) ?? 0) - (votes.get(a.id) ?? 0),
+        )
+        const main = voted.find((concept) => (votes.get(concept.id) ?? 0) > 0) ?? candidates[0]
+        if (!main) {
+          continue
         }
-      }),
-    )
-  }
-  return {
-    project: projectRow,
-    rooms: roomRows,
-    shopping,
-    concepts: conceptMap,
-    objects: objectsMap,
-  }
+        conceptMap.set(room.id, {
+          main,
+          alternates: candidates
+            .filter((concept) => concept.id !== main.id && concept.likedByOwner === true)
+            .slice(0, 3),
+        })
+        const rows = await database
+          .select({ object: conceptObjects, product: catalogItems })
+          .from(conceptObjects)
+          .leftJoin(catalogItems, eq(catalogItems.id, conceptObjects.matchedCatalogItemId))
+          .where(eq(conceptObjects.conceptId, main.id))
+          .orderBy(conceptObjects.orderIndex)
+        objectsMap.set(
+          room.id,
+          rows.map(({ object, product }) => {
+            const chosen = shopping.filter((row) => row.item.conceptObjectId === object.id)
+            const selected = chosen.length === 1 ? chosen[0] : undefined
+            return {
+              index: object.orderIndex + 1,
+              category: object.category,
+              product:
+                chosen.length > 1
+                  ? 'Несколько выбранных позиций — см. список покупок'
+                  : (selected?.product.title ?? product?.title ?? null),
+              priceKopecks:
+                chosen.length > 1
+                  ? null
+                  : selected
+                    ? shoppingOffer(selected.product, selected.item.selectedVariant).priceKopecks
+                    : (product?.priceKopecks ?? null),
+            }
+          }),
+        )
+      }
+      return {
+        project: projectRow,
+        rooms: roomRows,
+        shopping,
+        concepts: conceptMap,
+        objects: objectsMap,
+      }
+    },
+    { isolationLevel: 'repeatable read', accessMode: 'read only' },
+  )
 }
 
 export function briefInput(snapshot: ProjectSnapshot): BriefInput {
@@ -412,6 +418,25 @@ export async function buildPdfData(input: {
             ),
           ])
         : [null, null, []]
+      const plan = plans.get(room.id) ?? null
+      const measurementNotes: string[] = []
+      if (room.measurements?.ceilingCm !== undefined) {
+        measurementNotes.push(
+          `Высота потолка по мерке комнаты: ${formatDimensionCm(room.measurements.ceilingCm)} см.`,
+        )
+      }
+      for (const [index, item] of (project.planReading?.geometry?.kitchenItems ?? []).entries()) {
+        const title = `Кухонный модуль ${index + 1}`
+        // Только модули, которые тот же расчёт действительно связал с этой комнатой.
+        if (!plan?.keepClearZones.some((zone) => zone.label === title)) continue
+        measurementNotes.push(
+          `${title}: ширина ${formatDimensionCm(item.widthCm)} см, глубина ${formatDimensionCm(item.depthCm)} см; ${
+            item.heightCm === undefined
+              ? 'высота не указана'
+              : `высота ${formatDimensionCm(item.heightCm)} см`
+          }.`,
+        )
+      }
       return {
         id: room.id,
         name: room.name,
@@ -426,7 +451,8 @@ export async function buildPdfData(input: {
           ...object,
           category: categoryLabels[object.category],
         })),
-        plan: plans.get(room.id) ?? null,
+        plan,
+        measurementNotes,
       }
     }),
   )
@@ -437,12 +463,13 @@ export async function buildPdfData(input: {
     const group = groups.get(key) ?? { roomName: row.roomName ?? 'Без комнаты', items: [] }
     const offer = shoppingOffer(row.product, row.item.selectedVariant)
     const price = offer.priceKopecks
-    const dimensions = row.item.dimensionsCm ?? row.product.attributes?.dimensionsCm
+    const sizeReading = effectiveSizeReading(row.item, row.product)
+    const dimensions = sizeReading.dimensionsCm
     const dimensionLabels = dimensions
       ? [
-          dimensions.width ? `ширина ${dimensions.width} см` : null,
-          dimensions.depth ? `глубина ${dimensions.depth} см` : null,
-          dimensions.height ? `высота ${dimensions.height} см` : null,
+          dimensions.width ? `ширина ${formatDimensionCm(dimensions.width)} см` : null,
+          dimensions.depth ? `глубина ${formatDimensionCm(dimensions.depth)} см` : null,
+          dimensions.height ? `высота ${formatDimensionCm(dimensions.height)} см` : null,
         ].filter(Boolean)
       : []
     group.items.push({
@@ -453,9 +480,7 @@ export async function buildPdfData(input: {
         offer.variant?.color,
         dimensionLabels.join(', '),
         dimensionLabels.length
-          ? row.item.dimensionsCm
-            ? 'размеры введены вами'
-            : 'размеры магазина — проверьте перед покупкой'
+          ? itemSizeSourceLabel(sizeReading)
           : 'габариты не указаны — проверьте перед покупкой',
         dimensionLabels.length && !(dimensions?.width && dimensions.depth)
           ? 'для 2D-расстановки уточните ширину и глубину'

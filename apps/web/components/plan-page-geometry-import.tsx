@@ -59,6 +59,12 @@ export function PlanPageGeometryImport({
   )
   const [selected, setSelected] = useState<number[]>([])
   const [globalScale, setGlobalScale] = useState(false)
+  const [edgeScale, setEdgeScale] = useState(false)
+  const edgeCount =
+    reading.pageReview?.contours.rooms.reduce(
+      (sum, room) => sum + (room.dimensionEdges?.length ?? 0),
+      0,
+    ) ?? 0
   const [anchor, setAnchor] = useState(String(anchors[0]?.sourceNumber ?? ''))
   const [error, setError] = useState<string>()
   const [conflict, setConflict] = useState(false)
@@ -79,7 +85,8 @@ export function PlanPageGeometryImport({
           projectId,
           selected,
           sourceRevision,
-          globalScale ? [Number(anchor)] : undefined,
+          globalScale && !edgeScale ? [Number(anchor)] : undefined,
+          edgeScale,
         )
         if (!result.ok) {
           setError(result.error)
@@ -157,7 +164,27 @@ export function PlanPageGeometryImport({
             № {room.key} · {room.name}
           </label>
         ))}
-        {anchors.length ? (
+        {edgeCount >= 2 ? (
+          <label className="flex min-h-11 items-start gap-3 border-t border-line pt-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1 size-4 shrink-0 accent-accent"
+              checked={edgeScale}
+              onChange={(event) => {
+                setEdgeScale(event.target.checked)
+                setGlobalScale(false)
+              }}
+            />
+            <span>
+              Проверить масштаб по выбранным сторонам ({edgeCount})
+              <span className="mt-1 block max-w-2xl text-xs leading-relaxed text-ink-2">
+                Сверим два разных направления и перенесём исходные контуры без поворота и подгонки.
+                Длина наклонной стены останется длиной этой стены.
+              </span>
+            </span>
+          </label>
+        ) : null}
+        {anchors.length && !edgeScale ? (
           <div className="border-t border-line pt-3">
             <label className="flex min-h-11 items-center gap-3 text-sm">
               <input

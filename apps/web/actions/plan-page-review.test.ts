@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { PlanPageContours, PlanReading } from '@uyut/db'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
+import { edgeDimensionFixture } from '@/lib/projects/test-fixtures/plan-page-edge-dimensions'
 import features from '../../../docs/qa/fixtures/apartment-74-77-page-features.json'
 
 const mocks = vi.hoisted(() => ({
@@ -101,6 +102,142 @@ describe('save source page review action', () => {
     mocks.prepare.mockResolvedValue(page)
     mocks.save.mockResolvedValue(undefined)
   })
+
+  function separateFloorFixture() {
+    const polygon = (start: number, end: number) => [
+      { x: start, y: start },
+      { x: end, y: start },
+      { x: end, y: end },
+      { x: start, y: end },
+    ]
+    const reviewed: PlanPageContours = {
+      ...contours,
+      exterior: { boundaryRole: 'outer-wall-envelope', polygon: polygon(0, 40) },
+      floor: { polygon: polygon(5, 35) },
+    }
+    const native = {
+      ...page,
+      linework: {
+        ...page.linework,
+        paths: [
+          ...page.linework.paths,
+          ...[reviewed.exterior, reviewed.floor].map((boundary, index) => ({
+            operationIndex: 2 + index,
+            subpathIndex: 0,
+            paint: 'stroke',
+            closed: true,
+            points: boundary?.polygon ?? [],
+          })),
+        ],
+      },
+    }
+    return { reviewed, native }
+  }
+
+  it('saves separate floor only after rereading its native PDF vertices', async () => {
+    const { reviewed, native } = separateFloorFixture()
+    mocks.prepare.mockResolvedValue(native)
+    const result = await savePlanPageReview('project', reviewed, revision)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading.pageReview?.contours).toEqual(reviewed)
+    expect(result.data.reading.geometry).toBeUndefined()
+    expect(mocks.audit.mock.calls[0]?.[0].metadata.floorVertices).toBe(4)
+  })
+
+  it.each(['role', 'native-vertex', 'room-outside'] as const)(
+    'refuses invalid floor %s with an actionable explanation and no write',
+    async (change) => {
+      const { reviewed, native } = separateFloorFixture()
+      mocks.prepare.mockResolvedValue(structuredClone(native))
+      if (!reviewed.exterior || !reviewed.floor) throw new Error('Missing boundary fixture')
+      if (change === 'role') reviewed.exterior.boundaryRole = 'floor'
+      if (change === 'native-vertex') {
+        const point = reviewed.floor.polygon[0]
+        if (!point) throw new Error('Missing vertex fixture')
+        point.x += 0.1
+      }
+      if (change === 'room-outside')
+        reviewed.floor.polygon = [
+          { x: 5, y: 5 },
+          { x: 20, y: 5 },
+          { x: 20, y: 20 },
+          { x: 5, y: 20 },
+        ]
+      const result = await savePlanPageReview('project', reviewed, revision)
+      expect(result.ok).toBe(false)
+      if (result.ok) throw new Error('Unexpected floor save')
+      expect(result.error).toContain(
+        change === 'role'
+          ? 'Наружная сторона стен'
+          : change === 'native-vertex'
+            ? 'к узлу исходного PDF'
+            : 'выходит за границу пола',
+      )
+      expect(mocks.save).not.toHaveBeenCalled()
+      expect(mocks.audit).not.toHaveBeenCalled()
+    },
+  )
+
+  it('сохраняет выбор сторон только после привязки свежих линий и подписей', async () => {
+    const f = edgeDimensionFixture()
+    const reviewed = structuredClone(f.contours)
+    reviewed.source.sha256 = createHash('sha256').update('pdf').digest('hex')
+    const before = { ...project, planReading: f.reading }
+    mocks.owner.mockResolvedValue(before)
+    mocks.prepare.mockResolvedValue({
+      ...page,
+      pageNumber: 1,
+      linework: f.work,
+      image: { ...page.image, planText: f.context.planText },
+    })
+    const result = await savePlanPageReview(
+      'project',
+      reviewed,
+      planEditRevision('plan.pdf', f.reading),
+    )
+    expect(result.ok).toBe(true)
+    expect(mocks.save).toHaveBeenCalledWith(
+      'owner',
+      'project',
+      expect.objectContaining({ pageReview: expect.objectContaining({ contours: reviewed }) }),
+      before,
+    )
+  })
+
+  it.each(['подпись', 'выносная линия'])(
+    'не сохраняет выбор при изменении источника: %s',
+    async (change) => {
+      const f = edgeDimensionFixture()
+      const reviewed = structuredClone(f.contours)
+      reviewed.source.sha256 = createHash('sha256').update('pdf').digest('hex')
+      mocks.owner.mockResolvedValue({ ...project, planReading: f.reading })
+      mocks.prepare.mockResolvedValue({
+        ...page,
+        pageNumber: 1,
+        linework: {
+          ...f.work,
+          paths:
+            change === 'выносная линия'
+              ? f.work.paths.filter((path) => path.operationIndex !== 7)
+              : f.work.paths,
+        },
+        image: {
+          ...page.image,
+          planText:
+            change === 'подпись' ? JSON.stringify([f.labels[1], f.labels[0]]) : f.context.planText,
+        },
+      })
+      const result = await savePlanPageReview(
+        'project',
+        reviewed,
+        planEditRevision('plan.pdf', f.reading),
+      )
+      expect(result.ok).toBe(false)
+      expect(mocks.save).not.toHaveBeenCalled()
+      expect(mocks.audit).not.toHaveBeenCalled()
+    },
+  )
 
   it('saves a versioned review using fresh native PDF proof and atomic source guard', async () => {
     const result = await savePlanPageReview('project', contours, revision)

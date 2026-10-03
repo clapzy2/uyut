@@ -1,6 +1,7 @@
 import type { PlanGeometry, PlanOpening, PlanPoint, PlanRoomShape, PlanWall } from '@uyut/db'
 import polygonClipping, { type MultiPolygon, type Polygon } from 'polygon-clipping'
 import { currentOpeningFacePairs, currentWallFacePairs } from './plan-opening-face-pairs'
+import { unresolvedOpeningMeasurementIds } from './plan-opening-measurements'
 import { polygonsOverlap } from './plan-page-review'
 
 export type PlanGeometryIssue = {
@@ -104,12 +105,21 @@ function distanceToSegment(point: PlanPoint, wall: PlanWall): number {
   })
 }
 
-function wallBody(wall: PlanWall): PlanPoint[] | undefined {
-  if (!wall.thicknessCm || wall.thicknessCm <= 0) return undefined
+function physicalAxisThickness(wall: PlanWall, geometry: EditableGeometry): number | undefined {
+  // Source PDF lines describe faces, even when a browser supplies an axis thickness.
+  if (geometry.pdfCalibration) return undefined
+  const measured = wall.measuredThicknessCm
+  if (measured !== undefined && Number.isFinite(measured) && measured >= 1 && measured <= 100)
+    return measured
+  return wall.thicknessCm
+}
+
+function wallBody(wall: PlanWall, thicknessCm: number): PlanPoint[] | undefined {
+  if (thicknessCm <= 0) return undefined
   const length = distance(wall.start, wall.end)
   if (length === 0) return undefined
-  const normalX = ((wall.end.yCm - wall.start.yCm) * wall.thicknessCm) / (2 * length)
-  const normalY = ((wall.start.xCm - wall.end.xCm) * wall.thicknessCm) / (2 * length)
+  const normalX = ((wall.end.yCm - wall.start.yCm) * thicknessCm) / (2 * length)
+  const normalY = ((wall.start.xCm - wall.end.xCm) * thicknessCm) / (2 * length)
   return [
     { xCm: wall.start.xCm + normalX, yCm: wall.start.yCm + normalY },
     { xCm: wall.end.xCm + normalX, yCm: wall.end.yCm + normalY },
@@ -119,9 +129,14 @@ function wallBody(wall: PlanWall): PlanPoint[] | undefined {
 }
 
 /** Rectangular measured wall bodies can meet even when their axes stop short of each other. */
-function wallBodiesTouch(first: PlanWall, second: PlanWall): boolean {
-  const firstBody = wallBody(first)
-  const secondBody = wallBody(second)
+function wallBodiesTouch(
+  first: PlanWall,
+  second: PlanWall,
+  firstThicknessCm: number,
+  secondThicknessCm: number,
+): boolean {
+  const firstBody = wallBody(first, firstThicknessCm)
+  const secondBody = wallBody(second, secondThicknessCm)
   if (!firstBody || !secondBody) return false
   for (const body of [firstBody, secondBody]) {
     for (let index = 0; index < body.length; index += 1) {
@@ -372,13 +387,14 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
       ],
     })
   }
-  if (geometry.pdfCalibration?.derivedOpeningIds.length) {
+  const unresolvedOpeningIds = unresolvedOpeningMeasurementIds(geometry)
+  if (unresolvedOpeningIds.length) {
     issues.push({
       id: 'manual-pdf-opening-measurements',
       severity: 'error',
       message:
-        'Сверьте мерки проёмов, перенесённых только по масштабу PDF, перед подтверждением схемы.',
-      openingIds: geometry.pdfCalibration.derivedOpeningIds,
+        'Сверьте ширину и привязку отмеченных проёмов с указанием источника перед подтверждением схемы.',
+      openingIds: unresolvedOpeningIds,
     })
   }
   if (geometry.footprint && !validMetricPolygon(geometry.footprint, geometry)) {
@@ -442,9 +458,11 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
       group.push(current.id)
       for (const other of walls) {
         if (visited.has(other.id)) continue
+        const currentThicknessCm = physicalAxisThickness(current, geometry)
+        const otherThicknessCm = physicalAxisThickness(other, geometry)
         const touches =
-          current.thicknessCm && other.thicknessCm
-            ? wallBodiesTouch(current, other)
+          currentThicknessCm && otherThicknessCm
+            ? wallBodiesTouch(current, other, currentThicknessCm, otherThicknessCm)
             : distanceToSegment(current.start, other) <= ENDPOINT_TOLERANCE_CM ||
               distanceToSegment(current.end, other) <= ENDPOINT_TOLERANCE_CM ||
               distanceToSegment(other.start, current) <= ENDPOINT_TOLERANCE_CM ||

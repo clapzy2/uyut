@@ -1,4 +1,6 @@
+import { kitchenClearanceZones } from '@uyut/catalog/geometry'
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
+import { kitchenItemIssues, kitchenItemsSchema, kitchenLabels } from './kitchen-items'
 import type { PlanGeometryIssue } from './plan-geometry-inspection'
 import { currentWallFacePairs } from './plan-opening-face-pairs'
 import { inspectPlanVerticalDimensions } from './plan-vertical-dimensions'
@@ -91,7 +93,7 @@ function addWallInterval(
   intervalEnd: PlanPoint,
   sourceOpenings: PlanGeometry['openings'],
   solidFaces: PlanSolidFace[],
-  allowThickness: boolean,
+  { allowThickness, recordOpenings }: { allowThickness: boolean; recordOpenings: boolean },
 ) {
   const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
   if (length <= 0) return
@@ -183,7 +185,7 @@ function addWallInterval(
     }
   }
 
-  for (const cut of spans) {
+  for (const cut of recordOpenings ? spans : []) {
     openings.push({
       id: `${cut.opening.id}-${low}`,
       type: cut.opening.type,
@@ -205,6 +207,8 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
     return null
   }
   if (inspectPlanVerticalDimensions(geometry).length > 0) return null
+  const kitchenItems = kitchenItemsSchema.safeParse(geometry.kitchenItems ?? [])
+  if (!kitchenItems.success) return null
 
   const walls: WallSpan[] = []
   const openings: OpeningSpan[] = []
@@ -223,35 +227,79 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
         const currentOpenings = geometry.openings.filter((item) =>
           pair.openings.some((o) => o.id === item.id),
         )
-        addWallInterval(
-          walls,
-          openings,
-          wall,
-          face.start,
-          face.end,
-          currentOpenings,
-          solidFaces,
-          false,
-        )
+        addWallInterval(walls, openings, wall, face.start, face.end, currentOpenings, solidFaces, {
+          allowThickness: false,
+          recordOpenings: false,
+        })
       }
+    }
+    // Proof intervals exclude door/window gaps. Preserve each source-bound opening
+    // independently of those intervals; do not fill the gap with invented wall faces.
+    const provenOpeningIds = new Set(currentPairs.flatMap((pair) => pair.openings.map((o) => o.id)))
+    for (const opening of geometry.openings) {
+      if (!provenOpeningIds.has(opening.id)) continue
+      const wall = geometry.walls.find((candidate) => candidate.id === opening.wallId)
+      if (!wall) return null
+      const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
+      if (length <= 0 || opening.offsetCm < 0 || opening.offsetCm + opening.widthCm > length + 1e-7)
+        return null
+      openings.push({
+        id: `${opening.id}-pdf`,
+        type: opening.type,
+        start: interpolate(wall.start, wall.end, opening.offsetCm / length),
+        end: interpolate(wall.start, wall.end, (opening.offsetCm + opening.widthCm) / length),
+        bottomCm: opening.bottomCm,
+        heightCm: opening.heightCm,
+        cut:
+          wall.heightCm !== undefined &&
+          opening.bottomCm !== undefined &&
+          opening.heightCm !== undefined,
+      })
     }
   } else {
     for (const wall of geometry.walls) {
-      addWallInterval(
-        walls,
-        openings,
-        wall,
-        wall.start,
-        wall.end,
-        geometry.openings,
-        solidFaces,
-        true,
-      )
+      addWallInterval(walls, openings, wall, wall.start, wall.end, geometry.openings, solidFaces, {
+        allowThickness: true,
+        recordOpenings: true,
+      })
     }
   }
 
   const joined = geometry.pdfCalibration ? undefined : joinWallSolids(walls, geometry)
   if (joined === null) return null
+  const furniture: VolumeFurniture[] = kitchenItems.data.map((item) => ({
+    id: `kitchen:${item.id}`,
+    title: kitchenLabels[item.kind],
+    floor: [
+      { xCm: item.xCm, yCm: item.yCm },
+      { xCm: item.xCm + item.widthCm, yCm: item.yCm },
+      { xCm: item.xCm + item.widthCm, yCm: item.yCm + item.depthCm },
+      { xCm: item.xCm, yCm: item.yCm + item.depthCm },
+    ],
+    ...(item.heightCm === undefined ? {} : { heightCm: item.heightCm }),
+  }))
+  const kitchenIssues: PlanGeometryIssue[] = kitchenItemIssues(
+    kitchenItems.data,
+    geometry.widthCm,
+    geometry.heightCm,
+    geometry,
+  ).map((message, index) => ({
+    id: `volume-kitchen-${index}`,
+    severity: 'warning',
+    message,
+  }))
+  const floorZones: VolumeFloorZone[] = kitchenItems.data.flatMap((item, index) =>
+    kitchenClearanceZones(item, index).map((zone) => ({
+      id: `kitchen-zone:${zone.id}`,
+      title: zone.label,
+      kind: 'operation' as const,
+      floor: zone.polygon,
+      ...(zone.id.endsWith('-access') &&
+      (item.openingDepthCm === undefined || item.passageCm === undefined)
+        ? { preliminary: true }
+        : {}),
+    })),
+  )
   return {
     floor: geometry.footprint,
     voids: (geometry.voids ?? []).map((item) => item.polygon),
@@ -260,6 +308,8 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
     wallSource: geometry.pdfCalibration ? 'pdf-faces' : 'centerline',
     solidFaces: joined?.faces ?? solidFaces,
     joinedSolids: joined !== undefined,
-    issues: joined?.issues ?? [],
+    issues: [...(joined?.issues ?? []), ...kitchenIssues],
+    ...(furniture.length > 0 ? { furniture } : {}),
+    ...(floorZones.length > 0 ? { floorZones } : {}),
   }
 }

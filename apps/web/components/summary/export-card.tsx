@@ -386,6 +386,10 @@ export function ExportCard({
               <p className="font-mono text-[12px] text-ink-2">
                 {formatDate(latest.createdAt)} · {exportMeta(latest)}
               </p>
+              <p className="text-[13px] leading-relaxed text-ink-2">
+                PDF сохраняет данные на момент сборки. Если вы изменили мерки, расстановку или
+                покупки, соберите новый документ — скачанный файл сам не обновляется.
+              </p>
             </div>
           ) : latest.status === 'failed' ? (
             <p className="border-t border-line pt-4 text-[13px] leading-relaxed text-danger">

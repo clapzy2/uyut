@@ -1082,7 +1082,7 @@ describe('layoutRoom', () => {
     expect(layout.offFloor).toEqual(['Лампа'])
   })
 
-  it('стулья задвинуты под стол, а кресло просит своё место', () => {
+  it('каждый стул и кресло занимают своё место на полу', () => {
     const layout = layoutRoom({ widthCm: 400, depthCm: 400 }, [
       item({
         title: 'Стул',
@@ -1098,8 +1098,33 @@ describe('layoutRoom', () => {
         dimensions: { width: 80, depth: 85, height: 90 },
       }),
     ])
-    expect(layout.placed.map((place) => place.title)).toEqual(['Кресло'])
-    expect(layout.offFloor).toEqual(['Стул'])
+    expect(layout.placed.filter((place) => place.title === 'Кресло')).toHaveLength(1)
+    expect(layout.placed.filter((place) => place.title === 'Стул')).toHaveLength(4)
+    expect(layout.offFloor).toEqual([])
+    expect(new Set(layout.placed.map((place) => place.id)).size).toBe(5)
+  })
+
+  it('не прячет стул без размеров под условным столом', () => {
+    const layout = layoutRoom({ widthCm: 400, depthCm: 400 }, [
+      item({ title: 'Стул без глубины', category: 'chair', dimensions: { width: 45 } }),
+    ])
+    expect(layout.placed).toEqual([])
+    expect(layout.offFloor).toEqual([])
+    expect(layout.unmeasured.map((entry) => entry.title)).toEqual(['Стул без глубины'])
+  })
+
+  it('сохраняет заданное положение и поворот стула вместо автоматического задвигания', () => {
+    const layout = layoutRoom({ widthCm: 400, depthCm: 400 }, [
+      item({
+        title: 'Стул',
+        category: 'chair',
+        subcategory: 'chair',
+        dimensions: { width: 45, depth: 55 },
+        placement: { xCm: 100, yCm: 100, rotation: 90 },
+      }),
+    ])
+    expect(layout.placed).toHaveLength(1)
+    expect(layout.placed[0]).toMatchObject({ xCm: 100, yCm: 100, widthCm: 55, depthCm: 45 })
   })
 
   it('товар без габаритов в карточке разместить не из чего, и мы говорим об этом', () => {

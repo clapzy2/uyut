@@ -10,7 +10,9 @@ import {
   currentOpeningFacePairs,
   currentWallFacePairs,
 } from '@/lib/projects/plan-opening-face-pairs'
+import { currentOpeningMeasurements } from '@/lib/projects/plan-opening-measurements'
 import { planVolume } from '@/lib/projects/plan-volume'
+import { PlanSourceRoomCoverage } from './plan-source-room-coverage'
 import { PlanVolumeLaunch } from './plan-volume-launch'
 
 function along(wall: PlanWall, distanceCm: number): PlanPoint {
@@ -47,13 +49,18 @@ function countLabel(count: number, one: string, few: string, many: string): stri
 export function PlanGeometryPreview({
   geometry,
   action,
+  roomReadings = [],
+  sourceRooms = [],
 }: {
   geometry: PlanGeometry
   action?: ReactNode
+  roomReadings?: { name: string; sourceNumber?: number }[]
+  sourceRooms?: { name: string; sourceNumber: number }[]
 }) {
   const padding = Math.max(20, Math.min(geometry.widthCm, geometry.heightCm) * 0.06)
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
   const volume = planVolume(geometry)
+  const openingMeasurements = currentOpeningMeasurements(geometry)
   const confirmationIssues =
     geometry.status === 'draft'
       ? [
@@ -115,7 +122,7 @@ export function PlanGeometryPreview({
         </p>
       </div>
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,8fr)_minmax(15rem,4fr)]">
+      <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,8fr)_minmax(15rem,4fr)]">
         <div className="blueprint-grid overflow-hidden border border-line bg-paper p-4 sm:p-7">
           <svg
             viewBox={`${-padding} ${-padding} ${geometry.widthCm + padding * 2} ${geometry.heightCm + padding * 2}`}
@@ -376,11 +383,59 @@ export function PlanGeometryPreview({
               </dd>
             </div>
           </dl>
+          {geometry.source === 'manual' ? (
+            <PlanSourceRoomCoverage
+              rooms={geometry.rooms}
+              roomReadings={roomReadings}
+              sourceRooms={sourceRooms}
+            />
+          ) : null}
           {geometry.warnings.length > 0 && geometry.source !== 'manual' ? (
             <div className="mt-5 border-l-2 border-accent pl-3 text-[13px] leading-relaxed text-ink-2">
               Часть сомнительных линий не попала в схему. Это безопаснее, чем принять мебель или
               размерную цепочку за стену.
             </div>
+          ) : null}
+          {openingMeasurements.length > 0 ? (
+            <details className="mt-5 border-t border-line pt-3 text-[13px] leading-relaxed text-ink-2">
+              <summary className="cursor-pointer text-ink">
+                Сверенные пользователем мерки проёмов ({openingMeasurements.length})
+              </summary>
+              <p className="mt-2">
+                Ширина и отступ от начала стены. Высоты и зона открывания проверяются отдельно.
+              </p>
+              <ul className="mt-2 space-y-3">
+                {openingMeasurements.map((measurement) => (
+                  <li key={measurement.opening.id} className="break-words">
+                    Проём{' '}
+                    {geometry.openings.findIndex(
+                      (opening) => opening.id === measurement.opening.id,
+                    ) + 1}
+                    : {measurement.opening.widthCm.toLocaleString('ru-RU')} см · отступ{' '}
+                    {measurement.opening.offsetCm.toLocaleString('ru-RU')} см.{' '}
+                    {measurement.source.kind === 'site-measurement' ? 'Обмер' : 'Размерный чертёж'}:{' '}
+                    {measurement.source.reference}. Сверка сохранена{' '}
+                    {new Date(measurement.verifiedAt).toLocaleDateString('ru-RU', {
+                      timeZone: 'Europe/Moscow',
+                    })}
+                    .
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+          {geometry.pdfCalibration && geometry.warnings.length > 0 ? (
+            <details className="mt-5 border-t border-line pt-3 text-[13px] leading-relaxed text-ink-2">
+              <summary className="cursor-pointer text-ink">Пояснения исходного переноса</summary>
+              <p className="mt-2">
+                Записаны при переносе PDF; текущие замечания проверяются отдельно.
+              </p>
+              <ul className="mt-2 space-y-2">
+                {geometry.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </details>
           ) : null}
           <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[12px] text-ink-2">
             {geometry.footprint ? (
@@ -409,7 +464,6 @@ export function PlanGeometryPreview({
             </span>
           </div>
           {action ? <div className="mt-6">{action}</div> : null}
-          {volume ? <PlanVolumeLaunch model={volume} /> : null}
           {geometry.status === 'confirmed' && geometry.pdfCalibration && !volume ? (
             <p className="mt-6 border-t border-line pt-5 text-[13px] leading-relaxed text-ink-2">
               Для объёмного просмотра этого PDF нужны подтверждённая граница пола и действующие
@@ -419,6 +473,7 @@ export function PlanGeometryPreview({
           ) : null}
         </div>
       </div>
+      {volume ? <PlanVolumeLaunch model={volume} /> : null}
     </section>
   )
 }

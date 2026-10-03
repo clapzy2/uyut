@@ -331,6 +331,8 @@ export default async function ProjectPage({ params }: { params: Params }) {
       {project.planReading?.geometry ? (
         <PlanGeometryPreview
           geometry={project.planReading.geometry}
+          roomReadings={project.planReading.rooms}
+          sourceRooms={project.planReading.pageReview?.sourceRooms}
           action={
             isOwner ? (
               <PlanGeometryEditor
@@ -342,6 +344,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
                   sourceNumber: room.sourceNumber,
                   areaM2: room.areaM2,
                 }))}
+                sourceRooms={project.planReading.pageReview?.sourceRooms}
                 planUrl={planUrl}
                 planIsPdf={planIsPdf}
               />

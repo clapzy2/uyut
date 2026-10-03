@@ -25,6 +25,7 @@ export type PageContourDraft = PlanPageRoomIdentity & {
   polygon: PageContourPoint[]
   closed: boolean
   conditionalEdges?: PlanPageContours['rooms'][number]['conditionalEdges']
+  dimensionEdges?: PlanPageContours['rooms'][number]['dimensionEdges']
   openings?: PageOpeningDraft[]
   obstacles?: PageObstacleDraft[]
 }
@@ -44,6 +45,7 @@ export function contourDraftsFromSaved(rooms: PlanPageContours['rooms']): PageCo
     polygon: room.polygon.map((point) => ({ ...point })),
     closed: true,
     ...(room.conditionalEdges ? { conditionalEdges: structuredClone(room.conditionalEdges) } : {}),
+    ...(room.dimensionEdges ? { dimensionEdges: structuredClone(room.dimensionEdges) } : {}),
     openings: room.openings?.map(({ start, end, ...opening }) => ({
       ...opening,
       points: [{ ...start }, { ...end }],
@@ -85,6 +87,25 @@ export function pageExteriorForSave(
     boundaryRole: draft.boundaryRole,
     polygon: draft.polygon.map((point) => ({ ...point })),
   }
+}
+
+/** A separate floor outline is reviewed from source nodes, never offset from exterior walls. */
+export function pageFloorForSave(
+  draft: PlanPageContours['floor'],
+  closed: boolean,
+  nativePoints: PageContourPoint[],
+): PlanPageContours['floor'] | null {
+  if (!draft) return undefined
+  if (
+    !closed ||
+    draft.polygon.length < 3 ||
+    draft.polygon.length > 100 ||
+    !draft.polygon.every(
+      (point) => finiteContourPoint(point) && nativeContourPoint(point, nativePoints),
+    )
+  )
+    return null
+  return { polygon: draft.polygon.map((point) => ({ ...point })) }
 }
 
 /** A started void must be closed and bound to original PDF vertices before saving. */
@@ -182,6 +203,9 @@ export function pageContourRoomsForSave(
       ...(draft.conditionalEdges?.length
         ? { conditionalEdges: structuredClone(draft.conditionalEdges) }
         : {}),
+      ...(draft.dimensionEdges?.length
+        ? { dimensionEdges: structuredClone(draft.dimensionEdges) }
+        : {}),
       ...(openings.length ? { openings } : {}),
       ...(obstacles.length ? { obstacles } : {}),
     })
@@ -241,6 +265,7 @@ export function groupPageContourDraft(
     closed: before?.closed ?? false,
     ...(before?.openings ? { openings: before.openings } : {}),
     ...(before?.conditionalEdges ? { conditionalEdges: before.conditionalEdges } : {}),
+    ...(before?.dimensionEdges ? { dimensionEdges: structuredClone(before.dimensionEdges) } : {}),
     ...(before?.obstacles ? { obstacles: before.obstacles } : {}),
   }
   return [...drafts.filter((draft) => pdfContourKey(draft) !== pdfContourKey(selected)), grouped]
@@ -471,6 +496,44 @@ export function nativeSegmentsFromResponse(value: unknown): NativePageSegment[] 
     })
   }
   return segments
+}
+
+export type PageDimensionLabel = PageContourPoint & {
+  index: number
+  text: string
+  rotation: number
+}
+
+export function dimensionLabelsFromResponse(value: unknown): PageDimensionLabel[] | null {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !('dimensionLabels' in value) ||
+    !Array.isArray(value.dimensionLabels) ||
+    value.dimensionLabels.length > 20_000
+  )
+    return null
+  const labels: PageDimensionLabel[] = []
+  const seen = new Set<number>()
+  for (const raw of value.dimensionLabels) {
+    if (
+      !raw ||
+      typeof raw !== 'object' ||
+      !finiteContourPoint(raw) ||
+      !Number.isSafeInteger(raw.index) ||
+      raw.index < 0 ||
+      raw.index > 19_999 ||
+      seen.has(raw.index) ||
+      !Number.isFinite(raw.rotation) ||
+      typeof raw.text !== 'string' ||
+      !/^(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{1,5})$/.test(raw.text) ||
+      Number(raw.text.replace(/[ \u00a0\u202f]/g, '')) <= 0
+    )
+      return null
+    seen.add(raw.index)
+    labels.push({ index: raw.index, text: raw.text, x: raw.x, y: raw.y, rotation: raw.rotation })
+  }
+  return labels
 }
 
 export function nativePointsFromResponse(value: unknown): PageContourPoint[] | null {

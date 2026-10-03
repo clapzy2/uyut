@@ -21,7 +21,7 @@ import {
 type NativeLabel = PagePoint & { index: number; text: string; rotation: number }
 type DimensionAxis = 'width' | 'depth'
 
-function nativeDimensionMillimetres(text: string): number | undefined {
+export function nativeDimensionMillimetres(text: string): number | undefined {
   if (!/^(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{1,5})$/.test(text)) return
   const value = Number(text.replace(/[ \u00a0\u202f]/g, ''))
   return Number.isSafeInteger(value) && value > 0 && value <= 99_999 ? value : undefined
@@ -103,7 +103,7 @@ export function createPdfOpeningSpanVerifier(
   const spansFor = (axis: DimensionAxis) => {
     const existing = spansByAxis[axis]
     if (existing) return existing
-    const spans = nativeDimensionSpans(work, axis, true)
+    const spans = nativeDimensionSpans(work, axis, true) ?? []
     spansByAxis[axis] = spans
     return spans
   }
@@ -483,11 +483,13 @@ export function pdfDepthChain(
   return pdfDimensionChain(work, source, contours, roomSourceNumber, labels, totalMm, 'depth')
 }
 
-export type PdfNativePageDimensionChain =
+export type PdfNativePageDimensionChain<
+  Axis extends DimensionAxis | 'aligned' = DimensionAxis | 'aligned',
+> =
   | {
       status: 'candidate'
       totalMm: number
-      axis: DimensionAxis
+      axis: Axis
       labelIndexes: number[]
       lineOperations: number[]
       ends: [PagePoint, PagePoint]
@@ -502,12 +504,168 @@ export function pdfNativePageDimensionChain(
   source: PdfPlanSource,
   labels: readonly NativeLabel[],
   totalMm: number,
-  axis: DimensionAxis,
+  axis: DimensionAxis | 'aligned',
 ): PdfNativePageDimensionChain {
   if (source.state !== 'existing') return { status: 'unresolved', reason: 'not-existing-state' }
   if (work.coordinateSystem !== 'page-0-1000' || work.truncated)
     return { status: 'unresolved', reason: 'incomplete-native-page' }
-  return nativePageDimensionChain(work, labels, totalMm, axis)
+  return axis === 'aligned'
+    ? alignedPageDimensionChain(work, labels, totalMm)
+    : nativePageDimensionChain(work, labels, totalMm, axis)
+}
+
+/** Поворот только для проверки нативных связей; исходные координаты не меняются. */
+function alignedPageDimensionChain(
+  work: PdfLinework,
+  labels: readonly NativeLabel[],
+  totalMm: number,
+): PdfNativePageDimensionChain {
+  const fail = (
+    reason: string,
+    status: 'unresolved' | 'ambiguous' = 'unresolved',
+  ): PdfNativePageDimensionChain => ({ status, reason })
+  if (
+    labels.length < 1 ||
+    labels.length > 20 ||
+    ![work.pageWidth, work.pageHeight].every((value) => Number.isFinite(value) && value > 0) ||
+    work.paths.length > 3000 ||
+    work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000
+  )
+    return fail('invalid-aligned-page')
+  if (
+    labels.some(
+      (label) =>
+        !Number.isFinite(label.rotation) ||
+        ![label.x, label.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000),
+    ) ||
+    work.paths.some((path) =>
+      path.points.some((point) => ![point.x, point.y].every(Number.isFinite)),
+    )
+  )
+    return fail('invalid-dimension-labels')
+  const firstLabel = labels[0]
+  if (!firstLabel) return fail('invalid-dimension-labels')
+  const physical = (point: PagePoint) => ({
+    x: (point.x * work.pageWidth) / 1000,
+    y: (point.y * work.pageHeight) / 1000,
+  })
+  const angleDifference = (degrees: number) => Math.abs((((degrees % 180) + 270) % 180) - 90)
+  const labelAngle = (-firstLabel.rotation * Math.PI) / 180
+  const anchor = physical(firstLabel)
+  const directions: number[] = []
+  for (const path of work.paths) {
+    if (path.closed || path.paint !== 'stroke' || path.points.length !== 2) continue
+    const [start, end] = path.points
+    if (!start || !end) continue
+    const a = physical(start)
+    const b = physical(end)
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const length = Math.hypot(dx, dy)
+    if (length <= 0.12) continue
+    let angle = Math.atan2(dy, dx)
+    if (angleDifference((angle * 180) / Math.PI + firstLabel.rotation) > 1) continue
+    const projection = ((anchor.x - a.x) * dx + (anchor.y - a.y) * dy) / length ** 2
+    const distance = Math.abs((anchor.x - a.x) * dy - (anchor.y - a.y) * dx) / length
+    if (projection <= 0 || projection >= 1 || distance > 4) continue
+    if (Math.cos(angle - labelAngle) < 0) angle += Math.PI
+    if (!directions.some((existing) => Math.abs(existing - angle) < 1e-10)) directions.push(angle)
+  }
+  if (directions.length > 20) return fail('multiple-dimension-directions', 'ambiguous')
+  const candidates = new Map<
+    string,
+    Extract<PdfNativePageDimensionChain, { status: 'candidate' }>
+  >()
+  let refusal: PdfNativePageDimensionChain = fail('no-connected-dimension-line')
+  for (const angle of directions) {
+    const cos = Math.cos(angle)
+    const sin = Math.sin(angle)
+    const rotate = (point: PagePoint) => ({
+      x: point.x * cos + point.y * sin,
+      y: -point.x * sin + point.y * cos,
+    })
+    const corners = [
+      { x: 0, y: 0 },
+      { x: work.pageWidth, y: 0 },
+      { x: work.pageWidth, y: work.pageHeight },
+      { x: 0, y: work.pageHeight },
+    ].map(rotate)
+    const left = Math.min(...corners.map((point) => point.x))
+    const top = Math.min(...corners.map((point) => point.y))
+    const width = Math.max(...corners.map((point) => point.x)) - left
+    const height = Math.max(...corners.map((point) => point.y)) - top
+    const project = (point: PagePoint) => {
+      const rotated = rotate(physical(point))
+      return { x: ((rotated.x - left) * 1000) / width, y: ((rotated.y - top) * 1000) / height }
+    }
+    const originals = new Map<PagePoint, PagePoint>()
+    const paths = work.paths.map((path) => ({
+      ...path,
+      points: path.points.map((point) => {
+        const projected = project(point)
+        originals.set(projected, point)
+        return projected
+      }),
+    }))
+    const projectedLabels = labels.map((label) => ({
+      ...label,
+      ...project(label),
+      rotation: angleDifference(label.rotation + (angle * 180) / Math.PI) <= 1 ? 0 : NaN,
+    }))
+    const result = nativePageDimensionChain(
+      { ...work, pageWidth: width, pageHeight: height, paths },
+      projectedLabels,
+      totalMm,
+      'width',
+    )
+    if (result.status !== 'candidate') {
+      // Другой удачный поворот не отменяет неоднозначность исходных линий.
+      if (result.status === 'ambiguous') return result
+      refusal = result
+      continue
+    }
+    const originalSegments = result.segments.flatMap((segment) => {
+      const start = originals.get(segment.start)
+      const end = originals.get(segment.end)
+      return start && end ? [{ ...segment, start, end }] : []
+    })
+    if (originalSegments.length !== result.segments.length) return fail('non-native-dimension-end')
+    const start = originalSegments[0]?.start
+    const end = originalSegments.at(-1)?.end
+    if (!start || !end) return fail('non-native-dimension-end')
+    const transverse = originalSegments.flatMap((segment) =>
+      [segment.start, segment.end].map((point) => rotate(physical(point)).y),
+    )
+    if (Math.max(...transverse) - Math.min(...transverse) > 0.12) {
+      refusal = fail('non-collinear-dimension-chain')
+      continue
+    }
+    // Подписи округлены до миллиметров. Масштаб проверяет графику, не натурный обмер.
+    const lengthPt = originalSegments.reduce(
+      (sum, segment) => sum + pdfPointDistance(work, segment.start, segment.end),
+      0,
+    )
+    const mmPerPoint = totalMm / lengthPt
+    if (
+      originalSegments.some(
+        (segment) =>
+          Math.abs(
+            pdfPointDistance(work, segment.start, segment.end) * mmPerPoint - segment.valueMm,
+          ) > 2,
+      )
+    ) {
+      refusal = fail('dimension-scale-conflict')
+      continue
+    }
+    candidates.set(result.lineOperations.join(':'), {
+      ...result,
+      axis: 'aligned',
+      ends: [start, end],
+      segments: originalSegments,
+    })
+  }
+  if (candidates.size > 1) return fail('multiple-dimension-lines', 'ambiguous')
+  return candidates.values().next().value ?? refusal
 }
 
 /** Axis-aligned dimensions with tips facing measured ends. Never derive mm from drawing scale. */
@@ -516,11 +674,11 @@ function nativePageDimensionChain(
   labels: readonly NativeLabel[],
   totalMm: number,
   axis: DimensionAxis,
-): PdfNativePageDimensionChain {
+): PdfNativePageDimensionChain<DimensionAxis> {
   const fail = (
     reason: string,
     status: 'unresolved' | 'ambiguous' = 'unresolved',
-  ): PdfNativePageDimensionChain => ({ status, reason })
+  ): PdfNativePageDimensionChain<DimensionAxis> => ({ status, reason })
   if (
     !Number.isSafeInteger(totalMm) ||
     totalMm < 1 ||
@@ -549,6 +707,7 @@ function nativePageDimensionChain(
   const across = (point: PagePoint) => (axis === 'width' ? point.y : point.x)
   const acrossScale = (axis === 'width' ? work.pageHeight : work.pageWidth) / 1000
   const spans = nativeDimensionSpans(work, axis)
+  if (!spans) return fail('dimension-span-budget-exceeded', 'ambiguous')
   const selected: typeof spans = []
   const sortedLabels = [...labels].sort((a, b) => along(a) - along(b))
   for (const label of sortedLabels) {
@@ -809,7 +968,7 @@ function nativeDimensionSpans(
   work: PdfLinework,
   axis: DimensionAxis,
   collapseRepeatedNativePaint = false,
-): NativeDimensionSpan[] {
+): NativeDimensionSpan[] | undefined {
   if (
     work.paths.length > 3000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000
@@ -868,6 +1027,7 @@ function nativeDimensionSpans(
     ]
   })
   const spans: NativeDimensionSpan[] = []
+  let arrowPairs = 0
   for (const path of work.paths) {
     if (path.closed || path.paint !== 'stroke' || path.points.length !== 2) continue
     const ordered = [...path.points].sort((a, b) => along(a) - along(b))
@@ -890,6 +1050,9 @@ function nativeDimensionSpans(
         })
       continue
     }
+    // Ограничение действует и в повёрнутом aligned-пространстве, до декартова произведения.
+    arrowPairs += left.length * right.length
+    if (arrowPairs > 2000) return undefined
     // Do not select one of two competing arrowheads at an endpoint.
     const branched = strokes.some((stroke) => {
       if (

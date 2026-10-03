@@ -4,6 +4,7 @@ import type { NextRequest } from 'next/server'
 import { AccessError, assertOwnerOrCollaborator } from '@/lib/projects/access'
 import { PlanReadError, preparePlanPage } from '@/lib/projects/plan-document'
 import { planEditRevision } from '@/lib/projects/plan-edit-revision'
+import { nativeDimensionMillimetres } from '@/lib/projects/plan-pdf-dimension-chain'
 import { nativePageSegments } from '@/lib/projects/plan-pdf-opening-endpoint'
 import { getSession } from '@/lib/session'
 import { getObject } from '@/lib/storage'
@@ -72,13 +73,29 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
     if (format === 'points') {
       // Bounded native vertices and stroke segments support exact endpoint crossings.
-      // No dimensions, inferred walls or source text are returned here.
+      // Только нативные числовые подписи, без вывода о стенах или размерах комнаты.
       const unique = new Map<string, { x: number; y: number }>()
       for (const path of page.linework.paths) {
         for (const point of path.points) unique.set(`${point.x}:${point.y}`, point)
       }
       return Response.json(
-        { points: [...unique.values()], segments: nativePageSegments(page.linework) },
+        {
+          points: [...unique.values()],
+          segments: nativePageSegments(page.linework),
+          dimensionLabels: labels.flatMap((label, index) => {
+            if (
+              nativeDimensionMillimetres(label.text) === undefined ||
+              !Number.isFinite(label.rotation) ||
+              label.x === undefined ||
+              label.y === undefined ||
+              ![label.x, label.y].every(
+                (value) => Number.isFinite(value) && value >= 0 && value <= 1000,
+              )
+            )
+              return []
+            return [{ index, text: label.text, rotation: label.rotation, x: label.x, y: label.y }]
+          }),
+        },
         { headers: sourceHeaders },
       )
     }

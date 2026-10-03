@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -7,15 +8,13 @@ const mocks = vi.hoisted(() => ({
   viewport: vi.fn(),
   text: vi.fn(),
   operators: vi.fn(),
+  getDocument: vi.fn(),
 }))
 
 vi.mock('pdfjs-dist/legacy/build/pdf.worker.mjs', () => ({}))
 vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
   OPS: { constructPath: 6, stroke: 7 },
-  getDocument: () => ({
-    promise: Promise.resolve({ numPages: 48, getPage: mocks.getPage }),
-    destroy: mocks.destroy,
-  }),
+  getDocument: mocks.getDocument,
 }))
 vi.mock('@napi-rs/canvas', () => ({
   createCanvas: () => ({
@@ -36,6 +35,10 @@ import { preparePlanPage } from './plan-document'
 describe('selected PDF page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.getDocument.mockReturnValue({
+      promise: Promise.resolve({ numPages: 48, getPage: mocks.getPage }),
+      destroy: mocks.destroy,
+    })
     mocks.getPage.mockResolvedValue({
       getViewport: mocks.viewport,
       render: mocks.render,
@@ -62,6 +65,21 @@ describe('selected PDF page', () => {
     expect(mocks.render).toHaveBeenCalledTimes(1)
     expect(result).toMatchObject({ pageNumber: 6, pageCount: 48 })
     expect(mocks.destroy).toHaveBeenCalledTimes(1)
+  })
+
+  it('loads installed standard fonts through runtime resolution and the Node data factory', async () => {
+    const builtinAccess = vi.spyOn(process, 'getBuiltinModule')
+    try {
+      await preparePlanPage(Buffer.from('pdf'), true, 6)
+      expect(builtinAccess).toHaveBeenCalledWith('module')
+      const options = mocks.getDocument.mock.calls[0]?.[0]
+      expect(options).toMatchObject({ disableFontFace: true, useWorkerFetch: false })
+      expect(options.standardFontDataUrl).toMatch(/\/standard_fonts\/$/)
+      const font = await readFile(`${options.standardFontDataUrl}LiberationSans-Regular.ttf`)
+      expect(font.length).toBeGreaterThan(100_000)
+    } finally {
+      builtinAccess.mockRestore()
+    }
   })
 
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(

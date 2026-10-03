@@ -251,8 +251,8 @@ function spotFor(item: LayoutItem): Spot {
       }
       return 'wall'
     case 'chair':
-      // Стулья задвинуты под стол и своего места на полу не просят; кресло стоит отдельно
-      return item.subcategory === 'armchair' ? 'wall' : 'none'
+      // Без подтверждённого положения нельзя считать стул задвинутым под стол.
+      return item.subcategory === 'armchair' ? 'wall' : 'floorFree'
     case 'lamp':
       return item.subcategory === 'floorLamp' ? 'floorFree' : 'none'
     case 'rug':

@@ -8,6 +8,7 @@
     "./geometry": "./src/geometry.ts",
     "./freshness": "./src/freshness.ts",
     "./shopping-offer": "./src/shopping-offer.ts",
+    "./item-size": "./src/item-size.ts",
     "./layout": "./src/layout.ts",
     "./layout-with-measurements": "./src/layout-with-measurements.ts",
     "./measurement-assurance": "./src/measurement-assurance.ts"

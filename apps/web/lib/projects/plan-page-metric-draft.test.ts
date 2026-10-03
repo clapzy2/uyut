@@ -199,6 +199,104 @@ function realSheet() {
 }
 
 describe('native PDF page to metric draft', () => {
+  it('transfers a separately reviewed floor without creating walls from its boundary', () => {
+    const { reading, context, path } = synthetic()
+    const envelope = [
+      { x: 0, y: 0 },
+      { x: 330, y: 0 },
+      { x: 330, y: 430 },
+      { x: 0, y: 430 },
+    ]
+    const floor = [
+      { x: 5, y: 5 },
+      { x: 320, y: 5 },
+      { x: 320, y: 420 },
+      { x: 5, y: 420 },
+    ]
+    context.contours.exterior = { boundaryRole: 'outer-wall-envelope', polygon: envelope }
+    context.linework.paths.push(path(envelope, true), path(floor, true))
+    const globalContext = { ...context, calibrationRoomNumbers: [4] }
+    const envelopeOnly = planPageMetricDraft(reading, globalContext, [4])
+    expect(envelopeOnly.ok, envelopeOnly.ok ? '' : envelopeOnly.error).toBe(true)
+    if (!envelopeOnly.ok) return
+    expect(envelopeOnly.geometry.footprint).toBeUndefined()
+    expect(envelopeOnly.geometry.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('не является границей пола')]),
+    )
+
+    context.contours.floor = { polygon: floor }
+    const before = structuredClone(context)
+    const result = planPageMetricDraft(reading, globalContext, [4])
+    expect(result.ok, result.ok ? '' : result.error).toBe(true)
+    if (!result.ok) return
+    expect(result.geometry.footprint).toEqual(floor.map(({ x, y }) => ({ xCm: x, yCm: y })))
+    expect(result.geometry).toMatchObject({ widthCm: 330, heightCm: 430 })
+    expect(result.geometry.pdfCalibration?.origin).toEqual({ x: 0, y: 0 })
+    expect(result.geometry.pdfCalibration?.exteriorBoundaryRole).toBe('outer-wall-envelope')
+    expect(result.geometry.walls).toEqual(envelopeOnly.geometry.walls)
+    expect(result.geometry.walls).toHaveLength(8)
+    expect(result.geometry.rooms).toEqual(envelopeOnly.geometry.rooms)
+    expect(result.geometry.openings).toEqual(envelopeOnly.geometry.openings)
+    expect(
+      result.geometry.warnings.some((warning) => warning.includes('не является границей пола')),
+    ).toBe(false)
+    expect(context).toEqual(before)
+  })
+
+  it.each([undefined, 'floor'] as const)('preserves the legacy exterior floor role %s', (role) => {
+    const { reading, context, path } = synthetic()
+    const polygon = [
+      { x: 0, y: 0 },
+      { x: 330, y: 0 },
+      { x: 330, y: 430 },
+      { x: 0, y: 430 },
+    ]
+    context.contours.exterior = { polygon, ...(role ? { boundaryRole: role } : {}) }
+    context.linework.paths.push(path(polygon, true))
+    const result = planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [4] }, [4])
+    expect(result.ok, result.ok ? '' : result.error).toBe(true)
+    if (!result.ok) return
+    expect(result.geometry.footprint).toEqual(polygon.map(({ x, y }) => ({ xCm: x, yCm: y })))
+    expect(result.geometry.walls).toHaveLength(8)
+  })
+
+  it('refuses a non-native floor and proposed-sheet transfer without assigning a substitute', () => {
+    const { reading, context, path } = synthetic()
+    const envelope = [
+      { x: 0, y: 0 },
+      { x: 330, y: 0 },
+      { x: 330, y: 430 },
+      { x: 0, y: 430 },
+    ]
+    const floor = [
+      { x: 5, y: 5 },
+      { x: 320, y: 5 },
+      { x: 320, y: 420 },
+      { x: 5, y: 420 },
+    ]
+    context.contours.exterior = { boundaryRole: 'outer-wall-envelope', polygon: envelope }
+    context.contours.floor = { polygon: floor }
+    context.linework.paths.push(path(envelope, true))
+    const globalContext = { ...context, calibrationRoomNumbers: [4] }
+    expect(planPageMetricDraft(reading, globalContext, [4]).ok).toBe(false)
+    context.linework.paths.push(path(floor, true))
+    expect(planPageMetricDraft(reading, globalContext, [4]).ok).toBe(true)
+    expect(
+      planPageMetricDraft(
+        { ...reading, planState: 'proposed' },
+        {
+          ...globalContext,
+          source: { ...context.source, state: 'proposed' },
+          contours: {
+            ...context.contours,
+            source: { ...context.source, state: 'proposed' },
+          },
+        },
+        [4],
+      ).ok,
+    ).toBe(false)
+  })
+
   it('keeps an open-zone divider in the room polygon without creating a physical wall', () => {
     const { reading, context } = synthetic()
     const room = context.contours.rooms[0]

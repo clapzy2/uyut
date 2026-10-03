@@ -121,4 +121,33 @@ describe('project validation', () => {
         .spaceKind,
     ).toBe('balcony')
   })
+
+  it('accepts a bathroom source row without dimensions independently from furniture rooms', () => {
+    const result = planRoomsSchema.parse({
+      ceilingCm: '',
+      condition: 'bare',
+      rooms: [
+        {
+          include: false,
+          roomId: '',
+          sourceNumber: 101,
+          name: 'Санузел',
+          kind: 'bath',
+          widthCm: '',
+          depthCm: '',
+          areaM2: '',
+          wish: '',
+        },
+      ],
+    })
+    expect(result.rooms[0]).toMatchObject({
+      include: false,
+      sourceNumber: 101,
+      kind: 'bath',
+      widthCm: null,
+      depthCm: null,
+      areaM2: null,
+    })
+    expect(roomSchema.safeParse({ kind: 'bath', name: 'Санузел', areaM2: '' }).success).toBe(false)
+  })
 })

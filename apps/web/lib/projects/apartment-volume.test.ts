@@ -84,6 +84,79 @@ function layout(width = 400): RoomLayout {
 }
 
 describe('мебель комнат в общем объёме квартиры', () => {
+  it('не теряет базовые кухонные зоны при пустой или отвергнутой расстановке', () => {
+    const source: PlanGeometry = {
+      ...geometry(),
+      kitchenItems: [
+        {
+          id: 'cabinet',
+          kind: 'cabinet',
+          xCm: 600,
+          yCm: 250,
+          widthCm: 60,
+          depthCm: 60,
+          front: 'bottom',
+          openingDepthCm: 40,
+          passageCm: 70,
+          installationGaps: { top: 0, right: 5, bottom: 0, left: 0 },
+        },
+      ],
+    }
+    const expected = planVolume(source)?.floorZones
+    expect(expected).toHaveLength(2)
+    for (const rooms of [
+      [],
+      [{ roomId: 'missing', roomName: 'Нет такой комнаты', layout: layout() }],
+    ]) {
+      expect(apartmentVolume(source, rooms).model?.floorZones).toEqual(expected)
+    }
+    const result = apartmentVolume(source, [
+      { roomId: 'living', roomName: 'Гостиная', layout: layout() },
+    ])
+    expect(result.model?.floorZones?.slice(0, 2)).toEqual(expected)
+  })
+  it('сохраняет кухонные модули при совмещении и различает их с покупками по ID', () => {
+    const source: PlanGeometry = {
+      ...geometry(),
+      kitchenItems: [
+        {
+          id: 'chair-1',
+          kind: 'cabinet',
+          xCm: 125,
+          yCm: 230,
+          widthCm: 60,
+          depthCm: 100,
+          heightCm: 90,
+        },
+      ],
+    }
+    const current = layout()
+    const before = structuredClone({ source, current })
+    const base = apartmentVolume(source, [])
+    expect(base.model?.furniture).toHaveLength(1)
+    const result = apartmentVolume(source, [
+      { roomId: 'living', roomName: 'Гостиная', layout: current },
+    ])
+    expect(result.model?.furniture).toHaveLength(4)
+    expect(new Set(result.model?.furniture?.map((item) => item.id)).size).toBe(4)
+    expect(result.model?.furniture?.[0]).toMatchObject({
+      id: 'kitchen:chair-1',
+      heightCm: 90,
+      floor: rectangle(125, 230, 60, 100),
+    })
+    expect(result.model?.furniture?.[1]?.id).toBe(JSON.stringify(['living', 'chair-1']))
+    expect(result.model?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: 'warning',
+          message: expect.stringContaining('один предмет дважды'),
+        }),
+      ]),
+    )
+    expect(result.notes).toEqual([])
+    expect({ source, current }).toEqual(before)
+  })
+
   it('совместим с реальной 2D-расстановкой на независимом структурированном плане', () => {
     // Confirmation here enables a test path; it is not an on-site verification of the dataset.
     const source: PlanGeometry = {

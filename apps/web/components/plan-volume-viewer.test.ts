@@ -101,15 +101,26 @@ describe('объёмный просмотр с мерками', () => {
     expect(html.match(/<path /g)).toHaveLength(5)
   })
 
-  it('при неполных мерках сохраняет маркер положения и условную высоту', () => {
+  it('сохраняет известную высоту окна при неизвестной высоте стены', () => {
     const html = render({
       ...geometry,
       walls: geometry.walls.map((wall) => ({ ...wall, heightCm: undefined })),
     })
-    expect(html).toContain('Окно · положение на плане')
+    expect(html).toContain('Окно · низ 50 см · высота 100 см')
     expect(html).toContain('Высота стен показана условно')
     expect(html.match(/<path /g)).toHaveLength(2)
+    expect(html).toContain('<polygon ')
+  })
+
+  it('при неизвестной вертикали окна оставляет только положение на полу', () => {
+    const html = render({
+      ...geometry,
+      openings: geometry.openings.map((opening) => ({ ...opening, heightCm: undefined })),
+    })
+    expect(html).toContain('Окно · положение на плане')
+    expect(html).not.toContain('Окно · низ 50 см · высота 100 см')
     expect(html).toContain('<line ')
+    expect(html).not.toContain('<polygon ')
   })
 
   it('показывает предупреждение, когда другая стена перекрывает проём', () => {

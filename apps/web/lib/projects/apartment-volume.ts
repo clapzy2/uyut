@@ -1,5 +1,6 @@
 import type { RoomLayout } from '@uyut/catalog'
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
+import { polygonsOverlap } from './plan-page-review'
 import {
   type PlanVolume,
   planVolume,
@@ -58,8 +59,10 @@ export function apartmentVolume(
     }
   }
   const notes: string[] = []
-  const furniture: VolumeFurniture[] = []
-  const floorZones: VolumeFloorZone[] = []
+  const kitchenFurniture = model.furniture ?? []
+  const furniture: VolumeFurniture[] = [...kitchenFurniture]
+  const issues = [...model.issues]
+  const floorZones: VolumeFloorZone[] = [...(model.floorZones ?? [])]
   const matchedRooms: VolumeRoom[] = []
   for (const room of rooms) {
     const name = normalizedName(room.roomName)
@@ -143,5 +146,21 @@ export function apartmentVolume(
       })),
     )
   }
-  return { model: { ...model, furniture, floorZones, rooms: matchedRooms }, notes }
+  for (const kitchen of kitchenFurniture) {
+    for (const item of furniture.slice(kitchenFurniture.length)) {
+      if (
+        polygonsOverlap(
+          kitchen.floor.map((point) => ({ x: point.xCm, y: point.yCm })),
+          item.floor.map((point) => ({ x: point.xCm, y: point.yCm })),
+        )
+      ) {
+        issues.push({
+          id: `volume-kitchen-furniture-overlap-${kitchen.id}-${item.id}`,
+          severity: 'warning',
+          message: `${kitchen.title} пересекается с мебелью «${item.title}». Проверьте, не указан ли один предмет дважды.`,
+        })
+      }
+    }
+  }
+  return { model: { ...model, furniture, floorZones, rooms: matchedRooms, issues }, notes }
 }

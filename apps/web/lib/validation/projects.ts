@@ -153,8 +153,10 @@ export const planRoomsSchema = z.object({
         // Пустая строка, а не отсутствие поля: форма отдаёт то, что есть в состоянии строки
         roomId: z.union([z.uuid(), z.literal('')]),
         name: z.string().trim().max(40, { error: 'Слишком длинно: хватит 40 знаков' }),
-        kind: roomKindSchema,
-        sourceNumber: z.number().int().min(1).max(50).optional(),
+        // Санузел можно сохранить в исходном плане, но не выбрать для генерации интерьера.
+        kind: z.enum(['living', 'bedroom', 'kitchen', 'bath', 'kid']),
+        sourceNumber: z.number().int().min(1).max(10_000).optional(),
+        utility: z.boolean().optional(),
         ceilingCm: spotWidthSchema.optional(),
         widthCm: spotWidthSchema,
         depthCm: spotWidthSchema,

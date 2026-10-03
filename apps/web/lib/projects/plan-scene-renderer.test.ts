@@ -142,6 +142,72 @@ afterEach(() => {
 })
 
 describe('управление сценой без подмены геометрии', () => {
+  it('вписывает известную вертикаль проёма даже без высоты стены', () => {
+    const source: PlanVolume = {
+      ...model,
+      furniture: [],
+      openings: [
+        {
+          id: 'high-window',
+          type: 'window',
+          start: { xCm: 100, yCm: 0 },
+          end: { xCm: 200, yCm: 0 },
+          bottomCm: 300,
+          heightCm: 300,
+          cut: false,
+        },
+      ],
+    }
+    const before = structuredClone(source)
+    const { canvas, view } = start(source)
+    for (const width of [1000, 390]) {
+      canvas.clientWidth = width
+      resizeCanvas()
+      view.camera('reset')
+      flush()
+      scene().updateMatrixWorld(true)
+      camera().updateMatrixWorld(true)
+      for (const point of [
+        new Vector3(1, 3, 0),
+        new Vector3(2, 3, 0),
+        new Vector3(2, 6, 0),
+        new Vector3(1, 6, 0),
+      ]) {
+        const projected = point.project(camera())
+        expect(Math.abs(projected.x)).toBeLessThan(1)
+        expect(Math.abs(projected.y)).toBeLessThan(1)
+        expect(projected.z).toBeGreaterThan(-1)
+        expect(projected.z).toBeLessThan(1)
+      }
+    }
+    expect(source).toEqual(before)
+  })
+
+  it('при замене модели освобождает сцену, сохраняя контекст того же canvas для следующей', () => {
+    const geometryDispose = vi.spyOn(BufferGeometry.prototype, 'dispose')
+    try {
+      const { canvas, view } = start()
+      view.dispose({ releaseContext: false })
+      expect(geometryDispose.mock.calls.length).toBeGreaterThan(0)
+      expect(gpu.dispose).toHaveBeenCalledTimes(1)
+      expect(gpu.forceContextLoss).not.toHaveBeenCalled()
+      const next = mountPlanScene(
+        canvas as unknown as HTMLCanvasElement,
+        structuredClone(model),
+        vi.fn(),
+        vi.fn(),
+      )
+      disposeView = next.dispose
+      flush()
+      next.dispose()
+      expect(gpu.dispose).toHaveBeenCalledTimes(2)
+      expect(gpu.forceContextLoss).toHaveBeenCalledTimes(1)
+      expect(frames.size).toBe(0)
+    } finally {
+      geometryDispose.mockRestore()
+    }
+  })
+
   it('приближает выбранный предмет, сохраняет направление и возвращает всю квартиру', () => {
     const source = structuredClone(model)
     const { view, canvas } = start(source)

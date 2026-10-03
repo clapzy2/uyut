@@ -10,6 +10,10 @@ import type {
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AccessError } from '@/lib/projects/access'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
+import {
+  openingMeasurementSnapshot,
+  openingMeasurementWallSnapshot,
+} from '@/lib/projects/plan-opening-measurements'
 import openApartmentSource from '../../../jobs/fixtures/open-swiss-apartment-35063.json'
 import openApartment from '../../../jobs/fixtures/open-swiss-apartment-35063-geometry.json'
 
@@ -299,11 +303,23 @@ describe('manual plan draft', () => {
       labelIndexes: [1, 2],
       derivedOpeningIds: ['manual_123456789012345678901234'],
     }
-    source.planReading.geometry = { ...emptyManualGeometry, pdfCalibration }
-    const input = { ...emptyManualGeometry, walls: closedWalls, rooms: kitchenContour }
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      pdfCalibration,
+      warnings: ['Исходный контур требует сверки.'],
+    }
+    const input = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      rooms: kitchenContour,
+      warnings: ['Подтверждено браузером'],
+    }
     const draft = await savePlanGeometry(projectId, input, 'draft')
     expect(draft.ok).toBe(true)
-    if (draft.ok) expect(draft.data.geometry.pdfCalibration).toEqual(pdfCalibration)
+    if (draft.ok) {
+      expect(draft.data.geometry.pdfCalibration).toEqual(pdfCalibration)
+      expect(draft.data.geometry.warnings).toEqual(['Исходный контур требует сверки.'])
+    }
     source.planReading.rooms = [{ name: 'Кухня', kind: 'kitchen', areaM2: 20 }]
     const confirmed = await savePlanGeometry(
       projectId,
@@ -316,6 +332,122 @@ describe('manual plan draft', () => {
     )
     expect(confirmed.ok).toBe(false)
     if (!confirmed.ok) expect(confirmed.error).toContain('проёмы')
+  })
+
+  it('сохраняет явную сверку проёма и сбрасывает её после изменения ширины', async () => {
+    const host = closedWalls[0]
+    if (!host) throw new Error('Missing manual wall')
+    const opening = {
+      id: 'manual_123456789012345678901234',
+      type: 'door' as const,
+      wallId: host.id,
+      widthCm: 90,
+      offsetCm: 100,
+    }
+    const geometry: PlanGeometry = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      openings: [opening],
+      rooms: kitchenContour,
+      pdfCalibration: {
+        sourceSha256: 'a'.repeat(64),
+        pdfPage: 2,
+        cmPerPoint: 1.2,
+        origin: { x: 0, y: 0 },
+        anchorRoomNumbers: [1],
+        labelIndexes: [],
+        derivedOpeningIds: [opening.id],
+      },
+    }
+    source.planReading.geometry = geometry
+    const draft = await savePlanGeometry(
+      projectId,
+      {
+        ...geometry,
+        openingMeasurementRequests: [
+          {
+            action: 'verify',
+            opening: openingMeasurementSnapshot(opening),
+            wall: openingMeasurementWallSnapshot(host),
+            source: {
+              kind: 'dimensioned-drawing',
+              reference: 'Обмерный план, лист 03, размер двери',
+            },
+            acknowledged: true,
+          },
+        ],
+      },
+      'draft',
+    )
+    expect(draft.ok).toBe(true)
+    if (!draft.ok) return
+    expect(draft.data.geometry.pdfCalibration?.derivedOpeningIds).toEqual([])
+    expect(draft.data.geometry.pdfCalibration?.openingMeasurements?.[0]).toMatchObject({
+      verifiedBy: 'owner',
+      source: { kind: 'dimensioned-drawing' },
+      opening,
+    })
+    source.planReading.geometry = draft.data.geometry
+    const reopened = await savePlanGeometry(projectId, draft.data.geometry, 'draft')
+    expect(reopened.ok).toBe(true)
+    if (!reopened.ok) return
+    expect(reopened.data.geometry.pdfCalibration?.openingMeasurements).toEqual(
+      draft.data.geometry.pdfCalibration?.openingMeasurements,
+    )
+    const changed = await savePlanGeometry(
+      projectId,
+      { ...draft.data.geometry, openings: [{ ...opening, widthCm: 91 }] },
+      'draft',
+    )
+    expect(changed.ok).toBe(true)
+    if (changed.ok) {
+      expect(changed.data.geometry.pdfCalibration?.derivedOpeningIds).toEqual([opening.id])
+      expect(changed.data.geometry.pdfCalibration?.openingMeasurements).toEqual([])
+      expect(changed.data.geometry.status).toBe('draft')
+    }
+  })
+
+  it('не принимает сверку, вложенную в клиентские серверные доказательства', async () => {
+    const geometry: PlanGeometry = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      rooms: kitchenContour,
+      pdfCalibration: {
+        sourceSha256: 'a'.repeat(64),
+        pdfPage: 2,
+        cmPerPoint: 1.2,
+        origin: { x: 0, y: 0 },
+        anchorRoomNumbers: [1],
+        labelIndexes: [],
+        derivedOpeningIds: ['missing'],
+      },
+    }
+    source.planReading.geometry = geometry
+    const result = await savePlanGeometry(
+      projectId,
+      {
+        ...geometry,
+        pdfCalibration: {
+          ...geometry.pdfCalibration,
+          derivedOpeningIds: [],
+          measurementRequiredOpeningIds: [],
+          openingMeasurements: [{ verifiedBy: 'owner' }],
+        },
+      },
+      'draft',
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.data.geometry.pdfCalibration).toEqual(geometry.pdfCalibration)
+  })
+
+  it('не записывает неявную сверку без описания источника', async () => {
+    const result = await savePlanGeometry(
+      projectId,
+      { ...emptyManualGeometry, openingMeasurementRequests: [{ action: 'verify' }] },
+      'draft',
+    )
+    expect(result.ok).toBe(false)
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
   })
 
   it('не подтверждает квартиру, если экспликация PDF содержит пропущенную комнату', async () => {

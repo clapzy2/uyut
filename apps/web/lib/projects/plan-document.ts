@@ -1,7 +1,6 @@
-import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
 import sharp from 'sharp'
 import { extractPdfLinework, type PdfLinework } from './plan-pdf-linework'
+import { pdfStandardFontDataUrl } from './plan-pdf-standard-fonts'
 
 export class PlanReadError extends Error {
   constructor(message: string) {
@@ -13,15 +12,6 @@ export class PlanReadError extends Error {
 const READING_MAX_SIDE = 2000
 const PDF_DPI = 150
 const PDF_MAX_PIXELS = 12_000_000
-
-const standardFontDataUrl = (() => {
-  try {
-    const require_ = createRequire(import.meta.url)
-    return `${join(dirname(require_.resolve('pdfjs-dist/package.json')), 'standard_fonts').replaceAll('\\', '/')}/`
-  } catch {
-    return undefined
-  }
-})()
 
 async function toJpeg(body: Buffer): Promise<{ body: Buffer; contentType: string }> {
   const jpeg = await sharp(body)
@@ -61,7 +51,7 @@ export async function preparePlanPage(
     data: new Uint8Array(body),
     disableFontFace: true,
     useWorkerFetch: false,
-    ...(standardFontDataUrl ? { standardFontDataUrl } : {}),
+    standardFontDataUrl: pdfStandardFontDataUrl(import.meta.url),
   })
   let document: Awaited<typeof loading.promise>
   try {

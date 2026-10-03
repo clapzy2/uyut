@@ -24,9 +24,11 @@ import { FormError } from '@/components/form-error'
 import { KitchenPlanEditor } from '@/components/kitchen-plan-editor'
 import { PlanImageReference, type PlanUnderlay } from '@/components/plan-image-reference'
 import { PlanObstaclesEditor } from '@/components/plan-obstacles-editor'
+import { PlanOpeningMeasurementEditor } from '@/components/plan-opening-measurement-editor'
 import { PlanRouteCheck } from '@/components/plan-route-check'
+import { PlanSourceRoomCoverage } from '@/components/plan-source-room-coverage'
 import { doorClearanceZone } from '@/lib/projects/clearance-zones'
-import { manualRoomCoverage } from '@/lib/projects/manual-plan-geometry'
+import { manualRoomCoverage, missingManualSourceRooms } from '@/lib/projects/manual-plan-geometry'
 import {
   inspectManualPlanCompleteness,
   inspectPlanGeometry,
@@ -34,6 +36,14 @@ import {
   type PlanGeometryIssue,
 } from '@/lib/projects/plan-geometry-inspection'
 import { planImageMatrix, planImageScaleCheck } from '@/lib/projects/plan-image-calibration'
+import {
+  applyOpeningMeasurementRequests,
+  currentOpeningMeasurements,
+  type OpeningMeasurementRequest,
+  openingMeasurementMatches,
+  unresolvedOpeningMeasurementIds,
+  type VerifyOpeningMeasurementRequest,
+} from '@/lib/projects/plan-opening-measurements'
 import { inspectPlanVerticalDimensions } from '@/lib/projects/plan-vertical-dimensions'
 import {
   addRoomContourPoint,
@@ -148,10 +158,19 @@ function PlanGeometryCanvas({
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<DragTarget | undefined>(undefined)
-  const padding = Math.max(24, Math.min(geometry.widthCm, geometry.heightCm) * 0.06)
+  const padding = Math.max(
+    24,
+    Math.min(geometry.widthCm, geometry.heightCm) * 0.06,
+    selection.startsWith('opening:') ? Math.max(geometry.widthCm, geometry.heightCm) / 18 : 0,
+  )
   const wallById = new Map(walls.map((wall) => [wall.id, wall]))
   const [selectionKind, selectionId] = selection.split(':')
   const editableGeometry = { ...geometry, walls, openings, rooms }
+  const openingHost =
+    selectionKind === 'opening'
+      ? wallById.get(openings.find((opening) => opening.id === selectionId)?.wallId ?? '')
+      : undefined
+  const hostMarkerScale = Math.max(geometry.widthCm, geometry.heightCm)
 
   function canvasPoint(event: ReactPointerEvent<SVGSVGElement>): PlanPoint | null {
     const svg = svgRef.current
@@ -492,6 +511,41 @@ function PlanGeometryCanvas({
           )
         })}
 
+        {openingHost ? (
+          <g className="pointer-events-none" aria-label="А — начало стены, Б — конец стены">
+            {[
+              { className: 'sm:hidden', radiusDivisor: 19, fontDivisor: 12 },
+              { className: 'hidden sm:block', radiusDivisor: 38, fontDivisor: 24 },
+            ].map((marker) => (
+              <g key={marker.className} className={marker.className}>
+                {(['start', 'end'] as const).map((endpoint, index) => (
+                  <g key={endpoint}>
+                    <circle
+                      cx={openingHost[endpoint].xCm}
+                      cy={openingHost[endpoint].yCm}
+                      r={Math.max(8, hostMarkerScale / marker.radiusDivisor)}
+                      fill="var(--paper)"
+                      stroke="var(--accent)"
+                      strokeWidth="2"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    <text
+                      x={openingHost[endpoint].xCm}
+                      y={openingHost[endpoint].yCm}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fill="var(--ink)"
+                      fontSize={Math.max(12, hostMarkerScale / marker.fontDivisor)}
+                      className="font-mono"
+                    >
+                      {index === 0 ? 'А' : 'Б'}
+                    </text>
+                  </g>
+                ))}
+              </g>
+            ))}
+          </g>
+        ) : null}
         {selectionKind === 'room'
           ? rooms[Number(selectionId)]?.polygon.map((vertex, pointIndex) => (
               <circle
@@ -524,6 +578,7 @@ export function PlanGeometryEditor({
   sourceRevision,
   geometry,
   roomReadings,
+  sourceRooms = [],
   planUrl,
   planIsPdf,
 }: {
@@ -531,6 +586,7 @@ export function PlanGeometryEditor({
   sourceRevision: string
   geometry: PlanGeometry
   roomReadings: { name: string; sourceNumber?: number; areaM2?: number }[]
+  sourceRooms?: { name: string; sourceNumber: number }[]
   planUrl: string | null
   planIsPdf: boolean
 }) {
@@ -539,6 +595,8 @@ export function PlanGeometryEditor({
   const [open, setOpen] = useState(false)
   const [walls, setWalls] = useState(() => geometry.walls)
   const [openings, setOpenings] = useState(() => geometry.openings)
+  const [measurementCalibration, setMeasurementCalibration] = useState(geometry.pdfCalibration)
+  const [measurementRequests, setMeasurementRequests] = useState<OpeningMeasurementRequest[]>([])
   const [rooms, setRooms] = useState(() => geometry.rooms)
   const [kitchenItems, setKitchenItems] = useState(() => geometry.kitchenItems ?? [])
   const [utilityPoints, setUtilityPoints] = useState(() => geometry.utilityPoints ?? [])
@@ -585,6 +643,7 @@ export function PlanGeometryEditor({
     routeWidthCm,
     routeStartOpeningId,
     imageCalibration,
+    measurementRequests,
   ])
   const verified = verifiedEdit === editSnapshot
   const [selectionKind, selectionId] = selection.split(':')
@@ -594,14 +653,51 @@ export function PlanGeometryEditor({
     selectionKind === 'opening' ? openings.find((opening) => opening.id === selectionId) : null
   const selectedOpeningClearance = selectedOpening?.clearance
   const selectedRoom = selectionKind === 'room' ? rooms[Number(selectionId)] : undefined
+  const measurementGeometry = { walls, openings, rooms, pdfCalibration: measurementCalibration }
+  const selectedOpeningWall = selectedOpening
+    ? walls.find((wall) => wall.id === selectedOpening.wallId)
+    : undefined
+  const { activeMeasurementRequests, editableCalibration } = useMemo(() => {
+    const current = { walls, openings, rooms, pdfCalibration: measurementCalibration }
+    const activeMeasurementRequests = measurementRequests.filter(
+      (request) => request.action === 'remove' || openingMeasurementMatches(current, request),
+    )
+    const preview = applyOpeningMeasurementRequests(
+      current,
+      activeMeasurementRequests,
+      'pending-user-verification',
+      new Date().toISOString(),
+    )
+    return {
+      activeMeasurementRequests,
+      editableCalibration: preview.ok ? preview.pdfCalibration : measurementCalibration,
+    }
+  }, [walls, openings, rooms, measurementCalibration, measurementRequests])
   const issues = useMemo(
     () => [
       ...inspectPlanGeometry({ ...geometry, walls, openings, rooms }),
       ...inspectPlanVerticalDimensions({ walls, openings }),
       ...(geometry.source === 'manual'
         ? [
-            ...inspectManualPlanCompleteness({ ...geometry, walls, openings, rooms }),
+            ...inspectManualPlanCompleteness({
+              ...geometry,
+              walls,
+              openings,
+              rooms,
+              pdfCalibration: editableCalibration,
+            }),
             ...inspectPlanRoomAreas(rooms, roomReadings, Boolean(geometry.pdfCalibration)),
+            ...(!manualRoomCoverage(rooms, roomReadings).valid
+              ? [
+                  {
+                    id: 'manual-room-identity',
+                    severity: 'error' as const,
+                    message:
+                      'Название или номер контура не соответствует списку помещений. Сверьте список; лишний ручной контур можно удалить и разметить заново.',
+                    roomIndexes: rooms.map((_, index) => index),
+                  },
+                ]
+              : []),
           ]
         : []),
       ...(imageCalibration?.verificationLines?.some(
@@ -617,7 +713,7 @@ export function PlanGeometryEditor({
           ]
         : []),
     ],
-    [geometry, walls, openings, rooms, imageCalibration, roomReadings],
+    [geometry, walls, openings, rooms, imageCalibration, roomReadings, editableCalibration],
   )
   const blockingIssues = issues.filter(
     (issue) => issue.severity === 'error' && !issue.id.startsWith('manual-'),
@@ -631,15 +727,26 @@ export function PlanGeometryEditor({
   ]
   const wallErrorIds = new Set(confirmationIssues.flatMap((issue) => issue.wallIds ?? []))
   const openingErrorIds = new Set(confirmationIssues.flatMap((issue) => issue.openingIds ?? []))
+  const scaleOpeningIds = new Set(
+    unresolvedOpeningMeasurementIds({
+      ...measurementGeometry,
+      pdfCalibration: editableCalibration,
+    }),
+  )
+  const selectedMeasurement = currentOpeningMeasurements({
+    ...measurementGeometry,
+    pdfCalibration: editableCalibration,
+  }).find((item) => item.opening.id === selectedOpening?.id)
   const roomErrorIndexes = new Set(confirmationIssues.flatMap((issue) => issue.roomIndexes ?? []))
   const missingRoomNames = manualRoomCoverage(rooms, roomReadings).missing
+  const missingSourceRooms = missingManualSourceRooms(rooms, roomReadings, sourceRooms)
   const availableRoomNames = [...new Set(missingRoomNames)]
   const duplicateRoomNames = new Set(roomNames).size !== roomNames.length
 
   function selectIssue(issue: PlanGeometryIssue) {
-    const openingId = issue.openingIds?.[0]
-    const wallId = issue.wallIds?.[0]
-    const roomIndex = issue.roomIndexes?.[0]
+    const openingId = issue.openingIds?.find((id) => openings.some((opening) => opening.id === id))
+    const wallId = issue.wallIds?.find((id) => walls.some((wall) => wall.id === id))
+    const roomIndex = issue.roomIndexes?.find((index) => rooms[index] !== undefined)
     if (openingId) setSelection(`opening:${openingId}`)
     else if (wallId) setSelection(`wall:${wallId}`)
     else if (roomIndex !== undefined) setSelection(`room:${roomIndex}`)
@@ -661,6 +768,28 @@ export function PlanGeometryEditor({
         opening.id === selectedOpening.id ? { ...opening, ...patch } : opening,
       ),
     )
+  }
+
+  function verifyOpeningMeasurement(request: VerifyOpeningMeasurementRequest) {
+    patchOpening({ widthCm: request.opening.widthCm, offsetCm: request.opening.offsetCm })
+    setMeasurementRequests((current) => [
+      ...current.filter(
+        (item) =>
+          (item.action === 'verify' ? item.opening.id : item.openingId) !== request.opening.id,
+      ),
+      request,
+    ])
+  }
+
+  function removeOpeningMeasurement() {
+    if (!selectedOpening) return
+    const openingId = selectedOpening.id
+    setMeasurementRequests((current) => [
+      ...current.filter(
+        (item) => (item.action === 'verify' ? item.opening.id : item.openingId) !== openingId,
+      ),
+      { action: 'remove', openingId },
+    ])
   }
 
   function enableOpeningClearance(side: 'left' | 'right' | '') {
@@ -744,6 +873,8 @@ export function PlanGeometryEditor({
   function addRoom() {
     const name = availableRoomNames.includes(newRoomName) ? newRoomName : availableRoomNames[0]
     if (!name) return
+    const readingMatches = roomReadings.filter((room) => room.name === name)
+    const sourceNumber = readingMatches.length === 1 ? readingMatches[0]?.sourceNumber : undefined
     const width = Math.min(geometry.widthCm, Math.max(75, Math.min(300, geometry.widthCm * 0.4)))
     const height = Math.min(geometry.heightCm, Math.max(75, Math.min(300, geometry.heightCm * 0.4)))
     const left = Math.round((geometry.widthCm - width) / 2)
@@ -752,6 +883,7 @@ export function PlanGeometryEditor({
       ...current,
       {
         name,
+        ...(sourceNumber === undefined ? {} : { sourceNumber }),
         polygon: [
           { xCm: left, yCm: top },
           { xCm: left + width, yCm: top },
@@ -799,6 +931,12 @@ export function PlanGeometryEditor({
   }
 
   function removeSelected() {
+    if (selectedRoom && geometry.source === 'manual') {
+      setRooms((current) => current.filter((_, index) => index !== Number(selectionId)))
+      setSelection(nextSelection(walls, openings))
+      setVerifiedEdit(undefined)
+      return
+    }
     if (selectedWall) {
       const nextWalls = walls.filter((wall) => wall.id !== selectedWall.id)
       const nextOpenings = openings.filter((opening) => opening.wallId !== selectedWall.id)
@@ -820,6 +958,8 @@ export function PlanGeometryEditor({
   function reset(nextGeometry = geometry, nextRevision = sourceRevision) {
     setWalls(nextGeometry.walls)
     setOpenings(nextGeometry.openings)
+    setMeasurementCalibration(nextGeometry.pdfCalibration)
+    setMeasurementRequests([])
     setRooms(nextGeometry.rooms)
     setKitchenItems(nextGeometry.kitchenItems ?? [])
     setUtilityPoints(nextGeometry.utilityPoints ?? [])
@@ -855,6 +995,7 @@ export function PlanGeometryEditor({
             routeWidthCm,
             routeStartOpeningId,
             imageCalibration: imageCalibration ?? null,
+            openingMeasurementRequests: activeMeasurementRequests,
           },
           mode,
           baseRevision,
@@ -1021,20 +1162,53 @@ export function PlanGeometryEditor({
                 <ul className="mt-3 space-y-2">
                   {visibleIssues.map((issue) => {
                     const needsAreaReview = issue.id.startsWith('manual-room-area-')
+                    const affectedWalls = walls.filter((wall) => issue.wallIds?.includes(wall.id))
+                    const canSelect =
+                      affectedWalls.length > 0 ||
+                      openings.some((opening) => issue.openingIds?.includes(opening.id)) ||
+                      issue.roomIndexes?.some((index) => rooms[index] !== undefined)
+                    const label = `${needsAreaReview ? 'Сверьте площадь: ' : issue.severity === 'error' ? 'Ошибка: ' : 'Проверьте: '}${issue.message}`
                     return (
                       <li key={issue.id}>
-                        <button
-                          type="button"
-                          onClick={() => selectIssue(issue)}
-                          className={`text-left text-[13px] leading-relaxed underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink ${issue.severity === 'error' ? 'text-danger' : 'text-ink-2'}`}
-                        >
-                          {needsAreaReview
-                            ? 'Сверьте площадь: '
-                            : issue.severity === 'error'
-                              ? 'Ошибка: '
-                              : 'Проверьте: '}
-                          {issue.message}
-                        </button>
+                        {canSelect ? (
+                          <button
+                            type="button"
+                            onClick={() => selectIssue(issue)}
+                            className={`text-left text-[13px] leading-relaxed underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink ${issue.severity === 'error' ? 'text-danger' : 'text-ink-2'}`}
+                          >
+                            {label}
+                          </button>
+                        ) : (
+                          <p
+                            className={`text-[13px] leading-relaxed ${issue.severity === 'error' ? 'text-danger' : 'text-ink-2'}`}
+                          >
+                            {label}
+                          </p>
+                        )}
+                        {affectedWalls.length > 1 ? (
+                          <select
+                            aria-label={`Стены в замечании: ${issue.message}`}
+                            className="mt-2 block max-w-full rounded-sm border border-control bg-paper px-2 py-1 text-xs text-ink"
+                            value={
+                              affectedWalls.some((wall) => selection === `wall:${wall.id}`)
+                                ? selection
+                                : ''
+                            }
+                            onChange={(event) => {
+                              const wall = affectedWalls.find(
+                                (item) => event.currentTarget.value === `wall:${item.id}`,
+                              )
+                              if (wall) setSelection(`wall:${wall.id}`)
+                            }}
+                          >
+                            <option value="">Показать одну из {affectedWalls.length} стен…</option>
+                            {affectedWalls.map((wall) => (
+                              <option key={wall.id} value={`wall:${wall.id}`}>
+                                Стена {walls.findIndex((item) => item.id === wall.id) + 1}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
                       </li>
                     )
                   })}
@@ -1051,6 +1225,13 @@ export function PlanGeometryEditor({
             )}
           </div>
 
+          {geometry.source === 'manual' ? (
+            <PlanSourceRoomCoverage
+              rooms={rooms}
+              roomReadings={roomReadings}
+              sourceRooms={sourceRooms}
+            />
+          ) : null}
           <PlanObstaclesEditor
             geometry={{ ...geometry, walls, rooms }}
             obstacles={obstacles}
@@ -1109,6 +1290,7 @@ export function PlanGeometryEditor({
                     {openings.map((opening, index) => (
                       <option key={opening.id} value={`opening:${opening.id}`}>
                         {openingLabel(opening.type)} {index + 1} · {opening.widthCm} см
+                        {scaleOpeningIds.has(opening.id) ? ' · сверить мерку' : ''}
                       </option>
                     ))}
                   </optgroup>
@@ -1304,6 +1486,36 @@ export function PlanGeometryEditor({
                       }
                     />
                   </div>
+                  {measurementCalibration && selectedOpeningWall ? (
+                    <PlanOpeningMeasurementEditor
+                      key={selectedOpening.id}
+                      opening={selectedOpening}
+                      wall={selectedOpeningWall}
+                      measurement={selectedMeasurement}
+                      invalidated={
+                        !selectedMeasurement &&
+                        (measurementCalibration.openingMeasurements?.some(
+                          (measurement) => measurement.opening.id === selectedOpening.id,
+                        ) ||
+                          measurementRequests.some(
+                            (request) =>
+                              request.action === 'verify' &&
+                              request.opening.id === selectedOpening.id,
+                          )) &&
+                        !activeMeasurementRequests.some(
+                          (request) =>
+                            request.action === 'remove' && request.openingId === selectedOpening.id,
+                        )
+                      }
+                      pending={activeMeasurementRequests.some(
+                        (request) =>
+                          request.action === 'verify' && request.opening.id === selectedOpening.id,
+                      )}
+                      required={scaleOpeningIds.has(selectedOpening.id)}
+                      onVerify={verifyOpeningMeasurement}
+                      onRemove={removeOpeningMeasurement}
+                    />
+                  ) : null}
                   <div className={numberClassName}>
                     <Input
                       id="opening-bottom"
@@ -1504,13 +1716,13 @@ export function PlanGeometryEditor({
                 </div>
               ) : null}
 
-              {selectedWall || selectedOpening ? (
+              {selectedWall || selectedOpening || (selectedRoom && geometry.source === 'manual') ? (
                 <button
                   type="button"
                   onClick={removeSelected}
                   className="mt-5 text-[13px] text-danger underline decoration-line-strong underline-offset-4"
                 >
-                  Убрать этот элемент из схемы
+                  {selectedRoom ? 'Удалить этот контур комнаты' : 'Убрать этот элемент из схемы'}
                 </button>
               ) : !selectedRoom ? (
                 <p className="text-[14px] text-ink-2">В схеме не осталось элементов.</p>
@@ -1522,7 +1734,8 @@ export function PlanGeometryEditor({
           {geometry.source === 'manual' ? (
             <div className="mt-4 border-l-2 border-accent pl-4 text-[13px] leading-relaxed text-ink-2">
               <p>
-                Физические зоны: {rooms.length}. Не размечено помещений: {missingRoomNames.length}.
+                Физические зоны: {rooms.length}. Без контура в списке проекта:{' '}
+                {missingRoomNames.length}.
               </p>
               {missingRoomNames.length > 0 ? (
                 <p className="mt-1">Ещё не отмечены: {missingRoomNames.join(', ')}.</p>
@@ -1576,7 +1789,9 @@ export function PlanGeometryEditor({
                 !verified ||
                 conflict ||
                 (geometry.source === 'manual' &&
-                  (missingRoomNames.length > 0 || duplicateRoomNames))
+                  (missingRoomNames.length > 0 ||
+                    missingSourceRooms.length > 0 ||
+                    duplicateRoomNames))
               }
             >
               {saving ? 'Проверяем…' : 'Подтвердить и сохранить'}

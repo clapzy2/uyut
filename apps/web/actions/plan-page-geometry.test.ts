@@ -127,6 +127,37 @@ describe('create metric draft from reviewed source page', () => {
     )
   })
 
+  it('передаёт явный выбор подписанных сторон вместе со свежими данными PDF', async () => {
+    const result = await createPlanPageGeometryDraft('project', [4], revision, undefined, true)
+    expect(result.ok).toBe(true)
+    expect(mocks.convert).toHaveBeenCalledWith(
+      reading,
+      expect.objectContaining({ useEdgeDimensions: true, planText: 'native-text' }),
+      [4],
+    )
+  })
+
+  it('не сохраняет черновик после отказа проверки выбранных сторон', async () => {
+    mocks.convert.mockReturnValue({ ok: false, error: 'Уточните второе направление.' })
+    expect(await createPlanPageGeometryDraft('project', [4], revision, undefined, true)).toEqual({
+      ok: false,
+      error: 'Уточните второе направление.',
+    })
+    expect(mocks.save).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
+  })
+
+  it('отклоняет подставленное значение режима до чтения исходника', async () => {
+    // Server actions receive untyped browser payloads at runtime.
+    const mode = 'true' as unknown as boolean
+    expect((await createPlanPageGeometryDraft('project', [4], revision, undefined, mode)).ok).toBe(
+      false,
+    )
+    expect(mocks.owner).not.toHaveBeenCalled()
+    expect(mocks.object).not.toHaveBeenCalled()
+    expect(mocks.save).not.toHaveBeenCalled()
+  })
+
   it.each([[], [4, 4], ['4'], [0], [51]].map((anchors) => ({ anchors })))(
     'rejects invalid calibration anchor input: $anchors',
     async ({ anchors }) => {

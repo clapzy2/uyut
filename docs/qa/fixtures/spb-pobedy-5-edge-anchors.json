@@ -1,0 +1,35 @@
+{
+  "source": {
+    "sha256": "180ac586af50432ecbd9c166251a8de7d008a6f1f98f72b946d9ce2cfe7ee4e9",
+    "pdfPage": 2,
+    "state": "existing"
+  },
+  "expectedRooms": [1, 2, 3, 4, 5, 7, 8, 9, 10],
+  "expectedOpenings": 20,
+  "expectedMissingRooms": [6],
+  "expectedCompletenessIssues": [
+    "manual-pdf-opening-measurements",
+    "manual-missing-floor-boundary",
+    "manual-disconnected-walls"
+  ],
+  "anchors": [
+    {
+      "roomSourceNumber": 3,
+      "wallEdgeIndex": 2,
+      "labelIndexes": [44],
+      "totalMm": 2392,
+      "wallOperation": 3093,
+      "lineOperations": [6515],
+      "endpointOperations": [3041, 946]
+    },
+    {
+      "roomSourceNumber": 5,
+      "wallEdgeIndex": 1,
+      "labelIndexes": [20],
+      "totalMm": 4477,
+      "wallOperation": 939,
+      "lineOperations": [5361],
+      "endpointOperations": [2949, 1805]
+    }
+  ]
+}

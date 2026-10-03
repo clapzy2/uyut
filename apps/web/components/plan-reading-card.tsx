@@ -15,6 +15,7 @@ import {
   roomKindLabels,
 } from '@/lib/projects/format'
 import {
+  appendSourcePlanRow,
   areaCheck,
   type ExistingRoom,
   type PlanRow,
@@ -76,8 +77,7 @@ export function PlanReadingCard({
   existing: ExistingRoom[]
 }) {
   const router = useRouter()
-  // Подтверждённое чтение таблицу больше не открывает: числа уже в комнатах, и второй экран
-  // правки поверх них только путает. Перечитать план можно кнопкой.
+  // Saved rows reopen explicitly; editing the room list never requires another AI request.
   const [rows, setRows] = useState<PlanRow[] | null>(
     reading && !reading.confirmedAt ? planRows(reading, existing) : null,
   )
@@ -95,11 +95,40 @@ export function PlanReadingCard({
   const [reading_, startReading] = useTransition()
   const [saving, setSaving] = useState(false)
   const [reviewEditing, setReviewEditing] = useState(false)
+  const [newSourceNumber, setNewSourceNumber] = useState('')
+  const [newSourceKind, setNewSourceKind] = useState<RoomKind | 'utility' | ''>('')
 
   const confirmed = Boolean(reading?.confirmedAt)
 
   function patch(index: number, next: Partial<PlanRow>) {
     setRows((list) => (list ?? []).map((row, at) => (at === index ? { ...row, ...next } : row)))
+  }
+
+  function editSavedReading() {
+    if (!reading) return
+    setActiveReading(reading)
+    setRows(planRows(reading, existing))
+    setCeiling(reading.ceilingCm === undefined ? '' : String(reading.ceilingCm))
+    setPage(String(reading.sourcePage ?? 1))
+    setBaseRevision(sourceRevision)
+    setError(undefined)
+  }
+
+  function addSourceRoom() {
+    if (!rows || !newSourceKind) return
+    const source = activeReading?.pageReview?.sourceRooms?.find(
+      (room) => room.sourceNumber === Number(newSourceNumber),
+    )
+    if (!source) return
+    const next = appendSourcePlanRow(rows, source, newSourceKind)
+    if (!next) {
+      setError('Проверьте номер и название помещения; за один раз сохраняем до 20 строк.')
+      return
+    }
+    setRows(next)
+    setNewSourceNumber('')
+    setNewSourceKind('')
+    setError(undefined)
   }
 
   function showFailure(result: { error: string; code?: 'plan-conflict' }) {
@@ -187,6 +216,7 @@ export function PlanReadingCard({
             name: row.name,
             kind: row.kind,
             sourceNumber: row.sourceNumber,
+            utility: row.unsupportedReason === 'utility',
             ceilingCm: row.ceiling ?? '',
             widthCm: row.width,
             depthCm: row.depth,
@@ -205,12 +235,13 @@ export function PlanReadingCard({
       setBaseRevision(result.data.revision)
       const { created, updated } = result.data
       toast({
-        title: [
-          created > 0 ? `новых комнат: ${created}` : null,
-          updated > 0 ? `размеры вписаны в ${updated}` : null,
-        ]
-          .filter(Boolean)
-          .join(', '),
+        title:
+          [
+            created > 0 ? `новых комнат: ${created}` : null,
+            updated > 0 ? `размеры вписаны в ${updated}` : null,
+          ]
+            .filter(Boolean)
+            .join(', ') || 'Данные плана сохранены',
         tone: 'success',
       })
       router.refresh()
@@ -349,7 +380,17 @@ export function PlanReadingCard({
       <div className="mt-6 border-t border-line pt-6">
         <p className="text-[15px] leading-relaxed text-ink-2">{summary}</p>
         {pageSelector}
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap gap-3">
+          {reading ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={editSavedReading}
+              disabled={reading_ || saving || conflict || reviewEditing}
+            >
+              Изменить данные с чертежа
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="secondary"
@@ -383,6 +424,9 @@ export function PlanReadingCard({
   const noSides = rows.every((row) => row.width === '' || row.depth === '')
   // Сумма площадей против общей площади с плана: единственное, что ловит потерянную и выдуманную комнату
   const total = totalAreaCheck(rows, activeReading?.totalAreaM2)
+  const missingSourceRows = (activeReading?.pageReview?.sourceRooms ?? []).filter(
+    (room) => !rows.some((row) => row.sourceNumber === room.sourceNumber),
+  )
 
   return (
     <fieldset
@@ -467,6 +511,66 @@ export function PlanReadingCard({
         состояние не трогаем: вы могли выбрать его сами.
       </p>
 
+      {missingSourceRows.length > 0 ? (
+        <div className="mt-5 space-y-3 border-l-2 border-accent pl-4">
+          <p className="text-sm font-medium text-ink">Добавить помещение из экспликации</p>
+          <p className="max-w-2xl text-[13px] leading-relaxed text-ink-2">
+            Перенесём только номер и название с исходного листа. Выберите назначение; размеры
+            останутся пустыми. Контур размечается отдельно по обмеру.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="min-w-0 space-y-1 text-xs">
+              <span className="block">Помещение на листе</span>
+              <select
+                aria-label="Помещение из экспликации"
+                className={`${numberFieldClassName} max-w-full`}
+                value={newSourceNumber}
+                onChange={(event) => setNewSourceNumber(event.currentTarget.value)}
+              >
+                <option value="">Выберите номер…</option>
+                {missingSourceRows.map((room) => (
+                  <option key={room.sourceNumber} value={room.sourceNumber}>
+                    №{String(room.sourceNumber).padStart(2, '0')} · {room.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="min-w-0 space-y-1 text-xs">
+              <span className="block">Назначение</span>
+              <select
+                aria-label="Назначение добавляемого помещения"
+                className={numberFieldClassName}
+                value={newSourceKind}
+                onChange={(event) =>
+                  setNewSourceKind(event.currentTarget.value as typeof newSourceKind)
+                }
+              >
+                <option value="">Выберите после сверки…</option>
+                {mvpRoomKinds.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {roomKindLabels[kind]}
+                  </option>
+                ))}
+                <option value="bath">Санузел · только на плане</option>
+                <option value="utility">
+                  Коридор, лоджия или другое вспомогательное помещение
+                </option>
+              </select>
+            </label>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={addSourceRoom}
+              disabled={
+                !newSourceNumber || !newSourceKind || rows.length >= 20 || conflict || reviewEditing
+              }
+            >
+              Добавить строку
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <ul className="mt-5 flex flex-col gap-3">
         {rows.map((row, index) => {
           const check = areaCheck(row)
@@ -491,6 +595,7 @@ export function PlanReadingCard({
                 <select
                   aria-label={`Тип комнаты ${index + 1}`}
                   value={row.kind}
+                  disabled={row.unsupported}
                   onChange={(event) =>
                     patch(index, { kind: event.currentTarget.value as RoomKind })
                   }
@@ -501,6 +606,7 @@ export function PlanReadingCard({
                       {roomKindLabels[kind]}
                     </option>
                   ))}
+                  {row.kind === 'bath' ? <option value="bath">Санузел</option> : null}
                 </select>
               </div>
 
@@ -662,9 +768,9 @@ export function PlanReadingCard({
           type="button"
           onClick={confirm}
           pending={saving}
-          disabled={chosen === 0 || reading_ || conflict || reviewEditing}
+          disabled={reading_ || conflict || reviewEditing}
         >
-          {saving ? 'Сохраняем…' : `Сохранить: ${chosen}`}
+          {saving ? 'Сохраняем…' : chosen ? `Сохранить: ${chosen}` : 'Сохранить список помещений'}
         </Button>
         <Button
           type="button"

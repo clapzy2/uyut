@@ -30,9 +30,12 @@ export async function createPlanPageGeometryDraft(
   roomNumbers: unknown,
   expectedRevision: string,
   calibrationRoomNumbers?: unknown,
+  useEdgeDimensions = false,
 ): Promise<ActionResult<{ geometry: PlanGeometry; revision: string }>> {
   const session = await getSession()
   if (!session) return { ok: false, error: 'Сессия закончилась. Войдите снова.' }
+  if (typeof useEdgeDimensions !== 'boolean')
+    return { ok: false, error: 'Выберите способ проверки масштаба.' }
   const selected = roomNumbersSchema.safeParse(roomNumbers)
   if (!selected.success) return { ok: false, error: 'Выберите от одной до двенадцати комнат.' }
   const anchors =
@@ -83,6 +86,7 @@ export async function createPlanPageGeometryDraft(
         planText: page.image.planText,
         contours: review.data,
         ...(anchors?.success ? { calibrationRoomNumbers: anchors.data } : {}),
+        ...(useEdgeDimensions ? { useEdgeDimensions: true } : {}),
       },
       selected.data,
     )

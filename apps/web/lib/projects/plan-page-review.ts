@@ -55,6 +55,19 @@ const sourceNumberSchema = z.number().int().min(1).max(10_000)
 const contourFields = {
   polygon: z.array(pointSchema).min(3).max(100),
   conditionalEdges: z.array(conditionalEdgeSchema).max(100).optional(),
+  dimensionEdges: z
+    .array(
+      z.strictObject({
+        wallEdgeIndex: z.number().int().min(0).max(99),
+        labelIndexes: z
+          .array(z.number().int().min(0).max(19_999))
+          .min(1)
+          .max(20)
+          .refine((indexes) => new Set(indexes).size === indexes.length),
+      }),
+    )
+    .max(12)
+    .optional(),
   openings: z.array(openingSchema).max(32).optional(),
   obstacles: z.array(obstacleSchema).max(20).optional(),
 }
@@ -84,6 +97,7 @@ export const planPageContoursSchema = z
         boundaryRole: z.enum(['floor', 'outer-wall-envelope']).optional(),
       })
       .optional(),
+    floor: z.strictObject({ polygon: z.array(pointSchema).min(3).max(100) }).optional(),
     voids: z
       .array(z.strictObject({ id: featureIdSchema, polygon: z.array(pointSchema).min(3).max(100) }))
       .max(20)
@@ -91,6 +105,17 @@ export const planPageContoursSchema = z
     rooms: z.array(contourSchema).min(1).max(100),
   })
   .superRefine((input, context) => {
+    const dimensions = input.rooms.flatMap((room) => room.dimensionEdges ?? [])
+    if (dimensions.length > 12)
+      context.addIssue({ code: 'custom', message: 'too-many-edge-dimensions' })
+    for (const room of input.rooms) {
+      const edges = room.dimensionEdges ?? []
+      if (
+        new Set(edges.map((edge) => edge.wallEdgeIndex)).size !== edges.length ||
+        edges.some((edge) => edge.wallEdgeIndex >= room.polygon.length)
+      )
+        context.addIssue({ code: 'custom', message: 'invalid-dimension-edge' })
+    }
     const numbers = input.rooms.flatMap((room) => [...pdfContourRoomNumbers(room)])
     if (new Set(numbers).size !== numbers.length)
       context.addIssue({ code: 'custom', message: 'duplicate-room-membership' })
@@ -281,7 +306,13 @@ export function planPageFeaturesIssue(
   )
   // Older polygon-only annotations keep their save contract. Metric conversion must also
   // check room intersections when there are no annotated openings or obstacles.
-  if (!hasFeatures && !options.checkRoomOverlap && !input.exterior && !input.voids?.length)
+  if (
+    !hasFeatures &&
+    !options.checkRoomOverlap &&
+    !input.exterior &&
+    !input.floor &&
+    !input.voids?.length
+  )
     return undefined
   const featureCount = input.rooms.reduce(
     (total, room) => total + (room.openings?.length ?? 0) + (room.obstacles?.length ?? 0),
@@ -294,6 +325,7 @@ export function planPageFeaturesIssue(
       (room.obstacles ?? []).reduce((count, obstacle) => count + obstacle.polygon.length, 0) +
       (room.openings?.length ?? 0) * 2,
     (input.exterior?.polygon.length ?? 0) +
+      (input.floor?.polygon.length ?? 0) +
       (input.voids ?? []).reduce((total, voidArea) => total + voidArea.polygon.length, 0),
   )
   if (featureCount > 200 || vertexCount > 2000) return 'page-features-too-complex'
@@ -310,6 +342,15 @@ export function planPageFeaturesIssue(
   }
   if (pdfContourIssue(work, input.source, input)) return 'invalid-room-contours'
   const exterior = input.exterior
+  const floor = input.floor
+  if (floor) {
+    if (exterior?.boundaryRole !== 'outer-wall-envelope')
+      return 'floor-requires-outer-wall-envelope'
+    if (!pdfPolygonIsValid(floor.polygon)) return 'invalid-floor-contour'
+    if (!polygonWithin(floor.polygon, exterior.polygon)) return 'floor-outside-exterior-contour'
+    if (input.rooms.some((room) => !polygonWithin(room.polygon, floor.polygon)))
+      return 'room-outside-floor-contour'
+  }
   if (exterior && input.rooms.some((room) => !polygonWithin(room.polygon, exterior.polygon)))
     return 'room-outside-exterior-contour'
   const voids = input.voids ?? []
@@ -320,6 +361,8 @@ export function planPageFeaturesIssue(
     if (!pdfPolygonIsValid(voidArea.polygon)) return 'invalid-page-void'
     if (exterior && !polygonWithin(voidArea.polygon, exterior.polygon))
       return 'void-outside-exterior-contour'
+    if (floor && !polygonWithin(voidArea.polygon, floor.polygon))
+      return 'void-outside-floor-contour'
     if (input.rooms.some((room) => polygonsOverlap(voidArea.polygon, room.polygon)))
       return 'void-overlaps-room-contour'
     if (voids.slice(index + 1).some((other) => polygonsOverlap(voidArea.polygon, other.polygon)))
@@ -512,6 +555,8 @@ export function planPageReviewIssue(
   }
   if (input.exterior?.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`)))
     return 'non-native-contour-vertex'
+  if (input.floor?.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`)))
+    return 'non-native-floor-vertex'
   if (
     input.voids?.some((voidArea) =>
       voidArea.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`)),

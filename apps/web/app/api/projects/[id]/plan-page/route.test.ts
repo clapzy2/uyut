@@ -110,6 +110,7 @@ describe('private PDF page preview', () => {
     expect(result.headers.get('x-plan-page')).toBe('6')
     expect(result.headers.get('x-plan-sha256')).toMatch(/^[a-f0-9]{64}$/)
     expect(await result.json()).toEqual({
+      dimensionLabels: [{ index: 0, text: '2985', x: 20, y: 10, rotation: 0 }],
       points: [
         { x: 12.345678, y: 20 },
         { x: 30, y: 40 },

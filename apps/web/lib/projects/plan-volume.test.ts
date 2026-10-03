@@ -1,6 +1,7 @@
 import type { PlanGeometry, PlanWallFacePair } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import openApartment from '../../../../jobs/fixtures/open-swiss-apartment-35063-geometry.json'
+import { buildPlanScene } from './plan-scene-geometry'
 import { planVolume } from './plan-volume'
 
 const geometry: PlanGeometry = {
@@ -42,6 +43,174 @@ const geometry: PlanGeometry = {
 }
 
 describe('planVolume', () => {
+  it('сохраняет заданные кухонные рабочие зоны без списка покупок', () => {
+    const source: PlanGeometry = {
+      ...geometry,
+      kitchenItems: [
+        {
+          id: 'cabinet',
+          kind: 'cabinet',
+          xCm: 100,
+          yCm: 100,
+          widthCm: 60,
+          depthCm: 60,
+          front: 'bottom',
+          openingDepthCm: 40,
+          passageCm: 70,
+          installationGaps: { top: 0, right: 5, bottom: 0, left: 0 },
+        },
+      ],
+    }
+    const before = structuredClone(source)
+    const model = planVolume(source)
+    expect(model?.floorZones).toEqual([
+      {
+        id: 'kitchen-zone:cabinet-access',
+        title: 'Модуль 1: открывание и проход',
+        kind: 'operation',
+        floor: [
+          { xCm: 100, yCm: 160 },
+          { xCm: 160, yCm: 160 },
+          { xCm: 160, yCm: 270 },
+          { xCm: 100, yCm: 270 },
+        ],
+      },
+      {
+        id: 'kitchen-zone:cabinet-mount',
+        title: 'Модуль 1: монтажный габарит',
+        kind: 'operation',
+        floor: [
+          { xCm: 100, yCm: 100 },
+          { xCm: 165, yCm: 100 },
+          { xCm: 165, yCm: 160 },
+          { xCm: 100, yCm: 160 },
+        ],
+      },
+    ])
+    if (!model) throw new Error('Missing kitchen model')
+    const scene = buildPlanScene(model)
+    try {
+      expect(scene.surfaces.filter((surface) => surface.kind === 'zone')).toHaveLength(2)
+    } finally {
+      for (const item of [...scene.surfaces, ...scene.lines]) item.geometry.dispose()
+    }
+    delete source.kitchenItems?.[0]?.passageCm
+    expect(planVolume(source)?.floorZones?.[0]?.preliminary).toBe(true)
+    expect(planVolume(source)?.floorZones?.[0]?.floor[2]?.yCm).toBe(200)
+    expect(before.kitchenItems?.[0]?.passageCm).toBe(70)
+    delete source.kitchenItems
+    expect(planVolume(source)?.floorZones).toBeUndefined()
+  })
+
+  it.each([90, undefined])('переносит кухонный модуль с явной высотой %s', (heightCm) => {
+    const source: PlanGeometry = {
+      ...geometry,
+      rooms: [{ name: 'Кухня', polygon: geometry.footprint ?? [] }],
+      kitchenItems: [
+        {
+          id: 'cabinet',
+          kind: 'cabinet',
+          xCm: 100,
+          yCm: 100,
+          widthCm: 60,
+          depthCm: 80,
+          ...(heightCm === undefined ? {} : { heightCm }),
+        },
+      ],
+    }
+    const before = structuredClone(source)
+    const model = planVolume(source)
+    if (!model) throw new Error('Missing kitchen volume')
+    expect(model.furniture).toEqual([
+      {
+        id: 'kitchen:cabinet',
+        title: 'Гарнитур',
+        floor: [
+          { xCm: 100, yCm: 100 },
+          { xCm: 160, yCm: 100 },
+          { xCm: 160, yCm: 180 },
+          { xCm: 100, yCm: 180 },
+        ],
+        ...(heightCm === undefined ? {} : { heightCm }),
+      },
+    ])
+    const scene = buildPlanScene(model)
+    try {
+      const surfaces = scene.surfaces.filter((surface) => surface.kind === 'furniture')
+      expect(surfaces).toHaveLength(heightCm === undefined ? 1 : 6)
+      expect(surfaces.every((surface) => surface.footprintOnly === (heightCm === undefined))).toBe(
+        true,
+      )
+      const heights = surfaces.flatMap((surface) => {
+        const positions = surface.geometry.getAttribute('position')
+        return Array.from({ length: positions.count }, (_, index) => positions.getY(index))
+      })
+      expect(Math.max(...heights)).toBeCloseTo(heightCm === undefined ? 0 : heightCm / 100)
+    } finally {
+      for (const item of [...scene.surfaces, ...scene.lines]) item.geometry.dispose()
+    }
+    expect(source).toEqual(before)
+  })
+
+  it('после JSON-перечитывания меняет кухонный модуль и удаляет старую высоту и сам модуль', () => {
+    const source: PlanGeometry = {
+      ...geometry,
+      kitchenItems: [
+        {
+          id: 'cabinet',
+          kind: 'cabinet',
+          xCm: 100,
+          yCm: 100,
+          widthCm: 60,
+          depthCm: 60,
+          heightCm: 90,
+        },
+      ],
+    }
+    const changed = JSON.parse(JSON.stringify(source)) as PlanGeometry
+    const module = changed.kitchenItems?.[0]
+    if (!module) throw new Error('Missing kitchen source module')
+    module.xCm = 180
+    module.widthCm = 80
+    delete module.heightCm
+    expect(planVolume(changed)?.furniture?.[0]).toMatchObject({
+      id: 'kitchen:cabinet',
+      floor: [
+        { xCm: 180, yCm: 100 },
+        { xCm: 260, yCm: 100 },
+        { xCm: 260, yCm: 160 },
+        { xCm: 180, yCm: 160 },
+      ],
+    })
+    expect(planVolume(changed)?.furniture?.[0]?.heightCm).toBeUndefined()
+    changed.kitchenItems = []
+    expect(planVolume(changed)?.furniture).toBeUndefined()
+    expect(planVolume(source)?.furniture?.[0]?.heightCm).toBe(90)
+  })
+
+  it('сохраняет предупреждение пересечения модулей и отклоняет неверные мерки', () => {
+    const item = {
+      id: 'cabinet',
+      kind: 'cabinet' as const,
+      xCm: 100,
+      yCm: 100,
+      widthCm: 60,
+      depthCm: 60,
+    }
+    const model = planVolume({ ...geometry, kitchenItems: [item, { ...item, id: 'fridge' }] })
+    expect(model?.furniture).toHaveLength(2)
+    expect(model?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: 'warning',
+          message: expect.stringContaining('пересекается'),
+        }),
+      ]),
+    )
+    expect(planVolume({ ...geometry, kitchenItems: [{ ...item, heightCm: -1 }] })).toBeNull()
+    expect(planVolume({ ...geometry, kitchenItems: [{ ...item, widthCm: Number.NaN }] })).toBeNull()
+  })
+
   it('строит толщину перпендикулярно наклонной оси в обоих направлениях', () => {
     const sourceWall = geometry.walls[0]
     if (!sourceWall) throw new Error('Missing source wall')
@@ -239,6 +408,52 @@ describe('planVolume', () => {
       [50, 350],
     ])
     expect(result?.openings).toHaveLength(2)
+
+    // Real PDF proof strips stop at the opening. Neither strip includes its gap.
+    const split: PlanGeometry = structuredClone(pdfGeometry)
+    if (!split.pdfCalibration) throw new Error('Missing PDF calibration')
+    split.pdfCalibration.sourceWallFacePairs = [
+      {
+        ...structuredClone(pair),
+        faces: pair.faces.map((face) => ({
+          ...structuredClone(face),
+          end: { ...face.end, xCm: 100 },
+        })) as PlanWallFacePair['faces'],
+      },
+      {
+        ...structuredClone(pair),
+        faces: pair.faces.map((face) => ({
+          ...structuredClone(face),
+          start: { ...face.start, xCm: 190 },
+        })) as PlanWallFacePair['faces'],
+      },
+    ]
+    const splitBefore = structuredClone(split)
+    const splitVolume = planVolume(split)
+    expect(splitVolume?.walls.map((wall) => [wall.start.xCm, wall.end.xCm])).toEqual([
+      [50, 100],
+      [50, 100],
+      [190, 350],
+      [190, 350],
+    ])
+    expect(splitVolume?.openings).toHaveLength(2)
+    expect(splitVolume?.openings.map((opening) => [opening.start.xCm, opening.end.xCm])).toEqual([
+      [100, 190],
+      [100, 190],
+    ])
+    expect(new Set(splitVolume?.openings.map((opening) => opening.id)).size).toBe(2)
+    if (!splitVolume) throw new Error('Missing split PDF volume')
+    const splitScene = buildPlanScene(splitVolume)
+    try {
+      expect(splitScene.lines.filter((line) => line.kind === 'opening')).toHaveLength(2)
+    } finally {
+      for (const item of [...splitScene.surfaces, ...splitScene.lines]) item.geometry.dispose()
+    }
+    expect(split).toEqual(splitBefore)
+    const editedOpening = split.openings[0]
+    if (!editedOpening) throw new Error('Missing PDF opening')
+    editedOpening.widthCm += 1
+    expect(planVolume(split)).toBeNull()
 
     // Vertical user measurements do not alter the source-proven horizontal face relation.
     pdfGeometry.walls = pdfGeometry.walls.map((wall) => ({

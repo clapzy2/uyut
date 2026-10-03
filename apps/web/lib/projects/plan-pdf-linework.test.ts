@@ -47,6 +47,47 @@ const extract = (operations: Operation[]) =>
   )
 
 describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
+  it('не считает пустой endPath потерянной геометрией и сохраняет соседние линии', () => {
+    const result = extract([
+      stroke([0, 10, 20, 1, 30, 20]),
+      [ops.constructPath, [ops.endPath, [null], null]],
+      stroke([0, 10, 30, 1, 30, 30]),
+    ])
+    expect(result.unsupportedPaths).toBe(0)
+    expect(result.paths.map((path) => path.operationIndex)).toEqual([0, 2])
+    expect(result.paths.map((path) => path.points)).toEqual([
+      [
+        { x: 100, y: 900 },
+        { x: 300, y: 900 },
+      ],
+      [
+        { x: 100, y: 850 },
+        { x: 300, y: 850 },
+      ],
+    ])
+  })
+
+  it('не отменяет неизвестную маску пустой командой сброса', () => {
+    const result = extract([
+      [ops.clip, []],
+      [ops.constructPath, [ops.endPath, [null], null]],
+      stroke([0, 10, 20, 1, 30, 20]),
+    ])
+    expect(result.unsupportedPaths).toBe(1)
+    expect(result.paths).toEqual([])
+  })
+
+  it.each([
+    [ops.stroke, [null], null],
+    [ops.endPath, [null, null], null],
+    [ops.endPath, [null], []],
+    [ops.endPath, [[0, 10]], null],
+  ])('не принимает повреждённый или другой путь за пустой сброс: %j', (paint, paths, bounds) => {
+    const result = extract([[ops.constructPath, [paint, paths, bounds]]])
+    expect(result.unsupportedPaths).toBe(1)
+    expect(result.paths).toEqual([])
+  })
+
   it('composes transforms, flips the PDF axis and restores the saved graphics state', () => {
     const reading = extract([
       [ops.transform, [2, 0, 0, 2, 10, 20]],

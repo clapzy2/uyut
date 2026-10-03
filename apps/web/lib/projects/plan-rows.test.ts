@@ -1,6 +1,52 @@
 import type { PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
-import { areaCheck, planRows } from './plan-rows'
+import { appendSourcePlanRow, areaCheck, planRows } from './plan-rows'
+
+describe('adding missing schedule rows', () => {
+  it('adds only a numbered identity and leaves every measurement empty', () => {
+    const rows = appendSourcePlanRow([], { name: 'Спальня 6', sourceNumber: 6 }, 'bedroom')
+    expect(rows).toEqual([
+      expect.objectContaining({
+        name: 'Спальня 6',
+        sourceNumber: 6,
+        kind: 'bedroom',
+        include: false,
+        width: '',
+        depth: '',
+        area: '',
+        ceiling: '',
+        unsupported: false,
+      }),
+    ])
+    expect(rows?.[0]).not.toHaveProperty('roomId')
+  })
+
+  it('retains utility and bathroom rows without turning them into a living room for furniture', () => {
+    expect(
+      appendSourcePlanRow([], { name: 'Лоджия', sourceNumber: 9 }, 'utility')?.[0],
+    ).toMatchObject({ include: false, unsupported: true, unsupportedReason: 'utility' })
+    expect(
+      appendSourcePlanRow([], { name: 'Санузел', sourceNumber: 3 }, 'bath')?.[0],
+    ).toMatchObject({ kind: 'bath', include: false, unsupportedReason: 'kind' })
+  })
+
+  it('rejects duplicate identities, invalid rows and exceeding the save bound', () => {
+    const row = appendSourcePlanRow([], { name: 'Спальня', sourceNumber: 6 }, 'bedroom')?.[0]
+    if (!row) throw new Error('Missing fixture')
+    expect(
+      appendSourcePlanRow([row], { name: 'Другое название', sourceNumber: 6 }, 'living'),
+    ).toBeNull()
+    expect(appendSourcePlanRow([], { name: '', sourceNumber: 6 }, 'bedroom')).toBeNull()
+    expect(appendSourcePlanRow([], { name: 'Комната', sourceNumber: 0 }, 'bedroom')).toBeNull()
+    expect(
+      appendSourcePlanRow(
+        Array.from({ length: 20 }, () => row),
+        { name: 'Комната', sourceNumber: 7 },
+        'bedroom',
+      ),
+    ).toBeNull()
+  })
+})
 
 function reading(rooms: PlanReading['rooms']): PlanReading {
   return { ceilingCm: 270, rooms, readAt: '2026-09-12T00:00:00.000Z' }

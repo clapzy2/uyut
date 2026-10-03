@@ -108,7 +108,7 @@ export default async function SummaryPage({
   ])
   const layouts = projectLayouts(project.rooms, list, project.planReading?.geometry)
   const geometry = project.planReading?.geometry
-  const overview = geometry && layouts.length > 0 ? apartmentVolume(geometry, layouts) : null
+  const overview = geometry ? apartmentVolume(geometry, layouts) : null
   const rates = getWorksRates()
   const env = getEnv()
   const rooms = project.rooms.map((room) => ({

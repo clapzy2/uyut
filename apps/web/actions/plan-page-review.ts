@@ -13,9 +13,25 @@ import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edi
 import { verifyPlanPageOpenings } from '@/lib/projects/plan-page-feature-checks'
 import { planPageContoursSchema, planPageReviewIssue } from '@/lib/projects/plan-page-review'
 import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
+import { pdfDimensionForEdge } from '@/lib/projects/plan-pdf-edge-dimension'
+import { pdfContourIdentity } from '@/lib/projects/plan-pdf-room-binding'
 import { setPlanReading } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { getObject } from '@/lib/storage'
+
+const floorReviewMessages: Record<string, string> = {
+  'floor-requires-outer-wall-envelope':
+    'Отдельную границу пола сохраняйте вместе с внешней границей типа «Наружная сторона стен».',
+  'invalid-floor-contour': 'Проверьте замкнутый контур пола: его стороны не должны пересекаться.',
+  'floor-outside-exterior-contour':
+    'Граница пола должна оставаться внутри наружной стороны стен. Сверьте обе линии с исходным листом.',
+  'room-outside-floor-contour':
+    'Один из контуров комнат выходит за границу пола. Сверьте его вершины и границу пола с исходным листом.',
+  'void-outside-floor-contour':
+    'Техническая пустота выходит за границу пола. Сверьте её контур с исходным листом.',
+  'non-native-floor-vertex':
+    'Привяжите каждую вершину границы пола к узлу исходного PDF. Произвольные точки не сохраняются.',
+}
 
 /** Saving a page contour does not call the AI reader or confirm apartment measurements. */
 export async function savePlanPageReview(
@@ -27,7 +43,12 @@ export async function savePlanPageReview(
   if (!session) return { ok: false, error: 'Сессия закончилась. Войдите снова.' }
   const parsed = planPageContoursSchema.safeParse(input)
   if (!parsed.success)
-    return { ok: false, error: 'Проверьте контуры, номера комнат и выбранный лист.' }
+    return {
+      ok: false,
+      error:
+        floorReviewMessages[parsed.error.issues[0]?.message ?? ''] ??
+        'Проверьте контуры, номера комнат и выбранный лист.',
+    }
 
   try {
     const project = await assertOwner(session.user.id, projectId)
@@ -61,13 +82,38 @@ export async function savePlanPageReview(
           'Для сверки нужен PDF с нативными линиями и подписями. Обычное чтение остаётся доступным.',
       }
     const issue = planPageReviewIssue(contours, before, source, page.linework)
-    if (issue)
+    if (issue) {
       return {
         ok: false,
         error:
+          floorReviewMessages[issue] ??
           'Проверьте контуры, стороны проёмов и неподвижные объекты внутри комнат на выбранном листе. Разметка не сохранена.',
       }
+    }
     const sourceRooms = planPageRoomInventory(page.image.planText)
+    for (const room of contours.rooms) {
+      for (const edge of room.dimensionEdges ?? []) {
+        const selected = edge.labelIndexes.flatMap((index) => {
+          const label = labels[index]
+          return label && label.x !== undefined && label.y !== undefined
+            ? [{ ...label, index, x: label.x, y: label.y }]
+            : []
+        })
+        const binding = pdfDimensionForEdge(
+          page.linework,
+          source,
+          contours,
+          pdfContourIdentity(room),
+          edge,
+          selected,
+        )
+        if (binding.status !== 'candidate')
+          return {
+            ok: false,
+            error: `Сторона ${edge.wallEdgeIndex + 1}: проверьте выбранные подписи и связь обоих концов размера с углами стены. Разметка не сохранена.`,
+          }
+      }
+    }
     const reading: PlanReading = {
       ...before,
       pageReview: {
@@ -92,6 +138,7 @@ export async function savePlanPageReview(
         page: source.pdfPage,
         planState: source.state,
         contours: contours.rooms.length,
+        ...(contours.floor ? { floorVertices: contours.floor.polygon.length } : {}),
         openings: contours.rooms.reduce((count, room) => count + (room.openings?.length ?? 0), 0),
         obstacles: contours.rooms.reduce((count, room) => count + (room.obstacles?.length ?? 0), 0),
       },

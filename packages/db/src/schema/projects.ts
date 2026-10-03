@@ -215,6 +215,19 @@ export type PlanWallFacePair = {
   /** Any edit to cuts on these hosts invalidates the source strip relation. */
   openings: PlanOpening[]
 }
+/** Сверка горизонтальных мерок пользователем; не автоматический или натурный обмер сервиса. */
+export type PlanOpeningMeasurement = {
+  opening: Pick<PlanOpening, 'id' | 'type' | 'wallId' | 'offsetCm' | 'widthCm'>
+  wall: Pick<PlanWall, 'id' | 'kind' | 'start' | 'end' | 'thicknessCm'>
+  source: { kind: 'site-measurement' | 'dimensioned-drawing'; reference: string }
+  sourceSha256: string
+  pdfPage: number
+  cmPerPoint: number
+  origin: { x: number; y: number }
+  verifiedAt: string
+  verifiedBy: string
+}
+
 export type PlanGeometry = {
   version: 1
   status: 'draft' | 'confirmed'
@@ -246,8 +259,25 @@ export type PlanGeometry = {
     cmPerPoint: number
     origin: { x: number; y: number }
     anchorRoomNumbers: number[]
+    /** Проверенные длины конкретных граней, не ширина/глубина комнаты. */
+    edgeDimensions?: Array<
+      PlanPageRoomIdentity & {
+        wallEdgeIndex: number
+        totalMm: number
+        labelIndexes: number[]
+        lineOperations: number[]
+        sourceEdge: [{ x: number; y: number }, { x: number; y: number }]
+        wallRef: PlanPageSegmentRef
+        /** Bounded perpendicular strokes; may be wall edges, not separate extension lines. */
+        endpointRefs: [PlanPageSegmentRef, PlanPageSegmentRef]
+      }
+    >
     labelIndexes: number[]
+    /** Current unresolved source measurements; legacy consumers gate layouts on this list. */
     derivedOpeningIds: string[]
+    /** Server-owned inventory: restored when a user measurement no longer matches the element. */
+    measurementRequiredOpeningIds?: string[]
+    openingMeasurements?: PlanOpeningMeasurement[]
     openingWidthProofs?: PlanOpeningWidthProof[]
     openingFacePairs?: PlanOpeningFacePair[]
     /** Immutable native-PDF door relation evidence, retained across draft edits. */
@@ -302,6 +332,12 @@ export type PlanPageConditionalEdge = {
   endpointProofs?: { start?: PlanPageEndpointProof; end?: PlanPageEndpointProof }
 }
 
+/** Выбор подписей исходного PDF. Значения и доказательства вычисляет сервер. */
+export type PlanPageDimensionEdge = {
+  wallEdgeIndex: number
+  labelIndexes: number[]
+}
+
 export type PlanPageContours = {
   source: { sha256: string; pdfPage: number; state: 'existing' | 'proposed' }
   coordinateSystem: 'page-0-1000'
@@ -313,12 +349,15 @@ export type PlanPageContours = {
     /** Omitted on older reviews, which treated this polygon as the floor boundary. */
     boundaryRole?: 'floor' | 'outer-wall-envelope'
   }
+  /** Separate reviewed floor boundary inside an explicitly identified outer-wall envelope. */
+  floor?: { polygon: Array<{ x: number; y: number }> }
   /** Reviewed non-room space such as a technical shaft; never inferred from a gap. */
   voids?: Array<{ id: string; polygon: Array<{ x: number; y: number }> }>
   rooms: Array<
     PlanPageRoomIdentity & {
       polygon: Array<{ x: number; y: number }>
       conditionalEdges?: PlanPageConditionalEdge[]
+      dimensionEdges?: PlanPageDimensionEdge[]
       /** Ручная разметка исходного листа, без автоматического перевода в сантиметры. */
       openings?: PlanPageOpening[]
       obstacles?: PlanPageObstacle[]

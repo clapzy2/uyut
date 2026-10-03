@@ -9,6 +9,7 @@ import type {
   PlanWallFacePair,
 } from '@uyut/db'
 import { PDF_AREA_REVIEW_TOLERANCE_M2 } from './plan-geometry-inspection'
+import { planPageEdgeCalibration } from './plan-page-edge-calibration'
 import { verifyPlanPageOpenings } from './plan-page-feature-checks'
 import {
   planPageContoursSchema,
@@ -21,6 +22,7 @@ import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import { pairPlanPageOpeningFaces } from './plan-pdf-opening-faces'
 import {
   type PdfPlanSource,
+  pdfContourIdentity,
   pdfContourKey,
   pdfContourRoomNumbers,
   pdfPointDistance,
@@ -34,6 +36,8 @@ type Context = {
   contours: PlanPageContours
   /** Explicit anchors for one page-wide scale; absent keeps the legacy strict path. */
   calibrationRoomNumbers?: number[]
+  /** Длины отдельных граней вместо назначения наклонной длины шириной комнаты. */
+  useEdgeDimensions?: boolean
 }
 type Result = { ok: true; geometry: PlanGeometry } | { ok: false; error: string }
 type Candidate = Extract<PdfDimensionChain, { status: 'candidate' }>
@@ -156,8 +160,18 @@ export function planPageMetricDraft(
   )
     return fail('Каждая выбранная комната должна иметь один номер, уникальное название и контур.')
 
-  const globalCalibration = context.calibrationRoomNumbers !== undefined
-  const anchorNumbers = context.calibrationRoomNumbers ?? roomNumbers
+  if (context.useEdgeDimensions && context.calibrationRoomNumbers !== undefined)
+    return fail('Выберите один способ проверки масштаба: размеры комнат или отдельные стороны.')
+  const globalCalibration =
+    context.calibrationRoomNumbers !== undefined || context.useEdgeDimensions === true
+  const edgeCalibration = context.useEdgeDimensions
+    ? planPageEdgeCalibration(source, linework, contours, context.planText)
+    : undefined
+  if (edgeCalibration && !edgeCalibration.ok) return edgeCalibration
+  const edgeChains = edgeCalibration?.ok ? edgeCalibration.chains : undefined
+  const anchorNumbers = edgeCalibration?.ok
+    ? edgeCalibration.anchorNumbers
+    : (context.calibrationRoomNumbers ?? roomNumbers)
   if (
     anchorNumbers.length < 1 ||
     anchorNumbers.length > 12 ||
@@ -165,7 +179,11 @@ export function planPageMetricDraft(
     anchorNumbers.some(
       (number) =>
         !Number.isSafeInteger(number) ||
-        !contours.rooms.some((contour) => contour.roomSourceNumber === number),
+        !contours.rooms.some((contour) =>
+          edgeChains
+            ? pdfContourRoomNumbers(contour).includes(number)
+            : contour.roomSourceNumber === number,
+        ),
     )
   )
     return fail('Для общего масштаба выберите отдельную комнату с двумя подписанными цепочками.')
@@ -178,7 +196,7 @@ export function planPageMetricDraft(
     )
   const chains: Candidate[] = []
   const usedLabels = new Set<number>()
-  for (const number of anchorNumbers) {
+  for (const number of edgeChains ? [] : anchorNumbers) {
     const room = reading.rooms.find((room) => room.sourceNumber === number)
     if (!room) return fail('Комната отсутствует в прочитанном плане.')
     for (const side of ['width', 'depth'] as const) {
@@ -227,7 +245,11 @@ export function planPageMetricDraft(
       chains.push(chain)
     }
   }
-  const reference = chains[0]
+  const verifiedChains = edgeChains ?? chains
+  for (const chain of edgeChains ?? []) {
+    for (const index of chain.labelIndexes) usedLabels.add(index)
+  }
+  const reference = verifiedChains[0]
   if (!reference) return fail('Нет проверенной горизонтальной цепочки для масштаба.')
   const scale = reference.totalMm / 10 / pdfPointDistance(linework, ...reference.ends)
   if (!Number.isFinite(scale) || scale <= 0)
@@ -235,7 +257,7 @@ export function planPageMetricDraft(
   const agrees = (lengthPt: number, lengthCm: number) =>
     Math.abs(lengthPt * scale - lengthCm) <= toleranceCm(scale)
   if (
-    chains.some(
+    verifiedChains.some(
       (chain) =>
         !agrees(pdfPointDistance(linework, ...chain.ends), chain.totalMm / 10) ||
         chain.segments.some(
@@ -245,10 +267,19 @@ export function planPageMetricDraft(
     )
   )
     return fail('Размерные цепочки не подтверждают единый масштаб листа. Уточните исходный чертёж.')
+  if (
+    edgeChains?.some(
+      (chain) => !agrees(pdfPointDistance(linework, ...chain.sourceEdge), chain.totalMm / 10),
+    )
+  )
+    return fail(
+      'Длина выбранной грани расходится с общим масштабом листа. Проверьте связь концов размера со стеной.',
+    )
 
   const points = [
     ...selected.flatMap((contour) => contour.polygon),
     ...(globalCalibration ? (contours.exterior?.polygon ?? []) : []),
+    ...(globalCalibration ? (contours.floor?.polygon ?? []) : []),
     ...(globalCalibration ? (contours.voids?.flatMap((item) => item.polygon) ?? []) : []),
   ]
   const origin = {
@@ -381,7 +412,9 @@ export function planPageMetricDraft(
   if (globalCalibration) {
     const exterior = contours.exterior?.polygon.map(convert)
     if (exterior) {
-      if (contours.exterior?.boundaryRole !== 'outer-wall-envelope') {
+      if (contours.floor) {
+        geometry.footprint = contours.floor.polygon.map(convert)
+      } else if (contours.exterior?.boundaryRole !== 'outer-wall-envelope') {
         geometry.footprint = exterior
       }
       // Keep the native face references used by wall-strip proofs. They are not
@@ -407,6 +440,20 @@ export function planPageMetricDraft(
       cmPerPoint: scale,
       origin,
       anchorRoomNumbers: [...anchorNumbers],
+      ...(edgeChains
+        ? {
+            edgeDimensions: edgeChains.map((chain) => ({
+              ...pdfContourIdentity(chain),
+              wallEdgeIndex: chain.wallEdgeIndex,
+              totalMm: chain.totalMm,
+              labelIndexes: [...chain.labelIndexes],
+              lineOperations: [...chain.lineOperations],
+              sourceEdge: structuredClone(chain.sourceEdge),
+              wallRef: { ...chain.wallRef },
+              endpointRefs: structuredClone(chain.endpointRefs),
+            })),
+          }
+        : {}),
       labelIndexes: [...usedLabels].sort((a, b) => a - b),
       derivedOpeningIds,
       openingWidthProofs: checks.flatMap((check): PlanOpeningWidthProof[] => {
@@ -515,7 +562,7 @@ export function planPageMetricDraft(
     geometry.warnings = [
       'Координаты черновика перенесены из нативных линий PDF в едином масштабе. Подписанные мерки комнат сохранены отдельно и не заменены габаритами контуров.',
       ...(contours.exterior ? [] : ['Дополните внешний контур квартиры.']),
-      ...(contours.exterior?.boundaryRole === 'outer-wall-envelope'
+      ...(contours.exterior?.boundaryRole === 'outer-wall-envelope' && !contours.floor
         ? [
             'Наружная огибающая проходит по внешней грани стен и не является границей пола. Уточните внутреннюю границу до точной расстановки.',
           ]

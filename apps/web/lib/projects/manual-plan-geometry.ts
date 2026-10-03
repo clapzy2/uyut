@@ -2,6 +2,81 @@ import type { PlanGeometry, PlanRoomShape } from '@uyut/db'
 
 type NamedRoom = { name: string; sourceNumber?: number }
 
+/** Printed identity survives a rename; an ambiguous match must never inherit room metadata. */
+export function findPlanRoomReading<T extends NamedRoom>(
+  room: NamedRoom,
+  readings: readonly T[],
+): T | undefined {
+  if (
+    room.sourceNumber !== undefined &&
+    (!Number.isInteger(room.sourceNumber) || room.sourceNumber < 1)
+  )
+    return undefined
+  const matches = readings.filter((reading) =>
+    room.sourceNumber === undefined
+      ? reading.name === room.name
+      : reading.sourceNumber === room.sourceNumber,
+  )
+  return matches.length === 1 ? matches[0] : undefined
+}
+
+/** Follow verified numbered-room renames without repairing uncertain identities or geometry. */
+export function renamedManualRoomShapes(
+  shapes: readonly PlanRoomShape[],
+  beforeReadings: readonly NamedRoom[],
+  afterReadings: readonly NamedRoom[],
+): PlanRoomShape[] {
+  const ownershipCounts = new Map<number, number>()
+  for (const shape of shapes) {
+    const numbers =
+      shape.sourceNumbers ?? (shape.sourceNumber === undefined ? [] : [shape.sourceNumber])
+    for (const number of numbers) {
+      ownershipCounts.set(number, (ownershipCounts.get(number) ?? 0) + 1)
+    }
+  }
+  return shapes.map((shape) => {
+    const numbers =
+      shape.sourceNumbers ?? (shape.sourceNumber === undefined ? [] : [shape.sourceNumber])
+    if (
+      numbers.length === 0 ||
+      (shape.sourceNumbers &&
+        (shape.sourceNumbers.length < 2 || Object.hasOwn(shape, 'sourceNumber'))) ||
+      numbers.some((number) => ownershipCounts.get(number) !== 1)
+    )
+      return shape
+    const beforeRooms = numbers.map((sourceNumber) =>
+      findPlanRoomReading({ name: shape.name, sourceNumber }, beforeReadings),
+    )
+    const afterRooms = numbers.map((sourceNumber) =>
+      findPlanRoomReading({ name: shape.name, sourceNumber }, afterReadings),
+    )
+    if (beforeRooms.some((room) => !room) || afterRooms.some((room) => !room)) return shape
+    const previousName = beforeRooms.map((room) => room?.name.trim()).join(' / ')
+    if (shape.name !== previousName) return shape
+    const nextName = afterRooms.map((room) => room?.name.trim()).join(' / ')
+    return nextName === shape.name ? shape : { ...shape, name: nextName }
+  })
+}
+
+/** The project list must not hide schedule rows that were never imported. */
+export function missingManualSourceRooms(
+  shapes: readonly PlanRoomShape[],
+  readings: readonly NamedRoom[],
+  sourceRooms: readonly { name: string; sourceNumber: number }[],
+) {
+  const readingNumbers = new Set(readings.map((room) => room.sourceNumber))
+  const shapeNumbers = new Set(
+    shapes.flatMap(
+      (room) => room.sourceNumbers ?? (room.sourceNumber === undefined ? [] : [room.sourceNumber]),
+    ),
+  )
+  return sourceRooms
+    .filter(
+      (room) => !readingNumbers.has(room.sourceNumber) || !shapeNumbers.has(room.sourceNumber),
+    )
+    .map((room) => ({ ...room, missingFromReading: !readingNumbers.has(room.sourceNumber) }))
+}
+
 /** A shared physical zone covers its schedule rows once, without a fictitious divider. */
 export function manualRoomCoverage(
   shapes: readonly PlanRoomShape[],

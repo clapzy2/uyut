@@ -5,6 +5,22 @@ import type { NextConfig } from 'next'
 // Конфиг может исполняться и как CommonJS, и как ESM: берём то, что доступно
 const configDir = typeof __dirname === 'undefined' ? process.cwd() : __dirname
 
+const pdfRenderingFiles = [
+  './node_modules/pdfjs-dist/package.json',
+  './node_modules/pdfjs-dist/standard_fonts/*',
+  '../../node_modules/pdfjs-dist/package.json',
+  '../../node_modules/pdfjs-dist/standard_fonts/*',
+  '../../node_modules/.bun/pdfjs-dist@*/node_modules/pdfjs-dist/package.json',
+  '../../node_modules/.bun/pdfjs-dist@*/node_modules/pdfjs-dist/standard_fonts/*',
+  // On Windows sharp also needs its sibling DLLs; Next traces only the .node binary.
+  './node_modules/@img/sharp-win32-*/lib/*.dll',
+  '../../node_modules/@img/sharp-win32-*/lib/*.dll',
+  '../../node_modules/.bun/@img+sharp-win32-*@*/node_modules/@img/sharp-win32-*/lib/*.dll',
+  // Bun's dependency alias must contain the package exports as well as native files.
+  '../../node_modules/.bun/sharp@*/node_modules/@img/sharp-win32-*/*.{cjs,json}',
+  '../../node_modules/.bun/sharp@*/node_modules/@img/sharp-win32-*/lib/*.{dll,node}',
+]
+
 const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
@@ -22,11 +38,13 @@ const nextConfig: NextConfig = {
   // Нативные модули не бандлятся, а грузятся из node_modules
   serverExternalPackages: ['@napi-rs/canvas', '@node-rs/argon2', 'pdfjs-dist', 'sharp'],
   // Стандартные шрифты pdf.js подгружаются по пути во время работы, и трассировщик их не видит.
+  // package.json также нужен runtime resolver, включая standalone вне исходного репозитория.
   // Без них файлы, которые ссылаются на стандартные четырнадцать шрифтов и не вкладывают их,
   // рисуются чем попало.
   outputFileTracingIncludes: {
-    '/projects/[id]': ['../../node_modules/.bun/**/pdfjs-dist/standard_fonts/*'],
-    '/onboarding/step-1': ['../../node_modules/.bun/**/pdfjs-dist/standard_fonts/*'],
+    '/projects/*': pdfRenderingFiles,
+    '/api/projects/*/plan-page': pdfRenderingFiles,
+    '/onboarding/step-1': pdfRenderingFiles,
   },
   poweredByHeader: false,
   reactStrictMode: true,

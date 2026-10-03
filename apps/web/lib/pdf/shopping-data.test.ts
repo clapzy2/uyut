@@ -154,6 +154,56 @@ afterEach(() => {
 })
 
 describe('selected shopping variant in PDF data without AI or external requests', () => {
+  it('exports kitchen geometry and zones without purchases, and reads later edits', async () => {
+    const data = snapshot()
+    const room = addRoom(data)
+    room.name = 'Кухня'
+    room.kind = 'kitchen'
+    data.shopping = []
+    data.concepts.clear()
+    const geometry = roomGeometry(room.name)
+    geometry.kitchenItems = [
+      {
+        id: 'cabinet',
+        kind: 'cabinet',
+        xCm: 100,
+        yCm: 100,
+        widthCm: 60,
+        depthCm: 60,
+        heightCm: 90,
+        front: 'bottom',
+        openingDepthCm: 40,
+        passageCm: 70,
+        installationGaps: { top: 0, right: 5, bottom: 0, left: 0 },
+      },
+    ]
+    data.project.planReading = { rooms: [], geometry, readAt: '2026-10-04T00:00:00Z' }
+    const before = await build(data)
+    expect(before.pdf.rooms).toHaveLength(1)
+    expect(before.pdf.rooms[0]?.plan?.keepClearZones.map((zone) => zone.label)).toContain(
+      'Модуль 1: открывание и проход',
+    )
+    const html = renderProjectHtml(before.pdf, { fontCss: '' })
+    expect(html).toContain('Кухонный модуль 1')
+    expect(html).toContain('высота 90 см')
+    expect(html).toContain('<title>Модуль 1: монтажный габарит</title>')
+    const cabinet = geometry.kitchenItems[0]
+    if (!cabinet) throw new Error('Missing cabinet')
+    cabinet.xCm = 180
+    delete cabinet.heightCm
+    const after = await build(data)
+    const footprint = after.pdf.rooms[0]?.plan?.keepClearZones.find(
+      (zone) => zone.label === 'Кухонный модуль 1',
+    )
+    expect(footprint?.polygon[0]?.xCm).toBe(180)
+    expect(renderProjectHtml(after.pdf, { fontCss: '' })).toContain('высота не указана')
+    expect(renderProjectHtml(after.pdf, { fontCss: '' })).not.toContain('высота 90 см')
+    geometry.kitchenItems = []
+    const removed = await build(data)
+    expect(renderProjectHtml(removed.pdf, { fontCss: '' })).not.toContain('Кухонный модуль 1')
+    expect(removed.pdf.rooms[0]?.plan?.floorPolygon).toHaveLength(4)
+  })
+
   describe.each([
     { name: 'Спальня', kind: 'bedroom' as const },
     { name: 'Детская', kind: 'kid' as const },
@@ -427,5 +477,18 @@ describe('selected shopping variant in PDF data without AI or external requests'
     expect(meta).toContain('высота 70 см')
     expect(meta).toContain('уточните ширину и глубину')
     expect(meta).not.toContain('ширина 70')
+  })
+
+  it('не печатает машинный шум в габаритах товара и не меняет сохранённые мерки', async () => {
+    const data = snapshot()
+    const row = data.shopping[0]
+    if (!row) throw new Error('Нет тестового товара')
+    row.item.dimensionsCm = { width: 310.4 - 10.1, depth: 95.4, height: 95.3 - 10.1 }
+    const original = structuredClone(row.item.dimensionsCm)
+    const { pdf } = await build(data)
+    expect(pdf.shopping[0]?.items[0]?.meta).toContain(
+      'ширина 300.3 см, глубина 95.4 см, высота 85.2 см',
+    )
+    expect(row.item.dimensionsCm).toEqual(original)
   })
 })

@@ -27,6 +27,52 @@ function render(reading: PlanReading | null, roomCount = 0) {
 }
 
 describe('plan review form', () => {
+  it('offers editing saved rows without requiring another AI read', () => {
+    const html = render({
+      readAt: '2026-10-03',
+      confirmedAt: '2026-10-03',
+      rooms: [{ name: 'Спальня', sourceNumber: 4, kind: 'bedroom' }],
+    })
+    expect(html).toContain('Изменить данные с чертежа')
+  })
+
+  it('offers missing schedule identities separately with no preselected purpose or dimensions', () => {
+    const html = render({
+      readAt: '2026-10-03',
+      sourcePage: 2,
+      planState: 'existing',
+      rooms: [{ name: 'Спальня 4', sourceNumber: 4, kind: 'bedroom' }],
+      pageReview: {
+        version: 1,
+        savedAt: '2026-10-03',
+        sourceRooms: [
+          { name: 'Спальня 4', sourceNumber: 4 },
+          { name: 'Спальня 6', sourceNumber: 6 },
+        ],
+        contours: {
+          source: { sha256: 'a'.repeat(64), pdfPage: 2, state: 'existing' },
+          coordinateSystem: 'page-0-1000',
+          review: 'manual-source-review',
+          pageWidth: 1000,
+          pageHeight: 1000,
+          rooms: [
+            {
+              roomSourceNumber: 4,
+              polygon: [
+                { x: 0, y: 0 },
+                { x: 20, y: 0 },
+                { x: 0, y: 20 },
+              ],
+            },
+          ],
+        },
+      },
+    })
+    expect(html).toContain('Добавить помещение из экспликации')
+    expect(html).toContain('№06 · Спальня 6')
+    expect(html).toContain('размеры останутся пустыми')
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>Добавить строку/)
+  })
   it('does not claim rooms were imported when the project has none', () => {
     const reading: PlanReading = {
       readAt: '2026-10-02',

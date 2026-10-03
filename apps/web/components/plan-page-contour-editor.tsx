@@ -9,6 +9,7 @@ import { FormError } from '@/components/form-error'
 import {
   canAddPageFeature,
   contourDraftsFromSaved,
+  dimensionLabelsFromResponse,
   finiteContourPoint,
   groupPageContourDraft,
   nativePointsFromResponse,
@@ -17,6 +18,7 @@ import {
   type PageContourDraft,
   type PageContourPoint,
   type PageContourTarget,
+  type PageDimensionLabel,
   type PageVoidDraft,
   type PlanPagePreview,
   pageContourOptions,
@@ -24,6 +26,7 @@ import {
   pageContourRoomsForSave,
   pageContourVoidsForSave,
   pageExteriorForSave,
+  pageFloorForSave,
   pageOpeningPointsChanged,
   previewFromHeaders,
   samePlanPage,
@@ -38,6 +41,8 @@ import {
   pdfContourKey,
   pdfContourRoomNumbers,
 } from '@/lib/projects/plan-pdf-room-binding'
+import { type PageBoundaryKind, PlanPageBoundaryControls } from './plan-page-boundary-controls'
+import { PlanPageEdgeDimensions } from './plan-page-edge-dimensions'
 import { PlanPageFeatureOverlay } from './plan-page-feature-overlay'
 import { type NewPageFeatureKind, PlanPageFeatures } from './plan-page-features'
 import { PlanPagePointControls } from './plan-page-point-controls'
@@ -70,13 +75,21 @@ export function PlanPageContourEditor({
   const [selectedVoidId, setSelectedVoidId] = useState<string>()
   const [exterior, setExterior] = useState<PlanPageContours['exterior']>()
   const [exteriorClosed, setExteriorClosed] = useState(false)
-  const [editingExterior, setEditingExterior] = useState(false)
+  const [floor, setFloor] = useState<PlanPageContours['floor']>()
+  const [floorClosed, setFloorClosed] = useState(false)
+  const [editingBoundary, setEditingBoundary] = useState<PageBoundaryKind>()
   const [target, setTarget] = useState<PageContourTarget>({ kind: 'room' })
   const [preview, setPreview] = useState<PlanPagePreview>()
   const [imageUrl, setImageUrl] = useState<string>()
   const [imageReady, setImageReady] = useState(false)
   const [nativePoints, setNativePoints] = useState<PageContourPoint[]>([])
   const [nativeSegments, setNativeSegments] = useState<NativePageSegment[]>([])
+  const [dimensionLabels, setDimensionLabels] = useState<PageDimensionLabel[]>([])
+  const [dimensionHighlight, setDimensionHighlight] = useState<{
+    roomKey: string
+    edge?: number
+    indexes: number[]
+  }>()
   const [proposal, setProposal] = useState<{
     point: PageContourPoint
     index?: number
@@ -107,13 +120,14 @@ export function PlanPageContourEditor({
       room.sourceNumber !== selectedIdentity?.roomSourceNumber &&
       !drafts.some((draft) => pdfContourRoomNumbers(draft).includes(room.sourceNumber as number)),
   )
-  const roomHasFeatures = Boolean(
-    selectedDraft?.openings?.length ||
-      selectedDraft?.obstacles?.length ||
-      selectedDraft?.conditionalEdges?.length,
-  )
+  const roomHasFeatures =
+    Boolean(
+      selectedDraft?.openings?.length ||
+        selectedDraft?.obstacles?.length ||
+        selectedDraft?.conditionalEdges?.length,
+    ) || Boolean(selectedDraft?.dimensionEdges?.length)
   const pointsLocked =
-    locked || (!editingExterior && !selectedVoid && target.kind === 'room' && roomHasFeatures)
+    locked || (!editingBoundary && !selectedVoid && target.kind === 'room' && roomHasFeatures)
   const selectedOpening =
     target.kind === 'opening'
       ? selectedDraft?.openings?.find((item) => item.id === target.id)
@@ -122,8 +136,8 @@ export function PlanPageContourEditor({
     target.kind === 'obstacle'
       ? selectedDraft?.obstacles?.find((item) => item.id === target.id)
       : undefined
-  const points = editingExterior
-    ? (exterior?.polygon ?? [])
+  const points = editingBoundary
+    ? ((editingBoundary === 'floor' ? floor : exterior)?.polygon ?? [])
     : selectedVoid
       ? selectedVoid.polygon
       : target.kind === 'room'
@@ -133,8 +147,10 @@ export function PlanPageContourEditor({
     reading.pageReview?.contours.source.state === reading.planState
       ? savedPageOpeningCheck(reading.pageReview, selectedDraft, selectedOpening, preview)
       : undefined
-  const closed = editingExterior
-    ? exteriorClosed
+  const closed = editingBoundary
+    ? editingBoundary === 'floor'
+      ? floorClosed
+      : exteriorClosed
     : selectedVoid
       ? selectedVoid.closed
       : target.kind === 'room'
@@ -144,10 +160,10 @@ export function PlanPageContourEditor({
           : Boolean(selectedObstacle?.closed)
   const canDraw =
     !pointsLocked &&
-    Boolean(editingExterior || selectedVoid || selected) &&
+    Boolean(editingBoundary || selectedVoid || selected) &&
     !closed &&
     points.length <
-      (!editingExterior && !selectedVoid && target.kind === 'opening' ? 2 : MAX_POINTS)
+      (!editingBoundary && !selectedVoid && target.kind === 'opening' ? 2 : MAX_POINTS)
 
   useEffect(() => {
     const abort = new AbortController()
@@ -159,7 +175,9 @@ export function PlanPageContourEditor({
     setSelectedVoidId(undefined)
     setExterior(undefined)
     setExteriorClosed(false)
-    setEditingExterior(false)
+    setFloor(undefined)
+    setFloorClosed(false)
+    setEditingBoundary(undefined)
     const query = new URLSearchParams({ page: String(pageNumber), revision: sourceRevision })
 
     async function load() {
@@ -195,11 +213,13 @@ export function PlanPageContourEditor({
         if (abort.signal.aborted) return
         const nodes = nativePointsFromResponse(pointsValue)
         const segments = nativeSegmentsFromResponse(pointsValue)
-        if (!nodes || !segments) {
+        const labels = dimensionLabelsFromResponse(pointsValue)
+        if (!nodes || !segments || !labels) {
           throw new Error('На этом листе не удалось проверить векторные узлы для точной привязки.')
         }
         setNativePoints(nodes)
         setNativeSegments(segments)
+        setDimensionLabels(labels)
         url = URL.createObjectURL(blob)
         setImageUrl(url)
         setPreview(metadata)
@@ -237,6 +257,8 @@ export function PlanPageContourEditor({
                 : undefined,
             )
             setExteriorClosed(Boolean(saved.exterior))
+            setFloor(saved.floor ? structuredClone(saved.floor) : undefined)
+            setFloorClosed(Boolean(saved.floor))
           }
         }
       } catch (cause) {
@@ -262,9 +284,14 @@ export function PlanPageContourEditor({
     replacement?: { index: number; proof?: PlanPageEndpointProof },
   ) {
     if (pointsLocked) return
-    if (editingExterior) {
-      setExterior((current) => ({ ...current, polygon }))
-      setExteriorClosed(closed)
+    if (editingBoundary) {
+      if (editingBoundary === 'floor') {
+        setFloor({ polygon })
+        setFloorClosed(closed)
+      } else {
+        setExterior((current) => ({ ...current, polygon }))
+        setExteriorClosed(closed)
+      }
       resetReview()
       return
     }
@@ -294,6 +321,7 @@ export function PlanPageContourEditor({
                     ? { conditionalEdges: before.conditionalEdges }
                     : {}),
                   ...(before?.obstacles ? { obstacles: before.obstacles } : {}),
+                  ...(before?.dimensionEdges ? { dimensionEdges: before.dimensionEdges } : {}),
                 },
               ]
             : []),
@@ -330,8 +358,9 @@ export function PlanPageContourEditor({
   }
 
   function selectTarget(next: PageContourTarget) {
+    setDimensionHighlight(undefined)
     setSelectedVoidId(undefined)
-    setEditingExterior(false)
+    setEditingBoundary(undefined)
     setTarget(next)
     setProposal(undefined)
     setNodeFeedback(undefined)
@@ -342,7 +371,7 @@ export function PlanPageContourEditor({
     const id = crypto.randomUUID()
     setVoids((current) => [...current, { id, polygon: [], closed: false }])
     setSelectedVoidId(id)
-    setEditingExterior(false)
+    setEditingBoundary(undefined)
     setTarget({ kind: 'room' })
     resetReview()
   }
@@ -439,12 +468,12 @@ export function PlanPageContourEditor({
   function proposePoint(point: PageContourPoint, index?: number) {
     if (pointsLocked || !preview || (index === undefined && !canDraw)) return
     const a =
-      !editingExterior &&
+      !editingBoundary &&
       !selectedVoid &&
       selectedOpening &&
       selectedDraft?.polygon[selectedOpening.wallEdgeIndex]
     const b =
-      !editingExterior &&
+      !editingBoundary &&
       !selectedVoid &&
       selectedOpening &&
       selectedDraft?.polygon[(selectedOpening.wallEdgeIndex + 1) % selectedDraft.polygon.length]
@@ -509,9 +538,16 @@ export function PlanPageContourEditor({
     const rooms = pageContourRoomsForSave(drafts, nativePoints, nativeSegments)
     const savedVoids = pageContourVoidsForSave(voids, nativePoints)
     const savedExterior = pageExteriorForSave(exterior, exteriorClosed, nativePoints)
-    if (!rooms || !savedVoids || savedExterior === null) {
+    const savedFloor = pageFloorForSave(floor, floorClosed, nativePoints)
+    if (
+      !rooms ||
+      !savedVoids ||
+      savedExterior === null ||
+      savedFloor === null ||
+      (savedFloor && savedExterior?.boundaryRole !== 'outer-wall-envelope')
+    ) {
       setError(
-        'Замкните начатые контуры комнат, объектов, пустот и внешней границы. Укажите, проходит она по полу или по наружной стороне стен. Проверьте привязку вершин к узлам PDF и концов проёмов к узлам или точным пересечениям.',
+        'Замкните начатые контуры и привяжите их вершины к узлам PDF. Отдельную границу пола сохраняйте вместе с наружной стороной стен; проверьте её назначение и положение комнат внутри пола.',
       )
       return
     }
@@ -529,6 +565,7 @@ export function PlanPageContourEditor({
           rooms,
           ...(savedVoids.length ? { voids: savedVoids } : {}),
           ...(savedExterior ? { exterior: savedExterior } : {}),
+          ...(savedFloor ? { floor: savedFloor } : {}),
         },
         sourceRevision,
       )
@@ -615,7 +652,7 @@ export function PlanPageContourEditor({
           </select>
         </label>
       </div>
-      {!editingExterior &&
+      {!editingBoundary &&
       selectedIdentity?.roomSourceNumbers === undefined &&
       selectedIdentity &&
       groupCandidates.length ? (
@@ -654,80 +691,49 @@ export function PlanPageContourEditor({
           </span>
         </label>
       ) : null}
-      {!editingExterior && selectedIdentity?.roomSourceNumbers ? (
+      {!editingBoundary && selectedIdentity?.roomSourceNumbers ? (
         <p className="text-xs leading-relaxed text-ink-2">
           Номера {selectedIdentity.roomSourceNumbers.join(' и ')} размечаются одним контуром общей
           зоны, без добавления перегородки.
         </p>
       ) : null}
-      <div className="space-y-2 border-l-2 border-teal-600 pl-3 text-sm">
-        <p className="font-medium text-ink">Внешняя граница квартиры</p>
-        <p className="max-w-2xl text-xs leading-relaxed text-ink-2">
-          Обводите только явно видимую линию исходного листа. Наружная сторона толстых стен не равна
-          внутренней границе пола: выберите её отдельно, чтобы схема не завысила доступное
-          пространство.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant={editingExterior ? 'secondary' : 'ghost'}
-            disabled={locked}
-            aria-pressed={editingExterior}
-            onClick={() => {
-              setEditingExterior((current) => !current)
-              setSelectedVoidId(undefined)
-              setTarget({ kind: 'room' })
-              resetReview()
-            }}
-          >
-            {editingExterior
-              ? 'Вернуться к комнате'
-              : exterior
-                ? 'Изменить границу'
-                : 'Добавить границу'}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={locked || !exterior}
-            onClick={() => {
-              setExterior(undefined)
-              setExteriorClosed(false)
-              setEditingExterior(false)
-              resetReview()
-            }}
-          >
-            Удалить границу
-          </Button>
-        </div>
-        {editingExterior ? (
-          <label className="block max-w-sm space-y-1 text-xs">
-            <span className="block">Что обозначает линия на исходном листе</span>
-            <select
-              className={inputClassName}
-              value={exterior?.boundaryRole ?? ''}
-              disabled={locked}
-              onChange={(event) => {
-                const boundaryRole = event.target.value as 'floor' | 'outer-wall-envelope' | ''
-                setExterior((current) => ({
-                  polygon: current?.polygon ?? [],
-                  ...(boundaryRole ? { boundaryRole } : {}),
-                }))
-                resetReview()
-              }}
-            >
-              <option value="">Выберите после сверки листа</option>
-              <option value="floor">Внутренняя граница пола</option>
-              <option value="outer-wall-envelope">Наружная сторона стен</option>
-            </select>
-          </label>
-        ) : exterior?.boundaryRole ? (
-          <p className="text-xs text-ink-2">
-            Выбранный тип:{' '}
-            {exterior.boundaryRole === 'floor' ? 'граница пола' : 'наружная сторона стен'}.
-          </p>
-        ) : null}
-      </div>
+      <PlanPageBoundaryControls
+        exterior={exterior}
+        floor={floor}
+        editing={editingBoundary}
+        disabled={locked}
+        onEdit={(kind) => {
+          // Starting a boundary is a draft even before the first vertex is accepted.
+          if (kind === 'floor') {
+            setFloor((current) => current ?? { polygon: [] })
+          } else {
+            setExterior((current) => current ?? { polygon: [] })
+          }
+          setEditingBoundary((current) => (current === kind ? undefined : kind))
+          setSelectedVoidId(undefined)
+          setTarget({ kind: 'room' })
+          setDimensionHighlight(undefined)
+          resetReview()
+        }}
+        onRemove={(kind) => {
+          if (kind === 'floor') {
+            setFloor(undefined)
+            setFloorClosed(false)
+          } else {
+            setExterior(undefined)
+            setExteriorClosed(false)
+          }
+          if (editingBoundary === kind) setEditingBoundary(undefined)
+          resetReview()
+        }}
+        onRole={(boundaryRole) => {
+          setExterior((current) => ({
+            polygon: current?.polygon ?? [],
+            ...(boundaryRole ? { boundaryRole } : {}),
+          }))
+          resetReview()
+        }}
+      />
       <div className="space-y-2 border-l-2 border-amber-600 pl-3 text-sm">
         <p className="font-medium text-ink">Технические пустоты на листе</p>
         <p className="text-xs leading-relaxed text-ink-2">
@@ -743,7 +749,7 @@ export function PlanPageContourEditor({
               disabled={locked}
               onChange={(event) => {
                 setSelectedVoidId(event.target.value || undefined)
-                setEditingExterior(false)
+                setEditingBoundary(undefined)
                 setTarget({ kind: 'room' })
                 resetReview()
               }}
@@ -769,7 +775,7 @@ export function PlanPageContourEditor({
           </Button>
         </div>
       </div>
-      {!editingExterior && !selectedVoid && selectedDraft?.closed && target.kind === 'room' ? (
+      {!editingBoundary && !selectedVoid && selectedDraft?.closed && target.kind === 'room' ? (
         <div className="space-y-2 border-l-2 border-accent pl-3 text-sm">
           <p className="font-medium text-ink">Открытая зона без перегородки</p>
           <p className="text-xs leading-relaxed text-ink-2">
@@ -802,7 +808,30 @@ export function PlanPageContourEditor({
           </div>
         </div>
       ) : null}
-      {selected && !selectedVoid && !editingExterior ? (
+      {!editingBoundary &&
+      !selectedVoid &&
+      selectedDraft?.closed &&
+      target.kind === 'room' &&
+      state === 'existing' ? (
+        <PlanPageEdgeDimensions
+          key={`dimensions-${selected}`}
+          draft={selectedDraft}
+          labels={dimensionLabels}
+          locked={locked}
+          onHighlight={(edge, indexes) =>
+            setDimensionHighlight({ roomKey: selected, edge, indexes })
+          }
+          onChange={(dimensionEdges) => {
+            setDrafts((current) =>
+              current.map((draft) =>
+                pdfContourKey(draft) === selected ? { ...draft, dimensionEdges } : draft,
+              ),
+            )
+            resetReview()
+          }}
+        />
+      ) : null}
+      {selected && !selectedVoid && !editingBoundary ? (
         <PlanPageFeatures
           key={`features-${selected}-${target.kind}-${target.kind === 'room' ? '' : target.id}`}
           draft={selectedDraft}
@@ -843,8 +872,10 @@ export function PlanPageContourEditor({
               className="block w-full disabled:cursor-default enabled:cursor-crosshair"
               style={{ width: `${zoom}%` }}
               aria-label={
-                editingExterior
-                  ? 'Добавить вершину внешней границы на исходном листе'
+                editingBoundary
+                  ? editingBoundary === 'floor'
+                    ? 'Добавить вершину границы пола на исходном листе'
+                    : 'Добавить вершину внешней границы на исходном листе'
                   : !selectedVoid && target.kind === 'opening'
                     ? 'Отметить конец проёма на исходном листе'
                     : selectedVoid
@@ -876,6 +907,54 @@ export function PlanPageContourEditor({
                     )
                   }}
                 />
+                {dimensionHighlight?.roomKey === selected &&
+                target.kind === 'room' &&
+                !selectedVoid &&
+                !editingBoundary ? (
+                  <g pointerEvents="none">
+                    {dimensionHighlight.edge !== undefined &&
+                    selectedDraft?.polygon[dimensionHighlight.edge] &&
+                    selectedDraft.polygon[
+                      (dimensionHighlight.edge + 1) % selectedDraft.polygon.length
+                    ] ? (
+                      <line
+                        x1={selectedDraft.polygon[dimensionHighlight.edge]?.x}
+                        y1={selectedDraft.polygon[dimensionHighlight.edge]?.y}
+                        x2={
+                          selectedDraft.polygon[
+                            (dimensionHighlight.edge + 1) % selectedDraft.polygon.length
+                          ]?.x
+                        }
+                        y2={
+                          selectedDraft.polygon[
+                            (dimensionHighlight.edge + 1) % selectedDraft.polygon.length
+                          ]?.y
+                        }
+                        stroke="var(--color-accent)"
+                        strokeWidth={5}
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    ) : null}
+                    {dimensionLabels
+                      .filter((label) => dimensionHighlight.indexes.includes(label.index))
+                      .map((label) => (
+                        <g key={label.index}>
+                          <circle
+                            cx={label.x}
+                            cy={label.y}
+                            r={10}
+                            fill="var(--color-accent)"
+                            fillOpacity={0.25}
+                            stroke="var(--color-accent)"
+                            vectorEffect="non-scaling-stroke"
+                          />
+                          <text x={label.x} y={label.y - 13} fontSize={12} fill="var(--color-ink)">
+                            Метка {label.index + 1}
+                          </text>
+                        </g>
+                      ))}
+                  </g>
+                ) : null}
                 {exterior?.polygon.length ? (
                   <g pointerEvents="none">
                     {exterior.polygon.every(finiteContourPoint) && exteriorClosed ? (
@@ -883,7 +962,7 @@ export function PlanPageContourEditor({
                         points={exterior.polygon.map((point) => `${point.x},${point.y}`).join(' ')}
                         fill="none"
                         stroke="#0f766e"
-                        strokeWidth={editingExterior ? 4 : 2}
+                        strokeWidth={editingBoundary === 'exterior' ? 4 : 2}
                         strokeDasharray="9 5"
                         vectorEffect="non-scaling-stroke"
                       />
@@ -907,6 +986,43 @@ export function PlanPageContourEditor({
                         cy={point.y}
                         r={4}
                         fill="#0f766e"
+                        stroke="white"
+                      />
+                    ))}
+                  </g>
+                ) : null}
+                {floor?.polygon.length ? (
+                  <g pointerEvents="none" aria-label="Отдельная граница пола">
+                    {floorClosed && floor.polygon.every(finiteContourPoint) ? (
+                      <polygon
+                        points={floor.polygon.map((point) => `${point.x},${point.y}`).join(' ')}
+                        fill="#0369a1"
+                        fillOpacity={0.06}
+                        stroke="#0369a1"
+                        strokeWidth={editingBoundary === 'floor' ? 4 : 2}
+                        strokeDasharray="3 5"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    ) : (
+                      <polyline
+                        points={floor.polygon
+                          .filter(finiteContourPoint)
+                          .map((point) => `${point.x},${point.y}`)
+                          .join(' ')}
+                        fill="none"
+                        stroke="#0369a1"
+                        strokeWidth={3}
+                        strokeDasharray="3 5"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    )}
+                    {floor.polygon.filter(finiteContourPoint).map((point, index) => (
+                      <circle
+                        key={index}
+                        cx={point.x}
+                        cy={point.y}
+                        r={4}
+                        fill="#0369a1"
                         stroke="white"
                       />
                     ))}
@@ -1061,7 +1177,7 @@ export function PlanPageContourEditor({
                     </g>
                   )
                 })}
-                {!selectedVoid && !editingExterior ? (
+                {!selectedVoid && !editingBoundary ? (
                   <PlanPageFeatureOverlay drafts={drafts} roomKey={selected} target={target} />
                 ) : null}
               </svg>
@@ -1101,18 +1217,18 @@ export function PlanPageContourEditor({
           </Button>
         </div>
       ) : null}
-      {selected || selectedVoid || editingExterior ? (
+      {selected || selectedVoid || editingBoundary ? (
         <PlanPagePointControls
           key={
-            editingExterior
-              ? 'exterior'
+            editingBoundary
+              ? editingBoundary
               : selectedVoid
                 ? `void-${selectedVoid.id}`
                 : `points-${selected}-${target.kind}-${target.kind === 'room' ? '' : target.id}`
           }
           points={points}
           closed={closed}
-          opening={!editingExterior && !selectedVoid && target.kind === 'opening'}
+          opening={!editingBoundary && !selectedVoid && target.kind === 'opening'}
           locked={pointsLocked}
           canDraw={canDraw}
           nativePoints={nativePoints}
@@ -1121,11 +1237,11 @@ export function PlanPageContourEditor({
           onError={setError}
         />
       ) : null}
-      {!editingExterior && !selectedVoid && target.kind === 'room' && roomHasFeatures ? (
+      {!editingBoundary && !selectedVoid && target.kind === 'room' && roomHasFeatures ? (
         <p className="text-xs leading-relaxed text-ink-2">
-          У комнаты уже размечены объекты. Чтобы изменить порядок её вершин, сначала удалите эти
-          объекты: иначе номера сторон проёмов станут неверными. Каждый объект можно выбрать и
-          поправить отдельно.
+          У комнаты уже размечены объекты или выбраны подписанные стороны. Чтобы изменить порядок
+          вершин, сначала уберите эти привязки: иначе номера сторон станут неверными. Объект можно
+          выбрать и поправить отдельно.
         </p>
       ) : null}
       {stale ? (
@@ -1148,7 +1264,7 @@ export function PlanPageContourEditor({
           />
           <span>
             Сверил контуры комнат и технических пустот, проёмы, неподвижные объекты, номера комнат,
-            тип внешней границы и состояние квартиры с исходным листом.
+            внешнюю границу, отдельный контур пола и состояние квартиры с исходным листом.
           </span>
         </label>
         <Button

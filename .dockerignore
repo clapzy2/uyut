@@ -11,6 +11,13 @@
 coverage
 playwright-report
 test-results
+# Результаты тестов и исходники квартир не нужны в образе сайта.
+tmp
+output
+**/.trigger
+.playwright-cli
+blob-report
+**/*.tsbuildinfo
 # Проверки TypeScript при сборке используют JSON-эталоны из docs/qa/fixtures.
 infra
 *.md

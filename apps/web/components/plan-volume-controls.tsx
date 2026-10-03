@@ -38,7 +38,7 @@ export function PlanVolumeControls({
         <button
           type="button"
           onClick={() => setAngle((value) => (value + 270) % 360)}
-          className="border border-line-strong px-3 py-1 text-sm text-ink hover:border-accent"
+          className="min-h-11 border border-line-strong px-3 py-2 text-sm text-ink hover:border-accent focus-visible:outline-2 focus-visible:outline-accent"
           aria-label="Повернуть схему влево"
         >
           ↶ Влево
@@ -46,7 +46,7 @@ export function PlanVolumeControls({
         <button
           type="button"
           onClick={() => setAngle((value) => (value + 90) % 360)}
-          className="border border-line-strong px-3 py-1 text-sm text-ink hover:border-accent"
+          className="min-h-11 border border-line-strong px-3 py-2 text-sm text-ink hover:border-accent focus-visible:outline-2 focus-visible:outline-accent"
           aria-label="Повернуть схему вправо"
         >
           Вправо ↷
@@ -54,7 +54,7 @@ export function PlanVolumeControls({
         <button
           type="button"
           onClick={onReset}
-          className="border border-line-strong px-3 py-1 text-sm text-ink hover:border-accent"
+          className="min-h-11 border border-line-strong px-3 py-2 text-sm text-ink hover:border-accent focus-visible:outline-2 focus-visible:outline-accent"
         >
           Исходный вид
         </button>
@@ -70,7 +70,7 @@ export function PlanVolumeControls({
             value={angle}
             onChange={(event) => setAngle(Number(event.currentTarget.value))}
             aria-label="Поворот камеры, градусы"
-            className="accent-accent"
+            className="min-h-11 accent-accent"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm text-ink-2">
@@ -83,7 +83,7 @@ export function PlanVolumeControls({
             value={tilt}
             onChange={(event) => setTilt(Number(event.currentTarget.value))}
             aria-label="Наклон камеры, градусы"
-            className="accent-accent"
+            className="min-h-11 accent-accent"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm text-ink-2">
@@ -96,13 +96,13 @@ export function PlanVolumeControls({
             value={zoom}
             onChange={(event) => setZoom(Number(event.currentTarget.value))}
             aria-label="Приближение камеры"
-            className="accent-accent"
+            className="min-h-11 accent-accent"
           />
         </label>
       </div>
       {!roomLayout ? (
         <div className="flex w-full flex-wrap items-center gap-4 border-t border-line pt-3">
-          <label className="flex items-center gap-2 text-sm text-ink">
+          <label className="flex min-h-11 items-center gap-2 text-sm text-ink">
             <input
               type="checkbox"
               checked={section}
@@ -122,7 +122,7 @@ export function PlanVolumeControls({
                 value={sectionHeight}
                 onChange={(event) => setSectionHeight(Number(event.currentTarget.value))}
                 aria-label="Высота среза стен, см"
-                className="accent-accent"
+                className="min-h-11 accent-accent"
               />
             </label>
           ) : null}

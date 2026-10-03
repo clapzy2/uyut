@@ -1,4 +1,5 @@
 import { estimateProject, layoutRoom } from '@uyut/catalog'
+import { roomLayoutInputFromGeometry } from '@uyut/catalog/geometry'
 import { footerTemplate, type PdfData, renderProjectHtml } from '@uyut/pdf'
 import { describe, expect, it } from 'vitest'
 
@@ -82,6 +83,101 @@ function sample(kind: PdfData['kind']): PdfData {
 }
 
 describe('project PDF template', () => {
+  it('убирает машинный шум из подписей, сохраняя исходные размеры расчёта', () => {
+    const polygon = [
+      { xCm: 10.1, yCm: 0 },
+      { xCm: 310.4, yCm: 0 },
+      { xCm: 310.4, yCm: 300 },
+      { xCm: 10.1, yCm: 300 },
+    ]
+    const input = roomLayoutInputFromGeometry(
+      {
+        version: 1,
+        status: 'confirmed',
+        widthCm: 400,
+        heightCm: 300,
+        rooms: [{ name: 'Гостиная', polygon }],
+        walls: [],
+        openings: [],
+        warnings: [],
+      },
+      'Гостиная',
+      {},
+    )
+    if (!input) throw new Error('Не получен размер по контуру')
+    expect(input.widthCm).toBe(310.4 - 10.1)
+    expect(input.widthCm).not.toBe(300.3)
+    const data = sample('paid')
+    const room = data.rooms[0]
+    if (!room) throw new Error('Нет тестовой комнаты')
+    room.plan = layoutRoom(input, [
+      {
+        id: 'chair',
+        title: 'Стул',
+        category: 'chair',
+        quantity: 1,
+        dimensions: { width: 110.4 - 10.1, depth: 60.2, height: 95.3 - 10.1 },
+      },
+    ])
+    const before = structuredClone(room.plan)
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('Вид сверху · 300.3 × 300 см')
+    expect(html).toContain('100.3 × 60.2 см; высота 85.2 см')
+    expect(html).not.toContain('300.29999999999995')
+    expect(room.plan).toEqual(before)
+  })
+
+  it('prints axis dimensions and explicit heights without sorting or integer rounding', () => {
+    const data = sample('paid')
+    const plan = data.rooms[0]?.plan
+    const place = plan?.placed[0]
+    const input = plan?.placementInputs[0]
+    if (!plan || !place || !input) throw new Error('Missing placement')
+    place.widthCm = 95.4
+    place.depthCm = 210.6
+    input.heightCm = 86.2
+    expect(renderProjectHtml(data, { fontCss: '' })).toContain(
+      'на схеме 95.4 × 210.6 см; высота 86.2 см',
+    )
+    delete input.heightCm
+    expect(renderProjectHtml(data, { fontCss: '' })).toContain(
+      'на схеме 95.4 × 210.6 см; высота не указана',
+    )
+  })
+
+  it('prints a measured empty floor and fixed zones, escaping labels', () => {
+    const data = sample('paid')
+    const room = data.rooms[0]
+    if (!room) throw new Error('Missing room')
+    room.plan = layoutRoom({ widthCm: 400, depthCm: 300 }, [])
+    room.plan.floorPolygon = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 400, yCm: 0 },
+      { xCm: 400, yCm: 300 },
+      { xCm: 0, yCm: 300 },
+    ]
+    room.plan.keepClearZones = [
+      {
+        kind: 'obstacle',
+        label: 'Короб <тест>',
+        polygon: [
+          { xCm: 10, yCm: 10 },
+          { xCm: 20, yCm: 10 },
+          { xCm: 20, yCm: 20 },
+          { xCm: 10, yCm: 20 },
+        ],
+      },
+    ]
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('<svg viewBox="0 0 400 300"')
+    expect(html).toContain('<title>Короб &lt;тест&gt;</title>')
+    expect(html).toContain('points="10.0,10.0 20.0,10.0 20.0,20.0 10.0,20.0"')
+    room.plan.keepClearZones[0]?.polygon.push({ xCm: -10, yCm: -20 }, { xCm: 420, yCm: 310 })
+    expect(renderProjectHtml(data, { fontCss: '' })).toContain('<svg viewBox="-10 -20 430 330"')
+    room.plan.keepClearZones = []
+    expect(renderProjectHtml(data, { fontCss: '' })).toContain('<svg viewBox="0 0 400 300"')
+  })
+
   it('does not present an unpriced geometry check as a zero-cost estimate', () => {
     const data = sample('free')
     data.estimateStatus = 'not-calculated'

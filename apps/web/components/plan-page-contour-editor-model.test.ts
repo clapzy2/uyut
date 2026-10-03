@@ -14,6 +14,7 @@ import {
   pageContourRoomsForSave,
   pageContourVoidsForSave,
   pageExteriorForSave,
+  pageFloorForSave,
   pageOpeningPointsChanged,
   previewFromHeaders,
   samePlanPage,
@@ -27,6 +28,20 @@ const preview = { sha256: 'a'.repeat(64), page: 6, pageCount: 48, width: 842, he
 const rect = { left: 20, top: 40, width: 400, height: 600 }
 
 describe('page contour editor model', () => {
+  it('saves a separate floor only when closed on source nodes; never copies the exterior', () => {
+    const polygon = [
+      { x: 10, y: 10 },
+      { x: 30, y: 10 },
+      { x: 30, y: 30 },
+    ]
+    expect(pageFloorForSave(undefined, false, polygon)).toBeUndefined()
+    expect(pageFloorForSave({ polygon: [] }, false, polygon)).toBeNull()
+    expect(pageFloorForSave({ polygon }, false, polygon)).toBeNull()
+    expect(pageFloorForSave({ polygon }, true, polygon.slice(1))).toBeNull()
+    const result = pageFloorForSave({ polygon }, true, polygon)
+    expect(result).toEqual({ polygon })
+    expect(result?.polygon).not.toBe(polygon)
+  })
   it('requires an explicit role and native closed vertices for an outer boundary', () => {
     const polygon = [
       { x: 10, y: 10 },
@@ -34,6 +49,7 @@ describe('page contour editor model', () => {
       { x: 30, y: 30 },
     ]
     expect(pageExteriorForSave(undefined, false, polygon)).toBeUndefined()
+    expect(pageExteriorForSave({ polygon: [] }, false, polygon)).toBeNull()
     expect(pageExteriorForSave({ polygon }, true, polygon)).toBeNull()
     expect(pageExteriorForSave({ polygon, boundaryRole: 'floor' }, false, polygon)).toBeNull()
     expect(

@@ -176,12 +176,82 @@ function layoutFlowData(): PdfData {
   }
 }
 
+function geometryFlowData(): PdfData {
+  const sampleRoom = data.rooms[0]
+  if (!sampleRoom) throw new Error('Missing QA room')
+  const polygon = [
+    { xCm: 10.1, yCm: 0 },
+    { xCm: 410.4, yCm: 0 },
+    { xCm: 410.4, yCm: 300 },
+    { xCm: 10.1, yCm: 300 },
+  ]
+  const plan = layoutWithMeasurements(
+    'Кухня',
+    null,
+    {
+      version: 1,
+      status: 'confirmed',
+      widthCm: 500,
+      heightCm: 300,
+      walls: [],
+      openings: [],
+      warnings: [],
+      rooms: [{ name: 'Кухня', polygon }],
+      kitchenItems: [
+        {
+          id: 'cabinet',
+          kind: 'cabinet',
+          xCm: 100,
+          yCm: 100,
+          widthCm: 60,
+          depthCm: 60,
+          front: 'bottom',
+          openingDepthCm: 40,
+          passageCm: 70,
+          installationGaps: { top: 0, right: 5, bottom: 0, left: 0 },
+        },
+      ],
+    },
+    [],
+    'kitchen',
+  )
+  if (!plan?.keepClearZones.length) throw new Error('Missing kitchen QA zones')
+  return {
+    ...layoutFlowData(),
+    kind: 'paid',
+    project: {
+      ...data.project,
+      title: 'Проверка экспорта геометрии',
+      subtitle: 'Синтетические мерки; не обмер квартиры',
+      projectUrl: null,
+    },
+    estimateStatus: 'not-calculated',
+    rooms: [
+      {
+        ...sampleRoom,
+        name: 'Кухня',
+        hasConcept: false,
+        plan,
+        measurementNotes: [
+          'Кухонный модуль 1: ширина 60 см, глубина 60 см; высота не указана.',
+          'Высота потолка по мерке комнаты: 270 см.',
+        ],
+      },
+    ],
+    roomsWithoutConcept: ['Кухня'],
+  }
+}
+
 const isLayoutFlow = process.argv.includes('--layout-flow')
-const selectedData = isLayoutFlow ? layoutFlowData() : data
+const isGeometryFlow = process.argv.includes('--geometry-flow')
+const selectedData = isGeometryFlow ? geometryFlowData() : isLayoutFlow ? layoutFlowData() : data
 const outputDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../output/pdf')
 await mkdir(outputDir, { recursive: true })
 const html = renderProjectHtml(selectedData, { fontCss: fontFaceCss() })
 const pdf = await printPdf(html, selectedData.project.title)
-const outputPath = resolve(outputDir, isLayoutFlow ? 'qa-layout-flow.pdf' : 'qa-shopping.pdf')
+const outputPath = resolve(
+  outputDir,
+  isGeometryFlow ? 'qa-geometry-flow.pdf' : isLayoutFlow ? 'qa-layout-flow.pdf' : 'qa-shopping.pdf',
+)
 await writeFile(outputPath, pdf)
 console.log(`Проверочный PDF: ${outputPath}`)

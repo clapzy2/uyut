@@ -25,8 +25,10 @@ export default function PlanSceneViewer({
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const scene = useRef<ReturnType<typeof mountPlanScene> | null>(null)
-  const [failed, setFailed] = useState(false)
-  const [ready, setReady] = useState(false)
+  const [failedModel, setFailedModel] = useState<PlanVolume | null>(null)
+  const [readyModel, setReadyModel] = useState<PlanVolume | null>(null)
+  const failed = failedModel === model
+  const ready = readyModel === model && !failed
   const [selection, setSelection] = useState<VolumeSelection>(null)
   const [walls, setWalls] = useState(true)
   const [zones, setZones] = useState(true)
@@ -47,7 +49,7 @@ export default function PlanSceneViewer({
       ? model.rooms?.some((room) => room.id === selection.id)
       : selection?.kind === 'furniture' && model.furniture?.some((item) => item.id === selection.id)
   const applyCurrentView = useEffectEvent(() => {
-    scene.current?.select(selection)
+    scene.current?.select(null)
     scene.current?.setWalls(walls)
     scene.current?.setZones(zones)
     scene.current?.setGestures(gestures)
@@ -56,15 +58,20 @@ export default function PlanSceneViewer({
 
   useEffect(() => {
     if (!canvas.current) return
+    const mountedCanvas = canvas.current
+    setSelection(null)
     try {
-      scene.current = mountPlanScene(canvas.current, model, setSelection, () => setFailed(true))
+      scene.current = mountPlanScene(canvas.current, model, setSelection, () =>
+        setFailedModel(model),
+      )
       applyCurrentView()
-      setReady(true)
+      setReadyModel(model)
     } catch {
-      setFailed(true)
+      setFailedModel(model)
     }
     return () => {
-      scene.current?.dispose()
+      // Новый план использует тот же canvas: потеря контекста сломает следующую сцену.
+      scene.current?.dispose({ releaseContext: canvas.current !== mountedCanvas })
       scene.current = null
     }
   }, [model])

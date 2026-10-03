@@ -41,6 +41,7 @@ export function mountPlanScene(
   const scene = new Scene()
   const camera = new PerspectiveCamera(42, 1, 0.01, 1000)
   const meshes: { surface: (typeof data.surfaces)[number]; mesh: Mesh }[] = []
+  const viewingObjects: (Mesh | LineSegments)[] = []
   const wallObjects: (Mesh | LineSegments)[] = []
   const zoneObjects: (Mesh | LineSegments)[] = []
   const sectionMaterials = new Set<MeshStandardMaterial | LineBasicMaterial | LineDashedMaterial>()
@@ -56,7 +57,7 @@ export function mountPlanScene(
   const disposers: (() => void)[] = []
   const palette = { paper: new Color(), ink: new Color(), accent: new Color() }
 
-  function dispose() {
+  function dispose({ releaseContext = true }: { releaseContext?: boolean } = {}) {
     if (disposed) return
     disposed = true
     if (frame !== null) cancelAnimationFrame(frame)
@@ -67,7 +68,7 @@ export function mountPlanScene(
     for (const geometry of geometries) geometry.dispose()
     for (const material of materials) material.dispose()
     renderer?.dispose()
-    renderer?.forceContextLoss()
+    if (releaseContext) renderer?.forceContextLoss()
     scene.clear()
   }
 
@@ -152,6 +153,7 @@ export function mountPlanScene(
       mesh.userData.surface = surface
       scene.add(mesh)
       meshes.push({ surface, mesh })
+      if (surface.kind !== 'zone') viewingObjects.push(mesh)
       if (surface.kind === 'wall') {
         wallObjects.push(mesh)
         sectionMaterials.add(material)
@@ -187,14 +189,13 @@ export function mountPlanScene(
       outline.position.y = 0.005
       outline.computeLineDistances()
       scene.add(outline)
+      viewingObjects.push(outline)
       sectionMaterials.add(material)
       if (line.kind === 'wall') wallObjects.push(outline)
     }
 
     const bounds = new Box3()
-    for (const { mesh, surface } of meshes) {
-      if (surface.kind !== 'zone') bounds.expandByObject(mesh)
-    }
+    for (const object of viewingObjects) bounds.expandByObject(object)
     const center = bounds.getCenter(new Vector3())
     const size = bounds.getSize(new Vector3())
     const radius = Math.max(size.length() / 2, 0.1)

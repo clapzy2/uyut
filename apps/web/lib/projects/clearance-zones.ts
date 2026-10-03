@@ -1,9 +1,19 @@
-import { doorClearanceZone, openingDisplayLabel } from '@uyut/catalog/geometry'
+import {
+  doorClearanceZone,
+  kitchenClearanceZones,
+  openingDisplayLabel,
+  rectPolygon,
+} from '@uyut/catalog/geometry'
 import { rectInsideFloor } from '@uyut/catalog/layout'
 import type { PlanGeometry, PlanKitchenItem, PlanPoint } from '@uyut/db'
 import { z } from 'zod'
 
-export { doorClearanceZone }
+export {
+  type ClearanceZone,
+  doorClearanceZone,
+  kitchenClearanceZones,
+  rectPolygon,
+} from '@uyut/catalog/geometry'
 
 export const openingClearancesSchema = z
   .array(
@@ -22,24 +32,7 @@ export const openingClearancesSchema = z
   )
   .max(200)
 
-type Rect = { xCm: number; yCm: number; widthCm: number; depthCm: number }
-export type ClearanceZone = {
-  id: string
-  ownerId: string
-  door?: boolean
-  label: string
-  polygon: PlanPoint[]
-  rect?: Rect
-}
 const eps = 1e-7
-export function rectPolygon(r: Rect): PlanPoint[] {
-  return [
-    { xCm: r.xCm, yCm: r.yCm },
-    { xCm: r.xCm + r.widthCm, yCm: r.yCm },
-    { xCm: r.xCm + r.widthCm, yCm: r.yCm + r.depthCm },
-    { xCm: r.xCm, yCm: r.yCm + r.depthCm },
-  ]
-}
 
 /** SAT for convex zones: touching edges is allowed, positive overlap is not. */
 export function polygonsOverlap(a: PlanPoint[], b: PlanPoint[]) {
@@ -59,41 +52,6 @@ export function polygonsOverlap(a: PlanPoint[], b: PlanPoint[]) {
     }
   }
   return a.length >= 3 && b.length >= 2
-}
-
-export function kitchenClearanceZones(item: PlanKitchenItem, index: number): ClearanceZone[] {
-  const zones: ClearanceZone[] = []
-  const add = (suffix: string, label: string, rect: Rect) => {
-    if (rect.widthCm > 0 && rect.depthCm > 0)
-      zones.push({
-        id: `${item.id}-${suffix}`,
-        ownerId: item.id,
-        label: `Модуль ${index + 1}: ${label}`,
-        rect,
-        polygon: rectPolygon(rect),
-      })
-  }
-  const depth = (item.openingDepthCm ?? 0) + (item.passageCm ?? 0)
-  if (item.front && depth > 0) {
-    const r = { xCm: item.xCm, yCm: item.yCm, widthCm: item.widthCm, depthCm: depth }
-    if (item.front === 'top') r.yCm -= depth
-    if (item.front === 'bottom') r.yCm += item.depthCm
-    if (item.front === 'left' || item.front === 'right') {
-      r.widthCm = depth
-      r.depthCm = item.depthCm
-      r.xCm += item.front === 'left' ? -depth : item.widthCm
-    }
-    add('access', 'открывание и проход', r)
-  }
-  const g = item.installationGaps
-  if (g && Object.values(g).some((v) => v > 0))
-    add('mount', 'монтажный габарит', {
-      xCm: item.xCm - g.left,
-      yCm: item.yCm - g.top,
-      widthCm: item.widthCm + g.left + g.right,
-      depthCm: item.depthCm + g.top + g.bottom,
-    })
-  return zones
 }
 
 export function inspectClearances(items: PlanKitchenItem[], geometry: PlanGeometry) {
