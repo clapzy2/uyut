@@ -30,7 +30,7 @@ function interpolate(start: PlanPoint, end: PlanPoint, ratio: number): PlanPoint
   }
 }
 
-/** Split a source wall interval at its known openings, without inferring unknown cuts. */
+/** Mark the horizontal opening span; its unknown vertical extent cannot cut a wall surface. */
 function addWallInterval(
   walls: WallSpan[],
   openings: OpeningSpan[],
@@ -53,7 +53,14 @@ function addWallInterval(
   if (high - low < 0.001) return
 
   const pointAt = (distanceCm: number) => interpolate(wall.start, wall.end, distanceCm / length)
-  const cuts = sourceOpenings
+  walls.push({
+    id: `${wall.id}-${low}-${high}`,
+    start: pointAt(low),
+    end: pointAt(high),
+    kind: wall.kind,
+  })
+
+  const spans = sourceOpenings
     .filter((opening) => opening.wallId === wall.id && opening.widthCm > 0)
     .map((opening) => ({
       opening,
@@ -61,32 +68,13 @@ function addWallInterval(
       end: Math.min(high, opening.offsetCm + opening.widthCm),
     }))
     .filter((cut) => cut.end > cut.start)
-    .sort((a, b) => a.start - b.start)
 
-  let cursor = low
-  for (const cut of cuts) {
-    if (cut.start > cursor) {
-      walls.push({
-        id: `${wall.id}-${low}-${cursor}`,
-        start: pointAt(cursor),
-        end: pointAt(cut.start),
-        kind: wall.kind,
-      })
-    }
+  for (const cut of spans) {
     openings.push({
       id: `${cut.opening.id}-${low}`,
       type: cut.opening.type,
       start: pointAt(cut.start),
       end: pointAt(cut.end),
-    })
-    cursor = Math.max(cursor, cut.end)
-  }
-  if (cursor < high) {
-    walls.push({
-      id: `${wall.id}-${low}-${cursor}`,
-      start: pointAt(cursor),
-      end: pointAt(high),
-      kind: wall.kind,
     })
   }
 }

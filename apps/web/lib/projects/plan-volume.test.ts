@@ -41,16 +41,12 @@ const geometry: PlanGeometry = {
 }
 
 describe('planVolume', () => {
-  it('keeps the floor contour and voids, splitting walls at known openings', () => {
+  it('keeps the floor and walls intact when opening heights are unknown', () => {
     const result = planVolume(geometry)
 
     expect(result?.floor).toEqual(geometry.footprint)
     expect(result?.voids).toEqual([geometry.voids?.[0]?.polygon])
-    expect(result?.walls.map(({ start, end }) => [start.xCm, end.xCm])).toEqual([
-      [0, 100],
-      [190, 250],
-      [350, 400],
-    ])
+    expect(result?.walls.map(({ start, end }) => [start.xCm, end.xCm])).toEqual([[0, 400]])
     expect(result?.openings.map(({ start, end }) => [start.xCm, end.xCm])).toEqual([
       [100, 190],
       [250, 350],
@@ -70,7 +66,7 @@ describe('planVolume', () => {
     ).toBeNull()
   })
 
-  it('shows only source-proven PDF faces and removes known opening spans', () => {
+  it('shows only source-proven PDF face intervals and marks opening positions', () => {
     const firstWall = geometry.walls[0]
     const firstOpening = geometry.openings[0]
     const footprint = geometry.footprint
@@ -123,10 +119,8 @@ describe('planVolume', () => {
     const result = planVolume(pdfGeometry)
     expect(result?.wallSource).toBe('pdf-faces')
     expect(result?.walls.map(({ start, end }) => [start.xCm, end.xCm])).toEqual([
-      [50, 100],
-      [190, 350],
-      [50, 100],
-      [190, 350],
+      [50, 350],
+      [50, 350],
     ])
     expect(result?.openings).toHaveLength(2)
 
