@@ -40,6 +40,7 @@ export function roomVolume(layout: RoomLayout): PlanVolume | null {
     const height = heights.get(item.itemId)
     return {
       id: item.id,
+      itemId: item.itemId,
       title: item.title,
       floor: rectangle(item.xCm, item.yCm, item.widthCm, item.depthCm),
       ...(height !== undefined && Number.isFinite(height) && height > 0
@@ -117,13 +118,18 @@ export function roomVolume(layout: RoomLayout): PlanVolume | null {
   }
 }
 
-export type FurnitureFace = PlanSolidFace & { furnitureTitle: string; footprintOnly: boolean }
+export type FurnitureFace = PlanSolidFace & {
+  furnitureId: string
+  furnitureTitle: string
+  footprintOnly: boolean
+}
 
 /** Boxes represent dimensions, not a guessed furniture shape. Unknown heights stay flat. */
 export function furnitureFaces(items: readonly VolumeFurniture[]): FurnitureFace[] {
   return items.flatMap((item) => {
     const common = {
       kind: 'inner' as const,
+      furnitureId: item.id,
       furnitureTitle: item.title,
       footprintOnly: item.heightCm === undefined,
     }

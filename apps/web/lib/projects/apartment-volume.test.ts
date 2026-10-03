@@ -140,12 +140,23 @@ describe('мебель комнат в общем объёме квартиры'
     expect(result.notes).toEqual([])
     expect(result.model?.furniture).toHaveLength(6)
     expect(result.model?.furniture?.[0]).toMatchObject({
+      id: JSON.stringify(['living', 'chair-1']),
+      roomId: 'living',
+      itemId: 'chair',
       heightCm: 85,
       floor: rectangle(125, 230, 60, 100),
     })
     expect(result.model?.furniture?.[1]?.heightCm).toBe(85)
     expect(result.model?.furniture?.[2]?.heightCm).toBeUndefined()
     expect(result.model?.furniture?.[3]?.floor).toEqual(rectangle(545, 230, 60, 100))
+    expect(result.model?.furniture?.[3]?.roomId).toBe('kitchen')
+    expect(result.model?.furniture?.[3]?.itemId).toBe('chair')
+    expect(result.model?.rooms).toEqual([
+      { id: 'living', title: ' Гостиная ', floor: source.rooms[0]?.polygon },
+      { id: 'kitchen', title: 'КУХНЯ', floor: source.rooms[1]?.polygon },
+    ])
+    expect(result.model?.rooms?.[0]?.floor).not.toBe(source.rooms[0]?.polygon)
+    expect(result.model?.rooms?.[0]?.floor[0]).not.toBe(source.rooms[0]?.polygon[0])
     expect(new Set(result.model?.furniture?.map((item) => item.id)).size).toBe(6)
     expect(result.model?.walls).toEqual(base?.walls)
     expect(result.model?.floor).toEqual(base?.floor)
@@ -159,6 +170,7 @@ describe('мебель комнат в общем объёме квартиры'
       { roomId: 'kitchen', roomName: 'Кухня', layout: layout(300) },
     ])
     expect(result.model?.furniture).toHaveLength(3)
+    expect(result.model?.rooms?.map((room) => room.id)).toEqual(['kitchen'])
     expect(result.notes).toHaveLength(1)
     expect(result.notes[0]).toContain('масштаб')
     const moved = layout()
@@ -202,16 +214,19 @@ describe('мебель комнат в общем объёме квартиры'
     const zones = result.model?.floorZones
     expect(zones).toHaveLength(4)
     expect(zones?.[0]).toMatchObject({
+      roomId: 'living',
       kind: 'obstacle',
       title: 'Гостиная — Колонна',
       floor: rectangle(120, 350, 30, 40),
     })
     expect(zones?.[1]).toMatchObject({
+      roomId: 'living',
       kind: 'operation',
       preliminary: true,
       floor: rectangle(125, 330, 60, 70),
     })
     expect(zones?.[2]?.floor).toEqual(rectangle(540, 350, 30, 40))
+    expect(zones?.[2]?.roomId).toBe('kitchen')
     expect(new Set(zones?.map((zone) => zone.id)).size).toBe(4)
     expect(rooms).toEqual(before)
   })
@@ -224,6 +239,7 @@ describe('мебель комнат в общем объёме квартиры'
       { roomId: 'bedroom', roomName: 'Спальня', layout: layout() },
     ])
     expect(result.model?.furniture).toEqual([])
+    expect(result.model?.rooms).toEqual([])
     expect(result.notes).toHaveLength(2)
     expect(result.notes[0]).toContain('без исходного контура')
     expect(result.notes[1]).toContain('нет комнаты')
@@ -258,6 +274,7 @@ describe('мебель комнат в общем объёме квартиры'
     expect(apartmentVolume(source, [room]).model?.furniture).toEqual([])
     const duplicateLayouts = apartmentVolume(geometry(), [room, { ...room, roomId: 'living-2' }])
     expect(duplicateLayouts.model?.furniture).toEqual([])
+    expect(duplicateLayouts.model?.rooms).toEqual([])
     expect(duplicateLayouts.notes).toHaveLength(2)
     expect(duplicateLayouts.notes.every((note) => note.includes('неоднозначны'))).toBe(true)
     expect(
@@ -304,5 +321,65 @@ describe('мебель комнат в общем объёме квартиры'
     const result = apartmentVolume(source, [])
     expect(result.model).toBeNull()
     expect(result.notes).toHaveLength(1)
+  })
+
+  it('не добавляет метаданные выбора для отвергнутых контуров и неоднозначных связей', () => {
+    const room = { roomId: 'living', roomName: 'Гостиная', layout: layout() }
+    const missingContour = layout()
+    delete missingContour.floorPolygon
+    const movedContour = layout()
+    movedContour.floorPolygon = movedContour.floorPolygon?.map((point) => ({
+      ...point,
+      xCm: point.xCm + 1,
+    }))
+    const invalidFurniture = layout()
+    invalidFurniture.placed = invalidFurniture.placed.map((item) => ({
+      ...item,
+      xCm: Number.NaN,
+    }))
+    const duplicateFurniture = layout()
+    duplicateFurniture.placed = duplicateFurniture.placed.map((item) => ({ ...item, id: 'same' }))
+    const composite = geometry()
+    composite.rooms = composite.rooms.map((room) => ({
+      ...room,
+      sourceNumber: undefined,
+      sourceNumbers: [1, 2],
+    }))
+    const duplicateGeometry = geometry()
+    duplicateGeometry.rooms.push({ name: 'ГОСТИНАЯ', polygon: rectangle(0, 0, 400, 300) })
+    const cases = [
+      apartmentVolume(geometry(), [{ ...room, layout: missingContour }]),
+      apartmentVolume(geometry(), [{ ...room, layout: movedContour }]),
+      apartmentVolume(geometry(), [{ ...room, layout: invalidFurniture }]),
+      apartmentVolume(geometry(), [{ ...room, layout: duplicateFurniture }]),
+      apartmentVolume(geometry(), [{ ...room, roomName: 'Неизвестная комната' }]),
+      apartmentVolume(composite, [room]),
+      apartmentVolume(duplicateGeometry, [room]),
+      apartmentVolume(geometry(), [room, { ...room, roomId: 'duplicate' }]),
+      apartmentVolume(geometry(), [room, { ...room, roomName: 'Кухня', layout: layout(300) }]),
+    ]
+    for (const result of cases) {
+      expect(result.model?.rooms).toEqual([])
+      expect(result.model?.furniture).toEqual([])
+      expect(result.model?.floorZones).toEqual([])
+    }
+  })
+
+  it('сохраняет исходный контур комнаты с пустой, но корректно совмещённой расстановкой', () => {
+    const source = geometry()
+    const current = layout()
+    current.placed = []
+    const result = apartmentVolume(source, [
+      { roomId: 'living', roomName: 'Гостиная', layout: current },
+    ])
+    expect(result.notes).toEqual([])
+    expect(result.model?.furniture).toEqual([])
+    expect(result.model?.rooms).toEqual([
+      { id: 'living', title: 'Гостиная', floor: source.rooms[0]?.polygon },
+    ])
+    const copiedPoint = result.model?.rooms?.[0]?.floor[0]
+    if (!copiedPoint) throw new Error('Missing copied room contour')
+    copiedPoint.xCm = -1
+    expect(source.rooms[0]?.polygon[0]).toEqual({ xCm: 100, yCm: 200 })
   })
 })

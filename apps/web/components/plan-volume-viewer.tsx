@@ -12,6 +12,7 @@ import {
 import { volumeSection } from '@/lib/projects/plan-volume-section'
 import { furnitureFaces } from '@/lib/projects/room-volume'
 import { PlanVolumeControls } from './plan-volume-controls'
+import { PlanVolumeSelection, type VolumeSelection } from './plan-volume-selection'
 
 function polygonPoints(points: VolumeScreenPoint[]): string {
   return points.map((point) => `${point.x},${point.y}`).join(' ')
@@ -30,13 +31,27 @@ function facesViewer(points: VolumeScreenPoint[]): boolean {
   )
 }
 
-export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
+export default function PlanVolumeViewer({
+  model,
+  projectId,
+}: {
+  model: PlanVolume
+  projectId?: string
+}) {
   const [angle, setAngle] = useState(0)
   const [tilt, setTilt] = useState(DEFAULT_VOLUME_TILT)
   const [zoom, setZoom] = useState(1)
   const [section, setSection] = useState(false)
   const [sectionHeight, setSectionHeight] = useState(90)
   const [showZones, setShowZones] = useState(true)
+  const [selection, setSelection] = useState<VolumeSelection>(null)
+  const press = useRef<{
+    pointerId: number
+    x: number
+    y: number
+    target: EventTarget
+    moved: boolean
+  } | null>(null)
   const drag = useRef<{
     pointerId: number
     x: number
@@ -47,6 +62,18 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
   const project = useMemo(() => volumeProjector(angle, tilt), [angle, tilt])
   const roomLayout = model.wallSource === 'room-layout'
   const furniture = model.furniture ?? []
+  const rooms = model.rooms ?? []
+  const selectedItem =
+    selection?.kind === 'furniture' ? furniture.find((item) => item.id === selection.id) : undefined
+  const selectedRoomId = selection?.kind === 'room' ? selection.id : selectedItem?.roomId
+  const selectedRoom = rooms.find((room) => room.id === selectedRoomId)
+  const highlightedIds = new Set(
+    selection?.kind === 'furniture'
+      ? [selection.id]
+      : furniture
+          .filter((item) => selectedRoomId !== undefined && item.roomId === selectedRoomId)
+          .map((item) => item.id),
+  )
   const unknownHeights = furniture.filter((item) => item.heightCm === undefined)
   const floorZones = model.floorZones ?? []
   const zones = floorZones.map((zone) => ({
@@ -95,6 +122,7 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
         holes: [],
         cutEdge: [],
         furnitureTitle: undefined,
+        furnitureId: undefined,
         footprintOnly: false,
       }
     })
@@ -109,6 +137,7 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
       ...model.solidFaces.map((face) => ({
         ...face,
         furnitureTitle: undefined,
+        furnitureId: undefined,
         footprintOnly: false,
       })),
       ...furnitureFaces(furniture),
@@ -173,7 +202,9 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
     setSection(false)
     setSectionHeight(90)
     setShowZones(true)
+    setSelection(null)
     drag.current = null
+    press.current = null
   }
 
   return (
@@ -202,6 +233,14 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
         setSectionHeight={setSectionHeight}
         onReset={resetView}
       />
+      {rooms.length > 0 || furniture.length > 0 ? (
+        <PlanVolumeSelection
+          model={model}
+          selection={selection}
+          onSelect={setSelection}
+          projectId={projectId}
+        />
+      ) : null}
       {floorZones.length > 0 ? (
         <label className="flex items-center gap-2 border-x border-line px-3 py-2 text-sm text-ink-2">
           <input
@@ -218,6 +257,13 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
         className="block aspect-[4/3] w-full cursor-grab select-none border-x border-b border-line bg-paper active:cursor-grabbing"
         style={{ touchAction: 'pan-y' }}
         onPointerDown={(event) => {
+          press.current = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            target: event.target,
+            moved: false,
+          }
           if (event.pointerType !== 'mouse' || event.button !== 0) return
           drag.current = {
             pointerId: event.pointerId,
@@ -229,6 +275,12 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
           event.currentTarget.setPointerCapture(event.pointerId)
         }}
         onPointerMove={(event) => {
+          const down = press.current
+          if (
+            down?.pointerId === event.pointerId &&
+            Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4
+          )
+            down.moved = true
           const start = drag.current
           if (!start || start.pointerId !== event.pointerId) return
           const next = volumeOrbit(
@@ -241,15 +293,31 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
           setTilt(next.tilt)
         }}
         onPointerUp={(event) => {
+          const down = press.current
+          if (down?.pointerId === event.pointerId) {
+            press.current = null
+            if (!down.moved && event.button === 0 && down.target instanceof Element) {
+              const furnitureId = down.target
+                .closest('[data-volume-furniture]')
+                ?.getAttribute('data-volume-furniture')
+              const roomId = down.target
+                .closest('[data-volume-room]')
+                ?.getAttribute('data-volume-room')
+              if (furnitureId) setSelection({ kind: 'furniture', id: furnitureId })
+              else if (roomId) setSelection({ kind: 'room', id: roomId })
+            }
+          }
           if (drag.current?.pointerId !== event.pointerId) return
           drag.current = null
           event.currentTarget.releasePointerCapture(event.pointerId)
         }}
         onPointerCancel={() => {
           drag.current = null
+          press.current = null
         }}
         onLostPointerCapture={() => {
           drag.current = null
+          press.current = null
         }}
         role="img"
         aria-label={
@@ -266,6 +334,21 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
           strokeWidth="2"
           vectorEffect="non-scaling-stroke"
         />
+        {rooms.map((room) => (
+          <polygon
+            key={`room-${room.id}`}
+            data-volume-room={room.id}
+            points={polygonPoints(room.floor.map((point) => project(point)))}
+            fill={selectedRoomId === room.id ? 'var(--accent)' : 'transparent'}
+            fillOpacity={selectedRoomId === room.id ? 0.2 : 0}
+            stroke={selectedRoomId === room.id ? 'var(--accent)' : 'none'}
+            strokeWidth="3"
+            vectorEffect="non-scaling-stroke"
+            className="cursor-pointer"
+          >
+            <title>{room.title}</title>
+          </polygon>
+        ))}
         {showZones
           ? zones.map((zone) => (
               <polygon
@@ -277,6 +360,7 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
                 strokeDasharray={zone.kind === 'obstacle' ? undefined : '5 4'}
                 strokeWidth="1.5"
                 vectorEffect="non-scaling-stroke"
+                pointerEvents="none"
               >
                 <title>
                   {zone.title}
@@ -288,6 +372,8 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
         {surfaces.map((wall) => (
           <g key={wall.id}>
             <path
+              data-volume-furniture={wall.furnitureId}
+              className={wall.furnitureId ? 'cursor-pointer' : undefined}
               d={[pathRing(wall.points), ...wall.holes.map(pathRing)].join(' ')}
               fillRule="evenodd"
               fill={
@@ -300,17 +386,19 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
                       : 'var(--ink-2)'
               }
               fillOpacity={
-                wall.furnitureTitle !== undefined
-                  ? wall.footprintOnly
-                    ? 0.12
-                    : wall.role === 'cap'
-                      ? 0.75
-                      : 0.45
-                  : model.wallSource === 'pdf-faces'
-                    ? 0.24
-                    : wall.kind === 'outer'
-                      ? 0.65
-                      : 0.35
+                wall.furnitureId !== undefined && highlightedIds.has(wall.furnitureId)
+                  ? 0.85
+                  : wall.furnitureTitle !== undefined
+                    ? wall.footprintOnly
+                      ? 0.12
+                      : wall.role === 'cap'
+                        ? 0.75
+                        : 0.45
+                    : model.wallSource === 'pdf-faces'
+                      ? 0.24
+                      : wall.kind === 'outer'
+                        ? 0.65
+                        : 0.35
               }
               stroke={
                 wall.furnitureTitle !== undefined
@@ -320,7 +408,9 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
                     : 'var(--ink)'
               }
               strokeDasharray={wall.footprintOnly ? '5 4' : undefined}
-              strokeWidth="1.5"
+              strokeWidth={
+                wall.furnitureId !== undefined && highlightedIds.has(wall.furnitureId) ? '3' : '1.5'
+              }
               vectorEffect="non-scaling-stroke"
             >
               <title>
@@ -404,6 +494,7 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
               return (
                 <text
                   key={`label-${item.id}`}
+                  data-volume-furniture={item.id}
                   x={center.x}
                   y={center.y}
                   fill="var(--ink)"
@@ -413,7 +504,8 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
                   textAnchor="middle"
                   dominantBaseline="middle"
                   fontSize="18"
-                  pointerEvents="none"
+                  className="cursor-pointer"
+                  fontWeight={highlightedIds.has(item.id) ? '700' : undefined}
                 >
                   {index + 1}
                 </text>
@@ -421,6 +513,12 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
             })
           : null}
       </svg>
+      {selectedRoom ? (
+        <p className="mt-2 text-sm text-ink-2">
+          Подсвечена комната: {selectedRoom.title}. Стены и остальные предметы оставлены для
+          ориентира.
+        </p>
+      ) : null}
       {floorZones.length > 0 ? (
         <div className="mt-3 text-sm leading-relaxed text-ink-2">
           <p>
@@ -449,10 +547,21 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
           <ul className="mt-2 space-y-1">
             {furniture.map((item, index) => (
               <li key={item.id}>
-                {index + 1}. {item.title}
-                {item.heightCm === undefined
-                  ? ' · высота не указана'
-                  : ` · высота ${item.heightCm} см`}
+                <button
+                  type="button"
+                  aria-pressed={selection?.kind === 'furniture' && selection.id === item.id}
+                  onClick={() => setSelection({ kind: 'furniture', id: item.id })}
+                  className={`min-h-11 w-full border-l-2 px-3 py-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-accent ${
+                    highlightedIds.has(item.id)
+                      ? 'border-accent bg-accent-tint text-ink'
+                      : 'border-transparent hover:bg-accent-tint hover:text-ink'
+                  }`}
+                >
+                  {index + 1}. {item.title}
+                  {item.heightCm === undefined
+                    ? ' · высота не указана'
+                    : ` · высота ${item.heightCm} см`}
+                </button>
               </li>
             ))}
           </ul>

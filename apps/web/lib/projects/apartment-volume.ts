@@ -5,6 +5,7 @@ import {
   planVolume,
   type VolumeFloorZone,
   type VolumeFurniture,
+  type VolumeRoom,
 } from './plan-volume'
 import { roomVolume } from './room-volume'
 
@@ -59,6 +60,7 @@ export function apartmentVolume(
   const notes: string[] = []
   const furniture: VolumeFurniture[] = []
   const floorZones: VolumeFloorZone[] = []
+  const matchedRooms: VolumeRoom[] = []
   for (const room of rooms) {
     const name = normalizedName(room.roomName)
     const matches = geometry.rooms.filter((candidate) => normalizedName(candidate.name) === name)
@@ -111,10 +113,16 @@ export function apartmentVolume(
       omit('координаты мебели или идентификаторы размещений требуют уточнения')
       continue
     }
+    matchedRooms.push({
+      id: room.roomId,
+      title: room.roomName,
+      floor: sourceRoom.polygon.map((point) => ({ ...point })),
+    })
     furniture.push(
       ...items.map((item) => ({
         ...item,
         id: JSON.stringify([room.roomId, item.id]),
+        roomId: room.roomId,
         title: `${room.roomName} — ${item.title}`,
         floor: item.floor.map((point) => ({
           xCm: point.xCm + originX,
@@ -126,6 +134,7 @@ export function apartmentVolume(
       ...(localModel?.floorZones ?? []).map((zone) => ({
         ...zone,
         id: JSON.stringify([room.roomId, zone.id]),
+        roomId: room.roomId,
         title: `${room.roomName} — ${zone.title}`,
         floor: zone.floor.map((point) => ({
           xCm: point.xCm + originX,
@@ -134,5 +143,5 @@ export function apartmentVolume(
       })),
     )
   }
-  return { model: { ...model, furniture, floorZones }, notes }
+  return { model: { ...model, furniture, floorZones, rooms: matchedRooms }, notes }
 }

@@ -8,7 +8,7 @@ const PlanVolumeViewer = dynamic(() => import('./plan-volume-viewer'), {
   loading: () => <p className="mt-4 text-sm text-ink-2">Открываем объёмную схему…</p>,
 })
 
-export function PlanVolumeLaunch({ model }: { model: PlanVolume }) {
+export function PlanVolumeLaunch({ model, projectId }: { model: PlanVolume; projectId?: string }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -27,7 +27,7 @@ export function PlanVolumeLaunch({ model }: { model: PlanVolume }) {
               ? 'Посмотреть проверенные грани в объёме'
               : 'Посмотреть объёмную схему'}
       </button>
-      {open ? <PlanVolumeViewer model={model} /> : null}
+      {open ? <PlanVolumeViewer model={model} projectId={projectId} /> : null}
     </div>
   )
 }

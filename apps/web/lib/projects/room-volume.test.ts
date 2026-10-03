@@ -52,6 +52,7 @@ describe('перенос расстановки в объём', () => {
     expect(model?.furniture).toHaveLength(3)
     expect(model?.furniture?.[0]).toMatchObject({
       id: 'chair-1',
+      itemId: 'chair',
       heightCm: 85,
       floor: [
         { xCm: 25, yCm: 30 },
@@ -61,6 +62,7 @@ describe('перенос расстановки в объём', () => {
       ],
     })
     expect(model?.furniture?.[1]?.heightCm).toBe(85)
+    expect(model?.furniture?.map((item) => item.itemId)).toEqual(['chair', 'chair', 'table'])
     expect(model?.furniture?.[2]?.heightCm).toBeUndefined()
     expect(source).toEqual(before)
   })
@@ -86,10 +88,12 @@ describe('перенос расстановки в объём', () => {
     if (!first || !unknown) throw new Error('Missing furniture')
     const faces = furnitureFaces([first])
     expect(faces).toHaveLength(6)
+    expect(faces.every((face) => face.furnitureId === first.id)).toBe(true)
     expect(Math.max(...faces.flatMap((face) => face.points.map((point) => point.zCm)))).toBe(85)
     const footprint = furnitureFaces([unknown])
     expect(footprint).toHaveLength(1)
     expect(footprint[0]?.footprintOnly).toBe(true)
+    expect(footprint[0]?.furnitureId).toBe(unknown.id)
     expect(footprint[0]?.points.every((point) => point.zCm === 0)).toBe(true)
   })
   it('сохраняет только положения настоящих проёмов, не превращая радиатор в дверь', () => {

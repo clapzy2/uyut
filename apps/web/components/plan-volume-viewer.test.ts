@@ -76,6 +76,8 @@ describe('объёмный просмотр с мерками', () => {
     expect(html).toContain('высота 75 см')
     expect(html).toContain('Диван · высота не указана')
     expect(html).toContain('stroke-dasharray="5 4"')
+    expect(html).toContain('data-volume-furniture=')
+    expect(html).toContain('aria-pressed="false"')
     expect(html).not.toContain('Высоты стен показаны по меркам')
     expect(html).not.toContain('Открыть обзор комнат')
   })

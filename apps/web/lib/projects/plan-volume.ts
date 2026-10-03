@@ -47,11 +47,19 @@ export type PlanVolume = {
   issues: PlanGeometryIssue[]
   furniture?: VolumeFurniture[]
   floorZones?: VolumeFloorZone[]
+  rooms?: VolumeRoom[]
   layoutNote?: string
+}
+
+export type VolumeRoom = {
+  id: string
+  title: string
+  floor: PlanPoint[]
 }
 
 export type VolumeFloorZone = {
   id: string
+  roomId?: string
   title: string
   kind: 'door' | 'balcony' | 'radiator' | 'obstacle' | 'operation'
   floor: PlanPoint[]
@@ -60,6 +68,8 @@ export type VolumeFloorZone = {
 
 export type VolumeFurniture = {
   id: string
+  itemId?: string
+  roomId?: string
   title: string
   floor: PlanPoint[]
   heightCm?: number

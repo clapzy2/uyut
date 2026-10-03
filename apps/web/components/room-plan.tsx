@@ -414,7 +414,7 @@ export function RoomPlan({
     layout.floorReservations.length > 0 ||
     layout.keepClearZones.length > 0
   return (
-    <div>
+    <div id="room-plan" className="scroll-mt-6">
       <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
         Вид сверху
       </p>
@@ -443,6 +443,7 @@ export function RoomPlan({
       {volume ? <PlanVolumeLaunch model={volume} /> : null}
 
       <section
+        id="room-checks"
         className={`mt-4 border p-3 ${
           layout.safetySummary.status === 'checked'
             ? 'border-success/40 bg-success/5'

@@ -213,7 +213,7 @@ export default async function SummaryPage({
               ))}
             </ul>
           ) : null}
-          <PlanVolumeLaunch model={overview.model} />
+          <PlanVolumeLaunch model={overview.model} projectId={project.id} />
         </section>
       ) : null}
       <ChatDrawer projectId={project.id} canRun={isOwner} />
