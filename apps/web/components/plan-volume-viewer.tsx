@@ -3,6 +3,7 @@
 import type { PlanPoint } from '@uyut/db'
 import { useMemo, useState } from 'react'
 import type { PlanVolume } from '@/lib/projects/plan-volume'
+import { volumeSection } from '@/lib/projects/plan-volume-section'
 
 const VIEW_ANGLES = [0, 90, 180, 270] as const
 const COS_30 = Math.sqrt(3) / 2
@@ -41,6 +42,8 @@ function facesViewer(points: ScreenPoint[]): boolean {
 
 export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
   const [angleIndex, setAngleIndex] = useState(0)
+  const [section, setSection] = useState(false)
+  const [sectionHeight, setSectionHeight] = useState(90)
   const angle = VIEW_ANGLES[angleIndex] ?? 0
   const project = useMemo(() => projector(angle), [angle])
 
@@ -59,7 +62,7 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
     model.openings.some((opening) => opening.cut)
   const hasIllustrativeWalls = model.walls.some((wall) => wall.topCm === undefined)
   const wallFaces = model.walls
-    .filter((wall) => !wall.solid)
+    .filter((wall) => !wall.solid && (!section || wall.bottomCm < sectionHeight))
     .map((wall) => {
       const floorStart = project(wall.start)
       const floorEnd = project(wall.end)
@@ -69,9 +72,21 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
         points: [
           project(wall.start, wall.bottomCm),
           project(wall.end, wall.bottomCm),
-          project(wall.end, wall.topCm ?? illustrativeRise),
-          project(wall.start, wall.topCm ?? illustrativeRise),
+          project(
+            wall.end,
+            section
+              ? Math.min(wall.topCm ?? illustrativeRise, sectionHeight)
+              : (wall.topCm ?? illustrativeRise),
+          ),
+          project(
+            wall.start,
+            section
+              ? Math.min(wall.topCm ?? illustrativeRise, sectionHeight)
+              : (wall.topCm ?? illustrativeRise),
+          ),
         ],
+        holes: [],
+        cutEdge: [],
       }
     })
   const surfaces = [
@@ -82,12 +97,29 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
       solid: false,
     })),
     ...model.solidFaces
+      .map((face) => {
+        const points = section ? volumeSection(face.points, sectionHeight) : face.points
+        return {
+          ...face,
+          points,
+          holes: (face.holes ?? []).map((hole) =>
+            section ? volumeSection(hole, sectionHeight) : hole,
+          ),
+          cutEdge:
+            section && face.points.some((point) => point.zCm > sectionHeight)
+              ? points.filter((point) => point.zCm === sectionHeight)
+              : [],
+        }
+      })
+      .filter((face) => face.points.length >= 3)
       .map((face) => ({
         ...face,
         measured: true,
         solid: true,
         depth: face.points.reduce((sum, point) => sum + project(point).y, 0) / face.points.length,
         points: face.points.map((point) => project(point, point.zCm)),
+        holes: face.holes.map((hole) => hole.map((point) => project(point, point.zCm))),
+        cutEdge: face.cutEdge.map((point) => project(point, point.zCm)),
       }))
       .filter((face) => facesViewer(face.points)),
   ].sort((a, b) => a.depth - b.depth)
@@ -97,8 +129,18 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
     ...model.openings.flatMap((opening) =>
       opening.cut && opening.bottomCm !== undefined && opening.heightCm !== undefined
         ? [
-            project(opening.start, opening.bottomCm + opening.heightCm),
-            project(opening.end, opening.bottomCm + opening.heightCm),
+            project(
+              opening.start,
+              section
+                ? Math.min(opening.bottomCm + opening.heightCm, sectionHeight)
+                : opening.bottomCm + opening.heightCm,
+            ),
+            project(
+              opening.end,
+              section
+                ? Math.min(opening.bottomCm + opening.heightCm, sectionHeight)
+                : opening.bottomCm + opening.heightCm,
+            ),
           ]
         : [],
     ),
@@ -113,6 +155,16 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
 
   return (
     <div className="mt-4">
+      {model.issues.length > 0 ? (
+        <div className="mb-3 border border-danger px-4 py-3 text-sm text-ink" role="status">
+          <p>Перед выбором расстановки уточните пересечения:</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {model.issues.map((issue) => (
+              <li key={issue.id}>{issue.message}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3 border border-line bg-paper px-4 py-3">
         <p className="text-sm text-ink-2">Поверните схему, чтобы осмотреть стены и проёмы.</p>
         <div className="flex gap-2">
@@ -133,6 +185,32 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
             Вправо ↷
           </button>
         </div>
+        <div className="flex w-full flex-wrap items-center gap-4 border-t border-line pt-3">
+          <label className="flex items-center gap-2 text-sm text-ink">
+            <input
+              type="checkbox"
+              checked={section}
+              onChange={(event) => setSection(event.currentTarget.checked)}
+              className="accent-accent"
+            />
+            Открыть обзор комнат
+          </label>
+          {section ? (
+            <label className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
+              Срез на высоте {sectionHeight} см
+              <input
+                type="range"
+                min="20"
+                max="300"
+                step="10"
+                value={sectionHeight}
+                onChange={(event) => setSectionHeight(Number(event.currentTarget.value))}
+                aria-label="Высота среза стен, см"
+                className="accent-accent"
+              />
+            </label>
+          ) : null}
+        </div>
       </div>
       <svg
         viewBox={`${minX - padding} ${minY - padding} ${maxX - minX + padding * 2} ${maxY - minY + padding * 2}`}
@@ -149,41 +227,55 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
           vectorEffect="non-scaling-stroke"
         />
         {surfaces.map((wall) => (
-          <polygon
-            key={wall.id}
-            points={polygonPoints(wall.points)}
-            fill={
-              model.wallSource === 'pdf-faces'
-                ? 'var(--accent)'
-                : wall.role !== 'face'
-                  ? 'var(--line-strong)'
-                  : wall.kind === 'outer'
-                    ? 'var(--ink-2)'
-                    : 'var(--paper)'
-            }
-            fillOpacity={
-              model.wallSource === 'pdf-faces' ? 0.24 : wall.kind === 'outer' ? 0.65 : 0.82
-            }
-            stroke={wall.solid && wall.role === 'face' ? 'none' : 'var(--ink)'}
-            strokeWidth="1.5"
-            vectorEffect="non-scaling-stroke"
-          >
-            <title>
-              {wall.role === 'reveal'
-                ? 'Откос проёма · толщина по обмеру'
-                : wall.role !== 'face'
-                  ? 'Торец стены · толщина по обмеру'
-                  : wall.measured
-                    ? 'Стена · высота по введённым меркам'
-                    : 'Стена · условная высота'}
-            </title>
-          </polygon>
+          <g key={wall.id}>
+            <path
+              d={[pathRing(wall.points), ...wall.holes.map(pathRing)].join(' ')}
+              fillRule="evenodd"
+              fill={
+                model.wallSource === 'pdf-faces'
+                  ? 'var(--accent)'
+                  : wall.role !== 'face'
+                    ? 'var(--line-strong)'
+                    : 'var(--ink-2)'
+              }
+              fillOpacity={
+                model.wallSource === 'pdf-faces' ? 0.24 : wall.kind === 'outer' ? 0.65 : 0.35
+              }
+              stroke={wall.solid && wall.role === 'face' ? 'none' : 'var(--ink)'}
+              strokeWidth="1.5"
+              vectorEffect="non-scaling-stroke"
+            >
+              <title>
+                {wall.role === 'reveal'
+                  ? 'Откос проёма · толщина по обмеру'
+                  : wall.role !== 'face'
+                    ? 'Торец стены · толщина по обмеру'
+                    : wall.measured
+                      ? 'Стена · высота по введённым меркам'
+                      : 'Стена · условная высота'}
+              </title>
+            </path>
+            {wall.cutEdge.length === 2 ? (
+              <line
+                x1={wall.cutEdge[0]?.x}
+                y1={wall.cutEdge[0]?.y}
+                x2={wall.cutEdge[1]?.x}
+                y2={wall.cutEdge[1]?.y}
+                stroke="var(--ink)"
+                strokeWidth="1.5"
+                vectorEffect="non-scaling-stroke"
+              />
+            ) : null}
+          </g>
         ))}
         {model.openings.map((opening) => {
           const title = opening.type === 'window' ? 'Окно' : 'Дверной проём'
           const color = opening.type === 'window' ? 'var(--accent)' : 'var(--danger)'
           if (opening.cut && opening.bottomCm !== undefined && opening.heightCm !== undefined) {
-            const top = opening.bottomCm + opening.heightCm
+            const top = section
+              ? Math.min(opening.bottomCm + opening.heightCm, sectionHeight)
+              : opening.bottomCm + opening.heightCm
+            if (top <= opening.bottomCm) return null
             return (
               <polygon
                 key={opening.id}
@@ -222,6 +314,9 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
         })}
       </svg>
       <p className="mt-3 text-xs leading-relaxed text-ink-2">
+        {section
+          ? `Стены показаны в срезе на ${sectionHeight} см для обзора комнат. Исходные высоты и мерки сохранены. `
+          : null}
         {model.wallSource === 'pdf-faces'
           ? 'Показаны только подтверждённые участки граней из PDF — это не конструктивная толщина стен. '
           : 'Показаны стены подтверждённой 2D-схемы. '}
@@ -231,7 +326,9 @@ export default function PlanVolumeViewer({ model }: { model: PlanVolume }) {
             : 'Высоты стен показаны по меркам, введённым при проверке схемы. '
           : 'Высота стен показана условно. Добавьте мерки стен и проёмов в редакторе для просмотра по высоте. '}
         {model.solidFaces.length > 0
-          ? 'Толщина и откосы показаны только для стен с отдельно сверенной толщиной и осью. Стыки разных стен не объединены в конструктивную модель. '
+          ? model.joinedSolids
+            ? 'Стыки стен с мерками объединены без внутренних граней. Это просмотр планировки, а не строительная ведомость объёмов. '
+            : 'Толщина и откосы показаны только для стен с отдельно сверенной толщиной и осью. '
           : null}
         Цветной контур показывает проём с заданными нижней гранью и высотой; линия на полу — его
         положение, когда этих мерок ещё нет. Перед покупкой мебели сверьте размеры с обмером

@@ -54,7 +54,7 @@ describe('объёмный просмотр с мерками', () => {
     })
     expect(html).toContain('Откос проёма · толщина по обмеру')
     expect(html).toContain('Торец стены · толщина по обмеру')
-    expect(html).toContain('Стыки разных стен не объединены')
+    expect(html).toContain('Открыть обзор комнат')
     expect(html).not.toContain('NaN')
     expect(render(geometry)).not.toContain('толщина по обмеру')
   })
@@ -63,7 +63,8 @@ describe('объёмный просмотр с мерками', () => {
     expect(html).toContain('Окно · низ 50 см · высота 100 см')
     expect(html).toContain('Высоты стен показаны по меркам')
     expect(html).not.toContain('<line ')
-    expect(html.match(/<polygon /g)).toHaveLength(5)
+    expect(html.match(/<polygon /g)).toHaveLength(1)
+    expect(html.match(/<path /g)).toHaveLength(5)
   })
 
   it('при неполных мерках сохраняет маркер положения и условную высоту', () => {
@@ -73,7 +74,30 @@ describe('объёмный просмотр с мерками', () => {
     })
     expect(html).toContain('Окно · положение на плане')
     expect(html).toContain('Высота стен показана условно')
-    expect(html.match(/<polygon /g)).toHaveLength(1)
+    expect(html.match(/<path /g)).toHaveLength(2)
     expect(html).toContain('<line ')
+  })
+
+  it('показывает предупреждение, когда другая стена перекрывает проём', () => {
+    const firstWall = geometry.walls[0]
+    if (!firstWall) throw new Error('Missing wall fixture')
+    const html = render({
+      ...geometry,
+      walls: [
+        { ...firstWall, measuredThicknessCm: 20 },
+        {
+          id: 'crossing',
+          kind: 'inner',
+          heightCm: 200,
+          measuredThicknessCm: 20,
+          start: { xCm: 150, yCm: 0 },
+          end: { xCm: 150, yCm: 200 },
+        },
+      ],
+    })
+    expect(html).toContain('role="status"')
+    expect(html).toContain('Проём 1 пересекается с объёмом другой стены')
+    expect(html).toContain('Стыки стен с мерками объединены')
+    expect(html).toContain('fill-rule="evenodd"')
   })
 })

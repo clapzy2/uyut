@@ -1,8 +1,10 @@
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
+import type { PlanGeometryIssue } from './plan-geometry-inspection'
 import { currentWallFacePairs } from './plan-opening-face-pairs'
 import { inspectPlanVerticalDimensions } from './plan-vertical-dimensions'
 import { wallElevationPanels } from './wall-elevation'
 import { type WallSolidFace, wallSolidFaces } from './wall-solid'
+import { joinWallSolids } from './wall-solid-union'
 
 export type WallSpan = {
   id: string
@@ -12,6 +14,8 @@ export type WallSpan = {
   bottomCm: number
   topCm?: number
   solid?: boolean
+  wallId: string
+  thicknessCm?: number
 }
 
 export type PlanSolidFace = {
@@ -19,6 +23,7 @@ export type PlanSolidFace = {
   kind: 'outer' | 'inner'
   role: WallSolidFace['role']
   points: (PlanPoint & { zCm: number })[]
+  holes?: (PlanPoint & { zCm: number })[][]
 }
 
 export type OpeningSpan = {
@@ -38,6 +43,8 @@ export type PlanVolume = {
   openings: OpeningSpan[]
   wallSource: 'centerline' | 'pdf-faces'
   solidFaces: PlanSolidFace[]
+  joinedSolids: boolean
+  issues: PlanGeometryIssue[]
 }
 
 function interpolate(start: PlanPoint, end: PlanPoint, ratio: number): PlanPoint {
@@ -108,12 +115,13 @@ function addWallInterval(
   for (const panel of panels) {
     walls.push({
       id: `${wall.id}-${low}-${high}-${panel.startCm}-${panel.bottomCm}`,
+      wallId: wall.id,
       start: pointAt(low + panel.startCm),
       end: pointAt(low + panel.endCm),
       kind: wall.kind,
       bottomCm: panel.bottomCm,
       topCm: panel.topCm,
-      ...(solid ? { solid: true } : {}),
+      ...(solid ? { solid: true, thicknessCm: wall.measuredThicknessCm } : {}),
     })
   }
   if (
@@ -214,12 +222,16 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
     }
   }
 
+  const joined = geometry.pdfCalibration ? undefined : joinWallSolids(walls, geometry)
+  if (joined === null) return null
   return {
     floor: geometry.footprint,
     voids: (geometry.voids ?? []).map((item) => item.polygon),
     walls,
     openings,
     wallSource: geometry.pdfCalibration ? 'pdf-faces' : 'centerline',
-    solidFaces,
+    solidFaces: joined?.faces ?? solidFaces,
+    joinedSolids: joined !== undefined,
+    issues: joined?.issues ?? [],
   }
 }
