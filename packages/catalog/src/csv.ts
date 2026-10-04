@@ -181,7 +181,10 @@ export function parseRubles(value: string | undefined): number | null {
   if (!value) {
     return null
   }
-  const normalized = value.replace(/[\s ₽руб.]/gi, '').replace(',', '.')
+  const normalized = value
+    .replace(/(?:₽|руб\.?|rub)/gi, '')
+    .replace(/[\s ]/g, '')
+    .replace(',', '.')
   const number = Number(normalized)
   return Number.isFinite(number) && number > 0 ? Math.round(number * 100) : null
 }
@@ -593,11 +596,12 @@ export function parseCsvDump(text: string, source: CatalogSource = 'dump'): Feed
       depth: parseNumber(row.depth_cm),
       height: parseNumber(row.height_cm),
     }
-    const measured = hasAnyDimension(fromColumns)
-      ? fromColumns
-      : parseDimensionsCm(`${title} ${row.description ?? ''}`, {
-          sleepingIsFootprint: category === 'bed',
-        })
+    const measured =
+      hasAnyDimension(fromColumns) || row.dimensions_checked === 'true'
+        ? fromColumns
+        : parseDimensionsCm(`${title} ${row.description ?? ''}`, {
+            sleepingIsFootprint: category === 'bed',
+          })
     const { width, depth, height } = measured
     items.push({
       source,
@@ -621,7 +625,11 @@ export function parseCsvDump(text: string, source: CatalogSource = 'dump'): Feed
                 .filter(([, value]) => value !== undefined)
                 .map(([key]) => [
                   key,
-                  hasAnyDimension(fromColumns) ? 'store-parameters' : 'store-text',
+                  fromColumns[key as keyof typeof fromColumns] !== undefined
+                    ? row[`${key}_source`] === 'store-text'
+                      ? 'store-text'
+                      : 'store-parameters'
+                    : 'store-text',
                 ]),
             )
           : undefined,

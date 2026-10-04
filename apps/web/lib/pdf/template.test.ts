@@ -178,6 +178,19 @@ describe('project PDF template', () => {
     expect(renderProjectHtml(data, { fontCss: '' })).toContain('<svg viewBox="0 0 400 300"')
   })
 
+  it('объясняет, какие выбранные товары не размещены без габаритов', () => {
+    const data = sample('free')
+    const room = data.rooms[0]
+    if (!room?.plan) throw new Error('Missing room plan')
+    room.plan.unmeasured = [{ id: 'chair-unknown', title: 'Стул <Асти>' }]
+    expect(renderProjectHtml(data, { fontCss: '' })).toContain(
+      'Не размещены без габаритов: Стул &lt;Асти&gt;. Уточните размеры этих товаров',
+    )
+    room.plan.placed = []
+    room.plan.problems = []
+    expect(renderProjectHtml(data, { fontCss: '' })).toContain('Не размещены без габаритов: Стул')
+  })
+
   it('does not present an unpriced geometry check as a zero-cost estimate', () => {
     const data = sample('free')
     data.estimateStatus = 'not-calculated'

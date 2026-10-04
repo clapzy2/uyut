@@ -2,6 +2,14 @@ import { hasAnyDimension, parseDimensionsCm } from '@uyut/catalog'
 import { describe, expect, it } from 'vitest'
 
 describe('parseDimensionsCm', () => {
+  it('читает габариты после запятой без пробела, не начиная с середины тройки', () => {
+    expect(parseDimensionsCm('Стол письменный, 3 ящика,1200×450×760 мм')).toEqual({
+      width: 120,
+      depth: 45,
+      height: 76,
+    })
+    expect(parseDimensionsCm('Предмет 12345×600×740 мм')).toEqual({})
+  })
   it('сохраняет дробные сантиметры и миллиметры без округления', () => {
     expect(parseDimensionsCm('Диван 210,5 × 94.6 × 85,2 см')).toEqual({
       width: 210.5,

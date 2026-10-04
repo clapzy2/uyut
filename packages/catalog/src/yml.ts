@@ -77,7 +77,8 @@ function dimensionValue(value: string | undefined, key: string): number | undefi
     : undefined
 }
 
-function paramDimensions(params: Map<string, string>): DimensionsCm {
+export function storeParameterDimensions(entries: Iterable<[string, string]>): DimensionsCm {
+  const params = new Map([...entries].map(([key, value]) => [parameterKey(key), value]))
   const valueFor = (keys: readonly string[]) => {
     for (const key of keys) {
       const value = params.get(parameterKey(key))
@@ -179,7 +180,7 @@ export function parseYml(xml: string, source: CatalogSource): FeedParseResult {
         params.set(parameterKey(name), value)
       }
     }
-    const directDimensions = paramDimensions(params)
+    const directDimensions = storeParameterDimensions(params)
     // У партнёров габариты часто лежат одной строкой «Ш×Г×В, мм», а не тремя
     // полями. Дополняем отдельные параметры числом из названия, описания и
     // всех параметров, не затирая более точные значения из выделенных полей.

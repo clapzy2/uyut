@@ -34,6 +34,7 @@ export {
   type RoomLimits,
   type RoomSpot,
 } from './fit'
+export { type GdeslonOffer, parseGdeslonOffers } from './gdeslon'
 export {
   CHAIR_PULLOUT_CM,
   COFFEE_CLEARANCE_CM,

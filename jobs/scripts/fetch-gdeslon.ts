@@ -1,8 +1,17 @@
 // Сбор каталога из партнёрской сети «Где Слон?»: bun run catalog:gdeslon [--out файл] [--pages N]
 // Пишет CSV в том же формате, что читает catalog:import, — импорт остаётся отдельным шагом,
 // чтобы результат сбора можно было посмотреть глазами до записи в базу.
+import { createHash } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
-import { categoryFromText, parseDimensionsCm } from '@uyut/catalog'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import {
+  categoryFromText,
+  type GdeslonOffer,
+  parseDimensionsCm,
+  parseGdeslonOffers,
+  parseRubles,
+} from '@uyut/catalog'
 import type { CatalogCategory } from '@uyut/db'
 import { requireEnv } from '../src/lib/env'
 
@@ -11,26 +20,11 @@ const API = 'https://api.gdeslon.ru/api/search.xml'
 // поэтому берём мелкими страницами и повторяем при обрыве.
 const PER_PAGE = 10
 const ATTEMPTS = 3
-// Удачный запрос отвечает за треть секунды, так что ждать дольше десяти секунд бессмысленно:
-// это уже зависшее соединение, дешевле оборвать и переспросить
+// Останавливаем зависшее соединение; временный сетевой обрыв допускает повтор.
 const REQUEST_TIMEOUT_MS = 10_000
 const PARALLEL_QUERIES = 8
 
-type Offer = {
-  merchantId: string
-  article: string
-  id: string
-  available: boolean
-  price: string
-  oldPrice: string
-  picture: string
-  extraPicture: string
-  title: string
-  description: string
-  vendor: string
-  url: string
-  disclosure: string
-}
+type Offer = GdeslonOffer
 
 type Row = {
   externalId: string
@@ -48,6 +42,9 @@ type Row = {
   depth: number | null
   height: number | null
   disclosure: string
+  widthSource: string
+  depthSource: string
+  heightSource: string
 }
 
 /** Запросы подобраны так, чтобы попадать в мебель, а не в аксессуары к ней. */
@@ -151,50 +148,6 @@ function argValue(name: string, fallback: string): string {
   return index >= 0 ? (process.argv[index + 1] ?? fallback) : fallback
 }
 
-function decodeEntities(value: string): string {
-  return value
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-}
-
-function tag(block: string, name: string): string {
-  const match = new RegExp(`<${name}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?</${name}>`).exec(
-    block,
-  )
-  return match?.[1] ? decodeEntities(match[1]).trim() : ''
-}
-
-function attribute(block: string, name: string): string {
-  return new RegExp(`\\s${name}="([^"]*)"`).exec(block)?.[1] ?? ''
-}
-
-function parseOffers(xml: string): Offer[] {
-  return [...xml.matchAll(/<offer\s[\s\S]*?<\/offer>/g)].map((match) => {
-    const block = match[0]
-    const pictures = [...block.matchAll(/<picture>([^<]+)<\/picture>/g)].map((one) =>
-      decodeEntities(one[1] ?? ''),
-    )
-    return {
-      merchantId: attribute(block, 'merchant_id'),
-      article: attribute(block, 'article'),
-      id: attribute(block, 'id'),
-      available: attribute(block, 'available') !== 'false',
-      price: tag(block, 'price'),
-      oldPrice: tag(block, 'oldprice'),
-      picture: pictures[0] ?? '',
-      extraPicture: tag(block, 'original_picture'),
-      title: tag(block, 'name'),
-      description: tag(block, 'description'),
-      vendor: tag(block, 'vendor'),
-      url: tag(block, 'url'),
-      disclosure: tag(block, 'info'),
-    }
-  })
-}
-
 /** Пустой массив — страниц больше нет, null — запрос не удался и страницу стоит пропустить. */
 async function fetchPage(token: string, query: string, page: number): Promise<Offer[] | null> {
   const url = `${API}?_gs_at=${token}&q=${encodeURIComponent(query)}&l=${PER_PAGE}&p=${page}`
@@ -204,10 +157,12 @@ async function fetchPage(token: string, query: string, page: number): Promise<Of
       if (!response.ok) {
         throw new Error(`${response.status}`)
       }
-      return parseOffers(await response.text())
+      return parseGdeslonOffers(await response.text())
     } catch (error) {
       if (attempt >= ATTEMPTS) {
-        console.log(`  «${query}» страница ${page}: ${String(error).slice(0, 60)}`)
+        const reason = error instanceof Error ? error.name : 'ошибка запроса'
+        console.log(`  «${query}» страница ${page}: ${reason}`)
+        failedPages += 1
         return null
       }
       await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt))
@@ -237,7 +192,10 @@ function shopOf(url: string): string {
   }
 }
 
-function toRow(offer: Offer): Row | null {
+export function toRow(offer: Offer): Row | null {
+  if (offer.currency && !['RUR', 'RUB'].includes(offer.currency.toUpperCase())) {
+    return null
+  }
   if (!offer.available || !offer.picture.startsWith('http') || !offer.url || !offer.title) {
     return null
   }
@@ -248,33 +206,60 @@ function toRow(offer: Offer): Row | null {
   if (!category) {
     return null
   }
-  const price = Math.round(Number(offer.price))
+  const priceKopecks = parseRubles(offer.price)
+  if (priceKopecks === null) return null
+  const price = priceKopecks / 100
   const [floor, ceiling] = PRICE_RANGE[category]
   if (!Number.isFinite(price) || price < floor || price > ceiling) {
     return null
   }
-  const oldPrice = Math.round(Number(offer.oldPrice))
-  const measured = parseDimensionsCm(`${offer.title} ${offer.description}`, {
-    sleepingIsFootprint: category === 'bed',
-  })
+  const oldPriceKopecks = parseRubles(offer.oldPrice)
+  const oldPrice = oldPriceKopecks === null ? null : oldPriceKopecks / 100
+  const dimensionsText = `${offer.title} ${offer.description}`
+  const parsedDimensions = parseDimensionsCm(dimensionsText)
+  // Пара размеров в названии кровати часто означает матрас. При отсутствии
+  // высоты и явного указания внешнего габарита оставляем размер неизвестным.
+  const extracted =
+    category === 'bed' &&
+    parsedDimensions.height === undefined &&
+    !/габарит|внешн(?:ие|ий|яя|их)/i.test(dimensionsText)
+      ? {}
+      : parsedDimensions
+  const measured = {
+    width: offer.dimensions.width ?? extracted.width,
+    depth: offer.dimensions.depth ?? extracted.depth,
+    height: offer.dimensions.height ?? extracted.height,
+  }
+  // Артикул может быть общим для разных SKU. Разделяем их по id сети;
+  // без id используем ссылку, а не случайно оставляем первый пришедший вариант.
+  const identity = offer.id || createHash('sha256').update(offer.url).digest('hex').slice(0, 24)
+  const externalId = offer.merchantId
+    ? `${offer.merchantId}-${offer.article || 'sku'}-${identity}`
+    : identity
+  const sourceFor = (axis: keyof typeof measured): string => {
+    if (measured[axis] === undefined) return ''
+    return offer.dimensions[axis] !== undefined ? 'store-parameters' : 'store-text'
+  }
   return {
-    // Пара «магазин плюс артикул» переживает переиндексацию сети, внутренний id — нет
-    externalId: offer.article ? `${offer.merchantId}-${offer.article}` : offer.id,
+    externalId,
     category,
     title: offer.title.slice(0, 200),
     priceRub: price,
-    oldPriceRub: Number.isFinite(oldPrice) && oldPrice > price ? oldPrice : null,
+    oldPriceRub: oldPrice !== null && oldPrice > price ? oldPrice : null,
     url: offer.url,
     imageUrl: offer.picture,
     imageUrl2: offer.extraPicture,
     // Производитель в фиде часто пустой или прочерк: тогда показываем магазин
     brand: offer.vendor.length > 1 ? offer.vendor : shopOf(offer.url),
     description: offer.description.slice(0, 600),
-    color: colorOf(`${offer.title} ${offer.description}`),
+    color: offer.color || colorOf(`${offer.title} ${offer.description}`),
     width: measured.width ?? null,
     depth: measured.depth ?? null,
     height: measured.height ?? null,
     disclosure: offer.disclosure,
+    widthSource: sourceFor('width'),
+    depthSource: sourceFor('depth'),
+    heightSource: sourceFor('height'),
   }
 }
 
@@ -294,6 +279,10 @@ const COLUMNS = [
   'depth_cm',
   'height_cm',
   'ad_disclosure',
+  'width_source',
+  'depth_source',
+  'height_source',
+  'dimensions_checked',
 ] as const
 
 function cell(value: string | number | null): string {
@@ -301,7 +290,7 @@ function cell(value: string | number | null): string {
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
-function toCsv(rows: Row[]): string {
+export function toCsv(rows: Row[]): string {
   const lines = [COLUMNS.join(',')]
   for (const row of rows) {
     lines.push(
@@ -321,6 +310,10 @@ function toCsv(rows: Row[]): string {
         row.depth,
         row.height,
         row.disclosure,
+        row.widthSource,
+        row.depthSource,
+        row.heightSource,
+        'true',
       ]
         .map(cell)
         .join(','),
@@ -329,46 +322,64 @@ function toCsv(rows: Row[]): string {
   return `${lines.join('\n')}\n`
 }
 
-const token = requireEnv('GDESLON_TOKEN')
-const out = argValue('out', 'gdeslon.csv')
-const pages = Number(argValue('pages', '12'))
+let failedPages = 0
 
-const collected = new Map<string, Row>()
-const queue = [...QUERIES]
+async function main(): Promise<void> {
+  const token = requireEnv('GDESLON_TOKEN')
+  const out = argValue('out', 'gdeslon.csv')
+  const pages = Number(argValue('pages', '12'))
+  if (!Number.isSafeInteger(pages) || pages < 1) {
+    throw new Error('Число страниц должно быть положительным целым числом')
+  }
 
-async function worker(): Promise<void> {
-  for (let query = queue.shift(); query; query = queue.shift()) {
-    let kept = 0
-    for (let page = 1; page <= pages; page += 1) {
-      const offers = await fetchPage(token, query, page)
-      if (offers === null) {
-        // Обрыв на одной странице не повод бросать запрос: идём к следующей
-        continue
-      }
-      if (offers.length === 0) {
-        break
-      }
-      for (const offer of offers) {
-        const row = toRow(offer)
-        if (row && !collected.has(row.externalId)) {
-          collected.set(row.externalId, row)
-          kept += 1
+  const collected = new Map<string, Row>()
+  const queue = [...QUERIES]
+
+  async function worker(): Promise<void> {
+    for (let query = queue.shift(); query; query = queue.shift()) {
+      let kept = 0
+      for (let page = 1; page <= pages; page += 1) {
+        const offers = await fetchPage(token, query, page)
+        if (offers === null) {
+          // Обрыв на одной странице не повод бросать запрос: идём к следующей
+          continue
+        }
+        if (offers.length === 0) {
+          break
+        }
+        for (const offer of offers) {
+          const row = toRow(offer)
+          if (row && !collected.has(row.externalId)) {
+            collected.set(row.externalId, row)
+            kept += 1
+          }
         }
       }
+      console.log(`«${query}»: ${kept} товаров`)
     }
-    console.log(`«${query}»: ${kept} товаров`)
+  }
+
+  await Promise.all(Array.from({ length: PARALLEL_QUERIES }, () => worker()))
+
+  const rows = [...collected.values()]
+  const byCategory = new Map<string, number>()
+  for (const row of rows) {
+    byCategory.set(row.category, (byCategory.get(row.category) ?? 0) + 1)
+  }
+  writeFileSync(out, toCsv(rows), 'utf8')
+  console.log(`\nсобрано ${rows.length} товаров -> ${out}`)
+  for (const [category, count] of [...byCategory.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${category.padEnd(9)} ${count}`)
+  }
+
+  if (failedPages > 0) {
+    console.error(
+      `Сбор неполный: не удалось получить ${failedPages} страниц. Не считать файл полной свежей выгрузкой.`,
+    )
+    process.exitCode = 1
   }
 }
 
-await Promise.all(Array.from({ length: PARALLEL_QUERIES }, () => worker()))
-
-const rows = [...collected.values()]
-const byCategory = new Map<string, number>()
-for (const row of rows) {
-  byCategory.set(row.category, (byCategory.get(row.category) ?? 0) + 1)
-}
-writeFileSync(out, toCsv(rows), 'utf8')
-console.log(`\nсобрано ${rows.length} товаров -> ${out}`)
-for (const [category, count] of [...byCategory.entries()].sort((a, b) => b[1] - a[1])) {
-  console.log(`  ${category.padEnd(9)} ${count}`)
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main()
 }

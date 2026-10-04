@@ -257,13 +257,17 @@ function roomPlan(plan: RoomLayout | null): string {
     plan.safetySummary.status !== 'checked'
       ? `<p class="verdict status${plan.safetySummary.status === 'blocked' ? ' bad' : ''}">${esc(plan.safetySummary.title)}. ${esc(plan.safetySummary.detail)}</p>`
       : ''
+  const unmeasuredNote =
+    plan.unmeasured.length > 0
+      ? `<p class="verdict status">Не размещены без габаритов: ${esc(plan.unmeasured.map((item) => item.title).join('; '))}. Уточните размеры этих товаров, чтобы добавить их на схему.</p>`
+      : ''
   if (plan.problems.some((problem) => problem.kind === 'noRoomSize')) {
-    return `<div class="plan">${safetyNote}</div>`
+    return `<div class="plan">${safetyNote}${unmeasuredNote}</div>`
   }
   const trouble = plan.problems.filter((problem) => problem.kind !== 'noRoomSize')
   const hasGeometry = Boolean(plan.floorPolygon?.length || plan.keepClearZones.length)
   if (plan.placed.length === 0 && trouble.length === 0 && !hasGeometry) {
-    return `<div class="plan">${safetyNote}</div>`
+    return `<div class="plan">${safetyNote}${unmeasuredNote}</div>`
   }
   const width = 400
   const scale = width / plan.widthCm
@@ -352,6 +356,7 @@ function roomPlan(plan: RoomLayout | null): string {
         <p class="eyebrow">Вид сверху · ${formatDimensionCm(plan.widthCm)} × ${formatDimensionCm(plan.depthCm)} см</p>
         ${plan.measurementNote ? `<p class="verdict status">${esc(plan.measurementNote)}</p>` : ''}
         ${safetyNote}
+        ${unmeasuredNote}
         ${drawing}
         ${legend}
         ${plan.keepClearZones.length > 0 ? `<p class="verdict">Красным пунктиром: ${esc([...new Set(plan.keepClearZones.map((zone) => zone.label))].join('; '))}. Эти участки учтены в проверке расстановки; рабочие зоны оставьте свободными.</p>` : ''}

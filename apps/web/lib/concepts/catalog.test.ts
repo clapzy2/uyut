@@ -59,6 +59,8 @@ describe('parseCsv', () => {
   it('цена принимает пробелы, запятую и знак рубля', () => {
     expect(parseRubles('42 990')).toBe(4_299_000)
     expect(parseRubles('1 200,50 ₽')).toBe(120_050)
+    expect(parseRubles('49 990.45 руб.')).toBe(4_999_045)
+    expect(parseRubles('0.45')).toBe(45)
     expect(parseRubles('')).toBeNull()
     expect(parseRubles('дорого')).toBeNull()
   })
