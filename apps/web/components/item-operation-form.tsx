@@ -67,7 +67,7 @@ export function ItemOperationForm({
           <span className="mt-1 block text-[12px] leading-relaxed text-ink-2">{copy.label}</span>
           <input
             aria-label={`${copy.label}: ${title}`}
-            inputMode="numeric"
+            inputMode="decimal"
             placeholder="уточнить"
             value={value}
             onChange={(event) => setValue(event.currentTarget.value)}

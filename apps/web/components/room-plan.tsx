@@ -13,6 +13,7 @@ import { ItemPlacementForm } from '@/components/item-placement-form'
 import { ItemSizeForm } from '@/components/item-size-form'
 import { PlanVolumeLaunch } from '@/components/plan-volume-launch'
 import { RoomPlacementOverlay } from '@/components/room-placement-overlay'
+import { formatDimensionCm } from '@/lib/projects/format'
 import { roomVolume } from '@/lib/projects/room-volume'
 
 /**
@@ -119,8 +120,8 @@ function exactClearanceRect(
  * На чертеже у стены он повёрнут, и «95 × 220» вместо «220 × 95» человека только путает.
  */
 function sizeLabel(place: { widthCm: number; depthCm: number }): string {
-  const long = Math.round(Math.max(place.widthCm, place.depthCm))
-  const short = Math.round(Math.min(place.widthCm, place.depthCm))
+  const long = formatDimensionCm(Math.max(place.widthCm, place.depthCm))
+  const short = formatDimensionCm(Math.min(place.widthCm, place.depthCm))
   return `${long} × ${short}`
 }
 
@@ -168,7 +169,7 @@ export function RoomPlanDrawing({
             height={height}
             className="h-auto max-w-full"
             role="img"
-            aria-label={`План комнаты ${Math.round(layout.widthCm)} на ${Math.round(layout.depthCm)} сантиметров, предметов: ${layout.placed.length}`}
+            aria-label={`План комнаты ${formatDimensionCm(layout.widthCm)} на ${formatDimensionCm(layout.depthCm)} сантиметров, предметов: ${layout.placed.length}`}
           >
             <title>План комнаты сверху</title>
             {layout.floorPolygon ? (
@@ -420,10 +421,10 @@ export function RoomPlan({
       </p>
       <p className="mb-4 text-[13px] leading-relaxed text-ink-2">
         {layout.reservationSource === 'geometry' ? 'Габарит на 2D-схеме' : 'Размер комнаты'}:{' '}
-        {Math.round(layout.widthCm)} × {Math.round(layout.depthCm)} см. Схема показывает выбранную
-        мебель в масштабе, но не заменяет сверку размеров на месте. Сервис сравнил{' '}
-        {layout.alternativesEvaluated} варианта расстановки: крупное вдоль стен, стол — в свободной
-        центральной зоне.{' '}
+        {formatDimensionCm(layout.widthCm)} × {formatDimensionCm(layout.depthCm)} см. Схема
+        показывает выбранную мебель в масштабе, но не заменяет сверку размеров на месте. Сервис
+        сравнил {layout.alternativesEvaluated} варианта расстановки: крупное вдоль стен, стол — в
+        свободной центральной зоне.{' '}
         {layout.reservationSource === 'geometry' && hasOpenings
           ? `Двери и окна взяты из подтверждённой 2D-схемы; суммарная длина свободных участков стен — ${layout.freeWallCm} см.`
           : layout.reservationSource === 'geometry'

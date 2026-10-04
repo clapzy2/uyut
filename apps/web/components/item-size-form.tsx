@@ -49,7 +49,7 @@ export function ItemSizeForm({
       <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">{title}</span>
       <input
         aria-label={`Ширина, см: ${title}`}
-        inputMode="numeric"
+        inputMode="decimal"
         placeholder="ширина"
         value={own.width}
         onChange={(event) => setOwn((all) => ({ ...all, width: event.currentTarget.value }))}
@@ -57,7 +57,7 @@ export function ItemSizeForm({
       />
       <input
         aria-label={`Глубина, см: ${title}`}
-        inputMode="numeric"
+        inputMode="decimal"
         placeholder="глубина"
         value={own.depth}
         onChange={(event) => setOwn((all) => ({ ...all, depth: event.currentTarget.value }))}

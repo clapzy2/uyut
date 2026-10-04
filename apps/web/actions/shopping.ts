@@ -143,7 +143,7 @@ const sideSchema = z
       ctx.addIssue({ code: 'custom', message: 'От 5 до 500 см' })
       return null
     }
-    return Math.round(number)
+    return number
   })
 
 const itemSizeSchema = z
@@ -239,12 +239,13 @@ const coordinateSchema = z
   .string()
   .trim()
   .transform((value, ctx) => {
-    const number = Number(value.replace(',', '.'))
-    if (!Number.isFinite(number) || number < 0 || number > 10000) {
+    const normalized = value.replace(',', '.')
+    const number = Number(normalized)
+    if (normalized === '' || !Number.isFinite(number) || number < 0 || number > 10000) {
       ctx.addIssue({ code: 'custom', message: 'Координата должна быть от 0 до 10 000 см' })
       return z.NEVER
     }
-    return Math.round(number)
+    return number
   })
 
 const itemPlacementSchema = z.discriminatedUnion('mode', [

@@ -4,6 +4,7 @@ import { inputClassName, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { setItemPlacement } from '@/actions/shopping'
+import { formatDimensionCm } from '@/lib/projects/format'
 
 export function ItemPlacementForm({
   itemId,
@@ -56,14 +57,14 @@ export function ItemPlacementForm({
         <div className="min-w-[12rem] flex-1">
           <p className="truncate text-[13px] font-medium text-ink">{title}</p>
           <p className="mt-1 text-[12px] text-ink-2">
-            Габарит {Math.round(widthCm)} × {Math.round(depthCm)} см
+            Габарит {formatDimensionCm(widthCm)} × {formatDimensionCm(depthCm)} см
           </p>
         </div>
         <label>
           <span className="block text-[11px] text-ink-2">Слева, см</span>
           <input
             aria-label={`Отступ слева, см: ${title}`}
-            inputMode="numeric"
+            inputMode="decimal"
             value={value.xCm}
             onChange={(event) => setValue((all) => ({ ...all, xCm: event.currentTarget.value }))}
             className={`${inputClassName} mt-1 h-9 w-24 text-[13px]`}
@@ -97,7 +98,7 @@ export function ItemPlacementForm({
           <span className="block text-[11px] text-ink-2">Сверху, см</span>
           <input
             aria-label={`Отступ сверху, см: ${title}`}
-            inputMode="numeric"
+            inputMode="decimal"
             value={value.yCm}
             onChange={(event) => setValue((all) => ({ ...all, yCm: event.currentTarget.value }))}
             className={`${inputClassName} mt-1 h-9 w-24 text-[13px]`}

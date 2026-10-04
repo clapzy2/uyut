@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { formatArea, pluralRooms, projectMeta } from './format'
+import { formatArea, formatDimensionCm, pluralRooms, projectMeta } from './format'
 
 describe('project formatting', () => {
+  it('сохраняет дробные мерки в подписи, убирая только машинный шум', () => {
+    expect(formatDimensionCm(105.6)).toBe('105.6')
+    expect(formatDimensionCm(300.29999999999995)).toBe('300.3')
+    expect(formatDimensionCm(70)).toBe('70')
+  })
   it('declines rooms in Russian', () => {
     expect(pluralRooms(1)).toBe('1 комната')
     expect(pluralRooms(3)).toBe('3 комнаты')
