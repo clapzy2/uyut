@@ -281,9 +281,14 @@ describe('восстановление после отказа серверно�
     hooks.effects[0]?.()
     const cleanup = hooks.effects[1]?.()
     await vi.advanceTimersByTimeAsync(15_000)
-    expect(find(render(component, props), (props) => props.role === 'status').children).toContain(
-      'Не удалось проверить статус',
+    const error = find(
+      render(component, props),
+      (props) =>
+        props.role === 'status' &&
+        typeof props.children === 'string' &&
+        props.children.includes('Не удалось проверить статус'),
     )
+    expect(error.children).toContain('Не удалось проверить статус')
     expect(props.onFinished).not.toHaveBeenCalled()
     if (typeof cleanup === 'function') cleanup()
   })

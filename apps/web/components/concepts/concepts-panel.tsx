@@ -54,8 +54,7 @@ const stageLabels: Array<{ key: string; label: string }> = [
 ]
 
 function stageIndex(stage: string | undefined): number {
-  const found = stageLabels.findIndex((item) => item.key === stage)
-  return found === -1 ? 0 : found
+  return stageLabels.findIndex((item) => item.key === stage)
 }
 
 // Дольше обычного — это уже втрое против тридцати секунд, на которые мы настроили человека.
@@ -163,10 +162,15 @@ function RunProgress({
   const filled =
     progress.stage === 'done'
       ? 1
-      : Math.min(1, (current + (current === 2 ? rendered : 0)) / stageLabels.length)
+      : Math.max(0, Math.min(1, (current + (current === 2 ? rendered : 0)) / stageLabels.length))
 
   return (
     <ol className="flex flex-col gap-2">
+      {current === -1 ? (
+        <li role="status" className="text-[15px] text-ink-2">
+          Запуск принят, ожидаем начала работы.
+        </li>
+      ) : null}
       <li aria-hidden="true" className="mb-1 h-[3px] overflow-hidden rounded-full bg-muted">
         <motion.span
           className="block h-full bg-accent"
@@ -259,6 +263,7 @@ export function ConceptsPanel({
   other,
   initialRun = null,
   initialNeedsStatusCheck = false,
+  failedBeforeCards = false,
 }: {
   roomId: string
   hasPhoto: boolean
@@ -275,6 +280,8 @@ export function ConceptsPanel({
    */
   initialRun?: { runId: string; accessToken: string } | null
   initialNeedsStatusCheck?: boolean
+  /** Последний запуск завершился до появления карточек; факт сохраняется после обновления. */
+  failedBeforeCards?: boolean
   /** Генерация стоит денег: второй участник только смотрит и отмечает */
   canGenerate?: boolean
   role: ProjectRole
@@ -617,8 +624,21 @@ export function ConceptsPanel({
 
       {failed.length > 0 ? (
         <p className="text-[15px] text-ink-2">
-          {failed.length} из {latest.length} не отрисовались. Это бывает, когда модель отклоняет
-          картинку. Попробуйте сгенерировать ещё раз.
+          {failed.length} из {latest.length} вариантов не удалось подготовить.{' '}
+          {ready.length > 0 ? 'Готовые варианты сохранены. ' : null}
+          {canGenerate
+            ? 'Повторная генерация — новый платный запуск.'
+            : 'Новые варианты может запустить владелец проекта.'}
+        </p>
+      ) : null}
+
+      {failedBeforeCards ? (
+        <p role="status" className="text-[15px] text-ink-2">
+          Последний запуск завершился до подготовки вариантов.{' '}
+          {ready.length > 0 ? 'Прежние готовые варианты сохранены. ' : null}
+          {canGenerate
+            ? 'Можно запустить генерацию ещё раз — это новый платный запуск.'
+            : 'Новую генерацию может запустить владелец проекта.'}
         </p>
       ) : null}
 

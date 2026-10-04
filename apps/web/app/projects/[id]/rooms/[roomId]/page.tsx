@@ -13,7 +13,11 @@ import { RoomPlan } from '@/components/room-plan'
 import { RoomSectionLinks } from '@/components/room-section-links'
 import { RoomSettingsDialog } from '@/components/room-settings-dialog'
 import { otherMember } from '@/lib/collaboration/repository'
-import { latestBatch, listConceptsByRoom } from '@/lib/concepts/repository'
+import {
+  lastGenerationFailedBeforeCards,
+  latestBatch,
+  listConceptsByRoom,
+} from '@/lib/concepts/repository'
 import { resumeGenerationRun } from '@/lib/concepts/resume-run'
 import { PHOTO_ACCEPT, PHOTO_LIMIT_TEXT, PHOTO_MAX_BYTES } from '@/lib/files/rules'
 import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
@@ -80,6 +84,8 @@ export default async function RoomPage({ params }: { params: Params }) {
       ),
     ])
   const conceptItems = allConcepts
+  // Читаем после восстановления очереди: оно могло только что сохранить конечный отказ.
+  const failedBeforeCards = await lastGenerationFailedBeforeCards(session.user.id, room.id)
   const photoUrl = room.photoUrl ? await presignedObjectUrl(room.photoUrl) : null
   const uploadPhotoForRoom = uploadRoomPhoto.bind(null, room.id)
   const meta = [formatArea(room.areaM2), roomKindLabels[room.kind].toLowerCase()]
@@ -219,6 +225,7 @@ export default async function RoomPage({ params }: { params: Params }) {
               latestBatchId={latestBatchId}
               initialRun={runningGeneration}
               initialNeedsStatusCheck={Boolean(room.generationRunId) && !runningGeneration}
+              failedBeforeCards={failedBeforeCards}
               items={conceptItems.map((item) => ({
                 id: item.id,
                 batchId: item.batchId,

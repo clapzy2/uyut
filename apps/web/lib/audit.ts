@@ -21,6 +21,7 @@ export type AuditAction =
   | 'project.plan_rooms'
   | 'onboarding.completed'
   | 'concepts.requested'
+  | 'concepts.finished'
   | 'concepts.plan_reviewed'
   | 'concept.recolored'
   | 'chat.message'

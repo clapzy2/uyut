@@ -1,9 +1,10 @@
 import type { PromptPlan } from '@uyut/ai'
-import { type Concept, conceptObjects, concepts, rooms } from '@uyut/db'
+import { auditLog, type Concept, conceptObjects, concepts, rooms } from '@uyut/db'
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { AccessError, isUuid, NotFoundError, requireOwner } from '@/lib/projects/access'
 import { getRoom, type RoomWithProject } from '@/lib/projects/repository'
+import { isFailedRunStatus, isTerminalRunStatus } from '@/lib/queue/run-status'
 import { CONCEPT_STALE_AFTER_MS, OBJECTS_STALE_AFTER_MS, staleBefore } from '@/lib/queue/stale'
 import { presignedObjectUrl } from '@/lib/storage'
 
@@ -258,10 +259,70 @@ export async function countPending(userId: string, roomId: string): Promise<numb
   return items.filter((item) => item.status === 'pending').length
 }
 
-/** Только после подтверждённого завершения очереди: уже готовые варианты не изменяем. */
-export async function failPendingBatch(batchId: string): Promise<void> {
-  await getDb()
-    .update(concepts)
-    .set({ status: 'failed', errorText: 'Запуск завершился до сохранения этого варианта.' })
-    .where(and(eq(concepts.batchId, batchId), eq(concepts.status, 'pending')))
+/** Освобождение брони и итог запуска сохраняются вместе, даже если карточки ещё не появились. */
+export async function finishGenerationRun(input: {
+  roomId: string
+  runId: string
+  batchId: string | null
+  status: string
+}): Promise<void> {
+  if (!isTerminalRunStatus(input.status)) throw new Error('Запуск ещё не завершён')
+  await getDb().transaction(async (tx) => {
+    const [released] = await tx
+      .update(rooms)
+      .set({ generationRunId: null, generationStartedAt: null, generationBatchId: null })
+      .where(and(eq(rooms.id, input.roomId), eq(rooms.generationRunId, input.runId)))
+      .returning({ id: rooms.id })
+    // Поздний ответ и параллельный опрос не меняют новую бронь и не дублируют итог.
+    if (!released) return
+    if (input.batchId) {
+      await tx
+        .update(concepts)
+        .set({ status: 'failed', errorText: 'Запуск завершился до сохранения этого варианта.' })
+        .where(
+          and(
+            eq(concepts.roomId, released.id),
+            eq(concepts.batchId, input.batchId),
+            eq(concepts.status, 'pending'),
+          ),
+        )
+    }
+    await tx.insert(auditLog).values({
+      action: 'concepts.finished',
+      targetType: 'room',
+      targetId: released.id,
+      metadata: { batchId: input.batchId, runId: input.runId, status: input.status },
+    })
+  })
+}
+
+/** Только безопасный факт для участников комнаты, без ошибок воркера и служебных идентификаторов. */
+export async function lastGenerationFailedBeforeCards(
+  userId: string,
+  roomId: string,
+): Promise<boolean> {
+  const room = await getRoom(userId, roomId)
+  if (room.generationRunId) return false
+  const [last] = await getDb()
+    .select({ metadata: auditLog.metadata })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.action, 'concepts.finished'),
+        eq(auditLog.targetType, 'room'),
+        eq(auditLog.targetId, room.id),
+      ),
+    )
+    .orderBy(desc(auditLog.id))
+    .limit(1)
+  const status = last?.metadata?.status
+  if (typeof status !== 'string' || !isFailedRunStatus(status)) return false
+  const batchId = last?.metadata?.batchId
+  if (typeof batchId !== 'string' || !isUuid(batchId)) return true
+  const [card] = await getDb()
+    .select({ id: concepts.id })
+    .from(concepts)
+    .where(and(eq(concepts.roomId, room.id), eq(concepts.batchId, batchId)))
+    .limit(1)
+  return !card
 }

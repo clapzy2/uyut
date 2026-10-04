@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { concepts, users } from '@uyut/db'
-import { eq } from 'drizzle-orm'
+import { auditLog, concepts, projectCollaborators, rooms, users } from '@uyut/db'
+import { and, eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDb } from '@/lib/db'
 import {
@@ -24,11 +24,14 @@ vi.mock('@/lib/env', async (importOriginal) => {
   }
 })
 
+import { finishGenerationRun, lastGenerationFailedBeforeCards } from './repository'
 import { generationStillRunning, resumeGenerationRun } from './resume-run'
 
 describe('повтор после конечного отказа на отдельной БД, очередь подменена', () => {
   let owner = ''
   let projectId = ''
+  let partner = ''
+  let outsider = ''
 
   beforeAll(async () => {
     const databaseUrl = new URL(process.env.DATABASE_URL ?? '')
@@ -52,10 +55,140 @@ describe('повтор после конечного отказа на отде�
     if (!user) throw new Error('Нет тестового пользователя')
     owner = user.id
     projectId = (await createProject(owner, { title: 'Локальный контроль повтора очереди' })).id
+    const otherUsers = await getDb()
+      .insert(users)
+      .values([
+        { email: `generation-partner-${randomUUID()}@example.test` },
+        { email: `generation-outsider-${randomUUID()}@example.test` },
+      ])
+      .returning()
+    partner = otherUsers[0]?.id ?? ''
+    outsider = otherUsers[1]?.id ?? ''
+    if (!partner || !outsider) throw new Error('Нет тестовых участников')
+    await getDb()
+      .insert(projectCollaborators)
+      .values({ projectId, userId: partner, role: 'partner' })
   })
 
   afterAll(async () => {
+    if (projectId) {
+      const ownRooms = await getDb()
+        .select({ id: rooms.id })
+        .from(rooms)
+        .where(eq(rooms.projectId, projectId))
+      if (ownRooms.length)
+        await getDb()
+          .delete(auditLog)
+          .where(
+            and(
+              eq(auditLog.action, 'concepts.finished'),
+              eq(auditLog.targetType, 'room'),
+              inArray(
+                auditLog.targetId,
+                ownRooms.map((room) => room.id),
+              ),
+            ),
+          )
+    }
     if (owner) await getDb().delete(users).where(eq(users.id, owner))
+    for (const id of [partner, outsider])
+      if (id) await getDb().delete(users).where(eq(users.id, id))
+  })
+
+  it('сохраняет ранний отказ после обновления, не дублирует опрос и скрывает после успеха', async () => {
+    const room = await createRoom(owner, projectId, { name: 'Спальня', kind: 'bedroom' })
+    const batchId = randomUUID()
+    await claimRoomForGeneration(room.id, batchId)
+    await attachGenerationRun(room.id, 'run-early-failed', batchId)
+    const old = await getRoom(owner, room.id)
+    queue.retrieve.mockResolvedValue({ status: 'FAILED' })
+    await Promise.all([generationStillRunning(old), generationStillRunning(old)])
+    expect(await lastGenerationFailedBeforeCards(owner, room.id)).toBe(true)
+    expect(await lastGenerationFailedBeforeCards(partner, room.id)).toBe(true)
+    await expect(lastGenerationFailedBeforeCards(outsider, room.id)).rejects.toThrow(
+      'Комната не найдена',
+    )
+    const events = await getDb()
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, 'concepts.finished'), eq(auditLog.targetId, room.id)))
+    expect(events).toHaveLength(1)
+    expect(events[0]?.actorId).toBeNull()
+    expect(events[0]?.metadata).toEqual({ batchId, runId: 'run-early-failed', status: 'FAILED' })
+    expect(await getDb().select().from(concepts).where(eq(concepts.roomId, room.id))).toHaveLength(
+      0,
+    )
+
+    const next = randomUUID()
+    expect(await claimRoomForGeneration(room.id, next)).toBe(true)
+    await attachGenerationRun(room.id, 'run-next-completed', next)
+    expect(await lastGenerationFailedBeforeCards(owner, room.id)).toBe(false)
+    queue.retrieve.mockResolvedValueOnce({ status: 'COMPLETED' })
+    await generationStillRunning(await getRoom(owner, room.id))
+    expect(await lastGenerationFailedBeforeCards(owner, room.id)).toBe(false)
+    // Поздний ответ первого запуска не возвращает устаревшую ошибку.
+    await generationStillRunning(old)
+    expect(await lastGenerationFailedBeforeCards(owner, room.id)).toBe(false)
+    expect(
+      await getDb()
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.action, 'concepts.finished'), eq(auditLog.targetId, room.id))),
+    ).toHaveLength(2)
+    expect(queue.list).not.toHaveBeenCalled()
+    expect(queue.token).not.toHaveBeenCalled()
+  })
+
+  it('отказ записи аудита откатывает очистку брони и pending-карточки', async () => {
+    const room = await createRoom(owner, projectId, { name: 'Детская', kind: 'kid' })
+    const batchId = randomUUID()
+    await claimRoomForGeneration(room.id, batchId)
+    await attachGenerationRun(room.id, 'run-audit-failure', batchId)
+    await getDb().insert(concepts).values({
+      roomId: room.id,
+      batchId,
+      orderIndex: 0,
+      prompt: 'Нет платной генерации',
+      aiModel: 'test',
+      status: 'pending',
+      objectsStatus: 'skipped',
+    })
+    const database = getDb()
+    const transaction = database.transaction.bind(database)
+    const injectedFailure = vi.spyOn(database, 'transaction').mockImplementationOnce((callback) =>
+      transaction(async (tx) => {
+        vi.spyOn(tx, 'insert').mockImplementation(() => {
+          throw new Error('audit storage unavailable')
+        })
+        return callback(tx)
+      }),
+    )
+    try {
+      await expect(
+        finishGenerationRun({
+          roomId: room.id,
+          runId: 'run-audit-failure',
+          batchId,
+          status: 'FAILED',
+        }),
+      ).rejects.toThrow('audit storage unavailable')
+    } finally {
+      injectedFailure.mockRestore()
+    }
+    expect((await getRoom(owner, room.id)).generationRunId).toBe('run-audit-failure')
+    const [card] = await getDb().select().from(concepts).where(eq(concepts.batchId, batchId))
+    expect(card?.status).toBe('pending')
+    expect(
+      await getDb().select().from(auditLog).where(eq(auditLog.targetId, room.id)),
+    ).toHaveLength(0)
+    await finishGenerationRun({
+      roomId: room.id,
+      runId: 'run-audit-failure',
+      batchId,
+      status: 'FAILED',
+    })
+    expect((await getRoom(owner, room.id)).generationRunId).toBeNull()
+    expect(await lastGenerationFailedBeforeCards(owner, room.id)).toBe(false)
   })
 
   beforeEach(() => {

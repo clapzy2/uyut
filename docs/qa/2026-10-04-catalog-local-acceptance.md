@@ -491,4 +491,33 @@ FAL ещё не сверена. Эта проверка не доказывае�
 12 сценариев настоящего кода segment-and-match с подменёнными внешними сервисами
 и 21 Sharp-проверка вырезок/масок. На отдельной тестовой БД семь интеграционных
 проверок очереди/повтора прошли с подменённым Trigger SDK; это не живой terminal
-failure. Публикация и повторный подбор двух QA-концептов пока ожидаются.
+failure.
+
+Публикация `96d223f35a2ebb51ff36b3614903ad1a03746971` принята: author/committer
+clapzy2, русский коммит без co-author. Coolify `fzpouu2v2rdeeps5yr6eklum`
+finished, web healthy; CI `37213470827` success. В CI: 2401 unit passed,
+15 fixture-зависимых skipped; 107 integration passed, 3 skipped; 20 e2e passed.
+
+На worker `20261004.7` выполнены именно два новых segment-and-match, без render:
+
+- `run_06ggf4o4ekk8ab8vp6d51fu601`: COMPLETED, proposed 6, objects 3, matched 3.
+- `run_06ggf4o65ftqglm6522gtnin01`: COMPLETED, proposed 6, objects 4, matched 4.
+
+У обоих verificationVersion=1, verificationRequests=1, модель
+anthropic/claude-sonnet-4.5. Хеш SHA-256 исходного изображения до/после совпал,
+objectsStatus=ready. Все семь принятых объектов получили сохранённую маску.
+В браузере просмотрены оба результата, переключены товары и подсветка дивана/
+подвеса; ложные картина/ковёр отсутствуют, каталог соответствует исправленному
+классу. Скрины сохранены в `output/qa/release-20261004/`:
+`object-review-concept-1-published.png` и `object-review-concept-5-published.png`.
+
+В этой пачке четыре vision-вызова: два read-only и два внутри живого подбора;
+два повторных detect, семь SAM и две пакетные image-embedding операции.
+Цена Trigger двух запусков 0,077540625 + 0,078539625 цента; это не цена FAL
+или Voyage. Их фактические списания пока не сверены, новых рендеров нет.
+Повторный smoke после завершения web-выкладки: три страницы и состав документа
+доступны, постороннему отказано, старый PDF побайтно неизменен; мутаций нет.
+
+Остаток пакета 5: живой reload во время генерации и контролируемый terminal
+failure/повтор, независимый новичок и физический телефон. Остальные три варианта
+этой комнаты не проходили новую визуальную приёмку. Пакет 6 — отдельный restore.

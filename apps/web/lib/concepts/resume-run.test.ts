@@ -6,8 +6,7 @@ const mocks = vi.hoisted(() => ({
   retrieve: vi.fn(),
   token: vi.fn(),
   attach: vi.fn(),
-  clear: vi.fn(),
-  fail: vi.fn(),
+  finish: vi.fn(),
 }))
 vi.mock('@trigger.dev/sdk', () => ({
   runs: { list: mocks.list, retrieve: mocks.retrieve },
@@ -16,9 +15,8 @@ vi.mock('@trigger.dev/sdk', () => ({
 vi.mock('@/lib/env', () => ({ getEnv: () => ({ TRIGGER_SECRET_KEY: 'test' }) }))
 vi.mock('@/lib/projects/repository', () => ({
   attachGenerationRun: mocks.attach,
-  clearGenerationRun: mocks.clear,
 }))
-vi.mock('./repository', () => ({ failPendingBatch: mocks.fail }))
+vi.mock('./repository', () => ({ finishGenerationRun: mocks.finish }))
 
 import {
   GenerationStatusUnknownError,
@@ -50,7 +48,7 @@ describe('возвращение к генерации без повторног
     async (status) => {
       mocks.retrieve.mockResolvedValue({ status })
       expect(await generationStillRunning(room())).toBe(true)
-      expect(mocks.clear).not.toHaveBeenCalled()
+      expect(mocks.finish).not.toHaveBeenCalled()
     },
   )
 
@@ -59,8 +57,12 @@ describe('возвращение к генерации без повторног
     async (status) => {
       mocks.retrieve.mockResolvedValue({ status })
       expect(await generationStillRunning(room())).toBe(false)
-      expect(mocks.fail).toHaveBeenCalledExactlyOnceWith('batch-1')
-      expect(mocks.clear).toHaveBeenCalledExactlyOnceWith('room-1', 'run-1')
+      expect(mocks.finish).toHaveBeenCalledExactlyOnceWith({
+        roomId: 'room-1',
+        runId: 'run-1',
+        batchId: 'batch-1',
+        status,
+      })
     },
   )
 
@@ -74,7 +76,7 @@ describe('возвращение к генерации без повторног
       { retry: { maxAttempts: 1 } },
     )
     expect(mocks.attach).toHaveBeenCalledExactlyOnceWith('room-1', 'run-1', 'batch-1')
-    expect(mocks.clear).not.toHaveBeenCalled()
+    expect(mocks.finish).not.toHaveBeenCalled()
   })
 
   it('не считает пустую очередь доказанным отказом старого pending-запроса', async () => {
@@ -82,7 +84,7 @@ describe('возвращение к генерации без повторног
     await expect(
       generationStillRunning(room({ generationRunId: 'pending:batch-1' })),
     ).rejects.toBeInstanceOf(GenerationStatusUnknownError)
-    expect(mocks.clear).not.toHaveBeenCalled()
+    expect(mocks.finish).not.toHaveBeenCalled()
   })
 
   it('не выбирает произвольно один запуск, если метка неожиданно повторилась', async () => {
@@ -98,26 +100,35 @@ describe('возвращение к генерации без повторног
     expect(mocks.retrieve).not.toHaveBeenCalled()
   })
 
-  it('не освобождает бронь, если незавершённые карточки не удалось закрыть', async () => {
+  it('не подтверждает завершение, если итог не удалось сохранить вместе с карточками', async () => {
     mocks.retrieve.mockResolvedValueOnce({ status: 'FAILED' })
-    mocks.fail.mockRejectedValueOnce(new Error('database unavailable'))
+    mocks.finish.mockRejectedValueOnce(new Error('database unavailable'))
 
     await expect(generationStillRunning(room())).rejects.toThrow('database unavailable')
 
-    expect(mocks.fail).toHaveBeenCalledExactlyOnceWith('batch-1')
-    expect(mocks.clear).not.toHaveBeenCalled()
+    expect(mocks.finish).toHaveBeenCalledOnce()
   })
 
   it('повторяет безопасную очистку после ошибки БД, не создавая новую задачу', async () => {
     mocks.retrieve.mockResolvedValue({ status: 'FAILED' })
-    mocks.clear.mockRejectedValueOnce(new Error('database unavailable'))
+    mocks.finish.mockRejectedValueOnce(new Error('database unavailable'))
 
     await expect(generationStillRunning(room())).rejects.toThrow('database unavailable')
     expect(await generationStillRunning(room())).toBe(false)
 
-    expect(mocks.fail).toHaveBeenCalledTimes(2)
-    expect(mocks.clear).toHaveBeenNthCalledWith(1, 'room-1', 'run-1')
-    expect(mocks.clear).toHaveBeenNthCalledWith(2, 'room-1', 'run-1')
+    expect(mocks.finish).toHaveBeenCalledTimes(2)
+    expect(mocks.finish).toHaveBeenNthCalledWith(1, {
+      roomId: 'room-1',
+      runId: 'run-1',
+      batchId: 'batch-1',
+      status: 'FAILED',
+    })
+    expect(mocks.finish).toHaveBeenNthCalledWith(2, {
+      roomId: 'room-1',
+      runId: 'run-1',
+      batchId: 'batch-1',
+      status: 'FAILED',
+    })
     expect(mocks.list).not.toHaveBeenCalled()
     expect(mocks.attach).not.toHaveBeenCalled()
     expect(mocks.token).not.toHaveBeenCalled()
@@ -126,7 +137,7 @@ describe('возвращение к генерации без повторног
   it('сбой выдачи токена не снимает принятую задачу и не роняет страницу', async () => {
     mocks.token.mockRejectedValueOnce(new Error('offline'))
     expect(await resumeGenerationRun(room())).toBeNull()
-    expect(mocks.clear).not.toHaveBeenCalled()
+    expect(mocks.finish).not.toHaveBeenCalled()
   })
 
   it('проверка очереди ограничена четырьмя секундами без освобождения комнаты', async () => {
@@ -135,7 +146,7 @@ describe('возвращение к генерации без повторног
     const result = resumeGenerationRun(room())
     await vi.advanceTimersByTimeAsync(4_000)
     expect(await result).toBeNull()
-    expect(mocks.clear).not.toHaveBeenCalled()
+    expect(mocks.finish).not.toHaveBeenCalled()
     expect(vi.getTimerCount()).toBe(0)
   })
 })

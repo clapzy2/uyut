@@ -1,9 +1,9 @@
 import { runs, auth as triggerAuth } from '@trigger.dev/sdk'
 import type { Room } from '@uyut/db'
 import { getEnv } from '@/lib/env'
-import { attachGenerationRun, clearGenerationRun } from '@/lib/projects/repository'
+import { attachGenerationRun } from '@/lib/projects/repository'
 import { isTerminalRunStatus } from '@/lib/queue/run-status'
-import { failPendingBatch } from './repository'
+import { finishGenerationRun } from './repository'
 
 export type ConceptRunHandle = { runId: string; accessToken: string }
 
@@ -69,8 +69,7 @@ async function currentGeneration(room: Room): Promise<{ runId: string; running: 
   if (!running) {
     // Воркер мог упасть после создания pending-карточек. Они не должны навсегда
     // блокировать повтор; готовые изображения и товары этой пачки сохраняются.
-    if (batchId) await failPendingBatch(batchId)
-    await clearGenerationRun(room.id, runId)
+    await finishGenerationRun({ roomId: room.id, runId, batchId, status: run.status })
   }
   return { runId, running }
 }

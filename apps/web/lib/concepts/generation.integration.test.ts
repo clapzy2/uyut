@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { concepts, rooms, users } from '@uyut/db'
-import { eq } from 'drizzle-orm'
+import { auditLog, concepts, rooms, users } from '@uyut/db'
+import { and, eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDb } from '@/lib/db'
 import {
@@ -42,6 +42,26 @@ describe('бронь генерации на настоящей локально
     projectId = (await createProject(owner, { title: 'Локальный контроль запуска' })).id
   })
   afterAll(async () => {
+    if (projectId) {
+      const ownRooms = await getDb()
+        .select({ id: rooms.id })
+        .from(rooms)
+        .where(eq(rooms.projectId, projectId))
+      if (ownRooms.length) {
+        await getDb()
+          .delete(auditLog)
+          .where(
+            and(
+              eq(auditLog.action, 'concepts.finished'),
+              eq(auditLog.targetType, 'room'),
+              inArray(
+                auditLog.targetId,
+                ownRooms.map((room) => room.id),
+              ),
+            ),
+          )
+      }
+    }
     if (owner) await getDb().delete(users).where(eq(users.id, owner))
   })
   beforeEach(() => {
