@@ -53,7 +53,7 @@ export async function proxy(request: NextRequest) {
 
   if (!hasSession && protectedPrefixes.some((prefix) => pathname.startsWith(prefix))) {
     const url = new URL('/login', request.url)
-    url.searchParams.set('next', pathname)
+    url.searchParams.set('next', `${pathname}${request.nextUrl.search}`)
     return withPolicy(NextResponse.redirect(url))
   }
 

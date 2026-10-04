@@ -2,12 +2,13 @@
 
 import type { ProjectContact, SubscriptionPlan } from '@uyut/db'
 import { Button, buttonClassName, Checkbox, cn, inputClassName, Label, toast } from '@uyut/ui'
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { startProjectPurchase, startProSubscription } from '@/actions/billing'
-import { type ExportRun, exportProjectPdf, loadExport } from '@/actions/exports'
+import { type ExportRun, exportProjectPdf, loadExport, loadExports } from '@/actions/exports'
 import { CheckoutButton } from '@/components/billing/checkout-button'
+import { FormError } from '@/components/form-error'
 import { TypingDots } from '@/components/typing-dots'
 import { formatPrice } from '@/lib/concepts/format'
 import type { ExportView } from '@/lib/exports/repository'
@@ -45,6 +46,7 @@ function RunProgress({
   accessToken: string
   onFinished: (failed: boolean) => void
 }) {
+  const reducedMotion = useReducedMotion()
   const { progress, slow, lost } = useRunWatch({
     runId,
     accessToken,
@@ -79,9 +81,10 @@ function RunProgress({
       <li aria-hidden="true" className="mb-1 h-[3px] overflow-hidden rounded-full bg-muted">
         <motion.span
           className="block h-full bg-accent"
-          initial={{ width: 0 }}
-          animate={{ width: `${Math.round(filled * 100)}%` }}
-          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+          style={{ transformOrigin: 'left' }}
+          initial={false}
+          animate={{ scaleX: filled }}
+          transition={{ duration: reducedMotion ? 0 : 0.8, ease: [0.16, 1, 0.3, 1] }}
         />
       </li>
       {stageLabels.map((item, index) => {
@@ -100,7 +103,7 @@ function RunProgress({
               }
             >
               {done ? '✓' : null}
-              {active ? (
+              {active && !reducedMotion ? (
                 <motion.span
                   className="absolute inset-0 rounded-full border border-accent"
                   animate={{ scale: [1, 1.9], opacity: [0.7, 0] }}
@@ -166,6 +169,7 @@ export function ExportCard({
   proPriceKopecks,
   paymentState = null,
   initialRun = null,
+  children,
 }: {
   projectId: string
   exports: ExportView[]
@@ -177,6 +181,7 @@ export function ExportCard({
   proPriceKopecks: number
   paymentState?: PaymentState
   initialRun?: ExportRun | null
+  children?: ReactNode
 }) {
   const router = useRouter()
   const [includeClientName, setIncludeClientName] = useState(false)
@@ -189,12 +194,22 @@ export function ExportCard({
   const [run, setRun] = useState<ExportRun | null>(initialRun)
   const [paid, setPaid] = useState(isPaid)
   const [latest, setLatest] = useState<ExportView | null>(exports[0] ?? null)
+  const [error, setError] = useState<string | undefined>(undefined)
+  const [uncheckedExportId, setUncheckedExportId] = useState<string | null>(null)
+  const [uncertainStart, setUncertainStart] = useState(false)
+  const waitingForStatus =
+    uncertainStart ||
+    uncheckedExportId !== null ||
+    latest?.status === 'pending' ||
+    latest?.status === 'running'
   const previous = exports.filter((item) => item.id !== latest?.id).slice(0, 3)
   // Чистый документ: проект оплачен или у владельца Pro
   const clean = paid || plan === 'pro'
 
   async function start() {
+    if (busy || run || waitingForStatus) return
     setBusy(true)
+    setError(undefined)
     try {
       const result = await exportProjectPdf({
         projectId,
@@ -202,15 +217,15 @@ export function ExportCard({
         contact: { clientName, address, phone },
       })
       if (!result.ok) {
-        toast({ title: result.error, tone: 'danger' })
+        setError(result.error)
         return
       }
       setRun(result.data)
     } catch {
-      toast({
-        title: 'Не удалось запустить PDF. Проверьте соединение и повторите.',
-        tone: 'danger',
-      })
+      setUncertainStart(true)
+      setError(
+        'Не удалось получить ответ о запуске PDF. Сначала проверьте статус: сборка могла начаться.',
+      )
     } finally {
       setBusy(false)
     }
@@ -222,26 +237,44 @@ export function ExportCard({
       return
     }
     setRun(null)
+    setUncheckedExportId(current.exportId)
+    await checkStatus(current.exportId, failed)
+  }
+
+  async function checkStatus(
+    exportId = uncertainStart ? undefined : (uncheckedExportId ?? latest?.id),
+    failed = false,
+  ) {
+    if (busy) return
+    setBusy(true)
+    setError(undefined)
     try {
-      const result = await loadExport(current.exportId)
+      const result = exportId ? await loadExport(exportId) : await loadExports(projectId)
       if (!result.ok) {
-        toast({ title: result.error, tone: 'danger' })
+        setError(result.error)
         return
       }
-      setLatest(result.data)
-      if (result.data.status === 'ready' && result.data.pdfUrl) {
+      const item = Array.isArray(result.data) ? (result.data[0] ?? null) : result.data
+      setLatest(item)
+      setUncheckedExportId(null)
+      setUncertainStart(false)
+      if (item?.status === 'ready' && item.pdfUrl) {
         toast({ title: 'PDF готов', tone: 'success' })
-      } else if (failed || result.data.status === 'failed') {
-        toast({ title: 'PDF не собрался. Попробуйте ещё раз.', tone: 'danger' })
-      } else {
-        toast({ title: 'PDF ещё собирается. Обновите страницу через минуту.' })
+      } else if (item?.status === 'failed') {
+        setError('PDF не собрался. Можно запустить сборку ещё раз.')
+      } else if (item) {
+        setError(
+          failed
+            ? 'Статус очереди не получен; сборка ещё отмечена как выполняющаяся. Проверьте её позже.'
+            : undefined,
+        )
       }
     } catch {
-      toast({
-        title: 'Не удалось проверить PDF. Обновите страницу, чтобы узнать статус.',
-        tone: 'danger',
-      })
+      setError(
+        'Не удалось проверить PDF. Проверьте соединение и повторите проверку — новая сборка не запускается.',
+      )
     } finally {
+      setBusy(false)
       router.refresh()
     }
   }
@@ -254,15 +287,15 @@ export function ExportCard({
       >
         Забрать проект
       </p>
-      <h2 className="mt-2 font-serif text-[24px] leading-tight text-ink">PDF как журнал</h2>
+      <h2 className="mt-2 font-serif text-[24px] leading-tight text-ink">Смета и PDF</h2>
       <p className="mt-2 text-[15px] leading-relaxed text-ink-2">
-        Обложка, разворот каждой комнаты, список покупок, расчёт бюджета и задание для мастеров.{' '}
         {clean
           ? paid
             ? 'Проект оплачен, документ выходит без водяного знака.'
             : 'У вас Pro, документ выходит без водяного знака.'
-          : `Без оплаты документ выходит с водяным знаком «Домица» на каждой странице. Разовая покупка проекта — ${formatPrice(projectPriceKopecks)}.`}
+          : `Сначала можно бесплатно собрать и проверить PDF с водяным знаком «Домица» на каждой странице. Разовая покупка без водяного знака — ${formatPrice(projectPriceKopecks)}.`}
       </p>
+      {children}
       <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
         Документ поможет обсудить интерьер и смету с бригадой. Обмеры и состав работ уточните на
         объекте; инженерные решения оформляются отдельно.
@@ -272,7 +305,11 @@ export function ExportCard({
         <PaymentBanner state={paymentState} />
       </div>
 
-      <div className="flex flex-col gap-3">
+      <fieldset
+        aria-label="Обложка PDF"
+        disabled={busy || run !== null || waitingForStatus}
+        className="flex min-w-0 flex-col gap-3"
+      >
         <Checkbox
           id="export-client-name"
           label={<span className="text-[14px]">Имя заказчика на обложке</span>}
@@ -338,18 +375,37 @@ export function ExportCard({
             />
           </div>
         ) : null}
-      </div>
+      </fieldset>
 
       <div className="mt-5 flex flex-col gap-4">
+        <FormError message={error} />
         {run ? (
           <RunProgress runId={run.runId} accessToken={run.accessToken} onFinished={finished} />
+        ) : waitingForStatus ? (
+          <div className="flex flex-col gap-2">
+            <Button variant="secondary" onClick={() => checkStatus()} pending={busy}>
+              {busy ? 'Проверяем…' : 'Проверить статус PDF'}
+            </Button>
+            <p className="text-[13px] leading-relaxed text-ink-2">
+              Проверяем уже начатую сборку, не создавая новую.
+            </p>
+          </div>
         ) : clean ? (
           <Button onClick={start} pending={busy} disabled={!hasRooms}>
             {busy ? 'Запускаем…' : 'Собрать PDF'}
           </Button>
         ) : (
           <div className="flex flex-col gap-2">
+            <Button
+              onClick={start}
+              pending={busy}
+              disabled={!hasRooms}
+              className="h-auto min-h-11 py-2.5"
+            >
+              {busy ? 'Запускаем…' : 'Бесплатно собрать PDF с водяным знаком'}
+            </Button>
             <CheckoutButton
+              variant="secondary"
               action={() => startProjectPurchase(projectId)}
               disabled={!hasRooms}
               onPaid={(result) => {
@@ -359,11 +415,8 @@ export function ExportCard({
                 }
               }}
             >
-              Забрать за {formatPrice(projectPriceKopecks)}
+              Без водяного знака за {formatPrice(projectPriceKopecks)}
             </CheckoutButton>
-            <Button variant="secondary" onClick={start} pending={busy} disabled={!hasRooms}>
-              {busy ? 'Запускаем…' : 'Собрать PDF с водяным знаком'}
-            </Button>
           </div>
         )}
         {!hasRooms ? (

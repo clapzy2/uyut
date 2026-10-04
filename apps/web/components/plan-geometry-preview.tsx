@@ -86,7 +86,7 @@ export function PlanGeometryPreview({
   return (
     <section
       id="plan-geometry"
-      className="mt-12 scroll-mt-8 animate-[rise-in_450ms_var(--ease-appear)] border-t border-line pt-8"
+      className="mt-12 scroll-mt-24 animate-[rise-in_450ms_var(--ease-appear)] border-t border-line pt-8"
     >
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>

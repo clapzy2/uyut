@@ -1,8 +1,15 @@
 'use client'
 
 import { cn } from '@uyut/ui'
-import { AnimatePresence, animate, motion, useMotionValue, useTransform } from 'motion/react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  AnimatePresence,
+  animate,
+  motion,
+  useMotionValue,
+  useReducedMotion,
+  useTransform,
+} from 'motion/react'
+import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react'
 
 export type SwipeCard = {
   id: string
@@ -32,6 +39,7 @@ export function SwipeDeck({
   onFinished,
   onOpen,
   likedCount,
+  disabled = false,
   className,
 }: {
   cards: SwipeCard[]
@@ -41,11 +49,13 @@ export function SwipeDeck({
   /** Тап по карточке без перетаскивания или пробел: открыть карточку целиком */
   onOpen?: (card: SwipeCard) => void
   likedCount?: number
+  disabled?: boolean
   className?: string
 }) {
   const [voted, setVoted] = useState<string[]>([])
   const [leaving, setLeaving] = useState<Leaving | null>(null)
   const draggedRef = useRef(false)
+  const reducedMotion = useReducedMotion()
   const x = useMotionValue(0)
   const rotate = useTransform(x, [-320, 0, 320], [-9, 0, 9])
   const likeOpacity = useTransform(x, [40, 150], [0, 1])
@@ -60,24 +70,24 @@ export function SwipeDeck({
   const commit = useCallback(
     (liked: boolean) => {
       const card = current
-      if (!card) {
+      if (!card || disabled) {
         return
       }
       onVote(card, liked)
-      setLeaving({ card, liked })
+      setLeaving(reducedMotion ? null : { card, liked })
       setVoted((value) => [...value, card.id])
       x.set(0)
     },
-    [current, onVote, x],
+    [current, disabled, onVote, reducedMotion, x],
   )
 
   const undo = useCallback(() => {
-    if (!canUndo || !onUndo) {
+    if (!canUndo || !onUndo || disabled) {
       return
     }
     setVoted((value) => value.slice(0, -1))
     onUndo()
-  }, [canUndo, onUndo])
+  }, [canUndo, disabled, onUndo])
 
   useEffect(() => {
     if (!current && !finishedRef.current && cards.length > 0) {
@@ -89,34 +99,43 @@ export function SwipeDeck({
     }
   }, [cards.length, current, onFinished])
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.target instanceof HTMLElement && event.target.matches('input, textarea, select')) {
-        return
-      }
-      if (event.key === 'ArrowLeft') {
-        event.preventDefault()
-        commit(false)
-      }
-      if (event.key === 'ArrowRight') {
-        event.preventDefault()
-        commit(true)
-      }
-      if (event.key === ' ' && onOpen && current) {
-        event.preventDefault()
-        onOpen(current)
-      }
-      if ((event.key === 'z' || event.key === 'я') && canUndo) {
-        event.preventDefault()
-        undo()
-      }
+  function onDeckKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (
+      disabled ||
+      event.defaultPrevented ||
+      event.repeat ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    ) {
+      return
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [canUndo, commit, current, onOpen, undo])
+    if (
+      event.target instanceof HTMLElement &&
+      event.target.closest(
+        'input, textarea, select, [contenteditable]:not([contenteditable="false"])',
+      )
+    ) {
+      return
+    }
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault()
+      commit(event.key === 'ArrowRight')
+    }
+    if ((event.key === 'z' || event.key === 'я') && canUndo && onUndo) {
+      event.preventDefault()
+      undo()
+    }
+  }
 
   return (
-    <div className={cn('flex flex-col items-center gap-5', className)}>
+    <fieldset
+      aria-label="Оценка интерьеров"
+      aria-busy={disabled || undefined}
+      disabled={disabled}
+      className={cn('m-0 flex min-w-0 flex-col items-center gap-5 border-0 p-0', className)}
+      onKeyDown={onDeckKeyDown}
+    >
       <div className="relative aspect-[4/3] w-full select-none">
         {pending.slice(1, 3).map((card, offset) => (
           <div
@@ -137,13 +156,14 @@ export function SwipeDeck({
         {current ? (
           <motion.div
             key={current.id}
-            drag="x"
+            drag={reducedMotion || disabled ? false : 'x'}
             dragConstraints={{ left: 0, right: 0 }}
             dragElastic={0.55}
             onDragStart={() => {
               draggedRef.current = true
             }}
             onClick={() => {
+              if (disabled) return
               // Клик после перетаскивания — не открытие, а конец жеста
               if (draggedRef.current) {
                 draggedRef.current = false
@@ -159,14 +179,25 @@ export function SwipeDeck({
               if (far || fast) {
                 commit(info.offset.x > 0)
               } else {
-                void animate(x, 0, { type: 'spring', stiffness: 500, damping: 40 })
+                void animate(
+                  x,
+                  0,
+                  reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 500, damping: 40 },
+                )
               }
             }}
             style={{ x, rotate, zIndex: 2 }}
             className="motion-swipe-card absolute inset-0 cursor-grab overflow-hidden border border-line bg-muted shadow-soft active:cursor-grabbing"
             role={onOpen ? 'button' : undefined}
-            tabIndex={onOpen ? 0 : undefined}
+            tabIndex={onOpen ? (disabled ? -1 : 0) : undefined}
+            aria-disabled={disabled || undefined}
             aria-label={onOpen ? 'Открыть карточку' : undefined}
+            onKeyDown={(event) => {
+              if (!disabled && onOpen && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault()
+                if (!event.repeat) onOpen(current)
+              }
+            }}
           >
             {/* biome-ignore lint/performance/noImgElement: подписанные ссылки живут час, оптимизатор next/image здесь не нужен */}
             <img
@@ -232,7 +263,7 @@ export function SwipeDeck({
         <button
           type="button"
           onClick={() => commit(false)}
-          disabled={!current}
+          disabled={!current || disabled}
           aria-label="Не нравится"
           className="grid h-12 w-12 place-items-center rounded-full border border-control text-ink-2 transition-[color,border-color,background-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 hover:border-ink hover:bg-paper hover:text-ink hover:shadow-soft active:translate-y-0 active:scale-90 disabled:opacity-40"
         >
@@ -244,9 +275,9 @@ export function SwipeDeck({
           <button
             type="button"
             onClick={undo}
-            disabled={!canUndo}
+            disabled={!canUndo || disabled}
             aria-label="Вернуть предыдущую"
-            className="grid h-10 w-10 place-items-center rounded-full border border-line text-ink-2 transition-[color,border-color,transform] duration-200 ease-ui hover:-translate-y-0.5 hover:border-line-strong hover:text-ink active:translate-y-0 active:scale-90 disabled:opacity-30"
+            className="grid h-11 w-11 place-items-center rounded-full border border-line text-ink-2 transition-[color,border-color,transform] duration-200 ease-ui hover:-translate-y-0.5 hover:border-line-strong hover:text-ink active:translate-y-0 active:scale-90 disabled:opacity-30"
           >
             <span aria-hidden="true">↶</span>
           </button>
@@ -254,7 +285,7 @@ export function SwipeDeck({
         <button
           type="button"
           onClick={() => commit(true)}
-          disabled={!current}
+          disabled={!current || disabled}
           aria-label="Нравится"
           className="grid h-12 w-12 place-items-center rounded-full border border-accent text-accent transition-[color,background-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 hover:bg-accent-tint hover:shadow-soft active:translate-y-0 active:scale-90 disabled:opacity-40"
         >
@@ -268,6 +299,6 @@ export function SwipeDeck({
         {remaining > 0 ? `Осталось ${remaining}` : 'Всё'}
         {likedCount === undefined ? '' : ` · понравилось ${likedCount}`}
       </p>
-    </div>
+    </fieldset>
   )
 }

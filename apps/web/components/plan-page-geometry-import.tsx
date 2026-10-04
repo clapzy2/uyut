@@ -109,15 +109,21 @@ export function PlanPageGeometryImport({
       aria-labelledby="page-geometry-import-title"
     >
       <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
-        Из PDF в 2D · без генерации
+        Следующий шаг · размерный черновик
       </p>
       <h2 id="page-geometry-import-title" className="mt-2 font-serif text-3xl text-ink">
-        Перенести размеченные комнаты
+        Соберите 2D-схему по исходному листу
       </h2>
       <p className="mt-3 max-w-2xl text-[14px] leading-relaxed text-ink-2">
-        Проверим подписанные размеры в двух направлениях и создадим размерный черновик выбранных
-        комнат, проёмов и неподвижных объектов. Неизвестные размеры не подставляются: если данных не
-        хватит, покажем, что уточнить. AI-баланс не расходуется.
+        Список комнат уже сохранён. Теперь можно перенести размеченные контуры с листа{' '}
+        {reading.sourcePage ?? reading.pageReview?.contours.source.pdfPage} существующего состояния
+        в отдельный 2D-черновик. Проверим подписанные размеры в двух направлениях; если данных не
+        хватит, покажем, что уточнить. Неизвестные размеры не подставляются. AI-баланс не
+        расходуется.
+      </p>
+      <p className="mt-3 max-w-2xl text-[14px] leading-relaxed text-ink">
+        Это ещё не подтверждённая расстановка. После переноса откройте редактор и сверьте контуры,
+        проёмы и мерки по исходному листу или замерам на месте.
       </p>
       {sourceRooms.length > 0 ? (
         <div className="mt-5 max-w-2xl border-l-2 border-accent bg-accent-tint/20 py-3 pl-4 pr-3">
@@ -164,61 +170,75 @@ export function PlanPageGeometryImport({
             № {room.key} · {room.name}
           </label>
         ))}
-        {edgeCount >= 2 ? (
-          <label className="flex min-h-11 items-start gap-3 border-t border-line pt-3 text-sm">
-            <input
-              type="checkbox"
-              className="mt-1 size-4 shrink-0 accent-accent"
-              checked={edgeScale}
-              onChange={(event) => {
-                setEdgeScale(event.target.checked)
-                setGlobalScale(false)
-              }}
-            />
-            <span>
-              Проверить масштаб по выбранным сторонам ({edgeCount})
-              <span className="mt-1 block max-w-2xl text-xs leading-relaxed text-ink-2">
-                Сверим два разных направления и перенесём исходные контуры без поворота и подгонки.
-                Длина наклонной стены останется длиной этой стены.
-              </span>
-            </span>
-          </label>
-        ) : null}
-        {anchors.length && !edgeScale ? (
-          <div className="border-t border-line pt-3">
-            <label className="flex min-h-11 items-center gap-3 text-sm">
-              <input
-                type="checkbox"
-                className="size-4 accent-accent"
-                checked={globalScale}
-                onChange={(event) => setGlobalScale(event.target.checked)}
-              />
-              Перенести все выбранные контуры в едином масштабе листа
-            </label>
-            {globalScale ? (
-              <label className="block text-sm">
-                Комната для проверки масштаба в двух направлениях
-                <select
-                  className="mt-2 block border border-line bg-surface p-2"
-                  value={anchor}
-                  onChange={(event) => setAnchor(event.target.value)}
-                >
-                  {anchors.map((room) => (
-                    <option key={room.sourceNumber} value={room.sourceNumber}>
-                      № {room.sourceNumber} · {room.name}
-                    </option>
-                  ))}
-                </select>
-                <span className="mt-2 block max-w-2xl text-xs leading-relaxed text-ink-2">
-                  Координаты остальных зон перенесём по нативным линиям, не подставляя им
-                  отсутствующие мерки. Общая зона остаётся одним контуром. Ширины проёмов без
-                  подписей потребуют отдельной сверки.
+      </fieldset>
+      {edgeCount >= 2 || anchors.length > 0 ? (
+        <details className="mt-4 border-t border-line pt-4">
+          <summary className="min-h-11 cursor-pointer py-2 text-[14px] font-medium text-ink">
+            Дополнительная проверка масштаба
+          </summary>
+          <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-ink-2">
+            Выберите способ, если на листе есть подходящие подписанные стороны. Эти настройки
+            проверяют перенос контуров, а не подтверждают натурный обмер.
+          </p>
+          <fieldset disabled={saving || conflict} className="mt-3 min-w-0 border-0 p-0">
+            <legend className="sr-only">Способ проверки масштаба</legend>
+            {edgeCount >= 2 ? (
+              <label className="flex min-h-11 items-start gap-3 border-t border-line pt-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4 shrink-0 accent-accent"
+                  checked={edgeScale}
+                  onChange={(event) => {
+                    setEdgeScale(event.target.checked)
+                    setGlobalScale(false)
+                  }}
+                />
+                <span>
+                  Проверить масштаб по выбранным сторонам ({edgeCount})
+                  <span className="mt-1 block max-w-2xl text-xs leading-relaxed text-ink-2">
+                    Сверим два разных направления и перенесём исходные контуры без поворота и
+                    подгонки. Длина наклонной стены останется длиной этой стены.
+                  </span>
                 </span>
               </label>
             ) : null}
-          </div>
-        ) : null}
-      </fieldset>
+            {anchors.length > 0 && !edgeScale ? (
+              <div className="border-t border-line pt-3">
+                <label className="flex min-h-11 items-center gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-accent"
+                    checked={globalScale}
+                    onChange={(event) => setGlobalScale(event.target.checked)}
+                  />
+                  Перенести все выбранные контуры в едином масштабе листа
+                </label>
+                {globalScale ? (
+                  <label className="block text-sm">
+                    Комната для проверки масштаба в двух направлениях
+                    <select
+                      className="mt-2 block border border-line bg-surface p-2"
+                      value={anchor}
+                      onChange={(event) => setAnchor(event.target.value)}
+                    >
+                      {anchors.map((room) => (
+                        <option key={room.sourceNumber} value={room.sourceNumber}>
+                          № {room.sourceNumber} · {room.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="mt-2 block max-w-2xl text-xs leading-relaxed text-ink-2">
+                      Координаты остальных зон перенесём по нативным линиям, не подставляя им
+                      отсутствующие мерки. Общая зона остаётся одним контуром. Ширины проёмов без
+                      подписей потребуют отдельной сверки.
+                    </span>
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
+          </fieldset>
+        </details>
+      ) : null}
       <div className="mt-5 flex flex-wrap gap-3">
         <Button
           onClick={createDraft}
@@ -234,10 +254,20 @@ export function PlanPageGeometryImport({
         ) : null}
       </div>
       <FormError message={error} />
+      {!selected.length ? (
+        <p className="mt-3 text-[13px] text-ink-2">Выберите хотя бы одну размеченную комнату.</p>
+      ) : selected.length > 12 ? (
+        <p role="status" className="mt-3 text-[13px] text-danger">
+          За один перенос доступно до 12 помещений. Уберите часть отметок.
+        </p>
+      ) : (
+        <p role="status" className="mt-3 text-[13px] text-ink-2">
+          Выбрано помещений: {selected.length}. Перенесём только отмеченные контуры.
+        </p>
+      )}
       <p className="mt-3 max-w-2xl text-xs leading-relaxed text-ink-2">
-        Это ещё не подтверждённая расстановка. В редакторе нужно дополнить внешний контур, остальные
-        комнаты и проёмы, открывание дверей и высоты подоконников, затем сверить схему. Существующий
-        2D-чертёж эта кнопка не заменяет.
+        В редакторе нужно дополнить внешний контур, остальные комнаты и проёмы, открывание дверей и
+        высоты подоконников, затем сверить схему. Существующий 2D-чертёж эта кнопка не заменяет.
       </p>
     </section>
   )

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 
 export type RoomArchitecture = {
@@ -61,6 +62,32 @@ function openingSide(
   return 'inner'
 }
 
+function isRectangular(polygon: PlanPoint[]): boolean {
+  let corners = 0
+  let turnDirection = 0
+  for (let index = 0; index < polygon.length; index++) {
+    const previous = polygon[(index + polygon.length - 1) % polygon.length]
+    const point = polygon[index]
+    const next = polygon[(index + 1) % polygon.length]
+    if (!previous || !point || !next) return false
+    const incoming = { x: point.xCm - previous.xCm, y: point.yCm - previous.yCm }
+    const outgoing = { x: next.xCm - point.xCm, y: next.yCm - point.yCm }
+    const lengths = Math.hypot(incoming.x, incoming.y) * Math.hypot(outgoing.x, outgoing.y)
+    if (lengths === 0) return false
+    const cross = incoming.x * outgoing.y - incoming.y * outgoing.x
+    const dot = incoming.x * outgoing.x + incoming.y * outgoing.y
+    const tolerance = lengths * 1e-6
+    // Extra points on one straight edge are not additional corners.
+    if (Math.abs(cross) <= tolerance && dot > 0) continue
+    if (Math.abs(dot) > tolerance) return false
+    const direction = Math.sign(cross)
+    if (turnDirection && direction !== turnDirection) return false
+    turnDirection = direction
+    corners++
+  }
+  return corners === 4
+}
+
 /** Facts are available only for a uniquely matched room in a confirmed plan. */
 export function roomArchitectureFromPlan(
   geometry: PlanGeometry | undefined,
@@ -83,15 +110,7 @@ export function roomArchitectureFromPlan(
     minY: Math.min(...ys),
     maxY: Math.max(...ys),
   }
-  const corners = new Set([
-    `${bounds.minX},${bounds.minY}`,
-    `${bounds.maxX},${bounds.minY}`,
-    `${bounds.maxX},${bounds.maxY}`,
-    `${bounds.minX},${bounds.maxY}`,
-  ])
-  const rectangular =
-    room.polygon.length === 4 &&
-    room.polygon.every((point) => corners.has(`${point.xCm},${point.yCm}`))
+  const rectangular = isRectangular(room.polygon)
 
   const walls = new Map(geometry.walls.map((wall) => [wall.id, wall]))
   const openings: RoomArchitecture['openings'] = []
@@ -111,4 +130,20 @@ export function roomArchitectureFromPlan(
   }
 
   return { shape: rectangular ? 'rectangular' : 'nonrectangular', openings }
+}
+
+/** Versions the inputs of a plan/render comparison; it does not prove image fidelity. */
+export function conceptPlanReviewSource(
+  planKey: string | null,
+  renderKey: string | null,
+  geometry: PlanGeometry | undefined,
+  roomName: string,
+) {
+  if (!planKey || !renderKey || !geometry) return null
+  const architecture = roomArchitectureFromPlan(geometry, roomName)
+  if (!architecture) return null
+  const hash = createHash('sha256')
+    .update(JSON.stringify([planKey, renderKey, geometry, roomName]))
+    .digest('hex')
+  return { hash, architecture }
 }

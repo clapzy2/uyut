@@ -36,9 +36,16 @@ const OBJECTS_LOST = 'Предметы на этом рендере найти �
  * Рендер и подбор предметов гасятся порознь: это разные задачи с разными сроками, и рендер
  * бывает готов при намертво зависшем подборе — тогда карточка вечно показывает «ищем предметы».
  */
-async function failStale(rows: Concept[], now: Date): Promise<Concept[]> {
+async function failStale(
+  rows: Concept[],
+  now: Date,
+  activeBatchId: string | null,
+): Promise<Concept[]> {
   const lostRenders = rows.filter(
-    (row) => row.status === 'pending' && row.createdAt < staleBefore(now, CONCEPT_STALE_AFTER_MS),
+    (row) =>
+      row.status === 'pending' &&
+      row.batchId !== activeBatchId &&
+      row.createdAt < staleBefore(now, CONCEPT_STALE_AFTER_MS),
   )
   const lostObjects = rows.filter(
     (row) =>
@@ -94,7 +101,13 @@ export async function listConceptsByRoom(userId: string, roomId: string): Promis
     .from(concepts)
     .where(eq(concepts.roomId, room.id))
     .orderBy(desc(concepts.createdAt), asc(concepts.orderIndex))
-  return withSignedUrls(await failStale(rows, new Date()))
+  const activeBatchId = room.generationRunId
+    ? (room.generationBatchId ??
+      (room.generationRunId.startsWith('pending:')
+        ? room.generationRunId.slice('pending:'.length)
+        : null))
+    : null
+  return withSignedUrls(await failStale(rows, new Date(), activeBatchId))
 }
 
 /** Концепты последнего запуска: именно их показывает экран свайпа. */
@@ -243,4 +256,12 @@ export async function countBatch(batchId: string): Promise<{ total: number; pend
 export async function countPending(userId: string, roomId: string): Promise<number> {
   const { items } = await latestBatch(userId, roomId)
   return items.filter((item) => item.status === 'pending').length
+}
+
+/** Только после подтверждённого завершения очереди: уже готовые варианты не изменяем. */
+export async function failPendingBatch(batchId: string): Promise<void> {
+  await getDb()
+    .update(concepts)
+    .set({ status: 'failed', errorText: 'Запуск завершился до сохранения этого варианта.' })
+    .where(and(eq(concepts.batchId, batchId), eq(concepts.status, 'pending')))
 }

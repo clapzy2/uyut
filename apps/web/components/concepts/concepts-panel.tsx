@@ -2,7 +2,7 @@
 
 import type { ConceptBatchKind, ConceptQualityReview, ProjectRole } from '@uyut/db'
 import { Button, cn, toast } from '@uyut/ui'
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
@@ -60,8 +60,8 @@ function stageIndex(stage: string | undefined): number {
 
 // Дольше обычного — это уже втрое против тридцати секунд, на которые мы настроили человека.
 const SLOW_AFTER_MS = 90_000
-// Задача живёт не дольше десяти минут (jobs/src/generate-concept.ts), так что после восьми
-// ждать нечего: либо она уже кончилась молча, либо не начиналась вовсе
+// После восьми минут прекращаем ожидание в интерфейсе и проверяем запись на сервере.
+// Это не отменяет задачу и само по себе не означает, что генерация не удалась.
 const GIVE_UP_AFTER_MS = 8 * 60_000
 // Как часто переспрашивать сервер, пока идёт ожидание
 const SERVER_CHECK_MS = 15_000
@@ -89,6 +89,12 @@ function RunProgress({
   roomId: string
   onFinished: (failed: boolean) => void
 }) {
+  const reducedMotion = useReducedMotion()
+  const [checkError, setCheckError] = useState<string | null>(null)
+  const finishedCallback = useRef(onFinished)
+  useEffect(() => {
+    finishedCallback.current = onFinished
+  }, [onFinished])
   const { progress, slow, lost } = useRunWatch({
     runId,
     accessToken,
@@ -102,29 +108,50 @@ function RunProgress({
   // при этом давно готовы. Поэтому раз в пятнадцать секунд переспрашиваем сервер — он смотрит
   // на сами концепты, а не на связь.
   useEffect(() => {
+    let stopped = false
+    let checking = false
+    let attempts = 0
     const timer = setInterval(() => {
-      void checkGeneration(roomId).then((result) => {
-        if (result.ok && !result.data.running) {
-          onFinished(false)
-        }
-      })
+      attempts += 1
+      if (attempts >= GIVE_UP_AFTER_MS / SERVER_CHECK_MS) clearInterval(timer)
+      if (checking) return
+      checking = true
+      void checkGeneration(roomId)
+        .then((result) => {
+          if (stopped) return
+          setCheckError(result.ok ? null : result.error)
+          if (result.ok && !result.data.running) {
+            stopped = true
+            clearInterval(timer)
+            finishedCallback.current(false)
+          }
+        })
+        .catch(() => {
+          if (!stopped) setCheckError('Не удалось проверить статус. Проверьте соединение.')
+        })
+        .finally(() => {
+          checking = false
+        })
     }, SERVER_CHECK_MS)
-    return () => clearInterval(timer)
-  }, [roomId, onFinished])
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+  }, [roomId])
 
   if (lost) {
     return (
       <div className="flex flex-col gap-3">
         <p className="text-[15px] text-ink-2">
-          Связь с очередью потерялась. Концепты всё равно досчитаются, обновите страницу через
-          минуту.
+          Не удалось получить статус очереди. Генерация могла продолжиться — проверьте результат,
+          прежде чем запускать новые варианты.
         </p>
         <button
           type="button"
           onClick={() => onFinished(false)}
           className="self-start py-1 text-[14px] text-accent underline decoration-accent/40 underline-offset-4 transition-colors duration-200 ease-ui hover:decoration-accent"
         >
-          Вернуться к комнате
+          Проверить результат
         </button>
       </div>
     )
@@ -143,9 +170,10 @@ function RunProgress({
       <li aria-hidden="true" className="mb-1 h-[3px] overflow-hidden rounded-full bg-muted">
         <motion.span
           className="block h-full bg-accent"
-          initial={{ width: 0 }}
-          animate={{ width: `${Math.round(filled * 100)}%` }}
-          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+          style={{ transformOrigin: 'left' }}
+          initial={false}
+          animate={{ scaleX: filled }}
+          transition={{ duration: reducedMotion ? 0 : 0.8, ease: [0.16, 1, 0.3, 1] }}
         />
       </li>
       {stageLabels.map((item, index) => {
@@ -164,7 +192,7 @@ function RunProgress({
               }
             >
               {done ? '✓' : null}
-              {active ? (
+              {active && !reducedMotion ? (
                 // Пульс на текущем шаге: по нему видно, что процесс идёт, даже когда
                 // шаг долгий и цифры не меняются
                 <motion.span
@@ -188,6 +216,11 @@ function RunProgress({
         <li className="mt-1 text-[14px] leading-relaxed text-ink-2">
           Идёт дольше обычного. Можно закрыть страницу: концепты доедут и без вас, а вернувшись, вы
           их увидите.
+        </li>
+      ) : null}
+      {checkError ? (
+        <li role="status" className="text-[14px] text-ink-2">
+          {checkError}
         </li>
       ) : null}
     </ol>
@@ -225,6 +258,7 @@ export function ConceptsPanel({
   role,
   other,
   initialRun = null,
+  initialNeedsStatusCheck = false,
 }: {
   roomId: string
   hasPhoto: boolean
@@ -240,6 +274,7 @@ export function ConceptsPanel({
    * вкладки не теряло ожидание: раньше оно жило только в состоянии этого компонента.
    */
   initialRun?: { runId: string; accessToken: string } | null
+  initialNeedsStatusCheck?: boolean
   /** Генерация стоит денег: второй участник только смотрит и отмечает */
   canGenerate?: boolean
   role: ProjectRole
@@ -250,13 +285,16 @@ export function ConceptsPanel({
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [run, setRun] = useState<{ runId: string; accessToken: string } | null>(initialRun)
+  const [needsStatusCheck, setNeedsStatusCheck] = useState(initialNeedsStatusCheck)
   const conceptHref = (conceptId: string) =>
     `/projects/${projectId}/rooms/${roomId}/concepts/${conceptId}`
   const [votes, setVotes] = useState<Record<string, boolean>>({})
-  const [tab, setTab] = useState<Tab>('mine')
+  const [deckVersion, setDeckVersion] = useState(0)
+  const [tab, setTab] = useState<Tab>(other ? 'mine' : 'all')
   const [recent, setRecent] = useState<{ conceptId: string; liked: boolean } | null>(null)
   const live = useProjectLive({ projectId, roomId, enabled: other !== null })
   const previousLikes = useRef<LikeMap | null>(null)
+  const voteRequests = useRef<Record<string, number>>({})
 
   // Свои голоса ложатся поверх серверных сразу, чужие приходят по живому каналу
   const current = useMemo(() => {
@@ -310,7 +348,10 @@ export function ConceptsPanel({
         { key: 'theirs', label: other.name, count: split.theirs.length },
         { key: 'both', label: 'Общие', count: split.both.length },
       ]
-    : []
+    : [
+        { key: 'all', label: 'Все', count: ready.length },
+        { key: 'mine', label: 'Понравились', count: split.mine.length },
+      ]
   const shown =
     tab === 'all'
       ? ready
@@ -322,22 +363,68 @@ export function ConceptsPanel({
   const recentItem = recent ? current.find((item) => item.id === recent.conceptId) : null
 
   function generate() {
+    if (pending || working || needsStatusCheck) return
     setError(null)
     startTransition(async () => {
-      const result = await requestConcepts(roomId)
-      if (!result.ok) {
-        setError(result.error)
-        return
+      try {
+        const result = await requestConcepts(roomId)
+        if (!result.ok) {
+          if (result.checkStatus) setNeedsStatusCheck(true)
+          setError(result.error)
+          return
+        }
+        setRun({ runId: result.data.runId, accessToken: result.data.accessToken })
+      } catch {
+        setNeedsStatusCheck(true)
+        setError(
+          'Не удалось получить ответ о запуске. Сначала проверьте статус: генерация могла начаться.',
+        )
       }
-      setRun({ runId: result.data.runId, accessToken: result.data.accessToken })
     })
   }
 
-  function vote(card: SwipeCard, isLiked: boolean) {
+  async function vote(card: SwipeCard, isLiked: boolean) {
+    const previous = votes[card.id]
+    const request = (voteRequests.current[card.id] ?? 0) + 1
+    voteRequests.current[card.id] = request
     setVotes((state) => ({ ...state, [card.id]: isLiked }))
-    void setConceptLike(card.id, isLiked).then((result) => {
-      if (!result.ok) {
-        toast({ title: result.error, tone: 'danger' })
+    let error: string
+    try {
+      const result = await setConceptLike(card.id, isLiked)
+      if (result.ok) return
+      error = result.error
+    } catch {
+      error = 'Не удалось сохранить отметку. Выберите её ещё раз.'
+    }
+    if (voteRequests.current[card.id] !== request) return
+    setVotes((state) => {
+      const next = { ...state }
+      if (previous === undefined) delete next[card.id]
+      else next[card.id] = previous
+      return next
+    })
+    // Стопка также хранит уже просмотренные карточки. После отказа сохранения
+    // возвращаем её к текущему списку, иначе восстановленная отметка недоступна для повтора.
+    setDeckVersion((version) => version + 1)
+    toast({ title: error, tone: 'danger' })
+  }
+
+  function checkResults() {
+    startTransition(async () => {
+      try {
+        const result = await refreshConcepts(roomId)
+        if (!result.ok) {
+          setError(result.error)
+          return
+        }
+        setNeedsStatusCheck(result.data.pending > 0)
+        setError(null)
+        router.refresh()
+      } catch {
+        setNeedsStatusCheck(true)
+        setError(
+          'Не удалось проверить результат. Проверьте соединение; новая генерация не запущена.',
+        )
       }
     })
   }
@@ -356,11 +443,12 @@ export function ConceptsPanel({
             setRun(null)
             if (failed) {
               toast({
-                title: 'Концепты не собрались. Попробуйте ещё раз.',
+                title: 'Ожидание завершено. Проверяем результат генерации.',
                 tone: 'danger',
               })
             }
-            void refreshConcepts(roomId).then(() => router.refresh())
+            setNeedsStatusCheck(true)
+            checkResults()
           }}
         />
         <p className="mt-4 text-[15px] text-ink-2">
@@ -380,6 +468,7 @@ export function ConceptsPanel({
       {cards.length > 0 ? (
         <>
           <SwipeDeck
+            key={deckVersion}
             cards={cards}
             onVote={vote}
             onOpen={(card) => router.push(`${conceptHref(card.id)}`)}
@@ -403,13 +492,14 @@ export function ConceptsPanel({
       {other && duo?.eligible ? (
         <DuoCard
           roomId={roomId}
-          canRun={canGenerate}
+          canRun={canGenerate && !pending && !working && !needsStatusCheck}
           otherName={other.name}
           onRun={(started) => setRun(started)}
+          onStatusCheck={() => setNeedsStatusCheck(true)}
         />
       ) : null}
 
-      {tabs.length > 0 ? (
+      {ready.length > 0 ? (
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Отметки">
           {tabs.map((item) => (
             <button
@@ -433,11 +523,6 @@ export function ConceptsPanel({
 
       {shown.length > 0 ? (
         <div>
-          {tabs.length === 0 ? (
-            <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
-              Понравилось {shown.length}
-            </p>
-          ) : null}
           <ul className="grid grid-cols-2 gap-3">
             {shown.map((item) => {
               const mine = myVote(item, role) === true
@@ -481,13 +566,15 @@ export function ConceptsPanel({
             })}
           </ul>
         </div>
-      ) : tabs.length > 0 && ready.length > 0 ? (
+      ) : ready.length > 0 ? (
         <p className="text-[15px] text-ink-2">
           {tab === 'both'
             ? 'Общих отметок пока нет: как только один и тот же концепт понравится обоим, он появится здесь.'
             : tab === 'theirs'
               ? `${other?.name} пока ничего не отметил(а).`
-              : 'Пока ничего не отмечено.'}
+              : other
+                ? 'Пока ничего не отмечено.'
+                : 'Пока ничего не понравилось. Все варианты доступны во вкладке «Все».'}
         </p>
       ) : null}
 
@@ -580,14 +667,20 @@ export function ConceptsPanel({
         <>
           <FormError message={error ?? undefined} />
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="button" onClick={generate} pending={pending}>
-              {items.length === 0
-                ? 'Сгенерировать концепты'
-                : keepsFurniture
-                  ? 'Сгенерировать ещё 3'
-                  : 'Сгенерировать ещё 5'}
-            </Button>
-            {items.length === 0 ? (
+            {needsStatusCheck || working ? (
+              <Button type="button" variant="secondary" onClick={checkResults} pending={pending}>
+                {pending ? 'Проверяем…' : 'Проверить статус генерации'}
+              </Button>
+            ) : (
+              <Button type="button" onClick={generate} pending={pending}>
+                {items.length === 0
+                  ? 'Сгенерировать концепты'
+                  : keepsFurniture
+                    ? 'Сгенерировать ещё 3'
+                    : 'Сгенерировать ещё 5'}
+              </Button>
+            )}
+            {items.length === 0 && !needsStatusCheck && !working ? (
               <span className="text-sm text-ink-2">
                 {keepsFurniture
                   ? 'три варианта, около минуты'

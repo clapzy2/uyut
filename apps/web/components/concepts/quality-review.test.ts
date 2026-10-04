@@ -18,6 +18,19 @@ function render(review: ConceptQualityReview | null, edited = false) {
 }
 
 describe('concept quality explanation', () => {
+  it('does not direct the person to a missing plan-comparison section', () => {
+    const html = renderToStaticMarkup(
+      createElement(QualityReview, {
+        review: reviewed,
+        edited: false,
+        planStatus: 'unlinked',
+        canComparePlan: false,
+      }),
+    )
+    expect(html).toContain('Сверьте окна, двери и контур с исходным планом или фото комнаты')
+    expect(html).not.toContain('разделе «Сверить концепт с планом»')
+  })
+
   it('offers a source comparison when no automatic review exists', () => {
     const html = render(null)
     expect(html).toContain('Автосверка не выполнялась')
@@ -74,5 +87,62 @@ describe('concept quality explanation', () => {
     const outsideDetails = html.replace(/<details\b[^>]*>[\s\S]*?<\/details>/g, '')
     expect(outsideDetails).toContain('Окно слева заменено стеной.')
     expect(outsideDetails).toContain('Пожелание требует проверки. Рабочий стол не виден.')
+  })
+
+  it('marks a changed plan and hides only superseded architecture comments', () => {
+    const html = renderToStaticMarkup(
+      createElement(QualityReview, {
+        review: {
+          ...reviewed,
+          status: 'review',
+          issues: [
+            { code: 'opening_conflict', detail: 'Старое окно слева.', confidence: 0.9 },
+            { code: 'blocked_access', detail: 'Стол перекрывает видимую дверь.', confidence: 0.9 },
+          ],
+        },
+        edited: false,
+        planStatus: 'changed',
+      }),
+    )
+    expect(html).toContain('После правки плана нужна сверка')
+    expect(html).toContain('Стол перекрывает видимую дверь.')
+    expect(html).not.toContain('Старое окно слева.')
+    expect(html).not.toContain('Автосверка не нашла замечаний')
+  })
+
+  it('does not claim legacy reviews were checked against the current plan', () => {
+    const html = renderToStaticMarkup(
+      createElement(QualityReview, {
+        review: reviewed,
+        edited: false,
+        planStatus: 'unlinked',
+      }),
+    )
+    expect(html).toContain('Эта автосверка не привязана к текущему плану')
+    expect(html).toContain('Версия плана для этой автосверки не сохранена')
+    expect(html).not.toContain('новой версии плана')
+    expect(html).not.toContain('Автосверка не нашла замечаний')
+  })
+
+  it('keeps legacy opening observations visible when their source is unknown', () => {
+    const html = renderToStaticMarkup(
+      createElement(QualityReview, {
+        review: {
+          ...reviewed,
+          status: 'review',
+          issues: [
+            {
+              code: 'opening_conflict',
+              detail: 'На исходном фото видна другая дверь.',
+              confidence: 0.9,
+            },
+          ],
+        },
+        edited: false,
+        planStatus: 'unlinked',
+      }),
+    )
+    expect(html).toContain('На исходном фото видна другая дверь.')
+    expect(html).toContain('Эта автосверка не привязана к текущему плану')
   })
 })

@@ -78,3 +78,23 @@ export function projectLayouts(
   }
   return result
 }
+
+/** Покупки остаются в списке, даже если для их комнаты пока нельзя построить расстановку. */
+export function projectLayoutGaps(
+  rooms: readonly Pick<Room, 'id' | 'name'>[],
+  list: { items: readonly Pick<ShoppingItemView, 'roomId' | 'quantity'>[] },
+  layouts: readonly { roomId: string }[],
+): Array<{ roomId: string; roomName: string; itemCount: number }> {
+  const laidOutRooms = new Set(layouts.map((room) => room.roomId))
+  const counts = new Map<string, number>()
+  for (const item of list.items) {
+    if (item.roomId === null) continue
+    counts.set(item.roomId, (counts.get(item.roomId) ?? 0) + item.quantity)
+  }
+  return rooms.flatMap((room) => {
+    const itemCount = counts.get(room.id) ?? 0
+    return itemCount > 0 && !laidOutRooms.has(room.id)
+      ? [{ roomId: room.id, roomName: room.name, itemCount }]
+      : []
+  })
+}

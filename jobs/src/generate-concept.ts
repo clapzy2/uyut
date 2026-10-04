@@ -5,6 +5,7 @@ import {
   type ConceptModelId,
   type ConceptRenderer,
   conceptModels,
+  conceptPlanReviewSource,
   createFalRenderer,
   createPromptBuilder,
   isConceptModelId,
@@ -493,6 +494,15 @@ export const generateConcept = task({
             }
           }
           const objectBase = `projects/${project.id}/rooms/${room.id}/concepts/${concept.id}`
+          const reviewSource = conceptPlanReviewSource(
+            room.planUrl ?? project.planUrl,
+            `${objectBase}.webp`,
+            project.planReading?.geometry,
+            room.name,
+          )
+          if (reviewSource) {
+            qualityReview = { ...qualityReview, architectureSourceHash: reviewSource.hash }
+          }
           const full = await sharp(result.body).webp({ quality: 88 }).toBuffer()
           const thumb = await sharp(result.body)
             .resize({ width: 640, withoutEnlargement: true })

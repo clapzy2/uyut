@@ -1,6 +1,6 @@
 import type { PlanGeometry } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
-import { planReviewSource } from './plan-review'
+import { planReviewSource, qualityReviewPlanStatus } from './plan-review'
 
 const geometry: PlanGeometry = {
   version: 1,
@@ -47,5 +47,59 @@ describe('source for manual plan review', () => {
       planReviewSource('plan-1', 'render-1', { ...geometry, confirmedAt: 'later' }, 'Спальня')
         ?.hash,
     ).not.toBe(original?.hash)
+  })
+
+  it('invalidates window movement, width and contour changes on the same plan side', () => {
+    const withWindow: PlanGeometry = {
+      ...geometry,
+      walls: [{ id: 'top', kind: 'outer', start: { xCm: 0, yCm: 0 }, end: { xCm: 300, yCm: 0 } }],
+      openings: [{ id: 'window', type: 'window', wallId: 'top', offsetCm: 50, widthCm: 100 }],
+    }
+    const original = planReviewSource('plan', 'render', withWindow, 'Спальня')
+    const opening = withWindow.openings[0]
+    const room = withWindow.rooms[0]
+    if (!original || !opening || !room) throw new Error('missing fixture')
+    const review = {
+      version: 1 as const,
+      status: 'checked' as const,
+      model: 'test',
+      checkedAt: '2026-10-04T00:00:00Z',
+      architecture: original.architecture,
+      architectureSourceHash: original.hash,
+      issues: [],
+      description: 'Спальня.',
+    }
+    expect(qualityReviewPlanStatus(review, original.hash)).toBe('current')
+    for (const changed of [
+      { ...withWindow, openings: [{ ...opening, offsetCm: 60 }] },
+      { ...withWindow, openings: [{ ...opening, widthCm: 110 }] },
+      {
+        ...withWindow,
+        rooms: [
+          {
+            ...room,
+            polygon: room.polygon.map((point) => ({
+              ...point,
+              xCm: point.xCm === 300 ? 320 : point.xCm,
+            })),
+          },
+        ],
+      },
+    ]) {
+      const source = planReviewSource('plan', 'render', changed, 'Спальня')
+      expect(source?.architecture).toEqual(original.architecture)
+      expect(qualityReviewPlanStatus(review, source?.hash ?? null)).toBe('changed')
+    }
+    expect(
+      qualityReviewPlanStatus(
+        review,
+        planReviewSource('plan', 'new-render', withWindow, 'Спальня')?.hash ?? null,
+      ),
+    ).toBe('changed')
+    expect(qualityReviewPlanStatus(review, null)).toBe('changed')
+    expect(
+      qualityReviewPlanStatus({ ...review, architectureSourceHash: undefined }, original.hash),
+    ).toBe('unlinked')
+    expect(qualityReviewPlanStatus(null, original.hash)).toBeNull()
   })
 })

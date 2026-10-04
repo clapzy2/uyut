@@ -77,7 +77,26 @@ describe('explicit source page import choice', () => {
     expect(html).toContain('disabled=')
     expect(html).toContain('AI-баланс не расходуется')
     expect(html).toContain('Это ещё не подтверждённая расстановка')
+    expect(html).toContain('Список комнат уже сохранён')
+    expect(html).toContain('листа 6 существующего состояния')
+    expect(html).toContain('После переноса откройте редактор и сверьте')
+    expect(html).toContain('Выберите хотя бы одну размеченную комнату')
     expect(html).toContain('Существующий 2D-чертёж эта кнопка не заменяет')
+  })
+
+  it('keeps advanced scale checks optional and distinct from measurement confirmation', () => {
+    const value = structuredClone(reading)
+    const contour = value.pageReview?.contours.rooms[0]
+    if (!contour) throw new Error('Missing test contour')
+    contour.dimensionEdges = [
+      { wallEdgeIndex: 0, labelIndexes: [0] },
+      { wallEdgeIndex: 1, labelIndexes: [1] },
+    ]
+    const html = render(value)
+    expect(html).toMatch(/<details[^>]*><summary[^>]*>Дополнительная проверка масштаба/)
+    expect(html).toContain('а не подтверждают натурный обмер')
+    expect(html).toContain('Проверить масштаб по выбранным сторонам (2)')
+    expect(html).not.toContain('open=""')
   })
 
   it.each([

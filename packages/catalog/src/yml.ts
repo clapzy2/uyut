@@ -20,6 +20,7 @@ type YmlOffer = {
   model?: string
   vendor?: string
   description?: string
+  ad_disclosure?: string
   param?: YmlParam | YmlParam[]
 }
 
@@ -69,9 +70,11 @@ function dimensionValue(value: string | undefined, key: string): number | undefi
     return undefined
   }
   const isMillimetres = /(?:мм|mm)/i.test(`${key} ${value}`)
-  const centimetres = isMillimetres || raw > 500 ? raw / 10 : raw
-  const rounded = Math.round(centimetres)
-  return rounded >= MIN_DIMENSION_CM && rounded <= MAX_DIMENSION_CM ? rounded : undefined
+  const isCentimetres = /(?:см|cm)/i.test(`${key} ${value}`)
+  const centimetres = isMillimetres || (!isCentimetres && raw > 500) ? raw / 10 : raw
+  return centimetres >= MIN_DIMENSION_CM && centimetres <= MAX_DIMENSION_CM
+    ? centimetres
+    : undefined
 }
 
 function paramDimensions(params: Map<string, string>): DimensionsCm {
@@ -204,6 +207,7 @@ export function parseYml(xml: string, source: CatalogSource): FeedParseResult {
       affiliateUrl: url,
       images: pictures.map((picture) => ({ url: picture, alt: title })),
       attributes: {
+        adDisclosure: text(offer.ad_disclosure),
         color: params.get(parameterKey('цвет')),
         material:
           params.get(parameterKey('материал')) ?? params.get(parameterKey('материал обивки')),

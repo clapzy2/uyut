@@ -21,28 +21,37 @@ export function ReferenceForm({
   const [url, setUrl] = useState('')
   const uploadForProject = uploadReference.bind(null, projectId)
 
-  function finish() {
+  function finish(skipReference = false) {
     setError(null)
     startTransition(async () => {
-      if (url.trim() !== '') {
-        const saved = await saveReferenceLink(projectId, { url })
-        if (!saved.ok) {
-          setError(saved.error)
+      try {
+        if (!skipReference && url.trim() !== '') {
+          const saved = await saveReferenceLink(projectId, { url })
+          if (!saved.ok) {
+            setError(saved.error)
+            return
+          }
+        }
+        const result = await finishOnboarding(projectId)
+        if (!result.ok) {
+          setError(result.error)
           return
         }
+        toast({ title: 'Всё готово', description: 'Можно генерировать концепты' })
+        router.push(`/projects/${projectId}`)
+      } catch {
+        setError('Не удалось получить ответ сервера. Ссылка осталась в форме — попробуйте ещё раз.')
       }
-      const result = await finishOnboarding(projectId)
-      if (!result.ok) {
-        setError(result.error)
-        return
-      }
-      toast({ title: 'Всё готово', description: 'Можно генерировать концепты' })
-      router.push(`/projects/${projectId}`)
     })
   }
 
   return (
-    <div className="flex flex-col gap-7">
+    <fieldset
+      disabled={pending}
+      aria-busy={pending || undefined}
+      aria-label="Любимый интерьер"
+      className="m-0 flex min-w-0 flex-col gap-7 border-0 p-0"
+    >
       {referenceSrc ? (
         <div className="overflow-hidden border border-line bg-muted">
           {/* biome-ignore lint/performance/noImgElement: подписанная ссылка живёт 15 минут, оптимизатор next/image здесь не нужен */}
@@ -82,25 +91,23 @@ export function ReferenceForm({
         <Button
           type="button"
           variant="secondary"
+          disabled={pending}
           onClick={() => router.push(`/onboarding/step-4?project=${projectId}`)}
         >
           Назад
         </Button>
-        <Button type="button" disabled={pending} onClick={finish}>
+        <Button type="button" disabled={pending} onClick={() => finish()}>
           {pending ? 'Сохраняем…' : 'Готово'}
         </Button>
       </div>
       <button
         type="button"
-        onClick={() => {
-          setUrl('')
-          finish()
-        }}
+        onClick={() => finish(true)}
         disabled={pending}
         className="self-start py-1.5 text-sm text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-ink"
       >
         Пропустить этот шаг
       </button>
-    </div>
+    </fieldset>
   )
 }

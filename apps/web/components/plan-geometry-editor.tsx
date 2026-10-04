@@ -593,6 +593,7 @@ export function PlanGeometryEditor({
   const roomNames = roomReadings.map((room) => room.name)
   const router = useRouter()
   const [open, setOpen] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
   const [walls, setWalls] = useState(() => geometry.walls)
   const [openings, setOpenings] = useState(() => geometry.openings)
   const [measurementCalibration, setMeasurementCalibration] = useState(geometry.pdfCalibration)
@@ -1048,6 +1049,12 @@ export function PlanGeometryEditor({
         className="max-h-[calc(100dvh-2rem)] max-w-4xl! overflow-y-auto"
       >
         <fieldset disabled={saving} inert={saving} className="min-w-0 border-0 p-0">
+          <a
+            href="#geometry-fields"
+            className="mb-4 inline-flex min-h-11 items-center text-[14px] text-accent underline underline-offset-4"
+          >
+            Выбрать элемент и ввести размеры без перетаскивания
+          </a>
           {planUrl ? (
             <a
               href={planUrl}
@@ -1267,7 +1274,11 @@ export function PlanGeometryEditor({
             onRouteWidthChange={setRouteWidthCm}
             onRouteStartChange={setRouteStartOpeningId}
           />
-          <div className="mt-6 grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,1fr)]">
+          <div
+            id="geometry-fields"
+            tabIndex={-1}
+            className="mt-6 grid scroll-mt-4 gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,1fr)]"
+          >
             <div>
               <label htmlFor="geometry-element" className="mb-2 block text-[13px] text-ink-2">
                 Элемент схемы
@@ -1325,6 +1336,7 @@ export function PlanGeometryEditor({
                           key={kind}
                           type="button"
                           onClick={() => patchWall({ kind })}
+                          aria-pressed={selectedWall.kind === kind}
                           className={`rounded-full border px-3 py-2 text-[13px] transition-colors ${selectedWall.kind === kind ? 'border-accent bg-accent-tint text-ink' : 'border-control text-ink-2 hover:border-ink'}`}
                         >
                           {kind === 'outer' ? 'Внешняя граница' : 'Внутренняя стена'}
@@ -1796,9 +1808,32 @@ export function PlanGeometryEditor({
             >
               {saving ? 'Проверяем…' : 'Подтвердить и сохранить'}
             </Button>
-            <Button type="button" variant="ghost" onClick={() => reset()} disabled={saving}>
-              {conflict ? 'Загрузить сохранённую схему' : 'Сбросить правки'}
-            </Button>
+            <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+              <DialogTrigger asChild>
+                <Button type="button" variant="ghost" disabled={saving}>
+                  {conflict ? 'Загрузить сохранённую схему' : 'Сбросить правки'}
+                </Button>
+              </DialogTrigger>
+              <DialogContent
+                title="Загрузить сохранённую схему?"
+                description="Несохранённые правки стен, проёмов, контуров и других элементов в этом редакторе будут сброшены. Сохранённые данные проекта не изменятся."
+              >
+                <div className="flex flex-wrap gap-3">
+                  <Button type="button" variant="secondary" onClick={() => setResetOpen(false)}>
+                    Оставить правки
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      reset()
+                      setResetOpen(false)
+                    }}
+                  >
+                    Да, загрузить сохранённую
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </fieldset>
       </DialogContent>

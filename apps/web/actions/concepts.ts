@@ -1,7 +1,7 @@
 'use server'
 
 import { randomUUID } from 'node:crypto'
-import { tasks, auth as triggerAuth } from '@trigger.dev/sdk'
+import { ApiError, tasks, auth as triggerAuth } from '@trigger.dev/sdk'
 import { buildEditPlan, type DuoProposal, type EditPlan } from '@uyut/ai'
 import { revalidatePath } from 'next/cache'
 import { recordAudit } from '@/lib/audit'
@@ -9,7 +9,11 @@ import { bumpProjectVersion } from '@/lib/collaboration/live'
 import { APARTMENT_COUNT, apartmentPlan } from '@/lib/concepts/apartment'
 import { getDuoOffer } from '@/lib/concepts/duo'
 import * as conceptsRepository from '@/lib/concepts/repository'
-import { generationStillRunning } from '@/lib/concepts/resume-run'
+import {
+  GenerationStatusUnknownError,
+  generationRunTag,
+  generationStillRunning,
+} from '@/lib/concepts/resume-run'
 import { getEnv } from '@/lib/env'
 import { AccessError, requireOwner } from '@/lib/projects/access'
 import {
@@ -23,7 +27,9 @@ import { getConceptsByUserLimiter } from '@/lib/redis'
 import { getSession } from '@/lib/session'
 import { conceptEditSchema } from '@/lib/validation/projects'
 
-export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string }
+export type ActionResult<T = undefined> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; checkStatus?: boolean }
 
 const SESSION_EXPIRED = 'Сессия закончилась. Войдите снова.'
 const GENERIC = 'Не получилось. Попробуйте ещё раз, а если повторится, напишите нам.'
@@ -36,12 +42,66 @@ async function currentUserId(): Promise<string | null> {
   return session?.user.id ?? null
 }
 
-function failure(error: unknown): { ok: false; error: string } {
+function failure(error: unknown): { ok: false; error: string; checkStatus?: boolean } {
+  if (error instanceof GenerationStatusUnknownError) {
+    return { ok: false, error: error.message, checkStatus: true }
+  }
   if (error instanceof AccessError) {
     return { ok: false, error: error.message }
   }
   console.error(error)
   return { ok: false, error: GENERIC }
+}
+
+async function allowGeneration(userId: string, roomId: string, batchId: string): Promise<boolean> {
+  try {
+    const { success } = await getConceptsByUserLimiter().limit(userId)
+    if (!success) await clearGenerationRun(roomId, `pending:${batchId}`)
+    return success
+  } catch (error) {
+    // До обращения к очереди точно ничего не отправлено.
+    await clearGenerationRun(roomId, `pending:${batchId}`)
+    throw error
+  }
+}
+
+async function enqueueConcepts(
+  payload: { roomId: string; batchId: string; count: number } & Record<string, unknown>,
+) {
+  try {
+    return await tasks.trigger(
+      'generate-concept',
+      payload,
+      { idempotencyKey: payload.batchId, tags: [generationRunTag(payload.batchId)] },
+      { retry: { maxAttempts: 1 } },
+    )
+  } catch (error) {
+    // HTTP-отказ самого API однозначен. Timeout, сбой сети или 5xx не доказывают,
+    // что очередь не приняла запрос: сохраняем бронь и восстанавливаем по метке.
+    if (error instanceof ApiError && [400, 401, 403, 404, 422, 429].includes(error.status ?? 0)) {
+      await clearGenerationRun(payload.roomId, `pending:${payload.batchId}`)
+      throw error
+    }
+    console.error('ответ о запуске не подтверждён', payload.roomId, error)
+    throw new GenerationStatusUnknownError()
+  }
+}
+
+async function runForClient(
+  roomId: string,
+  batchId: string,
+  handle: Awaited<ReturnType<typeof tasks.trigger>>,
+): Promise<ConceptRun> {
+  try {
+    await attachGenerationRun(roomId, handle.id, batchId)
+    const accessToken =
+      handle.publicAccessToken ??
+      (await triggerAuth.createPublicToken({ scopes: { read: { runs: [handle.id] } } }))
+    return { runId: handle.id, accessToken, batchId }
+  } catch (error) {
+    console.error('не удалось восстановить ожидание принятого запуска', roomId, error)
+    throw new GenerationStatusUnknownError()
+  }
 }
 
 /** Сколько рендеров делать: с нуля нужен выбор, для правки достаточно трёх прочтений одной просьбы. */
@@ -88,43 +148,35 @@ export async function requestConcepts(
     // Занимаем комнату до лимитера и внешней очереди. Две вкладки или двойной клик иначе
     // успевают отправить две платные задачи до того, как первая запишет свой runId.
     if (!(await claimRoomForGeneration(room.id, batchId))) {
-      return { ok: false, error: 'Эта комната уже считается. Дождитесь готовых вариантов.' }
+      return {
+        ok: false,
+        error: 'Эта комната уже считается. Дождитесь готовых вариантов.',
+        checkStatus: true,
+      }
     }
-    const { success } = await getConceptsByUserLimiter().limit(userId)
-    if (!success) {
-      await clearGenerationRun(room.id)
+    if (!(await allowGeneration(userId, room.id, batchId))) {
       return { ok: false, error: 'Сегодня уже много генераций. Попробуйте через час.' }
     }
-    let handle: Awaited<ReturnType<typeof tasks.trigger>>
-    try {
-      handle = await tasks.trigger('generate-concept', {
-        roomId: room.id,
-        batchId,
-        // В режиме «оставить как есть» пять вариантов одной и той же комнаты почти не отличаются: платить за пять незачем
-        count: baseConceptId || room.condition === 'keep' ? EDIT_COUNT : FRESH_COUNT,
-        ...(revision ? { revision: revision.slice(0, 500) } : {}),
-        ...(baseConceptId ? { baseConceptId } : {}),
-        ...(editRequest ? { editRequest: editRequest.slice(0, 500) } : {}),
-        ...(editSteps && editSteps.length > 0 ? { editSteps } : {}),
-        ...(objectId ? { objectId } : {}),
-      })
-    } catch (error) {
-      // Очередь не приняла задачу: платного запуска нет, бронь можно безопасно снять.
-      await clearGenerationRun(room.id)
-      throw error
-    }
-    await attachGenerationRun(room.id, handle.id, batchId)
+    const handle = await enqueueConcepts({
+      roomId: room.id,
+      batchId,
+      // В режиме «оставить как есть» пять вариантов одной и той же комнаты почти не отличаются: платить за пять незачем
+      count: baseConceptId || room.condition === 'keep' ? EDIT_COUNT : FRESH_COUNT,
+      ...(revision ? { revision: revision.slice(0, 500) } : {}),
+      ...(baseConceptId ? { baseConceptId } : {}),
+      ...(editRequest ? { editRequest: editRequest.slice(0, 500) } : {}),
+      ...(editSteps && editSteps.length > 0 ? { editSteps } : {}),
+      ...(objectId ? { objectId } : {}),
+    })
+    const run = await runForClient(room.id, batchId, handle)
     await recordAudit({
       action: 'concepts.requested',
       actorId: userId,
       targetType: 'room',
       targetId: room.id,
       metadata: { batchId, runId: handle.id, ...(baseConceptId ? { baseConceptId } : {}) },
-    })
-    const accessToken =
-      handle.publicAccessToken ??
-      (await triggerAuth.createPublicToken({ scopes: { read: { runs: [handle.id] } } }))
-    return { ok: true, data: { runId: handle.id, accessToken, batchId } }
+    }).catch((error) => console.error('аудит запуска', room.id, error))
+    return { ok: true, data: run }
   } catch (error) {
     return failure(error)
   }
@@ -140,7 +192,7 @@ export async function requestConcepts(
  */
 export async function requestApartmentConcepts(
   projectId: string,
-): Promise<ActionResult<{ started: number; asked: number }>> {
+): Promise<ActionResult<{ started: number; asked: number; notice?: string }>> {
   const userId = await currentUserId()
   if (!userId) {
     return { ok: false, error: SESSION_EXPIRED }
@@ -158,31 +210,28 @@ export async function requestApartmentConcepts(
     }
     let started = 0
     let throttled = false
+    let uncertain = false
+    let rejected = false
     for (const room of ready) {
+      const batchId = randomUUID()
+      if (!(await claimRoomForGeneration(room.id, batchId))) continue
       // Счётчик тратим по комнате, а не по нажатию: пять комнат — это пять генераций,
       // и общий предел должен считать их пятью, иначе он ничего не ограничивает
-      const { success } = await getConceptsByUserLimiter().limit(userId)
-      if (!success) {
+      if (!(await allowGeneration(userId, room.id, batchId))) {
         throttled = true
         break
       }
-      const batchId = randomUUID()
-      // Занимаем комнату до запуска: два нажатия подряд иначе оплатят одну комнату дважды
-      if (!(await claimRoomForGeneration(room.id, batchId))) {
-        continue
-      }
       let handle: Awaited<ReturnType<typeof tasks.trigger>> | null = null
       try {
-        handle = await tasks.trigger('generate-concept', {
+        handle = await enqueueConcepts({
           roomId: room.id,
           batchId,
           count: APARTMENT_COUNT,
         })
       } catch (error) {
-        // Очередь не приняла задание. Отпускаем комнату: платить не за что, а держать её
-        // занятой до истечения срока значит скрыть её от следующего нажатия
         console.error('комната не запустилась', room.id, error)
-        await clearGenerationRun(room.id).catch(() => undefined)
+        if (error instanceof GenerationStatusUnknownError) uncertain = true
+        else rejected = true
         continue
       }
       started += 1
@@ -193,11 +242,14 @@ export async function requestApartmentConcepts(
       )
     }
     if (started === 0) {
+      if (uncertain) return failure(new GenerationStatusUnknownError())
       return {
         ok: false,
         error: throttled
           ? 'Сегодня уже много генераций. Попробуйте через час.'
-          : 'Все эти комнаты уже считаются. Дождитесь их.',
+          : rejected
+            ? 'Очередь не приняла запуск. Попробуйте позже; готовые варианты сохранены.'
+            : 'Все эти комнаты уже считаются. Дождитесь их.',
       }
     }
     await recordAudit({
@@ -206,9 +258,26 @@ export async function requestApartmentConcepts(
       targetType: 'project',
       targetId: projectId,
       metadata: { apartment: true, rooms: started, asked: ready.length },
-    })
+    }).catch((error) => console.error('аудит запуска квартиры', projectId, error))
     revalidatePath(`/projects/${projectId}`)
-    return { ok: true, data: { started, asked: ready.length } }
+    return {
+      ok: true,
+      data: {
+        started,
+        asked: ready.length,
+        ...(started < ready.length
+          ? {
+              notice: uncertain
+                ? 'По части комнат ответ очереди не подтверждён. Откройте их и проверьте статус.'
+                : throttled
+                  ? 'Для остальных комнат пока достигнут лимит генераций.'
+                  : rejected
+                    ? 'Часть запусков очередь не приняла. Готовые варианты сохранены.'
+                    : 'Остальные комнаты уже считаются.',
+            }
+          : {}),
+      },
+    }
   } catch (error) {
     return failure(error)
   }
@@ -338,29 +407,33 @@ export async function requestDuoConcepts(roomId: string): Promise<ActionResult<C
     if (!offer.proposal) {
       return { ok: false, error: 'Предложение устарело: отметки изменились. Обновите страницу.' }
     }
-    const { success } = await getConceptsByUserLimiter().limit(userId)
-    if (!success) {
+    const batchId = randomUUID()
+    if (!(await claimRoomForGeneration(room.id, batchId))) {
+      return {
+        ok: false,
+        error: 'Эта комната уже считается. Дождитесь готовых вариантов.',
+        checkStatus: true,
+      }
+    }
+    if (!(await allowGeneration(userId, room.id, batchId))) {
       return { ok: false, error: 'Сегодня уже много генераций. Попробуйте через час.' }
     }
-    const batchId = randomUUID()
-    const handle = await tasks.trigger('generate-concept', {
+    const handle = await enqueueConcepts({
       roomId: room.id,
       batchId,
       count: offer.proposal.bridges.length,
       duo: { variations: offer.proposal.bridges },
     })
+    const run = await runForClient(room.id, batchId, handle)
     await recordAudit({
       action: 'concepts.requested',
       actorId: userId,
       targetType: 'room',
       targetId: room.id,
       metadata: { batchId, runId: handle.id, kind: 'duo', hash: offer.hash },
-    })
+    }).catch((error) => console.error('аудит запуска на двоих', room.id, error))
     await bumpProjectVersion(room.projectId).catch((error) => console.error('live version', error))
-    const accessToken =
-      handle.publicAccessToken ??
-      (await triggerAuth.createPublicToken({ scopes: { read: { runs: [handle.id] } } }))
-    return { ok: true, data: { runId: handle.id, accessToken, batchId } }
+    return { ok: true, data: run }
   } catch (error) {
     return failure(error)
   }
@@ -391,16 +464,11 @@ export async function refreshConcepts(roomId: string): Promise<ActionResult<{ pe
   }
   try {
     const room = await getRoom(userId, roomId)
+    const running = await generationStillRunning(room)
     const pending = await conceptsRepository.countPending(userId, room.id)
-    // Зовётся, когда ожидание кончилось: снимаем отметку, иначе обновление страницы
-    // показало бы экран ожидания заново. Но только если считать и правда нечего: поток
-    // из очереди умеет замолчать раньше самой задачи, и снятая отметка открывала комнату
-    // для второго платного запуска поверх идущего первого.
-    if (pending === 0) {
-      await clearGenerationRun(room.id)
-    }
     revalidatePath(`/projects/${room.projectId}/rooms/${room.id}`)
-    return { ok: true, data: { pending } }
+    // Пока очередь активна, первые концепты могут ещё не существовать.
+    return { ok: true, data: { pending: running ? Math.max(1, pending) : pending } }
   } catch (error) {
     return failure(error)
   }

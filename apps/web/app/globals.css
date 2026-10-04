@@ -175,12 +175,10 @@
 @keyframes hero-media-in {
   from {
     opacity: 0;
-    clip-path: inset(0 0 12% 0);
     transform: translateY(14px) scale(0.99);
   }
   to {
     opacity: 1;
-    clip-path: inset(0);
     transform: none;
   }
 }
@@ -489,6 +487,10 @@ input:checked + .household-choice {
   animation: control-rise 360ms var(--ease-appear) both;
 }
 
+.project-guide-details[open] .project-guide-body {
+  animation: rise-in 180ms var(--ease-appear);
+}
+
 .motion-control-list > :nth-child(2) {
   animation-delay: 45ms;
 }
@@ -690,7 +692,10 @@ input:checked + .household-choice {
     *::before,
     *::after {
       animation-duration: 0.01ms !important;
+      animation-delay: 0ms !important;
+      animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
     }
     .motion-section {
       opacity: 1 !important;

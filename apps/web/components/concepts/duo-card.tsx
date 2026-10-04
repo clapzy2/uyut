@@ -16,11 +16,13 @@ export function DuoCard({
   canRun,
   otherName,
   onRun,
+  onStatusCheck,
 }: {
   roomId: string
   canRun: boolean
   otherName: string
   onRun: (run: Run) => void
+  onStatusCheck: () => void
 }) {
   const [proposal, setProposal] = useState<DuoProposal | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -28,31 +30,43 @@ export function DuoCard({
 
   useEffect(() => {
     let cancelled = false
-    void loadDuoProposal(roomId).then((result) => {
-      if (cancelled) {
-        return
-      }
-      if (result.ok) {
-        setProposal(result.data)
-      } else {
-        setError(result.error)
-      }
-    })
+    void loadDuoProposal(roomId)
+      .then((result) => {
+        if (cancelled) {
+          return
+        }
+        if (result.ok) {
+          setProposal(result.data)
+        } else {
+          setError(result.error)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setError('Не удалось загрузить предложение. Обновите страницу.')
+      })
     return () => {
       cancelled = true
     }
   }, [roomId])
 
   function start() {
+    if (busy) return
     setBusy(true)
-    void requestDuoConcepts(roomId).then((result) => {
-      setBusy(false)
-      if (!result.ok) {
-        setError(result.error)
-        return
-      }
-      onRun(result.data)
-    })
+    void requestDuoConcepts(roomId)
+      .then((result) => {
+        setBusy(false)
+        if (!result.ok) {
+          if (result.checkStatus) onStatusCheck()
+          setError(result.error)
+          return
+        }
+        onRun(result.data)
+      })
+      .catch(() => {
+        setBusy(false)
+        onStatusCheck()
+        setError('Ответ о запуске потерялся. Проверьте статус генерации в этой комнате.')
+      })
   }
 
   return (

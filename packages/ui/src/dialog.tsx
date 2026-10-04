@@ -25,8 +25,9 @@ export function DialogContent({
     <RadixDialog.Portal>
       <RadixDialog.Overlay className="fixed inset-0 z-40 bg-ink/40 data-[state=open]:animate-[dialog-fade_200ms_var(--ease-ui)]" />
       <RadixDialog.Content
+        {...(!description ? { 'aria-describedby': undefined } : {})}
         className={cn(
-          'fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-md border border-line bg-paper p-6 shadow-soft outline-none sm:p-8',
+          'fixed left-1/2 top-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto overscroll-contain rounded-md border border-line bg-paper p-6 shadow-soft outline-none sm:p-8',
           'data-[state=open]:animate-[dialog-appear_350ms_var(--ease-appear)]',
           className,
         )}
@@ -36,7 +37,7 @@ export function DialogContent({
             {title}
           </RadixDialog.Title>
           <RadixDialog.Close
-            className="-mr-2 -mt-2 grid size-9 place-items-center rounded-full text-ink-2 transition-colors duration-200 ease-ui hover:text-ink"
+            className="-mr-2 -mt-2 grid size-11 shrink-0 place-items-center rounded-full text-ink-2 transition-colors duration-200 ease-ui hover:text-ink"
             aria-label="Закрыть"
           >
             <Icon name="close" className="size-4" />

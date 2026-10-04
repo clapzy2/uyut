@@ -84,7 +84,10 @@ export function planReviewMetrics(samples: PlanReviewSample[]): PlanReviewMetric
       metrics.autoUnavailable++
       continue
     }
-    if (!sameArchitecture(auto.architecture, sample.currentArchitecture)) {
+    if (
+      auto.architectureSourceHash !== sample.currentSourceHash ||
+      !sameArchitecture(auto.architecture, sample.currentArchitecture)
+    ) {
       metrics.autoArchitectureMissing++
       continue
     }

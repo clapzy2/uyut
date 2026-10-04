@@ -71,7 +71,7 @@ function* parseCsvRecords(text: string): Generator<Record<string, string>> {
 /** Потоковый вариант для крупных партнёрских CSV: не собирает весь файл в одну строку. */
 async function* csvRowsFromChunks(chunks: AsyncIterable<string>): AsyncGenerator<string[]> {
   let row: string[] = []
-  let field = ''
+  let fieldParts: string[] = []
   let quoted = false
   let pendingQuote = false
   let skipLineFeed = false
@@ -80,7 +80,7 @@ async function* csvRowsFromChunks(chunks: AsyncIterable<string>): AsyncGenerator
     let index = 0
     if (pendingQuote && chunk.length > 0) {
       if (chunk[0] === '"') {
-        field += '"'
+        fieldParts.push('"')
         quoted = true
         index = 1
       } else {
@@ -89,19 +89,22 @@ async function* csvRowsFromChunks(chunks: AsyncIterable<string>): AsyncGenerator
       pendingQuote = false
     }
 
+    let fieldStart = index
     for (; index < chunk.length; index += 1) {
       const char = chunk[index] as string
       if (skipLineFeed) {
         skipLineFeed = false
         if (char === '\n') {
+          fieldStart = index + 1
           continue
         }
       }
       if (quoted) {
         if (char === '"') {
+          fieldParts.push(chunk.slice(fieldStart, index))
           if (index + 1 < chunk.length) {
             if (chunk[index + 1] === '"') {
-              field += '"'
+              fieldParts.push('"')
               index += 1
             } else {
               quoted = false
@@ -109,30 +112,39 @@ async function* csvRowsFromChunks(chunks: AsyncIterable<string>): AsyncGenerator
           } else {
             pendingQuote = true
           }
-        } else {
-          field += char
+          fieldStart = index + 1
         }
       } else if (char === '"') {
+        fieldParts.push(chunk.slice(fieldStart, index))
         quoted = true
+        fieldStart = index + 1
       } else if (char === ';') {
-        row.push(field)
-        field = ''
+        fieldParts.push(chunk.slice(fieldStart, index))
+        row.push(fieldParts.join(''))
+        fieldParts = []
+        fieldStart = index + 1
       } else if (char === '\n' || char === '\r') {
         if (char === '\r') {
           skipLineFeed = true
         }
-        row.push(field)
+        fieldParts.push(chunk.slice(fieldStart, index))
+        row.push(fieldParts.join(''))
         yield row
         row = []
-        field = ''
-      } else {
-        field += char
+        fieldParts = []
+        fieldStart = index + 1
       }
+    }
+    if (fieldStart < chunk.length) {
+      fieldParts.push(chunk.slice(fieldStart))
     }
   }
 
-  if (field !== '' || row.length > 0) {
-    row.push(field)
+  if (quoted && !pendingQuote) {
+    throw new Error('CSV оборван внутри поля с кавычками')
+  }
+  if (fieldParts.length > 0 || row.length > 0) {
+    row.push(fieldParts.join(''))
     yield row
   }
 }
@@ -201,9 +213,10 @@ function parseLengthCm(value: string | undefined): number | undefined {
   if (!Number.isFinite(number) || number <= 0) {
     return undefined
   }
-  const cm = /(?:^|\s)(?:мм|mm)(?:\s|$)/i.test(value) || number > 400 ? number / 10 : number
-  const rounded = Math.round(cm)
-  return rounded >= 15 && rounded <= 400 ? rounded : undefined
+  const millimetres = /(?:мм|mm)(?:\s|$)/i.test(value)
+  const centimetres = /(?:см|cm)(?:\s|$)/i.test(value)
+  const cm = millimetres || (!centimetres && number > 400) ? number / 10 : number
+  return cm >= 15 && cm <= 400 ? cm : undefined
 }
 
 function parseAdmitadParams(value: string | undefined): Map<string, string> {
@@ -302,7 +315,11 @@ function admitadDimensions(
   }
 }
 
-function canonicalAdmitadId(row: Record<string, string>): string {
+function canonicalAdmitadId(
+  row: Record<string, string>,
+  dimensions: { width?: number; depth?: number; height?: number },
+  hasNamedFootprint: boolean,
+): string {
   try {
     const affiliate = new URL(row.url as string)
     const destinationValue = affiliate.searchParams.get('ulp')
@@ -315,13 +332,25 @@ function canonicalAdmitadId(row: Record<string, string>): string {
     } catch {
       destination = new URL(decodeURIComponent(destinationValue))
     }
+    const hasFabric = destination.searchParams.has('SELECTED_FABRIC_ID')
     for (const key of [...destination.searchParams.keys()]) {
       if (/fabric|color|цвет|ткан/i.test(key)) {
         destination.searchParams.delete(key)
       }
     }
+    // В текущем фиде Askona skuId меняется вместе с тканью. Не смешиваем размеры:
+    // объединение разрешено только при известных ширине и глубине и том же productId.
+    const sameSizedAskonaFabric =
+      /^(?:www\.)?askona\.ru$/i.test(destination.hostname) &&
+      destination.searchParams.has('productId') &&
+      hasFabric &&
+      hasNamedFootprint
+    if (sameSizedAskonaFabric) destination.searchParams.delete('skuId')
     destination.searchParams.sort()
-    return `${destination.hostname}${destination.pathname}${destination.search}`
+    const size = sameSizedAskonaFabric
+      ? `|size:${dimensions.width}x${dimensions.depth}x${dimensions.height ?? '?'}`
+      : ''
+    return `${destination.hostname}${destination.pathname}${destination.search}${size}`
   } catch {
     return row.id as string
   }
@@ -400,7 +429,12 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
   const material = meaningfulParam(firstParam(params, 'материал', 'материал обивки', 'ткань'))
   const dimensionReading = admitadDimensions(category, params, `${title} ${row.description ?? ''}`)
   const dimensions = dimensionReading.dimensions
-  const externalId = canonicalAdmitadId(row)
+  const externalId = canonicalAdmitadId(
+    row,
+    dimensions,
+    dimensionReading.source.width === 'store-parameters' &&
+      dimensionReading.source.depth === 'store-parameters',
+  )
   const variant: CatalogVariant = {
     color,
     priceKopecks,
@@ -440,6 +474,7 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
       material,
       dimensionsCm: hasAnyDimension(dimensions) ? dimensions : undefined,
       dimensionsSource: hasAnyDimension(dimensions) ? dimensionReading.source : undefined,
+      adDisclosure: row.ad_disclosure || undefined,
     },
     variants: [variant],
     inStock: true,
@@ -485,6 +520,32 @@ export async function parseAdmitadCsvStream(
     addAdmitadRow(state, row)
   }
   return admitadResult(state)
+}
+
+/** Ограниченные пачки для записи большого фида; одинаковые модели между пачками объединяет БД. */
+export async function* admitadCsvBatches(
+  chunks: AsyncIterable<string>,
+  source: CatalogSource,
+): AsyncGenerator<FeedParseResult> {
+  const newState = (): AdmitadParseState => ({
+    source,
+    itemsById: new Map(),
+    skipped: [],
+    skippedCount: 0,
+    maxSkippedRows: 100,
+  })
+  let state = newState()
+  let rows = 0
+  for await (const row of parseCsvRecordChunks(chunks)) {
+    addAdmitadRow(state, row)
+    rows += 1
+    if (rows === 200) {
+      yield admitadResult(state)
+      state = newState()
+      rows = 0
+    }
+  }
+  if (rows > 0) yield admitadResult(state)
 }
 
 /**

@@ -16,7 +16,11 @@ export async function requireStepProject(
   const session = await getSession()
   const { project } = await searchParams
   if (!session) {
-    redirect(`/login?next=/onboarding/step-${step}`)
+    const stepPath = `/onboarding/step-${step}`
+    const next = project
+      ? encodeURIComponent(`${stepPath}?project=${encodeURIComponent(project)}`)
+      : stepPath
+    redirect(`/login?next=${next}`)
   }
   if (!project) {
     redirect('/onboarding/step-1')

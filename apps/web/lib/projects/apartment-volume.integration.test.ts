@@ -1,9 +1,10 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { layoutWithMeasurements } from '@uyut/catalog/layout-with-measurements'
 import { catalogItems, type PlanGeometry, type PlanReading, projects, rooms, users } from '@uyut/db'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { getDb } from '@/lib/db'
-import { projectLayouts, roomLayout } from '@/lib/shopping/layout'
+import { projectLayoutGaps, projectLayouts, roomLayout } from '@/lib/shopping/layout'
 import {
   addShoppingItem,
   getShoppingList,
@@ -12,10 +13,12 @@ import {
   setShoppingItemQuantity,
   setShoppingItemSize,
 } from '@/lib/shopping/repository'
+import apartmentSource from '../../../../jobs/fixtures/open-swiss-apartment-35063.json'
 import openApartment from '../../../../jobs/fixtures/open-swiss-apartment-35063-geometry.json'
 import { buildPdfData, loadSnapshot } from '../../../../jobs/src/lib/pdf-data'
 import { apartmentVolume } from './apartment-volume'
-import { getProject } from './repository'
+import { buildPlanScene } from './plan-scene-geometry'
+import { getProject, setPlanReading, updateRoom } from './repository'
 import { roomVolume } from './room-volume'
 
 vi.mock('server-only', () => ({}))
@@ -76,19 +79,18 @@ describe('покупки разных комнат: база → 2D → общи
     projectId = project.id
     const savedRooms = await db
       .insert(rooms)
-      .values([
-        {
+      .values(
+        (openApartment.rooms as PlanReading['rooms']).map((room, orderIndex) => ({
           projectId,
-          name: 'Гостиная',
-          kind: 'living' as const,
-          orderIndex: 0,
-          measurements: { widthCm: 384.9, depthCm: 535 },
-        },
-        { projectId, name: 'Кухня', kind: 'kitchen' as const, orderIndex: 1 },
-      ])
+          name: room.name,
+          kind: room.kind,
+          orderIndex,
+          measurements: room.name === 'Гостиная' ? { widthCm: 384.9, depthCm: 535 } : null,
+        })),
+      )
       .returning()
-    livingId = savedRooms[0]?.id ?? ''
-    kitchenId = savedRooms[1]?.id ?? ''
+    livingId = savedRooms.find((room) => room.name === 'Гостиная')?.id ?? ''
+    kitchenId = savedRooms.find((room) => room.name === 'Кухня')?.id ?? ''
     const products = await db
       .insert(catalogItems)
       .values([
@@ -157,7 +159,8 @@ describe('покупки разных комнат: база → 2D → общи
       sizeReading: { source: 'mixed', confidence: 'reported' },
     })
     expect(layouts).toHaveLength(2)
-    expect(layouts.map((room) => room.layout.placed.length)).toEqual([1, 2])
+    expect(layouts.find((room) => room.roomId === livingId)?.layout.placed).toHaveLength(1)
+    expect(layouts.find((room) => room.roomId === kitchenId)?.layout.placed).toHaveLength(2)
     expect(overview.notes).toEqual([])
     const furniture = overview.model?.furniture ?? []
     expect(furniture).toHaveLength(3)
@@ -182,7 +185,8 @@ describe('покупки разных комнат: база → 2D → общи
         expect(global?.itemId).toBe(item.itemId)
       }
     }
-    expect(layouts[0]?.layout.placed[0]).toMatchObject({
+    const livingLayout = layouts.find((room) => room.roomId === livingId)?.layout
+    expect(livingLayout?.placed[0]).toMatchObject({
       xCm: 100,
       yCm: 150,
       widthCm: 90,
@@ -205,7 +209,7 @@ describe('покупки разных комнат: база → 2D → общи
         geometry,
         room.kind,
       ),
-    ).toEqual(layouts[0]?.layout)
+    ).toEqual(livingLayout)
     expect((await getProject(ownerId, projectId)).planReading?.geometry).toEqual(geometry)
   })
 
@@ -245,12 +249,166 @@ describe('покупки разных комнат: база → 2D → общи
     }
   })
 
+  it('сохраняет все восемь исходных контуров и неизвестные высоты после чтения базы', async () => {
+    const sourceHash = createHash('sha256')
+      .update(JSON.stringify(apartmentSource.rows.map(({ row }) => row)))
+      .digest('hex')
+    expect(sourceHash).toBe(openApartment.sourceSha256)
+    const { project, overview } = await currentOverview()
+    expect(project.rooms).toHaveLength(8)
+    expect(project.planReading?.planState).toBe('unknown')
+    for (const room of project.rooms) {
+      const source = geometry.rooms.find((candidate) => candidate.name === room.name)
+      if (!source) throw new Error(`Нет исходного контура: ${room.name}`)
+      const originX = Math.min(...source.polygon.map((point) => point.xCm))
+      const originY = Math.min(...source.polygon.map((point) => point.yCm))
+      const layout = layoutWithMeasurements(room.name, null, project.planReading?.geometry, [])
+      expect(layout?.floorPolygon).toEqual(
+        source.polygon.map((point) => ({
+          xCm: point.xCm - originX,
+          yCm: point.yCm - originY,
+        })),
+      )
+    }
+    expect(overview.model?.walls).toHaveLength(38)
+    expect(overview.model?.openings).toHaveLength(9)
+    expect(overview.model?.walls.every((wall) => wall.topCm === undefined)).toBe(true)
+    expect(overview.model?.openings.every((opening) => !opening.cut)).toBe(true)
+    const model = overview.model
+    if (!model) throw new Error('Нет общего обзора')
+    const scene = buildPlanScene(model)
+    try {
+      expect(scene.surfaces.filter((surface) => surface.kind === 'wall')).toEqual([])
+      expect(scene.lines.every((line) => line.unknown)).toBe(true)
+      const chairs = model.furniture?.filter((item) => item.itemId === chairId) ?? []
+      expect(chairs).toHaveLength(2)
+      for (const chair of chairs) {
+        const surfaces = scene.surfaces.filter((surface) => surface.furnitureId === chair.id)
+        expect(surfaces).toHaveLength(1)
+        expect(surfaces[0]?.footprintOnly).toBe(true)
+      }
+    } finally {
+      for (const element of [...scene.surfaces, ...scene.lines]) element.geometry.dispose()
+    }
+  })
+
+  it('после сохранения правок контура и окна обновляет 2D, объём и печатные планы вместе', async () => {
+    const before = await currentOverview()
+    if (!before.project.planReading) throw new Error('Нет исходного чтения квартиры')
+    const changed = structuredClone(geometry)
+    const livingContour = changed.rooms.find((room) => room.name === 'Гостиная')
+    const window = changed.openings.find((opening) => opening.type === 'window')
+    const vertex = livingContour?.polygon[0]
+    if (!vertex || !window) throw new Error('Нет контрольной вершины или окна')
+    // Искусственные правки проверяют пересчёт; это не уточнение исходного обмера.
+    vertex.xCm += 1.4
+    window.offsetCm += 5.4
+    window.widthCm -= 10.2
+    await updateRoom(ownerId, livingId, { measurements: null })
+    try {
+      await setPlanReading(
+        ownerId,
+        projectId,
+        { ...before.project.planReading, geometry: changed },
+        before.project,
+      )
+      const current = await currentOverview()
+      expect(current.project.planReading?.geometry).toEqual(changed)
+      expect(current.overview.notes).toEqual([])
+      expect(current.overview.model?.rooms?.find((room) => room.id === livingId)?.floor).toEqual(
+        livingContour?.polygon,
+      )
+      expect(
+        current.layouts.find((room) => room.roomId === livingId)?.layout.floorPolygon,
+      ).not.toEqual(before.layouts.find((room) => room.roomId === livingId)?.layout.floorPolygon)
+      expect(current.overview.model?.openings).not.toEqual(before.overview.model?.openings)
+      const beforeBedroom = layoutWithMeasurements('Спальня', null, geometry, [])
+      const changedBedroom = layoutWithMeasurements('Спальня', null, changed, [])
+      const beforeWindows = beforeBedroom?.floorReservations.filter(
+        (item) => item.kind === 'window',
+      )
+      const changedWindows = changedBedroom?.floorReservations.filter(
+        (item) => item.kind === 'window',
+      )
+      expect(beforeWindows).toHaveLength(1)
+      expect(changedWindows).toHaveLength(1)
+      expect(changedWindows).not.toEqual(beforeWindows)
+      expect(current.list.items.map((item) => item.placementCm)).toEqual(
+        before.list.items.map((item) => item.placementCm),
+      )
+      const snapshot = await loadSnapshot(projectId)
+      if (!snapshot) throw new Error('Нет снимка изменённой квартиры')
+      const pdf = await buildPdfData({
+        snapshot,
+        kind: 'free',
+        options: {},
+        rates: { roughRubPerM2: 15_000, finishRubPerM2: 5_000 },
+        brief: null,
+        summary: null,
+      })
+      for (const room of current.project.rooms) {
+        const expected =
+          current.layouts.find((candidate) => candidate.roomId === room.id)?.layout ??
+          layoutWithMeasurements(room.name, room.measurements, changed, [], room.kind)
+        expect(pdf.rooms.find((candidate) => candidate.id === room.id)?.plan).toEqual(expected)
+      }
+      expect(current.overview.model?.walls.every((wall) => wall.topCm === undefined)).toBe(true)
+      expect(
+        current.overview.model?.furniture?.find((item) => item.itemId === chairId)?.heightCm,
+      ).toBeUndefined()
+    } finally {
+      const latest = await getProject(ownerId, projectId)
+      await setPlanReading(ownerId, projectId, before.project.planReading, latest)
+      await updateRoom(ownerId, livingId, {
+        measurements:
+          before.project.rooms.find((room) => room.id === livingId)?.measurements ?? null,
+      })
+    }
+  })
+
+  it('не теряет покупки комнаты без мерок и объясняет её отсутствие в общем обзоре', async () => {
+    const before = await currentOverview()
+    await updateRoom(ownerId, kitchenId, { name: 'Кухня — мерки уточняются', measurements: null })
+    try {
+      const current = await currentOverview()
+      expect(current.list.count).toBe(before.list.count)
+      expect(current.list.items.map((item) => item.id)).toEqual(
+        before.list.items.map((item) => item.id),
+      )
+      expect(current.layouts.map((room) => room.roomId)).toEqual([livingId])
+      expect(projectLayoutGaps(current.project.rooms, current.list, current.layouts)).toEqual([
+        { roomId: kitchenId, roomName: 'Кухня — мерки уточняются', itemCount: 2 },
+      ])
+      expect(current.overview.model?.furniture?.some((item) => item.itemId === chairId)).toBe(false)
+      const snapshot = await loadSnapshot(projectId)
+      if (!snapshot) throw new Error('Нет снимка частичной квартиры')
+      const pdf = await buildPdfData({
+        snapshot,
+        kind: 'free',
+        options: {},
+        rates: { roughRubPerM2: 15_000, finishRubPerM2: 5_000 },
+        brief: null,
+        summary: null,
+      })
+      const shopping = pdf.shopping.flatMap((group) => group.items)
+      expect(shopping.find((item) => item.title === 'Контрольный стул')?.quantity).toBe(2)
+      expect(pdf.rooms.find((room) => room.id === kitchenId)?.plan).toBeFalsy()
+    } finally {
+      await updateRoom(ownerId, kitchenId, { name: 'Кухня' })
+    }
+  })
+
   it('пересчитывает изменения мерок и количества, а при пустом списке оставляет исходный план', async () => {
     await setShoppingItemSize(ownerId, sofaId, { width: 200, height: 95 })
     await setShoppingItemQuantity(ownerId, chairId, 1)
     let current = await currentOverview()
     expect(current.overview.model?.furniture).toHaveLength(2)
-    expect(current.layouts[0]?.layout.placed[0]).toMatchObject({ widthCm: 90, depthCm: 200 })
+    expect(
+      current.layouts.find((room) => room.roomId === livingId)?.layout.placed[0],
+    ).toMatchObject({
+      widthCm: 90,
+      depthCm: 200,
+    })
     expect(
       current.overview.model?.furniture?.find((item) => item.itemId === sofaId)?.heightCm,
     ).toBe(95)

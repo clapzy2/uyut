@@ -42,23 +42,31 @@ export function ApartmentButton({
   const skipped = rooms.filter((room) => room.skip)
 
   async function start() {
+    if (pending) return
     setError(undefined)
     setPending(true)
-    const result = await requestApartmentConcepts(projectId)
-    setPending(false)
-    if (!result.ok) {
-      setError(result.error)
-      return
+    try {
+      const result = await requestApartmentConcepts(projectId)
+      if (!result.ok) {
+        setError(result.error)
+        if (result.checkStatus) router.refresh()
+        return
+      }
+      const { started, asked, notice } = result.data
+      toast({
+        title:
+          started < asked
+            ? `Запустили ${started} из ${asked}. ${notice ?? 'Откройте комнаты и проверьте статус.'}`
+            : 'Запустили. Комнаты будут готовы по очереди',
+        tone: started < asked ? 'danger' : 'success',
+      })
+      router.refresh()
+    } catch {
+      setError('Ответ о запуске потерялся. Откройте комнаты и проверьте статус генерации.')
+      router.refresh()
+    } finally {
+      setPending(false)
     }
-    const { started, asked } = result.data
-    toast({
-      title:
-        started < asked
-          ? `Запустили ${started} из ${asked}: на остальные сегодня не хватило лимита`
-          : 'Запустили. Комнаты будут готовы по очереди',
-      tone: started < asked ? 'danger' : 'success',
-    })
-    router.refresh()
   }
 
   if (ready.length === 0) {

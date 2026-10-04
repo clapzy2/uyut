@@ -26,6 +26,7 @@ export {
   type RoomWorksKind,
   type WorksRates,
 } from './estimate'
+export { syncAdmitadCsvFeed } from './feed-sync'
 export {
   checkFit,
   type FitVerdict,

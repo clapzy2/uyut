@@ -11,9 +11,9 @@ export default async function Step4({ searchParams }: StepParams) {
     <OnboardingShell
       step={4}
       title="Ваш стиль"
-      hint="Двадцать комнат, отмечайте те, где хотели бы жить. Дальше мы подберём похожее для вашей квартиры."
+      hint="Оцените хотя бы 10 из 20 комнат и выберите минимум одну, где хотели бы жить. По вашим ответам подберём стиль для квартиры."
     >
-      <StyleSwipe projectId={project.id} />
+      <StyleSwipe key={project.id} projectId={project.id} initialVotes={project.styleVotes} />
     </OnboardingShell>
   )
 }

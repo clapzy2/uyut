@@ -10,9 +10,10 @@ vi.mock('@/actions/projects', () => ({
   readPlan: vi.fn(),
 }))
 
+import type { ExistingRoom } from '@/lib/projects/plan-rows'
 import { PlanReadingCard } from './plan-reading-card'
 
-function render(reading: PlanReading | null, roomCount = 0) {
+function render(reading: PlanReading | null, roomCount = 0, existing: ExistingRoom[] = []) {
   return renderToStaticMarkup(
     createElement(PlanReadingCard, {
       projectId: 'project',
@@ -21,12 +22,70 @@ function render(reading: PlanReading | null, roomCount = 0) {
       hasPlan: true,
       planIsPdf: true,
       roomCount,
-      existing: [],
+      existing,
     }),
   )
 }
 
 describe('plan review form', () => {
+  it('leads an unread plan to the selected sheet and explains the review before room transfer', () => {
+    const html = render(null)
+    expect(html).toContain('Прочитайте нужный лист')
+    expect(html).toContain('Прочитать выбранный лист')
+    expect(html).toContain('сверите результат с исходным листом')
+    expect(html).not.toContain('Прочитать другой лист или повторить чтение')
+  })
+
+  it('leads transferred rooms to measurements while keeping rereading optional', () => {
+    const html = render(
+      {
+        readAt: '2026-10-03',
+        confirmedAt: '2026-10-03',
+        sourcePage: 6,
+        planState: 'proposed',
+        rooms: [{ name: 'Спальня', kind: 'bedroom' }],
+      },
+      1,
+      [{ id: 'room', name: 'Спальня', kind: 'bedroom', notes: null }],
+    )
+    expect(html).toContain('href="/projects/project/rooms/room#room-measurements"')
+    expect(html).toContain('Открыть мерки комнаты')
+    expect(html).toContain('aria-label="Открыть мерки комнаты Спальня"')
+    expect(html).toContain('Перенос не подтверждает обмер')
+    expect(html).toContain('Прочитан лист 6')
+    expect(html).toContain('Проектное состояние — вариант после изменений, не исходный обмер')
+    expect(html).toMatch(/<details[^>]*><summary[^>]*>Прочитать другой лист или повторить чтение/)
+    expect(html).toContain('использует AI и заменит данные в форме')
+  })
+
+  it('names room transfer explicitly and labels each room selection for assistive technology', () => {
+    const html = render({
+      readAt: '2026-10-03',
+      rooms: [{ name: 'Спальня', kind: 'bedroom' }],
+    })
+    expect(html).toContain('Сверьте данные перед переносом')
+    expect(html).toContain('Перенести комнаты: 1')
+    expect(html).toContain('aria-label="Перенести комнату Спальня"')
+    expect(html).toContain('включая несохранённые правки')
+    expect(html).toContain('Очистить сохранённое чтение')
+    expect(html).toContain('Очистка удалит сохранённое чтение, разметку листа и 2D-схему')
+    expect(html).toContain('aria-describedby="plan-forget-hint"')
+  })
+
+  it('opens a confirmation dialog before clearing saved reading and geometry', () => {
+    const html = render({
+      readAt: '2026-10-03',
+      rooms: [{ name: 'Спальня', kind: 'bedroom' }],
+    })
+    const trigger = html.match(/<button[^>]*>Очистить сохранённое чтение<\/button>/)?.[0]
+    expect(trigger).toBeDefined()
+    expect(trigger).toContain('aria-haspopup="dialog"')
+    expect(trigger).toContain('aria-expanded="false"')
+    expect(trigger).toContain('data-state="closed"')
+    expect(trigger).toContain('aria-describedby="plan-forget-hint"')
+    expect(html).not.toContain('Да, очистить чтение')
+  })
+
   it('offers editing saved rows without requiring another AI read', () => {
     const html = render({
       readAt: '2026-10-03',
@@ -81,6 +140,7 @@ describe('plan review form', () => {
     }
 
     expect(render(reading)).toContain('комнат проекта сейчас нет')
+    expect(render(reading)).not.toContain('Комнаты перенесены')
     expect(render(reading)).not.toContain('Данные с плана уже перенесены в комнаты')
     expect(render(reading, 1)).toContain('Данные с плана уже перенесены в комнаты')
   })

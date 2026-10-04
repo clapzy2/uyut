@@ -107,6 +107,75 @@ describe('parseAdmitadCsv', () => {
   const header =
     'available;categoryId;currencyId;description;id;name;oldprice;param;picture;price;type;url;vendor'
 
+  it('объединяет sku тканей Askona только при одинаковых явных габаритах', () => {
+    const line = (id: number, width: string) => {
+      const destination = encodeURIComponent(
+        `https://www.askona.ru/divany/test.htm?skuId=${id}&productId=100&SELECTED_FABRIC_ID=${id}`,
+      )
+      return `true;Диваны;RUB;;${id};Диван Тест;;${width ? `Ширина:${width}|` : ''}Глубина:95|Высота:85|Цвет:${id};https://cdn/${id}.jpg;${49990 + id};Диван;https://partner/?ulp=${destination};Askona\n`
+    }
+    const csv = `${header}\n${[line(1, '210,5'), line(2, '210,5'), line(3, '190'), line(4, ''), line(5, '')].join('')}`
+    const items = parseAdmitadCsv(csv, 'askona').items
+    expect(items).toHaveLength(4)
+    expect(items[0]?.variants).toHaveLength(2)
+    expect(items[0]?.attributes?.dimensionsCm).toMatchObject({ width: 210.5 })
+    expect(items[1]?.attributes?.dimensionsCm).toMatchObject({ width: 190 })
+    expect(items[2]?.variants).toHaveLength(1)
+    expect(items[3]?.variants).toHaveLength(1)
+  })
+
+  it('сохраняет дробные габариты из параметров, не переопределяя явную единицу', () => {
+    const csv = `${header}\ntrue;Диваны;RUB;;sofa-1;Диван Тест;;Ширина:2105мм|Глубина:94,6 см|Высота:852 мм;https://cdn/sofa.jpg;49990;Диван;https://shop/sofa-1;Askona\ntrue;Столы;RUB;;table-1;Стол Тест;;Ширина:399mm|Глубина:900 см;https://cdn/table.jpg;10000;Стол;https://shop/table-1;Askona\n`
+    const { items } = parseAdmitadCsv(csv, 'askona')
+    expect(items[0]?.attributes?.dimensionsCm).toEqual({ width: 210.5, depth: 94.6, height: 85.2 })
+    expect(items[1]?.attributes?.dimensionsCm).toEqual({
+      width: 39.9,
+      depth: undefined,
+      height: undefined,
+    })
+  })
+
+  it.each([1, 2, 3, 7, 31, 128])(
+    'сохраняет CSV при размере чанка %i и пустых чанках',
+    async (size) => {
+      const csv = `\uFEFF${header}\r\ntrue;Диваны;RUB;"Описание; в две\r\nстроки и ""кавычках""";sofa-1;Диван Тест;;Ширина:210,5|Глубина:95;https://cdn/sofa.jpg;49990;Диван;https://shop/sofa-1;Askona\r\ntrue;Столы;RUB;"Финальное поле";table-1;Стол Тест;;;https://cdn/table.jpg;10000;Стол;https://shop/table-1;"Askona"`
+      async function* chunks() {
+        yield ''
+        for (let index = 0; index < csv.length; index += size) {
+          yield csv.slice(index, index + size)
+          yield ''
+        }
+      }
+      expect(await parseAdmitadCsvStream(chunks(), 'askona')).toEqual(
+        parseAdmitadCsv(csv, 'askona'),
+      )
+    },
+  )
+
+  it('сохраняет готовую пометку рекламы целиком в обычном и потоковом CSV', async () => {
+    const disclosure = 'Реклама. Рекламодатель ООО "Мебель"; ИНН 1234567890\nerid audit-token'
+    const escapedDisclosure = disclosure.replaceAll('"', '""')
+    const csv = `${header};ad_disclosure\ntrue;Диваны;RUB;;sofa-1;Диван Тест;;Ширина:210|Глубина:95;https://cdn/sofa.jpg;49990;Диван;https://shop/sofa-1;Askona;"${escapedDisclosure}"\n`
+    async function* chunks() {
+      for (let index = 0; index < csv.length; index += 7) {
+        yield csv.slice(index, index + 7)
+      }
+    }
+
+    const parsed = parseAdmitadCsv(csv, 'askona')
+    const streamed = await parseAdmitadCsvStream(chunks(), 'askona')
+
+    expect(parsed.items).toHaveLength(1)
+    expect(parsed.items[0]?.attributes?.adDisclosure).toBe(disclosure)
+    expect(streamed).toEqual(parsed)
+  })
+
+  it('не придумывает маркировку из ссылки или описания при отсутствии отдельного поля', () => {
+    const csv = `${header}\ntrue;Диваны;RUB;Реклама. erid description-token;sofa-1;Диван Тест;;;https://cdn/sofa.jpg;49990;Диван;https://shop/sofa-1?erid=url-token;Askona\n`
+
+    expect(parseAdmitadCsv(csv, 'askona').items[0]?.attributes?.adDisclosure).toBeUndefined()
+  })
+
   it('понимает размеры Askona и объединяет ткани одной кровати', () => {
     const destination = encodeURIComponent(
       'https://askona.ru/krovati/mario/?SELECTED_HASH_SIZE=90x200&SELECTED_FABRIC_ID=1',
@@ -205,6 +274,34 @@ describe('parseAdmitadCsv', () => {
 })
 
 describe('parseYml', () => {
+  it('сохраняет дробные миллиметровые и сантиметровые параметры', () => {
+    const xml =
+      '<yml_catalog><shop><offers><offer id="1"><url>https://shop/1</url><price>49990</price><picture>https://cdn/1.jpg</picture><name>Диван Тест</name><param name="Ширина мм">2105</param><param name="Глубина">94,6 см</param><param name="Высота">852 мм</param></offer><offer id="2"><url>https://shop/2</url><price>10000</price><picture>https://cdn/2.jpg</picture><name>Стол Тест</name><param name="Ширина см">900</param></offer></offers></shop></yml_catalog>'
+    const { items } = parseYml(xml, 'askona')
+    expect(items[0]?.attributes?.dimensionsCm).toEqual({ width: 210.5, depth: 94.6, height: 85.2 })
+    expect(items[1]?.attributes?.dimensionsCm).toBeUndefined()
+  })
+
+  it('сохраняет готовую пометку рекламы из явного поля ad_disclosure целиком', () => {
+    const disclosure = 'Реклама. Рекламодатель ООО "Мебель & Дом"\nИНН 1234567890 erid audit-token'
+    const xml = `<yml_catalog><shop><offers><offer id="1"><url>https://shop/1</url><price>49990</price><picture>https://cdn/1.jpg</picture><name>Диван Тест</name><ad_disclosure><![CDATA[${disclosure}]]></ad_disclosure></offer></offers></shop></yml_catalog>`
+
+    const { items } = parseYml(xml, 'askona')
+
+    expect(items).toHaveLength(1)
+    expect(items[0]?.attributes?.adDisclosure).toBe(disclosure)
+  })
+
+  it('не придумывает маркировку из ссылки или описания при отсутствии отдельного поля', () => {
+    const xml =
+      '<yml_catalog><shop><offers><offer id="1"><url>https://shop/1?erid=url-token</url><price>49990</price><picture>https://cdn/1.jpg</picture><name>Диван Тест</name><description>Реклама. erid description-token</description></offer></offers></shop></yml_catalog>'
+
+    const { items } = parseYml(xml, 'askona')
+
+    expect(items).toHaveLength(1)
+    expect(items[0]?.attributes?.adDisclosure).toBeUndefined()
+  })
+
   it('восстанавливает категорию по дереву фида и берёт параметры', () => {
     const xml = `<?xml version="1.0"?><yml_catalog><shop>
       <categories><category id="1">Мебель</category><category id="2" parentId="1">Диваны</category></categories>

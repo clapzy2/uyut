@@ -1,9 +1,16 @@
 import { buttonClassName } from '@uyut/ui'
+import type { ReactNode } from 'react'
 import type { ExportView } from '@/lib/exports/repository'
 import { formatDate } from '@/lib/projects/format'
 
 /** Второй участник не платит и не собирает PDF, но готовые файлы ему доступны */
-export function PartnerExports({ exports }: { exports: ExportView[] }) {
+export function PartnerExports({
+  exports,
+  children,
+}: {
+  exports: ExportView[]
+  children?: ReactNode
+}) {
   const ready = exports.filter((item) => item.status === 'ready' && item.pdfUrl)
   const latest = ready[0]
   return (
@@ -16,9 +23,11 @@ export function PartnerExports({ exports }: { exports: ExportView[] }) {
       </p>
       <h2 className="mt-2 font-serif text-[24px] leading-tight text-ink">PDF как журнал</h2>
       <p className="mt-2 text-[15px] leading-relaxed text-ink-2">
-        Обложка, разворот каждой комнаты, список покупок, смета и техническое задание для бригады.
-        Собирает документ и оплачивает проект владелец; готовые файлы появляются здесь.
+        Обложка, выбранные интерьеры, доступные схемы расстановки, покупки и смета. Задание для
+        мастеров появится при успешной подготовке. Документ собирает владелец; готовые файлы
+        появляются здесь.
       </p>
+      {children}
       {latest?.pdfUrl ? (
         <div className="mt-5 flex flex-col gap-2 border-t border-line pt-4">
           <a

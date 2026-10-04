@@ -1,6 +1,6 @@
 import { nearestStyles, styleTagsFromVector, styleVector } from '@uyut/ai'
 import { type Project, projects, type Room, rooms, styleVotes } from '@uyut/db'
-import { and, asc, eq, max } from 'drizzle-orm'
+import { asc, eq, max } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { assertOwner } from '@/lib/projects/access'
 import type {
@@ -11,7 +11,11 @@ import type {
 } from '@/lib/validation/onboarding'
 import { seriesLayout, totalAreaOf } from './house-series'
 
-export type OnboardingState = Project & { rooms: Room[]; likedStyleIds: string[] }
+export type OnboardingState = Project & {
+  rooms: Room[]
+  likedStyleIds: string[]
+  styleVotes: StyleVoteInput[]
+}
 
 export async function getOnboardingState(
   userId: string,
@@ -26,11 +30,17 @@ export async function getOnboardingState(
       .where(eq(rooms.projectId, project.id))
       .orderBy(asc(rooms.orderIndex), asc(rooms.name)),
     db
-      .select({ styleId: styleVotes.styleId })
+      .select({ styleId: styleVotes.styleId, liked: styleVotes.liked })
       .from(styleVotes)
-      .where(and(eq(styleVotes.projectId, project.id), eq(styleVotes.liked, true))),
+      .where(eq(styleVotes.projectId, project.id))
+      .orderBy(asc(styleVotes.createdAt), asc(styleVotes.id)),
   ])
-  return { ...project, rooms: roomList, likedStyleIds: votes.map((vote) => vote.styleId) }
+  return {
+    ...project,
+    rooms: roomList,
+    styleVotes: votes,
+    likedStyleIds: votes.filter((vote) => vote.liked).map((vote) => vote.styleId),
+  }
 }
 
 /** Шаг 1: проект появляется вместе с комнатами, дальше онбординг только дополняет его. */

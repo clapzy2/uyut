@@ -45,21 +45,37 @@ function Waiting({
   // Поток событий из очереди умеет замолчать без единой ошибки: экран ждёт, а рендеры давно
   // готовы. Поэтому раз в пятнадцать секунд спрашиваем сервер, который смотрит на сами концепты.
   useEffect(() => {
+    let stopped = false
+    let checking = false
     const timer = setInterval(() => {
-      void checkGeneration(roomId).then((result) => {
-        if (result.ok && !result.data.running) {
-          onFinished(false)
-        }
-      })
+      if (stopped || checking) return
+      checking = true
+      void checkGeneration(roomId)
+        .then((result) => {
+          if (!stopped && result.ok && !result.data.running) {
+            stopped = true
+            clearInterval(timer)
+            onFinished(false)
+          }
+        })
+        .catch(() => {
+          // Потеря связи не завершает задачу; остаются поток и ссылка на результаты.
+        })
+        .finally(() => {
+          checking = false
+        })
     }, SERVER_CHECK_MS)
-    return () => clearInterval(timer)
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
   }, [roomId, onFinished])
 
   if (lost) {
     return (
       <div className="flex flex-col gap-3">
         <p className="text-[15px] leading-relaxed text-ink-2">
-          Связь с очередью потерялась. Правка всё равно досчитается.
+          Не удалось получить статус правки. Готовые варианты сохранятся в комнате.
         </p>
         <Link
           href={roomHref}
@@ -109,18 +125,19 @@ export function ConceptEditForm({
   const [error, setError] = useState<string | undefined>(undefined)
   const [sending, setSending] = useState(false)
   const [run, setRun] = useState<{ runId: string; accessToken: string } | null>(null)
+  const [needsStatusCheck, setNeedsStatusCheck] = useState(false)
   // План считается бесплатно и показывается до расчёта: человек видит, за что платит
   const [plan, setPlan] = useState<EditPlan | null>(null)
 
   const finished = useCallback(
     (failed: boolean) => {
       setRun(null)
-      void refreshConcepts(roomId)
+      void refreshConcepts(roomId).catch(() => undefined)
       if (failed) {
         setError('Правка не досчиталась. Откройте комнату и проверьте, потом попробуйте ещё раз.')
         return
       }
-      toast({ title: 'Правка готова', tone: 'success' })
+      toast({ title: 'Открываем результаты правки', tone: 'success' })
       router.push(roomHref)
     },
     [router, roomHref, roomId],
@@ -128,28 +145,42 @@ export function ConceptEditForm({
 
   async function askForPlan(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (sending) return
     setError(undefined)
     setSending(true)
-    const result = await planConceptEdit(conceptId, { request })
-    setSending(false)
-    if (!result.ok) {
-      setError(result.error)
-      return
+    try {
+      const result = await planConceptEdit(conceptId, { request })
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      setPlan(result.data)
+    } catch {
+      setError('Не удалось подготовить правку. Текст сохранён — попробуйте ещё раз.')
+    } finally {
+      setSending(false)
     }
-    setPlan(result.data)
   }
 
   async function confirm() {
+    if (sending || needsStatusCheck) return
     setError(undefined)
     setSending(true)
-    const result = await reviseConcept(conceptId, { request, objectId })
-    setSending(false)
-    if (!result.ok) {
-      setError(result.error)
-      return
+    try {
+      const result = await reviseConcept(conceptId, { request, objectId })
+      if (!result.ok) {
+        if (result.checkStatus) setNeedsStatusCheck(true)
+        setError(result.error)
+        return
+      }
+      setPlan(null)
+      setRun({ runId: result.data.runId, accessToken: result.data.accessToken })
+    } catch {
+      setNeedsStatusCheck(true)
+      setError('Ответ о запуске правки потерялся. Проверьте статус в комнате перед новым запуском.')
+    } finally {
+      setSending(false)
     }
-    setPlan(null)
-    setRun({ runId: result.data.runId, accessToken: result.data.accessToken })
   }
 
   if (run) {
@@ -162,6 +193,20 @@ export function ConceptEditForm({
           roomHref={roomHref}
           onFinished={finished}
         />
+      </div>
+    )
+  }
+
+  if (needsStatusCheck) {
+    return (
+      <div className="border border-line bg-muted p-5">
+        <FormError message={error} />
+        <Link
+          href={roomHref}
+          className="inline-block py-3 text-[14px] text-accent underline underline-offset-4"
+        >
+          Проверить статус в комнате
+        </Link>
       </div>
     )
   }

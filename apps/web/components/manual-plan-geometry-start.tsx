@@ -16,16 +16,22 @@ export function ManualPlanGeometryStart({ projectId }: { projectId: string }) {
   function start() {
     setError(undefined)
     startSaving(async () => {
-      const result = await startManualPlanGeometry(projectId, {
-        widthCm: Number(width),
-        heightCm: Number(height),
-      })
-      if (!result.ok) {
-        setError(result.error)
-        return
+      try {
+        const result = await startManualPlanGeometry(projectId, {
+          widthCm: Number(width),
+          heightCm: Number(height),
+        })
+        if (!result.ok) {
+          setError(result.error)
+          return
+        }
+        toast({ title: 'Пустой черновик 2D-схемы создан', tone: 'success' })
+        router.refresh()
+      } catch {
+        setError(
+          'Ответ сервера не получен. Размеры остались в форме. Обновите страницу, чтобы проверить, создан ли черновик, прежде чем повторять.',
+        )
       }
-      toast({ title: 'Пустой черновик 2D-схемы создан', tone: 'success' })
-      router.refresh()
     })
   }
 
@@ -50,6 +56,7 @@ export function ManualPlanGeometryStart({ projectId }: { projectId: string }) {
             max="5000"
             step="1"
             value={width}
+            disabled={saving}
             onChange={(event) => setWidth(event.currentTarget.value)}
           />
         </div>
@@ -62,6 +69,7 @@ export function ManualPlanGeometryStart({ projectId }: { projectId: string }) {
             max="5000"
             step="1"
             value={height}
+            disabled={saving}
             onChange={(event) => setHeight(event.currentTarget.value)}
           />
         </div>

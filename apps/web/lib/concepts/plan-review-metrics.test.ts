@@ -16,6 +16,7 @@ const qualityReview: ConceptQualityReview = {
   status: 'checked',
   model: 'example',
   checkedAt: '2026-09-24T00:00:00Z',
+  architectureSourceHash: 'current',
   architecture: {
     shape: 'rectangular',
     openings: [{ type: 'window', side: 'top' }],
@@ -141,5 +142,13 @@ describe('plan/render review metrics', () => {
       humanConflicts: 1,
       falseNegative: 1,
     })
+  })
+
+  it('excludes automatic reviews from a previous geometry even with identical opening sides', () => {
+    const result = planReviewMetrics([
+      sample({ qualityReview: { ...qualityReview, architectureSourceHash: 'previous' } }),
+      sample({ qualityReview: { ...qualityReview, architectureSourceHash: undefined } }),
+    ])
+    expect(result).toMatchObject({ compared: 0, autoArchitectureMissing: 2 })
   })
 })

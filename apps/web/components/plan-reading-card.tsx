@@ -1,8 +1,20 @@
 'use client'
 
 import type { PlanReading, RoomKind } from '@uyut/db'
-import { Button, chipClassName, Input, inputClassName, toast } from '@uyut/ui'
+import {
+  Button,
+  buttonClassName,
+  chipClassName,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTrigger,
+  Input,
+  inputClassName,
+  toast,
+} from '@uyut/ui'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { confirmPlanRooms, forgetPlanReading, readPlan } from '@/actions/projects'
@@ -95,6 +107,7 @@ export function PlanReadingCard({
   const [reading_, startReading] = useTransition()
   const [saving, setSaving] = useState(false)
   const [reviewEditing, setReviewEditing] = useState(false)
+  const [forgetOpen, setForgetOpen] = useState(false)
   const [newSourceNumber, setNewSourceNumber] = useState('')
   const [newSourceKind, setNewSourceKind] = useState<RoomKind | 'utility' | ''>('')
 
@@ -168,7 +181,7 @@ export function PlanReadingCard({
         setActiveReading(result.data.reading)
         setBaseRevision(result.data.revision)
         setCeiling(result.data.reading.ceilingCm ? String(result.data.reading.ceilingCm) : '')
-        toast({ title: 'План прочитан', tone: 'success' })
+        toast({ title: 'План прочитан — сверьте результат', tone: 'success' })
         router.refresh()
       } catch {
         setError(
@@ -190,6 +203,7 @@ export function PlanReadingCard({
       setRows(null)
       setActiveReading(null)
       setBaseRevision(result.data.revision)
+      setForgetOpen(false)
       router.refresh()
     } catch {
       setError('Не удалось получить ответ сервера. Данные остались в форме; попробуйте ещё раз.')
@@ -296,10 +310,10 @@ export function PlanReadingCard({
     activeReading.rooms.some((room) => room.sourceNumber !== undefined)
   const pageReviewControl =
     canReviewPage && activeReading ? (
-      <div className="mt-5 border-t border-line pt-5">
-        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
-          Привязка к исходному листу
-        </p>
+      <details className="mt-5 border-t border-line pt-4" open={reviewEditing || undefined}>
+        <summary className="min-h-11 cursor-pointer py-2 text-[14px] font-medium text-ink">
+          Контуры и проёмы на исходном листе
+        </summary>
         <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
           Отметьте контуры, проёмы и неподвижные объекты по номерам комнат на чертеже. При чтении со
           сверкой проверим, относятся ли размерные цепочки и подписи высоты к этим помещениям.
@@ -362,15 +376,15 @@ export function PlanReadingCard({
             сверка не переносит координаты PDF в сантиметры 2D-схемы автоматически.
           </p>
         ) : null}
-      </div>
+      </details>
     ) : null
 
   if (!rows) {
     let summary =
-      'Прочитаем размеры, высоту потолка, видимые окна и двери. Вы сможете сверить и поправить результат перед сохранением.'
+      'Попробуем прочитать названия комнат и подписанные мерки. Затем вы сверите результат с исходным листом и выберете, какие комнаты перенести.'
     if (confirmed && roomCount > 0) {
       summary =
-        'Данные с плана уже перенесены в комнаты. При повторном чтении обновим совпавшие комнаты, остальные предложим добавить. Окна и двери можно уточнить и в мерках комнаты.'
+        'Данные с плана уже перенесены в комнаты. Следующий шаг — открыть комнату и уточнить её мерки перед проверкой мебели. Перенос не подтверждает обмер и не создаёт точную 2D-схему.'
     } else if (confirmed) {
       summary =
         'Чтение плана сохранено, но комнат проекта сейчас нет. Добавьте комнаты для интерьера или прочитайте план заново, чтобы выбрать их из списка. Сохранённая 2D-схема показана ниже отдельно.'
@@ -378,29 +392,79 @@ export function PlanReadingCard({
 
     return (
       <div className="mt-6 border-t border-line pt-6">
-        <p className="text-[15px] leading-relaxed text-ink-2">{summary}</p>
-        {pageSelector}
+        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
+          {confirmed && roomCount > 0
+            ? 'Комнаты перенесены · мерки требуют сверки'
+            : 'План → сверка → комнаты'}
+        </p>
+        <h3 className="mt-2 font-serif text-2xl text-ink">
+          {confirmed && roomCount > 0 ? 'Продолжите в мерках комнаты' : 'Прочитайте нужный лист'}
+        </h3>
+        <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-ink-2">{summary}</p>
+        {reading ? (
+          <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-ink-2">
+            {planIsPdf ? `Прочитан лист ${reading.sourcePage ?? page}. ` : ''}
+            {reading.planState === 'existing'
+              ? 'Существующее состояние — проверьте заголовок исходного листа.'
+              : reading.planState === 'proposed'
+                ? 'Проектное состояние — вариант после изменений, не исходный обмер.'
+                : 'Состояние листа не определено. Сверьте, показан ли исходный обмер или проектные изменения.'}
+          </p>
+        ) : null}
+        {!reading ? pageSelector : null}
         <div className="mt-4 flex flex-wrap gap-3">
+          {confirmed && existing[0] ? (
+            <Link
+              href={`/projects/${projectId}/rooms/${existing[0].id}#room-measurements`}
+              className={buttonClassName({ className: 'max-w-full' })}
+              aria-label={`Открыть мерки комнаты ${existing[0].name}`}
+            >
+              Открыть мерки комнаты
+            </Link>
+          ) : null}
           {reading ? (
             <Button
               type="button"
-              variant="secondary"
+              variant={confirmed && existing.length > 0 ? 'secondary' : 'primary'}
               onClick={editSavedReading}
               disabled={reading_ || saving || conflict || reviewEditing}
             >
               Изменить данные с чертежа
             </Button>
           ) : null}
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => read()}
-            pending={reading_}
-            disabled={saving || conflict || reviewEditing}
-          >
-            {reading_ ? 'Читаем план…' : 'Прочитать размеры с плана'}
-          </Button>
+          {!reading ? (
+            <Button
+              type="button"
+              onClick={() => read()}
+              pending={reading_}
+              disabled={saving || conflict || reviewEditing}
+            >
+              {reading_ ? 'Читаем план…' : 'Прочитать выбранный лист'}
+            </Button>
+          ) : null}
         </div>
+        {reading ? (
+          <details className="mt-4">
+            <summary className="min-h-11 cursor-pointer py-2 text-[14px] text-ink-2">
+              Прочитать другой лист или повторить чтение
+            </summary>
+            <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-ink-2">
+              Повторное чтение использует AI и заменит данные в форме. Для обычной правки откройте
+              сохранённые данные с чертежа выше.
+            </p>
+            {pageSelector}
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => read()}
+              pending={reading_}
+              disabled={saving || conflict || reviewEditing}
+              className="mt-3"
+            >
+              {reading_ ? 'Читаем план…' : 'Прочитать выбранный лист'}
+            </Button>
+          </details>
+        ) : null}
         {pageReviewControl}
         {reading_ ? (
           <div
@@ -409,7 +473,7 @@ export function PlanReadingCard({
             className="plan-scan relative mt-4 overflow-hidden border border-line bg-paper px-4 py-5"
           >
             <p className="relative z-10 bg-paper/90 text-[14px] leading-relaxed text-ink-2">
-              Читаем подписи комнат, размерные цепочки, высоту потолка, окна и двери.
+              Читаем выбранный лист. После чтения появятся комнаты и мерки для вашей сверки.
             </p>
           </div>
         ) : null}
@@ -431,11 +495,15 @@ export function PlanReadingCard({
   return (
     <fieldset
       disabled={saving || reading_}
+      aria-labelledby="plan-reading-review-title"
       className="mt-6 min-w-0 animate-[rise-in_350ms_var(--ease-appear)] border-x-0 border-b-0 border-t border-line p-0 pt-6"
     >
       <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
-        Данные с чертежа
+        План → сверка → комнаты
       </p>
+      <h3 id="plan-reading-review-title" className="mt-2 font-serif text-2xl text-ink">
+        Сверьте данные перед переносом
+      </h3>
 
       <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
         {planIsPdf ? `Страница ${activeReading?.sourcePage ?? page}. ` : ''}
@@ -446,13 +514,10 @@ export function PlanReadingCard({
             : 'Сверьте заголовок листа: он может описывать существующую планировку или вариант после изменений. Эти состояния рассматриваем отдельно.'}
       </p>
       <p className="mt-3 text-[15px] leading-relaxed text-ink-2">
-        Сверьте размеры, выберите комнаты и добавьте пожелания для концептов. Сохранение перенесёт
-        данные с плана; замеры на месте подтверждаются отдельно в мерках комнаты. Отмеченные строки
-        станут комнатами проекта
-        {roomCount > 0
-          ? ` вдобавок к тем ${roomCount === 1 ? 'одной' : roomCount}, что уже есть`
-          : ''}
-        . После переноса новых данных 2D-схему нужно сверить заново.
+        Проверьте названия, назначение и подписанные размеры рядом с исходным листом. Отмеченные
+        комнаты перенесём в проект; совпавшие комнаты обновим, остальные добавим. Это перенос данных
+        с чертежа: замеры на месте подтверждаются отдельно в мерках комнаты. После переноса новых
+        данных 2D-схему нужно сверить заново.
       </p>
 
       {noSides ? (
@@ -581,6 +646,7 @@ export function PlanReadingCard({
                 <input
                   type="checkbox"
                   id={`plan-room-${index}`}
+                  aria-label={`Перенести комнату ${row.name || index + 1}`}
                   checked={row.include}
                   disabled={row.unsupported}
                   onChange={(event) => patch(index, { include: event.currentTarget.checked })}
@@ -692,8 +758,8 @@ export function PlanReadingCard({
               ) : null}
               {row.roomId ? (
                 <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
-                  Числа впишем в комнату «{row.roomName}», которая уже есть в проекте. Новой такой
-                  же не появится.
+                  Обновим данные комнаты «{row.roomName}», которая уже есть в проекте. Проверьте
+                  новые числа перед переносом.
                 </p>
               ) : null}
               {row.unsupported ? (
@@ -746,19 +812,27 @@ export function PlanReadingCard({
         })}
       </ul>
 
-      {pageSelector}
       {pageReviewControl}
-      {planIsPdf ? (
+      <details className="mt-4">
+        <summary className="min-h-11 cursor-pointer py-2 text-[14px] text-ink-2">
+          {planIsPdf ? 'Выбрать другой лист или повторить чтение' : 'Повторить чтение плана'}
+        </summary>
+        <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-ink-2">
+          Повторное чтение использует AI и заменит данные в форме, включая несохранённые правки.
+          Изменить названия и мерки можно прямо в списке выше.
+        </p>
+        {pageSelector}
         <Button
           type="button"
           variant="secondary"
           onClick={() => read()}
           pending={reading_}
           disabled={saving || conflict || reviewEditing}
+          className="mt-3"
         >
-          Прочитать выбранную страницу заново
+          Прочитать выбранный лист заново
         </Button>
-      ) : null}
+      </details>
 
       <FormError message={error} />
       {reloadControl}
@@ -770,17 +844,65 @@ export function PlanReadingCard({
           pending={saving}
           disabled={reading_ || conflict || reviewEditing}
         >
-          {saving ? 'Сохраняем…' : chosen ? `Сохранить: ${chosen}` : 'Сохранить список помещений'}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={forget}
-          disabled={saving || reading_ || conflict || reviewEditing}
-        >
-          Впишу сам
+          {saving
+            ? 'Переносим…'
+            : chosen
+              ? `Перенести комнаты: ${chosen}`
+              : 'Сохранить список помещений'}
         </Button>
       </div>
+      <p className="mt-3 max-w-2xl text-[13px] leading-relaxed text-ink-2">
+        После переноса откройте комнату: там можно дополнить неизвестные мерки и подготовить
+        интерьер. Контуры для размерной 2D-схемы переносятся отдельно.
+      </p>
+      <details className="mt-3">
+        <summary className="min-h-11 cursor-pointer py-2 text-[14px] text-ink-2">
+          Продолжить вручную
+        </summary>
+        <p id="plan-forget-hint" className="mt-2 max-w-2xl text-[13px] leading-relaxed text-ink-2">
+          Для правки названий и мерок используйте поля выше. Очистка удалит сохранённое чтение,
+          разметку листа и 2D-схему, если они есть. Загруженный файл и комнаты проекта останутся.
+        </p>
+        <Dialog
+          open={forgetOpen}
+          onOpenChange={(open) => {
+            setForgetOpen(open)
+            if (open) setError(undefined)
+          }}
+        >
+          <DialogTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={saving || reading_ || conflict || reviewEditing}
+              aria-describedby="plan-forget-hint"
+              className="mt-2"
+            >
+              Очистить сохранённое чтение
+            </Button>
+          </DialogTrigger>
+          <DialogContent
+            title="Очистить чтение плана?"
+            description="Удалятся результат чтения, разметка листа и 2D-схема, если они есть. Загруженный файл и комнаты проекта останутся. Отменить очистку нельзя."
+          >
+            <FormError message={error} />
+            <div className="flex flex-wrap gap-3">
+              <DialogClose asChild>
+                <Button variant="secondary" disabled={saving}>
+                  Оставить данные
+                </Button>
+              </DialogClose>
+              <Button
+                onClick={forget}
+                pending={saving}
+                disabled={reading_ || conflict || reviewEditing}
+              >
+                {saving ? 'Очищаем…' : 'Да, очистить чтение'}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </details>
     </fieldset>
   )
 }

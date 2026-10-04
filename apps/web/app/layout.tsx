@@ -30,14 +30,14 @@ export async function generateMetadata(): Promise<Metadata> {
       type: 'website',
       locale: 'ru_RU',
       siteName: 'Домица',
-      title: 'Домица — проект квартиры за вечер',
+      title: 'Домица — интерьер, планировка и мебель для квартиры',
       description,
       // Картинку карточки добавим вместе с фотографиями лендинга
       ...(ogImage ? { images: [{ url: ogImage, width: 1200, height: 630 }] } : {}),
     },
     twitter: {
       card: ogImage ? 'summary_large_image' : 'summary',
-      title: 'Домица — проект квартиры за вечер',
+      title: 'Домица — интерьер, планировка и мебель для квартиры',
       description,
     },
     // Подтверждение владения сайтом для партнёрской сети: она читает этот тег на главной.
@@ -57,6 +57,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   return (
     <html lang="ru" data-theme={themeAttribute(theme)} className={fontVariables}>
       <body className="flex min-h-dvh flex-col font-sans">
+        <a
+          href="#main-content"
+          className="sr-only fixed left-4 top-3 z-60 rounded-sm border border-accent bg-paper px-4 py-3 text-[15px] font-medium text-ink focus:not-sr-only focus:fixed"
+        >
+          Перейти к содержимому
+        </a>
         <SiteHeader theme={theme} user={user ? { name: user.name } : null} />
         {user && !user.emailVerified ? <VerifyEmailBanner email={user.email} /> : null}
         <PageTransition>{children}</PageTransition>

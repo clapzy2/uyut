@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { AuthShell } from '@/components/auth-shell'
 import { ResendVerificationButton } from '@/components/resend-verification-button'
@@ -12,7 +13,7 @@ export default async function VerifyEmailPage() {
     redirect('/login')
   }
   if (session.user.emailVerified) {
-    redirect('/profile')
+    redirect('/projects')
   }
 
   return (
@@ -26,6 +27,12 @@ export default async function VerifyEmailPage() {
           не получится.
         </p>
         <ResendVerificationButton email={session.user.email} />
+        <Link
+          href="/projects"
+          className="inline-flex min-h-11 items-center text-[15px] text-accent underline decoration-line-strong underline-offset-4"
+        >
+          Перейти к квартире
+        </Link>
       </div>
     </AuthShell>
   )

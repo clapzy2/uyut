@@ -73,9 +73,26 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Sea
             Заведём первый проект.
           </h1>
           <p className="mt-5 text-lg leading-relaxed text-ink-2">
-            Проект это одна квартира: план, комнаты, потом концепты и список покупок. Начнём с
-            названия, остальное добавим по ходу.
+            Один проект — одна квартира. Начнём с названия и короткой анкеты, остальное добавим по
+            ходу. План можно загрузить или вписать комнаты вручную.
           </p>
+          <ol className="mt-6 grid gap-x-6 gap-y-3 border-y border-line py-5 text-[14px] leading-relaxed text-ink-2 sm:grid-cols-2">
+            <li>
+              <span className="mr-2 font-mono text-[12px] text-accent">01</span>Квартира и ваши
+              пожелания
+            </li>
+            <li>
+              <span className="mr-2 font-mono text-[12px] text-accent">02</span>Варианты интерьера
+            </li>
+            <li>
+              <span className="mr-2 font-mono text-[12px] text-accent">03</span>Мебель и проверка
+              расстановки
+            </li>
+            <li>
+              <span className="mr-2 font-mono text-[12px] text-accent">04</span>Список покупок,
+              смета и PDF
+            </li>
+          </ol>
           <div className="mt-8">
             <Link href="/onboarding/step-1" className={buttonClassName()}>
               Создать проект

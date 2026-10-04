@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 export const ONBOARDING_STEPS = 5
 
 const stepNumbers = Array.from({ length: ONBOARDING_STEPS }, (_, index) => index + 1)
+const stepLabels = ['Квартира', 'Образ жизни', 'Бюджет', 'Стиль', 'Любимый интерьер']
 
 // Общая рамка всех пяти шагов: полоса прогресса, номер шага, заголовок и подпись.
 export function OnboardingShell({
@@ -21,11 +22,11 @@ export function OnboardingShell({
       <div
         className="flex gap-1.5"
         role="progressbar"
-        aria-label="Заполнение проекта"
+        aria-label="Подготовка проекта"
         aria-valuemin={1}
         aria-valuemax={ONBOARDING_STEPS}
         aria-valuenow={step}
-        aria-valuetext={`Шаг ${step} из ${ONBOARDING_STEPS}`}
+        aria-valuetext={`Шаг ${step} из ${ONBOARDING_STEPS}: ${stepLabels[step - 1]}`}
       >
         {stepNumbers.map((number) => (
           <span
@@ -41,13 +42,22 @@ export function OnboardingShell({
           />
         ))}
       </div>
-      <p className="mt-4 font-mono text-[13px] text-ink-2">
-        Шаг {step} из {ONBOARDING_STEPS}
-      </p>
+      <div className="mt-4 flex flex-wrap justify-between gap-x-4 gap-y-1 text-[13px] text-ink-2">
+        <p className="font-mono">
+          Шаг {step} из {ONBOARDING_STEPS} · {stepLabels[step - 1]}
+        </p>
+        {step < ONBOARDING_STEPS ? <p>Далее: {stepLabels[step]}</p> : <p>Далее: ваш проект</p>}
+      </div>
       <h1 className="mt-2 font-serif text-[32px] font-normal leading-[1.1] tracking-tight text-ink sm:text-[40px]">
         {title}
       </h1>
       {hint ? <div className="mt-3 text-[15px] leading-relaxed text-ink-2">{hint}</div> : null}
+      {step === 1 ? (
+        <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
+          Сначала подготовим квартиру и пожелания. Затем выберем интерьер, мебель и соберём PDF. Эти
+          пять шагов — анкета, не готовый проект.
+        </p>
+      ) : null}
       <div className="mt-8 animate-[rise-in_350ms_var(--ease-appear)]">{children}</div>
     </section>
   )

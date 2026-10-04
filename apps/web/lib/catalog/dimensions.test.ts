@@ -2,6 +2,16 @@ import { hasAnyDimension, parseDimensionsCm } from '@uyut/catalog'
 import { describe, expect, it } from 'vitest'
 
 describe('parseDimensionsCm', () => {
+  it('сохраняет дробные сантиметры и миллиметры без округления', () => {
+    expect(parseDimensionsCm('Диван 210,5 × 94.6 × 85,2 см')).toEqual({
+      width: 210.5,
+      depth: 94.6,
+      height: 85.2,
+    })
+    expect(parseDimensionsCm('Стол 802,5 × 400 мм')).toEqual({ width: 80.25, depth: 40 })
+    expect(parseDimensionsCm('Шкаф 160 × 60 × 99999 см').height).toBeUndefined()
+  })
+
   it('миллиметры переводятся в сантиметры', () => {
     expect(parseDimensionsCm('Стол обеденный «Милан», 1300×850×750 мм, цвет дуб')).toEqual({
       width: 130,
@@ -13,8 +23,8 @@ describe('parseDimensionsCm', () => {
   it('четырёхзначное число больше не режется до трёх цифр', () => {
     // Прежний разбор давал кровать шириной 42 см: он начинал читать с середины числа
     expect(parseDimensionsCm('Кровать односпальная «Симпл», 2042×946×700 мм')).toEqual({
-      width: 204,
-      depth: 95,
+      width: 204.2,
+      depth: 94.6,
       height: 70,
     })
   })
@@ -70,9 +80,9 @@ describe('размеры, которые описывают не сам пред
 
   it('обычные габариты по-прежнему читаются', () => {
     expect(parseDimensionsCm('Комод «Кельн», 802×400×776 мм')).toEqual({
-      width: 80,
+      width: 80.2,
       depth: 40,
-      height: 78,
+      height: 77.6,
     })
   })
 })

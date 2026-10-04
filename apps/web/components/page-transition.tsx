@@ -17,7 +17,12 @@ import type { ReactNode } from 'react'
 export function PageTransition({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   return (
-    <main key={pathname} className="flex-1 animate-[rise-in_250ms_var(--ease-appear)]">
+    <main
+      key={pathname}
+      id="main-content"
+      tabIndex={-1}
+      className="flex-1 scroll-mt-24 animate-[rise-in_250ms_var(--ease-appear)]"
+    >
       {children}
     </main>
   )

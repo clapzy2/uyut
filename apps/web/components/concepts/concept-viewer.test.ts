@@ -88,6 +88,30 @@ const data: ConceptPageData = {
 }
 
 describe('concept and product explanations', () => {
+  it('shows a source comparison rather than a missing section when the plan is absent', () => {
+    const html = renderToStaticMarkup(
+      createElement(ConceptViewer, {
+        data: {
+          ...data,
+          concept: {
+            ...data.concept,
+            qualityPlanStatus: 'unlinked',
+            qualityReview: {
+              version: 1,
+              status: 'checked',
+              model: 'test',
+              checkedAt: '2026-10-04T00:00:00Z',
+              description: '',
+              issues: [],
+            },
+          },
+        },
+      }),
+    )
+    expect(html).toContain('с исходным планом или фото комнаты')
+    expect(html).not.toContain('разделе «Сверить концепт с планом»')
+  })
+
   it('explains the purpose of the concept before the image and purchase controls', () => {
     const html = renderToStaticMarkup(createElement(ConceptViewer, { data }))
     const explanation = html.indexOf('Это визуальный концепт')
@@ -134,5 +158,19 @@ describe('concept and product explanations', () => {
     const html = renderToStaticMarkup(createElement(ConceptViewer, { data: single }))
     expect(html).toContain('Диван: похожие товары (1)')
     expect(html).not.toContain('1 похожих')
+  })
+
+  it('при ошибке подбора сохраняет просмотр и ведёт к существующим вариантам', () => {
+    const html = renderToStaticMarkup(
+      createElement(ConceptViewer, {
+        data: { ...data, concept: { ...data.concept, objectsStatus: 'failed' }, objects: [] },
+      }),
+    )
+    expect(html).toContain('Концепт сохранён')
+    expect(html).toContain('Проверить статус')
+    expect(html).toContain('href="/projects/project/rooms/room#room-concepts"')
+    expect(html).not.toContain('открыть концепт позже')
+    expect(html).toContain('Метки товаров для этого варианта отсутствуют')
+    expect(html).not.toContain('Нажмите на номер на картинке')
   })
 })

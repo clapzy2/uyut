@@ -222,8 +222,7 @@ export function RoomPlanDrawing({
                   strokeDasharray="4 4"
                 >
                   <title>
-                    {zone.title}: рабочая зона {zone.clearanceCm} см
-                    {zone.source === 'preliminary' ? ' (предварительно)' : ''}
+                    {`${zone.title}: рабочая зона ${zone.clearanceCm} см${zone.source === 'preliminary' ? ' (предварительно)' : ''}`}
                   </title>
                 </rect>
                 {zone.direction !== 'around' ? (

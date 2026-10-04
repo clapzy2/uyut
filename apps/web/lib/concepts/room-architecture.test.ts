@@ -80,4 +80,55 @@ describe('факты архитектуры комнаты', () => {
     expect(roomArchitectureFromPlan({ ...geometry, rooms: [room, room] }, 'Гостиная')).toBeNull()
     expect(roomArchitectureFromPlan(geometry, 'Спальня')).toBeNull()
   })
+
+  it('узнаёт прямоугольник независимо от поворота и промежуточных точек на гранях', () => {
+    for (const polygon of [
+      [
+        { xCm: 200, yCm: 0 },
+        { xCm: 400, yCm: 200 },
+        { xCm: 200, yCm: 400 },
+        { xCm: 0, yCm: 200 },
+      ],
+      [
+        { xCm: 0, yCm: 0 },
+        { xCm: 200, yCm: 0 },
+        { xCm: 400, yCm: 0 },
+        { xCm: 400, yCm: 300 },
+        { xCm: 0, yCm: 300 },
+      ],
+    ]) {
+      const plan = { ...geometry, rooms: [{ name: 'Гостиная', polygon }] }
+      expect(roomArchitectureFromPlan(plan, 'Гостиная')?.shape).toBe('rectangular')
+      expect(
+        roomArchitectureFromPlan(
+          { ...plan, rooms: [{ name: 'Гостиная', polygon: [...polygon].reverse() }] },
+          'Гостиная',
+        )?.shape,
+      ).toBe('rectangular')
+    }
+  })
+
+  it('не принимает трапецию или самопересечение за прямоугольник', () => {
+    for (const polygon of [
+      [
+        { xCm: 0, yCm: 0 },
+        { xCm: 400, yCm: 0 },
+        { xCm: 350, yCm: 300 },
+        { xCm: 0, yCm: 300 },
+      ],
+      [
+        { xCm: 0, yCm: 0 },
+        { xCm: 400, yCm: 300 },
+        { xCm: 400, yCm: 0 },
+        { xCm: 0, yCm: 300 },
+      ],
+    ]) {
+      expect(
+        roomArchitectureFromPlan(
+          { ...geometry, rooms: [{ name: 'Гостиная', polygon }] },
+          'Гостиная',
+        )?.shape,
+      ).toBe('nonrectangular')
+    }
+  })
 })

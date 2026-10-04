@@ -14,8 +14,9 @@ const LOOKS_LIKE_MM = 401
 // Числа с разделителем: «1300×850×750 мм», «120х60х75», «200 x 300 см».
 // Ровно четыре цифры максимум, и перед числом не должно быть цифры или точки,
 // иначе разбор начинается с середины числа: у «2042×946×700» так получалась ширина 42.
-const TRIPLE = /(?<![\d.,])(\d{2,4})\s*[х×x*]\s*(\d{2,4})\s*[х×x*]\s*(\d{2,4})\s*(мм|см|mm|cm)?/gi
-const PAIR = /(?<![\d.,])(\d{2,4})\s*[х×x*]\s*(\d{2,4})\s*(мм|см|mm|cm)/gi
+const TRIPLE =
+  /(?<![\d.,])(\d{2,4}(?:[.,]\d+)?)\s*[х×x*]\s*(\d{2,4}(?:[.,]\d+)?)\s*[х×x*]\s*(\d{2,4}(?:[.,]\d+)?)(?!\d)\s*(мм|см|mm|cm)?/gi
+const PAIR = /(?<![\d.,])(\d{2,4}(?:[.,]\d+)?)\s*[х×x*]\s*(\d{2,4}(?:[.,]\d+)?)\s*(мм|см|mm|cm)/gi
 
 /**
  * Размеры, которые описывают не сам предмет. «Диван, спальное место 1100×1920» — это
@@ -64,7 +65,7 @@ function unitDivisor(unit: string | undefined, values: number[]): number {
 }
 
 function sane(value: number, divisor: number): number | undefined {
-  const cm = Math.round(value / divisor)
+  const cm = value / divisor
   return cm >= MIN_CM && cm <= MAX_CM ? cm : undefined
 }
 
@@ -86,14 +87,16 @@ export function parseDimensionsCm(text: string, options: ParseOptions = {}): Dim
   const skip = options.sleepingIsFootprint ? NOT_THE_BED : NOT_THE_OBJECT
   const triple = firstAboutTheObject(text, TRIPLE, skip)
   if (triple) {
-    const values = [Number(triple[1]), Number(triple[2]), Number(triple[3])]
+    const values = [triple[1], triple[2], triple[3]].map((value) =>
+      Number(value?.replace(',', '.')),
+    )
     const divisor = unitDivisor(triple[4], values)
     const [width, depth, height] = values.map((value) => sane(value, divisor))
     return { width, depth, height }
   }
   const pair = firstAboutTheObject(text, PAIR, skip)
   if (pair) {
-    const values = [Number(pair[1]), Number(pair[2])]
+    const values = [pair[1], pair[2]].map((value) => Number(value?.replace(',', '.')))
     const divisor = unitDivisor(pair[3], values)
     const [width, depth] = values.map((value) => sane(value, divisor))
     return { width, depth }

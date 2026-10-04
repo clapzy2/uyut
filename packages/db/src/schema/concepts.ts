@@ -26,6 +26,8 @@ export type ConceptQualityReview = {
   status: 'checked' | 'review' | 'unavailable'
   model: string
   checkedAt: string
+  /** Exact plan/render inputs used by this review; absent on legacy or image-only reviews. */
+  architectureSourceHash?: string
   /** Facts supplied to the image reviewer; absent on older renders and unconfirmed plans. */
   architecture?: {
     shape: 'rectangular' | 'nonrectangular'

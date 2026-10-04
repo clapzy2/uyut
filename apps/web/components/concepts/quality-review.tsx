@@ -1,11 +1,16 @@
 import type { ConceptQualityReview } from '@uyut/db'
+import type { QualityPlanStatus } from '@/lib/concepts/plan-review'
 
 export function QualityReview({
   review,
   edited,
+  planStatus,
+  canComparePlan = true,
 }: {
   review: ConceptQualityReview | null
   edited: boolean
+  planStatus?: QualityPlanStatus | null
+  canComparePlan?: boolean
 }) {
   if (edited) {
     return (
@@ -23,16 +28,32 @@ export function QualityReview({
       </p>
     )
   }
+  const planNeedsComparison = planStatus === 'changed' || planStatus === 'unlinked'
+  const comparisonInstructions = canComparePlan
+    ? 'Сравните окна, двери и контур в разделе «Сверить концепт с планом».'
+    : 'Сверьте окна, двери и контур с исходным планом или фото комнаты.'
+  const issues =
+    planStatus === 'changed'
+      ? review.issues.filter((issue) => issue.code !== 'opening_conflict')
+      : review.issues
   return (
     <div className="mt-4 border border-line bg-paper p-4 text-[14px] leading-relaxed text-ink-2">
       <p className="font-medium text-ink">
-        {review.status === 'review'
+        {issues.length > 0
           ? 'Автосверка: посмотрите отмеченные детали'
           : 'Автосверка изображения выполнена'}
       </p>
-      {review.issues.length > 0 ? (
+      {planNeedsComparison ? (
+        <p className="mt-2 text-ink">
+          {planStatus === 'changed'
+            ? 'После правки плана нужна сверка.'
+            : 'Эта автосверка не привязана к текущему плану.'}{' '}
+          {comparisonInstructions}
+        </p>
+      ) : null}
+      {issues.length > 0 ? (
         <ul className="mt-2 list-disc space-y-1 pl-5">
-          {review.issues.map((issue) => (
+          {issues.map((issue) => (
             <li key={issue.code}>
               {issue.code === 'requirement_unconfirmed' ? 'Пожелание требует проверки. ' : ''}
               {issue.detail}
@@ -41,7 +62,11 @@ export function QualityReview({
         </ul>
       ) : (
         <p className="mt-2">
-          Автосверка не нашла замечаний. Размеры и размещение проверяйте на 2D-схеме.
+          {planNeedsComparison
+            ? planStatus === 'changed'
+              ? 'Сохранённый результат автосверки относится к изображению, не к новой версии плана. Размеры и размещение проверяйте на 2D-схеме.'
+              : 'Версия плана для этой автосверки не сохранена. Размеры и размещение проверяйте на текущей 2D-схеме.'
+            : 'Автосверка не нашла замечаний. Размеры и размещение проверяйте на 2D-схеме.'}
         </p>
       )}
       <details className="mt-2">

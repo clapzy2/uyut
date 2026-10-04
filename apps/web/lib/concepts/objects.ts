@@ -24,7 +24,11 @@ import {
 import { asc, eq } from 'drizzle-orm'
 import { orderedImages } from '@/lib/catalog/product-image'
 import { otherMember } from '@/lib/collaboration/repository'
-import { planReviewSource } from '@/lib/concepts/plan-review'
+import {
+  planReviewSource,
+  type QualityPlanStatus,
+  qualityReviewPlanStatus,
+} from '@/lib/concepts/plan-review'
 import { getDb } from '@/lib/db'
 import { NotFoundError } from '@/lib/projects/access'
 import { getRoom } from '@/lib/projects/repository'
@@ -96,6 +100,7 @@ export type ConceptPageData = {
     editedRenderKey: string | null
     note: string | null
     qualityReview: ConceptQualityReview | null
+    qualityPlanStatus?: QualityPlanStatus | null
     orderIndex: number
     batchId: string
   }
@@ -304,6 +309,7 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
       editedRenderKey: concept.editedRenderUrl,
       note: concept.note,
       qualityReview: concept.qualityReview,
+      qualityPlanStatus: qualityReviewPlanStatus(concept.qualityReview, source?.hash ?? null),
       orderIndex: concept.orderIndex,
       batchId: concept.batchId,
     },

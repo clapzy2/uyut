@@ -16,6 +16,7 @@ import { PlanGeometryEditor } from '@/components/plan-geometry-editor'
 import { PlanGeometryPreview } from '@/components/plan-geometry-preview'
 import { PlanPageGeometryImport } from '@/components/plan-page-geometry-import'
 import { PlanReadingCard } from '@/components/plan-reading-card'
+import { ProjectGuide } from '@/components/project-guide'
 import { ProjectSettingsDialog } from '@/components/project-settings-dialog'
 import { getCollaboration, ownerDisplayName } from '@/lib/collaboration/repository'
 import { canInvite } from '@/lib/collaboration/rules'
@@ -127,18 +128,6 @@ export default async function ProjectPage({ params }: { params: Params }) {
         Все проекты
       </Link>
       {!isOwner ? <PartnerBanner ownerName={ownerName ?? 'владельца'} /> : null}
-      {isOwner && !project.onboardedAt ? (
-        <p className="mt-5 border-l-2 border-accent bg-paper px-4 py-3 text-[15px] leading-relaxed text-ink-2">
-          Расскажите о себе, и концепты станут точнее: состав семьи, бюджет и любимые интерьеры.{' '}
-          <Link
-            href={`/onboarding/step-2?project=${project.id}`}
-            className="text-accent underline decoration-line-strong underline-offset-4"
-          >
-            Пять коротких вопросов
-          </Link>
-          .
-        </p>
-      ) : null}
       <div className="mt-5 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-serif text-[40px] font-normal leading-[1.05] tracking-tight text-ink sm:text-5xl lg:text-[56px]">
@@ -166,8 +155,18 @@ export default async function ProjectPage({ params }: { params: Params }) {
         ) : null}
       </div>
 
+      <ProjectGuide
+        projectId={project.id}
+        isOwner={isOwner}
+        onboarded={Boolean(project.onboardedAt)}
+        hasPlan={Boolean(project.planUrl)}
+        planNeedsReview={Boolean(project.planUrl && !project.planReading?.confirmedAt)}
+        rooms={project.rooms}
+        shoppingCount={shopping.count}
+      />
+
       <div className="mt-10 grid gap-10 lg:grid-cols-[5fr_7fr] lg:gap-14">
-        <div>
+        <div id="project-plan" className="scroll-mt-24">
           <p className={labelClassName}>План</p>
           {planUrl ? (
             <>
@@ -215,8 +214,10 @@ export default async function ProjectPage({ params }: { params: Params }) {
                 {isOwner ? (
                   <p>
                     {PLAN_LIMIT_TEXT}.
-                    <br />С плана мы прочитаем комнаты, их размеры и высоту потолка, а вы поправите,
-                    если что-то не сошлось. Без плана тоже можно: комнаты вписываются руками.
+                    <br />
+                    Загрузите обмерный план существующего состояния. Найденные комнаты и подписанные
+                    размеры покажем для сверки. Без плана тоже можно: добавьте комнаты вручную, а
+                    недостающие мерки уточните позже.
                   </p>
                 ) : (
                   <p>Плана пока нет. Его загружает владелец проекта.</p>
@@ -259,7 +260,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
           ) : null}
         </div>
 
-        <div>
+        <div id="project-rooms" className="scroll-mt-24">
           <p className={labelClassName}>Комнаты</p>
           {project.rooms.length === 0 ? (
             <div className="flex flex-col gap-5 border-y border-line py-7 sm:flex-row sm:items-start sm:gap-7">

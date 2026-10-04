@@ -37,7 +37,12 @@ export function BudgetForm({ projectId, initial }: { projectId: string; initial:
   const progress = (index / (steps.length - 1)) * 100
 
   return (
-    <div className="flex flex-col gap-7">
+    <fieldset
+      disabled={pending}
+      aria-busy={pending || undefined}
+      aria-label="Бюджет квартиры"
+      className="m-0 flex min-w-0 flex-col gap-7 border-0 p-0"
+    >
       <div>
         <p className="font-serif text-[34px] leading-none text-ink tabular-nums transition-colors duration-200 ease-ui">
           {rubles.format(Math.round(kopecks / 100))} ₽
@@ -74,6 +79,7 @@ export function BudgetForm({ projectId, initial }: { projectId: string; initial:
         <Button
           type="button"
           variant="secondary"
+          disabled={pending}
           onClick={() => router.push(`/onboarding/step-2?project=${projectId}`)}
         >
           Назад
@@ -84,18 +90,24 @@ export function BudgetForm({ projectId, initial }: { projectId: string; initial:
           onClick={() => {
             setError(null)
             startTransition(async () => {
-              const result = await saveBudget(projectId, { budgetKopecks: kopecks })
-              if (!result.ok) {
-                setError(result.error)
-                return
+              try {
+                const result = await saveBudget(projectId, { budgetKopecks: kopecks })
+                if (!result.ok) {
+                  setError(result.error)
+                  return
+                }
+                router.push(`/onboarding/step-4?project=${projectId}`)
+              } catch {
+                setError(
+                  'Не удалось получить ответ сервера. Выбранный бюджет остался в форме — попробуйте ещё раз.',
+                )
               }
-              router.push(`/onboarding/step-4?project=${projectId}`)
             })
           }}
         >
           {pending ? 'Сохраняем…' : 'Дальше'}
         </Button>
       </div>
-    </div>
+    </fieldset>
   )
 }

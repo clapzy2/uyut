@@ -410,7 +410,7 @@ export async function attachGenerationRun(
   await getDb()
     .update(rooms)
     .set({ generationRunId: runId, generationStartedAt: new Date(), generationBatchId: batchId })
-    .where(eq(rooms.id, roomId))
+    .where(and(eq(rooms.id, roomId), eq(rooms.generationRunId, `pending:${batchId}`)))
 }
 
 /**
@@ -424,17 +424,21 @@ export async function attachGenerationRun(
 export async function claimRoomForGeneration(roomId: string, batchId: string): Promise<boolean> {
   const claimed = await getDb()
     .update(rooms)
-    .set({ generationRunId: `pending:${batchId}`, generationStartedAt: new Date() })
+    .set({
+      generationRunId: `pending:${batchId}`,
+      generationStartedAt: new Date(),
+      generationBatchId: batchId,
+    })
     .where(and(eq(rooms.id, roomId), isNull(rooms.generationRunId)))
     .returning({ id: rooms.id })
   return claimed.length > 0
 }
 
-export async function clearGenerationRun(roomId: string): Promise<void> {
+export async function clearGenerationRun(roomId: string, expectedRunId: string): Promise<void> {
   await getDb()
     .update(rooms)
     .set({ generationRunId: null, generationStartedAt: null, generationBatchId: null })
-    .where(eq(rooms.id, roomId))
+    .where(and(eq(rooms.id, roomId), eq(rooms.generationRunId, expectedRunId)))
 }
 
 export async function setRoomPhoto(

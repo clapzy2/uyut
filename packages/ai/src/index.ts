@@ -152,7 +152,11 @@ export {
   unavailableQualityReview,
 } from './quality-review'
 export { closeMask, maskWeights, meanLightness, type RecolorTarget, recolorPixels } from './recolor'
-export { type RoomArchitecture, roomArchitectureFromPlan } from './room-architecture'
+export {
+  conceptPlanReviewSource,
+  type RoomArchitecture,
+  roomArchitectureFromPlan,
+} from './room-architecture'
 export { createFalSegmenter, type Segmenter } from './segment'
 export {
   findStyle,

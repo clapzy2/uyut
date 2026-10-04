@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { AvatarUploader } from '@/components/avatar-uploader'
 import { ChangePasswordDialog } from '@/components/change-password-dialog'
@@ -25,9 +26,15 @@ export default async function ProfilePage({
   return (
     <section className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-16 lg:py-24">
       {verified && user.emailVerified ? (
-        <p className="mb-8 max-w-xl rounded-sm border border-line bg-paper px-4 py-3 text-[15px] text-ink">
-          Почта подтверждена. Спасибо, теперь всё готово.
-        </p>
+        <div className="mb-8 max-w-xl border-l-2 border-accent bg-paper px-4 py-3 text-[15px] text-ink">
+          <p>Почта подтверждена. Можно продолжить работу с квартирой.</p>
+          <Link
+            href="/projects"
+            className="mt-1 inline-flex min-h-11 items-center text-accent underline decoration-line-strong underline-offset-4"
+          >
+            К моим проектам →
+          </Link>
+        </div>
       ) : null}
       <div className="grid gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-16">
         <div>

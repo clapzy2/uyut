@@ -16,6 +16,7 @@ import { spreadMarkers } from '@/lib/concepts/marker-layout'
 import type { ConceptPageData, MatchView, ObjectView } from '@/lib/concepts/objects'
 import { applySwatch, prepareRecolor, type RecolorBase } from '@/lib/recolor/client'
 import { pluralItems } from '@/lib/shopping/format'
+import { ConceptSearchStatus } from './concept-search-status'
 import { QualityReview } from './quality-review'
 
 function ObjectChip({
@@ -376,7 +377,6 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
   )
   const selected = objects.find((object) => object.id === selectedId) ?? null
   const hovered = objects.find((object) => object.id === hoveredId) ?? null
-  const searching = concept.objectsStatus === 'pending'
   const [preview, setPreview] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [baseLightness, setBaseLightness] = useState<number | null>(null)
@@ -483,22 +483,6 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
     })
   }
 
-  // Пока предметы ищутся, страница сама обновляется; дольше минуты ждать нечего
-  useEffect(() => {
-    if (!searching) {
-      return
-    }
-    let ticks = 0
-    const timer = setInterval(() => {
-      ticks += 1
-      router.refresh()
-      if (ticks >= 20) {
-        clearInterval(timer)
-      }
-    }, 3000)
-    return () => clearInterval(timer)
-  }, [router, searching])
-
   function like(value: boolean) {
     setLiked(value)
     void setConceptLike(concept.id, value).then((result) => {
@@ -597,17 +581,12 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
           ))}
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[13px] text-ink-2">
-            {searching
-              ? 'Ищем предметы на картинке, обычно 10–15 секунд.'
-              : concept.objectsStatus === 'failed'
-                ? 'Предметы не нашлись. Попробуйте открыть концепт позже.'
-                : concept.objectsStatus === 'skipped'
-                  ? 'Подбор товаров пока выключен.'
-                  : objects.length === 0
-                    ? 'Знакомых предметов на картинке не оказалось.'
-                    : 'Наведите на номер, чтобы подсветить предмет, нажмите, чтобы увидеть товары.'}
-          </p>
+          <ConceptSearchStatus
+            key={`${concept.id}-${concept.objectsStatus}`}
+            status={concept.objectsStatus}
+            objectCount={objects.length}
+            roomHref={`/projects/${data.room.projectId}/rooms/${data.room.id}#room-concepts`}
+          />
           <div className="flex items-center gap-2">
             {data.other ? (
               <span className="mr-1 text-[13px] text-ink-2">
@@ -647,7 +626,12 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
             </button>
           </div>
         </div>
-        <QualityReview review={concept.qualityReview} edited={Boolean(concept.editedRenderKey)} />
+        <QualityReview
+          review={concept.qualityReview}
+          edited={Boolean(concept.editedRenderKey)}
+          planStatus={concept.qualityPlanStatus}
+          canComparePlan={Boolean(data.plan)}
+        />
         {concept.note && !concept.editedRenderKey ? (
           <p className="mt-4 border-l-2 border-line-strong pl-4 text-[15px] leading-relaxed text-ink-2">
             {concept.note}
@@ -693,15 +677,23 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
             ))}
           </div>
         ) : null}
-        <MatchesPanel
-          object={selected}
-          quantities={data.shopping.byCatalogItem}
-          adding={adding}
-          onAdd={addToList}
-          canAdd={canEdit}
-          onlyFitting={onlyFitting}
-          onOnlyFitting={setOnlyFitting}
-        />
+        {objects.length > 0 ? (
+          <MatchesPanel
+            object={selected}
+            quantities={data.shopping.byCatalogItem}
+            adding={adding}
+            onAdd={addToList}
+            canAdd={canEdit}
+            onlyFitting={onlyFitting}
+            onOnlyFitting={setOnlyFitting}
+          />
+        ) : (
+          <p className="text-[15px] leading-relaxed text-ink-2">
+            {concept.objectsStatus === 'pending'
+              ? 'Здесь появится подбор товаров. Пока можно рассмотреть интерьер.'
+              : 'Метки товаров для этого варианта отсутствуют.'}
+          </p>
+        )}
         <div className="flex flex-wrap items-baseline justify-between gap-2 border-t border-line pt-4 text-[13px] text-ink-2">
           <span>
             {data.shopping.count > 0

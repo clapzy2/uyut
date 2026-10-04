@@ -3,8 +3,8 @@ import {
   countItems,
   markMissingOutOfStock,
   parseAdmitadCsv,
-  parseAdmitadCsvStream,
   parseYml,
+  syncAdmitadCsvFeed,
   upsertFeedItems,
 } from '@uyut/catalog'
 import { type CatalogSource, catalogSources } from '@uyut/db'
@@ -19,6 +19,11 @@ export function configuredFeeds(
   for (const [name, value] of Object.entries(env)) {
     const match = name.match(/^ADMITAD_FEED_([A-Z]+)_URL$/)
     if (!match || !value) {
+      continue
+    }
+    // Сохраняем адрес фида, но не обновляем источник до подтверждения доступа
+    // и маркировки. Пауза не удаляет ранее выбранные товары пользователя.
+    if (env[`ADMITAD_FEED_${match[1]}_PAUSED`] === '1') {
       continue
     }
     const source = (match[1] as string).toLowerCase()
@@ -55,6 +60,7 @@ async function* decodedChunks(body: ReadableStream<Uint8Array>): AsyncGenerator<
     const tail = decoder.decode()
     if (tail) yield tail
   } finally {
+    await reader.cancel()
     reader.releaseLock()
   }
 }
@@ -87,11 +93,21 @@ async function syncFeeds(): Promise<
   for (const feed of configuredFeeds(process.env)) {
     try {
       const response = await fetchFeed(feed.url)
-      const csvRequested = /(?:[?&](?:format|type)=csv\b|\.csv(?:[?&]|$))/i.test(feed.url)
-      const parsed =
-        csvRequested && response.body
-          ? await parseAdmitadCsvStream(decodedChunks(response.body), feed.source)
-          : parsePartnerFeed(await response.text(), feed.source, feed.url)
+      const csvRequested =
+        /(?:[?&](?:format|type)=csv\b|\.csv(?:[?&]|$))/i.test(feed.url) ||
+        /\b(?:text|application)\/(?:csv|x-csv)\b/i.test(response.headers.get('content-type') ?? '')
+      if (csvRequested && response.body) {
+        const summary = await syncAdmitadCsvFeed(
+          database,
+          decodedChunks(response.body),
+          feed.source,
+        )
+        results.push({ source: feed.source, ...summary })
+        logger.info('feed synced', { source: feed.source, ...summary })
+        continue
+      }
+      const parsed = parsePartnerFeed(await response.text(), feed.source, feed.url)
+      if (parsed.items.length === 0) throw new Error('В фиде нет доступных товаров мебели')
       const skipped = parsed.skippedCount ?? parsed.skipped.length
       const summary = await upsertFeedItems(database, parsed.items)
       let hidden = 0

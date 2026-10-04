@@ -1,4 +1,6 @@
 import { estimateProject } from '@uyut/catalog'
+import { conceptObjects, concepts, rooms as dbRooms } from '@uyut/db'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
@@ -6,22 +8,25 @@ import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { PlanVolumeLaunch } from '@/components/plan-volume-launch'
 import { EstimateCard } from '@/components/summary/estimate-card'
 import { ExportCard, type PaymentState } from '@/components/summary/export-card'
+import { ExportComposition, exportRoomComposition } from '@/components/summary/export-composition'
 import { FitWarnings } from '@/components/summary/fit-warnings'
 import { PartnerExports } from '@/components/summary/partner-exports'
 import { ShoppingRows } from '@/components/summary/shopping-rows'
 import { applyPayment } from '@/lib/billing/apply'
 import { getPlan, getPurchase } from '@/lib/billing/repository'
 import { formatPrice } from '@/lib/concepts/format'
+import { getDb } from '@/lib/db'
 import { getEnv } from '@/lib/env'
 import { listExports } from '@/lib/exports/repository'
 import type { ExportRun } from '@/lib/exports/start'
 import { isUuid, NotFoundError, ProjectClosedError } from '@/lib/projects/access'
 import { apartmentVolume } from '@/lib/projects/apartment-volume'
 import { formatArea, pluralRooms } from '@/lib/projects/format'
+import { layoutWithMeasurements } from '@/lib/projects/layout-with-measurements'
 import { getProject } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { pluralItems, pluralPositions } from '@/lib/shopping/format'
-import { projectLayouts } from '@/lib/shopping/layout'
+import { projectLayoutGaps, projectLayouts } from '@/lib/shopping/layout'
 import { getWorksRates } from '@/lib/shopping/rates'
 import { getShoppingList } from '@/lib/shopping/repository'
 
@@ -101,13 +106,53 @@ export default async function SummaryPage({
   }
   const isOwner = project.role === 'owner'
 
-  const [list, exports, plan] = await Promise.all([
+  const [list, exports, plan, readyConcepts] = await Promise.all([
     getShoppingList(session.user.id, project.id),
     listExports(session.user.id, project.id, 4),
     getPlan(session.user.id),
+    project.rooms.length > 0
+      ? getDb()
+          .select({
+            id: concepts.id,
+            roomId: concepts.roomId,
+            status: concepts.status,
+            likedByOwner: concepts.likedByOwner,
+            createdAt: concepts.createdAt,
+            renderUrl: concepts.renderUrl,
+            editedRenderUrl: concepts.editedRenderUrl,
+          })
+          .from(concepts)
+          .innerJoin(dbRooms, eq(dbRooms.id, concepts.roomId))
+          .where(and(eq(dbRooms.projectId, project.id), eq(concepts.status, 'ready')))
+          .orderBy(desc(concepts.createdAt))
+      : [],
   ])
+  const selectedObjectIds = list.items
+    .map((item) => item.conceptObjectId)
+    .filter((objectId): objectId is string => objectId !== null)
+  const selectedObjectConcepts = selectedObjectIds.length
+    ? await getDb()
+        .select({ id: conceptObjects.id, conceptId: conceptObjects.conceptId })
+        .from(conceptObjects)
+        .where(inArray(conceptObjects.id, selectedObjectIds))
+    : []
   const layouts = projectLayouts(project.rooms, list, project.planReading?.geometry)
+  const layoutGaps = projectLayoutGaps(project.rooms, list, layouts)
   const geometry = project.planReading?.geometry
+  const compositionRooms = project.rooms.map((room) =>
+    exportRoomComposition(
+      room,
+      readyConcepts,
+      selectedObjectConcepts,
+      list.items,
+      layouts.find((entry) => entry.roomId === room.id)?.layout ??
+        // Unlike the shopping preview, PDF includes a measured 2D room even without furniture.
+        layoutWithMeasurements(room.name, room.measurements, geometry, [], room.kind),
+    ),
+  )
+  const composition = (
+    <ExportComposition projectId={project.id} rooms={compositionRooms} items={list.items} />
+  )
   const overview = geometry ? apartmentVolume(geometry, layouts) : null
   const rates = getWorksRates()
   const env = getEnv()
@@ -153,6 +198,30 @@ export default async function SummaryPage({
         <p className="font-mono text-[13px] text-ink-2">{meta.join(' · ')}</p>
       </div>
 
+      <div className="mt-6 max-w-3xl border-l-2 border-accent pl-4 text-[15px] leading-relaxed text-ink-2">
+        {list.count === 0 ? (
+          <>
+            <p>
+              {isOwner
+                ? 'Здесь соберутся выбранные товары, расстановка и PDF. Чтобы добавить мебель, откройте вариант комнаты и нажмите на метку предмета.'
+                : 'Здесь появятся товары, которые выберет владелец, расстановка и PDF. Пока можно посмотреть комнаты и отметить понравившиеся интерьеры.'}
+            </p>
+            <Link
+              href={`/projects/${project.id}#project-rooms`}
+              className="mt-1 inline-flex min-h-11 items-center text-accent underline decoration-line-strong underline-offset-4"
+            >
+              {isOwner ? 'Выбрать мебель в комнатах →' : 'Посмотреть комнаты →'}
+            </Link>
+          </>
+        ) : (
+          <p>
+            Сверьте варианты товаров и мерки, проверьте предупреждения о размещении, затем соберите
+            PDF. Смета работ — ориентир для обсуждения с мастерами; мебель покупается отдельно в
+            магазинах.
+          </p>
+        )}
+      </div>
+
       <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-14">
         <div>
           <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
@@ -184,9 +253,11 @@ export default async function SummaryPage({
               proPriceKopecks={env.PRO_PRICE_KOPECKS}
               paymentState={settled.state}
               initialRun={settled.run}
-            />
+            >
+              {composition}
+            </ExportCard>
           ) : (
-            <PartnerExports exports={exports} />
+            <PartnerExports exports={exports}>{composition}</PartnerExports>
           )}
           <EstimateCard
             estimate={estimate}
@@ -206,6 +277,22 @@ export default async function SummaryPage({
             Общий обзор по подтверждённой схеме. Положения мебели совпадают с планами комнат; оценку
             проходов и недостающие мерки смотрите в проверках 2D.
           </p>
+          {layoutGaps.length > 0 ? (
+            <ul className="mt-3 space-y-2 text-sm leading-relaxed text-ink-2">
+              {layoutGaps.map((room) => (
+                <li key={room.roomId}>
+                  {room.roomName}: {pluralItems(room.itemCount)} пока только в списке покупок — для
+                  расстановки нужны мерки комнаты или связанный контур.{' '}
+                  <Link
+                    href={`/projects/${project.id}/rooms/${room.roomId}#room-measurements`}
+                    className="inline-flex min-h-11 items-center text-accent underline decoration-line-strong underline-offset-4"
+                  >
+                    {isOwner ? 'Добавить мерки комнаты →' : 'Посмотреть мерки комнаты →'}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {overview.notes.length > 0 ? (
             <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink-2">
               {[...new Set(overview.notes)].map((note) => (

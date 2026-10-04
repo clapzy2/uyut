@@ -2,7 +2,7 @@
 
 import { Button } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
-import { useState, useTransition } from 'react'
+import { useId, useState, useTransition } from 'react'
 import { saveHousehold } from '@/actions/onboarding'
 import { FormError } from '@/components/form-error'
 import type { HouseholdInput } from '@/lib/validation/onboarding'
@@ -34,6 +34,7 @@ function Choice({
             <input
               type="radio"
               name={name}
+              value={option}
               checked={value === option}
               onChange={() => onChange(option)}
               className="peer sr-only"
@@ -61,11 +62,14 @@ function Toggle({
   checked: boolean
   onChange: (value: boolean) => void
 }) {
+  const hintId = useId()
   return (
     <label className="household-toggle-row group -mx-3 grid min-h-[72px] cursor-pointer grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 px-3 py-3.5">
       <span className="text-[15px] font-medium text-ink">{label}</span>
       <input
         type="checkbox"
+        aria-label={label}
+        aria-describedby={hintId}
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
         className="household-toggle-input peer sr-only"
@@ -81,7 +85,7 @@ function Toggle({
           <span className="household-toggle-mark block size-1.5 rounded-full bg-control" />
         </span>
       </span>
-      <span className="mt-0.5 text-[13px] leading-snug text-ink-2">
+      <span id={hintId} className="mt-0.5 text-[13px] leading-snug text-ink-2">
         {checked ? checkedHint : uncheckedHint}
       </span>
     </label>
@@ -112,7 +116,12 @@ export function HouseholdForm({
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <fieldset
+      disabled={pending}
+      aria-busy={pending || undefined}
+      aria-label="Образ жизни"
+      className="m-0 flex min-w-0 flex-col gap-6 border-0 p-0"
+    >
       <div className="flex flex-col gap-5 border-b border-line pb-7">
         <Choice
           label="Взрослых"
@@ -164,7 +173,12 @@ export function HouseholdForm({
 
       <FormError message={error ?? undefined} />
       <div className="flex flex-wrap gap-3">
-        <Button type="button" variant="secondary" onClick={() => router.push('/onboarding/step-1')}>
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={pending}
+          onClick={() => router.push(`/onboarding/step-1?project=${projectId}`)}
+        >
           Назад
         </Button>
         <Button
@@ -173,18 +187,24 @@ export function HouseholdForm({
           onClick={() => {
             setError(null)
             startTransition(async () => {
-              const result = await saveHousehold(projectId, value)
-              if (!result.ok) {
-                setError(result.error)
-                return
+              try {
+                const result = await saveHousehold(projectId, value)
+                if (!result.ok) {
+                  setError(result.error)
+                  return
+                }
+                router.push(`/onboarding/step-3?project=${projectId}`)
+              } catch {
+                setError(
+                  'Не удалось получить ответ сервера. Ответы остались в форме — попробуйте ещё раз.',
+                )
               }
-              router.push(`/onboarding/step-3?project=${projectId}`)
             })
           }}
         >
           {pending ? 'Сохраняем…' : 'Дальше'}
         </Button>
       </div>
-    </div>
+    </fieldset>
   )
 }

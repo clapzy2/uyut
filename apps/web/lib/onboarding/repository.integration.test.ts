@@ -88,6 +88,9 @@ describe('onboarding and concepts in a real database', () => {
 
     const state = await getOnboardingState(owner, projectId)
     expect(state.likedStyleIds.sort()).toEqual(scandi.map((style) => style.id).sort())
+    expect(state.styleVotes).toHaveLength(votes.length)
+    expect(state.styleVotes).toEqual(expect.arrayContaining(votes))
+    expect(state.styleVotes.some((vote) => !vote.liked)).toBe(true)
     expect(state.styleTags).toEqual(['scandi'])
     const vector = state.styleReferenceEmbedding ?? []
     expect(vector).toHaveLength(1024)

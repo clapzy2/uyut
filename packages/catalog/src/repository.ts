@@ -29,7 +29,10 @@ export function catalogFreshnessCondition() {
  * Ежедневный upsert по паре источник плюс внешний id. Пачками по 200, чтобы не упираться
  * в размер одного запроса; поле embedded_hash не трогаем, по нему потом видно, что пересчитать.
  */
-export async function upsertFeedItems(db: Database, items: FeedItem[]): Promise<UpsertSummary> {
+export async function upsertFeedItems(
+  db: Pick<Database, 'insert'>,
+  items: FeedItem[],
+): Promise<UpsertSummary> {
   let inserted = 0
   let updated = 0
   for (let offset = 0; offset < items.length; offset += 200) {

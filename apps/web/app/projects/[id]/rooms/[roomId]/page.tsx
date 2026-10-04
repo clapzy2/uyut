@@ -10,6 +10,7 @@ import { RoomConditionForm } from '@/components/room-condition-form'
 import { RoomMeasurementsForm } from '@/components/room-measurements-form'
 import { RoomNotesForm } from '@/components/room-notes-form'
 import { RoomPlan } from '@/components/room-plan'
+import { RoomSectionLinks } from '@/components/room-section-links'
 import { RoomSettingsDialog } from '@/components/room-settings-dialog'
 import { otherMember } from '@/lib/collaboration/repository'
 import { latestBatch, listConceptsByRoom } from '@/lib/concepts/repository'
@@ -113,6 +114,14 @@ export default async function RoomPage({ params }: { params: Params }) {
         ) : null}
       </div>
 
+      <p className="mt-6 max-w-3xl border-l-2 border-accent pl-4 text-[15px] leading-relaxed text-ink-2">
+        {isOwner
+          ? 'Сначала уточните размеры и пожелания, затем выберите вариант интерьера. Товары добавляются по меткам на картинке; их размещение проверяется на 2D-схеме. Объёмный просмотр показывает ту же расстановку.'
+          : 'Откройте варианты интерьера и отметьте понравившиеся. Размеры и мебель меняет владелец проекта; ваши отметки помогут выбрать общий вариант.'}
+      </p>
+
+      <RoomSectionLinks key={room.id} isOwner={isOwner} hasConcepts={conceptItems.length > 0} />
+
       <div className="mt-10 grid gap-10 lg:grid-cols-[7fr_5fr] lg:gap-14">
         <div>
           <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
@@ -144,10 +153,10 @@ export default async function RoomPage({ params }: { params: Params }) {
             </>
           ) : (
             <>
-              <div className="grid aspect-[3/2] place-items-center border border-dashed border-line-strong p-6 text-center text-[15px] leading-relaxed text-ink-2">
+              <div className="grid min-h-32 place-items-center border border-dashed border-line-strong p-6 text-center text-[15px] leading-relaxed text-ink-2 sm:min-h-44">
                 {isOwner ? (
                   <p>
-                    Одно фото от двери, чтобы было видно окно и стены.
+                    Фото — по желанию. Снимите комнату от двери, чтобы было видно окно и стены.
                     <br />
                     {PHOTO_LIMIT_TEXT}.
                   </p>
@@ -173,7 +182,7 @@ export default async function RoomPage({ params }: { params: Params }) {
           )}
         </div>
 
-        <div className="flex flex-col gap-10">
+        <div id="room-measurements" tabIndex={-1} className="flex scroll-mt-24 flex-col gap-10">
           {isOwner ? <RoomConditionForm roomId={room.id} condition={room.condition} /> : null}
           {isOwner ? (
             <RoomMeasurementsForm
@@ -197,31 +206,34 @@ export default async function RoomPage({ params }: { params: Params }) {
               </p>
             </div>
           ) : null}
-          <ConceptsPanel
-            roomId={room.id}
-            projectId={room.projectId}
-            hasPhoto={Boolean(room.photoUrl)}
-            keepsFurniture={room.condition === 'keep'}
-            onboarded={Boolean(room.project.onboardedAt)}
-            canGenerate={isOwner}
-            role={room.role}
-            other={other ? { name: other.name } : null}
-            latestBatchId={latestBatchId}
-            initialRun={runningGeneration}
-            items={conceptItems.map((item) => ({
-              id: item.id,
-              batchId: item.batchId,
-              batchKind: item.batchKind,
-              editRequest: item.editRequest,
-              title: item.title,
-              status: item.status,
-              renderSrc: item.renderSrc,
-              owner: item.likedByOwner,
-              partner: item.likedByPartner,
-              orderIndex: item.orderIndex,
-              qualityStatus: item.editedRenderUrl ? null : (item.qualityReview?.status ?? null),
-            }))}
-          />
+          <div id="room-concepts" tabIndex={-1} className="scroll-mt-24">
+            <ConceptsPanel
+              roomId={room.id}
+              projectId={room.projectId}
+              hasPhoto={Boolean(room.photoUrl)}
+              keepsFurniture={room.condition === 'keep'}
+              onboarded={Boolean(room.project.onboardedAt)}
+              canGenerate={isOwner}
+              role={room.role}
+              other={other ? { name: other.name } : null}
+              latestBatchId={latestBatchId}
+              initialRun={runningGeneration}
+              initialNeedsStatusCheck={Boolean(room.generationRunId) && !runningGeneration}
+              items={conceptItems.map((item) => ({
+                id: item.id,
+                batchId: item.batchId,
+                batchKind: item.batchKind,
+                editRequest: item.editRequest,
+                title: item.title,
+                status: item.status,
+                renderSrc: item.renderSrc,
+                owner: item.likedByOwner,
+                partner: item.likedByPartner,
+                orderIndex: item.orderIndex,
+                qualityStatus: item.editedRenderUrl ? null : (item.qualityReview?.status ?? null),
+              }))}
+            />
+          </div>
         </div>
       </div>
 
