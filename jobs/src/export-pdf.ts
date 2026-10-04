@@ -137,7 +137,9 @@ export const exportPdf = task({
       const pdf = await printPdf(html, data.project.title)
       publish('upload')
       const pdfKey = `projects/${row.projectId}/exports/${exportId}.pdf`
-      await putObject(pdfKey, pdf, 'application/pdf')
+      // Сбой передачи должен попасть в обычный обработчик отказа, а не оставлять
+      // документ «running» после жёсткого пятиминутного ограничения задачи.
+      await putObject(pdfKey, pdf, 'application/pdf', AbortSignal.timeout(60_000))
 
       const pages = countPages(pdf)
       const durationMs = Date.now() - started

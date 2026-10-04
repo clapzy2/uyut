@@ -120,6 +120,7 @@ describe('PDF-обработчик: обязательное задание в �
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.unstubAllEnvs()
     vi.unstubAllGlobals()
   })
@@ -154,7 +155,12 @@ describe('PDF-обработчик: обязательное задание в �
       '<html>Тестовый документ</html>',
       'Тестовый проект',
     )
-    expect(mocks.putObject).toHaveBeenCalledExactlyOnceWith(pdfKey, pdf, 'application/pdf')
+    expect(mocks.putObject).toHaveBeenCalledExactlyOnceWith(
+      pdfKey,
+      pdf,
+      'application/pdf',
+      expect.any(AbortSignal),
+    )
     expect(mocks.updateSet.mock.calls.map(([value]) => value.status)).toEqual(['running', 'ready'])
     expect(mocks.updateSet).toHaveBeenLastCalledWith(
       expect.objectContaining({ status: 'ready', pdfKey, brief: null, pages: 1 }),
@@ -162,4 +168,38 @@ describe('PDF-обработчик: обязательное задание в �
     expect(mocks.publish).toHaveBeenLastCalledWith('progress', { stage: 'done' })
     expect(mocks.fetch).not.toHaveBeenCalled()
   })
+
+  it.each(['free', 'paid'] as const)(
+    'сохраняет отказ загрузки и не повторяет модель или письмо: %s',
+    async (kind) => {
+      const controller = new AbortController()
+      const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal)
+      const brief = { rooms: [], questions: [] }
+      mocks.selectLimit.mockResolvedValueOnce([{ id: exportId, projectId, kind, options: {} }])
+      mocks.selectLimit.mockResolvedValueOnce([{ brief }])
+      mocks.putObject.mockImplementation(
+        (_key, _body, _contentType, signal: AbortSignal) =>
+          new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+          }),
+      )
+      const pending = run()
+      const failure = expect(pending).rejects.toThrow('Истекло время загрузки PDF')
+      await vi.waitFor(() => expect(mocks.putObject).toHaveBeenCalledOnce())
+      controller.abort(new Error('Истекло время загрузки PDF'))
+      await failure
+      expect(timeout).toHaveBeenCalledExactlyOnceWith(60_000)
+      expect(mocks.updateSet.mock.calls.map(([value]) => value.status)).toEqual([
+        'running',
+        'failed',
+      ])
+      expect(mocks.updateSet).toHaveBeenLastCalledWith({
+        status: 'failed',
+        error: expect.stringContaining('Истекло время загрузки PDF'),
+        finishedAt: expect.any(Date),
+      })
+      expect(mocks.generateBrief).not.toHaveBeenCalled()
+      expect(mocks.fetch).not.toHaveBeenCalled()
+    },
+  )
 })

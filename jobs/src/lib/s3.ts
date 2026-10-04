@@ -44,7 +44,12 @@ export function presignedUrl(key: string, expiresInSeconds: number): Promise<str
   )
 }
 
-export async function putObject(key: string, body: Buffer, contentType: string): Promise<void> {
+export async function putObject(
+  key: string,
+  body: Buffer,
+  contentType: string,
+  signal?: AbortSignal,
+): Promise<void> {
   await client().send(
     new PutObjectCommand({
       Bucket: requireEnv('S3_BUCKET'),
@@ -52,5 +57,6 @@ export async function putObject(key: string, body: Buffer, contentType: string):
       Body: body,
       ContentType: contentType,
     }),
+    { abortSignal: signal },
   )
 }
