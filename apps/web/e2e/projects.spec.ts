@@ -52,7 +52,14 @@ test.describe
       const projectId = new URL(page.url()).searchParams.get('project')
       await page.goto(`/projects/${projectId}`)
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Квартира на Ленина')
-      await expect(page.getByText('Расскажите о себе')).toBeVisible()
+      const guide = page.getByRole('complementary', { name: 'Как работать с проектом' })
+      await expect(
+        guide.getByRole('heading', { name: 'Расскажите, для кого обустраиваем квартиру' }),
+      ).toBeVisible()
+      await expect(guide.getByRole('link', { name: 'Продолжить анкету' })).toHaveAttribute(
+        'href',
+        `/onboarding/step-2?project=${projectId}`,
+      )
       projectUrl = page.url()
 
       const source = await jpegWithExif()
@@ -88,7 +95,7 @@ test.describe
       // Кнопка чтения плана должна быть доступна в любом окружении. Без ключа проверяем
       // человеческий отказ сервера; с ключом не запускаем здесь платную модель — её отдельно
       // прогоняет bench-plans на настоящих чертежах.
-      const readPlan = page.getByRole('button', { name: 'Прочитать размеры с плана' })
+      const readPlan = page.getByRole('button', { name: 'Прочитать выбранный лист' })
       await expect(readPlan).toBeVisible()
       if (!process.env.FAL_KEY) {
         await readPlan.click()

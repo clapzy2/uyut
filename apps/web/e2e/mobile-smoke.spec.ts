@@ -27,7 +27,9 @@ test.describe('mobile critical path', () => {
 
   test('landing, registration and household settings fit a phone viewport', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('Проект квартиры за вечер')
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+      'Продумайте обстановку своей квартиры.',
+    )
     await expectFitsViewport(page)
 
     await page.getByRole('link', { name: 'Начать бесплатно' }).click()

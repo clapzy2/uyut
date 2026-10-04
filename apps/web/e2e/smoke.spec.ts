@@ -3,7 +3,9 @@ import { expect, test } from '@playwright/test'
 test('home page shows the landing and leads a guest to registration', async ({ page }) => {
   await page.goto('/')
   await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('Проект квартиры за вечер')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+    'Продумайте обстановку своей квартиры.',
+  )
   await expect(page.getByRole('link', { name: 'Пользовательское соглашение' })).toBeVisible()
   await page.getByRole('link', { name: 'Начать бесплатно' }).click()
   await expect(page).toHaveURL(/\/register/)

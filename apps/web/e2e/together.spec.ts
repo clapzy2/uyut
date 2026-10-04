@@ -123,8 +123,10 @@ test.describe('together', () => {
     await expect(partnerPage.getByRole('button', { name: 'Настроить' })).toHaveCount(0)
 
     await partnerPage.goto(`/projects/${projectId}/summary`)
-    await expect(partnerPage.getByText(/Забрать за/)).toHaveCount(0)
-    await expect(partnerPage.getByText(/оплачивает проект владелец/)).toBeVisible()
+    const exports = partnerPage.getByRole('region', { name: 'Забрать проект' })
+    await expect(exports.getByText(/Документ собирает владелец/)).toBeVisible()
+    await expect(exports.getByRole('button', { name: /собрать PDF/i })).toHaveCount(0)
+    await expect(exports.getByRole('button', { name: /Без водяного знака за/ })).toHaveCount(0)
 
     // Владельцу пришло письмо о том, что второй участник в проекте
     const joined = await waitForEmail(ownerEmail, { subjectIncludes: 'теперь в проекте' })

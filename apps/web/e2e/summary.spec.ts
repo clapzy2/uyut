@@ -122,17 +122,17 @@ test.describe('project summary', () => {
       .filter({ has: page.getByRole('link', { name: 'Диван Букле e2e' }) })
     await expect(row).toBeVisible()
     await expect(row.getByText(/67\s900\s₽/)).toBeVisible()
-    await expect(page.getByText(/1 позиция · 1 предмет/)).toBeVisible()
+    await expect(page.getByText('Список покупок · 1 позиция · 1 предмет')).toBeVisible()
 
     await row.getByRole('button', { name: 'Больше на один' }).click()
     await expect(row.getByText(/135\s800\s₽/)).toBeVisible()
     await expect(estimate.getByText(/503\s800\s₽/)).toBeVisible()
-    await expect(page.getByText(/1 позиция · 2 предмета/)).toBeVisible()
+    await expect(page.getByText('Список покупок · 1 позиция · 2 предмета')).toBeVisible()
 
     // Для проверки ручной схемы оставляем один предмет: второй экземпляр уже проверен сметой,
     // а здесь важны свободное перемещение и поворот без случайного пересечения копий.
     await row.getByRole('button', { name: 'Меньше на один' }).click()
-    await expect(page.getByText(/1 позиция · 1 предмет/)).toBeVisible()
+    await expect(page.getByText('Список покупок · 1 позиция · 1 предмет')).toBeVisible()
 
     // Вид сверху не только считает место: владелец двигает товар прямо на плане, а координаты
     // сохраняются одной записью после отпускания указателя.
@@ -253,7 +253,7 @@ test.describe('project summary', () => {
     // с ключом запускает задачу и показывает шаги сборки
     const exportCard = page.getByRole('region', { name: 'Забрать проект' })
     await expect(exportCard.getByText('с водяным знаком «Домица»')).toBeVisible()
-    await exportCard.getByRole('button', { name: 'Собрать PDF с водяным знаком' }).click()
+    await exportCard.getByRole('button', { name: 'Бесплатно собрать PDF с водяным знаком' }).click()
     if (process.env.TRIGGER_SECRET_KEY) {
       await expect(exportCard.getByRole('list', { name: 'Сборка PDF' })).toBeVisible({
         timeout: 20_000,
@@ -279,8 +279,10 @@ test.describe('project summary', () => {
 
     await page.goto(`/projects/${projectId}/summary`)
     const exportCard = page.getByRole('region', { name: 'Забрать проект' })
-    await expect(exportCard.getByText(/Разовая покупка проекта — 1\s500\s₽/)).toBeVisible()
-    await exportCard.getByRole('button', { name: /Забрать за 1\s500\s₽/ }).click()
+    await expect(
+      exportCard.getByText(/Разовая покупка без водяного знака — 1\s500\s₽/),
+    ).toBeVisible()
+    await exportCard.getByRole('button', { name: /Без водяного знака за 1\s500\s₽/ }).click()
     await expect(page.getByText('Оплата прошла')).toBeVisible()
     await expect(
       exportCard.getByText('Проект оплачен, документ выходит без водяного знака.'),
