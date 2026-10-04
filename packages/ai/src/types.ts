@@ -91,5 +91,5 @@ export type EmbedInput = { text?: string; image?: { body: Buffer; contentType: s
 export type Embedder = {
   readonly name: string
   readonly dimensions: number
-  embed(inputs: EmbedInput[]): Promise<number[][]>
+  embed(inputs: EmbedInput[], options?: { signal?: AbortSignal }): Promise<number[][]>
 }

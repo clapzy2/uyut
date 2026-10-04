@@ -103,5 +103,6 @@ describe('Gdeslon XML → CSV → каталог', () => {
     const id = '18446744073709551615'
     expect(parseGdeslonOffers(offer('', `id="${id}"`))[0]?.id).toBe(id)
     expect(() => parseGdeslonOffers(offer('').slice(0, -8))).toThrow('неполный')
+    expect(() => parseGdeslonOffers('<error>Нет доступа</error>')).toThrow('не содержит каталог')
   })
 })

@@ -95,6 +95,25 @@ type VoyageResponse = { data?: Array<{ embedding?: number[] }> }
 const MAX_RETRIES = 6
 const RETRY_WAIT_MS = 25_000
 
+/** Ожидание повтора отменяется вместе с запросом; модуль также импортируется браузером. */
+function retryDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason)
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason)
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 /**
  * Voyage Multimodal 3. Нужен для матчинга каталога в следующей фазе; здесь заводится сразу,
  * чтобы ключ подключался в одном месте. Без ключа сервис не используется.
@@ -108,7 +127,10 @@ export function createVoyageEmbedder(
   return {
     name: model,
     dimensions: EMBEDDING_DIMENSIONS,
-    async embed(inputs: EmbedInput[]): Promise<number[][]> {
+    async embed(
+      inputs: EmbedInput[],
+      requestOptions: { signal?: AbortSignal } = {},
+    ): Promise<number[][]> {
       const body = {
         model,
         inputs: inputs.map((input) => ({
@@ -129,28 +151,30 @@ export function createVoyageEmbedder(
       // Обрыв соединения тоже повод повторить, а не падать: канал до Voyage идёт через
       // полмира и рвётся регулярно, а счёт большого каталога занимает часы.
       for (let attempt = 0; ; attempt += 1) {
+        requestOptions.signal?.throwIfAborted()
         let response: Response
         try {
           response = await fetch('https://api.voyageai.com/v1/multimodalembeddings', {
             method: 'POST',
             headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
             body: JSON.stringify(body),
-            signal: AbortSignal.timeout(timeoutMs),
+            signal: requestOptions.signal
+              ? AbortSignal.any([requestOptions.signal, AbortSignal.timeout(timeoutMs)])
+              : AbortSignal.timeout(timeoutMs),
           })
         } catch (error) {
+          requestOptions.signal?.throwIfAborted()
           if (attempt >= MAX_RETRIES) {
             throw error
           }
-          await new Promise((resolve) =>
-            setTimeout(resolve, Math.min(2_000 * 2 ** attempt, RETRY_WAIT_MS)),
-          )
+          await retryDelay(Math.min(2_000 * 2 ** attempt, RETRY_WAIT_MS), requestOptions.signal)
           continue
         }
         if (response.status === 429 && attempt < MAX_RETRIES) {
           const retryAfter = Number(response.headers.get('retry-after'))
           const waitMs =
             Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : RETRY_WAIT_MS
-          await new Promise((resolve) => setTimeout(resolve, waitMs))
+          await retryDelay(waitMs, requestOptions.signal)
           continue
         }
         if (!response.ok) {

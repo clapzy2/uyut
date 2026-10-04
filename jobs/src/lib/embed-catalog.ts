@@ -1,6 +1,6 @@
 import { createVoyageEmbedder, type Embedder, type EmbedInput } from '@uyut/ai'
 import { itemsNeedingEmbedding, saveEmbeddings } from '@uyut/catalog'
-import type { CatalogItem, Database } from '@uyut/db'
+import type { CatalogItem, CatalogSource, Database } from '@uyut/db'
 import sharp from 'sharp'
 import { optionalEnv } from './env'
 import { readObject } from './s3'
@@ -61,14 +61,16 @@ async function mapWithLimit<T, R>(
 }
 
 /** Одна попытка забрать файл. Повторы и выбор ссылки — этажом выше, в fetchProductImage. */
-async function downloadImage(url: string): Promise<Buffer | null> {
+async function downloadImage(url: string, signal?: AbortSignal): Promise<Buffer | null> {
   const key = ownObjectKey(url)
   if (key) {
-    return (await readObject(key)).body
+    return (await readObject(key, signal)).body
   }
   try {
     const response = await fetch(url, {
-      signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(IMAGE_TIMEOUT_MS)])
+        : AbortSignal.timeout(IMAGE_TIMEOUT_MS),
       headers: { 'user-agent': 'Mozilla/5.0 (compatible; DomitsaBot/1.0)' },
     })
     return response.ok ? Buffer.from(await response.arrayBuffer()) : null
@@ -86,6 +88,7 @@ async function downloadImage(url: string): Promise<Buffer | null> {
  */
 async function fetchProductImage(
   urls: readonly string[],
+  signal?: AbortSignal,
 ): Promise<{ body: Buffer; contentType: string } | null> {
   const usable = urls.filter(Boolean)
   // Круг за кругом, а не все попытки по одной ссылке подряд: мёртвая первая ссылка молчит
@@ -93,8 +96,9 @@ async function fetchProductImage(
   // на каждом таком товаре. Повторы всё равно нужны: каждая восьмая живая попытка виснет.
   for (let round = 1; round <= IMAGE_ATTEMPTS; round += 1) {
     for (const url of usable) {
+      if (signal?.aborted) return null
       try {
-        const raw = await downloadImage(url)
+        const raw = await downloadImage(url, signal)
         if (!raw) {
           continue
         }
@@ -130,7 +134,12 @@ function textOf(item: CatalogItem): string {
 export async function embedPendingCatalog(
   db: Database,
   embedder: Embedder,
-  options: { maxItems?: number; maxMs?: number; log?: (message: string) => void } = {},
+  options: {
+    maxItems?: number
+    maxMs?: number
+    source?: CatalogSource
+    log?: (message: string) => void
+  } = {},
 ): Promise<EmbedSummary> {
   const log = options.log ?? (() => undefined)
   const maxItems = options.maxItems ?? 500
@@ -138,19 +147,29 @@ export async function embedPendingCatalog(
   // в отведённое ей время и уйти по-хорошему: остальное досчитается следующим запуском.
   const deadline = options.maxMs ? Date.now() + options.maxMs : null
   const summary: EmbedSummary = { processed: 0, withImage: 0, failedImages: 0 }
+  if (options.maxMs !== undefined && options.maxMs <= 0) return summary
+  const signal = options.maxMs ? AbortSignal.timeout(options.maxMs) : undefined
   while (summary.processed < maxItems) {
     if (deadline && Date.now() >= deadline) {
       log(`время вышло, посчитано ${summary.processed}, остальное в следующий раз`)
       break
     }
     const startedAt = Date.now()
-    const items = await itemsNeedingEmbedding(db, Math.min(BATCH, maxItems - summary.processed))
+    const items = await itemsNeedingEmbedding(
+      db,
+      Math.min(BATCH, maxItems - summary.processed),
+      options.source,
+    )
     if (items.length === 0) {
       break
     }
     const images = await mapWithLimit(items, IMAGE_CONCURRENCY, (item) =>
-      fetchProductImage(item.images.map((image) => image.url)),
+      fetchProductImage(
+        item.images.map((image) => image.url),
+        signal,
+      ),
     )
+    if (signal?.aborted) break
     const inputs: EmbedInput[] = []
     const plan: Array<{ item: CatalogItem; imageIndex: number | null; textIndex: number }> = []
     items.forEach((item, index) => {
@@ -166,7 +185,13 @@ export async function embedPendingCatalog(
       inputs.push({ text: textOf(item) })
       plan.push({ item, imageIndex, textIndex })
     })
-    const vectors = await embedder.embed(inputs)
+    let vectors: number[][]
+    try {
+      vectors = await embedder.embed(inputs, { signal })
+    } catch (error) {
+      if (signal?.aborted) break
+      throw error
+    }
     await saveEmbeddings(
       db,
       plan.map(({ item, imageIndex, textIndex }) => ({

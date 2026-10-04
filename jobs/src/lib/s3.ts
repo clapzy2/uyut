@@ -21,9 +21,10 @@ function client(): S3Client {
 
 export type StoredFile = { body: Buffer; contentType: string }
 
-export async function readObject(key: string): Promise<StoredFile> {
+export async function readObject(key: string, signal?: AbortSignal): Promise<StoredFile> {
   const result = await client().send(
     new GetObjectCommand({ Bucket: requireEnv('S3_BUCKET'), Key: key }),
+    { abortSignal: signal },
   )
   const bytes = await result.Body?.transformToByteArray()
   if (!bytes) {

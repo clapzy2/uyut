@@ -125,13 +125,18 @@ export async function markMissingOutOfStock(
 }
 
 /** Записи, у которых векторов нет или содержимое изменилось после последнего расчёта. */
-export async function itemsNeedingEmbedding(db: Database, limit: number): Promise<CatalogItem[]> {
+export async function itemsNeedingEmbedding(
+  db: Database,
+  limit: number,
+  source?: CatalogSource,
+): Promise<CatalogItem[]> {
   return db
     .select()
     .from(catalogItems)
     .where(
       and(
         eq(catalogItems.inStock, true),
+        source ? eq(catalogItems.source, source) : undefined,
         catalogFreshnessCondition(),
         or(
           isNull(catalogItems.embeddedHash),
@@ -218,6 +223,7 @@ async function searchSimilar(
     eq(catalogItems.category, query.category),
     eq(catalogItems.inStock, true),
     catalogFreshnessCondition(),
+    eq(catalogItems.embeddedHash, catalogItems.contentHash),
     sql`${column} is not null`,
   ]
   if (query.subcategory) {

@@ -15,6 +15,7 @@ describe('настройки партнёрских фидов', () => {
         ADMITAD_FEED_ASKONA_URL: 'https://partner.test/askona.csv',
         ADMITAD_FEED_HOFF_URL: '',
         ADMITAD_FEED_UNKNOWN_URL: 'https://partner.test/unknown.csv',
+        ADMITAD_FEED_GDESLON_URL: 'https://partner.test/old-search.csv',
       }),
     ).toEqual([{ source: 'askona', url: 'https://partner.test/askona.csv' }])
   })

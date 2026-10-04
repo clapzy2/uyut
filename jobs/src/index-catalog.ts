@@ -10,6 +10,7 @@ import {
 import { type CatalogSource, catalogSources } from '@uyut/db'
 import { db } from './lib/db'
 import { embedPendingCatalog, voyageOrNull } from './lib/embed-catalog'
+import { syncGdeslon } from './lib/sync-gdeslon'
 
 /** Фиды из переменных вида ADMITAD_FEED_OZON_URL: источник берётся из имени переменной. */
 export function configuredFeeds(
@@ -27,6 +28,8 @@ export function configuredFeeds(
       continue
     }
     const source = (match[1] as string).toLowerCase()
+    // Gdeslon обновляется отдельной выборкой API, не полным CSV-фидом.
+    if (source === 'gdeslon') continue
     if ((catalogSources as readonly string[]).includes(source)) {
       feeds.push({ source: source as CatalogSource, url: value })
     }
@@ -158,7 +161,10 @@ export const embedCatalog = task({
   id: 'embed-catalog',
   maxDuration: 1800,
   retry: { maxAttempts: 1 },
-  run: async (payload: { maxItems?: number }) => {
+  run: async (payload: { maxItems?: number; source?: CatalogSource; maxMs?: number }) => {
+    if (payload.source && !(catalogSources as readonly string[]).includes(payload.source)) {
+      throw new Error('Неизвестный источник каталога')
+    }
     const embedder = voyageOrNull()
     if (!embedder) {
       logger.warn('VOYAGE_API_KEY не задан, векторы каталога не считаются')
@@ -166,12 +172,39 @@ export const embedCatalog = task({
     }
     const summary = await embedPendingCatalog(db(), embedder, {
       maxItems: payload.maxItems ?? 500,
+      source: payload.source,
       // Пять минут в запасе от maxDuration: задача должна вернуть отчёт сама,
       // а не быть убитой на середине пачки
-      maxMs: 25 * 60 * 1000,
+      maxMs: Math.min(payload.maxMs ?? 25 * 60 * 1000, 25 * 60 * 1000),
       log: (message) => logger.info(message),
     })
     return { ...summary, skipped: false }
+  },
+})
+
+/** Отдельный ручной запуск и общий путь ночного обновления без удаления покупок. */
+export const refreshGdeslonCatalog = task({
+  id: 'refresh-gdeslon-catalog',
+  queue: { concurrencyLimit: 1 },
+  maxDuration: 360,
+  retry: { maxAttempts: 1 },
+  run: async (payload: { pages?: number }) => {
+    if (process.env.GDESLON_REFRESH_ENABLED !== '1' || !process.env.GDESLON_TOKEN) {
+      return { status: 'skipped' as const, reason: 'Источник не включён или не настроен' }
+    }
+    let result: Awaited<ReturnType<typeof syncGdeslon>>
+    try {
+      result = await syncGdeslon(db(), process.env.GDESLON_TOKEN, { pages: payload.pages })
+    } catch {
+      // Ошибка записи может содержать SQL-параметры с партнёрскими ссылками.
+      throw new Error('Обновление Gdeslon не завершено; прежний каталог сохранён')
+    }
+    if (result.status === 'failed') {
+      logger.error('Gdeslon не обновлён; прежние товары сохранены', result)
+    } else {
+      logger.info('Выборка Gdeslon обновлена', result)
+    }
+    return result
   },
 })
 
@@ -181,13 +214,27 @@ export const indexCatalog = schedules.task({
   cron: '0 3 * * *',
   maxDuration: 1800,
   run: async () => {
+    const startedAt = Date.now()
     const feeds = await syncFeeds()
+    const gdeslon = await refreshGdeslonCatalog.triggerAndWait({})
     if (feeds.length === 0) {
-      logger.info('фиды не настроены, обновляем только векторы')
+      logger.info('Полные Admitad-фиды не настроены; проверяем Gdeslon и векторы')
     }
-    const embedded = await embedCatalog.triggerAndWait({ maxItems: 2000 })
+    // Оставляем запас на запись отчёта, а не ждём убийства родительской задачи.
+    const embeddingBudgetMs = 27 * 60_000 - (Date.now() - startedAt)
+    const embedded =
+      embeddingBudgetMs > 60_000
+        ? await embedCatalog.triggerAndWait({ maxItems: 2000, maxMs: embeddingBudgetMs })
+        : null
     const health = await countItems(db())
     logger.info('catalog health', health)
-    return { feeds, embedded: embedded.ok ? embedded.output : null, health }
+    return {
+      feeds,
+      gdeslon: gdeslon.ok
+        ? gdeslon.output
+        : { status: 'failed', reason: 'Задача обновления не завершилась' },
+      embedded: embedded?.ok ? embedded.output : null,
+      health,
+    }
   },
 })

@@ -49,6 +49,9 @@ export function parseGdeslonOffers(xml: string): GdeslonOffer[] {
     offers?: { offer?: unknown }
     yml_catalog?: { offers?: { offer?: unknown }; shop?: { offers?: { offer?: unknown } } }
   }
+  if (!('yml_catalog' in document || 'offers' in document || 'offer' in document)) {
+    throw new Error('Ответ API не содержит каталог товаров')
+  }
   const offers =
     document.yml_catalog?.offers?.offer ??
     document.yml_catalog?.shop?.offers?.offer ??
