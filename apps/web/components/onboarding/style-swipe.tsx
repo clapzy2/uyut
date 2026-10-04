@@ -3,10 +3,11 @@
 import { styleLibrary } from '@uyut/ai'
 import { Button } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { saveStyleVotes } from '@/actions/onboarding'
 import { FormError } from '@/components/form-error'
 import { type SwipeCard, SwipeDeck } from '@/components/swipe-deck'
+import { readStyleVoteDraft } from '@/lib/onboarding/style-vote-draft'
 import { MIN_STYLE_VOTES, type StyleVoteInput } from '@/lib/validation/onboarding'
 
 // Порядок разный для квартир, но одинаковый на сервере, в браузере и при возврате.
@@ -38,6 +39,39 @@ export function StyleSwipe({
   const [error, setError] = useState<string | null>(null)
   const [votes, setVotes] = useState<StyleVoteInput[]>(initialVotes)
   const [restarted, setRestarted] = useState(false)
+  const [deckStartVotes, setDeckStartVotes] = useState(initialVotes)
+  const [deckRevision, setDeckRevision] = useState(0)
+  const [draftLoaded, setDraftLoaded] = useState(false)
+  const [draftRestored, setDraftRestored] = useState(false)
+  const draftKey = `domitsa:style-votes:${projectId}`
+
+  useEffect(() => {
+    try {
+      const draft = readStyleVoteDraft(sessionStorage.getItem(draftKey), initialVotes)
+      if (draft) {
+        setVotes(draft.votes)
+        setDeckStartVotes(draft.votes)
+        setRestarted(draft.restarted)
+        setDeckRevision((current) => current + 1)
+        setDraftRestored(true)
+      }
+    } catch {
+      // Вкладка работает и при запрете браузерного хранилища.
+    }
+    setDraftLoaded(true)
+  }, [draftKey, initialVotes])
+
+  useEffect(() => {
+    if (!draftLoaded) return
+    try {
+      sessionStorage.setItem(
+        draftKey,
+        JSON.stringify({ version: 1, savedVotes: initialVotes, votes, restarted }),
+      )
+    } catch {
+      // Сохранение в проект по кнопке «Дальше» не зависит от sessionStorage.
+    }
+  }, [draftKey, draftLoaded, initialVotes, votes, restarted])
   const allCards = useMemo(() => {
     const seed = Array.from(projectId).reduce(
       (value, character) => value + character.charCodeAt(0),
@@ -46,11 +80,8 @@ export function StyleSwipe({
     return shuffled(seed)
   }, [projectId])
   const cards = useMemo(
-    () =>
-      restarted
-        ? allCards
-        : allCards.filter((card) => !initialVotes.some((vote) => vote.styleId === card.id)),
-    [allCards, initialVotes, restarted],
+    () => allCards.filter((card) => !deckStartVotes.some((vote) => vote.styleId === card.id)),
+    [allCards, deckStartVotes],
   )
 
   const liked = votes.filter((vote) => vote.liked).length
@@ -64,6 +95,11 @@ export function StyleSwipe({
         if (!result.ok) {
           setError(result.error)
           return
+        }
+        try {
+          sessionStorage.removeItem(draftKey)
+        } catch {
+          // Сервер уже сохранил оценки; очистка локального черновика необязательна.
         }
         if (then === 'next') {
           router.push(`/onboarding/step-5?project=${projectId}`)
@@ -79,10 +115,10 @@ export function StyleSwipe({
   return (
     <div className="flex flex-col gap-6">
       <SwipeDeck
-        key={restarted ? 'new-votes' : 'saved-votes'}
+        key={deckRevision}
         cards={cards}
         likedCount={liked}
-        disabled={pending}
+        disabled={pending || !draftLoaded}
         onVote={(card, isLiked) =>
           setVotes((current) => [
             ...current.filter((vote) => vote.styleId !== card.id),
@@ -93,6 +129,13 @@ export function StyleSwipe({
         onFinished={() => save('stay')}
         className="mx-auto w-full max-w-md"
       />
+
+      {draftRestored ? (
+        <p className="text-center text-[15px] leading-relaxed text-ink-2" role="status">
+          Черновик оценок восстановлен в этой вкладке. Нажмите «Дальше», чтобы сохранить его в
+          проекте.
+        </p>
+      ) : null}
 
       {initialVotes.length > 0 && !restarted ? (
         <div className="text-center text-[15px] leading-relaxed text-ink-2">
@@ -106,7 +149,10 @@ export function StyleSwipe({
             className="mt-2 min-h-11 underline underline-offset-4 hover:text-ink disabled:opacity-40"
             onClick={() => {
               setVotes([])
+              setDeckStartVotes([])
+              setDeckRevision((current) => current + 1)
               setRestarted(true)
+              setDraftRestored(false)
               setError(null)
             }}
           >

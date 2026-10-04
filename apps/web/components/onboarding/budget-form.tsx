@@ -70,8 +70,8 @@ export function BudgetForm({ projectId, initial }: { projectId: string; initial:
       </div>
 
       <p className="border-l-2 border-line-strong pl-4 text-[15px] leading-relaxed text-ink-2">
-        Это ориентир, а не обязательство. По нему подбираем уровень мебели в концептах, а в
-        следующей фазе — товары в смете.
+        Это ориентир, а не обязательство. По нему подбираем уровень мебели в концептах. Выбранные
+        товары и расчёт работ сравним с этой суммой в итогах проекта.
       </p>
 
       <FormError message={error ?? undefined} />

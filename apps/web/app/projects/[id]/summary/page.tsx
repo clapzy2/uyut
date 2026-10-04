@@ -222,8 +222,8 @@ export default async function SummaryPage({
         )}
       </div>
 
-      <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-14">
-        <div>
+      <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-14">
+        <div className="min-w-0">
           <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
             Список покупок
             {list.count > 0
@@ -240,7 +240,7 @@ export default async function SummaryPage({
           />
           <FitWarnings rooms={layouts} projectId={project.id} canEdit={isOwner} />
         </div>
-        <aside className="flex flex-col gap-8">
+        <aside className="flex min-w-0 flex-col gap-8">
           {isOwner ? (
             <ExportCard
               projectId={project.id}

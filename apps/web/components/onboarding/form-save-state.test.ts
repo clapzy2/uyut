@@ -13,6 +13,7 @@ const hooks = vi.hoisted(() => ({
 vi.mock('react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('react')>()),
   useMemo: (factory: () => unknown) => factory(),
+  useEffect: (effect: () => void) => effect(),
   useState: (initial: unknown) => {
     const index = hooks.cursor++
     if (index >= hooks.values.length) {

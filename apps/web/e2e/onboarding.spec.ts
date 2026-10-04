@@ -55,6 +55,10 @@ test.describe('onboarding', () => {
       await (index % 2 === 0 ? like : skip).click()
     }
     await expect(page.getByText('понравилось 5')).toBeVisible()
+    // До «Дальше» ответы ещё не отправлены. Обновление вкладки не должно их потерять.
+    await page.reload()
+    await expect(page.getByText('понравилось 5')).toBeVisible()
+    await expect(page.getByText(/Черновик оценок восстановлен/)).toBeVisible()
     await page.getByRole('button', { name: 'Дальше' }).click()
 
     // Шаг 5: референс необязателен

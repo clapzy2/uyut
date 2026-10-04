@@ -5,6 +5,8 @@ import { eq } from 'drizzle-orm'
 
 const PASSWORD = 'lampa-u-okna-2026'
 const ORIGIN = `http://localhost:${process.env.PORT ?? '3000'}`
+const SOFA_TITLE =
+  'Диван Букле e2e — большой угловой модуль с дополнительным местом хранения и съёмными подушками'
 
 function contextHeaders(): Record<string, string> {
   const octet = () => Math.floor(Math.random() * 254) + 1
@@ -77,7 +79,7 @@ test.describe('project summary', () => {
         source: 'dump',
         externalId,
         category: 'sofa',
-        title: 'Диван Букле e2e',
+        title: SOFA_TITLE,
         priceKopecks: 67_900_00,
         affiliateUrl: 'https://example.test/sofa',
         images: [],
@@ -119,7 +121,7 @@ test.describe('project summary', () => {
     await page.reload()
     let row = page
       .getByRole('listitem')
-      .filter({ has: page.getByRole('link', { name: 'Диван Букле e2e' }) })
+      .filter({ has: page.getByRole('link', { name: SOFA_TITLE }) })
     await expect(row).toBeVisible()
     await expect(row.getByText(/67\s900\s₽/)).toBeVisible()
     await expect(page.getByText('Список покупок · 1 позиция · 1 предмет')).toBeVisible()
@@ -128,6 +130,25 @@ test.describe('project summary', () => {
     await expect(row.getByText(/135\s800\s₽/)).toBeVisible()
     await expect(estimate.getByText(/503\s800\s₽/)).toBeVisible()
     await expect(page.getByText('Список покупок · 1 позиция · 2 предмета')).toBeVisible()
+
+    // Проверяем не только телефон: промежуточная ширина раньше раздвигала
+    // колонку покупок и уводила цену за экран из-за автоматического grid-трека.
+    const originalViewport = page.viewportSize()
+    for (const width of [390, 789, 1280]) {
+      await page.setViewportSize({ width, height: 844 })
+      const sizes = await page.evaluate(() => ({
+        client: document.documentElement.clientWidth,
+        scroll: document.documentElement.scrollWidth,
+      }))
+      expect(sizes.scroll, `итоги шире экрана ${width} px`).toBeLessThanOrEqual(sizes.client + 1)
+      const price = await row.getByText(/135\s800\s₽/).boundingBox()
+      const increase = await row.getByRole('button', { name: 'Больше на один' }).boundingBox()
+      expect(price).not.toBeNull()
+      expect(increase).not.toBeNull()
+      expect((price?.x ?? width) + (price?.width ?? 0)).toBeLessThanOrEqual(sizes.client + 1)
+      expect((increase?.x ?? width) + (increase?.width ?? 0)).toBeLessThanOrEqual(sizes.client + 1)
+    }
+    if (originalViewport) await page.setViewportSize(originalViewport)
 
     // Для проверки ручной схемы оставляем один предмет: второй экземпляр уже проверен сметой,
     // а здесь важны свободное перемещение и поворот без случайного пересечения копий.
@@ -141,7 +162,7 @@ test.describe('project summary', () => {
       'data-ready',
       'true',
     )
-    const movable = page.getByRole('button', { name: 'Переместить: Диван Букле e2e' }).first()
+    const movable = page.getByRole('button', { name: `Переместить: ${SOFA_TITLE}` }).first()
     await expect(movable).toBeVisible()
     await movable.scrollIntoViewIfNeeded()
     const box = await movable.boundingBox()
@@ -156,7 +177,7 @@ test.describe('project summary', () => {
       },
       { x: box.x + box.width / 2, y: box.y + box.height / 2 },
     )
-    expect(hit).toEqual({ tag: 'rect', label: 'Переместить: Диван Букле e2e' })
+    expect(hit).toEqual({ tag: 'rect', label: `Переместить: ${SOFA_TITLE}` })
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.down()
     await expect(movable).toHaveAttribute('data-dragging', 'true')
@@ -203,7 +224,7 @@ test.describe('project summary', () => {
       'data-ready',
       'true',
     )
-    await page.getByRole('button', { name: 'Повернуть: Диван Букле e2e' }).click()
+    await page.getByRole('button', { name: `Повернуть: ${SOFA_TITLE}` }).click()
     await expect(page.getByText('Мебель повёрнута и проверена')).toBeVisible()
     const nextRotation = 90
     await expect
@@ -229,7 +250,7 @@ test.describe('project summary', () => {
       'data-ready',
       'true',
     )
-    await page.getByRole('button', { name: 'Изменить рабочую сторону: Диван Букле e2e' }).click()
+    await page.getByRole('button', { name: `Изменить рабочую сторону: ${SOFA_TITLE}` }).click()
     await expect
       .poll(async () => {
         const [saved] = await db
@@ -241,9 +262,7 @@ test.describe('project summary', () => {
       .toMatch(/^(up|right|down|left)$/)
 
     await page.goto(`/projects/${projectId}/summary`)
-    row = page
-      .getByRole('listitem')
-      .filter({ has: page.getByRole('link', { name: 'Диван Букле e2e' }) })
+    row = page.getByRole('listitem').filter({ has: page.getByRole('link', { name: SOFA_TITLE }) })
 
     await row.getByRole('button', { name: 'убрать', exact: true }).click()
     await expect(page.getByText('Список пока пуст.')).toBeVisible()
