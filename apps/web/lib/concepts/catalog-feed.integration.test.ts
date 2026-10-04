@@ -21,9 +21,17 @@ async function* chunks(value: string) {
 describe('атомарный потоковый импорт каталога', () => {
   beforeAll(async () => {
     const address = new URL(process.env.DATABASE_URL ?? '')
+    // В GitHub Actions база создаётся заново docker compose текущего задания.
+    // Ни CI сам по себе, ни туннель к рабочему серверу не разрешают этот контроль.
+    const disposableCiDatabase =
+      process.env.GITHUB_ACTIONS === 'true' &&
+      address.pathname === '/uyut' &&
+      address.port === '5432' &&
+      address.username === 'uyut' &&
+      address.password === 'uyut'
     if (
       !['127.0.0.1', 'localhost'].includes(address.hostname) ||
-      address.pathname !== '/domitsa_ui_qa'
+      (address.pathname !== '/domitsa_ui_qa' && !disposableCiDatabase)
     ) {
       throw new Error('Этот контроль разрешён только в отдельной локальной QA-базе')
     }
