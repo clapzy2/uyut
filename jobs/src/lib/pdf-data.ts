@@ -326,12 +326,17 @@ export function briefInput(snapshot: ProjectSnapshot): BriefInput {
         notes: room.notes?.trim() || null,
         shopping: snapshot.shopping
           .filter(({ item }) => item.roomId === room.id)
-          .map(({ item, product }) => ({
-            product: product.title,
-            quantity: item.quantity,
-            priceRub: shoppingOffer(product, item.selectedVariant).priceKopecks / 100,
-            variant: item.selectedVariant?.color ?? null,
-          })),
+          .map(({ item, product }) => {
+            const offer = shoppingOffer(product, item.selectedVariant)
+            return {
+              product: product.title,
+              quantity: item.quantity,
+              priceRub: offer.priceKopecks / 100,
+              variant: offer.variant?.color ?? null,
+              variantIsWish: Boolean(offer.variant?.swatchId),
+              catalogNotice: offer.catalogNotice,
+            }
+          }),
         concept: entry
           ? {
               note: entry.main.note,

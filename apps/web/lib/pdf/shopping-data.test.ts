@@ -115,6 +115,24 @@ function addRoom(data: ProjectSnapshot): Room {
 }
 
 describe('данные нового задания для мастера', () => {
+  it('передаёт пожелание перекраски и предупреждение неподтверждённого варианта', () => {
+    const data = snapshot()
+    addRoom(data)
+    data.concepts.clear()
+    const row = data.shopping[0]
+    if (!row) throw new Error('Нет тестового товара')
+    row.item.selectedVariant = { swatchId: 'linen-milk', color: 'молочный лён' }
+    expect(briefInput(data).rooms[0]?.shopping?.[0]).toMatchObject({
+      variant: 'молочный лён',
+      variantIsWish: true,
+      priceRub: 7000,
+    })
+    row.item.selectedVariant = { color: 'несуществующая ткань', priceKopecks: 999999 }
+    const item = briefInput(data).rooms[0]?.shopping?.[0]
+    expect(item).toMatchObject({ variantIsWish: false, priceRub: 9999.99 })
+    expect(item?.catalogNotice).toContain('не подтверждён текущим каталогом')
+  })
+
   it('передаёт ручные покупки без концепта и не смешивает пожелания комнат', () => {
     const data = snapshot()
     const living = addRoom(data)

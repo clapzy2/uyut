@@ -144,11 +144,9 @@ describe('contractor brief', () => {
 
   it('не принимает придуманные габариты, даже с просьбой уточнить их перед установкой', () => {
     const response = answer()
-    const furniture = response.rooms[0]?.sections[5]
-    if (!furniture) throw new Error('Нет тестового раздела')
-    furniture.items = [
-      'Габариты кровати: ширина 1676 мм, длина 2088 мм — уточнить перед установкой.',
-    ]
+    const floor = response.rooms[0]?.sections[3]
+    if (!floor) throw new Error('Нет тестового раздела')
+    floor.items = ['Габариты кровати: ширина 1676 мм, длина 2088 мм — уточнить перед установкой.']
     expect(() => parseBrief(JSON.stringify(response), input.rooms[0])).toThrow(/числа/)
   })
 
@@ -195,5 +193,39 @@ describe('contractor brief', () => {
     const result = await createFalBriefGenerator('test-key')(twoRooms)
     expect(result.rooms.map((room) => room.name)).toEqual(['Гостиная', 'Балкон'])
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('не назначает похожий диван вместо выбранного и сохраняет пожелание цвета', () => {
+    const room = structuredClone(input.rooms[0])
+    if (!room?.concept) throw new Error('Нет тестового концепта')
+    room.concept.objects = [{ category: 'диван', product: 'Похожий диван А', priceRub: 50000 }]
+    room.shopping = [
+      {
+        product: 'Выбранный диван Б',
+        quantity: 2,
+        priceRub: 60000,
+        variant: 'молочный лён',
+        variantIsWish: true,
+        catalogNotice: 'Цену и наличие уточните в магазине',
+      },
+    ]
+    const response = answer()
+    const furniture = response.rooms[0]?.sections[5]
+    if (!furniture) throw new Error('Нет тестового раздела')
+    furniture.items = ['Установить выбранный похожий диван А.']
+    const result = parseBrief(JSON.stringify(response), room)
+    const printed = result.rooms[0]?.sections[5]?.items.join(' ')
+    expect(printed).toContain('Выбранный диван Б, количество 2')
+    expect(printed).not.toContain('Похожий диван А')
+    expect(printed).toContain('Цвет — пожелание из концепта')
+    expect(printed).toContain('Цену и наличие уточните')
+    expect(printed).toContain('не подтверждает размещение')
+  })
+
+  it('не превращает похожие товары в покупки при пустом списке', () => {
+    const result = parseBrief(JSON.stringify(answer()), input.rooms[0])
+    expect(result.rooms[0]?.sections[5]?.items).toEqual([
+      'Мебель для покупки пока не выбрана. Похожие товары на визуальном концепте не являются заданием на закупку или установку.',
+    ])
   })
 })
