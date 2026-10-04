@@ -216,7 +216,7 @@ export async function* streamFalLlm(
 /** Полный ответ без потока, для служебных вызовов вроде подписей к концептам. */
 export async function completeFalLlm(
   apiKey: string,
-  input: { system: string; prompt: string; model?: string },
+  input: { system: string; prompt: string; model?: string; signal?: AbortSignal },
 ): Promise<string> {
   let text = ''
   for await (const delta of streamFalLlm(apiKey, input)) {

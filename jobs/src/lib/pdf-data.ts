@@ -306,16 +306,13 @@ export async function loadSnapshot(projectId: string): Promise<ProjectSnapshot |
 
 export function briefInput(snapshot: ProjectSnapshot): BriefInput {
   const { project } = snapshot
-  const notes = snapshot.rooms
-    .map((room) => room.notes?.trim())
-    .filter((note): note is string => Boolean(note))
   return {
     project: {
       title: project.title,
       style: project.styleTags.map((tag) => styleLabels[tag] ?? tag),
       budgetRub: project.budgetKopecks ? Math.round(project.budgetKopecks / 100) : null,
       household: project.household ?? null,
-      clientNotes: notes.length ? notes.join(' ') : null,
+      clientNotes: null,
     },
     rooms: snapshot.rooms.map((room) => {
       const entry = snapshot.concepts.get(room.id)
@@ -324,6 +321,17 @@ export function briefInput(snapshot: ProjectSnapshot): BriefInput {
         kind: roomKindLabels[room.kind],
         condition: conditionLabels[room.condition].toLowerCase(),
         areaM2: room.areaM2,
+        spaceKind: room.spaceKind,
+        refreshFinish: room.refreshFinish,
+        notes: room.notes?.trim() || null,
+        shopping: snapshot.shopping
+          .filter(({ item }) => item.roomId === room.id)
+          .map(({ item, product }) => ({
+            product: product.title,
+            quantity: item.quantity,
+            priceRub: shoppingOffer(product, item.selectedVariant).priceKopecks / 100,
+            variant: item.selectedVariant?.color ?? null,
+          })),
         concept: entry
           ? {
               note: entry.main.note,

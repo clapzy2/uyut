@@ -123,7 +123,7 @@ export const exportPdf = task({
       const [briefResult, data] = await Promise.all([briefPromise, dataPromise])
       if (!briefResult.brief && briefResult.error) {
         // Бесплатный предпросмотр выходит без ТЗ, оплаченный документ без ТЗ отдавать нельзя
-        if (row.kind === 'paid' && falKey) {
+        if (row.kind === 'paid') {
           throw new Error(`ТЗ не собралось: ${briefResult.error}`)
         }
         logger.warn('pdf without brief', { exportId, error: briefResult.error })

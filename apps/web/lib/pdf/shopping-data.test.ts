@@ -3,7 +3,7 @@ import type { Concept, PlanGeometry, Room } from '@uyut/db'
 import { renderProjectHtml } from '@uyut/pdf'
 import sharp from 'sharp'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildPdfData, type ProjectSnapshot } from '../../../../jobs/src/lib/pdf-data'
+import { briefInput, buildPdfData, type ProjectSnapshot } from '../../../../jobs/src/lib/pdf-data'
 import { layoutWithMeasurements } from '../projects/layout-with-measurements'
 
 function snapshot(): ProjectSnapshot {
@@ -113,6 +113,42 @@ function addRoom(data: ProjectSnapshot): Room {
   row.item.quantity = 1
   return room
 }
+
+describe('данные нового задания для мастера', () => {
+  it('передаёт ручные покупки без концепта и не смешивает пожелания комнат', () => {
+    const data = snapshot()
+    const living = addRoom(data)
+    living.notes = 'Оставить зелёную ткань.'
+    data.concepts.clear()
+    data.rooms.push({
+      ...living,
+      id: 'second-room',
+      name: 'Балкон',
+      spaceKind: 'balcony',
+      areaM2: null,
+      notes: 'Не утеплять.',
+      refreshFinish: true,
+    })
+    const row = data.shopping[0]
+    if (!row?.item.selectedVariant) throw new Error('Нет выбранного варианта')
+    row.item.quantity = 2
+    row.item.selectedVariant.priceKopecks = 800_049
+    const result = briefInput(data)
+    expect(result.project.clientNotes).toBeNull()
+    expect(result.rooms[0]).toMatchObject({
+      notes: 'Оставить зелёную ткань.',
+      concept: null,
+      shopping: [{ product: 'Диван', quantity: 2, priceRub: 8000.49, variant: 'зелёная ткань' }],
+    })
+    expect(result.rooms[1]).toMatchObject({
+      notes: 'Не утеплять.',
+      areaM2: null,
+      spaceKind: 'balcony',
+      refreshFinish: true,
+      shopping: [],
+    })
+  })
+})
 
 function roomGeometry(name: string): PlanGeometry {
   return {
