@@ -83,6 +83,27 @@ function sample(kind: PdfData['kind']): PdfData {
 }
 
 describe('project PDF template', () => {
+  it.each(['free', 'paid'] as const)(
+    'сохраняет все предметы с длинными названиями без обрезаемой страницы: %s',
+    (kind) => {
+      const data = sample(kind)
+      const room = data.rooms[0]
+      if (!room) throw new Error('Нет тестовой комнаты')
+      room.objects = Array.from({ length: 12 }, (_, index) => ({
+        index: index + 1,
+        category: 'Предмет интерьера',
+        product: `Позиция ${index + 1} — длинное название товара из каталога с размерами и цветом <тест>`,
+        priceKopecks: 12_345_67,
+      }))
+      const html = renderProjectHtml(data, { fontCss: '' })
+      expect(html).toContain('<section class="page room-page">')
+      expect(html).toContain('Позиция 12 — длинное название')
+      expect(html).toContain('цветом &lt;тест&gt;')
+      expect(html).toContain('.room-page .objects .row { margin-top: 2.2mm; break-inside: avoid; }')
+      expect(html).not.toContain('<section class="page fixed" style="gap:5mm">')
+    },
+  )
+
   it('не показывает накопленный числовой хвост многокомнатного контура', () => {
     const width = 96.0999999999999
     expect(formatDimensionCm(width)).toBe('96.1')

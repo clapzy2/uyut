@@ -85,6 +85,15 @@ const CSS = `
   .objects .row { display: grid; grid-template-columns: 6mm 1fr auto; gap: 3mm; align-items: baseline; padding-bottom: 1.8mm; border-bottom: 1px solid #ddd4c1; }
   .objects .idx { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 7.5pt; color: #7c2f3b; }
   .objects .sub { display: block; font-size: 8pt; color: #6d6656; }
+  /* Названия из каталога бывают длинными: список продолжается на следующем листе,
+     а не обрезается по высоте разворота с рендером. Каждая позиция переносится целиком. */
+  .room-page > * { margin-bottom: 5mm; }
+  .room-page > :last-child { margin-bottom: 0; }
+  .room-page .render, .room-page .thumbs { break-inside: avoid; }
+  .room-page .cols { display: block; }
+  .room-page .objects { display: block; margin-top: 5mm; }
+  .room-page .objects .row { margin-top: 2.2mm; break-inside: avoid; }
+  .room-page .objects .row > :nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
   .plan { margin-top: 2mm; }
   /* Высота ограничена страницей: у комнаты 220 на 600 см чертёж в натуральных пропорциях
      выезжал за поле и обрезался вместе со строкой «проход 65 см», которую и надо было прочесть */
@@ -397,7 +406,7 @@ function roomPage(room: PdfRoom, index: number, free: boolean): string {
     Boolean,
   )
   return `
-  <section class="page fixed" style="gap:5mm">
+  <section class="page room-page">
     ${ribbon(free)}
     <div>
       <p class="eyebrow">${esc(meta.join(' · '))}</p>
@@ -420,7 +429,6 @@ function roomPage(room: PdfRoom, index: number, free: boolean): string {
           room.objects.length === 0
             ? '<p class="small">Предметы на этом рендере ещё не распознаны.</p>'
             : room.objects
-                .slice(0, 8)
                 .map(
                   (object) =>
                     `<div class="row"><span class="idx">${String(object.index).padStart(2, '0')}</span><span>${esc(object.product ?? object.category)}${object.product ? `<span class="sub">${esc(object.category)}</span>` : ''}</span><span class="mono nowrap">${object.priceKopecks !== null ? formatPrice(object.priceKopecks) : '—'}</span></div>`,
