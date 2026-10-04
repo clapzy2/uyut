@@ -1,6 +1,11 @@
+import { createFalDetector } from '@uyut/ai'
 import sharp from 'sharp'
-import { describe, expect, it, vi } from 'vitest'
-import { cropObject, prepareObjectCrop } from '../../../../jobs/src/segment-and-match'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  cropObject,
+  prepareDetectionImage,
+  prepareObjectCrop,
+} from '../../../../jobs/src/segment-and-match'
 
 vi.mock('@trigger.dev/sdk', () => ({
   logger: { warn: vi.fn() },
@@ -25,6 +30,61 @@ async function mask(width: number, height: number, whitePixel?: [number, number]
 }
 
 const object = { label: 'Диван', bbox: { x: 0.2, y: 0.2, w: 0.5, h: 0.5 } }
+
+afterEach(() => vi.restoreAllMocks())
+
+describe('подготовка кадра для распознавания', () => {
+  it.each([
+    { width: 2048, height: 1024, expectedWidth: 1536, expectedHeight: 768 },
+    { width: 1024, height: 2048, expectedWidth: 768, expectedHeight: 1536 },
+    { width: 200, height: 100, expectedWidth: 200, expectedHeight: 100 },
+    { width: 2048, height: 2048, expectedWidth: 1536, expectedHeight: 1536 },
+  ])('сохраняет кадр целиком и ограничивает обе стороны: $width × $height', async (test) => {
+    const source = await render(test.width, test.height)
+    const before = Buffer.from(source)
+    const prepared = await prepareDetectionImage(source)
+
+    expect(prepared).toMatchObject({
+      contentType: 'image/jpeg',
+      width: test.expectedWidth,
+      height: test.expectedHeight,
+    })
+    expect(await sharp(prepared.body).metadata()).toMatchObject({
+      format: 'jpeg',
+      width: test.expectedWidth,
+      height: test.expectedHeight,
+    })
+    expect(source).toEqual(before)
+  })
+
+  it('отклоняет повреждённое изображение до обращения к детектору', async () => {
+    await expect(prepareDetectionImage(Buffer.from('not an image'))).rejects.toThrow()
+  })
+
+  it('переносит рамку уменьшенного JPEG на те же доли исходного рендера', async () => {
+    const source = await render(2048, 1024)
+    const prepared = await prepareDetectionImage(source)
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        Response.json({
+          status_url: 'https://queue.fal.run/status',
+          response_url: 'https://queue.fal.run/result',
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ status: 'COMPLETED' }))
+      .mockResolvedValueOnce(
+        Response.json({
+          results: { bboxes: [{ x: 384, y: 192, w: 768, h: 384, label: 'a sofa' }] },
+        }),
+      )
+
+    const [detected] = await createFalDetector('test-only').detect(prepared, 'living')
+
+    expect(detected?.bbox).toEqual({ x: 0.25, y: 0.25, w: 0.5, h: 0.5 })
+    expect((detected?.bbox.x ?? 0) * 2048).toBe(512)
+    expect((detected?.bbox.y ?? 0) * 1024).toBe(256)
+  })
+})
 
 describe('вырезка предмета и допустимость маски', () => {
   it('возвращает проверенную маску только после успешной вырезки', async () => {

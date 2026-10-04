@@ -204,6 +204,20 @@ export async function cropObject(
   return (await prepareObjectCrop(render, width, height, object, maskBody)).body
 }
 
+/** Уменьшаем только вход распознавания, без обрезки или поворота исходного кадра. */
+export async function prepareDetectionImage(render: Buffer): Promise<{
+  body: Buffer
+  contentType: string
+  width: number
+  height: number
+}> {
+  const { data, info } = await sharp(render)
+    .resize({ width: 1536, height: 1536, fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 90 })
+    .toBuffer({ resolveWithObject: true })
+  return { body: data, contentType: 'image/jpeg', width: info.width, height: info.height }
+}
+
 /**
  * Предметы на готовом рендере: детектор → маски → векторы → лучший товар. Запускается
  * из generate-concept на каждый удачный рендер. Без ключа Voyage предметы всё равно
@@ -256,7 +270,9 @@ export const segmentAndMatch = task({
       const image = { ...render, width, height }
 
       publish({ stage: 'detect', found: 0 })
-      const candidates = await createFalDetector(falKey).detect(image, room.kind, 6)
+      const detectionImage = await prepareDetectionImage(render.body)
+      // Рамки нормализуются по размерам JPEG; вырезки и SAM остаются на исходном рендере.
+      const candidates = await createFalDetector(falKey).detect(detectionImage, room.kind, 6)
       publish({ stage: 'verify', found: candidates.length })
       const candidateCrops = await Promise.all(
         candidates.map(async (object) => ({
@@ -264,13 +280,9 @@ export const segmentAndMatch = task({
           contentType: 'image/jpeg',
         })),
       )
-      const reviewImage = await sharp(render.body)
-        .resize({ width: 1536, withoutEnlargement: true })
-        .jpeg({ quality: 90 })
-        .toBuffer()
       const detected = await reviewDetectedObjects(
         falKey,
-        { body: reviewImage, contentType: 'image/jpeg' },
+        detectionImage,
         candidates,
         candidateCrops,
         room.kind,

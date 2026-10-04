@@ -7,10 +7,30 @@ export class FalError extends Error {
   }
 }
 
-type QueueSubmit = { status_url: string; response_url: string }
-type QueueStatus = { status?: string; detail?: unknown }
-
 const TERMINAL_FAILURES = new Set(['FAILED', 'ERROR', 'CANCELLED'])
+const PENDING_STATUSES = new Set(['IN_QUEUE', 'IN_PROGRESS'])
+
+async function readQueueJson(
+  response: Response,
+  endpoint: string,
+  stage: string,
+): Promise<unknown> {
+  if (!response.ok) {
+    throw new FalError(`${endpoint}: ${stage} — HTTP ${response.status}`)
+  }
+  try {
+    return await response.json()
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) {
+      throw error
+    }
+    throw new FalError(`${endpoint}: ${stage} — некорректный JSON`)
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
 export async function falQueue<T = Record<string, unknown>>(
   apiKey: string,
@@ -28,24 +48,36 @@ export async function falQueue<T = Record<string, unknown>>(
     body: JSON.stringify(body),
     signal,
   })
-  if (!submit.ok) {
-    throw new FalError(`${endpoint}: ${submit.status} ${(await submit.text()).slice(0, 200)}`)
+  const queued = await readQueueJson(submit, endpoint, 'отправка задания')
+  if (
+    !isRecord(queued) ||
+    typeof queued.status_url !== 'string' ||
+    !URL.canParse(queued.status_url) ||
+    typeof queued.response_url !== 'string' ||
+    !URL.canParse(queued.response_url)
+  ) {
+    throw new FalError(`${endpoint}: отправка задания — отсутствуют корректные адреса очереди`)
   }
-  const { status_url, response_url } = (await submit.json()) as QueueSubmit
+  const { status_url, response_url } = queued
   while (Date.now() < deadline) {
-    const status = (await fetch(status_url, { headers, signal }).then((response) =>
-      response.json(),
-    )) as QueueStatus
+    const statusResponse = await fetch(status_url, { headers, signal })
+    const status = await readQueueJson(statusResponse, endpoint, 'проверка статуса очереди')
+    if (
+      !isRecord(status) ||
+      typeof status.status !== 'string' ||
+      !(
+        status.status === 'COMPLETED' ||
+        PENDING_STATUSES.has(status.status) ||
+        TERMINAL_FAILURES.has(status.status)
+      )
+    ) {
+      throw new FalError(`${endpoint}: проверка статуса очереди — отсутствует корректный статус`)
+    }
     if (status.status === 'COMPLETED') {
       const response = await fetch(response_url, { headers, signal })
-      if (!response.ok) {
-        throw new FalError(
-          `${endpoint}: ${response.status} ${(await response.text()).slice(0, 200)}`,
-        )
-      }
-      return (await response.json()) as T
+      return (await readQueueJson(response, endpoint, 'получение результата')) as T
     }
-    if (status.status && TERMINAL_FAILURES.has(status.status)) {
+    if (TERMINAL_FAILURES.has(status.status)) {
       throw new FalError(`${endpoint}: ${status.status} ${JSON.stringify(status.detail ?? {})}`)
     }
     await new Promise((resolve) => setTimeout(resolve, 1500))

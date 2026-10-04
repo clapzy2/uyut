@@ -150,6 +150,52 @@ describe('проверка предметов до платного подбор
     })
   })
 
+  it('передаёт уменьшенный JPEG детектору, но исходный рендер и рамку — SAM', async () => {
+    const source = await sharp({
+      create: { width: 1024, height: 2048, channels: 3, background: '#bc6540' },
+    })
+      .webp()
+      .toBuffer()
+    const before = Buffer.from(source)
+    mocks.readObject.mockResolvedValueOnce({ body: source, contentType: 'image/webp' })
+
+    await runTask()
+
+    const detectionImage = mocks.detect.mock.calls[0]?.[0]
+    expect(detectionImage).toMatchObject({
+      contentType: 'image/jpeg',
+      width: 768,
+      height: 1536,
+    })
+    expect(await sharp(detectionImage.body).metadata()).toMatchObject({
+      format: 'jpeg',
+      width: 768,
+      height: 1536,
+    })
+    expect(mocks.review.mock.calls[0]?.[1]).toBe(detectionImage)
+    expect(mocks.mask).toHaveBeenCalledExactlyOnceWith(
+      { body: source, contentType: 'image/webp', width: 1024, height: 2048 },
+      sofa.bbox,
+    )
+    expect(source).toEqual(before)
+    expectRenderUnchanged()
+  })
+
+  it('отказ детектора не повторяет запрос и сохраняет прежний подбор', async () => {
+    mocks.detect.mockRejectedValueOnce(new Error('detector unavailable'))
+
+    await expect(runTask()).rejects.toThrow('detector unavailable')
+
+    expect(mocks.detect).toHaveBeenCalledTimes(1)
+    expect(mocks.review).not.toHaveBeenCalled()
+    expect(mocks.mask).not.toHaveBeenCalled()
+    expect(mocks.embed).not.toHaveBeenCalled()
+    expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(mocks.objects).toEqual([{ label: 'Прежний проверенный диван' }])
+    expect(mocks.concept.objectsStatus).toBe('failed')
+    expectRenderUnchanged()
+  })
+
   it('сбой проверки останавливает SAM и подбор, не трогая рендер и прежние предметы', async () => {
     mocks.review.mockRejectedValueOnce(new Error('vision unavailable'))
 
