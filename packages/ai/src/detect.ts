@@ -81,6 +81,11 @@ const phrasesByRoom: Record<RoomKind, Phrase[]> = {
   ],
 }
 
+/** Разрешённые классы не являются утверждением, что все эти вещи есть в кадре. */
+export function detectorPhrases(roomKind: RoomKind): readonly Phrase[] {
+  return phrasesByRoom[roomKind]
+}
+
 export function detectorCaption(roomKind: RoomKind): string {
   const phrases = phrasesByRoom[roomKind].map((item) => item.phrase)
   const last = phrases.pop()
@@ -116,23 +121,6 @@ function coveredFraction(a: NormalizedBox, b: NormalizedBox): number {
   return smaller > 0 ? overlap / smaller : 0
 }
 
-function normalizedLabel(item: {
-  label: string
-  category: CatalogCategory
-  bbox: NormalizedBox
-}): typeof item {
-  // Florence иногда называет высокий дуговой торшер подвесным светильником. Если рамка тянется
-  // почти до пола, это физически не подвес: исправляем подпись до подбора товаров.
-  if (
-    item.label === 'a pendant lamp' &&
-    item.bbox.y + item.bbox.h > 0.72 &&
-    item.bbox.h > item.bbox.w * 1.25
-  ) {
-    return { ...item, label: 'a floor lamp' }
-  }
-  return item
-}
-
 function competingFurniture(left: DetectedObject, right: DetectedObject): boolean {
   const pair = new Set([left.category, right.category])
   return pair.has('sofa') && pair.has('chair')
@@ -147,7 +135,16 @@ export function selectObjects(
   limit: number,
 ): DetectedObject[] {
   const candidates = raw
-    .map(normalizedLabel)
+    .filter(
+      (item) =>
+        Object.values(item.bbox).every((value) => Number.isFinite(value)) &&
+        item.bbox.x >= 0 &&
+        item.bbox.y >= 0 &&
+        item.bbox.w > 0 &&
+        item.bbox.h > 0 &&
+        item.bbox.x + item.bbox.w <= 1.001 &&
+        item.bbox.y + item.bbox.h <= 1.001,
+    )
     .map((item) => ({ ...item, area: item.bbox.w * item.bbox.h }))
     .filter((item) => item.area > 0.002 && item.area < 0.85)
     .sort((left, right) => right.area - left.area)

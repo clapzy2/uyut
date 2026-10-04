@@ -98,6 +98,31 @@ describe('возвращение к генерации без повторног
     expect(mocks.retrieve).not.toHaveBeenCalled()
   })
 
+  it('не освобождает бронь, если незавершённые карточки не удалось закрыть', async () => {
+    mocks.retrieve.mockResolvedValueOnce({ status: 'FAILED' })
+    mocks.fail.mockRejectedValueOnce(new Error('database unavailable'))
+
+    await expect(generationStillRunning(room())).rejects.toThrow('database unavailable')
+
+    expect(mocks.fail).toHaveBeenCalledExactlyOnceWith('batch-1')
+    expect(mocks.clear).not.toHaveBeenCalled()
+  })
+
+  it('повторяет безопасную очистку после ошибки БД, не создавая новую задачу', async () => {
+    mocks.retrieve.mockResolvedValue({ status: 'FAILED' })
+    mocks.clear.mockRejectedValueOnce(new Error('database unavailable'))
+
+    await expect(generationStillRunning(room())).rejects.toThrow('database unavailable')
+    expect(await generationStillRunning(room())).toBe(false)
+
+    expect(mocks.fail).toHaveBeenCalledTimes(2)
+    expect(mocks.clear).toHaveBeenNthCalledWith(1, 'room-1', 'run-1')
+    expect(mocks.clear).toHaveBeenNthCalledWith(2, 'room-1', 'run-1')
+    expect(mocks.list).not.toHaveBeenCalled()
+    expect(mocks.attach).not.toHaveBeenCalled()
+    expect(mocks.token).not.toHaveBeenCalled()
+  })
+
   it('сбой выдачи токена не снимает принятую задачу и не роняет страницу', async () => {
     mocks.token.mockRejectedValueOnce(new Error('offline'))
     expect(await resumeGenerationRun(room())).toBeNull()

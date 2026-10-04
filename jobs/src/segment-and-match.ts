@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { logger, metadata, task } from '@trigger.dev/sdk'
 import {
   createFalDetector,
@@ -5,6 +6,8 @@ import {
   type DetectedObject,
   isUsableMatch,
   priceWindow,
+  QUALITY_REVIEW_MODEL,
+  reviewDetectedObjects,
 } from '@uyut/ai'
 import { countItems, findSimilar, subcategoryForLabel } from '@uyut/catalog'
 import { conceptObjects, concepts, projects, rooms } from '@uyut/db'
@@ -28,7 +31,7 @@ const CROP_SIDE = 512
 /** Вырезке нужны только рамка и подпись: остального у сохранённых предметов уже нет. */
 type CroppedObject = Pick<DetectedObject, 'label' | 'bbox'>
 
-type Progress = { stage: 'detect' | 'mask' | 'embed' | 'match' | 'done'; found: number }
+type Progress = { stage: 'detect' | 'verify' | 'mask' | 'embed' | 'match' | 'done'; found: number }
 
 function publish(progress: Progress): void {
   metadata.set('progress', progress)
@@ -41,15 +44,19 @@ async function cropByBox(
   height: number,
   object: CroppedObject,
 ): Promise<Buffer> {
-  const left = Math.max(0, Math.round((object.bbox.x - CROP_PADDING) * width))
-  const top = Math.max(0, Math.round((object.bbox.y - CROP_PADDING) * height))
-  const right = Math.min(width, Math.round((object.bbox.x + object.bbox.w + CROP_PADDING) * width))
-  const bottom = Math.min(
-    height,
-    Math.round((object.bbox.y + object.bbox.h + CROP_PADDING) * height),
-  )
+  const { x, y, w, h } = object.bbox
+  if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) {
+    throw new Error('некорректная рамка предмета')
+  }
+  if (x >= 1 || y >= 1 || x + w <= 0 || y + h <= 0) {
+    throw new Error('рамка предмета вне изображения')
+  }
+  const left = Math.max(0, Math.floor((x - CROP_PADDING) * width))
+  const top = Math.max(0, Math.floor((y - CROP_PADDING) * height))
+  const right = Math.min(width, Math.ceil((x + w + CROP_PADDING) * width))
+  const bottom = Math.min(height, Math.ceil((y + h + CROP_PADDING) * height))
   return sharp(render)
-    .extract({ left, top, width: Math.max(8, right - left), height: Math.max(8, bottom - top) })
+    .extract({ left, top, width: right - left, height: bottom - top })
     .resize({ width: CROP_SIDE, height: CROP_SIDE, fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 88 })
     .toBuffer()
@@ -60,15 +67,32 @@ function maskBounds(
   pixels: Buffer,
   width: number,
   height: number,
+  object: CroppedObject,
 ): { left: number; top: number; right: number; bottom: number } | null {
   let left = width
   let top = height
   let right = -1
   let bottom = -1
+  let markedPixels = 0
+  let pixelsInsideBox = 0
+  const boxLeft = Math.max(0, Math.floor((object.bbox.x - CROP_PADDING) * width))
+  const boxTop = Math.max(0, Math.floor((object.bbox.y - CROP_PADDING) * height))
+  const boxRight = Math.min(
+    width,
+    Math.ceil((object.bbox.x + object.bbox.w + CROP_PADDING) * width),
+  )
+  const boxBottom = Math.min(
+    height,
+    Math.ceil((object.bbox.y + object.bbox.h + CROP_PADDING) * height),
+  )
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       if ((pixels[y * width + x] ?? 0) < 128) {
         continue
+      }
+      markedPixels += 1
+      if (x >= boxLeft && x < boxRight && y >= boxTop && y < boxBottom) {
+        pixelsInsideBox += 1
       }
       if (x < left) left = x
       if (x > right) right = x
@@ -76,7 +100,16 @@ function maskBounds(
       if (y > bottom) bottom = y
     }
   }
-  return right < left || bottom < top ? null : { left, top, right, bottom }
+  // SAM иногда возвращает весь кадр или соседний предмет. Допускаем небольшой
+  // выход за рамку детектора, но не сохраняем маску, большая часть которой чужая.
+  if (
+    markedPixels === 0 ||
+    markedPixels >= width * height * 0.95 ||
+    pixelsInsideBox / markedPixels < 0.8
+  ) {
+    return null
+  }
+  return { left, top, right, bottom }
 }
 
 /**
@@ -100,15 +133,17 @@ async function cropByMask(
   width: number,
   height: number,
   maskBody: Buffer,
+  object: CroppedObject,
 ): Promise<Buffer> {
   const alpha = await sharp(maskBody)
     .resize(width, height, { fit: 'fill' })
+    .removeAlpha()
     .greyscale()
     .raw()
     .toBuffer()
-  const bounds = maskBounds(alpha, width, height)
+  const bounds = maskBounds(alpha, width, height, object)
   if (!bounds) {
-    throw new Error('маска пустая')
+    throw new Error('маска пустая или не соответствует рамке предмета')
   }
   const cut = await sharp(render)
     .removeAlpha()
@@ -126,7 +161,7 @@ async function cropByMask(
 
   return (
     sharp(cut)
-      .extract({ left, top, width: Math.max(8, right - left), height: Math.max(8, bottom - top) })
+      .extract({ left, top, width: right - left, height: bottom - top })
       // Квадрат с белым полем: у Voyage все картинки каталога тоже на белом фоне товарных карточек
       .resize({
         width: CROP_SIDE,
@@ -139,7 +174,26 @@ async function cropByMask(
   )
 }
 
-/** По маске, если она есть и сработала; иначе прямоугольником, как раньше. */
+/** Сохранять можно только маску, по которой действительно получилась вырезка. */
+export async function prepareObjectCrop(
+  render: Buffer,
+  width: number,
+  height: number,
+  object: CroppedObject,
+  maskBody: Buffer | null,
+): Promise<{ body: Buffer; maskBody: Buffer | null }> {
+  if (maskBody) {
+    try {
+      const body = await cropByMask(render, width, height, maskBody, object)
+      return { body, maskBody }
+    } catch (error) {
+      logger.warn('crop by mask failed', { label: object.label, error: String(error) })
+    }
+  }
+  return { body: await cropByBox(render, width, height, object), maskBody: null }
+}
+
+/** Сохраняет прежний интерфейс для сравнения вырезок в bench-crop. */
 export async function cropObject(
   render: Buffer,
   width: number,
@@ -147,14 +201,7 @@ export async function cropObject(
   object: CroppedObject,
   maskBody: Buffer | null,
 ): Promise<Buffer> {
-  if (maskBody) {
-    try {
-      return await cropByMask(render, width, height, maskBody)
-    } catch (error) {
-      logger.warn('crop by mask failed', { label: object.label, error: String(error) })
-    }
-  }
-  return cropByBox(render, width, height, object)
+  return (await prepareObjectCrop(render, width, height, object, maskBody)).body
 }
 
 /**
@@ -164,7 +211,7 @@ export async function cropObject(
  */
 export const segmentAndMatch = task({
   id: 'segment-and-match',
-  maxDuration: 300,
+  maxDuration: 420,
   retry: { maxAttempts: 1 },
   run: async (raw: SegmentAndMatchPayload) => {
     const { conceptId } = payloadSchema.parse(raw)
@@ -209,36 +256,61 @@ export const segmentAndMatch = task({
       const image = { ...render, width, height }
 
       publish({ stage: 'detect', found: 0 })
-      const detected = await createFalDetector(falKey).detect(image, room.kind, 6)
+      const candidates = await createFalDetector(falKey).detect(image, room.kind, 6)
+      publish({ stage: 'verify', found: candidates.length })
+      const candidateCrops = await Promise.all(
+        candidates.map(async (object) => ({
+          body: await cropObject(render.body, width, height, object, null),
+          contentType: 'image/jpeg',
+        })),
+      )
+      const reviewImage = await sharp(render.body)
+        .resize({ width: 1536, withoutEnlargement: true })
+        .jpeg({ quality: 90 })
+        .toBuffer()
+      const detected = await reviewDetectedObjects(
+        falKey,
+        { body: reviewImage, contentType: 'image/jpeg' },
+        candidates,
+        candidateCrops,
+        room.kind,
+      )
       logger.info('objects detected', {
+        proposed: candidates.length,
         count: detected.length,
         labels: detected.map((o) => o.label),
       })
       publish({ stage: 'mask', found: detected.length })
 
       const segmenter = createFalSegmenter(falKey)
-      const base = `projects/${project.id}/rooms/${room.id}/concepts/${concept.id}/objects`
-      // Маски считаются раньше вырезок, потому что вырезка теперь идёт по маске.
-      // Раньше оба шага шли рядом, и вырезка ничего о маске знать не могла.
-      const masked = await Promise.all(
+      // Повтор не перезаписывает маски старого подбора до успешной замены строк БД.
+      const base = `projects/${project.id}/rooms/${room.id}/concepts/${concept.id}/objects/${randomUUID()}`
+      // Проверяем маску вырезкой до загрузки: пустая или битая маска не должна
+      // оставаться у предмета, для которого пришлось использовать прямоугольник.
+      const prepared = await Promise.all(
         detected.map(async (object, index) => {
+          let maskBody: Buffer | null = null
           try {
             const mask = await segmenter.maskForBox(image, object.bbox)
-            const key = `${base}/${index}-mask.png`
-            await putObject(key, mask.body, 'image/png')
-            return { key, body: mask.body }
+            maskBody = mask.body
           } catch (error) {
             logger.warn('mask failed', { index, error: String(error) })
-            return { key: null, body: null }
           }
+          const crop = await prepareObjectCrop(render.body, width, height, object, maskBody)
+          if (crop.maskBody) {
+            const key = `${base}/${index}-mask.png`
+            try {
+              await putObject(key, crop.maskBody, 'image/png')
+              return { maskKey: key, body: crop.body }
+            } catch (error) {
+              logger.warn('mask upload failed', { index, error: String(error) })
+            }
+          }
+          return { maskKey: null, body: crop.body }
         }),
       )
-      const masks = masked.map((one) => one.key)
-      const crops = await Promise.all(
-        detected.map((object, index) =>
-          cropObject(render.body, width, height, object, masked[index]?.body ?? null),
-        ),
-      )
+      const masks = prepared.map((one) => one.maskKey)
+      const crops = prepared.map((one) => one.body)
 
       publish({ stage: 'embed', found: detected.length })
       const vectors =
@@ -247,16 +319,22 @@ export const segmentAndMatch = task({
               crops.map((body) => ({ image: { body, contentType: 'image/jpeg' } })),
             )
           : []
+      if (
+        vectors.length !== detected.length ||
+        vectors.some(
+          (vector) => vector.length !== embedder.dimensions || !vector.every(Number.isFinite),
+        )
+      ) {
+        throw new Error('Не удалось подготовить все векторы предметов')
+      }
 
       publish({ stage: 'match', found: detected.length })
       const catalog = await countItems(database)
-      await database.delete(conceptObjects).where(eq(conceptObjects.conceptId, concept.id))
+      const objectRows: (typeof conceptObjects.$inferInsert)[] = []
       let matched = 0
       for (const [index, object] of detected.entries()) {
         const embedding = vectors[index]
-        if (!embedding || embedding.length === 0) {
-          continue
-        }
+        if (!embedding) throw new Error('Не найден вектор предмета')
         let best: { id: string; similarity: number } | null = null
         if (catalog.embedded > 0) {
           const window = priceWindow(project.budgetKopecks, object.category)
@@ -287,7 +365,7 @@ export const segmentAndMatch = task({
             matched += 1
           }
         }
-        await database.insert(conceptObjects).values({
+        objectRows.push({
           conceptId: concept.id,
           orderIndex: index,
           category: object.category,
@@ -301,13 +379,28 @@ export const segmentAndMatch = task({
             : null,
         })
       }
-      await database
-        .update(concepts)
-        .set({ objectsStatus: 'ready', objectsError: null })
-        .where(eq(concepts.id, concept.id))
+      // Старый подбор остаётся целым при сбое поиска, вставки или проверки.
+      // Готовые данные заменяем одним снимком, а не по предмету.
+      await database.transaction(async (transaction) => {
+        await transaction.delete(conceptObjects).where(eq(conceptObjects.conceptId, concept.id))
+        if (objectRows.length > 0) await transaction.insert(conceptObjects).values(objectRows)
+        await transaction
+          .update(concepts)
+          .set({ objectsStatus: 'ready', objectsError: null })
+          .where(eq(concepts.id, concept.id))
+      })
       publish({ stage: 'done', found: detected.length })
       logger.info('segment-and-match finished', { conceptId, objects: detected.length, matched })
-      return { conceptId, objects: detected.length, matched, skipped: false }
+      return {
+        conceptId,
+        objects: detected.length,
+        matched,
+        skipped: false,
+        proposed: candidates.length,
+        verificationRequests: candidates.length > 0 ? 1 : 0,
+        verificationModel: QUALITY_REVIEW_MODEL,
+        verificationVersion: 1,
+      }
     } catch (error) {
       logger.error('segment-and-match failed', { conceptId, error: String(error) })
       await database

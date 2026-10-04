@@ -410,7 +410,7 @@ describe('selectObjects', () => {
     expect(objects.map((object) => object.label)).toEqual(['a sofa'])
   })
 
-  it('называет высокий светильник у пола торшером', () => {
+  it('не угадывает тип светильника по пропорциям его рамки', () => {
     const objects = selectObjects(
       [
         {
@@ -421,7 +421,7 @@ describe('selectObjects', () => {
       ],
       6,
     )
-    expect(objects[0]?.label).toBe('a floor lamp')
+    expect(objects[0]?.label).toBe('a pendant lamp')
   })
 })
 
