@@ -1,4 +1,4 @@
-import type { CatalogAttributes } from '@uyut/db'
+import type { CatalogAttributes, CatalogSource } from '@uyut/db'
 import type { DimensionsCm } from './dimensions'
 
 type DimensionSource = 'user' | 'store-parameters' | 'store-text'
@@ -13,7 +13,7 @@ export type ItemSizeReading = {
 /** Пользователь уточняет отдельные мерки; остальные сохраняются из карточки магазина. */
 export function effectiveSizeReading(
   item: { dimensionsCm: DimensionsCm | null },
-  product: { attributes: CatalogAttributes | null },
+  product: { attributes: CatalogAttributes | null; source?: CatalogSource },
 ): ItemSizeReading {
   const dimensionsCm: DimensionsCm = {}
   const dimensionSources: NonNullable<ItemSizeReading['dimensionSources']> = {}
@@ -23,7 +23,15 @@ export function effectiveSizeReading(
     if (own !== undefined && Number.isFinite(own) && own > 0) {
       dimensionsCm[axis] = own
       dimensionSources[axis] = 'user'
-    } else if (stored !== undefined && Number.isFinite(stored) && stored > 0) {
+    } else if (
+      stored !== undefined &&
+      Number.isFinite(stored) &&
+      stored > 0 &&
+      // Старые записи Gdeslon сохраняются для покупок, но неподписанный порядок
+      // осей из их текста не становится меркой для расстановки или PDF.
+      (product.source !== 'gdeslon' ||
+        product.attributes?.dimensionsSource?.[axis] === 'store-parameters')
+    ) {
       dimensionsCm[axis] = stored
       dimensionSources[axis] =
         product.attributes?.dimensionsSource?.[axis] === 'store-parameters'
@@ -51,7 +59,7 @@ export function effectiveSizeReading(
 
 export function effectiveSize(
   item: { dimensionsCm: DimensionsCm | null },
-  product: { attributes: CatalogAttributes | null },
+  product: { attributes: CatalogAttributes | null; source?: CatalogSource },
 ): DimensionsCm | null {
   return effectiveSizeReading(item, product).dimensionsCm
 }

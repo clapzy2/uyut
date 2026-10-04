@@ -63,7 +63,7 @@ const dateWithYearFormat = new Intl.DateTimeFormat('ru-RU', {
 
 /** Подпись мерки без округления до сантиметра и без хвоста двоичной арифметики. */
 export function formatDimensionCm(value: number): string {
-  return Number(value.toPrecision(15)).toString()
+  return Number(value.toPrecision(12)).toString()
 }
 
 export function formatArea(m2: number | null | undefined): string | null {

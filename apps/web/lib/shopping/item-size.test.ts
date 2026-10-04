@@ -27,6 +27,38 @@ describe('effectiveSize', () => {
     expect(effectiveSize({ dimensionsCm: null }, product())).toBeNull()
   })
 
+  it('не использует текстовые оси прежнего Gdeslon для расстановки', () => {
+    for (const dimensionsSource of [undefined, { width: 'store-text' as const }]) {
+      expect(
+        effectiveSize(
+          { dimensionsCm: null },
+          {
+            source: 'gdeslon',
+            attributes: { dimensionsCm: { width: 60, depth: 76, height: 90 }, dimensionsSource },
+          },
+        ),
+      ).toBeNull()
+    }
+  })
+
+  it('сохраняет ручные мерки и подписанные оси Gdeslon без правки старой записи', () => {
+    const legacy = {
+      source: 'gdeslon' as const,
+      attributes: {
+        dimensionsCm: { width: 60, depth: 76, height: 90 },
+        dimensionsSource: { width: 'store-parameters' as const, depth: 'store-text' as const },
+      },
+    }
+    const before = structuredClone(legacy)
+    expect(effectiveSize({ dimensionsCm: { depth: 90, height: 76 } }, legacy)).toEqual({
+      width: 60,
+      depth: 90,
+      height: 76,
+    })
+    expect(effectiveSize({ dimensionsCm: null }, legacy)).toEqual({ width: 60 })
+    expect(legacy).toEqual(before)
+  })
+
   it('показывает человеку происхождение и доверие к размеру', () => {
     expect(
       effectiveSizeReading(

@@ -6,6 +6,8 @@ describe('project formatting', () => {
     expect(formatDimensionCm(105.6)).toBe('105.6')
     expect(formatDimensionCm(300.29999999999995)).toBe('300.3')
     expect(formatDimensionCm(70)).toBe('70')
+    expect(formatDimensionCm(96.0999999999999)).toBe('96.1')
+    expect(formatDimensionCm(105.612345)).toBe('105.612345')
   })
   it('declines rooms in Russian', () => {
     expect(pluralRooms(1)).toBe('1 комната')

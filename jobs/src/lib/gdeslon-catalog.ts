@@ -5,7 +5,6 @@ import {
   type FeedItem,
   type GdeslonOffer,
   parseCsvDump,
-  parseDimensionsCm,
   parseGdeslonOffers,
   parseRubles,
 } from '@uyut/catalog'
@@ -184,21 +183,10 @@ export function toRow(offer: Offer): GdeslonRow | null {
   }
   const oldPriceKopecks = parseRubles(offer.oldPrice)
   const oldPrice = oldPriceKopecks === null ? null : oldPriceKopecks / 100
-  const dimensionsText = `${offer.title} ${offer.description}`
-  const parsedDimensions = parseDimensionsCm(dimensionsText)
-  // Пара размеров в названии кровати часто означает матрас. При отсутствии
-  // высоты и явного указания внешнего габарита оставляем размер неизвестным.
-  const extracted =
-    category === 'bed' &&
-    parsedDimensions.height === undefined &&
-    !/габарит|внешн(?:ие|ий|яя|их)/i.test(dimensionsText)
-      ? {}
-      : parsedDimensions
-  const measured = {
-    width: offer.dimensions.width ?? extracted.width,
-    depth: offer.dimensions.depth ?? extracted.depth,
-    height: offer.dimensions.height ?? extracted.height,
-  }
+  // В названии «600×760×900» порядок осей не определён. Даже правдоподобная
+  // высота не доказывает, где ширина и глубина. Для расстановки принимаем
+  // только отдельные подписанные параметры магазина, без догадок из текста.
+  const measured = offer.dimensions
   // Артикул может быть общим для разных SKU. Разделяем их по id сети;
   // без id используем ссылку, а не случайно оставляем первый пришедший вариант.
   const identity = offer.id || createHash('sha256').update(offer.url).digest('hex').slice(0, 24)
@@ -207,7 +195,7 @@ export function toRow(offer: Offer): GdeslonRow | null {
     : identity
   const sourceFor = (axis: keyof typeof measured): string => {
     if (measured[axis] === undefined) return ''
-    return offer.dimensions[axis] !== undefined ? 'store-parameters' : 'store-text'
+    return 'store-parameters'
   }
   return {
     externalId,

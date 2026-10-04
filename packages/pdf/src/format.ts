@@ -13,7 +13,7 @@ const NBSP = ' '
 
 /** Только подпись: убираем машинный шум, не меняя исходные координаты и расчёты. */
 export function formatDimensionCm(value: number): string {
-  return Number(value.toPrecision(15)).toString()
+  return Number(value.toPrecision(12)).toString()
 }
 
 export function formatPrice(kopecks: number): string {

@@ -1,4 +1,4 @@
-import { parseCsvDump, parseGdeslonOffers } from '@uyut/catalog'
+import { checkFit, parseCsvDump, parseGdeslonOffers } from '@uyut/catalog'
 import { describe, expect, it } from 'vitest'
 import { toCsv, toRow } from '../../../../jobs/scripts/fetch-gdeslon'
 
@@ -49,17 +49,15 @@ describe('Gdeslon XML → CSV → каталог', () => {
     expect(items[0]?.affiliateUrl).not.toBe(items[1]?.affiliateUrl)
   })
 
-  it('разделяет параметры магазина и габариты из текста для каждой оси', () => {
+  it('берёт подписанную ось магазина, но не достраивает остальные из текста', () => {
     const [item] = imported(
       offer(`
       <param name="Ширина мм">2205</param><param name="Цвет">бежевый</param>
       <description>Габариты 210×95,5×85 см</description>`),
     )
-    expect(item?.attributes?.dimensionsCm).toEqual({ width: 220.5, depth: 95.5, height: 85 })
+    expect(item?.attributes?.dimensionsCm).toEqual({ width: 220.5 })
     expect(item?.attributes?.dimensionsSource).toEqual({
       width: 'store-parameters',
-      depth: 'store-text',
-      height: 'store-text',
     })
     expect(item?.attributes?.color).toBe('бежевый')
   })
@@ -85,7 +83,43 @@ describe('Gdeslon XML → CSV → каталог', () => {
       'Диван Осло',
       'Кровать Осло',
     )
-    expect(imported(externalSize)[0]?.attributes?.dimensionsCm).toEqual({ width: 170, depth: 215 })
+    expect(imported(externalSize)[0]?.attributes?.dimensionsCm).toBeUndefined()
+    const namedSize = externalSize.replace(
+      '</offer>',
+      '<param name="Ширина, см">170</param><param name="Глубина, см">215</param></offer>',
+    )
+    expect(imported(namedSize)[0]?.attributes?.dimensionsCm).toEqual({ width: 170, depth: 215 })
+  })
+
+  it('не назначает осям размеры из названия при проходе XML → CSV → каталог', () => {
+    for (const title of [
+      'Стол обеденный Оптима, 600×760×900 мм',
+      'Стол обеденный Оптима, 90×60×76 см',
+      'Диван Осло 210×95×85 см',
+    ]) {
+      const xml = offer('').replace('Диван Осло', title)
+      expect(imported(xml)[0]?.attributes?.dimensionsCm).toBeUndefined()
+      expect(imported(xml)[0]?.attributes?.dimensionsSource).toBeUndefined()
+      expect(
+        checkFit(imported(xml)[0]?.attributes?.dimensionsCm, {
+          spots: [{ name: 'Простенок', widthCm: 85 }],
+        }),
+      ).toMatchObject({ state: 'unknown', reason: 'itemDimensions' })
+    }
+  })
+
+  it('не переставляет подписанные параметры по величине чисел', () => {
+    const xml = offer(`
+      <param name="Глубина, мм">600</param>
+      <param name="Высота, мм">760</param>
+      <param name="Ширина, мм">900</param>`).replace('Диван Осло', 'Стол обеденный Оптима')
+    const [item] = imported(xml)
+    expect(item?.attributes?.dimensionsCm).toEqual({ width: 90, depth: 60, height: 76 })
+    expect(item?.attributes?.dimensionsSource).toEqual({
+      width: 'store-parameters',
+      depth: 'store-parameters',
+      height: 'store-parameters',
+    })
   })
 
   it('понимает XML-сущности и не добавляет сетевых побочных действий при импорте модуля', () => {

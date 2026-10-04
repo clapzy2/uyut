@@ -22,6 +22,7 @@ import {
   styleLibrary,
 } from '@uyut/ai'
 import { conceptLayoutContract, type LayoutItem, subcategoryFromText } from '@uyut/catalog'
+import { effectiveSize } from '@uyut/catalog/item-size'
 import {
   catalogItems,
   conceptObjects,
@@ -241,7 +242,7 @@ export const generateConcept = task({
         title: product.title,
         category: product.category,
         subcategory: subcategoryFromText(product.category, product.title),
-        dimensions: item.dimensionsCm ?? product.attributes?.dimensionsCm ?? null,
+        dimensions: effectiveSize(item, product),
         operationClearance: item.operationClearanceCm,
         placement: item.placementCm,
         quantity: item.quantity,

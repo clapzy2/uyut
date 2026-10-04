@@ -1,6 +1,6 @@
 import { estimateProject, layoutRoom } from '@uyut/catalog'
 import { roomLayoutInputFromGeometry } from '@uyut/catalog/geometry'
-import { footerTemplate, type PdfData, renderProjectHtml } from '@uyut/pdf'
+import { footerTemplate, formatDimensionCm, type PdfData, renderProjectHtml } from '@uyut/pdf'
 import { describe, expect, it } from 'vitest'
 
 const rates = { roughRubPerM2: 15_000, finishRubPerM2: 5_000 }
@@ -83,6 +83,12 @@ function sample(kind: PdfData['kind']): PdfData {
 }
 
 describe('project PDF template', () => {
+  it('не показывает накопленный числовой хвост многокомнатного контура', () => {
+    const width = 96.0999999999999
+    expect(formatDimensionCm(width)).toBe('96.1')
+    expect(width).toBe(96.0999999999999)
+    expect(formatDimensionCm(105.612345)).toBe('105.612345')
+  })
   it('убирает машинный шум из подписей, сохраняя исходные размеры расчёта', () => {
     const polygon = [
       { xCm: 10.1, yCm: 0 },

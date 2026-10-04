@@ -9,6 +9,7 @@ import {
   subcategoryForLabel,
 } from '@uyut/catalog'
 import { catalogFreshnessNotice } from '@uyut/catalog/freshness'
+import { effectiveSize } from '@uyut/catalog/item-size'
 import {
   type CatalogCategory,
   type ConceptBbox,
@@ -140,7 +141,7 @@ async function toMatch(
   window: PriceWindow | null,
   limits: RoomLimits,
 ): Promise<MatchView> {
-  const dimensionsCm = item.attributes?.dimensionsCm ?? null
+  const dimensionsCm = effectiveSize({ dimensionsCm: null }, item)
   const images = orderedImages(item.images)
   const [imageUrl, imageFallbackUrl, variants] = await Promise.all([
     productImage(images[0]),
