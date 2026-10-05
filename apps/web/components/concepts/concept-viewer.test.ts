@@ -88,6 +88,16 @@ const data: ConceptPageData = {
 }
 
 describe('concept and product explanations', () => {
+  it('keeps compact markers inside larger touch targets and offers a named object list', () => {
+    const html = renderToStaticMarkup(createElement(ConceptViewer, { data }))
+    const marker = html.match(/<button[^>]*aria-label="1\. Диван"[^>]*>(.*?)<\/button>/)?.[0]
+    expect(marker).toContain('h-11 min-w-11')
+    expect(marker).toContain('h-8 min-w-8')
+    expect(marker).toContain('pointer-events-none')
+    expect(html).toContain('min-h-11 rounded-full')
+    expect(html).toContain('выберите предмет в списке')
+  })
+
   it('shows a source comparison rather than a missing section when the plan is absent', () => {
     const html = renderToStaticMarkup(
       createElement(ConceptViewer, {

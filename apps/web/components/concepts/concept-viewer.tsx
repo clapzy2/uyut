@@ -44,14 +44,18 @@ function ObjectChip({
       aria-label={`${object.orderIndex + 1}. ${objectLabel(object.label, object.category)}`}
       aria-pressed={selected}
       style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
-      className={cn(
-        'absolute z-20 grid h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 px-2 font-mono text-[13px] font-medium shadow-soft transition-[color,background-color,border-color,transform] duration-200 ease-ui hover:scale-110 active:scale-90',
-        selected
-          ? 'motion-selected-marker border-on-accent bg-accent text-on-accent'
-          : 'border-accent bg-paper/90 text-accent',
-      )}
+      className="group absolute z-20 grid h-11 min-w-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full"
     >
-      {object.orderIndex + 1}
+      <span
+        className={cn(
+          'pointer-events-none grid h-8 min-w-8 place-items-center rounded-full border-2 px-2 font-mono text-[13px] font-medium shadow-soft transition-[color,background-color,border-color,transform] duration-200 ease-ui group-hover:scale-110 group-active:scale-90',
+          selected
+            ? 'motion-selected-marker border-on-accent bg-accent text-on-accent'
+            : 'border-accent bg-paper/90 text-accent',
+        )}
+      >
+        {object.orderIndex + 1}
+      </span>
     </button>
   )
 }
@@ -171,7 +175,7 @@ function MatchRow({
               <select
                 value={variantIndex}
                 onChange={(event) => setVariantIndex(Number(event.currentTarget.value))}
-                className="mt-1 block h-9 w-full border border-control bg-paper px-2.5 font-sans text-[13px] normal-case tracking-normal text-ink outline-none transition-colors duration-200 focus:border-accent"
+                className="mt-1 block h-11 w-full border border-control bg-paper px-2.5 font-sans text-[13px] normal-case tracking-normal text-ink outline-none transition-colors duration-200 focus:border-accent"
               >
                 {match.variants.map((entry, index) => (
                   <option
@@ -623,7 +627,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
               disabled={likePending}
               aria-pressed={liked === false}
               className={cn(
-                'h-9 rounded-full border px-3.5 text-sm transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90 disabled:opacity-50',
+                'h-11 rounded-full border px-3.5 text-sm transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90 disabled:opacity-50',
                 liked === false
                   ? 'border-ink bg-muted text-ink shadow-soft'
                   : 'border-control text-ink-2 hover:text-ink',
@@ -637,7 +641,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
               disabled={likePending}
               aria-pressed={liked === true}
               className={cn(
-                'h-9 rounded-full border px-3.5 text-sm transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90 disabled:opacity-50',
+                'h-11 rounded-full border px-3.5 text-sm transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90 disabled:opacity-50',
                 liked
                   ? 'border-accent bg-accent-tint text-accent shadow-soft'
                   : 'border-accent text-accent hover:bg-accent-tint',
@@ -687,7 +691,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
                 onMouseLeave={() => setHoveredId(null)}
                 aria-pressed={object.id === selectedId}
                 className={cn(
-                  'h-8 rounded-full border px-3 text-[13px] transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90',
+                  'min-h-11 rounded-full border px-3 text-[13px] transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90',
                   object.id === selectedId
                     ? 'border-accent bg-accent-tint text-accent shadow-soft'
                     : 'border-control text-ink-2 hover:text-ink',

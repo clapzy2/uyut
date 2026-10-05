@@ -93,7 +93,7 @@ describe('понятное завершение ожидания подбора'
     expect(render('skipped')).not.toContain('Проверить статус')
     expect(render('ready')).toContain('Подбор завершён')
     const complete = render('ready', 2)
-    expect(complete).toContain('нажмите, чтобы увидеть товары')
+    expect(complete).toContain('Нажмите на номер на картинке или выберите предмет в списке')
     expect(complete).not.toContain('К вариантам комнаты')
   })
 })
