@@ -20,10 +20,13 @@ export const metadata: Metadata = { title: 'Расскажите о кварти
 
 export default async function Step1({ searchParams }: StepParams) {
   const session = await getSession()
-  if (!session) {
-    redirect('/login?next=/onboarding/step-1')
-  }
   const { project: projectId } = await searchParams
+  if (!session) {
+    const next = projectId
+      ? encodeURIComponent(`/onboarding/step-1?project=${encodeURIComponent(projectId)}`)
+      : '/onboarding/step-1'
+    redirect(`/login?next=${next}`)
+  }
 
   if (!projectId) {
     return (

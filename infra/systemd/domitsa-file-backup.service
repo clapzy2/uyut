@@ -1,0 +1,14 @@
+[Unit]
+Description=Domitsa complete external file backup
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/data/domitsa-file-backup/resource.env
+ExecStart=/data/domitsa-file-backup/run.sh
+TimeoutStartSec=30min
+UMask=0077
+StandardOutput=journal
+StandardError=journal

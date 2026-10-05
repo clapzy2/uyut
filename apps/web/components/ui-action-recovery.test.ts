@@ -65,6 +65,11 @@ vi.mock('@/actions/concepts', () => ({
   refreshConcepts: hooks.refreshConcepts,
 }))
 vi.mock('@/actions/rooms', () => ({ updateRoomMeasurements: hooks.saveMeasurements }))
+vi.mock('@uyut/ai', () => ({ findSwatch: vi.fn(), isApproximate: vi.fn() }))
+vi.mock('@/actions/recolor', () => ({ resetRecolor: vi.fn(), saveRecolor: vi.fn() }))
+vi.mock('@/actions/shopping', () => ({ addItem: vi.fn() }))
+vi.mock('@/components/concepts/swatch-picker', () => ({ SwatchPicker: () => null }))
+vi.mock('@/lib/recolor/client', () => ({ applySwatch: vi.fn(), prepareRecolor: vi.fn() }))
 vi.mock('@/actions/billing', () => ({
   startProjectPurchase: vi.fn(),
   startProSubscription: vi.fn(),
@@ -82,6 +87,7 @@ vi.mock('@/lib/queue/use-run-watch', () => ({
 }))
 
 import type { ExportView } from '@/lib/exports/repository'
+import { ConceptViewer } from './concepts/concept-viewer'
 import { ConceptsPanel } from './concepts/concepts-panel'
 import { FormError } from './form-error'
 import { RoomMeasurementsForm } from './room-measurements-form'
@@ -156,6 +162,35 @@ const panelProps: ComponentProps<typeof ConceptsPanel> = {
   items: [],
 }
 
+const viewerData: ComponentProps<typeof ConceptViewer>['data'] = {
+  role: 'owner',
+  other: null,
+  concept: {
+    id: 'concept',
+    status: 'ready',
+    objectsStatus: 'ready',
+    objectsError: null,
+    liked: null,
+    renderSrc: '/concept.jpg',
+    renderKey: 'concept.jpg',
+    editedRenderKey: null,
+    note: null,
+    qualityReview: null,
+    orderIndex: 0,
+    batchId: 'batch',
+  },
+  room: {
+    id: 'room',
+    name: 'Гостиная',
+    projectId: 'project',
+    projectTitle: 'Квартира',
+    budgetKopecks: null,
+  },
+  plan: null,
+  shopping: { byCatalogItem: {}, count: 0 },
+  objects: [],
+}
+
 const exportProps: ComponentProps<typeof ExportCard> = {
   projectId: 'project',
   exports: [],
@@ -197,6 +232,66 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers())
 
 describe('восстановление после отказа серверного действия', () => {
+  it.each([
+    [true, false],
+    [true, true],
+    [false, false],
+    [false, true],
+    [null, false],
+    [null, true],
+  ] as const)(
+    'возвращает прежнюю отметку открытого концепта: liked=%s, reject=%s',
+    async (liked, reject) => {
+      const props = { data: { ...viewerData, concept: { ...viewerData.concept, liked } } }
+      const label = liked === true ? 'Не нравится' : '♥ Нравится'
+      if (reject) hooks.vote.mockRejectedValueOnce(new Error('private transport details'))
+      else hooks.vote.mockResolvedValueOnce({ ok: false, error: 'Сессия закончилась' })
+
+      await click(render(ConceptViewer, props), label)
+
+      const recovered = render(ConceptViewer, props)
+      const yes = find(recovered, (props) => props.children === '♥ Нравится')
+      const no = find(recovered, (props) => props.children === 'Не нравится')
+      expect(yes['aria-pressed']).toBe(liked === true)
+      expect(no['aria-pressed']).toBe(liked === false)
+      expect(yes.disabled).toBe(false)
+      expect(no.disabled).toBe(false)
+      expect(hooks.refresh).not.toHaveBeenCalled()
+      expect(hooks.toast).toHaveBeenCalledOnce()
+      expect(hooks.toast.mock.calls[0]?.[0].title).not.toContain('private transport details')
+    },
+  )
+
+  it('блокирует обе отметки и второй быстрый клик до ответа, затем обновляет только успешный выбор', async () => {
+    let resolve: (result: { ok: true; data: undefined }) => void = () => {}
+    hooks.vote.mockImplementationOnce(
+      () =>
+        new Promise((finish) => {
+          resolve = finish
+        }),
+    )
+    const props = { data: viewerData }
+    const tree = render(ConceptViewer, props)
+    const yes = find(tree, (props) => props.children === '♥ Нравится')
+    const no = find(tree, (props) => props.children === 'Не нравится')
+    const request = (yes.onClick as () => Promise<void>)()
+    await (no.onClick as () => Promise<void>)()
+    expect(hooks.vote).toHaveBeenCalledExactlyOnceWith('concept', true)
+    const pending = render(ConceptViewer, props)
+    expect(find(pending, (props) => props.children === '♥ Нравится').disabled).toBe(true)
+    expect(find(pending, (props) => props.children === 'Не нравится').disabled).toBe(true)
+    expect(hooks.refresh).not.toHaveBeenCalled()
+
+    resolve({ ok: true, data: undefined })
+    await request
+
+    const saved = find(render(ConceptViewer, props), (props) => props.children === '♥ Нравится')
+    expect(saved['aria-pressed']).toBe(true)
+    expect(saved.disabled).toBe(false)
+    expect(hooks.refresh).toHaveBeenCalledOnce()
+    expect(hooks.toast).not.toHaveBeenCalled()
+  })
+
   it('останавливает резервные проверки генерации через восемь минут', async () => {
     vi.useFakeTimers()
     const component = progressComponent(

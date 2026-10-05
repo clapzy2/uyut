@@ -370,6 +370,8 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
   const [selectedId, setSelectedId] = useState<string | null>(objects[0]?.id ?? null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [liked, setLiked] = useState<boolean | null>(concept.liked)
+  const [likePending, setLikePending] = useState(false)
+  const likePendingRef = useRef(false)
   // Считаем один раз на список: метки соседних предметов иначе слипаются в одну точку
   const markerPoints = useMemo(
     () => spreadMarkers(objects.map((object) => ({ id: object.id, ...object.bbox }))),
@@ -483,13 +485,30 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
     })
   }
 
-  function like(value: boolean) {
+  async function like(value: boolean) {
+    if (likePendingRef.current) return
+    likePendingRef.current = true
+    setLikePending(true)
+    const previous = liked
     setLiked(value)
-    void setConceptLike(concept.id, value).then((result) => {
+    try {
+      const result = await setConceptLike(concept.id, value)
       if (!result.ok) {
+        setLiked(previous)
         toast({ title: result.error, tone: 'danger' })
+        return
       }
-    })
+      router.refresh()
+    } catch {
+      setLiked(previous)
+      toast({
+        title: 'Не удалось сохранить отметку. Проверьте соединение и выберите её ещё раз.',
+        tone: 'danger',
+      })
+    } finally {
+      likePendingRef.current = false
+      setLikePending(false)
+    }
   }
 
   const [adding, setAdding] = useState<string | null>(null)
@@ -601,9 +620,10 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
             <button
               type="button"
               onClick={() => like(false)}
+              disabled={likePending}
               aria-pressed={liked === false}
               className={cn(
-                'h-9 rounded-full border px-3.5 text-sm transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90',
+                'h-9 rounded-full border px-3.5 text-sm transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90 disabled:opacity-50',
                 liked === false
                   ? 'border-ink bg-muted text-ink shadow-soft'
                   : 'border-control text-ink-2 hover:text-ink',
@@ -614,9 +634,10 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
             <button
               type="button"
               onClick={() => like(true)}
+              disabled={likePending}
               aria-pressed={liked === true}
               className={cn(
-                'h-9 rounded-full border px-3.5 text-sm transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90',
+                'h-9 rounded-full border px-3.5 text-sm transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-ui hover:-translate-y-0.5 active:translate-y-0 active:scale-90 disabled:opacity-50',
                 liked
                   ? 'border-accent bg-accent-tint text-accent shadow-soft'
                   : 'border-accent text-accent hover:bg-accent-tint',

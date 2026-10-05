@@ -13,6 +13,15 @@ import { operator } from './legal/operator'
 import { hashPassword, verifyPassword } from './password'
 import { createAuthStorage, getLoginByEmailLimiter } from './redis'
 import { CLIENT_IP_HEADER } from './security/client-ip'
+import {
+  SESSION_COOKIE_CACHE_ENABLED,
+  SESSION_COOKIE_CACHE_VERSION,
+} from './security/session-cookie-version'
+
+export {
+  SESSION_COOKIE_CACHE_ENABLED,
+  SESSION_COOKIE_CACHE_VERSION,
+} from './security/session-cookie-version'
 
 const MINUTE = 60
 const HOUR = 60 * MINUTE
@@ -44,7 +53,11 @@ function createAuth() {
       expiresIn: 30 * DAY,
       updateAge: DAY,
       storeSessionInDatabase: true,
-      cookieCache: { enabled: true, maxAge: 15 * MINUTE },
+      cookieCache: {
+        enabled: SESSION_COOKIE_CACHE_ENABLED,
+        maxAge: 15 * MINUTE,
+        version: SESSION_COOKIE_CACHE_VERSION,
+      },
     },
     emailAndPassword: {
       enabled: true,

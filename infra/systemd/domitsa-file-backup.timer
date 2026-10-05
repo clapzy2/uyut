@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Domitsa file backup after PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 Europe/Moscow
+Persistent=true
+AccuracySec=1min
+Unit=domitsa-file-backup.service
+
+[Install]
+WantedBy=timers.target
