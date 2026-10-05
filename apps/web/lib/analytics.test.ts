@@ -95,12 +95,18 @@ describe('фильтр отправки аналитики', () => {
         image: 'https://storage.example.test/private.png',
         email: 'private@example.test',
         $device_id: id,
+        $geoip_disable: false,
+        $geoip_latitude: 55.7,
         $set: { phone: 'private' },
       },
     }
     expect(sanitizePilotEvent(input, publicKey, true)).toEqual({
       ...event(),
-      properties: { ...event().properties, $process_person_profile: false },
+      properties: {
+        ...event().properties,
+        $process_person_profile: false,
+        $geoip_disable: true,
+      },
     })
   })
 

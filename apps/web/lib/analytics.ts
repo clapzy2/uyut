@@ -101,6 +101,7 @@ export function sanitizePilotEvent(
     token: publicKey,
     distinct_id: properties.distinct_id,
     $process_person_profile: false,
+    $geoip_disable: true,
   }
   for (const name of ['$session_id', '$window_id']) {
     const value = properties[name]
