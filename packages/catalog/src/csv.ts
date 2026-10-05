@@ -222,6 +222,18 @@ function parseLengthCm(value: string | undefined): number | undefined {
   return cm >= 15 && cm <= 400 ? cm : undefined
 }
 
+function parseAdmitadLengthCm(
+  value: string | undefined,
+  source: CatalogSource,
+): number | undefined {
+  // В фиде Bestmebelshop числовые параметры без суффикса даны в миллиметрах.
+  // Общая эвристика считает небольшие числа сантиметрами и ошиблась бы на глубине 400.
+  if (source === 'bestmebelshop' && value && /^\s*\d+(?:[.,]\d+)?\s*$/.test(value)) {
+    return parseLengthCm(`${value} мм`)
+  }
+  return parseLengthCm(value)
+}
+
 function parseAdmitadParams(value: string | undefined): Map<string, string> {
   const params = new Map<string, string>()
   for (const part of value?.split('|') ?? []) {
@@ -263,6 +275,18 @@ const ADMITAD_NON_FURNITURE =
 const ADMITAD_FURNITURE_TITLE =
   /^(?:кровать|диван|софа|кушетка|кресло|стул|табурет|банкетка|пуф|тумба|комод|шкаф|стеллаж|стол|зеркало)\b/i
 
+// Реквизиты сверены с карточкой программы Bestmebelshop RU в Admitad 05.10.2026.
+// Перед включением нового фида в production их нужно сверить повторно.
+const BESTMEBELSHOP_DISCLOSURE = 'Реклама. ООО «Бэст-Мебель». ИНН 3328006739'
+
+function hasAdmitadToken(url: string): boolean {
+  try {
+    return Boolean(new URL(url).searchParams.get('erid'))
+  } catch {
+    return false
+  }
+}
+
 function isAdmitadFurniture(row: Record<string, string>): boolean {
   if (ADMITAD_FURNITURE_TITLE.test(row.name ?? '')) {
     return true
@@ -276,14 +300,16 @@ function admitadDimensions(
   category: CatalogCategory,
   params: Map<string, string>,
   fallbackText: string,
+  source: CatalogSource,
 ): {
   dimensions: { width?: number; depth?: number; height?: number }
   source: Partial<Record<'width' | 'depth' | 'height', 'store-parameters' | 'store-text'>>
 } {
-  const width = parseLengthCm(firstParam(params, 'ширина', 'ширина, см'))
-  const depth = parseLengthCm(firstParam(params, 'глубина', 'длина', 'длина, см'))
-  const height = parseLengthCm(
+  const width = parseAdmitadLengthCm(firstParam(params, 'ширина', 'ширина, см'), source)
+  const depth = parseAdmitadLengthCm(firstParam(params, 'глубина', 'длина', 'длина, см'), source)
+  const height = parseAdmitadLengthCm(
     firstParam(params, 'высота', 'высота, см', 'высота изголовья', 'высота кровати'),
+    source,
   )
   const named = { width, depth, height }
   if (hasAnyDimension(named)) {
@@ -418,6 +444,14 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
     })
     return
   }
+  if (source === 'bestmebelshop' && !hasAdmitadToken(row.url)) {
+    skipAdmitadRow(state, {
+      reason: 'нет рекламного токена в ссылке',
+      externalId: rowId,
+      title,
+    })
+    return
+  }
   if (row.currencyid && row.currencyid.toUpperCase() !== 'RUB') {
     skipAdmitadRow(state, {
       reason: `неподдерживаемая валюта ${row.currencyid}`,
@@ -430,7 +464,12 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
   const params = parseAdmitadParams(row.param)
   const color = meaningfulParam(firstParam(params, 'цвет', 'цвет ткани', 'основной цвет'))
   const material = meaningfulParam(firstParam(params, 'материал', 'материал обивки', 'ткань'))
-  const dimensionReading = admitadDimensions(category, params, `${title} ${row.description ?? ''}`)
+  const dimensionReading = admitadDimensions(
+    category,
+    params,
+    `${title} ${row.description ?? ''}`,
+    source,
+  )
   const dimensions = dimensionReading.dimensions
   const externalId = canonicalAdmitadId(
     row,
@@ -477,7 +516,8 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
       material,
       dimensionsCm: hasAnyDimension(dimensions) ? dimensions : undefined,
       dimensionsSource: hasAnyDimension(dimensions) ? dimensionReading.source : undefined,
-      adDisclosure: row.ad_disclosure || undefined,
+      adDisclosure:
+        row.ad_disclosure || (source === 'bestmebelshop' ? BESTMEBELSHOP_DISCLOSURE : undefined),
     },
     variants: [variant],
     inStock: true,

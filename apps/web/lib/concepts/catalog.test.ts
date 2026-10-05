@@ -109,6 +109,30 @@ describe('parseAdmitadCsv', () => {
   const header =
     'available;categoryId;currencyId;description;id;name;oldprice;param;picture;price;type;url;vendor'
 
+  it('читает размеры Bestmebelshop в миллиметрах и не показывает недоступные товары', () => {
+    const csv = `${header}\ntrue;Шкафы;RUB;;cabinet-1;Шкаф Тест;;Ширина:850|Глубина:400|Высота:2100;https://cdn/cabinet.jpg;10000;;https://partner.test/click?erid=token-1;Бэст-Мебель\nfalse;Диваны;RUB;;sofa-1;Диван Тест;;Ширина:2100|Глубина:900;https://cdn/sofa.jpg;20000;;https://partner.test/click?erid=token-2;Бэст-Мебель\n`
+    const { items, skipped } = parseAdmitadCsv(csv, 'bestmebelshop')
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      category: 'storage',
+      attributes: {
+        dimensionsCm: { width: 85, depth: 40, height: 210 },
+        adDisclosure: 'Реклама. ООО «Бэст-Мебель». ИНН 3328006739',
+      },
+    })
+    expect(skipped.map((row) => row.reason)).toEqual(['нет в наличии'])
+  })
+
+  it('не принимает ссылку Bestmebelshop без рекламного токена', () => {
+    const csv = `${header}\ntrue;Шкафы;RUB;;cabinet-1;Шкаф Тест;;Ширина:850|Глубина:400;https://cdn/cabinet.jpg;10000;;https://partner.test/click;Бэст-Мебель\n`
+
+    expect(parseAdmitadCsv(csv, 'bestmebelshop')).toMatchObject({
+      items: [],
+      skipped: [{ reason: 'нет рекламного токена в ссылке' }],
+    })
+  })
+
   it('объединяет sku тканей Askona только при одинаковых явных габаритах', () => {
     const line = (id: number, width: string) => {
       const destination = encodeURIComponent(

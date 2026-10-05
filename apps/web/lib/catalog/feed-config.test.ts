@@ -38,4 +38,16 @@ describe('настройки партнёрских фидов', () => {
       }),
     ).toEqual([{ source: 'askona', url: 'https://partner.test/askona.csv' }])
   })
+
+  it('распознаёт отдельный фид Bestmebelshop и позволяет держать его на паузе', () => {
+    const env = {
+      ADMITAD_FEED_BESTMEBELSHOP_URL: 'https://partner.test/bestmebelshop.csv',
+      ADMITAD_FEED_BESTMEBELSHOP_PAUSED: '1',
+    }
+
+    expect(configuredFeeds(env)).toEqual([])
+    expect(configuredFeeds({ ...env, ADMITAD_FEED_BESTMEBELSHOP_PAUSED: '0' })).toEqual([
+      { source: 'bestmebelshop', url: env.ADMITAD_FEED_BESTMEBELSHOP_URL },
+    ])
+  })
 })

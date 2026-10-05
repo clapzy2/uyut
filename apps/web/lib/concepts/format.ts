@@ -55,6 +55,7 @@ export const sourceLabels: Record<string, string> = {
   divan: 'Divan.ru',
   hoff: 'Hoff',
   askona: 'Askona',
+  bestmebelshop: 'Bestmebelshop',
   gdeslon: 'Где Слон?',
   dump: 'каталог',
 }

@@ -37,6 +37,7 @@ export const catalogSources = [
   'divan',
   'hoff',
   'askona',
+  'bestmebelshop',
   'gdeslon',
   'dump',
 ] as const

@@ -71,6 +71,7 @@ const sourceLabels: Record<string, string> = {
   divan: 'Divan.ru',
   hoff: 'Hoff',
   askona: 'Askona',
+  bestmebelshop: 'Bestmebelshop',
   dump: 'Каталог',
 }
 
