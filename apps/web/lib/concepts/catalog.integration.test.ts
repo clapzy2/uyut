@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { EMBEDDING_DIMENSIONS } from '@uyut/ai'
 import {
   countItems,
@@ -162,6 +163,85 @@ describe('catalog in a real database', () => {
     const totals = await countItems(getDb())
     expect(totals.total).toBeGreaterThanOrEqual(3)
     expect(totals.embedded).toBeGreaterThanOrEqual(3)
+  })
+
+  it('находит прикроватные тумбы в обеих категориях, не подменяя их столом или шкафом', async () => {
+    const db = getDb()
+    const prefix = `it-bedside-${randomUUID()}`
+    const fixtures = [
+      { suffix: 'table', category: 'table' as const, subcategory: 'bedside', priceKopecks: 500000 },
+      {
+        suffix: 'storage',
+        category: 'storage' as const,
+        subcategory: 'bedside',
+        priceKopecks: 700000,
+      },
+      { suffix: 'coffee', category: 'table' as const, subcategory: 'coffee', priceKopecks: 400000 },
+      {
+        suffix: 'wardrobe',
+        category: 'storage' as const,
+        subcategory: 'wardrobe',
+        priceKopecks: 400000,
+      },
+    ]
+    const externalIds = fixtures.map((fixture) => `${prefix}-${fixture.suffix}`)
+    try {
+      await upsertFeedItems(
+        db,
+        fixtures.map((fixture) => ({
+          ...fixture,
+          source: SOURCE,
+          externalId: `${prefix}-${fixture.suffix}`,
+          title: fixture.suffix,
+          affiliateUrl: 'https://shop/fixture',
+          images: [{ url: 'https://cdn/fixture.jpg' }],
+          inStock: true,
+        })),
+      )
+      const rows = (await db.select().from(catalogItems)).filter((row) =>
+        externalIds.includes(row.externalId),
+      )
+      await saveEmbeddings(
+        db,
+        rows.map((row) => ({
+          id: row.id,
+          imageEmbedding: axis(5),
+          textEmbedding: null,
+          hash: row.contentHash,
+        })),
+      )
+      for (const category of ['table', 'storage'] as const) {
+        const matches = await findSimilar(db, {
+          embedding: axis(5),
+          category,
+          subcategory: 'bedside',
+          strictSubcategory: true,
+          limit: 20,
+        })
+        expect(
+          matches
+            .filter((row) => externalIds.includes(row.externalId))
+            .map((row) => row.externalId)
+            .sort(),
+        ).toEqual([`${prefix}-storage`, `${prefix}-table`].sort())
+      }
+      const cheap = await findSimilar(db, {
+        embedding: axis(5),
+        category: 'table',
+        subcategory: 'bedside',
+        strictSubcategory: true,
+        maxPriceKopecks: 600000,
+        limit: 20,
+      })
+      expect(
+        cheap.filter((row) => externalIds.includes(row.externalId)).map((row) => row.externalId),
+      ).toEqual([`${prefix}-table`])
+      const broad = await findSimilar(db, { embedding: axis(5), category: 'table', limit: 20 })
+      expect(broad.map((row) => row.externalId)).not.toContain(`${prefix}-storage`)
+    } finally {
+      for (const externalId of externalIds)
+        await db.delete(catalogItems).where(eq(catalogItems.externalId, externalId))
+    }
   })
 
   it('пачечно скрывает товары, исчезнувшие из свежего фида', async () => {
@@ -331,5 +411,3 @@ describe('catalog in a real database', () => {
     }
   })
 })
-
-import { randomUUID } from 'node:crypto'

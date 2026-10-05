@@ -310,7 +310,11 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
       editedRenderKey: concept.editedRenderUrl,
       note: concept.note,
       qualityReview: concept.qualityReview,
-      qualityPlanStatus: qualityReviewPlanStatus(concept.qualityReview, source?.hash ?? null),
+      qualityPlanStatus: qualityReviewPlanStatus(
+        concept.qualityReview,
+        source?.hash ?? null,
+        source?.architecture,
+      ),
       orderIndex: concept.orderIndex,
       batchId: concept.batchId,
     },
@@ -329,7 +333,9 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
           architecture: source?.architecture ?? null,
           sourceHash: source?.hash ?? null,
           review:
-            currentPlanReview && currentPlanReview.sourceHash === source?.hash
+            currentPlanReview &&
+            currentPlanReview.sourceHash === source?.hash &&
+            currentPlanReview.openings.length === source?.architecture.openings.length
               ? currentPlanReview
               : null,
         }

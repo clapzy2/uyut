@@ -24,6 +24,41 @@ const geometry: PlanGeometry = {
 }
 
 describe('source for manual plan review', () => {
+  it('не считает старые извлечённые проёмы актуальными при том же исходнике', () => {
+    const current = planReviewSource('plan', 'render', geometry, 'Спальня')
+    if (!current) throw new Error('Missing source')
+    const review = {
+      version: 1 as const,
+      status: 'checked' as const,
+      model: 'test',
+      checkedAt: '2026-10-05T00:00:00Z',
+      description: 'Спальня',
+      issues: [],
+      architecture: current.architecture,
+      architectureSourceHash: current.hash,
+    }
+    const changedFacts = {
+      ...current.architecture,
+      openings: [{ type: 'window' as const, side: 'top' as const }],
+    }
+    expect(qualityReviewPlanStatus(review, current.hash, changedFacts)).toBe('changed')
+    expect(qualityReviewPlanStatus(review, current.hash, current.architecture)).toBe('current')
+    expect(
+      qualityReviewPlanStatus(
+        {
+          ...review,
+          architecture: {
+            openings: current.architecture.openings,
+            shape: current.architecture.shape,
+          },
+        },
+        current.hash,
+        current.architecture,
+      ),
+    ).toBe('current')
+    // Ручная отметка по самому исходнику не сбрасывается из-за обновления AI-извлечения.
+    expect(planReviewSource('plan', 'render', geometry, 'Спальня')?.hash).toBe(current.hash)
+  })
   it('requires a confirmed uniquely matched plan, render and room', () => {
     expect(planReviewSource(null, 'render', geometry, 'Спальня')).toBeNull()
     expect(planReviewSource('plan', null, geometry, 'Спальня')).toBeNull()

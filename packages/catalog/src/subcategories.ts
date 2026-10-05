@@ -53,6 +53,10 @@ const RULES: Partial<Record<CatalogCategory, Rule[]>> = {
   ],
   storage: [
     { subcategory: 'bedside', pattern: /прикроватн/i },
+    // Уточнение вида шкафа важнее общего слова «шкаф», но обычные полки
+    // в платяном шкафу не превращают его в книжный стеллаж.
+    { subcategory: 'shelving', pattern: /шкаф[\s-]+книжн|книжн[а-яё]*\s+шкаф|шкаф\s+для\s+книг/i },
+    { subcategory: 'cabinet', pattern: /шкаф[\s-]+витрин/i },
     { subcategory: 'wardrobe', pattern: /шкаф|гардероб|пенал/i },
     { subcategory: 'dresser', pattern: /комод/i },
     { subcategory: 'shelving', pattern: /стеллаж|этажерк|полк|книжн/i },

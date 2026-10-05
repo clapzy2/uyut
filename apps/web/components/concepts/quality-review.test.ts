@@ -104,7 +104,7 @@ describe('concept quality explanation', () => {
         planStatus: 'changed',
       }),
     )
-    expect(html).toContain('После правки плана нужна сверка')
+    expect(html).toContain('Сверьте концепт с актуальными данными плана')
     expect(html).toContain('Стол перекрывает видимую дверь.')
     expect(html).not.toContain('Старое окно слева.')
     expect(html).not.toContain('Автосверка не нашла замечаний')

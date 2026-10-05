@@ -41,6 +41,57 @@ const geometry: PlanGeometry = {
 }
 
 describe('факты архитектуры комнаты', () => {
+  it.each(['window', 'door', 'balcony'] as const)(
+    'сохраняет %s через промежуточные точки одной прямой грани',
+    (type) => {
+      const polygon = [
+        { xCm: 0, yCm: 0 },
+        { xCm: 180, yCm: 0 },
+        { xCm: 200, yCm: 0 },
+        { xCm: 400, yCm: 0 },
+        { xCm: 400, yCm: 300 },
+        { xCm: 0, yCm: 300 },
+      ]
+      for (const points of [polygon, [...polygon].reverse()]) {
+        const plan: PlanGeometry = {
+          ...geometry,
+          walls: [
+            { id: 'top', kind: 'outer', start: { xCm: 0, yCm: 0 }, end: { xCm: 400, yCm: 0 } },
+          ],
+          openings: [{ id: 'opening', type, wallId: 'top', offsetCm: 150, widthCm: 120 }],
+          rooms: [{ name: 'Гостиная', polygon: points }],
+        }
+        expect(roomArchitectureFromPlan(plan, 'Гостиная')?.openings).toEqual([
+          { type, side: 'top' },
+        ])
+      }
+    },
+  )
+
+  it('не соединяет проём через настоящий поворот или нишу', () => {
+    const plan: PlanGeometry = {
+      ...geometry,
+      walls: [{ id: 'top', kind: 'outer', start: { xCm: 0, yCm: 0 }, end: { xCm: 400, yCm: 0 } }],
+      openings: [{ id: 'opening', type: 'window', wallId: 'top', offsetCm: 150, widthCm: 120 }],
+      rooms: [
+        {
+          name: 'Гостиная',
+          polygon: [
+            { xCm: 0, yCm: 0 },
+            { xCm: 180, yCm: 0 },
+            { xCm: 180, yCm: 70 },
+            { xCm: 250, yCm: 70 },
+            { xCm: 250, yCm: 0 },
+            { xCm: 400, yCm: 0 },
+            { xCm: 400, yCm: 300 },
+            { xCm: 0, yCm: 300 },
+          ],
+        },
+      ],
+    }
+    expect(roomArchitectureFromPlan(plan, 'Гостиная')?.openings).toEqual([])
+  })
+
   it('берёт только проёмы выбранной комнаты из подтверждённого плана', () => {
     expect(roomArchitectureFromPlan(geometry, 'гостиная')).toEqual({
       shape: 'rectangular',

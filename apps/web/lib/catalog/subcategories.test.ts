@@ -35,6 +35,25 @@ describe('subcategoryFromText', () => {
     expect(subcategoryFromText('storage', 'Тумба прикроватная Sherlock 64')).toBe('bedside')
   })
 
+  it.each([
+    ['Шкаф книжный открытый', 'shelving'],
+    ['Книжный шкаф «Осло»', 'shelving'],
+    ['Шкаф для книг', 'shelving'],
+    ['Шкаф-витрина', 'cabinet'],
+    ['Шкаф витрина «Флэш»', 'cabinet'],
+    ['Шкаф платяной', 'wardrobe'],
+    ['Шкаф для одежды с полками', 'wardrobe'],
+    ['Тумба прикроватная с полкой', 'bedside'],
+  ] as const)('различает назначение хранения: %s', (title, expected) => {
+    expect(subcategoryFromText('storage', title)).toBe(expected)
+  })
+
+  it('сохраняет вид прикроватной тумбы для столов и хранения', () => {
+    expect(subcategoryFromText('table', 'Прикроватный столик')).toBe('bedside')
+    expect(subcategoryFromText('storage', 'Прикроватная тумба')).toBe('bedside')
+    expect(subcategoryForLabel('a bedside table')).toBe('bedside')
+  })
+
   it('у категорий без видов ответа нет', () => {
     expect(subcategoryFromText('sofa', 'Диван угловой «Осло»')).toBeUndefined()
     expect(subcategoryFromText('bed', 'Кровать двуспальная')).toBeUndefined()

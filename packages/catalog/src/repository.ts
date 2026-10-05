@@ -219,8 +219,13 @@ async function searchSimilar(
 ): Promise<SimilarItem[]> {
   const vector = `[${query.embedding.join(',')}]`
   const column = query.by === 'text' ? catalogItems.textEmbedding : catalogItems.imageEmbedding
+  // Один вид может приходить из фидов как столик или как тумба. Расширяем
+  // только прикроватный вид, не весь поиск столов/хранения и не соседние виды.
+  const bedside = query.subcategory === 'bedside' && ['table', 'storage'].includes(query.category)
   const conditions = [
-    eq(catalogItems.category, query.category),
+    bedside
+      ? inArray(catalogItems.category, ['table', 'storage'])
+      : eq(catalogItems.category, query.category),
     eq(catalogItems.inStock, true),
     catalogFreshnessCondition(),
     eq(catalogItems.embeddedHash, catalogItems.contentHash),

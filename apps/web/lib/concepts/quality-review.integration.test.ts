@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import { type ConceptQualityReview, concepts, type PlanGeometry, projects, users } from '@uyut/db'
+import {
+  type ConceptPlanReview,
+  type ConceptQualityReview,
+  conceptPlanReviews,
+  concepts,
+  type PlanGeometry,
+  projects,
+  users,
+} from '@uyut/db'
 import { eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { getDb } from '@/lib/db'
@@ -85,7 +93,10 @@ describe('отчёт качества в карточке концепта', () 
       widthCm: 300,
       heightCm: 300,
       walls: [{ id: 'top', kind: 'outer', start: { xCm: 0, yCm: 0 }, end: { xCm: 300, yCm: 0 } }],
-      openings: [{ id: 'window', type: 'window', wallId: 'top', offsetCm: 50, widthCm: 100 }],
+      openings: [
+        { id: 'window', type: 'window', wallId: 'top', offsetCm: 50, widthCm: 100 },
+        { id: 'door', type: 'door', wallId: 'top', offsetCm: 200, widthCm: 80 },
+      ],
       rooms: [
         {
           name: 'Кухня',
@@ -136,8 +147,33 @@ describe('отчёт качества в карточке концепта', () 
         })
         .returning()
       if (!concept) throw new Error('No concept')
+      // Старая версия извлечения видела только дверь. Её позиционная отметка
+      // не должна перейти на восстановленное окно при том же хеше исходника.
+      const oldManual: ConceptPlanReview = {
+        version: 1,
+        sourceHash: source.hash,
+        shape: 'matches',
+        openings: ['matches'],
+        reviewedAt: new Date().toISOString(),
+      }
+      await getDb().insert(conceptPlanReviews).values({ conceptId: concept.id, review: oldManual })
       const before = await getConceptPage(owner, concept.id)
       expect(before.concept.qualityPlanStatus).toBe('current')
+      expect(before.plan?.review).toBeNull()
+      const [savedManual] = await getDb()
+        .select()
+        .from(conceptPlanReviews)
+        .where(eq(conceptPlanReviews.conceptId, concept.id))
+      expect(savedManual?.review).toEqual(oldManual)
+      const currentManual = {
+        ...oldManual,
+        openings: source.architecture.openings.map(() => 'matches' as const),
+      }
+      await getDb()
+        .update(conceptPlanReviews)
+        .set({ review: currentManual })
+        .where(eq(conceptPlanReviews.conceptId, concept.id))
+      expect((await getConceptPage(owner, concept.id)).plan?.review).toEqual(currentManual)
       const opening = geometry.openings[0]
       if (!opening) throw new Error('missing opening')
       await getDb()
@@ -145,7 +181,10 @@ describe('отчёт качества в карточке концепта', () 
         .set({
           planReading: {
             ...reading,
-            geometry: { ...geometry, openings: [{ ...opening, offsetCm: 60 }] },
+            geometry: {
+              ...geometry,
+              openings: [{ ...opening, offsetCm: 60 }, ...geometry.openings.slice(1)],
+            },
           },
         })
         .where(eq(projects.id, projectId))
@@ -153,6 +192,7 @@ describe('отчёт качества в карточке концепта', () 
       expect(after.concept.qualityPlanStatus).toBe('changed')
       expect(after.concept.qualityReview).toEqual(savedReview)
       expect(after.concept.note).toBe('Кухня.')
+      expect(after.plan?.review).toBeNull()
       expect(after.plan?.architecture).toEqual(before.plan?.architecture)
       expect(after.plan?.sourceHash).not.toBe(before.plan?.sourceHash)
     } finally {

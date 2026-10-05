@@ -24,8 +24,22 @@ function distanceToSegment(point: PlanPoint, start: PlanPoint, end: PlanPoint): 
 }
 
 function onRoomBoundary(start: PlanPoint, end: PlanPoint, polygon: PlanPoint[]): boolean {
-  return polygon.some((edgeStart, index) => {
-    const edgeEnd = polygon[(index + 1) % polygon.length]
+  // Проём может пересекать несколько отрезков одной прямой стены. Убираем
+  // только промежуточные коллинеарные точки, сохраняя повороты и границы ниш.
+  const boundary = polygon.filter((point, index) => {
+    const previous = polygon[(index + polygon.length - 1) % polygon.length]
+    const next = polygon[(index + 1) % polygon.length]
+    if (!previous || !next) return true
+    const incoming = { x: point.xCm - previous.xCm, y: point.yCm - previous.yCm }
+    const outgoing = { x: next.xCm - point.xCm, y: next.yCm - point.yCm }
+    const lengths = Math.hypot(incoming.x, incoming.y) * Math.hypot(outgoing.x, outgoing.y)
+    const cross = incoming.x * outgoing.y - incoming.y * outgoing.x
+    const dot = incoming.x * outgoing.x + incoming.y * outgoing.y
+    return lengths === 0 || Math.abs(cross) > lengths * 1e-6 || dot <= 0
+  })
+  if (boundary.length < 3) return false
+  return boundary.some((edgeStart, index) => {
+    const edgeEnd = boundary[(index + 1) % boundary.length]
     return (
       edgeEnd !== undefined &&
       distanceToSegment(start, edgeStart, edgeEnd) <= BOUNDARY_TOLERANCE_CM &&
