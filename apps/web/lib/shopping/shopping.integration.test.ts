@@ -458,7 +458,9 @@ describe('shopping list in a real database', () => {
       }
       const likedOnly = await loadSnapshot(selectedProject.id)
       expect(likedOnly?.concepts.get(selectedRoom.id)?.main.id).toBe(likedAlternative.id)
-      expect(likedOnly?.concepts.get(selectedRoom.id)?.alternates).toEqual([])
+      expect(
+        likedOnly?.concepts.get(selectedRoom.id)?.alternates.map((concept) => concept.id),
+      ).toEqual([selectedConcept.id])
     } finally {
       vi.unstubAllGlobals()
       await db.delete(projects).where(eq(projects.id, selectedProject.id))
