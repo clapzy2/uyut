@@ -20,6 +20,7 @@ vi.mock('./repository', () => ({ finishGenerationRun: mocks.finish }))
 
 import {
   GenerationStatusUnknownError,
+  generationStatus,
   generationStillRunning,
   resumeGenerationRun,
 } from './resume-run'
@@ -98,6 +99,13 @@ describe('возвращение к генерации без повторног
   it('отсутствие активного запуска не вызывает сеть', async () => {
     expect(await generationStillRunning(room({ generationRunId: null }))).toBe(false)
     expect(mocks.retrieve).not.toHaveBeenCalled()
+  })
+
+  it('возвращает этап для запасной проверки прогресса без перезагрузки страницы', async () => {
+    const progress = { stage: 'render', done: 2, total: 5, failed: 0 }
+    mocks.retrieve.mockResolvedValue({ status: 'EXECUTING', metadata: { progress } })
+
+    expect(await generationStatus(room())).toEqual({ running: true, progress })
   })
 
   it('не подтверждает завершение, если итог не удалось сохранить вместе с карточками', async () => {

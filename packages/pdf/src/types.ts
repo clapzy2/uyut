@@ -57,6 +57,8 @@ export type PdfData = {
   generatedAt: Date
   project: {
     title: string
+    /** Общая площадь квартиры, если известна; может быть больше площади посчитанных комнат. */
+    totalAreaM2?: number | null
     /** Строка под названием: комнаты, площадь, бюджет */
     subtitle: string
     facts: Array<{ label: string; value: string }>

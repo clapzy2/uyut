@@ -6,6 +6,12 @@ import { isTerminalRunStatus } from '@/lib/queue/run-status'
 import { finishGenerationRun } from './repository'
 
 export type ConceptRunHandle = { runId: string; accessToken: string }
+export type ConceptRunProgress = {
+  stage?: string
+  done?: number
+  total?: number
+  failed?: number
+}
 
 const QUEUE_TIMEOUT_MS = 4_000
 
@@ -42,7 +48,9 @@ async function queueResponse<T>(request: PromiseLike<T>): Promise<T> {
  * Очередь может ждать воркер дольше времени выполнения. Освобождаем комнату только
  * после конечного статуса; при потере ответа ищем уже отправленный запуск по метке.
  */
-async function currentGeneration(room: Room): Promise<{ runId: string; running: boolean } | null> {
+async function currentGeneration(
+  room: Room,
+): Promise<{ runId: string; running: boolean; progress: ConceptRunProgress } | null> {
   if (!room.generationRunId) return null
   if (!getEnv().TRIGGER_SECRET_KEY) throw new GenerationStatusUnknownError()
 
@@ -71,11 +79,22 @@ async function currentGeneration(room: Room): Promise<{ runId: string; running: 
     // блокировать повтор; готовые изображения и товары этой пачки сохраняются.
     await finishGenerationRun({ roomId: room.id, runId, batchId, status: run.status })
   }
-  return { runId, running }
+  return {
+    runId,
+    running,
+    progress: (run.metadata?.progress ?? {}) as ConceptRunProgress,
+  }
 }
 
 export async function generationStillRunning(room: Room): Promise<boolean> {
   return (await currentGeneration(room))?.running ?? false
+}
+
+export async function generationStatus(
+  room: Room,
+): Promise<{ running: boolean; progress: ConceptRunProgress }> {
+  const run = await currentGeneration(room)
+  return run ? { running: run.running, progress: run.progress } : { running: false, progress: {} }
 }
 
 /** Восстанавливает ожидание без нового вызова генерации и не роняет страницу при сбое очереди. */

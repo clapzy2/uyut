@@ -27,7 +27,7 @@ import {
   splitVotes,
   theirVote,
 } from '@/lib/concepts/votes'
-import { useRunWatch } from '@/lib/queue/use-run-watch'
+import { type RunProgressMeta, useRunWatch } from '@/lib/queue/use-run-watch'
 
 export type ConceptItem = {
   id: string
@@ -55,6 +55,14 @@ const stageLabels: Array<{ key: string; label: string }> = [
 
 function stageIndex(stage: string | undefined): number {
   return stageLabels.findIndex((item) => item.key === stage)
+}
+
+function latestProgress(realtime: RunProgressMeta, checked: RunProgressMeta): RunProgressMeta {
+  const realtimeStage = stageIndex(realtime.stage)
+  const checkedStage = stageIndex(checked.stage)
+  if (checkedStage > realtimeStage) return checked
+  if (checkedStage === realtimeStage && (checked.done ?? 0) > (realtime.done ?? 0)) return checked
+  return realtime
 }
 
 // Дольше обычного — это уже втрое против тридцати секунд, на которые мы настроили человека.
@@ -90,22 +98,27 @@ function RunProgress({
 }) {
   const reducedMotion = useReducedMotion()
   const [checkError, setCheckError] = useState<string | null>(null)
+  const [checkedProgress, setCheckedProgress] = useState<RunProgressMeta>({})
   const finishedCallback = useRef(onFinished)
   useEffect(() => {
     finishedCallback.current = onFinished
   }, [onFinished])
-  const { progress, slow, lost } = useRunWatch({
+  const {
+    progress: realtimeProgress,
+    slow,
+    lost,
+  } = useRunWatch({
     runId,
     accessToken,
     slowAfterMs: SLOW_AFTER_MS,
     giveUpAfterMs: GIVE_UP_AFTER_MS,
     onFinished,
   })
+  const progress = latestProgress(realtimeProgress, checkedProgress)
   const current = stageIndex(progress.stage)
 
-  // Поток событий из очереди умеет замолчать без единой ошибки: галочки замирают, а концепты
-  // при этом давно готовы. Поэтому раз в пятнадцать секунд переспрашиваем сервер — он смотрит
-  // на сами концепты, а не на связь.
+  // Поток событий из очереди умеет замолчать без ошибки. Раз в пятнадцать секунд сервер
+  // проверяет задачу и её этап, чтобы галочки двигались без обновления страницы.
   useEffect(() => {
     let stopped = false
     let checking = false
@@ -119,6 +132,9 @@ function RunProgress({
         .then((result) => {
           if (stopped) return
           setCheckError(result.ok ? null : result.error)
+          if (result.ok) {
+            setCheckedProgress((previous) => latestProgress(previous, result.data.progress ?? {}))
+          }
           if (result.ok && !result.data.running) {
             stopped = true
             clearInterval(timer)

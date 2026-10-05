@@ -12,6 +12,7 @@ function sample(kind: PdfData['kind']): PdfData {
     generatedAt: new Date('2026-09-07T12:00:00Z'),
     project: {
       title: 'Квартира на Мира <тест>',
+      totalAreaM2: 28,
       subtitle: 'Гостиная и кухня · 28 м²',
       facts: [{ label: 'Стиль', value: 'Лофт, сканди' }],
       contact: { clientName: 'Иван', phone: '+7 900 000-00-00' },
@@ -226,6 +227,25 @@ describe('project PDF template', () => {
     expect(html).not.toContain('Сколько это стоит')
     expect(html).not.toContain('<div>Смета</div>')
     expect(renderProjectHtml(sample('free'), { fontCss: '' })).toContain('Сколько это стоит')
+  })
+
+  it('labels the estimate as partial when counted rooms cover only part of the apartment', () => {
+    const html = renderProjectHtml(sample('free'), { fontCss: '' })
+    expect(html).toContain('По учтённым позициям')
+    expect(html).toContain(`Работы учтены для 18,4${NBSP}м² из 28${NBSP}м² площади квартиры`)
+    expect(html).toContain('остальные помещения не оценены')
+    expect(html).toContain('это не свободный остаток на весь ремонт')
+  })
+
+  it('does not present unselected catalog matches as exact rendered products', () => {
+    const data = sample('free')
+    const room = data.rooms[0]
+    if (!room) throw new Error('Missing room')
+    room.objects = [{ index: 1, category: 'Диван', product: null, priceKopecks: null }]
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('Остальные строки — категории, не точные модели')
+    expect(html).toContain('Предметы на визуализации')
+    expect(html).not.toContain('Диван Букле</span><span class="mono')
   })
 
   it('does not invent an online project link for an offline QA document', () => {

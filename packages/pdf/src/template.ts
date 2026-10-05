@@ -190,6 +190,15 @@ function cover(data: PdfData, free: boolean): string {
   </section>`
 }
 
+function estimateScope(data: PdfData): string {
+  const countedArea = data.estimate.works.areaM2
+  const totalArea = data.project.totalAreaM2
+  if (totalArea && totalArea > countedArea + 0.05) {
+    return `Работы учтены для ${formatArea(countedArea)} из ${formatArea(totalArea)} площади квартиры; остальные помещения не оценены.`
+  }
+  return 'Работы оценены только для добавленных комнат с известной площадью.'
+}
+
 function about(data: PdfData, free: boolean): string {
   const contents = [
     ...data.rooms.map((room) => room.name),
@@ -215,12 +224,12 @@ function about(data: PdfData, free: boolean): string {
         ${
           data.estimateStatus === 'not-calculated'
             ? '<p class="bigfig" style="font-size:21pt">Стоимость не рассчитывалась</p><p class="small">Для расчёта нужны выбранные товары, состав работ и ставки. Итоговая стоимость пока неизвестна.</p>'
-            : `<p class="bigfig">${formatPrice(estimate.totalKopecks)}</p>
-        <p class="small">Смета проекта: мебель и декор по каталогу ${formatPrice(estimate.furnitureKopecks)}, работы по комнатам ≈ ${formatPrice(estimate.works.totalKopecks)}. ${
+            : `<p class="eyebrow">По учтённым позициям</p><p class="bigfig">${formatPrice(estimate.totalKopecks)}</p>
+        <p class="small">Покупки из списка ${formatPrice(estimate.furnitureKopecks)}, примерная стоимость работ ${formatPrice(estimate.works.totalKopecks)}. ${esc(estimateScope(data))} Отделочные материалы не включены. ${
           remaining === null
             ? 'Бюджет в проекте не указан.'
             : remaining >= 0
-              ? `Остаётся ${formatPrice(remaining)} запаса от бюджета.`
+              ? `Разница с бюджетом по этому расчёту — ${formatPrice(remaining)}; это не свободный остаток на весь ремонт.`
               : `Перерасход бюджета ${formatPrice(-remaining)}.`
         }</p>`
         }
@@ -424,7 +433,8 @@ function roomPage(room: PdfRoom, index: number, free: boolean): string {
         }
       </div>
       <div class="objects">
-        <p class="eyebrow">Предметы на рендере</p>
+        <p class="eyebrow">Предметы на визуализации</p>
+        <p class="small">Название товара и цена указаны только для предметов, добавленных в список покупок. Остальные строки — категории, не точные модели.</p>
         ${
           room.objects.length === 0
             ? '<p class="small">Предметы на этом рендере ещё не распознаны.</p>'
@@ -583,7 +593,7 @@ function estimatePage(data: PdfData, free: boolean): string {
       ${estimate.works.roomsWithoutArea.map((name) => `<div class="line"><span>${esc(name)}</span><span class="formula">площадь не указана</span><span class="price">—</span></div>`).join('')}
       ${estimate.works.roomsSeparate.map((name) => `<div class="line"><span>${esc(name)}</span><span class="formula">отдельный расчёт работ</span><span class="price">—</span></div>`).join('')}
       <div class="sum"><span>Итого по расчёту</span><span class="price">${formatPrice(estimate.totalKopecks)}</span></div>
-      <p style="font-size:9.5pt;margin-top:2mm">Мебель — по списку покупок, работы — по площади пола и ставкам ниже. Материалы для отделки в сумму не включены.${estimate.works.roomsWithoutArea.length > 0 ? ` Работы для комнат без площади ещё не включены: ${esc(estimate.works.roomsWithoutArea.join(', '))}.` : ''}${estimate.works.roomsSeparate.length > 0 ? ` Работы на балконах и лоджиях в итог не включены: нужен отдельный расчёт по месту (${esc(estimate.works.roomsSeparate.join(', '))}).` : ''}</p>
+      <p style="font-size:9.5pt;margin-top:2mm">${esc(estimateScope(data))} Мебель — только по списку покупок. Материалы для отделки в сумму не включены.${estimate.works.roomsWithoutArea.length > 0 ? ` Работы для комнат без площади ещё не включены: ${esc(estimate.works.roomsWithoutArea.join(', '))}.` : ''}${estimate.works.roomsSeparate.length > 0 ? ` Работы на балконах и лоджиях в итог не включены: нужен отдельный расчёт по месту (${esc(estimate.works.roomsSeparate.join(', '))}).` : ''}</p>
     </div>
     <div style="display:grid;gap:3mm">
       <div class="bar"><span style="width:${estimate.shares.furniture * 100}%;background:#7c2f3b"></span><span style="width:${estimate.shares.works * 100}%;background:#b98a5a"></span><span style="width:${estimate.shares.free * 100}%;background:${estimate.overBudget ? '#d9a6ad' : '#ddd4c1'}"></span></div>

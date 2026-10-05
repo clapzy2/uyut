@@ -10,8 +10,10 @@ import { APARTMENT_COUNT, apartmentPlan } from '@/lib/concepts/apartment'
 import { getDuoOffer } from '@/lib/concepts/duo'
 import * as conceptsRepository from '@/lib/concepts/repository'
 import {
+  type ConceptRunProgress,
   GenerationStatusUnknownError,
   generationRunTag,
+  generationStatus,
   generationStillRunning,
 } from '@/lib/concepts/resume-run'
 import { getEnv } from '@/lib/env'
@@ -440,18 +442,19 @@ export async function requestDuoConcepts(roomId: string): Promise<ActionResult<C
 }
 
 /**
- * Идёт ли генерация по мнению сервера. Панель спрашивает это, пока ждёт: поток событий из
- * очереди умеет замолчать без единой ошибки, и тогда экран ожидания висел бы поверх
- * готовых концептов.
+ * Идёт ли генерация и какой этап видит сервер. Панель спрашивает это, пока ждёт:
+ * поток событий из очереди может замолчать без ошибки.
  */
-export async function checkGeneration(roomId: string): Promise<ActionResult<{ running: boolean }>> {
+export async function checkGeneration(
+  roomId: string,
+): Promise<ActionResult<{ running: boolean; progress: ConceptRunProgress }>> {
   const userId = await currentUserId()
   if (!userId) {
     return { ok: false, error: SESSION_EXPIRED }
   }
   try {
     const room = await getRoom(userId, roomId)
-    return { ok: true, data: { running: await generationStillRunning(room) } }
+    return { ok: true, data: await generationStatus(room) }
   } catch (error) {
     return failure(error)
   }

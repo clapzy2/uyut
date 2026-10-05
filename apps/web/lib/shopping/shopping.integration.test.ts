@@ -315,7 +315,7 @@ describe('shopping list in a real database', () => {
     }
   })
 
-  it('keeps a selected concept and its chosen fabric through the list and printed HTML without a like', async () => {
+  it('keeps the purchase without approving its source concept in the PDF', async () => {
     const db = getDb()
     const [selectedProject] = await db
       .insert(projects)
@@ -402,14 +402,9 @@ describe('shopping list in a real database', () => {
       })
       const snapshot = await loadSnapshot(selectedProject.id)
       if (!snapshot) throw new Error('Missing print snapshot')
-      expect(snapshot.concepts.get(selectedRoom.id)?.main.id).toBe(selectedConcept.id)
-      expect(
-        snapshot.concepts.get(selectedRoom.id)?.alternates.map((concept) => concept.id),
-      ).toEqual([likedAlternative.id])
-      expect(snapshot.objects.get(selectedRoom.id)?.[0]).toMatchObject({
-        product: 'Диван для списка',
-        priceKopecks: 79_900_00,
-      })
+      expect(snapshot.concepts.get(selectedRoom.id)?.main.id).toBe(likedAlternative.id)
+      expect(snapshot.concepts.get(selectedRoom.id)?.alternates).toEqual([])
+      expect(snapshot.objects.get(selectedRoom.id)).toEqual([])
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 404 })))
       const pdf = await buildPdfData({
         snapshot,
@@ -431,6 +426,20 @@ describe('shopping list in a real database', () => {
       expect(html).toContain('Материалы для отделки в сумму не включены')
       expect(html).not.toContain('untrusted.example')
       expect(html).not.toContain('Выбранное помещается')
+
+      await db
+        .update(concepts)
+        .set({ likedByOwner: true })
+        .where(eq(concepts.id, selectedConcept.id))
+      const approved = await loadSnapshot(selectedProject.id)
+      expect(approved?.concepts.get(selectedRoom.id)?.main.id).toBe(selectedConcept.id)
+      expect(
+        approved?.concepts.get(selectedRoom.id)?.alternates.map((concept) => concept.id),
+      ).toEqual([likedAlternative.id])
+      expect(approved?.objects.get(selectedRoom.id)?.[0]).toMatchObject({
+        product: 'Диван для списка',
+        priceKopecks: 79_900_00,
+      })
 
       // Two variants selected for one rendered object must not imply a single model/price.
       await addShoppingItem(ownerId, {

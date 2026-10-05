@@ -27,7 +27,7 @@ import {
 } from '@uyut/db'
 import type { PdfData, PdfImage, PdfRoom, PdfShoppingGroup } from '@uyut/pdf'
 import { formatArea, formatDimensionCm, formatPrice } from '@uyut/pdf'
-import { and, desc, eq, inArray, or } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db } from './db'
 import { optionalEnv, requireEnv } from './env'
@@ -220,7 +220,8 @@ export async function loadSnapshot(projectId: string): Promise<ProjectSnapshot |
         .where(eq(shoppingLists.projectId, projectId))
         .orderBy(rooms.orderIndex, shoppingListItems.createdAt)
 
-      // Концепт, из которого добавляли товары, становится главным; иначе последний понравившийся
+      // Покупка предмета не означает одобрение всего интерьера. Среди понравившихся
+      // главным становится тот, из которого выбрано больше предметов.
       const objectIds = shopping
         .map((row) => row.item.conceptObjectId)
         .filter((id): id is string => id !== null)
@@ -234,8 +235,6 @@ export async function loadSnapshot(projectId: string): Promise<ProjectSnapshot |
       for (const row of objectConcepts) {
         votes.set(row.conceptId, (votes.get(row.conceptId) ?? 0) + 1)
       }
-      const selectedConceptIds = [...votes.keys()]
-
       const conceptMap: ProjectSnapshot['concepts'] = new Map()
       const objectsMap: ProjectSnapshot['objects'] = new Map()
       for (const room of roomRows) {
@@ -246,9 +245,7 @@ export async function loadSnapshot(projectId: string): Promise<ProjectSnapshot |
             and(
               eq(concepts.roomId, room.id),
               eq(concepts.status, 'ready'),
-              selectedConceptIds.length > 0
-                ? or(eq(concepts.likedByOwner, true), inArray(concepts.id, selectedConceptIds))
-                : eq(concepts.likedByOwner, true),
+              eq(concepts.likedByOwner, true),
             ),
           )
           .orderBy(desc(concepts.createdAt))
@@ -266,14 +263,13 @@ export async function loadSnapshot(projectId: string): Promise<ProjectSnapshot |
             .slice(0, 3),
         })
         const rows = await database
-          .select({ object: conceptObjects, product: catalogItems })
+          .select({ object: conceptObjects })
           .from(conceptObjects)
-          .leftJoin(catalogItems, eq(catalogItems.id, conceptObjects.matchedCatalogItemId))
           .where(eq(conceptObjects.conceptId, main.id))
           .orderBy(conceptObjects.orderIndex)
         objectsMap.set(
           room.id,
-          rows.map(({ object, product }) => {
+          rows.map(({ object }) => {
             const chosen = shopping.filter((row) => row.item.conceptObjectId === object.id)
             const selected = chosen.length === 1 ? chosen[0] : undefined
             return {
@@ -282,13 +278,13 @@ export async function loadSnapshot(projectId: string): Promise<ProjectSnapshot |
               product:
                 chosen.length > 1
                   ? 'Несколько выбранных позиций — см. список покупок'
-                  : (selected?.product.title ?? product?.title ?? null),
+                  : (selected?.product.title ?? null),
               priceKopecks:
                 chosen.length > 1
                   ? null
                   : selected
                     ? shoppingOffer(selected.product, selected.item.selectedVariant).priceKopecks
-                    : (product?.priceKopecks ?? null),
+                    : null,
             }
           }),
         )
@@ -541,6 +537,7 @@ export async function buildPdfData(input: {
     generatedAt: new Date(),
     project: {
       title: project.title,
+      totalAreaM2: project.totalAreaM2,
       subtitle: [subtitleParts.join(' · '), family ? `Для семьи: ${family.toLowerCase()}.` : null]
         .filter(Boolean)
         .join('. '),

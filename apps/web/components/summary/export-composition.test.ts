@@ -40,7 +40,7 @@ function markup(compositionRooms: ReturnType<typeof exportRoomComposition>[], it
 }
 
 describe('PDF composition before checkout', () => {
-  it('selects a ready shopping concept over a newer owner like and caps liked alternatives at three', () => {
+  it('does not treat a shopping pick as approval and caps liked alternatives at three', () => {
     const candidates = [
       concept('shopping', { likedByOwner: false }),
       ...['a', 'b', 'c', 'd'].map((id) =>
@@ -54,11 +54,25 @@ describe('PDF composition before checkout', () => {
       [],
       null,
     )
-    expect(composition.mainId).toBe('shopping')
-    expect(composition.mainFromShopping).toBe(true)
+    expect(composition.mainId).toBe('a')
+    expect(composition.mainFromShopping).toBe(false)
     expect(composition.alternateCount).toBe(3)
-    expect(markup([composition])).toContain('откуда выбрано больше всего предметов')
-    expect(markup([composition])).toContain('/projects/project/rooms/living/concepts/shopping')
+    expect(markup([composition])).toContain('последний понравившийся владельцу вариант')
+    expect(markup([composition])).toContain('/projects/project/rooms/living/concepts/a')
+    expect(markup([composition])).not.toContain('/projects/project/rooms/living/concepts/shopping')
+  })
+
+  it('keeps an unliked shopping source out of the PDF even when no concept is liked', () => {
+    const composition = exportRoomComposition(
+      room,
+      [concept('shopping', { likedByOwner: false })],
+      [{ id: 'object', conceptId: 'shopping' }],
+      [item()],
+      null,
+    )
+    expect(composition.mainId).toBeNull()
+    expect(composition.positions).toBe(1)
+    expect(markup([composition], [item()])).toContain('Покупки сами по себе не выбирают интерьер')
   })
 
   it('counts distinct selected objects rather than duplicate shopping rows or quantities', () => {

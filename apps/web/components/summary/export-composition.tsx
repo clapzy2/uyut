@@ -14,7 +14,7 @@ type ExportItem = Pick<
   'roomId' | 'quantity' | 'variant' | 'catalogNotice' | 'dimensionsCm'
 >
 
-/** Matches jobs/pdf-data: only ready owner likes or concepts tied to selected objects. */
+/** Matches jobs/pdf-data: only ready owner likes become PDF interiors. */
 export function exportRoomComposition(
   room: ExportRoom,
   concepts: readonly ExportConcept[],
@@ -29,9 +29,7 @@ export function exportRoomComposition(
   const candidates = concepts
     .filter(
       (concept) =>
-        concept.roomId === room.id &&
-        concept.status === 'ready' &&
-        (concept.likedByOwner === true || votes.has(concept.id)),
+        concept.roomId === room.id && concept.status === 'ready' && concept.likedByOwner === true,
     )
     .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
   const selected = [...candidates].sort(
@@ -138,7 +136,7 @@ export function ExportComposition({
                   <>
                     Без выбранного интерьера.{' '}
                     {room.conceptCount > 0
-                      ? 'Готовые варианты есть: владелец может отметить понравившийся или выбрать из него товары. '
+                      ? 'Готовые варианты есть: отметьте понравившийся, чтобы добавить его в PDF. Покупки сами по себе не выбирают интерьер. '
                       : 'Готовых вариантов пока нет. '}
                   </>
                 )}
