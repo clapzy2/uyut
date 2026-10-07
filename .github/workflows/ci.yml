@@ -72,7 +72,11 @@ jobs:
         run: bun run test:integration
 
       - name: Install Playwright
-        run: bunx playwright install --with-deps chromium
+        working-directory: apps/web
+        timeout-minutes: 5
+        run: |
+          sudo install -m 0644 ../../.github/apt-ci.conf /etc/apt/apt.conf.d/99-uyut-ci-network
+          bunx --no-install playwright install --with-deps chromium
 
       - name: E2E
         env:
