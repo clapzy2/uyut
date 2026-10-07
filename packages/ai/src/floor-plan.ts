@@ -1,4 +1,4 @@
-import type { PlanMeasurementEvidence } from '@uyut/db'
+import type { PlanMeasurementEvidence, RoomSpaceKind } from '@uyut/db'
 import type { RoomKind } from './detect'
 import { FalError, falQueue, toDataUri } from './fal-queue'
 import {
@@ -40,7 +40,7 @@ export const FLOOR_PLAN_PROMPT = `Ты читаешь план квартиры 
   "ceilingEvidence": объект доказательств общей высоты или null,
   "totalAreaM2": число или null,
   "rooms": [{
-    "name": "...", "sourceNumber": число или null,
+    "name": "...", "sourceNumber": число или null, "spaceKind": "interior или balcony или loggia",
     "ceilingMm": число или null, "widthMm": число или null, "depthMm": число или null,
     "areaM2": число или null, "layoutNotes": строка или null,
     "measurementEvidence": {
@@ -49,7 +49,14 @@ export const FLOOR_PLAN_PROMPT = `Ты читаешь план квартиры 
       "ceiling": объект доказательств высоты этой комнаты или null
     }
   }],
-  "geometry": {"widthMm": число, "heightMm": число, "walls": [{"id":"w1","start":{"xMm":0,"yMm":0},"end":{"xMm":3000,"yMm":0},"kind":"outer или inner","thicknessMm":число или null}], "openings":[{"id":"o1","type":"door или window или balcony","wallId":"w1","offsetMm":число,"widthMm":число}], "obstacles":[{"id":"x1","kind":"column или shaft или fixed","xMm":число,"yMm":число,"widthMm":число,"depthMm":число,"label":"короткая подпись"}], "rooms":[{"name":"Кухня","sourceNumber":число или null,"polygon":[{"xMm":0,"yMm":0},{"xMm":3000,"yMm":0},{"xMm":3000,"yMm":2500}]}] } или null
+  "geometry": {
+    "widthMm": число, "heightMm": число,
+    "footprint": [{"xMm":число,"yMm":число}] или null,
+    "walls": [{"id":"w1","start":{"xMm":0,"yMm":0},"end":{"xMm":3000,"yMm":0},"kind":"outer или inner","thicknessMm":число или null}],
+    "openings": [{"id":"o1","type":"door или window или balcony","wallId":"w1","offsetMm":число,"widthMm":число}],
+    "obstacles": [{"id":"x1","kind":"column или shaft или fixed","xMm":число,"yMm":число,"widthMm":число,"depthMm":число,"label":"короткая подпись"}],
+    "rooms": [{"name":"Кухня","sourceNumber":число или null,"polygon":[{"xMm":0,"yMm":0},{"xMm":3000,"yMm":0},{"xMm":3000,"yMm":2500}]}]
+  } или null
 }
 
 Правила:
@@ -70,10 +77,11 @@ export const FLOOR_PLAN_PROMPT = `Ты читаешь план квартиры 
 - Привязку цепочки к комнате определяй по концам размерной линии и стенам; высоту — по выноске и её указателю. Близость текста, порядок комнат и совпадение площади не доказывают привязку. Не можешь связать всю цепочку с этой комнатой — соответствующий размер и evidence верни null. Для потолка segmentsMm содержит одно число, не диапазон и не сумму.
 - textItemIndexes нужны при наличии текстового слоя PDF, по одному на каждый отрезок; индекс относится к массиву переданных подписей той же страницы. Не повторяй индекс. Без текстового слоя это поле не добавляй. Подписи окон, высоты проёмов и балок не назначай потолкам.
 - Для общего ceilingMm нужен ceilingEvidence такого же вида, но kind ceiling, scope apartment, без sourceNumber/roomName: только явная единая высота всей квартиры. Высота одной комнаты или диапазон не годятся.
-- Балконы, лоджии, шахты и лестничные клетки в список не включай.
+- Балконы и лоджии сохрани отдельными помещениями, в том числе без подписанной площади: spaceKind balcony или loggia, utility true. Не вычисляй их площадь из картинки и не прибавляй её к totalAreaM2. Шахты и лестничные клетки в список помещений не включай.
 - Ничего не додумывай: чего не видно, то null. Не округляй подписанные миллиметры и сотые доли площади.
 - geometry — единая 2D-схема квартиры в масштабе. Начало координат в левом верхнем углу внешнего контура; x вправо, y вниз, всё в миллиметрах.
 - widthMm и heightMm внутри geometry — габарит ограничивающего прямоугольника квартиры, не размер картинки.
+- В geometry добавь footprint: массив точек {xMm,yMm} замкнутой границы пола квартиры вместе с балконом (первую точку не повторяй). Сохраняй выступы и диагонали; балконный проём не заменяет пол балкона. Не заменяй контур прямоугольным габаритом. Если край обрезан или граница не видна полностью, footprint null; не замыкай её догадкой. Балкон также имеет отдельный polygon в geometry.rooms.
 - Каждую стену запиши один раз от start до end. Внешние стены kind outer, перегородки inner. Идентификаторы уникальны.
 - Стена — полный логический отрезок от угла до угла или пересечения, включая место проёма. Не создавай отдельную короткую стену на месте окна или двери.
 - Проём обязан ссылаться на стену. offsetMm — расстояние вдоль стены от её start до начала проёма; widthMm — ширина проёма. Не видишь ширину или стену уверенно — не добавляй этот проём.
@@ -88,6 +96,7 @@ export const FLOOR_PLAN_PROMPT = `Ты читаешь план квартиры 
 /** Одна комната с плана, в сантиметрах: в них же меряет всё остальное приложение. */
 export type PlanRoom = {
   name: string
+  spaceKind?: RoomSpaceKind
   /** Номер помещения, напечатанный на исходном листе, не позиция ответа. */
   sourceNumber?: number
   ceilingCm?: number
@@ -188,7 +197,8 @@ const RECHECK_TOLERANCE = 0.02
  * Своего типа у них нет, и без этой пометки они уезжали бы в «гостиную» — сервис рисовал бы
  * диван и ковёр в коридоре шириной метр двадцать.
  */
-const UTILITY_WORDS = /прихож|коридор|холл|тамбур|гардероб|кладов|постироч|котельн|лестнич|шахт/i
+const UTILITY_WORDS =
+  /прихож|коридор|холл|тамбур|гардероб|кладов|постироч|котельн|лестнич|шахт|балкон|лоджи/i
 
 const KIND_WORDS: ReadonlyArray<[RegExp, RoomKind]> = [
   [/санузел|ванн|туалет|с\/у|душев/i, 'bath'],
@@ -420,15 +430,23 @@ export function parseFloorPlan(
         'Описание архитектуры содержит размеры — уточните их в отдельных полях перед сохранением.',
       )
     }
+    const spaceKind: RoomSpaceKind | undefined = /лоджи/i.test(name)
+      ? 'loggia'
+      : /балкон/i.test(name)
+        ? 'balcony'
+        : source.spaceKind === 'balcony' || source.spaceKind === 'loggia'
+          ? source.spaceKind
+          : undefined
     const asRead = {
       name,
+      ...(spaceKind ? { spaceKind } : {}),
       ...(number === undefined ? {} : { sourceNumber: number }),
       ...(roomCeiling === undefined ? {} : { ceilingCm: roomCeiling }),
       ...(Object.keys(measurementEvidence).length > 0 ? { measurementEvidence } : {}),
       ...(measurementWarnings.length > 0 ? { measurementWarnings } : {}),
       kind: roomKindFromName(name),
       ...(layoutNotes ? { layoutNotes } : {}),
-      ...(isUtilityRoom(name) ? { utility: true } : {}),
+      ...(isUtilityRoom(name) || spaceKind ? { utility: true } : {}),
       ...(aspect === undefined ? {} : { aspect }),
       widthCm,
       depthCm,
@@ -438,7 +456,8 @@ export function parseFloorPlan(
       asRead.widthCm === undefined &&
       asRead.depthCm === undefined &&
       asRead.areaM2 === undefined &&
-      measurementWarnings.length === 0
+      measurementWarnings.length === 0 &&
+      !spaceKind
     ) {
       continue
     }
@@ -498,6 +517,7 @@ export function checkTotalArea(
   }
   let sum = 0
   for (const room of reading.rooms) {
+    if (room.spaceKind === 'balcony' || room.spaceKind === 'loggia') continue
     if (room.areaM2 === undefined) {
       return undefined
     }

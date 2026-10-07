@@ -57,6 +57,8 @@ export type VolumeRoom = {
   id: string
   title: string
   floor: PlanPoint[]
+  /** A source contour without a linked project-room page. */
+  sourceOnly?: boolean
 }
 
 export type VolumeFloorZone = {
@@ -309,6 +311,11 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
     solidFaces: joined?.faces ?? solidFaces,
     joinedSolids: joined !== undefined,
     issues: [...(joined?.issues ?? []), ...kitchenIssues],
+    rooms: geometry.rooms.flatMap((room, index) =>
+      room.spaceKind === 'balcony' || room.spaceKind === 'loggia' || /балкон|лоджи/i.test(room.name)
+        ? [{ id: `plan-space:${index}`, title: room.name, floor: room.polygon, sourceOnly: true }]
+        : [],
+    ),
     ...(furniture.length > 0 ? { furniture } : {}),
     ...(floorZones.length > 0 ? { floorZones } : {}),
   }

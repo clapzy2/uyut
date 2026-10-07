@@ -25,6 +25,7 @@ import { formatPrice } from '@/lib/concepts/format'
 import { PLAN_ACCEPT, PLAN_LIMIT_TEXT, PLAN_MAX_BYTES } from '@/lib/files/rules'
 import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
 import { fileNameFromKey, formatArea, pluralConcepts, projectMeta } from '@/lib/projects/format'
+import { geometryRoomReadings } from '@/lib/projects/manual-plan-geometry'
 import { planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { getProject } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -98,6 +99,12 @@ export default async function ProjectPage({ params }: { params: Params }) {
   const planUrl = project.planUrl ? await presignedObjectUrl(project.planUrl) : null
   const planIsPdf = project.planUrl?.endsWith('.pdf') ?? false
   const sourceRevision = planEditRevision(project.planUrl, project.planReading)
+  const geometryReadings = project.planReading
+    ? geometryRoomReadings(
+        project.planReading.rooms,
+        !planIsPdf && !project.planReading.geometry?.pdfCalibration ? project.rooms : [],
+      )
+    : []
   async function uploadPlanForProject(formData: FormData) {
     'use server'
     return uploadPlan(id, formData, sourceRevision)
@@ -332,7 +339,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
       {project.planReading?.geometry ? (
         <PlanGeometryPreview
           geometry={project.planReading.geometry}
-          roomReadings={project.planReading.rooms}
+          roomReadings={geometryReadings}
           sourceRooms={project.planReading.pageReview?.sourceRooms}
           action={
             isOwner ? (
@@ -340,10 +347,11 @@ export default async function ProjectPage({ params }: { params: Params }) {
                 projectId={project.id}
                 sourceRevision={sourceRevision}
                 geometry={project.planReading.geometry}
-                roomReadings={project.planReading.rooms.map((room) => ({
+                roomReadings={geometryReadings.map((room) => ({
                   name: room.name,
                   sourceNumber: room.sourceNumber,
                   areaM2: room.areaM2,
+                  spaceKind: room.spaceKind,
                 }))}
                 sourceRooms={project.planReading.pageReview?.sourceRooms}
                 planUrl={planUrl}

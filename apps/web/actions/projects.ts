@@ -23,6 +23,7 @@ import { kitchenItemsSchema } from '@/lib/projects/kitchen-items'
 import { kitchenSafetySchema } from '@/lib/projects/kitchen-safety'
 import {
   findPlanRoomReading,
+  geometryRoomReadings,
   manualPlanGeometry,
   manualRoomCoverage,
   renamedManualRoomShapes,
@@ -35,6 +36,7 @@ import {
   inspectPlanRoomAreas,
 } from '@/lib/projects/plan-geometry-inspection'
 import {
+  planImageConfirmationIssue,
   planImageScaleCheck,
   validPlanImageCalibration,
 } from '@/lib/projects/plan-image-calibration'
@@ -351,13 +353,22 @@ export async function savePlanGeometry(
       return { ok: false, error: 'Сначала прочитайте план и постройте 2D-схему.' }
     }
     const submitted = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
+    const raster = !before.pdfCalibration && !project.planUrl?.toLowerCase().endsWith('.pdf')
+    const canvasWidthCm =
+      raster && typeof submitted.widthCm === 'number' ? submitted.widthCm : before.widthCm
+    const canvasHeightCm =
+      raster && typeof submitted.heightCm === 'number' ? submitted.heightCm : before.heightCm
+    const roomReadings = geometryRoomReadings(
+      project.planReading.rooms,
+      raster ? ((await repository.getProject(userId, projectId))?.rooms ?? []) : [],
+    )
     const rawCalibration =
       submitted.imageCalibration === undefined
         ? before.imageCalibration
         : submitted.imageCalibration
     let imageCalibration: PlanImageCalibration | undefined
     if (rawCalibration !== null && rawCalibration !== undefined) {
-      if (!validPlanImageCalibration(rawCalibration, before.widthCm, before.heightCm)) {
+      if (!validPlanImageCalibration(rawCalibration, canvasWidthCm, canvasHeightCm)) {
         return { ok: false, error: 'Проверьте две точки и известный размер для подложки плана.' }
       }
       imageCalibration = rawCalibration
@@ -376,7 +387,7 @@ export async function savePlanGeometry(
     if (
       !kitchenSafety.success ||
       kitchenSafety.data.utilityPoints.some(
-        (point) => point.xCm > before.widthCm || point.yCm > before.heightCm,
+        (point) => point.xCm > canvasWidthCm || point.yCm > canvasHeightCm,
       )
     )
       return {
@@ -396,29 +407,36 @@ export async function savePlanGeometry(
       !obstacles.success ||
       obstacles.data.some(
         (item) =>
-          item.xCm + item.widthCm > before.widthCm || item.yCm + item.depthCm > before.heightCm,
+          item.xCm + item.widthCm > canvasWidthCm || item.yCm + item.depthCm > canvasHeightCm,
       )
     )
       return {
         ok: false,
         error: 'Проверьте препятствия: они должны иметь точные размеры и помещаться на схеме.',
       }
-    // Габарит схемы не редактируется здесь: координаты остаются внутри полотна,
-    // полученного из плана или введённого владельцем при ручном старте.
+    // Raster review may enlarge its canvas to include an omitted balcony. Native PDF
+    // dimensions and source-bound floor coordinates remain server-owned.
     const geometry:
       | (NonNullable<ReturnType<typeof validatePlanGeometryEdit>> &
           Pick<PlanGeometry, 'pdfCalibration'>)
       | undefined = validatePlanGeometryEdit(
       {
         ...submitted,
-        widthCm: before.widthCm,
-        heightCm: before.heightCm,
+        widthCm: canvasWidthCm,
+        heightCm: canvasHeightCm,
+        footprint:
+          raster && submitted.footprint !== undefined ? submitted.footprint : before.footprint,
       },
       mode,
     )
     if (!geometry) {
       return { ok: false, error: 'Схема не сохранилась: проверьте координаты стен.' }
     }
+    if (raster && submitted.footprint != null && !geometry.footprint)
+      return {
+        ok: false,
+        error: 'Граница пола повреждена или выходит за полотно. Исправьте углы контура.',
+      }
     if (
       kitchenSafety.data.routeStartOpeningId &&
       !geometry.openings.some(
@@ -448,6 +466,7 @@ export async function savePlanGeometry(
     const openingIds = new Set(before.openings.map((opening) => opening.id))
     const obstacleIds = new Set((before.obstacles ?? []).map((obstacle) => obstacle.id))
     const manual = before.source === 'manual'
+    const editableRooms = manual || raster
     if (
       geometry.walls.some((wall) => !wallIds.has(wall.id) && !isManualPlanGeometryId(wall.id)) ||
       geometry.openings.some(
@@ -456,7 +475,7 @@ export async function savePlanGeometry(
       obstacles.data.some(
         (obstacle) => !obstacleIds.has(obstacle.id) && !isManualPlanGeometryId(obstacle.id),
       ) ||
-      (!manual &&
+      (!editableRooms &&
         (geometry.rooms.length !== before.rooms.length ||
           geometry.rooms.some((room, index) => room.name !== before.rooms[index]?.name)))
     ) {
@@ -491,9 +510,9 @@ export async function savePlanGeometry(
         planText: page.image.planText,
       })
     }
-    if (manual) {
-      const knownRoomNames = project.planReading.rooms.map((room) => room.name)
-      const coverage = manualRoomCoverage(geometry.rooms, project.planReading.rooms)
+    if (editableRooms) {
+      const knownRoomNames = roomReadings.map((room) => room.name)
+      const coverage = manualRoomCoverage(geometry.rooms, roomReadings)
       if (!coverage.valid) {
         return { ok: false, error: 'Контуры должны соответствовать комнатам из списка проекта.' }
       }
@@ -605,14 +624,15 @@ export async function savePlanGeometry(
       }
     }
     const checkedRooms =
-      mode === 'draft' ? geometry : reconcilePlanGeometryRooms(geometry, project.planReading.rooms)
+      mode === 'draft' ? geometry : reconcilePlanGeometryRooms(geometry, roomReadings)
     if (!checkedRooms) return { ok: false, error: 'В схеме должно остаться не меньше трёх стен.' }
     const verticalDimensions = applyPlanVerticalDimensions(checkedRooms, submitted)
     if (!verticalDimensions.ok) return verticalDimensions
-    // The reviewed floor outline and voids belong to the saved source, never to browser edits.
+    // Native PDF boundaries remain source-owned. Raster floor edits are validated above;
+    // source voids are retained independently of the editable outer boundary.
     const checked = {
       ...verticalDimensions.geometry,
-      ...(before.footprint ? { footprint: structuredClone(before.footprint) } : {}),
+      ...(!raster && before.footprint ? { footprint: structuredClone(before.footprint) } : {}),
       ...(before.voids ? { voids: structuredClone(before.voids) } : {}),
     }
     if (checked.rooms.length !== geometry.rooms.length) {
@@ -633,20 +653,32 @@ export async function savePlanGeometry(
           'Подписанные размеры не сходятся с масштабом подложки. Исправьте точки или сохраните черновик.',
       }
     }
-    if (manual && mode === 'confirm') {
+    if (editableRooms && mode === 'confirm') {
       const issue = [
         ...inspectPlanGeometry(checked),
         ...inspectManualPlanCompleteness(checked),
-        ...inspectPlanRoomAreas(
-          checked.rooms,
-          project.planReading.rooms,
-          Boolean(before.pdfCalibration),
-        ),
+        ...inspectPlanRoomAreas(checked.rooms, roomReadings, Boolean(before.pdfCalibration)),
       ].find((item) => item.severity === 'error')
       if (issue) return { ok: false, error: issue.message }
     }
+    if (raster && mode === 'confirm') {
+      if (!checked.footprint)
+        return {
+          ok: false,
+          error:
+            'Нанесите замкнутую границу пола вместе с балконом. Обрезанный исходник оставьте черновиком.',
+        }
+      const issue = planImageConfirmationIssue(imageCalibration)
+      if (issue) return { ok: false, error: issue }
+    }
     const saved: NonNullable<PlanReading['geometry']> = {
       ...checked,
+      rooms: checked.rooms.map((room) => {
+        const shape = { ...room }
+        delete shape.spaceKind
+        const label = findPlanRoomReading(room, roomReadings)
+        return { ...shape, ...(label?.spaceKind ? { spaceKind: label.spaceKind } : {}) }
+      }),
       // Keep trusted source explanations; browser warnings cannot erase or certify evidence.
       ...(before.pdfCalibration
         ? { warnings: [...new Set([...before.warnings, ...checked.warnings])] }
@@ -784,6 +816,7 @@ export async function confirmPlanRooms(
             Boolean(project.planReading?.confirmedAt),
           ),
           name: room.name || roomKindLabels[room.kind],
+          ...(source?.spaceKind ? { spaceKind: source.spaceKind } : {}),
           // В форме неподдерживаемый тип имеет технический living, но в исходном плане
           // ванная остаётся ванной, а коридор не становится обставляемой гостиной.
           kind: !room.include && source ? source.kind : room.kind,

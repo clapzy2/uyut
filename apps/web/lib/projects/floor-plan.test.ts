@@ -539,8 +539,31 @@ describe('parseFloorPlan', () => {
     expect(reading.rooms[0]?.areaM2).toBe(12)
   })
 
-  it('комнату без единого числа не показываем: вводить всё равно всё руками', () => {
-    expect(parseFloorPlan(answer([{ name: 'Лоджия' }])).rooms).toEqual([])
+  it('сохраняет лоджию без выдуманной площади, а пустую внутреннюю комнату не добавляет', () => {
+    expect(parseFloorPlan(answer([{ name: 'Лоджия' }, { name: 'Спальня' }])).rooms).toEqual([
+      expect.objectContaining({
+        name: 'Лоджия',
+        spaceKind: 'loggia',
+        utility: true,
+        areaM2: undefined,
+      }),
+    ])
+  })
+
+  it('не добавляет площадь балкона к проверке суммы внутренних помещений', () => {
+    const reading = parseFloorPlan(
+      JSON.stringify({
+        totalAreaM2: 28.8,
+        rooms: [
+          { name: 'Гостиная', areaM2: 14.9 },
+          { name: 'Кухня', areaM2: 5.4 },
+          { name: 'Санузел', areaM2: 2.7 },
+          { name: 'Прихожая', areaM2: 5.8 },
+          { name: 'Балкон', areaM2: 2 },
+        ],
+      }),
+    )
+    expect(checkTotalArea(reading)).toEqual({ sumM2: 28.8, totalM2: 28.8, agrees: true })
   })
 
   it('высота потолка вне жилого диапазона это не потолок', () => {

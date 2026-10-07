@@ -24,7 +24,7 @@ export function PlanVolumeSelection({
   const roomId = selection?.kind === 'room' ? selection.id : item?.roomId
   const room = rooms.find((candidate) => candidate.id === roomId)
   const roomHref =
-    projectId && room
+    projectId && room && !room.sourceOnly
       ? `/projects/${encodeURIComponent(projectId)}/rooms/${encodeURIComponent(room.id)}`
       : null
   const width = item

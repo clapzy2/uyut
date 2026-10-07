@@ -1,4 +1,4 @@
-import type { PlanRoomIdentity } from '@uyut/db'
+import type { PlanRoomIdentity, RoomSpaceKind } from '@uyut/db'
 
 /** Точка обмерного плана. Координаты идут от левого верхнего угла, в сантиметрах. */
 export type PlanPoint = { xCm: number; yCm: number }
@@ -23,6 +23,7 @@ export type PlanOpening = {
 export type PlanRoomShape = {
   name: string
   polygon: PlanPoint[]
+  spaceKind?: RoomSpaceKind
 } & PlanRoomIdentity
 
 export type PlanObstacle = {
@@ -51,11 +52,14 @@ export type PlanGeometry = {
   openings: PlanOpening[]
   obstacles: PlanObstacle[]
   rooms: PlanRoomShape[]
+  /** Candidate floor boundary; confirmation belongs to the source review, not the model. */
+  footprint?: PlanPoint[]
   warnings: string[]
 }
 
 export type PlanRoomArea = {
   name: string
+  spaceKind?: RoomSpaceKind
   sourceNumber?: number
   areaM2?: number
   widthCm?: number
@@ -347,7 +351,9 @@ function parsePlanGeometryInternal(
       const sourceNumber = planRoomSourceNumber(room.sourceNumber)
       identity = sourceNumber === undefined ? {} : { sourceNumber }
     }
-    roomCandidates.push({ name, ...identity, polygon })
+    const spaceKind =
+      room.spaceKind === 'balcony' || room.spaceKind === 'loggia' ? room.spaceKind : undefined
+    roomCandidates.push({ name, ...identity, polygon, ...(spaceKind ? { spaceKind } : {}) })
   }
   const ownership = new Map<number, number>()
   for (const room of roomCandidates) {
@@ -420,6 +426,18 @@ function parsePlanGeometryInternal(
     })
   }
 
+  const rawFootprint = Array.isArray(source.footprint) ? source.footprint : []
+  const footprintPoints = rawFootprint.slice(0, 200).map((entry) => point(entry, widthCm, heightCm))
+  const footprint = footprintPoints.filter((entry): entry is PlanPoint => entry !== undefined)
+  const validFootprint =
+    rawFootprint.length >= 3 &&
+    rawFootprint.length <= 200 &&
+    footprint.length === rawFootprint.length &&
+    planPolygonAreaM2(footprint) > 0.0001 &&
+    !polygonCrossesItself(footprint)
+  if (source.footprint != null && !validFootprint)
+    warnings.push('Граница пола не замкнута или повреждена: уточните её по исходному плану.')
+
   return {
     version: 1,
     status: 'draft',
@@ -429,6 +447,7 @@ function parsePlanGeometryInternal(
     openings,
     obstacles,
     rooms,
+    ...(validFootprint ? { footprint } : {}),
     warnings: [...new Set(warnings)].slice(0, 8),
   }
 }
@@ -490,6 +509,7 @@ export function validatePlanGeometryEdit(
       const room = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
       return {
         name: room.name,
+        spaceKind: room.spaceKind,
         ...(Object.hasOwn(room, 'sourceNumbers')
           ? {
               sourceNumbers: room.sourceNumbers,
@@ -508,6 +528,9 @@ export function validatePlanGeometryEdit(
       walls,
       openings,
       rooms,
+      footprint: Array.isArray(source.footprint)
+        ? source.footprint.slice(0, 201).map(convertPoint)
+        : undefined,
     },
     mode === 'draft' ? 0 : 3,
     true,
@@ -616,6 +639,7 @@ export function reconcilePlanGeometryRooms(
     kept.push({
       ...room,
       name: expected.name,
+      ...(expected.spaceKind ? { spaceKind: expected.spaceKind } : {}),
       ...(expected.sourceNumber === undefined ? {} : { sourceNumber: expected.sourceNumber }),
     })
   }

@@ -81,7 +81,11 @@ describe('3D-маршрут независимой структурирован�
       expect(source.openings).toHaveLength(9)
       expect(source.footprint).toHaveLength(80)
       expect(source.voids).toHaveLength(2)
-      expect(scene.surfaces).toHaveLength(1)
+      expect(scene.surfaces.filter((surface) => surface.kind === 'floor')).toHaveLength(1)
+      expect(scene.surfaces.filter((surface) => surface.kind === 'room')).toHaveLength(2)
+      expect(volume.rooms?.every((room) => room.sourceOnly && /балкон/i.test(room.title))).toBe(
+        true,
+      )
       expect(scene.lines.filter((line) => line.kind === 'wall')).toHaveLength(38)
       expect(scene.lines.filter((line) => line.kind === 'opening')).toHaveLength(9)
       expect(volume.solidFaces).toHaveLength(0)
@@ -205,8 +209,8 @@ describe('3D-маршрут независимой структурирован�
       expect(() => buildPlanScene(volume)).toThrow(
         'A measured scene height must be finite and positive',
       )
-      expect(release).toHaveBeenCalledTimes(47)
-      expect(new Set(release.mock.contexts).size).toBe(47)
+      expect(release).toHaveBeenCalledTimes(49)
+      expect(new Set(release.mock.contexts).size).toBe(49)
     } finally {
       release.mockRestore()
     }

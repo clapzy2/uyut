@@ -68,6 +68,12 @@ export async function readPlanFromStorage(
     // Не перечитываем автоматически каждую сторону и не заменяем числа расчётом из площади.
     // Даже правильная площадь непрямоугольного помещения не доказывает его габариты.
     const result = { ...reading, sourcePage: page.pageNumber, pageCount: page.pageCount }
+    // Native PDF floor provenance is established by the reviewed-page import, not
+    // by a metric ring returned by the image model.
+    if (isPdf && result.geometry?.footprint) {
+      result.geometry = { ...result.geometry }
+      delete result.geometry.footprint
+    }
     if (!reviewedContours || !page.linework || !sha256) return result
     return verifyPlanReadingGeometry(result, {
       source: { sha256, pdfPage: page.pageNumber, state: reviewedContours.source.state },

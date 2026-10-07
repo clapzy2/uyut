@@ -64,6 +64,7 @@ export type PlanMeasurementEvidence = {
 }
 
 export type PlanRoomReading = {
+  spaceKind?: RoomSpaceKind
   dimensionSources?: RoomMeasurements['dimensionSources']
   name: string
   sourceNumber?: number
@@ -124,7 +125,11 @@ export type PlanOpening = {
 export type PlanRoomIdentity =
   | { sourceNumber?: number; sourceNumbers?: never }
   | { sourceNumber?: never; sourceNumbers: number[] }
-export type PlanRoomShape = { name: string; polygon: PlanPoint[] } & PlanRoomIdentity
+export type PlanRoomShape = {
+  name: string
+  polygon: PlanPoint[]
+  spaceKind?: RoomSpaceKind
+} & PlanRoomIdentity
 export type PlanVoid = { id: string; polygon: PlanPoint[] }
 export type PlanUtilityPoint = {
   id: string

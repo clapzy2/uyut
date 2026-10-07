@@ -122,6 +122,32 @@ describe('single-page plan reader budget', () => {
     consoleError.mockRestore()
   })
 
+  it('retains a raster floor candidate but cannot bypass reviewed PDF floor provenance', async () => {
+    const geometry = {
+      version: 1,
+      status: 'draft',
+      widthCm: 400,
+      heightCm: 300,
+      walls: [],
+      rooms: [],
+      openings: [],
+      obstacles: [],
+      warnings: [],
+      footprint: [
+        { xCm: 0, yCm: 0 },
+        { xCm: 400, yCm: 0 },
+        { xCm: 400, yCm: 300 },
+      ],
+    }
+    mocks.read.mockResolvedValue({
+      rooms: [{ name: 'Балкон', kind: 'living', spaceKind: 'balcony' }],
+      geometry,
+    })
+    expect((await readPlanFromStorage('plan.webp')).geometry?.footprint).toEqual(geometry.footprint)
+    expect((await readPlanFromStorage('plan.pdf')).geometry?.footprint).toBeUndefined()
+    expect(geometry.footprint).toHaveLength(3)
+  })
+
   it('retains unknown sides for an area-only room', async () => {
     mocks.read.mockResolvedValue({ rooms: [{ name: 'Коридор', areaM2: 7.7 }] })
     const reading = await readPlanFromStorage('plan.pdf', 6)

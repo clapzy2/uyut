@@ -55,6 +55,15 @@ function render(selection: VolumeSelection, projectId?: string, source = model) 
 }
 
 describe('выбор комнаты и предмета в объёмном обзоре', () => {
+  it('shows a source balcony without linking its synthetic contour ID to a room page', () => {
+    const html = render({ kind: 'room', id: 'plan-space:4' }, 'project-a', {
+      ...model,
+      rooms: [{ id: 'plan-space:4', title: 'Балкон', floor: [], sourceOnly: true }],
+    })
+    expect(html).toContain('Балкон')
+    expect(html).not.toContain('/rooms/plan-space')
+    expect(html).not.toContain('<a')
+  })
   it('показывает доступные кнопки комнат без выбора и ссылок наугад', () => {
     const html = render(null, 'project-a')
     expect(html).toContain('<fieldset')
