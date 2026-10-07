@@ -193,6 +193,28 @@ export async function setItemSize(itemId: string, input: unknown): Promise<Actio
   }
 }
 
+/** Явно убирает только введённые человеком габариты; магазинные данные не изменяются. */
+export async function resetItemSize(itemId: string): Promise<ActionResult> {
+  const userId = await currentUserId()
+  if (!userId) {
+    return { ok: false, error: SESSION_EXPIRED }
+  }
+  try {
+    const result = await setShoppingItemSize(userId, itemId, {})
+    await recordAudit({
+      action: 'shopping.item_updated',
+      actorId: userId,
+      targetType: 'shopping_list_item',
+      targetId: itemId,
+      metadata: { projectId: result.projectId, sizeResetToCatalog: true },
+    })
+    revalidateProject(result.projectId)
+    return { ok: true, data: undefined }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
 const operationClearanceSchema = z
   .object({
     front: sideSchema,

@@ -17,6 +17,7 @@ import { NotFoundError } from '@/lib/projects/access'
 import { buildPdfData, loadSnapshot } from '../../../../jobs/src/lib/pdf-data'
 import {
   addShoppingItem,
+  getRoomItemSizes,
   getShoppingList,
   removeShoppingItem,
   setShoppingItemPlacement,
@@ -198,6 +199,9 @@ describe('shopping list in a real database', () => {
     ).rejects.toBeInstanceOf(NotFoundError)
     await expect(removeShoppingItem(strangerId, added.itemId)).rejects.toBeInstanceOf(NotFoundError)
     await expect(setShoppingItemQuantity(strangerId, added.itemId, 5)).rejects.toBeInstanceOf(
+      NotFoundError,
+    )
+    await expect(getRoomItemSizes(strangerId, projectId, roomId)).rejects.toBeInstanceOf(
       NotFoundError,
     )
     expect((await getShoppingList(ownerId, projectId)).items).toHaveLength(1)

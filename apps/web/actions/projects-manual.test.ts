@@ -164,6 +164,56 @@ describe('manual plan draft', () => {
     expect(mocks.setPlanReading.mock.calls[0]?.[2].geometry.voids).toEqual(voids)
   })
 
+  it('keeps a native PDF floor server-owned even if image calibration is submitted', async () => {
+    source.planUrl = 'native-plan.pdf'
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      footprint: corners,
+      pdfCalibration: {
+        sourceSha256: 'a'.repeat(64),
+        pdfPage: 6,
+        cmPerPoint: 1.7,
+        origin: { x: 10, y: 20 },
+        anchorRoomNumbers: [4],
+        labelIndexes: [1, 2],
+        derivedOpeningIds: [],
+      },
+    }
+    const result = await savePlanGeometry(
+      projectId,
+      { ...emptyManualGeometry, footprint: [], imageCalibration: reviewedImage },
+      'draft',
+    )
+
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.data.geometry.footprint).toEqual(corners)
+  })
+
+  it('does not replace a reviewed PDF page floor through the image route', async () => {
+    source.planUrl = 'reviewed-plan.pdf'
+    source.planReading.geometry = { ...emptyManualGeometry, footprint: corners }
+    source.planReading.pageReview = {
+      version: 1,
+      savedAt: '2026-09-24T00:00:00.000Z',
+      contours: {
+        source: { sha256: 'a'.repeat(64), pdfPage: 6, state: 'existing' },
+        coordinateSystem: 'page-0-1000',
+        review: 'manual-source-review',
+        pageWidth: 1000,
+        pageHeight: 1000,
+        rooms: [],
+      },
+    }
+    const result = await savePlanGeometry(
+      projectId,
+      { ...emptyManualGeometry, footprint: [], imageCalibration: reviewedImage },
+      'draft',
+    )
+
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.data.geometry.footprint).toEqual(corners)
+  })
+
   it('сохраняет и очищает отдельно введённые высоты и толщину после проверки схемы', async () => {
     const wall = closedWalls[0]
     if (!wall) throw new Error('Missing manual wall')
@@ -1024,6 +1074,65 @@ describe('manual plan draft', () => {
     expect(planVolume(confirmed.data.geometry)?.floor).toEqual(floor)
     expect(planVolume(confirmed.data.geometry)?.rooms?.[0]?.floor).toEqual(balcony)
     expect(source.planReading.rooms[0]?.areaM2).toBe(12)
+  })
+
+  it('saves and confirms a manually traced diagonal floor from a scanned PDF', async () => {
+    source.planUrl = 'scanned-plan.pdf'
+    source.planReading.rooms = [{ name: 'Кухня', kind: 'kitchen', areaM2: 19.5 }]
+    const floor = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 500, yCm: 0 },
+      { xCm: 500, yCm: 300 },
+      { xCm: 400, yCm: 400 },
+      { xCm: 0, yCm: 400 },
+    ]
+    const walls = floor.map((start, index) => ({
+      id: `manual_${String(index + 10).padStart(24, '0')}`,
+      kind: 'outer' as const,
+      start,
+      end: floor[(index + 1) % floor.length] as typeof start,
+    }))
+    const input = {
+      ...emptyManualGeometry,
+      footprint: floor,
+      walls,
+      rooms: [{ name: 'Кухня', polygon: floor }],
+      imageCalibration: reviewedImage,
+    }
+
+    const singleDirection = await savePlanGeometry(
+      projectId,
+      { ...input, imageCalibration: calibratedImage },
+      'confirm',
+    )
+    expect(singleDirection).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('другом направлении'),
+    })
+
+    const draft = await savePlanGeometry(projectId, input, 'draft')
+    expect(draft.ok).toBe(true)
+    if (!draft.ok) throw new Error(draft.error)
+    expect(draft.data.geometry.footprint).toEqual(floor)
+
+    source.planReading = mocks.setPlanReading.mock.calls[0]?.[2]
+    const confirmed = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
+    expect(confirmed.ok).toBe(true)
+    if (!confirmed.ok) throw new Error(confirmed.error)
+    expect(confirmed.data.geometry.footprint).toEqual(floor)
+    expect(planVolume(confirmed.data.geometry)?.floor).toEqual(floor)
+  })
+
+  it('does not silently discard a scanned PDF floor before image calibration', async () => {
+    source.planUrl = 'scanned-plan.pdf'
+    const result = await savePlanGeometry(
+      projectId,
+      { ...emptyManualGeometry, footprint: corners },
+      'draft',
+    )
+
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining('привяжите') })
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
   })
 
   it('requires a reviewed floor and two-direction scale checks before raster confirmation', async () => {

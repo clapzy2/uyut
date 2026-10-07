@@ -23,7 +23,7 @@ vi.mock('@/lib/shopping/repository', () => ({
   setShoppingItemPlacement: mocks.placement,
 }))
 
-import { setItemOperationClearance, setItemPlacement, setItemSize } from './shopping'
+import { resetItemSize, setItemOperationClearance, setItemPlacement, setItemSize } from './shopping'
 
 describe('точные мерки в действиях списка покупок', () => {
   beforeEach(() => {
@@ -101,10 +101,24 @@ describe('точные мерки в действиях списка покуп�
     expect(mocks.size).not.toHaveBeenCalled()
   })
 
+  it('сбрасывает собственные габариты только отдельным действием владельца', async () => {
+    expect(await resetItemSize('item')).toEqual({ ok: true, data: undefined })
+    expect(mocks.size).toHaveBeenCalledWith('owner', 'item', {})
+    expect(mocks.audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetId: 'item',
+        metadata: { projectId: 'project', sizeResetToCatalog: true },
+      }),
+    )
+    expect(mocks.revalidate).toHaveBeenCalledWith('/projects/project/summary')
+  })
+
   it('не сохраняет данные без авторизации', async () => {
     mocks.getSession.mockResolvedValue(null)
     expect((await setItemSize('item', { width: '105,6', depth: '', height: '' })).ok).toBe(false)
     expect(mocks.size).not.toHaveBeenCalled()
     expect(mocks.audit).not.toHaveBeenCalled()
+    expect((await resetItemSize('item')).ok).toBe(false)
+    expect(mocks.size).not.toHaveBeenCalled()
   })
 })

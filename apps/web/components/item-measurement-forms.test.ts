@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 vi.mock('@/actions/shopping', () => ({
   setItemSize: vi.fn(),
+  resetItemSize: vi.fn(),
   setItemOperationClearance: vi.fn(),
   setItemPlacement: vi.fn(),
 }))
@@ -39,6 +40,8 @@ describe('формы дробных мерок', () => {
         title: 'Стул',
         width: 105.6,
         depth: 70.4,
+        height: 85.2,
+        canReset: true,
       }),
     )
     const operation = renderToStaticMarkup(
@@ -49,8 +52,10 @@ describe('формы дробных мерок', () => {
         valueCm: 50.4,
       }),
     )
-    expect(size.match(/inputMode="decimal"/g)).toHaveLength(2)
+    expect(size.match(/inputMode="decimal"/g)).toHaveLength(3)
     expect(size).toContain('value="105.6"')
+    expect(size).toContain('value="85.2"')
+    expect(size).toContain('Убрать свои размеры')
     expect(operation).toContain('inputMode="decimal"')
     expect(operation).toContain('value="50.4"')
   })

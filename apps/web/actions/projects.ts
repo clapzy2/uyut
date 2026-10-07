@@ -353,7 +353,30 @@ export async function savePlanGeometry(
       return { ok: false, error: 'Сначала прочитайте план и постройте 2D-схему.' }
     }
     const submitted = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
-    const raster = !before.pdfCalibration && !project.planUrl?.toLowerCase().endsWith('.pdf')
+    const pdf = project.planUrl?.toLowerCase().endsWith('.pdf') ?? false
+    // A scanned PDF is still an image source when its manual scheme has a reviewed
+    // image scale. A source-reviewed vector page must keep its server-owned floor.
+    const scannedPdf =
+      pdf &&
+      before.source === 'manual' &&
+      !project.planReading.pageReview &&
+      (before.imageCalibration !== undefined || submitted.imageCalibration != null)
+    const raster = !before.pdfCalibration && (!pdf || scannedPdf)
+    if (
+      pdf &&
+      before.source === 'manual' &&
+      !before.pdfCalibration &&
+      !project.planReading.pageReview &&
+      !before.footprint &&
+      submitted.footprint != null &&
+      !raster
+    ) {
+      return {
+        ok: false,
+        error:
+          'Сначала привяжите изображение PDF по подписанному размеру, затем сохраните границу пола.',
+      }
+    }
     const canvasWidthCm =
       raster && typeof submitted.widthCm === 'number' ? submitted.widthCm : before.widthCm
     const canvasHeightCm =

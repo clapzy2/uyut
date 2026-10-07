@@ -9,7 +9,7 @@ import { FileUploader } from '@/components/file-uploader'
 import { RoomConditionForm } from '@/components/room-condition-form'
 import { RoomMeasurementsForm } from '@/components/room-measurements-form'
 import { RoomNotesForm } from '@/components/room-notes-form'
-import { RoomPlan } from '@/components/room-plan'
+import { RoomItemSizes, RoomPlan } from '@/components/room-plan'
 import { RoomSectionLinks } from '@/components/room-section-links'
 import { RoomSettingsDialog } from '@/components/room-settings-dialog'
 import { otherMember } from '@/lib/collaboration/repository'
@@ -25,6 +25,7 @@ import { fileNameFromKey, formatArea, roomKindLabels } from '@/lib/projects/form
 import { getRoom } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { roomLayout } from '@/lib/shopping/layout'
+import { getRoomItemSizes } from '@/lib/shopping/repository'
 import { presignedObjectUrl } from '@/lib/storage'
 
 type Params = Promise<{ id: string; roomId: string }>
@@ -67,7 +68,7 @@ export default async function RoomPage({ params }: { params: Params }) {
   }
   const isOwner = room.role === 'owner'
 
-  const [allConcepts, { batchId: latestBatchId }, other, runningGeneration, layout] =
+  const [allConcepts, { batchId: latestBatchId }, other, runningGeneration, layout, itemSizes] =
     await Promise.all([
       listConceptsByRoom(session.user.id, room.id),
       latestBatch(session.user.id, room.id),
@@ -82,6 +83,7 @@ export default async function RoomPage({ params }: { params: Params }) {
         room.project.planReading?.geometry,
         room.kind,
       ),
+      isOwner ? getRoomItemSizes(session.user.id, room.projectId, room.id) : Promise.resolve([]),
     ])
   const conceptItems = allConcepts
   // Читаем после восстановления очереди: оно могло только что сохранить конечный отказ.
@@ -199,6 +201,12 @@ export default async function RoomPage({ params }: { params: Params }) {
           ) : null}
           {layout ? (
             <RoomPlan layout={layout} canEdit={isOwner} projectId={room.projectId} />
+          ) : null}
+          {isOwner ? (
+            <RoomItemSizes
+              items={itemSizes}
+              unmeasuredIds={layout?.unmeasured.map((item) => item.id)}
+            />
           ) : null}
           {isOwner ? (
             <RoomNotesForm roomId={room.id} notes={room.notes} />
