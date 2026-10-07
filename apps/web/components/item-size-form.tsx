@@ -45,6 +45,10 @@ export function ItemSizeForm({
     })
   }, [width, depth, height])
 
+  function updateDimension(field: 'width' | 'depth' | 'height', value: string) {
+    setOwn((current) => ({ ...current, [field]: value }))
+  }
+
   async function save() {
     if (saving || refreshing) return
     setError(undefined)
@@ -95,7 +99,7 @@ export function ItemSizeForm({
         inputMode="decimal"
         placeholder="ширина"
         value={own.width}
-        onChange={(event) => setOwn((all) => ({ ...all, width: event.currentTarget.value }))}
+        onChange={(event) => updateDimension('width', event.currentTarget.value)}
         className={`${inputClassName} h-9 w-24 text-[13px]`}
       />
       <input
@@ -103,7 +107,7 @@ export function ItemSizeForm({
         inputMode="decimal"
         placeholder="глубина"
         value={own.depth}
-        onChange={(event) => setOwn((all) => ({ ...all, depth: event.currentTarget.value }))}
+        onChange={(event) => updateDimension('depth', event.currentTarget.value)}
         className={`${inputClassName} h-9 w-24 text-[13px]`}
       />
       <input
@@ -111,7 +115,7 @@ export function ItemSizeForm({
         inputMode="decimal"
         placeholder="высота"
         value={own.height}
-        onChange={(event) => setOwn((all) => ({ ...all, height: event.currentTarget.value }))}
+        onChange={(event) => updateDimension('height', event.currentTarget.value)}
         className={`${inputClassName} h-9 w-24 text-[13px]`}
       />
       <button
