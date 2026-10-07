@@ -26,7 +26,7 @@ env:
 
 jobs:
   checks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
@@ -75,6 +75,9 @@ jobs:
         working-directory: apps/web
         timeout-minutes: 5
         run: |
+          # Runner mirror failover retries Azure for each package even after fallback.
+          # Use the official HTTPS archive for all Ubuntu suites, including security.
+          sudo install -m 0644 ../../.github/apt-mirrors.txt /etc/apt/apt-mirrors.txt
           sudo install -m 0644 ../../.github/apt-ci.conf /etc/apt/apt.conf.d/99-uyut-ci-network
           bunx --no-install playwright install --with-deps chromium
 
