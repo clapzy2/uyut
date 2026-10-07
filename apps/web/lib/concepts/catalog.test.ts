@@ -109,6 +109,90 @@ describe('parseAdmitadCsv', () => {
   const header =
     'available;categoryId;currencyId;description;id;name;oldprice;param;picture;price;type;url;vendor'
 
+  it('читает вложенные габариты Divan в сантиметрах и сохраняет внешний размер кровати', () => {
+    const csv = `${header}\ntrue;Кровати и матрасы/Кровати;RUR;;bed-1;Кровать Фостер;;Размеры: Длина габаритная:233|Размеры: Ширина габаритная:206|Размеры: Высота габаритная:94|Размер спального места:180x200;https://cdn/bed.jpg;26290;;https://partner.test/click?erid=test-bed;Divan\ntrue;Диваны;RUR;;sofa-1;Диван Виллес;;Размеры: Длина габаритная:223|Размеры: Ширина габаритная:150|Размеры: Глубина габаритная:150|Размеры: Высота габаритная:90|Цвет основной:Синий;https://cdn/sofa.jpg;67990;;https://partner.test/click?erid=test-sofa;Divan\n`
+    const items = parseAdmitadCsv(csv, 'divan').items
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({
+      externalId: 'bed-1',
+      category: 'bed',
+      priceKopecks: 2629000,
+      attributes: {
+        dimensionsCm: { width: 206, depth: 233, height: 94 },
+        adDisclosure: 'Реклама. ООО «Диван Трейд». ИНН 7726457128',
+        dimensionsSource: {
+          width: 'store-parameters',
+          depth: 'store-parameters',
+          height: 'store-parameters',
+        },
+      },
+    })
+    expect(items[1]).toMatchObject({
+      externalId: 'sofa-1',
+      category: 'sofa',
+      attributes: { color: 'Синий', dimensionsCm: { width: 223, depth: 150, height: 90 } },
+    })
+  })
+
+  it('не превращает спальное место Divan в габариты и не объединяет разные размеры по ссылке', () => {
+    const row = (id: string, params: string) =>
+      `true;Кровати;RUR;;${id};Кровать Тест;;${params};https://cdn/bed.jpg;20000;;https://partner.test/click?erid=test&ulp=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftest;Divan\n`
+    const items = parseAdmitadCsv(
+      `${header}\n${row('small', 'Размеры: Длина габаритная:210|Размеры: Ширина габаритная:170')}${row('large', 'Размеры: Длина габаритная:230|Размеры: Ширина габаритная:190')}${row('unknown', 'Размер спального места:160x200')}`,
+      'divan',
+    ).items
+    expect(items.map((item) => item.externalId)).toEqual(['small', 'large', 'unknown'])
+    expect(items[0]?.attributes?.dimensionsCm).toMatchObject({ width: 170, depth: 210 })
+    expect(items[1]?.attributes?.dimensionsCm).toMatchObject({ width: 190, depth: 230 })
+    expect(items[2]?.attributes?.dimensionsCm).toBeUndefined()
+  })
+
+  it('отвергает недоступный товар Divan, чужую валюту и ссылку без erid', () => {
+    const row = (id: string, available: string, currency: string, token: string) =>
+      `${available};Столы;${currency};;${id};Стол Тест;;Размеры: Длина габаритная:160|Размеры: Ширина габаритная:80;https://cdn/table.jpg;10000;;https://partner.test/click${token};Divan\n`
+    const parsed = parseAdmitadCsv(
+      `${header}\n${row('out', 'false', 'RUR', '?erid=test')}${row('dollars', 'true', 'USD', '?erid=test')}${row('no-token', 'true', 'RUR', '')}`,
+      'divan',
+    )
+    expect(parsed.items).toEqual([])
+    expect(parsed.skipped.map((item) => item.reason)).toEqual([
+      'нет в наличии',
+      'неподдерживаемая валюта USD',
+      'нет рекламного токена в ссылке',
+    ])
+  })
+
+  it('сохраняет кресло-кровать Divan как кресло с внешними габаритами', () => {
+    const csv = `${header}\ntrue;Кресла;RUR;;seat-1;Кресло-кровать Кейсес;;Размеры: Длина габаритная:116|Размеры: Ширина габаритная:90;https://cdn/seat.jpg;10000;;https://partner.test/click?erid=test;Divan\n`
+    expect(parseAdmitadCsv(csv, 'divan').items[0]).toMatchObject({
+      category: 'chair',
+      attributes: { dimensionsCm: { width: 116, depth: 90 } },
+    })
+  })
+
+  it('не предлагает повреждённую уценку, чистящее средство и модуль как готовую мебель', () => {
+    const row = (id: string, title: string, params = '') =>
+      `true;Распродажа мебели и товаров для дома;RUR;;${id};${title};;${params};https://cdn/item.jpg;10000;;https://partner.test/click?erid=test;Divan\n`
+    const parsed = parseAdmitadCsv(
+      `${header}\n${row('damaged', 'Шкаф Кимбол', 'Особенности изделия:повреждение деталей, следы сборки')}${row('cleaner', 'Чистящее средство для ковров')}${row('part', 'Модуль для гардероба Дели')}${row('new', 'Шкаф Линдо', 'Особенности изделия:без повреждений')}`,
+      'divan',
+    )
+    expect(parsed.items.map((item) => item.externalId)).toEqual(['new'])
+    expect(parsed.skipped.map((item) => item.reason)).toEqual([
+      'уценённый товар с дефектом',
+      'средство ухода или неполный модуль',
+      'средство ухода или неполный модуль',
+    ])
+  })
+
+  it('даёт тот же Divan-результат при потоковом чтении вложенных параметров', async () => {
+    const csv = `${header}\ntrue;Диваны;RUR;;sofa-1;Диван Тест;;Размеры: Длина габаритная:223|Размеры: Глубина габаритная:150|Размеры: Высота габаритная:90;https://cdn/sofa.jpg;67990;;https://partner.test/click?erid=test;Divan\n`
+    async function* chunks() {
+      for (let offset = 0; offset < csv.length; offset += 7) yield csv.slice(offset, offset + 7)
+    }
+    expect(await parseAdmitadCsvStream(chunks(), 'divan')).toEqual(parseAdmitadCsv(csv, 'divan'))
+  })
+
   it('читает размеры Bestmebelshop в миллиметрах и не показывает недоступные товары', () => {
     const csv = `${header}\ntrue;Шкафы;RUB;;cabinet-1;Шкаф Тест;;Ширина:850|Глубина:400|Высота:2100;https://cdn/cabinet.jpg;10000;;https://partner.test/click?erid=token-1;Бэст-Мебель\nfalse;Диваны;RUB;;sofa-1;Диван Тест;;Ширина:2100|Глубина:900;https://cdn/sofa.jpg;20000;;https://partner.test/click?erid=token-2;Бэст-Мебель\n`
     const { items, skipped } = parseAdmitadCsv(csv, 'bestmebelshop')

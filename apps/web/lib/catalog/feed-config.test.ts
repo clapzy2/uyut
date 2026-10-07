@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@trigger.dev/sdk', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -6,9 +6,22 @@ vi.mock('@trigger.dev/sdk', () => ({
   task: vi.fn((definition) => definition),
 }))
 
-import { configuredFeeds } from '../../../../jobs/src/index-catalog'
+import { configuredFeeds, refreshPartnerCatalog } from '../../../../jobs/src/index-catalog'
+
+afterEach(() => vi.unstubAllEnvs())
 
 describe('настройки партнёрских фидов', () => {
+  it('не запускает обновление Divan при паузе или отсутствии адреса', async () => {
+    const run = (
+      refreshPartnerCatalog as unknown as { run(payload: { source: string }): Promise<unknown> }
+    ).run
+    vi.stubEnv('ADMITAD_FEED_DIVAN_URL', '')
+    await expect(run({ source: 'divan' })).rejects.toThrow('не настроен')
+    vi.stubEnv('ADMITAD_FEED_DIVAN_URL', 'https://partner.test/divan.csv')
+    vi.stubEnv('ADMITAD_FEED_DIVAN_PAUSED', '1')
+    await expect(run({ source: 'divan' })).rejects.toThrow('паузе')
+    await expect(run({ source: 'unknown' })).rejects.toThrow('Неизвестный источник')
+  })
   it('подключает только известные источники с непустым адресом', () => {
     expect(
       configuredFeeds({
