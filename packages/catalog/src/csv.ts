@@ -231,13 +231,18 @@ function parseAdmitadLengthCm(
   if (source === 'bestmebelshop' && value && /^\s*\d+(?:[.,]\d+)?\s*$/.test(value)) {
     return parseLengthCm(`${value} мм`)
   }
+  // Divan's named outer dimensions are centimetres (verified against store cards).
+  if (source === 'divan') {
+    if (!value || !/^\s*\d+(?:[.,]\d+)?\s*(?:мм|см|mm|cm)?\s*$/i.test(value)) return undefined
+    return parseLengthCm(/(?:мм|см|mm|cm)/i.test(value) ? value : `${value} см`)
+  }
   return parseLengthCm(value)
 }
 
-function parseAdmitadParams(value: string | undefined): Map<string, string> {
+function parseAdmitadParams(value: string | undefined, source: CatalogSource): Map<string, string> {
   const params = new Map<string, string>()
   for (const part of value?.split('|') ?? []) {
-    const separator = part.indexOf(':')
+    const separator = source === 'divan' ? part.lastIndexOf(':') : part.indexOf(':')
     if (separator < 1) {
       continue
     }
@@ -273,11 +278,13 @@ const ADMITAD_NON_FURNITURE =
   /матрас|подуш|наматрас|топпер|одеял|плед|постельн|простын|наволоч|пододеяль|чехол|защитн(?:ый|ая) слой|основани[ея] для кроват|реш[её]тк|трансформируемое основание|аксессуар/i
 
 const ADMITAD_FURNITURE_TITLE =
-  /^(?:кровать|диван|софа|кушетка|кресло|стул|табурет|банкетка|пуф|тумба|комод|шкаф|стеллаж|стол|зеркало)\b/i
+  /^(?:кровать|диван|софа|кушетка|кресло|стул|табурет|банкетка|пуф|тумба|комод|шкаф|стеллаж|стол|зеркало)(?![а-яёa-z])/i
 
 // Реквизиты сверены с карточкой программы Bestmebelshop RU в Admitad 05.10.2026.
 // Перед включением нового фида в production их нужно сверить повторно.
 const BESTMEBELSHOP_DISCLOSURE = 'Реклама. ООО «Бэст-Мебель». ИНН 3328006739'
+// Verified in the connected Admitad program on 07.10.2026.
+const DIVAN_DISCLOSURE = 'Реклама. ООО «Диван Трейд». ИНН 7726457128'
 
 function hasAdmitadToken(url: string): boolean {
   try {
@@ -305,6 +312,26 @@ function admitadDimensions(
   dimensions: { width?: number; depth?: number; height?: number }
   source: Partial<Record<'width' | 'depth' | 'height', 'store-parameters' | 'store-text'>>
 } {
+  if (source === 'divan') {
+    const length = parseAdmitadLengthCm(firstParam(params, 'размеры: длина габаритная'), source)
+    const width = parseAdmitadLengthCm(firstParam(params, 'размеры: ширина габаритная'), source)
+    const depth = parseAdmitadLengthCm(firstParam(params, 'размеры: глубина габаритная'), source)
+    const height = parseAdmitadLengthCm(firstParam(params, 'размеры: высота габаритная'), source)
+    // Store length spans the front of sofas/storage. Beds use width across the
+    // headboard and length along the sleeping direction. Never use mattress sizes.
+    const dimensions =
+      category === 'bed'
+        ? { width, depth: length, height }
+        : { width: length, depth: depth ?? width, height }
+    return {
+      dimensions,
+      source: Object.fromEntries(
+        Object.entries(dimensions)
+          .filter(([, value]) => value !== undefined)
+          .map(([axis]) => [axis, 'store-parameters']),
+      ),
+    }
+  }
   const width = parseAdmitadLengthCm(firstParam(params, 'ширина', 'ширина, см'), source)
   const depth = parseAdmitadLengthCm(firstParam(params, 'глубина', 'длина', 'длина, см'), source)
   const height = parseAdmitadLengthCm(
@@ -412,9 +439,29 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
     skipAdmitadRow(state, { reason: 'нет id или name', externalId: rowId, title })
     return
   }
-  if (!parseBoolean(row.available)) {
+  if (!parseBoolean(row.available) || (source === 'divan' && !row.available)) {
     skipAdmitadRow(state, { reason: 'нет в наличии', externalId: rowId, title })
     return
+  }
+  const params = parseAdmitadParams(row.param, source)
+  if (source === 'divan') {
+    const condition = firstParam(params, 'особенности изделия')
+    if (
+      condition &&
+      !/^без повреждений$/i.test(condition) &&
+      /поврежд|скол|вмятин|царап|следы сборки|дефект|выставоч|уцен/i.test(condition)
+    ) {
+      skipAdmitadRow(state, { reason: 'уценённый товар с дефектом', externalId: rowId, title })
+      return
+    }
+    if (/^(?:чистящее средство|средство для ухода|модуль для гардероба)(?![а-яё])/i.test(title)) {
+      skipAdmitadRow(state, {
+        reason: 'средство ухода или неполный модуль',
+        externalId: rowId,
+        title,
+      })
+      return
+    }
   }
   if (!isAdmitadFurniture(row)) {
     skipAdmitadRow(state, { reason: 'не мебель', externalId: rowId, title })
@@ -422,7 +469,9 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
   }
   // Название и тип точнее общего пути: в Askona пуфы лежат в разделе «Диваны/Пуфы».
   const category =
-    categoryFromText(title, row.type, row.typeprefix) ?? categoryFromText(row.categoryid)
+    source === 'divan' && /^кресло[- ]кровать(?![а-яё])/i.test(title)
+      ? 'chair'
+      : (categoryFromText(title, row.type, row.typeprefix) ?? categoryFromText(row.categoryid))
   if (!category) {
     skipAdmitadRow(state, { reason: 'неизвестная категория', externalId: rowId, title })
     return
@@ -444,7 +493,7 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
     })
     return
   }
-  if (source === 'bestmebelshop' && !hasAdmitadToken(row.url)) {
+  if ((source === 'bestmebelshop' || source === 'divan') && !hasAdmitadToken(row.url)) {
     skipAdmitadRow(state, {
       reason: 'нет рекламного токена в ссылке',
       externalId: rowId,
@@ -452,7 +501,12 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
     })
     return
   }
-  if (row.currencyid && row.currencyid.toUpperCase() !== 'RUB') {
+  const currency = row.currencyid?.toUpperCase()
+  if (source === 'divan' && !currency) {
+    skipAdmitadRow(state, { reason: 'не указана валюта', externalId: rowId, title })
+    return
+  }
+  if (currency && currency !== 'RUB' && !(source === 'divan' && currency === 'RUR')) {
     skipAdmitadRow(state, {
       reason: `неподдерживаемая валюта ${row.currencyid}`,
       externalId: rowId,
@@ -461,8 +515,15 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
     return
   }
 
-  const params = parseAdmitadParams(row.param)
-  const color = meaningfulParam(firstParam(params, 'цвет', 'цвет ткани', 'основной цвет'))
+  const color = meaningfulParam(
+    firstParam(
+      params,
+      'цвет',
+      'цвет ткани',
+      'основной цвет',
+      ...(source === 'divan' ? ['цвет основной'] : []),
+    ),
+  )
   const material = meaningfulParam(firstParam(params, 'материал', 'материал обивки', 'ткань'))
   const dimensionReading = admitadDimensions(
     category,
@@ -471,12 +532,15 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
     source,
   )
   const dimensions = dimensionReading.dimensions
-  const externalId = canonicalAdmitadId(
-    row,
-    dimensions,
-    dimensionReading.source.width === 'store-parameters' &&
-      dimensionReading.source.depth === 'store-parameters',
-  )
+  const externalId =
+    source === 'divan'
+      ? rowId
+      : canonicalAdmitadId(
+          row,
+          dimensions,
+          dimensionReading.source.width === 'store-parameters' &&
+            dimensionReading.source.depth === 'store-parameters',
+        )
   const variant: CatalogVariant = {
     color,
     priceKopecks,
@@ -517,7 +581,12 @@ function addAdmitadRow(state: AdmitadParseState, row: Record<string, string>): v
       dimensionsCm: hasAnyDimension(dimensions) ? dimensions : undefined,
       dimensionsSource: hasAnyDimension(dimensions) ? dimensionReading.source : undefined,
       adDisclosure:
-        row.ad_disclosure || (source === 'bestmebelshop' ? BESTMEBELSHOP_DISCLOSURE : undefined),
+        row.ad_disclosure ||
+        (source === 'bestmebelshop'
+          ? BESTMEBELSHOP_DISCLOSURE
+          : source === 'divan'
+            ? DIVAN_DISCLOSURE
+            : undefined),
     },
     variants: [variant],
     inStock: true,

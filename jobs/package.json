@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "catalog:gdeslon": "bun --env-file=../.env run scripts/fetch-gdeslon.ts",
     "catalog:import": "bun --env-file=../.env run scripts/import-catalog.ts",
+    "catalog:inspect-admitad": "bun --no-env-file run scripts/inspect-admitad-feed.ts",
     "catalog:repair-dimensions": "bun --env-file=../.env run scripts/repair-dimensions.ts",
     "catalog:repair-subcategories": "bun --env-file=../.env run scripts/repair-subcategories.ts",
     "catalog:clean": "bun --env-file=../.env run scripts/clean-catalog.ts",

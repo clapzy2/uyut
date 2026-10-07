@@ -74,7 +74,7 @@ export function parsePartnerFeed(text: string, source: CatalogSource, url: strin
   return csvRequested || !looksLikeXml ? parseAdmitadCsv(text, source) : parseYml(text, source)
 }
 
-async function syncFeeds(): Promise<
+async function syncFeeds(onlySource?: CatalogSource): Promise<
   Array<{
     source: string
     inserted: number
@@ -94,6 +94,7 @@ async function syncFeeds(): Promise<
     warning?: string
   }> = []
   for (const feed of configuredFeeds(process.env)) {
+    if (onlySource && feed.source !== onlySource) continue
     try {
       const response = await fetchFeed(feed.url)
       const csvRequested =
@@ -141,7 +142,10 @@ async function syncFeeds(): Promise<
     } catch (error) {
       logger.error('feed failed', {
         source: feed.source,
-        error: String(error),
+        error:
+          error instanceof Error && /^фид не скачался: \d+$/.test(error.message)
+            ? error.message
+            : 'Не удалось прочитать или сохранить выгрузку',
       })
       results.push({
         source: feed.source,
@@ -149,11 +153,34 @@ async function syncFeeds(): Promise<
         updated: 0,
         hidden: 0,
         skipped: 0,
+        warning: 'Обновление не завершено; прежний каталог сохранён',
       })
     }
   }
   return results
 }
+
+/** Refresh one configured supplier without invoking embeddings or another supplier. */
+export const refreshPartnerCatalog = task({
+  id: 'refresh-partner-catalog',
+  queue: { concurrencyLimit: 1 },
+  maxDuration: 1800,
+  retry: { maxAttempts: 1 },
+  run: async (payload: { source: CatalogSource }) => {
+    if (
+      !(catalogSources as readonly string[]).includes(payload.source) ||
+      payload.source === 'gdeslon'
+    )
+      throw new Error('Неизвестный источник партнёрского фида')
+    if (!configuredFeeds(process.env).some((feed) => feed.source === payload.source))
+      throw new Error('Источник не настроен или находится на паузе')
+    const results = await syncFeeds(payload.source)
+    const result = results[0]
+    if (!result || result.inserted + result.updated === 0)
+      throw new Error('Обновление источника не завершено; прежний каталог сохранён')
+    return result
+  },
+})
 
 // Векторы для новых и изменённых записей. Отдельная задача, чтобы дамп или фид можно было
 // досчитать вручную, не дожидаясь ночи.
