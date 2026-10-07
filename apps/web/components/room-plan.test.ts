@@ -2,11 +2,26 @@ import { layoutRoom } from '@uyut/catalog'
 import { createElement } from 'react'
 import { renderToStaticMarkup, renderToString } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { RoomPlan, RoomPlanDrawing } from './room-plan'
+import { RoomItemSizes, RoomPlan, RoomPlanDrawing } from './room-plan'
 
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 vi.mock('@/components/plan-volume-launch', () => ({ PlanVolumeLaunch: () => null }))
 
 describe('подписи дробных мерок на схеме комнаты', () => {
+  it('оставляет редактирование своих габаритов доступным после размещения и без плана комнаты', () => {
+    const html = renderToStaticMarkup(
+      createElement(RoomItemSizes, {
+        items: [
+          { id: 'sofa', title: 'Диван', ownDimensionsCm: { width: 210, depth: 90 } },
+          { id: 'chair', title: 'Стул', ownDimensionsCm: null },
+        ],
+      }),
+    )
+    expect(html).toContain('Габариты выбранных товаров · 2')
+    expect(html).toContain('value="210"')
+    expect(html).toContain('Убрать свои размеры')
+    expect(html.match(/Убрать свои размеры/g)).toHaveLength(2)
+  })
   it('передаёт SVG-подсказки одним текстовым узлом для гидратации', () => {
     const layout = layoutRoom({ widthCm: 400, depthCm: 500 }, [
       {

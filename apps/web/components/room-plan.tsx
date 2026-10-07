@@ -15,6 +15,7 @@ import { PlanVolumeLaunch } from '@/components/plan-volume-launch'
 import { RoomPlacementOverlay } from '@/components/room-placement-overlay'
 import { formatDimensionCm } from '@/lib/projects/format'
 import { roomVolume } from '@/lib/projects/room-volume'
+import type { RoomItemSize } from '@/lib/shopping/repository'
 
 /**
  * План комнаты сверху: реальный контур комнаты и прямоугольники мебели в масштабе.
@@ -700,16 +701,9 @@ export function RoomPlan({
       {layout.unmeasured.length > 0 ? (
         <div className="mt-4 border-t border-line pt-4">
           <p className="text-[13px] leading-relaxed text-ink-2">
-            У этих товаров магазин не указал габариты, поэтому на плане их нет. Диваны так почти
-            всегда: перепишите два числа с карточки товара, и они встанут на место.
+            Для этих товаров пока не хватает ширины или глубины, поэтому на плане их нет. Уточните
+            габариты в разделе ниже, чтобы проверить размещение.
           </p>
-          {canEdit ? (
-            <div className="mt-3 flex flex-col gap-2">
-              {layout.unmeasured.map((item) => (
-                <ItemSizeForm key={item.id} itemId={item.id} title={item.title} />
-              ))}
-            </div>
-          ) : null}
         </div>
       ) : null}
       {layout.offFloor.length > 0 ? (
@@ -718,5 +712,51 @@ export function RoomPlan({
         </p>
       ) : null}
     </div>
+  )
+}
+
+/** Редактирование своих габаритов остаётся доступным и после успешного размещения товара. */
+export function RoomItemSizes({
+  items,
+  unmeasuredIds = [],
+}: {
+  items: readonly RoomItemSize[]
+  unmeasuredIds?: readonly string[]
+}) {
+  if (items.length === 0) return null
+
+  const unmeasured = new Set(unmeasuredIds)
+  const ordered = [...items].sort(
+    (left, right) => Number(unmeasured.has(right.id)) - Number(unmeasured.has(left.id)),
+  )
+
+  return (
+    <details
+      id="room-item-sizes"
+      open={unmeasured.size > 0}
+      className="border border-line bg-surface p-3"
+    >
+      <summary className="cursor-pointer text-[13px] font-medium text-ink">
+        Габариты выбранных товаров · {items.length}
+      </summary>
+      <p className="mt-2 text-[12px] leading-relaxed text-ink-2">
+        Уточните размеры по карточке товара или своему замеру. Вписанные здесь числа относятся к
+        мебели, а не к обмеру комнаты. Пустые поля сохраняют данные магазина, если они указаны;
+        «Убрать свои размеры» возвращает к карточке товара.
+      </p>
+      <div className="mt-3 flex flex-col gap-3">
+        {ordered.map((item) => (
+          <ItemSizeForm
+            key={item.id}
+            itemId={item.id}
+            title={item.title}
+            width={item.ownDimensionsCm?.width}
+            depth={item.ownDimensionsCm?.depth}
+            height={item.ownDimensionsCm?.height}
+            canReset={item.ownDimensionsCm !== null}
+          />
+        ))}
+      </div>
+    </details>
   )
 }

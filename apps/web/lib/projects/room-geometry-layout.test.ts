@@ -472,3 +472,125 @@ describe('проёмы комнаты из 2D-схемы', () => {
     ])
   })
 })
+
+describe('кухонные модули в соседних комнатах', () => {
+  const adjacentRooms: PlanGeometry = {
+    ...geometry,
+    walls: [],
+    openings: [],
+    rooms: [
+      {
+        name: 'Кухня',
+        polygon: [
+          { xCm: 0, yCm: 0 },
+          { xCm: 300, yCm: 0 },
+          { xCm: 300, yCm: 300 },
+          { xCm: 0, yCm: 300 },
+        ],
+      },
+      {
+        name: 'Спальня',
+        polygon: [
+          { xCm: 300, yCm: 0 },
+          { xCm: 600, yCm: 0 },
+          { xCm: 600, yCm: 300 },
+          { xCm: 300, yCm: 300 },
+        ],
+      },
+    ],
+  }
+
+  it('не относит модуль к соседней комнате при касании общей границы', () => {
+    const plan: PlanGeometry = {
+      ...adjacentRooms,
+      kitchenItems: [
+        { id: 'cabinet', kind: 'cabinet', xCm: 200, yCm: 100, widthCm: 100, depthCm: 60 },
+      ],
+    }
+
+    const kitchen = roomLayoutInputFromGeometry(plan, 'Кухня', null)
+    const bedroom = roomLayoutInputFromGeometry(plan, 'Спальня', null)
+
+    expect(kitchen?.keepClearZones.map((zone) => zone.label)).toContain('Кухонный модуль 1')
+    expect(kitchen?.missingSafetyData.join(' ')).toContain('Модуль 1')
+    expect(bedroom?.keepClearZones).toEqual([])
+    expect(bedroom?.missingSafetyData).toEqual([])
+  })
+
+  it('учитывает модуль в обеих комнатах при пересечении их площади', () => {
+    const plan: PlanGeometry = {
+      ...adjacentRooms,
+      kitchenItems: [
+        { id: 'cabinet', kind: 'cabinet', xCm: 250, yCm: 100, widthCm: 100, depthCm: 60 },
+      ],
+    }
+
+    for (const roomName of ['Кухня', 'Спальня']) {
+      const room = roomLayoutInputFromGeometry(plan, roomName, null)
+      expect(room?.keepClearZones.map((zone) => zone.label)).toContain('Кухонный модуль 1')
+      expect(room?.missingSafetyData.join(' ')).toContain('Модуль 1')
+    }
+  })
+
+  it('не переносит в соседнюю комнату зону открывания, касающуюся её границы', () => {
+    const plan: PlanGeometry = {
+      ...adjacentRooms,
+      kitchenItems: [
+        {
+          id: 'cabinet',
+          kind: 'cabinet',
+          xCm: 100,
+          yCm: 100,
+          widthCm: 100,
+          depthCm: 60,
+          front: 'right',
+          openingDepthCm: 50,
+          passageCm: 50,
+        },
+      ],
+    }
+
+    expect(roomLayoutInputFromGeometry(plan, 'Кухня', null)?.keepClearZones).toHaveLength(2)
+    expect(roomLayoutInputFromGeometry(plan, 'Спальня', null)?.keepClearZones).toEqual([])
+  })
+
+  it('переносит зону открывания при реальном заходе в соседнюю комнату', () => {
+    const plan: PlanGeometry = {
+      ...adjacentRooms,
+      kitchenItems: [
+        {
+          id: 'cabinet',
+          kind: 'cabinet',
+          xCm: 100,
+          yCm: 100,
+          widthCm: 100,
+          depthCm: 60,
+          front: 'right',
+          openingDepthCm: 60,
+          passageCm: 60,
+        },
+      ],
+    }
+
+    const bedroom = roomLayoutInputFromGeometry(plan, 'Спальня', null)
+    expect(bedroom?.keepClearZones.map((zone) => zone.label)).toEqual([
+      'Модуль 1: открывание и проход',
+    ])
+    expect(bedroom?.missingSafetyData).toEqual([])
+  })
+
+  it.each([
+    { name: 'вложение', xCm: 100, yCm: 100, widthCm: 60, depthCm: 60 },
+    { name: 'полное совпадение', xCm: 0, yCm: 0, widthCm: 300, depthCm: 300 },
+  ])('учитывает модуль при $name', ({ xCm, yCm, widthCm, depthCm }) => {
+    const plan: PlanGeometry = {
+      ...adjacentRooms,
+      kitchenItems: [{ id: 'cabinet', kind: 'cabinet', xCm, yCm, widthCm, depthCm }],
+    }
+
+    expect(
+      roomLayoutInputFromGeometry(plan, 'Кухня', null)?.keepClearZones.map((zone) => zone.label),
+    ).toContain('Кухонный модуль 1')
+    expect(roomLayoutInputFromGeometry(plan, 'Спальня', null)?.keepClearZones).toEqual([])
+  })
+})

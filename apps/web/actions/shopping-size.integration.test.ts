@@ -7,9 +7,12 @@ import { fontFaceCss, renderProjectHtml } from '@uyut/pdf'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { getDb } from '@/lib/db'
-import { addShoppingItem, getShoppingList } from '@/lib/shopping/repository'
+import { projectLayouts } from '@/lib/shopping/layout'
+import { addShoppingItem, getRoomItemSizes, getShoppingList } from '@/lib/shopping/repository'
 import { buildPdfData, loadSnapshot } from '../../../jobs/src/lib/pdf-data'
 import { printPdf } from '../../../jobs/src/lib/print-pdf'
+
+vi.mock('server-only', () => ({}))
 
 const session = vi.hoisted(() => ({ userId: '' }))
 vi.mock('@/lib/session', () => ({
@@ -19,14 +22,14 @@ vi.mock('@/lib/audit', () => ({ recordAudit: vi.fn() }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/projects/repository', () => ({ updateRoom: vi.fn() }))
 
-import { setItemOperationClearance, setItemPlacement, setItemSize } from './shopping'
+import { resetItemSize, setItemOperationClearance, setItemPlacement, setItemSize } from './shopping'
 
 const run = randomUUID()
 let projectId = ''
 let productId = ''
 let itemId = ''
 
-async function printedHtml(stage: 'first' | 'second') {
+async function printedHtml(stage: 'first' | 'second' | 'corrected' | 'reset') {
   const snapshot = await loadSnapshot(projectId)
   assert(snapshot)
   const data = await buildPdfData({
@@ -78,6 +81,7 @@ describe('сохранение дробных мерок через действ
         kind: 'living',
         name: 'Гостиная',
         areaM2: 20,
+        measurements: { widthCm: 400, depthCm: 500 },
       })
       .returning()
     const [product] = await db
@@ -87,6 +91,7 @@ describe('сохранение дробных мерок через действ
         externalId: `size-${run}`,
         category: 'chair',
         title: 'Стул для проверки мерок',
+        attributes: { dimensionsCm: { width: 100, depth: 70 } },
         priceKopecks: 10000,
         affiliateUrl: 'https://example.test/chair',
         images: [],
@@ -149,5 +154,42 @@ describe('сохранение дробных мерок через действ
     const printed = await printedHtml('second')
     expect(printed).toContain('ширина 105.6 см, глубина 70.4 см')
     expect(printed).not.toContain('высота 85.2 см')
+  })
+
+  it('исправляет ошибочный габарит и возвращает план и PDF к данным магазина', async () => {
+    const db = getDb()
+    const [room] = await db.select().from(rooms).where(eq(rooms.projectId, projectId)).limit(1)
+    assert(room)
+    const selectedRoom = room
+
+    async function currentWidth() {
+      const list = await getShoppingList(session.userId, projectId)
+      const layout = projectLayouts([selectedRoom], list)[0]?.layout
+      return layout?.placementInputs[0]?.widthCm
+    }
+
+    expect((await setItemSize(itemId, { width: '260', depth: '70', height: '' })).ok).toBe(true)
+    expect(await currentWidth()).toBe(260)
+    expect((await setItemSize(itemId, { width: '105,6', depth: '70', height: '' })).ok).toBe(true)
+    expect(await currentWidth()).toBe(105.6)
+    expect((await getRoomItemSizes(session.userId, projectId, room.id))[0]).toMatchObject({
+      id: itemId,
+      ownDimensionsCm: { width: 105.6, depth: 70 },
+    })
+    expect(await printedHtml('corrected')).toContain('ширина 105.6 см, глубина 70 см')
+
+    expect((await resetItemSize(itemId)).ok).toBe(true)
+    expect(await currentWidth()).toBe(100)
+    expect((await getRoomItemSizes(session.userId, projectId, room.id))[0]).toMatchObject({
+      id: itemId,
+      ownDimensionsCm: null,
+    })
+    expect((await getShoppingList(session.userId, projectId)).items[0]).toMatchObject({
+      ownSize: false,
+      dimensionsCm: { width: 100, depth: 70 },
+    })
+    const printed = await printedHtml('reset')
+    expect(printed).toContain('ширина 100 см, глубина 70 см')
+    expect(printed).not.toContain('ширина 105.6 см')
   })
 })

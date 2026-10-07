@@ -69,6 +69,13 @@ export type ShoppingListView = {
   count: number
 }
 
+export type RoomItemSize = {
+  id: string
+  title: string
+  /** Только внесённые человеком габариты; остальные оси остаются из карточки магазина. */
+  ownDimensionsCm: DimensionsCm | null
+}
+
 export type AddShoppingItemInput = {
   projectId: string
   catalogItemId: string
@@ -151,6 +158,27 @@ export async function getShoppingList(
     }),
   )
   return { id: list.id, items, count: items.reduce((sum, item) => sum + item.quantity, 0) }
+}
+
+/** Узкий запрос для формы мерок: не загружает весь каталог и не подписывает изображения. */
+export async function getRoomItemSizes(
+  userId: string,
+  projectId: string,
+  roomId: string,
+): Promise<RoomItemSize[]> {
+  const project = await assertOwner(userId, projectId)
+  const rows = await getDb()
+    .select({
+      id: shoppingListItems.id,
+      title: catalogItems.title,
+      ownDimensionsCm: shoppingListItems.dimensionsCm,
+    })
+    .from(shoppingListItems)
+    .innerJoin(shoppingLists, eq(shoppingLists.id, shoppingListItems.listId))
+    .innerJoin(catalogItems, eq(catalogItems.id, shoppingListItems.catalogItemId))
+    .where(and(eq(shoppingLists.projectId, project.id), eq(shoppingListItems.roomId, roomId)))
+    .orderBy(asc(shoppingListItems.createdAt))
+  return rows
 }
 
 /** Количество по товарам каталога: страница концепта помечает, что уже в списке */

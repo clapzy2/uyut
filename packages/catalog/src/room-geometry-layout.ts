@@ -107,6 +107,53 @@ function polygonsTouch(first: readonly PlanPoint[], second: readonly PlanPoint[]
   return false
 }
 
+/** Kitchen rectangles need floor area inside a room; a shared wall edge is not ownership. */
+function rectOverlapsRoomArea(
+  rect: { xCm: number; yCm: number; widthCm: number; depthCm: number },
+  polygon: readonly PlanPoint[],
+): boolean {
+  if (rect.widthCm <= 0 || rect.depthCm <= 0 || polygon.length < 3) return false
+  let clipped = [...polygon]
+  const boundaries = [
+    { axis: 'xCm', value: rect.xCm, minimum: true },
+    { axis: 'xCm', value: rect.xCm + rect.widthCm, minimum: false },
+    { axis: 'yCm', value: rect.yCm, minimum: true },
+    { axis: 'yCm', value: rect.yCm + rect.depthCm, minimum: false },
+  ] as const
+
+  for (const boundary of boundaries) {
+    const next: PlanPoint[] = []
+    for (const [index, current] of clipped.entries()) {
+      const previous = clipped[(index + clipped.length - 1) % clipped.length]
+      if (!previous) continue
+      const currentInside = boundary.minimum
+        ? current[boundary.axis] >= boundary.value
+        : current[boundary.axis] <= boundary.value
+      const previousInside = boundary.minimum
+        ? previous[boundary.axis] >= boundary.value
+        : previous[boundary.axis] <= boundary.value
+      if (currentInside !== previousInside) {
+        const ratio =
+          (boundary.value - previous[boundary.axis]) /
+          (current[boundary.axis] - previous[boundary.axis])
+        next.push({
+          xCm: previous.xCm + (current.xCm - previous.xCm) * ratio,
+          yCm: previous.yCm + (current.yCm - previous.yCm) * ratio,
+        })
+      }
+      if (currentInside) next.push(current)
+    }
+    clipped = next
+    if (clipped.length < 3) return false
+  }
+
+  const twiceArea = clipped.reduce((area, point, index) => {
+    const next = clipped[(index + 1) % clipped.length]
+    return next ? area + point.xCm * next.yCm - next.xCm * point.yCm : area
+  }, 0)
+  return Math.abs(twiceArea) > 1e-6
+}
+
 function openingBelongsToRoom(
   start: PlanPoint,
   end: PlanPoint,
@@ -436,7 +483,7 @@ export function roomLayoutInputFromGeometry(
   for (const [index, item] of (geometry.kitchenItems ?? []).entries()) {
     const footprint = rectPolygon(item)
     const zones = kitchenClearanceZones(item, index)
-    const belongs = polygonsTouch(footprint, room.polygon)
+    const belongs = rectOverlapsRoomArea(item, room.polygon)
     if (belongs) {
       keepClearZones.push({
         kind: 'obstacle',
@@ -451,7 +498,7 @@ export function roomLayoutInputFromGeometry(
       }
     }
     for (const zone of zones) {
-      if (!polygonsTouch(zone.polygon, room.polygon)) continue
+      if (!zone.rect || !rectOverlapsRoomArea(zone.rect, room.polygon)) continue
       keepClearZones.push({
         kind: 'obstacle',
         label: zone.label,
