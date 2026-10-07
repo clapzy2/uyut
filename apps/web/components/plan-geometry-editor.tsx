@@ -9,6 +9,7 @@ import type {
   PlanPoint,
   PlanRoomShape,
   PlanWall,
+  RoomSpaceKind,
 } from '@uyut/db'
 import { Button, Dialog, DialogContent, DialogTrigger, Input, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
@@ -22,6 +23,7 @@ import {
 import { savePlanGeometry } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
 import { KitchenPlanEditor } from '@/components/kitchen-plan-editor'
+import { PlanFloorBoundaryFields } from '@/components/plan-floor-boundary-fields'
 import { PlanImageReference, type PlanUnderlay } from '@/components/plan-image-reference'
 import { PlanObstaclesEditor } from '@/components/plan-obstacles-editor'
 import { PlanOpeningMeasurementEditor } from '@/components/plan-opening-measurement-editor'
@@ -35,7 +37,11 @@ import {
   inspectPlanRoomAreas,
   type PlanGeometryIssue,
 } from '@/lib/projects/plan-geometry-inspection'
-import { planImageMatrix, planImageScaleCheck } from '@/lib/projects/plan-image-calibration'
+import {
+  planImageConfirmationIssue,
+  planImageMatrix,
+  planImageScaleCheck,
+} from '@/lib/projects/plan-image-calibration'
 import {
   applyOpeningMeasurementRequests,
   currentOpeningMeasurements,
@@ -51,12 +57,13 @@ import {
   removeRoomContourPoint,
 } from '@/lib/projects/room-contour'
 
-type Selection = `wall:${string}` | `opening:${string}` | `room:${number}`
+type Selection = `wall:${string}` | `opening:${string}` | `room:${number}` | 'floor:boundary'
 
 type DragTarget =
   | { kind: 'wall'; id: string; endpoint: 'start' | 'end'; wall: PlanWall; pointerId: number }
   | { kind: 'opening'; id: string; opening: PlanOpening; pointerId: number }
   | { kind: 'room'; roomIndex: number; pointIndex: number; pointerId: number }
+  | { kind: 'floor'; pointIndex: number; pointerId: number }
 
 const numberClassName = 'grid grid-cols-2 gap-3'
 
@@ -137,6 +144,7 @@ function PlanGeometryCanvas({
   onWallsChange,
   onOpeningsChange,
   onRoomsChange,
+  onFootprintChange,
   wallErrorIds,
   openingErrorIds,
   roomErrorIndexes,
@@ -151,6 +159,7 @@ function PlanGeometryCanvas({
   onWallsChange: (walls: PlanWall[]) => void
   onOpeningsChange: (openings: PlanOpening[]) => void
   onRoomsChange: (rooms: PlanRoomShape[]) => void
+  onFootprintChange: (points: PlanPoint[]) => void
   wallErrorIds: ReadonlySet<string>
   openingErrorIds: ReadonlySet<string>
   roomErrorIndexes: ReadonlySet<number>
@@ -253,6 +262,15 @@ function PlanGeometryCanvas({
       return
     }
 
+    if (drag.kind === 'floor') {
+      onFootprintChange(
+        (geometry.footprint ?? []).map((vertex, index) =>
+          index === drag.pointIndex ? point : vertex,
+        ),
+      )
+      return
+    }
+
     if (drag.kind === 'room') {
       onRoomsChange(
         rooms.map((room, roomIndex) =>
@@ -291,10 +309,11 @@ function PlanGeometryCanvas({
 
   return (
     <div className="border border-line bg-paper p-3 sm:p-5">
+      {/* biome-ignore lint/a11y/useSemanticElements: an interactive SVG exposes keyboard-accessible vertices */}
       <svg
         ref={svgRef}
         viewBox={`${-padding} ${-padding} ${geometry.widthCm + padding * 2} ${geometry.heightCm + padding * 2}`}
-        role="img"
+        role="group"
         aria-label="Интерактивная схема квартиры"
         className="block aspect-[16/9] w-full touch-none select-none"
         onPointerMove={move}
@@ -319,17 +338,23 @@ function PlanGeometryCanvas({
           />
         ) : null}
         {geometry.footprint ? (
-          <polygon
-            points={geometry.footprint.map((point) => `${point.xCm},${point.yCm}`).join(' ')}
-            fill="none"
-            stroke="var(--accent)"
-            strokeWidth="2"
-            strokeDasharray="8 5"
-            vectorEffect="non-scaling-stroke"
-            className="pointer-events-none"
-          >
-            <title>Граница пола из исходного плана</title>
-          </polygon>
+          <g>
+            <polygon
+              points={geometry.footprint.map((point) => `${point.xCm},${point.yCm}`).join(' ')}
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth="2"
+              strokeDasharray="8 5"
+              vectorEffect="non-scaling-stroke"
+              onPointerDown={(event) => {
+                if (geometry.pdfCalibration) return
+                event.stopPropagation()
+                onSelectionChange('floor:boundary')
+              }}
+            >
+              <title>Граница пола квартиры и балкона</title>
+            </polygon>
+          </g>
         ) : null}
         {rooms.map((room, roomIndex) => {
           const centre = roomCentre(room.polygon)
@@ -562,6 +587,47 @@ function PlanGeometryCanvas({
               />
             ))
           : null}
+        {selectionKind === 'floor' && !geometry.pdfCalibration
+          ? geometry.footprint?.map((point, index) => (
+              // biome-ignore lint/a11y/useSemanticElements: SVG vertex supports both dragging and keyboard movement
+              <circle
+                key={index}
+                cx={point.xCm}
+                cy={point.yCm}
+                r="8"
+                fill="var(--paper)"
+                stroke="var(--accent)"
+                strokeWidth="3"
+                vectorEffect="non-scaling-stroke"
+                className="cursor-grab active:cursor-grabbing"
+                role="button"
+                tabIndex={0}
+                aria-label={`Угол пола ${index + 1}`}
+                onKeyDown={(event) => {
+                  const dx = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+                  const dy = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0
+                  if (dx === 0 && dy === 0) return
+                  event.preventDefault()
+                  onFootprintChange(
+                    (geometry.footprint ?? []).map((vertex, at) =>
+                      at === index
+                        ? {
+                            xCm: clamp(vertex.xCm + dx, 0, geometry.widthCm),
+                            yCm: clamp(vertex.yCm + dy, 0, geometry.heightCm),
+                          }
+                        : vertex,
+                    ),
+                  )
+                }}
+                onPointerDown={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  event.currentTarget.setPointerCapture(event.pointerId)
+                  dragRef.current = { kind: 'floor', pointIndex: index, pointerId: event.pointerId }
+                }}
+              />
+            ))
+          : null}
       </svg>
       <p className="mt-3 text-[12px] leading-relaxed text-ink-2">
         Нажмите на стену, проём или комнату. Концы стен магнитятся друг к другу вблизи, проёмы
@@ -576,7 +642,7 @@ function PlanGeometryCanvas({
 export function PlanGeometryEditor({
   projectId,
   sourceRevision,
-  geometry,
+  geometry: originalGeometry,
   roomReadings,
   sourceRooms = [],
   planUrl,
@@ -585,11 +651,28 @@ export function PlanGeometryEditor({
   projectId: string
   sourceRevision: string
   geometry: PlanGeometry
-  roomReadings: { name: string; sourceNumber?: number; areaM2?: number }[]
+  roomReadings: {
+    name: string
+    sourceNumber?: number
+    areaM2?: number
+    spaceKind?: RoomSpaceKind
+  }[]
   sourceRooms?: { name: string; sourceNumber: number }[]
   planUrl: string | null
   planIsPdf: boolean
 }) {
+  const [canvasWidthCm, setCanvasWidthCm] = useState(originalGeometry.widthCm)
+  const [canvasHeightCm, setCanvasHeightCm] = useState(originalGeometry.heightCm)
+  const [footprint, setFootprint] = useState(originalGeometry.footprint)
+  const geometry = useMemo<PlanGeometry>(
+    () => ({
+      ...originalGeometry,
+      widthCm: canvasWidthCm,
+      heightCm: canvasHeightCm,
+      footprint,
+    }),
+    [originalGeometry, canvasWidthCm, canvasHeightCm, footprint],
+  )
   const roomNames = roomReadings.map((room) => room.name)
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -621,7 +704,7 @@ export function PlanGeometryEditor({
   const [imageCalibration, setImageCalibration] = useState(geometry.imageCalibration)
   const [referenceRevision, setReferenceRevision] = useState(0)
   const [underlay, setUnderlay] = useState<PlanUnderlay | undefined>(() =>
-    planUrl && !planIsPdf && (geometry.source === 'manual' || geometry.imageCalibration)
+    planUrl && !planIsPdf
       ? {
           url: planUrl,
           opacity: 0.35,
@@ -635,6 +718,9 @@ export function PlanGeometryEditor({
   const [saving, startSaving] = useTransition()
   const editSnapshot = JSON.stringify([
     baseRevision,
+    footprint,
+    canvasWidthCm,
+    canvasHeightCm,
     walls,
     openings,
     rooms,
@@ -678,7 +764,7 @@ export function PlanGeometryEditor({
     () => [
       ...inspectPlanGeometry({ ...geometry, walls, openings, rooms }),
       ...inspectPlanVerticalDimensions({ walls, openings }),
-      ...(geometry.source === 'manual'
+      ...(geometry.source === 'manual' || !planIsPdf
         ? [
             ...inspectManualPlanCompleteness({
               ...geometry,
@@ -714,12 +800,31 @@ export function PlanGeometryEditor({
           ]
         : []),
     ],
-    [geometry, walls, openings, rooms, imageCalibration, roomReadings, editableCalibration],
+    [
+      geometry,
+      walls,
+      openings,
+      rooms,
+      imageCalibration,
+      roomReadings,
+      editableCalibration,
+      planIsPdf,
+    ],
   )
   const blockingIssues = issues.filter(
     (issue) => issue.severity === 'error' && !issue.id.startsWith('manual-'),
   )
-  const confirmationIssues = issues.filter((issue) => issue.severity === 'error')
+  const imageFloorIssue = !planIsPdf
+    ? !footprint
+      ? 'Нанесите замкнутую границу пола вместе с балконом. Обрезанный исходник оставьте черновиком.'
+      : planImageConfirmationIssue(imageCalibration)
+    : undefined
+  const confirmationIssues: PlanGeometryIssue[] = [
+    ...issues.filter((issue) => issue.severity === 'error'),
+    ...(imageFloorIssue
+      ? [{ id: 'manual-image-floor', severity: 'error' as const, message: imageFloorIssue }]
+      : []),
+  ]
   const visibleIssues = [
     ...confirmationIssues,
     ...issues
@@ -884,6 +989,7 @@ export function PlanGeometryEditor({
       ...current,
       {
         name,
+        ...(readingMatches[0]?.spaceKind ? { spaceKind: readingMatches[0].spaceKind } : {}),
         ...(sourceNumber === undefined ? {} : { sourceNumber }),
         polygon: [
           { xCm: left, yCm: top },
@@ -932,7 +1038,7 @@ export function PlanGeometryEditor({
   }
 
   function removeSelected() {
-    if (selectedRoom && geometry.source === 'manual') {
+    if (selectedRoom && (geometry.source === 'manual' || !planIsPdf)) {
       setRooms((current) => current.filter((_, index) => index !== Number(selectionId)))
       setSelection(nextSelection(walls, openings))
       setVerifiedEdit(undefined)
@@ -956,7 +1062,10 @@ export function PlanGeometryEditor({
     }
   }
 
-  function reset(nextGeometry = geometry, nextRevision = sourceRevision) {
+  function reset(nextGeometry = originalGeometry, nextRevision = sourceRevision) {
+    setCanvasWidthCm(nextGeometry.widthCm)
+    setCanvasHeightCm(nextGeometry.heightCm)
+    setFootprint(nextGeometry.footprint)
     setWalls(nextGeometry.walls)
     setOpenings(nextGeometry.openings)
     setMeasurementCalibration(nextGeometry.pdfCalibration)
@@ -987,6 +1096,7 @@ export function PlanGeometryEditor({
           projectId,
           {
             ...geometry,
+            footprint: footprint ?? null,
             walls,
             openings,
             rooms,
@@ -1079,6 +1189,16 @@ export function PlanGeometryEditor({
             />
           ) : null}
           <div className="mb-3 flex flex-wrap items-center gap-2">
+            {!planIsPdf ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setSelection('floor:boundary')}
+              >
+                Граница пола
+              </Button>
+            ) : null}
             <span className="mr-1 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-2">
               Добавить
             </span>
@@ -1137,6 +1257,7 @@ export function PlanGeometryEditor({
             onWallsChange={setWalls}
             onOpeningsChange={setOpenings}
             onRoomsChange={setRooms}
+            onFootprintChange={setFootprint}
             wallErrorIds={wallErrorIds}
             openingErrorIds={openingErrorIds}
             roomErrorIndexes={roomErrorIndexes}
@@ -1154,7 +1275,7 @@ export function PlanGeometryEditor({
               <p className="mt-2 text-[14px] leading-relaxed text-ink">
                 Линии пока не нанесены. Сохраните пустой черновик или добавьте первую стену.
               </p>
-            ) : issues.length === 0 ? (
+            ) : issues.length === 0 && confirmationIssues.length === 0 ? (
               <p className="mt-2 text-[14px] leading-relaxed text-ink">
                 Автоматические проверки не нашли противоречий в нанесённой схеме. Сверьте её с
                 исходным планом.
@@ -1232,7 +1353,7 @@ export function PlanGeometryEditor({
             )}
           </div>
 
-          {geometry.source === 'manual' ? (
+          {geometry.source === 'manual' || !planIsPdf ? (
             <PlanSourceRoomCoverage
               rooms={rooms}
               roomReadings={roomReadings}
@@ -1289,6 +1410,9 @@ export function PlanGeometryEditor({
                 onChange={(event) => setSelection(event.currentTarget.value as Selection)}
                 className={selectClassName}
               >
+                {!planIsPdf ? (
+                  <option value="floor:boundary">Граница пола квартиры и балкона</option>
+                ) : null}
                 <optgroup label="Стены">
                   {walls.map((wall, index) => (
                     <option key={wall.id} value={`wall:${wall.id}`}>
@@ -1326,6 +1450,37 @@ export function PlanGeometryEditor({
             </div>
 
             <div className="min-w-0">
+              {selectionKind === 'floor' && !planIsPdf ? (
+                <>
+                  <div className="mb-4 grid grid-cols-2 gap-3">
+                    <Input
+                      id="plan-canvas-width"
+                      label="Полотно: ширина, см"
+                      type="number"
+                      min="100"
+                      max="5000"
+                      value={canvasWidthCm}
+                      onChange={(event) => setCanvasWidthCm(Number(event.currentTarget.value))}
+                    />
+                    <Input
+                      id="plan-canvas-height"
+                      label="Полотно: глубина, см"
+                      type="number"
+                      min="100"
+                      max="5000"
+                      value={canvasHeightCm}
+                      onChange={(event) => setCanvasHeightCm(Number(event.currentTarget.value))}
+                    />
+                  </div>
+                  <PlanFloorBoundaryFields
+                    points={footprint}
+                    walls={walls}
+                    widthCm={canvasWidthCm}
+                    heightCm={canvasHeightCm}
+                    onChange={setFootprint}
+                  />
+                </>
+              ) : null}
               {selectedWall ? (
                 <div className="space-y-4">
                   <div>
@@ -1728,7 +1883,9 @@ export function PlanGeometryEditor({
                 </div>
               ) : null}
 
-              {selectedWall || selectedOpening || (selectedRoom && geometry.source === 'manual') ? (
+              {selectedWall ||
+              selectedOpening ||
+              (selectedRoom && (geometry.source === 'manual' || !planIsPdf)) ? (
                 <button
                   type="button"
                   onClick={removeSelected}
@@ -1736,7 +1893,7 @@ export function PlanGeometryEditor({
                 >
                   {selectedRoom ? 'Удалить этот контур комнаты' : 'Убрать этот элемент из схемы'}
                 </button>
-              ) : !selectedRoom ? (
+              ) : !selectedRoom && selectionKind !== 'floor' ? (
                 <p className="text-[14px] text-ink-2">В схеме не осталось элементов.</p>
               ) : null}
             </div>

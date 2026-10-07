@@ -1,4 +1,24 @@
-import type { PlanGeometry, PlanRoomShape } from '@uyut/db'
+import type { PlanGeometry, PlanRoomReading, PlanRoomShape, RoomSpaceKind } from '@uyut/db'
+
+/** Project balconies need a contour even when they were added after the image was read. */
+export function geometryRoomReadings(
+  readings: readonly PlanRoomReading[],
+  projectRooms: readonly { name: string; spaceKind: RoomSpaceKind; areaM2: number | null }[],
+): PlanRoomReading[] {
+  const result = [...readings]
+  for (const room of projectRooms) {
+    if (room.spaceKind === 'interior' || result.some((reading) => reading.name === room.name))
+      continue
+    result.push({
+      name: room.name,
+      kind: 'living',
+      utility: true,
+      spaceKind: room.spaceKind,
+      ...(room.areaM2 === null ? {} : { areaM2: room.areaM2 }),
+    })
+  }
+  return result
+}
 
 type NamedRoom = { name: string; sourceNumber?: number }
 

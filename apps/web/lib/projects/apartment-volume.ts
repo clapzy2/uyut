@@ -63,7 +63,7 @@ export function apartmentVolume(
   const furniture: VolumeFurniture[] = [...kitchenFurniture]
   const issues = [...model.issues]
   const floorZones: VolumeFloorZone[] = [...(model.floorZones ?? [])]
-  const matchedRooms: VolumeRoom[] = []
+  const matchedRooms: VolumeRoom[] = [...(model.rooms ?? [])]
   for (const room of rooms) {
     const name = normalizedName(room.roomName)
     const matches = geometry.rooms.filter((candidate) => normalizedName(candidate.name) === name)
@@ -116,6 +116,10 @@ export function apartmentVolume(
       omit('координаты мебели или идентификаторы размещений требуют уточнения')
       continue
     }
+    const sourceOnlyIndex = matchedRooms.findIndex(
+      (candidate) => candidate.sourceOnly && normalizedName(candidate.title) === name,
+    )
+    if (sourceOnlyIndex !== -1) matchedRooms.splice(sourceOnlyIndex, 1)
     matchedRooms.push({
       id: room.roomId,
       title: room.roomName,

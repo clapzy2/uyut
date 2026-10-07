@@ -14,6 +14,7 @@ import {
   openingMeasurementSnapshot,
   openingMeasurementWallSnapshot,
 } from '@/lib/projects/plan-opening-measurements'
+import { planVolume } from '@/lib/projects/plan-volume'
 import openApartmentSource from '../../../jobs/fixtures/open-swiss-apartment-35063.json'
 import openApartment from '../../../jobs/fixtures/open-swiss-apartment-35063-geometry.json'
 
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   revalidate: vi.fn(),
   setPlanReading: vi.fn(),
+  getProject: vi.fn(),
   getObject: vi.fn(),
   preparePlanPage: vi.fn(),
 }))
@@ -31,7 +33,10 @@ vi.mock('@/lib/projects/access', () => ({
   AccessError: class AccessError extends Error {},
   assertOwner: mocks.assertOwner,
 }))
-vi.mock('@/lib/projects/repository', () => ({ setPlanReading: mocks.setPlanReading }))
+vi.mock('@/lib/projects/repository', () => ({
+  setPlanReading: mocks.setPlanReading,
+  getProject: mocks.getProject,
+}))
 vi.mock('@/lib/projects/plan-document', () => ({ preparePlanPage: mocks.preparePlanPage }))
 vi.mock('@/lib/storage', () => ({
   deleteObject: vi.fn(),
@@ -77,6 +82,12 @@ const calibratedImage = {
   lengthCm: 300,
   direction: 'right' as const,
 }
+const reviewedImage = {
+  ...calibratedImage,
+  verificationLines: [
+    { pixelStart: { x: 100, y: 100 }, pixelEnd: { x: 100, y: 400 }, lengthCm: 300 },
+  ],
+}
 
 const corners = [
   { xCm: 0, yCm: 0 },
@@ -121,10 +132,12 @@ describe('manual plan draft', () => {
     }
     mocks.assertOwner.mockResolvedValue(source)
     mocks.setPlanReading.mockResolvedValue(undefined)
+    mocks.getProject.mockResolvedValue({ rooms: [] })
     mocks.audit.mockResolvedValue(undefined)
   })
 
   it('сохраняет проверенные границу пола и пустоты из источника, а не из правки браузера', async () => {
+    source.planUrl = 'plan.pdf'
     const voids = [
       {
         id: 'shaft',
@@ -279,6 +292,7 @@ describe('manual plan draft', () => {
       rooms: [room],
       footprint: corners,
       voids,
+      imageCalibration: reviewedImage,
     }
 
     const result = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
@@ -928,6 +942,8 @@ describe('manual plan draft', () => {
         walls: closedWalls,
         rooms: [{ name: 'Кухня', polygon: corners }],
         confirmedAt: 'forged-old-confirmation',
+        footprint: corners,
+        imageCalibration: reviewedImage,
       },
       'confirm',
     )
@@ -937,6 +953,100 @@ describe('manual plan draft', () => {
       expect(result.data.geometry.confirmedAt).toMatch(/^2026-/)
       expect(result.data.geometry.confirmedAt).not.toBe('forged-old-confirmation')
     }
+  })
+
+  it('saves, reopens and confirms a projecting balcony added after the raster was read', async () => {
+    const floor = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 400, yCm: 0 },
+      { xCm: 400, yCm: 360 },
+      { xCm: 320, yCm: 400 },
+      { xCm: 250, yCm: 380 },
+      { xCm: 250, yCm: 300 },
+      { xCm: 0, yCm: 300 },
+    ]
+    const balcony = [{ xCm: 250, yCm: 300 }, { xCm: 400, yCm: 300 }, ...floor.slice(2, 5)]
+    const outerWalls = floor.map((start, index) => ({
+      id: `manual_${String(index + 10).padStart(24, '0')}`,
+      kind: 'outer' as const,
+      start,
+      end: floor[(index + 1) % floor.length] as typeof start,
+    }))
+    const divider = {
+      id: 'manual_000000000000000000000020',
+      kind: 'inner' as const,
+      start: { xCm: 250, yCm: 300 },
+      end: { xCm: 400, yCm: 300 },
+    }
+    source.planReading.rooms = [{ name: 'Гостиная', kind: 'living', areaM2: 12 }]
+    mocks.getProject.mockResolvedValue({
+      rooms: [{ name: 'Балкон', spaceKind: 'balcony', areaM2: null }],
+    })
+    const input = {
+      ...emptyManualGeometry,
+      widthCm: 400,
+      heightCm: 400,
+      footprint: floor,
+      walls: [...outerWalls, divider],
+      openings: [
+        {
+          id: 'manual_000000000000000000000021',
+          type: 'balcony',
+          wallId: divider.id,
+          offsetCm: 20,
+          widthCm: 80,
+        },
+      ],
+      rooms: [
+        {
+          name: 'Гостиная',
+          polygon: [
+            { xCm: 0, yCm: 0 },
+            { xCm: 400, yCm: 0 },
+            { xCm: 400, yCm: 300 },
+            { xCm: 0, yCm: 300 },
+          ],
+        },
+        { name: 'Балкон', polygon: balcony },
+      ],
+      imageCalibration: reviewedImage,
+    }
+    const draft = await savePlanGeometry(projectId, input, 'draft')
+    expect(draft.ok).toBe(true)
+    if (!draft.ok) throw new Error(draft.error)
+    expect(planVolume(draft.data.geometry)).toBeNull()
+    source.planReading = mocks.setPlanReading.mock.calls[0]?.[2]
+    const confirmed = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
+    expect(confirmed.ok).toBe(true)
+    if (!confirmed.ok) throw new Error(confirmed.error)
+    expect(confirmed.data.geometry.footprint).toEqual(floor)
+    expect(confirmed.data.geometry.rooms[1]?.polygon).toEqual(balcony)
+    expect(planVolume(confirmed.data.geometry)?.floor).toEqual(floor)
+    expect(planVolume(confirmed.data.geometry)?.rooms?.[0]?.floor).toEqual(balcony)
+    expect(source.planReading.rooms[0]?.areaM2).toBe(12)
+  })
+
+  it('requires a reviewed floor and two-direction scale checks before raster confirmation', async () => {
+    source.planReading.rooms = [{ name: 'Кухня', kind: 'kitchen', areaM2: 20 }]
+    const input = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      rooms: [{ name: 'Кухня', polygon: corners }],
+    }
+    expect(await savePlanGeometry(projectId, input, 'confirm')).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('границу пола'),
+    })
+    expect(
+      await savePlanGeometry(
+        projectId,
+        { ...input, footprint: corners, imageCalibration: calibratedImage },
+        'confirm',
+      ),
+    ).toMatchObject({ ok: false, error: expect.stringContaining('другом направлении') })
+    expect(
+      await savePlanGeometry(projectId, { ...input, footprint: corners }, 'draft'),
+    ).toMatchObject({ ok: true })
   })
 
   it('saves further edits as a draft and removes the old geometry confirmation', async () => {
@@ -1169,6 +1279,7 @@ describe('manual plan draft', () => {
   })
 
   it('confirms a complete independent apartment without losing its floor or shafts', async () => {
+    source.planUrl = 'plan.pdf'
     const sourceSha256 = createHash('sha256')
       .update(JSON.stringify(openApartmentSource.rows.map(({ row }) => row)))
       .digest('hex')

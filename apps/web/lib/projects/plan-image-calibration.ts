@@ -76,6 +76,20 @@ export function planImageScaleCoverage(calibration: PlanImageCalibration) {
   }
 }
 
+/** A raster can be reviewed for volume only after independent checks in two directions. */
+export function planImageConfirmationIssue(
+  calibration: PlanImageCalibration | undefined,
+): string | undefined {
+  if (!calibration)
+    return 'Привяжите исходное изображение по подписанному размеру перед подтверждением пола.'
+  const coverage = planImageScaleCoverage(calibration)
+  if (coverage.hasConflict)
+    return 'Подписанные размеры не сходятся с масштабом подложки. Исправьте точки или сохраните черновик.'
+  if (!coverage.hasSecondDirection)
+    return 'Проверьте масштаб независимым подписанным размером в другом направлении. Пока можно сохранить черновик.'
+  return undefined
+}
+
 /** Один размер задаёт масштаб и поворот, а положение первой точки — сдвиг картинки. */
 export function planImageMatrix(
   calibration: PlanImageCalibration,

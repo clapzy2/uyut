@@ -10,8 +10,11 @@ function edgeLength(start: PlanPoint, end: PlanPoint): number {
  * Делит самую длинную сторону пополам. Форма и площадь не меняются, пока человек
  * не сдвинет новую точку: это безопасная отправная точка для ниши или эркера.
  */
-export function addRoomContourPoint(points: readonly PlanPoint[]): PlanPoint[] {
-  if (points.length < 2 || points.length >= MAX_ROOM_CONTOUR_POINTS) return [...points]
+export function addRoomContourPoint(
+  points: readonly PlanPoint[],
+  maxPoints = MAX_ROOM_CONTOUR_POINTS,
+): PlanPoint[] {
+  if (points.length < 2 || points.length >= maxPoints) return [...points]
 
   let longestStart = 0
   let longestLength = -1
