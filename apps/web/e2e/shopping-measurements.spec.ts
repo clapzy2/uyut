@@ -261,4 +261,44 @@ test.describe('дробные мерки через HTTP собранного с
       await outsider.dispose()
     }
   })
+
+  test('редактирует и сбрасывает габариты через настоящий браузер без падения страницы', async ({
+    page,
+  }) => {
+    await signIn(page.request, ownerEmail)
+    await page.goto(`/projects/${projectId}/rooms/${roomId}`)
+    const panel = page.locator('#room-item-sizes')
+    await panel.locator('summary').click()
+    const title = 'Тестовый стул с дробными мерками'
+    const width = panel.getByLabel(`Ширина, см: ${title}`, { exact: true })
+    const depth = panel.getByLabel(`Глубина, см: ${title}`, { exact: true })
+    const height = panel.getByLabel(`Высота, см: ${title}`, { exact: true })
+
+    await width.fill('110,6')
+    await depth.fill('75,4')
+    await height.fill('95,2')
+    await expect(page.getByText('Страница не открылась.', { exact: true })).toHaveCount(0)
+    await panel.getByRole('button', { name: 'Сохранить свои размеры', exact: true }).click()
+    await expect
+      .poll(async () => (await savedItem()).dimensionsCm)
+      .toEqual({
+        width: 110.6,
+        depth: 75.4,
+        height: 95.2,
+      })
+    await expect(width).toHaveValue('110.6')
+    await expect(height).toHaveValue('95.2')
+
+    await panel.getByRole('button', { name: 'Убрать свои размеры', exact: true }).click()
+    await expect.poll(async () => (await savedItem()).dimensionsCm).toBeNull()
+    await expect(width).toHaveValue('')
+    await expect(height).toHaveValue('')
+    await page.reload()
+    await expect(panel).toBeVisible()
+    await expect(width).toHaveValue('')
+    await expect(
+      panel.getByRole('button', { name: 'Убрать свои размеры', exact: true }),
+    ).toHaveCount(0)
+    await expect(page.getByText('Страница не открылась.', { exact: true })).toHaveCount(0)
+  })
 })
