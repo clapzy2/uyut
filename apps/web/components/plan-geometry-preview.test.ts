@@ -6,6 +6,26 @@ import { PlanGeometryPreview } from './plan-geometry-preview'
 import { PlanVolumeLaunch } from './plan-volume-launch'
 
 describe('предпросмотр 2D-схемы', () => {
+  it('не выдаёт внутреннюю согласованность AI-черновика за точное чтение исходника', () => {
+    const geometry: PlanGeometry = {
+      version: 1,
+      status: 'draft',
+      widthCm: 500,
+      heightCm: 400,
+      warnings: [],
+      walls: [],
+      openings: [],
+      rooms: [],
+    }
+
+    const html = renderToStaticMarkup(createElement(PlanGeometryPreview, { geometry }))
+
+    expect(html).toContain('только внутреннюю согласованность схемы')
+    expect(html).toContain('не точность чтения исходника')
+    expect(html).toContain('сверьте размеры сторон, контуры комнат и расположение проёмов')
+    expect(html).not.toContain('прошла машинную проверку размеров')
+  })
+
   it('shows confirmation blockers before opening the editor', () => {
     const geometry: PlanGeometry = {
       version: 1,
