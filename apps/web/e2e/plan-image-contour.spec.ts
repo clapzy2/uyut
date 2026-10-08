@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
-import { randomInt, randomUUID } from 'node:crypto'
+import { createHash, randomInt, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { type APIRequestContext, expect, type Locator, test } from '@playwright/test'
 import { accounts, createDb, type Database, type PlanGeometry, projects, users } from '@uyut/db'
 import { eq } from 'drizzle-orm'
@@ -45,6 +46,7 @@ const geometry: PlanGeometry = {
   ),
 }
 let database: Database | undefined
+let storage: S3Client | undefined
 let ownerId = ''
 let projectId = ''
 
@@ -68,8 +70,8 @@ async function addNumericVertex(trace: Locator, index: number, x: number, y: num
   await trace.getByLabel(`Угол ${index} · Y, пикс.`, { exact: true }).fill(String(y))
 }
 
-// Only synthetic local data. Signed source requests are intercepted; no storage uploads,
-// image recognition, interior generation or paid jobs are requested by this regression.
+// Only synthetic local data. The source is uploaded to isolated storage so pixel guides
+// use the actual server decoder. No image recognition, generation or paid jobs are requested.
 test.describe('обводка растрового контура по двум проверенным направлениям', () => {
   test.use({
     extraHTTPHeaders: {
@@ -81,10 +83,26 @@ test.describe('обводка растрового контура по двум 
   test.beforeAll(async () => {
     const connection = new URL(process.env.DATABASE_URL ?? '')
     assert(
-      ['localhost', '127.0.0.1'].includes(connection.hostname) && connection.port === '5432',
-      'Нужна отдельная локальная тестовая БД на порту 5432, не production-туннель',
+      ['localhost', '127.0.0.1'].includes(connection.hostname) &&
+        connection.port === '5432' &&
+        connection.pathname === '/uyut',
+      'Нужна изолированная локальная БД localhost:5432/uyut, не production-туннель',
     )
     assert(process.env.APP_URL === origin)
+    const endpoint = new URL(process.env.S3_ENDPOINT ?? '')
+    assert(
+      ['localhost', '127.0.0.1'].includes(endpoint.hostname) && endpoint.port === '9000',
+      'Нужен изолированный локальный S3 на порту 9000',
+    )
+    storage = new S3Client({
+      endpoint: endpoint.toString(),
+      region: process.env.S3_REGION,
+      forcePathStyle: true,
+      credentials: {
+        accessKeyId: process.env.S3_ACCESS_KEY as string,
+        secretAccessKey: process.env.S3_SECRET_KEY as string,
+      },
+    })
     database = createDb(connection.toString())
     const [owner] = await database
       .insert(users)
@@ -112,9 +130,12 @@ test.describe('обводка растрового контура по двум 
   })
 
   test.afterAll(async () => {
-    if (!database) return
-    if (projectId) await database.delete(projects).where(eq(projects.id, projectId))
-    if (ownerId) await database.delete(users).where(eq(users.id, ownerId))
+    if (database && projectId) await database.delete(projects).where(eq(projects.id, projectId))
+    if (database && ownerId) await database.delete(users).where(eq(users.id, ownerId))
+    if (storage) {
+      await storage.send(new DeleteObjectCommand({ Bucket: process.env.S3_BUCKET, Key: planUrl }))
+      storage.destroy()
+    }
   })
 
   test('отмена сохраняет пол, пять углов балкона переживают сохранение и перезагрузку', async ({
@@ -122,6 +143,15 @@ test.describe('обводка растрового контура по двум 
   }) => {
     const sourceSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="820" height="970"><rect width="820" height="970" fill="white"/><path d="M110 110H710V710H590V740H710V810L660 860H460V740H510V710H110Z M460 740H710V810L660 860H460Z" fill="none" stroke="black" stroke-width="3"/><text x="160" y="90">SYNTHETIC TEST ONLY · 600 cm</text></svg>`
     const sourcePng = await sharp(Buffer.from(sourceSvg)).png().toBuffer()
+    assert(storage)
+    await storage.send(
+      new PutObjectCommand({
+        Bucket: process.env.S3_BUCKET,
+        Key: planUrl,
+        Body: sourcePng,
+        ContentType: 'image/png',
+      }),
+    )
     await page.route(`**/${planUrl}*`, (route) =>
       route.fulfill({ status: 200, contentType: 'image/png', body: sourcePng }),
     )
@@ -136,10 +166,105 @@ test.describe('обводка растрового контура по двум 
     await floorTrace.locator('summary').click()
     await floorTrace.getByRole('button', { name: 'Начать новую обводку', exact: true }).click()
     await addNumericVertex(floorTrace, 1, 110, 110)
+    const guidesResponse = page.waitForResponse((response) =>
+      response.url().includes(`/api/projects/${projectId}/plan-raster-edges`),
+    )
+    await floorTrace.getByRole('button', { name: 'Найти углы по пикселям', exact: true }).click()
+    const response = await guidesResponse
+    expect(response.status()).toBe(200)
+    expect(response.headers()['cache-control']).toBe('private, no-store')
+    const guides = (await response.json()) as {
+      source: { sha256: string; page: number; width: number; height: number }
+      points: { x: number; y: number }[]
+      truncated: boolean
+      uncertain: boolean
+    }
+    expect(guides.source).toEqual({
+      sha256: createHash('sha256').update(sourcePng).digest('hex'),
+      page: 1,
+      width: 820,
+      height: 970,
+    })
+    expect(guides.truncated).toBe(false)
+    expect(guides.uncertain).toBe(false)
+    const assistance = floorTrace.getByRole('checkbox', {
+      name: 'Помогать привязкой новых углов к изображению',
+      exact: true,
+    })
+    await expect(assistance).not.toBeChecked()
+    await expect(floorTrace.getByLabel('Угол 1 · X, пикс.', { exact: true })).toHaveValue('110')
+    await assistance.check()
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 1280, height: 900 },
+    ]) {
+      await page.setViewportSize(viewport)
+      await floorTrace.scrollIntoViewIfNeeded()
+      expect(
+        await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+      ).toBe(true)
+      await floorTrace.screenshot({
+        path: resolve(`../../output/playwright/raster-corner-guides-${viewport.width}.png`),
+      })
+    }
+    await expect(floorTrace.getByLabel('Угол 1 · Y, пикс.', { exact: true })).toHaveValue('110')
+    const floorImage = floorTrace.getByRole('img', {
+      name: 'Исходник для обводки: Общая граница пола',
+      exact: true,
+    })
+    await floorImage.scrollIntoViewIfNeeded()
+    const floorBox = await floorImage.boundingBox()
+    assert(floorBox)
+    // Browser mouse events use integer CSS coordinates. Select a genuine candidate whose
+    // nearest neighbour remains unambiguous after that rounding, not a fabricated wall corner.
+    const click = guides.points
+      .map((candidate) => {
+        const clientX = Math.round(floorBox.x + (candidate.x * floorBox.width) / 820)
+        const clientY = Math.round(floorBox.y + (candidate.y * floorBox.height) / 970)
+        const pointer = {
+          x: ((clientX - floorBox.x) * 820) / floorBox.width,
+          y: ((clientY - floorBox.y) * 970) / floorBox.height,
+        }
+        const nearest = guides.points
+          .map((point) => ({
+            point,
+            distance: Math.hypot(point.x - pointer.x, point.y - pointer.y),
+          }))
+          .sort((first, second) => first.distance - second.distance)
+        const first = nearest[0]
+        const second = nearest[1]
+        return first && first.distance <= 8 && (!second || second.distance - first.distance >= 2.5)
+          ? { clientX, clientY, point: first.point }
+          : undefined
+      })
+      .find((candidate) => candidate !== undefined)
+    assert(click, 'Синтетический растр должен дать хотя бы одну однозначную подсказку')
+    await page.mouse.click(click.clientX, click.clientY)
+    await expect(floorTrace.getByLabel('Угол 2 · X, пикс.', { exact: true })).toHaveValue(
+      String(click.point.x),
+    )
+    await expect(floorTrace.getByLabel('Угол 2 · Y, пикс.', { exact: true })).toHaveValue(
+      String(click.point.y),
+    )
+    expect(await savedGeometry()).toEqual(geometry)
+    await assistance.uncheck()
+    await expect(floorTrace.getByLabel('Угол 2 · X, пикс.', { exact: true })).toHaveValue(
+      String(click.point.x),
+    )
     await floorTrace.getByRole('button', { name: 'Отменить обводку', exact: true }).click()
     expect(await savedGeometry()).toEqual(geometry)
     await expect(dialog.locator('#floor-point-0-xCm')).toHaveValue('40')
     await expect(dialog.locator('[id^="floor-point-"]')).toHaveCount(26)
+
+    const guideRoute = '**/plan-raster-edges?*'
+    await page.route(guideRoute, (route) => route.fulfill({ status: 422, body: 'Unavailable' }))
+    await floorTrace.getByRole('button', { name: 'Найти углы по пикселям', exact: true }).click()
+    await expect(floorTrace.getByRole('status')).toHaveText(
+      'Подсказки не загрузились. Обводка вручную остаётся доступной.',
+    )
+    await expect(assistance).toHaveCount(0)
+    expect(await savedGeometry()).toEqual(geometry)
+    await page.unroute(guideRoute)
 
     await floorTrace.getByRole('button', { name: 'Начать новую обводку', exact: true }).click()
     assert(geometry.footprint)

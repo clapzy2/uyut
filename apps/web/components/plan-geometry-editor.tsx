@@ -1582,6 +1582,7 @@ export function PlanGeometryEditor({
                       maxPoints={200}
                       label="Общая граница пола"
                       onChange={setFootprint}
+                      cornerSourceUrl={`/api/projects/${projectId}/plan-raster-edges?revision=${baseRevision}&page=${rasterPdfPage ?? 1}`}
                     />
                   ) : null}
                 </>
@@ -1939,6 +1940,7 @@ export function PlanGeometryEditor({
                           ),
                         )
                       }
+                      cornerSourceUrl={`/api/projects/${projectId}/plan-raster-edges?revision=${baseRevision}&page=${rasterPdfPage ?? 1}`}
                     />
                   ) : null}
                   <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
