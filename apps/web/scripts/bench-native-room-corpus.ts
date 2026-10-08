@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { preparePlanPage } from '../lib/projects/plan-document'
 import { automaticNativeDimensionRoles } from '../lib/projects/plan-native-dimension-roles'
+import { nativeFaceAnnotationCandidates } from '../lib/projects/plan-native-face-annotations'
 import { automaticNativeRoomCandidates } from '../lib/projects/plan-native-room-candidates'
 import {
   nativeStrokeCycleCandidates,
@@ -72,6 +73,18 @@ for (const source of sources) {
     lineworkSource: page.lineworkRasterSource,
   })
   assert.equal(faces.semanticStatus, 'unclassified')
+  const annotationHints = nativeFaceAnnotationCandidates({
+    native: page.nativeTextAnchors,
+    work: page.linework,
+    lineworkSource: page.lineworkRasterSource,
+  })
+  assert.equal(annotationHints.mayEraseSourceStrokes, false)
+  assert.equal(annotationHints.roomRecognitionAccepted, false)
+  assert.deepEqual(annotationHints.geometry.candidates, faces.candidates)
+  await writeFile(
+    join(directory, source.file.replace('.pdf', '-annotation-hints.json')),
+    JSON.stringify(annotationHints, null, 2),
+  )
   if (faces.truncated) assert.equal(faces.candidates.length, 0)
   const roles = automaticNativeDimensionRoles({
     native: page.nativeTextAnchors,
@@ -98,6 +111,21 @@ for (const source of sources) {
     JSON.stringify(faces, null, 2),
   )
   const scale = page.nativeTextAnchors.pageNormalizedScale
+  if (annotationHints.geometry.candidates.length) {
+    const tagged = new Set(annotationHints.annotations.map((entry) => entry.faceId))
+    const overlay = `<svg xmlns="http://www.w3.org/2000/svg" width="${page.image.width}" height="${page.image.height}">
+      ${annotationHints.geometry.candidates
+        .map((candidate, index) => {
+          const color = tagged.has(candidate.id) ? '#cc0044' : '#008888'
+          return `<polygon points="${candidate.rasterPolygon.map((point) => `${point.x},${point.y}`).join(' ')}" fill="${color}" fill-opacity="0.1" stroke="${color}" stroke-width="2"/><text x="${candidate.rasterPolygon[0]?.x}" y="${(candidate.rasterPolygon[0]?.y ?? 0) - 3}" font-size="14" fill="${color}">${index + 1}</text>`
+        })
+        .join('')}
+    </svg>`
+    await sharp(page.image.body)
+      .composite([{ input: Buffer.from(overlay) }])
+      .png()
+      .toFile(join(directory, source.file.replace('.pdf', '-annotation-hints.png')))
+  }
   if (faces.candidates.length) {
     const overlay = `<svg xmlns="http://www.w3.org/2000/svg" width="${page.image.width}" height="${page.image.height}">
       ${faces.candidates.map((candidate, index) => `<polygon points="${candidate.rasterPolygon.map((point) => `${point.x},${point.y}`).join(' ')}" fill="#008888" fill-opacity="0.1" stroke="#008888" stroke-width="2"/><text x="${candidate.rasterPolygon[0]?.x}" y="${(candidate.rasterPolygon[0]?.y ?? 0) - 3}" font-size="14" fill="#cc0044">${index + 1}</text>`).join('')}
@@ -137,6 +165,9 @@ for (const source of sources) {
     strokeRefusal: strokes.refusalReason,
     boundedFaceCandidates: faces.candidates.length,
     boundedFaceRefusal: faces.refusalReason,
+    annotationFaceHints: annotationHints.annotations.length,
+    unknownFaceIds: annotationHints.unknownFaceIds,
+    annotationHintRefusal: annotationHints.refusalReason,
     dimensionRoleCandidates: roles.candidates.length,
     dimensionRoleRefusal: roles.refusalReason,
     blockedStrokeRoles: faces.blockedSourceRefs?.map((blocked) => ({

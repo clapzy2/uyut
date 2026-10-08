@@ -774,3 +774,10 @@ unclassified faces, однако visual QA показывает в основн�
 исправление численного/вычислительного блокера, не готовый automatic 2D/3D.
 Полные 3035 web tests/typecheck/lint и независимый review прошли. Дальше нужны
 wall/floor/opening role proofs и complete annotation inventory; сайт не менялся.
+
+Local annotation face hints добавлены отдельно от geometry: полная aligned
+header/row layout и explicit metadata cues, source text provenance, no erasure/
+no room promotion. На corpus получены 9 hints и 19 unknown из 28 faces;
+остальные table/title cells не выданы за rooms. Полные 3047 web tests прошли.
+Это partial semantic evidence, не готовое распознавание квартир. Нужны
+room/floor/opening proofs, включая незамкнутые границы проёмов и completeness.

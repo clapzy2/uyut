@@ -1160,6 +1160,40 @@ findings. Новых AI-запросов/PR/site writes нет. Основной
 отказ на диагоналях, а доказательство wall/floor/opening roles и полноты,
 отдельная обработка table/title-block annotations и safe review UI.
 
+## Раздельные annotation hints и unknown faces
+
+Добавлен local-only `nativeFaceAnnotationCandidates`. Он заново получает
+bounded faces и сохраняет все polygons/source refs, отдельно выдавая hints
+table-header-cell/table-column-cell/sheet-metadata-cell и unknownFaceIds.
+mayEraseSourceStrokes и roomRecognitionAccepted всегда false: это подсказки
+для review, не доказательство non-floor role и не accepted rooms.
+
+Native text должен быть complete, с уникальными original IDs/indexes,
+pagePoint/rotation и прежним raster mapping. Source/frame mismatch отказывает;
+incomplete geometry не выдаёт частичные hints. Labels на boundary или <=0.12
+PDF points от неё не дают ownership. Требуется полный прямоугольник, а не bbox
+concave области. №/Наименование/Площадь должны быть единственными горизонтальными
+headers в трёх разных cells с exact adjacent x intervals и общими top/bottom.
+Продолжение требует полных aligned rows по всем трём seeded columns: review
+нашло false-cue при одной длинной колонке, исправление и regression добавлены.
+Metadata cues ограничены явными названиями служебных полей; room words и
+metadata substring не используются. Это conservative hints, не OCR.
+
+Полный пятилистовый corpus повторён без вручную переданных face IDs:
+Basis 4 hints/7 unknown, Basman 2/5, Remplanner 3/7; всего 9/19 из 28 faces.
+Geometry до/после tagger в runner сравнивается точно и не изменяется. Life
+сохраняет incomplete-layer refusal, Designgroup work-budget refusal.
+Наложения просмотрены (`tmp/native-face-annotations-20261008-b/`): hints
+соответствуют трём header cells и шести служебным cells, но другие table/
+title-block cells остаются unknown. Малые cells отсутствуют в geometry и
+не позволяют доказать полную grid continuation; это не обход area guard.
+Ни unknown, ни hinted faces не назначены rooms/floors и не перенесены в 2D/3D.
+
+12 targeted cases и полный web suite 3047 tests/233 файла прошли. Typecheck
+семи пакетов/lint/diff check прошли, независимое review не имеет оставшихся
+actionable findings. Расположение комнат/проёмов всё ещё не принято. Новых
+AI-запросов/PR/site writes нет, пользовательский проект не изменён.
+
 ## Чего эта проверка не доказывает
 
 Распознавание произвольных исходников, качество всех аналогов, физический
