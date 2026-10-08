@@ -139,6 +139,9 @@ describe('selected PDF page', () => {
     const result = await preparePlanPage(Buffer.from('pdf'), true, 6, true, true)
     expect(result.lineworkRasterSource).toEqual(result.nativeTextAnchors?.source)
     expect(result.nativeTextAnchors?.pageNormalizedScale).toEqual({ x: 1, y: 2 })
+    expect(result.nativeTextAnchors?.originalPdfSha256).toBe(
+      createHash('sha256').update(Buffer.from('pdf')).digest('hex'),
+    )
   })
   it('preserves fractional native origins and separate IDs for repeated captions', async () => {
     mocks.text.mockResolvedValue({
@@ -208,6 +211,20 @@ describe('selected PDF page', () => {
       ((200 * (150 / 72)) / 1667) * 1600,
     )
     expect(result.nativeTextAnchors?.labels[0]?.point.y).toBeCloseTo(1000)
+    expect(result.nativeTextAnchors?.labels[0]?.nativeIndex).toBe(0)
+    expect(result.nativeTextAnchors?.labels[0]?.pagePoint).toEqual({
+      x: 250,
+      y: (500 / 600) * 1000,
+    })
+    expect(result.nativeTextAnchors?.labels[0]?.rotation).toBeCloseTo(90)
+  })
+  it('preserves a fractional rendered baseline angle instead of rounding it to an axis', async () => {
+    const angle = (0.3 * Math.PI) / 180
+    mocks.text.mockResolvedValue({
+      items: [{ str: '3000', transform: [Math.cos(angle), -Math.sin(angle), 0, 1, 100, 100] }],
+    })
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6, false, true)
+    expect(result.nativeTextAnchors?.labels[0]?.rotation).toBeCloseTo(0.3)
   })
   it('marks unavailable, truncated, and out-of-frame native layers incomplete', async () => {
     mocks.text.mockRejectedValueOnce(new Error('no layer'))

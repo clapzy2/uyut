@@ -17,9 +17,17 @@ const PDF_MAX_PIXELS = 12_000_000
 export type NativeTextAnchors = {
   source: { sha256: string; page: number; width: number; height: number }
   complete: boolean
+  originalPdfSha256?: string
   pageNormalizedScale?: { x: number; y: number }
   // Baseline origins from PDF text transforms, not glyph boxes or inferred room centres.
-  labels: { id: string; name: string; point: { x: number; y: number } }[]
+  labels: {
+    id: string
+    name: string
+    point: { x: number; y: number }
+    nativeIndex?: number
+    pagePoint?: { x: number; y: number }
+    rotation?: number
+  }[]
 }
 
 async function toJpeg(body: Buffer): Promise<{
@@ -108,7 +116,14 @@ export async function preparePlanPage(
     const full = page.getViewport({ scale: PDF_DPI / 72 })
     const textContent = await page.getTextContent().catch(() => undefined)
     const textItems: Array<{ text: string; x: number; y: number; rotation: number }> = []
-    const nativeOrigins: Array<{ index: number; name: string; x: number; y: number }> = []
+    const nativeOrigins: Array<{
+      index: number
+      name: string
+      x: number
+      y: number
+      dx: number
+      dy: number
+    }> = []
     let nativeTextComplete = textContent !== undefined
     let textSize = 2
     for (const [index, item] of (textContent?.items ?? []).entries()) {
@@ -140,6 +155,8 @@ export async function preparePlanPage(
           name: item.str.trim(),
           x: item.transform[4],
           y: item.transform[5],
+          dx: item.transform[0],
+          dy: item.transform[1],
         })
       }
     }
@@ -163,11 +180,19 @@ export async function preparePlanPage(
       const labels: NativeTextAnchors['labels'] = []
       for (const origin of nativeOrigins) {
         const [renderX, renderY] = viewport.convertToViewportPoint(origin.x, origin.y)
+        const [directionX, directionY] = viewport.convertToViewportPoint(
+          origin.x + origin.dx,
+          origin.y + origin.dy,
+        )
+        const angle = (-Math.atan2(directionY - renderY, directionX - renderX) * 180) / Math.PI
+        const rotation = angle
         const x = (renderX / canvas.width) * image.width
         const y = (renderY / canvas.height) * image.height
         if (
           !Number.isFinite(x) ||
           !Number.isFinite(y) ||
+          !Number.isFinite(angle) ||
+          (directionX === renderX && directionY === renderY) ||
           x < 0 ||
           x > image.width ||
           y < 0 ||
@@ -176,7 +201,17 @@ export async function preparePlanPage(
           nativeTextComplete = false
           continue
         }
-        labels.push({ id: `native-text-${origin.index}`, name: origin.name, point: { x, y } })
+        labels.push({
+          id: `native-text-${origin.index}`,
+          name: origin.name,
+          point: { x, y },
+          nativeIndex: origin.index,
+          pagePoint: {
+            x: (renderX / viewport.width) * 1000,
+            y: (renderY / viewport.height) * 1000,
+          },
+          rotation,
+        })
       }
       nativeTextAnchors = {
         source: {
@@ -186,6 +221,7 @@ export async function preparePlanPage(
           height: image.height,
         },
         complete: nativeTextComplete,
+        originalPdfSha256: createHash('sha256').update(body).digest('hex'),
         pageNormalizedScale: {
           x: ((viewport.width / canvas.width) * image.width) / 1000,
           y: ((viewport.height / canvas.height) * image.height) / 1000,
