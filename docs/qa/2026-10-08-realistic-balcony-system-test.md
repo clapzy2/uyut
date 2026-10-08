@@ -1246,6 +1246,52 @@ collapse и недостаточный count-only runner gate: оба испра
 проект пользователя не менялись. Следующий остаток — source-reviewed opening
 kind/extent/unknown-fill roles и integration с floor contours без invented gaps.
 
+## Source-reviewed opening kind binding
+
+Добавлен local-only `reviewedNativeOpeningKinds`: manual-native-opening-kind-review
+содержит exact wall-section review, complete gap snapshot и original symbol
+path snapshots. Gap заново вычисляется по неизменённому source. Signature
+проверяет endpoints, оба jamb inventories с original refs/points, bounded flag,
+unknown-fill IDs, dimension IDs/width и nullable openingKind. Nullable values
+сравниваются строго, undefined/NaN не превращаются в null через JSON signature.
+Duplicate IDs/gap declarations и stale evidence отказывают пачке атомарно.
+
+Symbol snapshots требуют original paint/closed/ordered points и unique native
+operation/subpath. Compound/omitted symbol operations и selected-wall conflicts
+отказывают. Symbol group должен точно покрывать along gap span, попадать на
+section across plane; window требует strict transverse crossing, door —
+дополнительно exact attachment к native jamb endpoint. Проверка не выбирает
+kind по bbox/цвету: authority — явная предыдущая source-kind review.
+Это partial graphic support, НЕ automatic symbol recognition или полная
+модель створки/дуги. Unknown fills и gap.openingKind=null сохраняются;
+sourceReviewedKind отдельно от physicalPassageAccepted=false. Floor boundary
+не закрывается, completeOpeningInventory=false, ширина не придумывается.
+
+`native-opening-kind-reviews.json` фиксирует пять explicit declarations на
+Remplanner existing page: четыре window, один door, source/raster SHA и
+known symbol operation IDs. Эти native paint primitives — source graphic
+witnesses, не автоматически классифицированная glazing/leaf model. Новый
+runner сверяет original PDF SHA и JPEG frame, предыдущую independent kind
+authority по dimension index, axis/probe plane и exact wall-anchor intervals.
+Свежие snapshots собираются только после проверки этой hash-pinned authority;
+это НЕ автоматически созданное одобрение всех gap candidates.
+
+Реальный сквозной результат: 4 window/1 door source-kind bindings,
+acceptedPhysicalPassages=0; все unknown fills сохранены, все real widths null.
+Original native data неизменны. Наложение просмотрено; финальные pixels в
+`tmp/native-opening-kinds-20261009-b/` совпадают с просмотренным `*-a/`.
+Ни room contours/соседние владельцы, ни маршрут/physical clearance, ни 2D/3D
+не подтверждены и не обновлены. Пять source-kind bindings не объявлены пятью
+полностью автоматически распознанными/смонтируемыми проёмами.
+
+25 focused cases, полный web suite 3088 tests/235 файлов, typecheck семи
+пакетов/lint/diff check прошли. Independent review нашло across-plane gap и
+partial omitted-symbol issue; оба закрыты с regressions. Добавлены depth axis,
+paint/closed/ref/jamb snapshot negatives, fresh invalid symbol extents,
+unattached door, atomic second-item failure и output clone cases. Новых
+AI-запросов/PR/site writes нет. Остаток — роли unknown fills, owners/floor
+contours/completeness и безопасный public review flow, не unconditional проход.
+
 ## Чего эта проверка не доказывает
 
 Распознавание произвольных исходников, качество всех аналогов, физический

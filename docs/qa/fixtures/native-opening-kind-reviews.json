@@ -1,0 +1,61 @@
+{
+  "file": "moscow_ryazansky_remplanner.pdf",
+  "source": {
+    "sha256": "26b6a49e0512205ee50b1179b7b7447859864db8d3e92375b69a45edadcbc69c",
+    "pdfPage": 3,
+    "state": "existing"
+  },
+  "rasterSource": {
+    "sha256": "23ff9a8da4b389327fc9b4f7d4f54196be92e1f557a15c4264bdf99f997107bc",
+    "page": 3,
+    "width": 2000,
+    "height": 1414
+  },
+  "declarations": [
+    {
+      "id": "left-window",
+      "side": "left",
+      "kind": "window",
+      "from": 202.045,
+      "to": 310.14,
+      "sourceDimensionIndex": 20,
+      "symbolOperations": [1270]
+    },
+    {
+      "id": "right-window-1",
+      "side": "right",
+      "kind": "window",
+      "from": 277.475,
+      "to": 387.253,
+      "sourceDimensionIndex": 77,
+      "symbolOperations": [1776]
+    },
+    {
+      "id": "right-window-2",
+      "side": "right",
+      "kind": "window",
+      "from": 505.788,
+      "to": 613.883,
+      "sourceDimensionIndex": 73,
+      "symbolOperations": [1771]
+    },
+    {
+      "id": "right-window-3",
+      "side": "right",
+      "kind": "window",
+      "from": 728.715,
+      "to": 836.809,
+      "sourceDimensionIndex": 69,
+      "symbolOperations": [1766]
+    },
+    {
+      "id": "entry-door",
+      "side": "entry",
+      "kind": "door",
+      "from": 416.537,
+      "to": 464.639,
+      "sourceDimensionIndex": 61,
+      "symbolOperations": [2733, 2738]
+    }
+  ]
+}

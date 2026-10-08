@@ -790,3 +790,11 @@ unknown fills/тип door-window/width ownership не объявлены под�
 gate, полные 3063 web tests/typecheck/lint и independent review прошли.
 Это partial gap evidence по ранее reviewed walls, не автоматическое назначение
 стен или перенос проёмов в 2D/3D. Сайт и пользовательский проект не менялись.
+
+Local source-kind binding batch проверен: exact fresh gap/jamb/unknown-fill
+snapshots и source graphic symbols, atomic refusals, никакого source erasure/
+floor closure/physical passage acceptance. На hash-pinned independent source
+связаны четыре ранее reviewed window declarations и одна door declaration;
+это не automatic symbol detector. Полные 3088 web tests/typecheck/lint и
+independent review прошли. Unknown fills/room owners/widths и полная geometry
+остаётся неподтверждённой; public UI/site writes по-прежнему не выполнялись.
