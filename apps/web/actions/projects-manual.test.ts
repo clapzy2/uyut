@@ -88,6 +88,21 @@ const reviewedImage = {
     { pixelStart: { x: 100, y: 100 }, pixelEnd: { x: 100, y: 400 }, lengthCm: 300 },
   ],
 }
+const scannedPdfBody = Buffer.from('synthetic scanned PDF test source')
+const reviewedPdfImage = {
+  ...reviewedImage,
+  sourceSha256: createHash('sha256').update(scannedPdfBody).digest('hex'),
+  pdfPage: 1,
+}
+const nativePdfCalibration = {
+  sourceSha256: 'a'.repeat(64),
+  pdfPage: 6,
+  cmPerPoint: 1.7,
+  origin: { x: 10, y: 20 },
+  anchorRoomNumbers: [4],
+  labelIndexes: [1, 2],
+  derivedOpeningIds: [],
+}
 
 const corners = [
   { xCm: 0, yCm: 0 },
@@ -134,6 +149,11 @@ describe('manual plan draft', () => {
     mocks.setPlanReading.mockResolvedValue(undefined)
     mocks.getProject.mockResolvedValue({ rooms: [] })
     mocks.audit.mockResolvedValue(undefined)
+    mocks.getObject.mockResolvedValue({ body: scannedPdfBody })
+    mocks.preparePlanPage.mockResolvedValue({
+      image: { width: reviewedImage.imageWidthPx, height: reviewedImage.imageHeightPx },
+      pageNumber: 1,
+    })
   })
 
   it('сохраняет проверенные границу пола и пустоты из источника, а не из правки браузера', async () => {
@@ -149,7 +169,12 @@ describe('manual plan draft', () => {
         ],
       },
     ]
-    source.planReading.geometry = { ...emptyManualGeometry, footprint: corners, voids }
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      footprint: corners,
+      voids,
+      pdfCalibration: nativePdfCalibration,
+    }
     const result = await savePlanGeometry(
       projectId,
       { ...emptyManualGeometry, footprint: [], voids: [] },
@@ -169,15 +194,7 @@ describe('manual plan draft', () => {
     source.planReading.geometry = {
       ...emptyManualGeometry,
       footprint: corners,
-      pdfCalibration: {
-        sourceSha256: 'a'.repeat(64),
-        pdfPage: 6,
-        cmPerPoint: 1.7,
-        origin: { x: 10, y: 20 },
-        anchorRoomNumbers: [4],
-        labelIndexes: [1, 2],
-        derivedOpeningIds: [],
-      },
+      pdfCalibration: nativePdfCalibration,
     }
     const result = await savePlanGeometry(
       projectId,
@@ -187,6 +204,7 @@ describe('manual plan draft', () => {
 
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.data.geometry.footprint).toEqual(corners)
+    expect(mocks.preparePlanPage).not.toHaveBeenCalled()
   })
 
   it('does not replace a reviewed PDF page floor through the image route', async () => {
@@ -212,6 +230,7 @@ describe('manual plan draft', () => {
 
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.data.geometry.footprint).toEqual(corners)
+    expect(mocks.preparePlanPage).not.toHaveBeenCalled()
   })
 
   it('сохраняет и очищает отдельно введённые высоты и толщину после проверки схемы', async () => {
@@ -1097,12 +1116,15 @@ describe('manual plan draft', () => {
       footprint: floor,
       walls,
       rooms: [{ name: 'Кухня', polygon: floor }],
-      imageCalibration: reviewedImage,
+      imageCalibration: reviewedPdfImage,
     }
 
     const singleDirection = await savePlanGeometry(
       projectId,
-      { ...input, imageCalibration: calibratedImage },
+      {
+        ...input,
+        imageCalibration: { ...reviewedPdfImage, verificationLines: [] },
+      },
       'confirm',
     )
     expect(singleDirection).toMatchObject({
@@ -1133,6 +1155,64 @@ describe('manual plan draft', () => {
 
     expect(result).toMatchObject({ ok: false, error: expect.stringContaining('привяжите') })
     expect(mocks.setPlanReading).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['changed PDF hash', { sourceSha256: 'b'.repeat(64) }, 'Исходный PDF изменился'],
+    ['different PDF page', { pdfPage: 2 }, 'другому PDF-листу'],
+    ['different image width', { imageWidthPx: 1001 }, 'Размеры подложки'],
+    ['different image height', { imageHeightPx: 801 }, 'Размеры подложки'],
+  ])('rejects scanned calibration with %s without writing', async (_name, patch, error) => {
+    source.planUrl = 'scanned-plan.pdf'
+    const result = await savePlanGeometry(
+      projectId,
+      {
+        ...emptyManualGeometry,
+        footprint: corners,
+        imageCalibration: { ...reviewedPdfImage, ...patch },
+      },
+      'draft',
+    )
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining(error) })
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
+  })
+
+  it('uses the selected source page when validating a scanned PDF calibration', async () => {
+    source.planUrl = 'scanned-plan.pdf'
+    source.planReading.sourcePage = 2
+    const result = await savePlanGeometry(
+      projectId,
+      {
+        ...emptyManualGeometry,
+        footprint: corners,
+        imageCalibration: { ...reviewedPdfImage, pdfPage: 2 },
+      },
+      'draft',
+    )
+    expect(result.ok).toBe(true)
+    expect(mocks.preparePlanPage).toHaveBeenCalledWith(scannedPdfBody, true, 2)
+  })
+
+  it('cannot confirm a complete scanned PDF by removing its floor and calibration', async () => {
+    source.planUrl = 'scanned-plan.pdf'
+    const geometry = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      rooms: [{ name: 'Кухня', polygon: corners }],
+      footprint: corners,
+      imageCalibration: reviewedPdfImage,
+    }
+    source.planReading.geometry = geometry
+    source.planReading.rooms = [{ name: 'Кухня', kind: 'kitchen', areaM2: 20 }]
+    const result = await savePlanGeometry(
+      projectId,
+      { ...geometry, imageCalibration: null, footprint: null },
+      'confirm',
+    )
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining('границу пола') })
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
   })
 
   it('requires a reviewed floor and two-direction scale checks before raster confirmation', async () => {
@@ -1393,7 +1473,10 @@ describe('manual plan draft', () => {
       .update(JSON.stringify(openApartmentSource.rows.map(({ row }) => row)))
       .digest('hex')
     expect(openApartment.sourceSha256).toBe(sourceSha256)
-    const geometry = openApartment.geometry as PlanGeometry
+    const geometry: PlanGeometry = {
+      ...(openApartment.geometry as PlanGeometry),
+      source: undefined,
+    }
     source.planReading = {
       readAt: '2026-09-30T00:00:00.000Z',
       planState: 'unknown',
@@ -1407,8 +1490,7 @@ describe('manual plan draft', () => {
       'confirm',
     )
 
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
+    if (!result.ok) throw new Error(result.error)
     expect(result.data.geometry.status).toBe('confirmed')
     expect(result.data.geometry.walls).toHaveLength(38)
     expect(result.data.geometry.openings).toHaveLength(9)

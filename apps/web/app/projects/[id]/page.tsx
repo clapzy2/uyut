@@ -357,6 +357,14 @@ export default async function ProjectPage({ params }: { params: Params }) {
                 sourceRooms={project.planReading.pageReview?.sourceRooms}
                 planUrl={planUrl}
                 planIsPdf={planIsPdf}
+                rasterPdfPage={
+                  planIsPdf &&
+                  project.planReading.geometry.source === 'manual' &&
+                  !project.planReading.geometry.pdfCalibration &&
+                  !project.planReading.pageReview
+                    ? (project.planReading.sourcePage ?? 1)
+                    : undefined
+                }
               />
             ) : null
           }

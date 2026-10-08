@@ -15,6 +15,7 @@ import { Button, Dialog, DialogContent, DialogTrigger, Input, toast } from '@uyu
 import { useRouter } from 'next/navigation'
 import {
   type PointerEvent as ReactPointerEvent,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -51,6 +52,7 @@ import {
   unresolvedOpeningMeasurementIds,
   type VerifyOpeningMeasurementRequest,
 } from '@/lib/projects/plan-opening-measurements'
+import { pdfRasterPreview } from '@/lib/projects/plan-pdf-raster-preview'
 import { inspectPlanVerticalDimensions } from '@/lib/projects/plan-vertical-dimensions'
 import {
   addRoomContourPoint,
@@ -648,6 +650,7 @@ export function PlanGeometryEditor({
   sourceRooms = [],
   planUrl,
   planIsPdf,
+  rasterPdfPage,
 }: {
   projectId: string
   sourceRevision: string
@@ -661,6 +664,7 @@ export function PlanGeometryEditor({
   sourceRooms?: { name: string; sourceNumber: number }[]
   planUrl: string | null
   planIsPdf: boolean
+  rasterPdfPage?: number
 }) {
   const [canvasWidthCm, setCanvasWidthCm] = useState(originalGeometry.widthCm)
   const [canvasHeightCm, setCanvasHeightCm] = useState(originalGeometry.heightCm)
@@ -716,6 +720,72 @@ export function PlanGeometryEditor({
         }
       : undefined,
   )
+  const isRaster = !planIsPdf || rasterPdfPage !== undefined
+  const [pdfRaster, setPdfRaster] = useState<{
+    url: string
+    sha256: string
+    page: number
+    width: number
+    height: number
+  }>()
+  const [pdfRasterError, setPdfRasterError] = useState<string>()
+  const imageSourceUrl = rasterPdfPage !== undefined ? pdfRaster?.url : planUrl
+  useEffect(() => {
+    if (!open || rasterPdfPage === undefined) return
+    const pageNumber = rasterPdfPage
+    const controller = new AbortController()
+    let cancelled = false
+    let objectUrl: string | undefined
+    setPdfRaster(undefined)
+    setPdfRasterError(undefined)
+    setUnderlay(undefined)
+    async function loadPage() {
+      try {
+        const response = await fetch(
+          `/api/projects/${projectId}/plan-page?page=${pageNumber}&revision=${baseRevision}&format=raster`,
+          { signal: controller.signal, cache: 'no-store' },
+        )
+        const preview = await pdfRasterPreview(response, pageNumber)
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(preview.blob)
+        setPdfRaster({
+          url: objectUrl,
+          sha256: preview.sha256,
+          page: preview.page,
+          width: preview.width,
+          height: preview.height,
+        })
+        const url = objectUrl
+        setUnderlay((current) => ({
+          url,
+          opacity: current?.opacity ?? 0.35,
+          scale: 1,
+          xCm: 0,
+          yCm: 0,
+        }))
+      } catch (error) {
+        if (!cancelled)
+          setPdfRasterError(error instanceof Error ? error.message : 'Не удалось открыть PDF-лист.')
+      }
+    }
+    void loadPage()
+    return () => {
+      cancelled = true
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      setPdfRaster(undefined)
+      setUnderlay(undefined)
+    }
+  }, [open, rasterPdfPage, projectId, baseRevision])
+  const currentImageCalibration =
+    rasterPdfPage === undefined ||
+    (pdfRaster &&
+      imageCalibration?.sourceSha256 === pdfRaster.sha256 &&
+      imageCalibration.pdfPage === pdfRaster.page &&
+      imageCalibration.imageWidthPx === pdfRaster.width &&
+      imageCalibration.imageHeightPx === pdfRaster.height)
+      ? imageCalibration
+      : undefined
   const [saving, startSaving] = useTransition()
   const editSnapshot = JSON.stringify([
     baseRevision,
@@ -765,7 +835,7 @@ export function PlanGeometryEditor({
     () => [
       ...inspectPlanGeometry({ ...geometry, walls, openings, rooms }),
       ...inspectPlanVerticalDimensions({ walls, openings }),
-      ...(geometry.source === 'manual' || !planIsPdf
+      ...(geometry.source === 'manual' || isRaster
         ? [
             ...inspectManualPlanCompleteness({
               ...geometry,
@@ -809,16 +879,16 @@ export function PlanGeometryEditor({
       imageCalibration,
       roomReadings,
       editableCalibration,
-      planIsPdf,
+      isRaster,
     ],
   )
   const blockingIssues = issues.filter(
     (issue) => issue.severity === 'error' && !issue.id.startsWith('manual-'),
   )
-  const imageFloorIssue = !planIsPdf
+  const imageFloorIssue = isRaster
     ? !footprint
       ? 'Нанесите замкнутую границу пола вместе с балконом. Обрезанный исходник оставьте черновиком.'
-      : planImageConfirmationIssue(imageCalibration)
+      : planImageConfirmationIssue(currentImageCalibration)
     : undefined
   const confirmationIssues: PlanGeometryIssue[] = [
     ...issues.filter((issue) => issue.severity === 'error'),
@@ -1039,7 +1109,7 @@ export function PlanGeometryEditor({
   }
 
   function removeSelected() {
-    if (selectedRoom && (geometry.source === 'manual' || !planIsPdf)) {
+    if (selectedRoom && (geometry.source === 'manual' || isRaster)) {
       setRooms((current) => current.filter((_, index) => index !== Number(selectionId)))
       setSelection(nextSelection(walls, openings))
       setVerifiedEdit(undefined)
@@ -1176,11 +1246,28 @@ export function PlanGeometryEditor({
               Открыть исходный план рядом ↗
             </a>
           ) : null}
-          {planUrl ? (
+          {rasterPdfPage !== undefined ? (
+            <p className="mb-3 text-[13px] text-ink-2">
+              Растровая подложка PDF · лист {rasterPdfPage}. Масштаб задаётся вручную; нативные
+              линии и AI здесь не используются.
+            </p>
+          ) : null}
+          {rasterPdfPage !== undefined && !pdfRaster && !pdfRasterError ? (
+            <p role="status" className="mb-3 text-[13px]">
+              Готовим изображение выбранного листа…
+            </p>
+          ) : null}
+          {pdfRasterError ? (
+            <p role="alert" className="mb-3 text-[13px] text-danger">
+              {pdfRasterError}
+            </p>
+          ) : null}
+          {imageSourceUrl ? (
             <PlanImageReference
-              key={referenceRevision}
-              planUrl={planUrl}
-              planIsPdf={planIsPdf}
+              key={`${referenceRevision}:${imageSourceUrl}`}
+              planUrl={imageSourceUrl}
+              planIsPdf={!isRaster}
+              pdfSource={pdfRaster ? { sha256: pdfRaster.sha256, page: pdfRaster.page } : undefined}
               canvasWidthCm={geometry.widthCm}
               canvasHeightCm={geometry.heightCm}
               underlay={underlay}
@@ -1190,7 +1277,7 @@ export function PlanGeometryEditor({
             />
           ) : null}
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            {!planIsPdf ? (
+            {isRaster ? (
               <Button
                 type="button"
                 variant="secondary"
@@ -1262,7 +1349,11 @@ export function PlanGeometryEditor({
             wallErrorIds={wallErrorIds}
             openingErrorIds={openingErrorIds}
             roomErrorIndexes={roomErrorIndexes}
-            underlay={underlay}
+            underlay={
+              underlay && (rasterPdfPage === undefined || pdfRaster)
+                ? { ...underlay, calibration: currentImageCalibration }
+                : undefined
+            }
           />
 
           <div
@@ -1354,7 +1445,7 @@ export function PlanGeometryEditor({
             )}
           </div>
 
-          {geometry.source === 'manual' || !planIsPdf ? (
+          {geometry.source === 'manual' || isRaster ? (
             <PlanSourceRoomCoverage
               rooms={rooms}
               roomReadings={roomReadings}
@@ -1411,7 +1502,7 @@ export function PlanGeometryEditor({
                 onChange={(event) => setSelection(event.currentTarget.value as Selection)}
                 className={selectClassName}
               >
-                {!planIsPdf ? (
+                {isRaster ? (
                   <option value="floor:boundary">Граница пола квартиры и балкона</option>
                 ) : null}
                 <optgroup label="Стены">
@@ -1451,7 +1542,7 @@ export function PlanGeometryEditor({
             </div>
 
             <div className="min-w-0">
-              {selectionKind === 'floor' && !planIsPdf ? (
+              {selectionKind === 'floor' && isRaster ? (
                 <>
                   <div className="mb-4 grid grid-cols-2 gap-3">
                     <Input
@@ -1480,11 +1571,11 @@ export function PlanGeometryEditor({
                     heightCm={canvasHeightCm}
                     onChange={setFootprint}
                   />
-                  {planUrl && imageCalibration ? (
+                  {imageSourceUrl && currentImageCalibration ? (
                     <PlanImageContourTrace
-                      key={`floor:${JSON.stringify(imageCalibration)}:${JSON.stringify(footprint)}:${planUrl}`}
-                      planUrl={planUrl}
-                      calibration={imageCalibration}
+                      key={`floor:${JSON.stringify(imageCalibration)}:${JSON.stringify(footprint)}:${imageSourceUrl}`}
+                      planUrl={imageSourceUrl}
+                      calibration={currentImageCalibration}
                       points={footprint}
                       widthCm={canvasWidthCm}
                       heightCm={canvasHeightCm}
@@ -1831,11 +1922,11 @@ export function PlanGeometryEditor({
               {selectedRoom ? (
                 <div className="border border-line bg-muted p-4">
                   <p className="font-serif text-xl text-ink">{selectedRoom.name}</p>
-                  {!planIsPdf && planUrl && imageCalibration ? (
+                  {isRaster && imageSourceUrl && currentImageCalibration ? (
                     <PlanImageContourTrace
-                      key={`room:${JSON.stringify(imageCalibration)}:${JSON.stringify(selectedRoom)}:${planUrl}`}
-                      planUrl={planUrl}
-                      calibration={imageCalibration}
+                      key={`room:${JSON.stringify(imageCalibration)}:${JSON.stringify(selectedRoom)}:${imageSourceUrl}`}
+                      planUrl={imageSourceUrl}
+                      calibration={currentImageCalibration}
                       points={selectedRoom.polygon}
                       widthCm={canvasWidthCm}
                       heightCm={canvasHeightCm}
@@ -1918,7 +2009,7 @@ export function PlanGeometryEditor({
 
               {selectedWall ||
               selectedOpening ||
-              (selectedRoom && (geometry.source === 'manual' || !planIsPdf)) ? (
+              (selectedRoom && (geometry.source === 'manual' || isRaster)) ? (
                 <button
                   type="button"
                   onClick={removeSelected}

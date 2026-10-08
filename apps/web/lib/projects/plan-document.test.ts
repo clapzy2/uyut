@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   text: vi.fn(),
   operators: vi.fn(),
   getDocument: vi.fn(),
+  jpeg: vi.fn(),
 }))
 
 vi.mock('pdfjs-dist/legacy/build/pdf.worker.mjs', () => ({}))
@@ -26,7 +27,7 @@ vi.mock('@napi-rs/canvas', () => ({
 }))
 vi.mock('sharp', () => ({
   default: () => ({
-    resize: () => ({ jpeg: () => ({ toBuffer: async () => Buffer.from('jpeg') }) }),
+    resize: () => ({ jpeg: () => ({ toBuffer: mocks.jpeg }) }),
   }),
 }))
 
@@ -35,6 +36,7 @@ import { preparePlanPage } from './plan-document'
 describe('selected PDF page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.jpeg.mockResolvedValue({ data: Buffer.from('jpeg'), info: { width: 1000, height: 2000 } })
     mocks.getDocument.mockReturnValue({
       promise: Promise.resolve({ numPages: 48, getPage: mocks.getPage }),
       destroy: mocks.destroy,
@@ -64,6 +66,8 @@ describe('selected PDF page', () => {
     expect(mocks.getPage.mock.calls).toEqual([[6]])
     expect(mocks.render).toHaveBeenCalledTimes(1)
     expect(result).toMatchObject({ pageNumber: 6, pageCount: 48 })
+    expect(result.image).toMatchObject({ width: 1000, height: 2000 })
+    expect(mocks.jpeg).toHaveBeenCalledWith({ resolveWithObject: true })
     expect(mocks.destroy).toHaveBeenCalledTimes(1)
   })
 

@@ -13,12 +13,22 @@ const READING_MAX_SIDE = 2000
 const PDF_DPI = 150
 const PDF_MAX_PIXELS = 12_000_000
 
-async function toJpeg(body: Buffer): Promise<{ body: Buffer; contentType: string }> {
+async function toJpeg(body: Buffer): Promise<{
+  body: Buffer
+  contentType: string
+  width: number
+  height: number
+}> {
   const jpeg = await sharp(body)
     .resize({ width: READING_MAX_SIDE, height: READING_MAX_SIDE, fit: 'inside' })
     .jpeg({ quality: 88 })
-    .toBuffer()
-  return { body: jpeg, contentType: 'image/jpeg' }
+    .toBuffer({ resolveWithObject: true })
+  return {
+    body: jpeg.data,
+    contentType: 'image/jpeg',
+    width: jpeg.info.width,
+    height: jpeg.info.height,
+  }
 }
 
 /** Только выбранная страница. Проверки выполняются до любого платного обращения. */
@@ -28,7 +38,7 @@ export async function preparePlanPage(
   pageNumber = 1,
   includeLinework = false,
 ): Promise<{
-  image: { body: Buffer; contentType: string; planText?: string }
+  image: { body: Buffer; contentType: string; width: number; height: number; planText?: string }
   pageNumber: number
   pageCount: number
   linework?: PdfLinework
