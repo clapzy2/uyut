@@ -18,6 +18,51 @@ const labels = [
 ]
 const input = { regionSource: frame, labelSource: frame, regions, labels }
 describe('caption identity independent of repeated names', () => {
+  it('keeps an unknown ink membership unresolved and as a shared-region competitor', () => {
+    const result = bindObservedRegionLabels({
+      ...input,
+      regions: [{ id: 'shared', polygon: rectangle(20, 280) }],
+      pixelMembership: {
+        source: frame,
+        points: labels.map((label, index) => ({
+          id: label.id,
+          point: label.point,
+          regionId: index === 0 ? null : 'shared',
+        })),
+      },
+    })
+    expect(result.assignments).toEqual([])
+    expect(result.unresolvedLabelIds).toEqual(['bedroom-1', 'bedroom-2'])
+    expect(result.ambiguities).toEqual([
+      { regionId: 'shared', labelIds: ['bedroom-1', 'bedroom-2'] },
+    ])
+  })
+  it('does not assign a solitary unknown membership using polygon containment', () => {
+    const result = bindObservedRegionLabels({
+      ...input,
+      pixelMembership: {
+        source: frame,
+        points: labels.map((label) => ({ id: label.id, point: label.point, regionId: null })),
+      },
+    })
+    expect(result.assignments).toEqual([])
+  })
+  it('rejects stale membership coordinates and mismatched source frames', () => {
+    const points = labels.map((label) => ({
+      id: label.id,
+      point: { ...label.point, x: label.point.x + 1 },
+      regionId: null,
+    }))
+    expect(() =>
+      bindObservedRegionLabels({ ...input, pixelMembership: { source: frame, points } }),
+    ).toThrow()
+    expect(() =>
+      bindObservedRegionLabels({
+        ...input,
+        pixelMembership: { source: { ...frame, page: 2 }, points: [] },
+      }),
+    ).toThrow()
+  })
   it('binds two identical captions using their observed positions and separate IDs', () => {
     const result = bindObservedRegionLabels(input)
     expect(result.assignments).toEqual([

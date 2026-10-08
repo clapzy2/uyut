@@ -1,4 +1,8 @@
-import { type RasterRegionPoint, validRasterRegionPolygon } from './plan-raster-regions'
+import {
+  type RasterPointMembership,
+  type RasterRegionPoint,
+  validRasterRegionPolygon,
+} from './plan-raster-regions'
 
 export type RegionLabelFrame = { sha256: string; width: number; height: number; page: number }
 export type ObservedRegionLabel = { id: string; name: string; point: RasterRegionPoint }
@@ -48,6 +52,7 @@ export function bindObservedRegionLabels(input: {
   labelSource: RegionLabelFrame
   regions: { id: string; polygon: RasterRegionPoint[] }[]
   labels: ObservedRegionLabel[]
+  pixelMembership?: { source: RegionLabelFrame; points: RasterPointMembership[] }
 }) {
   const { regionSource: frame, labelSource, regions, labels } = input
   if (
@@ -94,13 +99,53 @@ export function bindObservedRegionLabels(input: {
     )
   )
     throw new Error('Invalid observed caption')
+  const membership = input.pixelMembership
+  if (membership && (!Array.isArray(membership.points) || membership.points.length > 50))
+    throw new Error('Too many pixel membership points')
+  const membershipsById = new Map(membership?.points.map((point) => [point.id, point]))
+  if (membership) {
+    const source = membership.source
+    const regionIds = new Set(regions.map((region) => region.id))
+    if (
+      !validFrame(source) ||
+      source.sha256 !== frame.sha256 ||
+      source.page !== frame.page ||
+      source.width !== frame.width ||
+      source.height !== frame.height ||
+      membership.points.length !== labels.length ||
+      membershipsById.size !== labels.length ||
+      labels.some((label) => {
+        const sample = membershipsById.get(label.id)
+        return (
+          !sample ||
+          sample.point.x !== label.point.x ||
+          sample.point.y !== label.point.y ||
+          (sample.regionId !== null && !regionIds.has(sample.regionId))
+        )
+      })
+    )
+      throw new Error('Pixel membership does not match source captions')
+  }
   const candidates = labels.map((label) => ({
     label,
-    regions: regions.filter((region) => containsLabel(label.point, region.polygon)),
+    // Unknown (ink/ignored/rejected) samples still compete spatially, but cannot be assigned.
+    regions: regions.filter((region) => {
+      const sample = membershipsById.get(label.id)
+      return (
+        (!sample || sample.regionId === null || sample.regionId === region.id) &&
+        containsLabel(label.point, region.polygon)
+      )
+    }),
   }))
   const groups = new Map<string, ObservedRegionLabel[]>()
   const uniqueLabelIds = new Set(
-    candidates.filter((entry) => entry.regions.length === 1).map((entry) => entry.label.id),
+    candidates
+      .filter(
+        (entry) =>
+          entry.regions.length === 1 &&
+          (!membership || membershipsById.get(entry.label.id)?.regionId !== null),
+      )
+      .map((entry) => entry.label.id),
   )
   for (const entry of candidates) {
     for (const region of entry.regions) {

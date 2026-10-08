@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { bindObservedRegionLabels } from './plan-raster-region-labels'
 import { detectPlanRasterRegions as detectPlanRasterFreeRegions } from './plan-raster-regions'
 
 function raster(width: number, height: number, bright: (x: number, y: number) => boolean) {
@@ -10,6 +11,57 @@ function raster(width: number, height: number, bright: (x: number, y: number) =>
 }
 
 describe('experimental free pixel regions', () => {
+  it('uses observed component membership to exclude an enclosing sheet background', () => {
+    const source = { sha256: 'a'.repeat(64), page: 1, width: 180, height: 120 }
+    const labels = [
+      { id: 'left', name: 'Спальня', point: { x: 50.5, y: 50.5 } },
+      { id: 'right', name: 'Кухня', point: { x: 130.5, y: 50.5 } },
+    ]
+    const pixels = raster(180, 120, (x, y) => {
+      const sheet = x >= 5 && x < 175 && y >= 5 && y < 115
+      const building = x >= 30 && x < 150 && y >= 25 && y < 95
+      const rooms = x >= 35 && x < 145 && y >= 30 && y < 90 && !(x >= 88 && x < 92)
+      return sheet && (!building || rooms)
+    })
+    const detected = detectPlanRasterFreeRegions({
+      ...pixels,
+      probes: labels.map(({ id, point }) => ({ id, point })),
+    })
+    expect(detected.regions).toHaveLength(3)
+    const input = { regionSource: source, labelSource: source, regions: detected.regions, labels }
+    expect(bindObservedRegionLabels(input).assignments).toEqual([])
+    const bound = bindObservedRegionLabels({
+      ...input,
+      pixelMembership: { source, points: detected.pointMembership ?? [] },
+    })
+    expect(bound.assignments).toHaveLength(2)
+    expect(bound.unresolvedLabelIds).toEqual([])
+    expect(new Set(bound.assignments.map((entry) => entry.regionId)).size).toBe(2)
+    expect(bound.status).toBe('draft')
+  })
+  it('returns no membership for ink, small islands or frame-touching components', () => {
+    const pixels = raster(100, 100, (x, y) => x < 5 || (x >= 30 && x < 40 && y >= 30 && y < 40))
+    const result = detectPlanRasterFreeRegions({
+      ...pixels,
+      probes: [
+        { id: 'frame', point: { x: 2, y: 20 } },
+        { id: 'small', point: { x: 35, y: 35 } },
+        { id: 'ink', point: { x: 60, y: 60 } },
+      ],
+    })
+    expect(result.pointMembership?.map((entry) => entry.regionId)).toEqual([null, null, null])
+  })
+  it('rejects duplicate or out-of-frame probes', () => {
+    const pixels = raster(100, 100, () => false)
+    expect(() =>
+      detectPlanRasterFreeRegions({
+        ...pixels,
+        probes: [{ id: 'edge', point: { x: 100, y: 50 } }],
+      }),
+    ).toThrow()
+    const probe = { id: 'same', point: { x: 20, y: 20 } }
+    expect(() => detectPlanRasterFreeRegions({ ...pixels, probes: [probe, probe] })).toThrow()
+  })
   it('rejects an RDP shortcut that crosses another simplified edge', () => {
     const rectangles = [
       [38, 65, 5, 9],

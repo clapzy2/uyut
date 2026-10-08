@@ -1,6 +1,6 @@
 import type { NativeTextAnchors } from './plan-document'
 import { bindObservedRegionLabels, type RegionLabelFrame } from './plan-raster-region-labels'
-import type { RasterRegionPoint } from './plan-raster-regions'
+import type { RasterPointMembership, RasterRegionPoint } from './plan-raster-regions'
 
 export type ReviewedNumberedCaptions = {
   review: 'manual-source-review'
@@ -15,6 +15,7 @@ export function bindReviewedNumberedCaptions(input: {
   regions: { id: string; polygon: RasterRegionPoint[] }[]
   native: NativeTextAnchors
   reviewed: ReviewedNumberedCaptions
+  pixelMembership?: { source: RegionLabelFrame; points: RasterPointMembership[] }
 }) {
   const { native, reviewed } = input
   if (!native.complete || reviewed.review !== 'manual-source-review')
@@ -126,6 +127,7 @@ export function bindReviewedNumberedCaptions(input: {
     labelSource: native.source,
     regions: input.regions,
     labels: namedMarkers,
+    ...(input.pixelMembership ? { pixelMembership: input.pixelMembership } : {}),
   })
   // Ambiguous number occurrences still compete for regions, but cannot receive assignments.
   const assignments = binding.assignments.filter((entry) => !ambiguousMarkerIds.has(entry.labelId))

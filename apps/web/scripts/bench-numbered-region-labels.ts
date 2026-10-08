@@ -28,6 +28,11 @@ const detected = detectPlanRasterRegions({
   grayscale,
   width: page.image.width,
   height: page.image.height,
+  probes: reviewed.markers.map((marker) => {
+    const label = native.labels.find((label) => label.id === marker.labelId)
+    if (!label) throw new Error('Reviewed marker is absent from native text')
+    return { id: label.id, point: label.point }
+  }),
 })
 if (detected.truncated) throw new Error('Truncated raster candidate inventory')
 const binding = bindReviewedNumberedCaptions({
@@ -35,6 +40,7 @@ const binding = bindReviewedNumberedCaptions({
   regions: detected.regions,
   native,
   reviewed,
+  pixelMembership: { source: native.source, points: detected.pointMembership ?? [] },
 })
 const directory = resolve(outputPath)
 await mkdir(directory, { recursive: false })

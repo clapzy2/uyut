@@ -1,4 +1,9 @@
 export type RasterRegionPoint = { x: number; y: number }
+export type RasterPointMembership = {
+  id: string
+  point: RasterRegionPoint
+  regionId: string | null
+}
 export type RasterFreeRegion = {
   id: string
   polygon: RasterRegionPoint[]
@@ -28,6 +33,7 @@ export type RasterFreeRegions = {
   frameIgnoredComponents: number
   truncated: boolean
   uncertain: boolean
+  pointMembership?: RasterPointMembership[]
 }
 
 const MAX_REGIONS = 50
@@ -179,6 +185,7 @@ export function detectPlanRasterRegions(input: {
   grayscale: Uint8Array
   width: number
   height: number
+  probes?: { id: string; point: RasterRegionPoint }[]
 }): RasterFreeRegions {
   const { grayscale, width, height } = input
   if (
@@ -193,6 +200,25 @@ export function detectPlanRasterRegions(input: {
   ) {
     throw new RangeError('Expected grayscale raster of 1–2000 pixels per axis')
   }
+  const probes = input.probes
+  if (
+    probes &&
+    (probes.length > 50 ||
+      new Set(probes.map((probe) => probe.id)).size !== probes.length ||
+      probes.some(
+        ({ id, point }) =>
+          !id ||
+          id.length > 120 ||
+          id.trim() !== id ||
+          !Number.isFinite(point.x) ||
+          !Number.isFinite(point.y) ||
+          point.x < 0 ||
+          point.y < 0 ||
+          point.x >= width ||
+          point.y >= height,
+      ))
+  )
+    throw new RangeError('Expected at most 50 unique in-frame point probes')
   const result: RasterFreeRegions = {
     regions: [],
     rejectedRegions: [],
@@ -363,6 +389,14 @@ export function detectPlanRasterRegions(input: {
       pixelArea: tail,
       bounds,
       hasInteriorIslands,
+    })
+  }
+  if (probes) {
+    const acceptedIds = new Set(result.regions.map((region) => region.id))
+    result.pointMembership = probes.map(({ id, point }) => {
+      const component = labels[Math.floor(point.y) * width + Math.floor(point.x)] ?? 0
+      const regionId = `region-${component}`
+      return { id, point: { ...point }, regionId: acceptedIds.has(regionId) ? regionId : null }
     })
   }
   return result
