@@ -129,7 +129,7 @@ export {
   validatePlanGeometryEdit,
 } from './floor-plan-geometry'
 export { planMeasurementTextItems, validatePlanMeasurement } from './floor-plan-measurements'
-export { planRoomSchedule } from './floor-plan-schedule'
+export { planRoomSchedule, planTabularScheduleEvidence } from './floor-plan-schedule'
 export { isLayoutCorrectionImprovement, layoutCorrectionPrompt } from './layout-correction'
 export { OBJECT_REVIEW_PROMPT, parseObjectReview, reviewDetectedObjects } from './object-review'
 export {

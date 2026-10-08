@@ -1,6 +1,12 @@
 import type { PlanMeasurementTextItem } from './floor-plan-measurements'
 
 type ScheduleRoom = { name: string; areaM2: number }
+export type PlanTabularRoomEvidence = ScheduleRoom & {
+  /** Positions in the caller's items array, not original PDF text indexes. */
+  numberItemIndex: number
+  nameItemIndex: number
+  areaItemIndex: number
+}
 
 function combinedScheduleRows(
   items: readonly (PlanMeasurementTextItem & { x: number; y: number })[],
@@ -49,9 +55,13 @@ function positioned(
   )
 }
 
-function tabularScheduleRows(
-  items: readonly (PlanMeasurementTextItem & { x: number; y: number })[],
-): Map<number, ScheduleRoom> | undefined {
+export function planTabularScheduleEvidence(
+  raw: readonly PlanMeasurementTextItem[] | undefined,
+): Map<number, PlanTabularRoomEvidence> | undefined {
+  if (!raw) return undefined
+  const items = raw.flatMap((item, inputIndex) =>
+    positioned(item) ? [{ ...item, inputIndex }] : [],
+  )
   const header = (text: string) =>
     items.filter((item) => item.rotation === 0 && item.text.trim().toLocaleLowerCase('ru') === text)
   const numbers = header('№')
@@ -82,7 +92,7 @@ function tabularScheduleRows(
     .sort((left, right) => left.y - right.y)
   if (rowNumbers.length < 3 || rowNumbers.length > 50) return undefined
 
-  const rooms: Array<{ number: number; room: ScheduleRoom }> = []
+  const rooms: Array<{ number: number; room: PlanTabularRoomEvidence }> = []
   for (const rowNumber of rowNumbers) {
     const sameLine = items.filter(
       (item) => item.rotation === 0 && Math.abs(item.y - rowNumber.y) <= 2,
@@ -106,10 +116,33 @@ function tabularScheduleRows(
     if (!name || !areaText) return undefined
     const areaM2 = Number(areaText.replace(/\s*м²$/iu, '').replace(',', '.'))
     if (areaM2 <= 0) return undefined
-    rooms.push({ number: Number(rowNumber.text), room: { name, areaM2 } })
+    const nameItem = rowNames[0],
+      areaItem = rowAreas[0]
+    if (!nameItem || !areaItem) return undefined
+    rooms.push({
+      number: Number(rowNumber.text),
+      room: {
+        name,
+        areaM2,
+        numberItemIndex: rowNumber.inputIndex,
+        nameItemIndex: nameItem.inputIndex,
+        areaItemIndex: areaItem.inputIndex,
+      },
+    })
   }
   if (rooms.some((row, index) => row.number !== index + 1)) return undefined
   return new Map(rooms.map(({ number, room }) => [number, room]))
+}
+
+function tabularScheduleRows(
+  items: readonly (PlanMeasurementTextItem & { x: number; y: number })[],
+): Map<number, ScheduleRoom> | undefined {
+  const evidence = planTabularScheduleEvidence(items)
+  return evidence
+    ? new Map(
+        [...evidence].map(([number, room]) => [number, { name: room.name, areaM2: room.areaM2 }]),
+      )
+    : undefined
 }
 
 /** Только явная экспликация или нумерованная таблица помещений с проверенными колонками. */

@@ -841,6 +841,65 @@ self-crossing, native incompleteness и candidate limit. Независимый 
 Остаются автоматическое определение ролей/подписей, неокрашенные планы/сканы,
 сверка полноты и подключение безопасного review path в public UI.
 
+## Автоматическая native таблица, рамка номера и fill candidate
+
+Новый `automaticNativeRoomCandidates` не принимает manually reviewed room IDs,
+имена или frame refs. Геометрия извлекается nativeFillCandidates, native text
+должен быть complete с исходными index/ID, unrounded pagePoint/rotation и тем
+же raster point/scale/frame. Сохраняются source identities; объекты considered
+fresh trusted extractor output, не криптографическая аттестация клиентского JSON.
+
+В существующем schedule parser выделен `planTabularScheduleEvidence`: те же
+strict column/row проверки возвращают также number/name/area input-array slots.
+Это НЕ original PDF indexes. Автоматический consumer берёт native IDs из
+соответствующих slots; старый planRoomSchedule wrapper возвращает прежние
+name/areaM2 без дополнительных свойств. Source-preservation/API regression
+прошли. Новый consumer поддерживает ограниченный список русских room names,
+включая балкон/лоджию, но не подменяет production explicit-heading semantics.
+
+Формат: единственные горизонтальные №/Наименование/Площадь headers, минимум
+три, максимум 50 sequential rows. Табличные числа исключаются по evidence IDs
+и table bounds. Room-number cues требуют реально замкнутой прямоугольной рамки:
+точные horizontal/vertical endpoints, обе стороны 5–50 px, без продления,
+nearest snap или выбора smallest rectangle. Несколько frames/неоднозначные
+source supports/near omissions сохраняются uncertain. Budget 200000 checks,
+20 possible sides per direction; неполный поиск не даёт частично «готовой» схемы.
+
+Все potential boxed cues участвуют в spatial competition. Duplicate source
+numbers и uncertain frames не получают associations, но не исчезают из общей
+области, разрешая ложное назначение соседней комнате. Bare numbers не являются
+boxed cues; это ограничение формата, а не доказательство, что других чисел/
+состояний/помещений на листе нет. Unboxed sheet number в контроле не выбран.
+Никаких manual-source-review/confirmed flags новый consumer не создаёт.
+
+Review выявил malformed stroke refs: nativePageSegments ранее допускает
+отрицательные safe integers в trusted-input helper. Новый consumer проверяет
+все operation/subpath refs на nonnegative/unique и точки на finite/page range
+ДО frame inference. Negative/duplicate path regression добавлен. Старый helper
+не менялся для других callers.
+
+Сквозной контроль: 19 geometry candidates, восемь automatic associations
+название/номер/fill (прихожая, спальня, гардеробная, ванная, туалет, детская,
+кухня, балкон), unresolved source numbers ноль. Прежний reviewed ID fixture
+прочитан только ПОСЛЕ inference, как независимое ожидаемое сравнение: все
+marker/number/name IDs совпали. Он не влиял на поиск. Наложение просмотрено;
+это candidate associations, не одобрение пола/грани стены или usable area.
+Documentary table area не используется для fit/масштаба. Результат draft;
+geometry semanticStatus остаётся unclassified.
+
+Артефакты: `tmp/native-room-candidates-20261008-b/`; `*-a/` сохранён.
+Unit: повторяющиеся имена с разными numbers, legacy API/array-slot evidence,
+unboxed/missing-frame, duplicates и uncertain shared competition, ambiguous
+headers/non-room names, incomplete/stale text/raster refs и malformed path IDs.
+Итоговая проверка: 2981 web unit test / 228 файлов, typecheck семи пакетов,
+lint и git diff --check прошли. Независимое повторное review подтвердило
+исправление provenance gap; новых actionable замечаний не найдено.
+Это не OCR, неподдержанные rotating/English/custom tables, круги и bare room
+labels не приняты. Скан/PNG без native table не обслуживается этим consumer.
+Сайт/рабочий проект не менялись, новых AI-запросов/PR нет. Следующий остаток —
+более широкий независимый corpus, роль floor/полнота и безопасный public review
+UI, а не автоматическая запись named fills в подтверждённую геометрию.
+
 ## Чего эта проверка не доказывает
 
 Распознавание произвольных исходников, качество всех аналогов, физический
