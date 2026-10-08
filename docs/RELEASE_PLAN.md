@@ -739,3 +739,11 @@ Local stroke endpoint cycle helper добавлен и проверен (11 focu
 остаётся draft/unclassified. На пяти реальных corpus страницах кандидатов
 ноль; этот strict endpoint-only подход не закрывает fallback. До public UI
 нужны bounded crossing graph, роль wall/floor и проверяемые opening boundaries.
+
+Bounded-axis crossing graph добавлен локально как отдельный candidate mode;
+test faces с shared divider и extended strokes проходят без gap closing.
+Полные 3004 web tests прошли. Реальный корпус пока не принят: 4 global
+отказа на diagonal intersections, 1 incomplete layer. Diagnostic overlays
+показывают смешение размерных/annotation strokes с boundaries. Следующий
+обязательный шаг — проверяемая роль source strokes, а не удаление диагоналей
+или запись всех planar faces как комнат. Сайт не менялся.

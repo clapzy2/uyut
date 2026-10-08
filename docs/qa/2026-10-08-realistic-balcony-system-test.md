@@ -982,6 +982,43 @@ Designgroup/Remplanner дополнительно имеют external crossings,
 Следующая необходимая работа — граф bounded пересечений/роли границ и
 отдельная проверяемая обработка openings; нельзя просто закрыть разрывы.
 
+## Bounded crossings и planar face candidates
+
+Добавлен `boundedNativeStrokeFaces` и отдельный opt-in
+`nativeStrokeFaceCandidates`. Старый endpoint-cycle режим сохранён. Новый
+граф делит source strokes только в bounded axis crossings и точных контактах
+endpoint-on-segment (включая endpoint на diagonal interior). Не продлевает
+линии и не snap-ит точки. Axis overlaps получают общие subedges с сохранением
+всех original refs. Proper diagonal crossings и diagonal overlaps пока
+отказывают всей пачке; исходные блокирующие segment refs сохранены.
+
+Half-edge traversal находит положительные simple faces, не внешний обход.
+Нельзя представить holes одной simple polygon: enclosing faces с любыми
+другими внутренними vertices исключены. Проверки small/page frame/omission
+сохранены. Канонический polygon и ordered boundedEdges поворачиваются вместе;
+unordered sourceRefs не выдаются за edge-by-edge correspondence. Всё остаётся
+draft/unclassified без names, floor role, metric approval или public writes.
+Граф принимает до 20000 split pieces, общий budget 250000 начисляется за
+pair checks/traversal/polygon validation/interior scans. Limit/budget отказ
+не оставляет частичных кандидатов.
+
+Целевые tests теперь 20: существующий endpoint mode плюс extended source
+lines, two adjacent faces, overlaps/provenance, missing side/near miss,
+disconnected interior evidence, diagonal endpoints/proper crossing refusal,
+nested rings и новый budget. Полный web suite 3004 / 229 файлов прошёл;
+после добавления blocked refs повторно прошли 20 focused tests. Typecheck
+семи пакетов/lint прошли; независимый review не нашёл blocking issues.
+
+На пяти исходных hash-pinned PDF по-прежнему ноль bounded-face candidates:
+четыре global refusals unsupported-diagonal-crossing, один incomplete layer.
+Артефакты `tmp/native-bounded-faces-20261008-c/`; `*-a/`, `*-b/` сохранены.
+Runner сохраняет diagnostic overlay двух blocked strokes; четыре overlays
+просмотрены. Первые препятствия визуально находятся у размерных засечек и
+выносок подписей: native stroke inventory смешивает annotations и boundaries.
+Это не причина молча удалить все диагонали/засечки: роль source strokes ещё
+нужно доказывать. Общий coverage не принят и public UI не подключён.
+Новых AI-запросов/PR нет; сайт и рабочий проект не изменялись.
+
 ## Чего эта проверка не доказывает
 
 Распознавание произвольных исходников, качество всех аналогов, физический

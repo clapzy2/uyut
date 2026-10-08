@@ -5,9 +5,13 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import sharp from 'sharp'
 import { preparePlanPage } from '../lib/projects/plan-document'
 import { automaticNativeRoomCandidates } from '../lib/projects/plan-native-room-candidates'
-import { nativeStrokeCycleCandidates } from '../lib/projects/plan-native-stroke-candidates'
+import {
+  nativeStrokeCycleCandidates,
+  nativeStrokeFaceCandidates,
+} from '../lib/projects/plan-native-stroke-candidates'
 
 type Source = { file: string; sha256: string; existingPage: number; pages: number }
 // Observed refusals on hash-pinned existing-state pages, not expected room counts.
@@ -61,6 +65,13 @@ for (const source of sources) {
   assert.equal(strokes.status, 'draft')
   assert.equal(strokes.semanticStatus, 'unclassified')
   if (strokes.truncated) assert.equal(strokes.candidates.length, 0)
+  const faces = nativeStrokeFaceCandidates({
+    native: page.nativeTextAnchors,
+    work: page.linework,
+    lineworkSource: page.lineworkRasterSource,
+  })
+  assert.equal(faces.semanticStatus, 'unclassified')
+  if (faces.truncated) assert.equal(faces.candidates.length, 0)
   await writeFile(join(directory, source.file.replace('.pdf', '-source.jpg')), page.image.body)
   await writeFile(
     join(directory, source.file.replace('.pdf', '-result.json')),
@@ -70,6 +81,25 @@ for (const source of sources) {
     join(directory, source.file.replace('.pdf', '-stroke-candidates.json')),
     JSON.stringify(strokes, null, 2),
   )
+  await writeFile(
+    join(directory, source.file.replace('.pdf', '-bounded-faces.json')),
+    JSON.stringify(faces, null, 2),
+  )
+  const scale = page.nativeTextAnchors.pageNormalizedScale
+  if (scale && faces.blockedSourceRefs?.length) {
+    const overlay = `<svg xmlns="http://www.w3.org/2000/svg" width="${page.image.width}" height="${page.image.height}">
+      ${faces.blockedSourceRefs
+        .map(
+          (segment, index) =>
+            `<line x1="${segment.start.x * scale.x}" y1="${segment.start.y * scale.y}" x2="${segment.end.x * scale.x}" y2="${segment.end.y * scale.y}" stroke="${index === 0 ? '#cc0044' : '#008888'}" stroke-width="5"/>`,
+        )
+        .join('')}
+    </svg>`
+    await sharp(page.image.body)
+      .composite([{ input: Buffer.from(overlay) }])
+      .png()
+      .toFile(join(directory, source.file.replace('.pdf', '-blocked-intersection.png')))
+  }
   const summary = {
     file: source.file,
     page: source.existingPage,
@@ -84,6 +114,8 @@ for (const source of sources) {
     refusalRegressionPassed: true,
     strokeCandidates: strokes.candidates.length,
     strokeRefusal: strokes.refusalReason,
+    boundedFaceCandidates: faces.candidates.length,
+    boundedFaceRefusal: faces.refusalReason,
     strokeRejectedReasons: strokes.rejected.reduce<Record<string, number>>((counts, entry) => {
       counts[entry.reason] = (counts[entry.reason] ?? 0) + 1
       return counts

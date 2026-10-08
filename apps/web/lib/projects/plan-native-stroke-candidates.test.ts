@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { NativeTextAnchors } from './plan-document'
-import { nativeStrokeCycleCandidates } from './plan-native-stroke-candidates'
+import {
+  nativeStrokeCycleCandidates,
+  nativeStrokeFaceCandidates,
+} from './plan-native-stroke-candidates'
 import type { PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 
 const source = { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 }
@@ -191,6 +194,122 @@ describe('unclassified native endpoint stroke cycles', () => {
     expect(nativeStrokeCycleCandidates(input)).toMatchObject({
       truncated: true,
       refusalReason: 'graph-search-budget',
+      candidates: [],
+    })
+  })
+})
+
+describe('bounded native stroke face candidates', () => {
+  it('finds the bounded square when all four source lines extend beyond its corners', () => {
+    const input = fixture()
+    input.work.paths.forEach((path, index) => {
+      path.points =
+        index % 2 === 0
+          ? [
+              { x: 50, y: index === 0 ? 100 : 400 },
+              { x: 450, y: index === 0 ? 100 : 400 },
+            ]
+          : [
+              { x: index === 1 ? 400 : 100, y: 50 },
+              { x: index === 1 ? 400 : 100, y: 450 },
+            ]
+    })
+    expect(nativeStrokeCycleCandidates(input).candidates).toEqual([])
+    const result = nativeStrokeFaceCandidates(input)
+    expect(result.truncated).toBe(false)
+    expect(result.candidates[0]?.polygon).toEqual(rectangle)
+    expect(result.candidates[0]?.boundedEdges).toHaveLength(4)
+    expect(result.candidates[0]?.sourceRefs).toHaveLength(4)
+  })
+  it('partitions two adjacent faces at a real full-width divider without enclosing both', () => {
+    const input = fixture()
+    addStroke(input, { x: 250, y: 50 }, { x: 250, y: 450 })
+    const result = nativeStrokeFaceCandidates(input)
+    expect(result.candidates).toHaveLength(2)
+    expect(result.candidates.map((entry) => entry.pixelArea)).toEqual([45000, 45000])
+    expect(result.semanticStatus).toBe('unclassified')
+  })
+  it('merges exact overlapping axis supports while retaining both original source refs', () => {
+    const input = fixture()
+    addStroke(input, { x: 150, y: 100 }, { x: 350, y: 100 })
+    const result = nativeStrokeFaceCandidates(input)
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0]?.sourceRefs).toHaveLength(5)
+    expect(
+      result.candidates[0]?.boundedEdges?.filter((edge) => edge.sourceRefs.length === 2),
+    ).toHaveLength(1)
+  })
+  it('does not bridge an opening or extend near-miss source intersections', () => {
+    const input = fixture()
+    input.work.paths.pop()
+    expect(nativeStrokeFaceCandidates(input).candidates).toEqual([])
+    const missed = fixture()
+    const edge = missed.work.paths[0]
+    if (!edge) throw new Error('Missing test edge')
+    edge.points = [
+      { x: 100.001, y: 100 },
+      { x: 400, y: 100 },
+    ]
+    expect(nativeStrokeFaceCandidates(missed).candidates).toEqual([])
+  })
+  it('does not return an outer ring that contains disconnected interior evidence', () => {
+    const input = fixture()
+    addStroke(input, { x: 200, y: 200 }, { x: 300, y: 300 })
+    expect(nativeStrokeFaceCandidates(input).candidates).toEqual([])
+  })
+  it('supports joined diagonal endpoints but refuses unsupported diagonal interior crossings', () => {
+    const polygon = [
+      ...rectangle.slice(0, 2),
+      { x: 400, y: 330 },
+      { x: 330, y: 400 },
+      rectangle[3] as PagePoint,
+    ]
+    expect(nativeStrokeFaceCandidates(fixture(polygon)).candidates[0]?.polygon).toEqual(polygon)
+    const input = fixture()
+    addStroke(input, { x: 50, y: 150 }, { x: 450, y: 350 })
+    expect(nativeStrokeFaceCandidates(input)).toMatchObject({
+      refusalReason: 'unsupported-diagonal-crossing',
+      candidates: [],
+      blockedSourceRefs: expect.arrayContaining([expect.objectContaining({ operationIndex: 100 })]),
+    })
+  })
+  it('keeps the inner ring but excludes an enclosing face with a disconnected hole', () => {
+    const input = fixture()
+    const inner = fixture(
+      rectangle.map((point) => ({ x: point.x / 2 + 100, y: point.y / 2 + 100 })),
+    )
+    input.work.paths.push(
+      ...inner.work.paths.map((path) => ({ ...path, operationIndex: path.operationIndex + 100 })),
+    )
+    const result = nativeStrokeFaceCandidates(input)
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0]?.pixelArea).toBe(22500)
+    expect(result.semanticStatus).toBe('unclassified')
+  })
+  it('supports an exact existing endpoint on the interior of a diagonal source', () => {
+    const input = fixture()
+    addStroke(input, { x: 50, y: 50 }, { x: 450, y: 450 })
+    const result = nativeStrokeFaceCandidates(input)
+    expect(result.truncated).toBe(false)
+    expect(result.candidates).toHaveLength(2)
+    expect(result.candidates.map((entry) => entry.pixelArea)).toEqual([45000, 45000])
+  })
+  it('returns no partial faces when the new intersection budget is exhausted', () => {
+    const input = fixture()
+    for (let index = 0; index < 800; index++)
+      input.work.paths.push({
+        operationIndex: index + 100,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: 600, y: 500 + index / 10000 },
+          { x: 600, y: 900 },
+        ],
+      })
+    expect(nativeStrokeFaceCandidates(input)).toMatchObject({
+      truncated: true,
+      refusalReason: 'intersection-budget',
       candidates: [],
     })
   })

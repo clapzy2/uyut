@@ -1,5 +1,6 @@
 import type { NativeTextAnchors } from './plan-document'
 import { nativeFillCandidates } from './plan-native-fill-candidates'
+import { boundedNativeStrokeFaces } from './plan-native-stroke-faces'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import { type NativePageSegment, nativePageSegments } from './plan-pdf-opening-endpoint'
 import { pdfPolygonIsValid } from './plan-pdf-room-binding'
@@ -26,12 +27,13 @@ function touches(a: NativePageSegment, b: NativePageSegment) {
   )
 }
 
-/** Exact endpoint cycles in native strokes; no wall/floor classification or gap closing. */
-export function nativeStrokeCycleCandidates(input: {
+type StrokeCandidateInput = {
   native: NativeTextAnchors
   work: PdfLinework
   lineworkSource: RegionLabelFrame
-}) {
+}
+
+function strokeCandidates(input: StrokeCandidateInput, boundedFaces: boolean) {
   // Reuse source-frame and extraction-completeness checks, not fill classification.
   const inventory = nativeFillCandidates(input)
   const { work, native } = input
@@ -42,19 +44,24 @@ export function nativeStrokeCycleCandidates(input: {
     rasterPolygon: PagePoint[]
     /** Unordered source evidence, not edge-by-edge correspondence after canonicalization. */
     sourceRefs: NativePageSegment[]
+    /** Ordered subedges supported by original segments, including exact bounded cuts. */
+    boundedEdges?: { start: PagePoint; end: PagePoint; sourceRefs: NativePageSegment[] }[]
     pixelArea: number
   }[] = []
   const rejected: { firstSegment: number; reason: string }[] = []
-  const result = (refusalReason: string | null) => ({
+  const result = (refusalReason: string | null, blockedSourceRefs?: NativePageSegment[]) => ({
     status: 'draft' as const,
     semanticStatus: 'unclassified' as const,
-    basis: 'native-stroke-endpoint-cycle' as const,
+    basis: boundedFaces
+      ? ('native-stroke-bounded-face' as const)
+      : ('native-stroke-endpoint-cycle' as const),
     source: native.source,
     originalPdfSha256: native.originalPdfSha256,
     candidates: refusalReason ? [] : candidates,
     rejected,
     truncated: refusalReason !== null,
     refusalReason,
+    ...(blockedSourceRefs?.length ? { blockedSourceRefs } : {}),
   })
   if (
     inventory.refusalReason === 'incomplete-native-layer' ||
@@ -87,6 +94,74 @@ export function nativeStrokeCycleCandidates(input: {
   )
     return result('invalid-omitted-bounds')
   const segments = nativePageSegments(work)
+  if (boundedFaces) {
+    const graph = boundedNativeStrokeFaces(segments)
+    if (graph.refusalReason) return result(graph.refusalReason, graph.blockedSourceRefs)
+    for (const [index, face] of graph.faces.entries()) {
+      const polygon = face.polygon.map((point) => ({ ...point }))
+      const bounds = {
+        left: Math.min(...polygon.map((point) => point.x)),
+        right: Math.max(...polygon.map((point) => point.x)),
+        top: Math.min(...polygon.map((point) => point.y)),
+        bottom: Math.max(...polygon.map((point) => point.y)),
+      }
+      const reject = (reason: string) => rejected.push({ firstSegment: index, reason })
+      if (bounds.left <= 0 || bounds.top <= 0 || bounds.right >= 1000 || bounds.bottom >= 1000) {
+        reject('page-frame-face')
+        continue
+      }
+      const area =
+        polygon.reduce((sum, point, pointIndex) => {
+          const next = polygon[(pointIndex + 1) % polygon.length]
+          return next ? sum + point.x * next.y - next.x * point.y : sum
+        }, 0) / 2
+      const pixelArea = area * scale.x * scale.y
+      if (pixelArea < inventory.minimumPixelArea) {
+        reject('small-annotation-face')
+        continue
+      }
+      if (
+        omitted.some(
+          ({ bounds: box }) =>
+            box.left <= bounds.right + 3 / scale.x &&
+            box.right >= bounds.left - 3 / scale.x &&
+            box.top <= bounds.bottom + 3 / scale.y &&
+            box.bottom >= bounds.top - 3 / scale.y,
+        )
+      ) {
+        reject('near-omitted-geometry')
+        continue
+      }
+      if (candidates.length === 50) return result('candidate-limit')
+      const beginning = polygon.reduce((best, point, pointIndex) => {
+        const current = polygon[best]
+        return !current || point.x < current.x || (point.x === current.x && point.y < current.y)
+          ? pointIndex
+          : best
+      }, 0)
+      polygon.push(...polygon.splice(0, beginning))
+      const evidence = [...face.edges]
+      evidence.push(...evidence.splice(0, beginning))
+      const uniqueRefs = new Map(
+        evidence
+          .flatMap((edge) => edge.sourceRefs)
+          .map((ref) => [`${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`, ref]),
+      )
+      candidates.push({
+        id: `native-stroke-face-${index}`,
+        polygon,
+        rasterPolygon: polygon.map((point) => ({ x: point.x * scale.x, y: point.y * scale.y })),
+        pixelArea,
+        sourceRefs: [...uniqueRefs.values()],
+        boundedEdges: evidence.map((edge, edgeIndex) => ({
+          start: polygon[edgeIndex] as PagePoint,
+          end: polygon[(edgeIndex + 1) % polygon.length] as PagePoint,
+          sourceRefs: edge.sourceRefs,
+        })),
+      })
+    }
+    return result(null)
+  }
   const adjacency = new Map<string, number[]>()
   for (const [index, segment] of segments.entries()) {
     for (const point of [segment.start, segment.end]) {
@@ -220,4 +295,14 @@ export function nativeStrokeCycleCandidates(input: {
     })
   }
   return result(null)
+}
+
+/** Exact endpoint cycles in native strokes; no wall/floor classification or gap closing. */
+export function nativeStrokeCycleCandidates(input: StrokeCandidateInput) {
+  return strokeCandidates(input, false)
+}
+
+/** Additional bounded-axis-intersection candidates; never promotes them to confirmed floors. */
+export function nativeStrokeFaceCandidates(input: StrokeCandidateInput) {
+  return strokeCandidates(input, true)
 }
