@@ -1,0 +1,29 @@
+{
+  "review": "manual-source-review",
+  "source": {
+    "sha256": "f6577ca5a86797ed36bc76561a2255e6181b9045bf8973591dcab3c1e83efbaf",
+    "page": 3,
+    "width": 2000,
+    "height": 1414
+  },
+  "rows": [
+    { "sourceNumber": 1, "numberLabelId": "native-text-30", "nameLabelId": "native-text-41" },
+    { "sourceNumber": 2, "numberLabelId": "native-text-31", "nameLabelId": "native-text-42" },
+    { "sourceNumber": 3, "numberLabelId": "native-text-32", "nameLabelId": "native-text-43" },
+    { "sourceNumber": 4, "numberLabelId": "native-text-33", "nameLabelId": "native-text-44" },
+    { "sourceNumber": 5, "numberLabelId": "native-text-34", "nameLabelId": "native-text-45" },
+    { "sourceNumber": 6, "numberLabelId": "native-text-35", "nameLabelId": "native-text-46" },
+    { "sourceNumber": 7, "numberLabelId": "native-text-36", "nameLabelId": "native-text-47" },
+    { "sourceNumber": 8, "numberLabelId": "native-text-37", "nameLabelId": "native-text-48" }
+  ],
+  "markers": [
+    { "sourceNumber": 1, "labelId": "native-text-225" },
+    { "sourceNumber": 2, "labelId": "native-text-227" },
+    { "sourceNumber": 3, "labelId": "native-text-229" },
+    { "sourceNumber": 4, "labelId": "native-text-231" },
+    { "sourceNumber": 5, "labelId": "native-text-233" },
+    { "sourceNumber": 6, "labelId": "native-text-235" },
+    { "sourceNumber": 7, "labelId": "native-text-237" },
+    { "sourceNumber": 8, "labelId": "native-text-239" }
+  ]
+}
