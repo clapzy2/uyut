@@ -9,6 +9,8 @@ import {
   nativeDimensionEvidence,
   type ReviewedNativeDimensions,
 } from '../lib/projects/plan-native-dimension-evidence'
+import { rasterDimensionBoundaryAudit } from '../lib/projects/plan-raster-dimension-boundaries'
+import { detectPlanRasterRegions } from '../lib/projects/plan-raster-regions'
 
 const [pdfPath, reviewPath, outputPath] = process.argv.slice(2)
 if (!pdfPath || !reviewPath || !outputPath)
@@ -30,6 +32,18 @@ const input = {
   reviewed,
 }
 const evidence = nativeDimensionEvidence(input)
+const grayscale = await sharp(page.image.body).greyscale().raw().toBuffer()
+const detected = detectPlanRasterRegions({
+  grayscale,
+  width: page.image.width,
+  height: page.image.height,
+})
+if (detected.truncated) throw new Error('Truncated raster candidate inventory')
+const boundaryAudit = rasterDimensionBoundaryAudit({
+  native: page.nativeTextAnchors,
+  dimensions: evidence,
+  regions: detected.regions,
+})
 const firstCandidate = evidence.chains.find((chain) => chain.result.status === 'candidate')
 const operation = firstCandidate?.rails[0]?.operationIndex
 let conflictControlPassed = false
@@ -52,13 +66,29 @@ const directory = resolve(outputPath)
 await mkdir(directory, { recursive: false })
 await writeFile(
   resolve(directory, 'result.json'),
-  JSON.stringify({ aiRequests: 0, reviewed, evidence, conflictControlPassed }, null, 2),
+  JSON.stringify(
+    { aiRequests: 0, reviewed, evidence, detected, boundaryAudit, conflictControlPassed },
+    null,
+    2,
+  ),
 )
 const scale = page.nativeTextAnchors.pageNormalizedScale
 if (!scale) throw new Error('Missing page/raster conversion')
 const rails = evidence.chains.flatMap((chain) => chain.rails).filter((rail) => rail !== null)
+const blockedIds = new Set(
+  boundaryAudit.audits
+    .filter((audit) => audit.status === 'blocked-annotation-boundary')
+    .map((audit) => audit.regionId),
+)
 const overlay = `<svg xmlns="http://www.w3.org/2000/svg" width="${page.image.width}" height="${page.image.height}">
   <image width="${page.image.width}" height="${page.image.height}" href="data:image/jpeg;base64,${page.image.body.toString('base64')}"/>
+  ${detected.regions
+    .filter((region) => blockedIds.has(region.id))
+    .map(
+      (region) =>
+        `<polygon points="${region.polygon.map(({ x, y }) => `${x},${y}`).join(' ')}" fill="#cc0044" fill-opacity="0.1" stroke="#cc0044" stroke-width="1"/>`,
+    )
+    .join('')}
   ${rails.map((rail) => `<polyline points="${rail.points.map((point) => `${point.x * scale.x},${point.y * scale.y}`).join(' ')}" fill="none" stroke="#d06000" stroke-width="3"/>`).join('')}
 </svg>`
 await sharp(Buffer.from(overlay)).png().toFile(resolve(directory, 'dimension-rails.png'))
@@ -67,6 +97,8 @@ console.log(
     {
       aiRequests: 0,
       conflictControlPassed,
+      blockedCandidateRegions: blockedIds.size,
+      unverifiedCandidateRegions: boundaryAudit.audits.length - blockedIds.size,
       chains: evidence.chains.map((chain) => ({ id: chain.id, result: chain.result })),
     },
     null,
