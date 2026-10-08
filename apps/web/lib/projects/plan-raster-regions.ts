@@ -73,6 +73,18 @@ function simpleRegionPolygon(points: RasterRegionPoint[], budget: { remaining: n
   return area > 0
 }
 
+/** Structural check only, not evidence of a room or measured floor. Accept either winding. */
+export function validRasterRegionPolygon(points: RasterRegionPoint[]): boolean {
+  if (
+    points.length < 3 ||
+    points.length > MAX_POLYGON_POINTS ||
+    points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))
+  )
+    return false
+  const budget = { remaining: MAX_DISTANCE_CHECKS }
+  return simpleRegionPolygon(points, budget) || simpleRegionPolygon([...points].reverse(), budget)
+}
+
 function distanceSquared(
   point: RasterRegionPoint,
   start: RasterRegionPoint,
