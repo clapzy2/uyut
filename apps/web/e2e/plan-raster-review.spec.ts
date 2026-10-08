@@ -187,6 +187,18 @@ test.describe('явная сверка осей растрового плана'
     await expect(depth).toHaveValue('320')
     await expect(widthReview).not.toBeChecked()
     await expect(depthReview).not.toBeChecked()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(panel).toBeVisible()
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true)
+    await panel.screenshot({
+      path: resolve('../../output/playwright/raster-axis-review-mobile.png'),
+    })
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await panel.screenshot({
+      path: resolve('../../output/playwright/raster-axis-review-desktop.png'),
+    })
     await panel.getByRole('button', { name: 'Перенести комнаты: 1', exact: true }).click()
     await expect(panel.getByText(/Сверьте каждую непустую ось/)).toBeVisible()
     expect(await savedRooms()).toHaveLength(0)
