@@ -24,6 +24,7 @@ import { savePlanGeometry } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
 import { KitchenPlanEditor } from '@/components/kitchen-plan-editor'
 import { PlanFloorBoundaryFields } from '@/components/plan-floor-boundary-fields'
+import { PlanImageContourTrace } from '@/components/plan-image-contour-trace'
 import { PlanImageReference, type PlanUnderlay } from '@/components/plan-image-reference'
 import { PlanObstaclesEditor } from '@/components/plan-obstacles-editor'
 import { PlanOpeningMeasurementEditor } from '@/components/plan-opening-measurement-editor'
@@ -1479,6 +1480,19 @@ export function PlanGeometryEditor({
                     heightCm={canvasHeightCm}
                     onChange={setFootprint}
                   />
+                  {planUrl && imageCalibration ? (
+                    <PlanImageContourTrace
+                      key={`floor:${JSON.stringify(imageCalibration)}:${JSON.stringify(footprint)}:${planUrl}`}
+                      planUrl={planUrl}
+                      calibration={imageCalibration}
+                      points={footprint}
+                      widthCm={canvasWidthCm}
+                      heightCm={canvasHeightCm}
+                      maxPoints={200}
+                      label="Общая граница пола"
+                      onChange={setFootprint}
+                    />
+                  ) : null}
                 </>
               ) : null}
               {selectedWall ? (
@@ -1817,6 +1831,25 @@ export function PlanGeometryEditor({
               {selectedRoom ? (
                 <div className="border border-line bg-muted p-4">
                   <p className="font-serif text-xl text-ink">{selectedRoom.name}</p>
+                  {!planIsPdf && planUrl && imageCalibration ? (
+                    <PlanImageContourTrace
+                      key={`room:${JSON.stringify(imageCalibration)}:${JSON.stringify(selectedRoom)}:${planUrl}`}
+                      planUrl={planUrl}
+                      calibration={imageCalibration}
+                      points={selectedRoom.polygon}
+                      widthCm={canvasWidthCm}
+                      heightCm={canvasHeightCm}
+                      maxPoints={MAX_ROOM_CONTOUR_POINTS}
+                      label={selectedRoom.name}
+                      onChange={(polygon) =>
+                        setRooms((current) =>
+                          current.map((room) =>
+                            room === selectedRoom ? { ...room, polygon } : room,
+                          ),
+                        )
+                      }
+                    />
+                  ) : null}
                   <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
                     Перетаскивайте розовые точки или задайте сантиметры. «Добавить угол» делит
                     длиннейшую сторону: сдвиньте новую точку, чтобы обозначить нишу, выступ или
