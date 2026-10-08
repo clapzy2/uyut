@@ -98,6 +98,15 @@ for (const source of sources) {
     JSON.stringify(faces, null, 2),
   )
   const scale = page.nativeTextAnchors.pageNormalizedScale
+  if (faces.candidates.length) {
+    const overlay = `<svg xmlns="http://www.w3.org/2000/svg" width="${page.image.width}" height="${page.image.height}">
+      ${faces.candidates.map((candidate, index) => `<polygon points="${candidate.rasterPolygon.map((point) => `${point.x},${point.y}`).join(' ')}" fill="#008888" fill-opacity="0.1" stroke="#008888" stroke-width="2"/><text x="${candidate.rasterPolygon[0]?.x}" y="${(candidate.rasterPolygon[0]?.y ?? 0) - 3}" font-size="14" fill="#cc0044">${index + 1}</text>`).join('')}
+    </svg>`
+    await sharp(page.image.body)
+      .composite([{ input: Buffer.from(overlay) }])
+      .png()
+      .toFile(join(directory, source.file.replace('.pdf', '-unclassified-faces.png')))
+  }
   if (scale && faces.blockedSourceRefs?.length) {
     const overlay = `<svg xmlns="http://www.w3.org/2000/svg" width="${page.image.width}" height="${page.image.height}">
       ${faces.blockedSourceRefs

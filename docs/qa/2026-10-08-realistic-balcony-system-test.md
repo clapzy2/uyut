@@ -1108,6 +1108,58 @@ real fixtures не нашёл actionable findings и отдельно подтв
 универсальный automatic cleanup. Дальше нужны полная annotation inventory,
 safe review UI и accepted room/floor/opening semantics до переноса в 2D/3D.
 
+## Arbitrary bounded crossings и точные source-decimal predicates
+
+Диагональные proper crossings/collinear overlaps теперь поддержаны в local
+planar graph, без extension/snapping. Intersection proof содержит original
+segment refs, параметры вдоль исходных направлений, computed point, exact
+rational coordinate key и arithmetic=source-decimal-rational. Это вычисленное
+пересечение хранимых координат, не исходная PDF vertex или натурный обмер.
+Потерянную extractor rounding точность этот путь не восстанавливает.
+
+Первый double-only вариант на реальных PDF выявил ложные near-endpoint и
+nearby-node отказы. Добавлен численный kernel: BigInt predicates используют
+точное десятичное представление Number.toString исходных координат (до 18
+дробных знаков). Rational determinant/parameters/coordinates сокращаются до
+перевода в Number. Near-parallel/непредставимые intersections отказывают.
+Одинаковая rational identity может повторно использовать именно исходный
+native point; это не proximity merge. Разные rational vertices, ставшие одним
+Number, отказывают; nearby distinct cuts также не snap-ятся. Источники,
+направления/параметры, exactKeys и bounds сохраняются.
+
+Review нашло mixed exact/computed insertion gap, потерю solved u при
+пересчёте параметра и double-rounding mismatch со native endpoint. Все три
+исправлены; regressions закреплены. Proof inventory <=10000 и source decimal
+cache <=40000. Global work budget сохранён; interior проверки оптимизированы
+через unique vertices/bounding boxes/early rejection, tiny faces отсекаются
+до дорогостоящих проверок с тем же area threshold, без повышения лимита.
+
+Новые 8 numerical tests: перестановка/обратные направления, diagonal overlaps,
+exact-vs-computed near-cut, conditioning, source precision limit, identical
+rational native vertex reuse, distinct-rational Number alias и area threshold.
+Существующий test неизвестного stroke теперь проверяет сохранение его source
+refs в unclassified faces, а не старый unsupported-diagonal отказ. Ни роль
+unknown stroke, ни room/floor approval от этого не меняется.
+
+Финальный независимый корпус (`tmp/native-exact-crossings-20261008-d/`):
+Basis 11, Basman 7, Remplanner 10 unclassified faces, без global refusal.
+Life по-прежнему incomplete layer; outlined Designgroup — bounded work budget.
+Три наложения просмотрены: найденные faces в основном клетки экспликации,
+штамп/notes и отдельные annotation/window spans; НЕТ accepted room floors.
+Их количество не объявлено количеством помещений. Automatic room associations
+остаются нулевыми. Это снятие численного блокера, НЕ успех распознавания комнат.
+Final overlay pixels совпадают с просмотренным `*-c/`; ранее a/b сохранены.
+
+Partial reviewed real-source batch также повторён
+(`tmp/native-exact-reviewed-20261008-b/`): 11/7/10 faces после одного проверенного
+tick exclusion, original source paths неизменны, completeAnnotationInventory
+false; synthetic living/diagonal balcony контроль сохраняет два faces.
+Полные 3035 tests / 232 файлов, typecheck семи пакетов/lint прошли, diff check
+прошёл. Независимое numerical review завершено без оставшихся actionable
+findings. Новых AI-запросов/PR/site writes нет. Основной остаток теперь не
+отказ на диагоналях, а доказательство wall/floor/opening roles и полноты,
+отдельная обработка table/title-block annotations и safe review UI.
+
 ## Чего эта проверка не доказывает
 
 Распознавание произвольных исходников, качество всех аналогов, физический

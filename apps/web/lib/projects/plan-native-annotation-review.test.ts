@@ -89,8 +89,14 @@ describe('source-bound partial annotation exclusion batch', () => {
     const result = reviewedNativeAnnotationFaces(input)
     if (result.status !== 'draft') throw new Error(result.reason)
     expect(result.searchedPathCount).toBe(3)
-    expect(result.faces.refusalReason).toBe('unsupported-diagonal-crossing')
-    expect(result.faces.candidates).toEqual([])
+    expect(result.faces.refusalReason).toBeNull()
+    expect(
+      result.faces.candidates.some((candidate) =>
+        candidate.sourceRefs.some((ref) => ref.operationIndex === 30),
+      ),
+    ).toBe(true)
+    expect(result.excluded.some((entry) => entry.ref.operationIndex === 30)).toBe(false)
+    expect(result.faces.semanticStatus).toBe('unclassified')
   })
   it('does not close a door gap after excluding annotations', () => {
     const input = nativeAnnotationFixture(),

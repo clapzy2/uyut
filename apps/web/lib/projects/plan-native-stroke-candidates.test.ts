@@ -257,7 +257,7 @@ describe('bounded native stroke face candidates', () => {
     addStroke(input, { x: 200, y: 200 }, { x: 300, y: 300 })
     expect(nativeStrokeFaceCandidates(input).candidates).toEqual([])
   })
-  it('supports joined diagonal endpoints but refuses unsupported diagonal interior crossings', () => {
+  it('supports diagonal endpoints and bounded interior crossings with source proofs', () => {
     const polygon = [
       ...rectangle.slice(0, 2),
       { x: 400, y: 330 },
@@ -267,11 +267,24 @@ describe('bounded native stroke face candidates', () => {
     expect(nativeStrokeFaceCandidates(fixture(polygon)).candidates[0]?.polygon).toEqual(polygon)
     const input = fixture()
     addStroke(input, { x: 50, y: 150 }, { x: 450, y: 350 })
-    expect(nativeStrokeFaceCandidates(input)).toMatchObject({
-      refusalReason: 'unsupported-diagonal-crossing',
-      candidates: [],
-      blockedSourceRefs: expect.arrayContaining([expect.objectContaining({ operationIndex: 100 })]),
-    })
+    const result = nativeStrokeFaceCandidates(input)
+    expect(result.refusalReason).toBeNull()
+    expect(result.candidates).toHaveLength(2)
+    expect(result.intersections).toHaveLength(2)
+    for (const proof of result.intersections ?? []) {
+      expect(proof.kind).toBe('computed-bounded-intersection')
+      proof.sourceRefs.forEach((segment, index) => {
+        const parameter = proof.parameters[index] as number
+        expect(parameter).toBeGreaterThan(0)
+        expect(parameter).toBeLessThan(1)
+        expect(
+          Math.abs(segment.start.x + parameter * (segment.end.x - segment.start.x) - proof.point.x),
+        ).toBeLessThan(1e-9)
+        expect(
+          Math.abs(segment.start.y + parameter * (segment.end.y - segment.start.y) - proof.point.y),
+        ).toBeLessThan(1e-9)
+      })
+    }
   })
   it('keeps the inner ring but excludes an enclosing face with a disconnected hole', () => {
     const input = fixture()
@@ -307,10 +320,11 @@ describe('bounded native stroke face candidates', () => {
           { x: 600, y: 900 },
         ],
       })
-    expect(nativeStrokeFaceCandidates(input)).toMatchObject({
+    const result = nativeStrokeFaceCandidates(input)
+    expect(result).toMatchObject({
       truncated: true,
-      refusalReason: 'intersection-budget',
       candidates: [],
     })
+    expect(result.refusalReason).toMatch(/budget|limit/)
   })
 })

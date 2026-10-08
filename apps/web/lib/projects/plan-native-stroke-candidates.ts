@@ -1,6 +1,6 @@
 import type { NativeTextAnchors } from './plan-document'
 import { nativeFillCandidates } from './plan-native-fill-candidates'
-import { boundedNativeStrokeFaces } from './plan-native-stroke-faces'
+import { boundedNativeStrokeFaces, type NativeIntersectionProof } from './plan-native-stroke-faces'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import { type NativePageSegment, nativePageSegments } from './plan-pdf-opening-endpoint'
 import { pdfPolygonIsValid } from './plan-pdf-room-binding'
@@ -49,6 +49,7 @@ function strokeCandidates(input: StrokeCandidateInput, boundedFaces: boolean) {
     pixelArea: number
   }[] = []
   const rejected: { firstSegment: number; reason: string }[] = []
+  let intersections: NativeIntersectionProof[] = []
   const result = (refusalReason: string | null, blockedSourceRefs?: NativePageSegment[]) => ({
     status: 'draft' as const,
     semanticStatus: 'unclassified' as const,
@@ -62,6 +63,7 @@ function strokeCandidates(input: StrokeCandidateInput, boundedFaces: boolean) {
     truncated: refusalReason !== null,
     refusalReason,
     ...(blockedSourceRefs?.length ? { blockedSourceRefs } : {}),
+    ...(boundedFaces ? { intersections: refusalReason ? [] : intersections } : {}),
   })
   if (
     inventory.refusalReason === 'incomplete-native-layer' ||
@@ -95,8 +97,12 @@ function strokeCandidates(input: StrokeCandidateInput, boundedFaces: boolean) {
     return result('invalid-omitted-bounds')
   const segments = nativePageSegments(work)
   if (boundedFaces) {
-    const graph = boundedNativeStrokeFaces(segments)
+    const graph = boundedNativeStrokeFaces(
+      segments,
+      inventory.minimumPixelArea / (scale.x * scale.y),
+    )
     if (graph.refusalReason) return result(graph.refusalReason, graph.blockedSourceRefs)
+    intersections = graph.intersections
     for (const [index, face] of graph.faces.entries()) {
       const polygon = face.polygon.map((point) => ({ ...point }))
       const bounds = {

@@ -764,3 +764,13 @@ living/diagonal balcony after review дают два лица без измен�
 Полные 3027 web tests и независимый review прошли. Public UI/2D/3D promotion
 не подключены: нужны complete role inventory и подтверждение room/floor/opening
 semantics. Сайт/проект пользователя неизменны, новых PR нет.
+
+General bounded crossing batch выполнен локально: rational source-decimal
+predicates, original-direction proof parameters, exact vertex identity и
+alias/conditioning guards. Global budgets не повышались; interior search
+оптимизирован. На реальных источниках граф теперь завершает поиск 11/7/10
+unclassified faces, однако visual QA показывает в основном клетки таблиц и
+штампа, НЕ room floors. Accepted room recognition остаётся нулевым; это
+исправление численного/вычислительного блокера, не готовый automatic 2D/3D.
+Полные 3035 web tests/typecheck/lint и независимый review прошли. Дальше нужны
+wall/floor/opening role proofs и complete annotation inventory; сайт не менялся.

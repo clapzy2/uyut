@@ -1,10 +1,14 @@
+import {
+  exactNativeCrossing,
+  exactNativeOrientation,
+  exactNativePointKey,
+} from './plan-native-exact-intersections'
 import type { PagePoint } from './plan-pdf-linework'
 import { type NativePageSegment, nativeEdgeCrossing } from './plan-pdf-opening-endpoint'
 import { pdfPointInside, pdfPolygonIsValid } from './plan-pdf-room-binding'
 
 const key = (point: PagePoint) => `${point.x}:${point.y}`
-const cross = (a: PagePoint, b: PagePoint, p: PagePoint) =>
-  (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+const cross = (a: PagePoint, b: PagePoint, p: PagePoint) => exactNativeOrientation(a, b, p) ?? NaN
 const contains = (segment: NativePageSegment, point: PagePoint) =>
   cross(segment.start, segment.end, point) === 0 &&
   point.x >= Math.min(segment.start.x, segment.end.x) &&
@@ -13,16 +17,41 @@ const contains = (segment: NativePageSegment, point: PagePoint) =>
   point.y <= Math.max(segment.start.y, segment.end.y)
 type Edge = { start: PagePoint; end: PagePoint; sourceRefs: NativePageSegment[] }
 type Face = { polygon: PagePoint[]; edges: Edge[] }
+export type NativeIntersectionProof = {
+  point: PagePoint
+  kind: 'computed-bounded-intersection'
+  sourceRefs: [NativePageSegment, NativePageSegment]
+  parameters: [number, number]
+  arithmetic: 'source-decimal-rational'
+  exactPointKey: string
+}
+function computedCrossing(a: NativePageSegment, b: NativePageSegment) {
+  const crossing = exactNativeCrossing(a, b)
+  if (!crossing.point) return { reason: crossing.reason }
+  return {
+    proof: {
+      point: crossing.point,
+      kind: 'computed-bounded-intersection',
+      sourceRefs: [a, b],
+      parameters: crossing.parameters,
+      arithmetic: 'source-decimal-rational',
+      exactPointKey: crossing.exactPointKey,
+    } as NativeIntersectionProof,
+  }
+}
 
 /** Planar candidates from bounded source intersections; not room/floor classification. */
-export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[]) {
+export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[], minimumArea = 0) {
   const faces: Face[] = []
+  const intersections: NativeIntersectionProof[] = []
   const fail = (reason: string, blockedSourceRefs: NativePageSegment[] = []) => ({
     faces: [] as Face[],
     refusalReason: reason,
     blockedSourceRefs,
+    intersections: [] as NativeIntersectionProof[],
   })
   if (segments.length > 20_000) return fail('segment-limit')
+  if (!Number.isFinite(minimumArea) || minimumArea < 0) return fail('invalid-minimum-area')
   if (
     new Set(
       segments.map(
@@ -41,12 +70,28 @@ export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[])
     )
   )
     return fail('invalid-native-segments')
+  if (
+    segments.some(
+      (segment) => exactNativeOrientation(segment.start, segment.end, segment.start) === null,
+    )
+  )
+    return fail('unsupported-coordinate-precision')
   const cuts = segments.map(
     (segment) =>
       new Map([
         [key(segment.start), segment.start],
         [key(segment.end), segment.end],
       ]),
+  )
+  const vertexKeys = new Map(
+    segments
+      .flatMap((segment) => [segment.start, segment.end])
+      .map((point) => [key(point), exactNativePointKey(point)]),
+  )
+  const canonicalPoints = new Map(
+    segments
+      .flatMap((segment) => [segment.start, segment.end])
+      .map((point) => [exactNativePointKey(point), point]),
   )
   const order = segments
     .map((segment, index) => ({
@@ -55,7 +100,13 @@ export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[])
       left: Math.min(segment.start.x, segment.end.x),
       right: Math.max(segment.start.x, segment.end.x),
     }))
-    .sort((a, b) => a.left - b.left || a.index - b.index)
+    .sort(
+      (a, b) =>
+        a.left - b.left ||
+        a.segment.operationIndex - b.segment.operationIndex ||
+        a.segment.subpathIndex - b.segment.subpathIndex ||
+        a.segment.segmentIndex - b.segment.segmentIndex,
+    )
   let budget = 250_000
   for (let first = 0; first < order.length; first++) {
     const a = order[first]
@@ -76,8 +127,7 @@ export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[])
         (point) => contains(left, point) && contains(right, point),
       )
       const distinct = new Map(points.map((point) => [key(point), point]))
-      if (distinct.size > 1 && left.start.x !== left.end.x && left.start.y !== left.end.y)
-        return fail('unsupported-diagonal-overlap', [left, right])
+      let computedProof: NativeIntersectionProof | undefined
       const crossing = nativeEdgeCrossing([left.start, left.end], right)
       if (crossing) distinct.set(key(crossing), crossing)
       if (!distinct.size) {
@@ -85,10 +135,45 @@ export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[])
           a2 = cross(left.start, left.end, right.end),
           b1 = cross(right.start, right.end, left.start),
           b2 = cross(right.start, right.end, left.end)
-        if (Math.sign(a1) !== Math.sign(a2) && Math.sign(b1) !== Math.sign(b2))
-          return fail('unsupported-diagonal-crossing', [left, right])
+        if (
+          a1 !== 0 &&
+          a2 !== 0 &&
+          b1 !== 0 &&
+          b2 !== 0 &&
+          Math.sign(a1) !== Math.sign(a2) &&
+          Math.sign(b1) !== Math.sign(b2)
+        ) {
+          const computed = computedCrossing(left, right)
+          if (!computed.proof) return fail(computed.reason, [left, right])
+          // Reuse only identical exact rational coordinates, not nearby decimal points.
+          const point = canonicalPoints.get(computed.proof.exactPointKey) ?? computed.proof.point
+          computed.proof.point = point
+          canonicalPoints.set(computed.proof.exactPointKey, point)
+          computedProof = computed.proof
+          distinct.set(key(point), point)
+          if (intersections.length === 10_000) return fail('intersection-proof-limit')
+          intersections.push(computed.proof)
+        }
       }
       for (const [pointKey, point] of distinct) {
+        const rationalKey = computedProof?.exactPointKey ?? exactNativePointKey(point)
+        if (!rationalKey) return fail('unsupported-coordinate-precision', [left, right])
+        const priorKey = vertexKeys.get(pointKey)
+        if (priorKey && priorKey !== rationalKey)
+          return fail('unrepresentable-intersection', [left, right])
+        vertexKeys.set(pointKey, rationalKey)
+        // Check exact cuts too, even when they follow a computed intersection.
+        // Refuse numerical ambiguity; never snap or silently merge vertices.
+        for (const index of [a.index, b.index])
+          if (!cuts[index]?.has(pointKey))
+            for (const existing of cuts[index]?.values() ?? []) {
+              if (--budget < 0) return fail('intersection-consistency-budget')
+              if (
+                key(existing) !== pointKey &&
+                Math.hypot(existing.x - point.x, existing.y - point.y) <= 1e-9
+              )
+                return fail('ambiguous-nearby-intersections', [left, right])
+            }
         cuts[a.index]?.set(pointKey, point)
         cuts[b.index]?.set(pointKey, point)
       }
@@ -151,6 +236,13 @@ export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[])
     }
   }
   const visited = new Set<number>()
+  const vertices = [
+    ...new Map(
+      [...edges.values()]
+        .flatMap((edge) => [edge.start, edge.end])
+        .map((point) => [key(point), point]),
+    ).values(),
+  ]
   for (let seed = 0; seed < halfEdges.length; seed++) {
     if (visited.has(seed)) continue
     const polygon: PagePoint[] = [],
@@ -171,22 +263,40 @@ export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[])
       const following = polygon[(index + 1) % polygon.length]
       return following ? sum + point.x * following.y - following.x * point.y : sum
     }, 0)
-    if (twiceArea <= 0 || polygon.length < 3 || polygon.length > 100) continue
+    if (twiceArea <= 0 || twiceArea < minimumArea * 2 || polygon.length < 3 || polygon.length > 100)
+      continue
     budget -= polygon.length * polygon.length
     if (budget < 0) return fail('polygon-validation-budget')
     if (!pdfPolygonIsValid(polygon)) continue
     const nodes = new Set(polygon.map(key))
     let containsOtherNode = false
     // A simple ring cannot represent holes or disconnected interior evidence.
-    for (const edge of edges.values())
-      for (const point of [edge.start, edge.end]) {
-        budget -= polygon.length
-        if (budget < 0) return fail('interior-search-budget')
-        if (!nodes.has(key(point)) && pdfPointInside(point, polygon)) containsOtherNode = true
+    const bounds = {
+      left: Math.min(...polygon.map((p) => p.x)),
+      right: Math.max(...polygon.map((p) => p.x)),
+      top: Math.min(...polygon.map((p) => p.y)),
+      bottom: Math.max(...polygon.map((p) => p.y)),
+    }
+    for (const point of vertices) {
+      if (--budget < 0) return fail('interior-search-budget')
+      if (
+        nodes.has(key(point)) ||
+        point.x < bounds.left ||
+        point.x > bounds.right ||
+        point.y < bounds.top ||
+        point.y > bounds.bottom
+      )
+        continue
+      budget -= polygon.length
+      if (budget < 0) return fail('interior-search-budget')
+      if (pdfPointInside(point, polygon)) {
+        containsOtherNode = true
+        break
       }
+    }
     if (containsOtherNode) continue
     faces.push({ polygon, edges: faceEdges })
     if (faces.length > 1000) return fail('face-count-limit')
   }
-  return { faces, refusalReason: null, blockedSourceRefs: [] as NativePageSegment[] }
+  return { faces, refusalReason: null, blockedSourceRefs: [] as NativePageSegment[], intersections }
 }
