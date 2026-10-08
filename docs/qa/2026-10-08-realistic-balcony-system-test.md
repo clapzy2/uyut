@@ -1292,6 +1292,49 @@ unattached door, atomic second-item failure и output clone cases. Новых
 AI-запросов/PR/site writes нет. Остаток — роли unknown fills, owners/floor
 contours/completeness и безопасный public review flow, не unconditional проход.
 
+## 9 октября: единый приватный просмотр исходника — точка остановки
+
+Добавлены native-review JSON/image форматы существующего private plan-page API,
+packet builder, атомарный клиент и lazy read-only интерфейс в карточке разбора.
+Проверяются доступ, selected existing-state page, source revision, PDF SHA,
+JPEG metadata и SHA фактических bytes. Pixel coordinates явно отделены от
+метрической PlanGeometry. Raw native payload не передаётся в клиент: bounded
+faces/issues/counts, без полных intersection proofs. API ничего не сохраняет.
+
+Интерфейс не запрашивает данные при mount/открытии details. По кнопке показывает
+исходник, раздельные fill/stroke слои и непроверенные annotation hints. Fill слой
+по умолчанию скрыт. Счётчики не названы количеством распознанных комнат.
+Полноразмерная подложка имеет собственный scroll и keyboard focus; abort,
+source-key cleanup и objectURL cleanup защищают от устаревших результатов.
+Полная 2D/3D готовность фиксирована false; прежние мерки и расстановка неизменны.
+
+Fresh runner на пяти hash-pinned PDF сохранил исходные входы и выдал пять
+unresolved packets размером около 2.5–9.9 KB. Skipped curves/clips не выдаются
+за полное извлечение; частичные dimension refusals и stage reasons видимы.
+Артефакты: `tmp/native-review-packets-20261009-a/`. Нельзя объединять floor
+evidence Chigintseva и opening evidence Remplanner в приёмку одной квартиры.
+Complete-page idealized fixture со снятым omitted-curve evidence также не
+подтверждает полноту настоящего исходника.
+
+Изолированный Firefox Playwright прогон настоящего React-компонента на localhost
+с mocked private API проверил отсутствие запросов до кнопки, пару JSON/JPEG,
+19 fill polygons без повторного fetch, 390 px без page overflow, keyboard scroll,
+wrong-image conflict, 401 и abort при смене ревизии во время delayed запроса.
+Все наблюдённые запросы GET, project mutations и paid requests отсутствовали.
+API auth/revision проверены отдельно unit-тестами; live account flow не проверен.
+Браузерный прогон предшествовал добавлению строгого coordinateSystem поля;
+последующая schema правка проверена unit/typecheck/build, не новым browser replay.
+QA harness использует локальный CSS chunk по конкретному имени; это тестовый
+стенд, не production hosting. Screenshots: `output/playwright/native-review-20261009/`.
+
+Финальный полный результат: 3116 tests/238 файлов, typecheck семи пакетов,
+lint 848 файлов, diff check и production build прошли. 40 focused cases прошли.
+Новых AI-запросов, PR, push, deploy и изменений пользовательского проекта нет.
+По просьбе пользователя работа остановлена: изолированный browser session закрыт,
+проверенный QA server process остановлен, артефакты сохранены. Продолжать с
+same-source floor/wall/opening coverage и reviewed transfer; универсальное
+автораспознавание пока не готово.
+
 ## Чего эта проверка не доказывает
 
 Распознавание произвольных исходников, качество всех аналогов, физический

@@ -38,6 +38,10 @@ import {
 } from '@/lib/projects/plan-rows'
 
 const numberFieldClassName = `${inputClassName} h-10 text-[14px]`
+const PlanNativeReview = dynamic(
+  () => import('./plan-native-review').then((module) => module.PlanNativeReview),
+  { loading: () => null },
+)
 const PlanPageContourEditor = dynamic(
   () => import('./plan-page-contour-editor').then((module) => module.PlanPageContourEditor),
   { loading: () => <p role="status">Открываем исходный лист…</p> },
@@ -308,6 +312,22 @@ export function PlanReadingCard({
   ) : null
 
   const review = activeReading?.pageReview
+  const nativeReviewControl =
+    planIsPdf &&
+    activeReading?.sourcePage === Number(page) &&
+    activeReading.planState === 'existing' ? (
+      <PlanNativeReview
+        key={`${baseRevision}:${page}`}
+        projectId={projectId}
+        pageNumber={Number(page)}
+        sourceRevision={baseRevision}
+        disabled={reading_ || saving || conflict}
+        onConflict={() => {
+          setConflict(true)
+          router.refresh()
+        }}
+      />
+    ) : null
   const reviewedPage = review?.contours.source.pdfPage === Number(page)
   const canReviewPage =
     planIsPdf &&
@@ -471,6 +491,7 @@ export function PlanReadingCard({
             </Button>
           </details>
         ) : null}
+        {nativeReviewControl}
         {pageReviewControl}
         {reading_ ? (
           <div
@@ -870,6 +891,7 @@ export function PlanReadingCard({
         })}
       </ul>
 
+      {nativeReviewControl}
       {pageReviewControl}
       <details className="mt-4">
         <summary className="min-h-11 cursor-pointer py-2 text-[14px] text-ink-2">

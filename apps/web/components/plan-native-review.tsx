@@ -1,0 +1,247 @@
+'use client'
+
+import { Button } from '@uyut/ui'
+import { useEffect, useRef, useState } from 'react'
+import {
+  loadNativeReview,
+  NativeReviewRequestError,
+} from '@/lib/projects/plan-native-review-client'
+import type { NativeReviewPacket } from '@/lib/projects/plan-native-review-packet'
+
+export function NativeReviewResult({
+  packet,
+  imageUrl,
+}: {
+  packet: NativeReviewPacket
+  imageUrl: string
+}) {
+  const [showFills, setShowFills] = useState(false)
+  const [fullSize, setFullSize] = useState(false)
+  const visible = packet.faces.filter((face) => face.layer === 'stroke' || showFills)
+  return (
+    <div className="mt-4 space-y-4">
+      <p className="border-l-2 border-accent pl-3 text-[14px] leading-relaxed text-ink-2">
+        Это проверка исходного листа, не готовая схема квартиры. Сохранённые комнаты, мерки и 2D/3D
+        не меняются.
+      </p>
+      <dl className="grid grid-cols-2 gap-x-5 gap-y-2 text-[13px] sm:grid-cols-4">
+        <div>
+          <dt className="text-ink-2">Области из заливок</dt>
+          <dd>{packet.counts.fillCandidates}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-2">Замкнутые линии</dt>
+          <dd>{packet.counts.strokeFaces}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-2">Связи с номерами</dt>
+          <dd>{packet.counts.numberedAssociations}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-2">Размерные подписи</dt>
+          <dd>{packet.counts.printedDimensions}</dd>
+        </div>
+      </dl>
+      <label className="flex min-h-11 items-center gap-2 text-[13px]">
+        <input
+          type="checkbox"
+          checked={showFills}
+          onChange={(event) => setShowFills(event.target.checked)}
+        />
+        Показать также области из заливок — их назначение не подтверждено
+      </label>
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        onClick={() => setFullSize((value) => !value)}
+      >
+        {fullSize ? 'Уместить лист по ширине' : 'Показать лист в полном масштабе'}
+      </Button>
+      {fullSize ? (
+        <p className="text-[13px] text-ink-2">
+          Прокручивайте лист внутри области просмотра. Масштаб изображения не меняет мерки.
+        </p>
+      ) : null}
+      <section
+        className="overflow-auto border border-line bg-white"
+        style={fullSize ? { maxHeight: '70vh' } : undefined}
+        tabIndex={fullSize ? 0 : undefined}
+        aria-label="Область просмотра исходного листа"
+      >
+        <svg
+          className="block w-full"
+          style={{
+            aspectRatio: `${packet.image.width}/${packet.image.height}`,
+            ...(fullSize
+              ? {
+                  width: packet.image.width,
+                  minWidth: packet.image.width,
+                  height: packet.image.height,
+                }
+              : {}),
+          }}
+          viewBox={`0 0 ${packet.image.width} ${packet.image.height}`}
+          role="img"
+          aria-label="Исходный лист с неподтверждёнными областями"
+        >
+          <image href={imageUrl} width={packet.image.width} height={packet.image.height} />
+          {visible.map((face) => (
+            <polygon
+              key={`${face.layer}:${face.id}`}
+              points={face.polygon.map((point) => `${point.x},${point.y}`).join(' ')}
+              fill={face.annotationHint ? '#cc0044' : '#008888'}
+              fillOpacity="0.08"
+              stroke={face.annotationHint ? '#cc0044' : '#008888'}
+              strokeWidth="1.5"
+              vectorEffect="non-scaling-stroke"
+            >
+              <title>
+                {face.roomName
+                  ? `Подпись: ${face.roomName}. Граница пола не подтверждена.`
+                  : face.annotationHint
+                    ? 'Предполагаемый элемент оформления листа'
+                    : 'Назначение области неизвестно'}
+              </title>
+            </polygon>
+          ))}
+        </svg>
+      </section>
+      <p className="text-[13px] leading-relaxed text-ink-2">
+        Бирюзовые контуры — неизвестные области. Розовые — предполагаемые таблицы и служебные поля.
+        Ни один цвет не означает подтверждённую комнату.
+      </p>
+      <div className="border-t border-line pt-3">
+        <h4 className="text-[14px] font-medium">
+          Что ещё нужно проверить для переноса этого разбора в 2D/3D
+        </h4>
+        <ul className="mt-2 list-disc space-y-2 pl-5 text-[13px] leading-relaxed text-ink-2">
+          {packet.issues
+            .filter((issue) => !issue.code.includes(':'))
+            .map((issue) => (
+              <li key={issue.code}>{issue.message}</li>
+            ))}
+        </ul>
+      </div>
+      <details className="text-[12px] text-ink-2">
+        <summary className="min-h-11 cursor-pointer py-3">Лист и версия исходника</summary>
+        <p>Страница {packet.source.pdfPage}. Это результат только выбранного листа.</p>
+        <p className="break-all">PDF: {packet.source.sha256}</p>
+        <p className="break-all">Изображение: {packet.image.sha256}</p>
+        {packet.issues
+          .filter((issue) => issue.code.includes(':'))
+          .map((issue) => (
+            <p key={issue.code} className="mt-2 break-all">
+              {issue.message}
+            </p>
+          ))}
+      </details>
+    </div>
+  )
+}
+
+export function PlanNativeReview({
+  projectId,
+  pageNumber,
+  sourceRevision,
+  disabled,
+  onConflict,
+}: {
+  projectId: string
+  pageNumber: number
+  sourceRevision: string
+  disabled?: boolean
+  onConflict: () => void
+}) {
+  const key = `${projectId}:${pageNumber}:${sourceRevision}`
+  const [state, setState] = useState<{
+    key: string
+    pending: boolean
+    error?: string
+    packet?: NativeReviewPacket
+    imageUrl?: string
+  }>({ key, pending: false })
+  const controller = useRef<{ key: string; request: AbortController } | null>(null),
+    objectUrl = useRef<{ key: string; url: string } | null>(null)
+  useEffect(
+    () => () => {
+      if (controller.current?.key === key) {
+        controller.current.request.abort()
+        controller.current = null
+      }
+      if (objectUrl.current?.key === key) {
+        URL.revokeObjectURL(objectUrl.current.url)
+        objectUrl.current = null
+      }
+    },
+    [key],
+  )
+  const current = state.key === key ? state : null
+  async function inspect() {
+    if (controller.current?.key === key || disabled) return
+    controller.current?.request.abort()
+    const request = new AbortController()
+    controller.current = { key, request }
+    setState({ key, pending: true })
+    if (objectUrl.current) {
+      URL.revokeObjectURL(objectUrl.current.url)
+      objectUrl.current = null
+    }
+    try {
+      const { packet, image } = await loadNativeReview({
+        projectId,
+        page: pageNumber,
+        revision: sourceRevision,
+        signal: request.signal,
+      })
+      if (request.signal.aborted) return
+      const imageUrl = URL.createObjectURL(image)
+      objectUrl.current = { key, url: imageUrl }
+      setState({ key, pending: false, packet, imageUrl })
+    } catch (error) {
+      if (request.signal.aborted) return
+      if (error instanceof NativeReviewRequestError && error.status === 409) onConflict()
+      setState({
+        key,
+        pending: false,
+        error: error instanceof Error ? error.message : 'Не удалось проверить исходник.',
+      })
+    } finally {
+      if (controller.current?.request === request) controller.current = null
+    }
+  }
+  return (
+    <details className="mt-5 border-t border-line pt-4">
+      <summary className="min-h-11 cursor-pointer py-2 text-[14px] font-medium">
+        Проверка исходного листа без AI
+      </summary>
+      <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
+        Посмотрим нативные линии, подписи и неизвестные области PDF. Запуск — только по кнопке, без
+        платной генерации и без сохранения правок.
+      </p>
+      <Button
+        type="button"
+        variant="secondary"
+        className="mt-3"
+        onClick={inspect}
+        pending={current?.pending}
+        disabled={disabled || current?.pending}
+      >
+        {current?.packet ? 'Повторить проверку исходника' : 'Проверить исходный лист'}
+      </Button>
+      {current?.pending ? (
+        <p role="status" className="mt-3 text-[13px] text-ink-2">
+          Проверяем выбранный лист. Большой чертёж может занять некоторое время…
+        </p>
+      ) : null}
+      {current?.error ? (
+        <p role="alert" className="mt-3 text-[14px] text-ink-2">
+          {current.error}
+        </p>
+      ) : null}
+      {current?.packet && current.imageUrl ? (
+        <NativeReviewResult packet={current.packet} imageUrl={current.imageUrl} />
+      ) : null}
+    </details>
+  )
+}
