@@ -1,0 +1,83 @@
+{
+  "review": "manual-caption-frame-review",
+  "source": {
+    "sha256": "f6577ca5a86797ed36bc76561a2255e6181b9045bf8973591dcab3c1e83efbaf",
+    "page": 3,
+    "width": 2000,
+    "height": 1414
+  },
+  "frames": [
+    {
+      "markerLabelId": "native-text-225",
+      "sides": [
+        { "operationIndex": 16240, "subpathIndex": 0 },
+        { "operationIndex": 16247, "subpathIndex": 0 },
+        { "operationIndex": 16254, "subpathIndex": 0 },
+        { "operationIndex": 16261, "subpathIndex": 0 }
+      ]
+    },
+    {
+      "markerLabelId": "native-text-227",
+      "sides": [
+        { "operationIndex": 16297, "subpathIndex": 0 },
+        { "operationIndex": 16304, "subpathIndex": 0 },
+        { "operationIndex": 16311, "subpathIndex": 0 },
+        { "operationIndex": 16318, "subpathIndex": 0 }
+      ]
+    },
+    {
+      "markerLabelId": "native-text-229",
+      "sides": [
+        { "operationIndex": 16354, "subpathIndex": 0 },
+        { "operationIndex": 16361, "subpathIndex": 0 },
+        { "operationIndex": 16368, "subpathIndex": 0 },
+        { "operationIndex": 16375, "subpathIndex": 0 }
+      ]
+    },
+    {
+      "markerLabelId": "native-text-231",
+      "sides": [
+        { "operationIndex": 16411, "subpathIndex": 0 },
+        { "operationIndex": 16418, "subpathIndex": 0 },
+        { "operationIndex": 16425, "subpathIndex": 0 },
+        { "operationIndex": 16432, "subpathIndex": 0 }
+      ]
+    },
+    {
+      "markerLabelId": "native-text-233",
+      "sides": [
+        { "operationIndex": 16468, "subpathIndex": 0 },
+        { "operationIndex": 16475, "subpathIndex": 0 },
+        { "operationIndex": 16482, "subpathIndex": 0 },
+        { "operationIndex": 16489, "subpathIndex": 0 }
+      ]
+    },
+    {
+      "markerLabelId": "native-text-235",
+      "sides": [
+        { "operationIndex": 16525, "subpathIndex": 0 },
+        { "operationIndex": 16532, "subpathIndex": 0 },
+        { "operationIndex": 16539, "subpathIndex": 0 },
+        { "operationIndex": 16546, "subpathIndex": 0 }
+      ]
+    },
+    {
+      "markerLabelId": "native-text-237",
+      "sides": [
+        { "operationIndex": 16582, "subpathIndex": 0 },
+        { "operationIndex": 16589, "subpathIndex": 0 },
+        { "operationIndex": 16596, "subpathIndex": 0 },
+        { "operationIndex": 16603, "subpathIndex": 0 }
+      ]
+    },
+    {
+      "markerLabelId": "native-text-239",
+      "sides": [
+        { "operationIndex": 16639, "subpathIndex": 0 },
+        { "operationIndex": 16646, "subpathIndex": 0 },
+        { "operationIndex": 16653, "subpathIndex": 0 },
+        { "operationIndex": 16660, "subpathIndex": 0 }
+      ]
+    }
+  ]
+}

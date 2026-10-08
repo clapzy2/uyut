@@ -17,6 +17,7 @@ const PDF_MAX_PIXELS = 12_000_000
 export type NativeTextAnchors = {
   source: { sha256: string; page: number; width: number; height: number }
   complete: boolean
+  pageNormalizedScale?: { x: number; y: number }
   // Baseline origins from PDF text transforms, not glyph boxes or inferred room centres.
   labels: { id: string; name: string; point: { x: number; y: number } }[]
 }
@@ -52,6 +53,7 @@ export async function preparePlanPage(
   pageCount: number
   linework?: PdfLinework
   nativeTextAnchors?: NativeTextAnchors
+  lineworkRasterSource?: NativeTextAnchors['source']
 }> {
   if (!Number.isInteger(pageNumber) || pageNumber < 1) {
     throw new PlanReadError('Номер страницы должен быть целым числом от 1.')
@@ -184,6 +186,10 @@ export async function preparePlanPage(
           height: image.height,
         },
         complete: nativeTextComplete,
+        pageNormalizedScale: {
+          x: ((viewport.width / canvas.width) * image.width) / 1000,
+          y: ((viewport.height / canvas.height) * image.height) / 1000,
+        },
         labels,
       }
     }
@@ -193,6 +199,7 @@ export async function preparePlanPage(
       pageCount: document.numPages,
       ...(linework ? { linework } : {}),
       ...(nativeTextAnchors ? { nativeTextAnchors } : {}),
+      ...(linework && nativeTextAnchors ? { lineworkRasterSource: nativeTextAnchors.source } : {}),
     }
   } finally {
     await loading.destroy()

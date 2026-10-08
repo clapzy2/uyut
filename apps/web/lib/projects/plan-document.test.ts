@@ -133,6 +133,12 @@ describe('selected PDF page', () => {
   it('does not expose experimental native anchors by default', async () => {
     const result = await preparePlanPage(Buffer.from('pdf'), true, 6)
     expect(result).not.toHaveProperty('nativeTextAnchors')
+    expect(result).not.toHaveProperty('lineworkRasterSource')
+  })
+  it('binds opt-in native linework to the same rendered raster frame and exact scale', async () => {
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6, true, true)
+    expect(result.lineworkRasterSource).toEqual(result.nativeTextAnchors?.source)
+    expect(result.nativeTextAnchors?.pageNormalizedScale).toEqual({ x: 1, y: 2 })
   })
   it('preserves fractional native origins and separate IDs for repeated captions', async () => {
     mocks.text.mockResolvedValue({

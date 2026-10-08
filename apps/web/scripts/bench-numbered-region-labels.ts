@@ -3,6 +3,10 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import sharp from 'sharp'
+import {
+  captionFrameComponents,
+  type ReviewedCaptionFrames,
+} from '../lib/projects/plan-caption-frame-components'
 import { preparePlanPage } from '../lib/projects/plan-document'
 import {
   bindReviewedNumberedCaptions,
@@ -10,7 +14,7 @@ import {
 } from '../lib/projects/plan-numbered-region-labels'
 import { detectPlanRasterRegions } from '../lib/projects/plan-raster-regions'
 
-const [pdfPath, reviewPath, outputPath] = process.argv.slice(2)
+const [pdfPath, reviewPath, outputPath, frameReviewPath] = process.argv.slice(2)
 if (!pdfPath || !reviewPath || !outputPath)
   throw new Error('Supply PDF, reviewed text ID JSON, and fresh output directory')
 const reviewed: ReviewedNumberedCaptions = JSON.parse(await readFile(resolve(reviewPath), 'utf8'))
@@ -18,12 +22,29 @@ const page = await preparePlanPage(
   await readFile(resolve(pdfPath)),
   true,
   reviewed.source.page,
-  false,
+  Boolean(frameReviewPath),
   true,
 )
 const native = page.nativeTextAnchors
 if (!native) throw new Error('Native text anchors unavailable')
 const grayscale = await sharp(page.image.body).greyscale().raw().toBuffer()
+let captionFrames: ReturnType<typeof captionFrameComponents> | undefined
+if (frameReviewPath) {
+  if (!page.linework || !page.lineworkRasterSource) throw new Error('Native linework unavailable')
+  const reviewedFrames: ReviewedCaptionFrames = JSON.parse(
+    await readFile(resolve(frameReviewPath), 'utf8'),
+  )
+  const selectedMarkerIds = new Set(reviewed.markers.map((marker) => marker.labelId))
+  if (reviewedFrames.frames.some((frame) => !selectedMarkerIds.has(frame.markerLabelId)))
+    throw new Error('Frame review selects a marker outside the numbered-caption review')
+  captionFrames = captionFrameComponents({
+    native,
+    work: page.linework,
+    lineworkSource: page.lineworkRasterSource,
+    reviewed: reviewedFrames,
+    grayscale,
+  })
+}
 const detected = detectPlanRasterRegions({
   grayscale,
   width: page.image.width,
@@ -53,6 +74,7 @@ await writeFile(
       reviewed,
       detected,
       binding,
+      captionFrames,
       caveat:
         'Reviewed caption provenance is not independent room/floor detection; no metric geometry is accepted.',
     },
@@ -63,6 +85,16 @@ await writeFile(
 const ids = new Set(reviewed.markers.map((marker) => marker.labelId))
 const overlay = `<svg xmlns="http://www.w3.org/2000/svg" width="${page.image.width}" height="${page.image.height}">
   <image width="${page.image.width}" height="${page.image.height}" href="data:image/jpeg;base64,${page.image.body.toString('base64')}"/>
+  ${
+    captionFrames?.links
+      .flatMap((link) => link.samples)
+      .map((sample) =>
+        sample
+          ? `<circle cx="${sample.point.x}" cy="${sample.point.y}" r="3" fill="#008888"/>`
+          : '',
+      )
+      .join('') ?? ''
+  }
   ${native.labels
     .filter((label) => ids.has(label.id))
     .map(({ point }) => `<circle cx="${point.x}" cy="${point.y}" r="7" fill="#cc0044"/>`)
@@ -78,6 +110,11 @@ console.log(
       unresolvedSourceNumbers: binding.unresolvedSourceNumbers,
       ambiguousRegions: binding.ambiguities.length,
       overlappingCaptionIds: binding.overlappingLabelIds,
+      captionFrameRelations: captionFrames?.links.map(({ markerLabelId, regionId, reason }) => ({
+        markerLabelId,
+        regionId,
+        reason,
+      })),
     },
     null,
     2,
