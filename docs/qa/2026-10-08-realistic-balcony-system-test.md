@@ -790,6 +790,57 @@ parallel directions, stale source и диагональ в метрическо�
 и изменений рабочего проекта нет. Полный automatic face choice, редактирование/
 подтверждение этой пачки в UI, стены/проёмы/высоты и весь 3D-продукт не приняты.
 
+## Автоматические кандидаты из native fill polygons
+
+Добавлен `nativeFillCandidates`: геометрия берётся из прямых замкнутых paint
+примитивов PDF без ручного face inventory. Не выбирается специальный цвет пола.
+Paint colour сохраняется только как hint; semanticStatus всегда unclassified,
+результат draft. Native page polygons и rendered-image raster polygons имеют
+отдельно указанное coordinate space; SHA/page/scale совпадают с исходным render.
+Для geometry extraction наличие текстового слоя не требуется; именование
+по-прежнему требует полного отдельного текста и reviewed caption inventory.
+
+Closed соответствует семантике fill оператора PDF (в том числе implicit fill
+closure), не доказательству нарисованной стены. При одной операции с несколькими
+subpaths ничего не объединяется и holes не заполняются. Операции с omitted
+curves/clipped subpaths отвергаются. Review обнаружил, что extractor может
+не выдать degenerate first subpath: поэтому даже единственный emitted subpath
+с index>0 теперь отклоняется. Unknown/усечённая omission inventory или
+unsupported native context не дают частичного «полного» результата.
+
+Сохраняются исходные вершины, диагонали и concave steps. Канонизируются только
+направление обхода и первая вершина. Self-crossing polygons не заменяются
+bbox. Native page-frame touches исключаются до pixel conversion, поэтому
+ceil canvas padding не маскирует обрезку. Минимальная площадь кандидата —
+max(400 px², 0.2% render area): это фильтр примитивов, который может убрать
+малое помещение и не доказывает полноту inventory. Максимум 50 кандидатов,
+3000 paths/20000 points; переполнение явно truncated. Refusal reasons/counts,
+неполнота diagnostic logs и filtered counts сохранены отдельно.
+
+Существующий контрольный PDF: 19 geometry candidates автоматически; восемь
+помещений связаны с целыми областями через отдельно reviewed строки таблицы
+и внутренние native number IDs. Одиннадцать кандидатов оставлены без назначения.
+Никаких manually selected floor-face refs для этого извлечения не передавалось.
+Комната 2/native fill2510 и балкон8/fill2720 точно совпали с независимыми прежними
+source polygons. Восемь названий НЕ распознаны новым OCR: использован known
+reviewed caption fixture. Связь подписи с fill не является подтверждением пола,
+свободного пространства или paint visibility после последующих overlays.
+
+Контрольные количества 19/8/11 закреплены assertions, не только выводом логов.
+Наложение просмотрено: целые room-shaped fills сохраняются несмотря на размерные
+линии поверх них; остальные большие fills включают wall/white primitives.
+Артефакты: `tmp/native-fill-candidates-20261008-c/`; ранние `*-a/`, `*-b/`
+сохранены. Это native colour/paint plan, не исходный PNG рабочего проекта.
+
+Тесты: отсутствие color heuristic/text dependency, canonical geometry/diagonal,
+compound/omitted/later-subpath refusals, source frame, crop/tiny/stroke filters,
+self-crossing, native incompleteness и candidate limit. Независимый review
+указал subpath contract gap; исправление и benchmark assertions добавлены.
+Полные 2973 web unit/227 файлов, типы семи пакетов, lint и diff check прошли.
+Сайт, рабочий проект и status=confirmed не менялись; новых AI-запросов/PR нет.
+Остаются автоматическое определение ролей/подписей, неокрашенные планы/сканы,
+сверка полноты и подключение безопасного review path в public UI.
+
 ## Чего эта проверка не доказывает
 
 Распознавание произвольных исходников, качество всех аналогов, физический
