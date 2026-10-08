@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -18,9 +19,9 @@ vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
   getDocument: mocks.getDocument,
 }))
 vi.mock('@napi-rs/canvas', () => ({
-  createCanvas: () => ({
-    width: 100,
-    height: 100,
+  createCanvas: (width: number, height: number) => ({
+    width,
+    height,
     getContext: () => ({ fillRect: vi.fn() }),
     toBuffer: () => Buffer.from('rendered page'),
   }),
@@ -32,6 +33,7 @@ vi.mock('sharp', () => ({
 }))
 
 import { preparePlanPage } from './plan-document'
+import { bindObservedRegionLabels } from './plan-raster-region-labels'
 
 describe('selected PDF page', () => {
   beforeEach(() => {
@@ -128,10 +130,135 @@ describe('selected PDF page', () => {
     const result = await preparePlanPage(Buffer.from('pdf'), true, 6)
     expect(result.image).not.toHaveProperty('planText')
   })
+  it('does not expose experimental native anchors by default', async () => {
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6)
+    expect(result).not.toHaveProperty('nativeTextAnchors')
+  })
+  it('preserves fractional native origins and separate IDs for repeated captions', async () => {
+    mocks.text.mockResolvedValue({
+      items: [
+        { str: 'Спальня', transform: [1, 0, 0, 1, 250.25, 400.75] },
+        { str: 'Спальня', transform: [1, 0, 0, 1, 650.5, 800.25] },
+      ],
+    })
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6, false, true)
+    expect(result.nativeTextAnchors).toMatchObject({
+      complete: true,
+      source: { page: 6, width: 1000, height: 2000 },
+      labels: [
+        { id: 'native-text-0', name: 'Спальня' },
+        { id: 'native-text-1', name: 'Спальня' },
+      ],
+    })
+    expect(result.nativeTextAnchors?.labels[0]?.point.x).toBeCloseTo(250.25)
+    expect(result.nativeTextAnchors?.labels[0]?.point.y).toBeCloseTo(400.75)
+    expect(result.nativeTextAnchors?.labels[1]?.point.x).toBeCloseTo(650.5)
+    expect(result.nativeTextAnchors?.labels[1]?.point.y).toBeCloseTo(800.25)
+    expect(result.nativeTextAnchors?.source.sha256).toBe(
+      createHash('sha256').update(result.image.body).digest('hex'),
+    )
+    const native = result.nativeTextAnchors
+    if (!native) throw new Error('Native anchors missing')
+    const binding = bindObservedRegionLabels({
+      regionSource: native.source,
+      labelSource: native.source,
+      labels: native.labels,
+      regions: [
+        {
+          id: 'left',
+          polygon: [
+            { x: 100, y: 100 },
+            { x: 400, y: 100 },
+            { x: 400, y: 1000 },
+            { x: 100, y: 1000 },
+          ],
+        },
+        {
+          id: 'right',
+          polygon: [
+            { x: 500, y: 100 },
+            { x: 900, y: 100 },
+            { x: 900, y: 1000 },
+            { x: 500, y: 1000 },
+          ],
+        },
+      ],
+    })
+    expect(binding.assignments.map(({ labelId, regionId }) => ({ labelId, regionId }))).toEqual([
+      { labelId: 'native-text-0', regionId: 'left' },
+      { labelId: 'native-text-1', regionId: 'right' },
+    ])
+  })
+  it('uses the rendered viewport orientation and final raster size for native origins', async () => {
+    mocks.viewport.mockImplementation(({ scale }: { scale: number }) => ({
+      width: 800 * scale,
+      height: 600 * scale,
+      convertToViewportPoint: (x: number, y: number) => [y * scale, (600 - x) * scale],
+    }))
+    mocks.jpeg.mockResolvedValue({ data: Buffer.from('jpeg'), info: { width: 1600, height: 1200 } })
+    mocks.text.mockResolvedValue({ items: [{ str: 'Кухня', transform: [1, 0, 0, 1, 100, 200] }] })
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6, false, true)
+    expect(result.nativeTextAnchors?.labels[0]?.point.x).toBeCloseTo(
+      ((200 * (150 / 72)) / 1667) * 1600,
+    )
+    expect(result.nativeTextAnchors?.labels[0]?.point.y).toBeCloseTo(1000)
+  })
+  it('marks unavailable, truncated, and out-of-frame native layers incomplete', async () => {
+    mocks.text.mockRejectedValueOnce(new Error('no layer'))
+    const missing = await preparePlanPage(Buffer.from('pdf'), true, 6, false, true)
+    expect(missing.nativeTextAnchors).toMatchObject({ complete: false, labels: [] })
+    mocks.text.mockResolvedValue({
+      items: [
+        { str: 'x'.repeat(201), transform: [1, 0, 0, 1, 100, 100] },
+        { str: 'Кухня', transform: [1, 0, 0, 1, -10, 100] },
+      ],
+    })
+    const invalid = await preparePlanPage(Buffer.from('pdf'), true, 6, false, true)
+    expect(invalid.nativeTextAnchors).toMatchObject({ complete: false, labels: [] })
+  })
   it('does not extract vectors for the default reading path', async () => {
     const page = await preparePlanPage(Buffer.from('pdf'), true, 6)
     expect(page).not.toHaveProperty('linework')
     expect(mocks.operators).not.toHaveBeenCalled()
+  })
+  it('marks a native text byte-budget cutoff incomplete', async () => {
+    mocks.text.mockResolvedValue({
+      items: Array.from({ length: 1000 }, (_, index) => ({
+        str: `Подпись-${index}`,
+        transform: [1, 0, 0, 1, 100, 100],
+      })),
+    })
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6, false, true)
+    expect(result.nativeTextAnchors?.complete).toBe(false)
+    expect(result.nativeTextAnchors?.labels.length).toBeLessThan(1000)
+  })
+  it('maps native anchors through the large-page pixel budget and downsampling', async () => {
+    mocks.viewport.mockImplementation(({ scale }: { scale: number }) => ({
+      width: 4000 * scale,
+      height: 4000 * scale,
+      convertToViewportPoint: (x: number, y: number) => [x * scale, (4000 - y) * scale],
+    }))
+    mocks.jpeg.mockResolvedValue({ data: Buffer.from('jpeg'), info: { width: 2000, height: 2000 } })
+    mocks.text.mockResolvedValue({ items: [{ str: 'Кухня', transform: [1, 0, 0, 1, 1000, 3000] }] })
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6, false, true)
+    const renderSide = Math.sqrt(12_000_000)
+    const expected = (renderSide / 4 / Math.ceil(renderSide)) * 2000
+    expect(result.nativeTextAnchors?.labels[0]?.point.x).toBeCloseTo(expected)
+    expect(result.nativeTextAnchors?.labels[0]?.point.y).toBeCloseTo(expected)
+  })
+  it('uses viewport crop offsets instead of treating PDF origins as raster coordinates', async () => {
+    mocks.viewport.mockImplementation(({ scale }: { scale: number }) => ({
+      width: 800 * scale,
+      height: 600 * scale,
+      convertToViewportPoint: (x: number, y: number) => [(x - 50) * scale, (650 - y) * scale],
+    }))
+    mocks.jpeg.mockResolvedValue({ data: Buffer.from('jpeg'), info: { width: 1600, height: 1200 } })
+    mocks.text.mockResolvedValue({ items: [{ str: 'Кухня', transform: [1, 0, 0, 1, 150, 550] }] })
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6, false, true)
+    expect(result.nativeTextAnchors?.labels[0]?.point.x).toBeCloseTo(
+      ((100 * (150 / 72)) / 1667) * 1600,
+    )
+    expect(result.nativeTextAnchors?.labels[0]?.point.y).toBeCloseTo(200)
   })
   it('extracts the requested vector layer on the same selected page using the physical page format', async () => {
     mocks.viewport.mockImplementation(({ scale }: { scale: number }) => ({

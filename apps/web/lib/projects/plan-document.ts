@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import sharp from 'sharp'
 import { extractPdfLinework, type PdfLinework } from './plan-pdf-linework'
 import { pdfStandardFontDataUrl } from './plan-pdf-standard-fonts'
@@ -12,6 +13,13 @@ export class PlanReadError extends Error {
 const READING_MAX_SIDE = 2000
 const PDF_DPI = 150
 const PDF_MAX_PIXELS = 12_000_000
+
+export type NativeTextAnchors = {
+  source: { sha256: string; page: number; width: number; height: number }
+  complete: boolean
+  // Baseline origins from PDF text transforms, not glyph boxes or inferred room centres.
+  labels: { id: string; name: string; point: { x: number; y: number } }[]
+}
 
 async function toJpeg(body: Buffer): Promise<{
   body: Buffer
@@ -37,11 +45,13 @@ export async function preparePlanPage(
   isPdf: boolean,
   pageNumber = 1,
   includeLinework = false,
+  includeNativeTextAnchors = false,
 ): Promise<{
   image: { body: Buffer; contentType: string; width: number; height: number; planText?: string }
   pageNumber: number
   pageCount: number
   linework?: PdfLinework
+  nativeTextAnchors?: NativeTextAnchors
 }> {
   if (!Number.isInteger(pageNumber) || pageNumber < 1) {
     throw new PlanReadError('Номер страницы должен быть целым числом от 1.')
@@ -96,8 +106,10 @@ export async function preparePlanPage(
     const full = page.getViewport({ scale: PDF_DPI / 72 })
     const textContent = await page.getTextContent().catch(() => undefined)
     const textItems: Array<{ text: string; x: number; y: number; rotation: number }> = []
+    const nativeOrigins: Array<{ index: number; name: string; x: number; y: number }> = []
+    let nativeTextComplete = textContent !== undefined
     let textSize = 2
-    for (const item of textContent?.items ?? []) {
+    for (const [index, item] of (textContent?.items ?? []).entries()) {
       if (!('str' in item) || !item.str.trim()) continue
       const [x, y] = full.convertToViewportPoint(item.transform[4], item.transform[5])
       const label = {
@@ -107,8 +119,27 @@ export async function preparePlanPage(
         rotation: Math.round((Math.atan2(item.transform[1], item.transform[0]) * 180) / Math.PI),
       }
       textSize += JSON.stringify(label).length + 1
-      if (textSize > 30_000 || textItems.length >= 1000) break
+      if (textSize > 30_000 || textItems.length >= 1000) {
+        nativeTextComplete = false
+        break
+      }
       textItems.push(label)
+      if (includeNativeTextAnchors) {
+        if (
+          item.str.trim().length > 200 ||
+          !Number.isFinite(item.transform[4]) ||
+          !Number.isFinite(item.transform[5])
+        ) {
+          nativeTextComplete = false
+          continue
+        }
+        nativeOrigins.push({
+          index,
+          name: item.str.trim(),
+          x: item.transform[4],
+          y: item.transform[5],
+        })
+      }
     }
     const planText = textItems.length > 0 ? JSON.stringify(textItems) : undefined
     const budget = Math.min(1, Math.sqrt(PDF_MAX_PIXELS / (full.width * full.height)))
@@ -124,11 +155,44 @@ export async function preparePlanPage(
       canvasContext: context as any,
       viewport,
     }).promise
+    const image = await toJpeg(canvas.toBuffer('image/png'))
+    let nativeTextAnchors: NativeTextAnchors | undefined
+    if (includeNativeTextAnchors) {
+      const labels: NativeTextAnchors['labels'] = []
+      for (const origin of nativeOrigins) {
+        const [renderX, renderY] = viewport.convertToViewportPoint(origin.x, origin.y)
+        const x = (renderX / canvas.width) * image.width
+        const y = (renderY / canvas.height) * image.height
+        if (
+          !Number.isFinite(x) ||
+          !Number.isFinite(y) ||
+          x < 0 ||
+          x > image.width ||
+          y < 0 ||
+          y > image.height
+        ) {
+          nativeTextComplete = false
+          continue
+        }
+        labels.push({ id: `native-text-${origin.index}`, name: origin.name, point: { x, y } })
+      }
+      nativeTextAnchors = {
+        source: {
+          sha256: createHash('sha256').update(image.body).digest('hex'),
+          page: pageNumber,
+          width: image.width,
+          height: image.height,
+        },
+        complete: nativeTextComplete,
+        labels,
+      }
+    }
     return {
-      image: { ...(await toJpeg(canvas.toBuffer('image/png'))), ...(planText ? { planText } : {}) },
+      image: { ...image, ...(planText ? { planText } : {}) },
       pageNumber,
       pageCount: document.numPages,
       ...(linework ? { linework } : {}),
+      ...(nativeTextAnchors ? { nativeTextAnchors } : {}),
     }
   } finally {
     await loading.destroy()
