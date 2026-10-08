@@ -940,6 +940,48 @@ Public UI ещё не подключён: сначала нужен самост
 неокрашенных/outlined исходников, а не перенос этого narrow пути как
 универсального автора подтверждённой схемы. Сайт/рабочий проект не изменялись.
 
+## Поиск native stroke cycles без заливок
+
+Добавлен local-only `nativeStrokeCycleCandidates`: граф строится только из
+реальных прямых strokes/fill-strokes и точного совпадения исходных endpoints.
+Не продлевает линии, не snap-ит разрывы, не заменяет дверь отрезком, не
+разрезает source strokes в местах пересечений. Компонент принимается только
+при степени 2 каждой вершины, 3–100 рёбрах и simple polygon. Диагонали
+сохраняются; polygon winding/start канонизированы. SourceRefs — явно unordered
+evidence; candidate IDs локальны для текущего extraction order, не persisted
+identity подтверждённой комнаты.
+
+Крупные циклы не объявляются полом: result draft/unclassified; нет имён,
+обмеров, floor/usable area role и автоматической записи в geometry. Малые
+рамки/границы листа исключены. Контакт с внешним straight stroke, в том числе
+diagonal crossing/T-junction, блокирует цикл. Bounds omitted curves/clips
+внутри bounding box плюс margin 3 raster pixels также блокируют. Это
+консервативный отказ, не доказательство paint visibility. Нет поддержки PNG,
+сканов, OCR или открытых дверных границ в этом helper.
+
+Provenance/frame/completeness проверяются; malformed refs/points/omission bounds
+не принимаются. Общий graph/intersection budget 200000 comparisons, limit
+50 candidates; превышение обнуляет частичный результат. Review нашло связь
+stroke completeness с fill-only candidate limit и quadratic adjacency copy
+для high-degree hub: обе исправлены, отдельные regressions добавлены.
+
+11 unit cases прошли: ordinary square, diagonal/reordered paths, tiny gap,
+missing edge, branches/duplicate geometry/self-crossing, external contacts,
+annotations/page frame, missing/near omissions, invalid refs, 51 independent
+fills, nested unclassified cycles, high-degree graph budget. Полный web suite:
+2995 tests / 229 файлов. Typecheck семи пакетов, lint прошли; повторное
+независимое review подтвердило исправления, других findings нет.
+
+Пять hash-pinned реальных existing-state страниц прогнаны повторно без ручных
+face refs; артефакты `tmp/native-stroke-corpus-20261008-b/`. На всех ноль stroke
+candidates: большинство components открыты/ветвятся либо слишком малы;
+Designgroup/Remplanner дополнительно имеют external crossings, Life отказал
+из-за incomplete layer. Это отрицательный результат для покрытия реальных
+планов, НЕ готовый fallback. Табличные отказные regressions также сохранились.
+Результат пока не подключается в public UI и не меняет сайт/рабочий проект.
+Следующая необходимая работа — граф bounded пересечений/роли границ и
+отдельная проверяемая обработка openings; нельзя просто закрыть разрывы.
+
 ## Чего эта проверка не доказывает
 
 Распознавание произвольных исходников, качество всех аналогов, физический

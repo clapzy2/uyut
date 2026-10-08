@@ -7,6 +7,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { preparePlanPage } from '../lib/projects/plan-document'
 import { automaticNativeRoomCandidates } from '../lib/projects/plan-native-room-candidates'
+import { nativeStrokeCycleCandidates } from '../lib/projects/plan-native-stroke-candidates'
 
 type Source = { file: string; sha256: string; existingPage: number; pages: number }
 // Observed refusals on hash-pinned existing-state pages, not expected room counts.
@@ -52,10 +53,22 @@ for (const source of sources) {
   if (result.status !== 'unresolved') throw new Error('Unexpected automatic associations')
   assert.equal(result.reason, expectedRefusals.get(source.file))
   assert.equal(result.associations.length, 0)
+  const strokes = nativeStrokeCycleCandidates({
+    native: page.nativeTextAnchors,
+    work: page.linework,
+    lineworkSource: page.lineworkRasterSource,
+  })
+  assert.equal(strokes.status, 'draft')
+  assert.equal(strokes.semanticStatus, 'unclassified')
+  if (strokes.truncated) assert.equal(strokes.candidates.length, 0)
   await writeFile(join(directory, source.file.replace('.pdf', '-source.jpg')), page.image.body)
   await writeFile(
     join(directory, source.file.replace('.pdf', '-result.json')),
     JSON.stringify(result, null, 2),
+  )
+  await writeFile(
+    join(directory, source.file.replace('.pdf', '-stroke-candidates.json')),
+    JSON.stringify(strokes, null, 2),
   )
   const summary = {
     file: source.file,
@@ -69,6 +82,12 @@ for (const source of sources) {
     geometryTruncated: result.geometry.truncated,
     associations: result.associations.length,
     refusalRegressionPassed: true,
+    strokeCandidates: strokes.candidates.length,
+    strokeRefusal: strokes.refusalReason,
+    strokeRejectedReasons: strokes.rejected.reduce<Record<string, number>>((counts, entry) => {
+      counts[entry.reason] = (counts[entry.reason] ?? 0) + 1
+      return counts
+    }, {}),
   }
   results.push(summary)
   console.log(JSON.stringify(summary))

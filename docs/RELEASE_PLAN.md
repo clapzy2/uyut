@@ -733,3 +733,9 @@ reduced motion и реальную очередь проверяем до зак
 регрессии; outlined text, отсутствие fills и clipped-layer отказ дополнительно
 покрыты unit tests. Подключение public UI как универсального automatic path
 пока не принято; нужен отдельный fallback и проверка floor role/полноты.
+
+Local stroke endpoint cycle helper добавлен и проверен (11 focused tests,
+полные 2995 web tests). Сохраняет диагонали и provenance, не закрывает gaps,
+остаётся draft/unclassified. На пяти реальных corpus страницах кандидатов
+ноль; этот strict endpoint-only подход не закрывает fallback. До public UI
+нужны bounded crossing graph, роль wall/floor и проверяемые opening boundaries.
