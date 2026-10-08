@@ -1019,6 +1019,48 @@ Runner сохраняет diagnostic overlay двух blocked strokes; четы�
 нужно доказывать. Общий coverage не принят и public UI не подключён.
 Новых AI-запросов/PR нет; сайт и рабочий проект не изменялись.
 
+## Автоматические кандидаты ролей размерных линий
+
+Добавлен local-only `automaticNativeDimensionRoles`. Он сам перебирает numeric
+native labels, без manually selected IDs и без создания review flags. Выбранная
+existing-state страница должна быть передана caller отдельно; source SHA/page
+проверяются против native extractor. Это не автоматическое определение состояния
+листа. Полный raster/native provenance и extraction limits проверяются до поиска.
+
+Каждая cardinal подпись проверяется существующим pdfNativePageDimensionChain
+как single printed span. Rails требуют единственной original operation/subpath
+с open two-point stroke. Tick candidates повторяют существующие physical rules:
+2–15 PDF points, diagonal component ratios 0.4–0.9, midpoint <=0.12 PDF points
+от endpoint и strict crossing. Это tolerance native annotation verifier, НЕ
+snap/move source geometry. Все source refs и original labels сохраняются;
+cardinal rotation нормализуется только для legacy axis checker. Наклонные
+подписи остаются unresolved. Совпадение нескольких label claims на rail делает
+все claims unresolved, даже при одинаковых значениях.
+
+Work budget: максимум 100 numeric labels и labels * nativePaths² <=300000000;
+path lookup для tick refs сделан через Map, не повторный linear search. Result
+draft с mayEraseSourceStrokes=false. Подпись/rail/tick связь не доказывает,
+что rail не совпадает с wall boundary, и не разрешает удалить extensions,
+ticks, leaders или все diagonal strokes. В planar graph ничего не удаляется.
+
+Независимый corpus прогнан на тех же пяти SHA-pinned existing страницах:
+19 dimension role candidates в Basis, 24 в Basman, 30 в Remplanner; ноль в
+outlined Designgroup, Life отказал на incomplete layer. Первый blocked tick
+в трёх планах связан с автоматически найденной числовой подписью по полному
+operation/subpath/segment ref. Второй stroke этих пар остаётся unknown.
+65 role candidates — НЕ 65 принятых обмеров или доказательство полной очистки
+annotations. Ноль bounded face candidates/automatic room associations
+сохранён; coverage помещений ещё не принят.
+
+Артефакты: `tmp/native-dimension-roles-20261008-c/`; ранние a/b сохранены.
+10 unit cases покрывают native IDs, ticks, cardinal rotations, duplicates,
+page/state mismatch, stale coordinates, incomplete extraction, budget и
+competing labels. Полный web suite 3014 / 230 файлов прошёл, typecheck семи
+пакетов/lint/diff check прошли. Независимый review подтвердил bounded lookup,
+rotation и conflict handling. Новых AI-запросов/PR нет, сайт/рабочий проект
+не менялись. Остаток: conflicts wall/annotation и полная native annotation
+inventory, затем проверяемое исключение из поиска; не blanket deletion.
+
 ## Чего эта проверка не доказывает
 
 Распознавание произвольных исходников, качество всех аналогов, физический

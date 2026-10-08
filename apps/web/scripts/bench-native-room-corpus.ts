@@ -7,6 +7,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { preparePlanPage } from '../lib/projects/plan-document'
+import { automaticNativeDimensionRoles } from '../lib/projects/plan-native-dimension-roles'
 import { automaticNativeRoomCandidates } from '../lib/projects/plan-native-room-candidates'
 import {
   nativeStrokeCycleCandidates,
@@ -72,6 +73,17 @@ for (const source of sources) {
   })
   assert.equal(faces.semanticStatus, 'unclassified')
   if (faces.truncated) assert.equal(faces.candidates.length, 0)
+  const roles = automaticNativeDimensionRoles({
+    native: page.nativeTextAnchors,
+    work: page.linework,
+    lineworkSource: page.lineworkRasterSource,
+    source: { sha256: source.sha256, pdfPage: source.existingPage, state: 'existing' },
+  })
+  assert.equal(roles.mayEraseSourceStrokes, false)
+  await writeFile(
+    join(directory, source.file.replace('.pdf', '-dimension-roles.json')),
+    JSON.stringify(roles, null, 2),
+  )
   await writeFile(join(directory, source.file.replace('.pdf', '-source.jpg')), page.image.body)
   await writeFile(
     join(directory, source.file.replace('.pdf', '-result.json')),
@@ -116,6 +128,22 @@ for (const source of sources) {
     strokeRefusal: strokes.refusalReason,
     boundedFaceCandidates: faces.candidates.length,
     boundedFaceRefusal: faces.refusalReason,
+    dimensionRoleCandidates: roles.candidates.length,
+    dimensionRoleRefusal: roles.refusalReason,
+    blockedStrokeRoles: faces.blockedSourceRefs?.map((blocked) => ({
+      ref: blocked,
+      matchingCandidates: roles.candidates.flatMap((candidate) => {
+        const same = (ref: typeof blocked) =>
+          ref.operationIndex === blocked.operationIndex &&
+          ref.subpathIndex === blocked.subpathIndex &&
+          ref.segmentIndex === blocked.segmentIndex
+        return same(candidate.rail)
+          ? [{ labelId: candidate.labelId, role: 'dimension-rail-candidate' }]
+          : candidate.ticks.some(same)
+            ? [{ labelId: candidate.labelId, role: 'dimension-tick-candidate' }]
+            : []
+      }),
+    })),
     strokeRejectedReasons: strokes.rejected.reduce<Record<string, number>>((counts, entry) => {
       counts[entry.reason] = (counts[entry.reason] ?? 0) + 1
       return counts

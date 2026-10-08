@@ -747,3 +747,11 @@ test faces с shared divider и extended strokes проходят без gap clo
 показывают смешение размерных/annotation strokes с boundaries. Следующий
 обязательный шаг — проверяемая роль source strokes, а не удаление диагоналей
 или запись всех planar faces как комнат. Сайт не менялся.
+
+Автоматический поиск dimension role candidates добавлен локально: native
+single-span verifier связывает labels/rails/ticks, сохраняя source refs и
+отказывая competing claims. На трёх corpus планах найдено 19/24/30 кандидатов;
+три первых blocked tick refs объяснены. Source strokes НЕ удаляются,
+mayEraseSourceStrokes=false; это ещё не полная annotation inventory или floor
+recognition. Полные 3014 web tests прошли. Следующий шаг — явная проверка
+wall/annotation conflicts и доказуемое исключение annotations из графа.
