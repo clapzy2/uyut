@@ -734,6 +734,62 @@ native strokes этот путь не работает; опубликованн
 Независимый review повторно проверил omission fix, оставшихся findings нет.
 Полные 2951 web unit/225 файлов, типы семи пакетов, lint и diff check прошли.
 
+## Общий печатный масштаб и контроль 2D/метровой floor scene
+
+Добавлен локальный `metricNativeCycles` для свежих trusted outputs native cycle
+и dimension producers. Manual-native-metric-review связывает chainId/cycleId
+с полным source face ref и двумя явно выбранными native witness refs. Проверяются
+original PDF/JPEG/page identities, физический формат страницы и common origin.
+Проекции концов цепочки должны покрывать всю выбранную сторону; witnesses
+должны быть реальными perpendicular strokes с bounded across интервалом.
+Источник не продлевается, координаты не двигаются. Точечные расхождения
+проверяются в пределах 0.12 PDF points, сохраняются исходные значения.
+
+Это geometric connection/printed-page calibration, не автоматическое определение
+drafting ownership или физического тела стены. Новый слой не выдаёт accepted
+pdfCalibration.edgeDimensions и не заменяет/ослабляет существующий строгий
+production pdfDimensionForEdge, его clipping/opening/competing-edge refusals
+или проверки wall-face pairs. Роль closure/face задана ручной сверкой.
+
+Независимость требуется ДЛЯ КАЖДОГО контура: минимум две привязки с углом >=30°;
+chain IDs, native label indexes, rails, faces и witness refs не повторяются
+в своих категориях. Пределы: 4 контура, 8 anchors, 3000 paths/20000 points.
+Масштаб вычисляется из первого anchor, не усредняется/не подгоняется. Все
+другие цепочки и длины выбранных граней должны согласоваться в пределах 2 мм.
+Контур без собственной проверки масштаба не получает метрические координаты.
+Origin и cmPerPoint общие; число вершин/направления/уступы сохраняются без
+независимого растягивания X/Y, округления сантиметров или fit по площади.
+Нечисловые/неконечные результаты и конфликт масштабов отклоняются.
+
+Сквозной офлайн-контроль существующего PDF: комната 2 и балкон 8 собраны из
+исходных refs и получили общий cmPerPoint=1.5874718337131823. Расчётные площади
+полигонов — 16.6306152 и 5.5115809 м²; совпали с таблицей 16.6/5.5 в пределах
+округления до одного десятичного знака. Табличные площади служили только
+независимой проверкой ПОСЛЕ conversion, масштаб ими не подгонялся.
+
+Те же cm polygons переданы отдельному floor-only PlanVolume primitive и
+buildPlanScene (метры, вертикальная Y). Все 4/6 исходных вершин сохранились
+через xCm/100 и yCm/100→scene Z. Суммы площадей треугольников сцены —
+16.6306148/5.5115745 м², различие <0.0001 м²; vertex residual <0.00001 м.
+Это проверка арифметики Float32/triangulation, не физическая точность обмера.
+Нет стен, проёмов, высот, мебели или WebGL-browser acceptance.
+
+Важный negative control: PlanGeometry с этими же footprint и status=draft
+по-прежнему возвращает planVolume=null. Ни status=confirmed, ни confirmedAt,
+ни серверное подтверждение нигде не создавались. Сцена — отдельная математическая
+floor primitive только в QA. Missing contour calibration возвращает unresolved.
+2D preview просмотрен. Артефакты: `tmp/native-metric-cycles-20261008-c/`;
+первые `*-a/`, `*-b/` сохранены. Reviewed anchors:
+`docs/qa/fixtures/apartment-native-reviewed-metric-anchors.json`.
+
+Regression проверяет primary/common scale, конфликт без усреднения, reused/
+missing/short witnesses, partial-face dimension, отсутствие local anchors,
+parallel directions, stale source и диагональ в метрическом polygon/floor scene.
+Независимый review не нашёл actionable findings. Полные 2960 web unit/226 файлов,
+типы семи пакетов, lint и diff check прошли. Новых AI-запросов, выкладки, PR
+и изменений рабочего проекта нет. Полный automatic face choice, редактирование/
+подтверждение этой пачки в UI, стены/проёмы/высоты и весь 3D-продукт не приняты.
+
 ## Чего эта проверка не доказывает
 
 Распознавание произвольных исходников, качество всех аналогов, физический

@@ -1,0 +1,53 @@
+{
+  "review": "manual-native-metric-review",
+  "source": {
+    "sha256": "d0ab7f756492e4c2bc11a7870bfcb6815a96daf04127095ba73bcdc6f5a6e058",
+    "pdfPage": 3,
+    "state": "existing"
+  },
+  "rasterSource": {
+    "sha256": "f6577ca5a86797ed36bc76561a2255e6181b9045bf8973591dcab3c1e83efbaf",
+    "page": 3,
+    "width": 2000,
+    "height": 1414
+  },
+  "origin": { "x": 0, "y": 0 },
+  "anchors": [
+    {
+      "chainId": "bedroom-top-width",
+      "cycleId": "bedroom",
+      "faceRef": { "operationIndex": 2531, "subpathIndex": 0, "segmentIndex": 0 },
+      "witnessRefs": [
+        { "operationIndex": 2524, "subpathIndex": 0, "segmentIndex": 0 },
+        { "operationIndex": 2538, "subpathIndex": 0, "segmentIndex": 0 }
+      ]
+    },
+    {
+      "chainId": "bedroom-depth",
+      "cycleId": "bedroom",
+      "faceRef": { "operationIndex": 2538, "subpathIndex": 0, "segmentIndex": 0 },
+      "witnessRefs": [
+        { "operationIndex": 2517, "subpathIndex": 0, "segmentIndex": 0 },
+        { "operationIndex": 2531, "subpathIndex": 0, "segmentIndex": 0 }
+      ]
+    },
+    {
+      "chainId": "balcony-width-chain",
+      "cycleId": "balcony",
+      "faceRef": { "operationIndex": 2755, "subpathIndex": 0, "segmentIndex": 0 },
+      "witnessRefs": [
+        { "operationIndex": 2748, "subpathIndex": 0, "segmentIndex": 0 },
+        { "operationIndex": 2762, "subpathIndex": 0, "segmentIndex": 0 }
+      ]
+    },
+    {
+      "chainId": "balcony-depth",
+      "cycleId": "balcony",
+      "faceRef": { "operationIndex": 2762, "subpathIndex": 0, "segmentIndex": 0 },
+      "witnessRefs": [
+        { "operationIndex": 2727, "subpathIndex": 0, "segmentIndex": 0 },
+        { "operationIndex": 2755, "subpathIndex": 0, "segmentIndex": 0 }
+      ]
+    }
+  ]
+}
