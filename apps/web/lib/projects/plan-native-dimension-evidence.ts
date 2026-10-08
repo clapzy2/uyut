@@ -57,6 +57,7 @@ export function nativeDimensionEvidence(input: {
   )
     throw new Error('Unknown reviewed wall operation')
   const labels = new Map(native.labels.map((label) => [label.id, label]))
+  const dimensionOperations = new Set<number>()
   const chains = reviewed.chains.map((chain) => {
     if (
       !chain.id.trim() ||
@@ -99,6 +100,7 @@ export function nativeDimensionEvidence(input: {
     const result = pdfNativePageDimensionChain(work, reviewed.source, selected, totalMm, chain.axis)
     if (result.status !== 'candidate')
       return { id: chain.id, labelIds: chain.labelIds, result, rails: [] }
+    for (const operation of result.lineOperations) dimensionOperations.add(operation)
     if (result.lineOperations.some((operation) => reviewed.wallOperations.includes(operation)))
       return {
         id: chain.id,
@@ -135,6 +137,7 @@ export function nativeDimensionEvidence(input: {
     source: reviewed.source,
     rasterSource: native.source,
     chains,
+    dimensionOperations: [...dimensionOperations],
     nativeCoverageWarnings: {
       skippedCurves: work.skippedCurves,
       clippedPaths: work.clippedPaths,

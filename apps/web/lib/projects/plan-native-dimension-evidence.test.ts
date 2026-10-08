@@ -76,6 +76,7 @@ describe('source-bound printed dimension evidence', () => {
       reason: 'dimension-wall-role-conflict',
     })
     expect(result.chains[0]?.rails).toEqual([])
+    expect(result.dimensionOperations).toContain(operation)
     expect(input.work.paths).toBe(work.paths)
   })
   it('preserves native disconnection and truncation refusals', () => {

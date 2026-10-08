@@ -40,6 +40,7 @@ const dimensions: ReturnType<typeof nativeDimensionEvidence> = {
     unsupportedPaths: 0,
     unsupportedContexts: 0,
   },
+  dimensionOperations: [10],
 }
 const rectangle = (left: number, top: number, right: number, bottom: number) => [
   { x: left, y: top },
