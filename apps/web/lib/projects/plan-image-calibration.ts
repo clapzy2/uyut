@@ -122,6 +122,16 @@ export function validPlanImageCalibration(
 ): value is PlanImageCalibration {
   if (!value || typeof value !== 'object') return false
   const source = value as Partial<PlanImageCalibration>
+  if (
+    (source.sourceSha256 !== undefined || source.pdfPage !== undefined) &&
+    (typeof source.sourceSha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(source.sourceSha256) ||
+      !Number.isInteger(source.pdfPage) ||
+      !source.pdfPage ||
+      source.pdfPage < 1 ||
+      source.pdfPage > 9999)
+  )
+    return false
   const imageWidthPx = source.imageWidthPx
   const imageHeightPx = source.imageHeightPx
   const start = source.pixelStart

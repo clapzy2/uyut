@@ -357,10 +357,7 @@ export async function savePlanGeometry(
     // A scanned PDF is still an image source when its manual scheme has a reviewed
     // image scale. A source-reviewed vector page must keep its server-owned floor.
     const scannedPdf =
-      pdf &&
-      before.source === 'manual' &&
-      !project.planReading.pageReview &&
-      (before.imageCalibration !== undefined || submitted.imageCalibration != null)
+      pdf && before.source === 'manual' && !before.pdfCalibration && !project.planReading.pageReview
     const raster = !before.pdfCalibration && (!pdf || scannedPdf)
     if (
       pdf &&
@@ -369,7 +366,9 @@ export async function savePlanGeometry(
       !project.planReading.pageReview &&
       !before.footprint &&
       submitted.footprint != null &&
-      !raster
+      (submitted.imageCalibration === undefined
+        ? before.imageCalibration == null
+        : submitted.imageCalibration == null)
     ) {
       return {
         ok: false,
@@ -395,6 +394,32 @@ export async function savePlanGeometry(
         return { ok: false, error: 'Проверьте две точки и известный размер для подложки плана.' }
       }
       imageCalibration = rawCalibration
+    }
+    if (scannedPdf && imageCalibration) {
+      if (imageCalibration.pdfPage !== (project.planReading.sourcePage ?? 1)) {
+        return {
+          ok: false,
+          error: 'Калибровка изображения относится к другому PDF-листу или режиму разметки.',
+        }
+      }
+      const object = await getObject(project.planUrl as string)
+      const body = Buffer.from(object.body)
+      if (imageCalibration.sourceSha256 !== createHash('sha256').update(body).digest('hex')) {
+        return {
+          ok: false,
+          error: 'Исходный PDF изменился. Откройте выбранный лист и привяжите масштаб заново.',
+        }
+      }
+      const page = await preparePlanPage(body, true, imageCalibration.pdfPage)
+      if (
+        imageCalibration.imageWidthPx !== page.image.width ||
+        imageCalibration.imageHeightPx !== page.image.height
+      ) {
+        return {
+          ok: false,
+          error: 'Размеры подложки не совпадают с выбранным PDF-листом. Привяжите масштаб заново.',
+        }
+      }
     }
     const openingClearances = openingClearancesSchema.safeParse(submitted.openings ?? [])
     if (!openingClearances.success)

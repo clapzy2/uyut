@@ -26,6 +26,7 @@ export function PlanImageReference({
   onUnderlayChange,
   calibration,
   onCalibrationChange,
+  pdfSource,
 }: {
   planUrl: string
   planIsPdf: boolean
@@ -35,6 +36,7 @@ export function PlanImageReference({
   onUnderlayChange: Dispatch<SetStateAction<PlanUnderlay | undefined>>
   calibration: PlanImageCalibration | undefined
   onCalibrationChange: (value: PlanImageCalibration | undefined) => void
+  pdfSource?: { sha256: string; page: number }
 }) {
   const [imageSize, setImageSize] = useState<{ width: number; height: number }>()
   const [points, setPoints] = useState<PixelPoint[]>(
@@ -92,6 +94,7 @@ export function PlanImageReference({
       return
     }
     const candidate: PlanImageCalibration = {
+      ...(pdfSource ? { sourceSha256: pdfSource.sha256, pdfPage: pdfSource.page } : {}),
       imageWidthPx: imageSize.width,
       imageHeightPx: imageSize.height,
       pixelStart: start,
@@ -150,11 +153,16 @@ export function PlanImageReference({
                   if (
                     calibration &&
                     (calibration.imageWidthPx !== naturalWidth ||
-                      calibration.imageHeightPx !== naturalHeight)
+                      calibration.imageHeightPx !== naturalHeight ||
+                      (pdfSource &&
+                        (calibration.sourceSha256 !== pdfSource.sha256 ||
+                          calibration.pdfPage !== pdfSource.page)))
                   ) {
                     clearCalibration()
                     setPoints([])
-                    setError('Размер изображения изменился. Отметьте размерную линию заново.')
+                    setError(
+                      'Исходный лист или размер изображения изменился. Отметьте размерную линию заново.',
+                    )
                   }
                 }}
               />

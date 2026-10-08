@@ -164,6 +164,9 @@ export type PlanKitchenItem = {
   installationGaps?: { top: number; right: number; bottom: number; left: number }
 }
 export type PlanImageCalibration = {
+  /** For a rendered PDF page: immutable file identity and selected sheet, not model evidence. */
+  sourceSha256?: string
+  pdfPage?: number
   imageWidthPx: number
   imageHeightPx: number
   pixelStart: { x: number; y: number }

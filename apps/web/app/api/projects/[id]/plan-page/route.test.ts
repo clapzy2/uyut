@@ -37,6 +37,8 @@ const page = {
   image: {
     body: Buffer.from('jpeg'),
     contentType: 'image/jpeg',
+    width: 1414,
+    height: 2000,
     planText: JSON.stringify([{ text: '2985', x: 20, y: 10, rotation: 0 }]),
   },
   linework: {
@@ -176,5 +178,125 @@ describe('private PDF page preview', () => {
       .mockResolvedValueOnce(project)
       .mockResolvedValueOnce({ ...project, planUrl: 'new-plan.pdf', planReading: null })
     expect((await GET(request(), context)).status).toBe(409)
+  })
+
+  it('renders a scan for a manual draft without native lines or labels', async () => {
+    const rasterReading: PlanReading = {
+      ...reading,
+      planState: 'unknown',
+      geometry: {
+        version: 1,
+        status: 'draft',
+        source: 'manual',
+        warnings: [],
+        widthCm: 700,
+        heightCm: 800,
+        walls: [],
+        rooms: [],
+        openings: [],
+      },
+    }
+    const rasterProject = { ...project, planReading: rasterReading }
+    mocks.access.mockResolvedValue(rasterProject)
+    mocks.prepare.mockResolvedValue({
+      ...page,
+      image: { ...page.image, planText: undefined },
+      linework: undefined,
+    })
+    const version = planEditRevision(project.planUrl, rasterReading)
+    const result = await GET(request('6', version, 'raster'), context)
+    expect(result.status).toBe(200)
+    expect(result.headers.get('x-plan-image-width')).toBe('1414')
+    expect(result.headers.get('x-plan-image-height')).toBe('2000')
+    expect(result.headers.get('x-plan-page-width')).toBeNull()
+    expect(result.headers.get('x-plan-sha256')).toMatch(/^[a-f0-9]{64}$/)
+    expect(result.headers.get('cache-control')).toBe('private, no-store')
+    expect(result.headers.get('x-plan-page')).toBe('6')
+    expect(result.headers.get('x-plan-page-count')).toBe('48')
+    expect(await result.text()).toBe('jpeg')
+    expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, false)
+    expect((await GET(request('6', version), context)).status).toBe(400)
+    mocks.access.mockResolvedValue({
+      ...rasterProject,
+      planReading: { ...rasterReading, planState: 'existing' },
+    })
+    const nativeVersion = planEditRevision(project.planUrl, {
+      ...rasterReading,
+      planState: 'existing',
+    })
+    expect((await GET(request('6', nativeVersion), context)).status).toBe(422)
+  })
+
+  it('requires a manual draft and refuses native proof in raster mode', async () => {
+    const geometry = {
+      version: 1 as const,
+      status: 'draft' as const,
+      source: 'manual' as const,
+      warnings: [],
+      widthCm: 700,
+      heightCm: 800,
+      walls: [],
+      rooms: [],
+      openings: [],
+    }
+    for (const value of [
+      reading,
+      { ...reading, geometry: { ...geometry, source: undefined } },
+      { ...reading, geometry: { ...geometry, pdfCalibration: {} } },
+      { ...reading, geometry, pageReview: {} },
+    ]) {
+      mocks.access.mockResolvedValue({ ...project, planReading: value })
+      expect(
+        (
+          await GET(
+            request('6', planEditRevision(project.planUrl, value as PlanReading), 'raster'),
+            context,
+          )
+        ).status,
+      ).toBe(400)
+    }
+    expect(mocks.prepare).not.toHaveBeenCalled()
+  })
+
+  it('keeps authentication and revision gates for raster sources', async () => {
+    mocks.session.mockResolvedValueOnce(null)
+    expect((await GET(request('6', revision, 'raster'), context)).status).toBe(401)
+    mocks.access.mockRejectedValueOnce(new AccessError('private'))
+    expect((await GET(request('6', revision, 'raster'), context)).status).toBe(404)
+    expect((await GET(request('6', 'b'.repeat(64), 'raster'), context)).status).toBe(409)
+    expect(mocks.object).not.toHaveBeenCalled()
+  })
+
+  it('defaults a legacy raster reading to page one and rejects mismatched or superseded pages', async () => {
+    const rasterReading: PlanReading = {
+      ...reading,
+      sourcePage: undefined,
+      planState: 'unknown',
+      geometry: {
+        version: 1,
+        status: 'draft',
+        source: 'manual',
+        warnings: [],
+        widthCm: 700,
+        heightCm: 800,
+        walls: [],
+        rooms: [],
+        openings: [],
+      },
+    }
+    const rasterProject = { ...project, planReading: rasterReading }
+    const version = planEditRevision(project.planUrl, rasterReading)
+    mocks.access.mockResolvedValue(rasterProject)
+    expect((await GET(request('6', version, 'raster'), context)).status).toBe(400)
+    expect(mocks.prepare).not.toHaveBeenCalled()
+    mocks.prepare.mockResolvedValue({ ...page, pageNumber: 1, linework: undefined })
+    expect((await GET(request('1', version, 'raster'), context)).status).toBe(200)
+    expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 1, false)
+    mocks.access
+      .mockResolvedValueOnce(rasterProject)
+      .mockResolvedValueOnce({ ...rasterProject, planReading: { ...rasterReading, sourcePage: 2 } })
+    expect((await GET(request('1', version, 'raster'), context)).status).toBe(409)
+    mocks.prepare.mockResolvedValue({ ...page, pageNumber: 2 })
+    expect((await GET(request('1', version, 'raster'), context)).status).toBe(422)
   })
 })
