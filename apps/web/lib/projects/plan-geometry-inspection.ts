@@ -67,7 +67,10 @@ function pointIsFinite(point: PlanPoint): boolean {
   return Number.isFinite(point.xCm) && Number.isFinite(point.yCm)
 }
 
-function pointIsInside(point: PlanPoint, geometry: EditableGeometry): boolean {
+function pointIsInside(
+  point: PlanPoint,
+  geometry: Pick<PlanGeometry, 'widthCm' | 'heightCm'>,
+): boolean {
   return (
     pointIsFinite(point) &&
     point.xCm >= 0 &&
@@ -223,7 +226,10 @@ function polygonCrossesItself(polygon: readonly PlanPoint[]): boolean {
   return false
 }
 
-function validMetricPolygon(polygon: readonly PlanPoint[], geometry: EditableGeometry): boolean {
+export function validMetricPolygon(
+  polygon: readonly PlanPoint[],
+  geometry: Pick<PlanGeometry, 'widthCm' | 'heightCm'>,
+): boolean {
   return (
     polygon.length >= 3 &&
     polygon.length <= 200 &&
