@@ -103,6 +103,7 @@ export default async function Step1({ searchParams }: StepParams) {
             reading={project.planReading}
             hasPlan
             planIsPdf={project.planUrl.endsWith('.pdf')}
+            planSourceUrl={planSrc}
             roomCount={project.rooms.length}
             existing={project.rooms.map((room) => ({
               id: room.id,

@@ -10,6 +10,7 @@ import {
   createPromptBuilder,
   isConceptModelId,
   isLayoutCorrectionImprovement,
+  isUsableArchitectureAnchor,
   KEEP_THE_REST,
   layoutCorrectionPrompt,
   nearestStyles,
@@ -20,9 +21,11 @@ import {
   roomRenderAspectRatio,
   type StyleEntry,
   styleLibrary,
+  unavailableQualityReview,
 } from '@uyut/ai'
 import { conceptLayoutContract, type LayoutItem, subcategoryFromText } from '@uyut/catalog'
 import { effectiveSize } from '@uyut/catalog/item-size'
+import type { ConceptQualityReview } from '@uyut/db'
 import {
   catalogItems,
   conceptObjects,
@@ -211,7 +214,9 @@ function publish(progress: Progress): void {
 // Пять рендеров одной комнаты: общая часть промпта одна, вариации разные.
 export const generateConcept = task({
   id: 'generate-concept',
-  maxDuration: 600,
+  // Two serial render/review stages may use 600 seconds of provider deadlines;
+  // leave room for the prompt, one bounded correction and saving completed results.
+  maxDuration: 1200,
   retry: { maxAttempts: 1 },
   run: async (raw: GenerateConceptPayload) => {
     const payload = payloadSchema.parse(raw)
@@ -395,19 +400,50 @@ export const generateConcept = task({
       seed: 1000 + concept.orderIndex,
       aspectRatio,
     }))
+    // The first review is shared by the anchor gate and the stored result. Waiting for it
+    // must not submit another paid review or discard an already rendered first variant.
+    let anchorReview: Promise<ConceptQualityReview> | undefined
+    async function reviewRenderedImage(result: RenderResult): Promise<ConceptQualityReview> {
+      try {
+        const body = await sharp(result.body)
+          .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 85 })
+          .toBuffer()
+        reviewRequests += 1
+        return await reviewConceptImage(
+          requireEnv('FAL_KEY'),
+          { body, contentType: 'image/jpeg' },
+          brief,
+          reviewReference,
+        )
+      } catch (error) {
+        logger.warn('review preparation failed; keeping rendered variant', { error: String(error) })
+        return unavailableQualityReview()
+      }
+    }
     const anchored =
       !imageUrl && !payload.editSteps && !preserving && anchorItems.length > 0
         ? renderArchitectureAnchoredBatch(
             engine,
             anchorItems as [(typeof anchorItems)[number], ...Array<(typeof anchorItems)[number]>],
+            async (result) => {
+              anchorReview = reviewRenderedImage(result)
+              const review = await anchorReview
+              const usable = isUsableArchitectureAnchor(review, brief)
+              logger.info('architecture anchor eligibility', {
+                usable,
+                status: review.status,
+                issueCodes: review.issues.map((issue) => issue.code),
+              })
+              return usable
+            },
           )
         : null
     if (anchored && created.length > 1) {
       void anchored.anchor.then(
         () =>
-          logger.info('architecture anchor ready', {
+          logger.info('first architecture candidate rendered', {
             conceptId: created[0]?.id,
-            derivedVariants: created.length - 1,
           }),
         (error) =>
           logger.warn('architecture anchor failed; remaining variants stay independent', {
@@ -437,17 +473,9 @@ export const generateConcept = task({
           }
           // Проверяем пиксели, а не промпт. Уменьшение ограничивает размер запроса;
           // Общий дедлайн включает очередь; сбой проверки не роняет оплаченный результат.
-          const reviewImage = await sharp(result.body)
-            .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
-            .jpeg({ quality: 85 })
-            .toBuffer()
-          reviewRequests += 1
-          let qualityReview = await reviewConceptImage(
-            requireEnv('FAL_KEY'),
-            { body: reviewImage, contentType: 'image/jpeg' },
-            brief,
-            reviewReference,
-          )
+          let qualityReview = await (conceptIndex === 0 && anchorReview
+            ? anchorReview
+            : reviewRenderedImage(result))
           logger.info('concept quality review', {
             conceptId: concept.id,
             status: qualityReview.status,

@@ -8,6 +8,9 @@ export type PlanRow = {
   kind: RoomKind
   width: string
   depth: string
+  /** Explicit source-drawing review, never a confirmation of an on-site measurement. */
+  widthReviewed?: boolean
+  depthReviewed?: boolean
   area: string
   ceiling?: string
   sourceNumber?: number
@@ -32,6 +35,29 @@ export type PlanRow = {
   roomName?: string
   /** Похожих комнат в проекте несколько, и какая из них эта — знает только человек */
   ambiguous?: boolean
+}
+
+/** An acknowledgment belongs to this exact value and room, not to a later edit. */
+export function patchPlanRow(row: PlanRow, patch: Partial<PlanRow>): PlanRow {
+  const changedScope = (['name', 'kind', 'sourceNumber', 'roomId'] as const).some(
+    (key) => Object.hasOwn(patch, key) && patch[key] !== row[key],
+  )
+  const changedWidth = Object.hasOwn(patch, 'width') && patch.width !== row.width
+  const changedDepth = Object.hasOwn(patch, 'depth') && patch.depth !== row.depth
+  return {
+    ...row,
+    ...patch,
+    ...(changedScope || changedWidth ? { widthReviewed: false } : {}),
+    ...(changedScope || changedDepth ? { depthReviewed: false } : {}),
+  }
+}
+
+/** Explicitly requested omission; existing room measurements are preserved by the repository. */
+export function clearUnreviewedPlanAxes(row: PlanRow): PlanRow {
+  return patchPlanRow(row, {
+    ...(row.widthReviewed ? {} : { width: '' }),
+    ...(row.depthReviewed ? {} : { depth: '' }),
+  })
 }
 
 /** Комната проекта глазами этого экрана: что уже есть и чего у неё не хватает */

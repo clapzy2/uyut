@@ -256,6 +256,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
               reading={project.planReading}
               hasPlan={Boolean(project.planUrl)}
               planIsPdf={planIsPdf}
+              planSourceUrl={planIsPdf ? null : planUrl}
               roomCount={project.rooms.length}
               existing={project.rooms.map((room) => ({
                 id: room.id,

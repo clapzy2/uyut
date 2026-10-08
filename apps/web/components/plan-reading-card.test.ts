@@ -13,14 +13,20 @@ vi.mock('@/actions/projects', () => ({
 import type { ExistingRoom } from '@/lib/projects/plan-rows'
 import { PlanReadingCard } from './plan-reading-card'
 
-function render(reading: PlanReading | null, roomCount = 0, existing: ExistingRoom[] = []) {
+function render(
+  reading: PlanReading | null,
+  roomCount = 0,
+  existing: ExistingRoom[] = [],
+  planIsPdf = true,
+) {
   return renderToStaticMarkup(
     createElement(PlanReadingCard, {
       projectId: 'project',
       sourceRevision: 'revision',
       reading,
       hasPlan: true,
-      planIsPdf: true,
+      planIsPdf,
+      planSourceUrl: planIsPdf ? null : '/source-image',
       roomCount,
       existing,
     }),
@@ -28,6 +34,21 @@ function render(reading: PlanReading | null, roomCount = 0, existing: ExistingRo
 }
 
 describe('plan review form', () => {
+  it('requires separate unchecked source-axis review for raster dimensions and offers explicit omission', () => {
+    const reading: PlanReading = {
+      readAt: '2026-10-08',
+      rooms: [{ name: 'Гостиная', kind: 'living', widthCm: 600, depthCm: 320 }],
+    }
+    const html = render(reading, 0, [], false)
+    expect(html).toContain('Сверил горизонтальную ширину')
+    expect(html).toContain('Сверил вертикальную глубину')
+    expect(html).toContain('Очистить неподтверждённые оси')
+    expect(html).toContain('href="/source-image"')
+    expect(html).toContain('не обнаруживает перестановку осей')
+    // The room-selection checkbox is checked; neither source-axis acknowledgment is.
+    expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(1)
+    expect(render(reading)).not.toContain('Сверил горизонтальную ширину')
+  })
   it('leads an unread plan to the selected sheet and explains the review before room transfer', () => {
     const html = render(null)
     expect(html).toContain('Прочитайте нужный лист')

@@ -1,6 +1,7 @@
 // Клиенты Fal.ai, Anthropic и Voyage, каталог стилей и сборка промптов.
 
 export {
+  type ArchitectureAnchorEligibility,
   type ArchitectureBatchItem,
   type ArchitectureBatchPlan,
   renderArchitectureAnchoredBatch,
@@ -145,6 +146,7 @@ export {
   styleOrDefault,
 } from './prompt'
 export {
+  isUsableArchitectureAnchor,
   parseQualityReview,
   QUALITY_REVIEW_MODEL,
   QUALITY_REVIEW_PROMPT,

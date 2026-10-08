@@ -1,6 +1,60 @@
 import type { PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
-import { appendSourcePlanRow, areaCheck, planRows } from './plan-rows'
+import {
+  appendSourcePlanRow,
+  areaCheck,
+  clearUnreviewedPlanAxes,
+  patchPlanRow,
+  planRows,
+} from './plan-rows'
+
+describe('source axis acknowledgments', () => {
+  const row = planRows({
+    readAt: '2026-10-08',
+    rooms: [{ name: 'Гостиная', kind: 'living', widthCm: 600, depthCm: 320 }],
+  })[0]
+  if (!row) throw new Error('Missing fixture')
+
+  it('never acknowledges model-populated or previously transferred dimensions automatically', () => {
+    expect(row.widthReviewed).not.toBe(true)
+    expect(row.depthReviewed).not.toBe(true)
+  })
+
+  it('invalidates only the edited axis and both axes after a room-scope edit', () => {
+    const reviewed = { ...row, widthReviewed: true, depthReviewed: true }
+    expect(patchPlanRow(reviewed, { width: '320' })).toMatchObject({
+      widthReviewed: false,
+      depthReviewed: true,
+    })
+    expect(patchPlanRow(reviewed, { depth: '600' })).toMatchObject({
+      widthReviewed: true,
+      depthReviewed: false,
+    })
+    for (const patch of [
+      { name: 'Кухня' },
+      { kind: 'kitchen' as const },
+      { sourceNumber: 2 },
+      { roomId: 'different-room' },
+    ]) {
+      expect(patchPlanRow(reviewed, patch)).toMatchObject({
+        widthReviewed: false,
+        depthReviewed: false,
+      })
+    }
+    expect(patchPlanRow(reviewed, { wish: 'Диван' })).toMatchObject({
+      widthReviewed: true,
+      depthReviewed: true,
+    })
+  })
+
+  it('clears unreviewed axes only after explicit omission, keeping reviewed values', () => {
+    expect(clearUnreviewedPlanAxes(row)).toMatchObject({ width: '', depth: '' })
+    expect(clearUnreviewedPlanAxes({ ...row, widthReviewed: true })).toMatchObject({
+      width: '600',
+      depth: '',
+    })
+  })
+})
 
 describe('adding missing schedule rows', () => {
   it('adds only a numbered identity and leaves every measurement empty', () => {
