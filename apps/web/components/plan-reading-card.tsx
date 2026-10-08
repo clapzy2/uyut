@@ -29,8 +29,10 @@ import {
 import {
   appendSourcePlanRow,
   areaCheck,
+  clearUnreviewedPlanAxes,
   type ExistingRoom,
   type PlanRow,
+  patchPlanRow,
   planRows,
   totalAreaCheck,
 } from '@/lib/projects/plan-rows'
@@ -77,6 +79,7 @@ export function PlanReadingCard({
   reading,
   hasPlan,
   planIsPdf,
+  planSourceUrl,
   roomCount,
   existing,
 }: {
@@ -85,6 +88,7 @@ export function PlanReadingCard({
   reading: PlanReading | null
   hasPlan: boolean
   planIsPdf: boolean
+  planSourceUrl?: string | null
   roomCount: number
   existing: ExistingRoom[]
 }) {
@@ -114,7 +118,7 @@ export function PlanReadingCard({
   const confirmed = Boolean(reading?.confirmedAt)
 
   function patch(index: number, next: Partial<PlanRow>) {
-    setRows((list) => (list ?? []).map((row, at) => (at === index ? { ...row, ...next } : row)))
+    setRows((list) => (list ?? []).map((row, at) => (at === index ? patchPlanRow(row, next) : row)))
   }
 
   function editSavedReading() {
@@ -234,6 +238,8 @@ export function PlanReadingCard({
             ceilingCm: row.ceiling ?? '',
             widthCm: row.width,
             depthCm: row.depth,
+            widthReviewed: row.widthReviewed === true,
+            depthReviewed: row.depthReviewed === true,
             areaM2: row.area,
             wish: row.wish,
             layoutNotes: row.layoutNotes,
@@ -520,6 +526,35 @@ export function PlanReadingCard({
         данных 2D-схему нужно сверить заново.
       </p>
 
+      {!planIsPdf ? (
+        <div className="mt-4 space-y-3 border-l-2 border-accent pl-4 text-[14px] leading-relaxed text-ink-2">
+          <p>
+            На изображении ширина идёт по горизонтали (X →), глубина — по вертикали (Y ↓). Сверьте
+            каждую непустую ось с подписью и её привязкой к этой комнате; совпадение площади не
+            обнаруживает перестановку осей. Галочки ниже означают вашу сверку чертежа, а не
+            автоматическую проверку или замер на месте.
+          </p>
+          {planSourceUrl ? (
+            <a href={planSourceUrl} target="_blank" rel="noopener noreferrer" className="underline">
+              Открыть исходное изображение для сверки
+            </a>
+          ) : null}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={saving || conflict || reviewEditing}
+            onClick={() => setRows((current) => current?.map(clearUnreviewedPlanAxes) ?? null)}
+          >
+            Очистить неподтверждённые оси
+          </Button>
+          <p>
+            После очистки можно перенести комнаты без этих размеров и уточнить их позже. Уже
+            сохранённые мерки существующих комнат не стираются.
+          </p>
+        </div>
+      ) : null}
+
       {noSides ? (
         <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
           Дополните ширину и глубину по размерным линиям — это основа проверки размещения мебели.
@@ -709,6 +744,29 @@ export function PlanReadingCard({
                     className={`${numberFieldClassName} mt-1 w-24`}
                   />
                 </label>
+                {!planIsPdf ? (
+                  <div className="w-full space-y-2 text-[13px] text-ink-2">
+                    {(['width', 'depth'] as const).map((axis) => (
+                      <label key={axis} className="flex min-h-11 items-start gap-2 py-2">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 size-[18px] shrink-0 cursor-pointer appearance-none rounded-xs border border-control bg-paper checked:border-accent checked:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                          checked={row[`${axis}Reviewed`] === true}
+                          disabled={!row[axis].trim() || saving || conflict || reviewEditing}
+                          onChange={(event) =>
+                            patch(index, { [`${axis}Reviewed`]: event.currentTarget.checked })
+                          }
+                        />
+                        <span>
+                          {axis === 'width'
+                            ? 'Сверил горизонтальную ширину'
+                            : 'Сверил вертикальную глубину'}{' '}
+                          комнаты «{row.name || index + 1}» с исходным изображением
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
                 <label className="text-[13px] text-ink-2">
                   Площадь, м²
                   <input

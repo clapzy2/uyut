@@ -160,6 +160,8 @@ export const planRoomsSchema = z.object({
         ceilingCm: spotWidthSchema.optional(),
         widthCm: spotWidthSchema,
         depthCm: spotWidthSchema,
+        widthReviewed: z.boolean().optional(),
+        depthReviewed: z.boolean().optional(),
         areaM2: areaSchema,
         wish: z.string().trim().max(500, { error: 'Слишком длинно: хватит 500 знаков' }),
         layoutNotes: z.string().trim().max(800).optional(),

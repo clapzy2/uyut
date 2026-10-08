@@ -1,9 +1,14 @@
-import { parseQualityReview, QUALITY_REVIEW_TIMEOUT_MS, reviewConceptImage } from '@uyut/ai'
+import {
+  isUsableArchitectureAnchor,
+  parseQualityReview,
+  QUALITY_REVIEW_TIMEOUT_MS,
+  reviewConceptImage,
+} from '@uyut/ai'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const description = 'Светлая кухня с деревянными фасадами.'
 const issue = {
-  code: 'blocked_access',
+  code: 'blocked_access' as const,
   detail: 'Шкаф перекрывает видимый вход слева.',
   confidence: 0.95,
 }
@@ -15,6 +20,17 @@ afterEach(() => {
 })
 
 describe('проверка готового изображения', () => {
+  it('does not propagate an unavailable, flagged or architecture-free first render', () => {
+    const checked = parseQualityReview(JSON.stringify({ description, issues: [] }), now)
+    expect(isUsableArchitectureAnchor(checked, {})).toBe(false)
+    expect(isUsableArchitectureAnchor(checked, { layoutNotes: '  ' })).toBe(false)
+    const brief = { layoutNotes: 'Одно окно сверху, балконная дверь снизу.' }
+    expect(isUsableArchitectureAnchor(checked, brief)).toBe(true)
+    expect(isUsableArchitectureAnchor({ ...checked, status: 'unavailable' }, brief)).toBe(false)
+    expect(
+      isUsableArchitectureAnchor({ ...checked, status: 'review', issues: [issue] }, brief),
+    ).toBe(false)
+  })
   it('compares source first and result second in one paid submission when a reference exists', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')

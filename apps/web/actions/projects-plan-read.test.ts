@@ -86,6 +86,77 @@ describe('plan reading actions', () => {
     mocks.createRooms.mockResolvedValue({ created: 2, updated: 0 })
   })
 
+  it('rejects each populated raster axis without explicit review before any write', async () => {
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.PNG', planReading: reading })
+    const revision = planEditRevision('plan.PNG', reading)
+    for (const axis of ['widthReviewed', 'depthReviewed'] as const) {
+      const data = {
+        ...input(),
+        rooms: input().rooms.map((room) => ({
+          ...room,
+          widthReviewed: true,
+          depthReviewed: true,
+          [axis]: false,
+        })),
+      }
+      expect(await confirmPlanRooms(projectId, data, revision)).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('Сверьте каждую непустую ось'),
+      })
+    }
+    expect(await confirmPlanRooms(projectId, input(), revision)).toMatchObject({ ok: false })
+    expect(mocks.createRooms).not.toHaveBeenCalled()
+  })
+
+  it('also requires review of source-only raster utility dimensions', async () => {
+    const data = input()
+    data.rooms = data.rooms.map((room) => ({ ...room, include: false, utility: true }))
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.webp', planReading: reading })
+    expect(
+      await confirmPlanRooms(projectId, data, planEditRevision('plan.webp', reading)),
+    ).toMatchObject({ ok: false })
+    expect(mocks.createRooms).not.toHaveBeenCalled()
+  })
+
+  it('transfers corrected and explicitly reviewed raster axes without physical verification', async () => {
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.png', planReading: reading })
+    const data = {
+      ...input(),
+      rooms: input().rooms.map((room) => ({
+        ...room,
+        widthCm: '320',
+        depthCm: '600',
+        widthReviewed: true,
+        depthReviewed: true,
+      })),
+    }
+    expect(
+      await confirmPlanRooms(projectId, data, planEditRevision('plan.png', reading)),
+    ).toMatchObject({ ok: true })
+    const saved = mocks.createRooms.mock.calls[0]?.[2]
+    expect(saved.rooms[0].measurements).toMatchObject({ widthCm: 320, depthCm: 600 })
+    expect(saved.rooms[0].measurements).not.toHaveProperty('verification')
+    expect(saved.reading.rooms[0]).not.toHaveProperty('widthReviewed')
+  })
+
+  it('allows explicit omission of raster axes without submitting null as an existing-size wipe', async () => {
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.png', planReading: reading })
+    const data = input()
+    data.rooms = data.rooms.map((room) => ({ ...room, widthCm: '', depthCm: '' }))
+    expect(
+      await confirmPlanRooms(projectId, data, planEditRevision('plan.png', reading)),
+    ).toMatchObject({ ok: true })
+    const saved = mocks.createRooms.mock.calls[0]?.[2]
+    expect(saved.rooms[0].measurements).not.toHaveProperty('widthCm')
+    expect(saved.rooms[0].measurements).not.toHaveProperty('depthCm')
+  })
+
+  it('does not apply raster acknowledgment requirements to the existing PDF path', async () => {
+    expect(
+      await confirmPlanRooms(projectId, input(), planEditRevision('plan.pdf', reading)),
+    ).toMatchObject({ ok: true })
+  })
+
   it('saves added source rows with unknown measurements and no selected furniture rooms', async () => {
     const data = input()
     const first = data.rooms[0]

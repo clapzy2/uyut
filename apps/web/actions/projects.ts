@@ -794,6 +794,20 @@ export async function confirmPlanRooms(
       return { ok: false, error: 'Сначала загрузите и прочитайте план квартиры.' }
     }
     const beforeReading = project.planReading
+    // A raster model's arithmetic and self-reported chain are not independent source proof.
+    // Require a deliberate review of each populated axis, including utility/source-only rows.
+    if (!project.planUrl.toLowerCase().endsWith('.pdf')) {
+      const unreviewed = rooms.find(
+        (room) =>
+          (room.widthCm !== null && room.widthReviewed !== true) ||
+          (room.depthCm !== null && room.depthReviewed !== true),
+      )
+      if (unreviewed)
+        return {
+          ok: false,
+          error: `Сверьте каждую непустую ось комнаты «${unreviewed.name || roomKindLabels[unreviewed.kind]}» с исходным изображением или явно очистите неподтверждённые размеры.`,
+        }
+    }
     const numbered = rooms.flatMap((room) =>
       room.sourceNumber === undefined ? [] : [room.sourceNumber],
     )

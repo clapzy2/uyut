@@ -8,6 +8,15 @@ export const QUALITY_REVIEW_ENDPOINT = 'openrouter/router/vision'
 export const QUALITY_REVIEW_TIMEOUT_MS = 120_000
 const QUALITY_REVIEW_MAX_TOKENS = 2000
 type ReviewImage = { body: Buffer; contentType: string }
+
+/** A checked render may be reused, but this is not proof of architectural accuracy. */
+export function isUsableArchitectureAnchor(
+  review: ConceptQualityReview,
+  brief: Pick<ConceptBrief, 'architecture' | 'layoutNotes'>,
+): boolean {
+  const hasArchitectureFacts = Boolean(brief.architecture || brief.layoutNotes?.trim())
+  return hasArchitectureFacts && review.status === 'checked' && review.issues.length === 0
+}
 const ISSUE_CODES = new Set([
   'not_interior',
   'wrong_room',
