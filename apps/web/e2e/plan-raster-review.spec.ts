@@ -200,7 +200,7 @@ test.describe('явная сверка осей растрового плана'
       path: resolve('../../output/playwright/raster-axis-review-desktop.png'),
     })
     await panel.getByRole('button', { name: 'Перенести комнаты: 1', exact: true }).click()
-    await expect(panel.getByText(/Сверьте каждую непустую ось/)).toBeVisible()
+    await expect(panel.getByRole('alert')).toContainText('Сверьте каждую непустую ось')
     expect(await savedRooms()).toHaveLength(0)
 
     await width.fill('320')
