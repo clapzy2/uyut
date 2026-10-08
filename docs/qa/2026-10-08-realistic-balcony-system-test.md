@@ -1194,6 +1194,58 @@ title-block cells остаются unknown. Малые cells отсутству�
 actionable findings. Расположение комнат/проёмов всё ещё не принято. Новых
 AI-запросов/PR/site writes нет, пользовательский проект не изменён.
 
+## Source-reviewed wall sections и bounded gap evidence
+
+Добавлен local-only `nativeWallSectionGaps`: selected wall roles задаются
+explicit manual-native-wall-section-review с original PDF/raster frames и
+точными snapshots native fill polygons/refs. Цвет не определяет wall role.
+Unique single-operation closed fill/fill-stroke, valid simple polygon,
+same source/page/state и отсутствие relevant omissions обязательны. Повтор
+первой точки при explicit closure убирается только для validity check;
+original polygon, indexing и snapshots не меняются.
+
+Declared section задаёт axis/at/from/to, не новый floor edge. Coverage selected
+bodies вычисляется по native source edges; gaps сохраняют оба jamb inventories.
+Скошенные края поддержаны через exact source-decimal crossing kernel, proof
+содержит только original sourceEdge/cut. Arithmetic probe не выдаётся за
+native stroke. Distinct rational cuts, aliasing one Number, и interval без
+representable interior sample отказывают всей section. Evidence выходных
+gaps/crossings клонируется: UI edit результата не меняет native source points.
+
+Границы viewport section не заменяются jambs; unbounded gaps не получают
+width. Unreviewed fills с пересекающимся section/gap bbox явно сохраняются
+как unknownFillOperations и блокируют printed width attachment. Это
+консервативная неопределённость, не классификация glazing или obstruction.
+automaticNativeDimensionRoles теперь сохраняет native spanEnds; подпись
+связывается только при точном совпадении axis, обоих along endpoints И
+transverse plane. Другой nearby/equal-length размер не проецируется на gap.
+openingKind всегда null, confirmsOpeningKind/closesFloorBoundary false.
+Selected-wall-section-only scope не доказывает полную inventory/проход.
+
+`bench-native-wall-sections.ts` использует прежние independently reviewed
+perimeterProbes из corpus fixture, не автоматически назначает wall roles.
+SHA проверен до fresh extraction. Snapshot envelopes составлены из этих
+known reviewed operations после проверки источника; source paths неизменны.
+Seven-section regression gate фиксирует состав, два omission refusals,
+число gaps, bounded flags и endpoints против независимо reviewed wallAnchors
+в пределах прежнего QA comparison tolerance. Допуск применяется только в
+assertions, не в изменении source coordinates или width attachment.
+
+Реальный результат (`tmp/native-wall-sections-20261009-d/`): Basman right/left
+дают ноль gaps, top/bottom отказывают по omitted geometry. Remplanner left/
+right/entry дают 1/3/1 bounded gaps — всего пять. Оба overlays просмотрены.
+Unknown fills в gaps не объявлены свободным проёмом; ни один real gap не
+получил printed width по несовпадающей plane. Типы door/window, связность
+комнат и usable floor остаются неподтверждёнными. Это НЕ пять полностью
+распознанных/подтверждённых проёмов и не acceptance автоматического 2D/3D.
+
+16 новых unit cases и полный web suite 3063 tests/234 файла прошли. Typecheck
+семи пакетов/lint/diff check прошли. Independent review обнаружило midpoint
+collapse и недостаточный count-only runner gate: оба исправлены с regressions,
+оставшихся actionable findings нет. Платных AI-запросов/новых PR нет; сайт и
+проект пользователя не менялись. Следующий остаток — source-reviewed opening
+kind/extent/unknown-fill roles и integration с floor contours без invented gaps.
+
 ## Чего эта проверка не доказывает
 
 Распознавание произвольных исходников, качество всех аналогов, физический

@@ -781,3 +781,12 @@ no room promotion. На corpus получены 9 hints и 19 unknown из 28 fa
 остальные table/title cells не выданы за rooms. Полные 3047 web tests прошли.
 Это partial semantic evidence, не готовое распознавание квартир. Нужны
 room/floor/opening proofs, включая незамкнутые границы проёмов и completeness.
+
+Local source-reviewed wall-section gap evidence добавлено: exact polygon
+snapshots, source jamb refs, diagonal cuts, unknown-fill/omission guards и
+нулевой floor closure. На одном real corpus листе найдены пять bounded gaps;
+unknown fills/тип door-window/width ownership не объявлены подтверждёнными.
+Другой лист сохраняет два omission refusals. Seven-section endpoint regression
+gate, полные 3063 web tests/typecheck/lint и independent review прошли.
+Это partial gap evidence по ранее reviewed walls, не автоматическое назначение
+стен или перенос проёмов в 2D/3D. Сайт и пользовательский проект не менялись.

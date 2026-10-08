@@ -20,6 +20,7 @@ export function automaticNativeDimensionRoles(input: {
     valueMm: number
     axis: 'width' | 'depth'
     rail: NativePageSegment
+    spanEnds: [{ x: number; y: number }, { x: number; y: number }]
     ticks: NativePageSegment[]
   }[] = []
   const unresolved: { labelId: string; reason: string }[] = []
@@ -178,7 +179,7 @@ export function automaticNativeDimensionRoles(input: {
       first.length === 1 && last.length === 1 && first[0] !== last[0]
         ? ([first[0], last[0]] as NativePageSegment[])
         : []
-    candidates.push({ labelId: label.id, valueMm, axis, rail, ticks })
+    candidates.push({ labelId: label.id, valueMm, axis, rail, spanEnds: evidence.ends, ticks })
   }
   const railClaims = new Map<string, number>()
   const railKey = (rail: NativePageSegment) =>
