@@ -3,7 +3,7 @@
 
 import type { PlanImageCalibration, PlanPoint } from '@uyut/db'
 import { Button, Input } from '@uyut/ui'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   planImageConfirmationIssue,
   validPlanImageCalibration,
@@ -13,6 +13,7 @@ import {
   imageContourFromMetric,
   traceImageContour,
 } from '@/lib/projects/plan-image-contour'
+import { rasterCornerResponse, snapRasterCorner } from '@/lib/projects/plan-raster-snap'
 
 export function PlanImageContourTrace({
   planUrl,
@@ -23,6 +24,7 @@ export function PlanImageContourTrace({
   maxPoints,
   label,
   onChange,
+  cornerSourceUrl,
 }: {
   planUrl: string
   calibration: PlanImageCalibration
@@ -32,11 +34,66 @@ export function PlanImageContourTrace({
   maxPoints: number
   label: string
   onChange: (points: PlanPoint[]) => void
+  cornerSourceUrl?: string
 }) {
   const [tracing, setTracing] = useState(false)
   const [vertices, setVertices] = useState<ImageContourPoint[]>([])
   const [imageMatches, setImageMatches] = useState(false)
   const [error, setError] = useState<string>()
+  const [corners, setCorners] = useState<ImageContourPoint[]>([])
+  const [cornersLoading, setCornersLoading] = useState(false)
+  const [useCorners, setUseCorners] = useState(false)
+  const [cornerNotice, setCornerNotice] = useState<string>()
+  const request = useRef<AbortController | null>(null)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: source identity changes must clear cached candidates and abort the old request
+  useEffect(() => {
+    setCorners([])
+    setUseCorners(false)
+    setCornerNotice(undefined)
+    setCornersLoading(false)
+    return () => request.current?.abort()
+  }, [cornerSourceUrl])
+
+  async function loadCorners() {
+    if (!cornerSourceUrl || cornersLoading) return
+    request.current?.abort()
+    const controller = new AbortController()
+    request.current = controller
+    setCornersLoading(true)
+    setUseCorners(false)
+    setCorners([])
+    setCornerNotice(undefined)
+    try {
+      const response = await fetch(cornerSourceUrl, {
+        signal: controller.signal,
+        cache: 'no-store',
+      })
+      if (!response.ok) throw new Error('Corners unavailable')
+      const candidates = rasterCornerResponse(
+        await response.json(),
+        calibration.imageWidthPx,
+        calibration.imageHeightPx,
+        calibration.pdfPage ?? 1,
+        calibration.sourceSha256,
+      )
+      if (controller.signal.aborted) return
+      if (!candidates?.length) {
+        setCornerNotice(
+          'Надёжных подсказок нет или источник изменился. Продолжайте обводку вручную.',
+        )
+        return
+      }
+      setCorners(candidates)
+      setCornerNotice(
+        `Найдено кандидатов: ${candidates.length}. Это границы чернил, не подтверждённые углы стен.`,
+      )
+    } catch {
+      if (!controller.signal.aborted)
+        setCornerNotice('Подсказки не загрузились. Обводка вручную остаётся доступной.')
+    } finally {
+      if (!controller.signal.aborted) setCornersLoading(false)
+    }
+  }
   const calibrationIssue = !validPlanImageCalibration(calibration, widthCm, heightCm)
     ? 'Проверьте калибровку изображения и размеры полотна.'
     : planImageConfirmationIssue(calibration)
@@ -87,10 +144,18 @@ export function PlanImageContourTrace({
             if (!image) return
             const rect = image.getBoundingClientRect()
             if (!rect.width || !rect.height) return
-            const point = {
+            const pointer = {
               x: ((event.clientX - rect.left) * image.naturalWidth) / rect.width,
               y: ((event.clientY - rect.top) * image.naturalHeight) / rect.height,
             }
+            const snapped = useCorners ? snapRasterCorner(pointer, corners) : undefined
+            const point = snapped ?? pointer
+            if (useCorners)
+              setCornerNotice(
+                snapped
+                  ? 'Новый угол привязан к ближайшей границе чернил. Сверьте его на исходнике.'
+                  : 'Однозначного угла рядом нет — точка оставлена по вашему нажатию.',
+              )
             setVertices((current) => [...current, point])
             setError(undefined)
           }}
@@ -114,6 +179,18 @@ export function PlanImageContourTrace({
           viewBox={`0 0 ${calibration.imageWidthPx} ${calibration.imageHeightPx}`}
           className="pointer-events-none absolute inset-0 h-full w-full"
         >
+          {useCorners
+            ? corners.map((point, index) => (
+                <circle
+                  key={`guide-${index}`}
+                  cx={point.x}
+                  cy={point.y}
+                  r="3"
+                  fill="#00788a"
+                  opacity="0.65"
+                />
+              ))
+            : null}
           <polyline
             points={displayed.map((p) => `${p.x},${p.y}`).join(' ')}
             fill="none"
@@ -135,6 +212,39 @@ export function PlanImageContourTrace({
           ))}
         </svg>
       </div>
+      {cornerSourceUrl ? (
+        <div className="my-3 space-y-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={cornersLoading || !imageMatches || Boolean(calibrationIssue)}
+            onClick={loadCorners}
+          >
+            {cornersLoading ? 'Ищем границы изображения…' : 'Найти углы по пикселям'}
+          </Button>
+          {corners.length ? (
+            <label className="flex min-h-11 items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={useCorners}
+                onChange={(event) => setUseCorners(event.currentTarget.checked)}
+                className="accent-accent"
+              />
+              Помогать привязкой новых углов к изображению
+            </label>
+          ) : null}
+          <p className="text-[12px] text-ink-2">
+            Подсказки могут относиться к надписям, мебели и размерным линиям. Привязка не меняет уже
+            отмеченные углы, не создаёт стены и не подтверждает обмер.
+          </p>
+          {cornerNotice ? (
+            <p role="status" className="text-[13px] text-ink-2">
+              {cornerNotice}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       {calibrationIssue ? <p className="my-2 text-[13px] text-accent">{calibrationIssue}</p> : null}
       {!imageMatches ? (
         <p className="my-2 text-[13px] text-ink-2">
