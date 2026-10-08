@@ -900,6 +900,46 @@ labels не приняты. Скан/PNG без native table не обслужи
 более широкий независимый corpus, роль floor/полнота и безопасный public review
 UI, а не автоматическая запись named fills в подтверждённую геометрию.
 
+## Независимый корпус для автоматических native associations
+
+`bench-native-room-corpus.ts` прогнан на пяти ранее независимо проверенных
+existing-state страницах из `independent-pdf-corpus.json`. В inference переданы
+только свежие native layers; reviewed room IDs/границы/размеры не передавались.
+SHA-256 каждого PDF и количество страниц проверены перед inference. Все пять
+отрендеренных исходных страниц просмотрены. Новых AI-запросов нет.
+
+Результат: ноль automatic associations на всех пяти дополнительных исходниках.
+Это измеренное ограничение покрытия, НЕ успешное распознавание пяти квартир.
+Для Basis/Basman/Designgroup/Remplanner отказ —
+`unsupported-or-ambiguous-room-table`; Life Kutuzovsky —
+`incomplete-native-geometry` (clipped path без достаточных данных для этого
+consumer). Counts geometry candidates соответственно 7/4/0/12 и 0 для Life;
+это заливки без классификации, не количество комнат.
+
+Basis содержит таблицу «Помещение / Балкон 01 / Балкон 02», но без номерных
+рамок внутри плана; centred header и left-aligned row names также не
+совпадают с narrow поддержанным форматом. Basman имеет единую «Квартиру», а не
+три numbered room rows. Designgroup визуально содержит подписи, но native
+labels ноль (текст outlined); Remplanner не содержит нужной room table.
+Нельзя исправить такие отказы простым разрешением произвольных названий и
+объявить все крупные заливки полом. Обход incomplete-layer guard не сделан.
+
+Добавлен воспроизводимый отказной regression runner с hash-pinned corpus:
+изменение статуса/причины или состава корпуса требует независимой проверки,
+не автоматически считается улучшением. Артефакты:
+`tmp/native-room-corpus-20261008-b/`, первоначальный `*-a/` сохранён.
+Дополнительные unit regressions: outlined/absent text не получает имена из
+формы; рамки без fills не создают пол; incomplete geometry не даёт частичных
+associations. Целевые 11 tests прошли. Повторный положительный benchmark
+сохранил восемь associations (`tmp/native-room-candidates-20261008-c/`).
+Typecheck семи пакетов, lint и diff check прошли; независимое read-only review
+не обнаружило actionable замечаний. Полный web suite в этой пачке повторно
+не запускался (изменены только regression tests, local runner и документация).
+
+Public UI ещё не подключён: сначала нужен самостоятельный fallback для
+неокрашенных/outlined исходников, а не перенос этого narrow пути как
+универсального автора подтверждённой схемы. Сайт/рабочий проект не изменялись.
+
 ## Чего эта проверка не доказывает
 
 Распознавание произвольных исходников, качество всех аналогов, физический

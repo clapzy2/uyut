@@ -216,4 +216,41 @@ describe('native table and boxed-number candidate association', () => {
       }),
     ).toMatchObject({ status: 'unresolved', reason: 'invalid-native-frame-provenance' })
   })
+  it('does not infer room names from shapes when native text is outlined or absent', () => {
+    const input = fixture()
+    const result = automaticNativeRoomCandidates({
+      ...input,
+      native: { ...input.native, labels: [] },
+    })
+    expect(result).toMatchObject({
+      status: 'unresolved',
+      reason: 'unsupported-or-ambiguous-room-table',
+      associations: [],
+    })
+    expect(result.geometry.candidates).toHaveLength(3)
+    expect(result.geometry.semanticStatus).toBe('unclassified')
+  })
+  it('does not construct room floors from number frames without native fills', () => {
+    const input = fixture()
+    const result = automaticNativeRoomCandidates({
+      ...input,
+      work: { ...input.work, paths: input.work.paths.filter((path) => path.paint === 'stroke') },
+    })
+    if (result.status !== 'draft') throw new Error(result.reason)
+    expect(result.associations).toEqual([])
+    expect(result.geometry.candidates).toEqual([])
+    expect(result.unresolvedSourceNumbers).toEqual([1, 2, 3])
+  })
+  it('refuses the whole association pass when omitted geometry has no usable bounds', () => {
+    const input = fixture()
+    const result = automaticNativeRoomCandidates({
+      ...input,
+      work: { ...input.work, clippedPaths: 1, clippedPathBounds: [] },
+    })
+    expect(result).toMatchObject({
+      status: 'unresolved',
+      reason: 'incomplete-native-geometry',
+      associations: [],
+    })
+  })
 })

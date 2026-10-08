@@ -724,3 +724,12 @@ QA-цепочка также проверена. Самостоятельный 
 reduced motion и реальную очередь проверяем до закрытия пакета 5.
 Не открываем новый декоративный цикл пакета 1. Пилот пока не принят;
 количество тестов не заменяет закрытие пакетов 3–6.
+### Дополнительная проверка автоматических native room candidates
+
+На пяти hash-pinned независимых existing-state PDF новый local consumer
+отказал без automatic associations: четыре неподдержанные таблицы/text layers,
+одна incomplete native geometry. Это предел покрытия, не пять успешных
+распознаваний. Runner `bench-native-room-corpus.ts` закрепляет отказные
+регрессии; outlined text, отсутствие fills и clipped-layer отказ дополнительно
+покрыты unit tests. Подключение public UI как универсального automatic path
+пока не принято; нужен отдельный fallback и проверка floor role/полноты.
