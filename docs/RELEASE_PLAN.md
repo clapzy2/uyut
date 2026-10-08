@@ -755,3 +755,12 @@ single-span verifier связывает labels/rails/ticks, сохраняя sou
 mayEraseSourceStrokes=false; это ещё не полная annotation inventory или floor
 recognition. Полные 3014 web tests прошли. Следующий шаг — явная проверка
 wall/annotation conflicts и доказуемое исключение annotations из графа.
+
+Связная local пачка partial annotation review выполнена: exact source/label
+checks, same-ref и geometric wall conflicts, selected single-stroke exclusion
+только в search copy, повторный planar search и diagnostic overlays. Synthetic
+living/diagonal balcony after review дают два лица без изменения source data;
+три partial real reviews не выданы за successful automatic recognition.
+Полные 3027 web tests и независимый review прошли. Public UI/2D/3D promotion
+не подключены: нужны complete role inventory и подтверждение room/floor/opening
+semantics. Сайт/проект пользователя неизменны, новых PR нет.

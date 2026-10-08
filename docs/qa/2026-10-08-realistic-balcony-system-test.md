@@ -1061,6 +1061,53 @@ rotation и conflict handling. Новых AI-запросов/PR нет, сай�
 не менялись. Остаток: conflicts wall/annotation и полная native annotation
 inventory, затем проверяемое исключение из поиска; не blanket deletion.
 
+## Связная пачка partial annotation review / conflicts / faces / overlays
+
+`reviewedNativeAnnotationFaces` принимает только explicit
+manual-native-annotation-review для существующего исходного листа. Review
+содержит PDF/raster source frames, declared walls и selected exclusions с
+полными operation/subpath/segment refs, ordered endpoints и supporting label
+text/pagePoint/unrounded rotation/valueMm. Helper заново вычисляет automatic
+dimension roles по неизменённому исходнику, не доверяет переданным candidates.
+Stale labels/coords/refs/страница, duplicates или неподдержанная роль отказывают
+всей пачке без частичного исключения. Same-ref и collinear overlap с declared
+wall также дают annotation-wall-role-conflict, даже при разных source IDs.
+
+Исключается только явно проверенный single open two-point stroke в копии
+search inventory. Original PDF/image/native paths не меняются. Unknown strokes,
+omitted curves/clips и unsupported metadata сохранены. CompleteAnnotationInventory
+и confirmsFloorGeometry всегда false; declared walls могут быть частичны и
+НЕ доказывают отсутствие всех прочих conflicts. Никаких implicit approvals,
+новых стен, closure дверей или назначения floor semantics не добавляется.
+
+Новый `bench-native-annotation-batch.ts` проверяет весь цикл. Synthetic case
+имеет cm-пропорциональную гостиную 420×355 и балкон со срезанной диагональю;
+площади source polygons 149100/22787.5 pixel units. Это не физический обмер и
+не квартира пользователя, не native PDF ingestion и не 3D acceptance. До
+review находится только один face: interior dimension strokes мешают simple
+living face. После review rail/two ticks — два независимых unclassified faces,
+исходные source coordinates и diagonal side сохранены. Исходник и overlay
+отрендерены и просмотрены, отрицательные конфликт/gap/unknown tests прошли.
+
+`native-partial-annotation-review.json` — отдельные ручные partial source
+reviews трёх ранее визуально проверенных первых ticks в Basis/Basman/Remplanner.
+Это НЕ автоматически сгенерированное одобрение всех 65 role candidates.
+Исходные labels и refs фиксированы явно, PDF SHA проверен перед свежим
+extraction. Каждый partial review исключает ровно один stroke из search
+inventory; source paths остаются неизменны. На всех трёх по-прежнему ноль
+faces и remaining unsupported diagonal crossing: partial review не объявлен
+полной очисткой/успешным распознаванием. Runner сообщает это диагностически,
+не фиксирует zero faces как желаемую конечную способность. Все три overlays
+просмотрены. Артефакты `tmp/native-annotation-batch-20261008-a/`.
+
+Добавлено 13 unit cases. Полные 3027 tests / 231 файлов, typecheck семи
+пакетов, lint и diff check прошли. Независимый review helper/tests/runner/
+real fixtures не нашёл actionable findings и отдельно подтвердил 13 tests.
+Новых AI-запросов, PR и public UI/site writes нет; исходный рабочий проект
+не тронут. Пачка закрывает проверяемый local partial-review cycle, НЕ
+универсальный automatic cleanup. Дальше нужны полная annotation inventory,
+safe review UI и accepted room/floor/opening semantics до переноса в 2D/3D.
+
 ## Чего эта проверка не доказывает
 
 Распознавание произвольных исходников, качество всех аналогов, физический
