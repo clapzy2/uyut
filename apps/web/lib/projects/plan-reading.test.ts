@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
-import type { PlanReading } from '@uyut/ai'
+import { type PlanReading, parseFloorPlan } from '@uyut/ai'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import native from '../../../../docs/qa/fixtures/apartment-74-77-native-labels.json'
 import annotated from '../../../../docs/qa/fixtures/apartment-74-77-page-contours.json'
+import nativeAreas from '../../../../docs/qa/fixtures/basis-native-total-area.json'
 import type { PdfRoomContours } from './plan-pdf-room-binding'
 
 const mocks = vi.hoisted(() => ({ read: vi.fn(), prepare: vi.fn(), object: vi.fn() }))
@@ -112,6 +113,40 @@ describe('single-page plan reader budget', () => {
     expect(mocks.read).toHaveBeenCalledTimes(1)
     expect(reading).toMatchObject({ sourcePage: 6, pageCount: 48, planState: 'existing' })
     expect(reading.rooms[0]).toMatchObject({ widthCm: 296.4, depthCm: 420.5 })
+  })
+
+  it('keeps withheld native total and source warning through the storage reader path', async () => {
+    mocks.prepare.mockResolvedValue({
+      image: {
+        body: Buffer.from('basis-page3'),
+        contentType: 'image/jpeg',
+        planText: JSON.stringify(nativeAreas.items),
+      },
+      pageNumber: 3,
+      pageCount: 33,
+    })
+    mocks.read.mockImplementation(async (image) =>
+      parseFloorPlan(
+        JSON.stringify({
+          planState: 'existing',
+          totalAreaM2: 48.22,
+          rooms: [
+            { name: 'Помещение', sourceNumber: 1, areaM2: 40.13 },
+            { name: 'Балкон 01', sourceNumber: 2, areaM2: 4.75 },
+            { name: 'Балкон 02', sourceNumber: 3, areaM2: 3.34 },
+          ],
+        }),
+        { requireMeasurementEvidence: true, planText: image.planText },
+      ),
+    )
+    const reading = await readPlanFromStorage('plan.pdf', 3)
+    expect(reading.totalAreaM2).toBeUndefined()
+    expect(reading.rooms.map((room) => room.areaM2)).toEqual([40.13, 4.75, 3.34])
+    expect(
+      reading.rooms.every((room) => room.measurementWarnings?.[0]?.includes('Общая площадь')),
+    ).toBe(true)
+    expect(reading.sourcePage).toBe(3)
+    expect(mocks.read).toHaveBeenCalledTimes(1)
   })
 
   it('makes no paid call if the selected page is invalid', async () => {

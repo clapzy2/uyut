@@ -145,6 +145,92 @@ function tabularScheduleRows(
     : undefined
 }
 
+/** Two independently qualified printed totals can differ in scope; never choose between them. */
+export function planTotalAreaConflict(
+  items: readonly PlanMeasurementTextItem[] | undefined,
+): { scheduleAreaM2: number; apartmentAreaM2: number } | undefined {
+  const table = planTabularScheduleEvidence(items)
+  if (!items || !table) return undefined
+  const rows = [...table.values()]
+    .flatMap((row) => {
+      const item = items[row.areaItemIndex]
+      return item && positioned(item) ? [item] : []
+    })
+    .sort((left, right) => left.y - right.y)
+  const last = rows.at(-1)
+  const previous = rows.at(-2)
+  const header = items.find(
+    (item) =>
+      positioned(item) &&
+      item.rotation === 0 &&
+      item.text.trim().toLocaleLowerCase('ru') === 'площадь',
+  )
+  if (!last || !previous || !header || !positioned(header)) return undefined
+  const rowStep = last.y - previous.y
+  if (rowStep <= 2) return undefined
+
+  const quantity = String.raw`(\d{1,4}(?:[,.]\d{1,2})?)`
+  const unit = String.raw`(?:м[²2]|кв\.\s*м\.?)`
+  const footerPattern = new RegExp(String.raw`^(?:итого\s*[:=]?\s*)?${quantity}\s*${unit}$`, 'iu')
+  const numericPattern = new RegExp(
+    String.raw`^(?:итого\s*[:=]?\s*)?${quantity}(?:\s*${unit})?$`,
+    'iu',
+  )
+  const footers = items.filter(
+    (item) =>
+      positioned(item) &&
+      item.rotation === 0 &&
+      item.y > last.y + 2 &&
+      item.y <= last.y + rowStep * 1.5 &&
+      Math.abs(item.x - header.x) <= 40 &&
+      numericPattern.test(item.text.trim()),
+  )
+  const footer = footers.length === 1 ? footers[0] : undefined
+  const footerMatch = footer?.text.trim().match(footerPattern)
+  if (!footer || !positioned(footer) || !footerMatch?.[1]) return undefined
+  const firstRow = [...table.values()][0]
+  const number = firstRow && items[firstRow.numberItemIndex]
+  if (!number || !positioned(number)) return undefined
+  // A unit-bearing room row is not a table total. Allow only an explicit total caption on its left.
+  if (
+    items.some(
+      (item) =>
+        positioned(item) &&
+        item.rotation === 0 &&
+        item.x >= number.x - 15 &&
+        item.x < header.x - 15 &&
+        Math.abs(item.y - footer.y) <= 2 &&
+        item.text.trim() !== '' &&
+        !/^(?:итого|всего)\s*:?$/iu.test(item.text.trim()),
+    )
+  ) {
+    return undefined
+  }
+
+  const apartmentPattern = new RegExp(
+    String.raw`^(?:объект\s+по\s+адресу\s*:[^\n]{1,200}[,;]\s*)?(?:квартира|(?:общая\s+)?площадь\s+квартиры)\s*[:=]?\s*${quantity}\s*${unit}\s*[.;]?\s*$`,
+    'iu',
+  )
+  const apartmentAreas = new Set(
+    items.flatMap((item) => {
+      if (!positioned(item) || item.rotation !== 0) return []
+      const match = item.text.trim().match(apartmentPattern)
+      return match?.[1] ? [Number(match[1].replace(',', '.'))] : []
+    }),
+  )
+  const apartmentAreaM2 = apartmentAreas.size === 1 ? [...apartmentAreas][0] : undefined
+  const scheduleAreaM2 = Number(footerMatch[1].replace(',', '.'))
+  if (
+    apartmentAreaM2 === undefined ||
+    apartmentAreaM2 <= 0 ||
+    scheduleAreaM2 <= 0 ||
+    Math.abs(apartmentAreaM2 - scheduleAreaM2) <= 0.005
+  ) {
+    return undefined
+  }
+  return { scheduleAreaM2, apartmentAreaM2 }
+}
+
 /** Только явная экспликация или нумерованная таблица помещений с проверенными колонками. */
 export function planRoomSchedule(
   items: readonly PlanMeasurementTextItem[] | undefined,

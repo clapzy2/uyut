@@ -12,7 +12,11 @@ import {
   planMeasurementTextItems,
   validatePlanMeasurement,
 } from './floor-plan-measurements'
-import { planRoomSchedule, scheduleRoomNameMatches } from './floor-plan-schedule'
+import {
+  planRoomSchedule,
+  planTotalAreaConflict,
+  scheduleRoomNameMatches,
+} from './floor-plan-schedule'
 
 /**
  * Чтение обмерного плана квартиры.
@@ -489,7 +493,15 @@ export function parseFloorPlan(
     options.requireMeasurementEvidence || parsed.ceilingEvidence != null
   const ceiling =
     ceilingsDiffer || (requireCeilingEvidence && !ceilingEvidence) ? undefined : readCeiling
-  const total = areaM2(parsed.totalAreaM2)
+  const totalConflict = planTotalAreaConflict(textItems)
+  const total = totalConflict ? undefined : areaM2(parsed.totalAreaM2)
+  if (totalConflict) {
+    const warning = `Общая площадь: в экспликации ${totalConflict.scheduleAreaM2.toLocaleString('ru-RU')} м², в подписи квартиры ${totalConflict.apartmentAreaM2.toLocaleString('ru-RU')} м². Уточните, какие помещения включены; общий итог оставлен пустым, площади помещений сохранены отдельно.`
+    for (const room of rooms) {
+      room.measurementWarnings ??= []
+      room.measurementWarnings.push(warning)
+    }
+  }
   const geometry = reconcilePlanGeometryRooms(parsePlanGeometry(parsed.geometry), rooms)
   return {
     planState:
