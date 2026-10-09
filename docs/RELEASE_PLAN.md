@@ -6,6 +6,18 @@
 
 ### Текущий результат последней пачки
 
+9 октября: приоритет перенесён на реальное image reading, не дальнейшие native
+прототипы. Два платных raster прогона текущего production model/prompt/parser
+на локальном PNG 28.8 м² воспроизвели проблему: run1 гостиной depth251.6cm (вместо
+полной видимой цепочки464.4), run2 depth unknown. Все четыре подписанные площади
+правильны, но geometry13/21walls,9/4openings,0/1room polygons; оба вернули footprint
+на обрезанном снимке. Это failed recognition/repeatability, не успех от числа tests.
+Raw/parsed outputs сохранены отдельно, projectWrites0, всего2 reader calls.
+Материалы внешнего retest/полный original-plan.webp не найдены; этот PNG не выдаётся
+за тот же полный исходник аудита. Следующая задача — independent raster chain-end
+ownership/completeness и crop-aware floor evidence; prompt complete:true не является
+доказательством полного размера. Подробности в QA-документе.
+
 Следующая геометрическая пачка 9 октября: native room candidates получили
 roomContacts — точные общие интервалы с room keys/edge indexes исходных полигонов.
 Касание углом и даже малый зазор не становятся contact; общая граница не становится

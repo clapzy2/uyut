@@ -1337,6 +1337,51 @@ same-source floor/wall/opening coverage и reviewed transfer; универсал
 
 ## Чего эта проверка не доказывает
 
+### 9 октября: реальное raster AI reading — повторная проверка главной функции
+
+Внешний retest report/results/original-plan.webp отсутствует в доступных каталогах.
+Найден plans/Снимок экрана 2026-09-12 174014.png,903x847. Это локальный реальный
+снимок того же описанного плана28.8, не доказанное byte-identical совпадение с
+исходником внешнего аудита. Снимок полностью просмотрен: нижняя граница балкона
+обрезана, все размеры/контуры балкона неизвестны. Не подставлялся полный балкон.
+Четыре читаемые подписи площадей:5.8/2.7/5.4/14.9; видимая правая цепочка
+1600+528+2516=4644мм. Это эталон чтения подписей, не независимый натурный обмер.
+
+Новый bench-raster-plan-reading.ts выполнил2 paid calls с текущими production
+PLAN_READER_MODEL/ENDPOINT/FLOOR_PLAN_PROMPT/planReaderPrompt и parseFloorPlan
+requireMeasurementEvidence:true после того же preparePlanPage(false) JPEG conversion.
+Это raster route, не reviewed PDF path; verifyPlanReadingGeometry не вызывался.
+Не использовались native text, заранее заданный ответ или metric fitting.
+Raw responses, parsed readings, prepared input и manifest source/prompt hashes
+сохранены в output/quality-bench/raster-28-8-20261009-a/. Повтор output directory
+запрещён mkdir(recursive:false), при incomplete response прекращает без нового вызова.
+Нет project/account writes или попыток подтверждения. Эксперимент не проверяет
+живой UI/обновление страницы, storage/auth или 3D пользовательского проекта.
+
+| Проверка | Эталон | Run1 | Run2 | Вывод |
+| --- | --- | --- | --- | --- |
+| Подписанные площади | 5.8/2.7/5.4/14.9 | все4 верны | все4 верны | прошла только эта проверка |
+| Полная правая цепочка гостиной | 464.4cm | 251.6cm | unknown | не прошла |
+| Балконное помещение | зона видна частично; размеры неизвестны | не выделен | не выделен | частичную зону не сохранил; полный контур не оценивался |
+| Пол квартиры | crop: полнота границы не доказана | footprint есть | footprint есть | требует проверки; готовый пол не принят |
+| Повторяемость geometry | одна исходная картинка | 13walls/9openings/0room shapes | 21walls/4openings/1room shape | не прошла |
+| Работа с пользовательским проектом | никаких изменений | 0 | 0 | соблюдено |
+
+Run1 partial-chain error около45.8% против видимой полной цепочки. В parsed evidence
+depth сегмент[2516] обозначен моделью complete:true. validatePlanMeasurement проверяет
+scope/name/kind/сумму declared segments и, только если есть native text, индексы
+подписей. Без textItems у растра это self-declared evidence: не доказаны отсутствие
+пропущенных сегментов и фактическая spatial ownership. Это подтверждённый предел
+текущей проверки, не намеренное удаление raster geometry. Run1 parser отклонил все
+4 room shapes из-за расхождения площадей, но это не исправило чтение глубины или
+придуманную полноту footprint. Простое усиление одной формулировки промпта нельзя
+выдать за исправление; нужны измеримые regression и независимые source anchors.
+
+Код model/prompt/parser не менялся этой пачкой. QA runner прошёл typecheck7 пакетов,
+lint/diff check. Полный suite/production build не повторялся: добавлен offline
+контроль, не runtime fix. Главная функция остаётся неподтверждённой. Native/PDF
+unit successes предыдущих пачек не противоречат этому failed raster результату.
+
 ### 9 октября: exact source-space room boundary contacts
 
 Добавлен nativeRoomContacts и подключён в fresh batch после source/shape проверок.
