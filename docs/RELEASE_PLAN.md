@@ -6,6 +6,19 @@
 
 ### Текущий результат последней пачки
 
+Локальный геометрический шаг 9 октября: nativePageContourCandidates собирает
+свежее page-space представление из явно выбранных native face reviews и source
+идентичностей комнат. Комнаты, отдельный floor и outer-wall-envelope не смешиваются;
+floor требует отдельно выбранную envelope. Каждый цикл пересчитывается, групповые
+идентичности не создают разделителей, overlaps/source mismatch/незамкнутый поздний
+цикл отклоняют всю пачку. Выход без review/pageReview/metric approval, readinessfalse.
+Это внутренний кандидатный адаптер по explicit assignments, не распознавание
+принадлежности печатной подписи и не HTTP JSON parser. Его ещё нет в production UI.
+21 новый case; 3188 tests/240 файлов, typecheck семи пакетов, lint 854 файла и
+fresh real-PDF overlay control прошли. Следующий шаг — actual полный same-source
+floor/room inventory и проверка совместных границ/проёмов, а не автоматическое
+подтверждение assembled candidates. Четыре крупных направления остаются открыты.
+
 Продолжение 9 октября: воспроизведён и закрыт дефект experimental metricNativeCycles:
 изменённый некалибровочный угол прежде попадал в cm draft с прежними размерными
 якорями. Теперь все cycles заново строятся по свежим native refs перед масштабом;

@@ -1337,6 +1337,48 @@ same-source floor/wall/opening coverage и reviewed transfer; универсал
 
 ## Чего эта проверка не доказывает
 
+### 9 октября: batch source-space candidates по explicit native assignments
+
+Новый plan-native-page-contours.ts принимает source/reading identity inventory,
+fresh native layers/dimensions и explicit face reviews для rooms/floor/exterior.
+Bounds: до 100 room assignments и 500 selected faces суммарно, каждый цикл <=100.
+SHA/page/state/frame и dimension context проверяются до сборки. Неверный источник
+или frame возвращает structured unresolved, source cycles пересчитываются для всех
+ролей. Старые helpers проверяют omitted geometry и dimension exclusions; adapter
+не очищает эти данные. Входы immutable; отказ любого цикла атомарен (contours=null).
+
+Existing page validators применяются к ephemeral manual-source-review projection
+только для validation. Проекция не выходит из функции, не сохраняется и не
+прикрепляется к reading. Кандидатный выход Omit<PlanPageContours,'review'> не проходит
+saved contour schema и всегда readyFor2D/readyFor3D=false. Parameter type
+planPageReviewIssue расширен до Pick rooms/sourcePage/planState без runtime изменения.
+Identity assignments — декларации вызывающего кода, не fresh printed-caption
+ownership proof. Для будущего HTTP входа требуется отдельный schema parser.
+
+Floor требует explicit outer-wall-envelope: floor-only возвращает unresolved,
+не изобретает envelope и не обходится отдельной сокращённой проверкой. Envelope
+не превращается в пол, комнаты не union-ятся в footprint. Все идентичности без
+повторов должны соответствовать declared reading inventory; merged groups сохраняются
+без искусственной стенки. Room overlap и floor outside envelope отвергаются.
+Reviewed-opening-boundary не создаёт тип door/window и physical wall, остаётся
+opening-closures-untyped. Даже geometrically complete candidate сохраняет issues
+полного покрытия, инвентаря проёмов, масштаба и vertical data unverified.
+
+Fresh bench-native-page-contours.ts на Chigintseva source SHA d0ab7f...a6e058/page3
+повторил отдельные previously reviewed bedroom2/balcony8 candidates с 4/6 vertices,
+совпавшими с independent expected polygons. Отсутствующие source IDs
+1/3/4/5/6/7 сохранены; floor/envelope отсутствуют, итог partial. Это не пользовательская
+квартира 28.8 м², не новый авторизованный project save и не automatic recognition.
+Missing face negative даёт unresolved/contours=null, AI requests0/projectWrites0.
+Артефакты tmp/native-page-contours-20261009-b/: candidates.json, summary.json,
+source-candidates.png. PNG -a полностью просмотрен; hash PNG -b совпал с -a.
+
+21 новый case; полный web suite 3188 tests/240 файлов, typecheck семи пакетов,
+lint 854 файла и diff check прошли. Independent review без blockers; узкий
+floor/envelope contract и atomic source/frame refusals закреплены tests. UI не
+менялся, browser replay и новый production build для этой offline prototype пачки
+не запускались. Production, пользовательский проект и PR не менялись.
+
 ### 9 октября: fresh revalidation перед экспериментальным metric transfer
 
 Новый regression сначала воспроизвёл ошибку: изменение некалибровочного угла

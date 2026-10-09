@@ -560,7 +560,7 @@ export function sourceRoomContourVertices(
 
 export function planPageReviewIssue(
   input: PlanPageContours,
-  reading: PlanReading,
+  reading: Pick<PlanReading, 'rooms' | 'sourcePage' | 'planState'>,
   source: PdfPlanSource,
   linework: PdfLinework,
 ): string | undefined {
