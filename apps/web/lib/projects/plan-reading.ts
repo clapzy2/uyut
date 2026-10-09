@@ -1,7 +1,12 @@
 import 'server-only'
 
 import { createHash } from 'node:crypto'
-import { createFalPlanReader, type PlanReading, planMeasurementTextItems } from '@uyut/ai'
+import {
+  createFalPlanReader,
+  createRasterPlanReader,
+  type PlanReading,
+  planMeasurementTextItems,
+} from '@uyut/ai'
 import { getEnv } from '@/lib/env'
 import { getObject } from '@/lib/storage'
 import { PlanReadError, preparePlanPage } from './plan-document'
@@ -11,7 +16,7 @@ import { verifyPlanReadingGeometry } from './plan-reading-geometry'
 
 export { PlanReadError } from './plan-document'
 
-/** Один выбранный лист — один AI-запрос. Проектные и обмерные листы не объединяем. */
+/** Один PDF-лист — одно чтение; растр — до двух для выявления конфликтов. Листы не объединяем. */
 export async function readPlanFromStorage(
   key: string,
   pageNumber = 1,
@@ -59,7 +64,8 @@ export async function readPlanFromStorage(
           'Разметка или векторный слой требуют уточнения. Чтение не запущено; проверьте контуры выбранного листа.',
         )
     }
-    const reading = await createFalPlanReader(apiKey)(page.image)
+    const reader = createFalPlanReader(apiKey)
+    const reading = await (isPdf ? reader : createRasterPlanReader(reader))(page.image)
     if (reading.rooms.length === 0) {
       throw new PlanReadError(
         'Не удалось уверенно прочитать помещения на выбранном листе. Проверьте номер страницы или впишите данные вручную.',

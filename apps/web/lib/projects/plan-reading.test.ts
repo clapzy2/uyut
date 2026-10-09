@@ -122,7 +122,7 @@ describe('single-page plan reader budget', () => {
     consoleError.mockRestore()
   })
 
-  it('retains a raster floor candidate but cannot bypass reviewed PDF floor provenance', async () => {
+  it('does not keep a model-only raster or PDF floor as source-proven geometry', async () => {
     const geometry = {
       version: 1,
       status: 'draft',
@@ -143,7 +143,8 @@ describe('single-page plan reader budget', () => {
       rooms: [{ name: 'Балкон', kind: 'living', spaceKind: 'balcony' }],
       geometry,
     })
-    expect((await readPlanFromStorage('plan.webp')).geometry?.footprint).toEqual(geometry.footprint)
+    expect((await readPlanFromStorage('plan.webp')).geometry?.footprint).toBeUndefined()
+    expect(mocks.read).toHaveBeenCalledTimes(2)
     expect((await readPlanFromStorage('plan.pdf')).geometry?.footprint).toBeUndefined()
     expect(geometry.footprint).toHaveLength(3)
   })

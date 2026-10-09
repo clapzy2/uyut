@@ -1337,6 +1337,45 @@ same-source floor/wall/opening coverage и reviewed transfer; универсал
 
 ## Чего эта проверка не доказывает
 
+### Raster disagreement integration + source-bound QA comparison
+
+В production code path PNG добавлена обёртка createRasterPlanReader: первый
+parse reading и второй такой же blind reading одной картинки, без передачи
+первоначальных чисел/площади/ожидаемой суммы. Max2 reader invocations; первый
+сбой прекращает чтение, второй сбой возвращает предупреждённые first candidates
+без geometry; третьей попытки wrapper не делает (Fal transport retries прежние).
+Это проверка повторяемости того же model/prompt, не независимое геометрическое
+доказательство. Рост latency/provider calls ожидаем; deployment не выполнялся.
+
+Комнаты сопоставляются по source number + normalized name + kind + spaceKind,
+а не по одному номеру. Duplicate/missing inventory или разные semantics сбрасывают
+размеры/area и geometry. Стороны сверяются по числу и ordered segments; disagreement
+и explicit absent удаляют старый value/evidence. Не копируются новые неизвестные
+стороны из второго ответа и не выбирается ответ по area fit. Сохраняемые кандидаты
+остаются с raster warnings, rechecked удаляется. Geometry должна совпасть буквально;
+иначе отсутствует. Совпавшая geometry становится draft, model footprint/confirmedAt
+удаляются. Это conservative model-floor policy для всех растрoв, НЕ crop detector;
+проверенный source floor требует отдельного ручного/источникового переноса.
+PDF branch сохраняет1 call и existing source gates.
+
+QA runner получил optional --expectations FILE с SHA source binding и strict
+label schema, errors/null unknowns и repeatability в comparison.json. Agreement
+не меняет correctnessProven:false. Результат нового reconcile сохраняется отдельно
+в reconciled.json. Реальные raw pairs replayed в raster-consensus-20261009-a,
+без новых paid calls/project writes: guest depth251.6 удалён (second unknown),
+geometry13/21 walls удалена, source total/agreeing areas не исправлялись по эталону.
+Source-SHA mismatch проверен до output/provider access. Внешний полный original-plan
+и live QA login материалы не найдены; новой проверки production browser/3D не было.
+
+В regression покрыты partial/equal-sum-different-chain, unreadable vs transportfail,
+no first retry, max2calls, identical id/different room semantics, unknown side,
+geometry approval markers и source mutation. Исправления схемы подтверждают
+безопасность отказа, не способность прочитать464.4 из изображения.
+Typecheck7 пакетов, full web suite и production build проверены; подробный итог
+сообщён в чате. Независимый аудит нашёл numbered-room identity loophole, закрыт
+с regression. Production, пользовательские проекты и PR не менялись.
+Финальный итог:3213 tests/242 файлов, lint858 файлов и production build прошли.
+
 ### Raster evidence warning после реального failed replay
 
 parseFloorPlan(requireMeasurementEvidence:true) теперь помечает accepted размеры

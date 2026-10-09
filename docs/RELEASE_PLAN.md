@@ -6,6 +6,17 @@
 
 ### Текущий результат последней пачки
 
+Цельная raster safety пачка: readPlanFromStorage теперь делает до двух чтений PNG
+через createRasterPlanReader (PDF остаётся1). reconcileRasterReadings не подгоняет
+по площади: конфликт значений/segments/room semantics удаляет число+evidence,
+отсутствующий второй размер не заменяется догадкой; совпадение не повышает доверие.
+Неустойчивая geometry удаляется, одинаковая остаётся draft без model footprint
+и confirmedAt. Failed second request явно предупреждает о несостоявшейся сверке,
+не выполняет третий reader call. Это +1 provider reader invocation для растра и
+увеличение latency/cost; production ещё не обновлён. Existing provider transport
+retry policy не менялась. Независимые source endpoints и полный crop detection
+этой пачкой не реализованы; главная функция ещё не принята.
+
 Продолжение raster ветки: parser теперь добавляет measurementWarnings для accepted
 model dimensions без textItems в requireMeasurementEvidence режиме. complete:true
 не означает independent source ownership/full-chain verification. Числа остаются
