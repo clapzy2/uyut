@@ -1337,6 +1337,43 @@ same-source floor/wall/opening coverage и reviewed transfer; универсал
 
 ## Чего эта проверка не доказывает
 
+### 9 октября: fresh revalidation перед экспериментальным metric transfer
+
+Новый regression сначала воспроизвёл ошибку: изменение некалибровочного угла
+synthetic diagonal cycle сохраняло валидные две стороны масштаба, но metricNativeCycles
+выдавало изменённый polygonCm/area draft. Это experimental module, не утверждение
+о баге опубликованного planPageMetricDraft. Теперь bounded faces/vertices/proofs,
+source/basis/frame проверяются, nativeFaceCycle запускается заново перед anchors.
+Сравниваются geometry snapshot и новые bounded-crossing endpoint snapshots; все
+расчёты используют rebuilt cycles. Changed corner, face endpoints/proof, duplicated
+identity, source omissions около границы и выбранный dimension-face дают отказ.
+Пересечение остаётся bounded: изменение конца native segment даже за прежним
+corner требует нового evidence snapshot. Входы не мутируются.
+
+Face roles остаются explicit caller review declarations; согласованная подмена
+semantic role не удостоверяется cryptographically. Fresh geometric validation не
+является новым manual review/полнотой пола/стен/проёмов. JSON snapshot comparison
+предназначен для внутреннего helper output; порядок свойств при сторонней
+reserialization может консервативно вызвать отказ, не принятие другой геометрии.
+Старый negative короткого witness теперь отказывает раньше по open native cycle.
+
+Повторен bench-native-metric-cycles.ts на hash-bound Chigintseva PDF без clearing
+omissions: tmp/native-metric-fresh-recheck-20261009-a/ содержит result.json,
+metric-2d.svg/png; PNG просмотрен. Сверенные bedroom2/balcony8 того же источника
+сохранили page-wide scale и согласованные 2D/scene площади. Балкон здесь имеет
+6 stepped vertices; diagonal scene test отдельно synthetic. Это не квартира
+пользователя 28.8 м² и не общий apartment footprint. Draft planVolume отказал для
+обоих; неоткалиброванный второй contour unresolved. Нет walls/openings/публикации
+или project writes, AI requests0. Не объединялись доказательства разных PDF.
+
+28 focused tests, полный web suite 3167 tests/239 файлов, typecheck семи пакетов,
+lint 851 файла и diff check прошли. Independent read-only audit подтвердил stale
+corner risk и отсутствие blocker в rebuilding diff. UI не менялся, browser replay
+и новый production build для этой isolated experimental правки не запускались.
+Остаток остаётся существенным: same-source полный пол/room roles, стены/проёмы,
+масштаб/обмеры/vertical data и независимая сквозная приёмка. Ни процент готовности,
+ни обещанный срок из количества tests не выводятся.
+
 ### 9 октября: отчёт сохранённой разметки в приватном просмотре
 
 NativeReviewPacket получил savedReview union: not-saved/unavailable/checked.

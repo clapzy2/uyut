@@ -144,6 +144,127 @@ function fixture(diagonal = false) {
   }
 }
 describe('common printed scale for reviewed native contours', () => {
+  it('refuses a changed non-anchor floor corner even when the printed scale remains valid', () => {
+    const input = fixture(true)
+    const cycle = input.cycles[0]?.cycle
+    const corner = cycle?.polygon[2]
+    if (!corner) throw new Error('Missing diagonal corner')
+    corner.x = 78
+    expect(metricNativeCycles(input)).toMatchObject({
+      status: 'unresolved',
+      reason: 'native-cycle-snapshot-changed',
+      contours: [],
+    })
+  })
+  it.each(['vertex-proof', 'face-endpoints', 'duplicate-ref', 'omitted-curve', 'dimension-face'])(
+    'rechecks %s floor evidence before metric conversion',
+    (change) => {
+      const input = fixture(true)
+      const cycle = input.cycles[0]?.cycle
+      if (!cycle) throw new Error('Missing cycle')
+      if (change === 'vertex-proof')
+        cycle.vertices[0] = { point: { x: 21, y: 20 }, proof: cycle.vertices[0]?.proof }
+      if (change === 'face-endpoints') {
+        const point = cycle.faces[2]?.endpoints?.[0]
+        if (!point) throw new Error('Missing endpoint')
+        point.x += 1
+      }
+      if (change === 'duplicate-ref') {
+        const path = input.work.paths[0]
+        if (!path) throw new Error('Missing path')
+        const duplicate = structuredClone(path)
+        const point = duplicate.points[0]
+        if (!point) throw new Error('Missing point')
+        point.x += 1
+        input.work.paths.push(duplicate)
+      }
+      if (change === 'omitted-curve') {
+        input.work.skippedCurves = 1
+        input.work.skippedCurveBounds = [
+          { operationIndex: 999, bounds: { left: 70, right: 90, top: 50, bottom: 70 } },
+        ]
+      }
+      if (change === 'dimension-face') input.dimensions.dimensionOperations.push(3)
+      const before = structuredClone(input)
+      const result = metricNativeCycles(input)
+      expect(result.status).toBe('unresolved')
+      expect(result.contours).toEqual([])
+      expect(input).toEqual(before)
+    },
+  )
+  it('bounds cached evidence arrays and refuses an incompatible coordinate frame', () => {
+    for (const change of ['faces', 'vertices', 'frame', 'basis']) {
+      const input = fixture()
+      const cycle = input.cycles[0]?.cycle
+      if (!cycle) throw new Error('Missing cycle')
+      if (change === 'faces')
+        cycle.faces = Array.from({ length: 101 }, () => cycle.faces[0]).filter(
+          (face): face is NonNullable<typeof face> => face !== undefined,
+        )
+      if (change === 'vertices')
+        cycle.vertices = Array.from({ length: 101 }, () => cycle.vertices[0]).filter(
+          (vertex): vertex is NonNullable<typeof vertex> => vertex !== undefined,
+        )
+      if (change === 'frame') cycle.coordinateSystem = 'rendered-image-pixels' as 'page-0-1000'
+      if (change === 'basis') cycle.basis = 'automatic-room' as 'reviewed-native-face-cycle'
+      expect(() => metricNativeCycles(input)).toThrow('Invalid source-bound metric review')
+    }
+  })
+  it('rebuilds bounded crossing corners and detects changed source endpoints beyond the corner', () => {
+    const input = fixture()
+    const sides = [
+      [
+        { x: 10, y: 20 },
+        { x: 90, y: 20 },
+      ],
+      [
+        { x: 80, y: 10 },
+        { x: 80, y: 90 },
+      ],
+      [
+        { x: 10, y: 80 },
+        { x: 90, y: 80 },
+      ],
+      [
+        { x: 20, y: 10 },
+        { x: 20, y: 90 },
+      ],
+    ]
+    input.work.paths = input.work.paths.map((path, index) => ({
+      ...path,
+      points: sides[index] ? (structuredClone(sides[index]) as PagePoint[]) : path.points,
+    }))
+    const previous = input.cycles[0]?.cycle
+    if (!previous) throw new Error('Missing cycle')
+    const cycle = nativeFaceCycle({
+      ...input,
+      reviewed: {
+        review: 'manual-native-face-review',
+        source,
+        rasterSource,
+        faces: previous.faces.map((face) => {
+          if (!face.ref) throw new Error('Missing reference')
+          return { ref: face.ref, kind: face.kind }
+        }),
+      },
+    })
+    if (cycle.status !== 'candidate') throw new Error(cycle.reason)
+    input.cycles = [{ id: 'room', cycle }]
+    const before = structuredClone(input)
+    const metric = metricNativeCycles(input)
+    expect(metric.status).toBe('draft')
+    if (metric.status !== 'draft') throw new Error(metric.reason)
+    expect(metric.contours[0]?.areaM2).toBeCloseTo(0.36)
+    expect(input).toEqual(before)
+    const point = input.work.paths[0]?.points[0]
+    if (!point) throw new Error('Missing source endpoint')
+    point.x = 9
+    expect(metricNativeCycles(input)).toMatchObject({
+      status: 'unresolved',
+      reason: 'native-cycle-snapshot-changed',
+      contours: [],
+    })
+  })
   it('uses one primary scale without rescaling axes or confirming geometry', () => {
     const result = metricNativeCycles(fixture())
     expect(result.status).toBe('draft')
@@ -210,7 +331,7 @@ describe('common printed scale for reviewed native contours', () => {
     }
     expect(metricNativeCycles({ ...input, work })).toMatchObject({
       status: 'unresolved',
-      reason: 'unbounded-or-wrong-endpoint-witness',
+      reason: 'fresh-native-cycle:open-or-branched-native-face',
     })
   })
   it('does not apply a scale to an unanchored second contour', () => {

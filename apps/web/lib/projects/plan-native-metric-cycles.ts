@@ -1,7 +1,7 @@
 import type { PlanPageSegmentRef } from '@uyut/db'
 import type { NativeTextAnchors } from './plan-document'
 import type { nativeDimensionEvidence } from './plan-native-dimension-evidence'
-import type { nativeFaceCycle } from './plan-native-face-cycle'
+import { nativeFaceCycle } from './plan-native-face-cycle'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import { nativePageSegments } from './plan-pdf-opening-endpoint'
 import { type PdfPlanSource, pdfPolygonIsValid } from './plan-pdf-room-binding'
@@ -62,7 +62,16 @@ export function metricNativeCycles(input: {
         entry.id !== entry.id.trim() ||
         entry.id.length > 120 ||
         entry.cycle.status !== 'candidate' ||
+        entry.cycle.basis !== 'reviewed-native-face-cycle' ||
         !matchesSource(entry.cycle.source) ||
+        entry.cycle.coordinateSystem !== 'page-0-1000' ||
+        !Array.isArray(entry.cycle.faces) ||
+        entry.cycle.faces.length < 3 ||
+        entry.cycle.faces.length > 100 ||
+        !Array.isArray(entry.cycle.vertices) ||
+        entry.cycle.vertices.length > 100 ||
+        !Array.isArray(entry.cycle.vertexProofs) ||
+        entry.cycle.vertexProofs.length > 100 ||
         !pdfPolygonIsValid(entry.cycle.polygon),
     ) ||
     ![reviewed.origin.x, reviewed.origin.y].every(
@@ -74,6 +83,40 @@ export function metricNativeCycles(input: {
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000
   )
     throw new Error('Invalid source-bound metric review')
+  // Rebuild before trusting any cached polygon or calibration-face endpoints. A valid
+  // scale cannot authorize a changed corner elsewhere on the floor boundary.
+  // Face roles remain caller-supplied review declarations, not automatic wall classification.
+  const checkedCycles: typeof cycles = []
+  const snapshot = (cycle: Cycle) =>
+    JSON.stringify({
+      coordinateSystem: cycle.coordinateSystem,
+      omissionExclusionPoints: cycle.omissionExclusionPoints,
+      polygon: cycle.polygon,
+      vertices: cycle.vertices,
+      vertexProofs: cycle.vertexProofs,
+      faces: cycle.faces,
+    })
+  for (const entry of cycles) {
+    const faces = entry.cycle.faces.map((face) => {
+      if (!face.ref) throw new Error('Missing reviewed native face reference')
+      return { ref: { ...face.ref }, kind: face.kind }
+    })
+    const fresh = nativeFaceCycle({
+      native,
+      work,
+      lineworkSource: input.lineworkSource,
+      dimensions,
+      reviewed: {
+        review: 'manual-native-face-review',
+        source: entry.cycle.source,
+        rasterSource: native.source,
+        faces,
+      },
+    })
+    if (fresh.status !== 'candidate') return fail(`fresh-native-cycle:${fresh.reason}`)
+    if (snapshot(fresh) !== snapshot(entry.cycle)) return fail('native-cycle-snapshot-changed')
+    checkedCycles.push({ id: entry.id, cycle: fresh })
+  }
   const physical = (point: PagePoint) => ({
     x: (point.x / 1000) * work.pageWidth,
     y: (point.y / 1000) * work.pageHeight,
@@ -97,7 +140,7 @@ export function metricNativeCycles(input: {
     lineOperations: number[]
   }[] = []
   for (const anchor of reviewed.anchors) {
-    const cycle = cycles.find((entry) => entry.id === anchor.cycleId)?.cycle
+    const cycle = checkedCycles.find((entry) => entry.id === anchor.cycleId)?.cycle
     const matches = dimensions.chains.filter((chain) => chain.id === anchor.chainId)
     const chain = matches[0]
     if (!cycle || matches.length !== 1 || !chain || chain.result.status !== 'candidate')
@@ -196,7 +239,7 @@ export function metricNativeCycles(input: {
       lineOperations: chain.result.lineOperations,
     })
   }
-  for (const entry of cycles) {
+  for (const entry of checkedCycles) {
     const local = anchors.filter((anchor) => anchor.cycleId === entry.id)
     if (
       !local.some((a, index) =>
@@ -225,7 +268,7 @@ export function metricNativeCycles(input: {
   const pageSizeCm = { width: work.pageWidth * cmPerPoint, height: work.pageHeight * cmPerPoint }
   if (![pageSizeCm.width, pageSizeCm.height].every((value) => Number.isFinite(value) && value > 0))
     return fail('non-finite-metric-frame')
-  const contours = cycles.map((entry) => {
+  const contours = checkedCycles.map((entry) => {
     const polygonCm = entry.cycle.polygon.map((point) => {
       const p = physical(point)
       return { xCm: (p.x - origin.x) * cmPerPoint, yCm: (p.y - origin.y) * cmPerPoint }
