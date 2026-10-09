@@ -1,8 +1,11 @@
 import { planTabularScheduleEvidence } from '@uyut/ai'
 import type { NativeTextAnchors } from './plan-document'
+import { exactNativeOrientation } from './plan-native-exact-intersections'
 import { nativeFillCandidates } from './plan-native-fill-candidates'
+import { nativeStrokeCycleCandidates } from './plan-native-stroke-candidates'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import { type NativePageSegment, nativePageSegments } from './plan-pdf-opening-endpoint'
+import { pdfBoundaryDistance, pdfPointInside } from './plan-pdf-room-binding'
 import { bindObservedRegionLabels, type RegionLabelFrame } from './plan-raster-region-labels'
 
 type Box = { left: number; top: number; right: number; bottom: number }
@@ -10,6 +13,55 @@ type FrameCue = { bounds: Box; sides: NativePageSegment[]; uncertain: boolean }
 const roomName =
   /^(?:прихожая|кухня(?:[-–— ]гостиная)?|гостиная|спальня|коридор|ванная|санузел|туалет|комната|жилая комната|детская|кабинет|гардеробная|кладовая|балкон|лоджия)(?:\s+\d{1,2})?$/iu
 const verticalKey = (x: number, top: number, bottom: number) => `${x}:${top}:${bottom}`
+
+/** Extracted fill/cycle polygons already have canonical winding and start vertices. */
+export function nativeRoomPolygonKey(polygon: readonly PagePoint[]): string {
+  return polygon.map((point) => `${point.x}:${point.y}`).join('|')
+}
+
+function frameInsidePolygon(work: PdfLinework, box: Box, polygon: PagePoint[]): boolean {
+  const corners = [
+    { x: box.left, y: box.top },
+    { x: box.right, y: box.top },
+    { x: box.right, y: box.bottom },
+    { x: box.left, y: box.bottom },
+  ]
+  if (
+    corners.some(
+      (point) =>
+        !pdfPointInside(point, polygon) || pdfBoundaryDistance(work, point, polygon) <= 0.12,
+    )
+  )
+    return false
+  // Four contained corners alone can miss a narrow concavity crossing a frame edge.
+  for (let index = 0; index < polygon.length; index++) {
+    const a = polygon[index]
+    const b = polygon[(index + 1) % polygon.length]
+    if (!a || !b) return false
+    for (let side = 0; side < corners.length; side++) {
+      const c = corners[side]
+      const d = corners[(side + 1) % corners.length]
+      if (!c || !d) return false
+      if (
+        Math.max(a.x, b.x) < Math.min(c.x, d.x) ||
+        Math.max(c.x, d.x) < Math.min(a.x, b.x) ||
+        Math.max(a.y, b.y) < Math.min(c.y, d.y) ||
+        Math.max(c.y, d.y) < Math.min(a.y, b.y)
+      )
+        continue
+      const turns = [
+        exactNativeOrientation(a, b, c),
+        exactNativeOrientation(a, b, d),
+        exactNativeOrientation(c, d, a),
+        exactNativeOrientation(c, d, b),
+      ]
+      const [first, second, third, fourth] = turns
+      if (first == null || second == null || third == null || fourth == null) return false
+      if (first * second <= 0 && third * fourth <= 0) return false
+    }
+  }
+  return true
+}
 
 function captionFrames(
   work: PdfLinework,
@@ -106,11 +158,13 @@ export function automaticNativeRoomCandidates(input: {
 }) {
   const { native, work } = input
   const geometry = nativeFillCandidates(input)
+  const strokeGeometry = nativeStrokeCycleCandidates(input)
   const scale = native.pageNormalizedScale
   const fail = (reason: string) => ({
     status: 'unresolved' as const,
     reason,
     geometry,
+    strokeGeometry,
     associations: [],
   })
   if (geometry.truncated) return fail('incomplete-native-geometry')
@@ -162,6 +216,7 @@ export function automaticNativeRoomCandidates(input: {
     )
   )
     return fail('missing-native-text-provenance')
+  if (strokeGeometry.truncated) return fail('incomplete-native-room-cycles')
   const items = native.labels.map((label) => ({
     text: label.name,
     rotation: label.rotation as number,
@@ -226,34 +281,68 @@ export function automaticNativeRoomCandidates(input: {
     name: table.get(Number(cue.name))?.name ?? '',
     point: cue.point,
   }))
+  // Identical paint/outline polygons are aliases, not competing rooms. Different
+  // nested or overlapping outlines remain competitors; never choose the smallest.
+  const groups = new Map<
+    string,
+    {
+      id: string
+      polygon: PagePoint[]
+      pagePolygon: PagePoint[]
+      regionIds: string[]
+    }
+  >()
+  for (const candidate of [...geometry.candidates, ...strokeGeometry.candidates]) {
+    const key = nativeRoomPolygonKey(candidate.polygon)
+    const existing = groups.get(key)
+    if (existing) existing.regionIds.push(candidate.id)
+    else
+      groups.set(key, {
+        id: candidate.id,
+        polygon: candidate.rasterPolygon,
+        pagePolygon: candidate.polygon,
+        regionIds: [candidate.id],
+      })
+  }
+  if (groups.size > 50) return fail('room-region-limit')
+  const regions = [...groups.values()]
   const binding = bindObservedRegionLabels({
     regionSource: native.source,
     labelSource: geometry.source,
-    regions: geometry.candidates.map((candidate) => ({
-      id: candidate.id,
-      polygon: candidate.rasterPolygon,
-    })),
+    regions,
     labels,
   })
   const assignments = binding.assignments.filter((entry) => {
     const cue = cues.find((label) => label.id === entry.labelId)
     const cueFrames = frames.get(entry.labelId)
+    const region = regions.find((region) => region.id === entry.regionId)
+    const frame = cueFrames?.[0]
     return (
       cue &&
       counts.get(Number(cue.name)) === 1 &&
       cueFrames?.length === 1 &&
-      !cueFrames[0]?.uncertain
+      frame &&
+      !frame.uncertain &&
+      region &&
+      frameInsidePolygon(work, frame.bounds, region.pagePolygon)
     )
   })
   const associations = assignments.map((entry) => {
     const cue = cues.find((label) => label.id === entry.labelId)
     const row = rows.find((row) => row.sourceNumber === Number(cue?.name))
-    return { ...entry, ...row, markerLabelId: entry.labelId, frame: frames.get(entry.labelId)?.[0] }
+    return {
+      ...entry,
+      ...row,
+      regionIds: regions.find((region) => region.id === entry.regionId)?.regionIds ?? [],
+      markerLabelId: entry.labelId,
+      frame: frames.get(entry.labelId)?.[0],
+    }
   })
   const associated = new Set(associations.map((entry) => entry.sourceNumber))
   return {
     status: 'draft' as const,
     geometry,
+    strokeGeometry,
     rows,
     tableBounds,
     associations,

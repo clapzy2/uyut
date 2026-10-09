@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { nativeAnnotationFixture } from '../../scripts/qa-native-annotation-fixture'
 import { nativeReviewPacket } from './plan-native-review-packet'
+import { numberedNativeRoomFixture } from './test-fixtures/native-numbered-rooms'
 
 function fixture() {
   const input = nativeAnnotationFixture()
@@ -81,6 +82,84 @@ describe('whole-page native inspection, separate from saved geometry', () => {
     expect(result).not.toHaveProperty('pageReview')
     expect(JSON.stringify(result)).not.toContain('manual-native-annotation-review')
     expect(input).toEqual(before)
+  })
+  it('shows exact numbered unfilled outlines in the read-only source overlay', () => {
+    const input = numberedNativeRoomFixture()
+    input.work.paths = input.work.paths.map((path) => ({ ...path, paint: 'stroke' }))
+    const before = structuredClone(input)
+    const packet = nativeReviewPacket({
+      ...input,
+      source: { sha256: input.native.originalPdfSha256 as string, pdfPage: 1, state: 'existing' },
+      image: input.native.source,
+    })
+    expect(packet.counts.numberedAssociations).toBe(3)
+    expect(packet.counts.fillCandidates).toBe(0)
+    expect(packet.faces.filter((face) => face.roomName).map((face) => face.roomName)).toEqual([
+      'Спальня',
+      'Спальня',
+      'Балкон',
+    ])
+    expect(packet.faces.every((face) => face.layer === 'stroke')).toBe(true)
+    expect(packet.faces[2]?.polygon).toEqual(
+      input.work.paths.find((path) => path.operationIndex === 3)?.points,
+    )
+    expect(packet.readiness).toEqual({ readyFor2D: false, readyFor3D: false, readOnly: true })
+    expect(packet).not.toHaveProperty('pageReview')
+    expect(input).toEqual(before)
+  })
+  it('withholds an oversized overlay instead of serializing or silently truncating 103 shapes', () => {
+    const input = numberedNativeRoomFixture()
+    input.work.paths = input.work.paths.map((path) => ({
+      ...path,
+      paint: path.paint === 'fill' ? 'fill-stroke' : path.paint,
+    }))
+    for (let index = 0; index < 47; index++)
+      input.work.paths.push({
+        operationIndex: 500 + index,
+        subpathIndex: 0,
+        paint: 'fill',
+        closed: true,
+        points: [
+          { x: 500 + index / 100, y: 600 },
+          { x: 600, y: 600 },
+          { x: 600, y: 700 },
+          { x: 500 + index / 100, y: 700 },
+        ],
+      })
+    for (let column = 0; column <= 5; column++)
+      input.work.paths.push({
+        operationIndex: 600 + column,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: 50 + column * 60, y: 450 },
+          { x: 50 + column * 60, y: 850 },
+        ],
+      })
+    for (let row = 0; row <= 10; row++)
+      input.work.paths.push({
+        operationIndex: 700 + row,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: 50, y: 450 + row * 40 },
+          { x: 350, y: 450 + row * 40 },
+        ],
+      })
+    const packet = nativeReviewPacket({
+      ...input,
+      source: { sha256: input.native.originalPdfSha256 as string, pdfPage: 1, state: 'existing' },
+      image: input.native.source,
+    })
+    expect(packet.counts.fillCandidates).toBe(50)
+    expect(packet.counts.strokeFaces).toBe(53)
+    expect(packet.counts.numberedAssociations).toBe(3)
+    expect(packet.status).toBe('unresolved')
+    expect(packet.faces).toEqual([])
+    expect(packet.issues.map((issue) => issue.code)).toContain('native-overlay-limit')
+    expect(packet.readiness.readyFor2D).toBe(false)
   })
   it('explains unavailable native layers rather than treating zero candidates as complete', () => {
     const input = fixture()

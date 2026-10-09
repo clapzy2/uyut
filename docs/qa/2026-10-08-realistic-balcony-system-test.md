@@ -1672,3 +1672,60 @@ AI-прогон выше выявил ошибки, а не подтвердил
 Санузел показан контуром: сантехнические изделия не
 дорисованы как якобы существующая инженерная модель. Сервис не выдаёт этот
 контроль за строительные чертежи или точный автоматический обмер.
+
+## 10 октября: номерные кандидаты в незалитых замкнутых контурах
+
+automaticNativeRoomCandidates связывает native table/boxed-number cues не только
+с заливками, но и с точными endpoint cycles из существующего stroke extractor.
+Никакого удаления рамок номера или ослабления bounded-face hole/refusal правил:
+это отдельный существующий вид кандидата, который может охватывать внутреннюю
+некасающуюся рамку, но всё ещё не доказан как полный свободный пол.
+
+Fill и cycle участвуют в одной проверке пространственных конкурентов. Только
+совпадение всех канонических исходных вершин даёт aliases; почти одинаковые,
+вложенные и пересекающиеся области не выбираются по площади или размеру.
+Сохраняются regionIds и source refs. Вся единственная рамка номера должна строго
+находиться внутри области. Проверяются не только четыре угла, но и точные
+пересечения рёбер: вогнутый вырез между углами не должен дать ложного владельца.
+Uncertain/duplicate cues конкурируют до окончательной фильтрации. Суммарный
+лимит50 областей или неполный cycle search запрещают частичные назначения.
+
+Private native-review packet показывает связанные endpoint cycles поверх
+исходника. Если bounded face точно совпадает с cycle, используется существующий
+overlay с именем; иначе добавляется исходный цикл без изменения его координат.
+При общем размере >100 весь overlay удерживается с явным native-overlay-limit,
+без превышения client contract и без молчаливой обрезки конкурентов.
+Все readiness flags остаются false/readOnly. Штатный reader, сохранённые rooms,
+мерки, pageReview/PlanGeometry, DB schema и рабочий пользовательский проект
+этим не меняются. Назначенная подпись ещё не доказывает роль пола или размер.
+
+Synthetic regressions: незалитые прямоугольник/ступенчатый/диагональный балкон,
+точный fill-stroke alias, near-alias и вложенные конкуренты, полная рамка/вырез,
+duplicate numbers, недостающая сторона, gap0.001, shared wall, локальная omitted
+curve, совместный лимит и packet103 shapes. Общий test fixture вынесен для
+candidate/packet tests; это заведомо synthetic source-space, не обмер квартиры.
+
+Настоящий positive PDF-контроль повторён неизменённым исходником:19 fills,
+8 прежних associations, source marker/row IDs сверены с независимым fixture
+после inference. Артефакты: tmp/native-room-candidates-20261009-cycles/.
+Наложение полного листа визуально просмотрено; это сохранение прежнего narrow
+positive, не новое подтверждение native floor/размеров. Corpus5 и whole-page
+packet runner тоже повторены:0 associations на всех дополнительных PDFs и
+неизменённые причины отказа. BASIS не получает left/right balcony identity по
+площадям. Артефакты: tmp/native-room-corpus-20261009-cycles/ и
+tmp/native-review-packets-20261009-cycles/. AI requests0, project writes0.
+
+Firefox через Playwright проверил существующий компонент и loadNativeReview
+с новым packet на изолированном synthetic JPEG/mock API: три контура/имени,
+диагональная грань, отсутствие save/confirm, warnings/readOnly,390/1280px,
+внутренний scroll1000px без переполнения страницы,0 console errors. Использован
+прежний bundle неизменённого UI, новый server-side packet и свежий synthetic
+JPEG с проверяемым SHA. Desktop full-page и mobile screenshots сохранены в
+output/playwright/native-room-cycles-*.png. Это не live account, DB или браузерная
+приёмка точности реального незалитого плана. Временный localhost server остановлен.
+
+3360 web tests/246 файлов, typecheck7, lint875, production build и diff check
+прошли. Независимый read-only review дополнительно запустил61 candidate/packet/
+client tests и не нашёл actionable regressions. Новых платных AI/PR/deploy нет.
+Реальные connected/shared walls, дверные разрывы, произвольные unboxed names,
+сканы/outlined text и полный source-bound пол/мерки/2D/3D остаются открытыми.

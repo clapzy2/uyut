@@ -2,7 +2,7 @@ import type { PlanReading } from '@uyut/db'
 import type { NativeTextAnchors } from './plan-document'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
 import { nativeFaceAnnotationCandidates } from './plan-native-face-annotations'
-import { automaticNativeRoomCandidates } from './plan-native-room-candidates'
+import { automaticNativeRoomCandidates, nativeRoomPolygonKey } from './plan-native-room-candidates'
 import {
   inspectReviewedPageCoverage,
   type ReviewedPageCoverage,
@@ -128,11 +128,41 @@ export function nativeReviewPacket(input: {
   const fills = rooms.geometry
   const strokes = annotations.geometry
   packet.extraction.geometryComplete =
-    !fills.truncated && !strokes.truncated && work.skippedCurves === 0 && work.clippedPaths === 0
+    !fills.truncated &&
+    !strokes.truncated &&
+    !rooms.strokeGeometry.truncated &&
+    work.skippedCurves === 0 &&
+    work.clippedPaths === 0
   packet.status = packet.extraction.geometryComplete && native.complete ? 'draft' : 'unresolved'
-  const named = new Map(rooms.associations.map((entry) => [entry.regionId, entry.name]))
+  const named = new Map(
+    rooms.associations.flatMap((entry) => entry.regionIds.map((id) => [id, entry.name] as const)),
+  )
   const tagged = new Set(annotations.annotations.map((entry) => entry.faceId))
-  packet.faces = [
+  const strokeOverlays = new Map<string, NativeReviewPacket['faces'][number]>()
+  for (const face of strokes.candidates)
+    strokeOverlays.set(nativeRoomPolygonKey(face.polygon), {
+      id: face.id,
+      layer: 'stroke',
+      polygon: face.rasterPolygon.map((point) => ({ ...point })),
+      annotationHint: tagged.has(face.id),
+    })
+  // A numbered endpoint ring can survive where bounded faces refuse an interior
+  // caption box. Preserve the source shape, never erase that box or invent a floor.
+  for (const cycle of rooms.strokeGeometry.candidates) {
+    if (!named.has(cycle.id)) continue
+    const key = nativeRoomPolygonKey(cycle.polygon)
+    const existing = strokeOverlays.get(key)
+    if (existing) existing.roomName = named.get(cycle.id)
+    else
+      strokeOverlays.set(key, {
+        id: cycle.id,
+        layer: 'stroke',
+        polygon: cycle.rasterPolygon.map((point) => ({ ...point })),
+        annotationHint: false,
+        roomName: named.get(cycle.id),
+      })
+  }
+  const faces = [
     ...fills.candidates.map((face) => ({
       id: face.id,
       layer: 'fill' as const,
@@ -140,16 +170,18 @@ export function nativeReviewPacket(input: {
       annotationHint: false,
       ...(named.has(face.id) ? { roomName: named.get(face.id) } : {}),
     })),
-    ...strokes.candidates.map((face) => ({
-      id: face.id,
-      layer: 'stroke' as const,
-      polygon: face.rasterPolygon.map((point) => ({ ...point })),
-      annotationHint: tagged.has(face.id),
-    })),
+    ...strokeOverlays.values(),
   ]
+  if (faces.length > 100) {
+    packet.status = 'unresolved'
+    issue(
+      'native-overlay-limit',
+      'Достигнут лимит областей для наложения. Неполный набор контуров не показан; нужна отдельная сверка исходника.',
+    )
+  } else packet.faces = faces
   packet.counts = {
     fillCandidates: fills.candidates.length,
-    strokeFaces: strokes.candidates.length,
+    strokeFaces: strokeOverlays.size,
     annotationHints: annotations.annotations.length,
     numberedAssociations: rooms.associations.length,
     printedDimensions: dimensions.candidates.length,

@@ -1,90 +1,17 @@
 import { planRoomSchedule, planTabularScheduleEvidence } from '@uyut/ai'
 import { describe, expect, it } from 'vitest'
-import type { NativeTextAnchors } from './plan-document'
 import { automaticNativeRoomCandidates } from './plan-native-room-candidates'
-import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
+import type { PdfVectorPath } from './plan-pdf-linework'
+import {
+  addNativeRoomLabel as addLabel,
+  addNativeRoomBox as box,
+  numberedNativeRoomFixture as fixture,
+} from './test-fixtures/native-numbered-rooms'
 
-const source = { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 }
-function addLabel(labels: NativeTextAnchors['labels'], name: string, x: number, y: number) {
-  const nativeIndex = 100 + labels.length * 3
-  const label = {
-    id: `native-text-${nativeIndex}`,
-    nativeIndex,
-    name,
-    point: { x, y },
-    pagePoint: { x, y },
-    rotation: 0,
-  }
-  labels.push(label)
-  return label
-}
-function box(paths: PdfVectorPath[], base: number, x: number, y: number) {
-  const corners = [
-    { x: x - 10, y: y - 12 },
-    { x: x + 10, y: y - 12 },
-    { x: x + 10, y: y + 8 },
-    { x: x - 10, y: y + 8 },
-  ]
-  for (let index = 0; index < 4; index++)
-    paths.push({
-      operationIndex: base + index,
-      subpathIndex: 0,
-      paint: 'stroke',
-      closed: false,
-      points: [
-        corners[index] as { x: number; y: number },
-        corners[(index + 1) % 4] as { x: number; y: number },
-      ],
-    })
-}
-function fixture() {
-  const labels: NativeTextAnchors['labels'] = []
-  addLabel(labels, '№', 100, 700)
-  addLabel(labels, 'Наименование', 130, 700)
-  addLabel(labels, 'Площадь', 210, 700)
-  for (let index = 0; index < 3; index++) {
-    addLabel(labels, String(index + 1), 100, 730 + index * 30)
-    addLabel(labels, index === 2 ? 'Балкон' : 'Спальня', 130, 730 + index * 30)
-    addLabel(labels, index === 2 ? '5,5' : '12,5', 210, 730 + index * 30)
-  }
-  const paths: PdfVectorPath[] = []
-  for (let index = 0; index < 3; index++) {
-    const left = 50 + index * 250
-    paths.push({
-      operationIndex: index + 1,
-      subpathIndex: 0,
-      paint: 'fill',
-      closed: true,
-      points: [
-        { x: left, y: 50 },
-        { x: left + 200, y: 50 },
-        { x: left + 200, y: 300 },
-        { x: left, y: 300 },
-      ],
-    })
-    addLabel(labels, String(index + 1), 100 + index * 250, 150)
-    box(paths, 100 + index * 10, 100 + index * 250, 150)
-  }
-  addLabel(labels, '1', 900, 950) // unboxed sheet number, not a room cue
-  const native: NativeTextAnchors = {
-    source,
-    originalPdfSha256: 'b'.repeat(64),
-    complete: true,
-    labels,
-    pageNormalizedScale: { x: 1, y: 1 },
-  }
-  const work: PdfLinework = {
-    coordinateSystem: 'page-0-1000',
-    pageWidth: 1000,
-    pageHeight: 1000,
-    paths,
-    skippedCurves: 0,
-    clippedPaths: 0,
-    unsupportedPaths: 0,
-    unsupportedContexts: 0,
-    truncated: false,
-  }
-  return { native, work, lineworkSource: source }
+function strokeFixture() {
+  const input = fixture()
+  input.work.paths = input.work.paths.map((path) => ({ ...path, paint: 'stroke' }))
+  return input
 }
 describe('native table and boxed-number candidate association', () => {
   it('automatically links separate repeated room names and a balcony without reviewed IDs', () => {
@@ -250,6 +177,194 @@ describe('native table and boxed-number candidate association', () => {
     expect(result).toMatchObject({
       status: 'unresolved',
       reason: 'incomplete-native-geometry',
+      associations: [],
+    })
+  })
+  it.each(['rectangle', 'stepped', 'diagonal'])(
+    'links a numbered unfilled %s outline without creating an approved floor',
+    (shape) => {
+      const input = strokeFixture()
+      const balcony = input.work.paths.find((path) => path.operationIndex === 3)
+      if (!balcony) throw new Error('Missing balcony outline')
+      if (shape === 'stepped')
+        balcony.points = [
+          { x: 550, y: 50 },
+          { x: 750, y: 50 },
+          { x: 750, y: 240 },
+          { x: 700, y: 240 },
+          { x: 700, y: 300 },
+          { x: 550, y: 300 },
+        ]
+      if (shape === 'diagonal')
+        balcony.points = [
+          { x: 550, y: 50 },
+          { x: 750, y: 50 },
+          { x: 750, y: 240 },
+          { x: 690, y: 300 },
+          { x: 550, y: 300 },
+        ]
+      const before = structuredClone(input)
+      const result = automaticNativeRoomCandidates(input)
+      if (result.status !== 'draft') throw new Error(result.reason)
+      expect(result.associations.map((entry) => [entry.sourceNumber, entry.name])).toEqual([
+        [1, 'Спальня'],
+        [2, 'Спальня'],
+        [3, 'Балкон'],
+      ])
+      const association = result.associations.find((entry) => entry.sourceNumber === 3)
+      const candidate = result.strokeGeometry.candidates.find(
+        (entry) => entry.id === association?.regionId,
+      )
+      expect(candidate?.polygon).toEqual(balcony.points)
+      expect(candidate?.sourceRefs.every((ref) => ref.operationIndex === 3)).toBe(true)
+      expect(result.geometry.candidates).toEqual([])
+      expect(result.strokeGeometry.semanticStatus).toBe('unclassified')
+      expect(result).not.toHaveProperty('pageReview')
+      expect(result).not.toHaveProperty('footprint')
+      expect(result).not.toHaveProperty('widthCm')
+      expect(input).toEqual(before)
+    },
+  )
+  it('keeps exactly identical fill-stroke polygons as aliases of one candidate, not six rooms', () => {
+    const input = fixture()
+    input.work.paths = input.work.paths.map((path) => ({
+      ...path,
+      paint: path.paint === 'fill' ? 'fill-stroke' : path.paint,
+    }))
+    const result = automaticNativeRoomCandidates(input)
+    if (result.status !== 'draft') throw new Error(result.reason)
+    expect(result.associations).toHaveLength(3)
+    for (const association of result.associations) {
+      expect(association.regionId).toMatch(/^native-fill-/)
+      expect(association.regionIds).toHaveLength(2)
+      expect(association.regionIds[1]).toMatch(/^native-stroke-cycle-/)
+    }
+  })
+  it('does not choose between different nested fill and stroke candidates', () => {
+    const input = fixture()
+    input.work.paths.push({
+      operationIndex: 500,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: true,
+      points: [
+        { x: 80, y: 100 },
+        { x: 130, y: 100 },
+        { x: 130, y: 200 },
+        { x: 80, y: 200 },
+      ],
+    })
+    const result = automaticNativeRoomCandidates(input)
+    if (result.status !== 'draft') throw new Error(result.reason)
+    expect(result.unresolvedSourceNumbers).toEqual([1])
+    expect(result.associations.map((entry) => entry.sourceNumber)).toEqual([2, 3])
+  })
+  it('does not alias nearly identical paint and outline coordinates', () => {
+    const input = fixture()
+    const first = input.work.paths[0]
+    if (!first) throw new Error('Missing source fill')
+    input.work.paths.push({
+      ...first,
+      operationIndex: 500,
+      paint: 'stroke',
+      points: first.points.map((point) => ({ ...point, x: point.x + 0.001 })),
+    })
+    const result = automaticNativeRoomCandidates(input)
+    if (result.status !== 'draft') throw new Error(result.reason)
+    expect(result.unresolvedSourceNumbers).toEqual([1])
+  })
+  it.each(['crossing-frame', 'concavity-between-frame-corners'])(
+    'does not assign a point-contained caption with %s',
+    (caseName) => {
+      const input = fixture()
+      const first = input.work.paths[0]
+      if (!first) throw new Error('Missing source fill')
+      first.points =
+        caseName === 'crossing-frame'
+          ? [
+              { x: 50, y: 141 },
+              { x: 250, y: 141 },
+              { x: 250, y: 300 },
+              { x: 50, y: 300 },
+            ]
+          : [
+              { x: 50, y: 50 },
+              { x: 95, y: 50 },
+              { x: 95, y: 142 },
+              { x: 99, y: 142 },
+              { x: 99, y: 50 },
+              { x: 250, y: 50 },
+              { x: 250, y: 300 },
+              { x: 50, y: 300 },
+            ]
+      const result = automaticNativeRoomCandidates(input)
+      if (result.status !== 'draft') throw new Error(result.reason)
+      expect(result.unresolvedSourceNumbers).toEqual([1])
+      expect(result.associations.map((entry) => entry.sourceNumber)).toEqual([2, 3])
+    },
+  )
+  it('keeps duplicate number competitors in unfilled outlines', () => {
+    const input = strokeFixture()
+    addLabel(input.native.labels, '1', 450, 220)
+    box(input.work.paths, 200, 450, 220)
+    const result = automaticNativeRoomCandidates(input)
+    if (result.status !== 'draft') throw new Error(result.reason)
+    expect(result.unresolvedSourceNumbers).toEqual([1, 2])
+    expect(result.associations.map((entry) => entry.sourceNumber)).toEqual([3])
+  })
+  it.each(['missing-side', 'small-gap', 'shared-wall', 'omitted-curve'])(
+    'does not close or classify an unfilled room with %s',
+    (caseName) => {
+      const input = strokeFixture()
+      const first = input.work.paths[0]
+      if (!first) throw new Error('Missing source outline')
+      if (caseName === 'missing-side' || caseName === 'small-gap') {
+        first.closed = false
+        if (caseName === 'small-gap') first.points.push({ x: 50, y: 50.001 })
+      } else if (caseName === 'shared-wall')
+        input.work.paths.push({
+          operationIndex: 500,
+          subpathIndex: 0,
+          paint: 'stroke',
+          closed: false,
+          points: [
+            { x: 150, y: 50 },
+            { x: 150, y: 300 },
+          ],
+        })
+      else {
+        input.work.skippedCurves = 1
+        input.work.skippedCurveBounds = [
+          {
+            operationIndex: 500,
+            bounds: { left: 50, top: 50, right: 70, bottom: 70 },
+          },
+        ]
+      }
+      const result = automaticNativeRoomCandidates(input)
+      if (result.status !== 'draft') throw new Error(result.reason)
+      expect(result.unresolvedSourceNumbers).toEqual([1])
+      expect(result.associations.map((entry) => entry.sourceNumber)).toEqual([2, 3])
+    },
+  )
+  it('refuses combined region-budget overflow instead of partially assigning the first candidates', () => {
+    const input = strokeFixture()
+    for (let index = 0; index < 49; index++)
+      input.work.paths.push({
+        operationIndex: 500 + index,
+        subpathIndex: 0,
+        paint: 'fill',
+        closed: true,
+        points: [
+          { x: 600 + index / 100, y: 400 },
+          { x: 700, y: 400 },
+          { x: 700, y: 480 },
+          { x: 600 + index / 100, y: 480 },
+        ],
+      })
+    expect(automaticNativeRoomCandidates(input)).toMatchObject({
+      status: 'unresolved',
+      reason: 'room-region-limit',
       associations: [],
     })
   })

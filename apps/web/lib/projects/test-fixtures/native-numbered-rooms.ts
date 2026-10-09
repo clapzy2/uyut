@@ -1,0 +1,94 @@
+import type { NativeTextAnchors } from '../plan-document'
+import type { PdfLinework, PdfVectorPath } from '../plan-pdf-linework'
+
+// Synthetic source-space controls, never an apartment survey or source acceptance.
+const source = { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 }
+
+export function addNativeRoomLabel(
+  labels: NativeTextAnchors['labels'],
+  name: string,
+  x: number,
+  y: number,
+) {
+  const nativeIndex = 100 + labels.length * 3
+  const label = {
+    id: `native-text-${nativeIndex}`,
+    nativeIndex,
+    name,
+    point: { x, y },
+    pagePoint: { x, y },
+    rotation: 0,
+  }
+  labels.push(label)
+  return label
+}
+
+export function addNativeRoomBox(paths: PdfVectorPath[], base: number, x: number, y: number) {
+  const corners = [
+    { x: x - 10, y: y - 12 },
+    { x: x + 10, y: y - 12 },
+    { x: x + 10, y: y + 8 },
+    { x: x - 10, y: y + 8 },
+  ]
+  for (let index = 0; index < 4; index++)
+    paths.push({
+      operationIndex: base + index,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        corners[index] as { x: number; y: number },
+        corners[(index + 1) % 4] as { x: number; y: number },
+      ],
+    })
+}
+
+export function numberedNativeRoomFixture() {
+  const labels: NativeTextAnchors['labels'] = []
+  addNativeRoomLabel(labels, '№', 100, 700)
+  addNativeRoomLabel(labels, 'Наименование', 130, 700)
+  addNativeRoomLabel(labels, 'Площадь', 210, 700)
+  for (let index = 0; index < 3; index++) {
+    addNativeRoomLabel(labels, String(index + 1), 100, 730 + index * 30)
+    addNativeRoomLabel(labels, index === 2 ? 'Балкон' : 'Спальня', 130, 730 + index * 30)
+    addNativeRoomLabel(labels, index === 2 ? '5,5' : '12,5', 210, 730 + index * 30)
+  }
+  const paths: PdfVectorPath[] = []
+  for (let index = 0; index < 3; index++) {
+    const left = 50 + index * 250
+    paths.push({
+      operationIndex: index + 1,
+      subpathIndex: 0,
+      paint: 'fill',
+      closed: true,
+      points: [
+        { x: left, y: 50 },
+        { x: left + 200, y: 50 },
+        { x: left + 200, y: 300 },
+        { x: left, y: 300 },
+      ],
+    })
+    addNativeRoomLabel(labels, String(index + 1), 100 + index * 250, 150)
+    addNativeRoomBox(paths, 100 + index * 10, 100 + index * 250, 150)
+  }
+  addNativeRoomLabel(labels, '1', 900, 950) // unboxed sheet number, not a room cue
+  const native: NativeTextAnchors = {
+    source,
+    originalPdfSha256: 'b'.repeat(64),
+    complete: true,
+    labels,
+    pageNormalizedScale: { x: 1, y: 1 },
+  }
+  const work: PdfLinework = {
+    coordinateSystem: 'page-0-1000',
+    pageWidth: 1000,
+    pageHeight: 1000,
+    paths,
+    skippedCurves: 0,
+    clippedPaths: 0,
+    unsupportedPaths: 0,
+    unsupportedContexts: 0,
+    truncated: false,
+  }
+  return { native, work, lineworkSource: source }
+}
