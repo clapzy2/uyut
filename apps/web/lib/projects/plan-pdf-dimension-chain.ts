@@ -965,9 +965,11 @@ function externalRectangleDimension(
   for (const other of contours.rooms) {
     if (other === room) continue
     const otherAlong = other.polygon.map((point) => point[along])
+    // A smaller intervening room is still an ownership conflict. Equal overall
+    // extents are not required, and rail midpoints alone can miss a narrow zone.
     if (
-      Math.abs(Math.min(...otherAlong) - lowAlong) * alongScale > 0.12 ||
-      Math.abs(Math.max(...otherAlong) - highAlong) * alongScale > 0.12
+      (Math.min(...otherAlong) - highAlong) * alongScale > 0.12 ||
+      (lowAlong - Math.max(...otherAlong)) * alongScale > 0.12
     )
       continue
     const otherAcross = other.polygon.map((point) => point[across])

@@ -1,6 +1,10 @@
 import { type PlanReading, planMeasurementTextItems, validatePlanMeasurement } from '@uyut/ai'
 import type { NativeDimensionCaptionContext } from './plan-pdf-caption-binding'
 import { createPdfNativePageDimensionChainVerifier } from './plan-pdf-dimension-chain'
+import {
+  pdfNativeDimensionChainIsUnobscured,
+  pdfNativeDimensionSourceIssue,
+} from './plan-pdf-dimension-source'
 import type { PdfLinework } from './plan-pdf-linework'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
 
@@ -24,48 +28,12 @@ export function verifyPlanReadingNativeChains(
   const items = planMeasurementTextItems(context.planText)
   const work = context.linework
   const source = context.source
-  const omitted = work?.skippedCurveBounds ?? []
   const usable =
     source &&
-    /^[a-f0-9]{64}$/.test(source.sha256) &&
-    Number.isSafeInteger(source.pdfPage) &&
-    source.pdfPage > 0 &&
-    source.state === 'existing' &&
     reading.planState === source.state &&
     (reading.sourcePage === undefined || reading.sourcePage === source.pdfPage) &&
     work &&
-    work.coordinateSystem === 'page-0-1000' &&
-    !work.truncated &&
-    !work.skippedCurveBoundsTruncated &&
-    !work.clippedPathBoundsTruncated &&
-    Number.isSafeInteger(work.skippedCurves) &&
-    work.skippedCurves === omitted.length &&
-    omitted.length <= 3000 &&
-    omitted.every(
-      ({ bounds }) =>
-        [bounds.left, bounds.top, bounds.right, bounds.bottom].every(Number.isFinite) &&
-        bounds.left <= bounds.right &&
-        bounds.top <= bounds.bottom,
-    ) &&
-    work.clippedPaths === 0 &&
-    work.unsupportedPaths === 0 &&
-    work.unsupportedContexts === 0 &&
-    work.paths.length <= 3000 &&
-    work.paths.reduce((sum, path) => sum + path.points.length, 0) <= 20_000 &&
-    new Set(work.paths.map((path) => `${path.operationIndex}:${path.subpathIndex}`)).size ===
-      work.paths.length &&
-    work.paths.every(
-      (path) =>
-        [path.operationIndex, path.subpathIndex].every(
-          (value) => Number.isSafeInteger(value) && value >= 0,
-        ) &&
-        path.points.every((point) =>
-          [point.x, point.y].every(
-            (value) => Number.isFinite(value) && value >= 0 && value <= 1000,
-          ),
-        ),
-    ) &&
-    [work.pageWidth, work.pageHeight].every((value) => Number.isFinite(value) && value > 0)
+    !pdfNativeDimensionSourceIssue(source, work)
   const verify = usable
     ? createPdfNativePageDimensionChainVerifier(work, source, context.nativeCaptionGeometry)
     : undefined
@@ -101,23 +69,7 @@ export function verifyPlanReadingNativeChains(
       const matched =
         chain?.status === 'candidate' &&
         work &&
-        chain.segments.every((segment) => {
-          const label = labels.find((label) => label.index === segment.labelIndex)
-          if (!label) return false
-          // Curves elsewhere (e.g. a door swing) do not invalidate this local rail.
-          // An omitted path near the rail, endpoints or label may hide a competing source line.
-          const x = [segment.start.x, segment.end.x, label.x]
-          const y = [segment.start.y, segment.end.y, label.y]
-          const padX = (6 * 1000) / work.pageWidth
-          const padY = (6 * 1000) / work.pageHeight
-          return !omitted.some(
-            ({ bounds }) =>
-              bounds.right >= Math.min(...x) - padX &&
-              bounds.left <= Math.max(...x) + padX &&
-              bounds.bottom >= Math.min(...y) - padY &&
-              bounds.top <= Math.max(...y) + padY,
-          )
-        }) &&
+        pdfNativeDimensionChainIsUnobscured(work, chain, labels) &&
         chain.segments.every((segment) => {
           const index = valid?.textItemIndexes?.indexOf(segment.labelIndex) ?? -1
           return index >= 0 && valid?.segmentsMm[index] === segment.valueMm

@@ -348,6 +348,79 @@ describe('native horizontal dimension chains against page contours', () => {
       check([...work.paths, ...extensions], labels, 2985, [shiftedRoom, nearerRoom]),
     ).toMatchObject({ status: 'unresolved', reason: 'dimension-outside-room' })
   })
+  it.each(['width', 'depth'] as const)(
+    'does not assign an exterior %s chain through a narrower room between the rail and target',
+    (axis) => {
+      const swap = (point: { x: number; y: number }) =>
+        axis === 'width' ? point : { x: point.y, y: point.x }
+      const target = {
+        ...bedroom,
+        polygon: bedroom.polygon.map((point) => swap({ ...point, y: point.y + 48 })),
+      }
+      const extensions: PdfVectorPath[] = [643.528, 844.512].map((x, index) => ({
+        operationIndex: 9000 + index,
+        subpathIndex: 0,
+        closed: false,
+        paint: 'stroke',
+        points: [swap({ x, y: 90 }), swap({ x, y: 134 })],
+      }))
+      const projectedWork = {
+        ...work,
+        pageWidth: axis === 'width' ? work.pageWidth : work.pageHeight,
+        pageHeight: axis === 'width' ? work.pageHeight : work.pageWidth,
+        paths: [
+          ...work.paths.map((path) => ({ ...path, points: path.points.map(swap) })),
+          ...extensions,
+        ],
+      }
+      const projectedLabels = labels.map((label) => ({
+        ...label,
+        ...swap(label),
+        rotation: axis === 'width' ? 0 : 90,
+      }))
+      const verify = (others: PdfRoomContours['rooms']) =>
+        (axis === 'width' ? pdfWidthChain : pdfDepthChain)(
+          projectedWork,
+          contours.source,
+          {
+            ...contours,
+            pageWidth: projectedWork.pageWidth,
+            pageHeight: projectedWork.pageHeight,
+            rooms: [target, ...others],
+          },
+          4,
+          projectedLabels,
+          2985,
+        )
+      const smallerRoom = (left: number, right: number, top: number, bottom: number) => ({
+        roomSourceNumber: 99,
+        polygon: [
+          { x: left, y: top },
+          { x: right, y: top },
+          { x: right, y: bottom },
+          { x: left, y: bottom },
+        ].map(swap),
+      })
+
+      expect(verify([])).toMatchObject({
+        status: 'candidate',
+        basis: 'native-exterior-dimension',
+      })
+      // Neither the rail's segment midpoints nor its two extensions hit this narrow room.
+      expect(verify([smallerRoom(730, 735, 105, 125)])).toMatchObject({
+        status: 'unresolved',
+        reason: 'dimension-outside-room',
+      })
+      // A real nearer neighbour at one measured end also prevents unique ownership.
+      expect(verify([smallerRoom(643.528, 690, 105, 125)])).toMatchObject({
+        status: 'unresolved',
+        reason: 'dimension-outside-room',
+      })
+      // Rooms to the side or farther from the rail do not obscure the target face.
+      expect(verify([smallerRoom(850, 900, 105, 125)]).status).toBe('candidate')
+      expect(verify([smallerRoom(730, 735, 300, 350)]).status).toBe('candidate')
+    },
+  )
   it.each([2310, 2314, 2319])('does not bridge a missing stem or arrow %i', (operation) => {
     expect(check(work.paths.filter((p) => p.operationIndex !== operation)).status).toBe(
       'unresolved',

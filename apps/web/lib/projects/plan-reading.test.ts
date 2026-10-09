@@ -44,7 +44,8 @@ const linework = {
   pageWidth: 842,
   pageHeight: 1191,
   paths: annotated.dimensionPaths as import('./plan-pdf-linework').PdfVectorPath[],
-  skippedCurves: 45,
+  // This mocked layer contains selected straight rails, not the complete PDF.
+  skippedCurves: 0,
   unsupportedPaths: 0,
   unsupportedContexts: 0,
   clippedPaths: 0,
@@ -202,6 +203,31 @@ describe('single-page plan reader budget', () => {
     expect(mocks.read).toHaveBeenCalledTimes(1)
     expect(reading.rooms[0]).toMatchObject({ widthCm: 296.4, depthCm: 420.5 })
   })
+  it.each([
+    { skippedCurves: 45 },
+    { clippedPaths: 1 },
+    {
+      skippedCurves: 1,
+      skippedCurveBounds: [
+        {
+          operationIndex: 999_999,
+          subpathIndex: 0,
+          bounds: { left: 218, top: 95, right: 219, bottom: 96 },
+        },
+      ],
+    },
+  ])(
+    'does not let a manual room review bypass missing native dimension paths %j',
+    async (change) => {
+      mocks.prepare.mockResolvedValue({ ...reviewedPage(), linework: { ...linework, ...change } })
+      mocks.read.mockResolvedValue(structuredClone(reviewedReading))
+      const reading = await readPlanFromStorage('plan.pdf', 6, reviewed)
+      expect(reading.rooms[0]?.widthCm).toBeUndefined()
+      expect(reading.rooms[0]?.areaM2).toBe(12.35)
+      if ('skippedCurveBounds' in change) expect(reading.rooms[0]?.depthCm).toBe(420.5)
+      expect(mocks.read).toHaveBeenCalledTimes(1)
+    },
+  )
   it.each([
     [
       'changed file',
