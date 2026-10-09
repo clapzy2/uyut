@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { loadNativeReview } from './plan-native-review-client'
 import { nativeReviewPacket } from './plan-native-review-packet'
+import { inspectReviewedPageCoverage } from './plan-page-reviewed-coverage'
 
 const body = 'private jpeg test bytes',
   imageHash = createHash('sha256').update(body).digest('hex'),
@@ -31,6 +32,90 @@ const input = () => ({
   signal: new AbortController().signal,
 })
 describe('atomic private native image/packet loading', () => {
+  function coveredFixture() {
+    const result = fixture()
+    const polygon = [
+      { x: 10, y: 10 },
+      { x: 100, y: 10 },
+      { x: 100, y: 100 },
+    ]
+    const { reviewSpans: _reviewSpans, ...coverage } = inspectReviewedPageCoverage({
+      source: result.packet.source,
+      reading: {
+        readAt: '2026-10-09',
+        sourcePage: 1,
+        planState: 'existing',
+        rooms: [{ sourceNumber: 1, name: 'Комната', kind: 'living' }],
+      },
+      contours: {
+        source: result.packet.source,
+        coordinateSystem: 'page-0-1000',
+        review: 'manual-source-review',
+        pageWidth: 1000,
+        pageHeight: 1000,
+        rooms: [{ roomSourceNumber: 1, polygon }],
+      },
+      linework: {
+        coordinateSystem: 'page-0-1000',
+        pageWidth: 1000,
+        pageHeight: 1000,
+        paths: [
+          { operationIndex: 1, subpathIndex: 0, paint: 'stroke', closed: true, points: polygon },
+        ],
+        skippedCurves: 0,
+        clippedPaths: 0,
+        unsupportedPaths: 0,
+        unsupportedContexts: 0,
+        truncated: false,
+      },
+    })
+    result.packet.savedReview = { status: 'checked', coverage }
+    return { ...result, coverage }
+  }
+  it('returns saved review coverage only in the same verified private image pair', async () => {
+    const { packet, headers } = coveredFixture()
+    const fetcher = vi.fn(async (url: string) =>
+      url.includes('native-review-image') ? new Response(body, { headers }) : Response.json(packet),
+    )
+    const result = await loadNativeReview(input(), fetcher as typeof fetch)
+    expect(result.packet.savedReview).toMatchObject({
+      status: 'checked',
+      coverage: { status: 'partial', readiness: { readyFor2D: false, readyFor3D: false } },
+    })
+  })
+  it.each([
+    'source',
+    'page',
+    'state',
+    'promotion',
+    'status',
+    'counts',
+    'spans',
+    'floor-role',
+    'issues',
+    'missing',
+    'null',
+  ])('rejects malformed saved coverage %s before displaying source pixels', async (change) => {
+    const { packet, headers, coverage } = coveredFixture()
+    if (change === 'source') coverage.source.sha256 = 'd'.repeat(64)
+    if (change === 'page') coverage.source.pdfPage = 2
+    if (change === 'state') coverage.source.state = 'proposed' as 'existing'
+    if (change === 'promotion') coverage.readiness.readyFor3D = true as false
+    if (change === 'status') coverage.status = 'accepted' as 'partial'
+    if (change === 'counts') coverage.openings.pairedDoorFaces = 1
+    if (change === 'spans') Object.assign(coverage, { reviewSpans: [] })
+    if (change === 'floor-role') coverage.floorBoundary = 'confirmed' as 'missing'
+    if (change === 'issues') coverage.issues = ['x'.repeat(129)]
+    if (change === 'missing') delete (packet as Partial<typeof packet>).savedReview
+    if (change === 'null')
+      packet.savedReview = { status: 'checked', coverage: null as unknown as typeof coverage }
+    const fetcher = vi.fn(async (url: string) =>
+      url.includes('native-review-image') ? new Response(body, { headers }) : Response.json(packet),
+    )
+    await expect(loadNativeReview(input(), fetcher as typeof fetch)).rejects.toMatchObject({
+      status: 422,
+    })
+  })
   it('fetches both channels without saving, and checks actual private image bytes', async () => {
     const { packet, headers } = fixture()
     const fetcher = vi.fn(async (url: string) =>

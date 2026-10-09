@@ -58,6 +58,22 @@ function Harness() {
         >
           Сессия закончилась
         </button>
+        {[
+          ['no-review', 'Без сохранённой разметки'],
+          ['unavailable-review', 'Нет нативного слоя'],
+          ['stale-review', 'Устаревшая разметка'],
+          ['malformed-review', 'Повреждённый отчёт'],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => {
+              mode = value ?? 'normal'
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       <p data-testid="conflicts" className="mt-3 text-sm">
         Конфликтов версии: {conflicts}
@@ -65,7 +81,7 @@ function Harness() {
       <PlanNativeReview
         key={revision}
         projectId="qa-native-review"
-        pageNumber={3}
+        pageNumber={Number(document.getElementById('root')?.dataset.page ?? 3)}
         sourceRevision={revision}
         onConflict={() => setConflicts((value) => value + 1)}
       />

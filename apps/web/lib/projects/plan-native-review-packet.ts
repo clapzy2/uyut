@@ -1,7 +1,12 @@
+import type { PlanReading } from '@uyut/db'
 import type { NativeTextAnchors } from './plan-document'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
 import { nativeFaceAnnotationCandidates } from './plan-native-face-annotations'
 import { automaticNativeRoomCandidates } from './plan-native-room-candidates'
+import {
+  inspectReviewedPageCoverage,
+  type ReviewedPageCoverage,
+} from './plan-page-reviewed-coverage'
 import type { PdfLinework } from './plan-pdf-linework'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
 import { bindObservedRegionLabels, type RegionLabelFrame } from './plan-raster-region-labels'
@@ -35,6 +40,10 @@ export type NativeReviewPacket = {
   }[]
   issues: { code: string; message: string }[]
   readiness: { readyFor2D: false; readyFor3D: false; readOnly: true }
+  savedReview:
+    | { status: 'not-saved' }
+    | { status: 'unavailable'; reason: 'native-layer-unavailable' | 'unsupported-review-version' }
+    | { status: 'checked'; coverage: Omit<ReviewedPageCoverage, 'reviewSpans'> }
 }
 
 /** Whole-page inspection only. No reviews are invented; this packet is never PlanGeometry. */
@@ -44,6 +53,7 @@ export function nativeReviewPacket(input: {
   native?: NativeTextAnchors
   work?: PdfLinework
   lineworkSource?: RegionLabelFrame
+  savedReading?: PlanReading
 }): NativeReviewPacket {
   const { source, image, native, work, lineworkSource } = input
   const packet: NativeReviewPacket = {
@@ -68,10 +78,28 @@ export function nativeReviewPacket(input: {
     faces: [],
     issues: [],
     readiness: { readyFor2D: false, readyFor3D: false, readOnly: true },
+    savedReview: { status: 'not-saved' },
   }
   const issue = (code: string, message: string) => packet.issues.push({ code, message })
   if (source.state !== 'existing' || source.pdfPage !== image.page)
     throw new Error('Native inspection requires the selected existing-state page')
+  const savedReading = input.savedReading
+  const review = savedReading?.pageReview
+  if (review && savedReading) {
+    if (review.version !== 1)
+      packet.savedReview = { status: 'unavailable', reason: 'unsupported-review-version' }
+    else if (!work)
+      packet.savedReview = { status: 'unavailable', reason: 'native-layer-unavailable' }
+    else {
+      const { reviewSpans: _reviewSpans, ...coverage } = inspectReviewedPageCoverage({
+        source,
+        reading: savedReading,
+        contours: review.contours,
+        linework: work,
+      })
+      packet.savedReview = { status: 'checked', coverage }
+    }
+  }
   if (!native || !work || !lineworkSource) {
     issue(
       'native-layers-unavailable',

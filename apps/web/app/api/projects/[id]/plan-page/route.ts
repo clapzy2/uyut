@@ -113,6 +113,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         native: page.nativeTextAnchors,
         work: page.linework,
         lineworkSource: page.lineworkRasterSource,
+        savedReading: current.planReading ?? undefined,
       })
       const afterInspection = await assertOwnerOrCollaborator(session.user.id, id)
       if (revision !== planEditRevision(afterInspection.planUrl, afterInspection.planReading))

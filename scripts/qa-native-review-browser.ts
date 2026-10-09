@@ -1,12 +1,14 @@
 // Local standalone client QA; Next route authorization is tested independently.
 // bun --no-env-file run scripts/qa-native-review-browser.ts PDF PAGE PORT FRESH_DIRECTORY
 import { createHash } from 'node:crypto'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import type { PlanReading } from '@uyut/db'
 import { preparePlanPage } from '../apps/web/lib/projects/plan-document'
 import { nativeReviewPacket } from '../apps/web/lib/projects/plan-native-review-packet'
 
-const [pdfPath, pageArgument, portArgument, outputArgument] = process.argv.slice(2)
+const [pdfPath, pageArgument, portArgument, outputArgument, savedReadingPath] =
+  process.argv.slice(2)
 if (!pdfPath || !pageArgument || !portArgument || !outputArgument)
   throw new Error('Supply PDF, page, port and fresh directory')
 const pageNumber = Number(pageArgument),
@@ -25,6 +27,9 @@ const body = await readFile(resolve(pdfPath)),
   sourceHash = createHash('sha256').update(body).digest('hex')
 const page = await preparePlanPage(body, true, pageNumber, true, true)
 const imageHash = createHash('sha256').update(page.image.body).digest('hex')
+const savedReading = savedReadingPath
+  ? (JSON.parse(await readFile(resolve(savedReadingPath), 'utf8')) as PlanReading)
+  : undefined
 const packet = {
   ...nativeReviewPacket({
     source: { sha256: sourceHash, pdfPage: pageNumber, state: 'existing' },
@@ -37,6 +42,7 @@ const packet = {
     native: page.nativeTextAnchors,
     work: page.linework,
     lineworkSource: page.lineworkRasterSource,
+    savedReading,
   }),
   sourceRevision: 'c'.repeat(64),
 }
@@ -47,10 +53,13 @@ const build = await Bun.build({
   define: { 'process.env.NODE_ENV': '"development"' },
 })
 if (!build.success) throw new Error(String(build.logs))
-const stylePath = resolve('apps/web/.next/static/chunks/0h__ypl2q5138.css')
-const css = await readFile(stylePath)
-const html =
-  '<!doctype html><html lang="ru" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Native review QA</title><link rel="stylesheet" href="/style.css"><style>body{font-family:Arial,sans-serif}h1{font-family:Georgia,serif}</style></head><body><div id="root"></div><script type="module" src="/client.js"></script></body></html>'
+const chunks = resolve('apps/web/.next/static/chunks')
+const styles = (await readdir(chunks)).filter((name) => name.endsWith('.css')).sort()
+if (!styles.length) throw new Error('Build application CSS before browser QA')
+const css = (await Promise.all(styles.map((name) => readFile(join(chunks, name), 'utf8')))).join(
+  '\n',
+)
+const html = `<!doctype html><html lang="ru" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Native review QA</title><link rel="stylesheet" href="/style.css"><style>body{font-family:Arial,sans-serif}h1{font-family:Georgia,serif}</style></head><body><div id="root" data-page="${pageNumber}"></div><script type="module" src="/client.js"></script></body></html>`
 let inspectionRequests = 0,
   imageRequests = 0
 const requests: { method: string; format: string | null; mode: string | null }[] = []
@@ -114,7 +123,18 @@ const server = Bun.serve({
       })
     }
     inspectionRequests++
-    return Response.json(packet, { headers })
+    const result = structuredClone(packet)
+    const mode = url.searchParams.get('qaMode')
+    if (mode === 'no-review') result.savedReview = { status: 'not-saved' }
+    if (mode === 'unavailable-review')
+      result.savedReview = { status: 'unavailable', reason: 'native-layer-unavailable' }
+    if (mode === 'stale-review' && result.savedReview.status === 'checked') {
+      result.savedReview.coverage.status = 'refused'
+      result.savedReview.coverage.refusalReason = 'different-plan-source'
+    }
+    if (mode === 'malformed-review' && result.savedReview.status === 'checked')
+      result.savedReview.coverage.readiness.readyFor2D = true as false
+    return Response.json(result, { headers })
   },
 })
 console.log(

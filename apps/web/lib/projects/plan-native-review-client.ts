@@ -9,6 +9,78 @@ export class NativeReviewRequestError extends Error {
   }
 }
 
+function isSavedReview(value: unknown, source: NativeReviewPacket['source']): boolean {
+  if (!value || typeof value !== 'object') return false
+  const saved = value as NativeReviewPacket['savedReview']
+  if (saved.status === 'not-saved') return true
+  if (saved.status === 'unavailable')
+    return ['native-layer-unavailable', 'unsupported-review-version'].includes(saved.reason)
+  if (saved.status !== 'checked' || !saved.coverage || typeof saved.coverage !== 'object')
+    return false
+  const report = saved.coverage
+  const boundedCount = (count: unknown, max = 100_000) =>
+    Number.isSafeInteger(count) && typeof count === 'number' && count >= 0 && count <= max
+  const statuses = [
+    'paired',
+    'opening',
+    'unmatched',
+    'unpaired-exterior',
+    'ambiguous',
+    'unsupported-angle',
+    'conditional',
+  ] as const
+  if (
+    !['refused', 'partial'].includes(report.status) ||
+    report.source?.sha256 !== source.sha256 ||
+    report.source.pdfPage !== source.pdfPage ||
+    report.source.state !== source.state ||
+    typeof report.extractionComplete !== 'boolean' ||
+    !['missing', 'envelope-only', 'reviewed-floor', 'legacy-exterior-floor'].includes(
+      report.floorBoundary,
+    ) ||
+    !Array.isArray(report.missingSourceNumbers) ||
+    report.missingSourceNumbers.length > 100 ||
+    report.missingSourceNumbers.some((number) => !boundedCount(number, 10_000) || number === 0) ||
+    !boundedCount(report.wallPairs) ||
+    !report.wallSource ||
+    typeof report.wallSource.strictValid !== 'boolean' ||
+    typeof report.wallSource.localAuditValid !== 'boolean' ||
+    !report.wallSpans ||
+    statuses.some((status) => !boundedCount(report.wallSpans[status])) ||
+    'reviewSpans' in report ||
+    typeof report.reviewSpansTruncated !== 'boolean' ||
+    !report.openings ||
+    Object.keys(report.openings).length !== 7 ||
+    [
+      report.openings.declaredDoors,
+      report.openings.doorPairCandidates,
+      report.openings.pairedDoorFaces,
+      report.openings.unresolvedDoorChecks,
+      report.openings.ambiguousDoorChecks,
+      report.openings.uncheckedDoorFaces,
+      report.openings.nonDoorDeclarations,
+    ].some((count) => !boundedCount(count, 200)) ||
+    report.openings.pairedDoorFaces !== report.openings.doorPairCandidates * 2 ||
+    report.openings.pairedDoorFaces +
+      report.openings.unresolvedDoorChecks +
+      report.openings.ambiguousDoorChecks +
+      report.openings.uncheckedDoorFaces >
+      report.openings.declaredDoors ||
+    !Array.isArray(report.issues) ||
+    report.issues.length > 30 ||
+    report.issues.some((issue) => typeof issue !== 'string' || !issue || issue.length > 128) ||
+    report.readiness?.readOnly !== true ||
+    report.readiness.readyFor2D !== false ||
+    report.readiness.readyFor3D !== false ||
+    (report.status === 'refused' &&
+      (typeof report.refusalReason !== 'string' ||
+        !report.refusalReason ||
+        report.refusalReason.length > 128))
+  )
+    return false
+  return true
+}
+
 function isPacket(value: unknown, page: number, revision: string): value is NativeReviewPacket {
   if (!value || typeof value !== 'object') return false
   const packet = value as NativeReviewPacket
@@ -28,6 +100,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     packet.readiness?.readOnly !== true ||
     packet.readiness.readyFor2D !== false ||
     packet.readiness.readyFor3D !== false ||
+    !isSavedReview(packet.savedReview, packet.source) ||
     !Array.isArray(packet.faces) ||
     packet.faces.length > 100 ||
     !Array.isArray(packet.issues) ||

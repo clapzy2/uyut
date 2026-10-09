@@ -76,6 +76,18 @@ const output = resolve(outputPath)
 await mkdir(output, { recursive: false })
 await writeFile(join(output, 'source-page.jpg'), prepared.image.body)
 await writeFile(join(output, 'coverage.json'), JSON.stringify(report, null, 2))
+// Isolated browser fixture from the existing archived manual review, never a project save.
+await writeFile(
+  join(output, 'saved-reading.json'),
+  JSON.stringify(
+    {
+      ...reading,
+      pageReview: { version: 1, savedAt: reading.readAt, contours },
+    },
+    null,
+    2,
+  ),
+)
 const summary = {
   source,
   status: report.status,

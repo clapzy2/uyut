@@ -6,6 +6,20 @@
 
 ### Текущий результат последней пачки
 
+Интеграция 9 октября: отчёт сохранённой manual pageReview теперь подключён к
+приватному native-review просмотру. Сервер использует current.planReading и
+перепроверяет access/revision после анализа; изменение разметки при прежнем PDF URL
+даёт 409. Клиент проверяет nested source/counts/readiness; internal reviewSpans,
+saved reading/contours и geometry не сериализуются в этот отчёт. UI различает
+not-saved, unavailable, refused и partial, поясняет локальные кандидаты и не
+называет число дверных граней числом физических дверей. Нет save/confirm кнопок.
+3159 web tests/239 файлов, typecheck семи пакетов, lint 851 файла и production
+build прошли; independent review без блокеров. Изолированный Firefox/mock API
+проверил состояния, mobile 390 px и смену версии во время запроса. Live account
+flow не проверялся; production/пользовательский проект не менялись, новый PR не
+создан. Следующий этап — закрывать same-source floor/wall/opening coverage,
+а не считать сам показ отчёта исправлением полного автораспознавания.
+
 Следующая локальная пачка 9 октября: добавлен same-source read-only отчёт
 inspectReviewedPageCoverage и runner свежего PDF. Разделены роль внешней огибающей,
 сверенная граница пола, локальные wall pairs, объявленные opening spans и кандидаты

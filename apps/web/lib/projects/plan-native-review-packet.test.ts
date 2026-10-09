@@ -7,6 +7,68 @@ function fixture() {
   return { ...input, source: input.reviewed.source, image: input.native.source }
 }
 describe('whole-page native inspection, separate from saved geometry', () => {
+  function savedReading(): PlanReading {
+    const input = fixture()
+    const polygon = input.work.paths[0]?.points
+    if (!polygon) throw new Error('Missing native polygon')
+    return {
+      readAt: '2026-10-09',
+      sourcePage: input.source.pdfPage,
+      planState: 'existing',
+      rooms: [{ sourceNumber: 1, name: 'Гостиная', kind: 'living' }],
+      pageReview: {
+        version: 1,
+        savedAt: '2026-10-09',
+        contours: {
+          source: { ...input.source },
+          coordinateSystem: 'page-0-1000',
+          review: 'manual-source-review',
+          pageWidth: input.work.pageWidth,
+          pageHeight: input.work.pageHeight,
+          rooms: [{ roomSourceNumber: 1, polygon: structuredClone(polygon) }],
+        },
+      },
+    }
+  }
+  it('checks only saved manual contours and leaves both reading and source unchanged', () => {
+    const input = { ...fixture(), savedReading: savedReading() }
+    const before = structuredClone(input)
+    const packet = nativeReviewPacket(input)
+    expect(packet.savedReview).toMatchObject({
+      status: 'checked',
+      coverage: {
+        status: 'partial',
+        floorBoundary: 'missing',
+        readiness: { readOnly: true, readyFor2D: false, readyFor3D: false },
+      },
+    })
+    expect(input).toEqual(before)
+    expect(packet.savedReview).not.toHaveProperty('contours')
+    if (packet.savedReview.status !== 'checked') throw new Error('Missing coverage')
+    expect(packet.savedReview.coverage).not.toHaveProperty('reviewSpans')
+    expect(nativeReviewPacket(fixture()).savedReview).toEqual({ status: 'not-saved' })
+  })
+  it('distinguishes saved review with missing native layer from no saved review', () => {
+    const input = fixture()
+    const packet = nativeReviewPacket({
+      source: input.source,
+      image: input.image,
+      savedReading: savedReading(),
+    })
+    expect(packet.savedReview).toEqual({
+      status: 'unavailable',
+      reason: 'native-layer-unavailable',
+    })
+  })
+  it('shows refusal for stale saved contours instead of combining different PDFs', () => {
+    const input = { ...fixture(), savedReading: savedReading() }
+    if (!input.savedReading.pageReview) throw new Error('Missing review')
+    input.savedReading.pageReview.contours.source.sha256 = 'c'.repeat(64)
+    expect(nativeReviewPacket(input).savedReview).toMatchObject({
+      status: 'checked',
+      coverage: { status: 'refused', refusalReason: 'different-plan-source' },
+    })
+  })
   it('aggregates only same-source candidates without creating a confirmed plan', () => {
     const input = fixture(),
       before = structuredClone(input)
@@ -50,3 +112,5 @@ describe('whole-page native inspection, separate from saved geometry', () => {
     },
   )
 })
+
+import type { PlanReading } from '@uyut/db'

@@ -1337,6 +1337,47 @@ same-source floor/wall/opening coverage и reviewed transfer; универсал
 
 ## Чего эта проверка не доказывает
 
+### 9 октября: отчёт сохранённой разметки в приватном просмотре
+
+NativeReviewPacket получил savedReview union: not-saved/unavailable/checked.
+Для сохранённой version1 manual pageReview отчёт вычисляется по current reading
+и свежему native layer; source mismatch остаётся refused. Отсутствие native layer
+не выдаётся за отсутствие сохранённой разметки. После анализа route снова проверяет
+access и полный planEditRevision, включая изменения pageReview при прежнем URL.
+До обращения к закрытому PDF выполняются прежние auth/owner/collaborator gates.
+Клиент проверяет source SHA/page/state, fixed false readiness, bounded counters,
+тип floor role и issues. В ответ не попадают saved reading/contours/geometry и
+internal reviewSpans; последние явно отклоняются клиентским summary-контрактом.
+Исходные normalized span coordinates не рисуются как raster pixels.
+
+UI сохранён в существующих токенах/кнопках и lazy review потоке без fetch при
+mount/open details. Показывает отсутствие, недоступность, отказ и partial report,
+read-only floor role, local wall pairs, candidate door pairs, declared door faces
+с явным «не число физических дверей» и human-readable limitations. Метрики не
+объявляют полную квартиру готовой; нет save/confirm/project mutations.
+
+Browser QA: isolated Firefox session native-coverage-20261009, actual component,
+mock private API на localhost, fresh hash-pinned PDF page6 и archived manual review
+fixture из tmp/reviewed-page-coverage-20261009-c/saved-reading.json. Это не подключение
+к пользовательскому проекту и не live проверка авторизации. Стенд -a прошёл normal,
+not-saved, unavailable, refused, malformed readiness response и delayed source-key
+change; malformed data убирает старый SVG, delayed race оставляет images0/alerts0.
+Финальное уменьшение packet проверено unit/route тестами и стендом -b: normal UI
+успешен, raw reviewSpans отсутствуют в JSON. Остальные визуальные состояния не
+перепроигрывались после удаления unused координат; layout этих состояний не менялся.
+390 px: documentWidth=innerWidth, desktop/mobile PNG просмотрены, включая
+output/playwright/native-coverage-20261009/mobile-final.png. Все наблюдённые API
+запросы GET, mutations0/paidRequests0. QA harness использует actual build CSS files
+без прежнего hardcoded chunk имени, page number параметризован. Оба проверенных
+QA server process остановлены, isolated browser закрыт; артефакты сохранены.
+
+59 focused cases; полный web suite 3159 tests/239 файлов, typecheck семи пакетов,
+lint 851 файла, production build и diff check прошли. Последнее уточнение copy
+про «внутренний перечень» не меняет UI на проверенном fixture без queue truncation.
+Independent review без блокеров. Production, user project, AI расходы и PR не
+менялись. Эта интеграция делает ограничения видимыми, но не решает полноту native
+ролей/пола/проёмов и не подтверждает физические проходы либо универсальное распознавание.
+
 ### 9 октября: fresh same-source отчёт покрытия
 
 Новый inspectReviewedPageCoverage принимает existing source, reading, manual

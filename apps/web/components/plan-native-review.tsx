@@ -8,6 +8,114 @@ import {
 } from '@/lib/projects/plan-native-review-client'
 import type { NativeReviewPacket } from '@/lib/projects/plan-native-review-packet'
 
+const coverageMessages: Record<string, string> = {
+  'native-extraction-incomplete':
+    'Не все линии исходника извлечены. Локальные находки не доказывают полноту листа.',
+  'room-inventory-partial': 'Не для всех номеров помещений сохранены контуры.',
+  'floor-boundary-missing':
+    'В разметке нет границы пола квартиры. Внешняя огибающая стен её не заменяет.',
+  'wall-pairing-source-unavailable': 'Исходные линии не позволяют перепроверить пары граней стен.',
+  'wall-pairing-edge-limit': 'Для поиска пар стен достигнут лимит сложности разметки.',
+  'wall-span-coverage-partial':
+    'Часть границ требует сверки: локальные пары не покрывают всю квартиру.',
+  'conditional-boundary-review-required':
+    'Есть условные разделители зон. Они не считаются физическими стенами.',
+  'review-spans-display-limited':
+    'Внутренний перечень проверки ограничен 200 участками; счётчики включают остальные.',
+  'door-face-pairing-partial':
+    'Не все объявленные дверные грани связаны с парой по исходным линиям.',
+  'non-door-declarations-unverified':
+    'Окна и балконные блоки объявлены в разметке, но этим отчётом не проверены.',
+  'floor-area-partition-unverified':
+    'Не проверено, как комнаты, стены и технические зоны покрывают площадь пола.',
+  'complete-opening-inventory-unverified': 'Не доказано, что учтены все проёмы исходника.',
+  'physical-passages-unverified': 'Физические проходы, створки и свободные зоны не подтверждены.',
+  'metric-scale-unverified': 'Масштаб и перевод в сантиметры здесь не проверяются.',
+  'vertical-data-unverified': 'Высоты и вертикальные данные для 3D здесь не проверяются.',
+}
+
+export function SavedReviewCoverage({
+  savedReview,
+}: {
+  savedReview: NativeReviewPacket['savedReview']
+}) {
+  return (
+    <section className="border-t border-line pt-3" aria-label="Проверка сохранённой разметки">
+      <h4 className="text-[14px] font-medium">Проверка сохранённой разметки</h4>
+      {savedReview.status === 'not-saved' ? (
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+          Ручная разметка этого листа ещё не сохранена. Найденные выше области не заменяют её.
+        </p>
+      ) : savedReview.status === 'unavailable' ? (
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+          Разметка сохранена, но отчёт недоступен:{' '}
+          {savedReview.reason === 'native-layer-unavailable'
+            ? 'не удалось получить нативные линии PDF.'
+            : 'версия разметки не поддерживается этой проверкой.'}
+        </p>
+      ) : savedReview.coverage.status === 'refused' ? (
+        <div className="mt-2 text-[13px] leading-relaxed text-ink-2">
+          <p>
+            Сохранённая разметка не прошла перепроверку по текущему исходнику. Сверьте выбранный
+            лист и контуры. Прежняя схема не изменена.
+          </p>
+          <details className="mt-2">
+            <summary className="min-h-11 cursor-pointer py-3">Причина отказа проверки</summary>
+            <p className="break-all">{savedReview.coverage.refusalReason}</p>
+          </details>
+        </div>
+      ) : (
+        <div className="mt-2 space-y-3 text-[13px] leading-relaxed">
+          <p className="text-ink-2">
+            Результат частичный. Пары граней — локальные кандидаты, не подтверждение всей квартиры
+            или проходов. Сохранённая 2D/3D не меняется.
+          </p>
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <dt className="text-ink-2">Граница пола в разметке</dt>
+              <dd>
+                {savedReview.coverage.floorBoundary === 'reviewed-floor'
+                  ? 'Есть контур пола'
+                  : savedReview.coverage.floorBoundary === 'legacy-exterior-floor'
+                    ? 'Унаследована из внешнего контура'
+                    : savedReview.coverage.floorBoundary === 'envelope-only'
+                      ? 'Только внешняя огибающая стен'
+                      : 'Не задана'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-2">Локальные пары граней стен</dt>
+              <dd>{savedReview.coverage.wallPairs}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-2">Кандидаты пар дверных граней</dt>
+              <dd>{savedReview.coverage.openings.doorPairCandidates}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-2">Объявленные дверные грани</dt>
+              <dd>{savedReview.coverage.openings.declaredDoors} — не число физических дверей</dd>
+            </div>
+          </dl>
+          {savedReview.coverage.missingSourceNumbers.length ? (
+            <p className="text-ink-2">
+              Нет контуров для номеров помещений:{' '}
+              {savedReview.coverage.missingSourceNumbers.join(', ')}.
+            </p>
+          ) : null}
+          <ul className="list-disc space-y-2 pl-5 text-ink-2">
+            {savedReview.coverage.issues.map((issue) => (
+              <li key={issue}>
+                {coverageMessages[issue] ??
+                  'Есть дополнительные ограничения исходника; нужна отдельная сверка.'}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  )
+}
+
 export function NativeReviewResult({
   packet,
   imageUrl,
@@ -111,6 +219,7 @@ export function NativeReviewResult({
         Бирюзовые контуры — неизвестные области. Розовые — предполагаемые таблицы и служебные поля.
         Ни один цвет не означает подтверждённую комнату.
       </p>
+      <SavedReviewCoverage savedReview={packet.savedReview} />
       <div className="border-t border-line pt-3">
         <h4 className="text-[14px] font-medium">
           Что ещё нужно проверить для переноса этого разбора в 2D/3D
