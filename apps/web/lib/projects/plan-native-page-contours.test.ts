@@ -58,6 +58,34 @@ function fixture() {
 }
 
 describe('explicit same-source native page assignments, never automatic confirmation', () => {
+  it('accepts exact decimal neighbours through the complete fresh source validation path', () => {
+    const { input } = fixture()
+    const shapes = [
+      [
+        { x: 0.1, y: 0.3 },
+        { x: 0.3, y: 0.9 },
+        { x: 0.3, y: 0.3 },
+      ],
+      [
+        { x: 0.2, y: 0.6 },
+        { x: 0.3, y: 0.9 },
+        { x: 0.1, y: 0.9 },
+      ],
+    ]
+    input.work.paths = shapes.map((points, index) => ({
+      operationIndex: index + 1,
+      subpathIndex: 0,
+      closed: true,
+      paint: 'stroke',
+      points,
+    }))
+    for (const room of input.rooms) room.reviewed.faces = room.reviewed.faces.slice(0, 3)
+    const result = nativePageContourCandidates(input)
+    expect(result.status, result.reason).toBe('partial')
+    expect(result.roomContacts?.total).toBe(1)
+    expect(result.roomContacts?.physicalPassagesAccepted).toBe(false)
+    expect(result.contours).not.toHaveProperty('review')
+  })
   it('keeps a diagonal balcony room distinct and missing floor explicit', () => {
     const { input } = fixture(),
       before = structuredClone(input)
@@ -65,6 +93,19 @@ describe('explicit same-source native page assignments, never automatic confirma
     expect(result.status).toBe('partial')
     expect(result.contours?.rooms.map((room) => room.polygon.length)).toEqual([4, 5])
     expect(result.missingSourceNumbers).toEqual([])
+    expect(result.roomContacts).toMatchObject({
+      status: 'candidate',
+      total: 1,
+      physicalPassagesAccepted: false,
+    })
+    expect(result.roomContacts?.spans[0]).toMatchObject({
+      firstRoomKey: '1',
+      secondRoomKey: '2',
+      firstEdgeIndex: 1,
+      secondEdgeIndex: 4,
+      start: { x: 520, y: 100 },
+      end: { x: 520, y: 280 },
+    })
     expect(result.issues).toContain('floor-boundary-missing')
     expect(result.contours).not.toHaveProperty('review')
     expect(result.contours).not.toHaveProperty('floor')

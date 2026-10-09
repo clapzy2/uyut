@@ -101,6 +101,7 @@ const summary = {
   status: result.status,
   roomNumbers: result.contours.rooms.map((room) => room.roomSourceNumber),
   vertexCounts: result.contours.rooms.map((room) => room.polygon.length),
+  roomContacts: result.roomContacts,
   missingSourceNumbers: result.missingSourceNumbers,
   issues: result.issues,
   incompleteCycle: missing.reason,

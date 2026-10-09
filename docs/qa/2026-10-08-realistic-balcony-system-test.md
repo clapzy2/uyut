@@ -1337,6 +1337,49 @@ same-source floor/wall/opening coverage и reviewed transfer; универсал
 
 ## Чего эта проверка не доказывает
 
+### 9 октября: exact source-space room boundary contacts
+
+Добавлен nativeRoomContacts и подключён в fresh batch после source/shape проверок.
+Контакт хранит оба source room keys, оба polygon edge indexes и копии исходных
+endpoints. Это положительный общий интервал, не количество дверей/соседей и не
+physical passage (physicalPassagesAccepted=false). Corner-only и positive gap,
+включая 0.000001 normalized units, не притягиваются. Ничего не union-ится,
+новые геометрические endpoints не вычисляются. До 100 комнат/500 vertices,
+до 200 отображаемых fragments, total и truncation сохраняются. Unsupported
+precision/identity/overlapping geometry дают atomic unresolved. Batch output
+по-прежнему не имеет review и не сохраняется; truncated contacts делают его partial.
+
+Independent audit нашёл floating false refusal для соседних треугольников
+(.1,.3)/(.3,.9)/(.3,.3) и (.2,.6)/(.3,.9)/(.1,.9). Их общий decimal diagonal
+точен, interiors по разные стороны. Новый exactNativePolygonsOverlap работает
+на едином BigInt scale decimal coordinates (существующий cap18), использует
+exact crossing/winding, collinear same-side и integer-rational interior probes.
+Пробные midpoint values не конвертируются обратно в Number и не возвращаются
+как source vertices; интервалы делятся при vertex-only crossings. Inscribed
+diamond с вершинами только на чужой boundary остаётся positive-area overlap.
+Source-only planPageFeaturesIssue использует новый guard; generic metric-space
+polygonsOverlap сохранён. Unsupported decimal evidence в source guard fails closed.
+Предварительная polygon simplicity проверка пока старая conservative floating-based;
+исправление не объявляет всю геометрическую библиотеку универсально точной.
+
+13 новых direct cases + один fresh batch decimal integration case; 128 focused
+tests прошли. Independent audit сопоставил 10000 deterministic convex polygon
+pairs с clipping area, zero mismatches; concave inputs не этим fuzz-контролем
+исчерпаны. Контакты проверены при reversed winding/partial edge, gap/corner,
+same-side overlap/containment/inscribed polygon, precision/identity/work limits
+и display truncation. Batch living/balcony synthetic граница имеет один source
+interval, но не door/window. Обе source identities и edge indexes сохранены.
+
+Fresh same-source bench: tmp/native-room-contacts-20261009-a/ по Chigintseva PDF
+сохранил previously reviewed bedroom2/balcony8 polygons, missing six identities,
+нет floor/envelope, partial. Эти два выбранных помещения не имеют общей границы:
+contacts0 не означает отсутствие соседей в полной квартире. Full source overlay
+PNG просмотрен; это не квартира пользователя 28.8 м². AI requests0/projectWrites0.
+Full web 3202 tests/241 файлов, typecheck семи пакетов, lint 856 файлов, production
+build и diff check прошли. UI не менялся, browser replay не запускался. Production,
+пользовательский проект и PR не менялись. Общие границы — кандидатное свидетельство;
+wall bodies, opening inventory, physical clearance, full floor и 3D не приняты.
+
 ### 9 октября: batch source-space candidates по explicit native assignments
 
 Новый plan-native-page-contours.ts принимает source/reading identity inventory,

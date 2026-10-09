@@ -6,6 +6,19 @@
 
 ### Текущий результат последней пачки
 
+Следующая геометрическая пачка 9 октября: native room candidates получили
+roomContacts — точные общие интервалы с room keys/edge indexes исходных полигонов.
+Касание углом и даже малый зазор не становятся contact; общая граница не становится
+стеной/дверью/physical passage. Search ограничен 500 vertices и 200 displayed
+fragments с сохранением total/truncated. Исправлен source-space overlap guard,
+ложно отклонявший соседние decimal diagonal polygons: новая BigInt arithmetic
+используется в planPageFeaturesIssue, generic metric polygonsOverlap не менялся.
+3202 tests/241 файлов, typecheck семи пакетов, lint 856 файлов и production build
+прошли. Independent 10000 convex-pair контроль без расхождений; это не всеобщая
+приёмка произвольной геометрии. UI/production/user project/PR не менялись.
+Следующий этап — связать boundary candidates с independently checked wall/opening
+evidence; contact сам по себе ничего не говорит о доступности между помещениями.
+
 Локальный геометрический шаг 9 октября: nativePageContourCandidates собирает
 свежее page-space представление из явно выбранных native face reviews и source
 идентичностей комнат. Комнаты, отдельный floor и outer-wall-envelope не смешиваются;

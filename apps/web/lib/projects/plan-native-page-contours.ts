@@ -2,6 +2,7 @@ import type { PlanPageContours, PlanPageRoomIdentity, PlanReading } from '@uyut/
 import type { NativeTextAnchors } from './plan-document'
 import type { nativeDimensionEvidence } from './plan-native-dimension-evidence'
 import { nativeFaceCycle, type ReviewedNativeFaces } from './plan-native-face-cycle'
+import { type NativeRoomContacts, nativeRoomContacts } from './plan-native-room-contacts'
 import {
   planPageContoursSchema,
   planPageFeaturesIssue,
@@ -15,6 +16,7 @@ export type NativePageContourCandidates = {
   status: 'candidate' | 'partial' | 'unresolved'
   reason?: string
   contours: Omit<PlanPageContours, 'review'> | null
+  roomContacts: NativeRoomContacts | null
   missingSourceNumbers: number[]
   issues: string[]
   readiness: { readOnly: true; readyFor2D: false; readyFor3D: false }
@@ -39,6 +41,7 @@ export function nativePageContourCandidates(input: {
     status: 'unresolved',
     reason,
     contours: null,
+    roomContacts: null,
     missingSourceNumbers: [],
     issues: [reason],
     readiness: { readOnly: true, readyFor2D: false, readyFor3D: false },
@@ -166,6 +169,8 @@ export function nativePageContourCandidates(input: {
     planPageFeaturesIssue(projection, { checkRoomOverlap: true }) ??
     planPageReviewIssue(projection, reading, source, work)
   if (issue) return fail(issue)
+  const roomContacts = nativeRoomContacts(candidate)
+  if (roomContacts.status === 'unresolved') return fail(`room-contacts:${roomContacts.reason}`)
   const assigned = new Set(candidate.rooms.flatMap((room) => [...pdfContourRoomNumbers(room)]))
   const missingSourceNumbers = sourceNumbers.filter(
     (number): number is number => number !== undefined && !assigned.has(number),
@@ -175,18 +180,25 @@ export function nativePageContourCandidates(input: {
     'complete-opening-inventory-unverified',
     'metric-scale-unverified',
     'vertical-data-unverified',
+    'shared-boundaries-not-physical-passages',
   ]
   if (missingSourceNumbers.length) issues.push('room-inventory-partial')
   if (!candidate.floor) issues.push('floor-boundary-missing')
   if (!candidate.exterior) issues.push('outer-wall-envelope-missing')
   if (untypedClosures) issues.push('opening-closures-untyped')
   if (work.skippedCurves || work.clippedPaths) issues.push('native-extraction-incomplete')
+  if (roomContacts.truncated) issues.push('room-contacts-display-limited')
   return {
     status:
-      missingSourceNumbers.length || !candidate.floor || work.skippedCurves || work.clippedPaths
+      missingSourceNumbers.length ||
+      !candidate.floor ||
+      work.skippedCurves ||
+      work.clippedPaths ||
+      roomContacts.truncated
         ? 'partial'
         : 'candidate',
     contours: candidate,
+    roomContacts,
     missingSourceNumbers,
     issues,
     readiness: { readOnly: true, readyFor2D: false, readyFor3D: false },

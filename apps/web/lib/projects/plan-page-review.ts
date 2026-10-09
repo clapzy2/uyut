@@ -1,5 +1,6 @@
 import type { PlanPageContours, PlanPageReview, PlanReading } from '@uyut/db'
 import { z } from 'zod'
+import { exactNativePolygonsOverlap } from './plan-native-exact-intersections'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import {
   type NativePageSegment,
@@ -320,6 +321,10 @@ export function planPageFeaturesIssue(
   input: PlanPageContours,
   options: { checkRoomOverlap?: boolean } = {},
 ): string | undefined {
+  // This validator is source-space only. Unsupported decimal evidence fails closed;
+  // generic metric-space callers keep the separate polygonsOverlap implementation.
+  const sourceOverlap = (first: readonly PagePoint[], second: readonly PagePoint[]) =>
+    exactNativePolygonsOverlap(first, second) ?? true
   const hasFeatures = input.rooms.some(
     (room) =>
       (room.openings?.length ?? 0) > 0 ||
@@ -385,16 +390,16 @@ export function planPageFeaturesIssue(
       return 'void-outside-exterior-contour'
     if (floor && !polygonWithin(voidArea.polygon, floor.polygon))
       return 'void-outside-floor-contour'
-    if (input.rooms.some((room) => polygonsOverlap(voidArea.polygon, room.polygon)))
+    if (input.rooms.some((room) => sourceOverlap(voidArea.polygon, room.polygon)))
       return 'void-overlaps-room-contour'
-    if (voids.slice(index + 1).some((other) => polygonsOverlap(voidArea.polygon, other.polygon)))
+    if (voids.slice(index + 1).some((other) => sourceOverlap(voidArea.polygon, other.polygon)))
       return 'overlapping-page-voids'
   }
   for (let roomIndex = 0; roomIndex < input.rooms.length; roomIndex++) {
     const room = input.rooms[roomIndex]
     if (!room) continue
     if (
-      input.rooms.slice(roomIndex + 1).some((other) => polygonsOverlap(room.polygon, other.polygon))
+      input.rooms.slice(roomIndex + 1).some((other) => sourceOverlap(room.polygon, other.polygon))
     )
       return 'overlapping-room-contours'
     const ids = new Set<string>()
@@ -455,7 +460,7 @@ export function planPageFeaturesIssue(
       if (pdfContourIssue(work, input.source, obstacleContours)) return 'invalid-page-obstacle'
       if (!polygonWithin(obstacle.polygon, room.polygon)) return 'obstacle-outside-room-contour'
       if (
-        obstacles.slice(index + 1).some((other) => polygonsOverlap(obstacle.polygon, other.polygon))
+        obstacles.slice(index + 1).some((other) => sourceOverlap(obstacle.polygon, other.polygon))
       )
         return 'overlapping-page-obstacles'
     }
