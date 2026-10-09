@@ -401,6 +401,12 @@ export function parseFloorPlan(
         return undefined
       }
       measurementEvidence[side] = evidence
+      if (options.requireMeasurementEvidence && !textItems) {
+        const label = side === 'width' ? 'Ширина' : side === 'depth' ? 'Глубина' : 'Высота потолка'
+        measurementWarnings.push(
+          `${label}: число прочитано по изображению. Принадлежность подписи этой комнате и полнота цепочки независимо не подтверждены — сверьте исходник или обмер.`,
+        )
+      }
       return value
     }
     const widthCm = measurement('width')

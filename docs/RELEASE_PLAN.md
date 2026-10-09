@@ -6,6 +6,14 @@
 
 ### Текущий результат последней пачки
 
+Продолжение raster ветки: parser теперь добавляет measurementWarnings для accepted
+model dimensions без textItems в requireMeasurementEvidence режиме. complete:true
+не означает independent source ownership/full-chain verification. Числа остаются
+видимыми для сверки; отсутствующие сегменты не подставляются. Это защитная copy/data
+правка, НЕ исправление распознавания или footprint. Два прежних raw answers replayed
+без оплаты; ошибочные251.6 сохраняются с предупреждением. Следующий приоритет остаётся
+source-bound raster chain endpoints/completeness, не новые PDF-прототипы.
+
 9 октября: приоритет перенесён на реальное image reading, не дальнейшие native
 прототипы. Два платных raster прогона текущего production model/prompt/parser
 на локальном PNG 28.8 м² воспроизвели проблему: run1 гостиной depth251.6cm (вместо

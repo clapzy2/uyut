@@ -1337,6 +1337,32 @@ same-source floor/wall/opening coverage и reviewed transfer; универсал
 
 ## Чего эта проверка не доказывает
 
+### Raster evidence warning после реального failed replay
+
+parseFloorPlan(requireMeasurementEvidence:true) теперь помечает accepted размеры
+при отсутствии textItems: число прочитано по изображению, spatial ownership и
+полнота цепочки независимо не подтверждены. Значение/evidence не изменяются,
+missing segments не выдумываются. Это не дополнительный geometry approval gate,
+не исправление модели и не автоматическая корректировка251.6→464.4. UI использует
+существующий measurementWarnings render; новый компонент/страница не создавались.
+Native text/source gates не переписывались и не объявлены независимо точными.
+
+Два новых synthetic parser regressions проверяют partial[2516] и complete arithmetic
+[1600,528,2516]: оба raster self-declarations требуют сверки. Реальные прежние raw
+answers перепроиграны изменённым parser без FAL_KEY и новых paid calls. Новый
+--replay режим bench-raster-plan-reading проверяет SHA исходного изображения,
+requires fresh output directory, не допускает paid flag вместе с replay directory.
+Артефакты output/quality-bench/raster-28-8-20261009-warnings/ сохраняют прежние raw
+responses и числа/geometry, но теперь имеют явные warnings у распознанных значений.
+Особенно run1 depth251.6 остаётся неверным относительно видимой464.4 цепочки;
+два прежних footprint и геометрическая нестабильность не исправлены.
+
+96 focused parser tests, полный web3204 tests/241 файлов, typecheck7 пакетов и lint
+857 файлов прошли. Live browser/project transfers не проверялись этой пачкой,
+project writes0/new paid calls0/production unchanged. Следующая задача — независимое
+source-bound доказательство цепочки и crop-aware floor evidence, не перепроверка
+того же model complete:true как якобы новая авторитетная верификация.
+
 ### 9 октября: реальное raster AI reading — повторная проверка главной функции
 
 Внешний retest report/results/original-plan.webp отсутствует в доступных каталогах.
