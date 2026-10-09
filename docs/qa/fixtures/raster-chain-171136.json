@@ -1,0 +1,8 @@
+{
+  "sourceSha256": "ec0cfc07fc46d9c932bddf60ed340233476d442869bfdfd7349a9824dd16332e",
+  "width": 1161,
+  "height": 1189,
+  "crop": { "left": 180, "top": 54, "width": 408, "height": 72 },
+  "orientation": "horizontal",
+  "expected": [830, 1500, 470]
+}

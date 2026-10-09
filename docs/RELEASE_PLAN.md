@@ -6,6 +6,14 @@
 
 ### Текущий результат последней пачки
 
+OCR-chain experiment: manually selected SHA-bound crops on three real raster images
+were read without supplying expected labels. Two exact sequences passed (1600/528/2516
+and830/1500/470);3700 was misread3710. This is not automatic crop/room ownership
+verification or a production fix. Original clipped28.8 plan remains negative input.
+User prefers a new full public plan; next baseline will use complete dimensioned
+PDF plus PNG of the same page with native text withheld, and synthetic exact cases.
+Candidates found: DesignArtSpace BASIS_plan.pdf and Remplanner studio/interior.pdf.
+No new project writes/deploy; current crop script is offline QA only.
 Цельная raster safety пачка: readPlanFromStorage теперь делает до двух чтений PNG
 через createRasterPlanReader (PDF остаётся1). reconcileRasterReadings не подгоняет
 по площади: конфликт значений/segments/room semantics удаляет число+evidence,
