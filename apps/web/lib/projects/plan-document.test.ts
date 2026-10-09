@@ -133,7 +133,135 @@ describe('selected PDF page', () => {
   it('does not expose experimental native anchors by default', async () => {
     const result = await preparePlanPage(Buffer.from('pdf'), true, 6)
     expect(result).not.toHaveProperty('nativeTextAnchors')
+    expect(result).not.toHaveProperty('nativeCaptionGeometry')
     expect(result).not.toHaveProperty('lineworkRasterSource')
+  })
+  it('adds numeric baseline geometry using compact text indices without changing plan text', async () => {
+    mocks.viewport.mockImplementation(({ scale }: { scale: number }) => ({
+      width: 1000 * scale,
+      height: 2000 * scale,
+      convertToViewportPoint: (x: number, y: number) => [x * scale, (2000 - y) * scale],
+    }))
+    mocks.text.mockResolvedValue({
+      items: [
+        { type: 'beginMarkedContent' },
+        { str: ' ', transform: [1, 0, 0, 1, 0, 0] },
+        { str: 'Кухня', transform: [10, 0, 0, 10, 100, 100] },
+        { str: '75', width: 20, transform: [10, 0, 0, 10, 250.25, 400.75] },
+        { str: '0', width: 10, transform: [10, 0, 0, 10, 300, 400] },
+        { str: '40,13', width: 30, transform: [10, 0, 0, 10, 400, 400] },
+      ],
+    })
+    const ordinary = await preparePlanPage(Buffer.from('pdf'), true, 6)
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6, true)
+    expect(result.image.planText).toBe(ordinary.image.planText)
+    expect(result.nativeCaptionGeometry).toEqual({
+      source: {
+        sha256: createHash('sha256').update(Buffer.from('pdf')).digest('hex'),
+        pdfPage: 6,
+        pageWidth: 1000,
+        pageHeight: 2000,
+      },
+      complete: true,
+      items: [
+        {
+          index: 1,
+          text: '75',
+          rotation: 0,
+          origin: { x: 250, y: 800 },
+          baselineStart: { x: expect.closeTo(250.25, 10), y: 799.625 },
+          baselineEnd: { x: 270.25, y: 799.625 },
+        },
+      ],
+    })
+  })
+  it('maps caption width through viewport crop offsets and UserUnit without scaling it twice', async () => {
+    const userUnit = 2
+    mocks.viewport.mockImplementation(({ scale }: { scale: number }) => ({
+      width: 800 * scale * userUnit,
+      height: 600 * scale * userUnit,
+      convertToViewportPoint: (x: number, y: number) => [
+        (x - 50) * scale * userUnit,
+        (650 - y) * scale * userUnit,
+      ],
+    }))
+    mocks.text.mockResolvedValue({
+      items: [{ str: '340', width: 30.5, transform: [0, 10, -10, 0, 150.25, 550.25] }],
+    })
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6, true)
+    expect(result.nativeCaptionGeometry).toMatchObject({
+      source: { pdfPage: 6, pageWidth: 1600, pageHeight: 1200 },
+      complete: true,
+      items: [{ index: 0, text: '340', rotation: 90, origin: { x: 125, y: 166 } }],
+    })
+    const caption = result.nativeCaptionGeometry?.items[0]
+    expect(caption?.baselineStart.x).toBeCloseTo(125.3125)
+    expect(caption?.baselineStart.y).toBeCloseTo(166.25)
+    expect(caption?.baselineEnd.x).toBeCloseTo(125.3125)
+    expect(caption?.baselineEnd.y).toBeCloseTo((69.25 / 600) * 1000)
+  })
+  it('refuses viewport rotation that disagrees with the unchanged provider label orientation', async () => {
+    mocks.viewport.mockImplementation(({ scale }: { scale: number }) => ({
+      width: 800 * scale,
+      height: 600 * scale,
+      convertToViewportPoint: (x: number, y: number) => [y * scale, (600 - x) * scale],
+    }))
+    mocks.text.mockResolvedValue({
+      items: [{ str: '75', width: 20, transform: [10, 0, 0, 10, 100, 200] }],
+    })
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6, true)
+    expect(result.image.planText).toBe('[{"text":"75","x":250,"y":833,"rotation":0}]')
+    expect(result.nativeCaptionGeometry).toMatchObject({ complete: false, items: [] })
+  })
+  it.each([
+    { name: 'zero', width: 0 },
+    { name: 'negative', width: -1 },
+    { name: 'NaN', width: Number.NaN },
+    { name: 'infinite', width: Number.POSITIVE_INFINITY },
+    { name: 'missing', width: undefined },
+  ])('marks a numeric caption with $name width incomplete', async ({ width }) => {
+    mocks.text.mockResolvedValue({
+      items: [{ str: '75', width, transform: [10, 0, 0, 10, 100, 100] }],
+    })
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6, true)
+    expect(result.image.planText).toBe('[{"text":"75","x":100,"y":50,"rotation":0}]')
+    expect(result.nativeCaptionGeometry).toMatchObject({ complete: false, items: [] })
+  })
+  it.each([' 75', '75 ', '1'.repeat(201)])(
+    'refuses trimmed or truncated raw caption text',
+    async (str) => {
+      mocks.text.mockResolvedValue({
+        items: [{ str, width: 20, transform: [10, 0, 0, 10, 100, 100] }],
+      })
+      const result = await preparePlanPage(Buffer.from('pdf'), true, 6, true)
+      expect(result.nativeCaptionGeometry?.complete).toBe(false)
+      expect(result.nativeCaptionGeometry?.items).toEqual([])
+    },
+  )
+  it.each([
+    [0, 0, 0, 0, 100, 100],
+    [Number.NaN, 0, 0, 10, 100, 100],
+    [10, 0, 0, 10, Number.POSITIVE_INFINITY, 100],
+    [10, 0, 0, 10, 990, 100],
+  ])('refuses invalid or out-of-frame numeric baseline geometry', async (...transform) => {
+    mocks.text.mockResolvedValue({ items: [{ str: '75', width: 20, transform }] })
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6, true)
+    expect(result.nativeCaptionGeometry).toMatchObject({ complete: false, items: [] })
+  })
+  it('marks the caption context incomplete when text extraction or its byte budget is incomplete', async () => {
+    mocks.text.mockRejectedValueOnce(new Error('no layer'))
+    const unavailable = await preparePlanPage(Buffer.from('pdf'), true, 6, true)
+    expect(unavailable.nativeCaptionGeometry).toMatchObject({ complete: false, items: [] })
+    mocks.text.mockResolvedValue({
+      items: Array.from({ length: 1000 }, () => ({
+        str: '75',
+        width: 20,
+        transform: [10, 0, 0, 10, 100, 100],
+      })),
+    })
+    const truncated = await preparePlanPage(Buffer.from('pdf'), true, 6, true)
+    expect(truncated.nativeCaptionGeometry?.complete).toBe(false)
+    expect(truncated.nativeCaptionGeometry?.items.length).toBeLessThan(1000)
   })
   it('binds opt-in native linework to the same rendered raster frame and exact scale', async () => {
     const result = await preparePlanPage(Buffer.from('pdf'), true, 6, true, true)
@@ -307,6 +435,7 @@ describe('selected PDF page', () => {
   it('does not produce vectors for a raster image even if review extraction was requested', async () => {
     const page = await preparePlanPage(Buffer.from('image'), false, 1, true)
     expect(page).not.toHaveProperty('linework')
+    expect(page).not.toHaveProperty('nativeCaptionGeometry')
     expect(mocks.operators).not.toHaveBeenCalled()
   })
 })

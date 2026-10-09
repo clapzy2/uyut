@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto'
 import sharp from 'sharp'
+import {
+  type NativeDimensionCaptionContext,
+  nativeDimensionCaptionMillimetres,
+} from './plan-pdf-caption-binding'
 import { extractPdfLinework, type PdfLinework } from './plan-pdf-linework'
 import { pdfStandardFontDataUrl } from './plan-pdf-standard-fonts'
 
@@ -28,6 +32,62 @@ export type NativeTextAnchors = {
     pagePoint?: { x: number; y: number }
     rotation?: number
   }[]
+}
+
+function nativeCaptionBaseline(
+  item: { str: string; transform: number[]; width: number },
+  label: { text: string; x: number; y: number; rotation: number },
+  index: number,
+  viewport: {
+    width: number
+    height: number
+    convertToViewportPoint(x: number, y: number): number[]
+  },
+): NativeDimensionCaptionContext['items'][number] | undefined {
+  if (
+    item.str !== label.text ||
+    item.transform.length !== 6 ||
+    !item.transform.every(Number.isFinite) ||
+    !Number.isFinite(item.width) ||
+    item.width <= 0 ||
+    ![viewport.width, viewport.height].every((value) => Number.isFinite(value) && value > 0)
+  )
+    return undefined
+  const [dx = Number.NaN, dy = Number.NaN, , , x = Number.NaN, y = Number.NaN] = item.transform
+  const length = Math.hypot(dx, dy)
+  if (!Number.isFinite(length) || length <= 0) return undefined
+  const [startX = Number.NaN, startY = Number.NaN] = viewport.convertToViewportPoint(x, y)
+  const [endX = Number.NaN, endY = Number.NaN] = viewport.convertToViewportPoint(
+    x + (item.width * dx) / length,
+    y + (item.width * dy) / length,
+  )
+  const rotation = (-Math.atan2(endY - startY, endX - startX) * 180) / Math.PI
+  const angleDelta = Math.abs((rotation - label.rotation) % 360)
+  const angleDifference = Math.min(angleDelta, 360 - angleDelta)
+  const baselineStart = {
+    x: (startX / viewport.width) * 1000,
+    y: (startY / viewport.height) * 1000,
+  }
+  const baselineEnd = { x: (endX / viewport.width) * 1000, y: (endY / viewport.height) * 1000 }
+  if (
+    (startX === endX && startY === endY) ||
+    !Number.isFinite(angleDifference) ||
+    angleDifference > 0.5 + 1e-9 ||
+    [baselineStart.x, baselineStart.y, baselineEnd.x, baselineEnd.y].some(
+      (value) => !Number.isFinite(value) || value < 0 || value > 1000,
+    ) ||
+    Math.round(baselineStart.x) !== label.x ||
+    Math.round(baselineStart.y) !== label.y
+  )
+    return undefined
+  return {
+    index,
+    text: label.text,
+    rotation: label.rotation,
+    origin: { x: label.x, y: label.y },
+    baselineStart,
+    baselineEnd,
+  }
 }
 
 async function toJpeg(body: Buffer): Promise<{
@@ -60,6 +120,7 @@ export async function preparePlanPage(
   pageNumber: number
   pageCount: number
   linework?: PdfLinework
+  nativeCaptionGeometry?: NativeDimensionCaptionContext
   nativeTextAnchors?: NativeTextAnchors
   lineworkRasterSource?: NativeTextAnchors['source']
 }> {
@@ -102,19 +163,33 @@ export async function preparePlanPage(
     const page = await document.getPage(pageNumber)
     // Ordinary PDF chain checks and reviewed-page checks use the same selected native page.
     let linework: PdfLinework | undefined
+    let nativeViewport: ReturnType<typeof page.getViewport> | undefined
     if (includeLinework) {
       try {
-        linework = extractPdfLinework(
-          await page.getOperatorList(),
-          pdfjs.OPS,
-          page.getViewport({ scale: 1 }),
-        )
+        nativeViewport = page.getViewport({ scale: 1 })
+        linework = extractPdfLinework(await page.getOperatorList(), pdfjs.OPS, nativeViewport)
       } catch {
         // The caller must refuse geometry verification; never reinterpret a missing layer as valid.
       }
     }
     const full = page.getViewport({ scale: PDF_DPI / 72 })
     const textContent = await page.getTextContent().catch(() => undefined)
+    const nativeCaptionGeometry: NativeDimensionCaptionContext | undefined = nativeViewport
+      ? {
+          source: {
+            sha256: createHash('sha256').update(body).digest('hex'),
+            pdfPage: pageNumber,
+            pageWidth: nativeViewport.width,
+            pageHeight: nativeViewport.height,
+          },
+          complete:
+            textContent !== undefined &&
+            [nativeViewport.width, nativeViewport.height].every(
+              (value) => Number.isFinite(value) && value > 0,
+            ),
+          items: [],
+        }
+      : undefined
     const textItems: Array<{ text: string; x: number; y: number; rotation: number }> = []
     const nativeOrigins: Array<{
       index: number
@@ -138,9 +213,19 @@ export async function preparePlanPage(
       textSize += JSON.stringify(label).length + 1
       if (textSize > 30_000 || textItems.length >= 1000) {
         nativeTextComplete = false
+        if (nativeCaptionGeometry) nativeCaptionGeometry.complete = false
         break
       }
+      const compactIndex = textItems.length
       textItems.push(label)
+      if (nativeCaptionGeometry && nativeViewport) {
+        if (item.str.trim().length > 200) nativeCaptionGeometry.complete = false
+        if (nativeDimensionCaptionMillimetres(label.text) !== undefined) {
+          const caption = nativeCaptionBaseline(item, label, compactIndex, nativeViewport)
+          if (caption) nativeCaptionGeometry.items.push(caption)
+          else nativeCaptionGeometry.complete = false
+        }
+      }
       if (includeNativeTextAnchors) {
         if (
           item.str.trim().length > 200 ||
@@ -234,6 +319,7 @@ export async function preparePlanPage(
       pageNumber,
       pageCount: document.numPages,
       ...(linework ? { linework } : {}),
+      ...(nativeCaptionGeometry ? { nativeCaptionGeometry } : {}),
       ...(nativeTextAnchors ? { nativeTextAnchors } : {}),
       ...(linework && nativeTextAnchors ? { lineworkRasterSource: nativeTextAnchors.source } : {}),
     }

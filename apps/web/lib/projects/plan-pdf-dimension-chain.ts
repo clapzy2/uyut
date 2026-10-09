@@ -1,4 +1,11 @@
 import type { PlanPageOpening, PlanPageRoomIdentity } from '@uyut/db'
+import {
+  createNativeCaptionMatcher,
+  type NativeCaptionMatch,
+  type NativeCaptionRail,
+  type NativeDimensionCaptionContext,
+  nativeDimensionCaptionMillimetres,
+} from './plan-pdf-caption-binding'
 import { pdfVectorArrow } from './plan-pdf-leaders'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import {
@@ -22,18 +29,10 @@ type NativeLabel = PagePoint & { index: number; text: string; rotation: number }
 type DimensionAxis = 'width' | 'depth'
 
 export function nativeDimensionMillimetres(text: string): number | undefined {
-  if (!/^(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{1,5})$/.test(text)) return
-  const value = Number(text.replace(/[ \u00a0\u202f]/g, ''))
-  return Number.isSafeInteger(value) && value > 0 && value <= 99_999 ? value : undefined
+  return nativeDimensionCaptionMillimetres(text)
 }
 
-type NativeDimensionSpan = {
-  start: PagePoint
-  end: PagePoint
-  operationIndex: number
-  subpathIndex: number
-  branched: boolean
-}
+type NativeDimensionSpan = NativeCaptionRail
 
 type NativeOpeningSpan = PlanPageOpening
 type OpeningRoomSelector = number | PlanPageRoomIdentity
@@ -469,8 +468,18 @@ export function pdfWidthChain(
   roomSourceNumber: number,
   labels: readonly NativeLabel[],
   totalMm: number,
+  captionContext?: NativeDimensionCaptionContext,
 ): PdfDimensionChain {
-  return pdfDimensionChain(work, source, contours, roomSourceNumber, labels, totalMm, 'width')
+  return pdfDimensionChain(
+    work,
+    source,
+    contours,
+    roomSourceNumber,
+    labels,
+    totalMm,
+    'width',
+    captionContext,
+  )
 }
 
 export function pdfDepthChain(
@@ -480,8 +489,18 @@ export function pdfDepthChain(
   roomSourceNumber: number,
   labels: readonly NativeLabel[],
   totalMm: number,
+  captionContext?: NativeDimensionCaptionContext,
 ): PdfDimensionChain {
-  return pdfDimensionChain(work, source, contours, roomSourceNumber, labels, totalMm, 'depth')
+  return pdfDimensionChain(
+    work,
+    source,
+    contours,
+    roomSourceNumber,
+    labels,
+    totalMm,
+    'depth',
+    captionContext,
+  )
 }
 
 export type PdfNativePageDimensionChain<
@@ -507,10 +526,19 @@ export function pdfNativePageDimensionChain(
   labels: readonly NativeLabel[],
   totalMm: number,
   axis: DimensionAxis | 'aligned',
+  captionContext?: NativeDimensionCaptionContext,
 ): PdfNativePageDimensionChain {
   if (source.state !== 'existing') return { status: 'unresolved', reason: 'not-existing-state' }
   if (work.coordinateSystem !== 'page-0-1000' || work.truncated)
     return { status: 'unresolved', reason: 'incomplete-native-page' }
+  if (captionContext) {
+    if (axis === 'aligned') return { status: 'unresolved', reason: 'caption-axis-not-supported' }
+    return createPdfNativePageDimensionChainVerifier(work, source, captionContext)(
+      labels,
+      totalMm,
+      axis,
+    )
+  }
   return axis === 'aligned'
     ? alignedPageDimensionChain(work, labels, totalMm)
     : nativePageDimensionChain(work, labels, totalMm, axis)
@@ -520,17 +548,35 @@ export function pdfNativePageDimensionChain(
 export function createPdfNativePageDimensionChainVerifier(
   work: PdfLinework,
   source: PdfPlanSource,
+  captionContext?: NativeDimensionCaptionContext,
 ) {
   const spans = new Map<DimensionAxis, NativeDimensionSpan[] | undefined>()
+  const matchers = new Map<DimensionAxis, (label: NativeLabel) => NativeCaptionMatch>()
   return (labels: readonly NativeLabel[], totalMm: number, axis: DimensionAxis) => {
     if (source.state !== 'existing')
       return { status: 'unresolved' as const, reason: 'not-existing-state' }
     if (work.coordinateSystem !== 'page-0-1000' || work.truncated)
       return { status: 'unresolved' as const, reason: 'incomplete-native-page' }
-    return nativePageDimensionChain(work, labels, totalMm, axis, () => {
-      if (!spans.has(axis)) spans.set(axis, nativeDimensionSpans(work, axis))
-      return spans.get(axis)
-    })
+    return nativePageDimensionChain(
+      work,
+      labels,
+      totalMm,
+      axis,
+      () => {
+        if (!spans.has(axis)) spans.set(axis, nativeDimensionSpans(work, axis))
+        return spans.get(axis)
+      },
+      captionContext
+        ? (available) => {
+            let matcher = matchers.get(axis)
+            if (!matcher) {
+              matcher = createNativeCaptionMatcher(work, source, available, captionContext, axis)
+              matchers.set(axis, matcher)
+            }
+            return matcher
+          }
+        : undefined,
+    )
   }
 }
 
@@ -699,6 +745,7 @@ function nativePageDimensionChain(
   totalMm: number,
   axis: DimensionAxis,
   readSpans = () => nativeDimensionSpans(work, axis),
+  readCaptionMatcher?: (spans: NativeDimensionSpan[]) => (label: NativeLabel) => NativeCaptionMatch,
 ): PdfNativePageDimensionChain<DimensionAxis> {
   const fail = (
     reason: string,
@@ -733,22 +780,30 @@ function nativePageDimensionChain(
   const acrossScale = (axis === 'width' ? work.pageHeight : work.pageWidth) / 1000
   const spans = readSpans()
   if (!spans) return fail('dimension-span-budget-exceeded', 'ambiguous')
+  const captionMatcher = readCaptionMatcher?.(spans)
   const selected: typeof spans = []
   const sortedLabels = [...labels].sort((a, b) => along(a) - along(b))
   for (const label of sortedLabels) {
-    const matching = spans.filter(
-      (span) =>
-        along(label) > along(span.start) &&
-        along(label) < along(span.end) &&
-        (across(span.start) - across(label)) * acrossScale >= 0 &&
-        (across(span.start) - across(label)) * acrossScale <= 4,
-    )
-    if (matching.length !== 1)
-      return fail(
-        matching.length > 1 ? 'multiple-dimension-lines' : 'no-connected-dimension-line',
-        matching.length > 1 ? 'ambiguous' : 'unresolved',
+    let span: NativeDimensionSpan | undefined
+    if (captionMatcher) {
+      const match = captionMatcher(label)
+      if (match.status !== 'candidate') return fail(match.reason, match.status)
+      span = match.span
+    } else {
+      const matching = spans.filter(
+        (span) =>
+          along(label) > along(span.start) &&
+          along(label) < along(span.end) &&
+          (across(span.start) - across(label)) * acrossScale >= 0 &&
+          (across(span.start) - across(label)) * acrossScale <= 4,
       )
-    const span = matching[0]
+      if (matching.length !== 1)
+        return fail(
+          matching.length > 1 ? 'multiple-dimension-lines' : 'no-connected-dimension-line',
+          matching.length > 1 ? 'ambiguous' : 'unresolved',
+        )
+      span = matching[0]
+    }
     if (!span) return fail('no-connected-dimension-line')
     if (span.branched) return fail('branched-dimension-line', 'ambiguous')
     if (
@@ -806,6 +861,7 @@ function pdfDimensionChain(
   labels: readonly NativeLabel[],
   totalMm: number,
   axis: DimensionAxis,
+  captionContext?: NativeDimensionCaptionContext,
 ): PdfDimensionChain {
   const fail = (
     reason: string,
@@ -815,7 +871,9 @@ function pdfDimensionChain(
   if (issue) return fail(issue)
   const room = contours.rooms.find((candidate) => candidate.roomSourceNumber === roomSourceNumber)
   if (!room) return fail('no-annotated-room')
-  const native = nativePageDimensionChain(work, labels, totalMm, axis)
+  const native = captionContext
+    ? createPdfNativePageDimensionChainVerifier(work, source, captionContext)(labels, totalMm, axis)
+    : nativePageDimensionChain(work, labels, totalMm, axis)
   if (native.status !== 'candidate') return fail(native.reason, native.status)
 
   if (externalRectangleDimension(work, source, contours, room, native, axis))
@@ -1143,12 +1201,23 @@ function nativeDimensionSpans(
           return false
         return Math.abs((across(stroke.end) - across(stroke.start)) * acrossScale) > 0.12
       })
+      const firstTick = firstTicks.length === 1 ? firstTicks[0] : undefined
+      const lastTick = lastTicks.length === 1 ? lastTicks[0] : undefined
+      const outboard =
+        firstTick && lastTick
+          ? {
+              start:
+                along(firstTick.start) < along(firstTick.end) ? firstTick.start : firstTick.end,
+              end: along(lastTick.start) > along(lastTick.end) ? lastTick.start : lastTick.end,
+            }
+          : undefined
       spans.push({
         start: a,
         end: b,
         operationIndex: path.operationIndex,
         subpathIndex: path.subpathIndex,
         branched: firstTicks.length !== 1 || lastTicks.length !== 1 || offAxisBranch,
+        ...(outboard ? { outboard } : {}),
       })
     }
   }

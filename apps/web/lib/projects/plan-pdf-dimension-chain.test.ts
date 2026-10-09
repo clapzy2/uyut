@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import nativeLabels from '../../../../docs/qa/fixtures/apartment-74-77-native-labels.json'
 import annotated from '../../../../docs/qa/fixtures/apartment-74-77-page-contours.json'
 import nativeFeatures from '../../../../docs/qa/fixtures/apartment-74-77-page-features.json'
+import type { NativeDimensionCaptionContext } from './plan-pdf-caption-binding'
 import {
   createPdfOpeningSpanVerifier,
   type PdfOpeningAnnotation,
@@ -68,6 +69,106 @@ const check = (
 ) => pdfWidthChain({ ...work, paths }, contours.source, { ...contours, rooms }, 4, input, total)
 
 describe('native page dimension without invented room ownership', () => {
+  it('binds a displaced native caption to its short tick rail, but rejects an overlapping fork', () => {
+    const source = { sha256: 'a'.repeat(64), pdfPage: 3, state: 'existing' as const }
+    const rails = [
+      [10, 110],
+      [110, 120],
+      [120, 320],
+    ]
+    const paths: PdfVectorPath[] = rails.map(([start = 0, end = 0], index) => ({
+      operationIndex: index,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: start, y: 100 },
+        { x: end, y: 100 },
+      ],
+    }))
+    for (const [index, x] of [10, 110, 120, 320].entries())
+      paths.push({
+        operationIndex: index + 3,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: x - 4, y: 96 },
+          { x: x + 4, y: 104 },
+        ],
+      })
+    const work: PdfLinework = {
+      coordinateSystem: 'page-0-1000',
+      pageWidth: 500,
+      pageHeight: 500,
+      paths,
+      skippedCurves: 0,
+      clippedPaths: 0,
+      unsupportedPaths: 0,
+      unsupportedContexts: 0,
+      truncated: false,
+    }
+    const context: NativeDimensionCaptionContext = {
+      source: { ...source, pageWidth: 500, pageHeight: 500 },
+      complete: true,
+      items: [
+        {
+          index: 0,
+          text: '1000',
+          rotation: 0,
+          origin: { x: 50, y: 96 },
+          baselineStart: { x: 50, y: 96 },
+          baselineEnd: { x: 70, y: 96 },
+        },
+        {
+          index: 1,
+          text: '100',
+          rotation: 0,
+          origin: { x: 124, y: 96 },
+          baselineStart: { x: 124, y: 96 },
+          baselineEnd: { x: 154, y: 96 },
+        },
+        {
+          index: 2,
+          text: '2000',
+          rotation: 0,
+          origin: { x: 210, y: 96 },
+          baselineStart: { x: 210, y: 96 },
+          baselineEnd: { x: 230, y: 96 },
+        },
+      ],
+    }
+    const labels = context.items.map((item) => ({
+      index: item.index,
+      text: item.text,
+      rotation: item.rotation,
+      ...item.origin,
+    }))
+    const direct = pdfNativePageDimensionChain(work, source, labels, 3100, 'width', context)
+    expect(direct).toMatchObject({ status: 'candidate', lineOperations: [0, 1, 2] })
+    const target = labels[1]
+    if (!target) throw new Error('Missing short caption')
+    expect(
+      pdfNativePageDimensionChain(work, source, [target], 100, 'width', context),
+    ).toMatchObject({ status: 'candidate', lineOperations: [1] })
+    expect(pdfNativePageDimensionChain(work, source, labels, 3100, 'width')).toMatchObject({
+      status: 'unresolved',
+      reason: 'reused-dimension-line',
+    })
+    paths.push({
+      operationIndex: 20,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 110, y: 100 },
+        { x: 320, y: 100 },
+      ],
+    })
+    expect(pdfNativePageDimensionChain(work, source, labels, 3100, 'width', context).status).toBe(
+      'ambiguous',
+    )
+  })
   it('proves a printed chain using its connected native spans', () => {
     expect(pdfNativePageDimensionChain(work, contours.source, labels, 2985, 'width')).toMatchObject(
       {

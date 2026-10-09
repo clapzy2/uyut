@@ -305,4 +305,26 @@ describe('single-page plan reader budget', () => {
     expect(mocks.prepare.mock.calls[0]?.[3]).toBe(true)
     expect(mocks.read).toHaveBeenCalledTimes(1)
   })
+  it('does not fall back to baseline-origin matches when prepared caption geometry is incomplete', async () => {
+    mocks.prepare.mockResolvedValue({
+      ...reviewedPage(),
+      linework: { ...linework, skippedCurves: 0 },
+      nativeCaptionGeometry: {
+        source: {
+          sha256: createHash('sha256').update('pdf').digest('hex'),
+          pdfPage: 6,
+          pageWidth: 842,
+          pageHeight: 1191,
+        },
+        complete: false,
+        items: [],
+      },
+    })
+    mocks.read.mockResolvedValue(structuredClone(reviewedReading))
+    const result = await readPlanFromStorage('plan.pdf', 6)
+    expect(result.rooms[0]?.widthCm).toBeUndefined()
+    expect(result.rooms[0]?.depthCm).toBeUndefined()
+    expect(result.rooms[0]?.areaM2).toBe(12.35)
+    expect(mocks.read).toHaveBeenCalledTimes(1)
+  })
 })

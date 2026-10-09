@@ -1,5 +1,6 @@
 import { type PlanReading, planMeasurementTextItems, validatePlanMeasurement } from '@uyut/ai'
 import { type PageAreaConflict, planPageAreaConflicts } from './plan-page-area-conflicts'
+import type { NativeDimensionCaptionContext } from './plan-pdf-caption-binding'
 import { pdfDepthChain, pdfWidthChain } from './plan-pdf-dimension-chain'
 import { pdfCalloutLeader } from './plan-pdf-leaders'
 import type { PdfLinework } from './plan-pdf-linework'
@@ -15,6 +16,7 @@ export type PlanReadingGeometryContext = {
   source: PdfPlanSource
   linework: PdfLinework
   planText?: string
+  nativeCaptionGeometry?: NativeDimensionCaptionContext
   contours: PdfRoomContours
 }
 
@@ -102,6 +104,7 @@ export function verifyPlanReadingGeometry(
               number,
               labels,
               Math.round(value * 10),
+              context.nativeCaptionGeometry,
             )
             // A matching total is insufficient if the evidence assigned each number to the wrong label.
             accepted =

@@ -310,3 +310,71 @@ PDF/raster action rejection/omission/corrected transfer и static form controls.
 PostgreSQL integration обновлён, но не запускался: docker API pipe отсутствует,
 локальный daemon не стартован. Live browser/реальное сохранение в аккаунте,
 новые AI requests, deployment и исходный user project не выполнялись/не менялись.
+
+## Следующая рабочая пачка: baseline caption geometry и вынесенный короткий размер
+
+preparePlanPage при запросе linework теперь возвращает private nativeCaptionGeometry.
+Она содержит file SHA/page/frame, compact planText index, исходную строку/rotation,
+rounded origin и точные baseline start/end числовых native runs. End строится по
+TextItem.width вдоль единичного transform направления через viewport scale1;
+это midpoint advance, не bbox видимого ink и не центр комнаты. Недоступные/invalid
+metrics, trim/clip текста, неверная ориентация или budget/extraction failure делают
+context incomplete. Native source indices не смешиваются с compact indices.
+Эта metadata не включается в model prompt: text/image bytes остались прежними.
+
+Caption matcher подключён к обычному PDF guard и к width/depth reviewed-page gate.
+Поддержан cardinal0/90 вариант; rich context с aligned axis явно отказывает,
+а прежний API без контекста сохранён как legacy candidate path, не точная привязка.
+Если новый context предоставлен, но неполон/чужой/невалиден, fallback к baseline
+origin не выполняется. Source SHA/page/frame, positions, direction, unique index
+и positive numeric captions проверяются до поиска. Поиск/топология ограничены
+200k comparisons, matcher/spans кэшируются только на неизменный request-local source.
+
+Обычная подпись должна иметь единственный source baseline midpoint у середины
+нативной рейки (0,12 physical pt tolerance) и правильную строку/направление.
+Вынесенная подпись поддерживается лишь когда её advance не помещается в короткий
+пролёт, ближайший конец baseline совпадает с внешней проекцией уникальной засечки,
+а сам пролёт уникально соединён с двумя unbranched соседними рейками с уникальными
+centered captions. Отношения graphic lengths проверяют напечатанное число с
+1мм tolerance; производное значение не выдаётся вместо source caption.
+Площадь/эталон/имя комнаты в этот выбор не входят.
+
+Каждая рейка должна иметь уникальную caption claim: совпавшая centred/outboard или
+дублированная вынесенная подпись дают ambiguity. Коллинеарные положительно
+перекрывающиеся альтернативы и competing operation/subpath definitions также
+отказываются; обычное касание последовательных сегментов не является overlap.
+Duplicate ticks/branches не схлопывались ради успешного результата.
+
+На fresh BASIS page3 nativeCaptionGeometry complete=true,30 numeric runs. Текст
+SHA `fd44414e0a714d7c610a8fb355bd1b01d29ae96c65484297cc1205e13199bb6c` и image
+SHA прежние. Context75 index25 соответствует original raw index37, не наоборот.
+Its14,7034pt advance вынесен за короткую5,315pt рейку8079 и совпадает с outer tick;
+820/1885 neighbours задают согласованные native ratios. Результат fresh controls:
+
+| Контроль | Результат rich caption context |
+| --- | --- |
+| 75 `[25]` | candidate на8079, больше не на1885rail8100 |
+| 4308+820+75+1885 `[23,24,25,26]` | candidate7088, operations8030/8058/8079/8100 |
+| прямой7088 `[45]` | candidate9198 |
+| main5832 `[28,27]` | candidate8243/8215 |
+| extended6966 `[29,28,27]` | disconnected refusal |
+| nested6172 `[39,44,47]` | ambiguous branched refusal |
+| local1851 `[37]` | candidate; принадлежность балкону не доказана |
+
+Артефакты `output/quality-bench/basis-20261009-caption-binding-c/`: input.jpg,
+full linework.json, caption-geometry.json и report.json. Source/header/indices в
+алгоритме не hardcoded: перечисленные controls выбирает QA runner, не mapper.
+Повтор четырёх архивных native model answers **не исправил room ownership**:
+основные оси/geometry всё ещё held из-за nearby omitted curves, ошибочные реальные
+локальные spans сохраняются только кандидатами. Новая правильная связь75 не
+принимает пол, room contours, открывания, высоты или3D. Raster OCR не реализован.
+
+Проверки: 3331 web tests/246 файлов (--maxWorkers=4), typecheck7, lint873,
+production build и diff check прошли. Producer tests проверяют источник/compact
+namespace, UserUnit/viewports, nonfinite/missing/trimmed width и budget/rotation.
+Matcher controls проверяют обе стороны/оси, уникальность claims, competing refs,
+overlap/branch/fork, исходные числа без подстановки, bounded work и copy immutability;
+native tick-linework integration проверяет и чистую цепь, и перекрывающую fork.
+Storage test запрещает fallback при incomplete prepared caption context.
+Independent review выявил два ambiguity gaps; они закрыты и повторно проверены.
+Новых provider calls, project/DB writes, browser/PG tests, PR и deployment не было.

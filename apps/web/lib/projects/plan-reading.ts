@@ -90,6 +90,7 @@ export async function readPlanFromStorage(
           : {}),
         linework: page.linework,
         planText: page.image.planText,
+        nativeCaptionGeometry: page.nativeCaptionGeometry,
       })
     }
     if (!page.linework || !sha256) return result
@@ -97,6 +98,7 @@ export async function readPlanFromStorage(
       source: { sha256, pdfPage: page.pageNumber, state: reviewedContours.source.state },
       linework: page.linework,
       planText: page.image.planText,
+      nativeCaptionGeometry: page.nativeCaptionGeometry,
       contours: reviewedContours,
     })
   } catch (error) {

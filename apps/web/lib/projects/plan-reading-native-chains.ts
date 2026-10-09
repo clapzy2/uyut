@@ -1,4 +1,5 @@
 import { type PlanReading, planMeasurementTextItems, validatePlanMeasurement } from '@uyut/ai'
+import type { NativeDimensionCaptionContext } from './plan-pdf-caption-binding'
 import { createPdfNativePageDimensionChainVerifier } from './plan-pdf-dimension-chain'
 import type { PdfLinework } from './plan-pdf-linework'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
@@ -12,7 +13,12 @@ const titles = { width: 'Ширина', depth: 'Глубина' } as const
  */
 export function verifyPlanReadingNativeChains(
   reading: PlanReading,
-  context: { source?: PdfPlanSource; linework?: PdfLinework; planText?: string },
+  context: {
+    source?: PdfPlanSource
+    linework?: PdfLinework
+    planText?: string
+    nativeCaptionGeometry?: NativeDimensionCaptionContext
+  },
 ): PlanReading {
   const result = structuredClone(reading)
   const items = planMeasurementTextItems(context.planText)
@@ -60,7 +66,9 @@ export function verifyPlanReadingNativeChains(
         ),
     ) &&
     [work.pageWidth, work.pageHeight].every((value) => Number.isFinite(value) && value > 0)
-  const verify = usable ? createPdfNativePageDimensionChainVerifier(work, source) : undefined
+  const verify = usable
+    ? createPdfNativePageDimensionChainVerifier(work, source, context.nativeCaptionGeometry)
+    : undefined
   const nameCounts = new Map<string, number>()
   for (const room of result.rooms) nameCounts.set(room.name, (nameCounts.get(room.name) ?? 0) + 1)
   let checks = 0

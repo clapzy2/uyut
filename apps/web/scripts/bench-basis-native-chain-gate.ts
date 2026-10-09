@@ -51,7 +51,12 @@ for (const batchPath of [baselinePath, retestPath]) {
     const started = performance.now()
     const after = verifyPlanReadingNativeChains(
       { ...before, sourcePage: page.pageNumber },
-      { source, linework: work, planText: page.image.planText },
+      {
+        source,
+        linework: work,
+        planText: page.image.planText,
+        nativeCaptionGeometry: page.nativeCaptionGeometry,
+      },
     )
     runs.push({
       batch: basename(batch),
@@ -78,7 +83,7 @@ const controls = [
   { id: 'wrong-main-plus-balcony', axis: 'depth' as const, indexes: [29, 28, 27] },
   { id: 'wrong-nested-sum', axis: 'depth' as const, indexes: [39, 44, 47] },
   { id: 'local-span-not-room-owner', axis: 'depth' as const, indexes: [37] },
-  { id: 'small-offset-label-wrong-rail-caveat', axis: 'width' as const, indexes: [25] },
+  { id: 'small-offset-caption', axis: 'width' as const, indexes: [25] },
 ].map((control) => {
   const labels = control.indexes.map((index) => {
     const item = items[index]
@@ -93,7 +98,14 @@ const controls = [
   return {
     ...control,
     totalMm,
-    result: pdfNativePageDimensionChain(work, source, labels, totalMm, control.axis),
+    result: pdfNativePageDimensionChain(
+      work,
+      source,
+      labels,
+      totalMm,
+      control.axis,
+      page.nativeCaptionGeometry,
+    ),
     roomOwnershipVerified: false,
   }
 })
@@ -101,6 +113,10 @@ const output = resolve(outputPath)
 await mkdir(output, { recursive: false })
 await writeFile(join(output, 'input.jpg'), page.image.body)
 await writeFile(join(output, 'linework.json'), JSON.stringify(work, null, 2))
+await writeFile(
+  join(output, 'caption-geometry.json'),
+  JSON.stringify(page.nativeCaptionGeometry, null, 2),
+)
 await writeFile(
   join(output, 'report.json'),
   JSON.stringify(
