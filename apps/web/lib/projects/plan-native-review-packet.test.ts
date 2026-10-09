@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { nativeAnnotationFixture } from '../../scripts/qa-native-annotation-fixture'
 import { nativeReviewPacket } from './plan-native-review-packet'
-import { numberedNativeRoomFixture } from './test-fixtures/native-numbered-rooms'
+import {
+  connectedNativeRoomFixture,
+  numberedNativeRoomFixture,
+} from './test-fixtures/native-numbered-rooms'
 
 function fixture() {
   const input = nativeAnnotationFixture()
@@ -107,6 +110,25 @@ describe('whole-page native inspection, separate from saved geometry', () => {
     expect(packet).not.toHaveProperty('pageReview')
     expect(input).toEqual(before)
   })
+  it('shows shared-wall source candidates without erasing frames or approving a floor', () => {
+    const input = connectedNativeRoomFixture()
+    const before = structuredClone(input)
+    const packet = nativeReviewPacket({
+      ...input,
+      source: { sha256: input.native.originalPdfSha256 as string, pdfPage: 1, state: 'existing' },
+      image: input.native.source,
+    })
+    expect(packet.counts.numberedAssociations).toBe(3)
+    expect(packet.faces.filter((face) => face.roomName)).toHaveLength(3)
+    expect(packet.faces.find((face) => face.roomName === 'Спальня')?.polygon).toEqual([
+      { x: 50, y: 50 },
+      { x: 275, y: 50 },
+      { x: 275, y: 300 },
+      { x: 50, y: 300 },
+    ])
+    expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+    expect(input).toEqual(before)
+  })
   it('withholds an oversized overlay instead of serializing or silently truncating 103 shapes', () => {
     const input = numberedNativeRoomFixture()
     input.work.paths = input.work.paths.map((path) => ({
@@ -148,6 +170,14 @@ describe('whole-page native inspection, separate from saved geometry', () => {
           { x: 350, y: 450 + row * 40 },
         ],
       })
+    // This legacy localized-omission path does not run the complete-layer face expansion.
+    input.work.skippedCurves = 1
+    input.work.skippedCurveBounds = [
+      {
+        operationIndex: 900,
+        bounds: { left: 900, top: 900, right: 910, bottom: 910 },
+      },
+    ]
     const packet = nativeReviewPacket({
       ...input,
       source: { sha256: input.native.originalPdfSha256 as string, pdfPage: 1, state: 'existing' },

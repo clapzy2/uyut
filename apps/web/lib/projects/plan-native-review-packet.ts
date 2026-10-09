@@ -131,6 +131,7 @@ export function nativeReviewPacket(input: {
     !fills.truncated &&
     !strokes.truncated &&
     !rooms.strokeGeometry.truncated &&
+    rooms.frameFaces?.status !== 'unresolved' &&
     work.skippedCurves === 0 &&
     work.clippedPaths === 0
   packet.status = packet.extraction.geometryComplete && native.complete ? 'draft' : 'unresolved'
@@ -148,7 +149,10 @@ export function nativeReviewPacket(input: {
     })
   // A numbered endpoint ring can survive where bounded faces refuse an interior
   // caption box. Preserve the source shape, never erase that box or invent a floor.
-  for (const cycle of rooms.strokeGeometry.candidates) {
+  for (const cycle of [
+    ...rooms.strokeGeometry.candidates,
+    ...(rooms.frameFaces?.geometry?.candidates ?? []),
+  ]) {
     if (!named.has(cycle.id)) continue
     const key = nativeRoomPolygonKey(cycle.polygon)
     const existing = strokeOverlays.get(key)
@@ -203,6 +207,11 @@ export function nativeReviewPacket(input: {
     )
   else if (rooms.unresolvedSourceNumbers.length)
     issue('room-associations-partial', 'Часть номеров помещений не связана с найденными областями.')
+  if (rooms.frameFaces?.status === 'not-applicable')
+    issue(
+      'number-frame-faces-unavailable',
+      'Связанные контуры по рамкам номеров здесь не проверены: нужны изолированные рамки и полный слой прямых линий без пропусков.',
+    )
   if (annotations.unknownFaceIds.length || fills.candidates.length)
     issue(
       'face-roles-unconfirmed',

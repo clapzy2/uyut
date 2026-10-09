@@ -1729,3 +1729,67 @@ output/playwright/native-room-cycles-*.png. Это не live account, DB или 
 client tests и не нашёл actionable regressions. Новых платных AI/PR/deploy нет.
 Реальные connected/shared walls, дверные разрывы, произвольные unboxed names,
 сканы/outlined text и полный source-bound пол/мерки/2D/3D остаются открытыми.
+
+## 10 октября: scoped shared-wall поиск с изолированными номерными рамками
+
+RED воспроизведён на synthetic полном слое: outer50..500×50..300, dividerx275,
+два boxed room numbers и отдельный балкон. Старый matcher назначал только3,
+generic bounded faces отказывались от областей с внутренними рамками. Новый
+nativeRoomFrameFaceCandidates даёт три исходные области; generic extractor
+без witnesses по-прежнему не выдаёт эти faces. Границы не продлеваются и
+реальный door-gap остаётся unresolved.
+
+Рамочные witnesses получаются только после существующего strict native table/
+boxed-number поиска. Helper перепроверяет label provenance, четыре unique exact
+segment refs и endpoints, прямоугольник, размер5..50px и площадь меньше порога
+geometry candidate. Требуются whole open stroke paths с двумя точками; никакого
+удаления операции целиком. Чужой touch/cross/overlap/штрих внутри рамки и другая
+подпись запрещают её исключение. Source paths/images неизменны; exclusions
+содержат cloned refs/snapshots для диагностического графа, не manual review.
+
+Расширение применяется только к zero-curve/zero-clip полному native слою с
+ограниченными metadata/refs. Localized-omission формат отдельно возвращает
+not-applicable, не подменяется хордами. Это необходимо и для сохранения старого
+реального positive: там33 curves и18 clips, generic graph достигает
+interior-search-budget. Его прежние fill/cycle связи по-прежнему кандидаты,
+не доказательство полной spatial inventory. UI поясняет неприменимость нового
+pass. Неполный новый pass/лимит отказывает целиком без частичных associations.
+
+Fill/cycle/scoped faces участвуют в совместной spatial competition до фильтра
+uncertain/duplicate cues. Бounded cuts могут добавлять коллинеарные вершины:
+identity key теперь исключает только exact between-neighbour collinear points,
+не меняя ни polygon, ни source refs, ни numeric coordinates. Near0.001 не alias.
+Большая fill поверх двух faces блокирует обе связи; удобный меньший face не
+выбирается по площади. Полная рамка всё ещё должна строго лежать внутри области.
+
+Regressions: исходный shared-wall positive/immutability/generic guard; точный
+collinear alias и near-distinction; unknown internal stroke/ring, door-gap,
+competing fill и duplicate numbers; four kinds foreign frame ink; stale refs,
+compound path и неизвестный subpath той же операции; candidate-sized frame;
+extra caption, zero-count truncated bounds и face-budget overflow. Old103-shape
+packet cap проверяется на явном localized-omission legacy path; для полного
+смешанного слоя combined limit50 срабатывает раньше. Readiness2D/3D остаётся false.
+Новые faces показаны в private overlay без source ink erasure и без save/confirm.
+
+Повтор неизменённого real positive сохранил все8 прежних associations/region/
+marker/table IDs. Новый pass явно not-applicable, exclusions[]. Full-page overlay
+просмотрен, источник не редактировался. Corpus5/packet runner сохранены с прежними
+нулевыми связями и причинами отказа. Это сохранение baseline, не исправленное
+распознавание этих5 квартир. Артефакты:
+tmp/native-room-candidates-20261010-shared/,
+tmp/native-room-corpus-20261010-shared/,
+tmp/native-review-packets-20261010-shared/. AI requests0/project writes0.
+
+Firefox/Playwright на synthetic JPEG и mocked private API: существующий UI bundle
+принял новый source-bound packet, показал три exact polygons/имени, сохранил
+числовые рамки на подложке, warning о неподтверждённой границе пола,0 write actions,
+390/1280px без page overflow и0 console errors. Screenshot:
+output/playwright/native-shared-rooms-desktop.png. Localhost server остановлен,
+временный helper удалён. Live account/PG/source-based metric2D/3D не проверены.
+
+3383 web tests/247 файлов, typecheck7, lint877, production build и diff check
+прошли. Independent read-only audit дополнительно запустил112 targeted tests и
+свежий real extraction, actionable issues не нашёл. Новых paid AI/DB/PR/deploy нет.
+Остаток: роль физической границы пола/стены, source-bound проёмы и их полный
+inventory, размерная/вертикальная доказательная привязка и diverse real acceptance.
+Смешанные fill/cycle кандидаты не стали доказанным свободным полом этой пачкой.

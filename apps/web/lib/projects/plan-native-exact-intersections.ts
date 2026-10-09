@@ -69,6 +69,33 @@ export function exactNativeOrientation(a: PagePoint, b: PagePoint, p: PagePoint)
   return determinant < 0n ? -1 : determinant > 0n ? 1 : 0
 }
 
+/** Inclusive contact in the source-decimal domain; unknown precision is not a clear gap. */
+export function exactNativeSegmentsTouch(
+  first: Pick<NativePageSegment, 'start' | 'end'>,
+  second: Pick<NativePageSegment, 'start' | 'end'>,
+): boolean | null {
+  const { start: a, end: b } = first
+  const { start: c, end: d } = second
+  if ([a, b, c, d].some((point) => exactNativePointKey(point) === null)) return null
+  if (
+    Math.max(a.x, b.x) < Math.min(c.x, d.x) ||
+    Math.max(c.x, d.x) < Math.min(a.x, b.x) ||
+    Math.max(a.y, b.y) < Math.min(c.y, d.y) ||
+    Math.max(c.y, d.y) < Math.min(a.y, b.y)
+  )
+    return false
+  const turns = [
+    exactNativeOrientation(a, b, c),
+    exactNativeOrientation(a, b, d),
+    exactNativeOrientation(c, d, a),
+    exactNativeOrientation(c, d, b),
+  ]
+  const [firstTurn, secondTurn, thirdTurn, fourthTurn] = turns
+  if (firstTurn == null || secondTurn == null || thirdTurn == null || fourthTurn == null)
+    return null
+  return firstTurn * secondTurn <= 0 && thirdTurn * fourthTurn <= 0
+}
+
 /** Positive-area overlap in the bounded source-decimal domain. Shared borders alone do not overlap. */
 export function exactNativePolygonsOverlap(
   first: readonly PagePoint[],

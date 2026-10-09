@@ -1,10 +1,12 @@
 import { planRoomSchedule, planTabularScheduleEvidence } from '@uyut/ai'
 import { describe, expect, it } from 'vitest'
-import { automaticNativeRoomCandidates } from './plan-native-room-candidates'
+import { automaticNativeRoomCandidates, nativeRoomPolygonKey } from './plan-native-room-candidates'
+import { nativeStrokeFaceCandidates } from './plan-native-stroke-candidates'
 import type { PdfVectorPath } from './plan-pdf-linework'
 import {
   addNativeRoomLabel as addLabel,
   addNativeRoomBox as box,
+  connectedNativeRoomFixture,
   numberedNativeRoomFixture as fixture,
 } from './test-fixtures/native-numbered-rooms'
 
@@ -14,6 +16,94 @@ function strokeFixture() {
   return input
 }
 describe('native table and boxed-number candidate association', () => {
+  it('finds both shared-wall candidates while preserving the source number frames', () => {
+    const input = connectedNativeRoomFixture()
+    const before = structuredClone(input)
+    const result = automaticNativeRoomCandidates(input)
+    if (result.status !== 'draft') throw new Error(result.reason)
+    expect(result.associations.map((entry) => entry.sourceNumber)).toEqual([1, 2, 3])
+    expect(result.unresolvedSourceNumbers).toEqual([])
+    expect(result.frameFaces?.exclusions).toHaveLength(3)
+    expect(nativeStrokeFaceCandidates(input).candidates).toEqual([])
+    expect(input).toEqual(before)
+  })
+  it('uses exact collinear outline identity without simplifying source evidence or near vertices', () => {
+    const polygon = fixture().work.paths[0]?.points
+    if (!polygon) throw new Error('Missing source polygon')
+    const withCut = [polygon[0] as { x: number; y: number }, { x: 150, y: 50 }, ...polygon.slice(1)]
+    const before = structuredClone(withCut)
+    expect(nativeRoomPolygonKey(withCut)).toBe(nativeRoomPolygonKey(polygon))
+    expect(
+      nativeRoomPolygonKey([
+        withCut[0] as { x: number; y: number },
+        { x: 150, y: 50.001 },
+        ...polygon.slice(1),
+      ]),
+    ).not.toBe(nativeRoomPolygonKey(polygon))
+    expect(withCut).toEqual(before)
+  })
+  it.each(['unknown-stroke', 'unknown-ring', 'door-gap', 'competing-fill'])(
+    'does not promote a shared-wall candidate with %s',
+    (caseName) => {
+      const input = connectedNativeRoomFixture()
+      if (caseName === 'door-gap') {
+        const divider = input.work.paths.find((path) => path.operationIndex === 2)
+        if (!divider) throw new Error('Missing divider')
+        divider.points = [
+          { x: 275, y: 50 },
+          { x: 275, y: 160 },
+        ]
+        input.work.paths.push({
+          operationIndex: 500,
+          subpathIndex: 0,
+          paint: 'stroke',
+          closed: false,
+          points: [
+            { x: 275, y: 200 },
+            { x: 275, y: 300 },
+          ],
+        })
+      } else if (caseName === 'competing-fill') {
+        const outer = input.work.paths.find((path) => path.operationIndex === 1)
+        if (!outer) throw new Error('Missing outer source')
+        input.work.paths.push({ ...structuredClone(outer), operationIndex: 500, paint: 'fill' })
+      } else
+        input.work.paths.push({
+          operationIndex: 500,
+          subpathIndex: 0,
+          paint: 'stroke',
+          closed: caseName === 'unknown-ring',
+          points:
+            caseName === 'unknown-stroke'
+              ? [
+                  { x: 160, y: 200 },
+                  { x: 180, y: 220 },
+                ]
+              : [
+                  { x: 160, y: 200 },
+                  { x: 200, y: 200 },
+                  { x: 200, y: 240 },
+                  { x: 160, y: 240 },
+                ],
+        })
+      const result = automaticNativeRoomCandidates(input)
+      if (result.status !== 'draft') throw new Error(result.reason)
+      expect(result.associations.map((entry) => entry.sourceNumber)).toEqual(
+        caseName === 'door-gap' || caseName === 'competing-fill' ? [3] : [2, 3],
+      )
+      expect(result).not.toHaveProperty('pageReview')
+      expect(result).not.toHaveProperty('footprint')
+    },
+  )
+  it('keeps duplicate numbered cues as competitors across newly connected faces', () => {
+    const input = connectedNativeRoomFixture()
+    addLabel(input.native.labels, '1', 400, 220)
+    box(input.work.paths, 500, 400, 220)
+    const result = automaticNativeRoomCandidates(input)
+    if (result.status !== 'draft') throw new Error(result.reason)
+    expect(result.associations.map((entry) => entry.sourceNumber)).toEqual([3])
+    expect(result.unresolvedSourceNumbers).toEqual([1, 2])
+  })
   it('automatically links separate repeated room names and a balcony without reviewed IDs', () => {
     const result = automaticNativeRoomCandidates(fixture())
     expect(result.status).toBe('draft')
@@ -236,8 +326,9 @@ describe('native table and boxed-number candidate association', () => {
     expect(result.associations).toHaveLength(3)
     for (const association of result.associations) {
       expect(association.regionId).toMatch(/^native-fill-/)
-      expect(association.regionIds).toHaveLength(2)
+      expect(association.regionIds).toHaveLength(3)
       expect(association.regionIds[1]).toMatch(/^native-stroke-cycle-/)
+      expect(association.regionIds[2]).toMatch(/^native-number-frame-face-/)
     }
   })
   it('does not choose between different nested fill and stroke candidates', () => {
@@ -312,7 +403,7 @@ describe('native table and boxed-number candidate association', () => {
     expect(result.unresolvedSourceNumbers).toEqual([1, 2])
     expect(result.associations.map((entry) => entry.sourceNumber)).toEqual([3])
   })
-  it.each(['missing-side', 'small-gap', 'shared-wall', 'omitted-curve'])(
+  it.each(['missing-side', 'small-gap', 'omitted-curve'])(
     'does not close or classify an unfilled room with %s',
     (caseName) => {
       const input = strokeFixture()
@@ -321,18 +412,7 @@ describe('native table and boxed-number candidate association', () => {
       if (caseName === 'missing-side' || caseName === 'small-gap') {
         first.closed = false
         if (caseName === 'small-gap') first.points.push({ x: 50, y: 50.001 })
-      } else if (caseName === 'shared-wall')
-        input.work.paths.push({
-          operationIndex: 500,
-          subpathIndex: 0,
-          paint: 'stroke',
-          closed: false,
-          points: [
-            { x: 150, y: 50 },
-            { x: 150, y: 300 },
-          ],
-        })
-      else {
+      } else {
         input.work.skippedCurves = 1
         input.work.skippedCurveBounds = [
           {

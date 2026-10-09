@@ -92,3 +92,24 @@ export function numberedNativeRoomFixture() {
   }
   return { native, work, lineworkSource: source }
 }
+
+/** Two connected outline regions plus a separate balcony; no survey/metric claim. */
+export function connectedNativeRoomFixture() {
+  const input = numberedNativeRoomFixture()
+  input.work.paths = input.work.paths.map((path) => ({ ...path, paint: 'stroke' }))
+  const outer = input.work.paths.find((path) => path.operationIndex === 1)
+  const divider = input.work.paths.find((path) => path.operationIndex === 2)
+  if (!outer || !divider) throw new Error('Missing connected-room controls')
+  outer.points = [
+    { x: 50, y: 50 },
+    { x: 500, y: 50 },
+    { x: 500, y: 300 },
+    { x: 50, y: 300 },
+  ]
+  divider.closed = false
+  divider.points = [
+    { x: 275, y: 50 },
+    { x: 275, y: 300 },
+  ]
+  return input
+}

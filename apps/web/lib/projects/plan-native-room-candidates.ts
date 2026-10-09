@@ -1,7 +1,8 @@
 import { planTabularScheduleEvidence } from '@uyut/ai'
 import type { NativeTextAnchors } from './plan-document'
-import { exactNativeOrientation } from './plan-native-exact-intersections'
+import { exactNativeOrientation, exactNativeSegmentsTouch } from './plan-native-exact-intersections'
 import { nativeFillCandidates } from './plan-native-fill-candidates'
+import { nativeRoomFrameFaceCandidates } from './plan-native-room-frame-faces'
 import { nativeStrokeCycleCandidates } from './plan-native-stroke-candidates'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import { type NativePageSegment, nativePageSegments } from './plan-pdf-opening-endpoint'
@@ -14,9 +15,32 @@ const roomName =
   /^(?:прихожая|кухня(?:[-–— ]гостиная)?|гостиная|спальня|коридор|ванная|санузел|туалет|комната|жилая комната|детская|кабинет|гардеробная|кладовая|балкон|лоджия)(?:\s+\d{1,2})?$/iu
 const verticalKey = (x: number, top: number, bottom: number) => `${x}:${top}:${bottom}`
 
-/** Extracted fill/cycle polygons already have canonical winding and start vertices. */
+/** Exact outline identity only; bounded cuts may add redundant collinear vertices.
+ * Source polygons/evidence are never simplified, snapped or moved by this key.
+ */
 export function nativeRoomPolygonKey(polygon: readonly PagePoint[]): string {
-  return polygon.map((point) => `${point.x}:${point.y}`).join('|')
+  const corners = polygon.filter((point, index) => {
+    const previous = polygon[(index + polygon.length - 1) % polygon.length]
+    const next = polygon[(index + 1) % polygon.length]
+    return (
+      !previous ||
+      !next ||
+      exactNativeOrientation(previous, point, next) !== 0 ||
+      point.x < Math.min(previous.x, next.x) ||
+      point.x > Math.max(previous.x, next.x) ||
+      point.y < Math.min(previous.y, next.y) ||
+      point.y > Math.max(previous.y, next.y)
+    )
+  })
+  const beginning = corners.reduce((best, point, index) => {
+    const current = corners[best]
+    return !current || point.x < current.x || (point.x === current.x && point.y < current.y)
+      ? index
+      : best
+  }, 0)
+  return [...corners.slice(beginning), ...corners.slice(0, beginning)]
+    .map((point) => `${point.x}:${point.y}`)
+    .join('|')
 }
 
 function frameInsidePolygon(work: PdfLinework, box: Box, polygon: PagePoint[]): boolean {
@@ -42,22 +66,8 @@ function frameInsidePolygon(work: PdfLinework, box: Box, polygon: PagePoint[]): 
       const c = corners[side]
       const d = corners[(side + 1) % corners.length]
       if (!c || !d) return false
-      if (
-        Math.max(a.x, b.x) < Math.min(c.x, d.x) ||
-        Math.max(c.x, d.x) < Math.min(a.x, b.x) ||
-        Math.max(a.y, b.y) < Math.min(c.y, d.y) ||
-        Math.max(c.y, d.y) < Math.min(a.y, b.y)
-      )
-        continue
-      const turns = [
-        exactNativeOrientation(a, b, c),
-        exactNativeOrientation(a, b, d),
-        exactNativeOrientation(c, d, a),
-        exactNativeOrientation(c, d, b),
-      ]
-      const [first, second, third, fourth] = turns
-      if (first == null || second == null || third == null || fourth == null) return false
-      if (first * second <= 0 && third * fourth <= 0) return false
+      if (exactNativeSegmentsTouch({ start: a, end: b }, { start: c, end: d }) !== false)
+        return false
     }
   }
   return true
@@ -159,12 +169,14 @@ export function automaticNativeRoomCandidates(input: {
   const { native, work } = input
   const geometry = nativeFillCandidates(input)
   const strokeGeometry = nativeStrokeCycleCandidates(input)
+  let frameFaces: ReturnType<typeof nativeRoomFrameFaceCandidates> | undefined
   const scale = native.pageNormalizedScale
   const fail = (reason: string) => ({
     status: 'unresolved' as const,
     reason,
     geometry,
     strokeGeometry,
+    frameFaces,
     associations: [],
   })
   if (geometry.truncated) return fail('incomplete-native-geometry')
@@ -274,6 +286,17 @@ export function automaticNativeRoomCandidates(input: {
   }
   const cues = numeric.filter((label) => (frames.get(label.id)?.length ?? 0) > 0)
   if (cues.length > 50) return fail('too-many-native-caption-cues')
+  frameFaces = nativeRoomFrameFaceCandidates({
+    ...input,
+    frames: cues.flatMap((cue) => {
+      const candidates = frames.get(cue.id)
+      const frame = candidates?.[0]
+      return candidates?.length === 1 && frame && !frame.uncertain
+        ? [{ labelId: cue.id, ...frame }]
+        : []
+    }),
+  })
+  if (frameFaces.status === 'unresolved') return fail(frameFaces.reason)
   const counts = new Map<number, number>()
   for (const cue of cues) counts.set(Number(cue.name), (counts.get(Number(cue.name)) ?? 0) + 1)
   const labels = cues.map((cue) => ({
@@ -292,7 +315,11 @@ export function automaticNativeRoomCandidates(input: {
       regionIds: string[]
     }
   >()
-  for (const candidate of [...geometry.candidates, ...strokeGeometry.candidates]) {
+  for (const candidate of [
+    ...geometry.candidates,
+    ...strokeGeometry.candidates,
+    ...(frameFaces.geometry?.candidates ?? []),
+  ]) {
     const key = nativeRoomPolygonKey(candidate.polygon)
     const existing = groups.get(key)
     if (existing) existing.regionIds.push(candidate.id)
@@ -343,6 +370,7 @@ export function automaticNativeRoomCandidates(input: {
     status: 'draft' as const,
     geometry,
     strokeGeometry,
+    frameFaces,
     rows,
     tableBounds,
     associations,
