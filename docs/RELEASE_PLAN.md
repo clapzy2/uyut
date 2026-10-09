@@ -6,13 +6,27 @@
 
 ### Текущий результат последней пачки
 
+Полный BASIS baseline выполнен: 8 paid reader calls, два повтора native-text и
+image-only до/после общего prompt-кандидата на одном листе без ожидаемых чисел
+в запросах. Все 24 индивидуальные площади верны; полные размеры, geometry и
+2D/3D не приняты. Image-only кандидат убрал выдуманные потолки в этих двух raw
+ответах и исправил ширину основной зоны, но сохраняет одинаковую ошибку глубины
+балконов -1 см и неизвестную полную глубину основной зоны. Native-text назначает
+реальные цифры не тем комнатам; raw кандидат там придумывает потолки, которые
+удаляет parser. Все ответы игнорируют конфликт общей площади. Из-за смешанного
+результата рабочий prompt НЕ заменён; кандидат только для явного QA rerun.
+Подробности, эталон и команды: `qa/2026-10-09-basis-modalities.md`.
+Следующий приоритет - source-bound ownership концов размерных линий, а не новый
+цикл prompt-only изменений. Этот лист с прямоугольными балконами не закрывает
+реальное чтение диагонального балкона. User project, production и PR не менялись.
+
 OCR-chain experiment: manually selected SHA-bound crops on three real raster images
 were read without supplying expected labels. Two exact sequences passed (1600/528/2516
 and830/1500/470);3700 was misread3710. This is not automatic crop/room ownership
 verification or a production fix. Original clipped28.8 plan remains negative input.
-User prefers a new full public plan; next baseline will use complete dimensioned
-PDF plus PNG of the same page with native text withheld, and synthetic exact cases.
-Candidates found: DesignArtSpace BASIS_plan.pdf and Remplanner studio/interior.pdf.
+User prefers a new full public plan; complete dimensioned BASIS PDF baseline
+and same-page image-only comparison are now recorded above. Remplanner remains
+another candidate; it has not been accepted as a full diagonal-balcony reference.
 No new project writes/deploy; current crop script is offline QA only.
 Цельная raster safety пачка: readPlanFromStorage теперь делает до двух чтений PNG
 через createRasterPlanReader (PDF остаётся1). reconcileRasterReadings не подгоняет
