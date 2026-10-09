@@ -34,6 +34,44 @@ function integerPoints(points: PagePoint[]) {
     scale: 10n ** BigInt(places),
   }
 }
+type IntegerPoint = { x: bigint; y: bigint }
+type IntegerEdge = { start: IntegerPoint; end: IntegerPoint }
+function integerOrientation(a: IntegerPoint, b: IntegerPoint, p: IntegerPoint) {
+  const value = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+  return value < 0n ? -1 : value > 0n ? 1 : 0
+}
+function integerEdges(polygon: IntegerPoint[]): IntegerEdge[] {
+  return polygon.map((start, index) => ({
+    start,
+    end: polygon[(index + 1) % polygon.length] as IntegerPoint,
+  }))
+}
+function integerWinding(polygon: IntegerPoint[]) {
+  const area = polygon.reduce((sum, point, index) => {
+    const next = polygon[(index + 1) % polygon.length]
+    return next ? sum + point.x * next.y - next.x * point.y : sum
+  }, 0n)
+  return area === 0n ? null : area > 0n ? 1 : -1
+}
+function integerPointLocation(point: IntegerPoint, boundary: IntegerEdge[], denominator = 1n) {
+  let count = 0
+  for (const edge of boundary) {
+    const start = { x: edge.start.x * denominator, y: edge.start.y * denominator }
+    const end = { x: edge.end.x * denominator, y: edge.end.y * denominator }
+    const direction = integerOrientation(start, end, point)
+    if (
+      direction === 0 &&
+      point.x >= (start.x < end.x ? start.x : end.x) &&
+      point.x <= (start.x > end.x ? start.x : end.x) &&
+      point.y >= (start.y < end.y ? start.y : end.y) &&
+      point.y <= (start.y > end.y ? start.y : end.y)
+    )
+      return 'boundary' as const
+    if (start.y <= point.y && end.y > point.y && direction > 0) count++
+    if (start.y > point.y && end.y <= point.y && direction < 0) count--
+  }
+  return count !== 0 ? ('inside' as const) : ('outside' as const)
+}
 function reduced(numerator: bigint, denominator: bigint) {
   let a = numerator < 0n ? -numerator : numerator,
     b = denominator
@@ -113,52 +151,19 @@ export function exactNativePolygonsOverlap(
     )
       return false
   }
-  type IntegerPoint = { x: bigint; y: bigint }
   const firstPoints = integers.points.slice(0, first.length)
   const secondPoints = integers.points.slice(first.length)
-  const winding = (polygon: IntegerPoint[]) => {
-    const area = polygon.reduce((sum, point, index) => {
-      const next = polygon[(index + 1) % polygon.length]
-      return next ? sum + point.x * next.y - next.x * point.y : sum
-    }, 0n)
-    return area === 0n ? null : area > 0n ? 1 : -1
-  }
-  const firstWinding = winding(firstPoints),
-    secondWinding = winding(secondPoints)
+  const firstWinding = integerWinding(firstPoints),
+    secondWinding = integerWinding(secondPoints)
   if (!firstWinding || !secondWinding) return null
-  const edges = (polygon: IntegerPoint[]) =>
-    polygon.map((start, index) => ({
-      start,
-      end: polygon[(index + 1) % polygon.length] as IntegerPoint,
-    }))
-  const firstEdges = edges(firstPoints),
-    secondEdges = edges(secondPoints)
-  const orientation = (a: IntegerPoint, b: IntegerPoint, p: IntegerPoint) => {
-    const value = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
-    return value < 0n ? -1 : value > 0n ? 1 : 0
-  }
+  const firstEdges = integerEdges(firstPoints),
+    secondEdges = integerEdges(secondPoints)
+  const orientation = integerOrientation
   const min = (a: bigint, b: bigint) => (a < b ? a : b)
   const max = (a: bigint, b: bigint) => (a > b ? a : b)
   // Midpoint witnesses use a denominator of two in integer space, never rounded Numbers.
-  const inside = (point: IntegerPoint, boundary: typeof firstEdges, denominator = 1n) => {
-    let count = 0
-    for (const edge of boundary) {
-      const start = { x: edge.start.x * denominator, y: edge.start.y * denominator }
-      const end = { x: edge.end.x * denominator, y: edge.end.y * denominator }
-      const direction = orientation(start, end, point)
-      if (
-        direction === 0 &&
-        point.x >= min(start.x, end.x) &&
-        point.x <= max(start.x, end.x) &&
-        point.y >= min(start.y, end.y) &&
-        point.y <= max(start.y, end.y)
-      )
-        return false
-      if (start.y <= point.y && end.y > point.y && direction > 0) count++
-      if (start.y > point.y && end.y <= point.y && direction < 0) count--
-    }
-    return count !== 0
-  }
+  const inside = (point: IntegerPoint, boundary: IntegerEdge[], denominator = 1n) =>
+    integerPointLocation(point, boundary, denominator) === 'inside'
   for (const a of firstEdges)
     for (const b of secondEdges) {
       const c = orientation(a.start, a.end, b.start),
@@ -205,6 +210,49 @@ export function exactNativePolygonsOverlap(
       }
     }
   return false
+}
+
+/** Inclusive containment of already validated simple, holeless source polygons.
+ * Tests all bounded edge intervals exactly; never moves a vertex to a boundary.
+ */
+export function exactNativePolygonContains(
+  outer: readonly PagePoint[],
+  inner: readonly PagePoint[],
+): boolean | null {
+  if ([outer, inner].some((polygon) => polygon.length < 3 || polygon.length > 100)) return null
+  const integers = integerPoints([...outer, ...inner])
+  if (!integers) return null
+  const outerPoints = integers.points.slice(0, outer.length)
+  const innerPoints = integers.points.slice(outer.length)
+  if (integerWinding(outerPoints) === null || integerWinding(innerPoints) === null) return null
+  const boundary = integerEdges(outerPoints)
+  for (const edge of integerEdges(innerPoints)) {
+    if (integerPointLocation(edge.start, boundary) === 'outside') return false
+    const axis = edge.start.x !== edge.end.x ? 'x' : 'y'
+    const low = edge.start[axis] < edge.end[axis] ? edge.start[axis] : edge.end[axis]
+    const high = edge.start[axis] > edge.end[axis] ? edge.start[axis] : edge.end[axis]
+    const cuts = [edge.start, edge.end]
+    for (const other of boundary) {
+      const first = integerOrientation(edge.start, edge.end, other.start)
+      const second = integerOrientation(edge.start, edge.end, other.end)
+      const third = integerOrientation(other.start, other.end, edge.start)
+      const fourth = integerOrientation(other.start, other.end, edge.end)
+      if (first * second < 0 && third * fourth < 0) return false
+      if (first === 0 && other.start[axis] >= low && other.start[axis] <= high)
+        cuts.push(other.start)
+    }
+    cuts.sort((a, b) => (a[axis] < b[axis] ? -1 : a[axis] > b[axis] ? 1 : 0))
+    for (let index = 1; index < cuts.length; index++) {
+      const start = cuts[index - 1]
+      const end = cuts[index]
+      if (!start || !end || start[axis] === end[axis]) continue
+      if (
+        integerPointLocation({ x: start.x + end.x, y: start.y + end.y }, boundary, 2n) === 'outside'
+      )
+        return false
+    }
+  }
+  return true
 }
 export function exactNativeCrossing(a: NativePageSegment, b: NativePageSegment) {
   const integers = integerPoints([a.start, a.end, b.start, b.end])

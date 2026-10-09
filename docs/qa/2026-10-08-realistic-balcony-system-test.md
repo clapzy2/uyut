@@ -1793,3 +1793,67 @@ output/playwright/native-shared-rooms-desktop.png. Localhost server остано
 Остаток: роль физической границы пола/стены, source-bound проёмы и их полный
 inventory, размерная/вертикальная доказательная привязка и diverse real acceptance.
 Смешанные fill/cycle кандидаты не стали доказанным свободным полом этой пачкой.
+
+## 10 октября: непосредственные дверные соседи и весь source corridor
+
+Воспроизведён P2 в verifyPlanPageOpeningFaces: объявленные door faces x50..100
+наy150/y200 и два точных native jambs связывали комнаты1/2 даже при source room3
+внутри полосы между ними. Room polygons не пересекались, поэтому прежний room
+overlap guard не замечал проблему. RED controls centered/off-center возвращали
+ложную пару. Второй обнаруженный случай: обе комнаты within concave exterior,
+но весь connecting strip проходит через известную наружную выемку квартиры.
+
+Новый strip guard проверяет все room polygons, включая concave часть paired
+room, и declared no-floor voids через exact source-decimal overlap. При наличии
+exterior/floor требуется включение всей полосы в их контуры. Floor when missing
+не подставляется, стены/проёмы не дорисовываются. Это проверка already-declared
+same-source door faces, не автоматическое определение door kind, ширины или
+физической проходимости. Room-contained obstacles уже покрыты отказом при
+пересечении пола комнаты; неизвестные native fills не объявляются стенами.
+
+Exact containment работает с проверенными simple/holeless polygons: inclusive
+vertex location, proper crossings и все ограниченные интервалы ребра между
+boundary-vertex cuts. Midpoint probes остаются рациональными BigInt witnesses,
+не rounded Numbers. Это не одна проверка углов/середины: vertex-only crossing
+через узкий notch также удерживается. Void/hole regions проверяются отдельно.
+Общие private integer point-location/winding/edge helpers извлечены из прежнего
+overlap predicate без изменения его boundary-only semantics. Unsupported
+precision/zero-area не допускаются как доказательство. Source polygons и refs
+не изменяются. Bounds/cache/edge-work ограничены одним source request;
+при200k work-limit все checks unresolved, более ранние пары не сохраняются.
+
+Regressions: off-centre/containing/crossing-edge third room, paired-room concavity,
+void, exterior/floor notch, boundary contact, swapped axes, reversal/immutability,
+saved-review counts и adversarial100-room/200-door stress. Containment controls:
+vertex-only notch, tangency/proper crossing, near-boundary without snap,
+precision refusal, winding,441 analytic C-envelope rectangle cases.
+Прежний ambiguous fixture был не двумя непосредственными соседями: ближняя
+комната находилась между дальней гранью и дверью. Теперь сохраняется door1↔2,
+farther3 удерживается по strip ownership. Defensive multiple-match refusal
+оставлен; proximity alone не используется.
+
+Рабочие consumers остаются прежними: metric-draft openingFacePairs и приватный
+saved-review coverage используют pairPlanPageOpeningFaces. Полномочия не
+расширены, readiness flags и источник не меняются. Report regression подтверждает
+declaredDoors2, doorPairCandidates0, pairedDoorFaces0, unresolvedDoorChecks2 и
+door-face-pairing-partial. UI layout/API schema не менялись; новые browser/PG
+сценарии не запускались. Отдельные reviewedNativeOpeningKinds и внутрикомнатный
+centerline-connectivity inspector по-прежнему являются QA/experimental paths,
+не автоматически подключённым user reader.
+
+Fresh SHA-pinned original apartment74.77/page6 повторён через существующий
+bench-reviewed-page-coverage.ts без clearing omissions. Source45 skipped curves
+и0 clipped paths сохранены;13 declared door faces,5 pair candidates/10 paired
+faces,3 unresolved checks. Полный source-page.jpg визуально просмотрен. Отчёт
+partial, envelope-only,11 local wall pairs; strict source invalid/local audit valid.
+Пол, физические проходы, complete opening inventory, масштабы/vertical data
+по-прежнему unverified. Это сохранение baseline, не полная приёмка квартиры.
+Артефакты: tmp/reviewed-door-corridors-20261010-final/; первоначальный replay
+tmp/reviewed-door-corridors-20261010/ сохранён. Paid requests0/project writes0.
+
+3409 web tests/248 файлов, typecheck7, lint878, production build и diff check
+прошли. Independent audit нашёл exterior обход; он закрыт. Повторное review
+без замечаний:66 focused tests и5000 valid integer star-polygon containment
+comparisons against polygon-clipping.difference (0 mismatches/826 contained).
+Это ограниченный дополнительный контроль, не universal geometry proof.
+Пользовательский проект, production, provider budget, DB и PR не изменялись.
