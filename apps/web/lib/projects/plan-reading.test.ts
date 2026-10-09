@@ -109,10 +109,12 @@ describe('single-page plan reader budget', () => {
 
   it('uses one paid call without automatic side rechecks', async () => {
     const reading = await readPlanFromStorage('plan.PDF', 6)
-    expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, false)
+    expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, true)
     expect(mocks.read).toHaveBeenCalledTimes(1)
     expect(reading).toMatchObject({ sourcePage: 6, pageCount: 48, planState: 'existing' })
-    expect(reading.rooms[0]).toMatchObject({ widthCm: 296.4, depthCm: 420.5 })
+    expect(reading.rooms[0]?.widthCm).toBeUndefined()
+    expect(reading.rooms[0]?.depthCm).toBeUndefined()
+    expect(reading.rooms[0]?.areaM2).toBe(12.35)
   })
 
   it('keeps withheld native total and source warning through the storage reader path', async () => {
@@ -293,10 +295,14 @@ describe('single-page plan reader budget', () => {
     ).rejects.toThrow('требуют уточнения')
     expect(mocks.read).not.toHaveBeenCalled()
   })
-  it('keeps default reading unchanged without asking for diagnostic vectors or a test fixture', async () => {
-    const expected = { ...reviewedReading, sourcePage: 6, pageCount: 48 }
+  it('checks native chains on the ordinary PDF path without a manual review annotation', async () => {
+    const page = reviewedPage()
+    mocks.prepare.mockResolvedValue({ ...page, linework: { ...linework, skippedCurves: 0 } })
     mocks.read.mockResolvedValue(structuredClone(reviewedReading))
-    expect(await readPlanFromStorage('plan.pdf', 6)).toEqual(expected)
-    expect(mocks.prepare.mock.calls[0]?.[3]).toBe(false)
+    const reading = await readPlanFromStorage('plan.pdf', 6)
+    expect(reading.rooms[0]).toMatchObject({ widthCm: 296.4, depthCm: 420.5, areaM2: 12.35 })
+    expect(reading.rooms[0]?.measurementWarnings?.join(' ')).toContain('не подтверждены')
+    expect(mocks.prepare.mock.calls[0]?.[3]).toBe(true)
+    expect(mocks.read).toHaveBeenCalledTimes(1)
   })
 })

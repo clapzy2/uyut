@@ -100,7 +100,7 @@ export async function preparePlanPage(
       )
     }
     const page = await document.getPage(pageNumber)
-    // Only requested for a reviewed-page gate. No extra page or paid reader invocation.
+    // Ordinary PDF chain checks and reviewed-page checks use the same selected native page.
     let linework: PdfLinework | undefined
     if (includeLinework) {
       try {

@@ -31,6 +31,7 @@ type NativeDimensionSpan = {
   start: PagePoint
   end: PagePoint
   operationIndex: number
+  subpathIndex: number
   branched: boolean
 }
 
@@ -492,13 +493,14 @@ export type PdfNativePageDimensionChain<
       axis: Axis
       labelIndexes: number[]
       lineOperations: number[]
+      linePaths?: Array<{ operationIndex: number; subpathIndex: number }>
       ends: [PagePoint, PagePoint]
       segments: Array<{ labelIndex: number; valueMm: number; start: PagePoint; end: PagePoint }>
       basis: 'native-page-dimension'
     }
   | { status: 'unresolved' | 'ambiguous'; reason: string }
 
-/** Proves one native chain, not completeness of the page or ownership by a room or wall. */
+/** Checks native line candidates, not universal label-to-line binding, page completeness or room ownership. */
 export function pdfNativePageDimensionChain(
   work: PdfLinework,
   source: PdfPlanSource,
@@ -512,6 +514,24 @@ export function pdfNativePageDimensionChain(
   return axis === 'aligned'
     ? alignedPageDimensionChain(work, labels, totalMm)
     : nativePageDimensionChain(work, labels, totalMm, axis)
+}
+
+/** Request-local reuse on one unchanged prepared page; does not establish room ownership. */
+export function createPdfNativePageDimensionChainVerifier(
+  work: PdfLinework,
+  source: PdfPlanSource,
+) {
+  const spans = new Map<DimensionAxis, NativeDimensionSpan[] | undefined>()
+  return (labels: readonly NativeLabel[], totalMm: number, axis: DimensionAxis) => {
+    if (source.state !== 'existing')
+      return { status: 'unresolved' as const, reason: 'not-existing-state' }
+    if (work.coordinateSystem !== 'page-0-1000' || work.truncated)
+      return { status: 'unresolved' as const, reason: 'incomplete-native-page' }
+    return nativePageDimensionChain(work, labels, totalMm, axis, () => {
+      if (!spans.has(axis)) spans.set(axis, nativeDimensionSpans(work, axis))
+      return spans.get(axis)
+    })
+  }
 }
 
 /** Поворот только для проверки нативных связей; исходные координаты не меняются. */
@@ -624,6 +644,7 @@ function alignedPageDimensionChain(
       refusal = result
       continue
     }
+    if (!result.linePaths) return fail('non-native-dimension-end')
     const originalSegments = result.segments.flatMap((segment) => {
       const start = originals.get(segment.start)
       const end = originals.get(segment.end)
@@ -657,7 +678,10 @@ function alignedPageDimensionChain(
       refusal = fail('dimension-scale-conflict')
       continue
     }
-    candidates.set(result.lineOperations.join(':'), {
+    const lineKey = result.linePaths
+      .map((path) => `${path.operationIndex}:${path.subpathIndex}`)
+      .join('|')
+    candidates.set(lineKey, {
       ...result,
       axis: 'aligned',
       ends: [start, end],
@@ -674,6 +698,7 @@ function nativePageDimensionChain(
   labels: readonly NativeLabel[],
   totalMm: number,
   axis: DimensionAxis,
+  readSpans = () => nativeDimensionSpans(work, axis),
 ): PdfNativePageDimensionChain<DimensionAxis> {
   const fail = (
     reason: string,
@@ -706,7 +731,7 @@ function nativePageDimensionChain(
   const along = (point: PagePoint) => (axis === 'width' ? point.x : point.y)
   const across = (point: PagePoint) => (axis === 'width' ? point.y : point.x)
   const acrossScale = (axis === 'width' ? work.pageHeight : work.pageWidth) / 1000
-  const spans = nativeDimensionSpans(work, axis)
+  const spans = readSpans()
   if (!spans) return fail('dimension-span-budget-exceeded', 'ambiguous')
   const selected: typeof spans = []
   const sortedLabels = [...labels].sort((a, b) => along(a) - along(b))
@@ -726,7 +751,13 @@ function nativePageDimensionChain(
     const span = matching[0]
     if (!span) return fail('no-connected-dimension-line')
     if (span.branched) return fail('branched-dimension-line', 'ambiguous')
-    if (selected.some((s) => s.operationIndex === span.operationIndex))
+    if (
+      selected.some(
+        (selectedSpan) =>
+          selectedSpan.operationIndex === span.operationIndex &&
+          selectedSpan.subpathIndex === span.subpathIndex,
+      )
+    )
       return fail('reused-dimension-line')
     selected.push(span)
   }
@@ -745,6 +776,10 @@ function nativePageDimensionChain(
     axis,
     labelIndexes: sortedLabels.map((l) => l.index),
     lineOperations: selected.map((s) => s.operationIndex),
+    linePaths: selected.map((span) => ({
+      operationIndex: span.operationIndex,
+      subpathIndex: span.subpathIndex,
+    })),
     ends: [first.start, last.end],
     segments: selected.flatMap((span, i) => {
       const label = sortedLabels[i]
@@ -1046,6 +1081,7 @@ function nativeDimensionSpans(
           start: first.tip,
           end: last.tip,
           operationIndex: path.operationIndex,
+          subpathIndex: path.subpathIndex,
           branched: true,
         })
       continue
@@ -1079,6 +1115,7 @@ function nativeDimensionSpans(
           start: first.tip,
           end: last.tip,
           operationIndex: path.operationIndex,
+          subpathIndex: path.subpathIndex,
           branched,
         })
     }
@@ -1110,6 +1147,7 @@ function nativeDimensionSpans(
         start: a,
         end: b,
         operationIndex: path.operationIndex,
+        subpathIndex: path.subpathIndex,
         branched: firstTicks.length !== 1 || lastTicks.length !== 1 || offAxisBranch,
       })
     }

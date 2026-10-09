@@ -211,3 +211,102 @@ review без открытых находок; исправлен обнаруж
 Новых AI расходов, DB/project writes, PR и deployment не было. Live UI/browser
 и реальное сохранение в аккаунте не проверялись; подтверждение этих путей
 не подменяется mocked storage test или renderToStaticMarkup.
+
+## Рабочая пачка: обычный PDF, native цепочки и обязательная сверка осей
+
+Новый `verifyPlanReadingNativeChains` вызывается в обычном `readPlanFromStorage`
+после одного reader call. PDF теперь запрашивает native linework того же выбранного
+листа; вручную размеченный путь по-прежнему использует более строгий room gate.
+Индексы evidence относятся только к фактическому compact planText массиву этого
+чтения, не к original nativeTextAnchors.nativeIndex.
+
+Для непустых width/depth проверяются прежние labels/arithmetic и нативные
+линии-кандидаты. Неудача/неподдержанный слой оставляет ось неизвестной и очищает
+её evidence/estimated/rechecked; значения не дополняются из площади или эталона.
+Успех оставляет только кандидата с явным предупреждением: даже связь подписи с
+линией, принадлежность комнате и полнота её охвата не доказаны. Geometry модели
+обычного PDF удаляется независимо от совпадения чисел: проверка рейки не проверяет
+стены, проёмы или полный пол. Areas/ceilings/state остаются предметом своих
+проверок, не «исправляются» этим guard.
+
+Ограничения: 3000 paths, 20k points, 40 chain checks; span extraction кэшируется
+по оси только внутри запроса на неизменный свежий лист. Отказываются чужой/неясный
+state/page, неполные layers, clipped/unsupported contexts, duplicate path IDs,
+invalid coordinates и truncated omitted bounds. Кривые разрешаются лишь при
+полном согласованном списке localized bounds и отсутствии пересечения с выбранной
+рейкой/её концами/label с запасом 6 physical PDF pt. Unlocalized curves блокируют
+проверку. Это консервативное local screening, не доказательство полноты страницы.
+
+Исправлена отдельная ошибка helper: разные subpaths одной paint operation больше
+не считаются повторным использованием одной рейки. Новый optional linePaths
+сохраняет operation/subpath, старое lineOperations не удалено. Повтор одной
+рейки, конкурирующие paths и неоднозначные стрелки не разрешены. Этот фикс **не
+исправляет** composite7088 на BASIS: там label75 попадает на рейку1885, а не на
+свой короткий сегмент. Совпадающие tick repaint не были ослаблены.
+
+### Изменение действительного пути переноса
+
+confirmPlanRooms больше не исключает `.pdf` из отдельной width/depth сверки.
+Проверяются также include=false/utility строки. Каждую заполненную ось нужно
+явно проверить или очистить; отсутствие осей не превращается в wipe уже
+измеренных комнат. Галочки относятся к конкретным значениям/room scope,
+сбрасываются при правке и не сохраняются как physical verification.
+Их наличие означает выбор пользователя, а не машинное подтверждение исходника.
+PlanReadingCard использует те же controls для PDF и raster. PDF source link
+открывает signed file с #page=activeReading.sourcePage, не mutable page selector.
+Новых DB полей, новых data-source statuses и raw HTML не введено.
+
+### Fresh source replay и границы покрытия
+
+`bench-basis-native-chain-gate.ts` читает весь исходный PDF page3 в память,
+проверяет SHA/image/text equality с архивом A/B, повторяет четыре native raw
+ответа через текущий parser+guard. Goldens в модели не используются; controls
+выбраны вручную и не подменяют реальные ответы модели. Новых provider calls и
+project writes нет. Файлы: `output/quality-bench/basis-20261009-native-chain-gate-c/`
+(input.jpg, full linework.json, report.json). Ранний -a отказал всем осям из-за
+глобальной curve policy; -b/-c применяют localized screening.
+
+Fresh source: 1216 paths, 2781 points, skippedCurves31/localizedBounds31,
+boundsTruncated=false; unsupported/contexts/clipped0, truncated=false. Пропуски
+не обнулены. В четырёх ответах основные оси и model geometry удерживаются;
+все индивидуальные площади и guard общей площади сохранены. Оставшиеся
+неверные назначения реальных локальных рейк:
+
+| Пакет | Неизвестные основные оси | Остались только кандидатами |
+| --- | --- | --- |
+| A1 | обе | Bal01 depth185,1 см |
+| A2 | обе | Bal01 width165 см; Bal02 depth185,1 см |
+| B1 | обе | Bal01 width165 см; Bal02 depth276,3 см |
+| B2 | обе | Bal01 width165 см; Bal02 depth185,1 см |
+
+Это не исправленные размеры балконов и не accepted 2D/3D. Изолированные source
+controls: main5832 `[28,27]` и прямой7088 `[45]` дают helper candidate; ошибочный
+extended6966 `[29,28,27]` disconnected; nested6172 `[39,44,47]` ambiguous/branched.
+Correct direct7088 удерживается новым guard из-за близкого omitted curve bbox
+дверной дуги. Correct5832 проходит как кандидат, но ни один архивный model run
+не предоставил такое evidence: автоматическое восстановление не заявлено.
+Single75 `[25]` ошибочно связывается helper с рейкой1885 и может остаться
+кандидатом; в обычном parser этот слишком маленький room-side также не проходит
+MIN_SIDE. Это известная label-placement граница, не room/rail proof. Именно
+поэтому candidate нельзя автоматически переносить или использовать как масштаб
+подтверждённого пола. Для настоящей точности нужна следующая label/contour пачка.
+
+Gate replay на четырёх локальных случаях занял примерно15–25 ms, без PDF render
+и сети. Это не измерение production latency и не performance guarantee.
+
+### Проверки
+
+Full web suite: 3286 tests/245 файлов с --maxWorkers=4; typecheck7, lint871,
+production build и diff check прошли. Один первоначальный parallel full run
+получил 5s timeout старого layout seed20260912 при одновременном typecheck;
+focused повтор и ограниченный worker count прошли. Глобальные timeout/test
+условия не ослаблялись. Independent review нашёл omitted-bounds-truncated gap;
+оба flags закрыты и покрыты regression, открытых integration blockers не осталось.
+
+Tests проверяют connected/partial/source-unknown chains, local omitted bounds,
+limits, copy immutability, model geometry holding, factory compatibility,
+compound subpath identity, default storage path с одним mocked reader call,
+PDF/raster action rejection/omission/corrected transfer и static form controls.
+PostgreSQL integration обновлён, но не запускался: docker API pipe отсутствует,
+локальный daemon не стартован. Live browser/реальное сохранение в аккаунте,
+новые AI requests, deployment и исходный user project не выполнялись/не менялись.

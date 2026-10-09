@@ -79,6 +79,45 @@ describe('native page dimension without invented room ownership', () => {
     )
   })
 
+  it.each(['width', 'aligned'] as const)(
+    'keeps distinct rail subpaths in a compound paint operation in %s mode',
+    (axis) => {
+      const operations = [2310, 2338, 2364]
+      const paths = work.paths.map((path) => {
+        const subpathIndex = operations.indexOf(path.operationIndex)
+        return subpathIndex === -1 ? path : { ...path, operationIndex: 9000, subpathIndex }
+      })
+
+      expect(
+        pdfNativePageDimensionChain({ ...work, paths }, contours.source, labels, 2985, axis),
+      ).toMatchObject({
+        status: 'candidate',
+        lineOperations: [9000, 9000, 9000],
+        linePaths: [
+          { operationIndex: 9000, subpathIndex: 0 },
+          { operationIndex: 9000, subpathIndex: 1 },
+          { operationIndex: 9000, subpathIndex: 2 },
+        ],
+      })
+    },
+  )
+
+  it.each(['width', 'aligned'] as const)('refuses two labels using one rail in %s mode', (axis) => {
+    const reusedLabels = [firstLabel, { ...firstLabel, index: 999, x: firstLabel.x + 1 }]
+
+    expect(
+      pdfNativePageDimensionChain(work, contours.source, reusedLabels, 1878, axis),
+    ).toMatchObject({ status: 'unresolved', reason: 'reused-dimension-line' })
+  })
+
+  it.each([0, 1])('refuses competing rails with compound subpath %i', (subpathIndex) => {
+    const paths = [...work.paths, { ...firstLine, subpathIndex }]
+
+    expect(
+      pdfNativePageDimensionChain({ ...work, paths }, contours.source, labels, 2985, 'width'),
+    ).toMatchObject({ status: 'ambiguous', reason: 'multiple-dimension-lines' })
+  })
+
   it('refuses proposed state and a truncated native extraction', () => {
     expect(
       pdfNativePageDimensionChain(

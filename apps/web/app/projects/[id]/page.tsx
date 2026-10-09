@@ -97,7 +97,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
   const isOwner = project.role === 'owner'
   const apartment = apartmentPlan(project.rooms)
   const planUrl = project.planUrl ? await presignedObjectUrl(project.planUrl) : null
-  const planIsPdf = project.planUrl?.endsWith('.pdf') ?? false
+  const planIsPdf = project.planUrl?.toLowerCase().endsWith('.pdf') ?? false
   const sourceRevision = planEditRevision(project.planUrl, project.planReading)
   const geometryReadings = project.planReading
     ? geometryRoomReadings(
@@ -256,7 +256,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
               reading={project.planReading}
               hasPlan={Boolean(project.planUrl)}
               planIsPdf={planIsPdf}
-              planSourceUrl={planIsPdf ? null : planUrl}
+              planSourceUrl={planUrl}
               roomCount={project.rooms.length}
               existing={project.rooms.map((room) => ({
                 id: room.id,
