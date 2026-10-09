@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { NativeTextAnchors } from './plan-document'
 import type { nativeDimensionEvidence } from './plan-native-dimension-evidence'
 import { nativeFaceCycle, type ReviewedNativeFaces } from './plan-native-face-cycle'
+import { planPageReviewIssue } from './plan-page-review'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 
 const rasterSource = { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 }
@@ -122,6 +123,35 @@ describe('single reviewed native floor-face cycle', () => {
     expect(
       result.vertices.every((vertex) => vertex.proof?.kind === 'bounded-native-crossing'),
     ).toBe(true)
+    expect(result.vertexProofs).toHaveLength(4)
+    const contours = {
+      source,
+      coordinateSystem: 'page-0-1000' as const,
+      review: 'manual-source-review' as const,
+      pageWidth: 1000,
+      pageHeight: 1000,
+      rooms: [{ roomSourceNumber: 1, polygon: result.polygon, vertexProofs: result.vertexProofs }],
+    }
+    const reading = {
+      sourcePage: 1,
+      planState: 'existing' as const,
+      readAt: '2026-10-09',
+      rooms: [{ sourceNumber: 1, name: 'Комната', kind: 'living' as const }],
+    }
+    expect(planPageReviewIssue(contours, reading, source, work)).toBeUndefined()
+    expect(
+      planPageReviewIssue(
+        { ...contours, source: { ...source, sha256: 'c'.repeat(64) } },
+        reading,
+        source,
+        work,
+      ),
+    ).toBe('different-plan-source')
+    const proof = result.vertexProofs[0]
+    if (!proof) throw new Error('Missing crossing proof')
+    proof.segments[0].start.x += 1
+    expect(planPageReviewIssue(contours, reading, source, work)).toBe('non-native-contour-vertex')
+    expect(work.paths[0]?.points[0]?.x).toBe(10)
   })
   it('refuses even a small source gap instead of snapping it closed', () => {
     const work = {

@@ -1,4 +1,4 @@
-import type { PlanPageSegmentRef } from '@uyut/db'
+import type { PlanPageSegmentRef, PlanPageVertexProof } from '@uyut/db'
 import type { NativeTextAnchors } from './plan-document'
 import type { nativeDimensionEvidence } from './plan-native-dimension-evidence'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
@@ -220,6 +220,29 @@ export function nativeFaceCycle(input: {
     )
       return fail('omitted-native-evidence-touches-boundary')
   }
+  const vertexProofs: PlanPageVertexProof[] = []
+  for (const [vertexIndex, point] of polygon.entries()) {
+    const proof = nodes.get(pointKey(point))?.proof
+    if (proof?.kind !== 'bounded-native-crossing') continue
+    const snapshots = proof.faces.map((ref) =>
+      selected.find((face) => refKey(face) === refKey(ref)),
+    )
+    const first = snapshots[0]
+    const second = snapshots[1]
+    if (snapshots.length !== 2 || !first || !second) return fail('incomplete-native-vertex-proof')
+    const snapshot = (segment: NativePageSegment) => ({
+      operationIndex: segment.operationIndex,
+      subpathIndex: segment.subpathIndex,
+      segmentIndex: segment.segmentIndex,
+      start: { ...segment.start },
+      end: { ...segment.end },
+    })
+    vertexProofs.push({
+      vertexIndex,
+      kind: 'bounded-native-crossing',
+      segments: [snapshot(first), snapshot(second)],
+    })
+  }
   return {
     status: 'candidate' as const,
     basis: 'reviewed-native-face-cycle' as const,
@@ -227,6 +250,7 @@ export function nativeFaceCycle(input: {
     coordinateSystem: 'page-0-1000' as const,
     omissionExclusionPoints: OMISSION_EXCLUSION_POINTS,
     polygon,
+    vertexProofs,
     vertices: polygon.map((point) => ({
       point: { ...point },
       proof: nodes.get(pointKey(point))?.proof,

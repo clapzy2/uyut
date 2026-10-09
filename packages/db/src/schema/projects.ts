@@ -313,6 +313,15 @@ export type PlanPageSegmentRef = {
   segmentIndex: number
 }
 export type PlanPageEndpointProof = PlanPageSegmentRef & { kind: 'native-edge-crossing' }
+/** Freshly rechecked bounded crossing, not a guessed or snapped polygon vertex. */
+export type PlanPageVertexProof = {
+  vertexIndex: number
+  kind: 'bounded-native-crossing'
+  segments: [
+    PlanPageSegmentRef & { start: { x: number; y: number }; end: { x: number; y: number } },
+    PlanPageSegmentRef & { start: { x: number; y: number }; end: { x: number; y: number } },
+  ]
+}
 export type PlanPageOpening = {
   id: string
   kind: 'door' | 'window' | 'balcony'
@@ -354,16 +363,18 @@ export type PlanPageContours = {
   pageHeight: number
   exterior?: {
     polygon: Array<{ x: number; y: number }>
+    vertexProofs?: PlanPageVertexProof[]
     /** Omitted on older reviews, which treated this polygon as the floor boundary. */
     boundaryRole?: 'floor' | 'outer-wall-envelope'
   }
   /** Separate reviewed floor boundary inside an explicitly identified outer-wall envelope. */
-  floor?: { polygon: Array<{ x: number; y: number }> }
+  floor?: { polygon: Array<{ x: number; y: number }>; vertexProofs?: PlanPageVertexProof[] }
   /** Reviewed non-room space such as a technical shaft; never inferred from a gap. */
   voids?: Array<{ id: string; polygon: Array<{ x: number; y: number }> }>
   rooms: Array<
     PlanPageRoomIdentity & {
       polygon: Array<{ x: number; y: number }>
+      vertexProofs?: PlanPageVertexProof[]
       conditionalEdges?: PlanPageConditionalEdge[]
       dimensionEdges?: PlanPageDimensionEdge[]
       /** Ручная разметка исходного листа, без автоматического перевода в сантиметры. */

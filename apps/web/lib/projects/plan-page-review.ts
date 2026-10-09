@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import {
   type NativePageSegment,
+  nativeEdgeCrossing,
   nativePageSegments,
   sourceOpeningEndpoint,
 } from './plan-pdf-opening-endpoint'
@@ -27,6 +28,20 @@ const endpointProofSchema = z.strictObject({
   subpathIndex: z.number().int().min(0).max(19_999),
   segmentIndex: z.number().int().min(0).max(19_999),
 })
+const vertexSegmentSchema = endpointProofSchema.omit({ kind: true }).extend({
+  start: pointSchema,
+  end: pointSchema,
+})
+const vertexProofsSchema = z
+  .array(
+    z.strictObject({
+      vertexIndex: z.number().int().min(0).max(99),
+      kind: z.literal('bounded-native-crossing'),
+      segments: z.tuple([vertexSegmentSchema, vertexSegmentSchema]),
+    }),
+  )
+  .max(100)
+  .optional()
 const openingSchema = z.strictObject({
   id: featureIdSchema,
   kind: z.enum(['door', 'window', 'balcony']),
@@ -54,6 +69,7 @@ const conditionalEdgeSchema = z.strictObject({
 const sourceNumberSchema = z.number().int().min(1).max(10_000)
 const contourFields = {
   polygon: z.array(pointSchema).min(3).max(100),
+  vertexProofs: vertexProofsSchema,
   conditionalEdges: z.array(conditionalEdgeSchema).max(100).optional(),
   dimensionEdges: z
     .array(
@@ -94,10 +110,16 @@ export const planPageContoursSchema = z
     exterior: z
       .strictObject({
         polygon: z.array(pointSchema).min(3).max(100),
+        vertexProofs: vertexProofsSchema,
         boundaryRole: z.enum(['floor', 'outer-wall-envelope']).optional(),
       })
       .optional(),
-    floor: z.strictObject({ polygon: z.array(pointSchema).min(3).max(100) }).optional(),
+    floor: z
+      .strictObject({
+        polygon: z.array(pointSchema).min(3).max(100),
+        vertexProofs: vertexProofsSchema,
+      })
+      .optional(),
     voids: z
       .array(z.strictObject({ id: featureIdSchema, polygon: z.array(pointSchema).min(3).max(100) }))
       .max(20)
@@ -453,12 +475,47 @@ export function pageReviewRoomsMatch(
   )
 }
 
-/** A conditional endpoint may lie at a proven crossing, never at a guessed page coordinate. */
+/** Native nodes or fresh bounded crossing proofs only; never guessed page coordinates. */
 export function sourceRoomContourVertices(
-  room: Pick<PlanPageContours['rooms'][number], 'polygon' | 'conditionalEdges'>,
+  room: Pick<PlanPageContours['rooms'][number], 'polygon' | 'conditionalEdges' | 'vertexProofs'>,
   nativePoints: ReadonlySet<string>,
   segments: readonly NativePageSegment[],
 ): boolean {
+  const refKey = (
+    ref: NativePageSegment | NonNullable<typeof room.vertexProofs>[number]['segments'][number],
+  ) => `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`
+  const byRef = new Map<string, NativePageSegment | null>()
+  if (room.vertexProofs?.length) {
+    for (const segment of segments) {
+      const key = refKey(segment)
+      byRef.set(key, byRef.has(key) ? null : segment)
+    }
+  }
+  const proven = new Set<number>()
+  for (const proof of room.vertexProofs ?? []) {
+    const point = room.polygon[proof.vertexIndex]
+    if (!point || proof.kind !== 'bounded-native-crossing' || proven.has(proof.vertexIndex))
+      return false
+    const first = byRef.get(refKey(proof.segments[0]))
+    const second = byRef.get(refKey(proof.segments[1]))
+    if (!first || !second) return false
+    if (
+      [first, second].some((segment, index) => {
+        const snapshot = proof.segments[index]
+        return (
+          !snapshot ||
+          segment.start.x !== snapshot.start.x ||
+          segment.start.y !== snapshot.start.y ||
+          segment.end.x !== snapshot.end.x ||
+          segment.end.y !== snapshot.end.y
+        )
+      })
+    )
+      return false
+    const crossing = nativeEdgeCrossing([first.start, first.end], second)
+    if (!crossing || crossing.x !== point.x || crossing.y !== point.y) return false
+    proven.add(proof.vertexIndex)
+  }
   for (const edge of room.conditionalEdges ?? []) {
     const start = room.polygon[edge.wallEdgeIndex]
     const end = room.polygon[(edge.wallEdgeIndex + 1) % room.polygon.length]
@@ -471,6 +528,7 @@ export function sourceRoomContourVertices(
       return false
   }
   return room.polygon.every((point, index) => {
+    if (proven.has(index)) return true
     if (nativePoints.has(`${point.x}:${point.y}`)) return true
     const ownEdge = room.conditionalEdges?.find((edge) => edge.wallEdgeIndex === index)
     const priorIndex = (index - 1 + room.polygon.length) % room.polygon.length
@@ -553,9 +611,9 @@ export function planPageReviewIssue(
     )
       return 'non-native-obstacle-vertex'
   }
-  if (input.exterior?.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`)))
+  if (input.exterior && !sourceRoomContourVertices(input.exterior, nativePoints, segments))
     return 'non-native-contour-vertex'
-  if (input.floor?.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`)))
+  if (input.floor && !sourceRoomContourVertices(input.floor, nativePoints, segments))
     return 'non-native-floor-vertex'
   if (
     input.voids?.some((voidArea) =>

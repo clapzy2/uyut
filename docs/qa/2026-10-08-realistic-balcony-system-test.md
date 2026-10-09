@@ -1337,6 +1337,23 @@ same-source floor/wall/opening coverage и reviewed transfer; универсал
 
 ## Чего эта проверка не доказывает
 
+Продолжение 9 октября: введены optional vertexProofs для rooms/floor/exterior,
+без миграции старых reviews. NativeFaceCycle отдаёт snapshots двух native
+сегментов только для найденных bounded crossings; manual review не создаёт.
+Сервер требует точного fresh crossing и единственной identity до snapshot
+сравнения. Identity map строится один раз на контур, не два linear scans на
+каждую вершину. Независимый аудит выявил ambiguous-identity и scan-budget риски;
+оба устранены. Наклонные вычисленные пересечения этим не поддержаны: принимаются
+только axis-aligned crossings, а диагонали с исходными вершинами остаются прежними.
+Regressions проверяют altered snapshot/source, duplicate ref/proof, rounding,
+extension, invalid index, exterior/floor и synthetic metric transfer. Удаление
+proof из synthetic пола возвращает отказ, входы не мутируются. Это не доказательство
+полноты реального PDF, не интеграция публичного переноса и не подтверждение 3D.
+Итог этой пачки: 3126 tests/238 файлов, typecheck семи пакетов, lint 848 файлов,
+production build и diff check прошли. Повторный independent review блокеров не
+нашёл. UI не менялся, браузерная проверка этой пачки не запускалась. Production,
+пользовательский проект, платные AI-запросы и PR не изменялись.
+
 Распознавание произвольных исходников, качество всех аналогов, физический
 телефон, независимый новичок и безопасность монтажа не приняты. Один настоящий
 AI-прогон выше выявил ошибки, а не подтвердил универсальную точность.

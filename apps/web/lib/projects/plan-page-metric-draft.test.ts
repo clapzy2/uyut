@@ -199,6 +199,71 @@ function realSheet() {
 }
 
 describe('native PDF page to metric draft', () => {
+  it('transfers a reviewed floor with fresh bounded-crossing proofs, never guessed corners', () => {
+    const at = <T>(items: readonly T[], index = 0): T => {
+      const value = items[index]
+      if (value === undefined) throw new Error('Missing source fixture element')
+      return value
+    }
+    const { reading, context, path } = synthetic()
+    const envelope = [
+      { x: 0, y: 0 },
+      { x: 330, y: 0 },
+      { x: 330, y: 430 },
+      { x: 0, y: 430 },
+    ]
+    const polygon = [
+      { x: 5, y: 5 },
+      { x: 320, y: 5 },
+      { x: 320, y: 420 },
+      { x: 5, y: 420 },
+    ]
+    const sides = [
+      path([
+        { x: 0, y: 5 },
+        { x: 325, y: 5 },
+      ]),
+      path([
+        { x: 320, y: 0 },
+        { x: 320, y: 425 },
+      ]),
+      path([
+        { x: 0, y: 420 },
+        { x: 325, y: 420 },
+      ]),
+      path([
+        { x: 5, y: 0 },
+        { x: 5, y: 425 },
+      ]),
+    ]
+    const snapshot = (side: PdfVectorPath) => ({
+      operationIndex: side.operationIndex,
+      subpathIndex: side.subpathIndex,
+      segmentIndex: 0,
+      start: { ...at(side.points) },
+      end: { ...at(side.points, 1) },
+    })
+    context.contours.exterior = { boundaryRole: 'outer-wall-envelope', polygon: envelope }
+    context.contours.floor = {
+      polygon,
+      vertexProofs: polygon.map((_, vertexIndex) => ({
+        vertexIndex,
+        kind: 'bounded-native-crossing',
+        segments: [snapshot(at(sides, vertexIndex)), snapshot(at(sides, (vertexIndex + 3) % 4))],
+      })),
+    }
+    context.linework.paths.push(path(envelope, true), ...sides)
+    const before = structuredClone(context)
+    const result = planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [4] }, [4])
+    expect(result.ok, result.ok ? '' : result.error).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.geometry.footprint).toEqual(polygon.map(({ x, y }) => ({ xCm: x, yCm: y })))
+    expect(context).toEqual(before)
+    delete context.contours.floor.vertexProofs
+    expect(planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [4] }, [4]).ok).toBe(
+      false,
+    )
+  })
   it('transfers a separately reviewed floor without creating walls from its boundary', () => {
     const { reading, context, path } = synthetic()
     const envelope = [
