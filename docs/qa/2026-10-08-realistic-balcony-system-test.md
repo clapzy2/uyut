@@ -1337,6 +1337,39 @@ same-source floor/wall/opening coverage и reviewed transfer; универсал
 
 ## Чего эта проверка не доказывает
 
+### 9 октября: fresh same-source отчёт покрытия
+
+Новый inspectReviewedPageCoverage принимает existing source, reading, manual
+PlanPageContours и свежий linework. Проверяет hash/page/state, schema, native
+вершины и overlaps, work caps до pair enumeration. Вернёт refused или partial,
+не создаёт review/geometry и всегда оставляет readyFor2D/readyFor3D=false.
+Подсчитаны отсутствующие source identities, роли floor/exterior, строгая/local
+пригодность wall source, status spans, door-pair candidates и отдельно непроверенные
+window/balcony declarations. `opening` span остаётся декларацией, не проходом.
+Полная площадь пола, инвентарь проёмов, проходы, масштаб и высоты не проверены.
+Review queue ограничена 200 spans, полные счётчики и truncation сохранены;
+conditional boundaries остаются в очереди, а не считаются physical walls.
+
+Archived regression сохраняет все 45 omitted curves без bounds и даёт wallPairs=0.
+Свежий runner bench-reviewed-page-coverage.ts читает тот же original SHA
+d79a89eba7d262f2615a9c9f99c03be4553d85c5f737423c51f98e8c9f5da1ab/page6.
+Результат tmp/reviewed-page-coverage-20261009-b/: 45 skippedCurves с актуальными
+localized bounds, strictWallSource=false/localAudit=true, 11 local wall pairs;
+spans paired22/declaredOpening19/unmatched45/unpairedExterior20/unsupportedAngle3.
+13 declared door faces дают 5 pair candidates/10 paired faces, 3 unresolved checks;
+6 non-door declarations не проверены этим методом. Разметка содержит envelope,
+но не отдельный free-floor boundary; итог partial, не принятый 2D/3D.
+Original JPEG просмотрен полностью из прогона -a; source hash и extractor одинаковые
+в -b, где добавлены wallSource diagnostics. Не переносились данные соседнего PDF,
+не очищались omitted counts, не подставлялись synthetic размеры.
+Placeholders room kinds в runner нужны лишь для типа PlanReading и не участвуют
+в этой source-space проверке. Входы clone/equality неизменны, projectWrites=0,
+paidRequests=0. UI/сохранение/production не подключены и не менялись.
+Итог: 14 новых cases, полный web suite 3140 tests/239 файлов, typecheck семи
+пакетов, lint 851 файла и diff check прошли. Independent review без блокеров;
+замечание о conditional review worklist закрыто с regression. Browser replay
+и новый production build не запускались: runtime UI этой пачкой не менялся.
+
 Продолжение 9 октября: введены optional vertexProofs для rooms/floor/exterior,
 без миграции старых reviews. NativeFaceCycle отдаёт snapshots двух native
 сегментов только для найденных bounded crossings; manual review не создаёт.
