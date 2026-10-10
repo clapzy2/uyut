@@ -151,7 +151,12 @@ export default async function SummaryPage({
     ),
   )
   const composition = (
-    <ExportComposition projectId={project.id} rooms={compositionRooms} items={list.items} />
+    <ExportComposition
+      projectId={project.id}
+      rooms={compositionRooms}
+      items={list.items}
+      geometry={geometry}
+    />
   )
   const overview = geometry ? apartmentVolume(geometry, layouts) : null
   const rates = getWorksRates()

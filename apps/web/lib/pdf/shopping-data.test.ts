@@ -1,4 +1,5 @@
 import { subcategoryFromText } from '@uyut/catalog'
+import { applyPlanVerticalReference } from '@uyut/catalog/plan-vertical-reference'
 import type { Concept, PlanGeometry, Room } from '@uyut/db'
 import { renderProjectHtml } from '@uyut/pdf'
 import sharp from 'sharp'
@@ -60,6 +61,63 @@ function snapshot(): ProjectSnapshot {
       },
     ],
   }
+}
+
+function signedGeometry(touchingVoid = false, singleRoom = false): PlanGeometry {
+  const box = (x: number, y: number, width: number, depth: number) => [
+    { xCm: x, yCm: y },
+    { xCm: x + width, yCm: y },
+    { xCm: x + width, yCm: y + depth },
+    { xCm: x, yCm: y + depth },
+  ]
+  const geometry: PlanGeometry = {
+    version: 1,
+    status: 'confirmed',
+    widthCm: 400,
+    heightCm: 500,
+    warnings: [],
+    walls: [],
+    openings: [],
+    footprint: box(0, 0, 400, 500),
+    rooms: [
+      {
+        name: 'Гостиная',
+        polygon: box(0, 0, 400, 300),
+        ...(singleRoom ? { sourceNumber: 1 } : { sourceNumbers: [1, 5] }),
+      },
+      {
+        name: 'Балкон <тест>',
+        polygon: box(0, 320, 400, 150),
+        sourceNumber: 3,
+        spaceKind: 'balcony',
+      },
+    ],
+    voids: [{ id: 'shaft', polygon: box(touchingVoid ? 0 : 50, 50, 30, 30) }],
+  }
+  const result = applyPlanVerticalReference(
+    geometry,
+    {
+      version: 1,
+      id: 'datum-test',
+      kind: 'finished-floor',
+      zeroFloorId: 'interior',
+      acknowledged: true,
+      floors: geometry.rooms.map((room, index) => ({
+        id: index === 0 ? 'interior' : 'balcony',
+        room: structuredClone(room),
+        surface: 'finished-floor',
+        elevationCm: index === 0 ? 0 : -15,
+      })),
+      wallBases: [],
+      thresholds: [],
+      ceilings: [],
+      source: { kind: 'site-measurement', reference: 'Synthetic <survey>, not user measurements' },
+    },
+    'fixture-owner',
+    '2026-10-11T09:00:00.000Z',
+  )
+  if (!result.ok) throw new Error(result.error)
+  return result.geometry
 }
 
 async function build(data: ProjectSnapshot) {
@@ -208,6 +266,80 @@ afterEach(() => {
 })
 
 describe('selected shopping variant in PDF data without AI or external requests', () => {
+  it.each([false, true])(
+    'exports source-only signed floors and voids without concepts or purchases (touching=%s)',
+    async (touching) => {
+      const data = snapshot()
+      data.shopping = []
+      const geometry = signedGeometry(touching)
+      const before = structuredClone(geometry)
+      data.project.planReading = { rooms: [], geometry, readAt: '2026-10-11T09:00:00Z' }
+      const { pdf, fetchImage } = await build(data)
+      expect(fetchImage).not.toHaveBeenCalled()
+      expect(pdf.rooms).toHaveLength(0)
+      expect(pdf.verticalPlan?.status).toBe('confirmed')
+      if (pdf.verticalPlan?.status !== 'confirmed') throw new Error('Missing confirmed signed plan')
+      expect(pdf.verticalPlan.floors.map((floor) => floor.elevationCm)).toEqual([0, -15])
+      expect(pdf.verticalPlan.floors[0]?.voids.length).toBe(touching ? 0 : 1)
+      expect(pdf.verticalPlan.floors[0]?.floor.length).toBe(touching ? 8 : 4)
+      const html = renderProjectHtml(pdf, { fontCss: '' })
+      expect(html).toContain('Полы и пороги')
+      expect(html).toContain('data-project-floor="balcony:0"')
+      expect(html).toContain('Балкон &lt;тест&gt;')
+      expect(html).toContain('Synthetic &lt;survey&gt;')
+      expect(html).toContain('Сверено пользователем: 2026-10-11T09:00:00.000Z')
+      expect(html).toContain('Неизвестна')
+      expect(html).toContain('Это не означает, что порогов нет')
+      expect(html).not.toContain('data-project-floor="floor"')
+      expect(geometry).toEqual(before)
+    },
+  )
+
+  it.each(['draft', 'stale', 'malformed'] as const)(
+    'holds signed PDF geometry rather than printing a local-zero fallback: %s',
+    async (edit) => {
+      const data = snapshot()
+      addRoom(data)
+      data.concepts.clear()
+      data.shopping = []
+      const geometry = signedGeometry()
+      if (edit === 'draft') geometry.status = 'draft'
+      const first = geometry.rooms[0]?.polygon[0]
+      if (!first) throw new Error('Missing fixture point')
+      if (edit === 'stale') first.xCm += 1
+      if (edit === 'malformed') first.xCm = Number.NaN
+      data.project.planReading = { rooms: [], geometry, readAt: '2026-10-11T09:00:00Z' }
+      const { pdf } = await build(data)
+      expect(pdf.verticalPlan?.status).toBe('held')
+      expect(pdf.rooms).toHaveLength(0)
+      const html = renderProjectHtml(pdf, { fontCss: '' })
+      expect(html).toContain('Перенос уровней приостановлен')
+      expect(html).not.toContain('data-project-floor=')
+      expect(html).not.toContain('data-signed-room-floor=')
+    },
+  )
+
+  it('uses clipped signed floor paths and notes unknown furniture height without inventing a top', async () => {
+    const data = snapshot()
+    const room = addRoom(data)
+    data.project.planReading = {
+      rooms: [],
+      geometry: signedGeometry(false, true),
+      readAt: '2026-10-11T09:00:00Z',
+    }
+    const row = data.shopping[0]
+    if (!row) throw new Error('Missing shopping fixture')
+    row.item.quantity = 1
+    row.item.placementCm = { xCm: 120, yCm: 100, rotation: 0 }
+    const { pdf } = await build(data)
+    expect(pdf.rooms[0]?.id).toBe(room.id)
+    expect(pdf.rooms[0]?.plan?.floorLevel?.surfaces[0]?.voids).toHaveLength(1)
+    const html = renderProjectHtml(pdf, { fontCss: '' })
+    expect(html).toContain('data-signed-room-floor="interior"')
+    expect(html).toContain('отметка верха неизвестна')
+    expect(html).toContain('Отметка потолка этого пола неизвестна')
+  })
+
   it('exports kitchen geometry and zones without purchases, and reads later edits', async () => {
     const data = snapshot()
     const room = addRoom(data)

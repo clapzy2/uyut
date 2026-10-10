@@ -145,6 +145,99 @@ function accepted() {
 }
 
 describe('explicit common vertical reference', () => {
+  it('accepts exact literal decimal diagonal cuts without a binary collinearity rejection', () => {
+    const { geometry, request } = fixture()
+    const transform = (point: { xCm: number; yCm: number }) => ({
+      xCm: Number((0.1 + point.xCm / 1000).toFixed(4)),
+      yCm: Number((0.2 + (point.yCm + point.xCm) / 1000).toFixed(4)),
+    })
+    geometry.rooms = geometry.rooms.map((room) => ({
+      ...room,
+      polygon: room.polygon.map(transform),
+    }))
+    geometry.footprint = required(geometry.footprint).map(transform)
+    geometry.walls = geometry.walls.map((wall) => ({
+      ...wall,
+      start: transform(wall.start),
+      end: transform(wall.end),
+    }))
+    geometry.openings = geometry.openings.map((opening) => ({
+      ...opening,
+      offsetCm: 0.1 * Math.SQRT2,
+      widthCm: 0.09 * Math.SQRT2,
+    }))
+    const calibration = required(geometry.pdfCalibration)
+    calibration.wallFaceRoomPolygons = geometry.rooms.map((room) => structuredClone(room.polygon))
+    const pair = required(calibration.openingFacePairs?.[0])
+    pair.bindings = pair.bindings.map((binding) => ({
+      opening: structuredClone(
+        required(geometry.openings.find((opening) => opening.id === binding.opening.id)),
+      ),
+      wall: structuredClone(required(geometry.walls.find((wall) => wall.id === binding.wall.id))),
+      cut:
+        binding.opening.id === 'inside'
+          ? [
+              { xCm: 0.2, yCm: 0.3 },
+              { xCm: 0.29, yCm: 0.39 },
+            ]
+          : [
+              { xCm: 0.2, yCm: 1 },
+              { xCm: 0.29, yCm: 1.09 },
+            ],
+    })) as typeof pair.bindings
+    request.floors = request.floors.map((floor, index) => ({
+      ...floor,
+      room: structuredClone(required(geometry.rooms[index])),
+    }))
+    request.wallBases = request.wallBases.map((base) => {
+      const { id, kind, start, end } = required(
+        geometry.walls.find((wall) => wall.id === base.wall.id),
+      )
+      return { ...base, wall: { id, kind, start, end } }
+    })
+    required(request.thresholds[0]).bindings = required(request.thresholds[0]).bindings.map(
+      (binding) => {
+        const { id, type, wallId, offsetCm, widthCm } = required(
+          geometry.openings.find((opening) => opening.id === binding.opening.id),
+        )
+        return { ...binding, opening: { id, type, wallId, offsetCm, widthCm } }
+      },
+    )
+    const result = applyPlanVerticalReference(geometry, request, 'owner', verifiedAt)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.ok).toBe(true)
+    expect(openingOnVerticalFloorBoundary(result.geometry, 'inside', 'floor-0')).toBe(true)
+  })
+  it.each([
+    null,
+    false,
+    {},
+    [],
+    [{ xCm: 100, yCm: 0 }],
+    [
+      { xCm: 100, yCm: 0 },
+      { xCm: 190, yCm: 0 },
+      { xCm: 200, yCm: 0 },
+    ],
+    [
+      { xCm: 100, yCm: 0 },
+      { xCm: 100, yCm: 0 },
+    ],
+    [
+      { xCm: 100, yCm: 0, extra: true },
+      { xCm: 190, yCm: 0 },
+    ],
+    [
+      { xCm: 100, yCm: 0 },
+      { xCm: NaN, yCm: 0 },
+    ],
+  ])('holds malformed present source cuts instead of offset fallback %#', (cut) => {
+    const { geometry, request } = fixture()
+    const pair = required(required(geometry.pdfCalibration).openingFacePairs?.[0])
+    Object.assign(pair.bindings[0], { cut })
+    expect(() => applyPlanVerticalReference(geometry, request, 'owner', verifiedAt)).not.toThrow()
+    expect(applyPlanVerticalReference(geometry, request, 'owner', verifiedAt).ok).toBe(false)
+  })
   it('holds a threshold when one source side also claims a different aperture partner', () => {
     const geometry = accepted()
     const original = required(required(geometry.pdfCalibration).openingFacePairs?.[0])

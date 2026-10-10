@@ -1,4 +1,6 @@
 import { layoutRoom } from '@uyut/catalog'
+import { applyPlanVerticalReference } from '@uyut/catalog/plan-vertical-reference'
+import type { PlanGeometry } from '@uyut/db'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -40,6 +42,59 @@ function markup(compositionRooms: ReturnType<typeof exportRoomComposition>[], it
 }
 
 describe('PDF composition before checkout', () => {
+  it('describes an independent signed-floor section even without room pages or shopping', () => {
+    const polygon = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 300, yCm: 0 },
+      { xCm: 300, yCm: 200 },
+      { xCm: 0, yCm: 200 },
+    ]
+    const geometry: PlanGeometry = {
+      version: 1,
+      status: 'confirmed',
+      widthCm: 300,
+      heightCm: 200,
+      footprint: polygon,
+      rooms: [{ name: 'Кухня', polygon }],
+      walls: [],
+      openings: [],
+      warnings: [],
+    }
+    const accepted = applyPlanVerticalReference(
+      geometry,
+      {
+        version: 1,
+        id: 'survey',
+        kind: 'finished-floor',
+        zeroFloorId: 'floor',
+        acknowledged: true,
+        floors: [
+          { id: 'floor', room: geometry.rooms[0], surface: 'finished-floor', elevationCm: 0 },
+        ],
+        wallBases: [],
+        thresholds: [],
+        source: { kind: 'site-measurement', reference: 'Synthetic survey' },
+      },
+      'qa-user',
+      '2026-10-11T09:00:00.000Z',
+    )
+    if (!accepted.ok) throw new Error(accepted.error)
+    const render = (geometry: PlanGeometry) =>
+      renderToStaticMarkup(
+        createElement(ExportComposition, { projectId: 'project', rooms: [], items: [], geometry }),
+      )
+    const confirmed = render(accepted.geometry)
+    expect(confirmed).toContain(
+      'Полы и пороги: физических полов 1, известных поверхностей порогов 0',
+    )
+    expect(confirmed).toContain(
+      'Неизвестные отметки и неподтверждённые поверхности не достраиваются',
+    )
+    expect(render({ ...accepted.geometry, status: 'draft' })).toContain(
+      'Полы и пороги: перенос приостановлен',
+    )
+    expect(markup([])).not.toContain('Полы и пороги:')
+  })
   it('does not treat a shopping pick as approval and caps liked alternatives at three', () => {
     const candidates = [
       concept('shopping', { likedByOwner: false }),

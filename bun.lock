@@ -109,6 +109,8 @@
         "@uyut/db": "workspace:*",
         "drizzle-orm": "^0.45.2",
         "fast-xml-parser": "5.3.5",
+        "polygon-clipping": "^0.15.7",
+        "zod": "^4.5.4",
       },
       "devDependencies": {
         "@types/node": "^24.13.3",

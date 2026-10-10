@@ -11,8 +11,8 @@ export function layoutWithMeasurements(
   items: readonly LayoutItem[],
   roomKind?: LayoutRoomKind,
 ): RoomLayout | null {
-  // The local layout cannot carry a common datum yet. Do not replace a held
-  // multi-level model with the rectangular measurement fallback below.
+  // This entry point is horizontal-only. Common datums use the separately
+  // reviewed entry point, never the rectangular measurement fallback below.
   if (geometry?.verticalReference !== undefined) return null
   const geometryInput = roomLayoutInputFromGeometry(geometry, name, measurements)
   let measurementNote = measurementNotice(measurements)

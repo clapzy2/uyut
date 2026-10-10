@@ -11,7 +11,15 @@
     "./item-size": "./src/item-size.ts",
     "./layout": "./src/layout.ts",
     "./layout-with-measurements": "./src/layout-with-measurements.ts",
-    "./measurement-assurance": "./src/measurement-assurance.ts"
+    "./measurement-assurance": "./src/measurement-assurance.ts",
+    "./plan-opening-face-pairs": "./src/plan-opening-face-pairs.ts",
+    "./plan-vertical-reference": "./src/plan-vertical-reference.ts",
+    "./plan-vertical-dimensions": "./src/plan-vertical-dimensions.ts",
+    "./plan-vertical-floor-geometry": "./src/plan-vertical-floor-geometry.ts",
+    "./plan-volume-types": "./src/plan-volume-types.ts",
+    "./plan-threshold-geometry": "./src/plan-threshold-geometry.ts",
+    "./room-volume": "./src/room-volume.ts",
+    "./reviewed-layout-with-measurements": "./src/reviewed-layout-with-measurements.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -23,6 +31,8 @@
   "dependencies": {
     "@uyut/db": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "fast-xml-parser": "5.3.5"
+    "fast-xml-parser": "5.3.5",
+    "polygon-clipping": "^0.15.7",
+    "zod": "^4.5.4"
   }
 }

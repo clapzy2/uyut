@@ -1,123 +1,42 @@
 import { kitchenClearanceZones } from '@uyut/catalog/geometry'
+import {
+  inspectPlanThresholdSurfaces,
+  planOpeningEndpoints,
+} from '@uyut/catalog/plan-threshold-geometry'
+import type {
+  OpeningSpan,
+  PlanSolidFace,
+  PlanVolume,
+  VolumeFloorSurface,
+  VolumeFloorZone,
+  VolumeFurniture,
+  WallSpan,
+} from '@uyut/catalog/plan-volume-types'
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import polygonClipping, { type Polygon } from 'polygon-clipping'
 import { kitchenItemIssues, kitchenItemsSchema, kitchenLabels } from './kitchen-items'
 import type { PlanGeometryIssue } from './plan-geometry-inspection'
-import {
-  currentOpeningFacePairs,
-  currentOpeningWidthProofs,
-  currentWallFacePairs,
-} from './plan-opening-face-pairs'
+import { currentWallFacePairs } from './plan-opening-face-pairs'
 import {
   inspectPlanVerticalDimensions,
-  type PlanVerticalMeasurementReport,
   planVerticalMeasurementReport,
 } from './plan-vertical-dimensions'
 import { signedElevationSum, signedPlanFloors } from './plan-vertical-floor-geometry'
 import { wallElevationPanels } from './wall-elevation'
-import { type WallSolidFace, wallSolidFaces } from './wall-solid'
+import { wallSolidFaces } from './wall-solid'
 import { joinWallSolids } from './wall-solid-union'
 
-export type WallSpan = {
-  id: string
-  start: PlanPoint
-  end: PlanPoint
-  kind: 'outer' | 'inner'
-  bottomCm: number
-  topCm?: number
-  solid?: boolean
-  wallId: string
-  thicknessCm?: number
-}
-
-export type PlanSolidFace = {
-  id: string
-  kind: 'outer' | 'inner'
-  role: WallSolidFace['role']
-  points: (PlanPoint & { zCm: number })[]
-  holes?: (PlanPoint & { zCm: number })[][]
-}
-
-export type OpeningSpan = {
-  id: string
-  type: 'door' | 'window' | 'balcony'
-  start: PlanPoint
-  end: PlanPoint
-  bottomCm?: number
-  heightCm?: number
-  cut: boolean
-  /** Measured supporting floor in the common datum; bottomCm in this viewing DTO is global. */
-  baseCm?: number
-}
-
-export type VolumeFloorSurface = {
-  id: string
-  floorId: string
-  title: string
-  floor: PlanPoint[]
-  voids: PlanPoint[][]
-  elevationCm: number
-  surface: 'existing-floor' | 'finished-floor'
-  roomId?: string
-}
-
-export type VolumeThreshold = {
-  id: string
-  floor: PlanPoint[]
-  elevationCm: number
-  floorIds: [string, string]
-  floorElevationsCm: [number, number]
-}
-
-export type PlanVolume = {
-  floor: PlanPoint[]
-  voids: PlanPoint[][]
-  walls: WallSpan[]
-  openings: OpeningSpan[]
-  wallSource: 'centerline' | 'pdf-faces' | 'room-layout'
-  solidFaces: PlanSolidFace[]
-  joinedSolids: boolean
-  issues: PlanGeometryIssue[]
-  furniture?: VolumeFurniture[]
-  floorZones?: VolumeFloorZone[]
-  rooms?: VolumeRoom[]
-  layoutNote?: string
-  verticalMeasurements?: PlanVerticalMeasurementReport
-  /** Presence replaces the legacy whole-footprint floor at Z=0. */
-  floorSurfaces?: VolumeFloorSurface[]
-  thresholds?: VolumeThreshold[]
-  verticalDatum?: { id: string; kind: 'existing-floor' | 'finished-floor'; zeroFloorId: string }
-}
-
-export type VolumeRoom = {
-  id: string
-  title: string
-  floor: PlanPoint[]
-  /** A source contour without a linked project-room page. */
-  sourceOnly?: boolean
-  baseCm?: number
-  floorId?: string
-}
-
-export type VolumeFloorZone = {
-  id: string
-  roomId?: string
-  title: string
-  kind: 'door' | 'balcony' | 'radiator' | 'obstacle' | 'operation'
-  floor: PlanPoint[]
-  preliminary?: boolean
-  baseCm?: number
-}
-
-export type VolumeFurniture = {
-  id: string
-  itemId?: string
-  roomId?: string
-  title: string
-  floor: PlanPoint[]
-  heightCm?: number
-  baseCm?: number
-}
+export type {
+  OpeningSpan,
+  PlanSolidFace,
+  PlanVolume,
+  VolumeFloorSurface,
+  VolumeFloorZone,
+  VolumeFurniture,
+  VolumeRoom,
+  VolumeThreshold,
+  WallSpan,
+} from '@uyut/catalog/plan-volume-types'
 
 function interpolate(start: PlanPoint, end: PlanPoint, ratio: number): PlanPoint {
   return {
@@ -322,7 +241,7 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
       const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
       if (length <= 0 || opening.offsetCm < 0 || opening.offsetCm + opening.widthCm > length + 1e-7)
         return null
-      const endpoints = reference ? openingEndpoints(geometry, opening.id) : undefined
+      const endpoints = reference ? planOpeningEndpoints(geometry, opening.id) : undefined
       if (reference && !endpoints) {
         levelIssues.push({
           id: `volume-opening-cut-${opening.id}`,
@@ -412,7 +331,6 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
     })),
   )
   const surfaces = signed?.ok ? signed.surfaces : undefined
-  const extent = polygonBody(geometry.footprint)
   if (surfaces) {
     const supported = (polygon: PlanPoint[]) =>
       reference?.floors.filter((floor) => {
@@ -470,77 +388,9 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
       return [{ ...zone, baseCm: owner.elevationCm }]
     })
   }
-  const thresholdPolygons = new Map(
-    reference?.thresholds.map((threshold) => {
-      const [a, b] = threshold.bindings
-      const first = openingEndpoints(geometry, a.opening.id)
-      const second = openingEndpoints(geometry, b.opening.id)
-      return [threshold.id, first && second ? thresholdPolygon(first, second) : undefined]
-    }),
-  )
-  const wallStrips = reference
-    ? currentWallFacePairs(geometry).map(({ faces: [a, b] }) =>
-        polygonBody([a.start, a.end, b.end, b.start]),
-      )
-    : []
-  const thresholds = reference
-    ? reference.thresholds.flatMap((threshold) => {
-        const [a, b] = threshold.bindings
-        const first = openingEndpoints(geometry, a.opening.id)
-        const second = openingEndpoints(geometry, b.opening.id)
-        const firstFloor = floors.get(a.floorId)
-        const secondFloor = floors.get(b.floorId)
-        const polygon = thresholdPolygons.get(threshold.id)
-        if (
-          !polygon ||
-          !firstFloor ||
-          !secondFloor ||
-          !first ||
-          !second ||
-          !thresholdFacesInward(first, second, firstFloor.room.polygon, secondFloor.room.polygon) ||
-          wallStrips.some(
-            (strip) => polygonClipping.intersection(polygonBody(polygon), strip).length > 0,
-          ) ||
-          [...thresholdPolygons].some(
-            ([id, other]) =>
-              id !== threshold.id &&
-              other &&
-              polygonClipping.intersection(polygonBody(polygon), polygonBody(other)).length > 0,
-          ) ||
-          polygonClipping.difference(polygonBody(polygon), extent).length > 0 ||
-          (surfaces ?? []).some(
-            (surface) =>
-              polygonClipping.intersection(polygonBody(polygon), surfacePolygon(surface)).length >
-              0,
-          ) ||
-          (geometry.voids ?? []).some(
-            (region) =>
-              polygonClipping.intersection(polygonBody(polygon), polygonBody(region.polygon))
-                .length > 0,
-          )
-        ) {
-          levelIssues.push({
-            id: `volume-threshold-${threshold.id}`,
-            severity: 'warning',
-            message:
-              'Отметка порога сохранена, но его поверхность не удалось однозначно привязать между исходными гранями. Толщина и промежуточный пол не достраиваются.',
-          })
-          return []
-        }
-        return [
-          {
-            id: threshold.id,
-            floor: polygon,
-            elevationCm: threshold.elevationCm,
-            floorIds: [a.floorId, b.floorId] as [string, string],
-            floorElevationsCm: [firstFloor.elevationCm, secondFloor.elevationCm] as [
-              number,
-              number,
-            ],
-          },
-        ]
-      })
-    : undefined
+  const thresholdReport = reference ? inspectPlanThresholdSurfaces(geometry) : undefined
+  const thresholds = thresholdReport?.surfaces
+  levelIssues.push(...(thresholdReport?.issues ?? []))
   return {
     floor: geometry.footprint,
     voids: (geometry.voids ?? []).map((item) => item.polygon),
@@ -600,98 +450,4 @@ function surfacePolygon(surface: VolumeFloorSurface): Polygon {
 
 function polygonBody(polygon: PlanPoint[]): Polygon {
   return [polygon.map(({ xCm, yCm }) => [xCm, yCm] as [number, number])]
-}
-
-function openingEndpoints(geometry: PlanGeometry, id: string): [PlanPoint, PlanPoint] | undefined {
-  const bindings = currentOpeningFacePairs(geometry).flatMap((pair) => pair.bindings)
-  for (const proof of currentOpeningWidthProofs(geometry)) {
-    bindings.push(proof)
-    if (proof.oppositeBinding) bindings.push(proof.oppositeBinding)
-  }
-  const cuts = bindings
-    .filter((binding) => binding.opening.id === id && binding.cut)
-    .map((binding) => binding.cut)
-  const first = cuts[0]
-  if (first) {
-    const same = (a: PlanPoint, b: PlanPoint) => a.xCm === b.xCm && a.yCm === b.yCm
-    if (
-      cuts.some(
-        (other) =>
-          !other ||
-          !(
-            (same(first[0], other[0]) && same(first[1], other[1])) ||
-            (same(first[0], other[1]) && same(first[1], other[0]))
-          ),
-      )
-    )
-      return undefined
-    return first
-  }
-  const opening = geometry.openings.find((opening) => opening.id === id)
-  const wall = geometry.walls.find((wall) => wall.id === opening?.wallId)
-  if (!opening || !wall) return undefined
-  const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
-  if (!length) return undefined
-  return [
-    interpolate(wall.start, wall.end, opening.offsetCm / length),
-    interpolate(wall.start, wall.end, (opening.offsetCm + opening.widthCm) / length),
-  ]
-}
-
-/** Known paired straight faces only; no enclosing rectangle for an unverified threshold. */
-function thresholdPolygon(
-  first: [PlanPoint, PlanPoint],
-  second: [PlanPoint, PlanPoint],
-): PlanPoint[] | undefined {
-  const axis =
-    first[0].yCm === first[1].yCm && second[0].yCm === second[1].yCm
-      ? 'xCm'
-      : first[0].xCm === first[1].xCm && second[0].xCm === second[1].xCm
-        ? 'yCm'
-        : undefined
-  if (!axis) return undefined
-  const a = [...first].sort((a, b) => a[axis] - b[axis])
-  const b = [...second].sort((a, b) => a[axis] - b[axis])
-  if (!a[0] || !a[1] || !b[0] || !b[1] || a[0][axis] !== b[0][axis] || a[1][axis] !== b[1][axis])
-    return undefined
-  const across = axis === 'xCm' ? 'yCm' : 'xCm'
-  if (a[0][across] === b[0][across] || a[0][axis] === a[1][axis]) return undefined
-  return [a[0], a[1], b[1], b[0]].map((point) => ({ ...point }))
-}
-
-/** The strip must be outside both physical floors, between their facing boundary edges. */
-function thresholdFacesInward(
-  first: [PlanPoint, PlanPoint],
-  second: [PlanPoint, PlanPoint],
-  firstRoom: PlanPoint[],
-  secondRoom: PlanPoint[],
-): boolean {
-  const along = first[0].yCm === first[1].yCm ? 'xCm' : 'yCm'
-  const across = along === 'xCm' ? 'yCm' : 'xCm'
-  const side = (cut: [PlanPoint, PlanPoint], room: PlanPoint[]) => {
-    const area = room.reduce((sum, point, index) => {
-      const next = room[(index + 1) % room.length]
-      return next ? sum + point.xCm * next.yCm - next.xCm * point.yCm : sum
-    }, 0)
-    const low = Math.min(cut[0][along], cut[1][along])
-    const high = Math.max(cut[0][along], cut[1][along])
-    const edges = room.flatMap((start, index) => {
-      const end = room[(index + 1) % room.length]
-      if (
-        !end ||
-        start[across] !== cut[0][across] ||
-        end[across] !== cut[0][across] ||
-        Math.min(start[along], end[along]) > low ||
-        Math.max(start[along], end[along]) < high
-      )
-        return []
-      return [Math.sign(area) * Math.sign(end[along] - start[along])]
-    })
-    return edges.length === 1 ? edges[0] : undefined
-  }
-  const direction = Math.sign(second[0][across] - first[0][across])
-  const expected = along === 'xCm' ? -direction : direction
-  return (
-    direction !== 0 && side(first, firstRoom) === expected && side(second, secondRoom) === -expected
-  )
 }

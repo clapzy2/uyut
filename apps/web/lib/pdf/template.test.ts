@@ -84,6 +84,150 @@ function sample(kind: PdfData['kind']): PdfData {
 }
 
 describe('project PDF template', () => {
+  it('prints signed floors and threshold top separately, escapes source metadata, and retains void paths', () => {
+    const data = sample('free')
+    const polygon = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 100, yCm: 0 },
+      { xCm: 100, yCm: 100 },
+      { xCm: 0, yCm: 100 },
+    ]
+    data.verticalPlan = {
+      status: 'confirmed',
+      datum: { id: '<datum>', kind: 'finished-floor', zeroFloorId: 'interior' },
+      source: { kind: 'site-measurement', reference: '<survey>' },
+      reviewedAt: '2026-10-11T09:00:00Z',
+      floors: [
+        {
+          id: 'piece-interior',
+          floorId: 'interior',
+          title: 'Гостиная <1+5>',
+          floor: polygon,
+          voids: [
+            [
+              { xCm: 10, yCm: 10 },
+              { xCm: 20, yCm: 10 },
+              { xCm: 20, yCm: 20 },
+              { xCm: 10, yCm: 20 },
+            ],
+          ],
+          elevationCm: 0,
+          surface: 'finished-floor',
+        },
+        {
+          id: 'piece-balcony',
+          floorId: 'balcony',
+          title: 'Балкон',
+          floor: polygon.map((point) => ({ ...point, yCm: point.yCm + 120 })),
+          voids: [],
+          elevationCm: -15,
+          surface: 'finished-floor',
+        },
+      ],
+      thresholds: [
+        {
+          id: '<threshold>',
+          floor: [
+            { xCm: 20, yCm: 100 },
+            { xCm: 60, yCm: 100 },
+            { xCm: 60, yCm: 120 },
+            { xCm: 20, yCm: 120 },
+          ],
+          elevationCm: 3,
+          floorIds: ['interior', 'balcony'],
+          floorElevationsCm: [0, -15],
+        },
+      ],
+      ceilings: [],
+      warnings: ['<missing>'],
+    }
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('Полы и пороги')
+    expect(html).toContain('<div>Полы и пороги</div>')
+    expect(html).toContain('Отсчёт: &lt;datum&gt;')
+    expect(html).toContain('&lt;survey&gt;')
+    expect(html).toContain('Гостиная &lt;1+5&gt;')
+    expect(html).toContain('data-project-threshold="&lt;threshold&gt;"')
+    expect(html).toContain('Верх порога: 3 см')
+    expect(html).toContain('M 10 10 L 20 10 L 20 20 L 10 20 Z')
+    expect(html).toContain('Неизвестна')
+    expect(html).toContain('&lt;missing&gt;')
+    expect(html).not.toContain('data-project-floor="floor"')
+    // A room boundary may start at the same known jamb as the threshold.
+    // Printed labels must use a different physical floor vertex, not overwrite each other.
+    const floor = data.verticalPlan.floors[0]
+    const threshold = data.verticalPlan.thresholds[0]
+    const floorStart = floor?.floor[0]
+    if (!floorStart || !threshold?.floor[0]) throw new Error('Missing shared-corner fixture')
+    threshold.floor[0] = { ...floorStart }
+    const labelled = renderProjectHtml(data, { fontCss: '' })
+    expect(labelled).toContain('cx="100" cy="0"')
+    data.verticalPlan = { status: 'held', warnings: ['<stale>'] }
+    const held = renderProjectHtml(data, { fontCss: '' })
+    expect(held).toContain('Перенос уровней приостановлен')
+    expect(held).toContain('&lt;stale&gt;')
+    expect(held).not.toContain('data-project-floor=')
+  })
+
+  it('prints exact furniture base/top notes and signed clipped room floors rather than a raw polygon', () => {
+    const data = sample('paid')
+    const room = data.rooms[0]
+    if (!room?.plan) throw new Error('Missing room fixture')
+    const plan = room.plan
+    const polygon = [
+      { xCm: 0, yCm: 0 },
+      { xCm: plan.widthCm, yCm: 0 },
+      { xCm: plan.widthCm, yCm: plan.depthCm },
+      { xCm: 0, yCm: plan.depthCm },
+    ]
+    plan.floorPolygon = polygon
+    plan.floorLevel = {
+      referenceId: 'datum',
+      referenceKind: 'finished-floor',
+      zeroFloorId: 'interior',
+      floorId: 'room-floor',
+      elevationCm: -0.1,
+      surface: 'finished-floor',
+      reviewKey: 'synthetic-review',
+      worldPolygon: polygon,
+      origin: { xCm: 0, yCm: 0 },
+      surfaces: [
+        {
+          floor: polygon,
+          voids: [
+            [
+              { xCm: 300, yCm: 500 },
+              { xCm: 320, yCm: 500 },
+              { xCm: 320, yCm: 520 },
+              { xCm: 300, yCm: 520 },
+            ],
+          ],
+        },
+      ],
+    }
+    const input = plan.placementInputs[0]
+    if (!input) throw new Error('Missing item fixture')
+    input.heightCm = 0.3
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('data-signed-room-floor="room-floor"')
+    expect(html).toContain('M 352.94117647058823 588.2352941176471')
+    expect(html).toContain('верх 0.2 см от общего нуля')
+    expect(html).not.toContain('0.19999999999999998')
+    const place = plan.placed[0]
+    if (!place) throw new Error('Missing placed item')
+    place.xCm = 302
+    place.yCm = 502
+    place.widthCm = 10
+    place.depthCm = 10
+    const aboveVoid = renderProjectHtml(data, { fontCss: '' })
+    expect(aboveVoid).toContain('Привязка уровня пола устарела или некорректна')
+    expect(aboveVoid).not.toContain('data-signed-room-floor=')
+    plan.floorLevel.surfaces = []
+    const held = renderProjectHtml(data, { fontCss: '' })
+    expect(held).toContain('Привязка уровня пола устарела или некорректна')
+    expect(held).not.toContain('data-signed-room-floor=')
+  })
+
   it.each(['free', 'paid'] as const)(
     'сохраняет все предметы с длинными названиями без обрезаемой страницы: %s',
     (kind) => {
