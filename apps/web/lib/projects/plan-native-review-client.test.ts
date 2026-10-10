@@ -15,6 +15,9 @@ function fixture() {
     }),
     sourceRevision: revision,
   }
+  // Most client tests construct older DTOs or replace caption parents independently.
+  // Opt into the new scale report explicitly in its contract tests below.
+  delete packet.scaleEvidence
   const headers = {
     'content-type': 'image/jpeg',
     'x-plan-sha256': packet.source.sha256,
@@ -874,6 +877,173 @@ describe('optional strict source-run to dimension-rail bindings', () => {
   })
 })
 
+describe('source X/Y scale evidence', () => {
+  function scaleFixture() {
+    const result = fixture()
+    result.packet.sourceCaptionBindings = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: ['width', 'depth'].flatMap((axis, axisIndex) =>
+        [200, 100].map((length, index) => ({
+          labelId: `${axis}-${index}`,
+          compactIndex: axisIndex * 2 + index,
+          valueMm: length * 10,
+          axis: axis as 'width' | 'depth',
+          rail: { operationIndex: axisIndex * 2 + index, subpathIndex: 0 },
+        })),
+      ),
+      unresolved: [{ labelId: 'held', reason: 'caption-rail-unresolved' }],
+    }
+    const report: NonNullable<NativeReviewPacket['scaleEvidence']> = {
+      status: 'draft',
+      refusalReason: null,
+      dimensionToleranceMm: 2,
+      axes: (['width', 'depth'] as const).map((axis) => ({
+        axis,
+        status: 'consistent',
+        referenceLabelId: `${axis}-0`,
+        referenceMmPerPoint: 10,
+        independentLabelIds: [`${axis}-0`, `${axis}-1`],
+        observations: [200, 100].map((length, index) => ({
+          labelId: `${axis}-${index}`,
+          valueMm: length * 10,
+          lengthPoints: length,
+          mmPerPoint: 10,
+          residualMm: 0,
+        })),
+      })),
+      commonScale: { status: 'consistent', referenceLabelId: 'width-0', mmPerPoint: 10 },
+      unresolved: [{ labelId: 'held', reason: 'caption-rail-unresolved' }],
+    }
+    result.packet.scaleEvidence = report
+    return { ...result, report }
+  }
+  it('replays ratios and independent axis/common status without changing the packet', async () => {
+    const { packet, headers, report } = scaleFixture()
+    const before = structuredClone(packet)
+    expect((await loadFixture(packet, headers)).packet.scaleEvidence).toEqual(report)
+    expect(packet).toEqual(before)
+  })
+  it('accepts atomic refusal and absence for legacy DTOs', async () => {
+    const { packet, headers } = scaleFixture()
+    packet.scaleEvidence = {
+      status: 'unresolved',
+      refusalReason: 'source-unavailable',
+      dimensionToleranceMm: 2,
+      axes: [],
+      commonScale: { status: 'insufficient', referenceLabelId: null, mmPerPoint: null },
+      unresolved: [],
+    }
+    expect((await loadFixture(packet, headers)).packet.scaleEvidence).toEqual(packet.scaleEvidence)
+    delete packet.scaleEvidence
+    expect((await loadFixture(packet, headers)).packet.scaleEvidence).toBeUndefined()
+  })
+  it('allows an independent pair outside the longest reference and refuses a singleton', async () => {
+    const { packet, headers, report } = scaleFixture()
+    const x = report.axes[0]
+    const bindings = packet.sourceCaptionBindings
+    if (!x || !bindings) throw new Error('Missing scale fixture')
+    x.observations.push({
+      labelId: 'width-2',
+      valueMm: 500,
+      lengthPoints: 50,
+      mmPerPoint: 10,
+      residualMm: 0,
+    })
+    bindings.candidates.push({
+      labelId: 'width-2',
+      compactIndex: 4,
+      valueMm: 500,
+      axis: 'width',
+      rail: { operationIndex: 4, subpathIndex: 0 },
+    })
+    x.independentLabelIds = ['width-1', 'width-2']
+    expect((await loadFixture(packet, headers)).packet.scaleEvidence).toEqual(report)
+    x.independentLabelIds = ['width-1']
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+    x.independentLabelIds = []
+    x.status = 'insufficient'
+    report.commonScale = { status: 'insufficient', referenceLabelId: null, mmPerPoint: null }
+    expect((await loadFixture(packet, headers)).packet.scaleEvidence).toEqual(report)
+  })
+  it('accounts for held oblique captions rather than silently dropping them', async () => {
+    const { packet, headers, report } = scaleFixture()
+    packet.sourceCaptionBindings?.candidates.push({
+      labelId: 'slant',
+      compactIndex: 4,
+      valueMm: 1000,
+      axis: 'aligned',
+      rail: { operationIndex: 4, subpathIndex: 0 },
+    })
+    report.unresolved.push({ labelId: 'slant', reason: 'scale-evidence-noncardinal-dimension' })
+    expect((await loadFixture(packet, headers)).packet.scaleEvidence).toEqual(report)
+    report.unresolved.pop()
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+  it.each([
+    'parent',
+    'unknown-key',
+    'tolerance',
+    'ratio',
+    'residual',
+    'missing-observation',
+    'duplicate-label',
+    'duplicate-anchor',
+    'same-rail',
+    'axis-order',
+    'wrong-common',
+    'missing-held',
+    'wrong-held',
+    'fake-conflict',
+    'partial-refusal',
+    'overflow-ratio',
+  ])('rejects invalid scale report: %s', async (change) => {
+    const { packet, headers, report } = scaleFixture()
+    const x = report.axes[0]
+    const first = x?.observations[0]
+    const second = x?.observations[1]
+    const sourceFirst = packet.sourceCaptionBindings?.candidates[0]
+    const sourceSecond = packet.sourceCaptionBindings?.candidates[1]
+    const held = report.unresolved[0]
+    if (!x || !first || !second || !sourceFirst || !sourceSecond || !held)
+      throw new Error('Missing scale fixture')
+    if (change === 'parent') delete packet.sourceCaptionBindings
+    if (change === 'unknown-key') Object.assign(report, { readyFor2D: true })
+    if (change === 'tolerance') Object.assign(report, { dimensionToleranceMm: 3 })
+    if (change === 'ratio') second.mmPerPoint = 10.01
+    if (change === 'residual') second.residualMm = 0.1
+    if (change === 'missing-observation') x.observations.pop()
+    if (change === 'duplicate-label') second.labelId = first.labelId
+    if (change === 'duplicate-anchor') x.independentLabelIds[1] = first.labelId
+    if (change === 'same-rail') sourceSecond.rail = sourceFirst.rail
+    if (change === 'axis-order') report.axes.reverse()
+    if (change === 'wrong-common') report.commonScale.mmPerPoint = 11
+    if (change === 'missing-held') report.unresolved = []
+    if (change === 'wrong-held') held.reason = 'invented'
+    if (change === 'fake-conflict') report.commonScale.status = 'conflict'
+    if (change === 'overflow-ratio') second.lengthPoints = Number.MIN_VALUE
+    if (change === 'partial-refusal') {
+      report.status = 'unresolved'
+      report.refusalReason = 'source-unavailable'
+    }
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+  it('detects anisotropic cross-axis conflict even with locally consistent axes', async () => {
+    const { packet, headers, report } = scaleFixture()
+    const y = report.axes[1]
+    if (!y) throw new Error('Missing scale Y fixture')
+    y.referenceMmPerPoint = 20
+    for (const observation of y.observations) {
+      observation.lengthPoints /= 2
+      observation.mmPerPoint = 20
+    }
+    report.commonScale = { status: 'conflict', referenceLabelId: null, mmPerPoint: null }
+    expect((await loadFixture(packet, headers)).packet.scaleEvidence).toEqual(report)
+    report.commonScale = { status: 'consistent', referenceLabelId: 'width-0', mmPerPoint: 10 }
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+})
+
 describe('rotated captions and bounded source dimension targets', () => {
   function targetFixture() {
     const result = fixture()
@@ -966,6 +1136,83 @@ describe('rotated captions and bounded source dimension targets', () => {
     expect(loaded.sourceCaptionBindings).toEqual(packet.sourceCaptionBindings)
     expect(loaded.dimensionTargets).toEqual(report)
     expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  function pairedJambFixture() {
+    const result = targetFixture()
+    result.row.status = 'ambiguous'
+    result.row.reason = 'source-target-face-alternatives'
+    result.target.faces.push({ ...structuredClone(result.face), edgeIndex: 2 })
+    for (const face of result.target.faces)
+      face.supportRefs.push(
+        { operationIndex: 11, subpathIndex: 0, segmentIndex: 0 },
+        { operationIndex: 12, subpathIndex: 0, segmentIndex: 0 },
+      )
+    const span: NonNullable<typeof result.report.jambSpans>[number] = {
+      labelId: result.row.labelId,
+      frameId: result.target.id,
+      valueMm: result.row.valueMm,
+      axis: 'width',
+      status: 'continuous',
+      faceEdgeIndexes: [0, 2],
+      jambRefs: [
+        [
+          { operationIndex: 1, subpathIndex: 0, segmentIndex: 1 },
+          { operationIndex: 11, subpathIndex: 0, segmentIndex: 0 },
+        ],
+        [
+          { operationIndex: 1, subpathIndex: 0, segmentIndex: 3 },
+          { operationIndex: 12, subpathIndex: 0, segmentIndex: 0 },
+        ],
+      ],
+    }
+    result.report.jambSpans = [span]
+    return { ...result, span }
+  }
+  it('keeps one paired-jamb interval separate from alternative long faces', async () => {
+    const { packet, headers, report } = pairedJambFixture()
+    const before = structuredClone(packet)
+    expect((await loadFixture(packet, headers)).packet.dimensionTargets).toEqual(report)
+    expect(packet).toEqual(before)
+  })
+  it.each([
+    'parent-frame',
+    'value',
+    'axis',
+    'same-side',
+    'empty-side',
+    'unknown-ref',
+    'duplicate-label',
+    'unknown-key',
+    'missing-face',
+    'fractional-face',
+    'invented-conflict',
+    'foreign-ref',
+    'missing-jamb-edge',
+    'long-face-jamb',
+    'adjacent-faces',
+  ])('rejects invalid paired-jamb report: %s', async (change) => {
+    const { packet, headers, report, span, target } = pairedJambFixture()
+    if (change === 'parent-frame') span.frameId = 'missing-frame'
+    if (change === 'value') span.valueMm += 1
+    if (change === 'axis') span.axis = 'depth'
+    if (change === 'same-side') span.jambRefs[1] = span.jambRefs[0]
+    if (change === 'empty-side') span.jambRefs[0] = []
+    if (change === 'unknown-ref') Object.assign(span.jambRefs[0][0] ?? {}, { physicalWall: true })
+    if (change === 'duplicate-label') report.jambSpans?.push(structuredClone(span))
+    if (change === 'unknown-key') Object.assign(span, { accepted: true })
+    if (change === 'missing-face') span.faceEdgeIndexes = [0, 1]
+    if (change === 'fractional-face') span.faceEdgeIndexes = [0, 2.1]
+    if (change === 'invented-conflict') span.status = 'conflict'
+    if (change === 'foreign-ref')
+      span.jambRefs[0].push({ operationIndex: 999, subpathIndex: 0, segmentIndex: 0 })
+    if (change === 'missing-jamb-edge') span.jambRefs[0].shift()
+    if (change === 'long-face-jamb') Object.assign(span.jambRefs[0][0] ?? {}, { segmentIndex: 0 })
+    if (change === 'adjacent-faces') {
+      span.faceEdgeIndexes = [0, 1]
+      Object.assign(target.faces[1] ?? {}, { edgeIndex: 1 })
+      Object.assign(span.jambRefs[0][0] ?? {}, { segmentIndex: 2 })
+    }
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
   })
   it('requires unique glyph text-show operations even for distinct labels, slots and rails', async () => {
     const { packet, headers } = targetFixture()

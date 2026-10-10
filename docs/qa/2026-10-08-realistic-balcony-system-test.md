@@ -2844,3 +2844,95 @@ glyph coverage → independent X/Y witnesses → whole-face/jamb acceptance,
 далее height leaders/owners/datum, physical thresholds и полная floor coverage.
 DB/userproject/paidAI/GitHub/PR/deploy не менялись; это не завершённая автоматическая
 метрическая схема квартиры.
+
+## 10 октября: независимый source масштаб X/Y и парные косяки
+
+Primary existing page6 повторён без AI и без правок geometry:
+`tmp/native-xy-jambs-20261010-primary-complete`. PDF/JPEG hashes те же, что в
+предыдущей пачке. Fresh source-caption verifier остаётся входным gate. Cached
+values/ends/source/flags не принимаются вместо свежих данных. Неполный glyph/
+vector layer или чужая страница очищают весь scale report, не оставляют частично
+согласованный результат. Source-state protections не ослаблены.
+
+### Масштаб
+
+Новый nativeScaleEvidence проверяет physical PDFpt с обоими pageWidth/pageHeight.
+По каждой оси reference — самая длинная подтверждённая размерная линия с
+детерминированным tie-break. Не используется median, average, best-fit или
+отдельное X/Y преобразование координат. Для независимости нужны два буквально
+непересекающихся проекционных интервала без общих концов/подписей/реек.
+Дубли параллельных строк и overlapping total/parts не дают вторую опору.
+Если общий длинный размер охватывает две независимые короткие опоры, эти две
+могут доказать направление; общая reference всё равно остаётся самой длинной.
+При1000observations pair search ограничен499500comparisons.
+
+Все пригодные cardinal observations проверяются относительно reference оси,
+затем относительно единой X reference. Nominal allowance2мм переиспользует
+прежний metric-cycle consistency contract; это только соответствие печатной
+графике, не точность натурного обмера, не допуск поиска концов и не мост разрыва.
+При недостатке опор commonScale=null; при межосевом конфликте такжеnull.
+Наклонные подписи получают явное held reason, а не рольX/Y. Источник частичный:
+scale consistency43реек не подтверждает65удержанных подписей или весь лист.
+
+Primary:25X/18Y consistent; reference X native-text-42(3676мм), Y native-text-113
+(2747мм). Независимые пары X42+108, Y113+85. Общий nominal ratio
+17.638866003254645мм/PDFpt. Source ownership/accepted pdfCalibration не получены.
+DB-схема по-прежнему scalar; анизотропные координаты тайно не записываются.
+
+### Однозначный интервал двух косяков, не выбранная грань
+
+Добавлен отдельный jambSpans, сохранив existing face observations без изменений.
+Fresh source rectangle должен иметь две полные точные опоры косяков, две long
+faces, отсутствие omitted ink и единственный whole target. Все face/end witnesses
+должны бытьcontinuous/detached; ambiguous/unresolved удерживают новый интервал.
+Оба координатных положения косяков буквально равны концам размерной линии;
+1e-9shift не допускается. Никакой closest-face выбор или восстановление drawing
+gap не производится. Все refs дополнительно входят в общий20kbudget.
+
+Primary4подписи дают2рамных интервала:1300мм/native-text-34+63/frame600 и
+905мм/native-text-92+100/frame615. Противоположные подписи одной рамки — повтор,
+не две независимые мерки. Все четыреjamb rows detached; исходные gaps≈1.77/6.02/
+7.44pt и обе face alternatives остаются.1048/frame556 не получаетjambSpan:
+omitted curve889 не отменена парностью. Разные напечатанные mm одной допустимой
+рамы помечаютconflict у всех повторныхrows, не выбирают удобное значение.
+Face rows всё ещё0continuous/7ambiguous/36unresolved; floor/wall/room ownership,
+physical passages и полный проёмный inventory этим не доказаны.
+
+### Проверки и UI
+
+27scale tests,42target tests плюс packet/client/UI regression gates: Ymissing,
+axis anisotropy, all-observation conflict, reused/overlapping spans, freshsource
+snapshot, omission/visibility, tinyendpointshift, competing floor target, partial
+jamb coverage, sameframe contradictions и input/outputimmutability.
+Client перепроверяет ratios/residuals/status и полное parent caption accounting,
+не доверяет одномуconsistent flag. Проверяет known frame, opposite face indexes,
+canonical complementary jamb edge refs и происхождение остальныхrefs из parent
+supports. Long face не заменяетjamb. Nonfinite derivedratio (MIN_VALUEdivision
+overflow) удержан; arithmetic epsilon не расширяет nominal2мм.
+
+Explicit deep/byte equality к `native-ink-rotation-targets-20261010-complete`:
+legacy dimensions/heights/floor/openings/connections/captionBindings/omissions,
+old target observations/unresolved и JPEG/обеPNG неизменны. Source scale/jamb
+reports с saved-reading.json точно равны automatic reports; старый manual5/1/1.
+Ещё6PDF повторены:5packets в `native-xy-jambs-20261010-corpus-a`, BASIS fresh
+bench `native-xy-jambs-20261010-basis-final`, colored page3fresh replay.
+Прежние source-caption-ink-incomplete/source-vector-ink-unverified/incomplete
+layer отказы не сняты; legacy counts сохранились, fake scale не появился.
+
+Actualcomponent/localprivateAPI mock с настоящим JPEG/hash:Firefox1280/390px,
+31SVGpolygons прежние, horizontal overflow0, errors/warnings0. Folded scale и
+paired-jamb reports не добавляют save/buttons/SVG authority. UI показывает
+отношениямм/pt, nominal2мм, обеaxisstatuses и различает2frames/4captions.
+Readiness warning приconsistent scope объясняет оставшуюся привязку мерок к
+проверенным границам пола, не отрицает уже выполненную source-rail проверку.
+Actual BASIS390px показываетsource-caption-ink-incomplete и не показывает
+«Общий масштаб: согласован»; старые19roles не заменяют отсутствующий glyph proof.
+Built CSS без root font setup: QA взаимодействия/раскладки, не полный production
+дизайн. Browser/server закрыты; temporaryhelpers удалены, ignored screenshots
+оставлены в output/playwright/native-xy-*.png.
+
+5307webtests/269files, typecheck7packages, lint920files, productionbuild/diff,
+независимые audits прошли. По project-workflow RELEASE_PLAN обновлён: whole-floor
+face bindings/owners → height leaders/owners/datum → physical thresholds и полная
+coverage. Source-scale consistent и source jamb interval не являются accepted
+metric geometry; readiness2D/3Dfalse. DB/userproject/paidAI/GitHub/PR/deploy без правок.

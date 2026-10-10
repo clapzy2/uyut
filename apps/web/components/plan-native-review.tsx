@@ -692,6 +692,31 @@ function DimensionTargetsReview({
               </ul>
             </details>
           ) : null}
+          {report.jambSpans?.length ? (
+            <details className="text-ink-2">
+              <summary className="min-h-11 cursor-pointer py-3">
+                Парные косяки: {new Set(report.jambSpans.map((item) => item.frameId)).size} рамок;{' '}
+                {report.jambSpans.length} подписей
+              </summary>
+              <p>
+                Повторные подписи одной рамки не являются независимыми опорами. Парный интервал не
+                выбирает одну из альтернативных граней и не подтверждает физический проход.
+              </p>
+              <ul className="list-disc space-y-2 pl-5">
+                {report.jambSpans.map((item) => (
+                  <li key={item.labelId} className="break-all">
+                    {item.labelId}: рамка {item.frameId}, {item.valueMm} мм, ось{' '}
+                    {item.axis === 'width' ? 'X' : 'Y'};{' '}
+                    {item.status === 'conflict'
+                      ? 'конфликт подписей'
+                      : dimensionTargetMessages[item.status]}
+                    . Грани: {item.faceEdgeIndexes.join(', ')}. Косяк 1:{' '}
+                    {refsText(item.jambRefs[0])}; косяк 2: {refsText(item.jambRefs[1])}.
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </>
       )}
       <p className="text-ink-2">
@@ -699,6 +724,87 @@ function DimensionTargetsReview({
         Знак ≈ означает сокращённое отображение числа; исходные координаты не округляются.
         Неоднозначные варианты сохранены отдельно; ни один не выбран по близости. Размеры в
         геометрию не переносятся.
+      </p>
+    </section>
+  )
+}
+
+function ScaleEvidenceReview({
+  report,
+}: {
+  report: NonNullable<NativeReviewPacket['scaleEvidence']>
+}) {
+  const messages = {
+    consistent: 'согласован',
+    insufficient: 'недостаточно независимых опор',
+    conflict: 'конфликт',
+  }
+  const compactNumber = (value: number) => {
+    const displayed = Number(value.toPrecision(6))
+    return `${displayed === value ? '' : '≈'}${displayed}`
+  }
+  return (
+    <section
+      className="space-y-2 border-t border-line pt-3 text-[13px] leading-relaxed"
+      aria-label="Проверка масштаба X/Y"
+    >
+      <h4 className="text-[14px] font-medium">Проверка масштаба X/Y</h4>
+      <p className="text-ink-2">
+        Проверяем согласованность напечатанных размеров с длинами линий PDF. Допуск{' '}
+        {report.dimensionToleranceMm} мм относится только к размерным подписям чертежа, не к
+        точности обмера квартиры. Отдельные коэффициенты X/Y не используются для преобразования
+        геометрии.
+      </p>
+      {report.status === 'unresolved' ? (
+        <p className="break-all text-ink-2">
+          Проверка масштаба удержана: {report.refusalReason}. Частичные опоры не показаны.
+        </p>
+      ) : (
+        <>
+          <p>
+            Общий масштаб: {messages[report.commonScale.status]}. Удержанные подписи:{' '}
+            {report.unresolved.length}.
+          </p>
+          <details className="text-ink-2">
+            <summary className="min-h-11 cursor-pointer py-3">
+              Опоры X/Y и расхождения исходных размеров
+            </summary>
+            {report.axes.map((axis) => (
+              <div key={axis.axis} className="space-y-1 py-2">
+                <p>
+                  Ось {axis.axis === 'width' ? 'X' : 'Y'}: {messages[axis.status]}; независимые
+                  подписи: {axis.independentLabelIds.join(', ') || 'нет'}.
+                </p>
+                <ul className="list-disc space-y-1 pl-5">
+                  {axis.observations.map((item) => (
+                    <li key={item.labelId} className="break-all">
+                      {item.labelId}: {item.valueMm} мм / {compactNumber(item.lengthPoints)} pt PDF;
+                      отношение {compactNumber(item.mmPerPoint)} мм/pt; расхождение{' '}
+                      {compactNumber(item.residualMm)} мм относительно опоры этой оси.
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {report.commonScale.mmPerPoint !== null ? (
+              <p>
+                Общая опора {report.commonScale.referenceLabelId}:{' '}
+                {compactNumber(report.commonScale.mmPerPoint)} мм/pt.
+              </p>
+            ) : null}
+            <ul className="list-disc space-y-1 pl-5">
+              {report.unresolved.map((item) => (
+                <li key={item.labelId} className="break-all">
+                  {item.labelId}: {item.reason}.
+                </li>
+              ))}
+            </ul>
+          </details>
+        </>
+      )}
+      <p className="text-ink-2">
+        Это проверка исходного чертежа, не подтверждение физического размера или готовности переноса
+        в 2D/3D. Знак ≈ сокращает только отображение; исходные числа не округляются.
       </p>
     </section>
   )
@@ -1143,6 +1249,7 @@ export function NativeReviewResult({
         <SourceCaptionReview report={packet.sourceCaptionBindings} />
       ) : null}
       {packet.dimensionTargets ? <DimensionTargetsReview report={packet.dimensionTargets} /> : null}
+      {packet.scaleEvidence ? <ScaleEvidenceReview report={packet.scaleEvidence} /> : null}
       {packet.doorSymbols || packet.openingFrames ? (
         <div className="space-y-2 text-[13px] leading-relaxed">
           {packet.doorSymbols ? (

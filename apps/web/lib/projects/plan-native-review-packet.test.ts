@@ -96,6 +96,26 @@ describe('whole-page native inspection, separate from saved geometry', () => {
     expect(JSON.stringify(result)).not.toContain('manual-native-annotation-review')
     expect(input).toEqual(before)
   })
+  it('keeps scale and jamb diagnostics separate from accepted calibration and geometry', () => {
+    const input = fixture()
+    const before = structuredClone(input)
+    const packet = nativeReviewPacket(input)
+    expect(packet.scaleEvidence).toMatchObject({
+      status: 'unresolved',
+      dimensionToleranceMm: 2,
+      axes: [],
+      commonScale: { status: 'insufficient', referenceLabelId: null, mmPerPoint: null },
+      unresolved: [],
+    })
+    expect(packet.dimensionTargets?.jambSpans).toEqual([])
+    expect(packet.scaleEvidence).not.toHaveProperty('source')
+    expect(packet.scaleEvidence).not.toHaveProperty('mayTransfer2D')
+    expect(packet).not.toHaveProperty('pdfCalibration')
+    expect(packet).not.toHaveProperty('geometry')
+    expect(packet).not.toHaveProperty('pageSizeCm')
+    expect(packet.readiness).toEqual({ readyFor2D: false, readyFor3D: false, readOnly: true })
+    expect(input).toEqual(before)
+  })
   it('maps source swings and painted jamb frames to pixels without authorizing floor closure', () => {
     const input = fixture()
     input.work.paths.push(

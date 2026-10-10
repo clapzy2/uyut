@@ -2,7 +2,7 @@ import type { PlanPageSegmentRef } from '@uyut/db'
 import { nativeCaptionBindings } from './plan-native-caption-bindings'
 import { exactNativeOrientation } from './plan-native-exact-intersections'
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
-import { nativeOpeningFrameCandidates } from './plan-native-opening-frames'
+import { type NativeOpeningFrame, nativeOpeningFrameCandidates } from './plan-native-opening-frames'
 import { pdfNativeDimensionSourceIssue } from './plan-pdf-dimension-source'
 import type { PagePoint } from './plan-pdf-linework'
 import { type NativePageSegment, nativePageSegments } from './plan-pdf-opening-endpoint'
@@ -41,6 +41,16 @@ export type NativeDimensionTargetReport = {
     targets: TargetObservation[]
   }[]
   unresolved: { labelId: string; reason: string }[]
+  /** One source jamb interval; neither a selected long face nor an accepted physical opening. */
+  jambSpans?: {
+    labelId: string
+    frameId: string
+    valueMm: number
+    axis: 'width' | 'depth'
+    status: 'continuous' | 'detached' | 'conflict'
+    jambRefs: [Ref[], Ref[]]
+    faceEdgeIndexes: number[]
+  }[]
 }
 
 const MAX_WORK = 2_000_000
@@ -88,11 +98,13 @@ function bindingSnapshot(bindings: Bindings) {
 export function nativeDimensionTargets(input: Input, suppliedBindings?: Bindings) {
   const observations: NativeDimensionTargetReport['observations'] = []
   const unresolved: NativeDimensionTargetReport['unresolved'] = []
+  const jambSpans: NonNullable<NativeDimensionTargetReport['jambSpans']> = []
   const finish = (refusalReason: string | null) => ({
     status: refusalReason ? ('unresolved' as const) : ('draft' as const),
     refusalReason,
     observations: refusalReason ? [] : structuredClone(observations),
     unresolved: refusalReason ? [] : structuredClone(unresolved),
+    jambSpans: refusalReason ? [] : structuredClone(jambSpans),
     source: { ...input.source },
     image: { ...input.native.source },
     basis: 'source-caption-to-whole-boundary-and-jamb-observations' as const,
@@ -142,6 +154,7 @@ export function nativeDimensionTargets(input: Input, suppliedBindings?: Bindings
     omitted: boolean
   }
   const faces: SourceFace[] = []
+  const sourceFrames = new Map<string, NativeOpeningFrame>()
   try {
     const floor = nativeFloorCavityCandidates(input)
     const frames = nativeOpeningFrameCandidates(input)
@@ -163,6 +176,7 @@ export function nativeDimensionTargets(input: Input, suppliedBindings?: Bindings
       }
     }
     for (const frame of frames.candidates) {
+      sourceFrames.set(frame.id, frame)
       for (const face of frame.longEdges) {
         spend(frame.jambs.reduce((count, jamb) => count + jamb.sourceEdges.length, 1) + 1)
         if (faces.length >= MAX_FACES) return finish('dimension-target-input-limit')
@@ -366,6 +380,75 @@ export function nativeDimensionTargets(input: Input, suppliedBindings?: Bindings
           row.reason = face.reason
         }
       }
+      // A pair of proved jambs defines the same measured interval on both long
+      // sides. Retain every face and drawing gap; this proof selects no side.
+      const target = row.targets.length === 1 ? row.targets[0] : undefined
+      const frame = target?.kind === 'opening-frame' ? sourceFrames.get(target.id) : undefined
+      if (
+        !target ||
+        !frame ||
+        frame.unresolvedInk.length ||
+        frame.jambs.length !== 2 ||
+        frame.longEdges.length !== 2 ||
+        target.faces.length !== frame.longEdges.length
+      )
+        continue
+      spend(target.faces.length + frame.jambs.length)
+      if (
+        target.faces.some(
+          (face) =>
+            !frame.longEdges.some((edge) => edge.segmentIndex === face.edgeIndex) ||
+            (face.status !== 'continuous' && face.status !== 'detached') ||
+            face.endpointWitnesses.some(
+              (endpoint) =>
+                !endpoint.sourceRefs.length ||
+                (endpoint.status !== 'continuous' && endpoint.status !== 'detached'),
+            ),
+        )
+      )
+        continue
+      const jambs = [...frame.jambs].sort(
+        (a, b) => a.frameEdge.start[along] - b.frameEdge.start[along],
+      )
+      if (
+        jambs.some(
+          (jamb, index) =>
+            !jamb.sourceEdges.length ||
+            jamb.frameEdge.start[along] !== tips[index]?.[along] ||
+            jamb.frameEdge.end[along] !== tips[index]?.[along],
+        )
+      )
+        continue
+      const firstJamb = jambs[0]
+      const lastJamb = jambs[1]
+      if (!firstJamb || !lastJamb) continue
+      spend(firstJamb.sourceEdges.length + lastJamb.sourceEdges.length + 2)
+      jambSpans.push({
+        labelId: row.labelId,
+        frameId: frame.id,
+        valueMm: row.valueMm,
+        axis: binding.axis,
+        status: target.faces.some((face) => face.status === 'detached') ? 'detached' : 'continuous',
+        jambRefs: [
+          sourceRefs([firstJamb.frameEdge, ...firstJamb.sourceEdges]),
+          sourceRefs([lastJamb.frameEdge, ...lastJamb.sourceEdges]),
+        ],
+        faceEdgeIndexes: target.faces.map(({ edgeIndex }) => edgeIndex),
+      })
+    }
+    // Opposite-side captions of the same frame are repeated evidence, not two
+    // independent intervals. Conflicting printed values invalidate every copy.
+    const valuesByFrame = new Map<string, number>()
+    const conflictingFrames = new Set<string>()
+    for (const span of jambSpans) {
+      spend()
+      const value = valuesByFrame.get(span.frameId)
+      if (value !== undefined && value !== span.valueMm) conflictingFrames.add(span.frameId)
+      valuesByFrame.set(span.frameId, span.valueMm)
+    }
+    for (const span of jambSpans) {
+      spend()
+      if (conflictingFrames.has(span.frameId)) span.status = 'conflict'
     }
     return finish(null)
   } catch (error) {

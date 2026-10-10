@@ -473,12 +473,196 @@ function sourceCaptionAngleMatchesAxis(angle: number, axis: string): boolean {
   return axis === (parallel(0) ? 'width' : parallel(90) ? 'depth' : 'aligned')
 }
 
+function isScaleEvidence(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const report = value as NonNullable<NativeReviewPacket['scaleEvidence']>
+  if (
+    !hasOnlyKeys(report, [
+      'status',
+      'refusalReason',
+      'dimensionToleranceMm',
+      'axes',
+      'commonScale',
+      'unresolved',
+    ]) ||
+    report.dimensionToleranceMm !== 2 ||
+    !Array.isArray(report.axes) ||
+    !Array.isArray(report.unresolved) ||
+    report.unresolved.length > 1000 ||
+    !report.commonScale ||
+    typeof report.commonScale !== 'object' ||
+    !hasOnlyKeys(report.commonScale, ['status', 'referenceLabelId', 'mmPerPoint'])
+  )
+    return false
+  if (report.status === 'unresolved')
+    return (
+      isBoundedLabel(report.refusalReason) &&
+      report.axes.length === 0 &&
+      report.unresolved.length === 0 &&
+      report.commonScale.status === 'insufficient' &&
+      report.commonScale.referenceLabelId === null &&
+      report.commonScale.mmPerPoint === null
+    )
+  const captions = packet.sourceCaptionBindings
+  if (
+    report.status !== 'draft' ||
+    report.refusalReason !== null ||
+    captions?.status !== 'draft' ||
+    report.axes.length !== 2
+  )
+    return false
+  const candidates = new Map(captions.candidates.map((item) => [item.labelId, item]))
+  const held = new Map(captions.unresolved.map((item) => [item.labelId, item.reason]))
+  const ids = new Set<string>()
+  const positive = (number: number) => Number.isFinite(number) && number > 0
+  // Arithmetic replay only. This epsilon is not an additional drawing or endpoint tolerance.
+  const sameNumber = (actual: number, expected: number) =>
+    Number.isFinite(actual) &&
+    Number.isFinite(expected) &&
+    Math.abs(actual - expected) <= Number.EPSILON * 16 * Math.max(1, Math.abs(expected))
+  for (const [index, axis] of report.axes.entries()) {
+    if (
+      !axis ||
+      typeof axis !== 'object' ||
+      !hasOnlyKeys(axis, [
+        'axis',
+        'status',
+        'referenceLabelId',
+        'referenceMmPerPoint',
+        'independentLabelIds',
+        'observations',
+      ]) ||
+      axis.axis !== (index === 0 ? 'width' : 'depth') ||
+      !Array.isArray(axis.observations) ||
+      axis.observations.length > 1000 ||
+      !Array.isArray(axis.independentLabelIds) ||
+      ![0, 2].includes(axis.independentLabelIds.length) ||
+      new Set(axis.independentLabelIds).size !== axis.independentLabelIds.length
+    )
+      return false
+    const reference = axis.observations[0]
+    if (!reference) {
+      if (
+        axis.status !== 'insufficient' ||
+        axis.referenceLabelId !== null ||
+        axis.referenceMmPerPoint !== null ||
+        axis.independentLabelIds.length !== 0
+      )
+        return false
+      continue
+    }
+    if (
+      axis.referenceLabelId !== reference.labelId ||
+      !positive(axis.referenceMmPerPoint as number) ||
+      !sameNumber(axis.referenceMmPerPoint as number, reference.mmPerPoint)
+    )
+      return false
+    let previous: typeof reference | undefined
+    let conflict = false
+    for (const observation of axis.observations) {
+      if (
+        !observation ||
+        typeof observation !== 'object' ||
+        !hasOnlyKeys(observation, [
+          'labelId',
+          'valueMm',
+          'lengthPoints',
+          'mmPerPoint',
+          'residualMm',
+        ]) ||
+        !isBoundedLabel(observation.labelId) ||
+        ids.has(observation.labelId) ||
+        !positive(observation.lengthPoints) ||
+        !positive(observation.mmPerPoint)
+      )
+        return false
+      const source = candidates.get(observation.labelId)
+      if (
+        !source ||
+        source.axis !== axis.axis ||
+        source.valueMm !== observation.valueMm ||
+        !sameNumber(observation.mmPerPoint, observation.valueMm / observation.lengthPoints) ||
+        !sameNumber(
+          observation.residualMm,
+          observation.lengthPoints * (axis.referenceMmPerPoint as number) - observation.valueMm,
+        ) ||
+        (previous &&
+          (previous.lengthPoints < observation.lengthPoints ||
+            (previous.lengthPoints === observation.lengthPoints &&
+              previous.labelId.localeCompare(observation.labelId) > 0)))
+      )
+        return false
+      conflict ||= Math.abs(observation.residualMm) > 2
+      previous = observation
+      ids.add(observation.labelId)
+    }
+    if (
+      axis.independentLabelIds.some((id) => !axis.observations.some((item) => item.labelId === id))
+    )
+      return false
+    const anchors = axis.independentLabelIds.map((id) => candidates.get(id))
+    if (
+      anchors.length === 2 &&
+      anchors[0]?.rail.operationIndex === anchors[1]?.rail.operationIndex &&
+      anchors[0]?.rail.subpathIndex === anchors[1]?.rail.subpathIndex
+    )
+      return false
+    // Source endpoints are deliberately absent from this DTO. The source helper proves interval independence.
+    const expected = conflict ? 'conflict' : anchors.length === 2 ? 'consistent' : 'insufficient'
+    if (axis.status !== expected) return false
+  }
+  for (const item of report.unresolved) {
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      !hasOnlyKeys(item, ['labelId', 'reason']) ||
+      !isBoundedLabel(item.labelId) ||
+      ids.has(item.labelId)
+    )
+      return false
+    const source = candidates.get(item.labelId)
+    const reason =
+      source?.axis === 'aligned' ? 'scale-evidence-noncardinal-dimension' : held.get(item.labelId)
+    if (!reason || item.reason !== reason) return false
+    ids.add(item.labelId)
+  }
+  if (ids.size !== candidates.size + held.size) return false
+  const x = report.axes[0]?.observations[0]
+  const conflict =
+    report.axes.some((axis) => axis.status === 'conflict') ||
+    (!!x &&
+      report.axes.some((axis) =>
+        axis.observations.some(
+          (item) => Math.abs(item.lengthPoints * x.mmPerPoint - item.valueMm) > 2,
+        ),
+      ))
+  const expected = conflict
+    ? 'conflict'
+    : report.axes.every((axis) => axis.status === 'consistent')
+      ? 'consistent'
+      : 'insufficient'
+  return (
+    report.commonScale.status === expected &&
+    (expected === 'consistent'
+      ? report.commonScale.referenceLabelId === x?.labelId &&
+        sameNumber(report.commonScale.mmPerPoint as number, x?.mmPerPoint as number)
+      : report.commonScale.referenceLabelId === null && report.commonScale.mmPerPoint === null)
+  )
+}
+
 function isDimensionTargets(value: unknown, packet: NativeReviewPacket): boolean {
   if (value === undefined) return true
   if (!value || typeof value !== 'object') return false
   const report = value as NonNullable<NativeReviewPacket['dimensionTargets']>
   if (
-    !hasOnlyKeys(report, ['status', 'refusalReason', 'observations', 'unresolved']) ||
+    !hasOnlyKeys(report, [
+      'status',
+      'refusalReason',
+      'observations',
+      'unresolved',
+      ...('jambSpans' in report ? ['jambSpans'] : []),
+    ]) ||
     !Array.isArray(report.observations) ||
     !Array.isArray(report.unresolved) ||
     report.observations.length + report.unresolved.length > 1000
@@ -488,7 +672,9 @@ function isDimensionTargets(value: unknown, packet: NativeReviewPacket): boolean
     return (
       isBoundedLabel(report.refusalReason) &&
       report.observations.length === 0 &&
-      report.unresolved.length === 0
+      report.unresolved.length === 0 &&
+      (report.jambSpans === undefined ||
+        (Array.isArray(report.jambSpans) && report.jambSpans.length === 0))
     )
   const captions = packet.sourceCaptionBindings
   if (report.status !== 'draft' || report.refusalReason !== null || captions?.status !== 'draft')
@@ -653,7 +839,89 @@ function isDimensionTargets(value: unknown, packet: NativeReviewPacket): boolean
       return false
     ids.add(item.labelId)
   }
-  return ids.size === candidates.size + held.size
+  if (ids.size !== candidates.size + held.size) return false
+  if (report.jambSpans === undefined) return true
+  if (!Array.isArray(report.jambSpans) || report.jambSpans.length > 1000) return false
+  const spanIds = new Set<string>()
+  const refKey = (ref: { operationIndex: number; subpathIndex: number; segmentIndex: number }) =>
+    `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`
+  for (const span of report.jambSpans) {
+    if (
+      !span ||
+      typeof span !== 'object' ||
+      !hasOnlyKeys(span, [
+        'labelId',
+        'frameId',
+        'valueMm',
+        'axis',
+        'status',
+        'jambRefs',
+        'faceEdgeIndexes',
+      ]) ||
+      spanIds.has(span.labelId) ||
+      !['width', 'depth'].includes(span.axis) ||
+      !['continuous', 'detached', 'conflict'].includes(span.status) ||
+      !Array.isArray(span.jambRefs) ||
+      span.jambRefs.length !== 2 ||
+      !span.jambRefs.every((refs) => refsValid(refs) && refs.length > 0) ||
+      span.jambRefs[0].some((ref) =>
+        span.jambRefs[1].some((other) => refKey(ref) === refKey(other)),
+      ) ||
+      !Array.isArray(span.faceEdgeIndexes) ||
+      span.faceEdgeIndexes.length !== 2 ||
+      !span.faceEdgeIndexes.every((index) => Number.isSafeInteger(index) && index >= 0) ||
+      (span.faceEdgeIndexes[1] ?? -Infinity) - (span.faceEdgeIndexes[0] ?? Infinity) !== 2
+    )
+      return false
+    const row = report.observations.find((item) => item.labelId === span.labelId)
+    const target = row?.targets[0]
+    if (
+      !row ||
+      row.valueMm !== span.valueMm ||
+      row.axis !== span.axis ||
+      row.targets.length !== 1 ||
+      target?.kind !== 'opening-frame' ||
+      target.id !== span.frameId ||
+      target.faces.length !== 2 ||
+      span.faceEdgeIndexes.some(
+        (index) => !target.faces.some((face) => face.edgeIndex === index),
+      ) ||
+      target.faces.some((face) => !['continuous', 'detached'].includes(face.status))
+    )
+      return false
+    const frameSource = /^native-opening-frame-(\d+):(\d+)$/.exec(span.frameId)
+    if (!frameSource) return false
+    const operationIndex = Number(frameSource[1])
+    const subpathIndex = Number(frameSource[2])
+    if (![operationIndex, subpathIndex].every((index) => Number.isSafeInteger(index) && index >= 0))
+      return false
+    const jambEdges = [0, 1, 2, 3].filter((index) => !span.faceEdgeIndexes.includes(index))
+    const supportRefs = new Set(target.faces.flatMap((face) => face.supportRefs.map(refKey)))
+    const seenJambEdges = new Set<number>()
+    for (const refs of span.jambRefs) {
+      const frameJambs = refs.filter(
+        (ref) =>
+          ref.operationIndex === operationIndex &&
+          ref.subpathIndex === subpathIndex &&
+          jambEdges.includes(ref.segmentIndex),
+      )
+      if (frameJambs.length !== 1 || seenJambEdges.has(frameJambs[0]?.segmentIndex as number))
+        return false
+      seenJambEdges.add(frameJambs[0]?.segmentIndex as number)
+      if (refs.some((ref) => ref !== frameJambs[0] && !supportRefs.has(refKey(ref)))) return false
+    }
+    const conflicts = report.jambSpans.some(
+      (other) => other.frameId === span.frameId && other.valueMm !== span.valueMm,
+    )
+    const expected = conflicts
+      ? 'conflict'
+      : target.faces.some((face) => face.status === 'detached')
+        ? 'detached'
+        : 'continuous'
+    if (span.status !== expected) return false
+    spanIds.add(span.labelId)
+  }
+  return true
 }
 
 function isHeightObservations(value: unknown, packet: NativeReviewPacket): boolean {
@@ -1454,6 +1722,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isNumberCircles(packet.numberCircles) ||
     !isDimensionDiscovery(packet.dimensionDiscovery, packet) ||
     !isSourceCaptionBindings(packet.sourceCaptionBindings, packet) ||
+    !isScaleEvidence(packet.scaleEvidence, packet) ||
     !isHeightObservations(packet.heightObservations, packet) ||
     !isRoomSchedule(packet.roomSchedule, packet) ||
     !isFloorCavities(packet.floorCavities, packet) ||

@@ -723,6 +723,92 @@ describe('read-only native review presentation', () => {
     expect(html).not.toContain('1317 мм, ось Y')
     expect(packet).toEqual(before)
   })
+  it('shows nominal scale evidence and paired jambs without adding transfer controls or SVG', () => {
+    const packet = floorCavityPacket()
+    const baseline = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    packet.scaleEvidence = {
+      status: 'draft',
+      refusalReason: null,
+      dimensionToleranceMm: 2,
+      axes: (['width', 'depth'] as const).map((axis) => ({
+        axis,
+        status: 'conflict',
+        referenceLabelId: '<reference>',
+        referenceMmPerPoint: 10,
+        independentLabelIds: ['<reference>', 'repeat'],
+        observations: [
+          {
+            labelId: '<reference>',
+            valueMm: 1000,
+            lengthPoints: 100,
+            mmPerPoint: 10,
+            residualMm: 0,
+          },
+          {
+            labelId: 'repeat',
+            valueMm: 994,
+            lengthPoints: 100.123456789,
+            mmPerPoint: 9.927743,
+            residualMm: 7.23456789,
+          },
+        ],
+      })),
+      commonScale: { status: 'conflict', referenceLabelId: null, mmPerPoint: null },
+      unresolved: [{ labelId: '<held>', reason: '<script>held</script>' }],
+    }
+    packet.dimensionTargets = {
+      status: 'draft',
+      refusalReason: null,
+      observations: [],
+      unresolved: [],
+      jambSpans: ['first', 'repeat'].map((labelId) => ({
+        labelId,
+        frameId: '<frame>',
+        valueMm: 1000,
+        axis: 'width',
+        status: 'detached',
+        faceEdgeIndexes: [0, 2],
+        jambRefs: [
+          [{ operationIndex: 1, subpathIndex: 0, segmentIndex: 1 }],
+          [{ operationIndex: 1, subpathIndex: 0, segmentIndex: 3 }],
+        ],
+      })),
+    }
+    const before = structuredClone(packet)
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Общий масштаб: конфликт')
+    expect(html).toContain('Ось X: конфликт')
+    expect(html).toContain('Ось Y: конфликт')
+    expect(html).toContain('Парные косяки: 1 рамок; 2 подписей')
+    expect(html).toContain('не являются независимыми опорами')
+    expect(html).toContain('≈100.123')
+    expect(html).toContain('не к точности обмера квартиры')
+    expect(html).toContain('&lt;script&gt;held&lt;/script&gt;')
+    expect(html).not.toContain('<script>')
+    expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(baseline.match(/<svg\b.*?<\/svg>/s)?.[0])
+    expect(html.match(/<button\b/g)?.length).toEqual(baseline.match(/<button\b/g)?.length)
+    expect(packet).toEqual(before)
+  })
+  it('shows an atomic scale refusal without invented axis or ratio rows', () => {
+    const packet = floorCavityPacket()
+    packet.scaleEvidence = {
+      status: 'unresolved',
+      refusalReason: '<missing-source>',
+      dimensionToleranceMm: 2,
+      axes: [],
+      commonScale: { status: 'insufficient', referenceLabelId: null, mmPerPoint: null },
+      unresolved: [],
+    }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Проверка масштаба удержана: &lt;missing-source&gt;')
+    expect(html).not.toContain('Опоры X/Y и расхождения')
+  })
   it('keeps alternative target faces and literal PDF-point gaps read-only without extra SVG or buttons', () => {
     const packet = floorCavityPacket()
     const sourceOnly = structuredClone(packet)

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nativeCaptionBindings } from './plan-native-caption-bindings'
 import { nativeDimensionTargets } from './plan-native-dimension-targets'
 import * as floors from './plan-native-floor-cavities'
+import * as frames from './plan-native-opening-frames'
 import type { PdfVectorPath } from './plan-pdf-linework'
 
 type Input = Parameters<typeof nativeDimensionTargets>[0]
@@ -167,9 +168,216 @@ function frameFixture() {
   )
   return input
 }
+function oppositeFrameCaption(input: Input, valueMm = 200) {
+  const label = input.native.labels[0]
+  const caption = input.native.compactCaptionGeometry?.items[0]
+  if (!label || !caption) throw new Error('Missing synthetic caption')
+  input.native.labels.push({
+    ...structuredClone(label),
+    id: 'native-text-11',
+    nativeIndex: 11,
+    compactIndex: 1,
+    name: String(valueMm),
+    point: { x: 191, y: 128 },
+    pagePoint: { x: 191, y: 128 },
+  })
+  input.native.compactCaptionGeometry?.items.push({
+    ...structuredClone(caption),
+    index: 1,
+    text: String(valueMm),
+    origin: { x: 191, y: 128 },
+    baselineStart: { x: 191, y: 128 },
+    baselineEnd: { x: 209, y: 128 },
+  })
+  for (const operation of [1, 2, 3]) {
+    const copied = structuredClone(sourcePath(input, operation))
+    copied.operationIndex = operation + 30
+    copied.points = copied.points.map(({ x, y }) => ({ x, y: y + 50 }))
+    input.work.paths.push(copied)
+  }
+  input.work.paths.push(
+    path(34, [
+      [100, 110],
+      [100, 140],
+    ]),
+    path(35, [
+      [300, 110],
+      [300, 140],
+    ]),
+  )
+}
 afterEach(() => vi.restoreAllMocks())
 
 describe('literal source dimensions associated with whole floor/frame targets', () => {
+  it('proves one paired-jamb interval without choosing between the two long faces', () => {
+    const input = frameFixture()
+    const before = structuredClone(input)
+    const result = nativeDimensionTargets(input)
+    expect(result.jambSpans).toEqual([
+      {
+        labelId: 'native-text-10',
+        frameId: 'native-opening-frame-20:0',
+        valueMm: 200,
+        axis: 'width',
+        status: 'detached',
+        jambRefs: [
+          [
+            { operationIndex: 20, subpathIndex: 0, segmentIndex: 3 },
+            { operationIndex: 21, subpathIndex: 0, segmentIndex: 1 },
+          ],
+          [
+            { operationIndex: 20, subpathIndex: 0, segmentIndex: 1 },
+            { operationIndex: 22, subpathIndex: 0, segmentIndex: 5 },
+          ],
+        ],
+        faceEdgeIndexes: [0, 2],
+      },
+    ])
+    expect(first(result)).toMatchObject({
+      status: 'ambiguous',
+      reason: 'source-target-face-alternatives',
+      targets: [{ faces: [{ status: 'continuous' }, { status: 'detached' }] }],
+    })
+    expect(input).toEqual(before)
+    const ref = result.jambSpans[0]?.jambRefs[0][0]
+    if (ref) ref.operationIndex = 999
+    expect(input).toEqual(before)
+    expect(result).toMatchObject({
+      roomOwnershipConfirmed: false,
+      physicalPassagesAccepted: false,
+      mayTransfer2D: false,
+      mayTransfer3D: false,
+    })
+  })
+
+  it('retains opposite-side captions with the same frame identity and original face gaps', () => {
+    const input = frameFixture()
+    oppositeFrameCaption(input)
+    const result = nativeDimensionTargets(input)
+    expect(result.jambSpans).toHaveLength(2)
+    expect(
+      result.jambSpans.map(({ labelId, frameId, status }) => ({ labelId, frameId, status })),
+    ).toEqual([
+      { labelId: 'native-text-10', frameId: 'native-opening-frame-20:0', status: 'detached' },
+      { labelId: 'native-text-11', frameId: 'native-opening-frame-20:0', status: 'detached' },
+    ])
+    expect(result.jambSpans[0]?.jambRefs).toEqual(result.jambSpans[1]?.jambRefs)
+    expect(result.observations.map(({ status }) => status)).toEqual(['ambiguous', 'ambiguous'])
+    expect(result.observations[0]?.targets[0]?.faces[1]?.endpointWitnesses[0].gapPoints).toBe(10)
+  })
+
+  it('reports continuous jamb spans only when both original long-face witnesses are continuous', () => {
+    const input = frameFixture()
+    for (const operation of [4, 5]) {
+      const end = sourcePath(input, operation).points[1]
+      if (end) end.y = 110
+    }
+    const result = nativeDimensionTargets(input)
+    expect(result.jambSpans).toMatchObject([{ axis: 'width', status: 'continuous' }])
+    expect(first(result).status).toBe('ambiguous')
+  })
+
+  it('uses the exact paired-jamb interval on the independent vertical axis', () => {
+    const input = frameFixture()
+    const rotate = (point: { x: number; y: number }) => ({ x: point.y, y: 1000 - point.x })
+    for (const source of input.work.paths) source.points = source.points.map(rotate)
+    const label = input.native.labels[0]
+    const caption = input.native.compactCaptionGeometry?.items[0]
+    if (!label?.pagePoint || !caption) throw new Error('Missing synthetic caption')
+    label.rotation = 90
+    label.point = rotate(label.point)
+    label.pagePoint = rotate(label.pagePoint)
+    caption.rotation = 90
+    caption.origin = rotate(caption.origin)
+    caption.baselineStart = rotate(caption.baselineStart)
+    caption.baselineEnd = rotate(caption.baselineEnd)
+    expect(nativeDimensionTargets(input).jambSpans).toMatchObject([
+      { axis: 'depth', valueMm: 200, frameId: 'native-opening-frame-20:0', status: 'detached' },
+    ])
+  })
+
+  it('marks every eligible copy conflicting rather than selecting a printed value', () => {
+    const input = frameFixture()
+    oppositeFrameCaption(input, 220)
+    const result = nativeDimensionTargets(input)
+    expect(result.jambSpans.map(({ valueMm, status }) => ({ valueMm, status }))).toEqual([
+      { valueMm: 200, status: 'conflict' },
+      { valueMm: 220, status: 'conflict' },
+    ])
+    expect(result.observations.map(({ status }) => status)).toEqual(['ambiguous', 'ambiguous'])
+  })
+
+  it.each(['shift', 'partial-jamb', 'omitted-curve', 'ambiguous-witness'])(
+    'retains no jamb-span proof for %s',
+    (failure) => {
+      const input = frameFixture()
+      if (failure === 'shift')
+        for (const source of input.work.paths)
+          if (source.operationIndex >= 20)
+            for (const point of source.points) if (point.x === 300) point.x += 1e-9
+      if (failure === 'partial-jamb') {
+        const point = sourcePath(input, 22).points[5]
+        if (point) point.y = 105
+      }
+      if (failure === 'omitted-curve') {
+        input.work.skippedCurves = 1
+        input.work.skippedCurveBounds = [
+          { operationIndex: 99, bounds: { left: 180, top: 105, right: 190, bottom: 107 } },
+        ]
+      }
+      if (failure === 'ambiguous-witness')
+        input.work.paths.push(
+          path(40, [
+            [100, 65],
+            [100, 105],
+          ]),
+        )
+      expect(nativeDimensionTargets(input).jambSpans).toEqual([])
+    },
+  )
+
+  it('does not collapse a competing whole floor target into the frame interval', () => {
+    const input = frameFixture()
+    const floor = floors.nativeFloorCavityCandidates(fixture())
+    vi.spyOn(floors, 'nativeFloorCavityCandidates').mockReturnValue(floor)
+    const result = nativeDimensionTargets(input)
+    expect(first(result)).toMatchObject({ status: 'ambiguous', reason: 'competing-source-targets' })
+    expect(result.jambSpans).toEqual([])
+  })
+
+  it('always returns an empty jamb inventory on empty or atomically refused reports', () => {
+    const input = fixture()
+    input.native.labels = []
+    input.native.compactCaptionGeometry?.items.splice(0)
+    expect(nativeDimensionTargets(input).jambSpans).toEqual([])
+    input.work.truncated = true
+    expect(nativeDimensionTargets(input)).toMatchObject({ status: 'unresolved', jambSpans: [] })
+  })
+
+  it('includes jamb provenance in the atomic total output reference budget', () => {
+    const input = frameFixture()
+    const report = frames.nativeOpeningFrameCandidates(input)
+    const frame = report.candidates[0]
+    if (!frame) throw new Error('Missing synthetic frame')
+    for (const [side, jamb] of frame.jambs.entries()) {
+      const source = jamb.sourceEdges[0]
+      if (!source) throw new Error('Missing synthetic jamb source')
+      jamb.sourceEdges = Array.from({ length: 4000 }, (_, index) => ({
+        ...structuredClone(source),
+        operationIndex: 10_000 + side * 4000 + index,
+      }))
+    }
+    vi.spyOn(frames, 'nativeOpeningFrameCandidates').mockReturnValue(report)
+    // Both long-face reports fit under 20k refs; adding the paired-jamb proof
+    // must fail atomically rather than bypassing the existing output budget.
+    expect(nativeDimensionTargets(input)).toMatchObject({
+      status: 'unresolved',
+      refusalReason: 'dimension-target-work-limit',
+      observations: [],
+      jambSpans: [],
+    })
+  })
+
   it('rebuilds a whole boundary and two continuous witnesses without model acceptance', () => {
     const input = fixture()
     const before = structuredClone(input)

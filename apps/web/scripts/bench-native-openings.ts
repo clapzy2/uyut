@@ -17,6 +17,7 @@ import { nativeOpeningSourceLinks } from '../lib/projects/plan-native-opening-li
 import { nativeReviewPacket } from '../lib/projects/plan-native-review-packet'
 import { nativeReviewedFrameRooms } from '../lib/projects/plan-native-reviewed-frame-rooms'
 import { nativeRoomNumberScheduleLinks } from '../lib/projects/plan-native-room-number-links'
+import { nativeScaleEvidence } from '../lib/projects/plan-native-scale-evidence'
 
 const [pdfPath, pageValue, outputPath, savedReadingPath] = process.argv.slice(2)
 const pageNumber = Number(pageValue)
@@ -48,6 +49,7 @@ const savedReading = savedReadingPath
 const dimensions = automaticNativeDimensionRoles({ ...input, source })
 const captionBindings = nativeCaptionBindings({ ...input, source })
 const dimensionTargets = nativeDimensionTargets({ ...input, source }, captionBindings)
+const scaleEvidence = nativeScaleEvidence({ ...input, source }, captionBindings)
 const heights = nativeHeightObservations({ ...input, source })
 const scheduleNumbers = nativeRoomNumberScheduleLinks(input)
 const circles = scheduleNumbers.circles
@@ -82,6 +84,7 @@ await writeFile(
       dimensions,
       captionBindings,
       dimensionTargets,
+      scaleEvidence,
       heights,
       roomScheduleEvidence: scheduleNumbers.schedule,
       numberScheduleLinks: scheduleNumbers.report,
@@ -179,6 +182,22 @@ console.log(
         {} as Record<string, number>,
       ),
       dimensionTargetRefusal: dimensionTargets.refusalReason,
+      sourceJambSpans: dimensionTargets.jambSpans?.length ?? 0,
+      uniqueJambFrames: new Set(
+        dimensionTargets.jambSpans
+          ?.filter((item) => item.status !== 'conflict')
+          .map((item) => item.frameId),
+      ).size,
+      scaleEvidenceRefusal: scaleEvidence.refusalReason,
+      scaleAxisStatuses: scaleEvidence.axes.map(
+        ({ axis, status, observations, independentLabelIds }) => ({
+          axis,
+          status,
+          observations: observations.length,
+          independentLabels: independentLabelIds,
+        }),
+      ),
+      commonScale: scaleEvidence.commonScale,
       unresolvedDimensionLabels: dimensions.unresolved.length,
       heightObservations: heights.observations.length,
       documentaryRoomRows: scheduleNumbers.report.rows.length,

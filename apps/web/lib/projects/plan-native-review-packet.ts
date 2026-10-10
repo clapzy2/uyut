@@ -26,6 +26,7 @@ import {
   type NativeRoomScheduleReport,
   nativeRoomNumberScheduleLinks,
 } from './plan-native-room-number-links'
+import { type NativeScaleEvidenceReport, nativeScaleEvidence } from './plan-native-scale-evidence'
 import {
   inspectReviewedPageCoverage,
   type ReviewedPageCoverage,
@@ -122,6 +123,7 @@ export type NativeReviewPacket = {
   }
   sourceCaptionBindings?: NativeCaptionBindingReport
   dimensionTargets?: NativeDimensionTargetReport
+  scaleEvidence?: NativeScaleEvidenceReport
   heightObservations?: {
     status: 'draft' | 'unresolved'
     refusalReason: string | null
@@ -320,6 +322,16 @@ export function nativeReviewPacket(input: {
     refusalReason: dimensionTargets.refusalReason,
     observations: dimensionTargets.observations,
     unresolved: dimensionTargets.unresolved,
+    ...(dimensionTargets.jambSpans ? { jambSpans: dimensionTargets.jambSpans } : {}),
+  }
+  const scaleEvidence = nativeScaleEvidence({ ...common, source }, captionBindings)
+  packet.scaleEvidence = {
+    status: scaleEvidence.status,
+    refusalReason: scaleEvidence.refusalReason,
+    dimensionToleranceMm: scaleEvidence.dimensionToleranceMm,
+    axes: scaleEvidence.axes,
+    commonScale: scaleEvidence.commonScale,
+    unresolved: scaleEvidence.unresolved,
   }
   packet.heightObservations = {
     status: heights.status,
@@ -568,7 +580,9 @@ export function nativeReviewPacket(input: {
   )
   issue(
     'metric-scale-unreviewed',
-    'Не подтверждены независимые направления масштаба и мерки для переноса в сантиметры.',
+    scaleEvidence.commonScale.status === 'consistent'
+      ? 'Согласованный масштаб размерных линий ещё не подтверждает привязку всех мерок к проверенным границам пола для переноса в сантиметры.'
+      : 'Не подтверждены независимые направления масштаба и мерки для переноса в сантиметры.',
   )
   issue('vertical-data-unreviewed', 'Высоты и толщины для объёмной схемы здесь не проверены.')
   return packet

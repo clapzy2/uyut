@@ -6,6 +6,36 @@
 
 ### Текущий результат последней пачки
 
+Добавлены независимые проверки source масштаба X/Y и отдельный точный интервал
+парных косяков. Масштаб считается по physical PDF points и исходным подписям;
+самая длинная опора выбирается детерминированно, без усреднения или подгонки.
+По каждой оси нужны две непересекающиеся исходные мерные опоры; дубли строк,
+общие концы и пересекающиеся проекции не считаются независимыми. Независимая
+пара может не включать общую длинную опору. Все пригодные размеры сверяются,
+а конфликт X/Y не превращается в два преобразования геометрии. Допуск2мм —
+только согласованность печатной графики, не точность обмера или endpoint snap.
+
+Primary existing page6: X25/Y18 согласованы, общий17.638866003254645мм/PDFpt;
+65held сохранены. Четыре подписи1300/905 дают два source интервала косяков
+frame600/615, не четыре независимых опоры. Длинная грань не выбрана; все drawing
+gaps остаютсяdetached, frame556/1048 удержан из-за omitted curve. Прежние
+face observations0continuous/7ambiguous/36unresolved не повышены. Противоречивые
+подписи одной рамы удерживают все её копии; сдвиг1e-9 не становится совпадением.
+Read-only packet/client/UI показывают эти разные свидетельства отдельно.
+
+5307webtests/269files, typecheck7packages, lint920files, build/diff прошли.
+Actual Firefox390/1280/privateAPI mock проверен; source inventories/три rendered
+images точно прежние, manual review не влияет на scale/jamb reports. Ещё6PDF
+сохраняют прежние glyph/vector/incomplete-layer отказы. Production не менялся.
+
+По project-workflow следующая очередь: однозначные whole-floor face bindings
+и подтверждение владельцев геометрии; затем height leaders/owners/datum,
+физические уровни порогов и полная floor coverage. Source scale consistency
+не является accepted pdfCalibration: 2D/3D readiness остаётсяfalse, подтверждённая
+геометрия не создана. DB/userproject/paidAI/GitHub/PR/deploy не менялись.
+
+Предыдущая пачка:
+
 Завершена пачка source typography, повёрнутых подписей и целых floor/jamb
 observations. Для поддержанных embedded horizontal fonts извлекается настоящий
 контур глифов до render, а не midpoint advance box / FontBBox. Extrema считаются
