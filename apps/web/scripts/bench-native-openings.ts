@@ -8,6 +8,7 @@ import { resolve } from 'node:path'
 import sharp from 'sharp'
 import { preparePlanPage } from '../lib/projects/plan-document'
 import { nativeFloorCavityCandidates } from '../lib/projects/plan-native-floor-cavities'
+import { nativeFloorOpeningSides } from '../lib/projects/plan-native-floor-opening-sides'
 import { nativeOpeningSourceLinks } from '../lib/projects/plan-native-opening-links'
 import { nativeReviewPacket } from '../lib/projects/plan-native-review-packet'
 import { nativeReviewedFrameRooms } from '../lib/projects/plan-native-reviewed-frame-rooms'
@@ -43,6 +44,7 @@ const savedReading = savedReadingPath
 const scheduleNumbers = nativeRoomNumberScheduleLinks(input)
 const circles = scheduleNumbers.circles
 const floor = nativeFloorCavityCandidates(input)
+const floorOpeningSides = nativeFloorOpeningSides(floor, connections)
 const frameRooms = nativeReviewedFrameRooms({ ...input, source, reading: savedReading })
 const packet = nativeReviewPacket({ ...input, source, image: input.native.source, savedReading })
 assert.deepEqual(input, before)
@@ -71,6 +73,7 @@ await writeFile(
       roomScheduleEvidence: scheduleNumbers.schedule,
       numberScheduleLinks: scheduleNumbers.report,
       floor,
+      floorOpeningSides,
       frameRooms,
       packet,
       caveat:
@@ -160,6 +163,10 @@ console.log(
       sourceBackedCavities: floor.cavities.length,
       numberedCavities: floor.cavities.filter((cell) => cell.markerLabelIds.length).length,
       sourceLeaderBindings: floor.markerLeaders.length,
+      twoSidedFloorFrames: floorOpeningSides.frames.filter((frame) => frame.status === 'two-sided')
+        .length,
+      oneSidedFloorFrames: floorOpeningSides.frames.filter((frame) => frame.status === 'one-sided')
+        .length,
       unresolvedFloorMarkers: floor.unresolvedMarkerLabelIds.length,
       sourceThresholdStrips: floor.thresholds.length,
       sourceProfileClosures: floor.closures.length,

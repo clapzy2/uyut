@@ -2497,3 +2497,76 @@ byte-identical просмотренному primary-a. Console0errors/0warnings;
 областями, проверенные physical thresholds и смежность, независимые metric/vertical
 доказательства; затем перенос принятого исходника в2D/3D. Произвольные bent/curved
 лидеры и rotated/nonmonotone glyphs остаются явными ограничениями данного pass.
+
+### 10 октября: исходное соседство полостей по двум сторонам логических рамок
+
+Свежий existing page6 реплей:tmp/native-floor-sides-20261010-primary-final/.
+Source PDF SHA d79a89eba7d262f2615a9c9f99c03be4553d85c5f737423c51f98e8c9f5da1ab,
+JPEG f55b2437f57ba9d6b45aeeaba180ff771c47bc87e2204405f2b04fd597206b58.
+Native floor inventory точно совпал с предыдущим floor-leaders-final-v2;
+opening frames/source connections тоже. Source curves45/clips0,7 logical strips,
+5 profiles и1 held small contour сохранены. Новые13 полных side contacts
+не добавляют ни одной вершины пола, стены, порога или внешней площадки.
+
+| Source frame (наблюдение, не selector) | Первая грань → метки | Вторая грань → метки | Итог |
+| --- | --- | --- | --- |
+| 556:0 | 1 → 1+5 | 3 → неизвестно | Односторонняя |
+| 599:0 | 0 → 2 | 2 → 1+5 | Две разные полости |
+| 600:0 | 0 → 3 | 2 → 1+5 | Две разные полости |
+| 601:0 | 0 → 4 | 2 → 1+5 | Две разные полости |
+| 613:0 | 1 → 8 | 3 → 1+5 | Две разные полости |
+| 614:0 | 0 → 6 | 2 → 1+5 | Две разные полости |
+| 615:0 | 1 → 7 | 3 → 1+5 | Две разные полости |
+
+Эти6 logical pair correspondences не означают6 физически свободных проходов.
+Номер8 связан по реальному source leader. Зона1+5 не разделена по двум цифрам.
+У556 есть отдельное наблюдение door889 и omittedInkCount1; неизвестная сторона
+не объявляется входом/exterior/отсутствием пола по одному статусу. Door581 остаётся
+source-linked glazing774, не назначается ближайшей рамке и не создаёт balcony floor.
+У614 actual floor-sideY527.017 отличается от archived manual coincidentY523.447:
+новый отчёт не заменяет ручную разметку и не «исправляет» её physical wall thickness.
+
+Core берёт свежие floor/frame/source-link inventories одной PDF/raster/page
+идентичности, не savedReview. Проверяются canonical frame endpoints/ref/order,
+floor boundary order, unique paint group и opposite literal source edges.
+Каждый positive-span контакт имеет frame-side source tag/ref и gapless interval
+coverage. Exact source-decimal polygon winding даёт локальную outward нормаль;
+нет whole-room global-halfplane restriction, которая потеряла бы2 корректные
+связи вогнутой общей зоны. Любой positive overlap с конечной frame strip удерживает
+назначение. Corner touch/nearest/gap1e-9 не становятся complete contact.
+Partial/unproved контакты сохраняются; второй кандидат даже partial делает side
+ambiguous. Одна полость у обеих сторон остаётся same-cavity, не новой связью.
+Unproved neighbor bounds/competing paint/missing separator — явные причины удержания.
+Все accepted/physical/ownership/2D3D flags остаютсяfalse.1mwork atomic;
+frames100/cells100/vertices4000/contact1000/proofindices10000 bounded.
+
+Private packet добавляет optional legacy-compatible floorOpeningSides только с
+frame/cavity IDs, frame/boundary indices, coverage/status/reason, door observations
+и omission count; не raw source geometry, floor acceptance или saved-room ownership.
+Client проверяет full parent frame accounting, strict keys, opposite edge indices,
+known cavity/frame tags, cardinality/status derivation, precise source-linked door
+IDset и все лимиты. Accepted-role extras, falseunique/cardinality и omitted parent
+references удерживают весь ответ. Unproved contact может сохраняться без frame tag.
+UI показывает count6/1 и отдельные подробности sides; source door co-observation
+не определяет тип остальных рамок. Same/partial/unproved/unknown причины видимы.
+SVG default2arcs/12lines/31polygons и ON45polygons не изменились.
+
+66 core controls,74 client additions,7 UI controls и1 fresh source producer→packet
+integration control прошли;4627webtests/262files. Typecheck7packages, lint906 и productionbuild/diff
+чистые. Independent audit включает actual13 source side contacts, concave normals,
+partial/full competitors, canonical refs, direction/permutation controls и отсутствие
+изменений исходника. Отдельный replay с архивной ручной разметкой:
+tmp/native-floor-sides-20261010-primary-reviewed-a/; новый report точно совпал с
+automatic pass без неё, old manual correspondence осталась5/1/1.
+Ещё6 PDFs tmp/native-floor-sides-20261010-SOURCE-a/:0 новых frame-side назначений,
+прежние bounded/negative controls сохранены, colored19fills/8named неизменны.
+Firefoxactualcomponent/mockprivateAPI/actualJPEG:1280/390 no pageoverflow,
+7 expandedframe rows, joint1+5/leader8, default/optional overlay counts проверены.
+Screenshots output/playwright/native-floor-sides-desktop-expanded.png,
+native-floor-sides-mobile-expanded.png. Harness не загружает root fonts: проверен
+layout/interaction, не полный production design. Сайт/userproject/DB/paidAI/PR/deploy
+не менялись. Остаток: физические роли/полнота проёмов и пола, independent scale/
+height/thickness proof, physical threshold acceptance и source-based2D/3D после
+приёмки. Новый scoped logical neighbor report сам эту приёмку не выполняет.
+Console0errors/0warnings; focusable1414px fullsize viewport/keyboardscroll проверены.
+Созданные для этой проверки браузер и сервер закрыты, ephemeral helper удалён.

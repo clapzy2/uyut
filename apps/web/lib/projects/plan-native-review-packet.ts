@@ -3,6 +3,10 @@ import type { NativeTextAnchors } from './plan-document'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
 import { nativeFaceAnnotationCandidates } from './plan-native-face-annotations'
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
+import {
+  type NativeFloorOpeningReport,
+  nativeFloorOpeningSides,
+} from './plan-native-floor-opening-sides'
 import { nativeOpeningSourceLinks } from './plan-native-opening-links'
 import { nativeReviewedFrameRooms } from './plan-native-reviewed-frame-rooms'
 import { automaticNativeRoomCandidates, nativeRoomPolygonKey } from './plan-native-room-candidates'
@@ -98,6 +102,7 @@ export type NativeReviewPacket = {
     cues: { labelId: string; sourceNumber: number }[]
   }
   roomSchedule?: NativeRoomScheduleReport
+  floorOpeningSides?: NativeFloorOpeningReport
   floorCavities?: {
     status: 'draft' | 'unresolved'
     refusalReason: string | null
@@ -266,6 +271,12 @@ export function nativeReviewPacket(input: {
   const dimensions = automaticNativeDimensionRoles({ ...common, source })
   const connections = nativeOpeningSourceLinks(common)
   const floor = nativeFloorCavityCandidates(common)
+  const floorSides = nativeFloorOpeningSides(floor, connections)
+  packet.floorOpeningSides = {
+    status: floorSides.status,
+    refusalReason: floorSides.refusalReason,
+    frames: floorSides.frames,
+  }
   const doors = connections.doorSymbols
   const frames = connections.openingFrames
   packet.sourceLinks = {

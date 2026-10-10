@@ -514,6 +514,162 @@ const frameNumberCueMessages = {
   unavailable: 'Цифровая метка для этой сверки недоступна.',
 }
 
+const floorOpeningStatusMessages = {
+  'two-sided': 'Две разные соседние области',
+  'one-sided': 'Одна наблюдаемая соседняя область',
+  'same-cavity': 'Одна и та же область у обеих сторон — не новая связь',
+  ambiguous: 'Соседние контакты неоднозначны',
+  unresolved: 'Соседние контакты не доказаны',
+}
+const floorOpeningSideMessages = {
+  matched: 'Полный контакт с математической областью',
+  partial: 'Частичный контакт',
+  ambiguous: 'Несколько конкурирующих контактов',
+  unobserved: 'Область не наблюдалась; сторона неизвестна',
+  unresolved: 'Исходное основание контакта не доказано',
+}
+const floorOpeningReasonMessages: Record<string, string> = {
+  'logical-strip-unavailable': 'Логическая полоса по рамке не сопоставлена.',
+  'competing-strip-paint': 'У полосы несколько заливок; соответствие не выбрано.',
+  'strip-overlaps-cavity': 'Логическая полоса пересекает математическую область.',
+  'unproved-neighbor-region': 'Соседняя область удержана как неподтверждённая.',
+  'competing-cavity-contacts': 'На одной стороне есть несколько кандидатов.',
+  'unobserved-opposite-cavity': 'На противоположной стороне область не наблюдалась.',
+  'incomplete-cavity-contacts': 'Часть соседних контактов не доказана.',
+}
+
+function FloorOpeningSides({ packet }: { packet: NativeReviewPacket }) {
+  const report = packet.floorOpeningSides
+  if (!report) return null
+  const cells = new Map(packet.floorCavities?.candidates.map((cell) => [cell.id, cell]))
+  const numbers = new Map(
+    packet.numberCircles?.cues.map(({ labelId, sourceNumber }) => [labelId, sourceNumber]),
+  )
+  const cellDescription = (id: string) => {
+    const cell = cells.get(id)
+    if (!cell) return 'Математическая область недоступна для сверки'
+    const cues = [
+      ...new Set(
+        cell.markerLabelIds
+          .map((labelId) => numbers.get(labelId))
+          .filter((number) => number !== undefined),
+      ),
+    ]
+    if (!cues.length)
+      return cell.markerStatus === 'unavailable'
+        ? 'Математическая область без доступной сверки меток; назначение неизвестно'
+        : 'Неразмеченная математическая область; назначение неизвестно'
+    const hasLeader = packet.floorCavities?.markerLeaders?.some(
+      (leader) => leader.cavityId === id && cell.markerLabelIds.includes(leader.labelId),
+    )
+    return `Метки ${cues.join(' + ')}${hasLeader ? ' (есть исходная выноска)' : ''}`
+  }
+  return (
+    <section
+      className="space-y-2 border-t border-line pt-3 text-[13px] leading-relaxed"
+      aria-label="Соседние области у рамок"
+    >
+      <h4 className="text-[14px] font-medium">Соседние области у рамок</h4>
+      {report.status === 'unresolved' ? (
+        <p className="break-all text-ink-2">
+          Сверка сторон не завершена; частичный набор не показан. Ограничение:{' '}
+          {report.refusalReason}.
+        </p>
+      ) : (
+        <>
+          <p className="text-ink-2">
+            Это логические соседства исходных математических областей. Сохранённая ручная разметка
+            не меняется; физический порог, ширина, высоты, свободный проход и готовность 2D/3D не
+            подтверждены. Дверные символы — отдельные наблюдения, не определение вида всех рамок.
+          </p>
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <dt className="text-ink-2">Рамки между двумя разными областями</dt>
+              <dd>{report.frames.filter((frame) => frame.status === 'two-sided').length}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-2">Рамки с одной наблюдаемой областью</dt>
+              <dd>{report.frames.filter((frame) => frame.status === 'one-sided').length}</dd>
+            </div>
+          </dl>
+          <p className="text-ink-2">
+            Ненаблюдаемая сторона неизвестна; она не считается внешней стороной квартиры или входом.
+          </p>
+          {report.frames.some((frame) => !['two-sided', 'one-sided'].includes(frame.status)) ? (
+            <p className="text-ink-2">
+              Невыбранные соседства:{' '}
+              {
+                report.frames.filter((frame) => !['two-sided', 'one-sided'].includes(frame.status))
+                  .length
+              }
+              . Причины сохранены в деталях; неизвестная область не назначается ближайшей комнате.
+            </p>
+          ) : null}
+          {report.frames.length ? (
+            <details className="text-ink-2">
+              <summary className="min-h-11 cursor-pointer py-3">
+                Стороны рамок и ограничения соседств
+              </summary>
+              <ul className="list-disc space-y-3 pl-5">
+                {report.frames.map((frame) => (
+                  <li key={frame.frameId}>
+                    <p>
+                      <span className="break-all">{frame.frameId}</span>:{' '}
+                      {floorOpeningStatusMessages[frame.status]}.
+                    </p>
+                    {frame.reason ? (
+                      <p>
+                        {floorOpeningReasonMessages[frame.reason] ??
+                          'Нужна отдельная сверка исходного контакта.'}{' '}
+                        <span className="break-all">{frame.reason}</span>.
+                      </p>
+                    ) : null}
+                    {frame.sides.map((side) => (
+                      <div key={side.frameEdgeIndex} className="mt-1">
+                        <p>
+                          Грань рамки {side.frameEdgeIndex + 1}:{' '}
+                          {floorOpeningSideMessages[side.status]}.
+                        </p>
+                        {side.contacts.map((contact) => (
+                          <p key={contact.cavityId} className="break-all">
+                            {cellDescription(contact.cavityId)} — {contact.cavityId};{' '}
+                            {contact.coverage === 'complete'
+                              ? 'полный наблюдаемый контакт'
+                              : contact.coverage === 'partial'
+                                ? 'не весь участок сопоставлен'
+                                : 'линейная связь не доказана'}
+                            . Индексы границ: {contact.boundaryEdgeIndices.join(', ')}.
+                          </p>
+                        ))}
+                      </div>
+                    ))}
+                    {frame.doorSymbolIds.length ? (
+                      <p className="mt-1 break-all">
+                        Совместно наблюдаемые дверные символы: {frame.doorSymbolIds.join(', ')}. Это
+                        отдельное совпадение символов, не доказательство физической двери или
+                        прохода.
+                      </p>
+                    ) : null}
+                    {frame.omittedInkCount ? (
+                      <p className="mt-1">
+                        Ограничения извлечения у рамки: {frame.omittedInkCount}.
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : (
+            <p className="text-ink-2">
+              Нет исходных рамок для сверки сторон; полнота проёмов этим не доказана.
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
 function SavedFrameRooms({
   review,
 }: {
@@ -675,6 +831,7 @@ export function NativeReviewResult({
           onToggle={setShowFloorCavities}
         />
       ) : null}
+      {packet.floorOpeningSides ? <FloorOpeningSides packet={packet} /> : null}
       {packet.doorSymbols || packet.openingFrames ? (
         <div className="space-y-2 text-[13px] leading-relaxed">
           {packet.doorSymbols ? (

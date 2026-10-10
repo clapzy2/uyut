@@ -610,6 +610,177 @@ function isFloorCavities(value: unknown, packet: NativeReviewPacket): boolean {
   )
 }
 
+function isFloorOpeningSides(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const report = value as NonNullable<NativeReviewPacket['floorOpeningSides']>
+  if (
+    !hasOnlyKeys(report, ['status', 'refusalReason', 'frames']) ||
+    !Array.isArray(report.frames) ||
+    report.frames.length > 100
+  )
+    return false
+  if (report.status === 'unresolved')
+    return isBoundedLabel(report.refusalReason) && report.frames.length === 0
+  const floor = packet.floorCavities
+  const frameLayer = packet.openingFrames
+  if (
+    report.status !== 'draft' ||
+    report.refusalReason !== null ||
+    floor?.status !== 'draft' ||
+    frameLayer?.status !== 'draft'
+  )
+    return false
+  const frameIds = new Set(frameLayer.candidates.map(({ id }) => id))
+  if (report.frames.length !== frameIds.size) return false
+  const cells = new Map(floor.candidates.map((cell) => [cell.id, cell]))
+  const thresholds = new Map(floor.thresholds.map((threshold) => [threshold.frameId, threshold]))
+  const checkedFrames = new Set<string>()
+  let contactCount = 0
+  let proofIndexCount = 0
+  for (const frame of report.frames) {
+    if (
+      !frame ||
+      typeof frame !== 'object' ||
+      !hasOnlyKeys(frame, [
+        'frameId',
+        'status',
+        'reason',
+        'sides',
+        'doorSymbolIds',
+        'omittedInkCount',
+      ]) ||
+      !isBoundedLabel(frame.frameId) ||
+      !frameIds.has(frame.frameId) ||
+      checkedFrames.has(frame.frameId) ||
+      !Array.isArray(frame.sides) ||
+      ![0, 2].includes(frame.sides.length) ||
+      !Array.isArray(frame.doorSymbolIds) ||
+      frame.doorSymbolIds.length > 100 ||
+      new Set(frame.doorSymbolIds).size !== frame.doorSymbolIds.length ||
+      !frame.doorSymbolIds.every(isBoundedLabel) ||
+      !Number.isSafeInteger(frame.omittedInkCount) ||
+      frame.omittedInkCount < 0 ||
+      frame.omittedInkCount > 6000
+    )
+      return false
+    checkedFrames.add(frame.frameId)
+    const expectedDoorIds =
+      packet.sourceLinks?.status === 'draft'
+        ? packet.sourceLinks.doors
+            .filter(
+              (door) =>
+                door.status === 'linked' &&
+                door.targetKind === 'opening-frame' &&
+                door.targetId === frame.frameId,
+            )
+            .map(({ symbolId }) => symbolId)
+        : []
+    if (
+      frame.doorSymbolIds.length !== expectedDoorIds.length ||
+      frame.doorSymbolIds.some((id) => !expectedDoorIds.includes(id))
+    )
+      return false
+    const threshold = thresholds.get(frame.frameId)
+    if (!frame.sides.length) {
+      if (frame.reason === 'logical-strip-unavailable') {
+        if (frame.status !== 'unresolved' || threshold) return false
+      } else if (frame.reason === 'competing-strip-paint') {
+        if (frame.status !== 'ambiguous' || threshold?.paintAmbiguous !== true) return false
+      } else if (frame.reason === 'strip-overlaps-cavity') {
+        if (frame.status !== 'ambiguous' || threshold?.paintAmbiguous !== false) return false
+      } else if (frame.reason === 'unproved-neighbor-region') {
+        if (
+          frame.status !== 'unresolved' ||
+          threshold?.paintAmbiguous !== false ||
+          floor.unprovedCavities.length === 0
+        )
+          return false
+      } else return false
+      continue
+    }
+    if (threshold?.paintAmbiguous !== false) return false
+    const firstEdge = frame.sides[0]?.frameEdgeIndex
+    const secondEdge = frame.sides[1]?.frameEdgeIndex
+    if (
+      !Number.isSafeInteger(firstEdge) ||
+      !Number.isSafeInteger(secondEdge) ||
+      (firstEdge ?? -1) < 0 ||
+      (firstEdge ?? 4) > 3 ||
+      (secondEdge ?? -1) < 0 ||
+      (secondEdge ?? 4) > 3 ||
+      Math.abs((firstEdge ?? 0) - (secondEdge ?? 0)) !== 2
+    )
+      return false
+    for (const side of frame.sides) {
+      if (
+        !side ||
+        typeof side !== 'object' ||
+        !hasOnlyKeys(side, ['frameEdgeIndex', 'status', 'contacts']) ||
+        !Array.isArray(side.contacts) ||
+        side.contacts.length > 100
+      )
+        return false
+      const contactedCells = new Set<string>()
+      for (const contact of side.contacts) {
+        if (
+          !contact ||
+          typeof contact !== 'object' ||
+          !hasOnlyKeys(contact, ['cavityId', 'coverage', 'boundaryEdgeIndices']) ||
+          !isBoundedLabel(contact.cavityId) ||
+          contactedCells.has(contact.cavityId) ||
+          !['complete', 'partial', 'unproved'].includes(contact.coverage) ||
+          !Array.isArray(contact.boundaryEdgeIndices) ||
+          contact.boundaryEdgeIndices.length < 1 ||
+          contact.boundaryEdgeIndices.length > 100 ||
+          new Set(contact.boundaryEdgeIndices).size !== contact.boundaryEdgeIndices.length
+        )
+          return false
+        const cell = cells.get(contact.cavityId)
+        if (
+          !cell ||
+          (contact.coverage !== 'unproved' && !cell.closureIds.includes(frame.frameId)) ||
+          contact.boundaryEdgeIndices.some(
+            (index) => !Number.isSafeInteger(index) || index < 0 || index >= cell.polygon.length,
+          )
+        )
+          return false
+        contactedCells.add(contact.cavityId)
+        contactCount++
+        proofIndexCount += contact.boundaryEdgeIndices.length
+        if (contactCount > 1000 || proofIndexCount > 10000) return false
+      }
+      const expectedStatus =
+        side.contacts.length > 1
+          ? 'ambiguous'
+          : side.contacts.length === 0
+            ? 'unobserved'
+            : side.contacts[0]?.coverage === 'complete'
+              ? 'matched'
+              : side.contacts[0]?.coverage === 'partial'
+                ? 'partial'
+                : 'unresolved'
+      if (side.status !== expectedStatus) return false
+    }
+    const [first, second] = frame.sides
+    if (frame.sides.some((side) => side.status === 'ambiguous')) {
+      if (frame.status !== 'ambiguous' || frame.reason !== 'competing-cavity-contacts') return false
+    } else if (frame.sides.every((side) => side.status === 'matched')) {
+      const expectedStatus =
+        first?.contacts[0]?.cavityId === second?.contacts[0]?.cavityId ? 'same-cavity' : 'two-sided'
+      if (frame.status !== expectedStatus || frame.reason !== null) return false
+    } else if (
+      frame.sides.filter((side) => side.status === 'matched').length === 1 &&
+      frame.sides.some((side) => side.status === 'unobserved')
+    ) {
+      if (frame.status !== 'one-sided' || frame.reason !== 'unobserved-opposite-cavity')
+        return false
+    } else if (frame.status !== 'unresolved' || frame.reason !== 'incomplete-cavity-contacts')
+      return false
+  }
+  return true
+}
+
 function isSavedFrameRooms(value: unknown, packet: NativeReviewPacket): boolean {
   if (value === undefined) return true
   if (!value || typeof value !== 'object') return false
@@ -827,6 +998,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isNumberCircles(packet.numberCircles) ||
     !isRoomSchedule(packet.roomSchedule, packet) ||
     !isFloorCavities(packet.floorCavities, packet) ||
+    !isFloorOpeningSides(packet.floorOpeningSides, packet) ||
     !isSavedFrameRooms(packet.savedFrameRooms, packet) ||
     !Array.isArray(packet.faces) ||
     packet.faces.length > 100 ||

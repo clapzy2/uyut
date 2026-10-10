@@ -212,6 +212,43 @@ function floorCavityPacket() {
   return packet
 }
 
+function floorOpeningPacket() {
+  const packet = floorCavityPacket()
+  packet.floorOpeningSides = {
+    status: 'draft',
+    refusalReason: null,
+    frames: Array.from({ length: 7 }, (_, index) => ({
+      frameId: `source-frame-${index}`,
+      status: index === 6 ? 'one-sided' : 'two-sided',
+      reason: index === 6 ? 'unobserved-opposite-cavity' : null,
+      sides: [
+        {
+          frameEdgeIndex: 0,
+          status: 'matched',
+          contacts: [{ cavityId: 'source-cell-0', coverage: 'complete', boundaryEdgeIndices: [0] }],
+        },
+        {
+          frameEdgeIndex: 2,
+          status: index === 6 ? 'unobserved' : 'matched',
+          contacts:
+            index === 6
+              ? []
+              : [
+                  {
+                    cavityId: `source-cell-${index + 1}`,
+                    coverage: 'complete',
+                    boundaryEdgeIndices: [1],
+                  },
+                ],
+        },
+      ],
+      doorSymbolIds: index === 6 ? ['door-panel'] : [],
+      omittedInkCount: index === 6 ? 2 : 0,
+    })),
+  }
+  return packet
+}
+
 describe('read-only native review presentation', () => {
   it('distinguishes no saved review from unavailable native data without save buttons', () => {
     const empty = renderToStaticMarkup(
@@ -418,7 +455,189 @@ describe('read-only native review presentation', () => {
     expect(html).not.toContain('Сохранить')
     expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
     expect(html).not.toContain('Связи меток по исходным выноскам')
+    expect(html).not.toContain('Соседние области у рамок')
   })
+  it('reports six different cavity pairs and one unknown-sided frame without changing source SVG or actions', () => {
+    const packet = floorOpeningPacket()
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    const sourceOnly = structuredClone(packet)
+    delete sourceOnly.floorOpeningSides
+    const baseline = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet: sourceOnly, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Соседние области у рамок')
+    expect(html).toContain('Рамки между двумя разными областями</dt><dd>6</dd>')
+    expect(html).toContain('Рамки с одной наблюдаемой областью</dt><dd>1</dd>')
+    expect(html).toContain('Метки 1 + 5 — source-cell-0')
+    expect(html).toContain(
+      'Неразмеченная математическая область; назначение неизвестно — source-cell-6',
+    )
+    expect(html).toContain('Область не наблюдалась; сторона неизвестна')
+    expect(html).toContain('не считается внешней стороной квартиры или входом')
+    expect(html).toContain('Сохранённая ручная разметка не меняется')
+    expect(html).toContain(
+      'физический порог, ширина, высоты, свободный проход и готовность 2D/3D не подтверждены',
+    )
+    expect(html).toContain('Дверные символы — отдельные наблюдения, не определение вида всех рамок')
+    expect(html).toContain('Совместно наблюдаемые дверные символы: door-panel')
+    expect(html).toContain('не доказательство физической двери или прохода')
+    expect(html.match(/Ограничения извлечения у рамки:/g)).toHaveLength(1)
+    expect(html).toContain('Ограничения извлечения у рамки: 2')
+    expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(baseline.match(/<svg\b.*?<\/svg>/s)?.[0])
+    expect(html.match(/type="checkbox"/g)?.length).toEqual(
+      baseline.match(/type="checkbox"/g)?.length,
+    )
+    expect(html.match(/<button\b/g)?.length).toEqual(baseline.match(/<button\b/g)?.length)
+    expect(html).not.toContain('Подтвердить')
+    expect(html).not.toContain('Сохранить')
+    expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it('does not count the same cavity on both sides as a new adjacency pair', () => {
+    const packet = floorOpeningPacket()
+    const frame = packet.floorOpeningSides?.frames[0]
+    const contact = frame?.sides[1]?.contacts[0]
+    if (!frame || !contact) throw new Error('Frame sides fixture is missing')
+    contact.cavityId = 'source-cell-0'
+    frame.status = 'same-cavity'
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Рамки между двумя разными областями</dt><dd>5</dd>')
+    expect(html).toContain('Одна и та же область у обеих сторон — не новая связь')
+    expect(html).toContain('Невыбранные соседства: 1')
+  })
+  it('retains partial, ambiguous, unproved and held neighboring evidence with their actual reasons', () => {
+    const packet = floorOpeningPacket()
+    const frames = packet.floorOpeningSides?.frames
+    const [partial, ambiguous, unproved, held] = frames ?? []
+    const partialSide = partial?.sides[0]
+    const partialContact = partialSide?.contacts[0]
+    const ambiguousSide = ambiguous?.sides[0]
+    const unprovedSide = unproved?.sides[0]
+    const unprovedContact = unprovedSide?.contacts[0]
+    if (
+      !partial ||
+      !ambiguous ||
+      !unproved ||
+      !held ||
+      !partialSide ||
+      !partialContact ||
+      !ambiguousSide ||
+      !unprovedSide ||
+      !unprovedContact
+    )
+      throw new Error('Frame sides fixture is missing')
+    partial.status = 'unresolved'
+    partial.reason = 'incomplete-cavity-contacts'
+    partialSide.status = 'partial'
+    partialContact.coverage = 'partial'
+    ambiguous.status = 'ambiguous'
+    ambiguous.reason = 'competing-cavity-contacts'
+    ambiguousSide.status = 'ambiguous'
+    ambiguousSide.contacts.push({
+      cavityId: 'source-cell-1',
+      coverage: 'complete',
+      boundaryEdgeIndices: [0],
+    })
+    unproved.status = 'unresolved'
+    unproved.reason = 'incomplete-cavity-contacts'
+    unprovedSide.status = 'unresolved'
+    unprovedContact.coverage = 'unproved'
+    held.status = 'unresolved'
+    held.reason = 'unproved-neighbor-region'
+    held.sides = []
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Невыбранные соседства: 4')
+    expect(html).toContain('Частичный контакт')
+    expect(html).toContain('не весь участок сопоставлен')
+    expect(html).toContain('Несколько конкурирующих контактов')
+    expect(html).toContain('На одной стороне есть несколько кандидатов')
+    expect(html).toContain('Исходное основание контакта не доказано')
+    expect(html).toContain('линейная связь не доказана')
+    expect(html).toContain('Соседняя область удержана как неподтверждённая')
+    expect(html).toContain('unproved-neighbor-region')
+    expect(html).toContain('неизвестная область не назначается ближайшей комнате')
+  })
+  it('keeps a leader-linked marker 8 separate from containment and preserves joint cues 1 + 5', () => {
+    const packet = floorOpeningPacket()
+    const floor = packet.floorCavities
+    const cell = floor?.candidates[6]
+    if (!floor || !cell) throw new Error('Floor fixture is missing')
+    cell.markerLabelIds = ['native-circle-8']
+    cell.markerStatus = 'unambiguous'
+    floor.unresolvedMarkerLabelIds = []
+    floor.markerLeaders = [
+      {
+        labelId: 'native-circle-8',
+        cavityId: cell.id,
+        circleEndpoint: 'start',
+        segment: {
+          operationIndex: 17,
+          subpathIndex: 0,
+          segmentIndex: 0,
+          start: { x: 99, y: 75 },
+          end: { x: 145, y: 100 },
+        },
+      },
+    ]
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Метки 8 (есть исходная выноска) — source-cell-6')
+    expect(html).toContain('Метки 1 + 5 — source-cell-0')
+    expect(html).toContain('Выноска — не граница пола и не проход')
+    expect(html).not.toContain('Подтвердить')
+  })
+  it('escapes a neighboring cavity ID and leaves unavailable numeric evidence unknown', () => {
+    const packet = floorOpeningPacket()
+    const cell = packet.floorCavities?.candidates[1]
+    const contact = packet.floorOpeningSides?.frames[0]?.sides[1]?.contacts[0]
+    if (!cell || !contact) throw new Error('Floor fixture is missing')
+    const id = '<script>alert("neighbor")</script>'
+    cell.id = id
+    cell.markerLabelIds = []
+    cell.markerStatus = 'unavailable'
+    contact.cavityId = id
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain(
+      'Математическая область без доступной сверки меток; назначение неизвестно',
+    )
+    expect(html).toContain('&lt;script&gt;alert(&quot;neighbor&quot;)&lt;/script&gt;')
+    expect(html).not.toContain('<script>')
+  })
+  it.each(['draft', 'unresolved'] as const)(
+    'shows an empty %s neighboring report without empty-success authority',
+    (status) => {
+      const packet = floorOpeningPacket()
+      packet.floorOpeningSides = {
+        status,
+        refusalReason: status === 'unresolved' ? 'floor-frame-side-work-limit' : null,
+        frames: [],
+      }
+      const html = renderToStaticMarkup(
+        createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+      )
+      if (status === 'draft') {
+        expect(html).toContain(
+          'Нет исходных рамок для сверки сторон; полнота проёмов этим не доказана',
+        )
+        expect(html).toContain('Рамки между двумя разными областями</dt><dd>0</dd>')
+      } else {
+        expect(html).toContain('Сверка сторон не завершена; частичный набор не показан')
+        expect(html).toContain('floor-frame-side-work-limit')
+        expect(html).not.toContain('Рамки между двумя разными областями</dt>')
+      }
+      expect(html).not.toContain('Стороны рамок и ограничения соседств')
+      expect(html).not.toContain('Подтвердить')
+      expect(html).not.toContain('Сохранить')
+    },
+  )
   it('distinguishes an empty leader inventory from legacy missing metadata without inventing a line', () => {
     const packet = floorCavityPacket()
     if (!packet.floorCavities) throw new Error('Floor fixture is missing')

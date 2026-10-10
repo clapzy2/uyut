@@ -631,4 +631,25 @@ describe('native painted cavities with documented source opening boundaries', ()
     expect(input).toEqual(before)
     expect(exactNativePointKey(sourcePath(input, 10).points[0] as PagePoint)).not.toBeNull()
   })
+
+  it('publishes fresh source-frame side correspondence separately from accepted floor geometry', () => {
+    const input = fixture()
+    const before = structuredClone(input)
+    const packet = nativeReviewPacket({
+      ...input,
+      source: { sha256: input.native.originalPdfSha256 as string, pdfPage: 1, state: 'existing' },
+      image: input.native.source,
+    })
+    expect(packet.floorOpeningSides).toMatchObject({ status: 'draft', refusalReason: null })
+    const frame = packet.floorOpeningSides?.frames[0]
+    expect(frame).toMatchObject({ status: 'one-sided', reason: 'unobserved-opposite-cavity' })
+    expect(frame?.sides.flatMap((side) => side.contacts)).toHaveLength(1)
+    expect(frame?.sides.flatMap((side) => side.contacts)[0]?.cavityId).toBe(
+      packet.floorCavities?.candidates[0]?.id,
+    )
+    expect(packet.floorOpeningSides).not.toHaveProperty('physicalPassagesAccepted')
+    expect(packet).not.toHaveProperty('geometry')
+    expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+    expect(input).toEqual(before)
+  })
 })

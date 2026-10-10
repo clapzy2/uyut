@@ -118,6 +118,13 @@ export function exactNativePointLocation(polygon: readonly PagePoint[], point: P
   return integerPointLocation(probe, integerEdges(boundary))
 }
 
+/** Signed winding of an already validated source polygon in the decimal domain. */
+export function exactNativePolygonWinding(polygon: readonly PagePoint[]) {
+  if (polygon.length < 3 || polygon.length > 100) return null
+  const integers = integerPoints([...polygon])
+  return integers ? integerWinding(integers.points) : null
+}
+
 /** Inclusive contact in the source-decimal domain; unknown precision is not a clear gap. */
 export function exactNativeSegmentsTouch(
   first: Pick<NativePageSegment, 'start' | 'end'>,

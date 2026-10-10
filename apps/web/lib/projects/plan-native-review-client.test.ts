@@ -590,6 +590,484 @@ describe('bounded source-backed floor cavities without accepted ownership', () =
     expect(loaded.savedReview).toEqual(packet.savedReview)
     expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
   })
+  describe('optional logical frame-side correspondence', () => {
+    function openingSidesFixture() {
+      const result = floorFixture()
+      const report: NonNullable<NativeReviewPacket['floorOpeningSides']> = {
+        status: 'draft',
+        refusalReason: null,
+        frames: [
+          {
+            frameId: 'native-opening-frame-1:0',
+            status: 'two-sided',
+            reason: null,
+            sides: [
+              {
+                frameEdgeIndex: 0,
+                status: 'matched',
+                contacts: [
+                  { cavityId: 'source-cavity-1', coverage: 'complete', boundaryEdgeIndices: [0] },
+                ],
+              },
+              {
+                frameEdgeIndex: 2,
+                status: 'matched',
+                contacts: [
+                  {
+                    cavityId: 'source-cavity-unmarked',
+                    coverage: 'complete',
+                    boundaryEdgeIndices: [1],
+                  },
+                ],
+              },
+            ],
+            doorSymbolIds: ['native-door-symbol-1:0'],
+            omittedInkCount: 1,
+          },
+        ],
+      }
+      result.packet.doorSymbols = doorSymbols()
+      result.packet.sourceLinks = {
+        status: 'draft',
+        refusalReason: null,
+        doors: [
+          {
+            symbolId: 'native-door-symbol-1:0',
+            status: 'linked',
+            targetKind: 'opening-frame',
+            targetId: 'native-opening-frame-1:0',
+            relation: 'jamb-to-frame',
+          },
+        ],
+        glazing: [],
+        groups: [],
+      }
+      result.packet.floorOpeningSides = report
+      const row = report.frames[0]
+      if (!row) throw new Error('Opening-side fixture is missing')
+      const oppositeCell = result.floor.candidates[1]
+      if (!oppositeCell) throw new Error('Opposite cavity fixture is missing')
+      oppositeCell.closureIds = [row.frameId]
+      return { ...result, report, row }
+    }
+
+    it.each([
+      [0, 2],
+      [1, 3],
+      [2, 0],
+      [3, 1],
+    ])(
+      'keeps opposite source rectangle edges %i/%i without choosing a raster-aspect axis',
+      async (first, second) => {
+        const { packet, headers, report, row } = openingSidesFixture()
+        const a = row.sides[0],
+          b = row.sides[1]
+        if (!a || !b) throw new Error('Opening-side fixture is missing')
+        a.frameEdgeIndex = first
+        b.frameEdgeIndex = second
+        const loaded = (await loadFixture(packet, headers)).packet
+        expect(loaded.floorOpeningSides).toEqual(report)
+        expect(loaded.floorCavities).toEqual(packet.floorCavities)
+        expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+      },
+    )
+
+    it('allows old packets without side metadata and an empty held report without parents', async () => {
+      const { packet, headers } = fixture()
+      expect((await loadFixture(packet, headers)).packet.floorOpeningSides).toBeUndefined()
+      packet.floorOpeningSides = {
+        status: 'unresolved',
+        refusalReason: 'r'.repeat(128),
+        frames: [],
+      }
+      expect((await loadFixture(packet, headers)).packet.floorOpeningSides).toEqual(
+        packet.floorOpeningSides,
+      )
+    })
+
+    it.each([
+      'one-sided',
+      'same-cavity',
+      'partial',
+      'unproved',
+      'ambiguous',
+      'unobserved',
+    ] as const)('preserves %s relations without asserting a physical passage', async (variant) => {
+      const { packet, headers, floor, report, row } = openingSidesFixture()
+      const a = row.sides[0],
+        b = row.sides[1]
+      const contact = a?.contacts[0]
+      if (!a || !b || !contact) throw new Error('Opening-side fixture is missing')
+      if (variant === 'same-cavity') {
+        row.status = 'same-cavity'
+        const other = b.contacts[0]
+        if (!other) throw new Error('Opening-side fixture is missing')
+        other.cavityId = contact.cavityId
+      } else if (variant === 'one-sided') {
+        b.contacts = []
+        b.status = 'unobserved'
+        row.status = 'one-sided'
+        row.reason = 'unobserved-opposite-cavity'
+      } else if (variant === 'ambiguous') {
+        a.contacts.push({
+          cavityId: 'source-cavity-unmarked',
+          coverage: 'partial',
+          boundaryEdgeIndices: [0],
+        })
+        a.status = 'ambiguous'
+        row.status = 'ambiguous'
+        row.reason = 'competing-cavity-contacts'
+      } else {
+        row.status = 'unresolved'
+        row.reason = 'incomplete-cavity-contacts'
+        if (variant === 'unobserved') {
+          for (const side of row.sides) {
+            side.contacts = []
+            side.status = 'unobserved'
+          }
+        } else {
+          contact.coverage = variant
+          a.status = variant === 'partial' ? 'partial' : 'unresolved'
+          if (variant === 'unproved') {
+            const cell = floor.candidates.find((candidate) => candidate.id === contact.cavityId)
+            if (cell) cell.closureIds = cell.closureIds.filter((id) => id !== row.frameId)
+          }
+        }
+      }
+      expect((await loadFixture(packet, headers)).packet.floorOpeningSides).toEqual(report)
+    })
+
+    it.each([
+      'logical-strip-unavailable',
+      'competing-strip-paint',
+      'strip-overlaps-cavity',
+      'unproved-neighbor-region',
+    ] as const)('preserves the explicit empty-side hold: %s', async (reason) => {
+      const { packet, headers, floor, report, row } = openingSidesFixture()
+      row.sides = []
+      row.reason = reason
+      row.status =
+        reason === 'competing-strip-paint' || reason === 'strip-overlaps-cavity'
+          ? 'ambiguous'
+          : 'unresolved'
+      if (reason === 'logical-strip-unavailable') floor.thresholds = []
+      if (reason === 'competing-strip-paint') {
+        const threshold = floor.thresholds[0]
+        if (!threshold) throw new Error('Threshold fixture is missing')
+        threshold.paintAmbiguous = true
+      }
+      if (reason === 'logical-strip-unavailable' || reason === 'competing-strip-paint')
+        for (const cell of floor.candidates)
+          cell.closureIds = cell.closureIds.filter((id) => id !== row.frameId)
+      expect((await loadFixture(packet, headers)).packet.floorOpeningSides).toEqual(report)
+    })
+
+    it('requires an exact unique set of co-observed linked door symbols', async () => {
+      const { packet, headers, row } = openingSidesFixture()
+      if (!packet.doorSymbols || !packet.sourceLinks) throw new Error('Source links are missing')
+      const second = structuredClone(packet.doorSymbols.candidates[0])
+      if (!second) throw new Error('Door fixture is missing')
+      second.id = 'second-source-door'
+      packet.doorSymbols.candidates.push(second)
+      packet.sourceLinks.doors.push({
+        symbolId: second.id,
+        status: 'linked',
+        targetKind: 'opening-frame',
+        targetId: row.frameId,
+        relation: 'jamb-to-frame',
+      })
+      row.doorSymbolIds = [second.id, 'native-door-symbol-1:0']
+      expect(
+        (await loadFixture(packet, headers)).packet.floorOpeningSides?.frames[0]?.doorSymbolIds,
+      ).toEqual(row.doorSymbolIds)
+      packet.sourceLinks = {
+        status: 'unresolved',
+        refusalReason: 'source-link-search-budget',
+        doors: [],
+        glazing: [],
+        groups: [],
+      }
+      row.doorSymbolIds = []
+      expect(
+        (await loadFixture(packet, headers)).packet.floorOpeningSides?.frames[0]?.doorSymbolIds,
+      ).toEqual([])
+    })
+
+    function limitFixture() {
+      // Protocol bounds only: these polygons are not an apartment/source acceptance.
+      const result = openingSidesFixture()
+      const { packet, floor, report, row } = result
+      const template = floor.candidates[1]
+      const frame = packet.openingFrames?.candidates[0]
+      if (!template || !frame || !packet.openingFrames || !packet.sourceLinks)
+        throw new Error('Bounds fixture is missing')
+      floor.candidates = Array.from({ length: 5 }, (_, index) => ({
+        ...structuredClone(template),
+        id: `cell-${index}`,
+        polygon: Array.from({ length: 12 }, (_, vertex) => ({
+          x: 100 + vertex,
+          y: 100 + (vertex % 3),
+        })),
+      }))
+      floor.unresolvedMarkerLabelIds = ['circle-1', 'circle-5', 'circle-8']
+      packet.openingFrames.candidates = Array.from({ length: 100 }, (_, index) => ({
+        ...structuredClone(frame),
+        id: `frame-${index}`,
+      }))
+      floor.thresholds = packet.openingFrames.candidates.map(({ id }) => ({
+        frameId: id,
+        paintAmbiguous: false,
+      }))
+      for (const cell of floor.candidates)
+        cell.closureIds = floor.thresholds.map((threshold) => threshold.frameId)
+      const linked = packet.sourceLinks.doors[0]
+      if (!linked) throw new Error('Source link fixture is missing')
+      linked.targetId = 'frame-0'
+      report.frames = packet.openingFrames.candidates.map(({ id }, index) => ({
+        ...structuredClone(row),
+        frameId: id,
+        status: 'ambiguous',
+        reason: 'competing-cavity-contacts',
+        omittedInkCount: 6000,
+        doorSymbolIds: index === 0 ? [...row.doorSymbolIds] : [],
+        sides: [0, 2].map((frameEdgeIndex) => ({
+          frameEdgeIndex,
+          status: 'ambiguous',
+          contacts: floor.candidates.map(({ id }) => ({
+            cavityId: id,
+            coverage: 'complete',
+            boundaryEdgeIndices: Array.from({ length: 10 }, (_, proof) => proof),
+          })),
+        })),
+      }))
+      return result
+    }
+
+    it('accepts exactly 100 frames, 1000 contacts and 10000 source-edge proof references', async () => {
+      const { packet, headers, report } = limitFixture()
+      expect((await loadFixture(packet, headers)).packet.floorOpeningSides).toEqual(report)
+    })
+
+    it.each(['contacts', 'proofs'] as const)(
+      'withholds the complete report beyond the %s budget',
+      async (budget) => {
+        const { packet, headers, floor, report } = limitFixture()
+        const side = report.frames[99]?.sides[1]
+        if (!side) throw new Error('Bounds fixture is missing')
+        if (budget === 'contacts') {
+          for (const row of report.frames)
+            for (const part of row.sides)
+              for (const contact of part.contacts) contact.boundaryEdgeIndices = [0]
+          const first = floor.candidates[0]
+          if (!first) throw new Error('Bounds fixture is missing')
+          floor.candidates.push({ ...structuredClone(first), id: 'extra-cell' })
+          side.contacts.push({
+            cavityId: 'extra-cell',
+            coverage: 'complete',
+            boundaryEdgeIndices: [0],
+          })
+        } else side.contacts[0]?.boundaryEdgeIndices.push(10)
+        await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+      },
+    )
+
+    it.each([
+      'null-report',
+      'extra-report-key',
+      'held-with-frames',
+      'draft-reason',
+      'missing-frames',
+      'missing-floor',
+      'held-floor',
+      'missing-frame-layer',
+      'held-frame-layer',
+      'missing-row',
+      'duplicate-row',
+      'foreign-frame',
+      'extra-row-key',
+      'row-status',
+      'row-reason',
+      'one-side',
+      'adjacent-sides',
+      'duplicate-side',
+      'negative-opposite-side',
+      'outside-opposite-side',
+      'fractional-edge',
+      'extra-side-key',
+      'side-status',
+      'missing-contacts',
+      'null-contact',
+      'foreign-cavity',
+      'duplicate-contact',
+      'extra-contact-key',
+      'coverage',
+      'empty-proof',
+      'duplicate-proof',
+      'negative-proof',
+      'outside-proof',
+      'string-proof',
+      'partial-as-matched',
+      'unproved-as-matched',
+      'untagged-complete',
+      'untagged-partial',
+      'rival-as-matched',
+      'wrong-same-cavity',
+      'wrong-one-sided',
+      'empty-sides-without-hold',
+      'false-strip-unavailable',
+      'false-competing-paint',
+      'unproved-without-parent',
+      'missing-threshold',
+      'ambiguous-threshold',
+      'missing-door',
+      'foreign-door',
+      'duplicate-door',
+      'unlinked-door',
+      'different-door-target',
+      'null-door-ids',
+      'omission-negative',
+      'omission-limit',
+    ])('rejects malformed or overclaimed logical side metadata: %s', async (change) => {
+      const { packet, headers, floor, report, row } = openingSidesFixture()
+      const a = row.sides[0],
+        b = row.sides[1],
+        contact = a?.contacts[0]
+      if (!a || !b || !contact) throw new Error('Opening-side fixture is missing')
+      if (change === 'null-report') Object.assign(packet, { floorOpeningSides: null })
+      if (change === 'extra-report-key') Object.assign(report, { physicalPassagesAccepted: true })
+      if (change === 'held-with-frames')
+        Object.assign(report, { status: 'unresolved', refusalReason: 'held' })
+      if (change === 'draft-reason') report.refusalReason = 'held'
+      if (change === 'missing-frames') Object.assign(report, { frames: null })
+      if (change === 'missing-floor') delete packet.floorCavities
+      if (change === 'held-floor')
+        Object.assign(floor, {
+          status: 'unresolved',
+          refusalReason: 'held',
+          candidates: [],
+          thresholds: [],
+          closures: [],
+          unprovedCavities: [],
+          unresolvedMarkerLabelIds: [],
+        })
+      if (change === 'missing-frame-layer') delete packet.openingFrames
+      if (change === 'held-frame-layer')
+        packet.openingFrames = { status: 'unresolved', refusalReason: 'held', candidates: [] }
+      if (change === 'missing-row') report.frames = []
+      if (change === 'duplicate-row') report.frames.push(structuredClone(row))
+      if (change === 'foreign-frame') row.frameId = 'foreign'
+      if (change === 'extra-row-key') Object.assign(row, { wallThicknessCm: 20 })
+      if (change === 'row-status') Object.assign(row, { status: 'physical-door' })
+      if (change === 'row-reason') row.reason = 'nearest-cavity'
+      if (change === 'one-side') row.sides.pop()
+      if (change === 'adjacent-sides') b.frameEdgeIndex = 1
+      if (change === 'duplicate-side') b.frameEdgeIndex = 0
+      if (change === 'negative-opposite-side') b.frameEdgeIndex = -2
+      if (change === 'outside-opposite-side') {
+        a.frameEdgeIndex = 2
+        b.frameEdgeIndex = 4
+      }
+      if (change === 'fractional-edge') a.frameEdgeIndex = 0.5
+      if (change === 'extra-side-key') Object.assign(a, { freeFloorConfirmed: true })
+      if (change === 'side-status') Object.assign(a, { status: 'accepted' })
+      if (change === 'missing-contacts') Object.assign(a, { contacts: null })
+      if (change === 'null-contact') Object.assign(a.contacts, { 0: null })
+      if (change === 'foreign-cavity') contact.cavityId = 'unknown-cavity'
+      if (change === 'duplicate-contact') a.contacts.push(structuredClone(contact))
+      if (change === 'extra-contact-key') Object.assign(contact, { sourceRoomNumber: 8 })
+      if (change === 'coverage') Object.assign(contact, { coverage: 'assumed' })
+      if (change === 'empty-proof') contact.boundaryEdgeIndices = []
+      if (change === 'duplicate-proof') contact.boundaryEdgeIndices = [0, 0]
+      if (change === 'negative-proof') contact.boundaryEdgeIndices = [-1]
+      if (change === 'outside-proof') contact.boundaryEdgeIndices = [4]
+      if (change === 'string-proof') Object.assign(contact, { boundaryEdgeIndices: ['0'] })
+      if (change === 'partial-as-matched') contact.coverage = 'partial'
+      if (change === 'unproved-as-matched') contact.coverage = 'unproved'
+      if (change === 'untagged-complete' || change === 'untagged-partial') {
+        const cell = floor.candidates.find((candidate) => candidate.id === contact.cavityId)
+        if (cell) cell.closureIds = cell.closureIds.filter((id) => id !== row.frameId)
+        if (change === 'untagged-partial') {
+          contact.coverage = 'partial'
+          a.status = 'partial'
+          row.status = 'unresolved'
+          row.reason = 'incomplete-cavity-contacts'
+        }
+      }
+      if (change === 'rival-as-matched')
+        a.contacts.push({
+          cavityId: 'source-cavity-unmarked',
+          coverage: 'partial',
+          boundaryEdgeIndices: [0],
+        })
+      if (change === 'wrong-same-cavity') row.status = 'same-cavity'
+      if (change === 'wrong-one-sided') row.status = 'one-sided'
+      if (change === 'empty-sides-without-hold') row.sides = []
+      if (change === 'false-strip-unavailable' || change === 'unproved-without-parent') {
+        row.sides = []
+        row.status = 'unresolved'
+        row.reason =
+          change === 'false-strip-unavailable'
+            ? 'logical-strip-unavailable'
+            : 'unproved-neighbor-region'
+        if (change === 'unproved-without-parent') floor.unprovedCavities = []
+      }
+      if (change === 'false-competing-paint') {
+        row.sides = []
+        row.status = 'ambiguous'
+        row.reason = 'competing-strip-paint'
+      }
+      if (change === 'missing-threshold') {
+        floor.thresholds = []
+        for (const cell of floor.candidates)
+          cell.closureIds = cell.closureIds.filter((id) => id !== row.frameId)
+      }
+      if (change === 'ambiguous-threshold') {
+        const threshold = floor.thresholds[0]
+        if (threshold) threshold.paintAmbiguous = true
+        for (const cell of floor.candidates)
+          cell.closureIds = cell.closureIds.filter((id) => id !== row.frameId)
+      }
+      if (change === 'missing-door') row.doorSymbolIds = []
+      if (change === 'foreign-door') row.doorSymbolIds = ['foreign-door']
+      if (change === 'duplicate-door') row.doorSymbolIds.push(row.doorSymbolIds[0] as string)
+      if (change === 'unlinked-door' && packet.sourceLinks)
+        packet.sourceLinks.doors = [
+          {
+            symbolId: 'native-door-symbol-1:0',
+            status: 'unresolved',
+            targetKind: null,
+            targetId: null,
+            relation: null,
+          },
+        ]
+      if (change === 'different-door-target' && packet.openingFrames && packet.sourceLinks) {
+        const other = structuredClone(packet.openingFrames.candidates[0])
+        if (!other) throw new Error('Frame fixture is missing')
+        other.id = 'other-frame'
+        packet.openingFrames.candidates.push(other)
+        packet.sourceLinks.doors[0] = {
+          symbolId: 'native-door-symbol-1:0',
+          status: 'linked',
+          targetKind: 'opening-frame',
+          targetId: other.id,
+          relation: 'jamb-to-frame',
+        }
+        report.frames.push({
+          frameId: other.id,
+          status: 'unresolved',
+          reason: 'logical-strip-unavailable',
+          sides: [],
+          doorSymbolIds: ['native-door-symbol-1:0'],
+          omittedInkCount: 0,
+        })
+      }
+      if (change === 'null-door-ids') Object.assign(row, { doorSymbolIds: null })
+      if (change === 'omission-negative') row.omittedInkCount = -1
+      if (change === 'omission-limit') row.omittedInkCount = 6001
+      await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+    })
+  })
+
   describe('optional source marker leaders', () => {
     function leaderFixture() {
       const result = floorFixture()
