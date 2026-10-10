@@ -518,6 +518,7 @@ const heightQuantityMessages = {
   'finished-ceiling': 'чистый потолок',
   'opening-height': 'высота проёма',
   'beam-level': 'уровень балки',
+  'threshold-level': 'уровень порога',
   'unclassified-height': 'вид высоты не определён',
 }
 const heightDatumMessages = {
@@ -860,7 +861,12 @@ function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
               {heights.observations.filter((item) => item.quantityKind === 'opening-height').length}
               , балки:{' '}
               {heights.observations.filter((item) => item.quantityKind === 'beam-level').length},
-              вид не определён:{' '}
+              уровни порогов:{' '}
+              {
+                heights.observations.filter((item) => item.quantityKind === 'threshold-level')
+                  .length
+              }
+              , вид не определён:{' '}
               {
                 heights.observations.filter((item) => item.quantityKind === 'unclassified-height')
                   .length
@@ -870,7 +876,10 @@ function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
             <p className="text-ink-2">
               h1/h2 остаются неизвестными обозначениями. Чистый потолок — не конструктивная высота
               стены или плиты; буквальный уровень отсчёта не определяет комнату. Разные подписи
-              потолка не усредняются. Эти наблюдения нельзя принять как высоты 3D.
+              потолка не усредняются. Эти наблюдения нельзя принять как высоты 3D. Уровень порога
+              может быть нулевым или отрицательным. Даже буквальная отметка не подтверждает
+              владельца порога и проверенный уровень отсчёта; она не задаёт автоматически нижнюю
+              отметку проёма в 2D/3D.
             </p>
           </>
         )
@@ -880,6 +889,30 @@ function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
           Пропуски исходного слоя: кривых {heights.omissionCounts.skippedCurves}, отсечённых путей{' '}
           {heights.omissionCounts.clippedPaths}. Подписи не доказывают полноту геометрии.
         </p>
+      ) : null}
+      {heights?.locations ? (
+        heights.locations.status === 'unresolved' ? (
+          <p className="break-all text-ink-2">
+            Положение подписей высот не проверено: {heights.locations.refusalReason}.
+          </p>
+        ) : (
+          <p className="text-ink-2">
+            Положение исходных подписей: внутри одной полости —{' '}
+            {
+              heights.locations.observations.filter(
+                (item) => item.status === 'inside-single-cavity',
+              ).length
+            }
+            , удержано —{' '}
+            {
+              heights.locations.observations.filter(
+                (item) => item.status !== 'inside-single-cavity',
+              ).length
+            }
+            . Это положение всей подписи, не владелец высоты или уровня порога. Полость не назначает
+            комнату; выноски и уровень отсчёта требуют отдельной проверки.
+          </p>
+        )
       ) : null}
       {dimensions?.status === 'draft' || heights?.status === 'draft' ? (
         <details className="text-ink-2">
@@ -916,6 +949,21 @@ function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
               ? heights.issues.map((item) => (
                   <li key={`height-issue:${item.labelId}:${item.code}`} className="break-all">
                     {item.labelId}: «{item.originalText}» — {item.code}.
+                  </li>
+                ))
+              : null}
+            {heights?.locations?.status === 'draft'
+              ? heights.locations.observations.map((item) => (
+                  <li key={`height-location:${item.labelId}`} className="break-all">
+                    {item.labelId}:{' '}
+                    {item.status === 'inside-single-cavity'
+                      ? `вся подпись внутри полости ${item.cavityIds[0]}`
+                      : `положение удержано — ${item.reason}`}
+                    .
+                    {item.status !== 'inside-single-cavity' && item.cavityIds.length
+                      ? ` Исходные альтернативы: ${item.cavityIds.join(', ')}.`
+                      : null}{' '}
+                    Это не подтверждение владельца высоты для 3D.
                   </li>
                 ))
               : null}

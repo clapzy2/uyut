@@ -1,6 +1,10 @@
 import type { PlanGeometry, PlanOpening } from '@uyut/db'
 import { z } from 'zod'
 import type { PlanGeometryIssue } from './plan-geometry-inspection'
+import { currentOpeningFacePairs, currentOpeningWidthProofs } from './plan-opening-face-pairs'
+
+type VerticalGeometry = Pick<PlanGeometry, 'walls' | 'openings'> &
+  Partial<Pick<PlanGeometry, 'rooms' | 'pdfCalibration'>>
 
 const height = z.number().finite().positive().max(600).optional()
 const thickness = z.number().finite().min(1).max(100).optional()
@@ -32,7 +36,7 @@ export function openingFloorLevel(opening: Pick<PlanOpening, 'bottomCm'>) {
 }
 
 /** Completeness of explicit model values, not acceptance of a source height or a physical passage. */
-export function planVerticalMeasurementReport(geometry: Pick<PlanGeometry, 'walls' | 'openings'>) {
+export function planVerticalMeasurementReport(geometry: VerticalGeometry) {
   const missingWallHeightIds = geometry.walls
     .filter((wall) => wall.heightCm === undefined)
     .map(({ id }) => id)
@@ -68,9 +72,7 @@ export function planVerticalMeasurementReport(geometry: Pick<PlanGeometry, 'wall
 }
 export type PlanVerticalMeasurementReport = ReturnType<typeof planVerticalMeasurementReport>
 
-export function inspectPlanVerticalDimensions(
-  geometry: Pick<PlanGeometry, 'walls' | 'openings'>,
-): PlanGeometryIssue[] {
+export function inspectPlanVerticalDimensions(geometry: VerticalGeometry): PlanGeometryIssue[] {
   const issues: PlanGeometryIssue[] = []
   if (
     geometry.walls.some(({ id }) => !dimensionId.safeParse(id).success) ||
@@ -147,6 +149,51 @@ export function inspectPlanVerticalDimensions(
         message: 'Проверьте высоту и нижнюю грань проёма: они должны помещаться по высоте стены.',
         openingIds: [opening.id],
       })
+    }
+  }
+  if (geometry.rooms && geometry.pdfCalibration) {
+    const currentGeometry = { ...geometry, rooms: geometry.rooms }
+    const pairedIds = currentOpeningFacePairs(currentGeometry).map(({ bindings: [a, b] }) => [
+      a.opening.id,
+      b.opening.id,
+    ])
+    for (const proof of currentOpeningWidthProofs(currentGeometry)) {
+      if (
+        proof.sameOpeningAs &&
+        proof.oppositeBinding &&
+        proof.sameOpeningAs.openingId === proof.oppositeBinding.opening.id
+      )
+        pairedIds.push([proof.opening.id, proof.oppositeBinding.opening.id])
+    }
+    const seenPairs = new Set<string>()
+    for (const ids of pairedIds) {
+      ids.sort()
+      const key = JSON.stringify(ids)
+      if (ids[0] === ids[1] || seenPairs.has(key)) continue
+      seenPairs.add(key)
+      const first = geometry.openings.find(({ id }) => id === ids[0])
+      const second = geometry.openings.find(({ id }) => id === ids[1])
+      if (!first || !second) continue
+      // These are current source-bound copies of one aperture, not nearby openings.
+      // Missing values stay unknown; no side supplies the other side's measurements.
+      const conflictingHeight =
+        first.heightCm !== undefined &&
+        second.heightCm !== undefined &&
+        first.heightCm !== second.heightCm
+      const conflictingBottom =
+        first.bottomCm !== undefined &&
+        second.bottomCm !== undefined &&
+        first.bottomCm !== second.bottomCm
+      if (conflictingHeight || conflictingBottom) {
+        issues.push({
+          id: `opening-paired-height-${ids.join('-')}`,
+          severity: 'error',
+          message: conflictingBottom
+            ? 'Нижние грани двух сторон одного проёма различаются. Уточните уровни пола и общий высотный отсчёт: текущая плоская модель не переносит этот перепад в 2D/3D.'
+            : 'У двух сторон одного проёма различаются высоты. Сверьте мерки до переноса в 2D/3D.',
+          openingIds: ids,
+        })
+      }
     }
   }
   return issues

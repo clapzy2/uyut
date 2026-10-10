@@ -336,6 +336,9 @@ export function nativeNumericTextInk(input: {
   operatorList: { fnArray: ArrayLike<number>; argsArray: ArrayLike<unknown> }
   operators: Readonly<Record<string, number>>
   textItems: readonly unknown[]
+  // Overrides numeric selection. Every source occurrence of a selected literal
+  // is replayed, so choosing one item cannot hide a competing text-show run.
+  selectedTextIndexes?: readonly number[]
   viewport: {
     width: number
     height: number
@@ -360,11 +363,42 @@ export function nativeNumericTextInk(input: {
     return fail('text-ink-budget-exceeded')
   if (![viewport.width, viewport.height].every((v) => Number.isFinite(v) && v > 0))
     return fail('invalid-text-ink-viewport')
+  const selectedIndexes = input.selectedTextIndexes
+  const selectedLiterals = new Set<string>()
+  if (selectedIndexes !== undefined) {
+    if (
+      !Array.isArray(selectedIndexes) ||
+      selectedIndexes.length > MAX_ITEMS ||
+      new Set(selectedIndexes).size !== selectedIndexes.length
+    )
+      return fail('invalid-selected-text-ink-indexes')
+    for (const index of selectedIndexes) {
+      if (!Number.isSafeInteger(index) || index < 0 || index >= textItems.length)
+        return fail('invalid-selected-text-ink-indexes')
+      const item = textItems[index]
+      if (
+        !item ||
+        typeof item !== 'object' ||
+        !('str' in item) ||
+        typeof item.str !== 'string' ||
+        !item.str.trim() ||
+        item.str.length > 200
+      )
+        return fail('invalid-selected-text-ink-indexes')
+      selectedLiterals.add(item.str.trim())
+    }
+  }
+  const selectedIndexSet = new Set(selectedIndexes)
+  const selectsLiteral = (literal: string) =>
+    selectedIndexes === undefined
+      ? nativeDimensionCaptionMillimetres(literal.trim()) !== undefined
+      : selectedLiterals.has(literal.trim())
   const text: { index: number; item: TextItem }[] = []
   for (const [index, raw] of textItems.entries()) {
     if (!raw || typeof raw !== 'object' || !('str' in raw) || typeof raw.str !== 'string') continue
     if (raw.str.length > 200) return fail('text-ink-budget-exceeded')
-    if (nativeDimensionCaptionMillimetres(raw.str.trim()) === undefined) continue
+    if (selectedIndexes === undefined ? !selectsLiteral(raw.str) : !selectedIndexSet.has(index))
+      continue
     const item = raw as TextItem
     if (
       typeof item.fontName !== 'string' ||
@@ -599,7 +633,7 @@ export function nativeNumericTextInk(input: {
         if (work > MAX_WORK) return fail('text-ink-budget-exceeded')
         literal += glyph.unicode
       }
-      const numeric = nativeDimensionCaptionMillimetres(literal.trim()) !== undefined
+      const selected = selectsLiteral(literal)
       for (const glyph of glyphs) {
         if (++work > MAX_WORK) return fail('text-ink-budget-exceeded')
         if (typeof glyph === 'number') {
@@ -625,7 +659,7 @@ export function nativeNumericTextInk(input: {
         if (glyph.isInFont !== true || glyph.accent) reason ??= 'unsupported-native-text-ink-glyph'
         if (glyph.isSpace && !/^[ \u00a0\u202f]+$/.test(glyph.unicode))
           reason ??= 'unsupported-native-text-ink-glyph'
-        if (numeric && !glyph.isSpace) {
+        if (selected && !glyph.isSpace) {
           let rawPath: unknown
           try {
             rawPath = state.fontName
@@ -663,7 +697,7 @@ export function nativeNumericTextInk(input: {
       }
       state.textMatrix = translate(state.textMatrix, advance * state.fontSize * state.hScale, 0)
       if (!advanceKnown) state.textAdvanceUnverified = true
-      if (nativeDimensionCaptionMillimetres(str.trim()) === undefined) continue
+      if (!selectsLiteral(str)) continue
       if (str !== str.trim()) reason ??= 'unsupported-native-text-ink-text'
       if (
         !Number.isFinite(advance) ||

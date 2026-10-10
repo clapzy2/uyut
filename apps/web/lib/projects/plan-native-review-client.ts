@@ -1,3 +1,4 @@
+import { nativeHeightCaption } from './plan-native-height-caption'
 import type { NativeReviewPacket } from './plan-native-review-packet'
 
 export class NativeReviewRequestError extends Error {
@@ -954,6 +955,86 @@ function isDimensionTargets(value: unknown, packet: NativeReviewPacket): boolean
   return true
 }
 
+function isHeightLocations(
+  heights: NonNullable<NativeReviewPacket['heightObservations']>,
+  packet: NativeReviewPacket,
+): boolean {
+  const locations = heights.locations
+  if (locations === undefined) return true
+  if (
+    !locations ||
+    typeof locations !== 'object' ||
+    !hasOnlyKeys(locations, ['status', 'refusalReason', 'observations']) ||
+    !Array.isArray(locations.observations) ||
+    locations.observations.length > 100
+  )
+    return false
+  if (locations.status === 'unresolved')
+    return isBoundedLabel(locations.refusalReason) && locations.observations.length === 0
+  if (
+    locations.status !== 'draft' ||
+    locations.refusalReason !== null ||
+    heights.status !== 'draft' ||
+    locations.observations.length !== heights.observations.length
+  )
+    return false
+  const parentIds = new Set(heights.observations.map(({ labelId }) => labelId))
+  const floor = packet.floorCavities
+  if (floor?.status === 'draft' && !Array.isArray(floor.candidates)) return false
+  const cavities = new Map(
+    floor?.status === 'draft' ? floor.candidates.map((cavity) => [cavity.id, cavity]) : [],
+  )
+  const seenIds = new Set<string>()
+  const seenOperations = new Set<number>()
+  for (const row of locations.observations) {
+    if (
+      !row ||
+      typeof row !== 'object' ||
+      !hasOnlyKeys(row, ['labelId', 'status', 'cavityIds', 'inkSourceOperation', 'reason']) ||
+      !isBoundedLabel(row.labelId) ||
+      !parentIds.has(row.labelId) ||
+      seenIds.has(row.labelId) ||
+      !Array.isArray(row.cavityIds) ||
+      row.cavityIds.length > 100 ||
+      new Set(row.cavityIds).size !== row.cavityIds.length ||
+      !row.cavityIds.every((id) => isBoundedLabel(id) && cavities.has(id))
+    )
+      return false
+    seenIds.add(row.labelId)
+    if (row.inkSourceOperation === null) {
+      if (
+        row.status !== 'unresolved' ||
+        row.reason !== 'height-caption-ink-unverified' ||
+        row.cavityIds.length !== 0
+      )
+        return false
+    } else {
+      if (
+        !Number.isSafeInteger(row.inkSourceOperation) ||
+        row.inkSourceOperation < 0 ||
+        seenOperations.has(row.inkSourceOperation) ||
+        row.reason === 'height-caption-ink-unverified'
+      )
+        return false
+      seenOperations.add(row.inkSourceOperation)
+    }
+    if (row.status === 'inside-single-cavity') {
+      if (
+        row.inkSourceOperation === null ||
+        row.reason !== null ||
+        row.cavityIds.length !== 1 ||
+        cavities.get(row.cavityIds[0] ?? '')?.omittedBoundaryInkCount !== 0
+      )
+        return false
+    } else if (row.status === 'ambiguous') {
+      if (row.cavityIds.length < 2 || !isBoundedLabel(row.reason)) return false
+    } else if (row.status === 'unresolved') {
+      if (row.cavityIds.length > 1 || !isBoundedLabel(row.reason)) return false
+    } else return false
+  }
+  return seenIds.size === parentIds.size
+}
+
 function isHeightObservations(value: unknown, packet: NativeReviewPacket): boolean {
   if (value === undefined) return true
   if (!value || typeof value !== 'object') return false
@@ -967,6 +1048,7 @@ function isHeightObservations(value: unknown, packet: NativeReviewPacket): boole
       'observations',
       'issues',
       'omissionCounts',
+      ...('locations' in heights ? ['locations'] : []),
     ]) ||
     !Array.isArray(heights.observations) ||
     heights.observations.length > 100 ||
@@ -985,7 +1067,8 @@ function isHeightObservations(value: unknown, packet: NativeReviewPacket): boole
     return (
       isBoundedLabel(heights.refusalReason) &&
       heights.observations.length === 0 &&
-      heights.issues.length === 0
+      heights.issues.length === 0 &&
+      isHeightLocations(heights, packet)
     )
   if (heights.status !== 'draft' || heights.refusalReason !== null) return false
   const originalText = (text: unknown): text is string =>
@@ -1015,9 +1098,13 @@ function isHeightObservations(value: unknown, packet: NativeReviewPacket): boole
       observations.has(observation.labelId) ||
       !originalText(observation.originalText) ||
       !Number.isFinite(observation.valueMm) ||
-      !['finished-ceiling', 'opening-height', 'beam-level', 'unclassified-height'].includes(
-        observation.quantityKind,
-      ) ||
+      ![
+        'finished-ceiling',
+        'opening-height',
+        'beam-level',
+        'threshold-level',
+        'unclassified-height',
+      ].includes(observation.quantityKind) ||
       !['unspecified', 'existing-floor', 'finished-floor'].includes(observation.datum) ||
       observation.mayAcceptFor3D !== false ||
       !Array.isArray(observation.issueCodes) ||
@@ -1026,14 +1113,14 @@ function isHeightObservations(value: unknown, packet: NativeReviewPacket): boole
       new Set(observation.issueCodes).size !== observation.issueCodes.length
     )
       return false
-    const codes = new Set(observation.issueCodes)
+    const caption = nativeHeightCaption(observation.originalText)
     if (
-      codes.has('height-role-unclassified') !==
-        (observation.quantityKind === 'unclassified-height') ||
-      codes.has('height-datum-unverified') !== (observation.datum === 'unspecified') ||
-      codes.has('height-outside-model-range') !==
-        (observation.valueMm <= 0 || observation.valueMm > 6000) ||
-      (codes.has('ambiguous-height-datum') && observation.datum !== 'unspecified')
+      caption.status !== 'observed' ||
+      caption.observation.valueMm !== observation.valueMm ||
+      caption.observation.quantityKind !== observation.quantityKind ||
+      caption.observation.datum !== observation.datum ||
+      caption.observation.issueCodes.length !== observation.issueCodes.length ||
+      caption.observation.issueCodes.some((code, index) => code !== observation.issueCodes[index])
     )
       return false
     observations.set(observation.labelId, observation)
@@ -1054,17 +1141,23 @@ function isHeightObservations(value: unknown, packet: NativeReviewPacket): boole
       return false
     const text = labelTexts.get(issue.labelId)
     const observation = observations.get(issue.labelId)
+    const caption = observation ? null : nativeHeightCaption(issue.originalText)
     if (
       (text !== undefined && text !== issue.originalText) ||
       (observation && !observation.issueCodes.includes(issue.code)) ||
-      (!observation && observationOnlyCodes.has(issue.code))
+      (!observation &&
+        (observationOnlyCodes.has(issue.code) ||
+          caption?.status !== 'unresolved' ||
+          caption.code !== issue.code))
     )
       return false
     labelTexts.set(issue.labelId, issue.originalText)
     issueKeys.add(issueKey(issue.labelId, issue.code))
   }
-  return heights.observations.every((observation) =>
-    observation.issueCodes.every((code) => issueKeys.has(issueKey(observation.labelId, code))),
+  return (
+    heights.observations.every((observation) =>
+      observation.issueCodes.every((code) => issueKeys.has(issueKey(observation.labelId, code))),
+    ) && isHeightLocations(heights, packet)
   )
 }
 
@@ -1753,9 +1846,9 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isDimensionDiscovery(packet.dimensionDiscovery, packet) ||
     !isSourceCaptionBindings(packet.sourceCaptionBindings, packet) ||
     !isScaleEvidence(packet.scaleEvidence, packet) ||
+    !isFloorCavities(packet.floorCavities, packet) ||
     !isHeightObservations(packet.heightObservations, packet) ||
     !isRoomSchedule(packet.roomSchedule, packet) ||
-    !isFloorCavities(packet.floorCavities, packet) ||
     !isDimensionTargets(packet.dimensionTargets, packet) ||
     !isFloorOpeningSides(packet.floorOpeningSides, packet) ||
     !isSavedFrameRooms(packet.savedFrameRooms, packet) ||

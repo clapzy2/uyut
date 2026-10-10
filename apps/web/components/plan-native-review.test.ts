@@ -281,7 +281,9 @@ function nativeDimensionPacket() {
       datum: index === 4 ? 'finished-floor' : 'unspecified',
       issueCodes:
         index < 5
-          ? ['height-datum-unverified']
+          ? index === 4
+            ? []
+            : ['height-datum-unverified']
           : ['height-role-unclassified', 'height-datum-unverified'],
       mayAcceptFor3D: false,
     })),
@@ -521,7 +523,7 @@ describe('read-only native review presentation', () => {
     expect(html).toContain('Размеры и высоты перед переносом')
     expect(html).toContain('Размерные кандидаты: 72; X: 41, Y: 31. Удержанные подписи: 36')
     expect(html).toContain(
-      'Подписи высот: 16; чистый потолок: 4, проёмы: 1, балки: 0, вид не определён: 11',
+      'Подписи высот: 16; чистый потолок: 4, проёмы: 1, балки: 0, уровни порогов: 0, вид не определён: 11',
     )
     expect(html).toContain('Для масштаба нужны независимые размерные опоры по X и Y')
     expect(html).toContain('исходные свидетельства целой стены или косяка')
@@ -544,6 +546,91 @@ describe('read-only native review presentation', () => {
     expect(packet).toEqual(before)
     expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
   })
+  it.each([-120, 0, 35])(
+    'shows a signed %s mm threshold level without assigning an opening bottom',
+    (valueMm) => {
+      const packet = nativeDimensionPacket()
+      const heights = packet.heightObservations
+      if (!heights) throw new Error('Height fixture is missing')
+      heights.observations.push({
+        labelId: 'threshold-level',
+        originalText: `Отметка верха порога ${valueMm} мм от чистого пола`,
+        valueMm,
+        quantityKind: 'threshold-level',
+        datum: 'finished-floor',
+        issueCodes: [],
+        mayAcceptFor3D: false,
+      })
+      const before = structuredClone(packet)
+      const html = renderToStaticMarkup(
+        createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+      )
+      expect(html).toContain('уровни порогов: 1')
+      expect(html).toContain(`«Отметка верха порога ${valueMm} мм от чистого пола» — ${valueMm} мм`)
+      expect(html).toContain('уровень порога, буквально указан чистый пол')
+      expect(html).toContain('Уровень порога может быть нулевым или отрицательным')
+      expect(html).toContain('не подтверждает владельца порога и проверенный уровень отсчёта')
+      expect(html).toContain('автоматически нижнюю отметку проёма в 2D/3D')
+      expect(html).not.toContain('bottomCm')
+      expect(html).not.toContain('Сохранить')
+      expect(packet).toEqual(before)
+      expect(packet.readiness.readyFor3D).toBe(false)
+    },
+  )
+
+  it('shows whole-caption cavity locations without calling them height owners or adding geometry actions', () => {
+    const packet = nativeDimensionPacket()
+    const heights = packet.heightObservations
+    if (!heights) throw new Error('Height fixture is missing')
+    const baseline = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    heights.locations = {
+      status: 'draft',
+      refusalReason: null,
+      observations: heights.observations.map(({ labelId }, index) => ({
+        labelId,
+        status: index < 5 ? 'inside-single-cavity' : 'unresolved',
+        cavityIds: index < 5 ? ['source-floor-cavity-10'] : [],
+        inkSourceOperation: index === 15 ? null : index + 100,
+        reason:
+          index < 5 ? null : index === 15 ? 'height-caption-ink-unverified' : 'outside-cavities',
+      })),
+    }
+    const before = structuredClone(packet)
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Положение исходных подписей: внутри одной полости — 5, удержано — 11')
+    expect(html).toContain('Это положение всей подписи, не владелец высоты или уровня порога')
+    expect(html).toContain('Полость не назначает комнату')
+    expect(html).toContain('height-0: вся подпись внутри полости source-floor-cavity-10')
+    expect(html).toContain('height-15: положение удержано — height-caption-ink-unverified')
+    expect(html).toContain('Это не подтверждение владельца высоты для 3D')
+    expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(baseline.match(/<svg\b.*?<\/svg>/s)?.[0])
+    expect(html.match(/<button\b/g)?.length).toEqual(baseline.match(/<button\b/g)?.length)
+    expect(html).not.toContain('Сохранить')
+    expect(html).not.toContain('Высота комнаты')
+    expect(packet).toEqual(before)
+  })
+
+  it('shows a global height location refusal without reporting positive cavity ownership', () => {
+    const packet = nativeDimensionPacket()
+    const heights = packet.heightObservations
+    if (!heights) throw new Error('Height fixture is missing')
+    heights.locations = {
+      status: 'unresolved',
+      refusalReason: 'height-location-source-held',
+      observations: [],
+    }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Положение подписей высот не проверено: height-location-source-held')
+    expect(html).not.toContain('Положение исходных подписей: внутри одной полости')
+    expect(html).not.toContain('вся подпись внутри полости')
+  })
+
   it('separates legacy role counts from strict held source-run bindings without SVG or actions', () => {
     const packet = nativeDimensionPacket()
     packet.sourceCaptionBindings = {

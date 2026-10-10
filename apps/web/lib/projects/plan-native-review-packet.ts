@@ -15,6 +15,7 @@ import {
   type NativeFloorOpeningReport,
   nativeFloorOpeningSides,
 } from './plan-native-floor-opening-sides'
+import { nativeHeightSourceLocations } from './plan-native-height-locations'
 import {
   type NativeHeightObservation,
   nativeHeightObservations,
@@ -130,6 +131,10 @@ export type NativeReviewPacket = {
     observations: Omit<NativeHeightObservation, 'pagePoint'>[]
     issues: { labelId: string; originalText: string; code: string }[]
     omissionCounts: { skippedCurves: number; clippedPaths: number }
+    locations?: Pick<
+      ReturnType<typeof nativeHeightSourceLocations>,
+      'status' | 'refusalReason' | 'observations'
+    >
   }
   floorOpeningSides?: NativeFloorOpeningReport
   floorCavities?: {
@@ -339,6 +344,12 @@ export function nativeReviewPacket(input: {
     observations: heights.observations.map(({ pagePoint: _point, ...observation }) => observation),
     issues: heights.issues,
     omissionCounts: heights.omissionCounts,
+  }
+  const heightLocations = nativeHeightSourceLocations({ ...common, source })
+  packet.heightObservations.locations = {
+    status: heightLocations.status,
+    refusalReason: heightLocations.refusalReason,
+    observations: heightLocations.observations,
   }
   const connections = nativeOpeningSourceLinks(common)
   const floor = nativeFloorCavityCandidates(common)

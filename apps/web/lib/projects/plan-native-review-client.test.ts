@@ -1717,6 +1717,207 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
     expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
   })
 
+  function heightLocationsFixture() {
+    const result = heightFixture()
+    result.packet.openingFrames = { status: 'draft', refusalReason: null, candidates: [] }
+    result.packet.numberCircles = { status: 'draft', refusalReason: null, cues: [] }
+    result.packet.floorCavities = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [100, 500].map((x, index) => ({
+        id: `height-cavity-${index}`,
+        polygon: [
+          { x, y: 100 },
+          { x: x + 200, y: 100 },
+          { x: x + 200, y: 300 },
+          { x, y: 300 },
+        ],
+        markerLabelIds: [],
+        markerStatus: 'unmarked',
+        closureIds: [],
+        unknownInteriorStrokeCount: 0,
+        omittedBoundaryInkCount: 0,
+      })),
+      thresholds: [],
+      closures: [],
+      unprovedCavities: [],
+      unresolvedMarkerLabelIds: [],
+      markersAvailable: true,
+    }
+    const locations: NonNullable<typeof result.heights.locations> = {
+      status: 'draft',
+      refusalReason: null,
+      observations: [
+        {
+          labelId: 'native-text-20',
+          status: 'inside-single-cavity',
+          cavityIds: ['height-cavity-0'],
+          inkSourceOperation: 20,
+          reason: null,
+        },
+      ],
+    }
+    result.heights.locations = locations
+    return { ...result, locations }
+  }
+
+  it.each(['inside', 'ambiguous', 'outside', 'ink-unverified', 'omitted-boundary'] as const)(
+    'retains source height-caption location %s without accepting a height owner',
+    async (state) => {
+      const { packet, headers, locations } = heightLocationsFixture()
+      const row = locations.observations[0]
+      if (!row) throw new Error('Height location fixture is missing')
+      if (state === 'ambiguous')
+        Object.assign(row, {
+          status: 'ambiguous',
+          cavityIds: ['height-cavity-0', 'height-cavity-1'],
+          reason: 'multiple-cavities',
+        })
+      if (state === 'outside')
+        Object.assign(row, {
+          status: 'unresolved',
+          cavityIds: [],
+          reason: 'outside-cavities',
+        })
+      if (state === 'ink-unverified')
+        Object.assign(row, {
+          status: 'unresolved',
+          cavityIds: [],
+          inkSourceOperation: null,
+          reason: 'height-caption-ink-unverified',
+        })
+      if (state === 'omitted-boundary') {
+        Object.assign(row, { status: 'unresolved', reason: 'omitted-boundary-ink' })
+        const cavity = packet.floorCavities?.candidates[0]
+        if (!cavity) throw new Error('Cavity fixture is missing')
+        cavity.omittedBoundaryInkCount = 1
+      }
+      const loaded = (await loadFixture(packet, headers)).packet
+      expect(loaded.heightObservations?.locations).toEqual(locations)
+      expect(loaded.readiness.readyFor3D).toBe(false)
+    },
+  )
+
+  it.each(['draft-parent', 'held-parent'] as const)(
+    'accepts atomic held height locations with %s',
+    async (state) => {
+      const { packet, headers, heights } = heightLocationsFixture()
+      heights.locations = {
+        status: 'unresolved',
+        refusalReason: 'source-height-locations-held',
+        observations: [],
+      }
+      if (state === 'held-parent')
+        Object.assign(heights, {
+          status: 'unresolved',
+          refusalReason: 'source-height-held',
+          observations: [],
+          issues: [],
+        })
+      expect((await loadFixture(packet, headers)).packet.heightObservations?.locations).toEqual(
+        heights.locations,
+      )
+    },
+  )
+
+  it.each([
+    'null-report',
+    'extra-report-key',
+    'accepted-report',
+    'draft-reason',
+    'held-rows',
+    'unknown-label',
+    'missing-row',
+    'duplicate-row',
+    'unknown-cavity',
+    'duplicate-cavity',
+    'inside-omitted',
+    'inside-two',
+    'inside-null-operation',
+    'inside-reason',
+    'negative-operation',
+    'fractional-operation',
+    'missing-operation',
+    'duplicate-operation',
+    'null-operation-cavity',
+    'null-operation-reason',
+    'ambiguous-one',
+    'ambiguous-no-reason',
+    'unresolved-two',
+    'unresolved-no-reason',
+    'extra-row-owner',
+    'extra-row-point',
+    'floor-held',
+    'parent-held',
+  ] as const)('rejects forged or incomplete height-caption locations: %s', async (change) => {
+    const { packet, headers, heights, locations } = heightLocationsFixture()
+    const row = locations.observations[0]
+    if (!row) throw new Error('Height location fixture is missing')
+    if (change === 'null-report') Object.assign(heights, { locations: null })
+    if (change === 'extra-report-key') Object.assign(locations, { mayTransfer2D3D: true })
+    if (change === 'accepted-report') Object.assign(locations, { status: 'accepted' })
+    if (change === 'draft-reason') locations.refusalReason = 'held'
+    if (change === 'held-rows')
+      Object.assign(locations, { status: 'unresolved', refusalReason: 'held' })
+    if (change === 'unknown-label') row.labelId = 'not-a-parent-height'
+    if (change === 'missing-row') locations.observations = []
+    if (change === 'duplicate-row') locations.observations.push(structuredClone(row))
+    if (change === 'unknown-cavity') row.cavityIds = ['not-a-source-cavity']
+    if (change === 'duplicate-cavity') row.cavityIds.push('height-cavity-0')
+    if (change === 'inside-omitted') {
+      const cavity = packet.floorCavities?.candidates[0]
+      if (!cavity) throw new Error('Cavity fixture is missing')
+      cavity.omittedBoundaryInkCount = 1
+    }
+    if (change === 'inside-two') row.cavityIds.push('height-cavity-1')
+    if (change === 'inside-null-operation') row.inkSourceOperation = null
+    if (change === 'inside-reason') row.reason = 'held'
+    if (change === 'negative-operation') row.inkSourceOperation = -1
+    if (change === 'fractional-operation') row.inkSourceOperation = 1.5
+    if (change === 'missing-operation') Object.assign(row, { inkSourceOperation: undefined })
+    if (change === 'duplicate-operation') {
+      const observation = heights.observations[0]
+      if (!observation) throw new Error('Height fixture is missing')
+      heights.observations.push({ ...structuredClone(observation), labelId: 'native-text-21' })
+      heights.issues.push(
+        ...heights.issues.map((issue) => ({ ...issue, labelId: 'native-text-21' })),
+      )
+      locations.observations.push({ ...structuredClone(row), labelId: 'native-text-21' })
+    }
+    if (change === 'null-operation-cavity' || change === 'null-operation-reason')
+      Object.assign(row, {
+        status: 'unresolved',
+        inkSourceOperation: null,
+        reason:
+          change === 'null-operation-reason' ? 'outside-cavities' : 'height-caption-ink-unverified',
+        cavityIds: change === 'null-operation-cavity' ? ['height-cavity-0'] : [],
+      })
+    if (change === 'ambiguous-one' || change === 'ambiguous-no-reason')
+      Object.assign(row, {
+        status: 'ambiguous',
+        cavityIds:
+          change === 'ambiguous-one' ? ['height-cavity-0'] : ['height-cavity-0', 'height-cavity-1'],
+        reason: change === 'ambiguous-no-reason' ? null : 'ambiguous-cavity',
+      })
+    if (change === 'unresolved-two' || change === 'unresolved-no-reason')
+      Object.assign(row, {
+        status: 'unresolved',
+        cavityIds: change === 'unresolved-two' ? ['height-cavity-0', 'height-cavity-1'] : [],
+        reason: change === 'unresolved-no-reason' ? null : 'outside-cavities',
+      })
+    if (change === 'extra-row-owner') Object.assign(row, { roomId: 'accepted-room' })
+    if (change === 'extra-row-point') Object.assign(row, { pagePoint: { x: 150, y: 150 } })
+    if (change === 'floor-held') delete packet.floorCavities
+    if (change === 'parent-held')
+      Object.assign(heights, {
+        status: 'unresolved',
+        refusalReason: 'held',
+        observations: [],
+        issues: [],
+      })
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
+
   it('accepts legacy absence, an empty held diagnostic and a separately observed unitless header', async () => {
     const { packet, headers } = fixture()
     expect((await loadFixture(packet, headers)).packet.heightObservations).toBeUndefined()
@@ -1751,8 +1952,15 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
       const observation = heights.observations[0]
       if (!observation) throw new Error('Height fixture is missing')
       observation.quantityKind = quantityKind
+      observation.originalText = {
+        'finished-ceiling': 'Чистый потолок 2672 мм',
+        'opening-height': 'Высота проёма 2672 мм',
+        'beam-level': 'Отметка низа балки 2672 мм',
+        'unclassified-height': 'h1 = 2672 мм',
+      }[quantityKind]
+      for (const issue of heights.issues) issue.originalText = observation.originalText
       if (quantityKind === 'unclassified-height') {
-        observation.issueCodes.push('height-role-unclassified')
+        observation.issueCodes.unshift('height-role-unclassified')
         heights.issues.push({
           labelId: observation.labelId,
           originalText: observation.originalText,
@@ -1763,6 +1971,95 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
     },
   )
 
+  it.each([-6000, -120, 0, 35, 6000, -6000.1, 6000.1])(
+    'preserves literal signed threshold level %s mm without model authority',
+    async (valueMm) => {
+      const { packet, headers, heights } = heightFixture()
+      const observation = heights.observations[0]
+      if (!observation) throw new Error('Height fixture is missing')
+      Object.assign(observation, {
+        originalText: `Отметка верха порога ${valueMm} мм от чистого пола`,
+        valueMm,
+        quantityKind: 'threshold-level',
+        datum: 'finished-floor',
+        issueCodes: Math.abs(valueMm) > 6000 ? ['height-outside-model-range'] : [],
+      })
+      heights.issues = observation.issueCodes.map((code) => ({
+        labelId: observation.labelId,
+        originalText: observation.originalText,
+        code,
+      }))
+      const loaded = (await loadFixture(packet, headers)).packet
+      expect(loaded.heightObservations).toEqual(heights)
+      expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+    },
+  )
+
+  it.each([
+    'value',
+    'role',
+    'datum',
+    'negation',
+    'date',
+    'multiple',
+    'not-height',
+    'unitless',
+    'fabricated-note',
+    'issue-order',
+  ] as const)(
+    'rejects height observation not reproducible from literal caption: %s',
+    async (change) => {
+      const { packet, headers, heights } = heightFixture()
+      const observation = heights.observations[0]
+      if (!observation) throw new Error('Height fixture is missing')
+      if (change === 'value') observation.valueMm = 2673
+      if (change === 'role') observation.quantityKind = 'threshold-level'
+      if (change === 'datum') {
+        observation.datum = 'finished-floor'
+        observation.issueCodes = []
+      }
+      if (change === 'negation') observation.originalText = 'Не чистый потолок 2672 мм'
+      if (change === 'date') observation.originalText = 'Чистый потолок 2672 мм на 10.10.2026'
+      if (change === 'multiple') observation.originalText = 'Чистый потолок 2672 мм, порог 20 мм'
+      if (change === 'not-height') observation.originalText = 'Ширина стены 2672 мм'
+      if (change === 'unitless') observation.originalText = 'Чистый потолок 2672'
+      if (change === 'fabricated-note') observation.issueCodes.push('source-note')
+      if (change === 'issue-order') {
+        observation.originalText = 'h1 = 2672 мм'
+        observation.quantityKind = 'unclassified-height'
+        observation.issueCodes = ['height-datum-unverified', 'height-role-unclassified']
+      }
+      heights.issues = observation.issueCodes.map((code) => ({
+        labelId: observation.labelId,
+        originalText: observation.originalText,
+        code,
+      }))
+      await expect(loadFixture(packet, headers)).rejects.toThrow()
+    },
+  )
+
+  it.each(['invented-code', 'observed-caption', 'not-height', 'wrong-unresolved-code'] as const)(
+    'rejects a standalone height issue without matching literal refusal: %s',
+    async (change) => {
+      const { packet, headers, heights } = heightFixture()
+      heights.observations = []
+      heights.issues = [
+        {
+          labelId: 'standalone-height',
+          originalText: 'Высота потолка',
+          code: 'no-literal-unit-qualified-height',
+        },
+      ]
+      const issue = heights.issues[0]
+      if (!issue) throw new Error('Height issue fixture is missing')
+      if (change === 'invented-code') issue.code = 'made-up-height-code'
+      if (change === 'observed-caption') issue.originalText = 'Чистый потолок 2672 мм'
+      if (change === 'not-height') issue.originalText = 'Ширина стены 2672 мм'
+      if (change === 'wrong-unresolved-code') issue.code = 'multiple-height-quantities'
+      await expect(loadFixture(packet, headers)).rejects.toThrow()
+    },
+  )
+
   it.each([-120, 0, 6000.1, 90000])(
     'preserves out-of-domain %s mm as flagged diagnostic evidence only',
     async (valueMm) => {
@@ -1770,6 +2067,8 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
       const observation = heights.observations[0]
       if (!observation) throw new Error('Height fixture is missing')
       observation.valueMm = valueMm
+      observation.originalText = `Чистый потолок = ${valueMm} мм`
+      for (const issue of heights.issues) issue.originalText = observation.originalText
       observation.issueCodes.push('height-outside-model-range')
       heights.issues.push({
         labelId: observation.labelId,
@@ -1788,6 +2087,7 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
       ...structuredClone(sample),
       labelId: `obs-${index}`,
       datum: index % 2 ? 'existing-floor' : 'finished-floor',
+      originalText: `Чистый потолок 2672 мм от ${index % 2 ? 'существующего' : 'чистого'} пола`,
       issueCodes: [],
     }))
     heights.issues = Array.from({ length: 100 }, (_, index) => ({
@@ -1801,7 +2101,7 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
     expect((await loadFixture(packet, headers)).packet.heightObservations).toEqual(heights)
   })
 
-  it('accepts 20 distinct linked issue codes while preserving unaccepted diagnostic status', async () => {
+  it('rejects invented issue codes even when linked to a valid observation', async () => {
     const { packet, headers, heights } = heightFixture()
     const observation = heights.observations[0]
     if (!observation) throw new Error('Height fixture is missing')
@@ -1811,7 +2111,7 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
       originalText: observation.originalText,
       code,
     }))
-    expect((await loadFixture(packet, headers)).packet.heightObservations).toEqual(heights)
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
   })
 
   it.each([

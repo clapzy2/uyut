@@ -12,6 +12,7 @@ import { automaticNativeDimensionRoles } from '../lib/projects/plan-native-dimen
 import { nativeDimensionTargets } from '../lib/projects/plan-native-dimension-targets'
 import { nativeFloorCavityCandidates } from '../lib/projects/plan-native-floor-cavities'
 import { nativeFloorOpeningSides } from '../lib/projects/plan-native-floor-opening-sides'
+import { nativeHeightSourceLocations } from '../lib/projects/plan-native-height-locations'
 import { nativeHeightObservations } from '../lib/projects/plan-native-height-observations'
 import { nativeOpeningSourceLinks } from '../lib/projects/plan-native-opening-links'
 import { nativeReviewPacket } from '../lib/projects/plan-native-review-packet'
@@ -51,6 +52,7 @@ const captionBindings = nativeCaptionBindings({ ...input, source })
 const dimensionTargets = nativeDimensionTargets({ ...input, source }, captionBindings)
 const scaleEvidence = nativeScaleEvidence({ ...input, source }, captionBindings)
 const heights = nativeHeightObservations({ ...input, source })
+const heightLocations = nativeHeightSourceLocations({ ...input, source })
 const scheduleNumbers = nativeRoomNumberScheduleLinks(input)
 const circles = scheduleNumbers.circles
 const floor = nativeFloorCavityCandidates(input)
@@ -86,6 +88,7 @@ await writeFile(
       dimensionTargets,
       scaleEvidence,
       heights,
+      heightLocations,
       roomScheduleEvidence: scheduleNumbers.schedule,
       numberScheduleLinks: scheduleNumbers.report,
       floor,
@@ -200,6 +203,13 @@ console.log(
       commonScale: scaleEvidence.commonScale,
       unresolvedDimensionLabels: dimensions.unresolved.length,
       heightObservations: heights.observations.length,
+      heightLocationRefusal: heightLocations.refusalReason,
+      wholeHeightCaptionLocations: heightLocations.observations.filter(
+        (row) => row.status === 'inside-single-cavity',
+      ).length,
+      heldHeightCaptionLocations: heightLocations.observations.filter(
+        (row) => row.status !== 'inside-single-cavity',
+      ).length,
       documentaryRoomRows: scheduleNumbers.report.rows.length,
       tableLinkedNumericRows: scheduleNumbers.report.rows.filter(
         (row) => row.markerStatus === 'linked',

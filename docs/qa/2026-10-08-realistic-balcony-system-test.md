@@ -2990,3 +2990,84 @@ target rows. В 10 строках есть 11 floor-face observations, но ни
 затем height leaders/owners/datum, physical threshold levels и полная coverage.
 2D/3D readiness false. Production, DB, сохранённая геометрия, платный AI, PR и
 deploy не менялись. Исходный PDF не редактировался.
+
+## 10 октября: whole-caption высоты и подписанные уровни порогов
+
+### Буквальные величины и две стороны проёма
+
+Parsing одной подписи вынесен в `nativeHeightCaption`: backend и client используют
+одну интерпретацию исходного текста, единиц, роли, datum и issueCodes. Старая
+интерпретация primary 16 высот сохранена; отдельная общая note 213 остаётся
+диапазоном с multiple-height-quantities и не задаёт datum всем потолкам.
+
+Новый threshold-level требует буквального «Отметка/Уровень [верха/низа] порога»
+в той же подписи. Подписанный диапазон -6000..6000 мм включает ноль; это диапазон
+наблюдений, не разрешение изменить bottomCm. Только одиночные +, ASCII minus и
+Unicode minus принимаются как знаки. En/em dash и повторные/смешанные знаки
+удерживаются как ambiguous-height-sign, а не превращаются в положительное число.
+Негативные/будущие/неуверенные роли, смешанные объекты и несколько величин удержаны.
+Горизонтальная ширина порога не становится высотой.
+
+`inspectPlanVerticalDimensions` сравнивает только свежие source-bound копии
+одного проёма: currentOpeningFacePairs либо width proof с согласованным
+sameOpeningAs/oppositeBinding. Различия heightCm или bottomCm удерживаются точно,
+включая 1e-9; неизвестные значения остаются partial и не копируются. Разные
+bottomCm не называются физически невозможными: текущая плоская модель не имеет
+двух соседних floor datums, поэтому нужен общий отсчёт. Guard действует при
+сохранении мерок и построении объёма. Устаревшие rooms/hosts/cuts/types, простое
+соседство и неподтверждённый sameOpeningAs не доказывают пару.
+
+### Вся подпись, а не baseline point
+
+`nativeNumericTextInk` получил отдельный bounded selectedTextIndexes override.
+Старый numeric default не изменён. Replay охватывает все source occurrences
+выбранного текста; нельзя выбрать удобную копию и скрыть другой text-show.
+Шрифты, embedded outlines, rendering/alpha/OCG/clip state и бюджеты остаются
+строгими. Неподдерживаемые glyphs не заменяются FontBBox или оценкой ширины.
+Это ограниченный source-state proof, не универсальный occlusion renderer.
+
+`preparePlanPage` отдельно извлекает heightCaptionInk с PDF hash/page/physical
+page size. Новый `nativeHeightSourceLocations` проверяет полный inventory,
+source identities, baseline/quad coherence через прежний nativeCaptionInkIssue
+и свежие полости. Строгое exact polygon containment, отдельные touch/partial-overlap
+проверки, omitted whole boundary и непроверенные соседние области не позволяют
+выбрать ближайшую полость. MAX_WORK 500000 очищает весь отчёт при исчерпании.
+Malformed source/items/points возвращают atomic refusal, не исключение.
+
+Fresh primary: `tmp/native-height-threshold-20261010-primary-complete`.
+Пять source captions внутри одной полости: h1/h2 labels 234/235 в cavity 10,
+236/237 в cavity 11 и finished-ceiling label 245 (2663 мм) в cavity 10.
+Одиннадцать остальных положений удержаны. Выносные 2684/2649/2672 требуют
+доказанного source attachment/leader; opening captions 226/230 имеют недоступный
+ink. Назначение source-полости не равно semantic room ownership; h1/h2 роли не
+расшифрованы, натяжной потолок не превращён в wall/slab height, datum unspecified.
+ReadOnly остаётся true; roomOwnershipConfirmed/assignsGeometryHeights/2D/3D gates
+остаются false.
+
+### Проверки
+
+- 119 literal-height tests, 94 glyph-selection tests, 28 whole-caption location
+  cases, paired vertical and downstream volume regression cases; source-order,
+  precise gaps, optional inventory и malformed metadata покрыты.
+- Client/UI: strict literal replay, source locations parent coverage, known cavity
+  and omission gates, unchanged geometry/buttons and no height owner authority.
+- Independent audits обнаружили ambiguous signed tokens и malformed/coherence
+  gaps; они исправлены и защищены regression tests.
+- 5491 web tests / 270 files (maxWorkers=4), typecheck 7 packages, lint 923 files,
+  production build и diff check прошли. Первый concurrent gate поймал семь
+  незавершённых client fixtures; после исправления соответствующих parent layers
+  два последних полных прогона прошли без ослабления проверок.
+- Явная deep/byte сверка с `native-floor-conflicts-20261010-primary`:
+  все старые reports, включая literal heights/scale/targets/floor/openings,
+  и JPEG/обе PNG неизменны. Packet добавляет только optional locations.
+- Actual Firefox 390/1280 px, current component и local private API mock с
+  настоящим JPEG/hash: source count 5/11, held/inside details, horizontal overflow
+  0, console errors/warnings 0. Built CSS и локальные шрифты загружены; это QA
+  раскладки/взаимодействия, не авторизованный production-сеанс.
+  Скриншоты: `output/playwright/native-height-locations-{mobile,desktop}.png`.
+  Browser/server закрыты, transient server helper удалён.
+
+Осталось: доказанные source leaders для выносных высот, semantic owners и datum,
+двухсторонние уровни полов/порогов вместо подмены bottomCm, whole-floor face
+bindings и полная floor coverage. По project-workflow RELEASE_PLAN обновлён.
+DB/user project/paid AI/GitHub/PR/deploy не менялись; исходный PDF не редактировался.

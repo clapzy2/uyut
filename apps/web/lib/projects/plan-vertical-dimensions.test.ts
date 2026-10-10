@@ -21,7 +21,193 @@ const geometry: PlanGeometry = {
   warnings: [],
 }
 
+function pairedGeometry(relation: 'faces' | 'width' = 'faces'): PlanGeometry {
+  const input = structuredClone(geometry)
+  const wall = input.walls[0]
+  const opening = input.openings[0]
+  if (!wall || !opening) throw new Error('Missing paired fixture')
+  wall.heightCm = 270
+  opening.type = 'balcony'
+  opening.bottomCm = 5
+  opening.heightCm = 210
+  const oppositeWall = { ...structuredClone(wall), id: 'opposite-wall' }
+  oppositeWall.start.yCm = 10
+  oppositeWall.end.yCm = 10
+  const opposite = { ...opening, id: 'opposite', wallId: oppositeWall.id }
+  input.walls.push(oppositeWall)
+  input.openings.push(opposite)
+  input.rooms = [
+    {
+      name: 'Room',
+      polygon: [
+        { xCm: 0, yCm: 0 },
+        { xCm: 400, yCm: 0 },
+        { xCm: 400, yCm: 300 },
+        { xCm: 0, yCm: 300 },
+      ],
+    },
+  ]
+  const bindings = structuredClone([
+    { wall, opening },
+    { wall: oppositeWall, opening: opposite },
+  ])
+  const first = bindings[0]
+  const second = bindings[1]
+  if (!first || !second) throw new Error('Missing paired bindings')
+  input.pdfCalibration = {
+    sourceSha256: 'a'.repeat(64),
+    pdfPage: 1,
+    cmPerPoint: 1,
+    origin: { x: 0, y: 0 },
+    anchorRoomNumbers: [1],
+    labelIndexes: [1],
+    derivedOpeningIds: [],
+    wallFaceRoomPolygons: structuredClone(input.rooms.map(({ polygon }) => polygon)),
+    ...(relation === 'faces'
+      ? {
+          openingFacePairs: [
+            {
+              bindings: [first, second],
+              jambs: [
+                { operationIndex: 1, subpathIndex: 0, segmentIndex: 0 },
+                { operationIndex: 1, subpathIndex: 0, segmentIndex: 1 },
+              ],
+            },
+          ],
+        }
+      : {
+          openingWidthProofs: [
+            {
+              ...first,
+              labelIndex: 1,
+              sameOpeningAs: { roomSourceNumber: 1, openingId: second.opening.id },
+              oppositeBinding: second,
+            },
+          ],
+        }),
+  }
+  return input
+}
+
 describe('мерки по высоте', () => {
+  it.each(['faces', 'width'] as const)(
+    'удерживает разные высоты двух исходно связанных сторон: %s',
+    (relation) => {
+      const input = pairedGeometry(relation)
+      const opposite = input.openings[1]
+      if (!opposite) throw new Error('Missing opposite opening')
+      opposite.heightCm = 210.000000001
+      const before = structuredClone(input)
+      expect(inspectPlanVerticalDimensions(input)).toEqual([
+        expect.objectContaining({
+          id: 'opening-paired-height-opposite-window',
+          openingIds: ['opposite', 'window'],
+        }),
+      ])
+      expect(planVerticalMeasurementReport(input).surfaceStatus).toBe('invalid')
+      expect(applyPlanVerticalDimensions(input, input).ok).toBe(false)
+      expect(input).toEqual(before)
+    },
+  )
+
+  it.each(['faces', 'width'] as const)(
+    'не подменяет разные отсчёты нижней грани ровным общим полом: %s',
+    (relation) => {
+      const input = pairedGeometry(relation)
+      const opposite = input.openings[1]
+      if (!opposite) throw new Error('Missing opposite opening')
+      opposite.bottomCm = 5.000000001
+      expect(inspectPlanVerticalDimensions(input)[0]?.message).toContain('уровни пола')
+      expect(applyPlanVerticalDimensions(input, input).ok).toBe(false)
+    },
+  )
+
+  it.each(['faces', 'width'] as const)(
+    'не копирует отсутствующие мерки на другую сторону: %s',
+    (relation) => {
+      const input = pairedGeometry(relation)
+      const opposite = input.openings[1]
+      if (!opposite) throw new Error('Missing opposite opening')
+      delete opposite.heightCm
+      delete opposite.bottomCm
+      const before = structuredClone(input)
+      expect(inspectPlanVerticalDimensions(input)).toEqual([])
+      expect(planVerticalMeasurementReport(input)).toMatchObject({
+        surfaceStatus: 'partial',
+        missingOpeningHeightIds: ['opposite'],
+        unknownThresholdIds: ['opposite'],
+      })
+      const result = applyPlanVerticalDimensions(input, input)
+      if (!result.ok) throw new Error(result.error)
+      expect(result.geometry.openings[1]).not.toHaveProperty('bottomCm')
+      expect(result.geometry.openings[1]).not.toHaveProperty('heightCm')
+      expect(input).toEqual(before)
+    },
+  )
+
+  it.each(['faces', 'width'] as const)(
+    'сохраняет одинаковые мерки без вывода о ровном полу: %s',
+    (relation) => {
+      const input = pairedGeometry(relation)
+      expect(inspectPlanVerticalDimensions(input)).toEqual([])
+      expect(planVerticalMeasurementReport(input)).toMatchObject({
+        surfaceStatus: 'complete',
+        raisedThresholdIds: ['window', 'opposite'],
+      })
+    },
+  )
+
+  it.each(['room', 'host', 'cut', 'type'])(
+    'не сравнивает вертикальные мерки по устаревшей исходной связи: %s',
+    (changed) => {
+      for (const relation of ['faces', 'width'] as const) {
+        const input = pairedGeometry(relation)
+        const opposite = input.openings[1]
+        const wall = input.walls[1]
+        const corner = input.rooms[0]?.polygon[0]
+        if (!opposite || !wall || !corner) throw new Error('Missing fixture')
+        opposite.heightCm = 211
+        if (changed === 'room') corner.xCm += 1
+        if (changed === 'host') wall.start.yCm += 1
+        if (changed === 'cut') opposite.offsetCm += 1
+        if (changed === 'type') opposite.type = 'door'
+        expect(inspectPlanVerticalDimensions(input)).toEqual([])
+      }
+    },
+  )
+
+  it('не выводит связь из соседства и неподтверждённого sameOpeningAs', () => {
+    const input = pairedGeometry('width')
+    const opposite = input.openings[1]
+    const proof = input.pdfCalibration?.openingWidthProofs?.[0]
+    if (!opposite || !proof) throw new Error('Missing proof')
+    opposite.heightCm = 211
+    delete proof.sameOpeningAs
+    expect(inspectPlanVerticalDimensions(input)).toEqual([])
+    proof.sameOpeningAs = { roomSourceNumber: 1, openingId: 'different' }
+    expect(inspectPlanVerticalDimensions(input)).toEqual([])
+    delete input.pdfCalibration
+    expect(inspectPlanVerticalDimensions(input)).toEqual([])
+  })
+
+  it('не повторяет конфликт при дублированном свидетельстве той же пары', () => {
+    const input = pairedGeometry()
+    const pair = input.pdfCalibration?.openingFacePairs?.[0]
+    const opposite = input.openings[1]
+    if (!pair || !opposite || !input.pdfCalibration) throw new Error('Missing pair')
+    opposite.heightCm = 211
+    input.pdfCalibration.openingFacePairs?.push(structuredClone(pair))
+    input.pdfCalibration.openingWidthProofs = [
+      {
+        ...pair.bindings[0],
+        labelIndex: 1,
+        sameOpeningAs: { roomSourceNumber: 1, openingId: pair.bindings[1].opening.id },
+        oppositeBinding: pair.bindings[1],
+      },
+    ]
+    expect(inspectPlanVerticalDimensions(input)).toHaveLength(1)
+  })
+
   it('не принимает некорректную толщину и не переносит распознанную в мерку', () => {
     const source = {
       ...geometry,

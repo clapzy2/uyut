@@ -88,6 +88,227 @@ function withOperation(operation: Operation): Input {
   ])
 }
 
+function selectedHeightFixture(): Input {
+  const text = 'натяжной-2663мм'
+  return {
+    ...fixture(
+      [
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['moveText', [10, 40]],
+        ['showText', [Array.from(text, (character) => glyph(character))]],
+        ['endText'],
+      ],
+      [{ str: text, fontName: 'f1', width: text.length * 5, transform: [10, 0, 0, 10, 10, 40] }],
+    ),
+    selectedTextIndexes: [0],
+  }
+}
+
+describe('explicit selected source text ink', () => {
+  it('keeps the numeric default byte-identical and does not add height captions implicitly', () => {
+    const numeric = fixture()
+    expect(
+      JSON.stringify(nativeNumericTextInk({ ...numeric, selectedTextIndexes: undefined })),
+    ).toBe(JSON.stringify(nativeNumericTextInk(numeric)))
+    const height = selectedHeightFixture()
+    delete height.selectedTextIndexes
+    expect(nativeNumericTextInk(height)).toEqual({
+      complete: true,
+      refusalReason: null,
+      items: [],
+      unresolved: [],
+    })
+  })
+
+  it('retains literal height source identity, show operation and actual embedded ink', () => {
+    const input = selectedHeightFixture()
+    const before = JSON.stringify({ operators: input.operatorList, text: input.textItems })
+    const result = nativeNumericTextInk(input)
+    expect(result).toMatchObject({ complete: true, refusalReason: null, unresolved: [] })
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]).toMatchObject({
+      index: 0,
+      text: 'натяжной-2663мм',
+      operationIndex: 3,
+      baselineStart: { x: 10, y: 960 },
+    })
+    expect(result.items[0]?.quad[0]).toEqual({ x: 11, y: 960 })
+    expect(JSON.stringify({ operators: input.operatorList, text: input.textItems })).toBe(before)
+  })
+
+  it('treats an explicit empty selection as an override, not the numeric default', () => {
+    expect(nativeNumericTextInk({ ...fixture(), selectedTextIndexes: [] })).toEqual({
+      complete: true,
+      refusalReason: null,
+      items: [],
+      unresolved: [],
+    })
+  })
+
+  it.each([
+    null,
+    [0, 0],
+    [-1],
+    [0.5],
+    [1],
+    [Number.NaN],
+    [Number.MAX_SAFE_INTEGER + 1],
+    ['0'],
+    new Uint8Array([0]),
+    Array(1001).fill(0),
+  ])('holds invalid selection %# atomically', (selection) => {
+    const input = selectedHeightFixture()
+    Object.assign(input, { selectedTextIndexes: selection })
+    expect(nativeNumericTextInk(input)).toEqual({
+      complete: false,
+      refusalReason: 'invalid-selected-text-ink-indexes',
+      items: [],
+      unresolved: [],
+    })
+  })
+
+  it.each([{}, { str: '' }, { str: '   ' }, { str: 'a'.repeat(201) }, { str: 20 }])(
+    'holds a selected item without bounded literal text %#',
+    (item) => {
+      const input = selectedHeightFixture()
+      input.textItems = [item]
+      expect(nativeNumericTextInk(input).refusalReason).toBe('invalid-selected-text-ink-indexes')
+    },
+  )
+
+  it('cannot hide an unselected matching source occurrence', () => {
+    const input = selectedHeightFixture()
+    const shows = input.operatorList.argsArray as unknown[]
+    input.operatorList.fnArray = [
+      ...Array.from(input.operatorList.fnArray).slice(0, -1),
+      OPS.showText,
+      OPS.endText,
+    ]
+    input.operatorList.argsArray = [...shows.slice(0, -1), structuredClone(shows[3]), null]
+    expect(nativeNumericTextInk(input)).toEqual({
+      complete: false,
+      refusalReason: 'unmatched-native-numeric-text-show',
+      items: [],
+      unresolved: [],
+    })
+  })
+
+  it('keeps duplicate selected text identities ambiguous rather than choosing one', () => {
+    const input = selectedHeightFixture()
+    input.textItems = [...input.textItems, structuredClone(input.textItems[0])]
+    input.selectedTextIndexes = [0, 1]
+    expect(nativeNumericTextInk(input)).toMatchObject({
+      complete: false,
+      refusalReason: null,
+      items: [],
+      unresolved: [
+        { index: 0, reason: 'ambiguous-native-text-show-identity' },
+        { index: 1, reason: 'ambiguous-native-text-show-identity' },
+      ],
+    })
+  })
+
+  it('allows repeated selected literals only when both source runs have exact distinct identities', () => {
+    const input = selectedHeightFixture()
+    const first = input.textItems[0] as { str: string; width: number; transform: Matrix }
+    const shows = Array.from(input.operatorList.argsArray)
+    input.operatorList.fnArray = [
+      ...Array.from(input.operatorList.fnArray).slice(0, -1),
+      OPS.showText,
+      OPS.endText,
+    ]
+    input.operatorList.argsArray = [...shows.slice(0, -1), structuredClone(shows[3]), null]
+    input.textItems = [
+      first,
+      { ...structuredClone(first), transform: [10, 0, 0, 10, 10 + first.width, 40] },
+    ]
+    input.selectedTextIndexes = [0, 1]
+    const result = nativeNumericTextInk(input)
+    expect(result.complete).toBe(true)
+    expect(result.items.map(({ index, operationIndex }) => ({ index, operationIndex }))).toEqual([
+      { index: 0, operationIndex: 3 },
+      { index: 1, operationIndex: 4 },
+    ])
+    // A caller may not hide the second same-literal occurrence merely by
+    // selecting one known item, even when both TextContent items are available.
+    input.selectedTextIndexes = [0]
+    expect(nativeNumericTextInk(input).refusalReason).toBe('unmatched-native-numeric-text-show')
+  })
+
+  it('does not include ordinary numeric captions when selection overrides the default', () => {
+    const height = selectedHeightFixture()
+    const selectedItem = structuredClone(height.textItems[0]) as {
+      str: string
+      fontName: string
+      width: number
+      transform: Matrix
+    }
+    selectedItem.transform[4] = 25
+    const heightShow = Array.from(height.operatorList.argsArray)[3]
+    const input = fixture(
+      [
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['moveText', [10, 40]],
+        ['showText', [['5', '2', '5'].map((character) => glyph(character))]],
+        ['showText', heightShow as unknown[]],
+        ['endText'],
+      ],
+      [...fixture().textItems, selectedItem],
+    )
+    input.selectedTextIndexes = [1]
+    const result = nativeNumericTextInk(input)
+    expect(result.complete).toBe(true)
+    expect(result.items.map(({ index, text }) => ({ index, text }))).toEqual([
+      { index: 1, text: 'натяжной-2663мм' },
+    ])
+  })
+
+  it('does not substitute approximate bounds for missing selected glyphs', () => {
+    const input = selectedHeightFixture()
+    input.getGlyphPath = () => undefined
+    expect(nativeNumericTextInk(input)).toMatchObject({
+      complete: false,
+      items: [],
+      unresolved: [{ index: 0, reason: 'native-glyph-ink-unavailable' }],
+    })
+  })
+
+  it.each([
+    ['setGState', [[['ca', 0]]]],
+    ['setTextRenderingMode', [3]],
+    ['setFillColorN', ['transparent-pattern']],
+  ] as Operation[])('retains visibility guards for selected text: %s', (name, args) => {
+    const input = selectedHeightFixture()
+    input.operatorList.fnArray = [
+      ...Array.from(input.operatorList.fnArray).slice(0, 3),
+      OPS[name],
+      ...Array.from(input.operatorList.fnArray).slice(3),
+    ]
+    input.operatorList.argsArray = [
+      ...Array.from(input.operatorList.argsArray).slice(0, 3),
+      args,
+      ...Array.from(input.operatorList.argsArray).slice(3),
+    ]
+    const result = nativeNumericTextInk(input)
+    expect(result.complete).toBe(false)
+    expect(result.items).toEqual([])
+    expect(result.unresolved).toHaveLength(1)
+  })
+
+  it('retains operation and glyph work budgets with explicit selection', () => {
+    const input = selectedHeightFixture()
+    input.operatorList.fnArray = new Array(100_001).fill(OPS.beginText)
+    input.operatorList.argsArray = new Array(100_001).fill(null)
+    expect(nativeNumericTextInk(input).refusalReason).toBe('text-ink-budget-exceeded')
+    const glyphInput = selectedHeightFixture()
+    const show = (glyphInput.operatorList.argsArray as unknown[])[3] as unknown[]
+    show[0] = new Array(1001).fill(glyph('н'))
+    expect(nativeNumericTextInk(glyphInput).refusalReason).toBe('text-ink-budget-exceeded')
+  })
+})
+
 describe('embedded glyph ink bounds', () => {
   it('uses the quadratic extrema instead of its control-point box', () => {
     expect(pdfGlyphInkBounds([0, 0, 0, 3, 1, 2, 2, 0, 1, 2, -1, 1, 0, -1, 4])).toEqual({

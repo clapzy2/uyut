@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import sharp from 'sharp'
+import { nativeHeightCaption } from './plan-native-height-caption'
 import {
   type NativeDimensionCaptionContext,
   nativeDimensionCaptionMillimetres,
@@ -7,7 +8,7 @@ import {
 import { extractPdfLinework, type PdfLinework } from './plan-pdf-linework'
 import { pdfNativePaintVisibilityIssue } from './plan-pdf-paint-visibility'
 import { pdfStandardFontDataUrl } from './plan-pdf-standard-fonts'
-import { nativeNumericTextInk } from './plan-pdf-text-ink'
+import { type NativeNumericTextInk, nativeNumericTextInk } from './plan-pdf-text-ink'
 
 export class PlanReadError extends Error {
   constructor(message: string) {
@@ -29,6 +30,10 @@ export type NativeTextAnchors = {
   compactCaptionGeometry?: NativeDimensionCaptionContext
   // A hidden/composited vector must not become strict visible dimension evidence.
   vectorInkRefusal?: string
+  // Separate from the numeric rail inventory: full height-caption glyph outlines.
+  heightCaptionInk?: NativeNumericTextInk & {
+    source: { sha256: string; pdfPage: number; pageWidth: number; pageHeight: number }
+  }
   // Baseline origins from PDF text transforms, not glyph boxes or inferred room centres.
   labels: {
     id: string
@@ -194,6 +199,30 @@ export async function preparePlanPage(
             operators: pdfjs.OPS,
             textItems: textContent.items,
             viewport: nativeViewport,
+            getFont: (fontName) => page.commonObjs.get(fontName),
+            getGlyphPath: (fontName, fontChar) =>
+              page.commonObjs.get(`${fontName}_path_${fontChar}`).path,
+            isOptionalContentVisible: (properties) => optionalContentConfig?.isVisible(properties),
+          })
+        : undefined
+    const heightIndexes =
+      includeNativeTextAnchors && textContent && textContent.items.length <= 1000
+        ? textContent.items.flatMap((item, index) =>
+            'str' in item &&
+            item.str.length <= 200 &&
+            nativeHeightCaption(item.str.trim()).status === 'observed'
+              ? [index]
+              : [],
+          )
+        : []
+    const heightInk =
+      includeNativeTextAnchors && nativeOperators && nativeViewport && textContent
+        ? nativeNumericTextInk({
+            operatorList: nativeOperators,
+            operators: pdfjs.OPS,
+            textItems: textContent.items,
+            viewport: nativeViewport,
+            selectedTextIndexes: heightIndexes,
             getFont: (fontName) => page.commonObjs.get(fontName),
             getGlyphPath: (fontName, fontChar) =>
               page.commonObjs.get(`${fontName}_path_${fontChar}`).path,
@@ -376,6 +405,16 @@ export async function preparePlanPage(
         }
       }
       if (vectorInkRefusal) nativeTextAnchors.vectorInkRefusal = vectorInkRefusal
+      if (heightInk && nativeViewport)
+        nativeTextAnchors.heightCaptionInk = {
+          ...heightInk,
+          source: {
+            sha256: createHash('sha256').update(body).digest('hex'),
+            pdfPage: pageNumber,
+            pageWidth: nativeViewport.width,
+            pageHeight: nativeViewport.height,
+          },
+        }
     }
     return {
       image: { ...image, ...(planText ? { planText } : {}) },

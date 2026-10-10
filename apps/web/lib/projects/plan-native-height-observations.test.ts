@@ -55,6 +55,91 @@ function expectHeld(input: Input, reason: string) {
 
 describe('literal source height observation inventory, never vertical model transfer', () => {
   it.each([
+    ['Отметка порога = +15 мм от чистого пола', 15, 'finished-floor'],
+    ['Уровень порога = -2 см от существующего пола', -20, 'existing-floor'],
+    ['Отметка верха порога = −0,015 м от готового пола', -15, 'finished-floor'],
+    ['Уровень низа порога = 0 мм от уровня существующего пола', 0, 'existing-floor'],
+    ['Отметка порога = -6000 мм от чистого пола', -6000, 'finished-floor'],
+    ['Отметка порога = +6000 мм от чистого пола', 6000, 'finished-floor'],
+  ] as const)(
+    'keeps a literal signed threshold level separate from aperture bottom: %s',
+    (text, valueMm, datum) => {
+      const input = fixture([text])
+      const before = structuredClone(input)
+      const result = nativeHeightObservations(input)
+      expect(result.observations).toMatchObject([
+        {
+          originalText: text,
+          valueMm,
+          datum,
+          quantityKind: 'threshold-level',
+          issueCodes: [],
+          mayAcceptFor3D: false,
+        },
+      ])
+      expect(result.issues).toEqual([])
+      expect(result.observations[0]).not.toHaveProperty('bottomCm')
+      expect(result.observations[0]).not.toHaveProperty('openingId')
+      expect(result.assignsGeometryHeights).toBe(false)
+      expect(input).toEqual(before)
+    },
+  )
+
+  it.each(['–20', '—20', '--20', '++20', '+-20', '-+20', '+−20', '± 20', '- − 20'])(
+    'holds ambiguous threshold sign %s instead of silently choosing a signed level',
+    (quantity) => {
+      const result = nativeHeightObservations(
+        fixture([`Отметка порога = ${quantity} мм от чистого пола`]),
+      )
+      expect(result.observations).toEqual([])
+      expect(result.issues).toMatchObject([{ code: 'ambiguous-height-sign' }])
+    },
+  )
+
+  it.each(['-6001', '+6001'])(
+    'retains threshold elevation outside supported range: %s',
+    (value) => {
+      const row = nativeHeightObservations(
+        fixture([`Отметка порога = ${value} мм от чистого пола`]),
+      ).observations[0]
+      expect(row?.quantityKind).toBe('threshold-level')
+      expect(row?.issueCodes).toContain('height-outside-model-range')
+      expect(row?.mayAcceptFor3D).toBe(false)
+    },
+  )
+
+  it('does not propagate a nearby floor datum to a signed threshold label', () => {
+    const result = nativeHeightObservations(
+      fixture(['От уровня существующего пола', 'Отметка порога = -15 мм']),
+    )
+    expect(result.observations[0]).toMatchObject({
+      quantityKind: 'threshold-level',
+      valueMm: -15,
+      datum: 'unspecified',
+      issueCodes: ['height-datum-unverified'],
+    })
+  })
+
+  it.each([
+    'Отметка порога = +15 мм не от чистого пола',
+    'Планируемая отметка порога = +15 мм от чистого пола',
+    'Отметка порога = +15 мм от чистого пола?',
+    'Отметка порога и высота натяжного потолка = 2700 мм от чистого пола',
+    'Отметка порога подвесного шкафа = 15 мм',
+  ])('does not accept uncertain or competing threshold semantics: %s', (text) => {
+    const row = nativeHeightObservations(fixture([text])).observations[0]
+    expect(row?.quantityKind).toBe('unclassified-height')
+    expect(row?.issueCodes).toContain('height-role-unclassified')
+    expect(row?.mayAcceptFor3D).toBe(false)
+  })
+
+  it('does not treat a horizontal threshold width as a vertical level', () => {
+    const result = nativeHeightObservations(fixture(['Ширина порога = 900 мм', 'Порог 900 мм']))
+    expect(result.observations).toEqual([])
+    expect(result.issues).toEqual([])
+  })
+
+  it.each([
     'Высота = 2800 мм без натяжного потолка',
     'H=2800 мм, не подвесной потолок',
     'Высота до балки = 2800 мм, балки нет',
