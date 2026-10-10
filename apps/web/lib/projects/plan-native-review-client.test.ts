@@ -639,6 +639,241 @@ describe('optional documentary dimension discovery', () => {
   })
 })
 
+describe('optional strict source-run to dimension-rail bindings', () => {
+  function captionFixture() {
+    const result = fixture()
+    const report: NonNullable<NativeReviewPacket['sourceCaptionBindings']> = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [
+        {
+          labelId: 'native-text-10',
+          compactIndex: 0,
+          valueMm: 2400,
+          axis: 'width',
+          rail: { operationIndex: 1, subpathIndex: 0 },
+        },
+        {
+          labelId: 'native-text-12',
+          compactIndex: 999,
+          valueMm: 99999,
+          axis: 'depth',
+          rail: { operationIndex: 1, subpathIndex: 1 },
+        },
+      ],
+      unresolved: [{ labelId: 'native-text-11', reason: 'caption-rail-unresolved' }],
+    }
+    result.packet.sourceCaptionBindings = report
+    return { ...result, report }
+  }
+
+  it('keeps source identities, compact slots and literal rail references without transfer authority', async () => {
+    const { packet, headers, report } = captionFixture()
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.sourceCaptionBindings).toEqual(report)
+    expect(loaded.dimensionDiscovery).toBeUndefined()
+    expect(loaded.counts.printedDimensions).toBe(0)
+    expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+
+  it('accepts legacy absence and an atomic held bridge without using other role candidates as fallback', async () => {
+    const { packet, headers } = fixture()
+    expect((await loadFixture(packet, headers)).packet.sourceCaptionBindings).toBeUndefined()
+    packet.dimensionDiscovery = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [{ labelId: 'native-text-10', valueMm: 2400, axis: 'width' }],
+      unresolved: [],
+    }
+    packet.counts.printedDimensions = 1
+    packet.sourceCaptionBindings = {
+      status: 'unresolved',
+      refusalReason: 'native-caption-bridge-unavailable',
+      candidates: [],
+      unresolved: [],
+    }
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.sourceCaptionBindings).toEqual(packet.sourceCaptionBindings)
+    expect(loaded.sourceCaptionBindings?.candidates).toEqual([])
+    expect(loaded.dimensionDiscovery?.candidates).toHaveLength(1)
+  })
+
+  it('accepts exactly 1000 combined records and integer millimetre/index/reference bounds', async () => {
+    const { packet, headers, report } = captionFixture()
+    report.candidates = Array.from({ length: 500 }, (_, index) => ({
+      labelId: `native-text-${index}`,
+      compactIndex: index,
+      valueMm: index === 0 ? 1 : 99999,
+      axis: index % 2 ? 'width' : 'depth',
+      rail: {
+        operationIndex: index === 0 ? Number.MAX_SAFE_INTEGER : index,
+        subpathIndex: index === 0 ? Number.MAX_SAFE_INTEGER : 0,
+      },
+    }))
+    report.unresolved = Array.from({ length: 500 }, (_, index) => ({
+      labelId: `native-text-${500 + index}`,
+      reason: 'r'.repeat(128),
+    }))
+    expect((await loadFixture(packet, headers)).packet.sourceCaptionBindings).toEqual(report)
+  })
+
+  it('compares only overlapping draft role candidates, not inventory equality or held-label presence', async () => {
+    const { packet, headers, report } = captionFixture()
+    packet.dimensionDiscovery = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [
+        { labelId: 'native-text-10', valueMm: 2400, axis: 'width' },
+        { labelId: 'native-text-11', valueMm: 900, axis: 'width' },
+        { labelId: 'legacy-only', valueMm: 1500, axis: 'depth' },
+      ],
+      unresolved: [{ labelId: 'native-text-12', reason: 'legacy-role-held' }],
+    }
+    packet.counts.printedDimensions = 3
+    expect((await loadFixture(packet, headers)).packet.sourceCaptionBindings).toEqual(report)
+    packet.dimensionDiscovery = {
+      status: 'unresolved',
+      refusalReason: 'dimension-discovery-work-limit',
+      candidates: [],
+      unresolved: [],
+    }
+    packet.counts.printedDimensions = 0
+    expect((await loadFixture(packet, headers)).packet.sourceCaptionBindings).toEqual(report)
+  })
+
+  it.each(['value', 'axis'] as const)(
+    'rejects a contradictory %s for an overlapping legacy candidate',
+    async (field) => {
+      const { packet, headers } = captionFixture()
+      packet.dimensionDiscovery = {
+        status: 'draft',
+        refusalReason: null,
+        candidates: [{ labelId: 'native-text-10', valueMm: 2400, axis: 'width' }],
+        unresolved: [],
+      }
+      packet.counts.printedDimensions = 1
+      const legacy = packet.dimensionDiscovery.candidates[0]
+      if (!legacy) throw new Error('Legacy candidate is missing')
+      if (field === 'value') legacy.valueMm = 2401
+      if (field === 'axis') legacy.axis = 'depth'
+      await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+    },
+  )
+
+  it.each([
+    'null-report',
+    'status',
+    'draft-reason',
+    'missing-candidates',
+    'missing-unresolved',
+    'combined-limit',
+    'candidate-null',
+    'candidate-label',
+    'padded-label',
+    'long-label',
+    'duplicate-candidate',
+    'cross-claim',
+    'compact-negative',
+    'compact-large',
+    'compact-fraction',
+    'compact-unsafe',
+    'compact-string',
+    'duplicate-compact',
+    'value-zero',
+    'value-negative',
+    'value-fraction',
+    'value-large',
+    'value-nan',
+    'axis',
+    'rail-null',
+    'rail-operation-negative',
+    'rail-subpath-negative',
+    'rail-operation-fraction',
+    'rail-subpath-fraction',
+    'rail-operation-unsafe',
+    'rail-subpath-unsafe',
+    'rail-operation-string',
+    'rail-subpath-string',
+    'duplicate-rail',
+    'rail-extra',
+    'candidate-coordinates',
+    'candidate-authority',
+    'unresolved-null',
+    'unresolved-label',
+    'unresolved-reason',
+    'unresolved-reason-long',
+    'duplicate-unresolved',
+    'unresolved-extra',
+    'held-nonempty',
+    'held-empty-reason',
+    'held-missing-reason',
+    'report-authority',
+  ])('rejects malformed or overclaimed strict caption binding: %s', async (change) => {
+    const { packet, headers, report } = captionFixture()
+    const first = report.candidates[0],
+      second = report.candidates[1],
+      held = report.unresolved[0]
+    if (!first || !second || !held) throw new Error('Caption fixture is missing')
+    if (change === 'null-report') Object.assign(packet, { sourceCaptionBindings: null })
+    if (change === 'status') Object.assign(report, { status: 'calibrated' })
+    if (change === 'draft-reason') report.refusalReason = 'held'
+    if (change === 'missing-candidates') Object.assign(report, { candidates: null })
+    if (change === 'missing-unresolved') Object.assign(report, { unresolved: null })
+    if (change === 'combined-limit')
+      report.unresolved = Array.from({ length: 999 }, (_, index) => ({
+        labelId: `held-${index}`,
+        reason: 'held',
+      }))
+    if (change === 'candidate-null') Object.assign(report.candidates, { 0: null })
+    if (change === 'candidate-label') first.labelId = ' '
+    if (change === 'padded-label') first.labelId = ' native-text-10 '
+    if (change === 'long-label') first.labelId = 's'.repeat(129)
+    if (change === 'duplicate-candidate') second.labelId = first.labelId
+    if (change === 'cross-claim') held.labelId = first.labelId
+    if (change === 'compact-negative') first.compactIndex = -1
+    if (change === 'compact-large') first.compactIndex = 1000
+    if (change === 'compact-fraction') first.compactIndex = 0.5
+    if (change === 'compact-unsafe') first.compactIndex = Number.MAX_SAFE_INTEGER + 1
+    if (change === 'compact-string') Object.assign(first, { compactIndex: '0' })
+    if (change === 'duplicate-compact') second.compactIndex = first.compactIndex
+    if (change === 'value-zero') first.valueMm = 0
+    if (change === 'value-negative') first.valueMm = -1
+    if (change === 'value-fraction') first.valueMm = 10.5
+    if (change === 'value-large') first.valueMm = 100000
+    if (change === 'value-nan') first.valueMm = Number.NaN
+    if (change === 'axis') Object.assign(first, { axis: 'height' })
+    if (change === 'rail-null') Object.assign(first, { rail: null })
+    if (change === 'rail-operation-negative') first.rail.operationIndex = -1
+    if (change === 'rail-subpath-negative') first.rail.subpathIndex = -1
+    if (change === 'rail-operation-fraction') first.rail.operationIndex = 0.5
+    if (change === 'rail-subpath-fraction') first.rail.subpathIndex = 0.5
+    if (change === 'rail-operation-unsafe') first.rail.operationIndex = Number.MAX_SAFE_INTEGER + 1
+    if (change === 'rail-subpath-unsafe') first.rail.subpathIndex = Number.MAX_SAFE_INTEGER + 1
+    if (change === 'rail-operation-string') Object.assign(first.rail, { operationIndex: '1' })
+    if (change === 'rail-subpath-string') Object.assign(first.rail, { subpathIndex: '0' })
+    if (change === 'duplicate-rail') second.rail = { ...first.rail }
+    if (change === 'rail-extra') Object.assign(first.rail, { segmentIndex: 0 })
+    if (change === 'candidate-coordinates') Object.assign(first, { pagePoint: { x: 10, y: 20 } })
+    if (change === 'candidate-authority') Object.assign(first, { acceptedFor2D: true })
+    if (change === 'unresolved-null') Object.assign(report.unresolved, { 0: null })
+    if (change === 'unresolved-label') held.labelId = ' '
+    if (change === 'unresolved-reason') held.reason = ' '
+    if (change === 'unresolved-reason-long') held.reason = 'r'.repeat(129)
+    if (change === 'duplicate-unresolved') report.unresolved.push({ ...held })
+    if (change === 'unresolved-extra') Object.assign(held, { estimatedValueMm: 900 })
+    if (change === 'held-nonempty')
+      Object.assign(report, { status: 'unresolved', refusalReason: 'held' })
+    if (change === 'held-empty-reason' || change === 'held-missing-reason') {
+      report.status = 'unresolved'
+      report.refusalReason = change === 'held-empty-reason' ? '' : null
+      report.candidates = []
+      report.unresolved = []
+    }
+    if (change === 'report-authority') Object.assign(report, { mayTransfer3D: false })
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+})
+
 describe('optional literal height diagnostics, never a 3D acceptance gate', () => {
   function heightFixture() {
     const result = fixture()

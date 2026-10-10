@@ -1,5 +1,9 @@
 import type { PlanReading } from '@uyut/db'
 import type { NativeTextAnchors } from './plan-document'
+import {
+  type NativeCaptionBindingReport,
+  nativeCaptionBindings,
+} from './plan-native-caption-bindings'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
 import { nativeFaceAnnotationCandidates } from './plan-native-face-annotations'
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
@@ -112,6 +116,7 @@ export type NativeReviewPacket = {
     candidates: { labelId: string; valueMm: number; axis: 'width' | 'depth' }[]
     unresolved: { labelId: string; reason: string }[]
   }
+  sourceCaptionBindings?: NativeCaptionBindingReport
   heightObservations?: {
     status: 'draft' | 'unresolved'
     refusalReason: string | null
@@ -296,6 +301,13 @@ export function nativeReviewPacket(input: {
       axis,
     })),
     unresolved: dimensions.unresolved,
+  }
+  const captionBindings = nativeCaptionBindings({ ...common, source })
+  packet.sourceCaptionBindings = {
+    status: captionBindings.status,
+    refusalReason: captionBindings.refusalReason,
+    candidates: captionBindings.candidates,
+    unresolved: captionBindings.unresolved,
   }
   packet.heightObservations = {
     status: heights.status,

@@ -200,6 +200,45 @@ describe('selected PDF page', () => {
     expect(caption?.baselineEnd.x).toBeCloseTo(125.3125)
     expect(caption?.baselineEnd.y).toBeCloseTo((69.25 / 600) * 1000)
   })
+  it('records actual original-to-compact slots and a detached numeric context for native review', async () => {
+    mocks.viewport.mockImplementation(({ scale }: { scale: number }) => ({
+      width: 1000 * scale,
+      height: 2000 * scale,
+      convertToViewportPoint: (x: number, y: number) => [x * scale, (2000 - y) * scale],
+    }))
+    mocks.text.mockResolvedValue({
+      items: [
+        { type: 'beginMarkedContent' },
+        { str: ' ', transform: [1, 0, 0, 1, 0, 0] },
+        { str: 'Кухня', transform: [10, 0, 0, 10, 100, 100] },
+        { str: '75', width: 20, transform: [10, 0, 0, 10, 250.25, 400.75] },
+        { str: '75', width: 20, transform: [10, 0, 0, 10, 350.25, 400.75] },
+      ],
+    })
+    const ordinary = await preparePlanPage(Buffer.from('pdf'), true, 6, true)
+    const reviewed = await preparePlanPage(Buffer.from('pdf'), true, 6, true, true)
+    expect(reviewed.image.planText).toBe(ordinary.image.planText)
+    expect(reviewed.nativeCaptionGeometry).toEqual(ordinary.nativeCaptionGeometry)
+    expect(
+      reviewed.nativeTextAnchors?.labels.map(({ nativeIndex, compactIndex }) => ({
+        nativeIndex,
+        compactIndex,
+      })),
+    ).toEqual([
+      { nativeIndex: 2, compactIndex: 0 },
+      { nativeIndex: 3, compactIndex: 1 },
+      { nativeIndex: 4, compactIndex: 2 },
+    ])
+    expect(reviewed.nativeTextAnchors?.compactCaptionGeometry).toEqual(
+      reviewed.nativeCaptionGeometry,
+    )
+    const compact = reviewed.nativeCaptionGeometry?.items[0]
+    if (!compact) throw new Error('Missing source caption')
+    compact.baselineStart.x = 999
+    expect(
+      reviewed.nativeTextAnchors?.compactCaptionGeometry?.items[0]?.baselineStart.x,
+    ).toBeCloseTo(250.25)
+  })
   it('refuses viewport rotation that disagrees with the unchanged provider label orientation', async () => {
     mocks.viewport.mockImplementation(({ scale }: { scale: number }) => ({
       width: 800 * scale,

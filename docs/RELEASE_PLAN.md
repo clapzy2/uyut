@@ -6,6 +6,33 @@
 
 ### Текущий результат последней пачки
 
+Добавлен проверяемый original↔compact мост исходных текстовых фрагментов PDF.
+Позиция compactIndex записывается при извлечении, а не ищется по одинаковому числу
+или близости. Отдельная строгая сверка проверяет настоящий baseline, дробный
+origin/угол, полный уникальный numeric inventory, источник и пропуски.
+Legacy размерные роли не заменены: они участвуют в других анализаторах пола/стен.
+Новый read-only отчёт показывает source rail refs отдельно и не принимает масштаб,
+размер комнаты или2D/3D. Вынесенный размер удерживается, если закрыта вся его
+подпись или любая из двух обязательных независимо подписанных опор.
+
+На BASIS и Remplanner получено по11 strict caption/rail candidates, только по X;
+независимая опора Y ещё не подтверждена. На primary
+existing page6 прежние72 роли сохранены, strict0/108held:99caption-rail-unresolved,
+7branched,2unsupported angles. Полнота не повышена. Измеренные смещения midpoint
+текстовых baseline от центров реек требуют отдельной проверки типографики;
+допуски не расширены, midpoint не подогнан. Контуры, рамки, высоты и overlays
+primary точно прежние; manual review не влияет на bridge.
+4955webtests/264files (maxWorkers4), typecheck7, lint910, build/diff и независимый
+аудит прошли. Firefox390/1280px проверил positive/held states и исходные refs;
+backend был локальным mock, production не менялся. По project-workflow следующий
+этап уточнён: source typography/baseline interpretation и неподдерживаемые углы,
+затем independent X/Y calibration witnesses и целые floor edge/jamb bindings.
+Высоты по выносным прямоугольным подписям требуют собственного source-leader proof,
+room/structural ownership и datum; physical thresholds/полная coverage ещё нужны.
+Это не завершённый автоматический перенос. DB/userproject/paidAI/PR/deploy не менялись.
+
+Предыдущая пачка:
+
 Завершена пачка проверок порогов, размеров и высот перед переносом. Поднятая
 нижняя грань дверного/балконного проёма больше не вырезает проход по ровному полу;
 это применяется к ручной и PDF-схеме, по текущим меркам, не старому width snapshot.

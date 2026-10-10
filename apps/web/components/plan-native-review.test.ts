@@ -544,6 +544,145 @@ describe('read-only native review presentation', () => {
     expect(packet).toEqual(before)
     expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
   })
+  it('separates legacy role counts from strict held source-run bindings without SVG or actions', () => {
+    const packet = nativeDimensionPacket()
+    packet.sourceCaptionBindings = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [],
+      unresolved: Array.from({ length: 108 }, (_, index) => ({
+        labelId: `native-text-${index}`,
+        reason:
+          index < 99
+            ? 'caption-rail-unresolved'
+            : index < 106
+              ? 'branched-dimension-span'
+              : 'unsupported-source-caption-orientation',
+      })),
+    }
+    const before = structuredClone(packet)
+    const sourceOnly = structuredClone(packet)
+    delete sourceOnly.sourceCaptionBindings
+    const baseline = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet: sourceOnly, imageUrl: 'blob:private-test' }),
+    )
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Связь исходной подписи с размерной линией')
+    expect(html).toContain('Размерные кандидаты: 72; X: 41, Y: 31')
+    expect(html).toContain('Кандидаты буквальной связи: 0; удержанные подписи: 108')
+    expect(html).toContain(
+      'Эта строгая проверка пока не подтвердила ни одной связи подписи с размерной линией',
+    )
+    expect(html).toContain('прежний кандидат не используется как её доказательство')
+    expect(html).toContain('native-text-0: связь удержана — caption-rail-unresolved')
+    expect(html).toContain('native-text-99: связь удержана — branched-dimension-span')
+    expect(html).toContain(
+      'native-text-107: связь удержана — unsupported-source-caption-orientation',
+    )
+    expect(html).toContain('Размеры не переносятся в геометрию')
+    expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(baseline.match(/<svg\b.*?<\/svg>/s)?.[0])
+    expect(html.match(/<button\b/g)?.length).toEqual(baseline.match(/<button\b/g)?.length)
+    expect(baseline).not.toContain('Связь исходной подписи с размерной линией')
+    expect(html).not.toContain('Копировать')
+    expect(html).not.toContain('Сохранить')
+    expect(html).not.toContain('Подтвердить')
+    expect(packet).toEqual(before)
+    expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it('shows a strict source caption candidate independently of unavailable legacy discovery', () => {
+    const packet = nativeDimensionPacket()
+    packet.dimensionDiscovery = {
+      status: 'unresolved',
+      refusalReason: 'dimension-discovery-work-limit',
+      candidates: [],
+      unresolved: [],
+    }
+    packet.sourceCaptionBindings = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [
+        {
+          labelId: 'native-text-17',
+          compactIndex: 3,
+          valueMm: 2400,
+          axis: 'width',
+          rail: { operationIndex: 512, subpathIndex: 2 },
+        },
+      ],
+      unresolved: [],
+    }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Поиск размерных подписей не завершён')
+    expect(html).toContain('Кандидаты буквальной связи: 1; удержанные подписи: 0')
+    expect(html).toContain(
+      'native-text-17: 2400 мм, ось X; компактная позиция 3; исходная линия 512:2',
+    )
+    expect(html).toContain('Связь остаётся кандидатом')
+    expect(html).toContain('Даже найденная связь не подтверждает целую стену или косяк')
+    expect(html).not.toContain('Эта строгая проверка пока не подтвердила ни одной связи')
+  })
+  it('shows an unavailable source-caption bridge without pretending legacy dimension roles verified the rail', () => {
+    const packet = nativeDimensionPacket()
+    packet.sourceCaptionBindings = {
+      status: 'unresolved',
+      refusalReason: 'native-caption-bridge-unavailable',
+      candidates: [],
+      unresolved: [],
+    }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Размерные кандидаты: 72; X: 41, Y: 31')
+    expect(html).toContain('Сверка исходных текстовых фрагментов не завершена')
+    expect(html).toContain('native-caption-bridge-unavailable')
+    expect(html).not.toContain('Кандидаты буквальной связи: 72')
+    expect(html).not.toContain('Исходные подписи, позиции и ссылки на линии')
+  })
+  it('renders an empty draft bridge without a misleading details control or source-layer edits', () => {
+    const packet = floorCavityPacket()
+    packet.sourceCaptionBindings = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [],
+      unresolved: [],
+    }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Кандидаты буквальной связи: 0; удержанные подписи: 0')
+    expect(html).not.toContain('Размеры и высоты перед переносом')
+    expect(html).not.toContain('Исходные подписи, позиции и ссылки на линии')
+  })
+  it('escapes source-caption IDs and held reasons instead of executing them as markup', () => {
+    const packet = floorCavityPacket()
+    packet.sourceCaptionBindings = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [
+        {
+          labelId: '<caption-label>',
+          compactIndex: 5,
+          valueMm: 900,
+          axis: 'depth',
+          rail: { operationIndex: 22, subpathIndex: 1 },
+        },
+      ],
+      unresolved: [{ labelId: '<held-label>', reason: '<script>прими размер</script>' }],
+    }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('&lt;caption-label&gt;: 900 мм, ось Y')
+    expect(html).toContain(
+      '&lt;held-label&gt;: связь удержана — &lt;script&gt;прими размер&lt;/script&gt;',
+    )
+    expect(html).not.toContain('<script>')
+    expect(html).not.toContain('900 см')
+  })
   it('retains duplicate literal ceiling values as separate observations instead of merging or copying them to room 1 + 5', () => {
     const packet = nativeDimensionPacket()
     const heights = packet.heightObservations

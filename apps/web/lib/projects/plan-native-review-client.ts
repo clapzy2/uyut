@@ -364,6 +364,83 @@ function isDimensionDiscovery(value: unknown, packet: NativeReviewPacket): boole
   return true
 }
 
+function isSourceCaptionBindings(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const report = value as NonNullable<NativeReviewPacket['sourceCaptionBindings']>
+  if (
+    !hasOnlyKeys(report, ['status', 'refusalReason', 'candidates', 'unresolved']) ||
+    !Array.isArray(report.candidates) ||
+    !Array.isArray(report.unresolved) ||
+    report.candidates.length + report.unresolved.length > 1000
+  )
+    return false
+  if (report.status === 'unresolved')
+    return (
+      isBoundedLabel(report.refusalReason) &&
+      report.candidates.length === 0 &&
+      report.unresolved.length === 0
+    )
+  if (report.status !== 'draft' || report.refusalReason !== null) return false
+  const legacyCandidates = new Map(
+    packet.dimensionDiscovery?.status === 'draft'
+      ? packet.dimensionDiscovery.candidates.map((candidate) => [candidate.labelId, candidate])
+      : [],
+  )
+  const labelIds = new Set<string>()
+  const compactIndices = new Set<number>()
+  const railRefs = new Set<string>()
+  for (const candidate of report.candidates) {
+    if (
+      !candidate ||
+      typeof candidate !== 'object' ||
+      !hasOnlyKeys(candidate, ['labelId', 'compactIndex', 'valueMm', 'axis', 'rail']) ||
+      !isBoundedLabel(candidate.labelId) ||
+      candidate.labelId !== candidate.labelId.trim() ||
+      labelIds.has(candidate.labelId) ||
+      !Number.isSafeInteger(candidate.compactIndex) ||
+      candidate.compactIndex < 0 ||
+      candidate.compactIndex > 999 ||
+      compactIndices.has(candidate.compactIndex) ||
+      !Number.isSafeInteger(candidate.valueMm) ||
+      candidate.valueMm < 1 ||
+      candidate.valueMm > 99999 ||
+      !['width', 'depth'].includes(candidate.axis) ||
+      !candidate.rail ||
+      typeof candidate.rail !== 'object' ||
+      !hasOnlyKeys(candidate.rail, ['operationIndex', 'subpathIndex']) ||
+      ![candidate.rail.operationIndex, candidate.rail.subpathIndex].every(
+        (index) => Number.isSafeInteger(index) && index >= 0,
+      )
+    )
+      return false
+    const railRef = `${candidate.rail.operationIndex}:${candidate.rail.subpathIndex}`
+    const legacy = legacyCandidates.get(candidate.labelId)
+    if (
+      railRefs.has(railRef) ||
+      (legacy && (legacy.valueMm !== candidate.valueMm || legacy.axis !== candidate.axis))
+    )
+      return false
+    labelIds.add(candidate.labelId)
+    compactIndices.add(candidate.compactIndex)
+    railRefs.add(railRef)
+  }
+  for (const item of report.unresolved) {
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      !hasOnlyKeys(item, ['labelId', 'reason']) ||
+      !isBoundedLabel(item.labelId) ||
+      item.labelId !== item.labelId.trim() ||
+      labelIds.has(item.labelId) ||
+      !isBoundedLabel(item.reason)
+    )
+      return false
+    labelIds.add(item.labelId)
+  }
+  return true
+}
+
 function isHeightObservations(value: unknown, packet: NativeReviewPacket): boolean {
   if (value === undefined) return true
   if (!value || typeof value !== 'object') return false
@@ -1161,6 +1238,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isSourceLinks(packet.sourceLinks, packet) ||
     !isNumberCircles(packet.numberCircles) ||
     !isDimensionDiscovery(packet.dimensionDiscovery, packet) ||
+    !isSourceCaptionBindings(packet.sourceCaptionBindings, packet) ||
     !isHeightObservations(packet.heightObservations, packet) ||
     !isRoomSchedule(packet.roomSchedule, packet) ||
     !isFloorCavities(packet.floorCavities, packet) ||

@@ -2659,3 +2659,82 @@ physical threshold roles/levels и полный floor inventory, room height own
 и floor datum. Только после этого source geometry можно принимать и переносить;
 наблюдения высот сами не заполняют стены/проёмы. Production/userproject/DB/paidAI/
 PR/deploy не менялись.
+
+### 10 октября: мост исходных подписей PDF и отдельная строгая сверка размерных реек
+
+preparePlanPage сохраняет compactIndex в том же цикле, где создаётся planText.
+Original native IDs, fractional pagePoint и rendered rotation остаются прежними.
+Opt-in anchors получают detached compactCaptionGeometry с настоящими baseline
+из PDF; прежний provider context/planText не меняется. Нет подбора одинакового
+числа по тексту/близости и нет придуманной ширины шрифта.
+nativeCaptionBindings проверяет оба источниковых фрейма, numeric inventory bijection,
+slot limits/unique IDs и complete===true; origin должен совпадать с настоящим
+baselineStart с1e-6normalized только на arithmetic преобразований, не в rounded
+bucket. Сдвиг0.4 в том же rounded slot удерживает весь bridge. Raw0.3/180/-90
+не превращаются в canonical0/90. Неполный/повреждённый мост не даёт fallback.
+
+Строгая source-run сверка использует существующий prepared cardinal verifier и
+caption matcher без изменения0.12pt/gap правил. pdfNativeDimensionSourceIssue
+удерживает incomplete/clip/unsupported extraction. Видимость проверяется для
+полного настоящего baseline и рейки, с сохранением remote curves. Unsupported
+caption в этой зоне не фильтруется как будто его нет. Outboard candidate требует
+две уникальные независимо центрированные, unobscured reference rails. Late budget
+failure атомарно очищает результат. Typed source report не присваивает ownership,
+metric calibration, размеры комнат или model heights; transfer flagsfalse.
+
+Независимый аудит воспроизвёл P2: помеха у дальнего конца вынесенной подписи либо
+на обязательной reference rail удерживала соседний размер, но не зависимый.
+Исправлено полным baseline guard и вторым dependency pass. Реальный3-rail control
+1000/100/2000 принимает все3; omitted/unsupported near-baseline/reference controls
+удерживают100. Все6 permutations подписей с reverse paths/context дают одинаковые
+candidate/reason sets и не меняют входы. Strict complete truthiness также исправлена.
+
+Свежий primary existing page6:tmp/native-caption-bridge-20261010-primary-final/.
+PDF SHA d79a89eba7d262f2615a9c9f99c03be4553d85c5f737423c51f98e8c9f5da1ab,
+JPEG SHA f55b2437f57ba9d6b45aeeaba180ff771c47bc87e2204405f2b04fd597206b58.
+Исходный лист целиком визуально просмотрен, включая footer о существующем уровне
+пола и отделочном потолке; этот footer не присваивает локальным высотам datum.
+Legacy72roles/36held и все dimensions/heights/floor/sides/connections/frames
+точно совпали с transfer-measurements-primary-final-v2; обе PNG byte-identical.
+Strict report0candidates/108held:99caption-rail-unresolved,7branched,2unsupported.
+Это НЕ отсутствие размеров. У sampled2441/525/926/950 baseline midpoints отличаются
+от native rail centers примерно0.57/0.46/0.57/0.62pt, больше existing0.12pt rule.
+Возможная причина — типографика/положение видимых глифов; это вывод, не доказанная
+новая binding convention. Midpoint не сдвигался, tolerance не увеличивался.
+Manual replay primary-reviewed-a даёт тот же bridge/legacy/floor/height reports;
+old manual5/1/1 сохраняется, automatic readiness2D/3Dfalse.
+
+Fresh5-file source-SHA corpus packets:tmp/native-caption-bridge-20261010-corpus-packets/.
+BASIS11strict/19held, Remplanner11strict/54held; все22strict candidates по X,
+это не independent X/Y calibration. Basman/Life incomplete-native-
+dimension-layer atomic; Designgroup0/0. Ещё colored-a held incomplete layer,
+33curves/18clips и19fills/8named unchanged. Это bounded controls, не universal
+recognition или whole-apartment metric acceptance. BASIS source image/report
+отдельно сохранены в tmp/native-caption-bridge-20261010-basis-a/.
+
+Private packet sourceCaptionBindings optional для legacy compatibility; только
+label IDs/compact slots/mm/axis/source rail refs и held reasons. Нет raw points,
+accepted flags, saved geometry или ready authority. Client≤1000combined strict
+keys/unique labels/slots/railrefs и consistent overlapping legacy values проверены.
+UI показывает отдельный folded block и подчёркивает отсутствие fallback/2D3D.
+Все прежние SVG, действия и контуры сохраняются; source labels не создают walls.
+
+4955webtests/264files с maxWorkers4, typecheck7packages, lint910, productionbuild
+и diff-check прошли;805focused tests дополнительно после уточнения UI wording.
+Firefox1280/390 actualcomponents/localmockprivateAPI с настоящими JPEG/hash:
+BASIS11/19,30expanded source refs, primary0/108held, old72roles/16heights,
+без page horizontal overflow. Screenshots output/playwright/native-caption-bridge-
+basis-desktop.png,basis-mobile-expanded.png и primary-mobile.png. Harness использует
+built CSS без root font setup; interaction/layout, не полный production дизайн.
+Test-only process shim и sourceRevision metadata не являются изменением backend.
+Созданные browser/server закрыты, temporary entry/server helpers удалены.
+
+Дополнительный read-only height audit:11 из16 literal origins strictly внутри
+одной полости,5outside. Только2663mm находится внутри cavity-10;2684/2649/2672
+расположены в вынесенных прямоугольных подписях. Их source arrows требуют отдельной
+машинной проверки; nearest/перенос точки не используется. Даже inside origin не
+выбирает wall/slab/room owner, а shared1+5 не превращается в две физические комнаты.
+Далее: source text/layout proof для смещённых/повёрнутых подписей, independent X/Y
+calibration, whole floor/jamb bindings, height leaders/owners/datum, physical
+thresholds и полная floor coverage; затем acceptance/2D3D. Сайт/userproject/DB/
+paidAI/PR/deploy не менялись.

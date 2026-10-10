@@ -23,12 +23,15 @@ export type NativeTextAnchors = {
   complete: boolean
   originalPdfSha256?: string
   pageNormalizedScale?: { x: number; y: number }
+  // Kept in the provider's compact-slot frame; the native bridge validates both identities.
+  compactCaptionGeometry?: NativeDimensionCaptionContext
   // Baseline origins from PDF text transforms, not glyph boxes or inferred room centres.
   labels: {
     id: string
     name: string
     point: { x: number; y: number }
     nativeIndex?: number
+    compactIndex?: number
     pagePoint?: { x: number; y: number }
     rotation?: number
   }[]
@@ -193,6 +196,7 @@ export async function preparePlanPage(
     const textItems: Array<{ text: string; x: number; y: number; rotation: number }> = []
     const nativeOrigins: Array<{
       index: number
+      compactIndex: number
       name: string
       x: number
       y: number
@@ -237,6 +241,7 @@ export async function preparePlanPage(
         }
         nativeOrigins.push({
           index,
+          compactIndex,
           name: item.str.trim(),
           x: item.transform[4],
           y: item.transform[5],
@@ -291,6 +296,7 @@ export async function preparePlanPage(
           name: origin.name,
           point: { x, y },
           nativeIndex: origin.index,
+          compactIndex: origin.compactIndex,
           pagePoint: {
             x: (renderX / viewport.width) * 1000,
             y: (renderY / viewport.height) * 1000,
@@ -311,6 +317,9 @@ export async function preparePlanPage(
           x: ((viewport.width / canvas.width) * image.width) / 1000,
           y: ((viewport.height / canvas.height) * image.height) / 1000,
         },
+        ...(nativeCaptionGeometry
+          ? { compactCaptionGeometry: structuredClone(nativeCaptionGeometry) }
+          : {}),
         labels,
       }
     }

@@ -526,6 +526,69 @@ const heightDatumMessages = {
   'finished-floor': 'буквально указан чистый пол',
 }
 
+function SourceCaptionReview({
+  report,
+}: {
+  report: NonNullable<NativeReviewPacket['sourceCaptionBindings']>
+}) {
+  return (
+    <section
+      className="space-y-2 border-t border-line pt-3 text-[13px] leading-relaxed"
+      aria-label="Связь исходной подписи с размерной линией"
+    >
+      <h4 className="text-[14px] font-medium">Связь исходной подписи с размерной линией</h4>
+      <p className="text-ink-2">
+        Размерные роли из прежнего поиска и буквальная связь текстового фрагмента PDF с исходной
+        линией проверяются отдельно. При недоступной или отказавшей связи прежний кандидат не
+        используется как её доказательство.
+      </p>
+      {report.status === 'unresolved' ? (
+        <p className="break-all text-ink-2">
+          Сверка исходных текстовых фрагментов не завершена; частичный набор не показан.
+          Ограничение: {report.refusalReason}.
+        </p>
+      ) : (
+        <>
+          <p>
+            Кандидаты буквальной связи: {report.candidates.length}; удержанные подписи:{' '}
+            {report.unresolved.length}.
+          </p>
+          {report.candidates.length === 0 ? (
+            <p className="text-ink-2">
+              Эта строгая проверка пока не подтвердила ни одной связи подписи с размерной линией.
+            </p>
+          ) : null}
+          {report.candidates.length || report.unresolved.length ? (
+            <details className="text-ink-2">
+              <summary className="min-h-11 cursor-pointer py-3">
+                Исходные подписи, позиции и ссылки на линии
+              </summary>
+              <ul className="list-disc space-y-2 pl-5">
+                {report.candidates.map((item) => (
+                  <li key={item.labelId} className="break-all">
+                    {item.labelId}: {item.valueMm} мм, ось {item.axis === 'width' ? 'X' : 'Y'}
+                    {'; '}компактная позиция {item.compactIndex}; исходная линия{' '}
+                    {item.rail.operationIndex}:{item.rail.subpathIndex}. Связь остаётся кандидатом.
+                  </li>
+                ))}
+                {report.unresolved.map((item) => (
+                  <li key={item.labelId} className="break-all">
+                    {item.labelId}: связь удержана — {item.reason}.
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </>
+      )}
+      <p className="text-ink-2">
+        Даже найденная связь не подтверждает целую стену или косяк, независимый масштаб по X и Y
+        либо готовность 2D/3D. Размеры не переносятся в геометрию.
+      </p>
+    </section>
+  )
+}
+
 function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
   const dimensions = packet.dimensionDiscovery
   const heights = packet.heightObservations
@@ -960,6 +1023,9 @@ export function NativeReviewResult({
       {packet.floorOpeningSides ? <FloorOpeningSides packet={packet} /> : null}
       {packet.dimensionDiscovery || packet.heightObservations ? (
         <NativeDimensionsReview packet={packet} />
+      ) : null}
+      {packet.sourceCaptionBindings ? (
+        <SourceCaptionReview report={packet.sourceCaptionBindings} />
       ) : null}
       {packet.doorSymbols || packet.openingFrames ? (
         <div className="space-y-2 text-[13px] leading-relaxed">

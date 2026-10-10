@@ -7,6 +7,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import sharp from 'sharp'
 import { preparePlanPage } from '../lib/projects/plan-document'
+import { nativeCaptionBindings } from '../lib/projects/plan-native-caption-bindings'
 import { automaticNativeDimensionRoles } from '../lib/projects/plan-native-dimension-roles'
 import { nativeFloorCavityCandidates } from '../lib/projects/plan-native-floor-cavities'
 import { nativeFloorOpeningSides } from '../lib/projects/plan-native-floor-opening-sides'
@@ -44,6 +45,7 @@ const savedReading = savedReadingPath
   ? JSON.parse(await readFile(resolve(savedReadingPath), 'utf8'))
   : undefined
 const dimensions = automaticNativeDimensionRoles({ ...input, source })
+const captionBindings = nativeCaptionBindings({ ...input, source })
 const heights = nativeHeightObservations({ ...input, source })
 const scheduleNumbers = nativeRoomNumberScheduleLinks(input)
 const circles = scheduleNumbers.circles
@@ -75,6 +77,7 @@ await writeFile(
       connections,
       circles,
       dimensions,
+      captionBindings,
       heights,
       roomScheduleEvidence: scheduleNumbers.schedule,
       numberScheduleLinks: scheduleNumbers.report,
@@ -161,6 +164,9 @@ console.log(
       sourceLinkRefusal: connections.refusalReason,
       numericCircleCues: circles.cues.length,
       dimensionRoleCandidates: dimensions.candidates.length,
+      sourceCaptionBindings: captionBindings.candidates.length,
+      heldSourceCaptions: captionBindings.unresolved.length,
+      captionBindingRefusal: captionBindings.refusalReason,
       unresolvedDimensionLabels: dimensions.unresolved.length,
       heightObservations: heights.observations.length,
       documentaryRoomRows: scheduleNumbers.report.rows.length,
