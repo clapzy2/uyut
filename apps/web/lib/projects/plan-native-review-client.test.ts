@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { loadNativeReview } from './plan-native-review-client'
-import { nativeReviewPacket } from './plan-native-review-packet'
+import { type NativeReviewPacket, nativeReviewPacket } from './plan-native-review-packet'
 import { inspectReviewedPageCoverage } from './plan-page-reviewed-coverage'
 
 const body = 'private jpeg test bytes',
@@ -31,6 +31,46 @@ const input = () => ({
   revision,
   signal: new AbortController().signal,
 })
+function doorSymbols(): NonNullable<NativeReviewPacket['doorSymbols']> {
+  return {
+    status: 'draft',
+    refusalReason: null,
+    candidates: [
+      {
+        id: 'native-door-symbol-1:0',
+        arc: {
+          start: { x: 50, y: 100 },
+          segments: [
+            {
+              control1: { x: 50, y: 72.386 },
+              control2: { x: 72.386, y: 50 },
+              end: { x: 100, y: 50 },
+            },
+          ],
+        },
+        leaf: { start: { x: 100, y: 100 }, end: { x: 50, y: 100 } },
+        endpointResidualPixels: 0.083,
+      },
+    ],
+  }
+}
+function openingFrames(): NonNullable<NativeReviewPacket['openingFrames']> {
+  return {
+    status: 'draft',
+    refusalReason: null,
+    candidates: [
+      {
+        id: 'native-opening-frame-1:0',
+        polygon: [
+          { x: 30, y: 40 },
+          { x: 100, y: 40 },
+          { x: 100, y: 50 },
+          { x: 30, y: 50 },
+        ],
+      },
+    ],
+  }
+}
 describe('atomic private native image/packet loading', () => {
   function coveredFixture() {
     const result = fixture()
@@ -122,12 +162,213 @@ describe('atomic private native image/packet loading', () => {
       url.includes('native-review-image') ? new Response(body, { headers }) : Response.json(packet),
     )
     const result = await loadNativeReview(input(), fetcher as typeof fetch)
+    expect(result.packet.doorSymbols).toBeUndefined()
+    expect(result.packet.openingFrames).toBeUndefined()
     expect(result.packet.image.sha256).toBe(imageHash)
     expect(await result.image.text()).toBe(body)
     expect(fetcher).toHaveBeenCalledTimes(2)
     expect(
       fetcher.mock.calls.every(([url]) => url.includes('/api/projects/private-project/plan-page?')),
     ).toBe(true)
+  })
+  it('preserves bounded optional source curves without changing readiness', async () => {
+    const { packet, headers } = fixture()
+    packet.doorSymbols = doorSymbols()
+    const symbol = packet.doorSymbols.candidates[0]
+    if (!symbol) throw new Error('Door symbol fixture is missing')
+    symbol.id = 'd'.repeat(128)
+    symbol.endpointResidualPixels = 0.1
+    symbol.arc.segments.push(...structuredClone(symbol.arc.segments), {
+      control1: { x: 0, y: 0 },
+      control2: { x: 1000, y: 1000 },
+      end: { x: 100, y: 50 },
+    })
+    const fetcher = vi.fn(async (url: string) =>
+      url.includes('native-review-image') ? new Response(body, { headers }) : Response.json(packet),
+    )
+    const result = await loadNativeReview(input(), fetcher as typeof fetch)
+    expect(result.packet.doorSymbols).toEqual(packet.doorSymbols)
+    expect(result.packet.readiness).toEqual({
+      readOnly: true,
+      readyFor2D: false,
+      readyFor3D: false,
+    })
+  })
+  it.each(['draft', 'unresolved'] as const)('accepts an empty %s symbol search', async (status) => {
+    const { packet, headers } = fixture()
+    packet.doorSymbols = {
+      status,
+      refusalReason: status === 'unresolved' ? 'curve-commands-unavailable' : null,
+      candidates: [],
+    }
+    const fetcher = vi.fn(async (url: string) =>
+      url.includes('native-review-image') ? new Response(body, { headers }) : Response.json(packet),
+    )
+    expect((await loadNativeReview(input(), fetcher as typeof fetch)).packet.doorSymbols).toEqual(
+      packet.doorSymbols,
+    )
+  })
+  it.each([4, 5])('preserves the %i source frame points without promotion', async (points) => {
+    const { packet, headers } = fixture()
+    packet.openingFrames = openingFrames()
+    const frame = packet.openingFrames.candidates[0]
+    if (!frame) throw new Error('Opening frame fixture is missing')
+    if (points === 5) frame.polygon.push({ x: 30, y: 40 })
+    const fetcher = vi.fn(async (url: string) =>
+      url.includes('native-review-image') ? new Response(body, { headers }) : Response.json(packet),
+    )
+    const result = await loadNativeReview(input(), fetcher as typeof fetch)
+    expect(result.packet.openingFrames).toEqual(packet.openingFrames)
+    expect(result.packet.readiness.readyFor2D).toBe(false)
+    expect(result.packet.readiness.readyFor3D).toBe(false)
+  })
+  it('accepts a bounded refusal of the frame search without a partial candidate list', async () => {
+    const { packet, headers } = fixture()
+    packet.openingFrames = {
+      status: 'unresolved',
+      refusalReason: 'frame-search-budget',
+      candidates: [],
+    }
+    const fetcher = vi.fn(async (url: string) =>
+      url.includes('native-review-image') ? new Response(body, { headers }) : Response.json(packet),
+    )
+    expect((await loadNativeReview(input(), fetcher as typeof fetch)).packet.openingFrames).toEqual(
+      packet.openingFrames,
+    )
+  })
+  it.each([
+    'null-layer',
+    'status',
+    'partial-refusal',
+    'missing-candidates',
+    'candidate-limit',
+    'null-candidate',
+    'blank-id',
+    'long-id',
+    'duplicate-id',
+    'missing-polygon',
+    'too-few-points',
+    'too-many-points',
+    'null-point',
+    'outside-image',
+    'nonfinite-point',
+    'repeated-vertex',
+    'fifth-endpoint',
+  ])('rejects malformed optional opening frames: %s', async (change) => {
+    const { packet, headers } = fixture()
+    const frames = openingFrames()
+    packet.openingFrames = frames
+    const frame = frames.candidates[0]
+    const first = frame?.polygon[0]
+    if (!frame || !first) throw new Error('Opening frame fixture is missing')
+    if (change === 'null-layer') Object.assign(packet, { openingFrames: null })
+    if (change === 'status') Object.assign(frames, { status: 'accepted' })
+    if (change === 'partial-refusal')
+      Object.assign(frames, { status: 'unresolved', refusalReason: 'frame-search-budget' })
+    if (change === 'missing-candidates') Object.assign(frames, { candidates: undefined })
+    if (change === 'candidate-limit')
+      frames.candidates = Array.from({ length: 101 }, (_, i) => ({ ...frame, id: String(i) }))
+    if (change === 'null-candidate') Object.assign(frames, { candidates: [null] })
+    if (change === 'blank-id') frame.id = ' '
+    if (change === 'long-id') frame.id = 'f'.repeat(129)
+    if (change === 'duplicate-id') frames.candidates.push(structuredClone(frame))
+    if (change === 'missing-polygon') Object.assign(frame, { polygon: null })
+    if (change === 'too-few-points') frame.polygon.pop()
+    if (change === 'too-many-points') frame.polygon.push({ x: 30, y: 40 }, { x: 100, y: 40 })
+    if (change === 'null-point') Object.assign(frame.polygon, { 0: null })
+    if (change === 'outside-image') first.y = -1
+    if (change === 'nonfinite-point') first.x = Infinity
+    if (change === 'repeated-vertex') frame.polygon[3] = { ...first }
+    if (change === 'fifth-endpoint') frame.polygon.push({ x: 31, y: 40 })
+    const fetcher = vi.fn(async (url: string) =>
+      url.includes('native-review-image') ? new Response(body, { headers }) : Response.json(packet),
+    )
+    await expect(loadNativeReview(input(), fetcher as typeof fetch)).rejects.toMatchObject({
+      status: 422,
+    })
+  })
+  it.each([
+    'null-layer',
+    'status',
+    'draft-reason',
+    'unresolved-reason',
+    'blank-reason',
+    'long-reason',
+    'partial-refusal',
+    'missing-candidates',
+    'candidate-limit',
+    'null-candidate',
+    'blank-id',
+    'long-id',
+    'duplicate-id',
+    'missing-arc',
+    'missing-start',
+    'empty-segments',
+    'segment-limit',
+    'null-segment',
+    'missing-control',
+    'nonfinite-control',
+    'negative-point',
+    'outside-width',
+    'outside-height',
+    'string-coordinate',
+    'missing-leaf',
+    'missing-leaf-end',
+    'negative-residual',
+    'large-residual',
+    'nonfinite-residual',
+    'string-residual',
+  ])('rejects malformed optional door symbols: %s', async (change) => {
+    const { packet, headers } = fixture()
+    const symbols = doorSymbols()
+    packet.doorSymbols = symbols
+    const symbol = symbols.candidates[0]
+    const segment = symbol?.arc.segments[0]
+    if (!symbol || !segment) throw new Error('Door symbol fixture is missing')
+    if (change === 'null-layer') Object.assign(packet, { doorSymbols: null })
+    if (change === 'status') Object.assign(symbols, { status: 'accepted' })
+    if (change === 'draft-reason') symbols.refusalReason = 'incomplete-native-layer'
+    if (change === 'unresolved-reason') symbols.status = 'unresolved'
+    if (change === 'blank-reason')
+      Object.assign(symbols, { status: 'unresolved', refusalReason: ' ', candidates: [] })
+    if (change === 'long-reason')
+      Object.assign(symbols, {
+        status: 'unresolved',
+        refusalReason: 'r'.repeat(129),
+        candidates: [],
+      })
+    if (change === 'partial-refusal')
+      Object.assign(symbols, { status: 'unresolved', refusalReason: 'symbol-search-budget' })
+    if (change === 'missing-candidates') Object.assign(symbols, { candidates: undefined })
+    if (change === 'candidate-limit')
+      symbols.candidates = Array.from({ length: 101 }, (_, i) => ({ ...symbol, id: String(i) }))
+    if (change === 'null-candidate') Object.assign(symbols, { candidates: [null] })
+    if (change === 'blank-id') symbol.id = ' '
+    if (change === 'long-id') symbol.id = 'd'.repeat(129)
+    if (change === 'duplicate-id') symbols.candidates.push(structuredClone(symbol))
+    if (change === 'missing-arc') Object.assign(symbol, { arc: null })
+    if (change === 'missing-start') Object.assign(symbol.arc, { start: null })
+    if (change === 'empty-segments') symbol.arc.segments = []
+    if (change === 'segment-limit') symbol.arc.segments = Array(5).fill(segment)
+    if (change === 'null-segment') Object.assign(symbol.arc, { segments: [null] })
+    if (change === 'missing-control') Object.assign(segment, { control1: null })
+    if (change === 'nonfinite-control') segment.control1.x = NaN
+    if (change === 'negative-point') symbol.arc.start.x = -1
+    if (change === 'outside-width') segment.control2.x = 1001
+    if (change === 'outside-height') segment.end.y = 1001
+    if (change === 'string-coordinate') Object.assign(symbol.leaf.start, { x: '100' })
+    if (change === 'missing-leaf') Object.assign(symbol, { leaf: null })
+    if (change === 'missing-leaf-end') Object.assign(symbol.leaf, { end: null })
+    if (change === 'negative-residual') symbol.endpointResidualPixels = -0.001
+    if (change === 'large-residual') symbol.endpointResidualPixels = 0.100001
+    if (change === 'nonfinite-residual') symbol.endpointResidualPixels = Infinity
+    if (change === 'string-residual') Object.assign(symbol, { endpointResidualPixels: '0.01' })
+    const fetcher = vi.fn(async (url: string) =>
+      url.includes('native-review-image') ? new Response(body, { headers }) : Response.json(packet),
+    )
+    await expect(loadNativeReview(input(), fetcher as typeof fetch)).rejects.toMatchObject({
+      status: 422,
+    })
   })
   it.each(['pdf', 'image', 'page', 'width', 'bytes', 'revision', 'promotion', 'counts', 'polygon'])(
     'refuses mismatched or malformed %s response',

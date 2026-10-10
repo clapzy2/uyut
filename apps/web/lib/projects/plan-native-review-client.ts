@@ -9,6 +9,103 @@ export class NativeReviewRequestError extends Error {
   }
 }
 
+function isCandidateLayer(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const layer = value as { status: unknown; refusalReason: unknown; candidates: unknown[] }
+  return (
+    (layer.status === 'draft' || layer.status === 'unresolved') &&
+    Array.isArray(layer.candidates) &&
+    layer.candidates.length <= 100 &&
+    (layer.status === 'draft'
+      ? layer.refusalReason === null
+      : typeof layer.refusalReason === 'string' &&
+        !!layer.refusalReason.trim() &&
+        layer.refusalReason.length <= 128 &&
+        layer.candidates.length === 0)
+  )
+}
+
+function isInImage(value: unknown, image: NativeReviewPacket['image']): boolean {
+  if (!value || typeof value !== 'object') return false
+  const point = value as { x: number; y: number }
+  return (
+    Number.isFinite(point.x) &&
+    Number.isFinite(point.y) &&
+    point.x >= 0 &&
+    point.y >= 0 &&
+    point.x <= image.width &&
+    point.y <= image.height
+  )
+}
+
+function isDoorSymbols(value: unknown, image: NativeReviewPacket['image']): boolean {
+  if (value === undefined) return true
+  if (!isCandidateLayer(value)) return false
+  const symbols = value as NonNullable<NativeReviewPacket['doorSymbols']>
+  const inImage = (point: unknown) => isInImage(point, image)
+  const ids = new Set<string>()
+  return symbols.candidates.every((candidate) => {
+    if (
+      !candidate ||
+      typeof candidate !== 'object' ||
+      typeof candidate.id !== 'string' ||
+      !candidate.id.trim() ||
+      candidate.id.length > 128 ||
+      ids.has(candidate.id) ||
+      !candidate.arc ||
+      !inImage(candidate.arc.start) ||
+      !Array.isArray(candidate.arc.segments) ||
+      candidate.arc.segments.length < 1 ||
+      candidate.arc.segments.length > 4 ||
+      !candidate.leaf ||
+      !inImage(candidate.leaf.start) ||
+      !inImage(candidate.leaf.end) ||
+      !Number.isFinite(candidate.endpointResidualPixels) ||
+      candidate.endpointResidualPixels < 0 ||
+      candidate.endpointResidualPixels > 0.1
+    )
+      return false
+    ids.add(candidate.id)
+    return candidate.arc.segments.every(
+      (segment) =>
+        segment &&
+        typeof segment === 'object' &&
+        inImage(segment.control1) &&
+        inImage(segment.control2) &&
+        inImage(segment.end),
+    )
+  })
+}
+
+function isOpeningFrames(value: unknown, image: NativeReviewPacket['image']): boolean {
+  if (value === undefined) return true
+  if (!isCandidateLayer(value)) return false
+  const frames = value as NonNullable<NativeReviewPacket['openingFrames']>
+  const ids = new Set<string>()
+  return frames.candidates.every((frame) => {
+    if (
+      !frame ||
+      typeof frame !== 'object' ||
+      typeof frame.id !== 'string' ||
+      !frame.id.trim() ||
+      frame.id.length > 128 ||
+      ids.has(frame.id) ||
+      !Array.isArray(frame.polygon) ||
+      ![4, 5].includes(frame.polygon.length) ||
+      !frame.polygon.every((point) => isInImage(point, image))
+    )
+      return false
+    const first = frame.polygon[0]
+    const last = frame.polygon.at(-1)
+    if (!first || !last) return false
+    if (frame.polygon.length === 5 && (first.x !== last.x || first.y !== last.y)) return false
+    if (new Set(frame.polygon.slice(0, 4).map((point) => `${point.x}:${point.y}`)).size !== 4)
+      return false
+    ids.add(frame.id)
+    return true
+  })
+}
+
 function isSavedReview(value: unknown, source: NativeReviewPacket['source']): boolean {
   if (!value || typeof value !== 'object') return false
   const saved = value as NativeReviewPacket['savedReview']
@@ -101,6 +198,8 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     packet.readiness.readyFor2D !== false ||
     packet.readiness.readyFor3D !== false ||
     !isSavedReview(packet.savedReview, packet.source) ||
+    !isDoorSymbols(packet.doorSymbols, packet.image) ||
+    !isOpeningFrames(packet.openingFrames, packet.image) ||
     !Array.isArray(packet.faces) ||
     packet.faces.length > 100 ||
     !Array.isArray(packet.issues) ||

@@ -1857,3 +1857,87 @@ tmp/reviewed-door-corridors-20261010/ сохранён. Paid requests0/project w
 comparisons against polygon-clipping.difference (0 mismatches/826 contained).
 Это ограниченный дополнительный контроль, не universal geometry proof.
 Пользовательский проект, production, provider budget, DB и PR не изменялись.
+
+## 10 октября: автоматические символы створок и исходные рамки проёмов
+
+Это следующий этап recognition, не ещё одна правка ручных деклараций. PDF.js
+decoder сохраняет source line/quadratic/cubic commands, controls, paint, closed,
+operation/subpath identities и compound count в отдельном curvePaths. Legacy
+straight paths и skippedCurves/bounds не изменены: кривая не становится хордой
+стены. Convex-hull containment допускает metadata только целиком внутри page/
+rectangular clip; polygon/unsupported masks и invisibility не обходятся. Retention
+3000paths/20kpoints ограничено отдельно, truncated metadata удерживает recognizer.
+
+nativeDoorSymbolCandidates ищет open chains1..4cubic quarter swings и независимо
+нарисованную открытую линию или thin simple rectangular leaf. Fit выполняется в
+rendered-image pixels, с коррекцией разных шкал X/Y; endpoint limit0.1px,
+shape ratio0.005. Это допуски распознавания рисунка, не source-endpoint equality
+или измерение. Все точки/controls/ref snapshots сохранены, endpoints не snap-ятся.
+Разные подходящие hinges неоднозначны; только exact repaint aliases дедуплицируются.
+Closed/full circles, quadratic/compound paths, ellipse, arrow-like negative,
+stale command bounds, clipped siblings и неподдерживаемая геометрия удерживаются.
+Independent audit воспроизвёл thin bowtie, который проходил angle heuristic;
+добавлен simple-polygon guard и regression. Work200k/candidate100 fail atomic.
+
+nativeOpeningFrameCandidates ищет actual axis-aligned closed stroked rectangle,
+aspect ratio<=0.4pixelspace, с двумя opposite short jambs. Оба откоса должны
+полностью покрываться collinear source edges сложных closed stroke outlines.
+Разбитый откос допускается только exact interval union с реальным endpoint touch;
+даже gap1e-9 удерживает рамку. Source contacts не получают роль стены, same host
+с разными реальными ребрами допустим. Repaint aliases сохраняются, overlapping
+frame competitors отвергаются. Curved/clipped siblings не являются evidence.
+Локальные omission bounds сохраняются отдельно как unresolvedInk, не объявляются
+свободным пространством. 200kcomparisons/100candidates fail atomically.
+Все outputs openingKind:null/unclassified, physicalPassageAccepted:false,
+closesFloorBoundary:false. Ни новый closing segment, ни floor polygon не создан.
+
+Fresh bench-native-openings.ts принимает только PDF, page, FRESH_DIR; без manual
+review/golden source IDs на входе, AI или DB. Сохраняет full-page original JPEG,
+candidate-only PNG overlay и JSON с refs/omissions/private packet. Повтор:
+
+```powershell
+bun --no-env-file run apps/web/scripts/bench-native-openings.ts 'C:/Users/Lenovo/Documents/Codex/2026-09-26/1-pdf-1-2-pdf-3/outputs/apartment_74_77m2_full_project.pdf' 6 tmp/native-openings-NEW
+```
+
+| Source / selected existing page | Door symbol candidates | Painted frames | Curves / clips | Search refusal |
+| --- | ---: | ---: | ---: | --- |
+| Apartment74.77 /6 | 1 | 7 | 45/0 | none |
+| BASIS /3 | 1 | 0 | 31/0 | none |
+| Basman /3 | 1 | 0 | 15/34 | none |
+| Life Kutuzovsky /3 | 0 | 0 | 0/1 | incomplete-native-layer |
+| Designgroup /3 | 0 | 0 | 11/0 | none |
+| Remplanner /3 | 0 | 0 | 13/0 | none |
+| Chigintseva /3 | 0 | 0 | 33/18 | none |
+
+Полные positive pages визуально сверены, source hashes прежние. Apartment frames
+556/599/600/601/613/614/615 совпали с независимо просмотренными проёмами.
+Entrance889curve+887leaf имеет endpoint residual0.00489697px; его рамка556
+сохраняет889 bounds как unresolvedInk. Остальные внутренние проёмы не имеют
+нарисованных створок: frame detection не присваивает им door kind. Kitchen
+balcony581 требует составной leaf/endcaps, не принят. Angular dimension2282
+не дверь и не попала в candidates. BASIS/Basman actual entrance symbols также
+визуально совпали; окна/радиаторы/текстовые рамки этой пачкой дверями не названы.
+Artifact directories: tmp/native-openings-20261010-apartment/,
+tmp/native-openings-20261010-moscow_basis_47m2/ и аналогичные5 source directories.
+Нулевые результаты остальных форматов не являются успешным полным разбором.
+
+Оба класса подключены к реальному private native-review packet/UI как bounded
+optional layers; старые ответы совместимы. Client отвергает malformed status/
+IDs/controls/polygons/residuals и unfinished-with-candidates, source/image hash
+contract прежний. Overlay содержит только оригинальные cubic commands, leaf
+edges и painted frame polygons. Counts не названы числом физических дверей.
+Readiness остаётся readOnly/false2D/false3D; packet не сериализует inferred
+closedTip/threshold или source review authority. Existing user reader перенос
+мерок, manual pageReview, saved2D/3D и схемы DB не изменились.
+
+Firefox CLI: real current component + mocked private API + настоящие PDF pixels,
+390/1280px без page overflow, toggle1arc/1leaf/7frames ->0 ->restore,
+full-size1414px scroll внутри keyboard-focusable view;0 console errors/warnings.
+Screenshots: output/playwright/native-openings-desktop.png,
+output/playwright/native-openings-mobile.png. Браузер/loopback helper закрыты;
+live account/authorization/PG не проверялись. Independent review разных bounded
+задач использовал source audit и62symbol/15frame tests; bowtie дефект устранён.
+3549web tests/250files, typecheck7, lint883, build/diff passed. AI requests0,
+project writes0, PR/deploy0. Следующий этап - source-bound окна/составные балконные
+блоки, связка с номерными областями и разграничение free floor/walls/thresholds,
+а не перенос этих рамок в подтверждённый footprint.

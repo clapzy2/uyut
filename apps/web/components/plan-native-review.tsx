@@ -124,8 +124,12 @@ export function NativeReviewResult({
   imageUrl: string
 }) {
   const [showFills, setShowFills] = useState(false)
+  const [showOpeningCandidates, setShowOpeningCandidates] = useState(true)
   const [fullSize, setFullSize] = useState(false)
   const visible = packet.faces.filter((face) => face.layer === 'stroke' || showFills)
+  const hasOpeningCandidates =
+    (packet.doorSymbols?.candidates.length ?? 0) + (packet.openingFrames?.candidates.length ?? 0) >
+    0
   return (
     <div className="mt-4 space-y-4">
       <p className="border-l-2 border-accent pl-3 text-[14px] leading-relaxed text-ink-2">
@@ -150,6 +154,48 @@ export function NativeReviewResult({
           <dd>{packet.counts.printedDimensions}</dd>
         </div>
       </dl>
+      {packet.doorSymbols || packet.openingFrames ? (
+        <div className="space-y-2 text-[13px] leading-relaxed">
+          {packet.doorSymbols ? (
+            <p>
+              Кандидаты дверных символов:{' '}
+              {packet.doorSymbols.status === 'unresolved'
+                ? 'поиск не завершён'
+                : packet.doorSymbols.candidates.length}
+              . Это не число физических проёмов.
+            </p>
+          ) : null}
+          {packet.openingFrames ? (
+            <p>
+              Кандидаты рамок проёмов:{' '}
+              {packet.openingFrames.status === 'unresolved'
+                ? 'поиск не завершён'
+                : packet.openingFrames.candidates.length}
+              . Вид проёма не определён.
+            </p>
+          ) : null}
+          <p className="text-ink-2">
+            Дуги и створки — сходство формы рисунка; рамки — контуры с примыкающими линиями. Точный
+            проём, граница пола и свободный проход этим не подтверждаются.
+          </p>
+          {packet.doorSymbols?.status === 'unresolved' ||
+          packet.openingFrames?.status === 'unresolved' ? (
+            <p className="text-ink-2">
+              Неполный набор соответствующего поиска не показан; нужна отдельная сверка исходника.
+            </p>
+          ) : null}
+          {hasOpeningCandidates ? (
+            <label className="flex min-h-11 items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showOpeningCandidates}
+                onChange={(event) => setShowOpeningCandidates(event.target.checked)}
+              />
+              Показать исходные дуги, створки и рамки — оранжевые линии
+            </label>
+          ) : null}
+        </div>
+      ) : null}
       <label className="flex min-h-11 items-center gap-2 text-[13px]">
         <input
           type="checkbox"
@@ -191,7 +237,7 @@ export function NativeReviewResult({
           }}
           viewBox={`0 0 ${packet.image.width} ${packet.image.height}`}
           role="img"
-          aria-label="Исходный лист с неподтверждёнными областями"
+          aria-label="Исходный лист с неподтверждёнными областями и символами"
         >
           <image href={imageUrl} width={packet.image.width} height={packet.image.height} />
           {visible.map((face) => (
@@ -213,11 +259,65 @@ export function NativeReviewResult({
               </title>
             </polygon>
           ))}
+          {showOpeningCandidates && packet.doorSymbols?.status === 'draft'
+            ? packet.doorSymbols.candidates.map((symbol) => (
+                <g key={symbol.id} fill="none" stroke="#b45309" strokeWidth="2">
+                  <path
+                    d={[
+                      `M ${symbol.arc.start.x} ${symbol.arc.start.y}`,
+                      ...symbol.arc.segments.map(
+                        (segment) =>
+                          `C ${segment.control1.x} ${segment.control1.y} ${segment.control2.x} ${segment.control2.y} ${segment.end.x} ${segment.end.y}`,
+                      ),
+                    ].join(' ')}
+                    vectorEffect="non-scaling-stroke"
+                  >
+                    <title>
+                      Исходная дуга дверного символа. Сходство рисунка, не точный проём и не граница
+                      пола.
+                    </title>
+                  </path>
+                  <line
+                    x1={symbol.leaf.start.x}
+                    y1={symbol.leaf.start.y}
+                    x2={symbol.leaf.end.x}
+                    y2={symbol.leaf.end.y}
+                    vectorEffect="non-scaling-stroke"
+                  >
+                    <title>
+                      Исходная линия створки. Физический проход не подтверждён; граница пола не
+                      замыкается.
+                    </title>
+                  </line>
+                </g>
+              ))
+            : null}
+          {showOpeningCandidates && packet.openingFrames?.status === 'draft'
+            ? packet.openingFrames.candidates.map((frame) => (
+                <polygon
+                  key={frame.id}
+                  points={frame.polygon.map((point) => `${point.x},${point.y}`).join(' ')}
+                  fill="none"
+                  stroke="#b45309"
+                  strokeWidth="2"
+                  strokeDasharray="4 3"
+                  vectorEffect="non-scaling-stroke"
+                >
+                  <title>
+                    Исходная рамка с примыкающими линиями. Вид проёма неизвестен; граница пола и
+                    проход не подтверждены.
+                  </title>
+                </polygon>
+              ))
+            : null}
         </svg>
       </section>
       <p className="text-[13px] leading-relaxed text-ink-2">
         Бирюзовые контуры — неизвестные области. Розовые — предполагаемые таблицы и служебные поля.
         Ни один цвет не означает подтверждённую комнату.
+        {packet.openingFrames?.candidates.length
+          ? ' Оранжевый пунктир обводит только нарисованные в исходнике рамки, не добавляет порог или границу пола.'
+          : null}
       </p>
       <SavedReviewCoverage savedReview={packet.savedReview} />
       <div className="border-t border-line pt-3">
@@ -237,6 +337,16 @@ export function NativeReviewResult({
         <p>Страница {packet.source.pdfPage}. Это результат только выбранного листа.</p>
         <p className="break-all">PDF: {packet.source.sha256}</p>
         <p className="break-all">Изображение: {packet.image.sha256}</p>
+        {packet.doorSymbols?.refusalReason ? (
+          <p className="mt-2 break-all">
+            Ограничение поиска дверных символов: {packet.doorSymbols.refusalReason}.
+          </p>
+        ) : null}
+        {packet.openingFrames?.refusalReason ? (
+          <p className="mt-2 break-all">
+            Ограничение поиска рамок проёмов: {packet.openingFrames.refusalReason}.
+          </p>
+        ) : null}
         {packet.issues
           .filter((issue) => issue.code.includes(':'))
           .map((issue) => (

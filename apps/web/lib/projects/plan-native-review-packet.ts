@@ -1,7 +1,9 @@
 import type { PlanReading } from '@uyut/db'
 import type { NativeTextAnchors } from './plan-document'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
+import { nativeDoorSymbolCandidates } from './plan-native-door-symbols'
 import { nativeFaceAnnotationCandidates } from './plan-native-face-annotations'
+import { nativeOpeningFrameCandidates } from './plan-native-opening-frames'
 import { automaticNativeRoomCandidates, nativeRoomPolygonKey } from './plan-native-room-candidates'
 import {
   inspectReviewedPageCoverage,
@@ -38,6 +40,28 @@ export type NativeReviewPacket = {
     annotationHint: boolean
     roomName?: string
   }[]
+  doorSymbols?: {
+    status: 'draft' | 'unresolved'
+    refusalReason: string | null
+    candidates: {
+      id: string
+      arc: {
+        start: { x: number; y: number }
+        segments: {
+          control1: { x: number; y: number }
+          control2: { x: number; y: number }
+          end: { x: number; y: number }
+        }[]
+      }
+      leaf: { start: { x: number; y: number }; end: { x: number; y: number } }
+      endpointResidualPixels: number
+    }[]
+  }
+  openingFrames?: {
+    status: 'draft' | 'unresolved'
+    refusalReason: string | null
+    candidates: { id: string; polygon: { x: number; y: number }[] }[]
+  }
   issues: { code: string; message: string }[]
   readiness: { readyFor2D: false; readyFor3D: false; readOnly: true }
   savedReview:
@@ -125,6 +149,40 @@ export function nativeReviewPacket(input: {
   const rooms = automaticNativeRoomCandidates(common)
   const annotations = nativeFaceAnnotationCandidates(common)
   const dimensions = automaticNativeDimensionRoles({ ...common, source })
+  const doors = nativeDoorSymbolCandidates(common)
+  const frames = nativeOpeningFrameCandidates(common)
+  const scale = native.pageNormalizedScale
+  if (scale) {
+    const raster = (point: { x: number; y: number }) => ({
+      x: point.x * scale.x,
+      y: point.y * scale.y,
+    })
+    packet.doorSymbols = {
+      status: doors.status,
+      refusalReason: doors.refusalReason,
+      candidates: doors.candidates.map((door) => ({
+        id: door.id,
+        arc: {
+          start: raster(door.arc.start),
+          segments: door.arc.segments.map((segment) => ({
+            control1: raster(segment.control1),
+            control2: raster(segment.control2),
+            end: raster(segment.end),
+          })),
+        },
+        leaf: { start: raster(door.leaf.start), end: raster(door.leaf.end) },
+        endpointResidualPixels: door.endpointResidualPixels,
+      })),
+    }
+    packet.openingFrames = {
+      status: frames.status,
+      refusalReason: frames.refusalReason,
+      candidates: frames.candidates.map((candidate) => ({
+        id: candidate.id,
+        polygon: candidate.frame.points.map(raster),
+      })),
+    }
+  }
   const fills = rooms.geometry
   const strokes = annotations.geometry
   packet.extraction.geometryComplete =
@@ -229,6 +287,8 @@ export function nativeReviewPacket(input: {
     ['stroke-search', strokes.refusalReason],
     ['annotation-hints', annotations.refusalReason],
     ['dimension-search', dimensions.refusalReason],
+    ['door-symbol-search', doors.refusalReason],
+    ['opening-frame-search', frames.refusalReason],
   ] as const) {
     if (reason)
       issue(

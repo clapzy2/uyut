@@ -86,6 +86,100 @@ describe('whole-page native inspection, separate from saved geometry', () => {
     expect(JSON.stringify(result)).not.toContain('manual-native-annotation-review')
     expect(input).toEqual(before)
   })
+  it('maps source swings and painted jamb frames to pixels without authorizing floor closure', () => {
+    const input = fixture()
+    input.work.paths.push(
+      {
+        operationIndex: 40,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+        ],
+      },
+      {
+        operationIndex: 41,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: true,
+        points: [
+          { x: 100, y: 100 },
+          { x: 120, y: 100 },
+          { x: 120, y: 200 },
+          { x: 100, y: 200 },
+        ],
+      },
+    )
+    for (const [operationIndex, y] of [
+      [42, 100],
+      [43, 200],
+    ] as const)
+      input.work.paths.push({
+        operationIndex,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: true,
+        points: [
+          { x: 80, y },
+          { x: 140, y },
+          { x: 140, y: y - 10 },
+          { x: 130, y: y - 10 },
+          { x: 130, y: y - 20 },
+          { x: 80, y: y - 20 },
+        ],
+      })
+    const k = (4 / 3) * Math.tan(Math.PI / 8) * 100
+    input.work.curvePaths = [
+      {
+        operationIndex: 44,
+        subpathIndex: 0,
+        operationSubpathCount: 1,
+        paint: 'stroke',
+        closed: false,
+        start: { x: 200, y: 100 },
+        segments: [
+          {
+            kind: 'cubic',
+            control1: { x: 200, y: 100 + k },
+            control2: { x: 100 + k, y: 200 },
+            end: { x: 100, y: 200 },
+          },
+        ],
+      },
+    ]
+    input.work.skippedCurves = 1
+    input.work.skippedCurveBounds = [
+      { operationIndex: 44, bounds: { left: 100, top: 100, right: 200, bottom: 200 } },
+    ]
+    const before = structuredClone(input)
+    const packet = nativeReviewPacket(input)
+    expect(packet.doorSymbols).toMatchObject({
+      status: 'draft',
+      refusalReason: null,
+      candidates: [
+        {
+          id: 'native-door-symbol-44:0',
+          arc: { start: { x: 200, y: 100 } },
+          leaf: { start: { x: 100, y: 100 }, end: { x: 200, y: 100 } },
+          endpointResidualPixels: 0,
+        },
+      ],
+    })
+    expect(packet.openingFrames).toMatchObject({
+      status: 'draft',
+      refusalReason: null,
+      candidates: [{ id: 'native-opening-frame-41:0' }],
+    })
+    expect(packet.extraction.skippedCurves).toBe(1)
+    expect(packet.extraction.geometryComplete).toBe(false)
+    expect(packet.readiness).toEqual({ readyFor2D: false, readyFor3D: false, readOnly: true })
+    expect(packet.doorSymbols?.candidates[0]).not.toHaveProperty('closedTip')
+    expect(packet.openingFrames?.candidates[0]).not.toHaveProperty('jambs')
+    expect(packet).not.toHaveProperty('floor')
+    expect(input).toEqual(before)
+  })
   it('shows exact numbered unfilled outlines in the read-only source overlay', () => {
     const input = numberedNativeRoomFixture()
     input.work.paths = input.work.paths.map((path) => ({ ...path, paint: 'stroke' }))

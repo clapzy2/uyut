@@ -175,6 +175,92 @@ describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
       { x: 500, y: 750 },
       { x: 600, y: 700 },
     ])
+    expect(result.curvePaths).toEqual([
+      {
+        operationIndex: 0,
+        subpathIndex: 0,
+        operationSubpathCount: 2,
+        paint: 'stroke',
+        closed: true,
+        start: { x: 100, y: 900 },
+        segments: [
+          { kind: 'line', end: { x: 200, y: 900 } },
+          {
+            kind: 'cubic',
+            control1: { x: 200, y: 850 },
+            control2: { x: 300, y: 800 },
+            end: { x: 400, y: 800 },
+          },
+        ],
+      },
+    ])
+  })
+
+  it('retains transformed quadratic/cubic commands and source styles without flattening', () => {
+    const result = extract([
+      [ops.transform, [2, 0, 0, 2, 10, 20]],
+      [ops.setStrokeRGBColor, ['#123456']],
+      stroke([0, 1, 2, 3, 2, 3, 4, 5, 2, 6, 7, 8, 9, 10, 11]),
+    ])
+    expect(result.paths).toEqual([])
+    expect(result.skippedCurves).toBe(1)
+    expect(result.curvePaths).toEqual([
+      {
+        operationIndex: 2,
+        subpathIndex: 0,
+        operationSubpathCount: 1,
+        paint: 'stroke',
+        strokeColor: '#123456',
+        closed: false,
+        start: { x: 120, y: 880 },
+        segments: [
+          { kind: 'quadratic', control: { x: 140, y: 870 }, end: { x: 180, y: 850 } },
+          {
+            kind: 'cubic',
+            control1: { x: 220, y: 830 },
+            control2: { x: 260, y: 810 },
+            end: { x: 300, y: 790 },
+          },
+        ],
+      },
+    ])
+  })
+
+  it('does not retain a curve with invisible controls even when its endpoints are visible', () => {
+    const result = extract([
+      [ops.save, []],
+      [ops.clip, []],
+      [ops.constructPath, [ops.endPath, [[0, 10, 10, 1, 30, 10, 1, 30, 30, 1, 10, 30, 4]], []]],
+      stroke([0, 15, 15, 2, 40, 15, 15, 25, 25, 25]),
+      [ops.restore, []],
+      stroke([0, 15, 15, 2, 40, 15, 15, 25, 25, 25]),
+    ])
+    expect(result.curvePaths?.map((path) => path.operationIndex)).toEqual([5])
+    expect(result.skippedCurves).toBe(2)
+    expect(result.skippedCurveBounds).toHaveLength(2)
+    expect(result.paths).toEqual([])
+  })
+
+  it('retains no symbol commands under a polygon clip, without pretending omissions disappeared', () => {
+    const result = extract([
+      [ops.clip, []],
+      [ops.constructPath, [ops.endPath, [[0, 10, 10, 1, 40, 10, 1, 25, 40, 4]], []]],
+      stroke([0, 20, 15, 2, 22, 15, 25, 18, 25, 20]),
+    ])
+    expect(result.curvePaths).toEqual([])
+    expect(result.skippedCurves).toBe(1)
+    expect(result.skippedCurveBounds).toHaveLength(1)
+  })
+
+  it('caps retained curve commands separately and keeps the omission inventory', () => {
+    const result = extract(
+      Array.from({ length: 3001 }, () => stroke([0, 10, 10, 2, 12, 10, 20, 12, 20, 20])),
+    )
+    expect(result.curvePaths).toHaveLength(3000)
+    expect(result.curvePathsTruncated).toBe(true)
+    expect(result.skippedCurves).toBe(3001)
+    expect(result.skippedCurveBoundsTruncated).toBe(true)
+    expect(result.paths).toEqual([])
   })
 
   it('honours a rectangular clip and restores the unclipped parent state', () => {

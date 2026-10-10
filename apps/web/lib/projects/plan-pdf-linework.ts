@@ -10,11 +10,28 @@ export type PdfVectorPath = {
   closed: boolean
   points: PagePoint[]
 }
+export type PdfPathSegment =
+  | { kind: 'line'; end: PagePoint }
+  | { kind: 'quadratic'; control: PagePoint; end: PagePoint }
+  | { kind: 'cubic'; control1: PagePoint; control2: PagePoint; end: PagePoint }
+/** Source commands for symbol inspection only; never a flattened wall/floor polygon. */
+export type PdfCurvePath = {
+  operationIndex: number
+  subpathIndex: number
+  operationSubpathCount: number
+  paint: PdfVectorPath['paint']
+  strokeColor?: string
+  closed: boolean
+  start: PagePoint
+  segments: PdfPathSegment[]
+}
 export type PdfLinework = {
   coordinateSystem: 'page-0-1000'
   pageWidth: number
   pageHeight: number
   paths: PdfVectorPath[]
+  curvePaths?: PdfCurvePath[]
+  curvePathsTruncated?: boolean
   skippedCurves: number
   unsupportedPaths: number
   unsupportedContexts: number
@@ -46,6 +63,7 @@ type Subpath = {
   controlPoints: PagePoint[]
   closed: boolean
   curved: boolean
+  segments: PdfPathSegment[]
 }
 const MAX_OPERATIONS = 100_000
 const MAX_POINTS = 20_000
@@ -67,7 +85,7 @@ function multiply(a: Matrix, b: Matrix): Matrix {
   ]
 }
 
-/** PDF.js 6 DrawOPS: straight subpaths only; a curve is never replaced with its chord. */
+/** PDF.js 6 DrawOPS: preserve commands; a curve is never replaced with its chord. */
 function subpaths(raw: unknown): Subpath[] | undefined {
   if (!Array.isArray(raw) && !(raw instanceof Float32Array)) return undefined
   if (raw.length > MAX_POINTS * 7 || !raw.every(Number.isFinite)) return undefined
@@ -86,7 +104,7 @@ function subpaths(raw: unknown): Subpath[] | undefined {
     const point = { x: raw[i + size - 2], y: raw[i + size - 1] }
     if (typeof point.x !== 'number' || typeof point.y !== 'number') return undefined
     if (command === 0) {
-      current = { points: [point], controlPoints: [], closed: false, curved: false }
+      current = { points: [point], controlPoints: [], closed: false, curved: false, segments: [] }
       paths.push(current)
     } else if (current) {
       if (command === 2 || command === 3) {
@@ -95,6 +113,20 @@ function subpaths(raw: unknown): Subpath[] | undefined {
           current.controlPoints.push({ x: raw[control], y: raw[control + 1] })
         }
       }
+      if (command === 2)
+        current.segments.push({
+          kind: 'cubic',
+          control1: { x: raw[i], y: raw[i + 1] },
+          control2: { x: raw[i + 2], y: raw[i + 3] },
+          end: point,
+        })
+      else if (command === 3)
+        current.segments.push({
+          kind: 'quadratic',
+          control: { x: raw[i], y: raw[i + 1] },
+          end: point,
+        })
+      else current.segments.push({ kind: 'line', end: point })
       current.points.push(point)
     }
     i += size
@@ -289,6 +321,8 @@ export function extractPdfLinework(
     pageWidth: viewport.width,
     pageHeight: viewport.height,
     paths: [],
+    curvePaths: [],
+    curvePathsTruncated: false,
     skippedCurves: 0,
     unsupportedPaths: 0,
     unsupportedContexts: 0,
@@ -303,6 +337,7 @@ export function extractPdfLinework(
   const stack: GraphicsState[] = []
   let pendingClip = false
   let pointCount = 0
+  let curvePointCount = 0
   const point = (raw: PagePoint): PagePoint => {
     const m = state.matrix
     const [x, y] = viewport.convertToViewportPoint(
@@ -393,6 +428,18 @@ export function extractPdfLinework(
       ...path,
       points: path.points.map(point),
       controlPoints: path.controlPoints.map(point),
+      segments: path.segments.map((segment): PdfPathSegment => {
+        if (segment.kind === 'cubic')
+          return {
+            kind: 'cubic',
+            control1: point(segment.control1),
+            control2: point(segment.control2),
+            end: point(segment.end),
+          }
+        if (segment.kind === 'quadratic')
+          return { kind: 'quadratic', control: point(segment.control), end: point(segment.end) }
+        return { kind: 'line', end: point(segment.end) }
+      }),
     }))
     const invalid = transformed.some((path) =>
       [...path.points, ...path.controlPoints].some(
@@ -463,6 +510,43 @@ export function extractPdfLinework(
           })
         } else {
           result.skippedCurveBoundsTruncated = true
+        }
+        // A Bezier stays in the convex hull of its endpoints/control points.
+        // Rectangular visibility can therefore be proved without flattening it.
+        // Non-rectangular masks remain unsupported for this separate symbol layer.
+        const sourcePoints = [...path.points, ...path.controlPoints]
+        const start = path.points[0]
+        if (
+          start &&
+          !state.polygonClips?.length &&
+          sourcePoints.every(
+            (p) =>
+              contains({ left: 0, top: 0, right: 1000, bottom: 1000 }, p) &&
+              (!state.clip || contains(state.clip, p)),
+          )
+        ) {
+          if (
+            (result.curvePaths?.length ?? 0) >= MAX_PATHS ||
+            curvePointCount + sourcePoints.length > MAX_POINTS
+          ) {
+            result.curvePathsTruncated = true
+          } else {
+            result.curvePaths?.push({
+              operationIndex,
+              subpathIndex,
+              operationSubpathCount: transformed.length,
+              paint: filled ? (stroked ? 'fill-stroke' : 'fill') : 'stroke',
+              ...(stroked && state.strokeColor ? { strokeColor: state.strokeColor } : {}),
+              closed:
+                path.closed ||
+                filled ||
+                paint === ops.closeStroke ||
+                (start.x === path.points.at(-1)?.x && start.y === path.points.at(-1)?.y),
+              start,
+              segments: path.segments,
+            })
+            curvePointCount += sourcePoints.length
+          }
         }
         continue
       }
