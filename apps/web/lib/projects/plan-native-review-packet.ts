@@ -7,6 +7,10 @@ import {
   type NativeFloorOpeningReport,
   nativeFloorOpeningSides,
 } from './plan-native-floor-opening-sides'
+import {
+  type NativeHeightObservation,
+  nativeHeightObservations,
+} from './plan-native-height-observations'
 import { nativeOpeningSourceLinks } from './plan-native-opening-links'
 import { nativeReviewedFrameRooms } from './plan-native-reviewed-frame-rooms'
 import { automaticNativeRoomCandidates, nativeRoomPolygonKey } from './plan-native-room-candidates'
@@ -102,6 +106,19 @@ export type NativeReviewPacket = {
     cues: { labelId: string; sourceNumber: number }[]
   }
   roomSchedule?: NativeRoomScheduleReport
+  dimensionDiscovery?: {
+    status: 'draft' | 'unresolved'
+    refusalReason: string | null
+    candidates: { labelId: string; valueMm: number; axis: 'width' | 'depth' }[]
+    unresolved: { labelId: string; reason: string }[]
+  }
+  heightObservations?: {
+    status: 'draft' | 'unresolved'
+    refusalReason: string | null
+    observations: Omit<NativeHeightObservation, 'pagePoint'>[]
+    issues: { labelId: string; originalText: string; code: string }[]
+    omissionCounts: { skippedCurves: number; clippedPaths: number }
+  }
   floorOpeningSides?: NativeFloorOpeningReport
   floorCavities?: {
     status: 'draft' | 'unresolved'
@@ -269,6 +286,24 @@ export function nativeReviewPacket(input: {
   const rooms = automaticNativeRoomCandidates(common)
   const annotations = nativeFaceAnnotationCandidates(common)
   const dimensions = automaticNativeDimensionRoles({ ...common, source })
+  const heights = nativeHeightObservations({ ...common, source })
+  packet.dimensionDiscovery = {
+    status: dimensions.refusalReason ? 'unresolved' : 'draft',
+    refusalReason: dimensions.refusalReason,
+    candidates: dimensions.candidates.map(({ labelId, valueMm, axis }) => ({
+      labelId,
+      valueMm,
+      axis,
+    })),
+    unresolved: dimensions.unresolved,
+  }
+  packet.heightObservations = {
+    status: heights.status,
+    refusalReason: heights.refusalReason,
+    observations: heights.observations.map(({ pagePoint: _point, ...observation }) => observation),
+    issues: heights.issues,
+    omissionCounts: heights.omissionCounts,
+  }
   const connections = nativeOpeningSourceLinks(common)
   const floor = nativeFloorCavityCandidates(common)
   const floorSides = nativeFloorOpeningSides(floor, connections)

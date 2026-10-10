@@ -104,3 +104,35 @@ it('does not silently discard a door whose host wall was removed', () => {
   geometry.walls = geometry.walls.filter((wall) => wall.id !== 'middle')
   expect(inspectMetricClearanceRoutes(geometry).missing).toContain('привязку')
 })
+
+it.each([10, 0.000000001])(
+  'does not turn a measured raised threshold %s into continuous floor',
+  (bottomCm) => {
+    const geometry = fixture()
+    const door = geometry.openings.find(({ id }) => id === 'between')
+    if (!door) throw new Error('Missing doorway')
+    const before = structuredClone(geometry)
+    door.bottomCm = bottomCm
+    expect(inspectMetricClearanceRoutes(geometry).result?.unresolvedRoomIds).toEqual(['1'])
+    door.bottomCm = 0
+    expect(inspectMetricClearanceRoutes(geometry).result?.routes).toHaveLength(2)
+    delete door.bottomCm
+    expect(geometry).toEqual(before)
+  },
+)
+
+it('refuses a raised entry threshold and explicit impossible heights while keeping unknown legacy heights conditional', () => {
+  const geometry = fixture()
+  const entry = geometry.openings[0]
+  const door = geometry.openings[1]
+  if (!entry || !door) throw new Error('Missing openings')
+  entry.bottomCm = 10
+  expect(inspectMetricClearanceRoutes(geometry).missing).toContain('порог')
+  entry.bottomCm = 0
+  for (const wall of geometry.walls) wall.heightCm = 270
+  door.bottomCm = 0
+  door.heightCm = 350
+  expect(inspectMetricClearanceRoutes(geometry).result).toBeUndefined()
+  door.heightCm = 210
+  expect(inspectMetricClearanceRoutes(geometry).result?.routes).toHaveLength(2)
+})

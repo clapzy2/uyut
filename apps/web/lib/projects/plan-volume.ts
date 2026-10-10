@@ -3,7 +3,11 @@ import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import { kitchenItemIssues, kitchenItemsSchema, kitchenLabels } from './kitchen-items'
 import type { PlanGeometryIssue } from './plan-geometry-inspection'
 import { currentWallFacePairs } from './plan-opening-face-pairs'
-import { inspectPlanVerticalDimensions } from './plan-vertical-dimensions'
+import {
+  inspectPlanVerticalDimensions,
+  type PlanVerticalMeasurementReport,
+  planVerticalMeasurementReport,
+} from './plan-vertical-dimensions'
 import { wallElevationPanels } from './wall-elevation'
 import { type WallSolidFace, wallSolidFaces } from './wall-solid'
 import { joinWallSolids } from './wall-solid-union'
@@ -51,6 +55,7 @@ export type PlanVolume = {
   floorZones?: VolumeFloorZone[]
   rooms?: VolumeRoom[]
   layoutNote?: string
+  verticalMeasurements?: PlanVerticalMeasurementReport
 }
 
 export type VolumeRoom = {
@@ -311,6 +316,7 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
     solidFaces: joined?.faces ?? solidFaces,
     joinedSolids: joined !== undefined,
     issues: [...(joined?.issues ?? []), ...kitchenIssues],
+    verticalMeasurements: planVerticalMeasurementReport(geometry),
     rooms: geometry.rooms.flatMap((room, index) =>
       room.spaceKind === 'balcony' || room.spaceKind === 'loggia' || /балкон|лоджи/i.test(room.name)
         ? [{ id: `plan-space:${index}`, title: room.name, floor: room.polygon, sourceOnly: true }]

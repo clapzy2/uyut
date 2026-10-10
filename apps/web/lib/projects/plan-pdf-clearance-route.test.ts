@@ -132,6 +132,56 @@ function required<T>(value: T | undefined): T {
 }
 
 describe('проходы между исходными PDF-контурами', () => {
+  it.each(['same-ids', 'different-ids'])(
+    'не скрывает повторную исходную пару поднятым порогом: %s',
+    (kind) => {
+      const geometry = fixture()
+      const original = pair(geometry)
+      const duplicate = structuredClone(original)
+      if (kind === 'different-ids') {
+        for (const binding of duplicate.bindings) {
+          binding.opening.id += '-duplicate'
+          geometry.openings.push(structuredClone(binding.opening))
+        }
+      }
+      geometry.pdfCalibration?.openingFacePairs?.push(duplicate)
+      const door = geometry.openings.find(({ id }) => id === 'first')
+      if (!door) throw new Error('Missing opening')
+      door.bottomCm = 10
+      const before = structuredClone(geometry)
+      expect(inspectPdfClearanceRoutes(geometry).result).toBeUndefined()
+      expect(inspectPdfClearanceRoutes(geometry).missing).toContain('однозначность')
+      expect(geometry).toEqual(before)
+    },
+  )
+  it.each([10, 0.000000001])(
+    'не открывает полосу по полу при текущем поднятом низе %s',
+    (bottomCm) => {
+      const geometry = fixture()
+      const door = geometry.openings.find(({ id }) => id === 'first')
+      if (!door) throw new Error('Missing current opening')
+      const sourceProofs = structuredClone(geometry.pdfCalibration)
+      door.bottomCm = bottomCm
+      expect(inspectPdfClearanceRoutes(geometry).result?.unresolvedRoomIds).toEqual(['1'])
+      expect(geometry.pdfCalibration).toEqual(sourceProofs)
+      door.bottomCm = 0
+      expect(inspectPdfClearanceRoutes(geometry).result?.routes).toHaveLength(2)
+    },
+  )
+  it('проверяет текущую высоту проёма независимо от горизонтального source snapshot', () => {
+    const geometry = fixture()
+    const door = geometry.openings.find(({ id }) => id === 'first')
+    const entry = geometry.openings.find(({ id }) => id === 'entry')
+    if (!door || !entry) throw new Error('Missing fixture')
+    for (const wall of geometry.walls) wall.heightCm = 270
+    door.bottomCm = 0
+    door.heightCm = 350
+    expect(inspectPdfClearanceRoutes(geometry).result).toBeUndefined()
+    door.heightCm = 210
+    expect(inspectPdfClearanceRoutes(geometry).result?.routes).toHaveLength(2)
+    entry.bottomCm = 10
+    expect(inspectPdfClearanceRoutes(geometry).missing).toContain('порог')
+  })
   it('соединяет доказанные открытые зоны без вымышленной двери', () => {
     const geometry = openZones()
     geometry.routeWidthCm = 90

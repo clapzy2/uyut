@@ -524,6 +524,372 @@ describe('documentary room schedule and complete numeric-marker accounting', () 
   })
 })
 
+describe('optional documentary dimension discovery', () => {
+  function dimensionFixture() {
+    const result = fixture()
+    const discovery: NonNullable<NativeReviewPacket['dimensionDiscovery']> = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [{ labelId: 'native-text-10', valueMm: 2400, axis: 'width' }],
+      unresolved: [{ labelId: 'native-text-11', reason: 'unsupported-dimension-orientation' }],
+    }
+    result.packet.counts.printedDimensions = 1
+    result.packet.dimensionDiscovery = discovery
+    return { ...result, discovery }
+  }
+
+  it('keeps documentary candidates and unresolved source IDs without calibration authority', async () => {
+    const { packet, headers, discovery } = dimensionFixture()
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.dimensionDiscovery).toEqual(discovery)
+    expect(loaded.counts.printedDimensions).toBe(1)
+    expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+
+  it('accepts legacy absence and an empty held discovery', async () => {
+    const { packet, headers } = fixture()
+    expect((await loadFixture(packet, headers)).packet.dimensionDiscovery).toBeUndefined()
+    packet.dimensionDiscovery = {
+      status: 'unresolved',
+      refusalReason: 'r'.repeat(128),
+      candidates: [],
+      unresolved: [],
+    }
+    expect((await loadFixture(packet, headers)).packet.dimensionDiscovery).toEqual(
+      packet.dimensionDiscovery,
+    )
+  })
+
+  it('accepts exactly 1000 combined source captions and the printed millimetre bounds', async () => {
+    const { packet, headers, discovery } = dimensionFixture()
+    discovery.candidates = Array.from({ length: 500 }, (_, index) => ({
+      labelId: `source-${index}`,
+      valueMm: index === 0 ? 1 : 99999,
+      axis: index % 2 ? 'width' : 'depth',
+    }))
+    discovery.unresolved = Array.from({ length: 500 }, (_, index) => ({
+      labelId: `source-${500 + index}`,
+      reason: 'r'.repeat(128),
+    }))
+    packet.counts.printedDimensions = 500
+    expect((await loadFixture(packet, headers)).packet.dimensionDiscovery).toEqual(discovery)
+  })
+
+  it.each([
+    'null',
+    'status',
+    'draft-reason',
+    'missing-candidates',
+    'missing-unresolved',
+    'combined-limit',
+    'candidate-null',
+    'candidate-label',
+    'duplicate-candidate',
+    'cross-claim',
+    'value-zero',
+    'value-negative',
+    'value-fractional',
+    'value-large',
+    'axis',
+    'count-mismatch',
+    'candidate-authority',
+    'unresolved-null',
+    'unresolved-reason',
+    'duplicate-unresolved',
+    'unresolved-authority',
+    'held-nonempty',
+    'report-authority',
+  ])('rejects malformed or overclaimed dimension discovery: %s', async (change) => {
+    const { packet, headers, discovery } = dimensionFixture()
+    const candidate = discovery.candidates[0],
+      unresolved = discovery.unresolved[0]
+    if (!candidate || !unresolved) throw new Error('Dimension fixture is missing')
+    if (change === 'null') Object.assign(packet, { dimensionDiscovery: null })
+    if (change === 'status') Object.assign(discovery, { status: 'calibrated' })
+    if (change === 'draft-reason') discovery.refusalReason = 'held'
+    if (change === 'missing-candidates') Object.assign(discovery, { candidates: null })
+    if (change === 'missing-unresolved') Object.assign(discovery, { unresolved: null })
+    if (change === 'combined-limit')
+      discovery.unresolved = Array.from({ length: 1000 }, (_, index) => ({
+        labelId: `unresolved-${index}`,
+        reason: 'unobserved',
+      }))
+    if (change === 'candidate-null') Object.assign(discovery.candidates, { 0: null })
+    if (change === 'candidate-label') candidate.labelId = ' '
+    if (change === 'duplicate-candidate') {
+      discovery.candidates.push({ ...candidate })
+      packet.counts.printedDimensions = 2
+    }
+    if (change === 'cross-claim') unresolved.labelId = candidate.labelId
+    if (change === 'value-zero') candidate.valueMm = 0
+    if (change === 'value-negative') candidate.valueMm = -1
+    if (change === 'value-fractional') candidate.valueMm = 10.5
+    if (change === 'value-large') candidate.valueMm = 100000
+    if (change === 'axis') Object.assign(candidate, { axis: 'height' })
+    if (change === 'count-mismatch') packet.counts.printedDimensions = 0
+    if (change === 'candidate-authority') Object.assign(candidate, { cmPerPoint: 1.76 })
+    if (change === 'unresolved-null') Object.assign(discovery.unresolved, { 0: null })
+    if (change === 'unresolved-reason') unresolved.reason = ' '
+    if (change === 'duplicate-unresolved') discovery.unresolved.push({ ...unresolved })
+    if (change === 'unresolved-authority') Object.assign(unresolved, { estimatedValueMm: 1200 })
+    if (change === 'held-nonempty')
+      Object.assign(discovery, { status: 'unresolved', refusalReason: 'held' })
+    if (change === 'report-authority') Object.assign(discovery, { calibrated: true })
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+})
+
+describe('optional literal height diagnostics, never a 3D acceptance gate', () => {
+  function heightFixture() {
+    const result = fixture()
+    result.packet.extraction.skippedCurves = 45
+    result.packet.extraction.clippedPaths = 18
+    const heights: NonNullable<NativeReviewPacket['heightObservations']> = {
+      status: 'draft',
+      refusalReason: null,
+      observations: [
+        {
+          labelId: 'native-text-20',
+          originalText: 'h потолок натяжной-2672мм',
+          valueMm: 2672,
+          quantityKind: 'finished-ceiling',
+          datum: 'unspecified',
+          issueCodes: ['height-datum-unverified'],
+          mayAcceptFor3D: false,
+        },
+      ],
+      issues: [
+        {
+          labelId: 'native-text-20',
+          originalText: 'h потолок натяжной-2672мм',
+          code: 'height-datum-unverified',
+        },
+      ],
+      omissionCounts: { skippedCurves: 45, clippedPaths: 18 },
+    }
+    result.packet.heightObservations = heights
+    return { ...result, heights }
+  }
+
+  it('retains raw source text, unresolved datum and exact parent omission counts', async () => {
+    const { packet, headers, heights } = heightFixture()
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.heightObservations).toEqual(heights)
+    expect(loaded.heightObservations?.observations[0]?.mayAcceptFor3D).toBe(false)
+    expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+
+  it('accepts legacy absence, an empty held diagnostic and a separately observed unitless header', async () => {
+    const { packet, headers } = fixture()
+    expect((await loadFixture(packet, headers)).packet.heightObservations).toBeUndefined()
+    packet.heightObservations = {
+      status: 'unresolved',
+      refusalReason: 'r'.repeat(128),
+      observations: [],
+      issues: [],
+      omissionCounts: { skippedCurves: 0, clippedPaths: 0 },
+    }
+    expect((await loadFixture(packet, headers)).packet.heightObservations).toEqual(
+      packet.heightObservations,
+    )
+    packet.heightObservations.status = 'draft'
+    packet.heightObservations.refusalReason = null
+    packet.heightObservations.issues = [
+      {
+        labelId: 'native-text-30',
+        originalText: 'Высота потолка',
+        code: 'no-literal-unit-qualified-height',
+      },
+    ]
+    expect((await loadFixture(packet, headers)).packet.heightObservations?.issues).toEqual(
+      packet.heightObservations.issues,
+    )
+  })
+
+  it.each(['finished-ceiling', 'opening-height', 'beam-level', 'unclassified-height'] as const)(
+    'accepts a bounded %s observation only with consistent issue records',
+    async (quantityKind) => {
+      const { packet, headers, heights } = heightFixture()
+      const observation = heights.observations[0]
+      if (!observation) throw new Error('Height fixture is missing')
+      observation.quantityKind = quantityKind
+      if (quantityKind === 'unclassified-height') {
+        observation.issueCodes.push('height-role-unclassified')
+        heights.issues.push({
+          labelId: observation.labelId,
+          originalText: observation.originalText,
+          code: 'height-role-unclassified',
+        })
+      }
+      expect((await loadFixture(packet, headers)).packet.heightObservations).toEqual(heights)
+    },
+  )
+
+  it.each([-120, 0, 6000.1, 90000])(
+    'preserves out-of-domain %s mm as flagged diagnostic evidence only',
+    async (valueMm) => {
+      const { packet, headers, heights } = heightFixture()
+      const observation = heights.observations[0]
+      if (!observation) throw new Error('Height fixture is missing')
+      observation.valueMm = valueMm
+      observation.issueCodes.push('height-outside-model-range')
+      heights.issues.push({
+        labelId: observation.labelId,
+        originalText: observation.originalText,
+        code: 'height-outside-model-range',
+      })
+      expect((await loadFixture(packet, headers)).packet.heightObservations).toEqual(heights)
+    },
+  )
+
+  it('accepts 100 observations, 100 independent header issues and retained count bounds', async () => {
+    const { packet, headers, heights } = heightFixture()
+    const sample = heights.observations[0]
+    if (!sample) throw new Error('Height fixture is missing')
+    heights.observations = Array.from({ length: 100 }, (_, index) => ({
+      ...structuredClone(sample),
+      labelId: `obs-${index}`,
+      datum: index % 2 ? 'existing-floor' : 'finished-floor',
+      issueCodes: [],
+    }))
+    heights.issues = Array.from({ length: 100 }, (_, index) => ({
+      labelId: `header-${index}`,
+      originalText: 'Высота потолка',
+      code: 'no-literal-unit-qualified-height',
+    }))
+    heights.omissionCounts = { skippedCurves: 6000, clippedPaths: 6000 }
+    packet.extraction.skippedCurves = 6000
+    packet.extraction.clippedPaths = 6000
+    expect((await loadFixture(packet, headers)).packet.heightObservations).toEqual(heights)
+  })
+
+  it('accepts 20 distinct linked issue codes while preserving unaccepted diagnostic status', async () => {
+    const { packet, headers, heights } = heightFixture()
+    const observation = heights.observations[0]
+    if (!observation) throw new Error('Height fixture is missing')
+    observation.issueCodes.push(...Array.from({ length: 19 }, (_, index) => `source-note-${index}`))
+    heights.issues = observation.issueCodes.map((code) => ({
+      labelId: observation.labelId,
+      originalText: observation.originalText,
+      code,
+    }))
+    expect((await loadFixture(packet, headers)).packet.heightObservations).toEqual(heights)
+  })
+
+  it.each([
+    'null-layer',
+    'extra-layer-key',
+    'status',
+    'draft-reason',
+    'null-observations',
+    'null-issues',
+    'observations-limit',
+    'issues-limit',
+    'null-observation',
+    'duplicate-observation',
+    'blank-label',
+    'blank-text',
+    'long-text',
+    'nonfinite-value',
+    'kind',
+    'datum',
+    'accepted-for-3d',
+    'point-authority',
+    'wall-authority',
+    'null-codes',
+    'codes-limit',
+    'duplicate-code',
+    'blank-code',
+    'missing-datum-code',
+    'missing-role-code',
+    'contradictory-role-code',
+    'contradictory-datum-code',
+    'missing-range-code',
+    'contradictory-range-code',
+    'ambiguous-explicit-datum',
+    'missing-issue-row',
+    'duplicate-issue-row',
+    'stale-issue-text',
+    'foreign-observation-issue',
+    'unexpected-observation-code',
+    'external-text-conflict',
+    'issue-authority',
+    'null-omissions',
+    'extra-omission-key',
+    'stale-curve-count',
+    'negative-clip-count',
+    'large-count',
+    'held-observation',
+  ])('rejects malformed or contradictory height diagnostics: %s', async (change) => {
+    const { packet, headers, heights } = heightFixture()
+    const observation = heights.observations[0],
+      issue = heights.issues[0]
+    if (!observation || !issue) throw new Error('Height fixture is missing')
+    if (change === 'null-layer') Object.assign(packet, { heightObservations: null })
+    if (change === 'extra-layer-key') Object.assign(heights, { assignsGeometryHeights: true })
+    if (change === 'status') Object.assign(heights, { status: 'accepted' })
+    if (change === 'draft-reason') heights.refusalReason = 'held'
+    if (change === 'null-observations') Object.assign(heights, { observations: null })
+    if (change === 'null-issues') Object.assign(heights, { issues: null })
+    if (change === 'observations-limit') heights.observations = Array(101).fill(observation)
+    if (change === 'issues-limit') heights.issues = Array(101).fill(issue)
+    if (change === 'null-observation') Object.assign(heights.observations, { 0: null })
+    if (change === 'duplicate-observation') heights.observations.push(structuredClone(observation))
+    if (change === 'blank-label') observation.labelId = ' '
+    if (change === 'blank-text') observation.originalText = ' '
+    if (change === 'long-text') observation.originalText = 'h'.repeat(201)
+    if (change === 'nonfinite-value') observation.valueMm = Infinity
+    if (change === 'kind') Object.assign(observation, { quantityKind: 'wall-height' })
+    if (change === 'datum') Object.assign(observation, { datum: 'assumed-zero' })
+    if (change === 'accepted-for-3d') Object.assign(observation, { mayAcceptFor3D: true })
+    if (change === 'point-authority') Object.assign(observation, { pagePoint: { x: 100, y: 100 } })
+    if (change === 'wall-authority') Object.assign(observation, { wallId: 'source-wall' })
+    if (change === 'null-codes') Object.assign(observation, { issueCodes: null })
+    if (change === 'codes-limit')
+      observation.issueCodes = Array.from({ length: 21 }, (_, index) => `issue-${index}`)
+    if (change === 'duplicate-code') observation.issueCodes.push('height-datum-unverified')
+    if (change === 'blank-code') observation.issueCodes.push(' ')
+    if (change === 'missing-datum-code') {
+      observation.issueCodes = []
+      heights.issues = []
+    }
+    if (change === 'missing-role-code') observation.quantityKind = 'unclassified-height'
+    if (change === 'contradictory-role-code')
+      observation.issueCodes.push('height-role-unclassified')
+    if (change === 'contradictory-datum-code') observation.datum = 'existing-floor'
+    if (change === 'missing-range-code') observation.valueMm = -20
+    if (change === 'contradictory-range-code')
+      observation.issueCodes.push('height-outside-model-range')
+    if (change === 'ambiguous-explicit-datum') {
+      observation.datum = 'finished-floor'
+      observation.issueCodes = ['ambiguous-height-datum']
+    }
+    if (change === 'missing-issue-row') heights.issues = []
+    if (change === 'duplicate-issue-row') heights.issues.push({ ...issue })
+    if (change === 'stale-issue-text') issue.originalText = 'h потолок натяжной-2800мм'
+    if (change === 'foreign-observation-issue') issue.labelId = 'unknown-observation'
+    if (change === 'unexpected-observation-code') issue.code = 'no-literal-unit-qualified-height'
+    if (change === 'external-text-conflict')
+      heights.issues.push(
+        { labelId: 'header', originalText: 'Высота?', code: 'no-literal-unit-qualified-height' },
+        { labelId: 'header', originalText: 'Другая высота?', code: 'multiple-height-quantities' },
+      )
+    if (change === 'issue-authority') Object.assign(issue, { wallId: 'source-wall' })
+    if (change === 'null-omissions') Object.assign(heights, { omissionCounts: null })
+    if (change === 'extra-omission-key')
+      Object.assign(heights.omissionCounts, { extractionComplete: true })
+    if (change === 'stale-curve-count') heights.omissionCounts.skippedCurves = 0
+    if (change === 'negative-clip-count') heights.omissionCounts.clippedPaths = -1
+    if (change === 'large-count') {
+      heights.omissionCounts.skippedCurves = 6001
+      packet.extraction.skippedCurves = 6001
+    }
+    if (change === 'held-observation')
+      Object.assign(heights, { status: 'unresolved', refusalReason: 'held' })
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+})
+
 describe('bounded source-backed floor cavities without accepted ownership', () => {
   function floorFixture() {
     const result = fixture()

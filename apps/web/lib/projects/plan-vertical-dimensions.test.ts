@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest'
 import {
   applyPlanVerticalDimensions,
   inspectPlanVerticalDimensions,
+  openingFloorLevel,
+  planVerticalMeasurementReport,
 } from './plan-vertical-dimensions'
 
 const geometry: PlanGeometry = {
@@ -101,5 +103,96 @@ describe('мерки по высоте', () => {
         walls: [{ id: 'wall', heightCm: Number.NaN }],
       }).ok,
     ).toBe(false)
+  })
+
+  it.each([
+    'duplicate-wall',
+    'duplicate-opening',
+    'unknown-wall',
+    'unknown-opening',
+    'missing-wall',
+    'missing-opening',
+    'trimmed-id',
+  ])('не принимает изменившийся или неоднозначный список мерок: %s', (kind) => {
+    const input = structuredClone(geometry)
+    if (kind === 'duplicate-wall')
+      input.walls.push(structuredClone(input.walls[0] as PlanGeometry['walls'][number]))
+    if (kind === 'duplicate-opening')
+      input.openings.push(structuredClone(input.openings[0] as PlanGeometry['openings'][number]))
+    if (kind === 'unknown-wall' && input.walls[0]) input.walls[0].id = 'another-wall'
+    if (kind === 'unknown-opening' && input.openings[0]) input.openings[0].id = 'another-opening'
+    if (kind === 'missing-wall') input.walls = []
+    if (kind === 'missing-opening') input.openings = []
+    if (kind === 'trimmed-id' && input.walls[0]) input.walls[0].id = ' wall '
+    const before = structuredClone(geometry)
+    expect(applyPlanVerticalDimensions(geometry, input).ok).toBe(false)
+    expect(geometry).toEqual(before)
+  })
+
+  it('отклоняет невозможный верх проёма даже при неизвестной высоте стены', () => {
+    const input = structuredClone(geometry)
+    const opening = input.openings[0]
+    if (!opening) throw new Error('Missing opening')
+    opening.bottomCm = 500
+    opening.heightCm = 101
+    expect(inspectPlanVerticalDimensions(input)[0]?.openingIds).toEqual(['window'])
+    expect(applyPlanVerticalDimensions(geometry, input).ok).toBe(false)
+    opening.heightCm = 100
+    expect(inspectPlanVerticalDimensions(input)).toEqual([])
+  })
+
+  it('удерживает высоты без стены-хозяина и повторяющиеся идентификаторы', () => {
+    const input = structuredClone(geometry)
+    if (input.openings[0]) input.openings[0].wallId = 'removed'
+    expect(inspectPlanVerticalDimensions(input)[0]?.openingIds).toEqual(['window'])
+    expect(planVerticalMeasurementReport(input).surfaceStatus).toBe('invalid')
+    input.walls.push(structuredClone(input.walls[0] as PlanGeometry['walls'][number]))
+    expect(inspectPlanVerticalDimensions(input)[0]?.id).toBe('vertical-element-identity')
+  })
+
+  it.each(['', ' ', ' wall ', 'a'.repeat(101)])(
+    'не объявляет полными мерки с недопустимым существующим ID: %s',
+    (id) => {
+      const input = structuredClone(geometry)
+      const wall = input.walls[0]
+      const opening = input.openings[0]
+      if (!wall || !opening) throw new Error('Missing geometry')
+      wall.id = id
+      wall.heightCm = 270
+      wall.measuredThicknessCm = 10
+      opening.wallId = id
+      opening.bottomCm = 0
+      opening.heightCm = 210
+      expect(inspectPlanVerticalDimensions(input)[0]?.id).toBe('vertical-element-identity')
+      expect(planVerticalMeasurementReport(input).surfaceStatus).toBe('invalid')
+      expect(applyPlanVerticalDimensions(input, input).ok).toBe(false)
+    },
+  )
+
+  it('отделяет полноту высот от неизвестной толщины и не подставляет нулевой порог', () => {
+    const source = structuredClone(geometry)
+    const opening = source.openings[0]
+    const wall = source.walls[0]
+    if (!opening || !wall) throw new Error('Missing fixture')
+    opening.type = 'balcony'
+    expect(planVerticalMeasurementReport(source)).toMatchObject({
+      surfaceStatus: 'partial',
+      unknownThresholdIds: ['window'],
+      raisedThresholdIds: [],
+    })
+    opening.bottomCm = 0
+    opening.heightCm = 210
+    wall.heightCm = 270
+    expect(planVerticalMeasurementReport(source)).toMatchObject({
+      surfaceStatus: 'complete',
+      missingWallThicknessIds: ['wall'],
+      unknownThresholdIds: [],
+      raisedThresholdIds: [],
+    })
+    opening.bottomCm = 0.000000001
+    expect(planVerticalMeasurementReport(source).raisedThresholdIds).toEqual(['window'])
+    expect(openingFloorLevel(opening)).toBe('raised')
+    delete opening.bottomCm
+    expect(openingFloorLevel(opening)).toBe('unknown')
   })
 })

@@ -7,8 +7,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import sharp from 'sharp'
 import { preparePlanPage } from '../lib/projects/plan-document'
+import { automaticNativeDimensionRoles } from '../lib/projects/plan-native-dimension-roles'
 import { nativeFloorCavityCandidates } from '../lib/projects/plan-native-floor-cavities'
 import { nativeFloorOpeningSides } from '../lib/projects/plan-native-floor-opening-sides'
+import { nativeHeightObservations } from '../lib/projects/plan-native-height-observations'
 import { nativeOpeningSourceLinks } from '../lib/projects/plan-native-opening-links'
 import { nativeReviewPacket } from '../lib/projects/plan-native-review-packet'
 import { nativeReviewedFrameRooms } from '../lib/projects/plan-native-reviewed-frame-rooms'
@@ -41,6 +43,8 @@ const source = {
 const savedReading = savedReadingPath
   ? JSON.parse(await readFile(resolve(savedReadingPath), 'utf8'))
   : undefined
+const dimensions = automaticNativeDimensionRoles({ ...input, source })
+const heights = nativeHeightObservations({ ...input, source })
 const scheduleNumbers = nativeRoomNumberScheduleLinks(input)
 const circles = scheduleNumbers.circles
 const floor = nativeFloorCavityCandidates(input)
@@ -70,6 +74,8 @@ await writeFile(
       frames,
       connections,
       circles,
+      dimensions,
+      heights,
       roomScheduleEvidence: scheduleNumbers.schedule,
       numberScheduleLinks: scheduleNumbers.report,
       floor,
@@ -154,6 +160,9 @@ console.log(
       sourceSymbolGroups: connections.groups.length,
       sourceLinkRefusal: connections.refusalReason,
       numericCircleCues: circles.cues.length,
+      dimensionRoleCandidates: dimensions.candidates.length,
+      unresolvedDimensionLabels: dimensions.unresolved.length,
+      heightObservations: heights.observations.length,
       documentaryRoomRows: scheduleNumbers.report.rows.length,
       tableLinkedNumericRows: scheduleNumbers.report.rows.filter(
         (row) => row.markerStatus === 'linked',

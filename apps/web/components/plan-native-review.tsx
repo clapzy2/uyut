@@ -514,6 +514,132 @@ const frameNumberCueMessages = {
   unavailable: 'Цифровая метка для этой сверки недоступна.',
 }
 
+const heightQuantityMessages = {
+  'finished-ceiling': 'чистый потолок',
+  'opening-height': 'высота проёма',
+  'beam-level': 'уровень балки',
+  'unclassified-height': 'вид высоты не определён',
+}
+const heightDatumMessages = {
+  unspecified: 'уровень отсчёта не проверен',
+  'existing-floor': 'буквально указан существующий пол',
+  'finished-floor': 'буквально указан чистый пол',
+}
+
+function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
+  const dimensions = packet.dimensionDiscovery
+  const heights = packet.heightObservations
+  if (!dimensions && !heights) return null
+  return (
+    <section
+      className="space-y-2 border-t border-line pt-3 text-[13px] leading-relaxed"
+      aria-label="Размеры и высоты перед переносом"
+    >
+      <h4 className="text-[14px] font-medium">Размеры и высоты перед переносом</h4>
+      <p className="text-ink-2">
+        Размерная роль ещё не доказывает метрический размер. Для масштаба нужны независимые
+        размерные опоры по X и Y и исходные свидетельства целой стены или косяка. Значения не
+        переносятся автоматически в комнаты или 3D.
+      </p>
+      {dimensions ? (
+        dimensions.status === 'unresolved' ? (
+          <p className="break-all text-ink-2">
+            Поиск размерных подписей не завершён; частичный набор не показан. Ограничение:{' '}
+            {dimensions.refusalReason}.
+          </p>
+        ) : (
+          <p>
+            Размерные кандидаты: {dimensions.candidates.length}; X:{' '}
+            {dimensions.candidates.filter((item) => item.axis === 'width').length}, Y:{' '}
+            {dimensions.candidates.filter((item) => item.axis === 'depth').length}. Удержанные
+            подписи: {dimensions.unresolved.length}.
+          </p>
+        )
+      ) : null}
+      {heights ? (
+        heights.status === 'unresolved' ? (
+          <p className="break-all text-ink-2">
+            Поиск подписей высот не завершён; частичный набор не показан. Ограничение:{' '}
+            {heights.refusalReason}.
+          </p>
+        ) : (
+          <>
+            <p>
+              Подписи высот: {heights.observations.length}; чистый потолок:{' '}
+              {
+                heights.observations.filter((item) => item.quantityKind === 'finished-ceiling')
+                  .length
+              }
+              , проёмы:{' '}
+              {heights.observations.filter((item) => item.quantityKind === 'opening-height').length}
+              , балки:{' '}
+              {heights.observations.filter((item) => item.quantityKind === 'beam-level').length},
+              вид не определён:{' '}
+              {
+                heights.observations.filter((item) => item.quantityKind === 'unclassified-height')
+                  .length
+              }
+              .
+            </p>
+            <p className="text-ink-2">
+              h1/h2 остаются неизвестными обозначениями. Чистый потолок — не конструктивная высота
+              стены или плиты; буквальный уровень отсчёта не определяет комнату. Разные подписи
+              потолка не усредняются. Эти наблюдения нельзя принять как высоты 3D.
+            </p>
+          </>
+        )
+      ) : null}
+      {heights ? (
+        <p className="text-ink-2">
+          Пропуски исходного слоя: кривых {heights.omissionCounts.skippedCurves}, отсечённых путей{' '}
+          {heights.omissionCounts.clippedPaths}. Подписи не доказывают полноту геометрии.
+        </p>
+      ) : null}
+      {dimensions?.status === 'draft' || heights?.status === 'draft' ? (
+        <details className="text-ink-2">
+          <summary className="min-h-11 cursor-pointer py-3">
+            Исходные подписи, миллиметры и ограничения
+          </summary>
+          <ul className="list-disc space-y-2 pl-5">
+            {dimensions?.status === 'draft'
+              ? dimensions.candidates.map((item) => (
+                  <li key={`dimension:${item.labelId}`} className="break-all">
+                    {item.labelId}: {item.valueMm} мм, ось {item.axis === 'width' ? 'X' : 'Y'}.
+                    Размерная роль не подтверждает цель измерения.
+                  </li>
+                ))
+              : null}
+            {dimensions?.status === 'draft'
+              ? dimensions.unresolved.map((item) => (
+                  <li key={`held:${item.labelId}`} className="break-all">
+                    {item.labelId}: подпись удержана — {item.reason}.
+                  </li>
+                ))
+              : null}
+            {heights?.status === 'draft'
+              ? heights.observations.map((item) => (
+                  <li key={`height:${item.labelId}`} className="break-all">
+                    {item.labelId}: «{item.originalText}» — {item.valueMm} мм;{' '}
+                    {heightQuantityMessages[item.quantityKind]}, {heightDatumMessages[item.datum]}.
+                    Не принято для 3D.
+                    {item.issueCodes.length ? ` Ограничения: ${item.issueCodes.join(', ')}.` : null}
+                  </li>
+                ))
+              : null}
+            {heights?.status === 'draft'
+              ? heights.issues.map((item) => (
+                  <li key={`height-issue:${item.labelId}:${item.code}`} className="break-all">
+                    {item.labelId}: «{item.originalText}» — {item.code}.
+                  </li>
+                ))
+              : null}
+          </ul>
+        </details>
+      ) : null}
+    </section>
+  )
+}
+
 const floorOpeningStatusMessages = {
   'two-sided': 'Две разные соседние области',
   'one-sided': 'Одна наблюдаемая соседняя область',
@@ -832,6 +958,9 @@ export function NativeReviewResult({
         />
       ) : null}
       {packet.floorOpeningSides ? <FloorOpeningSides packet={packet} /> : null}
+      {packet.dimensionDiscovery || packet.heightObservations ? (
+        <NativeDimensionsReview packet={packet} />
+      ) : null}
       {packet.doorSymbols || packet.openingFrames ? (
         <div className="space-y-2 text-[13px] leading-relaxed">
           {packet.doorSymbols ? (

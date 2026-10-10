@@ -2570,3 +2570,92 @@ height/thickness proof, physical threshold acceptance и source-based2D/3D по�
 приёмки. Новый scoped logical neighbor report сам эту приёмку не выполняет.
 Console0errors/0warnings; focusable1414px fullsize viewport/keyboardscroll проверены.
 Созданные для этой проверки браузер и сервер закрыты, ephemeral helper удалён.
+
+### 10 октября: пороги, размерные подписи и вертикальные мерки перед переносом
+
+Свежий automatic existing page6 replay после всех исправлений:
+tmp/native-transfer-measurements-20261010-primary-final-v2/.
+PDF SHA d79a89eba7d262f2615a9c9f99c03be4553d85c5f737423c51f98e8c9f5da1ab,
+JPEG SHA f55b2437f57ba9d6b45aeeaba180ff771c47bc87e2204405f2b04fd597206b58.
+Source PDF/JPEG просмотрены; нет нового AI, сохранения проекта или подстановки
+примерных обмеров в источник. Floor/floorOpeningSides/connections/frames точно
+совпали с native-floor-sides-primary-final; обе overlays byte-identical.
+Curves45/clips0,20cavities/7marked/7strips/5profiles/1held сохранены.
+С архивной ручной разметкой primary-reviewed-a dimensions/heights/floor/sides
+совпали с automatic pass; old manual correspondence осталась5/1/1.
+
+Dimension discovery больше не отказывается только из-за108 numeric labels:
+72 candidates (41width/31depth),36 held. Request-local prepared cardinal verifier
+сохраняет прежний строгий контракт; compact text indices не переобозначены как
+original PDF identities. Лимиты1000labels/3000paths/20kpoints и4mwork bounded;
+overflow atomic, competing rail claims удерживаются все, input/output detached.
+Это подписи со span evidence, не приёмка масштаба, ширины проёма или floor edge.
+
+Literal height report:16 quantities —4finished-ceiling (2684/2649/2663/2672mm),
+1opening-height2079mm,11unclassified. Среди последних8H1/H2,2281balcony-caption,
+2053plainh и2467plainh под отдельным заголовком балки. Все datumunspecified,
+mayAcceptFor3Dfalse,33issues. Разные2649/2684 в общей зоне1+5 не усредняются.
+Высота отделочного потолка не есть высота стены/плиты; H1/H2 не есть порог.
+Нет caption joining, nearest room ownership или глобального footer datum.
+Parser ограничен literal unit-qualified подписью; multiple quantities/exponents/
+numeric remnants удерживаются. Explicit negative quantities остаются отрицательными
+с range issue; conventional h-2053 separator не меняет знак. Negated/uncertain/
+absent roles и datum не принимаются; подвесной шкаф/светильник не становится потолком.
+
+Packet optional legacy-compatible поля dimensionDiscovery/heightObservations
+содержат IDs/text/mm/roles/issues, без raw normalized points в pixel contract.
+Client проверяет strict keys, uniqueness/accounting, bounds, omission provenance,
+согласованность role/datum/range flags и issue records; authority keys запрещены.
+UI «Размеры и высоты перед переносом» отделяет эти наблюдения от model acceptance.
+
+В ручной и PDF-route ветках текущий bottomCm>0 оставляет материал на уровне пола;
+entry step удерживает маршрут, internal step не создаёт cut/portal. Даже1e-9 не
+считается нулём. Неполные legacy bottoms остаются horizontal-only conditional,
+не физическим ровным проходом. Known invalid vertical dimensions preflight
+удерживают route/volume. PDF pair uniqueness проверяется и для поднятых проёмов:
+повторный ID и positive overlapping face claims не скрываются ранним continue.
+Width/calibration/source pair snapshots не изменяются при проверке высоты.
+Snapshot invalidation сразу убирает старые линии после изменения мерок.
+
+Vertical input требует полного актуального inventory и уникальных непустых ID
+без пробелов; partial/stale forms не стирают чужие значения молча. Проверяются
+host wall, finite ranges, bottom+height≤600cm и fit внутри известной стены.
+Volume completeness отдельно перечисляет missing wallheight/thickness и
+openingheight/bottom, raised/unknown thresholds. Partial preview сохраняется,
+known contradictory geometry не строится; complete поля не означают обмер.
+
+Ещё6 свежих PDF replay tmp/native-transfer-measurements-20261010-SOURCE-a/:
+BASIS19dimensions/11held,0heights; Remplanner30/35,1height. Basman и colored
+dimension-discovery-budget atomic; Life incomplete-native-layer; Designgroup
+floor candidate-limit. Остальные floor results прежние, colored19fills/8named
+сохранены; новых frame-side assignments0. Это negative/bounded controls,
+не доказательство универсальной полноты распознавания.
+
+4850webtests/263files, typecheck7packages, lint908, productionbuild/diff passed.
+Финальный повтор default-parallel:4848passed/2timeout в прежних случайных layout
+тестах (seeds20260912/7,5000ms), не assertion failure. Отдельный layout78/78 прошёл
+с maxWorkers1; весь набор4850/263 повторно прошёл с maxWorkers4 за40.35s.
+Timeout/config/layout tests не менялись. Перегрузка параллельного запуска —
+вероятная причина; эти тайм-ауты не скрыты как гарантированно стабильный default-run.
+Независимые read-only audits проверили source immutability, permutations/limits,
+client contracts, explicit negative/negated/noun-conflict captions, malformed ID,
+raised pair duplicates и минимальную положительную нижнюю грань; найденные случаи
+исправлены и закреплены regressions. Общий прогон выполнен после этих исправлений.
+
+Firefoxactualcomponents/mockprivateAPI/actualJPEG:1280/390 без page overflow,
+native summary и preserved31SVGpolygons. Route/volume использовали existing
+SYNTHETIC realistic-balcony fixture, не реальный обмер: known measures,10cm raised
+entry (0route lines), unknown values (partial preview),350cm opening on270cm wall
+(route held/model null). Console0errors/0warnings; источник heights не назначался.
+Screenshots output/playwright/transfer-measurements-native-desktop.png,
+transfer-measurements-native-mobile.png,transfer-vertical-partial-mobile.png,
+transfer-threshold-raised-desktop.png. Harness использует existing CSS без root
+fonts и test-only process shim; проверены layout/interaction, не весь prod design.
+Созданные browser/server закрыты, оба temporary helper удалены.
+
+Readiness2D/3D остаётсяfalse. Остаток: original↔compact caption provenance bridge,
+independent X/Y accepted calibration и whole floor edge/jamb metric binding,
+physical threshold roles/levels и полный floor inventory, room height owners
+и floor datum. Только после этого source geometry можно принимать и переносить;
+наблюдения высот сами не заполняют стены/проёмы. Production/userproject/DB/paidAI/
+PR/deploy не менялись.

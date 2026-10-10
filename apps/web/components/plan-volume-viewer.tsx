@@ -31,6 +31,66 @@ function facesViewer(points: VolumeScreenPoint[]): boolean {
   )
 }
 
+function VerticalModelMeasurements({
+  report,
+}: {
+  report: NonNullable<PlanVolume['verticalMeasurements']>
+}) {
+  const missing = [
+    { label: 'Высота стен', ids: report.missingWallHeightIds },
+    { label: 'Толщина стен', ids: report.missingWallThicknessIds },
+    { label: 'Высота проёмов', ids: report.missingOpeningHeightIds },
+    { label: 'Нижняя грань проёмов', ids: report.missingOpeningBottomIds },
+  ]
+  return (
+    <section
+      className="mb-3 border border-line px-3 py-2 text-sm leading-relaxed text-ink-2"
+      aria-label="Мерки объёмной модели"
+    >
+      <h3 className="font-medium text-ink">Мерки объёмной модели</h3>
+      <p className="mt-1">
+        {report.surfaceStatus === 'invalid'
+          ? 'Некоторые вертикальные мерки некорректны. Исправьте их в редакторе; объём не считается сверенным.'
+          : report.surfaceStatus === 'partial'
+            ? 'Вертикальные мерки заполнены частично. Условные поверхности оставлены для обзора; недостающие значения нужно ввести в редакторе.'
+            : report.missingWallThicknessIds.length
+              ? 'Высоты и нижние грани заполнены; толщины стен ещё неполные.'
+              : 'Высоты, нижние грани и толщины заполнены.'}
+      </p>
+      <p className="mt-1 text-xs">
+        Это полнота введённых полей, не подтверждение обмера, высоты потолка или физического
+        прохода.
+      </p>
+      {missing.some(({ ids }) => ids.length) ? (
+        <details className="mt-1 text-xs">
+          <summary className="min-h-11 cursor-pointer py-2">Какие мерки нужно уточнить</summary>
+          <ul className="list-disc space-y-1 pl-4">
+            {missing
+              .filter(({ ids }) => ids.length)
+              .map(({ label, ids }) => (
+                <li key={label} className="break-all">
+                  {label}: {ids.length} — {ids.join(', ')}.
+                </li>
+              ))}
+          </ul>
+        </details>
+      ) : null}
+      {report.unknownThresholdIds.length ? (
+        <p className="mt-1 text-xs break-all">
+          Уровень порога не указан: {report.unknownThresholdIds.length} —{' '}
+          {report.unknownThresholdIds.join(', ')}.
+        </p>
+      ) : null}
+      {report.raisedThresholdIds.length ? (
+        <p className="mt-1 text-xs break-all">
+          Поднятая нижняя грань: {report.raisedThresholdIds.length} —{' '}
+          {report.raisedThresholdIds.join(', ')}. Это не непрерывный ровный пол.
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
 export default function PlanVolumeViewer({
   model,
   projectId,
@@ -207,6 +267,9 @@ export default function PlanVolumeViewer({
 
   return (
     <div className="mt-4">
+      {!roomLayout && model.verticalMeasurements ? (
+        <VerticalModelMeasurements report={model.verticalMeasurements} />
+      ) : null}
       {model.issues.length > 0 ? (
         <div className="mb-3 border border-danger px-4 py-3 text-sm text-ink" role="status">
           <p>Перед выбором расстановки уточните пересечения:</p>

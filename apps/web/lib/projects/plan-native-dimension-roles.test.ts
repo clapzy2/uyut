@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { NativeTextAnchors } from './plan-document'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
+import { pdfNativePageDimensionChain } from './plan-pdf-dimension-chain'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 
 function fixture() {
@@ -135,17 +136,22 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
       'invalid-native-path-provenance',
     )
   })
-  it('does not perform unbounded dimension discovery', () => {
+  it('retains all 101 competing numeric captions rather than imposing an arbitrary label cap', () => {
     const input = fixture()
     input.native.labels = Array.from({ length: 101 }, (_, index) => ({
       ...(input.native.labels[0] as NativeTextAnchors['labels'][number]),
       id: `native-text-${index}`,
       nativeIndex: index,
     }))
-    expect(automaticNativeDimensionRoles(input)).toMatchObject({
-      refusalReason: 'dimension-discovery-budget',
+    const result = automaticNativeDimensionRoles(input)
+    expect(result).toMatchObject({
+      refusalReason: null,
       candidates: [],
     })
+    expect(result.unresolved).toHaveLength(101)
+    expect(result.unresolved.every((entry) => entry.reason === 'competing-dimension-labels')).toBe(
+      true,
+    )
   })
   it('keeps competing labels unresolved rather than assigning the same rail twice', () => {
     const input = fixture(),
@@ -157,5 +163,202 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
     expect(
       result.unresolved.filter((entry) => entry.reason === 'competing-dimension-labels'),
     ).toHaveLength(2)
+  })
+
+  it('checks 108 additional numeric captions without losing an independently supported rail', () => {
+    const input = fixture()
+    for (let index = 0; index < 108; index++) {
+      const point = { x: 500 + index, y: 10 }
+      input.native.labels.push({
+        id: `native-text-${100 + index}`,
+        nativeIndex: 100 + index,
+        name: String(1000 + index),
+        rotation: 0,
+        pagePoint: { ...point },
+        point: { ...point },
+      })
+    }
+    const before = structuredClone(input)
+    const result = automaticNativeDimensionRoles(input)
+    expect(result.refusalReason).toBeNull()
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0]).toMatchObject({ labelId: 'native-text-10', valueMm: 200 })
+    expect(result.unresolved).toHaveLength(108)
+    expect(result.unresolved.every((entry) => entry.reason === 'no-connected-dimension-line')).toBe(
+      true,
+    )
+    expect(input).toEqual(before)
+  })
+
+  it.each(['width', 'depth'] as const)(
+    'preserves the strict legacy %s endpoints and rail evidence',
+    (axis) => {
+      const input = fixture()
+      const label = input.native.labels[0]
+      if (!label?.pagePoint) throw new Error('Missing dimension caption')
+      if (axis === 'depth') {
+        for (const path of input.work.paths)
+          path.points = path.points.map((point) => ({ x: point.y, y: point.x }))
+        label.pagePoint = { x: 168, y: 200 }
+        label.point = { ...label.pagePoint }
+        label.rotation = 90
+      }
+      const legacy = pdfNativePageDimensionChain(
+        input.work,
+        input.source,
+        [
+          {
+            index: label.nativeIndex as number,
+            text: label.name,
+            ...label.pagePoint,
+            rotation: label.rotation as number,
+          },
+        ],
+        200,
+        axis,
+      )
+      if (legacy.status !== 'candidate') throw new Error(legacy.reason)
+      const result = automaticNativeDimensionRoles(input)
+      expect(result.refusalReason).toBeNull()
+      expect(result.candidates[0]?.spanEnds).toEqual(legacy.ends)
+      expect(result.candidates[0]?.rail.operationIndex).toBe(legacy.lineOperations[0])
+      expect(result.candidates[0]?.ticks.map((tick) => tick.operationIndex)).toEqual([2, 3])
+    },
+  )
+
+  it('keeps the old strict competing-rail result on the prepared verifier', () => {
+    const input = fixture()
+    const rail = input.work.paths[0]
+    const label = input.native.labels[0]
+    if (!rail || !label?.pagePoint) throw new Error('Missing native control')
+    input.work.paths.push({ ...structuredClone(rail), operationIndex: 4 })
+    const legacy = pdfNativePageDimensionChain(
+      input.work,
+      input.source,
+      [{ index: label.nativeIndex as number, text: label.name, ...label.pagePoint, rotation: 0 }],
+      200,
+      'width',
+    )
+    expect(legacy.status).not.toBe('candidate')
+    const result = automaticNativeDimensionRoles(input)
+    expect(result.candidates).toEqual([])
+    if (legacy.status === 'candidate') throw new Error('Unexpected legacy candidate')
+    expect(result.unresolved).toEqual([{ labelId: label.id, reason: legacy.reason }])
+  })
+
+  it('does not fabricate native caption context from an injected compact-index snapshot', () => {
+    const input = fixture()
+    const expected = automaticNativeDimensionRoles(input)
+    Object.assign(input, {
+      captionContext: {
+        complete: true,
+        items: [
+          {
+            index: 0,
+            text: '9999',
+            origin: { x: 200, y: 168 },
+            baselineStart: { x: 200, y: 168 },
+            baselineEnd: { x: 250, y: 168 },
+          },
+        ],
+      },
+    })
+    expect(automaticNativeDimensionRoles(input)).toEqual(expected)
+    expect(expected.mayEraseSourceStrokes).toBe(false)
+  })
+
+  it('returns detached point and source snapshots without modifying the prepared input', () => {
+    const input = fixture()
+    const before = structuredClone(input)
+    const result = automaticNativeDimensionRoles(input)
+    const candidate = result.candidates[0]
+    if (!candidate) throw new Error('Missing dimension candidate')
+    candidate.rail.start.x = 999
+    candidate.spanEnds[0].y = 999
+    const tick = candidate.ticks[0]
+    if (tick) tick.end.x = 999
+    result.source.sha256 = 'c'.repeat(64)
+    result.rasterSource.page = 5
+    expect(input).toEqual(before)
+  })
+
+  it('refuses more than the supported native text inventory before discovery', () => {
+    const input = fixture()
+    const label = input.native.labels[0]
+    if (!label) throw new Error('Missing native label')
+    input.native.labels = Array.from({ length: 1001 }, (_, index) => ({
+      ...structuredClone(label),
+      id: `native-text-${index}`,
+      nativeIndex: index,
+    }))
+    expect(automaticNativeDimensionRoles(input)).toMatchObject({
+      refusalReason: 'invalid-native-text-provenance',
+      candidates: [],
+      unresolved: [],
+    })
+  })
+
+  it('withholds the whole report after bounded second-axis preparation exhausts discovery work', () => {
+    const input = fixture()
+    input.native.labels.push({
+      id: 'native-text-20',
+      nativeIndex: 20,
+      name: '200',
+      rotation: 90,
+      pagePoint: { x: 168, y: 200 },
+      point: { x: 168, y: 200 },
+    })
+    const depth: PdfVectorPath[] = [
+      {
+        operationIndex: 10,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: 170, y: 100 },
+          { x: 170, y: 300 },
+        ],
+      },
+      {
+        operationIndex: 11,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: 175, y: 95 },
+          { x: 165, y: 105 },
+        ],
+      },
+      {
+        operationIndex: 12,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: 175, y: 295 },
+          { x: 165, y: 305 },
+        ],
+      },
+    ]
+    input.work.paths.push(...depth)
+    expect(automaticNativeDimensionRoles(input).candidates).toHaveLength(2)
+    for (let index = 0; index < 1100; index++)
+      input.work.paths.push({
+        operationIndex: 100 + index,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: 500, y: 10 + index * 0.75 },
+          { x: 700, y: 10 + index * 0.75 },
+        ],
+      })
+    const before = structuredClone(input)
+    expect(automaticNativeDimensionRoles(input)).toMatchObject({
+      refusalReason: 'dimension-discovery-budget',
+      candidates: [],
+      unresolved: [],
+    })
+    expect(input).toEqual(before)
   })
 })

@@ -91,3 +91,96 @@ it('shows the start footprint even when the only route has one point', () => {
   expect(html).toContain('x="35" y="35" width="70" height="70"')
   expect(html).toContain('<circle cx="70" cy="70"')
 })
+
+it('explains that even a current route is only a horizontal footprint, not head clearance or carrying proof', () => {
+  const html = render(geometry)
+  expect(html).toContain('Горизонтальная 2D-проверка')
+  expect(html).toContain('Высота над головой, перенос мебели и преодоление ступеней не проверяются')
+  expect(html).toContain('не подтверждение вертикального просвета или физического переноса мебели')
+})
+
+it('distinguishes unknown and raised door bottoms without treating a window sill as a route threshold', () => {
+  const source: PlanGeometry = {
+    ...geometry,
+    openings: [
+      { id: 'unknown-door', type: 'door', wallId: 'wall', offsetCm: 0, widthCm: 90 },
+      {
+        id: 'raised-balcony',
+        type: 'balcony',
+        wallId: 'wall',
+        offsetCm: 0,
+        widthCm: 90,
+        bottomCm: 12,
+      },
+      {
+        id: 'window-sill',
+        type: 'window',
+        wallId: 'wall',
+        offsetCm: 0,
+        widthCm: 90,
+        bottomCm: 100,
+      },
+    ],
+  }
+  const before = structuredClone(source)
+  const html = render(source)
+  expect(html).toContain('Неизвестная нижняя грань у дверных и балконных проёмов: 1')
+  expect(html).toContain('условными 2D-кандидатами, не доказательством непрерывного ровного пола')
+  expect(html).toContain('Поднятая нижняя грань: 1')
+  expect(html).toContain('маршрут через ступень здесь не проверяется')
+  expect(html).toContain('Не указаны: unknown-door')
+  expect(html).toContain('Подняты над полом: raised-balcony')
+  expect(html).not.toContain('window-sill')
+  expect(html).not.toContain('<polyline')
+  expect(html).not.toContain('Сохранить')
+  expect(source).toEqual(before)
+})
+
+it('does not show unknown or raised warnings for explicitly floor-level doors', () => {
+  const html = render({
+    ...geometry,
+    openings: [
+      {
+        id: 'floor-door',
+        type: 'door',
+        wallId: 'wall',
+        offsetCm: 0,
+        widthCm: 90,
+        bottomCm: 0,
+        heightCm: 210,
+      },
+    ],
+  })
+  expect(html).not.toContain('Неизвестная нижняя грань у дверных')
+  expect(html).not.toContain('Поднятая нижняя грань:')
+  expect(html).toContain('Высота над головой, перенос мебели')
+})
+
+it.each(['bottomCm', 'heightCm'] as const)(
+  'invalidates a checked route when opening %s changes',
+  (field) => {
+    const original: PlanGeometry = {
+      ...geometry,
+      openings: [
+        {
+          id: 'door',
+          type: 'door',
+          wallId: 'wall',
+          offsetCm: 0,
+          widthCm: 90,
+          bottomCm: 0,
+          heightCm: 210,
+        },
+      ],
+    }
+    const saved = { ...checked, snapshot: JSON.stringify(original) }
+    const current = structuredClone(original)
+    const opening = current.openings[0]
+    if (!opening) throw new Error('Opening fixture is missing')
+    opening[field] = field === 'bottomCm' ? 5 : 205
+    const html = render(current, saved)
+    expect(html).toContain('Схема изменилась')
+    expect(html).not.toContain('<polyline')
+    expect(html).not.toContain('Стартовая свободная зона')
+  },
+)

@@ -3,6 +3,7 @@ import polygonClipping, { type Polygon } from 'polygon-clipping'
 import { doorClearanceZone } from './clearance-zones'
 import { inspectPdfClearanceRoutes } from './plan-pdf-clearance-route'
 import { inspectSourceClearanceRoutes } from './plan-source-clearance-route'
+import { inspectPlanVerticalDimensions, openingFloorLevel } from './plan-vertical-dimensions'
 
 function body(start: PlanPoint, end: PlanPoint, thicknessCm: number): Polygon {
   const length = Math.hypot(end.xCm - start.xCm, end.yCm - start.yCm)
@@ -31,6 +32,8 @@ export function inspectMetricClearanceRoutes(geometry: PlanGeometry) {
     geometry.openings.some((opening) => !wallIds.has(opening.wallId))
   )
     return { missing: 'Проверьте привязку проёмов к существующим стенам.', result: undefined }
+  const verticalIssue = inspectPlanVerticalDimensions(geometry)[0]
+  if (verticalIssue) return { missing: verticalIssue.message, result: undefined }
   const width = geometry.routeWidthCm
   if (!width || width < 40 || width > 200)
     return { missing: 'Задайте ширину прохода от 40 до 200 см.', result: undefined }
@@ -40,6 +43,12 @@ export function inspectMetricClearanceRoutes(geometry: PlanGeometry) {
   const zone = entry && doorClearanceZone(entry, geometry)
   if (!entry || !zone)
     return { missing: 'Выберите стартовую дверь и задайте её внутреннюю зону.', result: undefined }
+  if (openingFloorLevel(entry) === 'raised' || openingFloorLevel(entry) === 'invalid')
+    return {
+      missing:
+        'У стартового проёма поднятая или некорректная нижняя грань. Непрерывный путь по полу через порог здесь не проверяется.',
+      result: undefined,
+    }
   if (entry.widthCm < width)
     return { missing: 'Стартовая дверь уже выбранной ширины прохода.', result: undefined }
   const wallBodies: Polygon[] = []
@@ -58,6 +67,8 @@ export function inspectMetricClearanceRoutes(geometry: PlanGeometry) {
     for (const opening of geometry.openings.filter(
       (opening) => opening.wallId === wall.id && opening.type !== 'window',
     )) {
+      if (openingFloorLevel(opening) === 'invalid')
+        return { missing: 'Проверьте нижние грани дверей и балконных проёмов.', result: undefined }
       if (
         !Number.isFinite(opening.offsetCm) ||
         !Number.isFinite(opening.widthCm) ||
@@ -66,6 +77,10 @@ export function inspectMetricClearanceRoutes(geometry: PlanGeometry) {
         opening.offsetCm + opening.widthCm > length
       )
         return { missing: 'Проверьте положение дверных проёмов на стенах.', result: undefined }
+      // A known raised bottom leaves wall material at floor level. Carrying over
+      // a step requires a separate vertical model; unknown legacy bottoms remain
+      // horizontal-only candidates, explicitly described by the route UI.
+      if (openingFloorLevel(opening) === 'raised') continue
       const point = (distance: number) => ({
         xCm: wall.start.xCm + ((wall.end.xCm - wall.start.xCm) * distance) / length,
         yCm: wall.start.yCm + ((wall.end.yCm - wall.start.yCm) * distance) / length,

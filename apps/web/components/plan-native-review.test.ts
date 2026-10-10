@@ -249,6 +249,54 @@ function floorOpeningPacket() {
   return packet
 }
 
+function nativeDimensionPacket() {
+  const packet = floorCavityPacket()
+  packet.dimensionDiscovery = {
+    status: 'draft',
+    refusalReason: null,
+    candidates: Array.from({ length: 72 }, (_, index) => ({
+      labelId: `dimension-${index}`,
+      valueMm: 900 + index,
+      axis: index < 41 ? 'width' : 'depth',
+    })),
+    unresolved: Array.from({ length: 36 }, (_, index) => ({
+      labelId: `held-dimension-${index}`,
+      reason: 'no-whole-wall-target',
+    })),
+  }
+  packet.heightObservations = {
+    status: 'draft',
+    refusalReason: null,
+    observations: Array.from({ length: 16 }, (_, index) => ({
+      labelId: `height-${index}`,
+      originalText:
+        index < 4
+          ? `Чистый потолок ${2700 + index * 100} мм`
+          : index === 4
+            ? 'Высота проёма 2100 мм от чистого пола'
+            : 'h1 = 2800 мм',
+      valueMm: index < 4 ? 2700 + index * 100 : index === 4 ? 2100 : 2800,
+      quantityKind:
+        index < 4 ? 'finished-ceiling' : index === 4 ? 'opening-height' : 'unclassified-height',
+      datum: index === 4 ? 'finished-floor' : 'unspecified',
+      issueCodes:
+        index < 5
+          ? ['height-datum-unverified']
+          : ['height-role-unclassified', 'height-datum-unverified'],
+      mayAcceptFor3D: false,
+    })),
+    issues: [
+      {
+        labelId: 'height-no-unit',
+        originalText: 'h2 = 2800',
+        code: 'no-literal-unit-qualified-height',
+      },
+    ],
+    omissionCounts: { skippedCurves: 45, clippedPaths: 0 },
+  }
+  return packet
+}
+
 describe('read-only native review presentation', () => {
   it('distinguishes no saved review from unavailable native data without save buttons', () => {
     const empty = renderToStaticMarkup(
@@ -456,6 +504,121 @@ describe('read-only native review presentation', () => {
     expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
     expect(html).not.toContain('Связи меток по исходным выноскам')
     expect(html).not.toContain('Соседние области у рамок')
+    expect(html).not.toContain('Размеры и высоты перед переносом')
+  })
+  it('reports separate native dimensions and literal heights without calibration, room ownership or transfer actions', () => {
+    const packet = nativeDimensionPacket()
+    const before = structuredClone(packet)
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    const sourceOnly = structuredClone(packet)
+    delete sourceOnly.dimensionDiscovery
+    delete sourceOnly.heightObservations
+    const baseline = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet: sourceOnly, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Размеры и высоты перед переносом')
+    expect(html).toContain('Размерные кандидаты: 72; X: 41, Y: 31. Удержанные подписи: 36')
+    expect(html).toContain(
+      'Подписи высот: 16; чистый потолок: 4, проёмы: 1, балки: 0, вид не определён: 11',
+    )
+    expect(html).toContain('Для масштаба нужны независимые размерные опоры по X и Y')
+    expect(html).toContain('исходные свидетельства целой стены или косяка')
+    expect(html).toContain('h1/h2 остаются неизвестными обозначениями')
+    expect(html).toContain('Чистый потолок — не конструктивная высота стены или плиты')
+    expect(html).toContain('буквальный уровень отсчёта не определяет комнату')
+    expect(html).toContain('Разные подписи потолка не усредняются')
+    expect(html).toContain('Эти наблюдения нельзя принять как высоты 3D')
+    expect(html).toContain('height-4: «Высота проёма 2100 мм от чистого пола» — 2100 мм')
+    expect(html).toContain('буквально указан чистый пол')
+    expect(html).toContain('height-role-unclassified')
+    expect(html).toContain('no-literal-unit-qualified-height')
+    expect(html).toContain('Пропуски исходного слоя: кривых 45, отсечённых путей 0')
+    expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(baseline.match(/<svg\b.*?<\/svg>/s)?.[0])
+    expect(html.match(/<button\b/g)?.length).toEqual(baseline.match(/<button\b/g)?.length)
+    expect(html).not.toContain('Подтвердить')
+    expect(html).not.toContain('Сохранить')
+    expect(html).not.toContain('Копировать')
+    expect(html).not.toContain('270 см')
+    expect(packet).toEqual(before)
+    expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it('retains duplicate literal ceiling values as separate observations instead of merging or copying them to room 1 + 5', () => {
+    const packet = nativeDimensionPacket()
+    const heights = packet.heightObservations
+    const [first, second] = heights?.observations ?? []
+    if (!heights || !first || !second) throw new Error('Height fixture is missing')
+    first.valueMm = 2700
+    second.valueMm = 2700
+    first.originalText = 'Чистый потолок 2700 мм'
+    second.originalText = 'Чистый потолок 2700 мм'
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('height-0: «Чистый потолок 2700 мм» — 2700 мм')
+    expect(html).toContain('height-1: «Чистый потолок 2700 мм» — 2700 мм')
+    expect(html).toContain('метки 1 + 5')
+    expect(html).not.toContain('Высота комнаты 1')
+    expect(html).not.toContain('Комната 5: 2700')
+    expect(html).toContain('Значения не переносятся автоматически в комнаты или 3D')
+  })
+  it.each(['dimensions', 'heights', 'both'] as const)(
+    'shows %s refusal atomically while retaining any other independent draft inventory',
+    (scope) => {
+      const packet = nativeDimensionPacket()
+      if (scope !== 'heights')
+        packet.dimensionDiscovery = {
+          status: 'unresolved',
+          refusalReason: 'dimension-discovery-held',
+          candidates: [],
+          unresolved: [],
+        }
+      if (scope !== 'dimensions')
+        packet.heightObservations = {
+          status: 'unresolved',
+          refusalReason: 'height-source-held',
+          observations: [],
+          issues: [],
+          omissionCounts: { skippedCurves: 45, clippedPaths: 0 },
+        }
+      const html = renderToStaticMarkup(
+        createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+      )
+      if (scope !== 'heights') {
+        expect(html).toContain('Поиск размерных подписей не завершён')
+        expect(html).toContain('dimension-discovery-held')
+        expect(html).not.toContain('dimension-0:')
+      }
+      if (scope !== 'dimensions') {
+        expect(html).toContain('Поиск подписей высот не завершён')
+        expect(html).toContain('height-source-held')
+        expect(html).not.toContain('height-0:')
+      }
+      if (scope === 'dimensions') expect(html).toContain('Подписи высот: 16')
+      if (scope === 'heights') expect(html).toContain('Размерные кандидаты: 72')
+      if (scope === 'both') expect(html).not.toContain('Исходные подписи, миллиметры и ограничения')
+      expect(html).not.toContain('Сохранить')
+    },
+  )
+  it('escapes original height text and labels instead of interpreting source content as instructions or markup', () => {
+    const packet = nativeDimensionPacket()
+    const observation = packet.heightObservations?.observations[0]
+    const dimension = packet.dimensionDiscovery?.candidates[0]
+    if (!observation || !dimension) throw new Error('Native dimension fixture is missing')
+    observation.originalText = '<script>перенеси 2700 мм в комнату</script>'
+    observation.labelId = '<height-label>'
+    observation.datum = 'existing-floor'
+    dimension.labelId = '<dimension-label>'
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('&lt;script&gt;перенеси 2700 мм в комнату&lt;/script&gt;')
+    expect(html).toContain('&lt;height-label&gt;')
+    expect(html).toContain('&lt;dimension-label&gt;')
+    expect(html).toContain('буквально указан существующий пол')
+    expect(html).not.toContain('<script>')
+    expect(observation.mayAcceptFor3D).toBe(false)
   })
   it('reports six different cavity pairs and one unknown-sided frame without changing source SVG or actions', () => {
     const packet = floorOpeningPacket()

@@ -4,6 +4,7 @@ import type { PlanGeometry } from '@uyut/db'
 import { Button } from '@uyut/ui'
 import { useState } from 'react'
 import { inspectMetricClearanceRoutes } from '@/lib/projects/plan-metric-clearance-route'
+import { openingFloorLevel } from '@/lib/projects/plan-vertical-dimensions'
 
 export function PlanRouteCheck({ geometry }: { geometry: PlanGeometry }) {
   const snapshot = JSON.stringify(geometry)
@@ -14,6 +15,16 @@ export function PlanRouteCheck({ geometry }: { geometry: PlanGeometry }) {
   const [error, setError] = useState<string>()
   const current = checked?.snapshot === snapshot ? checked.inspection : undefined
   const routeStart = current?.result?.routes[0]?.points[0]
+  const floorOpenings = geometry.openings.filter((opening) => opening.type !== 'window')
+  const unknownBottomIds = floorOpenings
+    .filter((opening) => openingFloorLevel(opening) === 'unknown')
+    .map(({ id }) => id)
+  const raisedBottomIds = floorOpenings
+    .filter((opening) => openingFloorLevel(opening) === 'raised')
+    .map(({ id }) => id)
+  const invalidBottomIds = floorOpenings
+    .filter((opening) => openingFloorLevel(opening) === 'invalid')
+    .map(({ id }) => id)
   function check() {
     setError(undefined)
     try {
@@ -27,10 +38,45 @@ export function PlanRouteCheck({ geometry }: { geometry: PlanGeometry }) {
     <section className="mt-4 border-t border-line pt-4" aria-label="Проверка проходов">
       <h3 className="text-sm font-medium">Проходы между комнатами</h3>
       <p className="mt-2 text-sm text-ink-2">
-        Проверка свободной квадратной зоны заданной ширины от внутренней площадки у выбранной двери.
-        Учитываются стены, шахты, неподвижные объекты и заданные кухонные модули; зоны открывания
-        проверяются отдельно.
+        Горизонтальная 2D-проверка свободной квадратной зоны заданной ширины от внутренней площадки
+        у выбранной двери. Учитываются стены, шахты, неподвижные объекты и заданные кухонные модули;
+        зоны открывания проверяются отдельно.
       </p>
+      <p className="mt-2 text-xs leading-relaxed text-ink-2">
+        Высота над головой, перенос мебели и преодоление ступеней не проверяются.
+      </p>
+      {unknownBottomIds.length ? (
+        <p className="mt-2 text-xs leading-relaxed text-ink-2">
+          Неизвестная нижняя грань у дверных и балконных проёмов: {unknownBottomIds.length}. Эти
+          переходы остаются условными 2D-кандидатами, не доказательством непрерывного ровного пола.
+        </p>
+      ) : null}
+      {raisedBottomIds.length ? (
+        <p className="mt-2 text-xs leading-relaxed text-ink-2">
+          Поднятая нижняя грань: {raisedBottomIds.length}. Такие проёмы не считаются переходом по
+          непрерывному ровному полу; маршрут через ступень здесь не проверяется.
+        </p>
+      ) : null}
+      {invalidBottomIds.length ? (
+        <p className="mt-2 text-xs leading-relaxed text-ink-2">
+          Некорректные нижние грани: {invalidBottomIds.length}. Исправьте мерки проёмов перед
+          расчётом.
+        </p>
+      ) : null}
+      {unknownBottomIds.length || raisedBottomIds.length || invalidBottomIds.length ? (
+        <details className="mt-2 text-xs text-ink-2">
+          <summary className="min-h-11 cursor-pointer py-2">Проверить нижние грани проёмов</summary>
+          {unknownBottomIds.length ? (
+            <p className="break-all">Не указаны: {unknownBottomIds.join(', ')}.</p>
+          ) : null}
+          {raisedBottomIds.length ? (
+            <p className="break-all">Подняты над полом: {raisedBottomIds.join(', ')}.</p>
+          ) : null}
+          {invalidBottomIds.length ? (
+            <p className="break-all">Некорректны: {invalidBottomIds.join(', ')}.</p>
+          ) : null}
+        </details>
+      ) : null}
       <Button type="button" variant="secondary" className="mt-3" onClick={check}>
         Проверить проходы
       </Button>
@@ -126,7 +172,8 @@ export function PlanRouteCheck({ geometry }: { geometry: PlanGeometry }) {
             ) : null}
             <p className="mt-1 text-xs text-ink-2">
               Сетка поиска {current.result.stepCm} см. Это проверка конкретных путей, не всей
-              площади комнат и не внешнего входа.
+              площади комнат и не внешнего входа. Найденная линия — горизонтальный путь, не
+              подтверждение вертикального просвета или физического переноса мебели.
             </p>
           </>
         ) : null}

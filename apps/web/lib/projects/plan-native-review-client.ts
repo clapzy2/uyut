@@ -314,6 +314,170 @@ function isNumberCircles(value: unknown): boolean {
   })
 }
 
+function isDimensionDiscovery(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const discovery = value as NonNullable<NativeReviewPacket['dimensionDiscovery']>
+  if (
+    !hasOnlyKeys(discovery, ['status', 'refusalReason', 'candidates', 'unresolved']) ||
+    !Array.isArray(discovery.candidates) ||
+    !Array.isArray(discovery.unresolved) ||
+    discovery.candidates.length + discovery.unresolved.length > 1000 ||
+    packet.counts?.printedDimensions !== discovery.candidates.length
+  )
+    return false
+  if (discovery.status === 'unresolved')
+    return (
+      isBoundedLabel(discovery.refusalReason) &&
+      discovery.candidates.length === 0 &&
+      discovery.unresolved.length === 0
+    )
+  if (discovery.status !== 'draft' || discovery.refusalReason !== null) return false
+  const labels = new Set<string>()
+  for (const candidate of discovery.candidates) {
+    if (
+      !candidate ||
+      typeof candidate !== 'object' ||
+      !hasOnlyKeys(candidate, ['labelId', 'valueMm', 'axis']) ||
+      !isBoundedLabel(candidate.labelId) ||
+      labels.has(candidate.labelId) ||
+      !Number.isSafeInteger(candidate.valueMm) ||
+      candidate.valueMm < 1 ||
+      candidate.valueMm > 99999 ||
+      !['width', 'depth'].includes(candidate.axis)
+    )
+      return false
+    labels.add(candidate.labelId)
+  }
+  for (const item of discovery.unresolved) {
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      !hasOnlyKeys(item, ['labelId', 'reason']) ||
+      !isBoundedLabel(item.labelId) ||
+      labels.has(item.labelId) ||
+      !isBoundedLabel(item.reason)
+    )
+      return false
+    labels.add(item.labelId)
+  }
+  return true
+}
+
+function isHeightObservations(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const heights = value as NonNullable<NativeReviewPacket['heightObservations']>
+  const omissionCount = (count: unknown) =>
+    typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 && count <= 6000
+  if (
+    !hasOnlyKeys(heights, [
+      'status',
+      'refusalReason',
+      'observations',
+      'issues',
+      'omissionCounts',
+    ]) ||
+    !Array.isArray(heights.observations) ||
+    heights.observations.length > 100 ||
+    !Array.isArray(heights.issues) ||
+    heights.issues.length > 100 ||
+    !heights.omissionCounts ||
+    typeof heights.omissionCounts !== 'object' ||
+    !hasOnlyKeys(heights.omissionCounts, ['skippedCurves', 'clippedPaths']) ||
+    !omissionCount(heights.omissionCounts.skippedCurves) ||
+    !omissionCount(heights.omissionCounts.clippedPaths) ||
+    heights.omissionCounts.skippedCurves !== packet.extraction?.skippedCurves ||
+    heights.omissionCounts.clippedPaths !== packet.extraction?.clippedPaths
+  )
+    return false
+  if (heights.status === 'unresolved')
+    return (
+      isBoundedLabel(heights.refusalReason) &&
+      heights.observations.length === 0 &&
+      heights.issues.length === 0
+    )
+  if (heights.status !== 'draft' || heights.refusalReason !== null) return false
+  const originalText = (text: unknown): text is string =>
+    typeof text === 'string' && !!text.trim() && text.length <= 200
+  const observationOnlyCodes = new Set([
+    'height-role-unclassified',
+    'height-datum-unverified',
+    'ambiguous-height-datum',
+    'height-outside-model-range',
+  ])
+  const observations = new Map<string, (typeof heights.observations)[number]>()
+  const labelTexts = new Map<string, string>()
+  for (const observation of heights.observations) {
+    if (
+      !observation ||
+      typeof observation !== 'object' ||
+      !hasOnlyKeys(observation, [
+        'labelId',
+        'originalText',
+        'valueMm',
+        'quantityKind',
+        'datum',
+        'issueCodes',
+        'mayAcceptFor3D',
+      ]) ||
+      !isBoundedLabel(observation.labelId) ||
+      observations.has(observation.labelId) ||
+      !originalText(observation.originalText) ||
+      !Number.isFinite(observation.valueMm) ||
+      !['finished-ceiling', 'opening-height', 'beam-level', 'unclassified-height'].includes(
+        observation.quantityKind,
+      ) ||
+      !['unspecified', 'existing-floor', 'finished-floor'].includes(observation.datum) ||
+      observation.mayAcceptFor3D !== false ||
+      !Array.isArray(observation.issueCodes) ||
+      observation.issueCodes.length > 20 ||
+      !observation.issueCodes.every(isBoundedLabel) ||
+      new Set(observation.issueCodes).size !== observation.issueCodes.length
+    )
+      return false
+    const codes = new Set(observation.issueCodes)
+    if (
+      codes.has('height-role-unclassified') !==
+        (observation.quantityKind === 'unclassified-height') ||
+      codes.has('height-datum-unverified') !== (observation.datum === 'unspecified') ||
+      codes.has('height-outside-model-range') !==
+        (observation.valueMm <= 0 || observation.valueMm > 6000) ||
+      (codes.has('ambiguous-height-datum') && observation.datum !== 'unspecified')
+    )
+      return false
+    observations.set(observation.labelId, observation)
+    labelTexts.set(observation.labelId, observation.originalText)
+  }
+  const issueKeys = new Set<string>()
+  const issueKey = (labelId: string, code: string) => JSON.stringify([labelId, code])
+  for (const issue of heights.issues) {
+    if (
+      !issue ||
+      typeof issue !== 'object' ||
+      !hasOnlyKeys(issue, ['labelId', 'originalText', 'code']) ||
+      !isBoundedLabel(issue.labelId) ||
+      !originalText(issue.originalText) ||
+      !isBoundedLabel(issue.code) ||
+      issueKeys.has(issueKey(issue.labelId, issue.code))
+    )
+      return false
+    const text = labelTexts.get(issue.labelId)
+    const observation = observations.get(issue.labelId)
+    if (
+      (text !== undefined && text !== issue.originalText) ||
+      (observation && !observation.issueCodes.includes(issue.code)) ||
+      (!observation && observationOnlyCodes.has(issue.code))
+    )
+      return false
+    labelTexts.set(issue.labelId, issue.originalText)
+    issueKeys.add(issueKey(issue.labelId, issue.code))
+  }
+  return heights.observations.every((observation) =>
+    observation.issueCodes.every((code) => issueKeys.has(issueKey(observation.labelId, code))),
+  )
+}
+
 function isRoomSchedule(value: unknown, packet: NativeReviewPacket): boolean {
   if (value === undefined) return true
   if (!value || typeof value !== 'object') return false
@@ -996,6 +1160,8 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isGlazingSymbols(packet.glazingSymbols, packet.image) ||
     !isSourceLinks(packet.sourceLinks, packet) ||
     !isNumberCircles(packet.numberCircles) ||
+    !isDimensionDiscovery(packet.dimensionDiscovery, packet) ||
+    !isHeightObservations(packet.heightObservations, packet) ||
     !isRoomSchedule(packet.roomSchedule, packet) ||
     !isFloorCavities(packet.floorCavities, packet) ||
     !isFloorOpeningSides(packet.floorOpeningSides, packet) ||

@@ -8,6 +8,7 @@ import {
 } from './plan-opening-face-pairs'
 import { pdfPolygonIsValid } from './plan-pdf-room-binding'
 import { inspectSourceClearanceRoutes } from './plan-source-clearance-route'
+import { inspectPlanVerticalDimensions, openingFloorLevel } from './plan-vertical-dimensions'
 
 const samePoint = (a: PlanPoint, b: PlanPoint) => a.xCm === b.xCm && a.yCm === b.yCm
 const samePagePoint = (a: { x: number; y: number }, b: { x: number; y: number }) =>
@@ -169,6 +170,8 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
     )
   )
     return missing('Проверьте контуры комнат и уникальные привязки стен и проёмов.')
+  const verticalIssue = inspectPlanVerticalDimensions(geometry)[0]
+  if (verticalIssue) return missing(verticalIssue.message)
   if (geometry.walls.some((wall) => wall.thicknessCm !== undefined))
     return missing(
       'В PDF-схеме смешаны грани и стены с толщиной. Сверьте физическую модель перед расчётом.',
@@ -203,6 +206,10 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
   if (entryFace.high - entryFace.low < width)
     return missing('Стартовая дверь уже выбранной ширины прохода.')
   const entryOpening = geometry.openings.find((opening) => opening.id === entry.opening.id)
+  if (entryOpening && ['raised', 'invalid'].includes(openingFloorLevel(entryOpening)))
+    return missing(
+      'У стартового проёма поднятая или некорректная нижняя грань. Непрерывный путь по полу через порог здесь не проверяется.',
+    )
   const zone = entryOpening && doorClearanceZone(entryOpening, geometry)
   if (!zone) return missing('Задайте внутреннюю стартовую зону у выбранной двери.')
   const start = zone.polygon.reduce(
@@ -238,6 +245,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
     }
   }
   const usedOpenings = new Set<string>()
+  const claimedFaces: Face[] = []
   const cuts: Face[] = []
   const portals: Polygon[] = []
   const currentStrips = currentWallFacePairs(geometry)
@@ -246,6 +254,14 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
     return missing('После правки повторно сверьте сохранённые грани стен с исходным PDF.')
   const strips = currentStrips.map(({ faces: [a, b] }) => body([a.start, a.end, b.end, b.start]))
   for (const [a, b] of candidates) {
+    const currentOpenings = [a, b].map((binding) =>
+      geometry.openings.find((opening) => opening.id === binding.opening.id),
+    )
+    if (currentOpenings.some((opening) => !opening || openingFloorLevel(opening) === 'invalid'))
+      return missing('Проверьте нижние грани обеих сторон дверного перехода.')
+    const raised = currentOpenings.some(
+      (opening) => opening && openingFloorLevel(opening) === 'raised',
+    )
     const first = face(a, geometry)
     const second = face(b, geometry)
     if (
@@ -261,6 +277,20 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
       a.opening.id === b.opening.id
     )
       return missing('Проверьте исходные концы дверей и однозначность соединения комнат.')
+    if (
+      [first, second].some((candidate) =>
+        claimedFaces.some(
+          (previous) =>
+            previous.roomIndex === candidate.roomIndex &&
+            previous.edgeIndex === candidate.edgeIndex &&
+            Math.max(previous.low, candidate.low) < Math.min(previous.high, candidate.high),
+        ),
+      )
+    )
+      return missing(
+        'Исходные дверные участки одной грани накладываются. Сверьте однозначность переходов.',
+      )
+    claimedFaces.push(first, second)
     if (first.coordinate !== second.coordinate) {
       // Полоса лежит снаружи обоих полов, между обращёнными друг к другу гранями.
       const direction = Math.sign(second.coordinate - first.coordinate)
@@ -281,10 +311,12 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
         )
       )
         return missing('Дверной переход пересекает другой контур или доказанную стену.')
-      portals.push(portal)
+      if (!raised) portals.push(portal)
     }
     usedOpenings.add(a.opening.id)
     usedOpenings.add(b.opening.id)
+    // Source uniqueness is recorded even when a measured step prevents a cut.
+    if (raised) continue
     cuts.push(first, second)
   }
 
