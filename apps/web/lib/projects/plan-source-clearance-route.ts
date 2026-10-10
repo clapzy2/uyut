@@ -44,12 +44,14 @@ function intersectsOpenRectangle(
   return true
 }
 
-/** Constructive, axis-aligned square routes. Failure on this grid is not proof of impassability. */
+/** Fixed-axis constructive routes; no rotations, tilt or stairs are inferred. Grid failure is unresolved. */
 export function inspectSourceClearanceRoutes(input: {
   freeFloor: MultiPolygon
   rooms: Array<{ id: string; polygon: PlanPoint[] }>
   start: PlanPoint
   widthCm: number
+  /** Optional rigid body in the plan axes. Absence preserves the legacy square exactly. */
+  footprintCm?: { widthCm: number; depthCm: number }
   stepCm?: number
   maxNodes?: number
   metricObstacles?: Pick<PlanGeometry, 'obstacles' | 'voids'>
@@ -66,6 +68,17 @@ export function inspectSourceClearanceRoutes(input: {
   ) {
     throw new Error('Некорректные параметры поиска маршрута')
   }
+  const footprint = input.footprintCm
+  if (
+    footprint !== undefined &&
+    (!footprint ||
+      typeof footprint !== 'object' ||
+      Array.isArray(footprint) ||
+      ![footprint.widthCm, footprint.depthCm].every(Number.isFinite) ||
+      footprint.widthCm <= 0 ||
+      footprint.depthCm <= 0)
+  )
+    throw new Error('Некорректный прямоугольный габарит для переноса')
   const boundaryBarriers = input.boundaryBarriers ?? []
   for (const { start, end } of boundaryBarriers) {
     if (
@@ -75,7 +88,8 @@ export function inspectSourceClearanceRoutes(input: {
       throw new Error('Некорректный отрезок физической границы')
     }
   }
-  const half = input.widthCm / 2
+  const halfWidth = (footprint?.widthCm ?? input.widthCm) / 2
+  const halfDepth = (footprint?.depthCm ?? input.widthCm) / 2
   const obstacleBodies: Polygon[] = (input.metricObstacles?.voids ?? []).map((region) => [
     region.polygon.map(({ xCm, yCm }) => [xCm, yCm]),
   ])
@@ -108,19 +122,33 @@ export function inspectSourceClearanceRoutes(input: {
     : input.freeFloor
   const fits = (shape: Polygon, floor: MultiPolygon) =>
     polygonClipping.difference(shape, floor).length === 0
-  const square = (point: PlanPoint) =>
-    rectangle(point.xCm - half, point.yCm - half, point.xCm + half, point.yCm + half)
+  const bodyAt = (point: PlanPoint) =>
+    rectangle(
+      point.xCm - halfWidth,
+      point.yCm - halfDepth,
+      point.xCm + halfWidth,
+      point.yCm + halfDepth,
+    )
   const clearRectangle = (left: number, top: number, right: number, bottom: number) =>
     !boundaryBarriers.some((barrier) =>
       intersectsOpenRectangle(barrier, left, top, right, bottom),
     ) && fits(rectangle(left, top, right, bottom), freeFloor)
-  const base = { widthCm: input.widthCm, stepCm: step, footprint: 'axis-aligned-square' as const }
+  const base = {
+    widthCm: input.widthCm,
+    stepCm: step,
+    ...(footprint
+      ? {
+          footprint: 'axis-aligned-rectangle' as const,
+          footprintCm: { widthCm: footprint.widthCm, depthCm: footprint.depthCm },
+        }
+      : { footprint: 'axis-aligned-square' as const }),
+  }
   if (
     !clearRectangle(
-      input.start.xCm - half,
-      input.start.yCm - half,
-      input.start.xCm + half,
-      input.start.yCm + half,
+      input.start.xCm - halfWidth,
+      input.start.yCm - halfDepth,
+      input.start.xCm + halfWidth,
+      input.start.yCm + halfDepth,
     )
   ) {
     return {
@@ -145,7 +173,7 @@ export function inspectSourceClearanceRoutes(input: {
     const node = queue[cursor]
     if (!node) break
     for (const room of rooms) {
-      if (!found.has(room.id) && fits(square(node.point), [room.floor])) found.set(room.id, cursor)
+      if (!found.has(room.id) && fits(bodyAt(node.point), [room.floor])) found.set(room.id, cursor)
     }
     for (const [dx, dy] of [
       [step, 0],
@@ -160,10 +188,10 @@ export function inspectSourceClearanceRoutes(input: {
       // Swept rectangle proves the entire translation, not just both endpoint squares.
       if (
         !clearRectangle(
-          Math.min(point.xCm, node.point.xCm) - half,
-          Math.min(point.yCm, node.point.yCm) - half,
-          Math.max(point.xCm, node.point.xCm) + half,
-          Math.max(point.yCm, node.point.yCm) + half,
+          Math.min(point.xCm, node.point.xCm) - halfWidth,
+          Math.min(point.yCm, node.point.yCm) - halfDepth,
+          Math.max(point.xCm, node.point.xCm) + halfWidth,
+          Math.max(point.yCm, node.point.yCm) + halfDepth,
         )
       )
         continue

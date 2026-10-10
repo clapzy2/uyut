@@ -54,6 +54,12 @@ const checked = {
 
 function render(current: PlanGeometry, saved = checked) {
   vi.mocked(useState)
+    .mockImplementation(
+      (initial?: unknown): ReturnType<typeof useState> => [
+        typeof initial === 'function' ? initial() : initial,
+        vi.fn(),
+      ],
+    )
     .mockReturnValueOnce([saved, vi.fn()])
     .mockReturnValueOnce([undefined, vi.fn()])
   return renderToStaticMarkup(createElement(PlanRouteCheck, { geometry: current }))
@@ -123,7 +129,9 @@ it('shows the start footprint even when the only route has one point', () => {
 it('explains that even a current route is only a horizontal footprint, not head clearance or carrying proof', () => {
   const html = render(geometry)
   expect(html).toContain('Горизонтальная 2D-проверка')
-  expect(html).toContain('Высота над головой, перенос мебели и преодоление ступеней не проверяются')
+  expect(html).toContain(
+    'Высота над головой, перенос мебели и преодоление ступеней в этой проверке проходов не проверяются',
+  )
   expect(html).toContain('не подтверждение вертикального просвета или физического переноса мебели')
 })
 

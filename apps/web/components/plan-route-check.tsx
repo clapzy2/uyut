@@ -5,6 +5,7 @@ import { Button } from '@uyut/ui'
 import { useState } from 'react'
 import { inspectMetricClearanceRoutes } from '@/lib/projects/plan-metric-clearance-route'
 import { openingFloorLevel } from '@/lib/projects/plan-vertical-dimensions'
+import { PlanFurnitureTransferCheck } from './plan-furniture-transfer-check'
 
 export function PlanRouteCheck({ geometry }: { geometry: PlanGeometry }) {
   const snapshot = JSON.stringify(geometry)
@@ -43,7 +44,8 @@ export function PlanRouteCheck({ geometry }: { geometry: PlanGeometry }) {
         зоны открывания проверяются отдельно.
       </p>
       <p className="mt-2 text-xs leading-relaxed text-ink-2">
-        Высота над головой, перенос мебели и преодоление ступеней не проверяются.
+        Высота над головой, перенос мебели и преодоление ступеней в этой проверке проходов не
+        проверяются.
       </p>
       {unknownBottomIds.length ? (
         <p className="mt-2 text-xs leading-relaxed text-ink-2">
@@ -201,6 +203,7 @@ export function PlanRouteCheck({ geometry }: { geometry: PlanGeometry }) {
           </>
         ) : null}
       </div>
+      <PlanFurnitureTransferCheck geometry={geometry} />
     </section>
   )
 }

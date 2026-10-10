@@ -46,6 +46,155 @@ function adjoiningRooms() {
 }
 
 describe('continuous source clearance routes', () => {
+  it('preserves the exact square result and omits rectangle metadata when no footprint is supplied', () => {
+    const input = fixture()
+    const legacy = inspectSourceClearanceRoutes(input)
+    expect(inspectSourceClearanceRoutes({ ...input, footprintCm: undefined })).toEqual(legacy)
+    expect(Object.hasOwn(legacy, 'footprintCm')).toBe(false)
+    expect(legacy.footprint).toBe('axis-aligned-square')
+  })
+  it('uses independent body width and depth without finding a hidden rotated orientation', () => {
+    const input = fixture(80)
+    const horizontal = inspectSourceClearanceRoutes({
+      ...input,
+      footprintCm: { widthCm: 120, depthCm: 40 },
+    })
+    expect(horizontal.status).toBe('constructive-routes')
+    expect(horizontal).toMatchObject({
+      footprint: 'axis-aligned-rectangle',
+      footprintCm: { widthCm: 120, depthCm: 40 },
+    })
+    expect(
+      inspectSourceClearanceRoutes({ ...input, footprintCm: { widthCm: 40, depthCm: 120 } }).status,
+    ).toBe('unresolved')
+    const transposed = {
+      ...input,
+      freeFloor: input.freeFloor.map((polygon) =>
+        polygon.map((ring) => ring.map(([x, y]) => [y, x] as [number, number])),
+      ),
+      rooms: input.rooms.map((room) => ({
+        ...room,
+        polygon: room.polygon.map(({ xCm, yCm }) => ({ xCm: yCm, yCm: xCm })),
+      })),
+      start: { xCm: input.start.yCm, yCm: input.start.xCm },
+    }
+    expect(
+      inspectSourceClearanceRoutes({ ...transposed, footprintCm: { widthCm: 120, depthCm: 40 } })
+        .status,
+    ).toBe('unresolved')
+    expect(
+      inspectSourceClearanceRoutes({ ...transposed, footprintCm: { widthCm: 40, depthCm: 120 } })
+        .status,
+    ).toBe('constructive-routes')
+  })
+  it('checks the entire wider rectangle corner against fixed obstacles and interior voids', () => {
+    const input = fixture()
+    const footprintCm = { widthCm: 120, depthCm: 40 }
+    const obstacles = [
+      { id: 'corner', kind: 'fixed' as const, xCm: 159, yCm: 119, widthCm: 10, depthCm: 10 },
+    ]
+    expect(
+      inspectSourceClearanceRoutes({ ...input, metricObstacles: { obstacles } }).reason,
+    ).not.toBe('entry-footprint')
+    expect(
+      inspectSourceClearanceRoutes({ ...input, footprintCm, metricObstacles: { obstacles } })
+        .reason,
+    ).toBe('entry-footprint')
+    expect(
+      inspectSourceClearanceRoutes({
+        ...input,
+        footprintCm,
+        metricObstacles: {
+          voids: [
+            {
+              id: 'hole',
+              polygon: [
+                { xCm: 145, yCm: 90 },
+                { xCm: 155, yCm: 90 },
+                { xCm: 155, yCm: 100 },
+                { xCm: 145, yCm: 100 },
+              ],
+            },
+          ],
+        },
+      }).reason,
+    ).toBe('entry-footprint')
+  })
+  it.each(['barrier', 'obstacle', 'void'] as const)(
+    'checks a whole rectangular sweep across a thin %s between grid nodes',
+    (mode) => {
+      const input = { ...fixture(), footprintCm: { widthCm: 1, depthCm: 80 }, stepCm: 20 }
+      const result = inspectSourceClearanceRoutes({
+        ...input,
+        ...(mode === 'barrier'
+          ? { boundaryBarriers: [{ start: { xCm: 205, yCm: 0 }, end: { xCm: 205, yCm: 200 } }] }
+          : {}),
+        ...(mode === 'obstacle'
+          ? {
+              metricObstacles: {
+                obstacles: [
+                  {
+                    id: 'thin',
+                    kind: 'fixed' as const,
+                    xCm: 205,
+                    yCm: 0,
+                    widthCm: 1,
+                    depthCm: 200,
+                  },
+                ],
+              },
+            }
+          : {}),
+        ...(mode === 'void'
+          ? {
+              metricObstacles: {
+                voids: [
+                  {
+                    id: 'shaft',
+                    polygon: [
+                      { xCm: 205, yCm: 0 },
+                      { xCm: 206, yCm: 0 },
+                      { xCm: 206, yCm: 200 },
+                      { xCm: 205, yCm: 200 },
+                    ],
+                  },
+                ],
+              },
+            }
+          : {}),
+      })
+      expect(result.status).toBe('unresolved')
+      expect(result.reason).toBe('no-constructed-route')
+      expect(result.unresolvedRoomIds).toEqual(['1'])
+    },
+  )
+  it('reports the bounded search limitation for a rectangle instead of claiming impassability', () => {
+    const result = inspectSourceClearanceRoutes({
+      ...fixture(),
+      footprintCm: { widthCm: 120, depthCm: 40 },
+      maxNodes: 1,
+    })
+    expect(result.reason).toBe('search-limit')
+    expect(result.footprint).toBe('axis-aligned-rectangle')
+  })
+  it.each([
+    null,
+    false,
+    [],
+    {},
+    { widthCm: 1 },
+    { widthCm: 0, depthCm: 2 },
+    { widthCm: 2, depthCm: -1 },
+    { widthCm: NaN, depthCm: 2 },
+    { widthCm: 2, depthCm: Infinity },
+    { widthCm: '20', depthCm: 20 },
+  ])('rejects invalid present rectangular footprints without square fallback %#', (footprintCm) => {
+    expect(() =>
+      inspectSourceClearanceRoutes({ ...fixture(), footprintCm } as unknown as Parameters<
+        typeof inspectSourceClearanceRoutes
+      >[0]),
+    ).toThrow('прямоугольный габарит')
+  })
   it('does not pass an uncut physical boundary between adjoining room polygons', () => {
     const input = adjoiningRooms()
     expect(inspectSourceClearanceRoutes(input).status).toBe('constructive-routes')

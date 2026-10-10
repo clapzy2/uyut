@@ -14,7 +14,7 @@ import {
 import { pdfPolygonIsValid } from './plan-pdf-room-binding'
 import { inspectSourceClearanceRoutes } from './plan-source-clearance-route'
 import { inspectPlanVerticalDimensions, openingFloorLevel } from './plan-vertical-dimensions'
-import { signedPlanFloors } from './plan-vertical-floor-geometry'
+import { signedElevationSum, signedPlanFloors } from './plan-vertical-floor-geometry'
 import { openingOnVerticalFloorBoundary } from './plan-vertical-reference'
 
 export type RouteVertical = {
@@ -27,6 +27,7 @@ export function withRouteElevation(
   result: ReturnType<typeof inspectSourceClearanceRoutes>,
   vertical?: RouteVertical,
 ): Omit<ReturnType<typeof inspectSourceClearanceRoutes>, 'routes'> & {
+  footprintCm?: { widthCm: number; depthCm: number }
   vertical?: RouteVertical
   routes: Array<{ roomId: string; points: Array<PlanPoint & { zCm?: number }> }>
 } {
@@ -253,11 +254,27 @@ function entryZone(geometry: PlanGeometry, opening: PlanGeometry['openings'][num
 }
 
 /** Только доказанные комнаты и дверные переходы; остальной PDF не объявляется полом. */
-export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
+export type FurnitureRouteBody = { widthCm: number; depthCm: number; heightCm: number }
+
+export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: FurnitureRouteBody) {
   const missing = (message: string) => ({ missing: message, result: undefined })
   const signed = signedPlanFloors(geometry)
   if (signed && !signed.ok) return missing(signed.error)
   const reference = signed?.ok ? signed.reference : undefined
+  if (
+    transfer !== undefined &&
+    (!transfer ||
+      !reference ||
+      ![transfer.widthCm, transfer.depthCm, transfer.heightCm].every(
+        (value) => Number.isFinite(value) && value > 0,
+      ) ||
+      transfer.widthCm > 1200 ||
+      transfer.depthCm > 1200 ||
+      transfer.heightCm > 700)
+  )
+    return missing(
+      'Для проверки габарита нужны явные конечные мерки и подтверждённые чистовые уровни.',
+    )
   const elevations = reference
     ? new Map(
         geometry.rooms.flatMap((room, index) => {
@@ -275,9 +292,48 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
       )
     : undefined
   const heldTransitions: RouteVertical['heldTransitions'] = []
+  const usableFloors = reference?.floors.filter((floor) => {
+    if (floor.surface !== 'finished-floor') return false
+    if (!transfer) return true
+    const ceiling = reference.ceilings?.find((ceiling) => ceiling.floorId === floor.id)
+    return (
+      ceiling !== undefined &&
+      signedElevationSum(floor.elevationCm, transfer.heightCm) <= ceiling.elevationCm
+    )
+  })
+  const usableFloorIds = new Set(usableFloors?.map((floor) => floor.id))
+  const routeElevations =
+    transfer && elevations
+      ? new Map(
+          [...elevations].filter(([index]) => {
+            const room = geometry.rooms[index]
+            return usableFloors?.some(
+              (floor) =>
+                floor.room.name === room?.name &&
+                floor.room.polygon.every((point, vertex) => {
+                  const candidate = room?.polygon[vertex]
+                  return candidate !== undefined && samePoint(point, candidate)
+                }),
+            )
+          }),
+        )
+      : elevations
+  if (transfer && reference)
+    for (const floor of reference.floors) {
+      if (!usableFloorIds.has(floor.id))
+        heldTransitions.push({
+          openingIds: [],
+          reason: `${floor.room.name}: отметка чистового потолка неизвестна либо габарит с запасом выше потолка.`,
+        })
+    }
   const calibration = geometry.pdfCalibration
-  const width = geometry.routeWidthCm
-  if (!calibration || !width || !Number.isFinite(width) || width < 40 || width > 200)
+  const width = transfer?.widthCm ?? geometry.routeWidthCm
+  if (
+    !calibration ||
+    !width ||
+    !Number.isFinite(width) ||
+    (!transfer && (width < 40 || width > 200))
+  )
     return missing('Задайте ширину прохода от 40 до 200 см для исходной PDF-схемы.')
   if (
     geometry.rooms.length === 0 ||
@@ -299,7 +355,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
     return missing(
       'В PDF-схеме смешаны грани и стены с толщиной. Сверьте физическую модель перед расчётом.',
     )
-  const openEdges = openZoneEdges(geometry, elevations)
+  const openEdges = openZoneEdges(geometry, routeElevations)
   if (!openEdges)
     return missing('После правки открытых зон повторно сверьте их границы с исходным PDF.')
   if (reference) {
@@ -308,7 +364,9 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
       if (!openEdges.has(key))
         heldTransitions.push({
           openingIds: [],
-          reason: `Открытая граница ${key}: разные или неизвестные отметки чистовых полов.`,
+          reason: transfer
+            ? `Открытая граница ${key}: разные уровни либо неизвестный или недостаточный вертикальный просвет для габарита.`
+            : `Открытая граница ${key}: разные или неизвестные отметки чистовых полов.`,
         })
     }
   }
@@ -337,6 +395,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
       'Выберите стартовую дверь с сохранёнными исходными концами и подтверждённой меркой.',
     )
   if (
+    !transfer &&
     Math.hypot(
       entryFace.cut[1].xCm - entryFace.cut[0].xCm,
       entryFace.cut[1].yCm - entryFace.cut[0].yCm,
@@ -344,6 +403,15 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
   )
     return missing('Стартовая дверь уже выбранной ширины прохода.')
   const entryOpening = geometry.openings.find((opening) => opening.id === entry.opening.id)
+  if (
+    transfer &&
+    (entryOpening?.bottomCm !== 0 ||
+      entryOpening.heightCm === undefined ||
+      entryOpening.heightCm < transfer.heightCm)
+  )
+    return missing(
+      'У стартового проёма неизвестна нижняя грань или высота, есть подъём либо габарит с запасом выше проёма. Перенос не проверен.',
+    )
   if (!reference && entryOpening && ['raised', 'invalid'].includes(openingFloorLevel(entryOpening)))
     return missing(
       'У стартового проёма поднятая или некорректная нижняя грань. Непрерывный путь по полу через порог здесь не проверяется.',
@@ -358,17 +426,22 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
     { xCm: 0, yCm: 0 },
   )
   const half = width / 2
+  const halfDepth = (transfer?.depthCm ?? width) / 2
   const startBody = body([
-    { xCm: start.xCm - half, yCm: start.yCm - half },
-    { xCm: start.xCm + half, yCm: start.yCm - half },
-    { xCm: start.xCm + half, yCm: start.yCm + half },
-    { xCm: start.xCm - half, yCm: start.yCm + half },
+    { xCm: start.xCm - half, yCm: start.yCm - halfDepth },
+    { xCm: start.xCm + half, yCm: start.yCm - halfDepth },
+    { xCm: start.xCm + half, yCm: start.yCm + halfDepth },
+    { xCm: start.xCm - half, yCm: start.yCm + halfDepth },
   ])
   const entryFloor = floors[entryFace.roomIndex]
   if (!entryFloor || polygonClipping.difference(startBody, entryFloor).length > 0)
     return missing('Стартовая свободная зона должна целиком лежать внутри комнаты у двери.')
   const entryBase = reference?.wallBases.find((base) => base.wall.id === entry.wall.id)
   const startElevation = elevations?.get(entryFace.roomIndex)
+  if (transfer && entryBase && !usableFloorIds.has(entryBase.floorId))
+    return missing(
+      'Для стартового пола неизвестна отметка чистового потолка либо габарит с запасом выше потолка. Перенос не проверен.',
+    )
   if (
     reference &&
     (!entryBase ||
@@ -493,6 +566,15 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
         reason = 'Верх порога выше пола: преодоление ступени не проверяется.'
       else if (owners[0]?.elevationCm !== startElevation)
         reason = 'Переход находится на другом уровне, чем стартовая зона.'
+      else if (transfer && owners.some((owner) => !owner || !usableFloorIds.has(owner.id)))
+        reason = 'Неизвестна отметка потолка либо габарит с запасом выше потолка.'
+      else if (
+        transfer &&
+        currentOpenings.some(
+          (opening) => opening?.heightCm === undefined || opening.heightCm < transfer.heightCm,
+        )
+      )
+        reason = 'Высота проёма неизвестна либо габарит с запасом выше проёма.'
       else if (!thresholdSurfaces.some((surface) => surface.id === threshold.id))
         reason = 'Поверхность порога не подтверждена по исходным граням и косякам.'
       if (reason) heldTransitions.push({ openingIds: [a.opening.id, b.opening.id], reason })
@@ -566,7 +648,9 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
     ? signed.surfaces
         .filter(
           (surface) =>
-            surface.surface === 'finished-floor' && surface.elevationCm === startElevation,
+            surface.surface === 'finished-floor' &&
+            surface.elevationCm === startElevation &&
+            (!transfer || usableFloorIds.has(surface.floorId)),
         )
         .map(
           (surface): Polygon => [
@@ -591,6 +675,9 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
         rooms: geometry.rooms.map((room, index) => ({ id: String(index), polygon: room.polygon })),
         start,
         widthCm: width,
+        ...(transfer
+          ? { footprintCm: { widthCm: transfer.widthCm, depthCm: transfer.depthCm } }
+          : {}),
         stepCm: 10,
         maxNodes: 6000,
         boundaryBarriers,

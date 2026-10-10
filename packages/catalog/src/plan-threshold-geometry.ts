@@ -7,7 +7,7 @@ import {
   currentWallFacePairs,
 } from './plan-opening-face-pairs'
 import { inspectPlanVerticalDimensions } from './plan-vertical-dimensions'
-import { signedPlanFloors } from './plan-vertical-floor-geometry'
+import { signedElevationSum, signedPlanFloors } from './plan-vertical-floor-geometry'
 import type { PlanGeometryIssue, VolumeFloorSurface, VolumeThreshold } from './plan-volume-types'
 
 type Cut = [PlanPoint, PlanPoint]
@@ -260,4 +260,49 @@ export function inspectPlanThresholdSurfaces(geometry: PlanGeometry): {
     })
   }
   return { surfaces, issues }
+}
+
+/** Differences of reviewed elevations, not inferred stair geometry or a traversability verdict. */
+export function inspectThresholdLevelTransitions(geometry: PlanGeometry) {
+  const signed = signedPlanFloors(geometry)
+  type Transition = {
+    id: string
+    floorNames: [string, string]
+    floorSurfaces: ['existing-floor' | 'finished-floor', 'existing-floor' | 'finished-floor']
+    floorElevationsCm: [number, number]
+    thresholdTopCm: number
+    risesCm: [number, number]
+    deltaCm: number
+    surfaceKnown: boolean
+  }
+  if (!signed) return { transitions: [] as Transition[], issues: [] as PlanGeometryIssue[] }
+  if (!signed.ok)
+    return {
+      transitions: [] as Transition[],
+      issues: [{ id: 'threshold-reference', severity: 'error' as const, message: signed.error }],
+    }
+  const report = inspectPlanThresholdSurfaces(geometry)
+  const known = new Set(report.surfaces.map((surface) => surface.id))
+  const floors = new Map(signed.reference.floors.map((floor) => [floor.id, floor]))
+  const transitions: Transition[] = signed.reference.thresholds.flatMap((threshold) => {
+    const first = floors.get(threshold.bindings[0].floorId)
+    const second = floors.get(threshold.bindings[1].floorId)
+    if (!first || !second) return []
+    return [
+      {
+        id: threshold.id,
+        floorNames: [first.room.name, second.room.name],
+        floorSurfaces: [first.surface, second.surface],
+        floorElevationsCm: [first.elevationCm, second.elevationCm],
+        thresholdTopCm: threshold.elevationCm,
+        risesCm: [
+          signedElevationSum(threshold.elevationCm, -first.elevationCm),
+          signedElevationSum(threshold.elevationCm, -second.elevationCm),
+        ],
+        deltaCm: signedElevationSum(second.elevationCm, -first.elevationCm),
+        surfaceKnown: known.has(threshold.id),
+      },
+    ]
+  })
+  return { transitions, issues: report.issues }
 }
