@@ -121,7 +121,7 @@ describe('controlled common vertical reference fields', () => {
     expect(html).toContain('id="vertical-wall-wall-1"')
     expect(html).not.toContain('Стена wall-1:')
     expect(html).toMatch(/type="checkbox"[^>]*disabled=""/)
-    expect(html).toContain('Перенос уровней в 2D/3D, мебель и маршруты ещё')
+    expect(html).toContain('Известные уровни используются с подтверждённой схемой')
     expect(html).not.toContain('<form')
   })
 
@@ -249,7 +249,7 @@ describe('controlled common vertical reference fields', () => {
     expect(html).toContain('Потолок в общем отсчёте: +270 см')
     expect(html).toContain('Изменить отсчёт и отметки')
     expect(html).toContain('Подготовить снятие отсчёта')
-    expect(html).toContain('Пока доступно только сохранение отметок')
+    expect(html).toContain('маршруты проверяют только непрерывный')
     expect(html).not.toContain('Готово к 3D')
   })
 
@@ -279,7 +279,7 @@ describe('controlled common vertical reference fields', () => {
         createElement(PlanVerticalReferenceEditor, { ...handlers, geometry }),
       )
       expect(html).toContain('Сохранённый отсчёт недействителен')
-      expect(html).toContain('Пока доступно только сохранение отметок')
+      expect(html).toContain('маршруты проверяют только непрерывный')
       expect(html).toContain('Сверить отсчёт заново')
       expect(html).toContain('Подготовить снятие отсчёта')
       expect(html).not.toContain('Сохранённая сверка пользователя относится')

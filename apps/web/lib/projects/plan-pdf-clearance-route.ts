@@ -9,7 +9,32 @@ import {
 import { pdfPolygonIsValid } from './plan-pdf-room-binding'
 import { inspectSourceClearanceRoutes } from './plan-source-clearance-route'
 import { inspectPlanVerticalDimensions, openingFloorLevel } from './plan-vertical-dimensions'
-import { referenceTransferIssue } from './plan-vertical-reference'
+import { signedPlanFloors } from './plan-vertical-floor-geometry'
+import { openingOnVerticalFloorBoundary } from './plan-vertical-reference'
+
+export type RouteVertical = {
+  referenceId: string
+  elevationCm: number
+  heldTransitions: Array<{ openingIds: string[]; reason: string }>
+}
+
+export function withRouteElevation(
+  result: ReturnType<typeof inspectSourceClearanceRoutes>,
+  vertical?: RouteVertical,
+): Omit<ReturnType<typeof inspectSourceClearanceRoutes>, 'routes'> & {
+  vertical?: RouteVertical
+  routes: Array<{ roomId: string; points: Array<PlanPoint & { zCm?: number }> }>
+} {
+  if (!vertical) return result
+  return {
+    ...result,
+    vertical,
+    routes: result.routes.map((route) => ({
+      ...route,
+      points: route.points.map((point) => ({ ...point, zCm: vertical.elevationCm })),
+    })),
+  }
+}
 
 const samePoint = (a: PlanPoint, b: PlanPoint) => a.xCm === b.xCm && a.yCm === b.yCm
 const samePagePoint = (a: { x: number; y: number }, b: { x: number; y: number }) =>
@@ -26,7 +51,7 @@ function polygonWinding(polygon: PlanPoint[]) {
 }
 
 /** Only reciprocal, coincident source dividers join open zones; gaps stay unknown. */
-function openZoneEdges(geometry: PlanGeometry) {
+function openZoneEdges(geometry: PlanGeometry, elevations?: Map<number, number>) {
   const edges = (geometry.pdfCalibration?.sourceOpenZoneBoundaries ?? []).map((proof) => {
     const owners = geometry.rooms.flatMap((room, roomIndex) =>
       room.polygon.length === proof.polygon.length &&
@@ -41,6 +66,7 @@ function openZoneEdges(geometry: PlanGeometry) {
     const end = proof.polygon[(proof.edgeIndex + 1) % proof.polygon.length]
     if (
       owners.length !== 1 ||
+      owners[0] === undefined ||
       !Number.isInteger(proof.edgeIndex) ||
       proof.edgeIndex < 0 ||
       proof.edgeIndex >= proof.polygon.length ||
@@ -72,6 +98,9 @@ function openZoneEdges(geometry: PlanGeometry) {
           otherIndex !== index &&
           other &&
           other.roomIndex !== edge.roomIndex &&
+          (!elevations ||
+            (elevations.has(edge.roomIndex) &&
+              elevations.get(edge.roomIndex) === elevations.get(other.roomIndex))) &&
           other.side === -edge.side &&
           ((samePagePoint(edge.sourceEdge[0], other.sourceEdge[0]) &&
             samePagePoint(edge.sourceEdge[1], other.sourceEdge[1])) ||
@@ -87,7 +116,12 @@ function openZoneEdges(geometry: PlanGeometry) {
 
 function face(binding: PlanOpeningBinding, geometry: PlanGeometry) {
   const { opening, wall, cut } = binding
-  if (cut?.length !== 2 || opening.type !== 'door') return undefined
+  if (
+    cut?.length !== 2 ||
+    opening.type === 'window' ||
+    (opening.type === 'balcony' && geometry.verticalReference === undefined)
+  )
+    return undefined
   const along: 'xCm' | 'yCm' = wall.start.yCm === wall.end.yCm ? 'xCm' : 'yCm'
   const across: 'xCm' | 'yCm' = along === 'xCm' ? 'yCm' : 'xCm'
   if (wall.start[across] !== wall.end[across] || samePoint(wall.start, wall.end)) return undefined
@@ -154,8 +188,26 @@ function closedSpans(start: PlanPoint, end: PlanPoint, cuts: Face[]) {
 /** Только доказанные комнаты и дверные переходы; остальной PDF не объявляется полом. */
 export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
   const missing = (message: string) => ({ missing: message, result: undefined })
-  const referenceIssue = referenceTransferIssue(geometry)
-  if (referenceIssue) return missing(referenceIssue.message)
+  const signed = signedPlanFloors(geometry)
+  if (signed && !signed.ok) return missing(signed.error)
+  const reference = signed?.ok ? signed.reference : undefined
+  const elevations = reference
+    ? new Map(
+        geometry.rooms.flatMap((room, index) => {
+          const floor = reference.floors.find(
+            (value) =>
+              value.room.name === room.name &&
+              value.room.polygon.length === room.polygon.length &&
+              value.room.polygon.every((point, vertex) => {
+                const other = room.polygon[vertex]
+                return other !== undefined && samePoint(point, other)
+              }),
+          )
+          return floor?.surface === 'finished-floor' ? [[index, floor.elevationCm] as const] : []
+        }),
+      )
+    : undefined
+  const heldTransitions: RouteVertical['heldTransitions'] = []
   const calibration = geometry.pdfCalibration
   const width = geometry.routeWidthCm
   if (!calibration || !width || !Number.isFinite(width) || width < 40 || width > 200)
@@ -179,9 +231,19 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
     return missing(
       'В PDF-схеме смешаны грани и стены с толщиной. Сверьте физическую модель перед расчётом.',
     )
-  const openEdges = openZoneEdges(geometry)
+  const openEdges = openZoneEdges(geometry, elevations)
   if (!openEdges)
     return missing('После правки открытых зон повторно сверьте их границы с исходным PDF.')
+  if (reference) {
+    const legacyOpenEdges = openZoneEdges(geometry)
+    for (const key of legacyOpenEdges ?? []) {
+      if (!openEdges.has(key))
+        heldTransitions.push({
+          openingIds: [],
+          reason: `Открытая граница ${key}: разные или неизвестные отметки чистовых полов.`,
+        })
+    }
+  }
   const floors = geometry.rooms.map((room) => body(room.polygon))
   if (
     floors.some((floor, index) =>
@@ -209,7 +271,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
   if (entryFace.high - entryFace.low < width)
     return missing('Стартовая дверь уже выбранной ширины прохода.')
   const entryOpening = geometry.openings.find((opening) => opening.id === entry.opening.id)
-  if (entryOpening && ['raised', 'invalid'].includes(openingFloorLevel(entryOpening)))
+  if (!reference && entryOpening && ['raised', 'invalid'].includes(openingFloorLevel(entryOpening)))
     return missing(
       'У стартового проёма поднятая или некорректная нижняя грань. Непрерывный путь по полу через порог здесь не проверяется.',
     )
@@ -232,6 +294,29 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
   const entryFloor = floors[entryFace.roomIndex]
   if (!entryFloor || polygonClipping.difference(startBody, entryFloor).length > 0)
     return missing('Стартовая свободная зона должна целиком лежать внутри комнаты у двери.')
+  const entryBase = reference?.wallBases.find((base) => base.wall.id === entry.wall.id)
+  const startElevation = elevations?.get(entryFace.roomIndex)
+  if (
+    reference &&
+    (!entryBase ||
+      startElevation === undefined ||
+      !openingOnVerticalFloorBoundary(geometry, entry.opening.id, entryBase.floorId))
+  )
+    return missing('Стартовая зона требует подтверждённого владельца чистового пола.')
+  if (signed?.ok && entryBase) {
+    const owners = signed.surfaces.filter(
+      (surface) =>
+        surface.surface === 'finished-floor' &&
+        polygonClipping.difference(startBody, [
+          surface.floor.map(({ xCm, yCm }) => [xCm, yCm] as [number, number]),
+          ...surface.voids.map((hole) =>
+            hole.map(({ xCm, yCm }) => [xCm, yCm] as [number, number]),
+          ),
+        ]).length === 0,
+    )
+    if (owners.length !== 1 || owners[0]?.floorId !== entryBase.floorId)
+      return missing('Стартовая зона должна целиком лежать на одном подтверждённом чистовом полу.')
+  }
 
   const candidates: Array<[PlanOpeningBinding, PlanOpeningBinding]> = pairs.map(
     (pair) => pair.bindings,
@@ -262,7 +347,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
     )
     if (currentOpenings.some((opening) => !opening || openingFloorLevel(opening) === 'invalid'))
       return missing('Проверьте нижние грани обеих сторон дверного перехода.')
-    const raised = currentOpenings.some(
+    let raised = currentOpenings.some(
       (opening) => opening && openingFloorLevel(opening) === 'raised',
     )
     const first = face(a, geometry)
@@ -294,6 +379,43 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
         'Исходные дверные участки одной грани накладываются. Сверьте однозначность переходов.',
       )
     claimedFaces.push(first, second)
+    if (reference) {
+      const bases = [a, b].map((binding) =>
+        reference.wallBases.find((base) => base.wall.id === binding.wall.id),
+      )
+      const owners = bases.map((base) =>
+        reference.floors.find((floor) => floor.id === base?.floorId),
+      )
+      const threshold = reference.thresholds.find((value) =>
+        value.bindings.every((side) => [a.opening.id, b.opening.id].includes(side.opening.id)),
+      )
+      let reason: string | undefined
+      if (
+        bases.some(
+          (base, index) =>
+            !base ||
+            !openingOnVerticalFloorBoundary(
+              geometry,
+              currentOpenings[index]?.id ?? '',
+              base.floorId,
+            ),
+        )
+      )
+        reason = 'Не подтверждён владелец стороны проёма.'
+      else if (owners.some((owner) => owner?.surface !== 'finished-floor'))
+        reason = 'Не подтверждён чистовой пол.'
+      else if (owners[0]?.elevationCm !== owners[1]?.elevationCm)
+        reason = 'Разные отметки полов: преодоление ступени не проверяется.'
+      else if (currentOpenings.some((opening) => opening?.bottomCm !== 0))
+        reason = 'Нижняя грань проёма неизвестна или поднята над полом.'
+      else if (!threshold) reason = 'Отметка верха порога не подтверждена.'
+      else if (threshold.elevationCm !== owners[0]?.elevationCm)
+        reason = 'Верх порога выше пола: преодоление ступени не проверяется.'
+      else if (owners[0]?.elevationCm !== startElevation)
+        reason = 'Переход находится на другом уровне, чем стартовая зона.'
+      if (reason) heldTransitions.push({ openingIds: [a.opening.id, b.opening.id], reason })
+      raised = reason !== undefined
+    }
     if (first.coordinate !== second.coordinate) {
       // Полоса лежит снаружи обоих полов, между обращёнными друг к другу гранями.
       const direction = Math.sign(second.coordinate - first.coordinate)
@@ -344,29 +466,53 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
       ),
     ),
   )
-  const firstFloor = floors[0]
+  const routeFloors = signed?.ok
+    ? signed.surfaces
+        .filter(
+          (surface) =>
+            surface.surface === 'finished-floor' && surface.elevationCm === startElevation,
+        )
+        .map(
+          (surface): Polygon => [
+            surface.floor.map(({ xCm, yCm }) => [xCm, yCm]),
+            ...surface.voids.map((hole) =>
+              hole.map(({ xCm, yCm }) => [xCm, yCm] as [number, number]),
+            ),
+          ],
+        )
+    : floors
+  const firstFloor = routeFloors[0]
   if (!firstFloor) return missing('Добавьте подтверждённый контур стартовой комнаты.')
-  const floorAndPortals = polygonClipping.union(firstFloor, ...floors.slice(1), ...portals)
+  const floorAndPortals = polygonClipping.union(firstFloor, ...routeFloors.slice(1), ...portals)
   const freeFloor = strips.length
     ? polygonClipping.difference(floorAndPortals, ...strips)
     : floorAndPortals
   return {
     missing: undefined,
-    result: inspectSourceClearanceRoutes({
-      freeFloor,
-      rooms: geometry.rooms.map((room, index) => ({ id: String(index), polygon: room.polygon })),
-      start,
-      widthCm: width,
-      stepCm: 10,
-      maxNodes: 6000,
-      boundaryBarriers,
-      metricObstacles: {
-        voids: geometry.voids,
-        obstacles: [
-          ...(geometry.obstacles ?? []),
-          ...(geometry.kitchenItems ?? []).map((item) => ({ ...item, kind: 'fixed' as const })),
-        ],
-      },
-    }),
+    result: withRouteElevation(
+      inspectSourceClearanceRoutes({
+        freeFloor,
+        rooms: geometry.rooms.map((room, index) => ({ id: String(index), polygon: room.polygon })),
+        start,
+        widthCm: width,
+        stepCm: 10,
+        maxNodes: 6000,
+        boundaryBarriers,
+        metricObstacles: {
+          voids: geometry.voids,
+          obstacles: [
+            ...(geometry.obstacles ?? []),
+            ...(geometry.kitchenItems ?? []).map((item) => ({ ...item, kind: 'fixed' as const })),
+          ],
+        },
+      }),
+      reference && startElevation !== undefined
+        ? {
+            referenceId: reference.id,
+            elevationCm: startElevation,
+            heldTransitions,
+          }
+        : undefined,
+    ),
   }
 }

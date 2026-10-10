@@ -94,13 +94,17 @@ export function mountPlanScene(
     for (const { surface, mesh } of meshes) {
       const material = mesh.material as MeshStandardMaterial
       const selected =
-        surface.kind === 'room'
+        surface.kind === 'room' || (surface.kind === 'floor' && surface.roomId !== undefined)
           ? roomId !== undefined && surface.roomId === roomId
           : surface.kind === 'furniture' &&
             (next?.kind === 'furniture'
               ? surface.furnitureId === next.id
               : roomId !== undefined && surface.roomId === roomId)
-      material.color.copy(selected || surface.kind === 'zone' ? palette.accent : palette.paper)
+      material.color.copy(
+        selected || surface.kind === 'zone' || surface.kind === 'threshold'
+          ? palette.accent
+          : palette.paper,
+      )
       if (surface.kind === 'room') material.opacity = selected ? 0.6 : 0.05
       if (surface.kind === 'furniture') {
         material.color.lerp(palette.ink, selected ? 0.05 : 0.2)
@@ -159,7 +163,12 @@ export function mountPlanScene(
         sectionMaterials.add(material)
       }
       if (surface.kind === 'zone') zoneObjects.push(mesh)
-      if (surface.kind === 'wall' || surface.kind === 'furniture' || surface.kind === 'zone') {
+      if (
+        surface.kind === 'wall' ||
+        surface.kind === 'furniture' ||
+        surface.kind === 'zone' ||
+        surface.kind === 'threshold'
+      ) {
         const edges = new EdgesGeometry(surface.geometry)
         geometries.add(edges)
         const dashed = surface.footprintOnly || surface.preliminary
@@ -230,7 +239,7 @@ export function mountPlanScene(
         const included =
           selection.kind === 'room'
             ? surface.roomId === selection.id &&
-              (surface.kind === 'room' || surface.kind === 'furniture')
+              (surface.kind === 'room' || surface.kind === 'floor' || surface.kind === 'furniture')
             : surface.furnitureId === selection.id
         if (included) selectedBounds.expandByObject(mesh)
       }
@@ -338,9 +347,9 @@ export function mountPlanScene(
       )
       const surface = hit?.object.userData.surface as (typeof data.surfaces)[number] | undefined
       if (surface?.furnitureId) onSelect({ kind: 'furniture', id: surface.furnitureId })
-      else if (surface?.kind === 'room' && surface.roomId)
+      else if ((surface?.kind === 'room' || surface?.kind === 'floor') && surface.roomId)
         onSelect({ kind: 'room', id: surface.roomId })
-      else if (!surface || surface.kind === 'floor') onSelect(null)
+      else if (!surface || surface.kind === 'floor' || surface.kind === 'threshold') onSelect(null)
     }
     const cancel = (event: PointerEvent) => {
       pointers.delete(event.pointerId)
@@ -367,7 +376,8 @@ export function mountPlanScene(
       dispose,
       select: updateSelection,
       setSection: (enabled: boolean, heightCm: number) => {
-        if (!Number.isFinite(heightCm) || heightCm <= 0) return
+        if (!Number.isFinite(heightCm) || (model.floorSurfaces === undefined && heightCm <= 0))
+          return
         const changedMode = sectionEnabled !== enabled
         sectionEnabled = enabled
         sectionPlane.constant = heightCm / 100

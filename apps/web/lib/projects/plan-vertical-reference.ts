@@ -416,16 +416,9 @@ export function currentPlanVerticalReference(
   return inspectPlanVerticalReference(geometry).length ? undefined : geometry.verticalReference
 }
 
+/** Fresh reference only; each consumer must also validate the physical floor geometry. */
 export function referenceTransferIssue(geometry: ReferenceGeometry): PlanGeometryIssue | undefined {
-  if (geometry.verticalReference === undefined) return undefined
-  return (
-    inspectPlanVerticalReference(geometry)[0] ?? {
-      id: 'vertical-reference-transfer-pending',
-      severity: 'error',
-      message:
-        'Отдельные отметки полов сохранены, но их перенос в 2D/3D и маршруты пока не поддерживается. Плоская модель не подменяет подтверждённые уровни.',
-    }
-  )
+  return inspectPlanVerticalReference(geometry)[0]
 }
 
 /** Missing request preserves only fresh approval; null explicitly removes the model. */

@@ -1,6 +1,11 @@
 import { layoutRoom, type RoomLayout } from '@uyut/catalog'
 import { describe, expect, it } from 'vitest'
-import { furnitureFaces, roomVolume } from './room-volume'
+import { furnitureFaces, onPhysicalFloor, roomVolume } from './room-volume'
+
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error('Missing synthetic fixture value')
+  return value
+}
 
 function layout(): RoomLayout {
   return {
@@ -45,6 +50,152 @@ function layout(): RoomLayout {
 }
 
 describe('перенос расстановки в объём', () => {
+  const signedLayout = (): RoomLayout => {
+    const source = layout()
+    const floor = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 400, yCm: 0 },
+      { xCm: 400, yCm: 300 },
+      { xCm: 0, yCm: 300 },
+    ]
+    return {
+      ...source,
+      floorPolygon: floor,
+      floorLevel: {
+        referenceId: 'survey',
+        referenceKind: 'finished-floor',
+        zeroFloorId: 'inside',
+        floorId: 'balcony',
+        elevationCm: -15,
+        surface: 'finished-floor',
+        reviewKey: 'reviewed-context',
+        origin: { xCm: 500, yCm: 600 },
+        worldPolygon: floor.map((point) => ({ xCm: point.xCm + 500, yCm: point.yCm + 600 })),
+        surfaces: [{ floor, voids: [] }],
+      },
+    }
+  }
+  it('uses the signed finished floor as furniture base without adding it twice', () => {
+    const source = signedLayout()
+    required(source.placementInputs[0]).heightCm = 80
+    const model = roomVolume(source)
+    expect(model?.floorSurfaces?.[0]?.elevationCm).toBe(-15)
+    expect(model?.furniture?.every((item) => item.baseCm === -15)).toBe(true)
+    const faces = furnitureFaces(model?.furniture?.slice(0, 1) ?? [])
+    expect(Math.min(...faces.flatMap((face) => face.points.map((point) => point.zCm)))).toBe(-15)
+    expect(Math.max(...faces.flatMap((face) => face.points.map((point) => point.zCm)))).toBe(65)
+    expect(
+      furnitureFaces(model?.furniture?.slice(2) ?? [])[0]?.points.every(
+        (point) => point.zCm === -15,
+      ),
+    ).toBe(true)
+  })
+  it('adds entered decimal elevations without a binary arithmetic overshoot', () => {
+    const source = signedLayout()
+    required(source.floorLevel).elevationCm = -0.2
+    required(source.placementInputs[0]).heightCm = 0.3
+    const furniture = required(roomVolume(source)?.furniture)
+    const faces = furnitureFaces(furniture.slice(0, 1))
+    expect(Math.max(...faces.flatMap((face) => face.points.map((point) => point.zCm)))).toBe(0.1)
+  })
+  it('holds stale world shape and origin rather than matching only the bounding box', () => {
+    const source = signedLayout()
+    required(required(source.floorLevel).worldPolygon[1]).yCm += 1
+    expect(roomVolume(source)).toBeNull()
+    const moved = signedLayout()
+    required(moved.floorLevel).origin.xCm += 1
+    expect(roomVolume(moved)).toBeNull()
+  })
+  it('holds missing, falsy and unfinished supporting floor metadata', () => {
+    for (const level of [
+      null,
+      false,
+      {},
+      { ...signedLayout().floorLevel, surface: 'existing-floor' },
+    ]) {
+      expect(
+        roomVolume({ ...signedLayout(), floorLevel: level } as unknown as RoomLayout),
+      ).toBeNull()
+    }
+  })
+  it('does not put furniture over a shaft or an unmeasured region', () => {
+    const source = signedLayout()
+    required(required(source.floorLevel).surfaces[0]).voids = [
+      [
+        { xCm: 30, yCm: 40 },
+        { xCm: 50, yCm: 40 },
+        { xCm: 50, yCm: 60 },
+        { xCm: 30, yCm: 60 },
+      ],
+    ]
+    expect(roomVolume(source)).toBeNull()
+    required(source.floorLevel).surfaces = [
+      {
+        floor: [
+          { xCm: 0, yCm: 0 },
+          { xCm: 400, yCm: 0 },
+          { xCm: 400, yCm: 20 },
+          { xCm: 0, yCm: 20 },
+        ],
+        voids: [],
+      },
+    ]
+    expect(roomVolume(source)).toBeNull()
+  })
+  it('checks polygon interiors, not just vertices around a concave notch', () => {
+    const notch = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 100, yCm: 0 },
+      { xCm: 100, yCm: 100 },
+      { xCm: 60, yCm: 100 },
+      { xCm: 60, yCm: 30 },
+      { xCm: 40, yCm: 30 },
+      { xCm: 40, yCm: 100 },
+      { xCm: 0, yCm: 100 },
+    ]
+    const spanning = [
+      { xCm: 20, yCm: 20 },
+      { xCm: 80, yCm: 20 },
+      { xCm: 80, yCm: 80 },
+      { xCm: 20, yCm: 80 },
+    ]
+    expect(onPhysicalFloor(spanning, [{ floor: notch, voids: [] }])).toBe(false)
+  })
+  it('clips display margins to the supporting floor but never clips a required operation area', () => {
+    const source = signedLayout()
+    source.keepClearZones = [
+      {
+        kind: 'door',
+        label: 'Door margin',
+        polygon: [
+          { xCm: -20, yCm: 0 },
+          { xCm: 20, yCm: 0 },
+          { xCm: 20, yCm: 20 },
+          { xCm: -20, yCm: 20 },
+        ],
+      },
+    ]
+    const model = roomVolume(source)
+    expect(model?.floorZones).toHaveLength(1)
+    expect(model?.floorZones?.[0]?.floor.every((point) => point.xCm >= 0)).toBe(true)
+    expect(model?.floorZones?.[0]?.baseCm).toBe(-15)
+    source.functionalZones = [
+      {
+        itemId: 'chair',
+        placementId: 'chair-1',
+        title: 'Pull out',
+        kind: 'front',
+        direction: 'left',
+        source: 'measured',
+        clearanceCm: 20,
+        xCm: -20,
+        yCm: 0,
+        widthCm: 40,
+        depthCm: 20,
+      },
+    ]
+    expect(roomVolume(source)).toBeNull()
+  })
   it('не вращает размещённый габарит повторно и сохраняет высоту каждой копии товара', () => {
     const source = layout()
     const before = structuredClone(source)

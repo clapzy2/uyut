@@ -1,10 +1,10 @@
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import polygonClipping, { type Polygon } from 'polygon-clipping'
 import { doorClearanceZone } from './clearance-zones'
-import { inspectPdfClearanceRoutes } from './plan-pdf-clearance-route'
+import { inspectPdfClearanceRoutes, withRouteElevation } from './plan-pdf-clearance-route'
 import { inspectSourceClearanceRoutes } from './plan-source-clearance-route'
 import { inspectPlanVerticalDimensions, openingFloorLevel } from './plan-vertical-dimensions'
-import { referenceTransferIssue } from './plan-vertical-reference'
+import { signedPlanFloors } from './plan-vertical-floor-geometry'
 
 function body(start: PlanPoint, end: PlanPoint, thicknessCm: number): Polygon {
   const length = Math.hypot(end.xCm - start.xCm, end.yCm - start.yCm)
@@ -22,9 +22,9 @@ function body(start: PlanPoint, end: PlanPoint, thicknessCm: number): Polygon {
 
 /** Осевые стены и исходные PDF-грани рассчитываются раздельно, без подмены одной модели другой. */
 export function inspectMetricClearanceRoutes(geometry: PlanGeometry) {
-  const referenceIssue = referenceTransferIssue(geometry)
-  if (referenceIssue) return { missing: referenceIssue.message, result: undefined }
   if (geometry.pdfCalibration) return inspectPdfClearanceRoutes(geometry)
+  const signed = signedPlanFloors(geometry)
+  if (signed && !signed.ok) return { missing: signed.error, result: undefined }
   if (!geometry.footprint || geometry.footprint.length < 3)
     return { missing: 'Укажите границу пола квартиры для проверки переходов.', result: undefined }
   if (!geometry.rooms.length || !geometry.walls.length)
@@ -46,7 +46,7 @@ export function inspectMetricClearanceRoutes(geometry: PlanGeometry) {
   const zone = entry && doorClearanceZone(entry, geometry)
   if (!entry || !zone)
     return { missing: 'Выберите стартовую дверь и задайте её внутреннюю зону.', result: undefined }
-  if (openingFloorLevel(entry) === 'raised' || openingFloorLevel(entry) === 'invalid')
+  if (!signed && (openingFloorLevel(entry) === 'raised' || openingFloorLevel(entry) === 'invalid'))
     return {
       missing:
         'У стартового проёма поднятая или некорректная нижняя грань. Непрерывный путь по полу через порог здесь не проверяется.',
@@ -83,7 +83,7 @@ export function inspectMetricClearanceRoutes(geometry: PlanGeometry) {
       // A known raised bottom leaves wall material at floor level. Carrying over
       // a step requires a separate vertical model; unknown legacy bottoms remain
       // horizontal-only candidates, explicitly described by the route UI.
-      if (openingFloorLevel(opening) === 'raised') continue
+      if (signed || openingFloorLevel(opening) === 'raised') continue
       const point = (distance: number) => ({
         xCm: wall.start.xCm + ((wall.end.xCm - wall.start.xCm) * distance) / length,
         yCm: wall.start.yCm + ((wall.end.yCm - wall.start.yCm) * distance) / length,
@@ -94,7 +94,6 @@ export function inspectMetricClearanceRoutes(geometry: PlanGeometry) {
     wallBodies.push(...(cuts.length ? polygonClipping.difference(wallBody, ...cuts) : [wallBody]))
   }
   const floor: Polygon = [geometry.footprint.map(({ xCm, yCm }) => [xCm, yCm])]
-  const freeFloor = polygonClipping.difference(floor, ...wallBodies)
   const start = zone.polygon.reduce(
     (sum, point) => ({
       xCm: sum.xCm + point.xCm / zone.polygon.length,
@@ -102,23 +101,74 @@ export function inspectMetricClearanceRoutes(geometry: PlanGeometry) {
     }),
     { xCm: 0, yCm: 0 },
   )
+  const half = width / 2
+  const startBody: Polygon = [
+    [
+      [start.xCm - half, start.yCm - half],
+      [start.xCm + half, start.yCm - half],
+      [start.xCm + half, start.yCm + half],
+      [start.xCm - half, start.yCm + half],
+    ],
+  ]
+  const ownedFloors = signed?.ok
+    ? signed.surfaces.filter(
+        (surface) =>
+          surface.surface === 'finished-floor' &&
+          polygonClipping.difference(startBody, [
+            surface.floor.map(({ xCm, yCm }) => [xCm, yCm] as [number, number]),
+            ...surface.voids.map((hole) =>
+              hole.map(({ xCm, yCm }) => [xCm, yCm] as [number, number]),
+            ),
+          ]).length === 0,
+      )
+    : []
+  const owner = ownedFloors[0]
+  if (signed && (ownedFloors.length !== 1 || !owner))
+    return {
+      missing: 'Стартовая свободная зона требует одного подтверждённого чистового пола.',
+      result: undefined,
+    }
+  // Axis walls have no accepted two-sided threshold proof. Stay inside one
+  // physical floor; never create inter-floor passage from a mere horizontal gap.
+  const routeFloor: Polygon = owner
+    ? [
+        owner.floor.map(({ xCm, yCm }) => [xCm, yCm]),
+        ...owner.voids.map((hole) => hole.map(({ xCm, yCm }) => [xCm, yCm] as [number, number])),
+      ]
+    : floor
+  const freeFloor = polygonClipping.difference(routeFloor, ...wallBodies)
   const furniture = (geometry.kitchenItems ?? []).map((item) => ({
     ...item,
     kind: 'fixed' as const,
   }))
   return {
     missing: undefined,
-    result: inspectSourceClearanceRoutes({
-      freeFloor,
-      rooms: geometry.rooms.map((room, index) => ({ id: String(index), polygon: room.polygon })),
-      start,
-      widthCm: width,
-      stepCm: 10,
-      maxNodes: 6000,
-      metricObstacles: {
-        voids: geometry.voids,
-        obstacles: [...(geometry.obstacles ?? []), ...furniture],
-      },
-    }),
+    result: withRouteElevation(
+      inspectSourceClearanceRoutes({
+        freeFloor,
+        rooms: geometry.rooms.map((room, index) => ({ id: String(index), polygon: room.polygon })),
+        start,
+        widthCm: width,
+        stepCm: 10,
+        maxNodes: 6000,
+        metricObstacles: {
+          voids: geometry.voids,
+          obstacles: [...(geometry.obstacles ?? []), ...furniture],
+        },
+      }),
+      signed?.ok && owner
+        ? {
+            referenceId: signed.reference.id,
+            elevationCm: owner.elevationCm,
+            heldTransitions: geometry.openings
+              .filter((opening) => opening.type !== 'window' && opening.id !== entry.id)
+              .map((opening) => ({
+                openingIds: [opening.id],
+                reason:
+                  'Нет подтверждённых двух сторон порога: переход между полами не проверяется.',
+              })),
+          }
+        : undefined,
+    ),
   }
 }

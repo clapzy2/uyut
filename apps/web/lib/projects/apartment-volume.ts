@@ -1,6 +1,7 @@
 import type { RoomLayout } from '@uyut/catalog'
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import { polygonsOverlap } from './plan-page-review'
+import { signedPlanFloors, verticalReferenceReviewKey } from './plan-vertical-floor-geometry'
 import {
   type PlanVolume,
   planVolume,
@@ -59,6 +60,7 @@ export function apartmentVolume(
     }
   }
   const notes: string[] = []
+  const signed = signedPlanFloors(geometry)
   const kitchenFurniture = model.furniture ?? []
   const furniture: VolumeFurniture[] = [...kitchenFurniture]
   const issues = [...model.issues]
@@ -111,6 +113,47 @@ export function apartmentVolume(
       continue
     }
     const localModel = roomVolume(room.layout)
+    if (signed?.ok) {
+      const level = room.layout.floorLevel
+      const owners = signed.reference.floors.filter(
+        (floor) =>
+          floor.room.name === sourceRoom.name &&
+          JSON.stringify(floor.room.sourceNumber) === JSON.stringify(sourceRoom.sourceNumber) &&
+          JSON.stringify(floor.room.sourceNumbers) === JSON.stringify(sourceRoom.sourceNumbers) &&
+          sameContour(floor.room.polygon, sourceRoom.polygon),
+      )
+      const owner = owners[0]
+      const local = (point: PlanPoint) => ({ xCm: point.xCm - originX, yCm: point.yCm - originY })
+      const surfaces = signed.surfaces
+        .filter((surface) => surface.floorId === owner?.id)
+        .map((surface) => ({
+          floor: surface.floor.map(local),
+          voids: surface.voids.map((hole) => hole.map(local)),
+        }))
+      if (
+        !level ||
+        !owner ||
+        owners.length !== 1 ||
+        owner.surface !== 'finished-floor' ||
+        level.referenceId !== signed.reference.id ||
+        level.referenceKind !== signed.reference.kind ||
+        level.zeroFloorId !== signed.reference.zeroFloorId ||
+        level.reviewKey !== verticalReferenceReviewKey(signed.reference) ||
+        level.floorId !== owner.id ||
+        level.elevationCm !== owner.elevationCm ||
+        level.surface !== owner.surface ||
+        JSON.stringify(level.worldPolygon) !== JSON.stringify(sourceRoom.polygon) ||
+        level.origin.xCm !== originX ||
+        level.origin.yCm !== originY ||
+        JSON.stringify(level.surfaces) !== JSON.stringify(surfaces)
+      ) {
+        omit('отметка, владелец пола или отсчёт изменились; пересверьте расстановку')
+        continue
+      }
+    } else if (room.layout.floorLevel !== undefined) {
+      omit('расстановка содержит общий отсчёт, которого нет в текущем плане')
+      continue
+    }
     const items = localModel?.furniture
     if (!items || new Set(items.map((item) => item.id)).size !== items.length) {
       omit('координаты мебели или идентификаторы размещений требуют уточнения')
@@ -124,6 +167,12 @@ export function apartmentVolume(
       id: room.roomId,
       title: room.roomName,
       floor: sourceRoom.polygon.map((point) => ({ ...point })),
+      ...(room.layout.floorLevel
+        ? {
+            baseCm: room.layout.floorLevel.elevationCm,
+            floorId: room.layout.floorLevel.floorId,
+          }
+        : {}),
     })
     furniture.push(
       ...items.map((item) => ({
@@ -150,6 +199,12 @@ export function apartmentVolume(
       })),
     )
   }
+  const floorSurfaces = model.floorSurfaces?.map((surface) => {
+    const room = matchedRooms.find(
+      (candidate) => !candidate.sourceOnly && candidate.floorId === surface.floorId,
+    )
+    return room ? { ...surface, roomId: room.id } : surface
+  })
   for (const kitchen of kitchenFurniture) {
     for (const item of furniture.slice(kitchenFurniture.length)) {
       if (
@@ -166,5 +221,15 @@ export function apartmentVolume(
       }
     }
   }
-  return { model: { ...model, furniture, floorZones, rooms: matchedRooms, issues }, notes }
+  return {
+    model: {
+      ...model,
+      furniture,
+      floorZones,
+      rooms: matchedRooms,
+      issues,
+      ...(floorSurfaces ? { floorSurfaces } : {}),
+    },
+    notes,
+  }
 }

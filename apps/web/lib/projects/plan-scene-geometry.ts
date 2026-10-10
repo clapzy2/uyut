@@ -1,11 +1,12 @@
 import type { PlanPoint } from '@uyut/db'
 import { BufferGeometry, Float32BufferAttribute, ShapeUtils, Vector2, Vector3 } from 'three'
+import { signedElevationSum } from './plan-vertical-floor-geometry'
 import type { PlanVolume } from './plan-volume'
 import { furnitureFaces } from './room-volume'
 
 export type PlanSceneSurface = {
   id: string
-  kind: 'floor' | 'room' | 'wall' | 'furniture' | 'zone'
+  kind: 'floor' | 'room' | 'wall' | 'furniture' | 'zone' | 'threshold'
   geometry: BufferGeometry
   roomId?: string
   furnitureId?: string
@@ -40,8 +41,9 @@ function scenePoint(point: HeightPoint): Vector3 {
   return position
 }
 
-function floorPoints(points: readonly PlanPoint[]): HeightPoint[] {
-  return points.map((point) => ({ ...point, zCm: 0 }))
+function floorPoints(points: readonly PlanPoint[], elevationCm = 0): HeightPoint[] {
+  checkElevation(elevationCm)
+  return points.map((point) => ({ ...point, zCm: elevationCm }))
 }
 
 function openRing(points: readonly HeightPoint[]): Vector3[] {
@@ -286,16 +288,50 @@ function checkHeight(height: number | undefined, allowZero: boolean): void {
   }
 }
 
+function checkElevation(elevation: number | undefined): void {
+  if (elevation !== undefined && !Number.isFinite(elevation)) {
+    throw new Error('A scene elevation must be finite')
+  }
+}
+
 /** Render measured surfaces, not invented wall thicknesses, furniture shapes or opening heights. */
 export function buildPlanScene(model: PlanVolume): PlanScene {
   const scene: PlanScene = { surfaces: [], lines: [] }
   try {
-    scene.surfaces.push({
-      id: 'floor',
-      kind: 'floor',
-      geometry: polygonGeometry(floorPoints(model.floor), model.voids.map(floorPoints)),
-    })
-    for (const room of model.rooms ?? []) {
+    if (model.floorSurfaces !== undefined) {
+      if (model.floorSurfaces.length === 0) throw new Error('Signed floors cannot be empty')
+      for (const floor of model.floorSurfaces) {
+        if (!Number.isFinite(floor.elevationCm)) throw new Error('A floor elevation must be finite')
+        scene.surfaces.push({
+          id: floor.id,
+          kind: 'floor',
+          roomId: floor.roomId,
+          geometry: polygonGeometry(
+            floorPoints(floor.floor, floor.elevationCm),
+            floor.voids.map((hole) => floorPoints(hole, floor.elevationCm)),
+          ),
+        })
+      }
+    } else {
+      scene.surfaces.push({
+        id: 'floor',
+        kind: 'floor',
+        geometry: polygonGeometry(
+          floorPoints(model.floor),
+          model.voids.map((hole) => floorPoints(hole)),
+        ),
+      })
+    }
+    for (const threshold of model.thresholds ?? []) {
+      if (!Number.isFinite(threshold.elevationCm))
+        throw new Error('A threshold elevation must be finite')
+      scene.surfaces.push({
+        id: threshold.id,
+        kind: 'threshold',
+        geometry: polygonGeometry(floorPoints(threshold.floor, threshold.elevationCm)),
+      })
+    }
+    for (const room of model.floorSurfaces === undefined ? (model.rooms ?? []) : []) {
       const roomRing = room.floor.map((point) => new Vector2(point.xCm / 100, point.yCm / 100))
       const roomVoids = model.voids.filter((hole) => {
         const holeRing = hole.map((point) => new Vector2(point.xCm / 100, point.yCm / 100))
@@ -308,7 +344,10 @@ export function buildPlanScene(model: PlanVolume): PlanScene {
         id: `room-${room.id}`,
         kind: 'room',
         roomId: room.id,
-        geometry: polygonGeometry(floorPoints(room.floor), roomVoids.map(floorPoints)),
+        geometry: polygonGeometry(
+          floorPoints(room.floor, room.baseCm),
+          roomVoids.map((hole) => floorPoints(hole, room.baseCm)),
+        ),
       })
     }
     for (const face of model.solidFaces) {
@@ -319,8 +358,13 @@ export function buildPlanScene(model: PlanVolume): PlanScene {
       })
     }
     for (const wall of model.walls) {
-      checkHeight(wall.bottomCm, true)
-      checkHeight(wall.topCm, false)
+      if (model.floorSurfaces === undefined) {
+        checkHeight(wall.bottomCm, true)
+        checkHeight(wall.topCm, false)
+      } else {
+        checkElevation(wall.bottomCm)
+        checkElevation(wall.topCm)
+      }
       if (wall.topCm !== undefined && wall.topCm <= wall.bottomCm) {
         throw new Error('A wall top must be above its bottom')
       }
@@ -334,7 +378,7 @@ export function buildPlanScene(model: PlanVolume): PlanScene {
           id: wall.id,
           kind: 'wall',
           unknown: true,
-          geometry: lineGeometry(floorPoints([wall.start, wall.end])),
+          geometry: lineGeometry(floorPoints([wall.start, wall.end], wall.bottomCm)),
         })
       } else {
         scene.surfaces.push({
@@ -349,7 +393,10 @@ export function buildPlanScene(model: PlanVolume): PlanScene {
         })
       }
     }
-    for (const item of model.furniture ?? []) checkHeight(item.heightCm, false)
+    for (const item of model.furniture ?? []) {
+      checkHeight(item.heightCm, false)
+      checkElevation(item.baseCm)
+    }
     const furnitureRooms = new Map((model.furniture ?? []).map((item) => [item.id, item.roomId]))
     for (const face of furnitureFaces(model.furniture ?? [])) {
       scene.surfaces.push({
@@ -367,15 +414,20 @@ export function buildPlanScene(model: PlanVolume): PlanScene {
         kind: 'zone',
         roomId: zone.roomId,
         preliminary: zone.preliminary,
-        geometry: polygonGeometry(floorPoints(zone.floor)),
+        geometry: polygonGeometry(floorPoints(zone.floor, zone.baseCm)),
       })
     }
     for (const opening of model.openings) {
-      checkHeight(opening.bottomCm, true)
+      if (model.floorSurfaces === undefined) checkHeight(opening.bottomCm, true)
+      else checkElevation(opening.bottomCm)
+      checkElevation(opening.baseCm)
       checkHeight(opening.heightCm, false)
       const measured = opening.bottomCm !== undefined && opening.heightCm !== undefined
       const bottom = opening.bottomCm ?? 0
-      const top = bottom + (opening.heightCm ?? 0)
+      const top =
+        model.floorSurfaces === undefined
+          ? bottom + (opening.heightCm ?? 0)
+          : signedElevationSum(bottom, opening.heightCm ?? 0)
       const outline = measured
         ? [
             { ...opening.start, zCm: bottom },
@@ -384,7 +436,7 @@ export function buildPlanScene(model: PlanVolume): PlanScene {
             { ...opening.start, zCm: top },
             { ...opening.start, zCm: bottom },
           ]
-        : floorPoints([opening.start, opening.end])
+        : floorPoints([opening.start, opening.end], opening.baseCm)
       scene.lines.push({
         id: opening.id,
         kind: 'opening',

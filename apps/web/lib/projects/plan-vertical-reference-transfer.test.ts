@@ -183,13 +183,13 @@ describe('common datum integration without legacy flat transfer', () => {
     expect(inspectPdfClearanceRoutes(geometry).result).toBeUndefined()
   })
 
-  it('blocks apartment 3D and both route entry points until signed floor consumers are connected', () => {
+  it('does not use a fresh datum to bypass missing wall or route evidence', () => {
     const geometry = reviewedFixture()
-    expect(referenceTransferIssue(geometry)?.id).toBe('vertical-reference-transfer-pending')
+    expect(referenceTransferIssue(geometry)).toBeUndefined()
     expect(planVolume(geometry)).toBeNull()
     expect(apartmentVolume(geometry, []).model).toBeNull()
     expect(inspectMetricClearanceRoutes(geometry).result).toBeUndefined()
-    expect(inspectMetricClearanceRoutes(geometry).missing).toContain('отметки')
+    expect(inspectMetricClearanceRoutes(geometry).missing).toContain('ширину прохода')
     expect(inspectPdfClearanceRoutes(geometry).result).toBeUndefined()
   })
 

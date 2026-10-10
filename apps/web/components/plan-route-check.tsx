@@ -48,7 +48,9 @@ export function PlanRouteCheck({ geometry }: { geometry: PlanGeometry }) {
       {unknownBottomIds.length ? (
         <p className="mt-2 text-xs leading-relaxed text-ink-2">
           Неизвестная нижняя грань у дверных и балконных проёмов: {unknownBottomIds.length}. Эти
-          переходы остаются условными 2D-кандидатами, не доказательством непрерывного ровного пола.
+          {geometry.verticalReference
+            ? 'переходы удерживаются до сверки отметок и не считаются непрерывным полом.'
+            : 'переходы остаются условными 2D-кандидатами, не доказательством непрерывного ровного пола.'}
         </p>
       ) : null}
       {raisedBottomIds.length ? (
@@ -94,6 +96,27 @@ export function PlanRouteCheck({ geometry }: { geometry: PlanGeometry }) {
               Найденные пути: {current.result.routes.length} из {geometry.rooms.length}. Ширина:{' '}
               {current.result.widthCm} см.
             </p>
+            {current.result.vertical ? (
+              <div className="mt-2 text-xs leading-relaxed text-ink-2">
+                <p>
+                  Непрерывные пути на отметке {current.result.vertical.elevationCm} см от общего
+                  нуля «{current.result.vertical.referenceId}». Старт находится внутри комнаты;
+                  внешний порог не проверяется.
+                </p>
+                {current.result.vertical.heldTransitions.length ? (
+                  <details className="mt-2">
+                    <summary className="min-h-11 cursor-pointer py-2">
+                      Требуют сверки переходы: {current.result.vertical.heldTransitions.length}
+                    </summary>
+                    {current.result.vertical.heldTransitions.map((transition, index) => (
+                      <p key={String(index)} className="break-words">
+                        {transition.openingIds.join(', ')}: {transition.reason}
+                      </p>
+                    ))}
+                  </details>
+                ) : null}
+              </div>
+            ) : null}
             {current.result.unresolvedRoomIds.length ? (
               <p className="mt-1 text-ink-2">
                 Нужно проверить:{' '}

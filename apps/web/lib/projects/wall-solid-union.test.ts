@@ -1,6 +1,7 @@
 import type { PlanGeometry, PlanWall } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import { type PlanSolidFace, planVolume } from './plan-volume'
+import { joinWallSolids } from './wall-solid-union'
 
 function wall(
   id: string,
@@ -66,6 +67,36 @@ function model(walls: PlanWall[], openings: PlanGeometry['openings'] = []) {
 }
 
 describe('объединение объёмов стен', () => {
+  it('checks another wall against the global signed aperture, not its local finished-floor bottom', () => {
+    const source: PlanGeometry = {
+      ...base,
+      walls: [wall('a', 0, 0, 300, 0), wall('b', 150, -100, 150, 100, 5)],
+      openings: [
+        {
+          id: 'door',
+          type: 'door',
+          wallId: 'a',
+          offsetCm: 100,
+          widthCm: 100,
+          bottomCm: 0,
+          heightCm: 10,
+        },
+      ],
+    }
+    const original = model(source.walls, source.openings)
+    const translated = original.walls.map((span) => ({
+      ...span,
+      bottomCm: span.bottomCm + (span.wallId === 'a' ? -15 : -10),
+      topCm: span.topCm === undefined ? undefined : span.topCm + (span.wallId === 'a' ? -15 : -10),
+    }))
+    const signed = joinWallSolids(translated, source, new Map([['door', -15]]))
+    expect(signed?.issues).toContainEqual(
+      expect.objectContaining({ openingIds: ['door'], wallIds: ['a', 'b'] }),
+    )
+    expect(signed?.faces.flatMap((face) => face.points.map((point) => point.zCm))).toContain(-15)
+    expect(joinWallSolids(translated, source)?.issues).toEqual([])
+    expect(joinWallSolids(translated, source, new Map())?.issues).toEqual([])
+  })
   it.each([
     ['Г-образный', wall('b', 300, 0, 300, 200), 1_980_000],
     ['Т-образный', wall('b', 150, 0, 150, 200), 1_960_000],

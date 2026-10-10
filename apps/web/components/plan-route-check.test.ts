@@ -63,6 +63,34 @@ it('shows route lines only for the checked geometry snapshot', () => {
   expect(render(geometry)).toContain('<polyline')
 })
 
+it('labels signed continuous routes and held step transitions without a passability verdict', () => {
+  const saved = {
+    ...checked,
+    inspection: {
+      result: {
+        ...checked.inspection.result,
+        vertical: {
+          referenceId: 'synthetic-zero',
+          elevationCm: -15,
+          heldTransitions: [
+            {
+              openingIds: ['balcony-in', 'balcony-out'],
+              reason: 'Разные отметки полов: преодоление ступени не проверяется.',
+            },
+          ],
+        },
+      },
+    },
+  }
+  const html = render(geometry, saved)
+  expect(html).toContain('Непрерывные пути на отметке -15 см')
+  expect(html).toContain('synthetic-zero')
+  expect(html).toContain('внешний порог не проверяется')
+  expect(html).toContain('Требуют сверки переходы: 1')
+  expect(html).toContain('balcony-in, balcony-out')
+  expect(html).toContain('не подтверждение вертикального просвета')
+})
+
 it('hides old route lines immediately after an obstacle edit', () => {
   const html = render({
     ...geometry,

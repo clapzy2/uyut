@@ -1,5 +1,8 @@
 import type { RoomLayout } from '@uyut/catalog'
 import type { PlanPoint } from '@uyut/db'
+import polygonClipping, { type MultiPolygon, type Polygon } from 'polygon-clipping'
+import { z } from 'zod'
+import { signedElevationSum } from './plan-vertical-floor-geometry'
 import type { PlanSolidFace, PlanVolume, VolumeFloorZone, VolumeFurniture } from './plan-volume'
 
 function rectangle(x: number, y: number, width: number, depth: number): PlanPoint[] {
@@ -11,8 +14,83 @@ function rectangle(x: number, y: number, width: number, depth: number): PlanPoin
   ]
 }
 
+const pointSchema = z.object({ xCm: z.number().finite(), yCm: z.number().finite() }).strict()
+const polygonSchema = z.array(pointSchema).min(3).max(2000)
+const levelSchema = z
+  .object({
+    referenceId: z.string().min(1),
+    referenceKind: z.enum(['existing-floor', 'finished-floor']),
+    zeroFloorId: z.string().min(1),
+    floorId: z.string().min(1),
+    elevationCm: z.number().finite().min(-600).max(600),
+    surface: z.literal('finished-floor'),
+    reviewKey: z.string().min(1),
+    worldPolygon: polygonSchema,
+    origin: pointSchema,
+    surfaces: z
+      .array(z.object({ floor: polygonSchema, voids: z.array(polygonSchema).max(200) }).strict())
+      .min(1)
+      .max(200),
+  })
+  .strict()
+
+function clippingPolygon(floor: readonly PlanPoint[], voids: readonly PlanPoint[][] = []): Polygon {
+  return [floor, ...voids].map((ring) => ring.map((point) => [point.xCm, point.yCm]))
+}
+
+/** Whole polygon containment, including concave cuts and internal holes, not vertex-only checks. */
+export function onPhysicalFloor(
+  polygon: readonly PlanPoint[],
+  surfaces: readonly { floor: PlanPoint[]; voids: PlanPoint[][] }[],
+): boolean {
+  try {
+    const allowed: MultiPolygon = surfaces.map((surface) =>
+      clippingPolygon(surface.floor, surface.voids),
+    )
+    return polygonClipping.difference(clippingPolygon(polygon), allowed).length === 0
+  } catch {
+    return false
+  }
+}
+
+export function validRoomFloorLevel(layout: RoomLayout): boolean {
+  if (layout.floorLevel === undefined) return true
+  const parsed = levelSchema.safeParse(layout.floorLevel)
+  if (!parsed.success || !layout.floorPolygon) return false
+  const level = parsed.data
+  const vertexCount = level.surfaces.reduce(
+    (count, surface) =>
+      count + surface.floor.length + surface.voids.reduce((total, hole) => total + hole.length, 0),
+    0,
+  )
+  if (vertexCount > 4096) return false
+  if (level.worldPolygon.length !== layout.floorPolygon.length) return false
+  if (
+    level.origin.xCm !== Math.min(...level.worldPolygon.map((point) => point.xCm)) ||
+    level.origin.yCm !== Math.min(...level.worldPolygon.map((point) => point.yCm))
+  )
+    return false
+  if (
+    !level.worldPolygon.every((point, index) => {
+      const local = layout.floorPolygon?.[index]
+      return (
+        local &&
+        point.xCm - level.origin.xCm === local.xCm &&
+        point.yCm - level.origin.yCm === local.yCm
+      )
+    })
+  )
+    return false
+  const localFloor = layout.floorPolygon
+  return level.surfaces.every((surface) =>
+    onPhysicalFloor(surface.floor, [{ floor: localFloor, voids: [] }]),
+  )
+}
+
 /** Keep the exact local coordinates of the current 2D layout, including rotated footprints. */
 export function roomVolume(layout: RoomLayout): PlanVolume | null {
+  if (!validRoomFloorLevel(layout)) return null
+  const level = layout.floorLevel
   if (
     !(layout.widthCm > 0) ||
     !(layout.depthCm > 0) ||
@@ -43,6 +121,7 @@ export function roomVolume(layout: RoomLayout): PlanVolume | null {
       itemId: item.itemId,
       title: item.title,
       floor: rectangle(item.xCm, item.yCm, item.widthCm, item.depthCm),
+      ...(level ? { baseCm: level.elevationCm } : {}),
       ...(height !== undefined && Number.isFinite(height) && height > 0
         ? { heightCm: height }
         : {}),
@@ -67,6 +146,45 @@ export function roomVolume(layout: RoomLayout): PlanVolume | null {
       zone.floor.length >= 3 &&
       zone.floor.every((point) => Number.isFinite(point.xCm) && Number.isFinite(point.yCm)),
   )
+  if (
+    level &&
+    (furniture.some((item) => !onPhysicalFloor(item.floor, level.surfaces)) ||
+      floorZones
+        .filter((zone) => zone.kind === 'operation')
+        .some((zone) => !onPhysicalFloor(zone.floor, level.surfaces)))
+  )
+    return null
+  if (level) {
+    // Opening/radiator margins may cross a room edge. Render only their actual floor area;
+    // operation zones were checked whole above and must not be truncated into feasibility.
+    const clippedZones: VolumeFloorZone[] = []
+    try {
+      const allowed: MultiPolygon = level.surfaces.map((surface) =>
+        clippingPolygon(surface.floor, surface.voids),
+      )
+      for (const zone of floorZones) {
+        if (zone.kind === 'operation') {
+          clippedZones.push({ ...zone, baseCm: level.elevationCm })
+          continue
+        }
+        const clipped = polygonClipping.intersection(clippingPolygon(zone.floor), allowed)
+        for (const [index, polygon] of clipped.entries()) {
+          // VolumeFloorZone has no hole contract. Hold rather than paint over a shaft.
+          if (polygon.length !== 1 || !polygon[0]) return null
+          const ring = polygon[0].slice(0, -1)
+          clippedZones.push({
+            ...zone,
+            id: `${zone.id}-${index}`,
+            baseCm: level.elevationCm,
+            floor: ring.map(([xCm, yCm]) => ({ xCm, yCm })),
+          })
+        }
+      }
+    } catch {
+      return null
+    }
+    floorZones.splice(0, floorZones.length, ...clippedZones)
+  }
   const openings: PlanVolume['openings'] = layout.floorReservations
     .filter(
       (opening) =>
@@ -78,6 +196,7 @@ export function roomVolume(layout: RoomLayout): PlanVolume | null {
       start: opening.start,
       end: opening.end,
       cut: false,
+      ...(level ? { baseCm: level.elevationCm } : {}),
     }))
   // Text-only radiators and ventilation zones are not door openings.
   for (const [index, opening] of layout.reservations.entries()) {
@@ -100,6 +219,7 @@ export function roomVolume(layout: RoomLayout): PlanVolume | null {
       start,
       end,
       cut: false,
+      ...(level ? { baseCm: level.elevationCm } : {}),
     })
   }
   return {
@@ -113,6 +233,23 @@ export function roomVolume(layout: RoomLayout): PlanVolume | null {
     furniture,
     floorZones,
     openings,
+    ...(level
+      ? {
+          floorSurfaces: level.surfaces.map((surface, index) => ({
+            ...structuredClone(surface),
+            id: `${level.floorId}-${index}`,
+            floorId: level.floorId,
+            title: level.floorId,
+            elevationCm: level.elevationCm,
+            surface: level.surface,
+          })),
+          verticalDatum: {
+            id: level.referenceId,
+            kind: level.referenceKind,
+            zeroFloorId: level.zeroFloorId,
+          },
+        }
+      : {}),
     layoutNote:
       `${layout.floorPolygon ? 'Контур пола перенесён из текущей 2D-расстановки.' : 'Пол показан прямоугольным по габариту текущей 2D-расстановки.'} Стены и высоты проёмов здесь не достраиваются. ${layout.measurementNote ?? ''}`.trim(),
   }
@@ -133,12 +270,21 @@ export function furnitureFaces(items: readonly VolumeFurniture[]): FurnitureFace
       furnitureTitle: item.title,
       footprintOnly: item.heightCm === undefined,
     }
-    const floor = item.floor.map((point) => ({ ...point, zCm: 0 }))
+    const base = item.baseCm ?? 0
+    if (!Number.isFinite(base)) return []
+    const floor = item.floor.map((point) => ({ ...point, zCm: base }))
     const height = item.heightCm
     if (height === undefined) {
       return [{ ...common, id: `furniture-${item.id}-floor`, role: 'cap' as const, points: floor }]
     }
-    const top = item.floor.map((point) => ({ ...point, zCm: height }))
+    if (!Number.isFinite(height) || height <= 0) return []
+    let topElevation: number
+    try {
+      topElevation = signedElevationSum(base, height)
+    } catch {
+      return []
+    }
+    const top = item.floor.map((point) => ({ ...point, zCm: topElevation }))
     const faces: FurnitureFace[] = [
       { ...common, id: `furniture-${item.id}-bottom`, role: 'cap', points: [...floor].reverse() },
       { ...common, id: `furniture-${item.id}-top`, role: 'cap', points: top },

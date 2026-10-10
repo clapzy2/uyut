@@ -1,6 +1,7 @@
 import type { PlanGeometry } from '@uyut/db'
 import { expect, it } from 'vitest'
 import { inspectMetricClearanceRoutes } from './plan-metric-clearance-route'
+import { applyPlanVerticalReference } from './plan-vertical-reference'
 
 const rectangle = (left: number, top: number, right: number, bottom: number) => [
   { xCm: left, yCm: top },
@@ -56,6 +57,41 @@ function fixture(): PlanGeometry {
 it('passes the physical wall-axis model into continuous route search', () => {
   expect(inspectMetricClearanceRoutes(fixture()).result?.status).toBe('constructive-routes')
 })
+
+it.each([0, -2, -15])(
+  'keeps signed axis routes inside the selected physical floor: %s',
+  (level) => {
+    const geometry = fixture()
+    geometry.status = 'confirmed'
+    const accepted = applyPlanVerticalReference(
+      geometry,
+      {
+        version: 1,
+        id: 'synthetic-axis-zero',
+        kind: 'finished-floor',
+        zeroFloorId: 'floor-0',
+        acknowledged: true,
+        floors: geometry.rooms.map((room, index) => ({
+          id: `floor-${index}`,
+          room,
+          surface: 'finished-floor',
+          elevationCm: index ? level : 0,
+        })),
+        wallBases: geometry.walls.map((wall) => ({ wall, floorId: 'floor-0' })),
+        thresholds: [],
+        source: { kind: 'site-measurement', reference: 'Synthetic axis test only' },
+      },
+      'test',
+      '2026-10-11T09:00:00.000Z',
+    )
+    if (!accepted.ok) throw new Error(accepted.error)
+    const result = inspectMetricClearanceRoutes(accepted.geometry).result
+    expect(result?.routes).toHaveLength(1)
+    expect(result?.unresolvedRoomIds).toEqual(['1'])
+    expect(result?.vertical?.elevationCm).toBe(0)
+    expect(result?.vertical?.heldTransitions).toHaveLength(1)
+  },
+)
 
 it('recalculates after a doorway edit instead of keeping the earlier route', () => {
   const geometry = fixture()

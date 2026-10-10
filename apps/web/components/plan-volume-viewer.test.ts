@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { planVolume } from '@/lib/projects/plan-volume'
 import { roomVolume } from '@/lib/projects/room-volume'
+import { PlanVolumeControls } from './plan-volume-controls'
 import PlanVolumeViewer from './plan-volume-viewer'
 
 const geometry: PlanGeometry = {
@@ -49,6 +50,111 @@ function render(source: PlanGeometry) {
 }
 
 describe('объёмный просмотр с мерками', () => {
+  it('разрешает отрицательную отметку среза от общего нуля, не называя её высотой от пола', () => {
+    const html = renderToStaticMarkup(
+      createElement(PlanVolumeControls, {
+        angle: 0,
+        tilt: 35,
+        zoom: 1,
+        section: true,
+        sectionHeight: -10,
+        roomLayout: false,
+        sectionMin: -15,
+        sectionMax: 200,
+        commonDatum: true,
+        setAngle: () => {},
+        setTilt: () => {},
+        setZoom: () => {},
+        setSection: () => {},
+        setSectionHeight: () => {},
+        onReset: () => {},
+      }),
+    )
+    expect(html).toContain('Отметка среза -10 см от общего нуля')
+    expect(html).toContain('min="-15" max="200"')
+    expect(html).toContain('min="-15" max="200" step="1"')
+    expect(html).not.toContain('Срез на высоте')
+  })
+
+  it('показывает пол и верх порога от общего нуля, не возвращая общую плиту', () => {
+    const legacy = planVolume(geometry)
+    if (!legacy) throw new Error('Missing volume')
+    const model = {
+      ...legacy,
+      floorSurfaces: [
+        {
+          id: 'balcony-floor',
+          floorId: 'balcony',
+          title: 'Балкон',
+          floor: legacy.floor,
+          voids: [],
+          elevationCm: -15,
+          surface: 'finished-floor' as const,
+        },
+      ],
+      verticalDatum: { id: 'datum', kind: 'finished-floor' as const, zeroFloorId: 'interior' },
+      thresholds: [
+        {
+          id: 'threshold',
+          floor: legacy.floor.slice(),
+          elevationCm: 2,
+          floorIds: ['interior', 'balcony'] as [string, string],
+          floorElevationsCm: [0, -15] as [number, number],
+        },
+      ],
+      openings: legacy.openings.map((opening) => ({ ...opening, bottomCm: 1, baseCm: -15 })),
+    }
+    const html = renderToStaticMarkup(createElement(PlanVolumeViewer, { model }))
+    expect(html).toContain('data-volume-floor="balcony-floor"')
+    expect(html).not.toContain('data-volume-floor="floor"')
+    expect(html).toContain('отметка -15 см от общего нуля')
+    expect(html).toContain('Верх порога · отметка 2 см от общего нуля')
+    expect(html).toContain('низ 1 см от общего нуля')
+    expect(html).toContain('Толщина порога не достраивается')
+    expect(() =>
+      renderToStaticMarkup(
+        createElement(PlanVolumeViewer, { model: { ...model, floorSurfaces: [] } }),
+      ),
+    ).toThrow()
+  })
+
+  it('помечает только обрезанный пол для выбора комнаты, оставляя шахту вырезом', () => {
+    const legacy = planVolume(geometry)
+    if (!legacy) throw new Error('Missing volume')
+    const owner = legacy.floor
+    const clipped = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 300, yCm: 0 },
+      { xCm: 300, yCm: 200 },
+      { xCm: 100, yCm: 200 },
+      { xCm: 100, yCm: 100 },
+      { xCm: 0, yCm: 100 },
+    ]
+    const html = renderToStaticMarkup(
+      createElement(PlanVolumeViewer, {
+        model: {
+          ...legacy,
+          rooms: [{ id: 'room', title: 'Комната', floor: owner, baseCm: -15 }],
+          floorSurfaces: [
+            {
+              id: 'piece',
+              floorId: 'floor',
+              title: 'Комната',
+              floor: clipped,
+              voids: [],
+              elevationCm: -15,
+              surface: 'finished-floor',
+              roomId: 'room',
+            },
+          ],
+        },
+      }),
+    )
+    expect(html).toContain('data-volume-floor="piece" data-volume-room="room"')
+    expect(html.match(/data-volume-room="room"/g)).toHaveLength(1)
+    expect(html).not.toContain('<polygon data-volume-room=')
+  })
+
   it('показывает управление камерой и различает известную и неизвестную высоту мебели', () => {
     const layout = layoutRoom({ widthCm: 500, depthCm: 400 }, [
       {

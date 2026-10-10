@@ -142,6 +142,125 @@ afterEach(() => {
 })
 
 describe('управление сценой без подмены геометрии', () => {
+  it('выбирает и подсвечивает обрезанный пол комнаты без сырой поверхности поверх шахты', () => {
+    const owner = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 100, yCm: 0 },
+      { xCm: 100, yCm: 100 },
+      { xCm: 0, yCm: 100 },
+    ]
+    const clipped = [
+      owner[0],
+      owner[1],
+      owner[2],
+      { xCm: 50, yCm: 100 },
+      { xCm: 50, yCm: 50 },
+      { xCm: 0, yCm: 50 },
+    ].filter((point): point is { xCm: number; yCm: number } => point !== undefined)
+    const { view, canvas, selected } = start({
+      ...model,
+      floor: owner,
+      furniture: [],
+      voids: [
+        [
+          { xCm: 0, yCm: 50 },
+          { xCm: 50, yCm: 50 },
+          { xCm: 50, yCm: 100 },
+          { xCm: 0, yCm: 100 },
+        ],
+      ],
+      rooms: [{ id: 'room', title: 'Комната', floor: owner, baseCm: -15 }],
+      floorSurfaces: [
+        {
+          id: 'piece',
+          floorId: 'floor',
+          title: 'Комната',
+          floor: clipped,
+          voids: [],
+          elevationCm: -15,
+          surface: 'finished-floor',
+          roomId: 'room',
+        },
+      ],
+    })
+    const floorMesh = scene().children.find((object) => object instanceof Mesh) as Mesh
+    expect(floorMesh.userData.surface.kind).toBe('floor')
+    expect(scene().children.filter((object) => object instanceof Mesh)).toHaveLength(1)
+    const material = floorMesh.material as MeshStandardMaterial
+    const original = material.color.clone()
+    scene().updateMatrixWorld(true)
+    camera().updateMatrixWorld(true)
+    const projected = new Vector3(0.25, -0.15, 0.25).project(camera())
+    const x = ((projected.x + 1) / 2) * canvas.clientWidth
+    const y = ((1 - projected.y) / 2) * canvas.clientHeight
+    pointer(canvas, 'pointerdown', x, y)
+    pointer(canvas, 'pointerup', x, y)
+    expect(selected).toHaveBeenLastCalledWith({ kind: 'room', id: 'room' })
+    view.select({ kind: 'room', id: 'room' })
+    expect(material.color.equals(original)).toBe(false)
+    view.camera('focus')
+    flush()
+    expect(new Vector3(0.5, -0.15, 0.5).project(camera()).x).toBeCloseTo(0)
+  })
+
+  it('режет стены ниже общего нуля, сохраняя отрицательный пол и отдельный верх порога', () => {
+    const source: PlanVolume = {
+      ...model,
+      floorSurfaces: [
+        {
+          id: 'balcony',
+          floorId: 'balcony',
+          title: 'Балкон',
+          floor,
+          voids: [],
+          elevationCm: -15,
+          surface: 'finished-floor',
+        },
+      ],
+      rooms: [],
+      furniture: [],
+      walls: [
+        {
+          id: 'wall',
+          wallId: 'wall',
+          kind: 'inner',
+          start: { xCm: 0, yCm: 0 },
+          end: { xCm: 400, yCm: 0 },
+          bottomCm: -15,
+          topCm: 200,
+        },
+      ],
+      thresholds: [
+        {
+          id: 'threshold',
+          floor,
+          elevationCm: 2,
+          floorIds: ['interior', 'balcony'],
+          floorElevationsCm: [0, -15],
+        },
+      ],
+    }
+    const before = structuredClone(source)
+    const { view } = start(source)
+    view.setSection(true, -10)
+    flush()
+    const meshes = scene().children.filter((object): object is Mesh => object instanceof Mesh)
+    const wall = meshes.find((object) => object.userData.surface.kind === 'wall')
+    if (!wall) throw new Error('Missing wall')
+    const plane = (wall.material as MeshStandardMaterial).clippingPlanes?.[0]
+    expect(plane?.constant).toBeCloseTo(-0.1)
+    expect(plane?.distanceToPoint(new Vector3(0, -0.15, 0))).toBeGreaterThan(0)
+    expect(plane?.distanceToPoint(new Vector3(0, 0, 0))).toBeLessThan(0)
+    for (const kind of ['floor', 'threshold']) {
+      const surface = meshes.find((object) => object.userData.surface.kind === kind)
+      if (!surface) throw new Error(`Missing ${kind}`)
+      expect((surface.material as MeshStandardMaterial).clippingPlanes).toBeNull()
+    }
+    view.setSection(true, 0)
+    expect(plane?.constant).toBe(0)
+    expect(source).toEqual(before)
+  })
+
   it('вписывает известную вертикаль проёма даже без высоты стены', () => {
     const source: PlanVolume = {
       ...model,

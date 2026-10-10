@@ -355,9 +355,7 @@ describe('explicit common vertical reference', () => {
       expect(wallFloorElevation(result.geometry, 'wall-2')).toBe(-15)
       expect(result.geometry.verticalReference?.verifiedBy).toBe('owner')
       expect(result.geometry.verticalReference?.verifiedAt).toBe(verifiedAt)
-      expect(referenceTransferIssue(result.geometry)?.id).toBe(
-        'vertical-reference-transfer-pending',
-      )
+      expect(referenceTransferIssue(result.geometry)).toBeUndefined()
     },
   )
   it('leaves legacy models untouched without pretending they share a zero', () => {

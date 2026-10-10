@@ -1,6 +1,7 @@
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import polygonClipping, { type MultiPolygon, type Polygon, type Ring } from 'polygon-clipping'
 import type { PlanGeometryIssue } from './plan-geometry-inspection'
+import { signedElevationSum } from './plan-vertical-floor-geometry'
 import type { PlanSolidFace, WallSpan } from './plan-volume'
 
 type Prism = {
@@ -58,7 +59,11 @@ function touchesEdge(point: [number, number], polygon: Polygon): boolean {
   )
 }
 
-function blockedOpenings(prisms: Prism[], geometry: PlanGeometry): PlanGeometryIssue[] {
+function blockedOpenings(
+  prisms: Prism[],
+  geometry: PlanGeometry,
+  openingLevels?: ReadonlyMap<string, number>,
+): PlanGeometryIssue[] {
   const issues: PlanGeometryIssue[] = []
   for (const [index, opening] of geometry.openings.entries()) {
     const wall = geometry.walls.find((item) => item.id === opening.wallId)
@@ -69,8 +74,12 @@ function blockedOpenings(prisms: Prism[], geometry: PlanGeometry): PlanGeometryI
       opening.heightCm === undefined
     )
       continue
-    const bottom = opening.bottomCm
-    const top = bottom + opening.heightCm
+    const bottom = openingLevels === undefined ? opening.bottomCm : openingLevels.get(opening.id)
+    if (bottom === undefined) continue
+    const top =
+      openingLevels === undefined
+        ? bottom + opening.heightCm
+        : signedElevationSum(bottom, opening.heightCm)
     const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
     const pointAt = (distance: number) => ({
       xCm: wall.start.xCm + ((wall.end.xCm - wall.start.xCm) * distance) / length,
@@ -122,6 +131,7 @@ function capFaces(body: MultiPolygon, height: number, upward: boolean, faces: Pl
 export function joinWallSolids(
   walls: readonly WallSpan[],
   geometry: PlanGeometry,
+  openingLevels?: ReadonlyMap<string, number>,
 ): { faces: PlanSolidFace[]; issues: PlanGeometryIssue[] } | undefined | null {
   const solidWalls = walls.filter(
     (wall): wall is WallSpan & { topCm: number; thicknessCm: number } =>
@@ -196,7 +206,7 @@ export function joinWallSolids(
         faces,
       )
     }
-    return { faces, issues: blockedOpenings(prisms, geometry) }
+    return { faces, issues: blockedOpenings(prisms, geometry, openingLevels) }
   } catch {
     // Do not silently fall back to intersecting solids and present them as a joined model.
     return null
