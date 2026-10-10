@@ -47,10 +47,13 @@ describe('whole-page native inspection, separate from saved geometry', () => {
       },
     })
     expect(input).toEqual(before)
+    expect(packet.savedFrameRooms).toEqual({ status: 'checked', frames: [] })
+    expect(packet.numberCircles).toEqual({ status: 'draft', refusalReason: null, cues: [] })
     expect(packet.savedReview).not.toHaveProperty('contours')
     if (packet.savedReview.status !== 'checked') throw new Error('Missing coverage')
     expect(packet.savedReview.coverage).not.toHaveProperty('reviewSpans')
     expect(nativeReviewPacket(fixture()).savedReview).toEqual({ status: 'not-saved' })
+    expect(nativeReviewPacket(fixture()).savedFrameRooms).toEqual({ status: 'not-saved' })
   })
   it('distinguishes saved review with missing native layer from no saved review', () => {
     const input = fixture()
@@ -63,15 +66,22 @@ describe('whole-page native inspection, separate from saved geometry', () => {
       status: 'unavailable',
       reason: 'native-layer-unavailable',
     })
+    expect(packet.savedFrameRooms).toEqual({
+      status: 'unavailable',
+      reason: 'native-layer-unavailable',
+    })
+    expect(packet.numberCircles).toBeUndefined()
   })
   it('shows refusal for stale saved contours instead of combining different PDFs', () => {
     const input = { ...fixture(), savedReading: savedReading() }
     if (!input.savedReading.pageReview) throw new Error('Missing review')
     input.savedReading.pageReview.contours.source.sha256 = 'c'.repeat(64)
-    expect(nativeReviewPacket(input).savedReview).toMatchObject({
+    const packet = nativeReviewPacket(input)
+    expect(packet.savedReview).toMatchObject({
       status: 'checked',
       coverage: { status: 'refused', refusalReason: 'different-plan-source' },
     })
+    expect(packet.savedFrameRooms).toEqual({ status: 'refused', reason: 'different-plan-source' })
   })
   it('aggregates only same-source candidates without creating a confirmed plan', () => {
     const input = fixture(),

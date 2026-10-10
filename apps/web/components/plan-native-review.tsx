@@ -203,6 +203,114 @@ function SourceSymbolLinks({ links }: { links: NonNullable<NativeReviewPacket['s
   )
 }
 
+const frameRoomStatusMessages = {
+  'two-reviewed-sides': 'Две стороны сохранённой разметки',
+  'one-reviewed-side': 'Одна сторона сохранённой разметки',
+  'coincident-sides': 'Совпадающие стороны — связь не подтверждена',
+  ambiguous: 'Неоднозначное сопоставление',
+  unresolved: 'Стороны не сопоставлены',
+}
+
+const frameNumberCueMessages = {
+  inside: 'Цифровая метка строго внутри сохранённого контура.',
+  'not-inside': 'Цифровая метка не находится строго внутри сохранённого контура.',
+  ambiguous: 'Сопоставление цифровой метки неоднозначно.',
+  unavailable: 'Цифровая метка для этой сверки недоступна.',
+}
+
+function SavedFrameRooms({
+  review,
+}: {
+  review: NonNullable<NativeReviewPacket['savedFrameRooms']>
+}) {
+  return (
+    <section
+      className="border-t border-line pt-3 text-[13px] leading-relaxed"
+      aria-label="Сверка рамок с сохранённой разметкой"
+    >
+      <h4 className="text-[14px] font-medium">Сверка рамок с сохранённой разметкой</h4>
+      {review.status === 'not-saved' ? (
+        <p className="mt-2 text-ink-2">
+          Ручная разметка этого листа не сохранена; принадлежность рамок помещениям не проверена.
+        </p>
+      ) : review.status === 'unavailable' || review.status === 'refused' ? (
+        <div className="mt-2 text-ink-2">
+          <p>
+            {review.status === 'refused'
+              ? 'Сопоставление не прошло перепроверку по исходнику; частичные соответствия не показаны.'
+              : 'Сопоставление недоступно; найденные рамки сами по себе не определяют помещения.'}
+          </p>
+          <details>
+            <summary className="min-h-11 cursor-pointer py-3">Ограничение сверки рамок</summary>
+            <p className="break-all">{review.reason}</p>
+          </details>
+        </div>
+      ) : review.status === 'checked' ? (
+        <div className="mt-2 space-y-3">
+          <p className="text-ink-2">
+            Номера помещений и виды проёмов взяты из уже сохранённой ручной разметки, не определены
+            автоматически. Совпадение исходных линий не подтверждает физический проход,
+            принадлежность проёма комнате или границу свободного пола. Сохранённая 2D/3D не
+            меняется.
+          </p>
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {Object.entries(frameRoomStatusMessages).map(([status, message]) => (
+              <div key={status}>
+                <dt className="text-ink-2">{message}</dt>
+                <dd>{review.frames.filter((frame) => frame.status === status).length}</dd>
+              </div>
+            ))}
+          </dl>
+          <details>
+            <summary className="min-h-11 cursor-pointer py-3">
+              Соответствия рамок и ручных зон
+            </summary>
+            {review.frames.length ? (
+              <ol className="list-decimal space-y-3 pl-5">
+                {review.frames.map((frame) => (
+                  <li key={frame.frameId}>
+                    <p>{frameRoomStatusMessages[frame.status]}.</p>
+                    <p className="break-all text-ink-2">Исходная рамка: {frame.frameId}.</p>
+                    {frame.sides.length ? (
+                      <ul className="mt-1 list-disc space-y-2 pl-4">
+                        {frame.sides.map((side) => (
+                          <li
+                            key={`${side.roomSourceNumbers.join('+')}:${side.frameEdgeIndex}:${side.openingId}`}
+                          >
+                            <p>
+                              Номера из ручной разметки: {side.roomSourceNumbers.join(' + ')}
+                              {side.roomSourceNumbers.length > 1 ? ' — одна сохранённая зона' : ''}.
+                              Объявлено:{' '}
+                              {side.kind === 'door'
+                                ? 'дверь / проход'
+                                : side.kind === 'window'
+                                  ? 'окно'
+                                  : 'балконный блок'}
+                              ; грань рамки {side.frameEdgeIndex + 1}.
+                            </p>
+                            <p className="text-ink-2">{frameNumberCueMessages[side.numberCue]}</p>
+                            <p className="break-all text-ink-2">
+                              Проём в разметке: {side.openingId}.
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-ink-2">Соответствий сохранённым сторонам не найдено.</p>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-ink-2">Нет исходных рамок для сопоставления.</p>
+            )}
+          </details>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 export function NativeReviewResult({
   packet,
   imageUrl,
@@ -242,6 +350,23 @@ export function NativeReviewResult({
           <dd>{packet.counts.printedDimensions}</dd>
         </div>
       </dl>
+      {packet.numberCircles ? (
+        <div className="space-y-2 text-[13px] leading-relaxed text-ink-2">
+          <p>
+            Цифровые метки в окружностях:{' '}
+            {packet.numberCircles.status === 'unresolved'
+              ? 'поиск не завершён'
+              : packet.numberCircles.cues.length}
+            . Это нативные подписи PDF, не OCR и не число распознанных комнат. Назначение меток и их
+            связь с экспликацией не подтверждены.
+          </p>
+          {packet.numberCircles.status === 'unresolved' ? (
+            <p className="break-all">
+              Частичный набор меток не показан. Ограничение: {packet.numberCircles.refusalReason}.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       {packet.doorSymbols || packet.openingFrames ? (
         <div className="space-y-2 text-[13px] leading-relaxed">
           {packet.doorSymbols ? (
@@ -485,6 +610,11 @@ export function NativeReviewResult({
           : null}
       </p>
       <SavedReviewCoverage savedReview={packet.savedReview} />
+      {packet.savedFrameRooms &&
+      (packet.savedFrameRooms.status !== 'not-saved' ||
+        (packet.openingFrames?.candidates.length ?? 0) > 0) ? (
+        <SavedFrameRooms review={packet.savedFrameRooms} />
+      ) : null}
       <div className="border-t border-line pt-3">
         <h4 className="text-[14px] font-medium">
           Что ещё нужно проверить для переноса этого разбора в 2D/3D

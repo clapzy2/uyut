@@ -2100,3 +2100,97 @@ ephemeralhelper удалён. Live account/auth/PG не проверялись.
 AI/project writes/PR/deploy0. Следующий этап - source-bound принадлежность стенам
 и numbered room areas, floor boundary/threshold inventory и независимая metric
 приёмка; текущие graphic groups не становятся confirmed2D/3D по этой связке.
+
+## 10 октября: цифровые окружности и соответствия рамок ручной разметке
+
+Два разных входа проверены раздельно. Автоматический nativeNumberCircleCandidates
+не принимает reviewed contours/room IDs: исходная закрытая окружность из4 cubic
+quarter segments, original command/control snapshots, bounded fit0.005 в raster
+aspect и единственная native baseline подпись1..9999. Номер не является именем,
+типом или владельцем помещения; экспликация этим модулем не разбирается. Кривые
+не превращаются в прямые стены,45skippedCurves сохраняются. MAX_WORK200k,
+100cues/1000labels/3000curves/20000control points дают atomic refusal. Compound,
+clipped, ambiguous captions и invalid provenance удерживаются без nearest choice.
+
+nativeReviewedFrameRooms принимает только уже сохранённую same-source pageReview.
+Перепроверяются PDF SHA/page/state, room inventory, схема/overlap, source vertices
+и объявленные opening spans. Рамки заново распознаются, не берутся из golden IDs.
+Объявленная сторона должна буквально совпадать с целым long edge исходной рамки:
+subset/superset/offset не допускаются. Two-reviewed-sides требует двух разных зон,
+mutual verifyPlanPageOpeningFaces и полного совпадения обоих native jamb spans.
+One-reviewed-side не добавляет комнату с другой стороны входа. Coincident-sides
+означает общий условный разделитель, не нулевую физическую толщину стены. Одна
+declaration у разных distinct frames удерживает всех претендентов ambiguous.
+Для информативного numberCue берётся полный original curve control hull строго
+внутри ручного контура, не baseline/fit box. Merged1+5 требует обеих меток и
+остаётся одной зоной. Отсутствующая/внешняя/повторная метка не назначается nearest.
+ReadOnly true, roomOwnership/floor/physicalPassages false остаются явно отдельными.
+
+Primary existing page6 повторён сначала БЕЗ savedReading:
+tmp/native-frame-rooms-20261010-primary-auto-final/ —8 numeric circle cues,
+savedFrameReview not-saved,0 frame-room claims. Прежние2door/7frame/8glazing,
+2source-linked door/8two-sided glazing/4observed groups не изменились.
+Затем отдельно передана архивная ручная fixture:
+tmp/reviewed-door-corridors-20261010-final/saved-reading.json.
+Она построена из прежней ручной разметки, не из результата автоматического поиска
+и не считается golden floor geometry. Runner:
+bench-native-openings.ts PDF PAGE FRESH_DIR [SAVED_READING_JSON]. Optional reading
+используется только для manual correspondence/private consumer, никогда как вход
+автоматическим recognizers. Canonical current replay:
+tmp/native-frame-rooms-20261010-final/.
+
+С ручной fixture:7 frames =5two-reviewed-sides/1one-reviewed-side/1coincident.
+556 entrance→zone1+5 только;599 kitchen2↔zone;600 living3↔zone;
+601 bedroom4↔zone;613 WC8↔zone;615bath7↔zone. Frame614 получает обе declarations
+на одной source edge2,y523.447: zone1+5/room6. Противоположный edge y527.017 не
+назначается через близость. Контуры fixture — room envelopes с logical closure,
+внешний контур wall-envelope, НЕ свободный пол. Никаких fixture edits/DB writes.
+
+Все8 круговых цифровых cues source-bound: curve3514:0/text123→1,
+3892:0/text215→2,3909:0/text216→3,3925:0/text218→4,
+3941:0/text219→5,3957:0/text220→6,3973:0/text221→7,3989:0/text222→8.
+WC8 cue not-inside: метка вынесена вправо, её выноска4009:0:0 заканчивается
+889.91,338.064, не на точке окружности889.844,337.116. Ребро не достраивается,
+номер не переносится. Наличие этой метки не подтверждает automatic room ownership.
+Старый automaticNativeRoomCandidates на этом реальном формате остаётся0:
+header «Площадь,» и разные baselines/split header не проходят его строгий parser.
+Нативная экспликация/семантические роли этой пачкой НЕ исправлены.
+
+Ещё6 реальных PDF повторены без ручного ввода: BASIS/Basman по1 прежнему door
+symbol; Life incomplete-native-layer; Designgroup/Remplanner/Chigintseva0 glyphs.
+Новых number-circle cues на них0, все savedFrameReview not-saved/claims0.
+Dirs tmp/native-frame-rooms-20261010-SOURCE-final/. Нулевой scoped результат не
+означает, что эти исходники вообще не содержат room numbers/windows/doors.
+Source JPEG/overlay primary просмотрены: native curves/graphics и source hashes
+сохранены; балконный пол на этом листе отсутствует и не достроен по подписи.
+
+Packet добавляет только optional numeric labelId/sourceNumber и минимальные
+manual frame ID/status/sides/kind/edge/cue, без circle controls, proof geometry,
+roomName, floor или authority flags. Checked correspondence требует полного
+набора visible native frame IDs и partial checked saved-review coverage. Client
+проверяет bounded sorted zone IDs, opposite edges/door kinds, status cardinality,
+unique claims across frames и одну метку для КАЖДОГО номера merged inside zone.
+Legacy optional packet сохраняется. UI не меняет source SVG:2arcs/12lines/31polygons.
+Readiness false2D/false3D, штатные reader/transfer/schema/geometry не затронуты.
+
+Независимый агент воспроизвёл два дефекта интеграции. Client прежде принимал
+two-reviewed-sides claims, скопированные с599 на600; теперь все shared declarations
+должны оставаться ambiguous. Partial curve inventory с полными omission bounds
+скрывал конкурирующую окружность и выдавал уникальную подпись; теперь несовпадение
+curve count/skippedCurves даёт curve-commands-incomplete без partial cues.
+Manual frame matches при этом остаются, numberCue unavailable. Регрессии сохранены.
+Также закрыты source-frame exception и merged-zone inside с частью номеров.
+
+455focused tests/5files; полный web3993tests/255files, typecheck7, lint892,
+production build/diff passed. Firefox/Playwright: реальный компонент, mock private
+API и original JPEG, не авторизованный production/account. Expanded details5/1/1,
+merged1+5/WC8 held,390/1280px без page overflow, full-size1414px во внутренней
+focusable области (tabIndex0). Console0errors/0warnings. Screenshots:
+output/playwright/native-frame-rooms-desktop.png иnative-frame-rooms-mobile.png.
+Исходный PDF и текущие UI screenshots просмотрены. Helper/browser закрыты;
+ephemeral helper удалён. Live auth/PG/project state не проверялись. AI/PR/deploy0.
+
+Следующее: автоматическое связывание экспликации/круговых номеров с наблюдаемыми
+зонами, separate source floor partitions/threshold inventory, wall/glazing kind
+и независимая metric/vertical приёмка. Ручные соответствия текущей пачки не
+выдаются за automatic floor recognition или готовую точную2D/3D квартиры.

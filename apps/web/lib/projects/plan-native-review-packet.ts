@@ -2,7 +2,9 @@ import type { PlanReading } from '@uyut/db'
 import type { NativeTextAnchors } from './plan-document'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
 import { nativeFaceAnnotationCandidates } from './plan-native-face-annotations'
+import { nativeNumberCircleCandidates } from './plan-native-number-circles'
 import { nativeOpeningSourceLinks } from './plan-native-opening-links'
+import { nativeReviewedFrameRooms } from './plan-native-reviewed-frame-rooms'
 import { automaticNativeRoomCandidates, nativeRoomPolygonKey } from './plan-native-room-candidates'
 import {
   inspectReviewedPageCoverage,
@@ -86,6 +88,33 @@ export type NativeReviewPacket = {
     glazing: { symbolId: string; status: 'two-sided' | 'ambiguous' | 'unresolved' }[]
     groups: { id: string; glazingIds: string[]; doorIds: string[] }[]
   }
+  numberCircles?: {
+    status: 'draft' | 'unresolved'
+    refusalReason: string | null
+    cues: { labelId: string; sourceNumber: number }[]
+  }
+  savedFrameRooms?:
+    | { status: 'not-saved' }
+    | { status: 'unavailable' | 'refused'; reason: string }
+    | {
+        status: 'checked'
+        frames: {
+          frameId: string
+          status:
+            | 'two-reviewed-sides'
+            | 'one-reviewed-side'
+            | 'coincident-sides'
+            | 'ambiguous'
+            | 'unresolved'
+          sides: {
+            roomSourceNumbers: number[]
+            openingId: string
+            kind: 'door' | 'window' | 'balcony'
+            frameEdgeIndex: number
+            numberCue: 'inside' | 'not-inside' | 'ambiguous' | 'unavailable'
+          }[]
+        }[]
+      }
   issues: { code: string; message: string }[]
   readiness: { readyFor2D: false; readyFor3D: false; readOnly: true }
   savedReview:
@@ -127,6 +156,7 @@ export function nativeReviewPacket(input: {
     issues: [],
     readiness: { readyFor2D: false, readyFor3D: false, readOnly: true },
     savedReview: { status: 'not-saved' },
+    savedFrameRooms: { status: 'not-saved' },
   }
   const issue = (code: string, message: string) => packet.issues.push({ code, message })
   if (source.state !== 'existing' || source.pdfPage !== image.page)
@@ -134,6 +164,10 @@ export function nativeReviewPacket(input: {
   const savedReading = input.savedReading
   const review = savedReading?.pageReview
   if (review && savedReading) {
+    packet.savedFrameRooms = {
+      status: 'unavailable',
+      reason: review.version !== 1 ? 'unsupported-review-version' : 'native-layer-unavailable',
+    }
     if (review.version !== 1)
       packet.savedReview = { status: 'unavailable', reason: 'unsupported-review-version' }
     else if (!work)
@@ -170,6 +204,21 @@ export function nativeReviewPacket(input: {
   if (native.originalPdfSha256 !== source.sha256)
     throw new Error('Native inspection source hash changed')
   const common = { native, work, lineworkSource }
+  const circles = nativeNumberCircleCandidates(common)
+  packet.numberCircles = {
+    status: circles.status,
+    refusalReason: circles.refusalReason,
+    cues: circles.cues.map(({ labelId, sourceNumber }) => ({ labelId, sourceNumber })),
+  }
+  const correspondences = nativeReviewedFrameRooms({ ...common, source, reading: savedReading })
+  if (correspondences.status === 'checked')
+    packet.savedFrameRooms = { status: 'checked', frames: correspondences.frames }
+  else if (correspondences.status === 'not-saved') packet.savedFrameRooms = { status: 'not-saved' }
+  else
+    packet.savedFrameRooms = {
+      status: correspondences.status,
+      reason: correspondences.reason ?? 'source-correspondence-unavailable',
+    }
   const rooms = automaticNativeRoomCandidates(common)
   const annotations = nativeFaceAnnotationCandidates(common)
   const dimensions = automaticNativeDimensionRoles({ ...common, source })
@@ -351,6 +400,7 @@ export function nativeReviewPacket(input: {
     ['opening-frame-search', frames.refusalReason],
     ['panel-profile-search', doors.compoundPanels.refusalReason],
     ['source-link-search', connections.refusalReason],
+    ['number-circle-search', circles.refusalReason],
   ] as const) {
     if (reason)
       issue(

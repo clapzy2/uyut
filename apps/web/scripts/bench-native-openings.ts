@@ -1,15 +1,18 @@
-// Source recognition only: no reviewed geometry inputs, provider calls or project writes.
-// bun --no-env-file run apps/web/scripts/bench-native-openings.ts PDF PAGE FRESH_DIR
+// Automatic symbol recognition is independent of any optional archived manual review.
+// No provider calls or project writes.
+// bun --no-env-file run apps/web/scripts/bench-native-openings.ts PDF PAGE FRESH_DIR [SAVED_READING_JSON]
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import sharp from 'sharp'
 import { preparePlanPage } from '../lib/projects/plan-document'
+import { nativeNumberCircleCandidates } from '../lib/projects/plan-native-number-circles'
 import { nativeOpeningSourceLinks } from '../lib/projects/plan-native-opening-links'
 import { nativeReviewPacket } from '../lib/projects/plan-native-review-packet'
+import { nativeReviewedFrameRooms } from '../lib/projects/plan-native-reviewed-frame-rooms'
 
-const [pdfPath, pageValue, outputPath] = process.argv.slice(2)
+const [pdfPath, pageValue, outputPath, savedReadingPath] = process.argv.slice(2)
 const pageNumber = Number(pageValue)
 if (!pdfPath || !outputPath || !Number.isSafeInteger(pageNumber) || pageNumber < 1)
   throw new Error('Supply PDF, selected page and fresh output directory')
@@ -31,7 +34,14 @@ const source = {
   pdfPage: pageNumber,
   state: 'existing' as const,
 }
-const packet = nativeReviewPacket({ ...input, source, image: input.native.source })
+// A caller may explicitly inspect an archived manual review. It is NOT an input
+// to the automatic symbol recognizers or a golden set of accepted floor geometry.
+const savedReading = savedReadingPath
+  ? JSON.parse(await readFile(resolve(savedReadingPath), 'utf8'))
+  : undefined
+const circles = nativeNumberCircleCandidates(input)
+const frameRooms = nativeReviewedFrameRooms({ ...input, source, reading: savedReading })
+const packet = nativeReviewPacket({ ...input, source, image: input.native.source, savedReading })
 assert.deepEqual(input, before)
 assert.equal(packet.readiness.readOnly, true)
 assert.equal(packet.readiness.readyFor2D, false)
@@ -54,9 +64,11 @@ await writeFile(
       doors,
       frames,
       connections,
+      circles,
+      frameRooms,
       packet,
       caveat:
-        'Automatic source symbol/frame candidates; not physical openings, complete free floor, metric proof or confirmed 2D/3D.',
+        'Automatic source symbol/frame candidates. Optional frame-room matches are correspondence to an archived manual review, not automatic room ownership, physical openings, complete free floor, metric proof or confirmed 2D/3D.',
     },
     null,
     2,
@@ -107,6 +119,15 @@ console.log(
       ).length,
       sourceSymbolGroups: connections.groups.length,
       sourceLinkRefusal: connections.refusalReason,
+      numericCircleCues: circles.cues.length,
+      savedFrameReview: frameRooms.status,
+      twoReviewedSides: frameRooms.frames.filter((frame) => frame.status === 'two-reviewed-sides')
+        .length,
+      oneReviewedSide: frameRooms.frames.filter((frame) => frame.status === 'one-reviewed-side')
+        .length,
+      coincidentReviewedSides: frameRooms.frames.filter(
+        (frame) => frame.status === 'coincident-sides',
+      ).length,
       doorRefusal: doors.refusalReason,
       frameRefusal: frames.refusalReason,
       skippedCurves: input.work.skippedCurves,

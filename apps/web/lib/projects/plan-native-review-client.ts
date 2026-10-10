@@ -272,6 +272,166 @@ function isSourceLinks(value: unknown, packet: NativeReviewPacket): boolean {
   return true
 }
 
+function hasOnlyKeys(value: object, keys: string[]): boolean {
+  const actual = Object.keys(value)
+  return actual.length === keys.length && actual.every((key) => keys.includes(key))
+}
+
+function isBoundedLabel(value: unknown): value is string {
+  return typeof value === 'string' && !!value.trim() && value.length <= 128
+}
+
+function isSourceNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 && value <= 10000
+}
+
+function isNumberCircles(value: unknown): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const layer = value as NonNullable<NativeReviewPacket['numberCircles']>
+  if (
+    !hasOnlyKeys(layer, ['status', 'refusalReason', 'cues']) ||
+    !Array.isArray(layer.cues) ||
+    layer.cues.length > 100
+  )
+    return false
+  if (layer.status === 'unresolved')
+    return isBoundedLabel(layer.refusalReason) && layer.cues.length === 0
+  if (layer.status !== 'draft' || layer.refusalReason !== null) return false
+  const labelIds = new Set<string>()
+  return layer.cues.every((cue) => {
+    if (
+      !cue ||
+      typeof cue !== 'object' ||
+      !hasOnlyKeys(cue, ['labelId', 'sourceNumber']) ||
+      !isBoundedLabel(cue.labelId) ||
+      labelIds.has(cue.labelId) ||
+      !isSourceNumber(cue.sourceNumber)
+    )
+      return false
+    labelIds.add(cue.labelId)
+    return true
+  })
+}
+
+function isSavedFrameRooms(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const review = value as NonNullable<NativeReviewPacket['savedFrameRooms']>
+  if (review.status === 'not-saved') return hasOnlyKeys(review, ['status'])
+  if (review.status === 'unavailable' || review.status === 'refused')
+    return hasOnlyKeys(review, ['status', 'reason']) && isBoundedLabel(review.reason)
+  if (
+    review.status !== 'checked' ||
+    !hasOnlyKeys(review, ['status', 'frames']) ||
+    !Array.isArray(review.frames) ||
+    review.frames.length > 100 ||
+    packet.openingFrames?.status !== 'draft' ||
+    packet.savedReview.status !== 'checked' ||
+    packet.savedReview.coverage.status !== 'partial'
+  )
+    return false
+  const frameIds = new Set(packet.openingFrames.candidates.map(({ id }) => id))
+  if (review.frames.length !== frameIds.size) return false
+  const cueCounts = new Map<number, number>()
+  for (const cue of packet.numberCircles?.cues ?? []) {
+    cueCounts.set(cue.sourceNumber, (cueCounts.get(cue.sourceNumber) ?? 0) + 1)
+  }
+  const checkedIds = new Set<string>()
+  const claims = new Map<string, Set<string>>()
+  let sideCount = 0
+  for (const frame of review.frames) {
+    if (
+      !frame ||
+      typeof frame !== 'object' ||
+      !hasOnlyKeys(frame, ['frameId', 'status', 'sides']) ||
+      !isBoundedLabel(frame.frameId) ||
+      !frameIds.has(frame.frameId) ||
+      checkedIds.has(frame.frameId) ||
+      !Array.isArray(frame.sides) ||
+      frame.sides.length > 50
+    )
+      return false
+    checkedIds.add(frame.frameId)
+    sideCount += frame.sides.length
+    if (sideCount > 200) return false
+    const sideKeys = new Set<string>()
+    const zones = new Set<string>()
+    for (const side of frame.sides) {
+      if (
+        !side ||
+        typeof side !== 'object' ||
+        !hasOnlyKeys(side, [
+          'roomSourceNumbers',
+          'openingId',
+          'kind',
+          'frameEdgeIndex',
+          'numberCue',
+        ]) ||
+        !Array.isArray(side.roomSourceNumbers) ||
+        side.roomSourceNumbers.length < 1 ||
+        side.roomSourceNumbers.length > 12 ||
+        side.roomSourceNumbers.some(
+          (number, index, numbers) =>
+            !isSourceNumber(number) || (index > 0 && number <= (numbers[index - 1] ?? 0)),
+        ) ||
+        !isBoundedLabel(side.openingId) ||
+        !['door', 'window', 'balcony'].includes(side.kind) ||
+        !Number.isSafeInteger(side.frameEdgeIndex) ||
+        side.frameEdgeIndex < 0 ||
+        side.frameEdgeIndex > 3 ||
+        !['inside', 'not-inside', 'ambiguous', 'unavailable'].includes(side.numberCue) ||
+        (side.numberCue === 'inside' &&
+          !side.roomSourceNumbers.every((number) => cueCounts.get(number) === 1))
+      )
+        return false
+      const zone = side.roomSourceNumbers.join('+')
+      const sideKey = `${zone}:${side.frameEdgeIndex}:${side.openingId}`
+      if (sideKeys.has(sideKey)) return false
+      sideKeys.add(sideKey)
+      zones.add(zone)
+      const claimKey = `${zone}:${side.openingId}`
+      const claimants = claims.get(claimKey) ?? new Set<string>()
+      claimants.add(frame.frameId)
+      claims.set(claimKey, claimants)
+    }
+    const [first, second] = frame.sides
+    if (frame.status === 'two-reviewed-sides') {
+      if (
+        frame.sides.length !== 2 ||
+        zones.size !== 2 ||
+        !first ||
+        !second ||
+        first.kind !== 'door' ||
+        second.kind !== 'door' ||
+        Math.abs(first.frameEdgeIndex - second.frameEdgeIndex) !== 2
+      )
+        return false
+    } else if (frame.status === 'one-reviewed-side') {
+      if (frame.sides.length !== 1) return false
+    } else if (frame.status === 'coincident-sides') {
+      if (
+        frame.sides.length < 2 ||
+        zones.size !== frame.sides.length ||
+        frame.sides.some((side) => side.frameEdgeIndex !== first?.frameEdgeIndex)
+      )
+        return false
+    } else if (frame.status === 'ambiguous') {
+      if (!frame.sides.length) return false
+    } else if (frame.status === 'unresolved') {
+      if (frame.sides.length > 2) return false
+    } else return false
+  }
+  return review.frames.every(
+    (frame) =>
+      frame.status === 'ambiguous' ||
+      frame.sides.every(
+        (side) =>
+          (claims.get(`${side.roomSourceNumbers.join('+')}:${side.openingId}`)?.size ?? 0) === 1,
+      ),
+  )
+}
+
 function isSavedReview(value: unknown, source: NativeReviewPacket['source']): boolean {
   if (!value || typeof value !== 'object') return false
   const saved = value as NativeReviewPacket['savedReview']
@@ -368,6 +528,8 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isOpeningFrames(packet.openingFrames, packet.image) ||
     !isGlazingSymbols(packet.glazingSymbols, packet.image) ||
     !isSourceLinks(packet.sourceLinks, packet) ||
+    !isNumberCircles(packet.numberCircles) ||
+    !isSavedFrameRooms(packet.savedFrameRooms, packet) ||
     !Array.isArray(packet.faces) ||
     packet.faces.length > 100 ||
     !Array.isArray(packet.issues) ||

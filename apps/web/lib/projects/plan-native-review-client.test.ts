@@ -187,6 +187,100 @@ function sourceLinksFixture() {
   return { ...result, links }
 }
 
+describe('bounded native numeric-circle observations', () => {
+  function circlesFixture() {
+    const result = fixture()
+    const circles: NonNullable<NativeReviewPacket['numberCircles']> = {
+      status: 'draft',
+      refusalReason: null,
+      cues: [{ labelId: 'native-label-1', sourceNumber: 1 }],
+    }
+    result.packet.numberCircles = circles
+    return { ...result, circles }
+  }
+  it('keeps numeric observations distinct from room identity and accepts duplicate observed numbers', async () => {
+    const { packet, headers, circles } = circlesFixture()
+    circles.cues.push({ labelId: 'native-label-2', sourceNumber: 1 })
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.numberCircles).toEqual(circles)
+    expect(loaded.faces).toEqual(packet.faces)
+    expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it('accepts exactly 100 bounded cues without serializing extra circle or room geometry', async () => {
+    const { packet, headers, circles } = circlesFixture()
+    circles.cues = Array.from({ length: 100 }, (_, index) => ({
+      labelId: index === 0 ? 'l'.repeat(128) : `native-label-${index}`,
+      sourceNumber: index === 99 ? 10000 : index + 1,
+    }))
+    expect((await loadFixture(packet, headers)).packet.numberCircles).toEqual(circles)
+  })
+  it.each(['draft', 'unresolved'] as const)('accepts an empty %s circle layer', async (status) => {
+    const { packet, headers } = fixture()
+    packet.numberCircles = {
+      status,
+      refusalReason: status === 'unresolved' ? 'r'.repeat(128) : null,
+      cues: [],
+    }
+    expect((await loadFixture(packet, headers)).packet.numberCircles).toEqual(packet.numberCircles)
+  })
+  it.each([
+    'null-layer',
+    'status',
+    'draft-reason',
+    'refusal-with-cues',
+    'blank-reason',
+    'long-reason',
+    'missing-cues',
+    'cue-limit',
+    'null-cue',
+    'blank-id',
+    'long-id',
+    'duplicate-id',
+    'missing-number',
+    'string-number',
+    'fractional-number',
+    'zero-number',
+    'negative-number',
+    'number-limit',
+    'nonfinite-number',
+    'room-name',
+    'geometry',
+    'readiness',
+  ])('rejects malformed or semantic circle claims: %s', async (change) => {
+    const { packet, headers, circles } = circlesFixture()
+    const cue = circles.cues[0]
+    if (!cue) throw new Error('Numeric-circle fixture is missing')
+    if (change === 'null-layer') Object.assign(packet, { numberCircles: null })
+    if (change === 'status') Object.assign(circles, { status: 'confirmed' })
+    if (change === 'draft-reason') circles.refusalReason = 'source-unavailable'
+    if (change === 'refusal-with-cues')
+      Object.assign(circles, { status: 'unresolved', refusalReason: 'source-unavailable' })
+    if (change === 'blank-reason' || change === 'long-reason')
+      Object.assign(circles, {
+        status: 'unresolved',
+        refusalReason: change === 'blank-reason' ? ' ' : 'r'.repeat(129),
+        cues: [],
+      })
+    if (change === 'missing-cues') Object.assign(circles, { cues: null })
+    if (change === 'cue-limit') circles.cues = Array(101).fill(cue)
+    if (change === 'null-cue') Object.assign(circles.cues, { 0: null })
+    if (change === 'blank-id') cue.labelId = ' '
+    if (change === 'long-id') cue.labelId = 'l'.repeat(129)
+    if (change === 'duplicate-id') circles.cues.push({ ...cue })
+    if (change === 'missing-number') Object.assign(cue, { sourceNumber: undefined })
+    if (change === 'string-number') Object.assign(cue, { sourceNumber: '1' })
+    if (change === 'fractional-number') cue.sourceNumber = 1.5
+    if (change === 'zero-number') cue.sourceNumber = 0
+    if (change === 'negative-number') cue.sourceNumber = -1
+    if (change === 'number-limit') cue.sourceNumber = 10001
+    if (change === 'nonfinite-number') cue.sourceNumber = NaN
+    if (change === 'room-name') Object.assign(cue, { roomName: 'Кухня' })
+    if (change === 'geometry') Object.assign(cue, { polygon: [] })
+    if (change === 'readiness') Object.assign(circles, { readyFor2D: true })
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+})
+
 describe('bounded source-only symbol links', () => {
   it('preserves checks and group references without adding geometric or readiness evidence', async () => {
     const { packet, headers, links } = sourceLinksFixture()
@@ -540,6 +634,337 @@ describe('atomic private native image/packet loading', () => {
     )
     await expect(loadNativeReview(input(), fetcher as typeof fetch)).rejects.toMatchObject({
       status: 422,
+    })
+  })
+  describe('saved frame-to-manual-zone correspondence', () => {
+    function frameRoomsFixture() {
+      const result = coveredFixture()
+      result.packet.openingFrames = openingFrames()
+      result.packet.numberCircles = {
+        status: 'draft',
+        refusalReason: null,
+        cues: [1, 2, 5].map((sourceNumber) => ({
+          labelId: `native-label-${sourceNumber}`,
+          sourceNumber,
+        })),
+      }
+      const review: Extract<
+        NonNullable<NativeReviewPacket['savedFrameRooms']>,
+        { status: 'checked' }
+      > = {
+        status: 'checked',
+        frames: [
+          {
+            frameId: 'native-opening-frame-1:0',
+            status: 'two-reviewed-sides',
+            sides: [
+              {
+                roomSourceNumbers: [1, 5],
+                openingId: 'manual-zone-1-5-door',
+                kind: 'door',
+                frameEdgeIndex: 0,
+                numberCue: 'inside',
+              },
+              {
+                roomSourceNumbers: [2],
+                openingId: 'manual-zone-2-door',
+                kind: 'door',
+                frameEdgeIndex: 2,
+                numberCue: 'inside',
+              },
+            ],
+          },
+        ],
+      }
+      result.packet.savedFrameRooms = review
+      return { ...result, review }
+    }
+    it('preserves manual merged zones without creating geometry or automatic room ownership', async () => {
+      const { packet, headers, review } = frameRoomsFixture()
+      const loaded = (await loadFixture(packet, headers)).packet
+      expect(loaded.savedFrameRooms).toEqual(review)
+      expect(loaded.openingFrames).toEqual(packet.openingFrames)
+      expect(loaded.faces).toEqual(packet.faces)
+      expect(loaded.savedReview).toEqual(packet.savedReview)
+      expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+    })
+    it.each(['not-saved', 'unavailable', 'refused'] as const)(
+      'accepts bounded %s correspondence states',
+      async (status) => {
+        const { packet, headers } = fixture()
+        packet.savedFrameRooms =
+          status === 'not-saved' ? { status } : { status, reason: 'r'.repeat(128) }
+        expect((await loadFixture(packet, headers)).packet.savedFrameRooms).toEqual(
+          packet.savedFrameRooms,
+        )
+      },
+    )
+    it.each(['one-reviewed-side', 'coincident-sides', 'ambiguous', 'unresolved'] as const)(
+      'preserves the distinction of %s without approving a physical passage',
+      async (status) => {
+        const { packet, headers, review } = frameRoomsFixture()
+        const frame = review.frames[0]
+        if (!frame?.sides[1]) throw new Error('Frame-zone fixture is missing')
+        frame.status = status
+        if (status === 'one-reviewed-side') frame.sides.pop()
+        if (status === 'coincident-sides') frame.sides[1].frameEdgeIndex = 0
+        if (status === 'unresolved') frame.sides = []
+        expect((await loadFixture(packet, headers)).packet.savedFrameRooms).toEqual(review)
+      },
+    )
+    it.each(['not-inside', 'ambiguous', 'unavailable'] as const)(
+      'does not require a matching number observation for %s',
+      async (numberCue) => {
+        const { packet, headers, review } = frameRoomsFixture()
+        for (const side of review.frames[0]?.sides ?? []) side.numberCue = numberCue
+        delete packet.numberCircles
+        expect((await loadFixture(packet, headers)).packet.savedFrameRooms).toEqual(review)
+      },
+    )
+    it('accepts the exact frame and aggregate side limits with bounded manual identifiers', async () => {
+      const { packet, headers, review } = frameRoomsFixture()
+      const sourceFrame = packet.openingFrames?.candidates[0]
+      const frame = review.frames[0]
+      if (!packet.openingFrames || !sourceFrame || !frame)
+        throw new Error('Frame-zone fixture is missing')
+      packet.openingFrames.candidates = Array.from({ length: 100 }, (_, index) => ({
+        ...structuredClone(sourceFrame),
+        id: `frame-${index}`,
+      }))
+      review.frames = packet.openingFrames.candidates.map(({ id }, index) => ({
+        ...structuredClone(frame),
+        frameId: id,
+        sides: frame.sides.map((side) => ({
+          ...structuredClone(side),
+          openingId: `${side.openingId}-${index}`,
+        })),
+      }))
+      const firstSide = review.frames[0]?.sides[0]
+      if (!firstSide) throw new Error('Frame-zone fixture is missing')
+      firstSide.openingId = 'o'.repeat(128)
+      firstSide.roomSourceNumbers = Array.from({ length: 12 }, (_, index) =>
+        index === 11 ? 10000 : index + 1,
+      )
+      firstSide.numberCue = 'not-inside'
+      expect((await loadFixture(packet, headers)).packet.savedFrameRooms).toEqual(review)
+    })
+    it('accepts exactly 50 ambiguous sides while retaining per-zone opening identity', async () => {
+      const { packet, headers, review } = frameRoomsFixture()
+      const frame = review.frames[0]
+      const side = frame?.sides[0]
+      if (!frame || !side) throw new Error('Frame-zone fixture is missing')
+      frame.status = 'ambiguous'
+      frame.sides = Array.from({ length: 50 }, (_, index) => ({
+        ...structuredClone(side),
+        openingId: `opening-${index}`,
+      }))
+      expect((await loadFixture(packet, headers)).packet.savedFrameRooms).toEqual(review)
+    })
+    it.each(['both', 'only-first', 'neither'] as const)(
+      'requires all frames sharing a declaration to remain ambiguous: %s',
+      async (ambiguous) => {
+        const { packet, headers, review } = frameRoomsFixture()
+        const sourceFrame = packet.openingFrames?.candidates[0]
+        const frame = review.frames[0]
+        if (!packet.openingFrames || !sourceFrame || !frame)
+          throw new Error('Frame-zone fixture is missing')
+        packet.openingFrames.candidates.push({ ...sourceFrame, id: 'second-native-frame' })
+        review.frames.push({ ...structuredClone(frame), frameId: 'second-native-frame' })
+        if (ambiguous !== 'neither') frame.status = 'ambiguous'
+        const second = review.frames[1]
+        if (!second) throw new Error('Second frame is missing')
+        if (ambiguous === 'both') second.status = 'ambiguous'
+        if (ambiguous === 'both') {
+          expect((await loadFixture(packet, headers)).packet.savedFrameRooms).toEqual(review)
+        } else {
+          await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+        }
+      },
+    )
+    it.each([
+      'null-layer',
+      'status',
+      'not-saved-payload',
+      'missing-reason',
+      'blank-reason',
+      'long-reason',
+      'missing-frames',
+      'frame-limit',
+      'null-frame',
+      'unknown-frame',
+      'blank-frame',
+      'long-frame',
+      'duplicate-frame',
+      'missing-frame',
+      'frame-status',
+      'missing-sides',
+      'null-side',
+      'side-limit',
+      'aggregate-side-limit',
+      'missing-numbers',
+      'empty-numbers',
+      'numbers-limit',
+      'string-number',
+      'fractional-number',
+      'zero-number',
+      'large-number',
+      'unsorted-numbers',
+      'duplicate-number',
+      'missing-opening',
+      'blank-opening',
+      'long-opening',
+      'duplicate-side',
+      'kind',
+      'edge-string',
+      'edge-fraction',
+      'edge-negative',
+      'edge-limit',
+      'cue',
+      'inside-missing-circles',
+      'inside-foreign-number',
+      'inside-partial-merged-zone',
+      'inside-duplicate-number',
+      'two-one-side',
+      'two-same-zone',
+      'two-same-edge',
+      'two-adjacent-edges',
+      'two-kind-conflict',
+      'two-windows',
+      'one-two-sides',
+      'coincident-one-side',
+      'coincident-distinct-edges',
+      'coincident-same-zone',
+      'ambiguous-empty',
+      'unresolved-many',
+      'missing-frame-layer',
+      'unresolved-frame-layer',
+      'not-saved-review',
+      'refused-saved-review',
+      'room-name',
+      'geometry',
+      'physical-passage',
+    ])('refuses malformed or overclaimed manual correspondence: %s', async (change) => {
+      const { packet, headers, review, coverage } = frameRoomsFixture()
+      const frame = review.frames[0]
+      const first = frame?.sides[0]
+      const second = frame?.sides[1]
+      if (!frame || !first || !second) throw new Error('Frame-zone fixture is missing')
+      if (change === 'null-layer') Object.assign(packet, { savedFrameRooms: null })
+      if (change === 'status') Object.assign(review, { status: 'accepted' })
+      if (change === 'not-saved-payload') Object.assign(review, { status: 'not-saved' })
+      if (change.includes('reason'))
+        packet.savedFrameRooms = {
+          status: 'unavailable',
+          reason:
+            change === 'missing-reason'
+              ? (undefined as unknown as string)
+              : change === 'blank-reason'
+                ? ' '
+                : 'r'.repeat(129),
+        }
+      if (change === 'missing-frames') Object.assign(review, { frames: null })
+      if (change === 'frame-limit') review.frames = Array(101).fill(frame)
+      if (change === 'null-frame') Object.assign(review.frames, { 0: null })
+      if (change === 'unknown-frame') frame.frameId = 'foreign-frame'
+      if (change === 'blank-frame') frame.frameId = ' '
+      if (change === 'long-frame') frame.frameId = 'f'.repeat(129)
+      if (change === 'duplicate-frame') review.frames.push(structuredClone(frame))
+      if (change === 'missing-frame') review.frames = []
+      if (change === 'frame-status') Object.assign(frame, { status: 'paired' })
+      if (change === 'missing-sides') Object.assign(frame, { sides: null })
+      if (change === 'null-side') Object.assign(frame.sides, { 0: null })
+      if (change === 'side-limit') {
+        frame.status = 'ambiguous'
+        frame.sides = Array(51).fill(first)
+      }
+      if (change === 'aggregate-side-limit') {
+        const sourceFrame = packet.openingFrames?.candidates[0]
+        if (!packet.openingFrames || !sourceFrame) throw new Error('Frame fixture is missing')
+        packet.openingFrames.candidates = Array.from({ length: 5 }, (_, index) => ({
+          ...structuredClone(sourceFrame),
+          id: `frame-${index}`,
+        }))
+        review.frames = packet.openingFrames.candidates.map(({ id }) => ({
+          frameId: id,
+          status: 'ambiguous',
+          sides: Array.from({ length: 41 }, (_, index) => ({
+            ...structuredClone(first),
+            openingId: `opening-${index}`,
+          })),
+        }))
+      }
+      if (change === 'missing-numbers') Object.assign(first, { roomSourceNumbers: null })
+      if (change === 'empty-numbers') first.roomSourceNumbers = []
+      if (change === 'numbers-limit')
+        first.roomSourceNumbers = Array.from({ length: 13 }, (_, index) => index + 1)
+      if (change === 'string-number') Object.assign(first, { roomSourceNumbers: ['1'] })
+      if (change === 'fractional-number') first.roomSourceNumbers = [1.5]
+      if (change === 'zero-number') first.roomSourceNumbers = [0]
+      if (change === 'large-number') first.roomSourceNumbers = [10001]
+      if (change === 'unsorted-numbers') first.roomSourceNumbers = [5, 1]
+      if (change === 'duplicate-number') first.roomSourceNumbers = [1, 1]
+      if (change === 'missing-opening') Object.assign(first, { openingId: undefined })
+      if (change === 'blank-opening') first.openingId = ' '
+      if (change === 'long-opening') first.openingId = 'o'.repeat(129)
+      if (change === 'duplicate-side') {
+        frame.status = 'ambiguous'
+        frame.sides.push(structuredClone(first))
+      }
+      if (change === 'kind') Object.assign(first, { kind: 'entrance' })
+      if (change === 'edge-string') Object.assign(first, { frameEdgeIndex: '0' })
+      if (change === 'edge-fraction') first.frameEdgeIndex = 0.5
+      if (change === 'edge-negative') first.frameEdgeIndex = -1
+      if (change === 'edge-limit') first.frameEdgeIndex = 4
+      if (change === 'cue') Object.assign(first, { numberCue: 'confirmed-owner' })
+      if (change === 'inside-missing-circles') delete packet.numberCircles
+      if (change === 'inside-foreign-number') first.roomSourceNumbers = [9]
+      if (change === 'inside-partial-merged-zone') first.roomSourceNumbers = [1, 9]
+      if (change === 'inside-duplicate-number')
+        packet.numberCircles?.cues.push({ labelId: 'repeated-label-1', sourceNumber: 1 })
+      if (change === 'two-one-side') frame.sides.pop()
+      if (change === 'two-same-zone') second.roomSourceNumbers = [...first.roomSourceNumbers]
+      if (change === 'two-same-edge') second.frameEdgeIndex = 0
+      if (change === 'two-adjacent-edges') second.frameEdgeIndex = 1
+      if (change === 'two-kind-conflict') second.kind = 'window'
+      if (change === 'two-windows') {
+        first.kind = 'window'
+        second.kind = 'window'
+      }
+      if (change === 'one-two-sides') frame.status = 'one-reviewed-side'
+      if (change === 'coincident-one-side') {
+        frame.status = 'coincident-sides'
+        frame.sides.pop()
+      }
+      if (change === 'coincident-distinct-edges') frame.status = 'coincident-sides'
+      if (change === 'coincident-same-zone') {
+        frame.status = 'coincident-sides'
+        second.frameEdgeIndex = 0
+        second.roomSourceNumbers = [...first.roomSourceNumbers]
+      }
+      if (change === 'ambiguous-empty') {
+        frame.status = 'ambiguous'
+        frame.sides = []
+      }
+      if (change === 'unresolved-many') {
+        frame.status = 'unresolved'
+        frame.sides.push({ ...structuredClone(first), openingId: 'third' })
+      }
+      if (change === 'missing-frame-layer') delete packet.openingFrames
+      if (change === 'unresolved-frame-layer')
+        packet.openingFrames = {
+          status: 'unresolved',
+          refusalReason: 'frame-search-budget',
+          candidates: [],
+        }
+      if (change === 'not-saved-review') packet.savedReview = { status: 'not-saved' }
+      if (change === 'refused-saved-review') {
+        coverage.status = 'refused'
+        coverage.refusalReason = 'source-unavailable'
+      }
+      if (change === 'room-name') Object.assign(first, { roomName: 'Кухня' })
+      if (change === 'geometry') Object.assign(review, { floor: [] })
+      if (change === 'physical-passage') Object.assign(frame, { physicalPassageAccepted: true })
+      await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
     })
   })
   it('fetches both channels without saving, and checks actual private image bytes', async () => {

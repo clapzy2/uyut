@@ -72,6 +72,64 @@ function linkedSourcePacket() {
   return packet
 }
 
+function manualFrameRoomsPacket() {
+  const packet = linkedSourcePacket()
+  const statuses = [
+    ...Array<'two-reviewed-sides'>(5).fill('two-reviewed-sides'),
+    'one-reviewed-side',
+    'coincident-sides',
+  ] as const
+  packet.savedFrameRooms = {
+    status: 'checked',
+    frames: statuses.map((status, index) => ({
+      frameId: `native-frame-${index + 1}`,
+      status,
+      sides: [
+        {
+          roomSourceNumbers: [1, 5],
+          openingId: `manual-zone-door-${index + 1}`,
+          kind: 'door',
+          frameEdgeIndex: 0,
+          numberCue: 'inside',
+        },
+        ...(status === 'one-reviewed-side'
+          ? []
+          : [
+              {
+                roomSourceNumbers: [status === 'coincident-sides' ? 6 : index + 2],
+                openingId: `manual-room-door-${index + 1}`,
+                kind: 'door' as const,
+                frameEdgeIndex: status === 'coincident-sides' ? 0 : 2,
+                numberCue: 'inside' as const,
+              },
+            ]),
+      ],
+    })),
+  }
+  packet.numberCircles = {
+    status: 'draft',
+    refusalReason: null,
+    cues: Array.from({ length: 8 }, (_, index) => ({
+      labelId: `native-circle-${index + 1}`,
+      sourceNumber: index + 1,
+    })),
+  }
+  packet.openingFrames = {
+    status: 'draft',
+    refusalReason: null,
+    candidates: statuses.map((_, index) => ({
+      id: `native-frame-${index + 1}`,
+      polygon: [
+        { x: 200, y: 200 + index * 20 },
+        { x: 300, y: 200 + index * 20 },
+        { x: 300, y: 210 + index * 20 },
+        { x: 200, y: 210 + index * 20 },
+      ],
+    })),
+  }
+  return packet
+}
+
 describe('read-only native review presentation', () => {
   it('distinguishes no saved review from unavailable native data without save buttons', () => {
     const empty = renderToStaticMarkup(
@@ -172,7 +230,139 @@ describe('read-only native review presentation', () => {
     expect(html).not.toContain('Подтвердить')
     expect(html).not.toContain('Сохранить')
     expect(html).not.toContain('Кандидаты дверных символов')
+    expect(html).not.toContain('Цифровые метки в окружностях')
+    expect(html).not.toContain('Сверка рамок с сохранённой разметкой')
   })
+  it('separates manual frame correspondence from automatic room identity and unchanged source pixels', () => {
+    const packet = manualFrameRoomsPacket()
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    const sourceOnly = structuredClone(packet)
+    delete sourceOnly.savedFrameRooms
+    delete sourceOnly.numberCircles
+    const sourceOnlyHtml = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet: sourceOnly, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Сверка рамок с сохранённой разметкой')
+    expect(html).toContain('Две стороны сохранённой разметки</dt><dd>5</dd>')
+    expect(html).toContain('Одна сторона сохранённой разметки</dt><dd>1</dd>')
+    expect(html).toContain('Совпадающие стороны — связь не подтверждена</dt><dd>1</dd>')
+    expect(html).toContain('Номера из ручной разметки: 1 + 5 — одна сохранённая зона')
+    expect(html).toContain('не определены автоматически')
+    expect(html).toContain('не подтверждает физический проход, принадлежность проёма комнате')
+    expect(html).toContain('Цифровые метки в окружностях: 8')
+    expect(html).toContain('не OCR и не число распознанных комнат')
+    expect(html).toContain('связь с экспликацией не подтверждены')
+    expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(
+      sourceOnlyHtml.match(/<svg\b.*?<\/svg>/s)?.[0],
+    )
+    expect(html.match(/<button\b/g)?.length).toEqual(sourceOnlyHtml.match(/<button\b/g)?.length)
+    expect(html).not.toContain('Подтвердить')
+    expect(html).not.toContain('Сохранить')
+    expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it('reports observed numbers outside manual contours without relocating them or naming owners', () => {
+    const packet = manualFrameRoomsPacket()
+    if (packet.savedFrameRooms?.status !== 'checked')
+      throw new Error('Manual frame fixture is missing')
+    const sides = packet.savedFrameRooms.frames[0]?.sides
+    if (!sides?.[0] || !sides[1]) throw new Error('Manual side fixture is missing')
+    sides[0].roomSourceNumbers = [8]
+    sides[0].numberCue = 'not-inside'
+    sides[0].kind = 'window'
+    sides[1].kind = 'balcony'
+    sides[1].numberCue = 'ambiguous'
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Номера из ручной разметки: 8. Объявлено: окно')
+    expect(html).toContain('Объявлено: балконный блок')
+    expect(html).toContain('Цифровая метка не находится строго внутри сохранённого контура')
+    expect(html).toContain('Сопоставление цифровой метки неоднозначно')
+    expect(html).not.toContain('Комната 8')
+    expect(html).not.toContain('подтверждённое окно')
+    expect(html).not.toContain('Подтвердить')
+  })
+  it.each(['not-saved', 'unavailable', 'refused'] as const)(
+    'keeps %s correspondence distinct and shows no partial matches',
+    (status) => {
+      const packet = manualFrameRoomsPacket()
+      packet.savedFrameRooms =
+        status === 'not-saved' ? { status } : { status, reason: 'native-frame-review-unavailable' }
+      const html = renderToStaticMarkup(
+        createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+      )
+      expect(html).toContain('Сверка рамок с сохранённой разметкой')
+      expect(html).not.toContain('Соответствия рамок и ручных зон')
+      expect(html).not.toContain('Две стороны сохранённой разметки')
+      expect(html).toContain(
+        status === 'not-saved'
+          ? 'принадлежность рамок помещениям не проверена'
+          : status === 'unavailable'
+            ? 'Сопоставление недоступно'
+            : 'Сопоставление не прошло перепроверку по исходнику',
+      )
+      if (status !== 'not-saved') expect(html).toContain('native-frame-review-unavailable')
+      expect(html).not.toContain('Подтвердить')
+      expect(html).not.toContain('Сохранить')
+    },
+  )
+  it('keeps unresolved frame checks visible instead of counting them as correspondence', () => {
+    const packet = manualFrameRoomsPacket()
+    if (packet.savedFrameRooms?.status !== 'checked')
+      throw new Error('Manual frame fixture is missing')
+    packet.savedFrameRooms.frames = [
+      { frameId: 'empty-frame', status: 'unresolved', sides: [] },
+      {
+        frameId: 'ambiguous-frame',
+        status: 'ambiguous',
+        sides: [
+          {
+            roomSourceNumbers: [8],
+            openingId: 'manual-opening',
+            kind: 'door',
+            frameEdgeIndex: 1,
+            numberCue: 'unavailable',
+          },
+        ],
+      },
+    ]
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Две стороны сохранённой разметки</dt><dd>0</dd>')
+    expect(html).toContain('Неоднозначное сопоставление</dt><dd>1</dd>')
+    expect(html).toContain('Стороны не сопоставлены</dt><dd>1</dd>')
+    expect(html).toContain('Соответствий сохранённым сторонам не найдено')
+    expect(html).toContain('Цифровая метка для этой сверки недоступна')
+  })
+  it.each(['draft', 'unresolved'] as const)(
+    'shows an empty %s numeric-circle search without drawing a circle',
+    (status) => {
+      const packet = manualFrameRoomsPacket()
+      packet.numberCircles = {
+        status,
+        refusalReason: status === 'unresolved' ? 'circle-search-budget' : null,
+        cues: [],
+      }
+      const html = renderToStaticMarkup(
+        createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+      )
+      expect(html).toContain(
+        status === 'draft'
+          ? 'Цифровые метки в окружностях: 0'
+          : 'Цифровые метки в окружностях: поиск не завершён',
+      )
+      if (status === 'unresolved') {
+        expect(html).toContain('Частичный набор меток не показан')
+        expect(html).toContain('circle-search-budget')
+      }
+      expect(html).not.toContain('<circle')
+      expect(html).not.toContain('Подтвердить')
+      expect(html).not.toContain('Сохранить')
+    },
+  )
   it('draws only original cubic arcs and leaf edges, without a closing floor or threshold edge', () => {
     const packet = nativeReviewPacket({
       source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },
