@@ -6,6 +6,42 @@
 
 ### Текущий результат последней пачки
 
+Завершена пачка source typography, повёрнутых подписей и целых floor/jamb
+observations. Для поддержанных embedded horizontal fonts извлекается настоящий
+контур глифов до render, а не midpoint advance box / FontBBox. Extrema считаются
+в physical baseline frame; raw angle и source endpoints сохраняются. Неполный
+numeric ink inventory, скрытые слои, прозрачность, паттерны и текстовое отсечение
+удерживают строгую сверку. DISPLAY-конфигурация слоёв совпадает с render.
+Это узкий source-state proof, не универсальный рендерер или доказательство
+отсутствия перекрытия последующей графикой; unsupported fonts/contexts удержаны.
+
+Primary existing page6:43 strict caption/rail candidates (25X/18Y),65held вместо
+0/108. Две наклонные подписи около−43.9563° прочитаны, но строгий source guard
+удерживает их из-за omitted ink; углы не округляются для принятия. Для43 размерных
+связей выполнена свежая source привязка к целым граням/рамкам:0continuous,
+7ambiguous,36unresolved. У альтернатив есть8 detached face observations;
+они не равны8 принятым связям. Зазоры около1.77PDFpt не мостятся и не считаются
+монтажным допуском. Одна рамка с двумя гранями не становится двумя проёмами.
+
+Прежние72legacy roles/16heights, floor/opening inventories и три изображения
+сохранены byte-for-byte/structurally; manual review не влияет на strict/targets.
+Ещё6controlledPDFs повторены: BASIS/Remplanner glyph inventory пока unsupported,
+в Remplanner также unverified vector state; другие atomic ограничения не сняты.
+Private read-only UI/client показывают raw angles, source refs, альтернативы и
+разрывы без accepted/save authority. 5228webtests/268files, typecheck7, lint918,
+productionbuild и independent audit прошли; после уточнения UI counters ещё153
+focused tests. Firefox390/1280 actualcomponent/localmockprivateAPI без horizontal
+overflow/console errors, SVG31polygons прежний. Production не менялся.
+
+По project-workflow следующий этап: расширить доказуемый glyph coverage без
+fallback по близости; independent X/Y calibration witnesses; однозначные целые
+грани/косяки, включая detached drafting extensions без дорисовки пола. Затем
+height leaders/owners/datum, physical thresholds и полная floor coverage.
+Readiness2D/3D остаётсяfalse: автоматический перенос не завершён.
+DB/userproject/paidAI/PR/deploy не менялись.
+
+Предыдущая пачка:
+
 Добавлен проверяемый original↔compact мост исходных текстовых фрагментов PDF.
 Позиция compactIndex записывается при извлечении, а не ищется по одинаковому числу
 или близости. Отдельная строгая сверка проверяет настоящий baseline, дробный

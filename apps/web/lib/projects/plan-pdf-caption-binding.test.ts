@@ -66,6 +66,171 @@ function fixture(side: 'before' | 'after' = 'after', axis: 'width' | 'depth' = '
 }
 
 describe('native caption-run to rail binding, not room measurement acceptance', () => {
+  it('uses actual ink without moving a shifted advance baseline or widening midpoint tolerance', () => {
+    const data = fixture()
+    const first = data.context.items[0]
+    if (!first) throw new Error('Missing source run')
+    first.origin.x -= 1
+    first.baselineStart.x -= 1
+    first.baselineEnd.x -= 1
+    const query = {
+      index: first.index,
+      text: first.text,
+      rotation: first.rotation,
+      ...first.origin,
+    }
+    expect(
+      createNativeCaptionMatcher(work, source, data.rails, data.context, 'width')(query).status,
+    ).toBe('unresolved')
+    first.inkPolygon = [
+      { x: 50, y: 94 },
+      { x: 70, y: 94 },
+      { x: 70, y: 90 },
+      { x: 50, y: 90 },
+    ]
+    first.inkSourceOperation = 20
+    const before = structuredClone(data.context)
+    expect(
+      createNativeCaptionMatcher(work, source, data.rails, data.context, 'width')(query),
+    ).toMatchObject({ status: 'candidate', span: data.rails[0] })
+    expect(data.context).toEqual(before)
+  })
+  it('does not use incomplete actual ink as a baseline fallback', () => {
+    const data = fixture()
+    const first = data.context.items[0]
+    if (!first) throw new Error('Missing source run')
+    first.inkRefusal = 'missing-source-glyph'
+    const query = {
+      index: first.index,
+      text: first.text,
+      rotation: first.rotation,
+      ...first.origin,
+    }
+    expect(
+      createNativeCaptionMatcher(work, source, data.rails, data.context, 'width')(query),
+    ).toEqual({ status: 'unresolved', reason: 'caption-ink-context-incomplete' })
+  })
+  it('does not silently discard a refused glyph run as a competing caption', () => {
+    const data = fixture()
+    const first = data.context.items[0]
+    if (!first) throw new Error('Missing source run')
+    data.context.items.push({
+      ...structuredClone(first),
+      index: 4,
+      inkRefusal: 'outline-unavailable',
+    })
+    const query = {
+      index: first.index,
+      text: first.text,
+      rotation: first.rotation,
+      ...first.origin,
+    }
+    expect(
+      createNativeCaptionMatcher(work, source, data.rails, data.context, 'width')(query),
+    ).toEqual({ status: 'unresolved', reason: 'caption-ink-context-incomplete' })
+  })
+  it('retains a reversed source run as a competitor at the same literal rail', () => {
+    const data = fixture()
+    const first = data.context.items[0]
+    if (!first) throw new Error('Missing source run')
+    data.context.items.push({
+      index: 3,
+      text: '1000',
+      rotation: 180,
+      origin: { x: 70, y: 104 },
+      baselineStart: { x: 70, y: 104 },
+      baselineEnd: { x: 50, y: 104 },
+    })
+    const query = {
+      index: first.index,
+      text: first.text,
+      rotation: first.rotation,
+      ...first.origin,
+    }
+    expect(
+      createNativeCaptionMatcher(work, source, data.rails, data.context, 'width')(query),
+    ).toEqual({ status: 'ambiguous', reason: 'competing-native-captions' })
+  })
+  it.each(['missing-ref', 'negative-ref', 'wrong-count', 'invalid-point', 'mixed-refusal'])(
+    'refuses malformed source ink: %s',
+    (kind) => {
+      const data = fixture()
+      const first = data.context.items[0]
+      if (!first) throw new Error('Missing source run')
+      first.inkPolygon = [
+        { x: 50, y: 94 },
+        { x: 70, y: 94 },
+        { x: 70, y: 90 },
+        { x: 50, y: 90 },
+      ]
+      first.inkSourceOperation = 20
+      if (kind === 'missing-ref') delete first.inkSourceOperation
+      if (kind === 'negative-ref') first.inkSourceOperation = -1
+      if (kind === 'wrong-count') first.inkPolygon.pop()
+      if (kind === 'invalid-point') first.inkPolygon[0] = { x: NaN, y: 94 }
+      if (kind === 'mixed-refusal') first.inkRefusal = 'missing-source-glyph'
+      const query = {
+        index: first.index,
+        text: first.text,
+        rotation: first.rotation,
+        ...first.origin,
+      }
+      expect(
+        createNativeCaptionMatcher(work, source, data.rails, data.context, 'width')(query),
+      ).toEqual({ status: 'unresolved', reason: 'invalid-native-caption-context' })
+    },
+  )
+  it.each(['collinear', 'bowtie', 'wrong-corner', 'wrong-direction', 'duplicate-operation'])(
+    'rejects an invalid source ink envelope: %s',
+    (kind) => {
+      const data = fixture()
+      const first = data.context.items[0]
+      if (!first) throw new Error('Missing source run')
+      first.inkPolygon = [
+        { x: 50, y: 94 },
+        { x: 70, y: 94 },
+        { x: 70, y: 90 },
+        { x: 50, y: 90 },
+      ]
+      first.inkSourceOperation = 20
+      if (kind === 'collinear') first.inkPolygon = [50, 55, 60, 70].map((x) => ({ x, y: 94 }))
+      if (kind === 'bowtie')
+        first.inkPolygon = [
+          first.inkPolygon[0],
+          first.inkPolygon[2],
+          first.inkPolygon[1],
+          first.inkPolygon[3],
+        ] as typeof first.inkPolygon
+      if (kind === 'wrong-corner') first.inkPolygon[2] = { x: 70.1, y: 90 }
+      if (kind === 'wrong-direction')
+        first.inkPolygon = [
+          { x: 50, y: 90 },
+          { x: 50, y: 94 },
+          { x: 70, y: 94 },
+          { x: 70, y: 90 },
+        ]
+      if (kind === 'duplicate-operation') {
+        const last = data.context.items[2]
+        if (!last) throw new Error('Missing neighbour run')
+        last.inkPolygon = [
+          { x: 210, y: 94 },
+          { x: 230, y: 94 },
+          { x: 230, y: 90 },
+          { x: 210, y: 90 },
+        ]
+        last.inkSourceOperation = 20
+      }
+      const query = {
+        index: first.index,
+        text: first.text,
+        rotation: first.rotation,
+        ...first.origin,
+      }
+      expect(
+        createNativeCaptionMatcher(work, source, data.rails, data.context, 'width')(query),
+      ).toEqual({ status: 'unresolved', reason: 'invalid-native-caption-context' })
+    },
+  )
   it.each(['before', 'after'] as const)(
     'binds an outboard short caption %s using exact tick and two neighbours',
     (side) => {

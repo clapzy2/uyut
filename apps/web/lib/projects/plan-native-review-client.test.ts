@@ -874,6 +874,369 @@ describe('optional strict source-run to dimension-rail bindings', () => {
   })
 })
 
+describe('rotated captions and bounded source dimension targets', () => {
+  function targetFixture() {
+    const result = fixture()
+    result.packet.openingFrames = openingFrames()
+    result.packet.sourceCaptionBindings = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [
+        {
+          labelId: 'dimension-1',
+          compactIndex: 0,
+          valueMm: 2000,
+          axis: 'width',
+          rail: { operationIndex: 1, subpathIndex: 0 },
+          angleDegrees: 180,
+          textPlacement: 'baseline',
+        },
+        {
+          labelId: 'dimension-2',
+          compactIndex: 1,
+          valueMm: 1317,
+          axis: 'aligned',
+          rail: { operationIndex: 2, subpathIndex: 0 },
+          angleDegrees: -43.95629639354044,
+          textPlacement: 'glyph-ink',
+          inkSourceOperation: 20,
+        },
+      ],
+      unresolved: [{ labelId: 'held-1', reason: 'caption-rail-unresolved' }],
+    }
+    const report: NonNullable<NativeReviewPacket['dimensionTargets']> = {
+      status: 'draft',
+      refusalReason: null,
+      observations: [
+        {
+          labelId: 'dimension-1',
+          valueMm: 2000,
+          axis: 'width',
+          status: 'continuous',
+          reason: null,
+          targets: [
+            {
+              kind: 'opening-frame',
+              id: 'native-opening-frame-1:0',
+              faces: [
+                {
+                  edgeIndex: 0,
+                  status: 'continuous',
+                  reason: null,
+                  supportRefs: [{ operationIndex: 10, subpathIndex: 0, segmentIndex: 0 }],
+                  endpointWitnesses: [
+                    {
+                      status: 'continuous',
+                      sourceRefs: [{ operationIndex: 11, subpathIndex: 0, segmentIndex: 0 }],
+                      gapPoints: 0,
+                    },
+                    {
+                      status: 'continuous',
+                      sourceRefs: [{ operationIndex: 12, subpathIndex: 0, segmentIndex: 0 }],
+                      gapPoints: 0,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          labelId: 'dimension-2',
+          valueMm: 1317,
+          axis: 'aligned',
+          status: 'unresolved',
+          reason: 'non-cardinal-source-target-not-supported',
+          targets: [],
+        },
+      ],
+      unresolved: [{ labelId: 'held-1', reason: 'caption-rail-unresolved' }],
+    }
+    result.packet.dimensionTargets = report
+    const row = report.observations[0]
+    const target = row?.targets[0]
+    const face = target?.faces[0]
+    if (!row || !target || !face) throw new Error('Missing target fixture')
+    return { ...result, report, row, target, face }
+  }
+
+  it('accepts literal raw angles, glyph references and source targets without transfer authority', async () => {
+    const { packet, headers, report } = targetFixture()
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.sourceCaptionBindings).toEqual(packet.sourceCaptionBindings)
+    expect(loaded.dimensionTargets).toEqual(report)
+    expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it('requires unique glyph text-show operations even for distinct labels, slots and rails', async () => {
+    const { packet, headers } = targetFixture()
+    const first = packet.sourceCaptionBindings?.candidates[0]
+    const second = packet.sourceCaptionBindings?.candidates[1]
+    if (!first || !second) throw new Error('Missing glyph caption candidates')
+    first.textPlacement = 'glyph-ink'
+    first.inkSourceOperation = 21
+    expect((await loadFixture(packet, headers)).packet.sourceCaptionBindings).toEqual(
+      packet.sourceCaptionBindings,
+    )
+    first.inkSourceOperation = second.inkSourceOperation
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+  it('accepts old optional-field absence and an atomic target refusal', async () => {
+    const { packet, headers, report } = targetFixture()
+    for (const item of packet.sourceCaptionBindings?.candidates ?? []) {
+      delete item.angleDegrees
+      delete item.textPlacement
+      delete item.inkSourceOperation
+    }
+    delete packet.dimensionTargets
+    expect((await loadFixture(packet, headers)).packet.dimensionTargets).toBeUndefined()
+    packet.dimensionTargets = {
+      ...report,
+      status: 'unresolved',
+      refusalReason: 'source-targets-unavailable',
+      observations: [],
+      unresolved: [],
+    }
+    expect((await loadFixture(packet, headers)).packet.dimensionTargets).toEqual(
+      packet.dimensionTargets,
+    )
+  })
+  it('accepts an empty draft target inventory without inventing parent layers', async () => {
+    const { packet, headers } = fixture()
+    packet.sourceCaptionBindings = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [],
+      unresolved: [],
+    }
+    packet.dimensionTargets = {
+      status: 'draft',
+      refusalReason: null,
+      observations: [],
+      unresolved: [],
+    }
+    expect((await loadFixture(packet, headers)).packet.dimensionTargets).toEqual(
+      packet.dimensionTargets,
+    )
+    expect(packet.floorCavities).toBeUndefined()
+    expect(packet.openingFrames).toBeUndefined()
+  })
+  it.each(['detached', 'ambiguous', 'unresolved'] as const)(
+    'retains %s witnesses honestly',
+    async (status) => {
+      const { packet, headers, report, row, face } = targetFixture()
+      row.status = face.status = status
+      row.reason = face.reason = 'source-witness-held'
+      const witness = face.endpointWitnesses[0]
+      witness.status = status
+      if (status === 'detached') witness.gapPoints = 0.00001
+      if (status === 'ambiguous') {
+        witness.gapPoints = null
+        witness.sourceRefs.push({ operationIndex: 13, subpathIndex: 0, segmentIndex: 0 })
+      }
+      if (status === 'unresolved') {
+        witness.gapPoints = null
+        witness.sourceRefs = []
+      }
+      expect((await loadFixture(packet, headers)).packet.dimensionTargets).toEqual(report)
+    },
+  )
+  it('keeps alternative faces ambiguous and validates parent floor edge inventories', async () => {
+    const { packet, headers, report, row, target, face } = targetFixture()
+    packet.numberCircles = { status: 'draft', refusalReason: null, cues: [] }
+    packet.floorCavities = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [
+        {
+          id: 'floor-1',
+          polygon: openingFrames().candidates[0]?.polygon ?? [],
+          markerLabelIds: [],
+          markerStatus: 'unmarked',
+          closureIds: [],
+          unknownInteriorStrokeCount: 0,
+          omittedBoundaryInkCount: 0,
+        },
+      ],
+      thresholds: [],
+      closures: [],
+      unprovedCavities: [],
+      unresolvedMarkerLabelIds: [],
+      markersAvailable: true,
+    }
+    target.kind = 'floor-boundary'
+    target.id = 'floor-1'
+    target.faces.push({ ...structuredClone(face), edgeIndex: 1 })
+    row.status = 'ambiguous'
+    row.reason = 'source-target-face-alternatives'
+    expect((await loadFixture(packet, headers)).packet.dimensionTargets).toEqual(report)
+    const sourceFloor = packet.floorCavities
+    delete packet.floorCavities
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+    packet.floorCavities = sourceFloor
+    face.edgeIndex = 4
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+  it.each([
+    'angle-nan',
+    'angle-infinity',
+    'angle-string',
+    'angle-large',
+    'angle-axis',
+    'placement',
+    'glyph-missing-ref',
+    'glyph-ref-negative',
+    'glyph-ref-fraction',
+    'glyph-ref-unsafe',
+    'baseline-ref',
+    'orphan-ref',
+    'span-coordinates',
+  ])('rejects corrupted rotated caption metadata: %s', async (change) => {
+    const { packet, headers } = targetFixture()
+    const candidate = packet.sourceCaptionBindings?.candidates[1]
+    if (!candidate) throw new Error('Missing rotated candidate')
+    if (change === 'angle-nan') candidate.angleDegrees = Number.NaN
+    if (change === 'angle-infinity') candidate.angleDegrees = Number.POSITIVE_INFINITY
+    if (change === 'angle-string') Object.assign(candidate, { angleDegrees: '-44' })
+    if (change === 'angle-large') candidate.angleDegrees = 361
+    if (change === 'angle-axis') candidate.angleDegrees = 90
+    if (change === 'placement') Object.assign(candidate, { textPlacement: 'nearest' })
+    if (change === 'glyph-missing-ref') delete candidate.inkSourceOperation
+    if (change === 'glyph-ref-negative') candidate.inkSourceOperation = -1
+    if (change === 'glyph-ref-fraction') candidate.inkSourceOperation = 0.5
+    if (change === 'glyph-ref-unsafe') candidate.inkSourceOperation = Number.MAX_SAFE_INTEGER + 1
+    if (change === 'baseline-ref') candidate.textPlacement = 'baseline'
+    if (change === 'orphan-ref') delete candidate.textPlacement
+    if (change === 'span-coordinates')
+      Object.assign(candidate, {
+        spanEnds: [
+          { x: 1, y: 2 },
+          { x: 3, y: 4 },
+        ],
+      })
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+  it.each([
+    'authority',
+    'null-report',
+    'null-observations',
+    'missing-caption-parent',
+    'missing-frame-parent',
+    'held-nonempty',
+    'unknown-label',
+    'duplicate-label',
+    'missing-label',
+    'value',
+    'axis',
+    'status',
+    'reason',
+    'row-coordinates',
+    'target-kind',
+    'target-id',
+    'target-extra',
+    'duplicate-target',
+    'no-faces',
+    'edge-negative',
+    'edge-large',
+    'edge-fraction',
+    'duplicate-edge',
+    'face-extra',
+    'face-status',
+    'face-reason',
+    'support-empty',
+    'ref-negative',
+    'ref-fraction',
+    'ref-unsafe',
+    'ref-extra',
+    'duplicate-ref',
+    'witness-count',
+    'witness-extra',
+    'witness-status',
+    'gap-positive-continuous',
+    'gap-negative',
+    'gap-infinite',
+    'gap-null',
+    'continuous-with-unresolved',
+    'detached-zero',
+    'ambiguous-one-ref',
+    'unresolved-with-ref',
+    'held-unknown',
+    'held-reason',
+    'inventory-limit',
+  ])('rejects malformed or overclaimed target report: %s', async (change) => {
+    const { packet, headers, report, row, target, face } = targetFixture()
+    const witness = face.endpointWitnesses[0]
+    const ref = face.supportRefs[0]
+    if (!ref) throw new Error('Missing source ref')
+    if (change === 'authority') Object.assign(report, { mayTransfer2D: true })
+    if (change === 'null-report') Object.assign(packet, { dimensionTargets: null })
+    if (change === 'null-observations') Object.assign(report, { observations: null })
+    if (change === 'missing-caption-parent') delete packet.sourceCaptionBindings
+    if (change === 'missing-frame-parent') delete packet.openingFrames
+    if (change === 'held-nonempty')
+      Object.assign(report, { status: 'unresolved', refusalReason: 'held' })
+    if (change === 'unknown-label') row.labelId = 'unknown'
+    if (change === 'duplicate-label') report.observations.push(structuredClone(row))
+    if (change === 'missing-label') report.observations.pop()
+    if (change === 'value') row.valueMm = 2001
+    if (change === 'axis') row.axis = 'depth'
+    if (change === 'status') Object.assign(row, { status: 'accepted' })
+    if (change === 'reason') row.reason = 'not-actually-continuous'
+    if (change === 'row-coordinates') Object.assign(row, { start: { x: 1, y: 2 } })
+    if (change === 'target-kind') Object.assign(target, { kind: 'wall' })
+    if (change === 'target-id') target.id = 'unknown-frame'
+    if (change === 'target-extra') Object.assign(target, { accepted: true })
+    if (change === 'duplicate-target') row.targets.push(structuredClone(target))
+    if (change === 'no-faces') target.faces = []
+    if (change === 'edge-negative') face.edgeIndex = -1
+    if (change === 'edge-large') face.edgeIndex = 4
+    if (change === 'edge-fraction') face.edgeIndex = 0.5
+    if (change === 'duplicate-edge') target.faces.push(structuredClone(face))
+    if (change === 'face-extra') Object.assign(face, { calibrated: true })
+    if (change === 'face-status') Object.assign(face, { status: 'accepted' })
+    if (change === 'face-reason') face.reason = 'bad'
+    if (change === 'support-empty') face.supportRefs = []
+    if (change === 'ref-negative') ref.operationIndex = -1
+    if (change === 'ref-fraction') ref.subpathIndex = 0.5
+    if (change === 'ref-unsafe') ref.segmentIndex = Number.MAX_SAFE_INTEGER + 1
+    if (change === 'ref-extra') Object.assign(ref, { x: 1 })
+    if (change === 'duplicate-ref') face.supportRefs.push({ ...ref })
+    if (change === 'witness-count') Object.assign(face, { endpointWitnesses: [witness] })
+    if (change === 'witness-extra') Object.assign(witness, { clearanceCm: 1 })
+    if (change === 'witness-status') Object.assign(witness, { status: 'accepted' })
+    if (change === 'gap-positive-continuous') witness.gapPoints = 0.001
+    if (change === 'gap-negative') witness.gapPoints = -1
+    if (change === 'gap-infinite') witness.gapPoints = Number.POSITIVE_INFINITY
+    if (change === 'gap-null') witness.gapPoints = null
+    if (change === 'continuous-with-unresolved') {
+      witness.status = 'unresolved'
+      witness.gapPoints = null
+      witness.sourceRefs = []
+    }
+    if (change === 'detached-zero') {
+      witness.status = 'detached'
+      row.status = face.status = 'detached'
+      row.reason = face.reason = 'detached'
+    }
+    if (change === 'ambiguous-one-ref') {
+      witness.status = 'ambiguous'
+      witness.gapPoints = null
+      row.status = face.status = 'ambiguous'
+      row.reason = face.reason = 'ambiguous'
+    }
+    if (change === 'unresolved-with-ref') {
+      witness.status = 'unresolved'
+      witness.gapPoints = null
+      row.status = face.status = 'unresolved'
+      row.reason = face.reason = 'unresolved'
+    }
+    if (change === 'held-unknown') Object.assign(report.unresolved[0] ?? {}, { labelId: 'unknown' })
+    if (change === 'held-reason') Object.assign(report.unresolved[0] ?? {}, { reason: 'changed' })
+    if (change === 'inventory-limit')
+      report.observations = Array.from({ length: 1001 }, () => structuredClone(row))
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+})
+
 describe('optional literal height diagnostics, never a 3D acceptance gate', () => {
   function heightFixture() {
     const result = fixture()

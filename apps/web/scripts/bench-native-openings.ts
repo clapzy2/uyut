@@ -9,6 +9,7 @@ import sharp from 'sharp'
 import { preparePlanPage } from '../lib/projects/plan-document'
 import { nativeCaptionBindings } from '../lib/projects/plan-native-caption-bindings'
 import { automaticNativeDimensionRoles } from '../lib/projects/plan-native-dimension-roles'
+import { nativeDimensionTargets } from '../lib/projects/plan-native-dimension-targets'
 import { nativeFloorCavityCandidates } from '../lib/projects/plan-native-floor-cavities'
 import { nativeFloorOpeningSides } from '../lib/projects/plan-native-floor-opening-sides'
 import { nativeHeightObservations } from '../lib/projects/plan-native-height-observations'
@@ -46,6 +47,7 @@ const savedReading = savedReadingPath
   : undefined
 const dimensions = automaticNativeDimensionRoles({ ...input, source })
 const captionBindings = nativeCaptionBindings({ ...input, source })
+const dimensionTargets = nativeDimensionTargets({ ...input, source }, captionBindings)
 const heights = nativeHeightObservations({ ...input, source })
 const scheduleNumbers = nativeRoomNumberScheduleLinks(input)
 const circles = scheduleNumbers.circles
@@ -67,6 +69,7 @@ await writeFile(
       source,
       image: input.native.source,
       aiRequests: 0,
+      vectorInkRefusal: input.native.vectorInkRefusal ?? null,
       omissions: {
         skippedCurves: input.work.skippedCurves,
         clippedPaths: input.work.clippedPaths,
@@ -78,6 +81,7 @@ await writeFile(
       circles,
       dimensions,
       captionBindings,
+      dimensionTargets,
       heights,
       roomScheduleEvidence: scheduleNumbers.schedule,
       numberScheduleLinks: scheduleNumbers.report,
@@ -167,6 +171,14 @@ console.log(
       sourceCaptionBindings: captionBindings.candidates.length,
       heldSourceCaptions: captionBindings.unresolved.length,
       captionBindingRefusal: captionBindings.refusalReason,
+      dimensionTargetStatuses: dimensionTargets.observations.reduce(
+        (counts, item) => {
+          counts[item.status] = (counts[item.status] ?? 0) + 1
+          return counts
+        },
+        {} as Record<string, number>,
+      ),
+      dimensionTargetRefusal: dimensionTargets.refusalReason,
       unresolvedDimensionLabels: dimensions.unresolved.length,
       heightObservations: heights.observations.length,
       documentaryRoomRows: scheduleNumbers.report.rows.length,

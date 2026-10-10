@@ -4,13 +4,16 @@ import {
   type NativeDimensionCaptionContext,
   nativeDimensionCaptionMillimetres,
 } from './plan-pdf-caption-binding'
-import { createPdfNativePageDimensionChainVerifier } from './plan-pdf-dimension-chain'
 import {
   pdfNativeDimensionChainIsUnobscured,
   pdfNativeDimensionSourceIssue,
 } from './plan-pdf-dimension-source'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import { type PdfPlanSource, pdfPointDistance } from './plan-pdf-room-binding'
+import {
+  createRotatedNativeCaptionVerifier,
+  nativeCaptionDimensionAxis,
+} from './plan-pdf-rotated-caption'
 import type { RegionLabelFrame } from './plan-raster-region-labels'
 
 export type NativeCaptionBindingReport = {
@@ -20,7 +23,10 @@ export type NativeCaptionBindingReport = {
     labelId: string
     compactIndex: number
     valueMm: number
-    axis: 'width' | 'depth'
+    axis: 'width' | 'depth' | 'aligned'
+    angleDegrees?: number
+    textPlacement?: 'glyph-ink' | 'baseline'
+    inkSourceOperation?: number
     rail: { operationIndex: number; subpathIndex: number }
   }[]
   unresolved: { labelId: string; reason: string }[]
@@ -33,6 +39,10 @@ const angleDifference = (first: number, second: number) => {
   const delta = Math.abs((first - second) % 360)
   return Math.min(delta, 360 - delta)
 }
+const parallelAngles = (first: number, second: number) => {
+  const delta = Math.abs((((first - second) % 180) + 180) % 180)
+  return Math.min(delta, 180 - delta) <= 1e-6
+}
 
 /** The original run and compact slot are linked by extraction, never by equal text or proximity. */
 export function nativeCaptionBindings(input: {
@@ -42,7 +52,9 @@ export function nativeCaptionBindings(input: {
   lineworkSource: RegionLabelFrame
 }) {
   const { source, native, work } = input
-  const candidates: NativeCaptionBindingReport['candidates'] = []
+  const candidates: (NativeCaptionBindingReport['candidates'][number] & {
+    spanEnds: [PagePoint, PagePoint]
+  })[] = []
   const unresolved: NativeCaptionBindingReport['unresolved'] = []
   const finish = (refusalReason: string | null) => ({
     status: refusalReason ? ('unresolved' as const) : ('draft' as const),
@@ -58,6 +70,7 @@ export function nativeCaptionBindings(input: {
   })
   const sourceIssue = pdfNativeDimensionSourceIssue(source, work)
   if (sourceIssue) return finish(sourceIssue)
+  if (native.vectorInkRefusal !== undefined) return finish('source-vector-ink-unverified')
   if (
     native.complete !== true ||
     nativeFillCandidates(input).refusalReason === 'incomplete-native-layer' ||
@@ -152,23 +165,23 @@ export function nativeCaptionBindings(input: {
       rotation: label.rotation as number,
     })
   }
-  const verify = createPdfNativePageDimensionChainVerifier(work, source, context)
+  // An unavailable outline is not silently discarded as an unknown competitor.
+  // This first ink implementation requires the whole numeric glyph inventory.
+  if (context.items.some((caption) => caption.inkRefusal !== undefined))
+    return finish('source-caption-ink-incomplete')
+  const verify = createRotatedNativeCaptionVerifier(work, source, context)
   const nativeCaptions = new Map(context.items.map((item) => [item.index, item]))
-  const unsupported = context.items.filter(({ rotation }) => rotation !== 0 && rotation !== 90)
   const padX = (6 * 1000) / work.pageWidth
   const padY = (6 * 1000) / work.pageHeight
   const verifiedSpans: {
     labelId: string
-    axis: 'width' | 'depth'
+    axis: 'width' | 'depth' | 'aligned'
     ends: [PagePoint, PagePoint]
     outboard: boolean
+    rotation: number
   }[] = []
   for (const label of labels) {
-    const axis = label.rotation === 0 ? 'width' : label.rotation === 90 ? 'depth' : undefined
-    if (!axis) {
-      unresolved.push({ labelId: label.id, reason: 'unsupported-source-caption-orientation' })
-      continue
-    }
+    const axis = nativeCaptionDimensionAxis(label.rotation as number)
     const valueMm = nativeDimensionCaptionMillimetres(label.name) as number
     const original = {
       index: label.nativeIndex as number,
@@ -176,13 +189,15 @@ export function nativeCaptionBindings(input: {
       ...(label.pagePoint as PagePoint),
       rotation: label.rotation as number,
     }
-    const chain = verify([original], valueMm, axis)
+    const chain = verify(original, valueMm)
     if (chain.status !== 'candidate') {
       if (
         [
           'caption-binding-budget-exceeded',
           'dimension-span-budget-exceeded',
           'invalid-native-caption-context',
+          'rotated-caption-context-invalid',
+          'rotated-caption-budget-exceeded',
         ].includes(chain.reason)
       )
         return finish(chain.reason)
@@ -196,7 +211,13 @@ export function nativeCaptionBindings(input: {
     const [start, end] = chain.ends
     const sourceCaption = nativeCaptions.get(original.index)
     if (!sourceCaption) return finish('invalid-native-caption-bridge')
-    const sourcePoints = [start, end, sourceCaption.baselineStart, sourceCaption.baselineEnd]
+    const sourcePoints = [
+      start,
+      end,
+      sourceCaption.baselineStart,
+      sourceCaption.baselineEnd,
+      ...(sourceCaption.inkPolygon ?? []),
+    ]
     const bounds = {
       left: Math.min(...sourcePoints.map(({ x }) => x)) - padX,
       right: Math.max(...sourcePoints.map(({ x }) => x)) + padX,
@@ -215,8 +236,11 @@ export function nativeCaptionBindings(input: {
       unresolved.push({ labelId: label.id, reason: 'omitted-ink-near-source-caption-rail' })
       continue
     }
-    const nearUnsupported = unsupported.some((caption) => {
-      const points = [caption.baselineStart, caption.baselineEnd]
+    const otherDirections = context.items.filter((caption) => {
+      return !parallelAngles(caption.rotation, sourceCaption.rotation)
+    })
+    const nearUnsupported = otherDirections.some((caption) => {
+      const points = [caption.baselineStart, caption.baselineEnd, ...(caption.inkPolygon ?? [])]
       return (
         Math.max(...points.map(({ x }) => x)) >= bounds.left &&
         Math.min(...points.map(({ x }) => x)) <= bounds.right &&
@@ -238,17 +262,30 @@ export function nativeCaptionBindings(input: {
       compactIndex: label.compactIndex as number,
       valueMm,
       axis,
+      angleDegrees: label.rotation,
+      textPlacement: sourceCaption.inkPolygon ? 'glyph-ink' : 'baseline',
+      ...(sourceCaption.inkSourceOperation !== undefined
+        ? { inkSourceOperation: sourceCaption.inkSourceOperation }
+        : {}),
       rail: { ...rail },
+      spanEnds: structuredClone(chain.ends),
     })
-    const along = (point: PagePoint) => (axis === 'width' ? point.x : point.y)
-    const midpoint = (along(sourceCaption.baselineStart) + along(sourceCaption.baselineEnd)) / 2
+    const dx = ((end.x - start.x) * work.pageWidth) / 1000
+    const dy = ((end.y - start.y) * work.pageHeight) / 1000
+    const length = Math.hypot(dx, dy)
+    const along = (point: PagePoint) =>
+      ((((point.x - start.x) * work.pageWidth) / 1000) * dx +
+        (((point.y - start.y) * work.pageHeight) / 1000) * dy) /
+      length
+    const ink = sourceCaption.inkPolygon ?? [sourceCaption.baselineStart, sourceCaption.baselineEnd]
+    const positions = ink.map(along)
+    const midpoint = (Math.min(...positions) + Math.max(...positions)) / 2
     verifiedSpans.push({
       labelId: label.id,
       axis,
       ends: chain.ends,
-      outboard:
-        midpoint < Math.min(along(start), along(end)) ||
-        midpoint > Math.max(along(start), along(end)),
+      rotation: sourceCaption.rotation,
+      outboard: midpoint < 0 || midpoint > length,
     })
   }
   // The existing outboard matcher depends on two independently centred neighbours.
@@ -257,11 +294,15 @@ export function nativeCaptionBindings(input: {
   for (const span of verifiedSpans.filter((span) => span.outboard)) {
     const left = centred.filter(
       (other) =>
-        other.axis === span.axis && pdfPointDistance(work, other.ends[1], span.ends[0]) <= 0.12,
+        other.axis === span.axis &&
+        parallelAngles(other.rotation, span.rotation) &&
+        other.ends.some((point) => pdfPointDistance(work, point, span.ends[0]) <= 0.12),
     )
     const right = centred.filter(
       (other) =>
-        other.axis === span.axis && pdfPointDistance(work, other.ends[0], span.ends[1]) <= 0.12,
+        other.axis === span.axis &&
+        parallelAngles(other.rotation, span.rotation) &&
+        other.ends.some((point) => pdfPointDistance(work, point, span.ends[1]) <= 0.12),
     )
     if (left.length !== 1 || right.length !== 1 || left[0]?.labelId === right[0]?.labelId) {
       const index = candidates.findIndex(({ labelId }) => labelId === span.labelId)

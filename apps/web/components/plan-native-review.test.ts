@@ -683,6 +683,138 @@ describe('read-only native review presentation', () => {
     expect(html).not.toContain('<script>')
     expect(html).not.toContain('900 см')
   })
+  it('labels oblique source text and actual glyph evidence without misreporting it as axis Y', () => {
+    const packet = floorCavityPacket()
+    packet.sourceCaptionBindings = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [
+        {
+          labelId: 'native-text-66',
+          compactIndex: 52,
+          valueMm: 1317,
+          axis: 'aligned',
+          rail: { operationIndex: 2232, subpathIndex: 0 },
+          angleDegrees: -43.95629639354044,
+          textPlacement: 'glyph-ink',
+          inkSourceOperation: 190,
+        },
+        {
+          labelId: 'native-text-90',
+          compactIndex: 60,
+          valueMm: 2000,
+          axis: 'width',
+          rail: { operationIndex: 2250, subpathIndex: 0 },
+          angleDegrees: 180,
+          textPlacement: 'baseline',
+        },
+      ],
+      unresolved: [],
+    }
+    const before = structuredClone(packet)
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('native-text-66: 1317 мм, наклонное направление')
+    expect(html).toContain('Исходный угол -43.95629639354044°')
+    expect(html).toContain('Положение по настоящим глифам PDF; операция текста 190')
+    expect(html).toContain('Исходный угол 180°')
+    expect(html).toContain('без свидетельства глифов')
+    expect(html).not.toContain('1317 мм, ось Y')
+    expect(packet).toEqual(before)
+  })
+  it('keeps alternative target faces and literal PDF-point gaps read-only without extra SVG or buttons', () => {
+    const packet = floorCavityPacket()
+    const sourceOnly = structuredClone(packet)
+    packet.dimensionTargets = {
+      status: 'draft',
+      refusalReason: null,
+      observations: [
+        {
+          labelId: '<source-label>',
+          valueMm: 2400,
+          axis: 'width',
+          status: 'ambiguous',
+          reason: 'source-target-face-alternatives',
+          targets: [
+            {
+              kind: 'opening-frame',
+              id: '<source-frame>',
+              faces: [0, 2].map((edgeIndex) => ({
+                edgeIndex,
+                status: 'detached',
+                reason: '<detached-source-extension>',
+                supportRefs: [{ operationIndex: 10, subpathIndex: 0, segmentIndex: edgeIndex }],
+                endpointWitnesses: [
+                  {
+                    status: 'detached',
+                    sourceRefs: [{ operationIndex: 11, subpathIndex: 0, segmentIndex: 0 }],
+                    gapPoints: edgeIndex === 0 ? 0.00001 : 1.7724100000000016,
+                  },
+                  {
+                    status: 'continuous',
+                    sourceRefs: [{ operationIndex: 12, subpathIndex: 0, segmentIndex: 0 }],
+                    gapPoints: 0,
+                  },
+                ],
+              })),
+            },
+          ],
+        },
+      ],
+      unresolved: [{ labelId: 'held-source', reason: 'caption-rail-unresolved' }],
+    }
+    const before = structuredClone(packet)
+    const baseline = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet: sourceOnly, imageUrl: 'blob:private-test' }),
+    )
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Размеры, грани и косяки')
+    expect(html).toContain(
+      'Непрерывные связи: 0; однозначные связи с разрывом: 0; неоднозначные: 1; неподтверждённые: 0',
+    )
+    expect(html).toContain('Удержанные подписи: 1')
+    expect(html).toContain('разрыв 0.00001 pt PDF')
+    expect(html).toContain('разрыв ≈1.77241 pt PDF')
+    expect(html).toContain('исходные координаты не округляются')
+    expect(html).toContain('разрыв 0 pt PDF')
+    expect(html).toContain('не в сантиметрах квартиры и не как монтажный допуск')
+    expect(html).toContain('Грань 0')
+    expect(html).toContain('Грань 2')
+    expect(html).toContain('11:0:0')
+    expect(html).toContain('&lt;source-label&gt;')
+    expect(html).toContain('&lt;source-frame&gt;')
+    expect(html).toContain('&lt;detached-source-extension&gt;')
+    expect(html).not.toContain('<source-frame>')
+    expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(baseline.match(/<svg\b.*?<\/svg>/s)?.[0])
+    expect(html.match(/<button\b/g)?.length).toEqual(baseline.match(/<button\b/g)?.length)
+    expect(html).not.toContain('Подтвердить')
+    expect(html).not.toContain('Сохранить')
+    expect(html).not.toContain('Копировать')
+    expect(packet).toEqual(before)
+  })
+  it.each(['draft', 'unresolved'] as const)(
+    'shows an empty %s target report without invented detail rows',
+    (status) => {
+      const packet = floorCavityPacket()
+      packet.dimensionTargets = {
+        status,
+        refusalReason: status === 'unresolved' ? 'source-targets-unavailable' : null,
+        observations: [],
+        unresolved: [],
+      }
+      const html = renderToStaticMarkup(
+        createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+      )
+      expect(html).toContain('Размеры, грани и косяки')
+      expect(html).not.toContain('Грани, альтернативы и исходные свидетельства')
+      if (status === 'draft') expect(html).toContain('Непрерывные связи: 0')
+      else
+        expect(html).toContain('Проверка граней и косяков не завершена; частичный набор не показан')
+    },
+  )
   it('retains duplicate literal ceiling values as separate observations instead of merging or copying them to room 1 + 5', () => {
     const packet = nativeDimensionPacket()
     const heights = packet.heightObservations

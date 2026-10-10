@@ -390,11 +390,21 @@ function isSourceCaptionBindings(value: unknown, packet: NativeReviewPacket): bo
   const labelIds = new Set<string>()
   const compactIndices = new Set<number>()
   const railRefs = new Set<string>()
+  const inkOperations = new Set<number>()
   for (const candidate of report.candidates) {
     if (
       !candidate ||
       typeof candidate !== 'object' ||
-      !hasOnlyKeys(candidate, ['labelId', 'compactIndex', 'valueMm', 'axis', 'rail']) ||
+      !hasOnlyKeys(candidate, [
+        'labelId',
+        'compactIndex',
+        'valueMm',
+        'axis',
+        'rail',
+        ...('angleDegrees' in candidate ? ['angleDegrees'] : []),
+        ...('textPlacement' in candidate ? ['textPlacement'] : []),
+        ...('inkSourceOperation' in candidate ? ['inkSourceOperation'] : []),
+      ]) ||
       !isBoundedLabel(candidate.labelId) ||
       candidate.labelId !== candidate.labelId.trim() ||
       labelIds.has(candidate.labelId) ||
@@ -405,7 +415,18 @@ function isSourceCaptionBindings(value: unknown, packet: NativeReviewPacket): bo
       !Number.isSafeInteger(candidate.valueMm) ||
       candidate.valueMm < 1 ||
       candidate.valueMm > 99999 ||
-      !['width', 'depth'].includes(candidate.axis) ||
+      !['width', 'depth', 'aligned'].includes(candidate.axis) ||
+      (candidate.angleDegrees !== undefined &&
+        (typeof candidate.angleDegrees !== 'number' ||
+          !Number.isFinite(candidate.angleDegrees) ||
+          Math.abs(candidate.angleDegrees) > 360 ||
+          !sourceCaptionAngleMatchesAxis(candidate.angleDegrees, candidate.axis))) ||
+      (candidate.textPlacement !== undefined &&
+        !['glyph-ink', 'baseline'].includes(candidate.textPlacement)) ||
+      (candidate.textPlacement === 'glyph-ink'
+        ? !Number.isSafeInteger(candidate.inkSourceOperation) ||
+          (candidate.inkSourceOperation ?? -1) < 0
+        : candidate.inkSourceOperation !== undefined) ||
       !candidate.rail ||
       typeof candidate.rail !== 'object' ||
       !hasOnlyKeys(candidate.rail, ['operationIndex', 'subpathIndex']) ||
@@ -418,12 +439,15 @@ function isSourceCaptionBindings(value: unknown, packet: NativeReviewPacket): bo
     const legacy = legacyCandidates.get(candidate.labelId)
     if (
       railRefs.has(railRef) ||
+      (candidate.inkSourceOperation !== undefined &&
+        inkOperations.has(candidate.inkSourceOperation)) ||
       (legacy && (legacy.valueMm !== candidate.valueMm || legacy.axis !== candidate.axis))
     )
       return false
     labelIds.add(candidate.labelId)
     compactIndices.add(candidate.compactIndex)
     railRefs.add(railRef)
+    if (candidate.inkSourceOperation !== undefined) inkOperations.add(candidate.inkSourceOperation)
   }
   for (const item of report.unresolved) {
     if (
@@ -439,6 +463,197 @@ function isSourceCaptionBindings(value: unknown, packet: NativeReviewPacket): bo
     labelIds.add(item.labelId)
   }
   return true
+}
+
+function sourceCaptionAngleMatchesAxis(angle: number, axis: string): boolean {
+  const parallel = (expected: number) => {
+    const delta = Math.abs((((angle - expected) % 180) + 180) % 180)
+    return Math.min(delta, 180 - delta) <= 1e-6
+  }
+  return axis === (parallel(0) ? 'width' : parallel(90) ? 'depth' : 'aligned')
+}
+
+function isDimensionTargets(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const report = value as NonNullable<NativeReviewPacket['dimensionTargets']>
+  if (
+    !hasOnlyKeys(report, ['status', 'refusalReason', 'observations', 'unresolved']) ||
+    !Array.isArray(report.observations) ||
+    !Array.isArray(report.unresolved) ||
+    report.observations.length + report.unresolved.length > 1000
+  )
+    return false
+  if (report.status === 'unresolved')
+    return (
+      isBoundedLabel(report.refusalReason) &&
+      report.observations.length === 0 &&
+      report.unresolved.length === 0
+    )
+  const captions = packet.sourceCaptionBindings
+  if (report.status !== 'draft' || report.refusalReason !== null || captions?.status !== 'draft')
+    return false
+  const candidates = new Map(captions.candidates.map((item) => [item.labelId, item]))
+  const held = new Map(captions.unresolved.map((item) => [item.labelId, item.reason]))
+  const floor = new Map(packet.floorCavities?.candidates.map((item) => [item.id, item]) ?? [])
+  const frames = new Map(packet.openingFrames?.candidates.map((item) => [item.id, item]) ?? [])
+  const statuses = ['continuous', 'detached', 'ambiguous', 'unresolved']
+  const ids = new Set<string>()
+  let faceCount = 0
+  let referenceCount = 0
+  const refsValid = (refs: unknown): boolean => {
+    if (!Array.isArray(refs) || refs.length > 20000) return false
+    referenceCount += refs.length
+    if (referenceCount > 20000) return false
+    const keys = new Set<string>()
+    return refs.every((ref) => {
+      if (
+        !ref ||
+        typeof ref !== 'object' ||
+        !hasOnlyKeys(ref, ['operationIndex', 'subpathIndex', 'segmentIndex']) ||
+        ![ref.operationIndex, ref.subpathIndex, ref.segmentIndex].every(
+          (index) => Number.isSafeInteger(index) && index >= 0,
+        )
+      )
+        return false
+      const key = `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`
+      if (keys.has(key)) return false
+      keys.add(key)
+      return true
+    })
+  }
+  for (const row of report.observations) {
+    if (
+      !row ||
+      typeof row !== 'object' ||
+      !hasOnlyKeys(row, ['labelId', 'valueMm', 'axis', 'status', 'reason', 'targets']) ||
+      !isBoundedLabel(row.labelId) ||
+      row.labelId !== row.labelId.trim() ||
+      ids.has(row.labelId) ||
+      !statuses.includes(row.status) ||
+      (row.status === 'continuous' ? row.reason !== null : !isBoundedLabel(row.reason)) ||
+      !Array.isArray(row.targets) ||
+      row.targets.length > 200
+    )
+      return false
+    const source = candidates.get(row.labelId)
+    if (!source || source.valueMm !== row.valueMm || source.axis !== row.axis) return false
+    ids.add(row.labelId)
+    const targetIds = new Set<string>()
+    for (const target of row.targets) {
+      if (
+        !target ||
+        typeof target !== 'object' ||
+        !hasOnlyKeys(target, ['kind', 'id', 'faces']) ||
+        !['floor-boundary', 'opening-frame'].includes(target.kind) ||
+        !isBoundedLabel(target.id) ||
+        target.id !== target.id.trim() ||
+        targetIds.has(`${target.kind}:${target.id}`) ||
+        !Array.isArray(target.faces) ||
+        target.faces.length < 1 ||
+        target.faces.length > 100
+      )
+        return false
+      targetIds.add(`${target.kind}:${target.id}`)
+      const parent = target.kind === 'floor-boundary' ? floor.get(target.id) : frames.get(target.id)
+      const layer = target.kind === 'floor-boundary' ? packet.floorCavities : packet.openingFrames
+      if (layer?.status !== 'draft' || !parent) return false
+      const polygon = parent?.polygon
+      const first = polygon?.[0]
+      const last = polygon?.at(-1)
+      const edgeLimit = polygon
+        ? polygon.length - (first?.x === last?.x && first?.y === last?.y ? 1 : 0)
+        : target.kind === 'opening-frame'
+          ? 4
+          : 100
+      const edges = new Set<number>()
+      for (const face of target.faces) {
+        faceCount += 1
+        if (
+          !face ||
+          typeof face !== 'object' ||
+          !hasOnlyKeys(face, [
+            'edgeIndex',
+            'status',
+            'reason',
+            'supportRefs',
+            'endpointWitnesses',
+          ]) ||
+          faceCount > 4200 ||
+          !Number.isSafeInteger(face.edgeIndex) ||
+          face.edgeIndex < 0 ||
+          face.edgeIndex >= edgeLimit ||
+          edges.has(face.edgeIndex) ||
+          !statuses.includes(face.status) ||
+          (face.status === 'continuous' ? face.reason !== null : !isBoundedLabel(face.reason)) ||
+          !refsValid(face.supportRefs) ||
+          face.supportRefs.length === 0 ||
+          !Array.isArray(face.endpointWitnesses) ||
+          face.endpointWitnesses.length !== 2
+        )
+          return false
+        edges.add(face.edgeIndex)
+        for (const witness of face.endpointWitnesses) {
+          if (
+            !witness ||
+            typeof witness !== 'object' ||
+            !hasOnlyKeys(witness, ['status', 'sourceRefs', 'gapPoints']) ||
+            !statuses.includes(witness.status) ||
+            !refsValid(witness.sourceRefs)
+          )
+            return false
+          if (witness.status === 'continuous' || witness.status === 'detached') {
+            if (
+              witness.sourceRefs.length === 0 ||
+              typeof witness.gapPoints !== 'number' ||
+              !Number.isFinite(witness.gapPoints) ||
+              (witness.status === 'continuous' ? witness.gapPoints !== 0 : witness.gapPoints <= 0)
+            )
+              return false
+          } else if (
+            witness.gapPoints !== null ||
+            (witness.status === 'unresolved'
+              ? witness.sourceRefs.length !== 0
+              : witness.sourceRefs.length < 2)
+          )
+            return false
+        }
+        const witnessStatuses = face.endpointWitnesses.map((item) => item.status)
+        if (
+          (face.status === 'continuous' &&
+            witnessStatuses.some((status) => status !== 'continuous')) ||
+          (face.status === 'detached' &&
+            (!witnessStatuses.includes('detached') ||
+              witnessStatuses.some((status) => !['continuous', 'detached'].includes(status)))) ||
+          (face.status === 'ambiguous' && !witnessStatuses.includes('ambiguous'))
+        )
+          return false
+      }
+    }
+    if (!row.targets.length) {
+      if (row.status !== 'unresolved') return false
+    } else if (row.targets.length > 1 || (row.targets[0]?.faces.length ?? 0) > 1) {
+      if (row.status !== 'ambiguous') return false
+    } else {
+      const face = row.targets[0]?.faces[0]
+      if (!face || row.status !== face.status || row.reason !== face.reason) return false
+    }
+  }
+  for (const item of report.unresolved) {
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      !hasOnlyKeys(item, ['labelId', 'reason']) ||
+      !isBoundedLabel(item.labelId) ||
+      item.labelId !== item.labelId.trim() ||
+      ids.has(item.labelId) ||
+      !isBoundedLabel(item.reason) ||
+      held.get(item.labelId) !== item.reason
+    )
+      return false
+    ids.add(item.labelId)
+  }
+  return ids.size === candidates.size + held.size
 }
 
 function isHeightObservations(value: unknown, packet: NativeReviewPacket): boolean {
@@ -1242,6 +1457,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isHeightObservations(packet.heightObservations, packet) ||
     !isRoomSchedule(packet.roomSchedule, packet) ||
     !isFloorCavities(packet.floorCavities, packet) ||
+    !isDimensionTargets(packet.dimensionTargets, packet) ||
     !isFloorOpeningSides(packet.floorOpeningSides, packet) ||
     !isSavedFrameRooms(packet.savedFrameRooms, packet) ||
     !Array.isArray(packet.faces) ||

@@ -84,6 +84,20 @@ const label = (input: ReturnType<typeof fixture>) => present(input.native.labels
 const compact = (input: ReturnType<typeof fixture>) => present(input.native.compactCaptionGeometry)
 const caption = (input: ReturnType<typeof fixture>) => present(compact(input).items[0])
 
+it('holds strict bindings for unverified vector visibility without mutating legacy linework', () => {
+  const input = fixture()
+  input.native.vectorInkRefusal = 'hidden-native-vector-optional-content'
+  const before = structuredClone(input)
+  expect(nativeCaptionBindings(input)).toMatchObject({
+    status: 'unresolved',
+    refusalReason: 'source-vector-ink-unverified',
+    candidates: [],
+    mayTransfer2D: false,
+    mayTransfer3D: false,
+  })
+  expect(input).toEqual(before)
+})
+
 function outboardFixture() {
   const input = fixture()
   input.work.pageWidth = 500
@@ -164,7 +178,19 @@ describe('explicit original-native caption bridge, not metric/room acceptance', 
           compactIndex: 1,
           valueMm: 200,
           axis,
+          angleDegrees: axis === 'width' ? 0 : 90,
+          textPlacement: 'baseline',
           rail: { operationIndex: 1, subpathIndex: 0 },
+          spanEnds:
+            axis === 'width'
+              ? [
+                  { x: 100, y: 170 },
+                  { x: 300, y: 170 },
+                ]
+              : [
+                  { x: 170, y: 300 },
+                  { x: 170, y: 100 },
+                ],
         },
       ])
       expect(result.unresolved).toEqual([])
@@ -237,7 +263,7 @@ describe('explicit original-native caption bridge, not metric/room acceptance', 
     expect(input).toEqual(before)
   })
   it.each([0.3, 180, -90])(
-    'does not canonicalize raw angle %s into an accepted cardinal caption',
+    'does not accept raw angle %s without an aligned source rail',
     (rotation) => {
       const input = fixture()
       label(input).rotation = rotation
@@ -250,9 +276,7 @@ describe('explicit original-native caption bridge, not metric/room acceptance', 
       expect(nativeCaptionBindings(input)).toMatchObject({
         status: 'draft',
         candidates: [],
-        unresolved: [
-          { labelId: 'native-text-10', reason: 'unsupported-source-caption-orientation' },
-        ],
+        unresolved: [{ labelId: 'native-text-10', reason: 'caption-rail-unresolved' }],
       })
       expect(label(input).rotation).toBe(rotation)
     },
@@ -348,7 +372,7 @@ describe('explicit original-native caption bridge, not metric/room acceptance', 
     })
     expect(nativeCaptionBindings(input).unresolved.map(({ reason }) => reason)).toEqual([
       'unsupported-caption-near-source-rail',
-      'unsupported-source-caption-orientation',
+      'caption-rail-unresolved',
     ])
     expect(nativeCaptionBindings(input).candidates).toEqual([])
   })

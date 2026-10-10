@@ -5,6 +5,10 @@ import {
   nativeCaptionBindings,
 } from './plan-native-caption-bindings'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
+import {
+  type NativeDimensionTargetReport,
+  nativeDimensionTargets,
+} from './plan-native-dimension-targets'
 import { nativeFaceAnnotationCandidates } from './plan-native-face-annotations'
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
 import {
@@ -117,6 +121,7 @@ export type NativeReviewPacket = {
     unresolved: { labelId: string; reason: string }[]
   }
   sourceCaptionBindings?: NativeCaptionBindingReport
+  dimensionTargets?: NativeDimensionTargetReport
   heightObservations?: {
     status: 'draft' | 'unresolved'
     refusalReason: string | null
@@ -306,8 +311,15 @@ export function nativeReviewPacket(input: {
   packet.sourceCaptionBindings = {
     status: captionBindings.status,
     refusalReason: captionBindings.refusalReason,
-    candidates: captionBindings.candidates,
+    candidates: captionBindings.candidates.map(({ spanEnds: _ends, ...candidate }) => candidate),
     unresolved: captionBindings.unresolved,
+  }
+  const dimensionTargets = nativeDimensionTargets({ ...common, source }, captionBindings)
+  packet.dimensionTargets = {
+    status: dimensionTargets.status,
+    refusalReason: dimensionTargets.refusalReason,
+    observations: dimensionTargets.observations,
+    unresolved: dimensionTargets.unresolved,
   }
   packet.heightObservations = {
     status: heights.status,

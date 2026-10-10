@@ -2738,3 +2738,109 @@ Test-only process shim и sourceRevision metadata не являются изме
 calibration, whole floor/jamb bindings, height leaders/owners/datum, physical
 thresholds и полная floor coverage; затем acceptance/2D3D. Сайт/userproject/DB/
 paidAI/PR/deploy не менялись.
+
+## 10 октября: реальный glyph ink, raw rotations и целые грани/косяки
+
+Primary: тот же apartment_74_77m2_full_project.pdf, existing page6, не старый
+пользовательский план28.8м². Финальный replay:
+`tmp/native-ink-rotation-targets-20261010-complete`; исходный PDF SHA
+`d79a89eba7d262f2615a9c9f99c03be4553d85c5f737423c51f98e8c9f5da1ab`,
+JPEG SHA `f55b2437f57ba9d6b45aeeaba180ff771c47bc87e2204405f2b04fd597206b58`.
+Весь лист, примечания и footer просмотрены; source geometry не исправлялась.
+
+### Реальная типографика вместо подгонки
+
+Embedded ISOCPEURItalic glyph paths прочитаны до render:108/108 numeric ink quads.
+Source font/text/TM/advance идентичность проверяется уникально, без nearest text.
+Обводка вычислена по аналитическим quadratic/cubic extrema в physical baseline
+frame: shear/anisotropic transform не заменены пустыми углами glyph AABB.
+Исходные path buffers не изменяются. Glyph box требует ненулевого рисуемого контура;
+пустые/retraced/unpainted хвосты не дают ложную площадь. Защищены лимиты ops/glyphs/
+path values/work/stacks и malformed states. Поддержка намеренно узкая: embedded
+horizontal non-Type3 fonts с проверяемыми outlines; unsupported inventory удержан
+целиком, чтобы неизвестная конкурирующая подпись не исчезала.
+
+Физический ink-midpoint у2441 смещён относительно advance-midpoint на≈0.5718pt;
+у525≈0.4600pt,926≈0.5695pt,950≈0.6194pt. Это измерено из embedded outline,
+не correction constant; прежний0.12pt rail tolerance не увеличен. Ink quad должен
+иметь4 finite points, orthogonal baseline-aligned frame, замыкающиеся диагонали и
+уникальную source-show operation; оба verifier используют одну проверку инвариантов.
+FontBBox/ascent/text advance не объявлены истинным ink footprint.
+
+Новый rotated wrapper использует локальный physical frame исходного directed
+baseline, возвращает literal source endpoints. Raw0/90/180/−43.9563° не меняются;
+непараллельные competing captions, отсутствие полного контекста и budget дают
+atomic отказ. 1387/1317 прочитаны как наклонные, но omitted-ink guard удерживает
+обе подписи; эти две находки не приняты как размеры. Outboard dependencies должны
+иметь тот же parallel raw angle, а не только одну coarse axis classification.
+
+### Видимость исходника
+
+Текст и векторный paint-state проверяются с той же DISPLAY optional-content
+config, что передана в render. Hidden/unknown OCG/OCMD, transparent alpha,
+unsupported composites/SMask/TR, patterned fill/stroke, glyph-derived clipping,
+unsupported form/group/annotation vectors не превращаются в visible dimension
+evidence. Audit обнаружил pattern paint и text clipping; добавлены regression tests.
+Patterned numeric text также удержан независимо от видимости векторных реек.
+Explicit path clipping по-прежнему проверяется существующим linework/source guard;
+page-covering clip не выдаётся за пропущенную геометрию. Это state proof, не полный
+pixel/z-order occlusion renderer. Strict metadata opt-in, provider planText и
+ordinary nativeCaptionGeometry не изменены.
+
+### Привязка к целым граням и косякам
+
+43strict caption/rail candidates:25X/18Y,65held; до пачки0/108. Held reasons:
+15omitted-ink,6multiple-caption-rails,28caption-rail-unresolved,
+15unsupported-caption-near-rail,1branched. Raw angled verifier до omission guards
+давал73; это не число принятых source bindings.
+
+Target verifier заново строит strict bindings, floor boundaries и frame faces.
+Stale supplied snapshots/foreign refs/value/flags/endpoints удержаны. Целая грань
+проверяется по исходным exact endpoints, а не по соседству или0.12pt target snap.
+Два торцевых свидетеля обязательны; literal perpendicular extension gaps остаются
+в pt. По43rows:0continuous,0однозначных detached,7ambiguous,36unresolved.
+В альтернативах:8detached faces,2ambiguous faces,11unresolved faces — не21 принятый
+размер. Continuous и detached конкуренты не выбираются по меньшему gap.
+
+Проверены реальные gaps около1.77pt:1300/native-text-34 rail1628/frame600;
+1048/native-text-25 rail1419/frame556;905/native-text-92 rail2812/frame615.
+Обе длинные грани одной рамки сгруппированы под одним source frame ID, но не
+устранены как неоднозначность и не создают два физических проёма. Slanted targets
+пока unsupported. Нет room/wall/passages ownership, cm scale или accepted transfer.
+
+### Неизменность, UI и проверка
+
+Explicit deep/byte equality к `native-caption-bridge-20261010-primary-final`:
+source/image/dimensions/heights/floor/floorOpeningSides/doors/frames/connections/
+omissions и JPEG/обе PNG совпадают. Legacy72roles/36held,16heights,20cavities,
+7marked,7strips/5closures/1held,6two-sided/1one-sided frames сохранены.
+Реплей с saved-reading.json даёт те же strict/target reports (manual5/1/1 прежний).
+Оба readinessfalse. Glyph/visibility findings не перенесены в сохранённую схему.
+
+Ещё6PDF повторены: свежие5packets в
+`tmp/native-ink-rotation-targets-20261010-corpus-verified`, colored page3 в
+`tmp/native-ink-rotation-targets-20261010-colored-verified`. BASIS glyph inventory
+unsupported; Remplanner strict source-vector-ink-unverified (его glyph inventory
+тоже был incomplete до visibility guard). Basman/Life/colored прежние atomic
+incomplete-dimension-layer; Designgroup0/0, floor candidate-limit не снят.
+Нет новых accepted room/metric/2D3D flags.
+
+Private packet не отдаёт raw endpoints, только labels/mm/rawangles/refs/gaps и
+read-only observations. Client проверяет closed keys, parent floor/frame IDs,
+unique text operations, source refs, полное caption accounting и budgets.
+UI folded source-caption/target blocks не добавляют SVG/save controls. Counter
+«однозначные связи с разрывом» отделён от gaps внутри ambiguous alternatives.
+Длинные дроби отображаются с6значащими цифрами и знаком≈, без округления source
+points; tiny positive gap0.00001pt остаётся положительным, не превращается в0.
+Firefox actualcomponent/localmockprivateAPI, настоящий JPEG/hash:390/1280px,
+horizontal scroll0,31SVGpolygons прежние, raw90° и pt gaps видны, console errors/
+warnings0. Built CSS без root font setup: проверка взаимодействия/раскладки, не
+полный production дизайн. Browser/server закрыты; ignored QA artifacts оставлены.
+
+5228webtests/268files (maxWorkers4), typecheck7packages, lint918files,
+productionbuild/diff и независимые focused audits прошли. Последний153focused
+после уточнения UI wording. По project-workflow RELEASE_PLAN обновлён:
+glyph coverage → independent X/Y witnesses → whole-face/jamb acceptance,
+далее height leaders/owners/datum, physical thresholds и полная floor coverage.
+DB/userproject/paidAI/GitHub/PR/deploy не менялись; это не завершённая автоматическая
+метрическая схема квартиры.

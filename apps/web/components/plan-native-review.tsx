@@ -566,9 +566,19 @@ function SourceCaptionReview({
               <ul className="list-disc space-y-2 pl-5">
                 {report.candidates.map((item) => (
                   <li key={item.labelId} className="break-all">
-                    {item.labelId}: {item.valueMm} мм, ось {item.axis === 'width' ? 'X' : 'Y'}
+                    {item.labelId}: {item.valueMm} мм,{' '}
+                    {item.axis === 'aligned'
+                      ? 'наклонное направление'
+                      : `ось ${item.axis === 'width' ? 'X' : 'Y'}`}
                     {'; '}компактная позиция {item.compactIndex}; исходная линия{' '}
-                    {item.rail.operationIndex}:{item.rail.subpathIndex}. Связь остаётся кандидатом.
+                    {item.rail.operationIndex}:{item.rail.subpathIndex}.
+                    {item.angleDegrees !== undefined ? ` Исходный угол ${item.angleDegrees}°.` : ''}
+                    {item.textPlacement === 'glyph-ink'
+                      ? ` Положение по настоящим глифам PDF; операция текста ${item.inkSourceOperation}.`
+                      : item.textPlacement === 'baseline'
+                        ? ' Положение по исходной базовой линии текста, без свидетельства глифов.'
+                        : ''}{' '}
+                    Связь остаётся кандидатом.
                   </li>
                 ))}
                 {report.unresolved.map((item) => (
@@ -584,6 +594,111 @@ function SourceCaptionReview({
       <p className="text-ink-2">
         Даже найденная связь не подтверждает целую стену или косяк, независимый масштаб по X и Y
         либо готовность 2D/3D. Размеры не переносятся в геометрию.
+      </p>
+    </section>
+  )
+}
+
+const dimensionTargetMessages = {
+  continuous: 'непрерывное исходное свидетельство',
+  detached: 'разрыв исходной выносной линии',
+  ambiguous: 'неоднозначно',
+  unresolved: 'не подтверждено',
+}
+
+function DimensionTargetsReview({
+  report,
+}: {
+  report: NonNullable<NativeReviewPacket['dimensionTargets']>
+}) {
+  const refsText = (
+    refs: { operationIndex: number; subpathIndex: number; segmentIndex: number }[],
+  ) => refs.map((ref) => `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`).join(', ')
+  const gapText = (value: number) => {
+    const displayed = Number(value.toPrecision(6))
+    return `разрыв ${displayed === value ? '' : '≈'}${displayed} pt PDF`
+  }
+  return (
+    <section
+      className="space-y-2 border-t border-line pt-3 text-[13px] leading-relaxed"
+      aria-label="Размеры, грани и косяки"
+    >
+      <h4 className="text-[14px] font-medium">Размеры, грани и косяки</h4>
+      <p className="text-ink-2">
+        Проверяем исходные связи размерной линии с целой гранью пола или рамкой проёма. Это не
+        подтверждение стены, помещения или физического прохода и не готовность переноса в 2D/3D.
+        Разрыв выносной линии не достраивается автоматически.
+      </p>
+      {report.status === 'unresolved' ? (
+        <p className="break-all text-ink-2">
+          Проверка граней и косяков не завершена; частичный набор не показан. Ограничение:{' '}
+          {report.refusalReason}.
+        </p>
+      ) : (
+        <>
+          <p>
+            Непрерывные связи:{' '}
+            {report.observations.filter((item) => item.status === 'continuous').length}; однозначные
+            связи с разрывом:{' '}
+            {report.observations.filter((item) => item.status === 'detached').length};{' '}
+            неоднозначные:{' '}
+            {report.observations.filter((item) => item.status === 'ambiguous').length};{' '}
+            неподтверждённые:{' '}
+            {report.observations.filter((item) => item.status === 'unresolved').length}. Удержанные
+            подписи: {report.unresolved.length}.
+          </p>
+          {report.observations.length || report.unresolved.length ? (
+            <details className="text-ink-2">
+              <summary className="min-h-11 cursor-pointer py-3">
+                Грани, альтернативы и исходные свидетельства
+              </summary>
+              <ul className="list-disc space-y-3 pl-5">
+                {report.observations.map((item) => (
+                  <li key={item.labelId} className="break-all">
+                    {item.labelId}: {item.valueMm} мм; {dimensionTargetMessages[item.status]}.
+                    {item.reason ? ` Ограничение: ${item.reason}.` : ''}
+                    {item.targets.map((target) => (
+                      <div key={`${target.kind}:${target.id}`} className="mt-1 pl-2">
+                        {target.kind === 'floor-boundary' ? 'Граница пола' : 'Рамка проёма'}{' '}
+                        {target.id}.
+                        {target.faces.map((face) => (
+                          <div key={face.edgeIndex} className="mt-1 pl-2">
+                            Грань {face.edgeIndex}: {dimensionTargetMessages[face.status]}.
+                            {face.reason ? ` ${face.reason}.` : ''} Опоры:{' '}
+                            {refsText(face.supportRefs)}.
+                            {[
+                              { endpoint: 'Конец 1', witness: face.endpointWitnesses[0] },
+                              { endpoint: 'Конец 2', witness: face.endpointWitnesses[1] },
+                            ].map(({ endpoint, witness }) => (
+                              <div key={endpoint} className="pl-2">
+                                {endpoint}: {dimensionTargetMessages[witness.status]};{' '}
+                                {witness.gapPoints === null
+                                  ? 'разрыв не определён'
+                                  : gapText(witness.gapPoints)}
+                                . Исходные ссылки: {refsText(witness.sourceRefs) || 'нет'}.
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </li>
+                ))}
+                {report.unresolved.map((item) => (
+                  <li key={item.labelId} className="break-all">
+                    {item.labelId}: подпись удержана — {item.reason}.
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </>
+      )}
+      <p className="text-ink-2">
+        Разрывы указаны в пунктах PDF (pt), не в сантиметрах квартиры и не как монтажный допуск.
+        Знак ≈ означает сокращённое отображение числа; исходные координаты не округляются.
+        Неоднозначные варианты сохранены отдельно; ни один не выбран по близости. Размеры в
+        геометрию не переносятся.
       </p>
     </section>
   )
@@ -1027,6 +1142,7 @@ export function NativeReviewResult({
       {packet.sourceCaptionBindings ? (
         <SourceCaptionReview report={packet.sourceCaptionBindings} />
       ) : null}
+      {packet.dimensionTargets ? <DimensionTargetsReview report={packet.dimensionTargets} /> : null}
       {packet.doorSymbols || packet.openingFrames ? (
         <div className="space-y-2 text-[13px] leading-relaxed">
           {packet.doorSymbols ? (

@@ -12,6 +12,10 @@ export type NativeDimensionCaptionContext = {
     origin: PagePoint
     baselineStart: PagePoint
     baselineEnd: PagePoint
+    /** Optional actual embedded glyph-run ink, not the font-wide box or estimated text width. */
+    inkPolygon?: PagePoint[]
+    inkSourceOperation?: number
+    inkRefusal?: string
   }>
 }
 
@@ -33,6 +37,71 @@ export function nativeDimensionCaptionMillimetres(text: string): number | undefi
   if (!/^(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{1,5})$/.test(text)) return
   const value = Number(text.replace(/[ \u00a0\u202f]/g, ''))
   return Number.isSafeInteger(value) && value > 0 && value <= 99_999 ? value : undefined
+}
+
+/** Shape/identity invariants of source glyph envelopes, not font authenticity. */
+export function nativeCaptionInkIssue(
+  context: NativeDimensionCaptionContext,
+  work: PdfLinework,
+): string | undefined {
+  const operations = new Set<number>()
+  for (const item of context.items) {
+    if (
+      item.inkRefusal !== undefined &&
+      (typeof item.inkRefusal !== 'string' || !item.inkRefusal || item.inkRefusal.length > 128)
+    )
+      return 'invalid-native-caption-context'
+    if (item.inkPolygon === undefined) {
+      if (item.inkSourceOperation !== undefined) return 'invalid-native-caption-context'
+      continue
+    }
+    if (
+      !Array.isArray(item.inkPolygon) ||
+      item.inkPolygon.length !== 4 ||
+      item.inkRefusal !== undefined ||
+      !Number.isSafeInteger(item.inkSourceOperation) ||
+      (item.inkSourceOperation ?? -1) < 0 ||
+      operations.has(item.inkSourceOperation as number) ||
+      item.inkPolygon.some(
+        (point) =>
+          !point ||
+          ![point.x, point.y].every(
+            (value) => Number.isFinite(value) && value >= 0 && value <= 1000,
+          ),
+      )
+    )
+      return 'invalid-native-caption-context'
+    operations.add(item.inkSourceOperation as number)
+    const physical = (point: PagePoint) => ({
+      x: (point.x * work.pageWidth) / 1000,
+      y: (point.y * work.pageHeight) / 1000,
+    })
+    const [a, b, c, d] = item.inkPolygon.map(physical) as [
+      PagePoint,
+      PagePoint,
+      PagePoint,
+      PagePoint,
+    ]
+    const along = { x: b.x - a.x, y: b.y - a.y }
+    const across = { x: d.x - a.x, y: d.y - a.y }
+    const baselineStart = physical(item.baselineStart)
+    const baselineEnd = physical(item.baselineEnd)
+    const baseline = { x: baselineEnd.x - baselineStart.x, y: baselineEnd.y - baselineStart.y }
+    const length = Math.hypot(along.x, along.y)
+    const depth = Math.hypot(across.x, across.y)
+    const baselineLength = Math.hypot(baseline.x, baseline.y)
+    if (
+      length === 0 ||
+      depth === 0 ||
+      baselineLength === 0 ||
+      Math.hypot(c.x - (b.x + d.x - a.x), c.y - (b.y + d.y - a.y)) > 1e-7 ||
+      Math.abs(along.x * across.x + along.y * across.y) / (length * depth) > 1e-7 ||
+      Math.abs(along.x * baseline.y - along.y * baseline.x) / (length * baselineLength) > 1e-7 ||
+      along.x * baseline.x + along.y * baseline.y <= 0
+    )
+      return 'invalid-native-caption-context'
+  }
+  return undefined
 }
 
 /** Exact source-run geometry; no nearest-caption choice or replacement dimension calculation. */
@@ -58,12 +127,17 @@ export function createNativeCaptionMatcher(
     const delta = Math.abs((degrees - item.rotation) % 360)
     return Math.min(delta, 360 - delta) <= 0.5 + 1e-9
   }
+  const parallelRotation = (rotation: number) => {
+    const expected = axis === 'width' ? 0 : 90
+    const delta = Math.abs((((rotation - expected) % 180) + 180) % 180)
+    return Math.min(delta, 180 - delta) <= 1e-6
+  }
   if (
     ![work.pageWidth, work.pageHeight].every((value) => Number.isFinite(value) && value > 0) ||
     !/^[a-f0-9]{64}$/.test(source.sha256) ||
     !Number.isSafeInteger(source.pdfPage) ||
     source.pdfPage < 1 ||
-    !context.complete ||
+    context.complete !== true ||
     context.source.sha256 !== source.sha256 ||
     context.source.pdfPage !== source.pdfPage ||
     context.source.pageWidth !== work.pageWidth ||
@@ -84,11 +158,14 @@ export function createNativeCaptionMatcher(
   ) {
     return invalid
   }
+  if (nativeCaptionInkIssue(context, work)) return invalid
+  if (context.items.some((item) => item.inkRefusal !== undefined))
+    return () => fail('caption-ink-context-incomplete')
   const along = (point: PagePoint) => (axis === 'width' ? point.x : point.y)
   const across = (point: PagePoint) => (axis === 'width' ? point.y : point.x)
   const alongScale = (axis === 'width' ? work.pageWidth : work.pageHeight) / 1000
   const acrossScale = (axis === 'width' ? work.pageHeight : work.pageWidth) / 1000
-  const captions = context.items.filter((item) => item.rotation === (axis === 'width' ? 0 : 90))
+  const captions = context.items.filter((item) => parallelRotation(item.rotation))
   const length = (span: NativeCaptionRail) => (along(span.end) - along(span.start)) * alongScale
   if (
     spans.length > 5000 ||
@@ -119,12 +196,19 @@ export function createNativeCaptionMatcher(
       ((left.y - right.y) * work.pageHeight) / 1000,
     ) <= 0.12
   const onRow = (caption: (typeof captions)[number], span: NativeCaptionRail) => {
-    const gap = (across(span.start) - across(caption.baselineStart)) * acrossScale
+    const degrees = (caption.rotation * Math.PI) / 180
+    const forward = axis === 'width' ? Math.cos(degrees) : Math.sin(degrees)
+    const gap =
+      (across(span.start) - across(caption.baselineStart)) * acrossScale * Math.sign(forward)
     return (
       gap >= 0 &&
       gap <= 4 &&
       Math.abs(across(caption.baselineEnd) - across(caption.baselineStart)) * acrossScale <= 0.12
     )
+  }
+  const captionInterval = (caption: (typeof captions)[number]) => {
+    const points = caption.inkPolygon ?? [caption.baselineStart, caption.baselineEnd]
+    return { low: Math.min(...points.map(along)), high: Math.max(...points.map(along)) }
   }
   let budget = 200_000
   for (let i = 0; i < spans.length; i++) {
@@ -149,8 +233,7 @@ export function createNativeCaptionMatcher(
   }
   const outboardMatch = (caption: (typeof captions)[number], span: NativeCaptionRail) => {
     if (!span.outboard || !onRow(caption, span)) return false
-    const low = Math.min(along(caption.baselineStart), along(caption.baselineEnd))
-    const high = Math.max(along(caption.baselineStart), along(caption.baselineEnd))
+    const { low, high } = captionInterval(caption)
     if ((high - low) * alongScale <= length(span)) return false
     return (
       (high < along(span.start) &&
@@ -167,7 +250,8 @@ export function createNativeCaptionMatcher(
     for (const caption of captions) {
       if (--budget < 0) return () => fail('caption-binding-budget-exceeded')
       if (outboardMatch(caption, span)) offsetClaims.push(caption)
-      const midpoint = (along(caption.baselineStart) + along(caption.baselineEnd)) / 2
+      const { low, high } = captionInterval(caption)
+      const midpoint = (low + high) / 2
       if (
         onRow(caption, span) &&
         Math.abs(midpoint - (along(span.start) + along(span.end)) / 2) * alongScale <= 0.12

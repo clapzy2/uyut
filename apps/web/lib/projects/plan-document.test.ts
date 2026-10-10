@@ -11,11 +11,22 @@ const mocks = vi.hoisted(() => ({
   operators: vi.fn(),
   getDocument: vi.fn(),
   jpeg: vi.fn(),
+  font: vi.fn(),
 }))
 
 vi.mock('pdfjs-dist/legacy/build/pdf.worker.mjs', () => ({}))
 vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
-  OPS: { constructPath: 6, stroke: 7 },
+  OPS: {
+    constructPath: 6,
+    stroke: 7,
+    beginText: 10,
+    endText: 11,
+    setFont: 12,
+    setTextMatrix: 13,
+    showText: 14,
+    beginMarkedContentProps: 15,
+    endMarkedContent: 16,
+  },
   getDocument: mocks.getDocument,
 }))
 vi.mock('@napi-rs/canvas', () => ({
@@ -48,6 +59,7 @@ describe('selected PDF page', () => {
       render: mocks.render,
       getTextContent: mocks.text,
       getOperatorList: mocks.operators,
+      commonObjs: { get: mocks.font },
     })
     mocks.text.mockResolvedValue({ items: [] })
     mocks.operators.mockResolvedValue({
@@ -71,6 +83,31 @@ describe('selected PDF page', () => {
     expect(result.image).toMatchObject({ width: 1000, height: 2000 })
     expect(mocks.jpeg).toHaveBeenCalledWith({ resolveWithObject: true })
     expect(mocks.destroy).toHaveBeenCalledTimes(1)
+  })
+
+  it('gates strict hidden-vector evidence with the same display layers used by rendering', async () => {
+    const properties = { type: 'OCG', id: 'hidden-dimension' }
+    const config = { isVisible: vi.fn(() => false) }
+    const getOptionalContentConfig = vi.fn().mockResolvedValue(config)
+    mocks.getDocument.mockReturnValue({
+      promise: Promise.resolve({ numPages: 48, getPage: mocks.getPage, getOptionalContentConfig }),
+      destroy: mocks.destroy,
+    })
+    mocks.operators.mockResolvedValue({
+      fnArray: [15, 6, 16],
+      argsArray: [['OC', properties], [7, [[0, 100, 200, 1, 300, 400]], []], []],
+    })
+    const result = await preparePlanPage(Buffer.from('pdf'), true, 6, true, true)
+    expect(result.nativeTextAnchors?.vectorInkRefusal).toBe('hidden-native-vector-optional-content')
+    expect(getOptionalContentConfig).toHaveBeenCalledWith({ intent: 'display' })
+    expect(config.isVisible).toHaveBeenCalledWith(properties)
+    expect(await mocks.render.mock.calls[0]?.[0].optionalContentConfigPromise).toBe(config)
+    expect(result.linework?.paths).toHaveLength(1)
+    const ordinary = await preparePlanPage(Buffer.from('pdf'), true, 6, true, false)
+    expect(ordinary.nativeTextAnchors).toBeUndefined()
+    expect(ordinary.nativeCaptionGeometry).toEqual(result.nativeCaptionGeometry)
+    expect(ordinary.image.planText).toEqual(result.image.planText)
+    expect(ordinary.linework).toEqual(result.linework)
   })
 
   it('loads installed standard fonts through runtime resolution and the Node data factory', async () => {
@@ -200,6 +237,52 @@ describe('selected PDF page', () => {
     expect(caption?.baselineEnd.x).toBeCloseTo(125.3125)
     expect(caption?.baselineEnd.y).toBeCloseTo((69.25 / 600) * 1000)
   })
+  it('adds real glyph-run ink only to opt-in native captions, not provider text or baseline geometry', async () => {
+    mocks.text.mockResolvedValue({
+      items: [{ str: '200', fontName: 'font0', width: 20, transform: [10, 0, 0, 10, 100, 100] }],
+    })
+    const glyph = (unicode: string, width: number) => ({
+      unicode,
+      fontChar: unicode,
+      width,
+      isSpace: false,
+      isInFont: true,
+    })
+    mocks.operators.mockResolvedValue({
+      fnArray: [10, 12, 13, 14, 11],
+      argsArray: [
+        [],
+        ['font0', 10],
+        [1, 0, 0, 1, 100, 100],
+        [[glyph('2', 600), glyph('0', 700), glyph('0', 700)]],
+        [],
+      ],
+    })
+    const outline = [0, 0.1, 0, 1, 0.6, 0, 1, 0.6, 0.7, 1, 0.1, 0.7, 4]
+    const before = [...outline]
+    mocks.font.mockImplementation((name: string) =>
+      name === 'font0'
+        ? {
+            fontMatrix: [0.001, 0, 0, 0.001, 0, 0],
+            missingFile: false,
+            vertical: false,
+            isType3Font: false,
+            disableFontFace: true,
+          }
+        : { path: outline },
+    )
+    const ordinary = await preparePlanPage(Buffer.from('pdf'), true, 6, true)
+    const reviewed = await preparePlanPage(Buffer.from('pdf'), true, 6, true, true)
+    expect(reviewed.image.planText).toBe(ordinary.image.planText)
+    expect(reviewed.nativeCaptionGeometry).toEqual(ordinary.nativeCaptionGeometry)
+    expect(ordinary.nativeCaptionGeometry?.items[0]).not.toHaveProperty('inkPolygon')
+    const ink = reviewed.nativeTextAnchors?.compactCaptionGeometry?.items[0]
+    expect(ink?.inkSourceOperation).toBe(3)
+    expect(ink?.inkPolygon).toHaveLength(4)
+    expect(ink).not.toHaveProperty('inkRefusal')
+    expect(ink?.baselineStart).toEqual(ordinary.nativeCaptionGeometry?.items[0]?.baselineStart)
+    expect(outline).toEqual(before)
+  })
   it('records actual original-to-compact slots and a detached numeric context for native review', async () => {
     mocks.viewport.mockImplementation(({ scale }: { scale: number }) => ({
       width: 1000 * scale,
@@ -229,9 +312,13 @@ describe('selected PDF page', () => {
       { nativeIndex: 3, compactIndex: 1 },
       { nativeIndex: 4, compactIndex: 2 },
     ])
-    expect(reviewed.nativeTextAnchors?.compactCaptionGeometry).toEqual(
-      reviewed.nativeCaptionGeometry,
-    )
+    const copied = reviewed.nativeTextAnchors?.compactCaptionGeometry
+    expect(
+      copied && { ...copied, items: copied.items.map(({ inkRefusal: _refusal, ...item }) => item) },
+    ).toEqual(reviewed.nativeCaptionGeometry)
+    expect(
+      copied?.items.every(({ inkRefusal }) => inkRefusal === 'invalid-native-text-ink-item'),
+    ).toBe(true)
     const compact = reviewed.nativeCaptionGeometry?.items[0]
     if (!compact) throw new Error('Missing source caption')
     compact.baselineStart.x = 999

@@ -5,7 +5,9 @@ import {
   nativeDimensionCaptionMillimetres,
 } from './plan-pdf-caption-binding'
 import { extractPdfLinework, type PdfLinework } from './plan-pdf-linework'
+import { pdfNativePaintVisibilityIssue } from './plan-pdf-paint-visibility'
 import { pdfStandardFontDataUrl } from './plan-pdf-standard-fonts'
+import { nativeNumericTextInk } from './plan-pdf-text-ink'
 
 export class PlanReadError extends Error {
   constructor(message: string) {
@@ -25,6 +27,8 @@ export type NativeTextAnchors = {
   pageNormalizedScale?: { x: number; y: number }
   // Kept in the provider's compact-slot frame; the native bridge validates both identities.
   compactCaptionGeometry?: NativeDimensionCaptionContext
+  // A hidden/composited vector must not become strict visible dimension evidence.
+  vectorInkRefusal?: string
   // Baseline origins from PDF text transforms, not glyph boxes or inferred room centres.
   labels: {
     id: string
@@ -167,16 +171,43 @@ export async function preparePlanPage(
     // Ordinary PDF chain checks and reviewed-page checks use the same selected native page.
     let linework: PdfLinework | undefined
     let nativeViewport: ReturnType<typeof page.getViewport> | undefined
+    let nativeOperators: Parameters<typeof extractPdfLinework>[0] | undefined
     if (includeLinework) {
       try {
         nativeViewport = page.getViewport({ scale: 1 })
-        linework = extractPdfLinework(await page.getOperatorList(), pdfjs.OPS, nativeViewport)
+        nativeOperators = await page.getOperatorList()
+        linework = extractPdfLinework(nativeOperators, pdfjs.OPS, nativeViewport)
       } catch {
         // The caller must refuse geometry verification; never reinterpret a missing layer as valid.
       }
     }
     const full = page.getViewport({ scale: PDF_DPI / 72 })
     const textContent = await page.getTextContent().catch(() => undefined)
+    const optionalContentConfig =
+      includeNativeTextAnchors && typeof document.getOptionalContentConfig === 'function'
+        ? await document.getOptionalContentConfig({ intent: 'display' }).catch(() => undefined)
+        : undefined
+    const glyphInk =
+      includeNativeTextAnchors && nativeOperators && nativeViewport && textContent
+        ? nativeNumericTextInk({
+            operatorList: nativeOperators,
+            operators: pdfjs.OPS,
+            textItems: textContent.items,
+            viewport: nativeViewport,
+            getFont: (fontName) => page.commonObjs.get(fontName),
+            getGlyphPath: (fontName, fontChar) =>
+              page.commonObjs.get(`${fontName}_path_${fontChar}`).path,
+            isOptionalContentVisible: (properties) => optionalContentConfig?.isVisible(properties),
+          })
+        : undefined
+    const vectorInkRefusal =
+      includeNativeTextAnchors && nativeOperators
+        ? pdfNativePaintVisibilityIssue({
+            operatorList: nativeOperators,
+            operators: pdfjs.OPS,
+            isOptionalContentVisible: (properties) => optionalContentConfig?.isVisible(properties),
+          })
+        : undefined
     const nativeCaptionGeometry: NativeDimensionCaptionContext | undefined = nativeViewport
       ? {
           source: {
@@ -263,6 +294,9 @@ export async function preparePlanPage(
       // biome-ignore lint/suspicious/noExplicitAny: то же для контекста
       canvasContext: context as any,
       viewport,
+      ...(optionalContentConfig
+        ? { optionalContentConfigPromise: Promise.resolve(optionalContentConfig) }
+        : {}),
     }).promise
     const image = await toJpeg(canvas.toBuffer('image/png'))
     let nativeTextAnchors: NativeTextAnchors | undefined
@@ -322,6 +356,26 @@ export async function preparePlanPage(
           : {}),
         labels,
       }
+      if (nativeTextAnchors.compactCaptionGeometry && glyphInk) {
+        const inkByIndex = new Map(glyphInk.items.map((item) => [item.index, item]))
+        const heldByIndex = new Map(glyphInk.unresolved.map((item) => [item.index, item.reason]))
+        const labelBySlot = new Map(labels.map((label) => [label.compactIndex, label]))
+        for (const caption of nativeTextAnchors.compactCaptionGeometry.items) {
+          const label = labelBySlot.get(caption.index)
+          const ink =
+            label?.nativeIndex !== undefined ? inkByIndex.get(label.nativeIndex) : undefined
+          if (ink && ink.text === caption.text) {
+            caption.inkPolygon = structuredClone(ink.quad)
+            caption.inkSourceOperation = ink.operationIndex
+          } else {
+            caption.inkRefusal =
+              glyphInk.refusalReason ??
+              (label?.nativeIndex !== undefined ? heldByIndex.get(label.nativeIndex) : undefined) ??
+              'native-glyph-ink-unavailable'
+          }
+        }
+      }
+      if (vectorInkRefusal) nativeTextAnchors.vectorInkRefusal = vectorInkRefusal
     }
     return {
       image: { ...image, ...(planText ? { planText } : {}) },
