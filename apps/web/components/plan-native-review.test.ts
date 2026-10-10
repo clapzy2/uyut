@@ -881,6 +881,64 @@ describe('read-only native review presentation', () => {
     expect(html).not.toContain('Копировать')
     expect(packet).toEqual(before)
   })
+  it('shows conflicting whole-floor captions separately without altering face witnesses or geometry', () => {
+    const packet = floorCavityPacket()
+    const beforeTargets = structuredClone(packet)
+    packet.dimensionTargets = {
+      status: 'draft',
+      refusalReason: null,
+      observations: [2000, 2100].map((valueMm, index) => ({
+        labelId: `floor-dimension-${index}`,
+        valueMm,
+        axis: 'width',
+        status: 'conflict',
+        reason: 'conflicting-whole-floor-dimensions',
+        targets: [
+          {
+            kind: 'floor-boundary',
+            id: 'source-cell-0',
+            faces: [
+              {
+                edgeIndex: 0,
+                status: 'detached',
+                reason: 'detached-source-extension',
+                supportRefs: [{ operationIndex: 10, subpathIndex: 0, segmentIndex: 0 }],
+                endpointWitnesses: [
+                  {
+                    status: 'detached',
+                    sourceRefs: [{ operationIndex: 11, subpathIndex: 0, segmentIndex: 0 }],
+                    gapPoints: 0.00001,
+                  },
+                  {
+                    status: 'continuous',
+                    sourceRefs: [{ operationIndex: 12, subpathIndex: 0, segmentIndex: 0 }],
+                    gapPoints: 0,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      })),
+      unresolved: [],
+    }
+    const before = structuredClone(packet)
+    const baseline = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet: beforeTargets, imageUrl: 'blob:private-test' }),
+    )
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Конфликты размеров: 2')
+    expect(html).toContain('floor-dimension-0: 2000 мм; конфликт размеров одной грани пола')
+    expect(html).toContain('floor-dimension-1: 2100 мм; конфликт размеров одной грани пола')
+    expect(html).toContain('Грань 0: разрыв исходной выносной линии')
+    expect(html).toContain('разрыв 0.00001 pt PDF')
+    expect(html).toContain('Размеры в геометрию не переносятся')
+    expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(baseline.match(/<svg\b.*?<\/svg>/s)?.[0])
+    expect(html.match(/<button\b/g)?.length).toEqual(baseline.match(/<button\b/g)?.length)
+    expect(packet).toEqual(before)
+  })
   it.each(['draft', 'unresolved'] as const)(
     'shows an empty %s target report without invented detail rows',
     (status) => {

@@ -684,6 +684,7 @@ function isDimensionTargets(value: unknown, packet: NativeReviewPacket): boolean
   const floor = new Map(packet.floorCavities?.candidates.map((item) => [item.id, item]) ?? [])
   const frames = new Map(packet.openingFrames?.candidates.map((item) => [item.id, item]) ?? [])
   const statuses = ['continuous', 'detached', 'ambiguous', 'unresolved']
+  const floorDimensionGroups = new Map<string, typeof report.observations>()
   const ids = new Set<string>()
   let faceCount = 0
   let referenceCount = 0
@@ -716,7 +717,7 @@ function isDimensionTargets(value: unknown, packet: NativeReviewPacket): boolean
       !isBoundedLabel(row.labelId) ||
       row.labelId !== row.labelId.trim() ||
       ids.has(row.labelId) ||
-      !statuses.includes(row.status) ||
+      ![...statuses, 'conflict'].includes(row.status) ||
       (row.status === 'continuous' ? row.reason !== null : !isBoundedLabel(row.reason)) ||
       !Array.isArray(row.targets) ||
       row.targets.length > 200
@@ -778,6 +779,12 @@ function isDimensionTargets(value: unknown, packet: NativeReviewPacket): boolean
           face.endpointWitnesses.length !== 2
         )
           return false
+        if (
+          target.kind === 'floor-boundary' &&
+          (floor.get(target.id)?.omittedBoundaryInkCount ?? 0) > 0 &&
+          (face.status !== 'unresolved' || face.reason !== 'omitted-ink-near-source-target')
+        )
+          return false
         edges.add(face.edgeIndex)
         for (const witness of face.endpointWitnesses) {
           if (
@@ -821,8 +828,31 @@ function isDimensionTargets(value: unknown, packet: NativeReviewPacket): boolean
     } else if (row.targets.length > 1 || (row.targets[0]?.faces.length ?? 0) > 1) {
       if (row.status !== 'ambiguous') return false
     } else {
+      const target = row.targets[0]
+      const face = target?.faces[0]
+      if (!target || !face) return false
+      if (
+        target.kind === 'floor-boundary' &&
+        (face.status === 'continuous' || face.status === 'detached')
+      ) {
+        const key = JSON.stringify([target.id, face.edgeIndex, row.axis])
+        const group = floorDimensionGroups.get(key) ?? []
+        group.push(row)
+        floorDimensionGroups.set(key, group)
+      } else if (row.status !== face.status || row.reason !== face.reason) return false
+    }
+  }
+  // Conflicts belong to the entire literal face/axis group, never just one caption.
+  for (const group of floorDimensionGroups.values()) {
+    const conflict = new Set(group.map((row) => row.valueMm)).size > 1
+    for (const row of group) {
       const face = row.targets[0]?.faces[0]
-      if (!face || row.status !== face.status || row.reason !== face.reason) return false
+      if (
+        !face ||
+        row.status !== (conflict ? 'conflict' : face.status) ||
+        row.reason !== (conflict ? 'conflicting-whole-floor-dimensions' : face.reason)
+      )
+        return false
     }
   }
   for (const item of report.unresolved) {

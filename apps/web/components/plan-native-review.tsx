@@ -604,6 +604,7 @@ const dimensionTargetMessages = {
   detached: 'разрыв исходной выносной линии',
   ambiguous: 'неоднозначно',
   unresolved: 'не подтверждено',
+  conflict: 'конфликт размеров одной грани пола',
 }
 
 function DimensionTargetsReview({
@@ -645,7 +646,8 @@ function DimensionTargetsReview({
             {report.observations.filter((item) => item.status === 'ambiguous').length};{' '}
             неподтверждённые:{' '}
             {report.observations.filter((item) => item.status === 'unresolved').length}. Удержанные
-            подписи: {report.unresolved.length}.
+            подписи: {report.unresolved.length}. Конфликты размеров:{' '}
+            {report.observations.filter((item) => item.status === 'conflict').length}.
           </p>
           {report.observations.length || report.unresolved.length ? (
             <details className="text-ink-2">

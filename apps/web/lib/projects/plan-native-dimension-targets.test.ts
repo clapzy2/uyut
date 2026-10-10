@@ -206,9 +206,278 @@ function oppositeFrameCaption(input: Input, valueMm = 200) {
     ]),
   )
 }
+
+function repeatedFloorCaption(input: Input, valueMm = 200) {
+  const label = input.native.labels[0]
+  const caption = input.native.compactCaptionGeometry?.items[0]
+  if (!label || !caption) throw new Error('Missing synthetic caption')
+  const above = ({ x, y }: { x: number; y: number }) => ({ x, y: y - 50 })
+  input.native.labels.push({
+    ...structuredClone(label),
+    id: 'native-text-11',
+    nativeIndex: 11,
+    compactIndex: 1,
+    name: String(valueMm),
+    point: above(label.point),
+    pagePoint: above(label.pagePoint as { x: number; y: number }),
+  })
+  input.native.compactCaptionGeometry?.items.push({
+    ...structuredClone(caption),
+    index: 1,
+    text: String(valueMm),
+    origin: above(caption.origin),
+    baselineStart: above(caption.baselineStart),
+    baselineEnd: above(caption.baselineEnd),
+  })
+  for (const operation of [1, 2, 3]) {
+    const copied = structuredClone(sourcePath(input, operation))
+    copied.operationIndex = operation + 30
+    copied.points = copied.points.map(above)
+    input.work.paths.push(copied)
+  }
+  // Both rails use the same literal strokes, not competing differently bounded
+  // extensions. No second floor or longer face is fabricated.
+  for (const operation of [4, 5]) {
+    const start = sourcePath(input, operation).points[0]
+    if (start) start.y = 20
+  }
+}
 afterEach(() => vi.restoreAllMocks())
 
 describe('literal source dimensions associated with whole floor/frame targets', () => {
+  it.each([200, 201, 220])(
+    'checks repeated %s-mm captions against the same proved whole floor face',
+    (valueMm) => {
+      const input = fixture()
+      repeatedFloorCaption(input, valueMm)
+      const before = structuredClone(input)
+      const result = nativeDimensionTargets(input)
+      expect(result.observations).toHaveLength(2)
+      const conflict = valueMm !== 200
+      expect(result.observations.map(({ status, reason }) => ({ status, reason }))).toEqual([
+        {
+          status: conflict ? 'conflict' : 'continuous',
+          reason: conflict ? 'conflicting-whole-floor-dimensions' : null,
+        },
+        {
+          status: conflict ? 'conflict' : 'continuous',
+          reason: conflict ? 'conflicting-whole-floor-dimensions' : null,
+        },
+      ])
+      expect(result.observations[0]?.targets).toEqual(result.observations[1]?.targets)
+      expect(result.observations[0]?.targets[0]?.faces[0]?.status).toBe('continuous')
+      expect(result.jambSpans).toEqual([])
+      expect(input).toEqual(before)
+      const reversed = structuredClone(input)
+      reversed.work.paths.reverse()
+      reversed.native.labels.reverse()
+      expect(nativeDimensionTargets(reversed)).toEqual(result)
+      expect(result).toMatchObject({ mayTransfer2D: false, mayTransfer3D: false })
+    },
+  )
+
+  it('retains original positive gaps when contradictory captions identify one detached face', () => {
+    const input = fixture()
+    repeatedFloorCaption(input, 220)
+    for (const operation of [4, 5]) {
+      const end = sourcePath(input, operation).points[1]
+      if (end) end.y = 98.23
+    }
+    const result = nativeDimensionTargets(input)
+    expect(result.observations.map(({ status }) => status)).toEqual(['conflict', 'conflict'])
+    for (const row of result.observations) {
+      const face = row.targets[0]?.faces[0]
+      expect(face?.status).toBe('detached')
+      expect(face?.endpointWitnesses.map(({ gapPoints }) => gapPoints)).toEqual([
+        ((100 - 98.23) * 1000) / 1000,
+        ((100 - 98.23) * 1000) / 1000,
+      ])
+    }
+  })
+
+  it.each(['missing-witness', 'competing-face', 'omitted-ink'])(
+    'does not claim a unique conflicting floor binding through %s',
+    (failure) => {
+      const input = fixture()
+      repeatedFloorCaption(input, 220)
+      if (failure === 'missing-witness')
+        input.work.paths = input.work.paths.filter(({ operationIndex }) => operationIndex !== 5)
+      if (failure === 'competing-face') {
+        input.work.paths = input.work.paths.filter(
+          ({ operationIndex }) => ![13, 14, 15].includes(operationIndex),
+        )
+        input.work.paths.push(box(15, 100, 250, 300, 260))
+      }
+      if (failure === 'omitted-ink') {
+        input.work.skippedCurves = 1
+        input.work.skippedCurveBounds = [
+          { operationIndex: 99, bounds: { left: 195, top: 95, right: 205, bottom: 99 } },
+        ]
+      }
+      const result = nativeDimensionTargets(input)
+      expect(result.observations).toHaveLength(2)
+      expect(result.observations.every(({ status }) => status !== 'conflict')).toBe(true)
+    },
+  )
+
+  it('checks conflicting whole-floor copies on the independent vertical axis', () => {
+    const input = fixture()
+    repeatedFloorCaption(input, 220)
+    const rotate = ({ x, y }: { x: number; y: number }) => ({ x: y, y: 1000 - x })
+    for (const source of input.work.paths) source.points = source.points.map(rotate)
+    for (const label of input.native.labels) {
+      if (!label.pagePoint) throw new Error('Missing synthetic caption point')
+      label.rotation = 90
+      label.point = rotate(label.point)
+      label.pagePoint = rotate(label.pagePoint)
+    }
+    for (const caption of input.native.compactCaptionGeometry?.items ?? []) {
+      caption.rotation = 90
+      caption.origin = rotate(caption.origin)
+      caption.baselineStart = rotate(caption.baselineStart)
+      caption.baselineEnd = rotate(caption.baselineEnd)
+    }
+    const result = nativeDimensionTargets(input)
+    expect(result.observations.map(({ status, axis }) => ({ status, axis }))).toEqual([
+      { status: 'conflict', axis: 'depth' },
+      { status: 'conflict', axis: 'depth' },
+    ])
+    expect(result.observations[0]?.targets).toEqual(result.observations[1]?.targets)
+  })
+
+  it('does not compare dimensions of different source floors as the same whole face', () => {
+    const input = fixture()
+    const second = fixture()
+    const translate = ({ x, y }: { x: number; y: number }) => ({ x: x + 400, y })
+    input.work.paths.push(
+      ...second.work.paths.map((source) => ({
+        ...source,
+        operationIndex: source.operationIndex + 100,
+        points: source.points.map(translate),
+      })),
+    )
+    const label = second.native.labels[0]
+    const caption = second.native.compactCaptionGeometry?.items[0]
+    if (!label?.pagePoint || !caption) throw new Error('Missing synthetic caption')
+    input.native.labels.push({
+      ...label,
+      id: 'native-text-11',
+      nativeIndex: 11,
+      compactIndex: 1,
+      name: '220',
+      point: translate(label.point),
+      pagePoint: translate(label.pagePoint),
+    })
+    input.native.compactCaptionGeometry?.items.push({
+      ...caption,
+      index: 1,
+      text: '220',
+      origin: translate(caption.origin),
+      baselineStart: translate(caption.baselineStart),
+      baselineEnd: translate(caption.baselineEnd),
+    })
+    const result = nativeDimensionTargets(input)
+    expect(result.observations.map(({ status, valueMm }) => ({ status, valueMm }))).toEqual([
+      { status: 'continuous', valueMm: 200 },
+      { status: 'continuous', valueMm: 220 },
+    ])
+    expect(result.observations[0]?.targets[0]?.id).not.toBe(result.observations[1]?.targets[0]?.id)
+  })
+
+  it('keeps all three copies held rather than voting for the repeated value', () => {
+    const input = fixture()
+    repeatedFloorCaption(input, 220)
+    const label = input.native.labels[1]
+    const caption = input.native.compactCaptionGeometry?.items[1]
+    if (!label?.pagePoint || !caption) throw new Error('Missing repeated caption')
+    const between = ({ x, y }: { x: number; y: number }) => ({ x, y: y + 25 })
+    input.native.labels.push({
+      ...structuredClone(label),
+      id: 'native-text-12',
+      nativeIndex: 12,
+      compactIndex: 2,
+      name: '200',
+      point: between(label.point),
+      pagePoint: between(label.pagePoint),
+    })
+    input.native.compactCaptionGeometry?.items.push({
+      ...structuredClone(caption),
+      index: 2,
+      text: '200',
+      origin: between(caption.origin),
+      baselineStart: between(caption.baselineStart),
+      baselineEnd: between(caption.baselineEnd),
+    })
+    for (const operation of [31, 32, 33]) {
+      const copied = structuredClone(sourcePath(input, operation))
+      copied.operationIndex += 30
+      copied.points = copied.points.map(between)
+      input.work.paths.push(copied)
+    }
+    const rows = nativeDimensionTargets(input).observations
+    expect(rows.map(({ valueMm, status }) => ({ valueMm, status }))).toEqual([
+      { valueMm: 200, status: 'conflict' },
+      { valueMm: 220, status: 'conflict' },
+      { valueMm: 200, status: 'conflict' },
+    ])
+    expect(rows.every((row) => row.targets[0]?.faces[0]?.status === 'continuous')).toBe(true)
+  })
+
+  it('keeps different whole sides of one L-shaped floor independent', () => {
+    const input = fixture()
+    const label = input.native.labels[0]
+    const caption = input.native.compactCaptionGeometry?.items[0]
+    if (!label || !caption) throw new Error('Missing synthetic caption')
+    input.native.labels.push({
+      ...structuredClone(label),
+      id: 'native-text-11',
+      nativeIndex: 11,
+      compactIndex: 1,
+      name: '150',
+      point: { x: 166, y: 338 },
+      pagePoint: { x: 166, y: 338 },
+    })
+    input.native.compactCaptionGeometry?.items.push({
+      ...structuredClone(caption),
+      index: 1,
+      text: '150',
+      origin: { x: 166, y: 338 },
+      baselineStart: { x: 166, y: 338 },
+      baselineEnd: { x: 184, y: 338 },
+    })
+    input.work.paths.push(
+      path(31, [
+        [100, 340],
+        [250, 340],
+      ]),
+      path(32, [
+        [95, 345],
+        [105, 335],
+      ]),
+      path(33, [
+        [245, 345],
+        [255, 335],
+      ]),
+      path(34, [
+        [100, 290],
+        [100, 350],
+      ]),
+      path(35, [
+        [250, 290],
+        [250, 350],
+      ]),
+    )
+    const rows = nativeDimensionTargets(input).observations
+    expect(rows.map(({ valueMm, status }) => ({ valueMm, status }))).toEqual([
+      { valueMm: 200, status: 'continuous' },
+      { valueMm: 150, status: 'continuous' },
+    ])
+    expect(rows[0]?.targets[0]?.id).toBe(rows[1]?.targets[0]?.id)
+    expect(rows[0]?.targets[0]?.faces[0]?.edgeIndex).not.toBe(
+      rows[1]?.targets[0]?.faces[0]?.edgeIndex,
+    )
+  })
+
   it('proves one paired-jamb interval without choosing between the two long faces', () => {
     const input = frameFixture()
     const before = structuredClone(input)

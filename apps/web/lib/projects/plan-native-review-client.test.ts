@@ -1137,6 +1137,199 @@ describe('rotated captions and bounded source dimension targets', () => {
     expect(loaded.dimensionTargets).toEqual(report)
     expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
   })
+  function repeatedFloorFixture(valueMm: number) {
+    const result = targetFixture()
+    result.packet.numberCircles = { status: 'draft', refusalReason: null, cues: [] }
+    result.packet.floorCavities = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [
+        {
+          id: 'floor-1',
+          polygon: openingFrames().candidates[0]?.polygon ?? [],
+          markerLabelIds: [],
+          markerStatus: 'unmarked',
+          closureIds: [],
+          unknownInteriorStrokeCount: 0,
+          omittedBoundaryInkCount: 0,
+        },
+      ],
+      thresholds: [],
+      closures: [],
+      unprovedCavities: [],
+      unresolvedMarkerLabelIds: [],
+      markersAvailable: true,
+    }
+    result.target.kind = 'floor-boundary'
+    result.target.id = 'floor-1'
+    const repeated = structuredClone(result.row)
+    repeated.labelId = 'dimension-repeat'
+    repeated.valueMm = valueMm
+    result.report.observations.push(repeated)
+    const caption = result.packet.sourceCaptionBindings?.candidates[0]
+    if (!caption) throw new Error('Missing source caption')
+    result.packet.sourceCaptionBindings?.candidates.push({
+      ...structuredClone(caption),
+      labelId: repeated.labelId,
+      compactIndex: 2,
+      valueMm,
+      rail: { operationIndex: 3, subpathIndex: 0 },
+    })
+    if (valueMm !== result.row.valueMm) {
+      for (const row of [result.row, repeated]) {
+        row.status = 'conflict'
+        row.reason = 'conflicting-whole-floor-dimensions'
+      }
+    }
+    return { ...result, repeated }
+  }
+  it.each([2000, 2001])(
+    'retains repeated whole-floor values %s with group-wide conflict evidence',
+    async (value) => {
+      const { packet, headers, report, row, repeated } = repeatedFloorFixture(value)
+      const before = structuredClone(packet)
+      expect((await loadFixture(packet, headers)).packet.dimensionTargets).toEqual(report)
+      expect(row.status).toBe(value === 2000 ? 'continuous' : 'conflict')
+      expect(repeated.status).toBe(row.status)
+      expect(row.targets[0]?.faces[0]?.status).toBe('continuous')
+      expect(packet).toEqual(before)
+    },
+  )
+  it('preserves literal detached witnesses within a conflicting floor group', async () => {
+    const { packet, headers, report, row, repeated } = repeatedFloorFixture(2100)
+    for (const item of [row, repeated]) {
+      const face = item.targets[0]?.faces[0]
+      if (!face) throw new Error('Missing repeated floor face')
+      face.status = 'detached'
+      face.reason = 'detached-source-extension'
+      face.endpointWitnesses[0].status = 'detached'
+      face.endpointWitnesses[0].gapPoints = 0.00001
+    }
+    expect((await loadFixture(packet, headers)).packet.dimensionTargets).toEqual(report)
+  })
+  it.each(['axis', 'edge', 'floor'] as const)(
+    'does not group a repeated caption with a different %s',
+    async (change) => {
+      const { packet, headers, report, row, repeated } = repeatedFloorFixture(2100)
+      for (const item of [row, repeated]) {
+        item.status = 'continuous'
+        item.reason = null
+      }
+      const target = repeated.targets[0]
+      if (!target) throw new Error('Missing repeated floor target')
+      if (change === 'axis') {
+        repeated.axis = 'depth'
+        const caption = packet.sourceCaptionBindings?.candidates.at(-1)
+        if (!caption) throw new Error('Missing repeated source caption')
+        caption.axis = 'depth'
+        caption.angleDegrees = 90
+      }
+      if (change === 'edge') Object.assign(target.faces[0] ?? {}, { edgeIndex: 2 })
+      if (change === 'floor') {
+        const floor = packet.floorCavities?.candidates[0]
+        if (!floor) throw new Error('Missing source floor')
+        packet.floorCavities?.candidates.push({ ...structuredClone(floor), id: 'floor-2' })
+        target.id = 'floor-2'
+      }
+      expect((await loadFixture(packet, headers)).packet.dimensionTargets).toEqual(report)
+      row.status = repeated.status = 'conflict'
+      row.reason = repeated.reason = 'conflicting-whole-floor-dimensions'
+      await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+    },
+  )
+  it.each([
+    'one-suppressed',
+    'both-suppressed',
+    'reason',
+    'face-conflict',
+    'witness-conflict',
+    'ambiguous-face',
+  ])('rejects corrupted whole-floor conflicts: %s', async (change) => {
+    const { packet, headers, row, repeated, face } = repeatedFloorFixture(2100)
+    if (change === 'one-suppressed' || change === 'both-suppressed') {
+      row.status = 'continuous'
+      row.reason = null
+    }
+    if (change === 'both-suppressed') {
+      repeated.status = 'continuous'
+      repeated.reason = null
+    }
+    if (change === 'reason') row.reason = 'different-conflict'
+    if (change === 'face-conflict') Object.assign(face, { status: 'conflict' })
+    if (change === 'witness-conflict')
+      Object.assign(face.endpointWitnesses[0], { status: 'conflict' })
+    if (change === 'ambiguous-face') {
+      face.status = 'ambiguous'
+      face.reason = 'ambiguous-source-witness'
+      Object.assign(face.endpointWitnesses[0], {
+        status: 'ambiguous',
+        gapPoints: null,
+        sourceRefs: [
+          { operationIndex: 11, subpathIndex: 0, segmentIndex: 0 },
+          { operationIndex: 13, subpathIndex: 0, segmentIndex: 0 },
+        ],
+      })
+    }
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+  it('rejects invented conflicts on matching floor values and a lone frame face', async () => {
+    const floor = repeatedFloorFixture(2000)
+    floor.row.status = 'conflict'
+    floor.row.reason = 'conflicting-whole-floor-dimensions'
+    await expect(loadFixture(floor.packet, floor.headers)).rejects.toMatchObject({ status: 422 })
+    const frame = targetFixture()
+    frame.row.status = 'conflict'
+    frame.row.reason = 'conflicting-whole-floor-dimensions'
+    await expect(loadFixture(frame.packet, frame.headers)).rejects.toMatchObject({ status: 422 })
+  })
+  it('holds omitted whole-floor ink without discarding literal endpoint witnesses', async () => {
+    const { packet, headers, report, row, repeated } = repeatedFloorFixture(2100)
+    const floor = packet.floorCavities?.candidates[0]
+    if (!floor) throw new Error('Missing floor parent')
+    floor.omittedBoundaryInkCount = 1
+    for (const item of [row, repeated]) {
+      const face = item.targets[0]?.faces[0]
+      if (!face) throw new Error('Missing floor face')
+      item.status = face.status = 'unresolved'
+      item.reason = face.reason = 'omitted-ink-near-source-target'
+    }
+    expect((await loadFixture(packet, headers)).packet.dimensionTargets).toEqual(report)
+    expect(row.targets[0]?.faces[0]?.endpointWitnesses[0]?.status).toBe('continuous')
+  })
+  it.each(['continuous', 'detached', 'ambiguous', 'conflict'] as const)(
+    'rejects %s promotion of omitted whole-floor ink',
+    async (status) => {
+      const { packet, headers, row, repeated } = repeatedFloorFixture(
+        status === 'conflict' ? 2100 : 2000,
+      )
+      const floor = packet.floorCavities?.candidates[0]
+      if (!floor) throw new Error('Missing floor parent')
+      floor.omittedBoundaryInkCount = 1
+      if (status !== 'conflict') {
+        for (const item of [row, repeated]) {
+          const face = item.targets[0]?.faces[0]
+          if (!face) throw new Error('Missing floor face')
+          item.status = face.status = status
+          item.reason = face.reason = status === 'continuous' ? null : 'source-witness-held'
+          if (status === 'detached') {
+            face.endpointWitnesses[0].status = status
+            face.endpointWitnesses[0].gapPoints = 0.1
+          }
+          if (status === 'ambiguous') {
+            Object.assign(face.endpointWitnesses[0], {
+              status,
+              gapPoints: null,
+              sourceRefs: [
+                { operationIndex: 11, subpathIndex: 0, segmentIndex: 0 },
+                { operationIndex: 13, subpathIndex: 0, segmentIndex: 0 },
+              ],
+            })
+          }
+        }
+      }
+      await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+    },
+  )
   function pairedJambFixture() {
     const result = targetFixture()
     result.row.status = 'ambiguous'

@@ -36,7 +36,7 @@ export type NativeDimensionTargetReport = {
     labelId: string
     valueMm: number
     axis: 'width' | 'depth' | 'aligned'
-    status: Status
+    status: Status | 'conflict'
     reason: string | null
     targets: TargetObservation[]
   }[]
@@ -449,6 +449,33 @@ export function nativeDimensionTargets(input: Input, suppliedBindings?: Bindings
     for (const span of jambSpans) {
       spend()
       if (conflictingFrames.has(span.frameId)) span.status = 'conflict'
+    }
+    // Only a unique, proved whole floor face identifies the same measured
+    // object. Repeated captions are not votes: contradictory values hold every
+    // copy, while retaining the original faces, witnesses and drawing gaps.
+    const floorRows = new Map<string, NativeDimensionTargetReport['observations']>()
+    for (const row of observations) {
+      spend()
+      const target = row.targets.length === 1 ? row.targets[0] : undefined
+      const face = target?.faces.length === 1 ? target.faces[0] : undefined
+      if (
+        target?.kind !== 'floor-boundary' ||
+        !face ||
+        (face.status !== 'continuous' && face.status !== 'detached')
+      )
+        continue
+      const key = `${target.id}:${face.edgeIndex}:${row.axis}`
+      const copies = floorRows.get(key) ?? []
+      copies.push(row)
+      floorRows.set(key, copies)
+    }
+    for (const copies of floorRows.values()) {
+      spend(copies.length)
+      if (new Set(copies.map(({ valueMm }) => valueMm)).size < 2) continue
+      for (const row of copies) {
+        row.status = 'conflict'
+        row.reason = 'conflicting-whole-floor-dimensions'
+      }
     }
     return finish(null)
   } catch (error) {

@@ -2936,3 +2936,57 @@ Built CSS без root font setup: QA взаимодействия/расклад
 face bindings/owners → height leaders/owners/datum → physical thresholds и полная
 coverage. Source-scale consistent и source jamb interval не являются accepted
 metric geometry; readiness2D/3Dfalse. DB/userproject/paidAI/GitHub/PR/deploy без правок.
+
+## 10 октября: противоречивые подписи целой грани пола
+
+Добавлена проверка в существующий `nativeDimensionTargets`, без нового отчёта
+или геометрического fallback. Свежая однозначная связь должна иметь ровно один
+floor target и одну whole face со статусом continuous/detached. Группа — это
+ID исходного контура, индекс грани и ось. Если значения различны, все её строки
+получают `conflict` / `conflicting-whole-floor-dimensions`. Face observations,
+endpoint witnesses и их исходные gaps/refs остаются неизменными.
+
+Даже расхождение в 1 мм не выбирается через nominal allowance масштаба. Повтор
+200/220/200 не голосует за 200. Разные грани одного L-контура, разные контуры и
+разные оси не смешиваются. Missing witness, competing face и omitted ink не
+становятся однозначной привязкой только потому, что числа противоречат друг другу.
+Косяковые интервалы и их отдельная проверка конфликтов не изменены.
+
+Client воспроизводит групповой контракт, а не доверяет одному conflict flag.
+Подавление одного или всех конфликтов, неверная причина, выдуманный конфликт
+равных значений и перенос conflict на face/witness отвергаются. Дополнительно
+parent `omittedBoundaryInkCount > 0` требует unresolved face с исходной причиной
+`omitted-ink-near-source-target`. Literal witnesses могут оставаться continuous:
+они не отменяют пропуск всего контура. UI добавляет отдельный счётчик и понятный
+статус конфликта, не добавляя SVG, кнопок сохранения или authority.
+
+Проверки:
+
+- 53 backend target tests: X/Y, одинаковые и различные подписи, detached gaps,
+  порядок источника, три повторные строки, независимые грани/контуры и прежние
+  source/ref/work limits.
+- Client/UI: групповые positive/negative cases, whole-cavity omission promotion,
+  сохранение SVG/кнопок/точных исходных свидетельств. Независимый code audit
+  блокирующих замечаний не нашёл.
+- 5337 web tests / 269 files с maxWorkers=4, typecheck семи пакетов, lint 920 files,
+  production build и diff check прошли.
+- Новый fresh replay: `tmp/native-floor-conflicts-20261010-primary`.
+  Полный result.json и JPEG/обе PNG byte-for-byte/structurally равны
+  `tmp/native-xy-jambs-20261010-primary-complete`.
+- Firefox actual component, локальный mock private API и настоящий source JPEG:
+  390/1280 px, horizontal overflow 0, console errors/warnings 0. Actual client
+  принял primary packet без повышения held статусов. Скриншоты source-target
+  блока в `output/playwright/native-floor-conflicts-{mobile,desktop}.png`.
+  Использован built CSS без root font setup; это проверка раскладки/взаимодействия,
+  не полный production дизайн. Browser/server закрыты.
+
+Primary остаётся 43 strict captions / 65 held; 7 ambiguous / 36 unresolved
+target rows. В 10 строках есть 11 floor-face observations, но ни одной принятой
+однозначной floor связи. Для 3676/2747 whole contour имеет omitted curve operation
+2282 на другой стороне; этот gate не локализован до удобной чистой грани.
+Согласованный source масштаб и 2 paired-jamb intervals не делают схему метрической.
+
+По project-workflow очередь сохранена: доказуемые whole-floor bindings и owners,
+затем height leaders/owners/datum, physical threshold levels и полная coverage.
+2D/3D readiness false. Production, DB, сохранённая геометрия, платный AI, PR и
+deploy не менялись. Исходный PDF не редактировался.
