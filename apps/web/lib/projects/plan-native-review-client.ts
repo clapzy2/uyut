@@ -986,11 +986,109 @@ function isHeightLocations(
   )
   const seenIds = new Set<string>()
   const seenOperations = new Set<number>()
+  let leaderReferenceCount = 0
+  const leaderValid = (
+    leader: NonNullable<(typeof locations.observations)[number]['leader']>,
+  ): boolean => {
+    if (
+      !leader ||
+      typeof leader !== 'object' ||
+      !hasOnlyKeys(leader, [
+        'status',
+        'reason',
+        'cavityIds',
+        ...('source' in leader ? ['source'] : []),
+      ]) ||
+      !Array.isArray(leader.cavityIds) ||
+      leader.cavityIds.length > 100 ||
+      new Set(leader.cavityIds).size !== leader.cavityIds.length ||
+      !leader.cavityIds.every((id) => isBoundedLabel(id) && cavities.has(id))
+    )
+      return false
+    if (leader.status === 'linked') {
+      if (
+        leader.reason !== null ||
+        leader.cavityIds.length !== 1 ||
+        cavities.get(leader.cavityIds[0] ?? '')?.omittedBoundaryInkCount !== 0 ||
+        !leader.source
+      )
+        return false
+    } else if (leader.status === 'ambiguous') {
+      if (
+        !isBoundedLabel(leader.reason) ||
+        (leader.source &&
+          (leader.cavityIds.length < 2 || leader.reason !== 'competing-height-leader-targets'))
+      )
+        return false
+    } else if (leader.status === 'unresolved') {
+      if (
+        !isBoundedLabel(leader.reason) ||
+        leader.cavityIds.length > 1 ||
+        (leader.source && leader.reason !== 'height-leader-target-unverified')
+      )
+        return false
+    } else return false
+    if (!('source' in leader)) return leader.cavityIds.length === 0
+    const source = leader.source
+    if (
+      !source ||
+      typeof source !== 'object' ||
+      !hasOnlyKeys(source, ['boxRefs', 'stemRefs', 'arrowRef']) ||
+      !Array.isArray(source.boxRefs) ||
+      source.boxRefs.length < 1 ||
+      source.boxRefs.length > 100 ||
+      !Array.isArray(source.stemRefs) ||
+      source.stemRefs.length < 1 ||
+      source.stemRefs.length > 100
+    )
+      return false
+    leaderReferenceCount += source.boxRefs.length + source.stemRefs.length + 1
+    if (leaderReferenceCount > 20000) return false
+    const pathKey = (ref: { operationIndex: number; subpathIndex: number }) =>
+      `${ref.operationIndex}:${ref.subpathIndex}`
+    const refValid = (value: unknown, segment: boolean): boolean => {
+      if (!value || typeof value !== 'object') return false
+      const ref = value as { operationIndex: number; subpathIndex: number; segmentIndex?: number }
+      return (
+        hasOnlyKeys(ref, [
+          'operationIndex',
+          'subpathIndex',
+          ...(segment ? ['segmentIndex'] : []),
+        ]) &&
+        [ref.operationIndex, ref.subpathIndex, ...(segment ? [ref.segmentIndex] : [])].every(
+          (index) => Number.isSafeInteger(index) && (index ?? -1) >= 0,
+        )
+      )
+    }
+    if (!refValid(source.arrowRef, false)) return false
+    const boxPaths = new Set<string>()
+    for (const ref of source.boxRefs) {
+      if (!refValid(ref, false) || boxPaths.has(pathKey(ref))) return false
+      boxPaths.add(pathKey(ref))
+    }
+    const stemSegments = new Set<string>()
+    const stemPaths = new Set<string>()
+    for (const ref of source.stemRefs) {
+      if (!refValid(ref, true) || boxPaths.has(pathKey(ref))) return false
+      const key = `${pathKey(ref)}:${ref.segmentIndex}`
+      if (stemSegments.has(key)) return false
+      stemSegments.add(key)
+      stemPaths.add(pathKey(ref))
+    }
+    return !boxPaths.has(pathKey(source.arrowRef)) && !stemPaths.has(pathKey(source.arrowRef))
+  }
   for (const row of locations.observations) {
     if (
       !row ||
       typeof row !== 'object' ||
-      !hasOnlyKeys(row, ['labelId', 'status', 'cavityIds', 'inkSourceOperation', 'reason']) ||
+      !hasOnlyKeys(row, [
+        'labelId',
+        'status',
+        'cavityIds',
+        'inkSourceOperation',
+        'reason',
+        ...('leader' in row ? ['leader'] : []),
+      ]) ||
       !isBoundedLabel(row.labelId) ||
       !parentIds.has(row.labelId) ||
       seenIds.has(row.labelId) ||
@@ -1001,6 +1099,11 @@ function isHeightLocations(
     )
       return false
     seenIds.add(row.labelId)
+    if (
+      'leader' in row &&
+      (row.inkSourceOperation === null || !row.leader || !leaderValid(row.leader))
+    )
+      return false
     if (row.inkSourceOperation === null) {
       if (
         row.status !== 'unresolved' ||

@@ -1761,6 +1761,238 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
     return { ...result, locations }
   }
 
+  function heightLeaderFixture() {
+    const fixture = heightLocationsFixture()
+    const row = fixture.locations.observations[0]
+    if (!row) throw new Error('Height location fixture is missing')
+    const leader: NonNullable<typeof row.leader> = {
+      status: 'linked',
+      reason: null,
+      cavityIds: ['height-cavity-0'],
+      source: {
+        boxRefs: [{ operationIndex: 30, subpathIndex: 0 }],
+        stemRefs: [
+          { operationIndex: 32, subpathIndex: 0, segmentIndex: 1 },
+          { operationIndex: 31, subpathIndex: 0, segmentIndex: 0 },
+        ],
+        arrowRef: { operationIndex: 33, subpathIndex: 0 },
+      },
+    }
+    row.leader = leader
+    return { ...fixture, row, leader }
+  }
+
+  it.each([
+    'linked',
+    'ambiguous-target',
+    'ambiguous-chain',
+    'unresolved-target',
+    'unresolved-chain',
+  ] as const)(
+    'retains read-only source height leader %s without assigning an owner or sorting refs',
+    async (state) => {
+      const { packet, headers, row, leader } = heightLeaderFixture()
+      if (state === 'ambiguous-target')
+        Object.assign(leader, {
+          status: 'ambiguous',
+          reason: 'competing-height-leader-targets',
+          cavityIds: ['height-cavity-0', 'height-cavity-1'],
+        })
+      if (state === 'ambiguous-chain') {
+        Object.assign(leader, {
+          status: 'ambiguous',
+          reason: 'multiple-source-chains',
+          cavityIds: [],
+        })
+        delete leader.source
+      }
+      if (state === 'unresolved-target')
+        Object.assign(leader, {
+          status: 'unresolved',
+          reason: 'height-leader-target-unverified',
+        })
+      if (state === 'unresolved-chain') {
+        Object.assign(leader, { status: 'unresolved', reason: 'no-source-chain', cavityIds: [] })
+        delete leader.source
+      }
+      const before = structuredClone(packet)
+      const loaded = (await loadFixture(packet, headers)).packet
+      expect(loaded.heightObservations?.locations?.observations[0]).toEqual(row)
+      expect(loaded.readiness.readyFor3D).toBe(false)
+      expect(packet).toEqual(before)
+    },
+  )
+
+  it.each([
+    'null-leader',
+    'extra-owner',
+    'extra-point',
+    'extra-source-key',
+    'extra-ref-key',
+    'extra-stem-point',
+    'null-source',
+    'undefined-source',
+    'unknown-status',
+    'linked-reason',
+    'linked-no-source',
+    'linked-no-cavity',
+    'linked-two-cavities',
+    'unknown-cavity',
+    'duplicate-cavity',
+    'linked-omitted',
+    'no-floor',
+    'null-ink',
+    'ambiguous-one',
+    'ambiguous-no-reason',
+    'ambiguous-no-source-cavities',
+    'unresolved-two',
+    'unresolved-no-reason',
+    'unresolved-no-source-cavities',
+    'source-work-limit',
+    'source-ambiguous-reason',
+    'empty-box',
+    'empty-stem',
+    'long-box',
+    'long-stem',
+    'duplicate-box',
+    'duplicate-stem',
+    'negative-ref',
+    'fractional-ref',
+    'unsafe-ref',
+    'missing-ref',
+    'arrow-box',
+    'arrow-stem',
+    'box-stem',
+  ] as const)('rejects unsafe height source-leader evidence: %s', async (change) => {
+    const { packet, headers, row, leader } = heightLeaderFixture()
+    const source = leader.source
+    const stem = source?.stemRefs[0]
+    const box = source?.boxRefs[0]
+    const cavity = packet.floorCavities?.candidates[0]
+    if (!source || !stem || !box || !cavity) throw new Error('Height leader fixture is missing')
+    if (change === 'null-leader') Object.assign(row, { leader: null })
+    if (change === 'extra-owner') Object.assign(leader, { roomId: 'room' })
+    if (change === 'extra-point') Object.assign(leader, { pagePoint: { x: 1, y: 1 } })
+    if (change === 'extra-source-key') Object.assign(source, { mayTransfer3D: true })
+    if (change === 'extra-ref-key') Object.assign(source.arrowRef, { segmentIndex: 0 })
+    if (change === 'extra-stem-point') Object.assign(stem, { start: { x: 1, y: 1 } })
+    if (change === 'null-source') Object.assign(leader, { source: null })
+    if (change === 'undefined-source') Object.assign(leader, { source: undefined })
+    if (change === 'unknown-status') Object.assign(leader, { status: 'accepted' })
+    if (change === 'linked-reason') leader.reason = 'held'
+    if (change === 'linked-no-source') delete leader.source
+    if (change === 'linked-no-cavity') leader.cavityIds = []
+    if (change === 'linked-two-cavities') leader.cavityIds.push('height-cavity-1')
+    if (change === 'unknown-cavity') leader.cavityIds = ['unknown']
+    if (change === 'duplicate-cavity')
+      Object.assign(leader, {
+        status: 'ambiguous',
+        reason: 'held',
+        cavityIds: ['height-cavity-0', 'height-cavity-0'],
+      })
+    if (change === 'linked-omitted') {
+      cavity.omittedBoundaryInkCount = 1
+      Object.assign(row, { status: 'unresolved', reason: 'omitted-boundary-ink' })
+    }
+    if (change === 'no-floor') delete packet.floorCavities
+    if (change === 'null-ink')
+      Object.assign(row, {
+        inkSourceOperation: null,
+        status: 'unresolved',
+        reason: 'height-caption-ink-unverified',
+        cavityIds: [],
+      })
+    if (change.startsWith('ambiguous-')) {
+      Object.assign(leader, { status: 'ambiguous', reason: 'held' })
+      if (change === 'ambiguous-no-reason') {
+        leader.reason = null
+        leader.cavityIds.push('height-cavity-1')
+      }
+      if (change === 'ambiguous-no-source-cavities') delete leader.source
+    }
+    if (change.startsWith('unresolved-')) {
+      Object.assign(leader, { status: 'unresolved', reason: 'held' })
+      if (change === 'unresolved-two') leader.cavityIds.push('height-cavity-1')
+      if (change === 'unresolved-no-reason') leader.reason = null
+      if (change === 'unresolved-no-source-cavities') delete leader.source
+    }
+    if (change === 'source-work-limit')
+      Object.assign(leader, { status: 'unresolved', reason: 'height-leader-work-limit' })
+    if (change === 'source-ambiguous-reason')
+      Object.assign(leader, {
+        status: 'ambiguous',
+        reason: 'wrong-target-reason',
+        cavityIds: ['height-cavity-0', 'height-cavity-1'],
+      })
+    if (change === 'empty-box') source.boxRefs = []
+    if (change === 'empty-stem') source.stemRefs = []
+    if (change === 'long-box')
+      source.boxRefs = Array.from({ length: 101 }, (_, operationIndex) => ({
+        operationIndex: operationIndex + 100,
+        subpathIndex: 0,
+      }))
+    if (change === 'long-stem')
+      source.stemRefs = Array.from({ length: 101 }, (_, operationIndex) => ({
+        operationIndex: operationIndex + 100,
+        subpathIndex: 0,
+        segmentIndex: 0,
+      }))
+    if (change === 'duplicate-box') source.boxRefs.push({ ...box })
+    if (change === 'duplicate-stem') source.stemRefs.push({ ...stem })
+    if (change === 'negative-ref') source.arrowRef.operationIndex = -1
+    if (change === 'fractional-ref') stem.segmentIndex = 0.5
+    if (change === 'unsafe-ref') box.subpathIndex = Number.MAX_SAFE_INTEGER + 1
+    if (change === 'missing-ref') Object.assign(source.arrowRef, { subpathIndex: undefined })
+    if (change === 'arrow-box') source.arrowRef = { ...box }
+    if (change === 'arrow-stem') source.arrowRef = { operationIndex: 32, subpathIndex: 0 }
+    if (change === 'box-stem') source.boxRefs = [{ operationIndex: 32, subpathIndex: 0 }]
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
+
+  it('enforces one shared height-leader reference budget across all rows', async () => {
+    const { packet, headers, heights, locations, row, leader } = heightLeaderFixture()
+    const parentObservation = heights.observations[0]
+    if (!parentObservation) throw new Error('Height fixture is missing')
+    const parent = structuredClone(parentObservation)
+    const parentIssues = structuredClone(heights.issues)
+    heights.observations = []
+    heights.issues = []
+    locations.observations = []
+    for (let index = 0; index < 100; index++) {
+      const labelId = `native-text-${index + 100}`
+      heights.observations.push({ ...structuredClone(parent), labelId })
+      heights.issues.push(...parentIssues.map((issue) => ({ ...issue, labelId })))
+      const next = { ...structuredClone(row), labelId, inkSourceOperation: index + 100 }
+      next.leader = {
+        ...structuredClone(leader),
+        source: {
+          boxRefs: Array.from({ length: 100 }, (_, offset) => ({
+            operationIndex: offset + 1000,
+            subpathIndex: index,
+          })),
+          stemRefs: Array.from({ length: 100 }, (_, offset) => ({
+            operationIndex: offset + 2000,
+            subpathIndex: index,
+            segmentIndex: 0,
+          })),
+          arrowRef: { operationIndex: 3000, subpathIndex: index },
+        },
+      }
+      locations.observations.push(next)
+    }
+    // 100 × (100 box + 100 stem + 1 arrow) is above the global cap.
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+    for (const location of locations.observations) {
+      const source = location.leader?.source
+      if (!source) throw new Error('Height leader fixture is missing')
+      source.stemRefs.pop()
+    }
+    // 100 × (100 box + 99 stem + 1 arrow) is exactly the shared cap.
+    expect((await loadFixture(packet, headers)).packet.heightObservations?.locations).toEqual(
+      locations,
+    )
+  })
+
   it.each(['inside', 'ambiguous', 'outside', 'ink-unverified', 'omitted-boundary'] as const)(
     'retains source height-caption location %s without accepting a height owner',
     async (state) => {

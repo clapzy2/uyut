@@ -3071,3 +3071,81 @@ ReadOnly остаётся true; roomOwnershipConfirmed/assignsGeometryHeights/2D
 двухсторонние уровни полов/порогов вместо подмены bottomCm, whole-floor face
 bindings и полная floor coverage. По project-workflow RELEASE_PLAN обновлён.
 DB/user project/paid AI/GitHub/PR/deploy не менялись; исходный PDF не редактировался.
+
+## 10 октября: точные цепочки выносок высот
+
+Новый createNativeHeightLeaderVerifier проверяет целую source glyph quad в
+единственной literal stroke рамке, цепочку открытых source сегментов и filled
+triangle. Узкий класс рамок имеет прежние физические размеры 20..200 pt по ширине
+и 5..45 pt по высоте; это ограничения формата аннотаций, не connection tolerance.
+Большая рамка листа не является рамкой подписи, но все её отрезки остаются
+конкурирующими endpoint свидетельствами. Repaints, касания/частичное пересечение
+quad с рамками, compound operations и пропуски удерживаются, не выбирается first.
+
+Конец стержня должен точно лежать на исходной грани основания стрелки. Tip
+коллинеарен terminal segment и направлен вперёд. Midpoint не заменяет конец:
+в primary он даёт искусственный drift до 0.001263 PDF pt. Поддержаны три исходные
+вершины полилинии и обратный source порядок; refs сохраняют порядок обхода.
+Наклонная или разделённая линия не достраивается через зазор 1e-9.
+
+При пересечении стены нельзя считать внутреннюю вершину той же исходной
+полилинии концом самостоятельного стержня. Только единственное коллинеарное
+forward продолжение в том же source path позволяет пройти строго внутреннее
+transverse пересечение замкнутого постороннего контура. Чужие literal endpoints,
+open-line interior attachments, перекрытие, разворот и отдельные join paths
+не получают это исключение. Поиск собственного продолжения индексирован по
+исходному path; shared budget 500000 не расширен. При исчерпании очищается весь
+height locations report, включая прежние частичные строки.
+
+Source chain и её цель — отдельные факты. В existing locations row добавлен
+optional leader: chain refs сохраняются даже при неподтверждённой цели. Для
+linked нужна вся стрелка внутри единственной свежей полости без boundary
+omissions/touch/partial overlap/unproved neighbor. Никакие room IDs, datum или
+accepted height не назначаются. Client проверяет closed keys, parent glyph,
+known cavities и omissions, разные box/stem/arrow refs и общий cap 20000 refs.
+Статус и reason должны соответствовать scope chain versus target; нельзя
+опубликовать work-limit как частичную принятую chain proof.
+
+### Реальный source replay
+
+Финальный результат: `tmp/native-height-leaders-20261010-primary-indexed`.
+Primary existing page 6: 11 точных цепочек, 2 linked targets. В частности:
+
+- 2684 / label 241: box 4148:0, stem 4147:0, arrow 4145:0 → cavity 7, held target.
+- 2649 / label 243: box 4163:0, stem 4162:0, arrow 4160:0 → cavity 7, held target.
+- 2663 / label 245: box 4178:0, stem 4177:0, arrow 4175:0 → cavity 10, linked.
+- 2672 / label 247: box 4193:0, stem 4192:0, arrow 4190:0 → cavity 11, linked.
+
+Остальные source chains включают h1/h2 и нерасшифрованную подпись балки: их
+quantityKind не повышен. Cavity 7 объединяет прихожую 1 и коридор 5 и имеет
+omitted boundary ink: две локальные высоты не стали конфликтом одной комнаты.
+245 уже имел inside-caption location; 247 имеет outboard-caption location.
+Новые leader targets не складываются с 5 inside positions как число владельцев.
+14 проверенных glyph rows дают 2 linked / 12 held leader checks; два unavailable
+glyph rows не получают выдуманную chain. Все datum/ownership/2D/3D gates прежние.
+
+### Приёмка
+
+59 verifier tests, 33 location tests, client/UI regression cases и независимый
+read-only audit прошли. Full-page replay обнаружил sheet-frame ambiguity и
+ложное interior attachment; исправления проверены отдельными regression cases.
+Глобальный budget превышался при полном рескане собственного continuation;
+индексирование устранило это без увеличения cap или допуска.
+
+5601 web tests / 271 files (maxWorkers=4), typecheck 7 packages, lint 925 files,
+production build и diff check прошли. Deep/byte сравнение с предыдущим
+`native-height-threshold-20261010-primary-complete` подтвердило: все legacy
+reports, positions 5/11, numeric scale/targets, floors/openings и три изображения
+неизменны; packet/heightLocations добавляют только optional leader metadata.
+
+Actual Firefox / local mock private API, настоящий JPEG/hash: 390/1280 px,
+folded/expanded states без horizontal overflow, console errors/warnings 0;
+статусы 5/11 и 2/12 показаны отдельно, исходные refs в порядке обхода, новых
+SVG/actions нет. Built CSS и локальные шрифты, не production-сеанс.
+Скриншоты: `output/playwright/native-height-leaders-{mobile,desktop}.png`.
+Browser/server закрыты, temporary server helper удалён.
+
+По project-workflow следующая очередь — semantic owners объектов, общий datum,
+двухсторонние floor/threshold levels и whole-floor coverage перед переносом.
+ReadOnly остаётся true, readiness 2D/3D false. Production/DB/userproject/paidAI/
+GitHub/PR/deploy не менялись; PDF не редактировался.

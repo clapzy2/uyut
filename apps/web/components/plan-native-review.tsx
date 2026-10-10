@@ -914,6 +914,21 @@ function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
           </p>
         )
       ) : null}
+      {heights?.locations?.status === 'draft' &&
+      heights.locations.observations.some((item) => item.leader !== undefined) ? (
+        <p className="text-ink-2">
+          По исходной выноске: связано с одной полостью —{' '}
+          {heights.locations.observations.filter((item) => item.leader?.status === 'linked').length}
+          , удержано —{' '}
+          {
+            heights.locations.observations.filter(
+              (item) => item.leader && item.leader.status !== 'linked',
+            ).length
+          }
+          . Проверяется вся стрелка исходной цепочки «рамка — линия — стрелка», не только её
+          вершина. Это не подтверждение владельца высоты или общего уровня отсчёта для 3D.
+        </p>
+      ) : null}
       {dimensions?.status === 'draft' || heights?.status === 'draft' ? (
         <details className="text-ink-2">
           <summary className="min-h-11 cursor-pointer py-3">
@@ -964,6 +979,36 @@ function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
                       ? ` Исходные альтернативы: ${item.cavityIds.join(', ')}.`
                       : null}{' '}
                     Это не подтверждение владельца высоты для 3D.
+                    {item.leader ? (
+                      <div className="mt-1">
+                        По исходной выноске:{' '}
+                        {item.leader.status === 'linked'
+                          ? `вся стрелка внутри полости ${item.leader.cavityIds[0]}`
+                          : `связь удержана — ${item.leader.reason}`}
+                        .
+                        {item.leader.status !== 'linked' && item.leader.cavityIds.length
+                          ? ` Исходные альтернативы: ${item.leader.cavityIds.join(', ')}.`
+                          : null}
+                        {item.leader.source ? (
+                          <span>
+                            {' '}
+                            Рамка:{' '}
+                            {item.leader.source.boxRefs
+                              .map((ref) => `${ref.operationIndex}:${ref.subpathIndex}`)
+                              .join(', ')}
+                            ; линия (исходный порядок):{' '}
+                            {item.leader.source.stemRefs
+                              .map(
+                                (ref) =>
+                                  `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`,
+                              )
+                              .join(', ')}
+                            ; стрелка: {item.leader.source.arrowRef.operationIndex}:
+                            {item.leader.source.arrowRef.subpathIndex}.
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </li>
                 ))
               : null}

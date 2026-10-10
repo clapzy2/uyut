@@ -631,6 +631,64 @@ describe('read-only native review presentation', () => {
     expect(html).not.toContain('вся подпись внутри полости')
   })
 
+  it('shows source leader counts separately from whole-caption positions and never accepts height owners', () => {
+    const packet = nativeDimensionPacket()
+    const heights = packet.heightObservations
+    if (!heights) throw new Error('Height fixture is missing')
+    const baseline = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    heights.locations = {
+      status: 'draft',
+      refusalReason: null,
+      observations: heights.observations.map(({ labelId }, index) => ({
+        labelId,
+        status: index < 5 ? 'inside-single-cavity' : 'unresolved',
+        cavityIds: index < 5 ? ['source-floor-cavity-10'] : [],
+        inkSourceOperation: index === 15 ? null : index + 100,
+        reason:
+          index < 5 ? null : index === 15 ? 'height-caption-ink-unverified' : 'outside-cavities',
+        ...(index < 15
+          ? {
+              leader: {
+                status: index === 5 ? ('linked' as const) : ('unresolved' as const),
+                reason: index === 5 ? null : 'height-leader-target-unverified',
+                cavityIds: index === 5 ? ['source-floor-cavity-8'] : [],
+                ...(index === 5
+                  ? {
+                      source: {
+                        boxRefs: [{ operationIndex: 30, subpathIndex: 0 }],
+                        stemRefs: [
+                          { operationIndex: 32, subpathIndex: 0, segmentIndex: 1 },
+                          { operationIndex: 31, subpathIndex: 0, segmentIndex: 0 },
+                        ],
+                        arrowRef: { operationIndex: 33, subpathIndex: 0 },
+                      },
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+      })),
+    }
+    const before = structuredClone(packet)
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Положение исходных подписей: внутри одной полости — 5, удержано — 11')
+    expect(html).toContain('По исходной выноске: связано с одной полостью — 1, удержано — 14')
+    expect(html).toContain('вся стрелка внутри полости source-floor-cavity-8')
+    expect(html).toContain('связь удержана — height-leader-target-unverified')
+    expect(html).toContain('Рамка: 30:0; линия (исходный порядок): 32:0:1, 31:0:0; стрелка: 33:0')
+    expect(html).toContain('не только её вершина')
+    expect(html).toContain('Это не подтверждение владельца высоты или общего уровня отсчёта для 3D')
+    expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(baseline.match(/<svg\b.*?<\/svg>/s)?.[0])
+    expect(html.match(/<button\b/g)?.length).toEqual(baseline.match(/<button\b/g)?.length)
+    expect(html).not.toContain('Сохранить')
+    expect(html).not.toContain('Высота комнаты')
+    expect(packet).toEqual(before)
+  })
+
   it('separates legacy role counts from strict held source-run bindings without SVG or actions', () => {
     const packet = nativeDimensionPacket()
     packet.sourceCaptionBindings = {

@@ -210,6 +210,12 @@ console.log(
       heldHeightCaptionLocations: heightLocations.observations.filter(
         (row) => row.status !== 'inside-single-cavity',
       ).length,
+      heightLeaderChainProofs: heightLocations.observations.filter(
+        (row) => row.leader?.source !== undefined,
+      ).length,
+      linkedHeightLeaderTargets: heightLocations.observations.filter(
+        (row) => row.leader?.status === 'linked',
+      ).length,
       documentaryRoomRows: scheduleNumbers.report.rows.length,
       tableLinkedNumericRows: scheduleNumbers.report.rows.filter(
         (row) => row.markerStatus === 'linked',

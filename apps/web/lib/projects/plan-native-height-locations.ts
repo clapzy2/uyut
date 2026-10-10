@@ -4,18 +4,28 @@ import {
   exactNativeSegmentsTouch,
 } from './plan-native-exact-intersections'
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
+import { createNativeHeightLeaderVerifier } from './plan-native-height-leaders'
 import { nativeHeightObservations } from './plan-native-height-observations'
 import { nativeCaptionInkIssue } from './plan-pdf-caption-binding'
 import type { PagePoint } from './plan-pdf-linework'
 import { pdfPolygonIsValid } from './plan-pdf-room-binding'
 
 type Input = Parameters<typeof nativeHeightObservations>[0]
+type LeaderProof = NonNullable<
+  ReturnType<ReturnType<typeof createNativeHeightLeaderVerifier>>['proof']
+>
 type Row = {
   labelId: string
   status: 'inside-single-cavity' | 'ambiguous' | 'unresolved'
   cavityIds: string[]
   inkSourceOperation: number | null
   reason: string | null
+  leader?: {
+    status: 'linked' | 'ambiguous' | 'unresolved'
+    cavityIds: string[]
+    reason: string | null
+    source?: Pick<LeaderProof, 'boxRefs' | 'stemRefs' | 'arrowRef'>
+  }
 }
 const MAX_WORK = 500_000
 const validPoint = (point: PagePoint | undefined | null): point is PagePoint =>
@@ -135,51 +145,43 @@ export function nativeHeightSourceLocations(input: Input) {
   const floor = nativeFloorCavityCandidates(input)
   if (floor.refusalReason) return finish(floor.refusalReason)
   let work = MAX_WORK
-  for (const height of heights.observations) {
-    const label = input.native.labels.find((label) => label.id === height.labelId)
-    const item = ink.items.find((item) => item.index === label?.nativeIndex)
-    const row: Row = {
-      labelId: height.labelId,
-      status: 'unresolved',
-      cavityIds: [],
-      inkSourceOperation: item?.operationIndex ?? null,
-      reason: 'height-caption-ink-unverified',
-    }
-    observations.push(row)
-    if (!item) continue
+  const exhausted = Symbol('height-location-work-limit')
+  const verifyLeader = createNativeHeightLeaderVerifier(input.work)
+  const locatePolygon = (polygon: readonly PagePoint[]) => {
     const bounds = {
-      left: Math.min(...item.quad.map((point) => point.x)),
-      right: Math.max(...item.quad.map((point) => point.x)),
-      top: Math.min(...item.quad.map((point) => point.y)),
-      bottom: Math.max(...item.quad.map((point) => point.y)),
+      left: Math.min(...polygon.map((point) => point.x)),
+      right: Math.max(...polygon.map((point) => point.x)),
+      top: Math.min(...polygon.map((point) => point.y)),
+      bottom: Math.max(...polygon.map((point) => point.y)),
     }
     const overlapsBounds = (other: typeof bounds) =>
       other.left <= bounds.right &&
       other.right >= bounds.left &&
       other.top <= bounds.bottom &&
       other.bottom >= bounds.top
+    const cavityIds: string[] = []
     let blocked = false
     for (const cell of floor.cavities) {
-      work -= cell.polygon.length * 16
-      if (work < 0) return finish('height-location-work-limit')
-      const contains = exactNativePolygonContains(cell.polygon, item.quad)
-      const overlap = exactNativePolygonsOverlap(cell.polygon, item.quad)
+      work -= cell.polygon.length * (polygon.length * 4)
+      if (work < 0) throw exhausted
+      const contains = exactNativePolygonContains(cell.polygon, polygon)
+      const overlap = exactNativePolygonsOverlap(cell.polygon, polygon)
       const touch = cell.polygon.some((start, index) =>
-        item.quad.some(
+        polygon.some(
           (point, corner) =>
             exactNativeSegmentsTouch(
               { start, end: cell.polygon[(index + 1) % cell.polygon.length] as PagePoint },
-              { start: point, end: item.quad[(corner + 1) % item.quad.length] as PagePoint },
+              { start: point, end: polygon[(corner + 1) % polygon.length] as PagePoint },
             ) !== false,
         ),
       )
       if (contains === null || overlap === null || touch || (overlap && !contains)) blocked = true
       if (contains === true) {
-        row.cavityIds.push(cell.id)
+        cavityIds.push(cell.id)
         if (cell.omittedBoundaryInkCount > 0) blocked = true
       }
     }
-    row.cavityIds.sort()
+    cavityIds.sort()
     if (floor.unprovedCavities.some(({ bounds }) => overlapsBounds(bounds))) blocked = true
     if (
       [...(input.work.skippedCurveBounds ?? []), ...(input.work.clippedPathBounds ?? [])].some(
@@ -187,17 +189,65 @@ export function nativeHeightSourceLocations(input: Input) {
       )
     )
       blocked = true
-    if (row.cavityIds.length > 1) {
-      row.status = 'ambiguous'
-      row.reason = 'competing-height-caption-cavities'
-    } else if (blocked) {
-      row.reason = 'height-caption-boundary-or-ink-unverified'
-    } else if (row.cavityIds.length === 1) {
-      row.status = 'inside-single-cavity'
-      row.reason = null
-    } else {
-      row.reason = 'outboard-height-caption-leader-unverified'
-    }
+    return { cavityIds, blocked }
   }
-  return finish(null)
+  try {
+    for (const height of heights.observations) {
+      const label = input.native.labels.find((label) => label.id === height.labelId)
+      const item = ink.items.find((item) => item.index === label?.nativeIndex)
+      const row: Row = {
+        labelId: height.labelId,
+        status: 'unresolved',
+        cavityIds: [],
+        inkSourceOperation: item?.operationIndex ?? null,
+        reason: 'height-caption-ink-unverified',
+      }
+      observations.push(row)
+      if (!item) continue
+      const location = locatePolygon(item.quad)
+      row.cavityIds = location.cavityIds
+      if (row.cavityIds.length > 1) {
+        row.status = 'ambiguous'
+        row.reason = 'competing-height-caption-cavities'
+      } else if (location.blocked) {
+        row.reason = 'height-caption-boundary-or-ink-unverified'
+      } else if (row.cavityIds.length === 1) {
+        row.status = 'inside-single-cavity'
+        row.reason = null
+      } else {
+        row.reason = 'outboard-height-caption-leader-unverified'
+      }
+      // Caption position and the leader's annotation target are different facts.
+      // Even a perfect chain supplies neither a semantic owner nor a floor datum.
+      const leader = verifyLeader(item.quad)
+      if (leader.reason === 'height-leader-work-limit') return finish(leader.reason)
+      row.leader = {
+        status: leader.status === 'ambiguous' ? 'ambiguous' : 'unresolved',
+        cavityIds: [],
+        reason: leader.reason ?? 'height-leader-target-unverified',
+      }
+      if (leader.status === 'candidate' && leader.proof) {
+        const target = locatePolygon(leader.proof.arrowPolygon)
+        row.leader.cavityIds = target.cavityIds
+        row.leader.source = {
+          boxRefs: structuredClone(leader.proof.boxRefs),
+          stemRefs: structuredClone(leader.proof.stemRefs),
+          arrowRef: { ...leader.proof.arrowRef },
+        }
+        if (target.cavityIds.length > 1) {
+          row.leader.status = 'ambiguous'
+          row.leader.reason = 'competing-height-leader-targets'
+        } else if (target.blocked || target.cavityIds.length !== 1) {
+          row.leader.reason = 'height-leader-target-unverified'
+        } else {
+          row.leader.status = 'linked'
+          row.leader.reason = null
+        }
+      }
+    }
+    return finish(null)
+  } catch (error) {
+    if (error === exhausted) return finish('height-location-work-limit')
+    throw error
+  }
 }
