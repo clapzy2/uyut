@@ -418,6 +418,7 @@ function isFloorCavities(value: unknown, packet: NativeReviewPacket): boolean {
     floor.closures,
     floor.unprovedCavities,
     floor.unresolvedMarkerLabelIds,
+    ...(floor.markerLeaders !== undefined ? [floor.markerLeaders] : []),
   ]
   if (
     !hasOnlyKeys(floor, [
@@ -429,6 +430,7 @@ function isFloorCavities(value: unknown, packet: NativeReviewPacket): boolean {
       'unprovedCavities',
       'unresolvedMarkerLabelIds',
       'markersAvailable',
+      ...('markerLeaders' in floor ? ['markerLeaders'] : []),
     ]) ||
     typeof floor.markersAvailable !== 'boolean' ||
     collections.some((items) => !Array.isArray(items) || items.length > 100)
@@ -555,6 +557,48 @@ function isFloorCavities(value: unknown, packet: NativeReviewPacket): boolean {
     unresolved.add(id)
   }
   if (markerClaims.size + unresolved.size !== cueNumbers.size) return false
+  const leaderLabels = new Set<string>()
+  const leaderSegments = new Set<string>()
+  for (const leader of floor.markerLeaders ?? []) {
+    if (
+      !floor.markersAvailable ||
+      !leader ||
+      typeof leader !== 'object' ||
+      !hasOnlyKeys(leader, ['labelId', 'cavityId', 'circleEndpoint', 'segment']) ||
+      !isBoundedLabel(leader.labelId) ||
+      !cueNumbers.has(leader.labelId) ||
+      leaderLabels.has(leader.labelId) ||
+      !isBoundedLabel(leader.cavityId) ||
+      !candidateIds.has(leader.cavityId) ||
+      !markerClaims.get(leader.labelId)?.some((cell) => cell.id === leader.cavityId) ||
+      !['start', 'end'].includes(leader.circleEndpoint) ||
+      !leader.segment ||
+      typeof leader.segment !== 'object' ||
+      !hasOnlyKeys(leader.segment, [
+        'operationIndex',
+        'subpathIndex',
+        'segmentIndex',
+        'start',
+        'end',
+      ]) ||
+      ![leader.segment.operationIndex, leader.segment.subpathIndex].every(
+        (index) => Number.isSafeInteger(index) && index >= 0,
+      ) ||
+      leader.segment.segmentIndex !== 0 ||
+      !isSourceSegment(leader.segment, packet.image) ||
+      !hasOnlyKeys(leader.segment.start, ['x', 'y']) ||
+      !hasOnlyKeys(leader.segment.end, ['x', 'y'])
+    )
+      return false
+    const segmentKey = [
+      leader.segment.operationIndex,
+      leader.segment.subpathIndex,
+      leader.segment.segmentIndex,
+    ].join(':')
+    if (leaderSegments.has(segmentKey)) return false
+    leaderLabels.add(leader.labelId)
+    leaderSegments.add(segmentKey)
+  }
   return floor.unprovedCavities.every(
     (item) =>
       item &&

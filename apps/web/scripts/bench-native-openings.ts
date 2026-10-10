@@ -159,6 +159,8 @@ console.log(
       floorCavityRefusal: floor.refusalReason,
       sourceBackedCavities: floor.cavities.length,
       numberedCavities: floor.cavities.filter((cell) => cell.markerLabelIds.length).length,
+      sourceLeaderBindings: floor.markerLeaders.length,
+      unresolvedFloorMarkers: floor.unresolvedMarkerLabelIds.length,
       sourceThresholdStrips: floor.thresholds.length,
       sourceProfileClosures: floor.closures.length,
       unprovedCavities: floor.unprovedCavityCount,

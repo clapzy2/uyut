@@ -107,6 +107,17 @@ export function exactNativeOrientation(a: PagePoint, b: PagePoint, p: PagePoint)
   return determinant < 0n ? -1 : determinant > 0n ? 1 : 0
 }
 
+/** Location in an already validated simple source polygon, without an epsilon. */
+export function exactNativePointLocation(polygon: readonly PagePoint[], point: PagePoint) {
+  if (polygon.length < 3 || polygon.length > 100) return 'unresolved' as const
+  const integers = integerPoints([...polygon, point])
+  if (!integers) return 'unresolved' as const
+  const boundary = integers.points.slice(0, polygon.length)
+  const probe = integers.points[polygon.length]
+  if (!probe || integerWinding(boundary) === null) return 'unresolved' as const
+  return integerPointLocation(probe, integerEdges(boundary))
+}
+
 /** Inclusive contact in the source-decimal domain; unknown precision is not a clear gap. */
 export function exactNativeSegmentsTouch(
   first: Pick<NativePageSegment, 'start' | 'end'>,

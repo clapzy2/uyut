@@ -417,6 +417,108 @@ describe('read-only native review presentation', () => {
     expect(html).not.toContain('Подтвердить')
     expect(html).not.toContain('Сохранить')
     expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+    expect(html).not.toContain('Связи меток по исходным выноскам')
+  })
+  it('distinguishes an empty leader inventory from legacy missing metadata without inventing a line', () => {
+    const packet = floorCavityPacket()
+    if (!packet.floorCavities) throw new Error('Floor fixture is missing')
+    packet.floorCavities.markerLeaders = []
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Связи меток по исходным выноскам: 0')
+    expect(html).toContain('метки 1 + 5 внутри математической области')
+    expect(html).toContain('Выноска — не граница пола и не проход')
+    expect(html).not.toContain('по исходной выноске (')
+    expect(html).not.toContain('Подтвердить')
+    expect(html).not.toContain('Сохранить')
+  })
+  it.each(['start', 'end'] as const)(
+    'reports one actual outboard leader at the circle %s endpoint without drawing or accepting a floor',
+    (circleEndpoint) => {
+      const packet = floorCavityPacket()
+      const floor = packet.floorCavities
+      const cell = floor?.candidates[6]
+      if (!floor || !cell) throw new Error('Floor fixture is missing')
+      cell.markerLabelIds = ['native-circle-8']
+      cell.markerStatus = 'unambiguous'
+      floor.unresolvedMarkerLabelIds = []
+      floor.markerLeaders = [
+        {
+          labelId: 'native-circle-8',
+          cavityId: cell.id,
+          circleEndpoint,
+          segment: {
+            operationIndex: 171,
+            subpathIndex: 3,
+            segmentIndex: 2,
+            start: { x: 99.75, y: 75 },
+            end: { x: 145.5, y: 100 },
+          },
+        },
+      ]
+      const html = renderToStaticMarkup(
+        createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+      )
+      const withoutLeader = structuredClone(packet)
+      delete withoutLeader.floorCavities?.markerLeaders
+      const baseline = renderToStaticMarkup(
+        createElement(NativeReviewResult, { packet: withoutLeader, imageUrl: 'blob:private-test' }),
+      )
+      expect(html).toContain('Связи меток по исходным выноскам: 1')
+      expect(html).toContain('Метка 8 по исходной выноске (native-circle-8)')
+      expect(html).toContain('source-cell-6</span>: внутренних цифровых меток не наблюдалось')
+      expect(html).toContain('метки 1 + 5 внутри математической области')
+      expect(html).toContain('операция 171, подпуть 3, сегмент 2')
+      expect(html).toContain('Координаты изображения: (99.75, 75) → (145.5, 100)')
+      expect(html).toContain(
+        `окружность у ${circleEndpoint === 'start' ? 'начала' : 'конца'} отрезка`,
+      )
+      expect(html).toContain('Кандидаты с цифровыми метками</dt><dd>7</dd>')
+      expect(html).not.toContain('Метки без найденного кандидата: 8')
+      expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(baseline.match(/<svg\b.*?<\/svg>/s)?.[0])
+      expect(html).not.toContain('x1="99.75"')
+      expect(html).not.toContain('stroke="#15803d"')
+      expect(html).not.toContain('Подтвердить')
+      expect(html).not.toContain('Сохранить')
+      expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+    },
+  )
+  it('escapes a source leader label without turning metadata into HTML or accepting numeric ownership', () => {
+    const packet = floorCavityPacket()
+    const floor = packet.floorCavities
+    const cell = floor?.candidates[6]
+    const cue = packet.numberCircles?.cues.find(({ sourceNumber }) => sourceNumber === 8)
+    if (!floor || !cell || !cue) throw new Error('Floor fixture is missing')
+    const labelId = '<script>alert("test")</script>'
+    cue.labelId = labelId
+    cell.markerLabelIds = [labelId]
+    cell.markerStatus = 'unambiguous'
+    floor.unresolvedMarkerLabelIds = []
+    floor.markerLeaders = [
+      {
+        labelId,
+        cavityId: cell.id,
+        circleEndpoint: 'start',
+        segment: {
+          operationIndex: 17,
+          subpathIndex: 0,
+          segmentIndex: 0,
+          start: { x: 99, y: 75 },
+          end: { x: 145, y: 100 },
+        },
+      },
+    ]
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain(
+      'Метка 8 по исходной выноске (&lt;script&gt;alert(&quot;test&quot;)&lt;/script&gt;)',
+    )
+    expect(html).not.toContain('<script>')
+    expect(html).not.toContain('Подтвердить')
+    expect(html).not.toContain('Сохранить')
+    expect(html).toContain('не подтверждает точный пол')
   })
   it('keeps competing cavities and paint ambiguity visible without selecting a room or material wall', () => {
     const packet = floorCavityPacket()

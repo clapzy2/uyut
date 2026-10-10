@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { exactNativeOrientation, exactNativePointKey } from './plan-native-exact-intersections'
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
+import { nativeReviewPacket } from './plan-native-review-packet'
 import type { Bounds, PagePoint, PdfCurvePath, PdfVectorPath } from './plan-pdf-linework'
 
 type Input = Parameters<typeof nativeFloorCavityCandidates>[0]
@@ -456,6 +457,106 @@ describe('native painted cavities with documented source opening boundaries', ()
     expect(input.work.curvePaths).toHaveLength(1)
     expect(input).toEqual(before)
     expect(result.physicalPassagesAccepted).toBe(false)
+  })
+
+  it('binds an outboard number by one actual source leader without altering the cavity', () => {
+    const input = fixture()
+    const unmarked = nativeFloorCavityCandidates(input).cavities[0]
+    circle(input, 8, { x: 400, y: 200 })
+    input.work.paths.push({
+      ...path(50, [
+        [200, 200],
+        [391, 200],
+      ]),
+      closed: false,
+    })
+    const before = structuredClone(input)
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.cavities[0]?.polygon).toEqual(unmarked?.polygon)
+    expect(result.cavities[0]).toMatchObject({
+      markerLabelIds: ['native-text-0'],
+      markerStatus: 'unambiguous',
+    })
+    expect(result.markerLeaders).toHaveLength(1)
+    expect(result.markerLeaders[0]).toMatchObject({
+      labelId: 'native-text-0',
+      cavityId: result.cavities[0]?.id,
+      circleEndpoint: 'end',
+    })
+    expect(result.unresolvedMarkerLabelIds).toEqual([])
+    expect(result.roomOwnershipConfirmed).toBe(false)
+    expect(result.physicalPassagesAccepted).toBe(false)
+    expect(result.readyFor2D).toBe(false)
+    expect(result.readyFor3D).toBe(false)
+    const packet = nativeReviewPacket({
+      ...input,
+      source: { sha256: input.native.originalPdfSha256 as string, pdfPage: 1, state: 'existing' },
+      image: input.native.source,
+    })
+    expect(packet.floorCavities?.markerLeaders).toEqual([
+      {
+        labelId: 'native-text-0',
+        cavityId: result.cavities[0]?.id,
+        circleEndpoint: 'end',
+        segment: {
+          operationIndex: 50,
+          subpathIndex: 0,
+          segmentIndex: 0,
+          start: { x: 200, y: 200 },
+          end: { x: 391, y: 200 },
+        },
+      },
+    ])
+    expect(packet.floorCavities?.markerLeaders?.[0]).not.toHaveProperty('proof')
+    expect(packet.readiness.readyFor2D).toBe(false)
+    expect(input).toEqual(before)
+  })
+
+  it('keeps competing source leaders unresolved and does not lose the unmarked floor', () => {
+    const input = fixture()
+    circle(input, 8, { x: 400, y: 200 })
+    input.work.paths.push(
+      {
+        ...path(50, [
+          [200, 200],
+          [391, 200],
+        ]),
+        closed: false,
+      },
+      {
+        ...path(51, [
+          [210, 200],
+          [392, 200],
+        ]),
+        closed: false,
+      },
+    )
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.cavities).toHaveLength(1)
+    expect(result.cavities[0]).toMatchObject({ markerLabelIds: [], markerStatus: 'unmarked' })
+    expect(result.markerLeaders).toEqual([])
+    expect(result.markerLeaderIssues).toHaveLength(1)
+    expect(result.unresolvedMarkerLabelIds).toEqual(['native-text-0'])
+  })
+
+  it('retains repeated source numbers as ambiguous even when one uses a leader', () => {
+    const input = fixture()
+    circle(input, 8, { x: 400, y: 200 })
+    circle(input, 8, { x: 200, y: 250 })
+    input.work.paths.push({
+      ...path(50, [
+        [200, 200],
+        [391, 200],
+      ]),
+      closed: false,
+    })
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.cavities[0]).toMatchObject({
+      markerLabelIds: ['native-text-1', 'native-text-0'],
+      markerStatus: 'ambiguous',
+    })
+    expect(result.markerLeaders).toHaveLength(1)
+    expect(result.roomOwnershipConfirmed).toBe(false)
   })
 
   it('records omitted boundary ink without silently repairing or deleting its source count', () => {

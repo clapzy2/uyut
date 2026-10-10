@@ -120,6 +120,18 @@ export type NativeReviewPacket = {
     unprovedCavities: { reason: string; vertexCount: number }[]
     unresolvedMarkerLabelIds: string[]
     markersAvailable: boolean
+    markerLeaders?: {
+      labelId: string
+      cavityId: string
+      circleEndpoint: 'start' | 'end'
+      segment: {
+        operationIndex: number
+        subpathIndex: number
+        segmentIndex: number
+        start: { x: number; y: number }
+        end: { x: number; y: number }
+      }
+    }[]
   }
   savedFrameRooms?:
     | { status: 'not-saved' }
@@ -297,6 +309,12 @@ export function nativeReviewPacket(input: {
       })),
       unresolvedMarkerLabelIds: floor.unresolvedMarkerLabelIds,
       markersAvailable: floor.markersAvailable,
+      markerLeaders: floor.markerLeaders.map(({ labelId, cavityId, circleEndpoint, segment }) => ({
+        labelId,
+        cavityId,
+        circleEndpoint,
+        segment: { ...segment, start: raster(segment.start), end: raster(segment.end) },
+      })),
     }
     packet.doorSymbols = {
       status: doors.status,

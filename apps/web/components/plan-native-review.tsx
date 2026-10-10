@@ -400,6 +400,12 @@ function FloorCavityReview({
               </dd>
             </div>
           </dl>
+          {report.markerLeaders !== undefined ? (
+            <p className="text-ink-2">
+              Связи меток по исходным выноскам: {report.markerLeaders.length}. Выноска — не граница
+              пола и не проход.
+            </p>
+          ) : null}
           {!report.markersAvailable ? (
             <p className="text-ink-2">
               Цифровые метки недоступны для сверки; это не отсутствие помещений.
@@ -436,18 +442,36 @@ function FloorCavityReview({
               названы шахтами. Это не полный перечень пола.
             </p>
             <ul className="mt-2 list-disc space-y-2 pl-5">
-              {report.candidates.map((cell) => (
-                <li key={cell.id}>
-                  <span className="break-all">{cell.id}</span>:{' '}
-                  {cell.markerLabelIds.length
-                    ? `метки ${markerNumbers(cell.markerLabelIds)}`
-                    : cell.markerStatus === 'unavailable'
-                      ? 'проверка меток недоступна'
-                      : 'без цифровой метки'}
-                  ; неизвестных линий {cell.unknownInteriorStrokeCount}, пропусков на границе{' '}
-                  {cell.omittedBoundaryInkCount}.
-                </li>
-              ))}
+              {report.candidates.map((cell) => {
+                const leaders =
+                  report.markerLeaders?.filter((leader) => leader.cavityId === cell.id) ?? []
+                const ledIds = new Set(leaders.map(({ labelId }) => labelId))
+                const containedIds = cell.markerLabelIds.filter((id) => !ledIds.has(id))
+                return (
+                  <li key={cell.id}>
+                    <span className="break-all">{cell.id}</span>:{' '}
+                    {containedIds.length
+                      ? `метки ${markerNumbers(containedIds)}${report.markerLeaders === undefined ? '' : ' внутри математической области'}`
+                      : leaders.length
+                        ? 'внутренних цифровых меток не наблюдалось'
+                        : cell.markerStatus === 'unavailable'
+                          ? 'проверка меток недоступна'
+                          : 'без цифровой метки'}
+                    ; неизвестных линий {cell.unknownInteriorStrokeCount}, пропусков на границе{' '}
+                    {cell.omittedBoundaryInkCount}.
+                    {leaders.map((leader) => (
+                      <p key={leader.labelId} className="mt-1 break-all">
+                        Метка {numbers.get(leader.labelId)} по исходной выноске ({leader.labelId}).
+                        Исходный отрезок: операция {leader.segment.operationIndex}, подпуть{' '}
+                        {leader.segment.subpathIndex}, сегмент {leader.segment.segmentIndex}.
+                        Координаты изображения: ({leader.segment.start.x}, {leader.segment.start.y})
+                        → ({leader.segment.end.x}, {leader.segment.end.y}); окружность у{' '}
+                        {leader.circleEndpoint === 'start' ? 'начала' : 'конца'} отрезка.
+                      </p>
+                    ))}
+                  </li>
+                )
+              })}
               {report.closures.map((closure) => (
                 <li key={closure.id}>
                   <span className="break-all">{closure.id}</span>:{' '}

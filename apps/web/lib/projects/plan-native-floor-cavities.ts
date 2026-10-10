@@ -7,6 +7,10 @@ import {
   exactNativePolygonsOverlap,
   exactNativeSegmentsTouch,
 } from './plan-native-exact-intersections'
+import {
+  type NativeFloorMarkerLeader,
+  nativeFloorMarkerLeaders,
+} from './plan-native-floor-marker-leaders'
 import { nativeNumberCircleCandidates } from './plan-native-number-circles'
 import { nativeOpeningFrameCandidates } from './plan-native-opening-frames'
 import type { Bounds, PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
@@ -90,6 +94,8 @@ export function nativeFloorCavityCandidates(input: Input) {
   const circles = nativeNumberCircleCandidates(input)
   let frames: ReturnType<typeof nativeOpeningFrameCandidates>
   const cavities: NativeFloorCavity[] = []
+  let markerLeaders: NativeFloorMarkerLeader[] = []
+  let markerLeaderIssues: { labelId: string; reason: string }[] = []
   const unprovedCavities: {
     polygon: PagePoint[] | null
     bounds: Bounds
@@ -119,6 +125,8 @@ export function nativeFloorCavityCandidates(input: Input) {
     source: { ...input.native.source },
     originalPdfSha256: input.native.originalPdfSha256,
     cavities: refusalReason ? [] : structuredClone(cavities),
+    markerLeaders: refusalReason ? [] : markerLeaders,
+    markerLeaderIssues: refusalReason ? [] : markerLeaderIssues,
     thresholds: refusalReason ? [] : structuredClone(thresholds),
     closures: refusalReason ? [] : structuredClone(closures),
     unprovedCavityCount,
@@ -490,6 +498,16 @@ export function nativeFloorCavityCandidates(input: Input) {
         if (cavities.reduce((sum, cell) => sum + cell.polygon.length, 0) > 4000)
           return finish('floor-cavity-output-limit')
       }
+    }
+    const leaders = nativeFloorMarkerLeaders(input.work, circles.cues, cavities)
+    if (leaders.refusalReason) return finish(leaders.refusalReason)
+    markerLeaders = leaders.bindings
+    markerLeaderIssues = leaders.issues
+    for (const binding of markerLeaders) {
+      const cell = cavities.find((candidate) => candidate.id === binding.cavityId)
+      if (!cell) return finish('floor-marker-leader-target-unavailable')
+      cell.markerLabelIds.push(binding.labelId)
+      cell.markerStatus = 'unambiguous'
     }
     // Competing source cells/numbers stay ambiguous; never choose a nearest/smallest floor.
     for (const cell of cavities) {

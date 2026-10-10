@@ -2424,3 +2424,76 @@ Source PDF/user project/DB/saved geometry/AIbudget/PR/deploy не изменен
 независимый metric/vertical proof и source-based2D/3D adoption после приёмки.
 Текущая пачка завершает bounded candidate assembly, не универсальное подтверждение
 физического пола квартиры.
+
+### 10 октября: вынесенный номер по настоящему кубическому контуру и source leader
+
+Primary existing PDF page6 повторно извлечён без ручного ввода/сохранения проекта:
+tmp/native-floor-leaders-20261010-primary-final-v2/. Исходный SHA
+d79a89eba7d262f2615a9c9f99c03be4553d85c5f737423c51f98e8c9f5da1ab,
+JPEG f55b2437f57ba9d6b45aeeaba180ff771c47bc87e2204405f2b04fd597206b58,
+45 source curves/0 clips сохранены. Номер8/native-text-222 связывается с
+native-floor-cavity-12 реальным отрезком4009:0:0:
+(821.863,342.871)→(889.910,338.064). Первый конец строго внутри одного source
+polygon, второй — строго внутри настоящего four-cubic glyph3989:0. Эти refs
+являются наблюдениями реплея, не selector-константами реализации.
+
+Exact monotone4-quarter predicate требует настоящие cardinal anchors, полный
+original control hull и монотонность обоих координатных рядов каждого quarter.
+Disjoint open control rectangles доказывают простой контур. Point/ray проверяется
+exact decimal BigInt и Bernstein at rational dyadic parameters, с half-open y
+диапазонами.128 bisections без строгого разделения дают unresolved, не epsilon.
+Случай8: идеальная extrema ellipse score1.000115>1 не подменяет actual Bézier
+inside; raw output сохраняет JSON-safe рациональные интервалы доказательства.
+Числа, входные points и floor vertices не подгоняются/не округляются.
+
+Автоматический итог20cells/7marked/13unmarked/1leader/0unresolved-markers;
+7thresholdstrips/5profiles/1unproved unchanged. Зона1+5 остаётся общей полостью.
+Все20polygonarrays точно совпали с tmp/native-floor-cavities-20261010-primary-final/.
+Номер не создаёт комнату или контур. Исходная annotation leader не становится
+floor edge, стеной, порогом или проходом. Source circles/candidates/unknown strokes
+сохранены; acceptedFloor/ownership/physical/readiness2D3D не повышены.
+
+Лидер принимается только как один open stroke2points без omitted/compound siblings,
+с уникальным actual glyph endpoint и строго внутренним концом одной полости.
+Boundary touches, overlap targets/circles, две линии даже к одному target,
+недоказанная точка и unsupported attached polyline/curve/compound/clip удерживают
+назначение. Независимый аудит обнаружил и воспроизвёл два false-unique случая:
+скрытый competing bent leader и competing circle control handle за fitted bounds.
+Оба исправлены; broadphase использует полный source control hull. Bent/curved
+цепочки сами не принимаются и не соединяются выдуманными отрезками.512 bounded
+curve-work units зарезервированы до каждого exact query, общий500k budget atomic.
+
+Private packet добавляет optional legacy-compatible markerLeaders только с
+label/cavity IDs, source segment ref, исходным направлением и rasterpoints;
+большие raw rational proofs не сериализуются. Client проверяет≤100, strict keys,
+known claimed target, unique label/segment, safe indices, segment0, distinct finite
+in-image endpoints; held/unavailable и extra authority keys не принимаются.
+UI отделяет внутреннюю метку от «Метки8 по исходной выноске», source refs/coords
+в details. Нет новых SVG lines: default31polygons/12lines; ON45polygons/12lines
+(7green+7purple), explicit fillnone. Scope warnings остаются видимыми.
+
+73cubic controls,35leader/point controls,3floor integration controls и41client
+adversarial additions;4479webtests/261files, typecheck7, lint904, build/diff passed.
+Independent read-only audit:592targeted green, exact polygon equality, immutable
+source/detached segment/proof output, paths permutation/leader reversal;1681
+independent sampled Bézier comparisons0mismatches и50reflection controls.
+Остальные6 PDF реплеи tmp/native-floor-leaders-20261010-SOURCE-a/ сохранили прежние
+результаты: BASIS0;Basman3unmarked;Remplanner4unmarked;Life incomplete;Designgroup
+candidate-limit atomic;colored0newcavities при19fills/8named baseline. Это scoped
+negative controls, не универсальная полнота распознавания.
+Firefox actualcomponent/local mockedprivateAPI/actualJPEG:1280/390 no pageoverflow,
+expandedsource refs, toggles и focusable1414px fullsize keyboardscroll проверены.
+Screenshots output/playwright/native-floor-leaders-desktop.png,
+native-floor-leaders-mobile-expanded.png. Harness использует existing CSS, но не
+root font setup; проверена функциональность/layout, не полный production дизайн.
+Сайт, проект пользователя, DB, paidAI, PR и deploy не менялись.
+Архивная ручная разметка отдельно replayed в
+tmp/native-floor-leaders-20261010-primary-reviewed-a/: весь automatic floor report
+точно совпал с v2 без разметки; manual correspondence осталась5/1/1. PNG v2
+byte-identical просмотренному primary-a. Console0errors/0warnings; созданные для
+этой проверки браузер/server закрыты, ephemeral server helper удалён.
+
+Остаток: физические роли floor/wall/opening, полноценная coverage с technical
+областями, проверенные physical thresholds и смежность, независимые metric/vertical
+доказательства; затем перенос принятого исходника в2D/3D. Произвольные bent/curved
+лидеры и rotated/nonmonotone glyphs остаются явными ограничениями данного pass.

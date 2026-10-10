@@ -590,6 +590,215 @@ describe('bounded source-backed floor cavities without accepted ownership', () =
     expect(loaded.savedReview).toEqual(packet.savedReview)
     expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
   })
+  describe('optional source marker leaders', () => {
+    function leaderFixture() {
+      const result = floorFixture()
+      const leader: NonNullable<typeof result.floor.markerLeaders>[number] = {
+        labelId: 'circle-1',
+        cavityId: 'source-cavity-1',
+        circleEndpoint: 'start',
+        segment: {
+          operationIndex: 200,
+          subpathIndex: 0,
+          segmentIndex: 0,
+          start: { x: 80, y: 200 },
+          end: { x: 180, y: 200 },
+        },
+      }
+      result.floor.markerLeaders = [leader]
+      return { ...result, leader }
+    }
+
+    it.each(['start', 'end'] as const)(
+      'preserves a bounded source leader with circle endpoint %s without new authority',
+      async (circleEndpoint) => {
+        const { packet, headers, floor, leader } = leaderFixture()
+        leader.circleEndpoint = circleEndpoint
+        const before = structuredClone({
+          candidates: floor.candidates,
+          readiness: packet.readiness,
+        })
+        const loaded = (await loadFixture(packet, headers)).packet
+        expect(loaded.floorCavities?.markerLeaders).toEqual([leader])
+        expect(loaded.floorCavities?.candidates).toEqual(before.candidates)
+        expect(loaded.readiness).toEqual(before.readiness)
+      },
+    )
+
+    it.each(['absent', 'undefined', 'empty'] as const)(
+      'keeps legacy %s leader metadata backward-compatible',
+      async (variant) => {
+        const { packet, headers, floor } = floorFixture()
+        if (variant === 'undefined') floor.markerLeaders = undefined
+        if (variant === 'empty') floor.markerLeaders = []
+        expect((await loadFixture(packet, headers)).packet.floorCavities).toEqual(
+          JSON.parse(JSON.stringify(floor)),
+        )
+      },
+    )
+
+    it('allows empty leaders on unavailable markers and on an atomic held layer', async () => {
+      const { packet, headers, floor } = floorFixture()
+      floor.markerLeaders = []
+      floor.markersAvailable = false
+      floor.unresolvedMarkerLabelIds = []
+      packet.numberCircles = { status: 'unresolved', refusalReason: 'missing-commands', cues: [] }
+      for (const cell of floor.candidates) {
+        cell.markerLabelIds = []
+        cell.markerStatus = 'unavailable'
+      }
+      expect((await loadFixture(packet, headers)).packet.floorCavities).toEqual(floor)
+      floor.status = 'unresolved'
+      floor.refusalReason = 'native-layer-unavailable'
+      floor.candidates = []
+      floor.thresholds = []
+      floor.closures = []
+      floor.unprovedCavities = []
+      expect((await loadFixture(packet, headers)).packet.floorCavities).toEqual(floor)
+    })
+
+    it('keeps duplicate parent numbers ambiguous instead of letting a leader prove ownership', async () => {
+      const { packet, headers, floor, leader } = leaderFixture()
+      const cell = floor.candidates[0]
+      if (!cell || !packet.numberCircles) throw new Error('Floor fixture is missing')
+      packet.numberCircles.cues.push({ labelId: 'circle-1-extra', sourceNumber: 1 })
+      floor.unresolvedMarkerLabelIds.push('circle-1-extra')
+      cell.markerStatus = 'ambiguous'
+      const loaded = (await loadFixture(packet, headers)).packet
+      expect(loaded.floorCavities?.markerLeaders).toEqual([leader])
+      expect(loaded.floorCavities?.candidates[0]?.markerStatus).toBe('ambiguous')
+      expect(loaded.readiness).toEqual({ readyFor2D: false, readyFor3D: false, readOnly: true })
+      cell.markerStatus = 'unambiguous'
+      await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+    })
+
+    it('accepts the exact leader and safe-index bounds with unique parent claims', async () => {
+      const { packet, headers, floor, leader } = leaderFixture()
+      const cell = floor.candidates[0]
+      if (!cell || !packet.numberCircles) throw new Error('Floor fixture is missing')
+      packet.numberCircles.cues = Array.from({ length: 100 }, (_, index) => ({
+        labelId: `source-cue-${index}`,
+        sourceNumber: index + 1,
+      }))
+      cell.markerLabelIds = packet.numberCircles.cues.map((cue) => cue.labelId)
+      floor.unresolvedMarkerLabelIds = []
+      floor.markerLeaders = packet.numberCircles.cues.map(({ labelId }, index) => ({
+        ...structuredClone(leader),
+        labelId,
+        segment: { ...structuredClone(leader.segment), operationIndex: index },
+      }))
+      const last = floor.markerLeaders[99]
+      if (!last) throw new Error('Leader fixture is missing')
+      last.segment.operationIndex = Number.MAX_SAFE_INTEGER
+      last.segment.subpathIndex = Number.MAX_SAFE_INTEGER
+      last.segment.start = { x: 0, y: 0 }
+      last.segment.end = { x: packet.image.width, y: packet.image.height }
+      expect((await loadFixture(packet, headers)).packet.floorCavities?.markerLeaders).toEqual(
+        floor.markerLeaders,
+      )
+    })
+
+    it.each([
+      'null-array',
+      'non-array',
+      'leader-limit',
+      'null-leader',
+      'extra-leader-key',
+      'missing-label',
+      'unknown-label',
+      'duplicate-label',
+      'missing-target',
+      'unknown-target',
+      'target-not-claiming',
+      'duplicate-segment',
+      'null-segment',
+      'extra-segment-key',
+      'negative-operation',
+      'unsafe-operation',
+      'string-operation',
+      'negative-subpath',
+      'fractional-subpath',
+      'nonzero-segment',
+      'string-segment',
+      'null-start',
+      'missing-end',
+      'nonfinite-point',
+      'negative-point',
+      'outside-point',
+      'string-point',
+      'identical-points',
+      'extra-point-key',
+      'circle-endpoint',
+      'missing-circle-endpoint',
+      'unavailable-markers',
+      'held-layer',
+    ])('rejects malformed or overclaimed leader metadata: %s', async (change) => {
+      const { packet, headers, floor, leader } = leaderFixture()
+      if (change === 'null-array') Object.assign(floor, { markerLeaders: null })
+      if (change === 'non-array') Object.assign(floor, { markerLeaders: 'not-an-array' })
+      if (change === 'leader-limit') floor.markerLeaders = Array(101).fill(leader)
+      if (change === 'null-leader') Object.assign(floor.markerLeaders ?? [], { 0: null })
+      if (change === 'extra-leader-key') Object.assign(leader, { roomOwnershipConfirmed: true })
+      if (change === 'missing-label') Object.assign(leader, { labelId: undefined })
+      if (change === 'unknown-label') leader.labelId = 'foreign-cue'
+      if (change === 'duplicate-label')
+        floor.markerLeaders?.push({
+          ...structuredClone(leader),
+          segment: { ...structuredClone(leader.segment), operationIndex: 201 },
+        })
+      if (change === 'missing-target') Object.assign(leader, { cavityId: undefined })
+      if (change === 'unknown-target') leader.cavityId = 'unknown-cavity'
+      if (change === 'target-not-claiming') leader.cavityId = 'source-cavity-unmarked'
+      if (change === 'duplicate-segment')
+        floor.markerLeaders?.push({
+          ...structuredClone(leader),
+          labelId: 'circle-5',
+          segment: {
+            ...structuredClone(leader.segment),
+            start: { x: 90, y: 200 },
+            end: { x: 190, y: 200 },
+          },
+        })
+      if (change === 'null-segment') Object.assign(leader, { segment: null })
+      if (change === 'extra-segment-key') Object.assign(leader.segment, { cubicControls: [] })
+      if (change === 'negative-operation') leader.segment.operationIndex = -1
+      if (change === 'unsafe-operation') leader.segment.operationIndex = Number.MAX_SAFE_INTEGER + 1
+      if (change === 'string-operation') Object.assign(leader.segment, { operationIndex: '200' })
+      if (change === 'negative-subpath') leader.segment.subpathIndex = -1
+      if (change === 'fractional-subpath') leader.segment.subpathIndex = 0.5
+      if (change === 'nonzero-segment') leader.segment.segmentIndex = 1
+      if (change === 'string-segment') Object.assign(leader.segment, { segmentIndex: '0' })
+      if (change === 'null-start') Object.assign(leader.segment, { start: null })
+      if (change === 'missing-end') Object.assign(leader.segment, { end: undefined })
+      if (change === 'nonfinite-point') leader.segment.start.x = NaN
+      if (change === 'negative-point') leader.segment.start.x = -1
+      if (change === 'outside-point') leader.segment.end.y = packet.image.height + 1
+      if (change === 'string-point') Object.assign(leader.segment.start, { x: '80' })
+      if (change === 'identical-points') leader.segment.end = { ...leader.segment.start }
+      if (change === 'extra-point-key') Object.assign(leader.segment.start, { floorSide: 'inside' })
+      if (change === 'circle-endpoint') Object.assign(leader, { circleEndpoint: 'nearest' })
+      if (change === 'missing-circle-endpoint') Object.assign(leader, { circleEndpoint: undefined })
+      if (change === 'unavailable-markers') {
+        floor.markersAvailable = false
+        floor.unresolvedMarkerLabelIds = []
+        packet.numberCircles = { status: 'unresolved', refusalReason: 'missing-commands', cues: [] }
+        for (const cell of floor.candidates) {
+          cell.markerLabelIds = []
+          cell.markerStatus = 'unavailable'
+        }
+      }
+      if (change === 'held-layer') {
+        floor.status = 'unresolved'
+        floor.refusalReason = 'native-layer-unavailable'
+        floor.candidates = []
+        floor.thresholds = []
+        floor.closures = []
+        floor.unprovedCavities = []
+        floor.unresolvedMarkerLabelIds = []
+      }
+      await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+    })
+  })
   it('allows shared marker claims only when every claimant is genuinely ambiguous', async () => {
     const { packet, headers, floor } = floorFixture()
     const cell = floor.candidates[0]
