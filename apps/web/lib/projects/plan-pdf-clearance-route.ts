@@ -1,3 +1,8 @@
+import { dot, exactSegmentContains, integerPoints, vector } from '@uyut/catalog/plan-exact-geometry'
+import {
+  inspectPlanThresholdSurfaces,
+  planOpeningEndpoints,
+} from '@uyut/catalog/plan-threshold-geometry'
 import type { PlanGeometry, PlanOpeningBinding, PlanPoint } from '@uyut/db'
 import polygonClipping, { type Polygon } from 'polygon-clipping'
 import { doorClearanceZone } from './clearance-zones'
@@ -75,10 +80,10 @@ function openZoneEdges(geometry: PlanGeometry, elevations?: Map<number, number>)
       proof.sourceEdge?.length !== 2 ||
       !proof.sourceEdge.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)) ||
       samePoint(start, end) ||
-      (start.xCm !== end.xCm && start.yCm !== end.yCm)
+      (geometry.verticalReference === undefined && start.xCm !== end.xCm && start.yCm !== end.yCm)
     )
       return undefined
-    const along = start.yCm === end.yCm ? 'xCm' : 'yCm'
+    const along = start.xCm !== end.xCm ? 'xCm' : 'yCm'
     return {
       roomIndex: owners[0],
       edgeIndex: proof.edgeIndex,
@@ -114,14 +119,43 @@ function openZoneEdges(geometry: PlanGeometry, elevations?: Map<number, number>)
   )
 }
 
-function face(binding: PlanOpeningBinding, geometry: PlanGeometry) {
+type Face = {
+  roomIndex: number
+  edgeIndex: number
+  wallId: string
+  cut: [PlanPoint, PlanPoint]
+  legacy?: {
+    along: 'xCm' | 'yCm'
+    low: number
+    high: number
+    coordinate: number
+    side: number
+  }
+}
+
+function face(binding: PlanOpeningBinding, geometry: PlanGeometry): Face | undefined {
   const { opening, wall, cut } = binding
   if (
-    cut?.length !== 2 ||
+    !Array.isArray(cut) ||
+    cut.length !== 2 ||
+    !cut[0] ||
+    !cut[1] ||
     opening.type === 'window' ||
     (opening.type === 'balcony' && geometry.verticalReference === undefined)
   )
     return undefined
+  if (geometry.verticalReference !== undefined) {
+    const preserved = planOpeningEndpoints(geometry, opening.id)
+    if (!preserved) return undefined
+    const owners = geometry.rooms.flatMap((room, roomIndex) =>
+      room.polygon.flatMap((start, edgeIndex) => {
+        const end = room.polygon[(edgeIndex + 1) % room.polygon.length]
+        return end && exactSegmentContains(start, end, preserved) ? [{ roomIndex, edgeIndex }] : []
+      }),
+    )
+    const owner = owners[0]
+    return owners.length === 1 && owner ? { ...owner, wallId: wall.id, cut: preserved } : undefined
+  }
   const along: 'xCm' | 'yCm' = wall.start.yCm === wall.end.yCm ? 'xCm' : 'yCm'
   const across: 'xCm' | 'yCm' = along === 'xCm' ? 'yCm' : 'xCm'
   if (wall.start[across] !== wall.end[across] || samePoint(wall.start, wall.end)) return undefined
@@ -156,33 +190,66 @@ function face(binding: PlanOpeningBinding, geometry: PlanGeometry) {
   )
   if (owners.length !== 1 || !owners[0]) return undefined
   return {
-    ...owners[0],
+    roomIndex: owners[0].roomIndex,
+    edgeIndex: owners[0].edgeIndex,
     wallId: wall.id,
-    along,
-    across,
-    low,
-    high,
-    coordinate: wall.start[across],
     cut,
+    legacy: { along, low, high, coordinate: wall.start[across], side: owners[0].side },
   }
 }
 
-type Face = NonNullable<ReturnType<typeof face>>
-
 function closedSpans(start: PlanPoint, end: PlanPoint, cuts: Face[]) {
+  if (samePoint(start, end)) return []
   if (!cuts.length) return [{ start, end }]
-  const along = cuts[0]?.along ?? 'xCm'
-  const high = Math.max(start[along], end[along])
-  let cursor = Math.min(start[along], end[along])
+  const along = start.xCm !== end.xCm ? 'xCm' : 'yCm'
+  const last = start[along] > end[along] ? start : end
+  let cursor = start[along] < end[along] ? start : end
   const remaining: Array<{ start: PlanPoint; end: PlanPoint }> = []
-  const at = (value: number): PlanPoint => ({ ...start, [along]: value })
-  for (const cut of [...cuts].sort((a, b) => a.low - b.low)) {
-    if (cut.low < cursor) throw new Error('Дверные участки одной грани перекрываются')
-    if (cut.low > cursor) remaining.push({ start: at(cursor), end: at(cut.low) })
-    cursor = cut.high
+  const ordered = cuts
+    .map(({ cut }): [PlanPoint, PlanPoint] =>
+      cut[0][along] < cut[1][along] ? [cut[0], cut[1]] : [cut[1], cut[0]],
+    )
+    .sort((a, b) => a[0][along] - b[0][along])
+  for (const [cutStart, cutEnd] of ordered) {
+    if (cutStart[along] < cursor[along])
+      throw new Error('Дверные участки одной грани перекрываются')
+    if (cutStart[along] > cursor[along]) remaining.push({ start: cursor, end: cutStart })
+    cursor = cutEnd
   }
-  if (cursor < high) remaining.push({ start: at(cursor), end: at(high) })
+  if (cursor[along] < last[along]) remaining.push({ start: cursor, end: last })
   return remaining
+}
+
+function cutsOverlap(first: Face, second: Face): boolean {
+  const [a, b, c, d] = integerPoints([...first.cut, ...second.cut])
+  if (!a || !b || !c || !d) return true
+  const along = vector(a, b)
+  const length = dot(along, along)
+  const projections: [bigint, bigint] = [dot(vector(a, c), along), dot(vector(a, d), along)]
+  const low = projections[0] < projections[1] ? projections[0] : projections[1]
+  const high = projections[0] > projections[1] ? projections[0] : projections[1]
+  return low < length && high > 0n
+}
+
+/** Keep the existing rectangle/swing zone, but anchor it to the preserved source ends. */
+function entryZone(geometry: PlanGeometry, opening: PlanGeometry['openings'][number], face: Face) {
+  if (geometry.verticalReference === undefined) return doorClearanceZone(opening, geometry)
+  const wall = geometry.walls.find((wall) => wall.id === opening.wallId)
+  if (!wall) return undefined
+  const [a, b, c, d] = integerPoints([wall.start, wall.end, ...face.cut])
+  if (!a || !b || !c || !d) return undefined
+  const forward = dot(vector(a, b), vector(c, d)) > 0n
+  const [start, end] = forward ? face.cut : [face.cut[1], face.cut[0]]
+  if (!start || !end) return undefined
+  return doorClearanceZone(
+    { ...opening, offsetCm: 0, widthCm: Math.hypot(end.xCm - start.xCm, end.yCm - start.yCm) },
+    {
+      ...geometry,
+      walls: geometry.walls.map((candidate) =>
+        candidate.id === wall.id ? { ...candidate, start, end } : candidate,
+      ),
+    },
+  )
 }
 
 /** Только доказанные комнаты и дверные переходы; остальной PDF не объявляется полом. */
@@ -219,10 +286,11 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
     geometry.openings.length > 200 ||
     new Set(geometry.walls.map((wall) => wall.id)).size !== geometry.walls.length ||
     new Set(geometry.openings.map((opening) => opening.id)).size !== geometry.openings.length ||
-    geometry.rooms.some(
-      (room) =>
-        !pdfPolygonIsValid(room.polygon.map(({ xCm, yCm }) => ({ x: xCm / 5, y: yCm / 5 }))),
-    )
+    (!signed &&
+      geometry.rooms.some(
+        (room) =>
+          !pdfPolygonIsValid(room.polygon.map(({ xCm, yCm }) => ({ x: xCm / 5, y: yCm / 5 }))),
+      ))
   )
     return missing('Проверьте контуры комнат и уникальные привязки стен и проёмов.')
   const verticalIssue = inspectPlanVerticalDimensions(geometry)[0]
@@ -268,14 +336,19 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
     return missing(
       'Выберите стартовую дверь с сохранёнными исходными концами и подтверждённой меркой.',
     )
-  if (entryFace.high - entryFace.low < width)
+  if (
+    Math.hypot(
+      entryFace.cut[1].xCm - entryFace.cut[0].xCm,
+      entryFace.cut[1].yCm - entryFace.cut[0].yCm,
+    ) < width
+  )
     return missing('Стартовая дверь уже выбранной ширины прохода.')
   const entryOpening = geometry.openings.find((opening) => opening.id === entry.opening.id)
   if (!reference && entryOpening && ['raised', 'invalid'].includes(openingFloorLevel(entryOpening)))
     return missing(
       'У стартового проёма поднятая или некорректная нижняя грань. Непрерывный путь по полу через порог здесь не проверяется.',
     )
-  const zone = entryOpening && doorClearanceZone(entryOpening, geometry)
+  const zone = entryOpening && entryZone(geometry, entryOpening, entryFace)
   if (!zone) return missing('Задайте внутреннюю стартовую зону у выбранной двери.')
   const start = zone.polygon.reduce(
     (sum, point) => ({
@@ -341,6 +414,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
   if (currentStrips.length !== sourceStrips.length)
     return missing('После правки повторно сверьте сохранённые грани стен с исходным PDF.')
   const strips = currentStrips.map(({ faces: [a, b] }) => body([a.start, a.end, b.end, b.start]))
+  const thresholdSurfaces = reference ? inspectPlanThresholdSurfaces(geometry).surfaces : []
   for (const [a, b] of candidates) {
     const currentOpenings = [a, b].map((binding) =>
       geometry.openings.find((opening) => opening.id === binding.opening.id),
@@ -356,13 +430,19 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
       !first ||
       !second ||
       first.roomIndex === second.roomIndex ||
-      first.side === second.side ||
-      first.along !== second.along ||
-      first.low !== second.low ||
-      first.high !== second.high ||
       usedOpenings.has(a.opening.id) ||
       usedOpenings.has(b.opening.id) ||
       a.opening.id === b.opening.id
+    )
+      return missing('Проверьте исходные концы дверей и однозначность соединения комнат.')
+    if (
+      !reference &&
+      (!first.legacy ||
+        !second.legacy ||
+        first.legacy.side === second.legacy.side ||
+        first.legacy.along !== second.legacy.along ||
+        first.legacy.low !== second.legacy.low ||
+        first.legacy.high !== second.legacy.high)
     )
       return missing('Проверьте исходные концы дверей и однозначность соединения комнат.')
     if (
@@ -371,7 +451,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
           (previous) =>
             previous.roomIndex === candidate.roomIndex &&
             previous.edgeIndex === candidate.edgeIndex &&
-            Math.max(previous.low, candidate.low) < Math.min(previous.high, candidate.high),
+            cutsOverlap(previous, candidate),
         ),
       )
     )
@@ -413,22 +493,38 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
         reason = 'Верх порога выше пола: преодоление ступени не проверяется.'
       else if (owners[0]?.elevationCm !== startElevation)
         reason = 'Переход находится на другом уровне, чем стартовая зона.'
+      else if (!thresholdSurfaces.some((surface) => surface.id === threshold.id))
+        reason = 'Поверхность порога не подтверждена по исходным граням и косякам.'
       if (reason) heldTransitions.push({ openingIds: [a.opening.id, b.opening.id], reason })
       raised = reason !== undefined
     }
-    if (first.coordinate !== second.coordinate) {
+    if (reference) {
+      const threshold = reference.thresholds.find((value) =>
+        value.bindings.every((side) => [a.opening.id, b.opening.id].includes(side.opening.id)),
+      )
+      const surface = thresholdSurfaces.find((surface) => surface.id === threshold?.id)
+      if (!raised && surface) portals.push(body(surface.floor))
+    } else if (
+      first.legacy &&
+      second.legacy &&
+      first.legacy.coordinate !== second.legacy.coordinate
+    ) {
+      const legacyFirst = first.legacy
+      const legacySecond = second.legacy
       // Полоса лежит снаружи обоих полов, между обращёнными друг к другу гранями.
-      const direction = Math.sign(second.coordinate - first.coordinate)
-      const expectedSide = first.along === 'xCm' ? -direction : direction
-      if (first.side !== expectedSide)
+      const direction = Math.sign(legacySecond.coordinate - legacyFirst.coordinate)
+      const expectedSide = legacyFirst.along === 'xCm' ? -direction : direction
+      if (legacyFirst.side !== expectedSide)
         return missing('Дверные грани не обращены друг к другу. Сверьте их по исходному плану.')
       const point = (value: number, coordinate: number): PlanPoint =>
-        first.along === 'xCm' ? { xCm: value, yCm: coordinate } : { xCm: coordinate, yCm: value }
+        legacyFirst.along === 'xCm'
+          ? { xCm: value, yCm: coordinate }
+          : { xCm: coordinate, yCm: value }
       const portal = body([
-        point(first.low, first.coordinate),
-        point(first.high, first.coordinate),
-        point(first.high, second.coordinate),
-        point(first.low, second.coordinate),
+        point(legacyFirst.low, legacyFirst.coordinate),
+        point(legacyFirst.high, legacyFirst.coordinate),
+        point(legacyFirst.high, legacySecond.coordinate),
+        point(legacyFirst.low, legacySecond.coordinate),
       ])
       if (
         [...floors, ...strips, ...portals].some(

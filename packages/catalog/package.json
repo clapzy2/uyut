@@ -18,6 +18,7 @@
     "./plan-vertical-floor-geometry": "./src/plan-vertical-floor-geometry.ts",
     "./plan-volume-types": "./src/plan-volume-types.ts",
     "./plan-threshold-geometry": "./src/plan-threshold-geometry.ts",
+    "./plan-exact-geometry": "./src/plan-exact-geometry.ts",
     "./room-volume": "./src/room-volume.ts",
     "./reviewed-layout-with-measurements": "./src/reviewed-layout-with-measurements.ts"
   },

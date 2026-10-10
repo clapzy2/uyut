@@ -300,6 +300,68 @@ describe('signed continuous floor routes', () => {
     const result = required(inspectPdfClearanceRoutes(accepted.geometry).result)
     expect(result.routes).toHaveLength(level === 0 ? 2 : 1)
   })
+  it.each([0, -2])(
+    'joins diagonal reciprocal open zones only on one confirmed level: %s',
+    (level) => {
+      const geometry = openZones()
+      const rotate = ({ xCm, yCm }: PlanPoint): PlanPoint => ({
+        xCm: 300 + xCm * 0.6 - yCm * 0.8,
+        yCm: 100 + xCm * 0.8 + yCm * 0.6,
+      })
+      geometry.status = 'confirmed'
+      geometry.widthCm = 600
+      geometry.heightCm = 600
+      geometry.routeWidthCm = 40
+      geometry.footprint = box(0, 0, 400, 200).map(rotate)
+      geometry.rooms = geometry.rooms.map((room) => ({
+        ...room,
+        polygon: room.polygon.map(rotate),
+      }))
+      geometry.walls = geometry.walls.map((wall) => ({
+        ...wall,
+        start: rotate(wall.start),
+        end: rotate(wall.end),
+      }))
+      const calibration = required(geometry.pdfCalibration)
+      calibration.wallFaceRoomPolygons = structuredClone(geometry.rooms.map((room) => room.polygon))
+      calibration.sourceOpenZoneBoundaries = calibration.sourceOpenZoneBoundaries?.map((proof) => ({
+        ...proof,
+        polygon: proof.polygon.map(rotate),
+      }))
+      calibration.openingWidthProofs = calibration.openingWidthProofs?.map((proof) => ({
+        ...proof,
+        wall: { ...proof.wall, start: rotate(proof.wall.start), end: rotate(proof.wall.end) },
+        cut: proof.cut?.map(rotate) as [PlanPoint, PlanPoint],
+      }))
+      const accepted = applyPlanVerticalReference(
+        geometry,
+        {
+          version: 1,
+          id: 'diagonal-open-zero',
+          kind: 'finished-floor',
+          zeroFloorId: 'floor-0',
+          acknowledged: true,
+          floors: geometry.rooms.map((room, index) => ({
+            id: `floor-${index}`,
+            room,
+            surface: 'finished-floor',
+            elevationCm: index ? level : 0,
+          })),
+          wallBases: geometry.walls.map((wall) => ({ wall, floorId: 'floor-0' })),
+          thresholds: [],
+          source: { kind: 'site-measurement', reference: 'Synthetic diagonal open zones' },
+        },
+        'test',
+        '2026-10-11T09:00:00.000Z',
+      )
+      if (!accepted.ok) throw new Error(accepted.error)
+      expect(inspectPdfClearanceRoutes(accepted.geometry).result?.routes).toHaveLength(
+        level === 0 ? 2 : 1,
+      )
+      // The pre-existing horizontal-only branch stays closed to this new signed feature.
+      expect(inspectPdfClearanceRoutes(geometry).result).toBeUndefined()
+    },
+  )
 })
 
 describe('проходы между исходными PDF-контурами', () => {
