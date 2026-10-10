@@ -6,7 +6,25 @@
 
 ### Текущий результат последней пачки
 
-Добавлено автоматическое source-bound распознавание двух классов графики:
+Добавлен общий source-профиль корпуса с двумя точно примыкающими торцами.
+Он используется для исходных профилей остекления и составных створок, без
+склейки/подгонки точек. Обычный quarter-swing guard сохранён; только capped-panel
+профиль допускает actual sweep80..100° при прежнем circle-shape fit0.005.
+Реальная балконная створка581 теперь распознана с тремя source leaf parts,
+sweep91.65°. Independent centerline даёт glazing hint, но не window kind:
+остеклённая часть774 принадлежит балконному блоку. Private source-review показывает
+синий слой и отдельный переключатель, capped leaf остаётся тремя реальными линиями.
+Fresh primary PDF дал2 door symbols/7 прежних frames/8 glazing hints; остальные6
+PDF не получили новых glazing hints, BASIS/Basman сохранили по1 simple door.
+Overlapping кап746/750, ambiguous centerlines и competing source bodies не
+дорисовываются. Закрыт legacy bypass, где glazing body мог стать simple door.
+3673 web tests/252 файлов, typecheck7, lint886, build/diff и independent review
+прошли. Firefox/mock API/real source pixels проверил оба слоя,390/1280px и scroll.
+Полная оконная/балконная топология, роли стен/пола, размерные/вертикальные proof
+и source-based2D/3D ещё не приняты. Это source candidates, не полный inventory.
+Штатный перенос/pageReview/DB, production, AI budget, PR/deploy не менялись.
+
+Предыдущая пачка добавила автоматическое source-bound распознавание двух классов графики:
 четверть-круговые cubic дуги со створкой и нарисованные прямоугольные рамки
 с точным покрытием обоих откосов исходными отрезками. Кривые теперь сохраняют
 команды/controls отдельно от прямых стен; skippedCurves и прежние ограничения

@@ -61,6 +61,11 @@ await writeFile(
     2,
   ),
 )
+const sourceLine = (
+  line: { start: { x: number; y: number }; end: { x: number; y: number } },
+  color: string,
+) =>
+  `<line x1="${line.start.x}" y1="${line.start.y}" x2="${line.end.x}" y2="${line.end.y}" stroke="${color}" stroke-width="3"/>`
 const overlays = [
   ...(packet.doorSymbols?.candidates ?? []).map((door) => {
     const commands = [
@@ -70,11 +75,15 @@ const overlays = [
           `C ${part.control1.x} ${part.control1.y} ${part.control2.x} ${part.control2.y} ${part.end.x} ${part.end.y}`,
       ),
     ].join(' ')
-    return `<path d="${commands}" fill="none" stroke="#b06500" stroke-width="3"/><line x1="${door.leaf.start.x}" y1="${door.leaf.start.y}" x2="${door.leaf.end.x}" y2="${door.leaf.end.y}" stroke="#b06500" stroke-width="3"/>`
+    return `<path d="${commands}" fill="none" stroke="#b06500" stroke-width="3"/>${(door.leafParts ?? [door.leaf]).map((part) => sourceLine(part, '#b06500')).join('')}`
   }),
   ...(packet.openingFrames?.candidates ?? []).map(
     (frame) =>
       `<polygon points="${frame.polygon.map((p) => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="#b06500" stroke-width="3" stroke-dasharray="5 3"/>`,
+  ),
+  ...(packet.glazingSymbols?.candidates ?? []).map(
+    (symbol) =>
+      `${symbol.polygons.map((polygon) => `<polygon points="${polygon.map((p) => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="#256e98" stroke-width="2"/>`).join('')}${sourceLine(symbol.centerline, '#256e98')}`,
   ),
 ].join('')
 const overlay = `<svg xmlns="http://www.w3.org/2000/svg" width="${page.image.width}" height="${page.image.height}">${overlays}</svg>`
@@ -89,6 +98,8 @@ console.log(
       aiRequests: 0,
       doors: doors.candidates.length,
       frames: frames.candidates.length,
+      glazingPanels: packet.glazingSymbols?.candidates.length ?? 0,
+      compoundPanelRefusal: doors.compoundPanels.refusalReason,
       doorRefusal: doors.refusalReason,
       frameRefusal: frames.refusalReason,
       skippedCurves: input.work.skippedCurves,

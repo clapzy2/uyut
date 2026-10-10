@@ -204,6 +204,83 @@ describe('whole-page native inspection, separate from saved geometry', () => {
     expect(packet).not.toHaveProperty('pageReview')
     expect(input).toEqual(before)
   })
+  it('shows actual glazing bodies, endcaps and centerline without creating a window or floor', () => {
+    const input = fixture()
+    const polygons = [
+      [
+        { x: 100, y: 100 },
+        { x: 200, y: 100 },
+        { x: 200, y: 105 },
+        { x: 100, y: 105 },
+      ],
+      [
+        { x: 95, y: 100 },
+        { x: 100, y: 100 },
+        { x: 100, y: 105 },
+        { x: 95, y: 105 },
+      ],
+      [
+        { x: 200, y: 100 },
+        { x: 205, y: 100 },
+        { x: 205, y: 105 },
+        { x: 200, y: 105 },
+      ],
+    ]
+    for (const [index, points] of polygons.entries())
+      input.work.paths.push({
+        operationIndex: 80 + index,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: true,
+        points,
+      })
+    input.work.paths.push({
+      operationIndex: 83,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 100, y: 102.5 },
+        { x: 200, y: 102.5 },
+      ],
+    })
+    const before = structuredClone(input)
+    const packet = nativeReviewPacket(input)
+    expect(packet.glazingSymbols).toEqual({
+      status: 'draft',
+      refusalReason: null,
+      candidates: [
+        {
+          id: 'native-glazing-symbol-80:0',
+          polygons,
+          centerline: { start: { x: 100, y: 102.5 }, end: { x: 200, y: 102.5 } },
+        },
+      ],
+    })
+    expect(packet.readiness).toEqual({ readyFor2D: false, readyFor3D: false, readOnly: true })
+    expect(packet).not.toHaveProperty('floor')
+    expect(packet.glazingSymbols?.candidates[0]).not.toHaveProperty('openingKind')
+    expect(input).toEqual(before)
+    // Competing source centerlines cannot silently become a guessed glazing candidate.
+    const centerline = input.work.paths.at(-1)
+    if (!centerline) throw new Error('Missing source centerline fixture')
+    input.work.paths.push({ ...structuredClone(centerline), operationIndex: 84 })
+    expect(nativeReviewPacket(input).glazingSymbols?.candidates).toEqual([])
+  })
+  it('reports unavailable panel search explicitly without inventing fallback geometry', () => {
+    const input = fixture()
+    // No curve-command layer is needed for glazing, but incomplete source geometry
+    // still holds both new profiles and the old openings; no fallback invents a panel.
+    input.work.unsupportedContexts = 1
+    const packet = nativeReviewPacket(input)
+    expect(packet.glazingSymbols).toEqual({
+      status: 'unresolved',
+      refusalReason: 'incomplete-native-layer',
+      candidates: [],
+    })
+    expect(packet.issues.some((issue) => issue.code.startsWith('panel-profile-search:'))).toBe(true)
+    expect(packet.readiness.readOnly).toBe(true)
+  })
   it('shows shared-wall source candidates without erasing frames or approving a floor', () => {
     const input = connectedNativeRoomFixture()
     const before = structuredClone(input)

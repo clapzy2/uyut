@@ -1,5 +1,6 @@
 import type { NativeTextAnchors } from './plan-document'
 import { nativeFillCandidates } from './plan-native-fill-candidates'
+import { nativePanelSymbolCandidates } from './plan-native-panel-symbols'
 import type { PagePoint, PdfCurvePath, PdfLinework } from './plan-pdf-linework'
 import type { NativePageSegment } from './plan-pdf-opening-endpoint'
 import { pdfPolygonIsValid } from './plan-pdf-room-binding'
@@ -11,6 +12,9 @@ export type NativeDoorSymbol = {
   id: string
   arc: SwingArc
   leaf: NativePageSegment
+  leafParts?: NativePageSegment[]
+  leafProfile: 'single-stroke' | 'capped-panel'
+  swingAngleDegrees: number
   hinge: PagePoint
   closedTip: PagePoint
   endpointResidualPixels: number
@@ -31,12 +35,19 @@ const subtract = (a: PagePoint, b: PagePoint) => ({ x: a.x - b.x, y: a.y - b.y }
 const dot = (a: PagePoint, b: PagePoint) => a.x * b.x + a.y * b.y
 const cross = (a: PagePoint, b: PagePoint) => a.x * b.y - a.y * b.x
 const pointKey = (point: PagePoint) => `${point.x}:${point.y}`
+type LeafOption = {
+  leaf: NativePageSegment
+  endpoints: [PagePoint, PagePoint]
+  parts?: NativePageSegment[]
+  profile: NativeDoorSymbol['leafProfile']
+}
 
-function quarterSwingFit(
+function swingFit(
   arc: SwingArc,
   hinge: PagePoint,
   raster: (point: PagePoint) => PagePoint,
-): number | null {
+  profile: LeafOption['profile'],
+): { residual: number; angleDegrees: number } | null {
   const center = raster(hinge)
   let start = raster(arc.start)
   const initial = subtract(start, center)
@@ -50,7 +61,9 @@ function quarterSwingFit(
     const a = subtract(start, center)
     const b = subtract(end, center)
     const angle = Math.atan2(cross(a, b), dot(a, b))
-    if (Math.abs(angle) < 0.1 || Math.abs(angle) > Math.PI / 2 + SHAPE_FIT_RATIO) return null
+    const maximumSegmentAngle =
+      profile === 'single-stroke' ? Math.PI / 2 + SHAPE_FIT_RATIO : (100 * Math.PI) / 180
+    if (Math.abs(angle) < 0.1 || Math.abs(angle) > maximumSegmentAngle) return null
     if (direction && direction !== Math.sign(angle)) return null
     direction = Math.sign(angle)
     totalAngle += angle
@@ -65,11 +78,16 @@ function quarterSwingFit(
     )
     start = end
   }
-  residual = Math.max(residual, Math.abs(Math.abs(totalAngle) - Math.PI / 2))
-  return residual <= SHAPE_FIT_RATIO ? residual : null
+  const angleDegrees = (Math.abs(totalAngle) * 180) / Math.PI
+  if (profile === 'single-stroke')
+    residual = Math.max(residual, Math.abs(Math.abs(totalAngle) - Math.PI / 2))
+  // A capped source leaf may be drawn slightly past a right angle. This is a
+  // distinct symbol profile, not a relaxed circle fit or a changed source hinge.
+  else if (angleDegrees < 80 || angleDegrees > 100) return null
+  return residual <= SHAPE_FIT_RATIO ? { residual, angleDegrees } : null
 }
 
-/** Source-painted quarter swings + leaves. Candidate classification, not an opening inventory. */
+/** Painted swings and source leaf profiles; candidate classification, not an opening inventory. */
 export function nativeDoorSymbolCandidates(input: {
   native: NativeTextAnchors
   work: PdfLinework
@@ -78,6 +96,7 @@ export function nativeDoorSymbolCandidates(input: {
   const frame = nativeFillCandidates(input)
   const { work, native } = input
   const scale = native.pageNormalizedScale
+  const compoundPanels = nativePanelSymbolCandidates(input)
   const candidates: NativeDoorSymbol[] = []
   const rejected: { operationIndex: number; subpathIndex: number; reason: string }[] = []
   const finish = (reason: string | null) => ({
@@ -90,6 +109,7 @@ export function nativeDoorSymbolCandidates(input: {
     refusalReason: reason,
     endpointFitLimitPixels: ENDPOINT_FIT_PIXELS,
     shapeFitLimitRatio: SHAPE_FIT_RATIO,
+    compoundPanels,
     completeOpeningInventory: false as const,
     closesFloorBoundary: false as const,
   })
@@ -148,13 +168,26 @@ export function nativeDoorSymbolCandidates(input: {
     )
   )
     return finish('invalid-omission-bounds')
-  const leaves: NativePageSegment[] = []
+  const leaves: LeafOption[] = []
+  const glazingParts = new Set(
+    compoundPanels.panels
+      .filter((panel) => panel.centerlineStatus !== 'absent')
+      .flatMap((panel) => [panel.body, ...panel.caps])
+      .map((path) => `${path.operationIndex}:${path.subpathIndex}`),
+  )
+  const addSingleLeaf = (leaf: NativePageSegment) =>
+    leaves.push({
+      leaf,
+      endpoints: [leaf.start, leaf.end] as [PagePoint, PagePoint],
+      profile: 'single-stroke' as const,
+    })
   for (const path of work.paths) {
     if (
       path.paint !== 'stroke' ||
       counts.get(path.operationIndex) !== 1 ||
       curveOperations.has(path.operationIndex) ||
-      omitted.has(path.operationIndex)
+      omitted.has(path.operationIndex) ||
+      glazingParts.has(`${path.operationIndex}:${path.subpathIndex}`)
     )
       continue
     let points = path.points
@@ -163,7 +196,7 @@ export function nativeDoorSymbolCandidates(input: {
     if (!first || !last) continue
     if (samePoint(first, last)) points = points.slice(0, -1)
     if (!path.closed && points.length === 2) {
-      leaves.push({
+      addSingleLeaf({
         operationIndex: path.operationIndex,
         subpathIndex: path.subpathIndex,
         segmentIndex: 0,
@@ -190,7 +223,7 @@ export function nativeDoorSymbolCandidates(input: {
         continue
       for (let i = 0; i < 4; i++) {
         if ((lengths[i] as number) < Math.max(...lengths) * 0.99) continue
-        leaves.push({
+        addSingleLeaf({
           operationIndex: path.operationIndex,
           subpathIndex: path.subpathIndex,
           segmentIndex: i,
@@ -198,6 +231,37 @@ export function nativeDoorSymbolCandidates(input: {
           end: points[(i + 1) % 4] as PagePoint,
         })
       }
+    }
+  }
+  for (const panel of compoundPanels.panels) {
+    // Closed glazing panels stay in the glazing layer, not a door by shape alone.
+    if (panel.centerlineStatus !== 'absent') continue
+    const xs = panel.body.points.map((p) => p.x * scale.x)
+    const ys = panel.body.points.map((p) => p.y * scale.y)
+    const width = Math.max(...xs) - Math.min(...xs)
+    const height = Math.max(...ys) - Math.min(...ys)
+    if (Math.min(width, height) / Math.max(width, height) > 0.08) continue
+    for (const parts of panel.sides) {
+      const vertices = new Map<string, { point: PagePoint; count: number }>()
+      for (const part of parts)
+        for (const point of [part.start, part.end]) {
+          const key = pointKey(point)
+          const previous = vertices.get(key)
+          vertices.set(key, { point, count: (previous?.count ?? 0) + 1 })
+        }
+      const endpoints = [...vertices.values()].filter((v) => v.count === 1).map((v) => v.point)
+      const bodyEdge = parts.find(
+        (part) =>
+          part.operationIndex === panel.body.operationIndex &&
+          part.subpathIndex === panel.body.subpathIndex,
+      )
+      if (endpoints.length !== 2 || !bodyEdge || parts.length !== 3) continue
+      leaves.push({
+        leaf: bodyEdge,
+        endpoints: endpoints as [PagePoint, PagePoint],
+        parts,
+        profile: 'capped-panel',
+      })
     }
   }
   let fitWork = 0
@@ -252,18 +316,19 @@ export function nativeDoorSymbolCandidates(input: {
     const fits = new Map<
       string,
       {
-        leaf: NativePageSegment
+        option: LeafOption
         hinge: PagePoint
         closedTip: PagePoint
         endpointResidual: number
         shapeResidual: number
+        angleDegrees: number
       }
     >()
-    for (const leaf of leaves) {
+    for (const option of leaves) {
       if (++fitWork > MAX_FIT_WORK) return finish('symbol-search-budget')
       for (const [hinge, tip] of [
-        [leaf.start, leaf.end],
-        [leaf.end, leaf.start],
+        [option.endpoints[0], option.endpoints[1]],
+        [option.endpoints[1], option.endpoints[0]],
       ] as const) {
         for (const [openTip, closedTip] of [
           [arc.start, end],
@@ -271,12 +336,19 @@ export function nativeDoorSymbolCandidates(input: {
         ] as const) {
           const endpointResidual = distance(raster(tip), raster(openTip))
           if (endpointResidual > ENDPOINT_FIT_PIXELS) continue
-          const shapeResidual = quarterSwingFit(arc, hinge, raster)
-          if (shapeResidual === null) continue
+          const shape = swingFit(arc, hinge, raster, option.profile)
+          if (shape === null) continue
           // Exact repaint aliases only; never select the closest of competing hinges.
           const key = `${pointKey(hinge)}:${pointKey(tip)}:${pointKey(closedTip)}`
           if (!fits.has(key))
-            fits.set(key, { leaf, hinge, closedTip, endpointResidual, shapeResidual })
+            fits.set(key, {
+              option,
+              hinge,
+              closedTip,
+              endpointResidual,
+              shapeResidual: shape.residual,
+              angleDegrees: shape.angleDegrees,
+            })
         }
       }
     }
@@ -289,7 +361,10 @@ export function nativeDoorSymbolCandidates(input: {
     candidates.push({
       id: `native-door-symbol-${arc.operationIndex}:${arc.subpathIndex}`,
       arc,
-      leaf: fit.leaf,
+      leaf: fit.option.leaf,
+      ...(fit.option.parts ? { leafParts: fit.option.parts } : {}),
+      leafProfile: fit.option.profile,
+      swingAngleDegrees: fit.angleDegrees,
       hinge: fit.hinge,
       closedTip: fit.closedTip,
       endpointResidualPixels: fit.endpointResidual,

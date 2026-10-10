@@ -125,6 +125,7 @@ export function NativeReviewResult({
 }) {
   const [showFills, setShowFills] = useState(false)
   const [showOpeningCandidates, setShowOpeningCandidates] = useState(true)
+  const [showGlazingCandidates, setShowGlazingCandidates] = useState(true)
   const [fullSize, setFullSize] = useState(false)
   const visible = packet.faces.filter((face) => face.layer === 'stroke' || showFills)
   const hasOpeningCandidates =
@@ -196,6 +197,36 @@ export function NativeReviewResult({
           ) : null}
         </div>
       ) : null}
+      {packet.glazingSymbols ? (
+        <div className="space-y-2 text-[13px] leading-relaxed">
+          <p>
+            Кандидаты профилей остекления:{' '}
+            {packet.glazingSymbols.status === 'unresolved'
+              ? 'поиск не завершён'
+              : packet.glazingSymbols.candidates.length}
+            . Это не число окон.
+          </p>
+          <p className="text-ink-2">
+            Профиль найден по корпусу, двум торцам и отдельной средней линии в исходнике. Такой
+            рисунок может относиться к окну или остеклённой балконной двери; вид проёма, граница
+            пола и проход не подтверждены.
+          </p>
+          {packet.glazingSymbols.status === 'unresolved' ? (
+            <p className="text-ink-2">
+              Неполный набор профилей не показан; нужна отдельная сверка исходника.
+            </p>
+          ) : packet.glazingSymbols.candidates.length ? (
+            <label className="flex min-h-11 items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showGlazingCandidates}
+                onChange={(event) => setShowGlazingCandidates(event.target.checked)}
+              />
+              Показать исходные профили остекления — синие линии
+            </label>
+          ) : null}
+        </div>
+      ) : null}
       <label className="flex min-h-11 items-center gap-2 text-[13px]">
         <input
           type="checkbox"
@@ -260,37 +291,50 @@ export function NativeReviewResult({
             </polygon>
           ))}
           {showOpeningCandidates && packet.doorSymbols?.status === 'draft'
-            ? packet.doorSymbols.candidates.map((symbol) => (
-                <g key={symbol.id} fill="none" stroke="#b45309" strokeWidth="2">
-                  <path
-                    d={[
-                      `M ${symbol.arc.start.x} ${symbol.arc.start.y}`,
-                      ...symbol.arc.segments.map(
-                        (segment) =>
-                          `C ${segment.control1.x} ${segment.control1.y} ${segment.control2.x} ${segment.control2.y} ${segment.end.x} ${segment.end.y}`,
-                      ),
-                    ].join(' ')}
-                    vectorEffect="non-scaling-stroke"
-                  >
-                    <title>
-                      Исходная дуга дверного символа. Сходство рисунка, не точный проём и не граница
-                      пола.
-                    </title>
-                  </path>
-                  <line
-                    x1={symbol.leaf.start.x}
-                    y1={symbol.leaf.start.y}
-                    x2={symbol.leaf.end.x}
-                    y2={symbol.leaf.end.y}
-                    vectorEffect="non-scaling-stroke"
-                  >
-                    <title>
-                      Исходная линия створки. Физический проход не подтверждён; граница пола не
-                      замыкается.
-                    </title>
-                  </line>
-                </g>
-              ))
+            ? packet.doorSymbols.candidates.map((symbol) => {
+                const parts =
+                  symbol.leafProfile === 'capped-panel' ? (symbol.leafParts ?? []) : [symbol.leaf]
+                const profileDescription =
+                  symbol.leafProfile === 'capped-panel'
+                    ? 'Профиль створки с двумя торцами: три исходных отрезка.'
+                    : 'Один исходный отрезок створки.'
+                const angleDescription =
+                  symbol.swingAngleDegrees === undefined
+                    ? ''
+                    : ` Поворот рисунка: ${symbol.swingAngleDegrees.toFixed(2)}°.`
+                return (
+                  <g key={symbol.id} fill="none" stroke="#b45309" strokeWidth="2">
+                    <path
+                      d={[
+                        `M ${symbol.arc.start.x} ${symbol.arc.start.y}`,
+                        ...symbol.arc.segments.map(
+                          (segment) =>
+                            `C ${segment.control1.x} ${segment.control1.y} ${segment.control2.x} ${segment.control2.y} ${segment.end.x} ${segment.end.y}`,
+                        ),
+                      ].join(' ')}
+                      vectorEffect="non-scaling-stroke"
+                    >
+                      <title>
+                        {`Исходная дуга дверного символа. Сходство рисунка, не точный проём и не граница пола. ${profileDescription}${angleDescription}`}
+                      </title>
+                    </path>
+                    {parts.map((part) => (
+                      <line
+                        key={`${part.start.x}:${part.start.y}:${part.end.x}:${part.end.y}`}
+                        x1={part.start.x}
+                        y1={part.start.y}
+                        x2={part.end.x}
+                        y2={part.end.y}
+                        vectorEffect="non-scaling-stroke"
+                      >
+                        <title>
+                          {`Исходная линия створки. ${profileDescription}${angleDescription} Физический проход не подтверждён; граница пола не замыкается.`}
+                        </title>
+                      </line>
+                    ))}
+                  </g>
+                )
+              })
             : null}
           {showOpeningCandidates && packet.openingFrames?.status === 'draft'
             ? packet.openingFrames.candidates.map((frame) => (
@@ -310,6 +354,36 @@ export function NativeReviewResult({
                 </polygon>
               ))
             : null}
+          {showGlazingCandidates && packet.glazingSymbols?.status === 'draft'
+            ? packet.glazingSymbols.candidates.map((symbol) => (
+                <g key={symbol.id} fill="none" stroke="#1d4ed8" strokeWidth="2">
+                  {symbol.polygons.map((polygon) => (
+                    <polygon
+                      key={polygon.map((point) => `${point.x}:${point.y}`).join(';')}
+                      points={polygon.map((point) => `${point.x},${point.y}`).join(' ')}
+                      vectorEffect="non-scaling-stroke"
+                    >
+                      <title>
+                        Исходный корпус или торец профиля остекления. Вид проёма и граница пола не
+                        подтверждены.
+                      </title>
+                    </polygon>
+                  ))}
+                  <line
+                    x1={symbol.centerline.start.x}
+                    y1={symbol.centerline.start.y}
+                    x2={symbol.centerline.end.x}
+                    y2={symbol.centerline.end.y}
+                    vectorEffect="non-scaling-stroke"
+                  >
+                    <title>
+                      Отдельная средняя линия из исходника. Это не добавленный порог и не граница
+                      пола.
+                    </title>
+                  </line>
+                </g>
+              ))
+            : null}
         </svg>
       </section>
       <p className="text-[13px] leading-relaxed text-ink-2">
@@ -317,6 +391,9 @@ export function NativeReviewResult({
         Ни один цвет не означает подтверждённую комнату.
         {packet.openingFrames?.candidates.length
           ? ' Оранжевый пунктир обводит только нарисованные в исходнике рамки, не добавляет порог или границу пола.'
+          : null}
+        {packet.glazingSymbols?.candidates.length
+          ? ' Синие линии показывают только исходные профили остекления, не определяют окна или балконные двери.'
           : null}
       </p>
       <SavedReviewCoverage savedReview={packet.savedReview} />
@@ -345,6 +422,11 @@ export function NativeReviewResult({
         {packet.openingFrames?.refusalReason ? (
           <p className="mt-2 break-all">
             Ограничение поиска рамок проёмов: {packet.openingFrames.refusalReason}.
+          </p>
+        ) : null}
+        {packet.glazingSymbols?.refusalReason ? (
+          <p className="mt-2 break-all">
+            Ограничение поиска профилей остекления: {packet.glazingSymbols.refusalReason}.
           </p>
         ) : null}
         {packet.issues

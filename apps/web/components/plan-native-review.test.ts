@@ -241,4 +241,140 @@ describe('read-only native review presentation', () => {
     expect(html).not.toContain('<path')
     expect(html).not.toContain('<line')
   })
+  it('draws the three original capped-leaf segments rather than an imaginary long chord', () => {
+    const packet = nativeReviewPacket({
+      source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },
+      image: { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 },
+    })
+    packet.doorSymbols = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [
+        {
+          id: 'capped-door',
+          arc: {
+            start: { x: 50, y: 100 },
+            segments: [
+              {
+                control1: { x: 50, y: 72.386 },
+                control2: { x: 72.386, y: 50 },
+                end: { x: 100, y: 50 },
+              },
+            ],
+          },
+          leaf: { start: { x: 100, y: 100 }, end: { x: 50, y: 100 } },
+          leafParts: [
+            { start: { x: 100, y: 100 }, end: { x: 100, y: 103 } },
+            { start: { x: 50, y: 103 }, end: { x: 100, y: 103 } },
+            { start: { x: 50, y: 103 }, end: { x: 50, y: 100 } },
+          ],
+          leafProfile: 'capped-panel',
+          swingAngleDegrees: 85.235,
+          endpointResidualPixels: 0.083,
+        },
+      ],
+    }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Профиль створки с двумя торцами: три исходных отрезка')
+    expect(html).toContain('Поворот рисунка: 85.23°')
+    expect(html.match(/<line\b/g)).toHaveLength(3)
+    expect(html).toContain('x1="100" y1="100" x2="100" y2="103"')
+    expect(html).toContain('x1="50" y1="103" x2="100" y2="103"')
+    expect(html).toContain('x1="50" y1="103" x2="50" y2="100"')
+    expect(html).not.toContain('x1="100" y1="100" x2="50" y2="100"')
+    expect(html.match(/d="M [^"]+"/g)).toEqual(['d="M 50 100 C 50 72.386 72.386 50 100 50"'])
+    expect(html).not.toContain('<polygon')
+    expect(html).not.toContain('<polyline')
+    expect(html).not.toContain('Подтвердить')
+    expect(html).not.toContain('Сохранить')
+  })
+  it('keeps glazing in its own source-only blue layer and does not call it confirmed windows', () => {
+    const packet = nativeReviewPacket({
+      source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },
+      image: { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 },
+    })
+    const rectangle = (left: number, top: number, right: number, bottom: number) => [
+      { x: left, y: top },
+      { x: right, y: top },
+      { x: right, y: bottom },
+      { x: left, y: bottom },
+    ]
+    packet.glazingSymbols = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [
+        {
+          id: 'glazing-profile',
+          polygons: [
+            rectangle(30, 40, 100, 50),
+            rectangle(30, 38, 35, 52),
+            rectangle(95, 38, 100, 52),
+          ],
+          centerline: { start: { x: 30, y: 45 }, end: { x: 100, y: 45 } },
+        },
+      ],
+    }
+    packet.openingFrames = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [{ id: 'frame', polygon: rectangle(200, 40, 300, 50) }],
+    }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Кандидаты профилей остекления: 1')
+    expect(html).toContain('Это не число окон')
+    expect(html).toContain('окну или остеклённой балконной двери')
+    expect(html).toContain('Показать исходные профили остекления — синие линии')
+    expect(html).toContain('Показать исходные дуги, створки и рамки — оранжевые линии')
+    expect(html.match(/type="checkbox"/g)).toHaveLength(3)
+    expect(html).toContain('stroke="#1d4ed8"')
+    expect(html).toContain('stroke="#b45309"')
+    expect(html).toContain('points="30,40 100,40 100,50 30,50"')
+    expect(html).toContain('points="30,38 35,38 35,52 30,52"')
+    expect(html).toContain('points="95,38 100,38 100,52 95,52"')
+    expect(html).toContain('x1="30" y1="45" x2="100" y2="45"')
+    expect(html).toContain('Это не добавленный порог и не граница пола')
+    expect(html.match(/<polygon\b/g)).toHaveLength(4)
+    expect(html.match(/<line\b/g)).toHaveLength(1)
+    expect(html).not.toContain('<path')
+    expect(html).not.toContain('<polyline')
+    expect(html).not.toContain('Подтвердить')
+    expect(html).not.toContain('Сохранить')
+    expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it.each(['draft', 'unresolved'] as const)(
+    'does not draw glazing or a toggle for an empty %s search',
+    (status) => {
+      const packet = nativeReviewPacket({
+        source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },
+        image: { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 },
+      })
+      packet.glazingSymbols = {
+        status,
+        refusalReason: status === 'unresolved' ? 'glazing-search-budget' : null,
+        candidates: [],
+      }
+      const html = renderToStaticMarkup(
+        createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+      )
+      expect(html).toContain(
+        status === 'unresolved'
+          ? 'Кандидаты профилей остекления: поиск не завершён'
+          : 'Кандидаты профилей остекления: 0',
+      )
+      if (status === 'unresolved') {
+        expect(html).toContain('Неполный набор профилей не показан')
+        expect(html).toContain('glazing-search-budget')
+      }
+      expect(html).not.toContain('Показать исходные профили остекления — синие линии')
+      expect(html).not.toContain('<polygon')
+      expect(html).not.toContain('<line')
+      expect(html).not.toContain('<path')
+      expect(html).not.toContain('Подтвердить')
+      expect(html).not.toContain('Сохранить')
+    },
+  )
 })

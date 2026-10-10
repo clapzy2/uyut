@@ -54,6 +54,9 @@ export type NativeReviewPacket = {
         }[]
       }
       leaf: { start: { x: number; y: number }; end: { x: number; y: number } }
+      leafParts?: { start: { x: number; y: number }; end: { x: number; y: number } }[]
+      leafProfile?: 'single-stroke' | 'capped-panel'
+      swingAngleDegrees?: number
       endpointResidualPixels: number
     }[]
   }
@@ -61,6 +64,15 @@ export type NativeReviewPacket = {
     status: 'draft' | 'unresolved'
     refusalReason: string | null
     candidates: { id: string; polygon: { x: number; y: number }[] }[]
+  }
+  glazingSymbols?: {
+    status: 'draft' | 'unresolved'
+    refusalReason: string | null
+    candidates: {
+      id: string
+      polygons: { x: number; y: number }[][]
+      centerline: { start: { x: number; y: number }; end: { x: number; y: number } }
+    }[]
   }
   issues: { code: string; message: string }[]
   readiness: { readyFor2D: false; readyFor3D: false; readOnly: true }
@@ -171,6 +183,16 @@ export function nativeReviewPacket(input: {
           })),
         },
         leaf: { start: raster(door.leaf.start), end: raster(door.leaf.end) },
+        ...(door.leafParts
+          ? {
+              leafParts: door.leafParts.map((part) => ({
+                start: raster(part.start),
+                end: raster(part.end),
+              })),
+            }
+          : {}),
+        leafProfile: door.leafProfile,
+        swingAngleDegrees: door.swingAngleDegrees,
         endpointResidualPixels: door.endpointResidualPixels,
       })),
     }
@@ -181,6 +203,24 @@ export function nativeReviewPacket(input: {
         id: candidate.id,
         polygon: candidate.frame.points.map(raster),
       })),
+    }
+    packet.glazingSymbols = {
+      status: doors.compoundPanels.status,
+      refusalReason: doors.compoundPanels.refusalReason,
+      candidates: doors.compoundPanels.panels.flatMap((panel) =>
+        panel.centerline
+          ? [
+              {
+                id: `native-glazing-symbol-${panel.body.operationIndex}:${panel.body.subpathIndex}`,
+                polygons: [panel.body, ...panel.caps].map((path) => path.points.map(raster)),
+                centerline: {
+                  start: raster(panel.centerline.start),
+                  end: raster(panel.centerline.end),
+                },
+              },
+            ]
+          : [],
+      ),
     }
   }
   const fills = rooms.geometry
@@ -289,6 +329,7 @@ export function nativeReviewPacket(input: {
     ['dimension-search', dimensions.refusalReason],
     ['door-symbol-search', doors.refusalReason],
     ['opening-frame-search', frames.refusalReason],
+    ['panel-profile-search', doors.compoundPanels.refusalReason],
   ] as const) {
     if (reason)
       issue(

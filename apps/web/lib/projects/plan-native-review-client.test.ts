@@ -71,6 +71,52 @@ function openingFrames(): NonNullable<NativeReviewPacket['openingFrames']> {
     ],
   }
 }
+function glazingSymbols(): NonNullable<NativeReviewPacket['glazingSymbols']> {
+  const rectangle = (left: number, top: number, right: number, bottom: number) => [
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: right, y: bottom },
+    { x: left, y: bottom },
+  ]
+  return {
+    status: 'draft',
+    refusalReason: null,
+    candidates: [
+      {
+        id: 'native-glazing-symbol-1:0',
+        polygons: [
+          rectangle(30, 40, 100, 50),
+          rectangle(30, 38, 35, 52),
+          rectangle(95, 38, 100, 52),
+        ],
+        centerline: { start: { x: 30, y: 45 }, end: { x: 100, y: 45 } },
+      },
+    ],
+  }
+}
+function cappedDoorSymbols(): NonNullable<NativeReviewPacket['doorSymbols']> {
+  const symbols = doorSymbols()
+  const symbol = symbols.candidates[0]
+  if (!symbol) throw new Error('Door symbol fixture is missing')
+  Object.assign(symbol, {
+    leafProfile: 'capped-panel',
+    swingAngleDegrees: 85,
+    leafParts: [
+      { start: { x: 100, y: 100 }, end: { x: 100, y: 103 } },
+      { start: { x: 50, y: 103 }, end: { x: 100, y: 103 } },
+      { start: { x: 50, y: 103 }, end: { x: 50, y: 100 } },
+    ],
+  })
+  return symbols
+}
+
+function loadFixture(packet: NativeReviewPacket, headers: Record<string, string>) {
+  const fetcher = vi.fn(async (url: string) =>
+    url.includes('native-review-image') ? new Response(body, { headers }) : Response.json(packet),
+  )
+  return loadNativeReview(input(), fetcher as typeof fetch)
+}
+
 describe('atomic private native image/packet loading', () => {
   function coveredFixture() {
     const result = fixture()
@@ -164,6 +210,7 @@ describe('atomic private native image/packet loading', () => {
     const result = await loadNativeReview(input(), fetcher as typeof fetch)
     expect(result.packet.doorSymbols).toBeUndefined()
     expect(result.packet.openingFrames).toBeUndefined()
+    expect(result.packet.glazingSymbols).toBeUndefined()
     expect(result.packet.image.sha256).toBe(imageHash)
     expect(await result.image.text()).toBe(body)
     expect(fetcher).toHaveBeenCalledTimes(2)
@@ -235,6 +282,216 @@ describe('atomic private native image/packet loading', () => {
     expect((await loadNativeReview(input(), fetcher as typeof fetch)).packet.openingFrames).toEqual(
       packet.openingFrames,
     )
+  })
+  it.each([4, 5])('preserves all %i source points of each glazing polygon', async (points) => {
+    const { packet, headers } = fixture()
+    packet.glazingSymbols = glazingSymbols()
+    const candidate = packet.glazingSymbols.candidates[0]
+    if (!candidate) throw new Error('Glazing fixture is missing')
+    if (points === 5) {
+      for (const polygon of candidate.polygons) {
+        const first = polygon[0]
+        if (!first) throw new Error('Glazing polygon fixture is missing')
+        polygon.push({ ...first })
+      }
+    }
+    const result = await loadFixture(packet, headers)
+    expect(result.packet.glazingSymbols).toEqual(packet.glazingSymbols)
+    expect(result.packet.readiness).toEqual({
+      readOnly: true,
+      readyFor2D: false,
+      readyFor3D: false,
+    })
+  })
+  it.each(['draft', 'unresolved'] as const)('accepts an empty %s glazing layer', async (status) => {
+    const { packet, headers } = fixture()
+    packet.glazingSymbols = {
+      status,
+      refusalReason: status === 'unresolved' ? 'glazing-search-budget' : null,
+      candidates: [],
+    }
+    expect((await loadFixture(packet, headers)).packet.glazingSymbols).toEqual(
+      packet.glazingSymbols,
+    )
+  })
+  it('accepts exactly 100 glazing candidates without accepting their physical kind', async () => {
+    const { packet, headers } = fixture()
+    const symbols = glazingSymbols()
+    const candidate = symbols.candidates[0]
+    if (!candidate) throw new Error('Glazing fixture is missing')
+    symbols.candidates = Array.from({ length: 100 }, (_, i) => ({
+      ...candidate,
+      id: `glazing-${i}`,
+    }))
+    packet.glazingSymbols = symbols
+    expect((await loadFixture(packet, headers)).packet.glazingSymbols?.candidates).toHaveLength(100)
+  })
+  it.each([
+    'null-layer',
+    'status',
+    'draft-reason',
+    'partial-refusal',
+    'blank-reason',
+    'long-reason',
+    'missing-candidates',
+    'candidate-limit',
+    'null-candidate',
+    'blank-id',
+    'long-id',
+    'duplicate-id',
+    'missing-polygons',
+    'missing-group-member',
+    'extra-group-member',
+    'null-polygon',
+    'too-few-points',
+    'too-many-points',
+    'null-point',
+    'outside-image',
+    'nonfinite-point',
+    'repeated-vertex',
+    'fifth-endpoint',
+    'missing-centerline',
+    'missing-centerline-end',
+    'nonfinite-centerline',
+    'outside-centerline',
+    'string-centerline',
+    'zero-centerline',
+  ])('rejects malformed glazing metadata atomically: %s', async (change) => {
+    const { packet, headers } = fixture()
+    const symbols = glazingSymbols()
+    packet.glazingSymbols = symbols
+    const candidate = symbols.candidates[0]
+    const polygon = candidate?.polygons[0]
+    const first = polygon?.[0]
+    if (!candidate || !polygon || !first) throw new Error('Glazing fixture is missing')
+    if (change === 'null-layer') Object.assign(packet, { glazingSymbols: null })
+    if (change === 'status') Object.assign(symbols, { status: 'accepted' })
+    if (change === 'draft-reason') symbols.refusalReason = 'glazing-search-budget'
+    if (change === 'partial-refusal')
+      Object.assign(symbols, { status: 'unresolved', refusalReason: 'glazing-search-budget' })
+    if (change === 'blank-reason')
+      Object.assign(symbols, { status: 'unresolved', refusalReason: ' ', candidates: [] })
+    if (change === 'long-reason')
+      Object.assign(symbols, {
+        status: 'unresolved',
+        refusalReason: 'x'.repeat(129),
+        candidates: [],
+      })
+    if (change === 'missing-candidates') Object.assign(symbols, { candidates: null })
+    if (change === 'candidate-limit')
+      symbols.candidates = Array.from({ length: 101 }, (_, i) => ({ ...candidate, id: String(i) }))
+    if (change === 'null-candidate') Object.assign(symbols, { candidates: [null] })
+    if (change === 'blank-id') candidate.id = ' '
+    if (change === 'long-id') candidate.id = 'x'.repeat(129)
+    if (change === 'duplicate-id') symbols.candidates.push(structuredClone(candidate))
+    if (change === 'missing-polygons') Object.assign(candidate, { polygons: null })
+    if (change === 'missing-group-member') candidate.polygons.pop()
+    if (change === 'extra-group-member') candidate.polygons.push(structuredClone(polygon))
+    if (change === 'null-polygon') Object.assign(candidate.polygons, { 1: null })
+    if (change === 'too-few-points') polygon.pop()
+    if (change === 'too-many-points') polygon.push({ ...first }, { x: 31, y: 40 })
+    if (change === 'null-point') Object.assign(polygon, { 0: null })
+    if (change === 'outside-image') first.x = -1
+    if (change === 'nonfinite-point') first.x = Infinity
+    if (change === 'repeated-vertex') polygon[3] = { ...first }
+    if (change === 'fifth-endpoint') polygon.push({ x: 31, y: 40 })
+    if (change === 'missing-centerline') Object.assign(candidate, { centerline: null })
+    if (change === 'missing-centerline-end') Object.assign(candidate.centerline, { end: null })
+    if (change === 'nonfinite-centerline') candidate.centerline.start.y = NaN
+    if (change === 'outside-centerline') candidate.centerline.end.x = 1001
+    if (change === 'string-centerline') Object.assign(candidate.centerline.start, { x: '30' })
+    if (change === 'zero-centerline') candidate.centerline.end = { ...candidate.centerline.start }
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+  it.each([80, 85, 100])(
+    'accepts a capped source leaf at %i degrees with mixed segment directions',
+    async (angle) => {
+      const { packet, headers } = fixture()
+      packet.doorSymbols = cappedDoorSymbols()
+      const symbol = packet.doorSymbols.candidates[0]
+      if (!symbol) throw new Error('Door symbol fixture is missing')
+      symbol.swingAngleDegrees = angle
+      expect((await loadFixture(packet, headers)).packet.doorSymbols).toEqual(packet.doorSymbols)
+    },
+  )
+  it.each([89.72, 90, 90.28])(
+    'accepts a single source leaf at %s degrees without capped parts',
+    async (angle) => {
+      const { packet, headers } = fixture()
+      packet.doorSymbols = doorSymbols()
+      const symbol = packet.doorSymbols.candidates[0]
+      if (!symbol) throw new Error('Door symbol fixture is missing')
+      symbol.leafProfile = 'single-stroke'
+      symbol.swingAngleDegrees = angle
+      expect((await loadFixture(packet, headers)).packet.doorSymbols).toEqual(packet.doorSymbols)
+    },
+  )
+  it.each([
+    'profile-only',
+    'angle-only',
+    'parts-only',
+    'unknown-profile',
+    'nonfinite-angle',
+    'string-angle',
+    'capped-angle-low',
+    'capped-angle-high',
+    'missing-parts',
+    'null-parts',
+    'short-parts',
+    'long-parts',
+    'null-part',
+    'missing-part-start',
+    'missing-part-end',
+    'outside-part',
+    'nonfinite-part',
+    'zero-part',
+    'single-with-parts',
+    'single-angle-low',
+    'single-angle-high',
+    'single-zero-leaf',
+  ])('rejects incomplete or malformed new door profiles: %s', async (change) => {
+    const { packet, headers } = fixture()
+    packet.doorSymbols = cappedDoorSymbols()
+    const symbol = packet.doorSymbols.candidates[0]
+    const part = symbol?.leafParts?.[0]
+    if (!symbol || !part || !symbol.leafParts) throw new Error('Door profile fixture is missing')
+    const parts = symbol.leafParts
+    if (change === 'profile-only') {
+      delete symbol.swingAngleDegrees
+      delete symbol.leafParts
+    }
+    if (change === 'angle-only') {
+      delete symbol.leafProfile
+      delete symbol.leafParts
+    }
+    if (change === 'parts-only') {
+      delete symbol.leafProfile
+      delete symbol.swingAngleDegrees
+    }
+    if (change === 'unknown-profile') Object.assign(symbol, { leafProfile: 'window' })
+    if (change === 'nonfinite-angle') symbol.swingAngleDegrees = Infinity
+    if (change === 'string-angle') Object.assign(symbol, { swingAngleDegrees: '90' })
+    if (change === 'capped-angle-low') symbol.swingAngleDegrees = 79.999
+    if (change === 'capped-angle-high') symbol.swingAngleDegrees = 100.001
+    if (change === 'missing-parts') delete symbol.leafParts
+    if (change === 'null-parts') Object.assign(symbol, { leafParts: null })
+    if (change === 'short-parts') parts.pop()
+    if (change === 'long-parts') parts.push(structuredClone(part))
+    if (change === 'null-part') Object.assign(parts, { 0: null })
+    if (change === 'missing-part-start') Object.assign(part, { start: null })
+    if (change === 'missing-part-end') Object.assign(part, { end: null })
+    if (change === 'outside-part') part.end.x = 1001
+    if (change === 'nonfinite-part') part.end.y = NaN
+    if (change === 'zero-part') part.end = { ...part.start }
+    if (change.startsWith('single-')) {
+      symbol.leafProfile = 'single-stroke'
+      symbol.swingAngleDegrees = 90
+      if (change !== 'single-with-parts') delete symbol.leafParts
+    }
+    if (change === 'single-angle-low') symbol.swingAngleDegrees = 89.71
+    if (change === 'single-angle-high') symbol.swingAngleDegrees = 90.29
+    if (change === 'single-zero-leaf') symbol.leaf.end = { ...symbol.leaf.start }
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
   })
   it.each([
     'null-layer',

@@ -38,6 +38,49 @@ function isInImage(value: unknown, image: NativeReviewPacket['image']): boolean 
   )
 }
 
+function isSourceSegment(value: unknown, image: NativeReviewPacket['image']): boolean {
+  if (!value || typeof value !== 'object') return false
+  const segment = value as { start: { x: number; y: number }; end: { x: number; y: number } }
+  return (
+    isInImage(segment.start, image) &&
+    isInImage(segment.end, image) &&
+    (segment.start.x !== segment.end.x || segment.start.y !== segment.end.y)
+  )
+}
+
+function isSourceQuad(value: unknown, image: NativeReviewPacket['image']): boolean {
+  if (!Array.isArray(value) || ![4, 5].includes(value.length)) return false
+  if (!value.every((point) => isInImage(point, image))) return false
+  const first = value[0]
+  const last = value.at(-1)
+  if (value.length === 5 && (first.x !== last.x || first.y !== last.y)) return false
+  return new Set(value.slice(0, 4).map((point) => `${point.x}:${point.y}`)).size === 4
+}
+
+function isDoorProfile(
+  candidate: NonNullable<NativeReviewPacket['doorSymbols']>['candidates'][number],
+  image: NativeReviewPacket['image'],
+): boolean {
+  const { leafProfile, swingAngleDegrees, leafParts } = candidate
+  if (leafProfile === undefined && swingAngleDegrees === undefined && leafParts === undefined)
+    return true
+  if (typeof swingAngleDegrees !== 'number' || !Number.isFinite(swingAngleDegrees)) return false
+  if (leafProfile === 'single-stroke')
+    return (
+      leafParts === undefined &&
+      isSourceSegment(candidate.leaf, image) &&
+      Math.abs(swingAngleDegrees - 90) <= (0.005 * 180) / Math.PI
+    )
+  return (
+    leafProfile === 'capped-panel' &&
+    swingAngleDegrees >= 80 &&
+    swingAngleDegrees <= 100 &&
+    Array.isArray(leafParts) &&
+    leafParts.length === 3 &&
+    leafParts.every((part) => isSourceSegment(part, image))
+  )
+}
+
 function isDoorSymbols(value: unknown, image: NativeReviewPacket['image']): boolean {
   if (value === undefined) return true
   if (!isCandidateLayer(value)) return false
@@ -60,6 +103,7 @@ function isDoorSymbols(value: unknown, image: NativeReviewPacket['image']): bool
       !candidate.leaf ||
       !inImage(candidate.leaf.start) ||
       !inImage(candidate.leaf.end) ||
+      !isDoorProfile(candidate, image) ||
       !Number.isFinite(candidate.endpointResidualPixels) ||
       candidate.endpointResidualPixels < 0 ||
       candidate.endpointResidualPixels > 0.1
@@ -90,18 +134,34 @@ function isOpeningFrames(value: unknown, image: NativeReviewPacket['image']): bo
       !frame.id.trim() ||
       frame.id.length > 128 ||
       ids.has(frame.id) ||
-      !Array.isArray(frame.polygon) ||
-      ![4, 5].includes(frame.polygon.length) ||
-      !frame.polygon.every((point) => isInImage(point, image))
+      !isSourceQuad(frame.polygon, image)
     )
       return false
-    const first = frame.polygon[0]
-    const last = frame.polygon.at(-1)
-    if (!first || !last) return false
-    if (frame.polygon.length === 5 && (first.x !== last.x || first.y !== last.y)) return false
-    if (new Set(frame.polygon.slice(0, 4).map((point) => `${point.x}:${point.y}`)).size !== 4)
-      return false
     ids.add(frame.id)
+    return true
+  })
+}
+
+function isGlazingSymbols(value: unknown, image: NativeReviewPacket['image']): boolean {
+  if (value === undefined) return true
+  if (!isCandidateLayer(value)) return false
+  const symbols = value as NonNullable<NativeReviewPacket['glazingSymbols']>
+  const ids = new Set<string>()
+  return symbols.candidates.every((candidate) => {
+    if (
+      !candidate ||
+      typeof candidate !== 'object' ||
+      typeof candidate.id !== 'string' ||
+      !candidate.id.trim() ||
+      candidate.id.length > 128 ||
+      ids.has(candidate.id) ||
+      !Array.isArray(candidate.polygons) ||
+      candidate.polygons.length !== 3 ||
+      !candidate.polygons.every((polygon) => isSourceQuad(polygon, image)) ||
+      !isSourceSegment(candidate.centerline, image)
+    )
+      return false
+    ids.add(candidate.id)
     return true
   })
 }
@@ -200,6 +260,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isSavedReview(packet.savedReview, packet.source) ||
     !isDoorSymbols(packet.doorSymbols, packet.image) ||
     !isOpeningFrames(packet.openingFrames, packet.image) ||
+    !isGlazingSymbols(packet.glazingSymbols, packet.image) ||
     !Array.isArray(packet.faces) ||
     packet.faces.length > 100 ||
     !Array.isArray(packet.issues) ||

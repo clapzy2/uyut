@@ -1941,3 +1941,80 @@ live account/authorization/PG не проверялись. Independent review р
 project writes0, PR/deploy0. Следующий этап - source-bound окна/составные балконные
 блоки, связка с номерными областями и разграничение free floor/walls/thresholds,
 а не перенос этих рамок в подтверждённый footprint.
+
+## 10 октября: составная балконная створка и профили остекления
+
+Общий nativePanelSymbolCandidates разбирает actual closed stroked rectangle body
+с двумя точно примыкающими endcaps. Shared geometry code используется дверным
+распознавателем, не дублируется по source-ID. Bodies aspect<=0.25rasterspace,
+endcaps along/depth0.5..2, exact crossrange и full short-edge joins; gap/overlap
+даже1e-9 не snap-ится. Каждый бок - три original segments со всеми native refs,
+не синтезированный длинный source segment. Component compound/curved/clipped
+siblings, invalid source refs/precision и inconsistent omissions удерживаются.
+100panels/200kcomparisons fail atomic. Текст/OCR/paint colour не задаёт kind.
+
+Отдельная actual source line должна полностью покрывать body span и лежать
+посередине crossrange. Centerline fit<=0.002rasterpixels явно ограничен из-за
+source3dp quantization; points не исправляются, residual сохраняется. Panel
+centerlineStatus absent/matched/ambiguous различается: конкурирующие линии не
+становятся отсутствующим остеклением. Shared cap ownership проверяется даже
+для partial competing body с недостающим вторым торцом, не только pending
+complete panels. Shape profile остаётся unclassified/floor false/pass false.
+Glazing hint не означает окно: тот же рисунок есть в балконной двери.
+
+Door recognizer использует bare capped panels только при centerlineStatus absent
+и body aspect<=0.08. Hinge/tip - original endcap corners, circle fit к original
+cubic controls по-прежнему0.005, endpoint fit0.1px. Обычные single source leaves
+по-прежнему требуют90°±0.005rad; новая отдельная capped-panel ветка принимает
+source sweep80..100°, включая real91.65°two-cubic arc. Склейки source points,
+нового threshold и измеренной ширины двери нет. leaf сохраняет body source edge,
+leafParts содержит три реальные части, swingAngleDegrees показывает actual fit.
+Если compound panel search недоступен, его отдельный отказ сохранён; он не
+превращается в выдуманную створку, existing single-stroke path независим.
+
+Independent code review нашёл class bypass: matched/ambiguous glazing body
+исключался из compound path, но ещё участвовал в legacy thin rectangle search.
+Регрессии с exact quarter arc на bodyedge воспроизвели ложную simple door.
+Теперь refs body/caps такого профиля исключаются в обеих ветках; самостоятельные
+legacy strokes сохранены. Добавлены22 compound controls и34 panel controls,
+проверены source aspect/reflection/reversal, competing caps/bodies/centerlines,
+missing/gapped/overlapping caps, paint/clips, detached snapshots и budget refusal.
+
+Fresh primary apartment74.77/page6:9 panel profiles,8 glazing hints
+(723/730/767/774/900/907/1021/1028), bare panel580/кап577+578 и curve581 дали
+новую composed leaf. Body746 удержан: cap750 перекрывает его на0.066pageunits.
+Source581 controls соответствуют circle около endcap corner338.96,68.665 с
+actual sweep91.65°, а не идеальному90°. Angular dimension2282 по-прежнему не
+door. Всего2door candidates (старый889+новый581),7 прежних frame candidates;
+45skippedCurves/0clips сохранены. Full original JPEG/overlay просмотрены,
+source/image SHA прежние. Glazing774 и curve581 не объединены догадкой в complete
+balcony block; пол балкона на этом листе не принят и не достроен.
+
+Replay command прежний bench-native-openings.ts PDF PAGE FRESH_DIR; теперь PNG
+содержит actual3leafparts и синие3source-polygons+centerline каждого glazing hint.
+Canonical artifact: tmp/native-glazing-20261010-apartment-final/.
+Ещё6 исходников повторены: BASIS1door/0frames/0glazing(31curves/0clips),
+Basman1/0/0(15/34), Life0/0/0(incomplete-native-layer,0/1),
+Designgroup0/0/0(11/0), Remplanner0/0/0(13/0), Chigintseva0/0/0(33/18).
+Directories tmp/native-glazing-20261010-SOURCE/. Не универсальное распознавание;
+другие window representations не названы поддержанными из-за нулевого результата.
+
+Private native-review packet/client сохраняют v1/optional legacy compatibility.
+Новые capped profile/angle/parts проверяются целиком; incomplete metadata или
+nonfinite/oversized/unfinished-with-candidates layer отвергается. Glazing payload
+только actual3quads+centerline, не wall/frame kind или floor proof. UI добавляет
+отдельный синий checkbox/count с оговоркой "не число окон", original3leaflines,
+source sweep в title. Сохранённые geometry/pageReview/мерки не меняются.
+
+Firefox/Playwright, current source component + mocked private API + actual PDF
+pixels:1280/390px withoutpageoverflow; full overlay2arcs/12lines/31polygons;
+blue off leaves2arcs/4leaflines/7frames, amber off leaves0arcs/8centerlines/24quads.
+Full-scale scroll внутри focusable view, не горизонтальное расширение страницы.
+Screenshots output/playwright/native-glazing-desktop.png иnative-glazing-mobile.png.
+0console errors/warnings, server/browser остановлены, ephemeralhelper удалён.
+Liveaccount/auth/PG не проверялись. 3673tests/252files, typecheck7, lint886,
+productionbuild/diff passed; independent scoped review/repro controls completed.
+Новых paid AI, project writes, PR/deploy нет. Следующий этап - привязка glazing/
+swings/frames к source wall openings и numbered areas, различение window/door/
+balconyblock и связанный inventory free floor/walls/thresholds, не adoption этих
+source glyphs в confirmed2D/3D. Никакие fixture source IDs не служат recognizer input.
