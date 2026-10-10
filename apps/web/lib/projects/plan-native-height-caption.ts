@@ -1,3 +1,5 @@
+import { nativeCeilingDatumDeclarationTopic } from './plan-native-height-datum-caption'
+
 export type NativeHeightCaption = {
   valueMm: number
   quantityKind:
@@ -52,7 +54,8 @@ export function nativeHeightCaption(
   | { status: 'not-height' }
   | { status: 'unresolved'; code: string }
   | { status: 'observed'; observation: NativeHeightCaption } {
-  if (!heightTopic.test(text)) return { status: 'not-height' }
+  if (!heightTopic.test(text) && !nativeCeilingDatumDeclarationTopic(text))
+    return { status: 'not-height' }
   const matches = [...text.matchAll(quantity)]
   if (matches.length !== 1)
     return {

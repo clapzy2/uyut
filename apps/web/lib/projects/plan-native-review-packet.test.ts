@@ -121,6 +121,11 @@ describe('whole-page native inspection, separate from saved geometry', () => {
     expect(packet.heightObservations?.locations).not.toHaveProperty('source')
     expect(packet.heightObservations?.locations).not.toHaveProperty('roomOwnershipConfirmed')
     expect(packet.heightObservations?.locations).not.toHaveProperty('mayTransfer3D')
+    expect(packet.heightObjects).toBeDefined()
+    expect(packet.heightObjects).not.toHaveProperty('commonZeroConfirmed')
+    expect(packet.heightObjects).not.toHaveProperty('geometryOwnersConfirmed')
+    expect(packet.heightObjects).not.toHaveProperty('mayTransfer2D3D')
+    expect(packet.heightObjects).not.toHaveProperty('source')
     expect(input).toEqual(before)
   })
   it('maps source swings and painted jamb frames to pixels without authorizing floor closure', () => {

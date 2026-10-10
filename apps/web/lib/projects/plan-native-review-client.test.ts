@@ -1782,6 +1782,438 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
     return { ...fixture, row, leader }
   }
 
+  function syncHeightNoteIssues(packet: NativeReviewPacket) {
+    const heights = packet.heightObservations
+    const objects = packet.heightObjects
+    if (!heights || !objects) throw new Error('Missing height note fixture')
+    const fixtureNoteIds = new Set(['native-text-200', 'native-text-201', 'native-text-202'])
+    heights.issues = heights.issues.filter((issue) => !fixtureNoteIds.has(issue.labelId))
+    for (const note of [...objects.declarations, ...objects.unsupportedDeclarations]) {
+      heights.issues.push({
+        labelId: note.labelId,
+        originalText: note.originalText,
+        code: 'multiple-height-quantities',
+      })
+    }
+  }
+
+  function heightObjectFixture() {
+    const fixture = heightLeaderFixture()
+    const { packet } = fixture
+    packet.numberCircles = {
+      status: 'draft',
+      refusalReason: null,
+      cues: [{ labelId: 'circle-1', sourceNumber: 1 }],
+    }
+    const cavity = packet.floorCavities?.candidates[0]
+    if (!cavity) throw new Error('Missing floor fixture')
+    cavity.markerLabelIds = ['circle-1']
+    cavity.markerStatus = 'unambiguous'
+    packet.roomSchedule = {
+      status: 'draft',
+      refusalReason: null,
+      unlistedMarkerLabelIds: [],
+      rows: ['Гостиная', 'Кухня', 'Балкон'].map((name, index) => ({
+        sourceNumber: index + 1,
+        name,
+        documentaryAreaM2: 10,
+        numberLabelId: `table-number-${index}`,
+        nameLabelId: `table-name-${index}`,
+        areaLabelId: `table-area-${index}`,
+        markerStatus: index === 0 ? 'linked' : 'unobserved',
+        markerLabelIds: index === 0 ? ['circle-1'] : [],
+      })),
+    }
+    const objects: NonNullable<NativeReviewPacket['heightObjects']> = {
+      status: 'draft',
+      refusalReason: null,
+      unsupportedDeclarations: [],
+      declarations: [
+        {
+          labelId: 'native-text-200',
+          originalText:
+            'Потолок в квартире - натяжной, отметки потолка в пределах: от 2600 мм до 2800 мм от уровня существующего пола.',
+          scope: 'apartment-finished-ceilings',
+          datum: 'existing-floor',
+          minimumMm: 2600,
+          maximumMm: 2800,
+          status: 'verified',
+          inkSourceOperation: 200,
+          reason: null,
+        },
+      ],
+      bindings: [
+        {
+          labelId: 'native-text-20',
+          objectStatus: 'proposed',
+          objectReason: null,
+          targets: [
+            {
+              kind: 'finished-ceiling',
+              cavityId: 'height-cavity-0',
+              sourceRoomNumber: 1,
+              roomName: 'Гостиная',
+              markerLabelId: 'circle-1',
+            },
+          ],
+          datumEvidence: {
+            status: 'documentary',
+            kind: 'existing-floor',
+            sourceLabelIds: ['native-text-200'],
+            reason: null,
+          },
+        },
+      ],
+    }
+    packet.heightObjects = objects
+    syncHeightNoteIssues(packet)
+    const binding = objects.bindings[0]
+    const target = binding?.targets[0]
+    const declaration = objects.declarations[0]
+    const schedule = packet.roomSchedule
+    if (!binding || !target || !declaration || !schedule) throw new Error('Missing object fixture')
+    return { ...fixture, objects, binding, target, declaration, cavity, schedule }
+  }
+
+  it('preserves source-object proposals and documentary reference kinds without promoting geometry or zero', async () => {
+    const { packet, headers, objects } = heightObjectFixture()
+    const before = structuredClone(packet)
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.heightObjects).toEqual(objects)
+    expect(packet).toEqual(before)
+    expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+
+  it('does not reinterpret unknown interior annotation strokes as a rejected source-object proposal', async () => {
+    const { packet, headers, objects, cavity } = heightObjectFixture()
+    cavity.unknownInteriorStrokeCount = 166
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.heightObjects).toEqual(objects)
+    expect(loaded.floorCavities?.candidates[0]?.unknownInteriorStrokeCount).toBe(166)
+    expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+
+  it.each([
+    'extra-report-key',
+    'accepted',
+    'missing-binding',
+    'duplicate-binding',
+    'unknown-height',
+    'forged-object',
+    'missing-target',
+    'wrong-cavity',
+    'wrong-room',
+    'wrong-marker',
+    'wrong-number',
+    'wrong-kind',
+    'extra-target-key',
+    'wrong-datum',
+    'zero-kind',
+    'missing-note-ref',
+    'unknown-note-ref',
+    'duplicate-note',
+    'forged-range',
+    'forged-literal',
+    'unverified-note',
+    'extra-note-key',
+    'duplicate-operation',
+    'missing-locations',
+    'missing-schedule',
+    'malformed-schedule',
+    'omitted-boundary-floor',
+    'missing-leader',
+    'partial-binding',
+    'extra-datum-key',
+  ] as const)('rejects forged height-object or reference evidence: %s', async (change) => {
+    const { packet, headers, objects, row, binding, target, declaration, cavity, schedule } =
+      heightObjectFixture()
+    if (change === 'extra-report-key') Object.assign(objects, { commonZeroConfirmed: true })
+    if (change === 'accepted') Object.assign(objects, { status: 'accepted' })
+    if (change === 'missing-binding') objects.bindings = []
+    if (change === 'duplicate-binding') objects.bindings.push(structuredClone(binding))
+    if (change === 'unknown-height') binding.labelId = 'unknown'
+    if (change === 'forged-object')
+      Object.assign(binding, { objectStatus: 'unresolved', objectReason: 'held' })
+    if (change === 'missing-target') binding.targets = []
+    if (change === 'wrong-cavity') target.cavityId = 'height-cavity-1'
+    if (change === 'wrong-room') target.roomName = 'Кухня'
+    if (change === 'wrong-marker') target.markerLabelId = 'circle-2'
+    if (change === 'wrong-number') target.sourceRoomNumber = 2
+    if (change === 'wrong-kind') Object.assign(target, { kind: 'wall-height' })
+    if (change === 'extra-target-key') Object.assign(target, { acceptedOwner: true })
+    if (change === 'wrong-datum') binding.datumEvidence.kind = 'finished-floor'
+    if (change === 'zero-kind') Object.assign(binding.datumEvidence, { kind: 'shared-zero' })
+    if (change === 'missing-note-ref') binding.datumEvidence.sourceLabelIds = []
+    if (change === 'unknown-note-ref') binding.datumEvidence.sourceLabelIds = ['unknown']
+    if (change === 'duplicate-note') objects.declarations.push(structuredClone(declaration))
+    if (change === 'forged-range') declaration.minimumMm = 2500
+    if (change === 'forged-literal') declaration.originalText = 'Потолок 2700 мм'
+    if (change === 'unverified-note')
+      Object.assign(declaration, {
+        status: 'unresolved',
+        inkSourceOperation: null,
+        reason: 'height-datum-ink-unverified',
+      })
+    if (change === 'extra-note-key') Object.assign(declaration, { commonZeroConfirmed: true })
+    if (change === 'duplicate-operation') declaration.inkSourceOperation = 20
+    if (change === 'missing-locations') delete packet.heightObservations?.locations
+    if (change === 'missing-schedule') delete packet.roomSchedule
+    if (change === 'malformed-schedule') Object.assign(schedule, { rows: [null] })
+    if (change === 'omitted-boundary-floor') {
+      cavity.omittedBoundaryInkCount = 1
+      Object.assign(row, {
+        status: 'unresolved',
+        reason: 'height-caption-boundary-or-ink-unverified',
+      })
+      Object.assign(row.leader ?? {}, {
+        status: 'unresolved',
+        reason: 'height-leader-target-unverified',
+      })
+    }
+    if (change === 'missing-leader') delete row.leader
+    if (change === 'partial-binding')
+      objects.bindings.push({ ...structuredClone(binding), labelId: 'native-text-21' })
+    if (change === 'extra-datum-key') Object.assign(binding.datumEvidence, { zeroMm: 0 })
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
+
+  it('holds all declarations and reference claims on conflicting literal note ranges', async () => {
+    const { packet, headers, objects, declaration, binding } = heightObjectFixture()
+    objects.declarations.push({
+      ...structuredClone(declaration),
+      labelId: 'native-text-201',
+      originalText:
+        'Потолок в квартире - натяжной, отметки потолка в пределах: от 2500 мм до 2800 мм от уровня существующего пола.',
+      minimumMm: 2500,
+      inkSourceOperation: 201,
+    })
+    for (const declaration of objects.declarations)
+      Object.assign(declaration, {
+        status: 'unresolved',
+        reason: 'conflicting-ceiling-datum-declarations',
+      })
+    Object.assign(binding.datumEvidence, {
+      status: 'unresolved',
+      kind: null,
+      sourceLabelIds: ['native-text-200', 'native-text-201'],
+      reason: 'conflicting-ceiling-datum-declarations',
+    })
+    syncHeightNoteIssues(packet)
+    expect((await loadFixture(packet, headers)).packet.heightObjects).toEqual(objects)
+  })
+
+  it('keeps an unsupported competing source note visible and refuses borrowing its reference', async () => {
+    const { packet, headers, objects, binding } = heightObjectFixture()
+    objects.unsupportedDeclarations.push({
+      labelId: 'native-text-202',
+      originalText:
+        'Потолок в квартире - натяжной, отметки потолка в пределах: от 2600 мм до 2800 мм от уровня существующего пола, кроме кухни.',
+      reason: 'unsupported-ceiling-datum-declaration',
+    })
+    Object.assign(binding.datumEvidence, {
+      status: 'unresolved',
+      kind: null,
+      sourceLabelIds: ['native-text-200', 'native-text-202'],
+      reason: 'unsupported-ceiling-datum-declarations',
+    })
+    syncHeightNoteIssues(packet)
+    expect((await loadFixture(packet, headers)).packet.heightObjects).toEqual(objects)
+    objects.unsupportedDeclarations = []
+    Object.assign(binding.datumEvidence, {
+      status: 'documentary',
+      kind: 'existing-floor',
+      sourceLabelIds: ['native-text-200'],
+      reason: null,
+    })
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
+
+  it.each([
+    'missing-supported',
+    'unknown-supported',
+    'altered-source-text',
+    'missing-unsupported-field',
+    'null-unsupported-field',
+    'wrong-unsupported-reason',
+    'parsed-as-unsupported',
+    'unrelated-as-unsupported',
+    'duplicate-unsupported',
+    'supported-unsupported-overlap',
+    'unsafe-extra-key',
+  ] as const)(
+    'rejects incomplete or malformed source reference note inventories: %s',
+    async (change) => {
+      const { packet, headers, objects, declaration, binding } = heightObjectFixture()
+      const unsupported = {
+        labelId: 'native-text-202',
+        originalText:
+          'Потолок в квартире - натяжной, отметки потолка в пределах: от 2600 мм до 2800 мм от уровня существующего пола, кроме кухни.',
+        reason: 'unsupported-ceiling-datum-declaration' as const,
+      }
+      objects.unsupportedDeclarations = [unsupported]
+      Object.assign(binding.datumEvidence, {
+        status: 'unresolved',
+        kind: null,
+        sourceLabelIds: ['native-text-200', 'native-text-202'],
+        reason: 'unsupported-ceiling-datum-declarations',
+      })
+      syncHeightNoteIssues(packet)
+      if (change === 'missing-supported') objects.declarations = []
+      if (change === 'unknown-supported') declaration.labelId = 'unrelated-note'
+      if (change === 'altered-source-text')
+        declaration.originalText = declaration.originalText.replace('2600', '2500')
+      if (change === 'missing-unsupported-field')
+        Reflect.deleteProperty(objects, 'unsupportedDeclarations')
+      if (change === 'null-unsupported-field')
+        Object.assign(objects, { unsupportedDeclarations: null })
+      if (change === 'wrong-unsupported-reason')
+        Object.assign(unsupported, { reason: 'borrow-reference-anyway' })
+      if (change === 'parsed-as-unsupported') unsupported.originalText = declaration.originalText
+      if (change === 'unrelated-as-unsupported') unsupported.originalText = 'Текст о мебели'
+      if (change === 'duplicate-unsupported')
+        objects.unsupportedDeclarations.push(structuredClone(unsupported))
+      if (change === 'supported-unsupported-overlap') unsupported.labelId = declaration.labelId
+      if (change === 'unsafe-extra-key') Object.assign(unsupported, { commonZeroMm: 0 })
+      await expect(loadFixture(packet, headers)).rejects.toThrow()
+    },
+  )
+
+  it.each([
+    'inline',
+    'inline-conflict',
+    'outside-range',
+    'unverified-note',
+    'no-reference',
+    'non-ceiling',
+    'no-ink',
+    'no-leader',
+    'no-schedule',
+    'global-refusal',
+  ] as const)(
+    'replays held and documentary height-object states without creating a shared zero: %s',
+    async (state) => {
+      const { packet, headers, heights, objects, binding, declaration, row } = heightObjectFixture()
+      const observation = heights.observations[0]
+      if (!observation) throw new Error('Missing height fixture')
+      if (state === 'inline' || state === 'inline-conflict') {
+        observation.originalText = 'Чистый потолок 2672 мм от чистого пола'
+        observation.datum = 'finished-floor'
+        observation.issueCodes = []
+        heights.issues = []
+        binding.datumEvidence.sourceLabelIds.unshift(observation.labelId)
+        if (state === 'inline') {
+          objects.declarations = []
+          binding.datumEvidence.sourceLabelIds = [observation.labelId]
+          binding.datumEvidence.kind = 'finished-floor'
+        } else
+          Object.assign(binding.datumEvidence, {
+            status: 'unresolved',
+            kind: null,
+            reason: 'inline-global-height-datum-conflict',
+          })
+      }
+      if (state === 'outside-range') {
+        declaration.minimumMm = 2700
+        declaration.originalText = declaration.originalText.replace('2600', '2700')
+        Object.assign(binding.datumEvidence, {
+          status: 'unresolved',
+          kind: null,
+          reason: 'ceiling-height-outside-declared-range',
+        })
+      }
+      if (state === 'unverified-note') {
+        Object.assign(declaration, {
+          status: 'unresolved',
+          inkSourceOperation: null,
+          reason: 'height-datum-ink-unverified',
+        })
+        Object.assign(binding.datumEvidence, {
+          status: 'unresolved',
+          kind: null,
+          reason: 'height-datum-ink-unverified',
+        })
+      }
+      if (state === 'no-reference') {
+        objects.declarations = []
+        Object.assign(binding.datumEvidence, {
+          status: 'unresolved',
+          kind: null,
+          sourceLabelIds: [],
+          reason: 'height-datum-unspecified',
+        })
+      }
+      if (state === 'non-ceiling') {
+        observation.originalText = 'h1 = 2672 мм'
+        observation.quantityKind = 'unclassified-height'
+        observation.issueCodes = ['height-role-unclassified', 'height-datum-unverified']
+        heights.issues = observation.issueCodes.map((code) => ({
+          labelId: observation.labelId,
+          originalText: observation.originalText,
+          code,
+        }))
+        Object.assign(binding, {
+          objectStatus: 'unresolved',
+          objectReason: 'height-object-role-unresolved',
+          targets: [],
+        })
+        Object.assign(binding.datumEvidence, {
+          status: 'unresolved',
+          kind: null,
+          sourceLabelIds: [],
+          reason: 'height-object-role-unresolved',
+        })
+      }
+      if (state === 'no-ink') {
+        delete row.leader
+        Object.assign(row, {
+          status: 'unresolved',
+          cavityIds: [],
+          inkSourceOperation: null,
+          reason: 'height-caption-ink-unverified',
+        })
+        Object.assign(binding, {
+          objectStatus: 'unresolved',
+          objectReason: 'height-caption-ink-unverified',
+          targets: [],
+        })
+        Object.assign(binding.datumEvidence, {
+          status: 'unresolved',
+          kind: null,
+          sourceLabelIds: [],
+          reason: 'height-caption-ink-unverified',
+        })
+      }
+      if (state === 'no-leader') {
+        delete row.leader
+        Object.assign(binding, {
+          objectStatus: 'unresolved',
+          objectReason: 'height-object-leader-unverified',
+          targets: [],
+        })
+      }
+      if (state === 'no-schedule') {
+        delete packet.roomSchedule
+        Object.assign(binding, {
+          objectStatus: 'unresolved',
+          objectReason: 'height-object-schedule-unverified',
+          targets: [],
+        })
+      }
+      if (state === 'global-refusal')
+        Object.assign(objects, {
+          status: 'unresolved',
+          refusalReason: 'height-object-source-held',
+          declarations: [],
+          unsupportedDeclarations: [],
+          bindings: [],
+        })
+      syncHeightNoteIssues(packet)
+      const loaded = (await loadFixture(packet, headers)).packet
+      expect(loaded.heightObjects).toEqual(objects)
+      expect(loaded.readiness.readyFor3D).toBe(false)
+    },
+  )
+
   it.each([
     'linked',
     'ambiguous-target',

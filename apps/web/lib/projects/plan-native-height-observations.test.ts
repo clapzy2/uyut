@@ -55,6 +55,20 @@ function expectHeld(input: Input, reason: string) {
 
 describe('literal source height observation inventory, never vertical model transfer', () => {
   it.each([
+    'Потолки в квартире отсчитываются от уровня пола.',
+    'Потолочные размеры в квартире от уровня пола кроме ванной.',
+    'Пото\u200bлок в квартире от уровня пола.',
+  ])(
+    'keeps unsupported apartment ceiling reference text in the diagnostic parent inventory: %s',
+    (text) => {
+      const result = nativeHeightObservations(fixture([text]))
+      expect(result.observations).toEqual([])
+      expect(result.issues).toEqual([
+        { labelId: 'native-text-0', originalText: text, code: 'no-literal-unit-qualified-height' },
+      ])
+    },
+  )
+  it.each([
     ['Отметка порога = +15 мм от чистого пола', 15, 'finished-floor'],
     ['Уровень порога = -2 см от существующего пола', -20, 'existing-floor'],
     ['Отметка верха порога = −0,015 м от готового пола', -15, 'finished-floor'],

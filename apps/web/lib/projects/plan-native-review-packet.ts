@@ -17,6 +17,10 @@ import {
 } from './plan-native-floor-opening-sides'
 import { nativeHeightSourceLocations } from './plan-native-height-locations'
 import {
+  type NativeHeightObjectReport,
+  nativeHeightObjectEvidence,
+} from './plan-native-height-objects'
+import {
   type NativeHeightObservation,
   nativeHeightObservations,
 } from './plan-native-height-observations'
@@ -136,6 +140,7 @@ export type NativeReviewPacket = {
       'status' | 'refusalReason' | 'observations'
     >
   }
+  heightObjects?: NativeHeightObjectReport
   floorOpeningSides?: NativeFloorOpeningReport
   floorCavities?: {
     status: 'draft' | 'unresolved'
@@ -350,6 +355,14 @@ export function nativeReviewPacket(input: {
     status: heightLocations.status,
     refusalReason: heightLocations.refusalReason,
     observations: heightLocations.observations,
+  }
+  const heightObjects = nativeHeightObjectEvidence({ ...common, source })
+  packet.heightObjects = {
+    status: heightObjects.status,
+    refusalReason: heightObjects.refusalReason,
+    declarations: heightObjects.declarations,
+    unsupportedDeclarations: heightObjects.unsupportedDeclarations,
+    bindings: heightObjects.bindings,
   }
   const connections = nativeOpeningSourceLinks(common)
   const floor = nativeFloorCavityCandidates(common)

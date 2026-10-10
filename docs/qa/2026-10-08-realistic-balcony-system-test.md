@@ -3149,3 +3149,99 @@ Browser/server закрыты, temporary server helper удалён.
 двухсторонние floor/threshold levels и whole-floor coverage перед переносом.
 ReadOnly остаётся true, readiness 2D/3D false. Production/DB/userproject/paidAI/
 GitHub/PR/deploy не менялись; PDF не редактировался.
+
+## 10 октября: объекты потолков и документарный вид отсчёта
+
+### Source-object proposals
+
+Новый nativeHeightObjectEvidence заново проверяет height observations, целые
+glyph locations, source leaders, полости, метки и экспликацию. Только finished
+ceiling с проверенным glyph, linked leader и одной однозначной меткой/строкой
+получает предложение source-room объекта. Общая полость 1+5 не разделяется,
+не выбирается ближайшая комната; h1/h2, beam/opening/threshold quantities не
+получают ceiling-owner или wall-height роль.
+
+Unknown interior strokes остаются неизвестными аннотациями, не автоматически
+препятствиями и не основанием отклонять документарное предложение. Boundary
+omissions и неподтверждённая цель стрелки удерживают его. Independent audit
+выявил producer/client расхождение по interior count; client согласован с
+read-only proposal scope, positive166-stroke regression добавлен. Это не
+подтверждение физического пола, его полноты или geometry owners.
+
+### Полный inventory деклараций
+
+nativeCeilingDatumDeclaration принимает только закрытую literal формулировку
+«Потолок в квартире … отметки потолка в пределах … от уровня … пола» с units,
+положительным bounded диапазоном и одним видом reference. Topic selector отдельно
+сохраняет неподдержанные тематические оговорки/исключения/скрытые controls;
+strict parser ими не расширен. supported + unsupported declarations ограничены
+100 строками и вместе входят в source-bound heightDatumInk inventory.
+
+preparePlanPage извлекает их glyphs отдельным bounded replay, не меняя numeric
+rails или height-caption inventories. SHA/page/physical page size, native indexes,
+operation IDs, literal text, baseline/quad coherence проверяются. Missing/foreign/
+duplicate entries очищают отчёт; неизвестный glyph удерживает reference. Все
+примечания должны согласоваться; диапазоны не пересекаются и не усредняются.
+Inline/global mismatch и ceiling value вне объявленного диапазона удерживаются.
+Неподдержанное тематическое примечание нельзя проигнорировать даже ради inline
+reference. Объектное предложение от этой отдельной проверки не превращается
+в принятый общий отсчёт.
+
+Клиент повторяет source decisions и требует полного union заметок по исходным
+height observations/issues. Удаление supported/unsupported note и переписывание
+остаточных refs/statuses не обходят gate. NativeHeightCaption теперь сохраняет
+неподдержанные apartment-ceiling-reference темы как parent diagnostics, даже
+если старая локальная heightTopic regex их не замечала. Common zero/accepted
+owner/geometry/source flags в public DTO не попадают.
+
+### Actual primary
+
+`tmp/native-height-objects-20261010-primary-complete`:
+
+- label245 / 2663 mm → предложение finished ceiling source room4 «Спальня»,
+  cavity10, marker218;
+- label247 / 2672 mm → предложение source room6 «Спальня», cavity11, marker220;
+- note213 буквально описывает existing-floor reference и диапазон2649..2684 mm,
+  но остаётся unresolved / height-datum-ink-unverified;
+- общих принятых отсчётов и height-transfer authority нет. Два source-object
+  proposals не заполняют wall heights или signed floor elevations.
+
+Forensic read-only glyph check: note213 соответствует showText3886. Из111glyphs
+17ASCIIspaces имеют isInFont=false, isSpace=false, fontCharÚ и width400; empty
+Float16 outline не доказывает корректный advance/whitespace role. Guard не
+ослаблен; reference не сертифицирован только по читаемому TextContent. Это
+source renderer limitation, не свидетельство физического общего нуля.
+
+### Проверки и следующий accepted этап
+
+103 closed/topic parser tests, 30 object-evidence tests, source inventory/parent
+accounting/client/UI regressions. Последний полный прогон:5795tests/273files,
+typecheck7packages, lint929files, productionbuild и diff check прошли. Legacy
+reports/packetfields/source JPEG и двеPNG точно прежние; новый packet добавляет
+только optional heightObjects. Source/raw flags: readOnly=true, commonZeroConfirmed=false,
+geometryOwnersConfirmed=false, mayTransfer2D3D=false.
+
+Actual Firefox390/1280px с новым client, actual component и local private API mock:
+proposals2/reference0, folded/expanded source rows4/6 и heldnote видны, horizontal
+overflow0 и errors/warnings0. BuiltCSS/локальныеfonts; это не production-сеанс.
+Скриншоты output/playwright/native-height-objects-{mobile,desktop}.png;
+browser/server закрыты, temporary helper удалён.
+
+Accepted uneven-floor модель пока не добавлена. По project-workflow дальнейший
+план уточнён:
+
+1. Explicit verticalReference с datum identity и выбранным нулевым physical
+   owner. Не выводить общий0 из reference-kind или старого mesh z=0.
+2. Signed floor levels принадлежат одному физическому контуру, с exact snapshot;
+   shared1+5 остаётся одним owner, редактирование контура инвалидирует привязку.
+3. Threshold elevation отдельно от aperture local bottom/sill surface, с обеими
+   side-floor identities. Сравнивать absolute aperture bottoms, не local bottoms.
+4. Согласованно обновить DB JSON types/horizontal edit preservation, measurement
+   acceptance/editor, volume/scene/furniture floor bases, routes/PDF/revisions.
+5. Синтетический fixture, не обмер пользователя: interior0cm, bathroom−2cm,
+   balcony−15cm; один aperture absolute bottom+2cm с local bottoms2/17cm.
+   Missing datum/owner, stale snapshots, sharedlabels, negativeZ и отсутствие
+   дублирующего zero slab должны проверяться отдельно. Legacy остаётся условным.
+
+Полная floor coverage/metric acceptance также не закрыта. Production/DB/user
+projects/paidAI/GitHub/PR/deploy не менялись; исходный PDF не редактировался.

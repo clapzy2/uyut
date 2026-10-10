@@ -13,6 +13,7 @@ import { nativeDimensionTargets } from '../lib/projects/plan-native-dimension-ta
 import { nativeFloorCavityCandidates } from '../lib/projects/plan-native-floor-cavities'
 import { nativeFloorOpeningSides } from '../lib/projects/plan-native-floor-opening-sides'
 import { nativeHeightSourceLocations } from '../lib/projects/plan-native-height-locations'
+import { nativeHeightObjectEvidence } from '../lib/projects/plan-native-height-objects'
 import { nativeHeightObservations } from '../lib/projects/plan-native-height-observations'
 import { nativeOpeningSourceLinks } from '../lib/projects/plan-native-opening-links'
 import { nativeReviewPacket } from '../lib/projects/plan-native-review-packet'
@@ -53,6 +54,7 @@ const dimensionTargets = nativeDimensionTargets({ ...input, source }, captionBin
 const scaleEvidence = nativeScaleEvidence({ ...input, source }, captionBindings)
 const heights = nativeHeightObservations({ ...input, source })
 const heightLocations = nativeHeightSourceLocations({ ...input, source })
+const heightObjects = nativeHeightObjectEvidence({ ...input, source })
 const scheduleNumbers = nativeRoomNumberScheduleLinks(input)
 const circles = scheduleNumbers.circles
 const floor = nativeFloorCavityCandidates(input)
@@ -89,6 +91,7 @@ await writeFile(
       scaleEvidence,
       heights,
       heightLocations,
+      heightObjects,
       roomScheduleEvidence: scheduleNumbers.schedule,
       numberScheduleLinks: scheduleNumbers.report,
       floor,
@@ -215,6 +218,11 @@ console.log(
       ).length,
       linkedHeightLeaderTargets: heightLocations.observations.filter(
         (row) => row.leader?.status === 'linked',
+      ).length,
+      proposedHeightObjects: heightObjects.bindings.filter((row) => row.objectStatus === 'proposed')
+        .length,
+      documentaryHeightReferences: heightObjects.bindings.filter(
+        (row) => row.datumEvidence.status === 'documentary',
       ).length,
       documentaryRoomRows: scheduleNumbers.report.rows.length,
       tableLinkedNumericRows: scheduleNumbers.report.rows.filter(

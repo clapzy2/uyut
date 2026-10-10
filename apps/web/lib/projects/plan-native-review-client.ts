@@ -1,4 +1,8 @@
 import { nativeHeightCaption } from './plan-native-height-caption'
+import {
+  nativeCeilingDatumDeclaration,
+  nativeCeilingDatumDeclarationTopic,
+} from './plan-native-height-datum-caption'
 import type { NativeReviewPacket } from './plan-native-review-packet'
 
 export class NativeReviewRequestError extends Error {
@@ -1264,6 +1268,282 @@ function isHeightObservations(value: unknown, packet: NativeReviewPacket): boole
   )
 }
 
+function isHeightObjects(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const report = value as NonNullable<NativeReviewPacket['heightObjects']>
+  if (
+    !hasOnlyKeys(report, [
+      'status',
+      'refusalReason',
+      'declarations',
+      'unsupportedDeclarations',
+      'bindings',
+    ]) ||
+    !Array.isArray(report.declarations) ||
+    report.declarations.length > 100 ||
+    !Array.isArray(report.unsupportedDeclarations) ||
+    report.declarations.length + report.unsupportedDeclarations.length > 100 ||
+    !Array.isArray(report.bindings) ||
+    report.bindings.length > 100
+  )
+    return false
+  if (report.status === 'unresolved')
+    return (
+      isBoundedLabel(report.refusalReason) &&
+      !report.declarations.length &&
+      !report.unsupportedDeclarations.length &&
+      !report.bindings.length
+    )
+  const heights = packet.heightObservations
+  const floor = packet.floorCavities
+  if (
+    report.status !== 'draft' ||
+    report.refusalReason !== null ||
+    heights?.status !== 'draft' ||
+    floor?.status !== 'draft' ||
+    report.bindings.length !== heights.observations.length
+  )
+    return false
+  const declarations = new Map<string, (typeof report.declarations)[number]>()
+  const knownNotes = new Map<string, string>()
+  for (const row of [...heights.observations, ...heights.issues]) {
+    if (nativeCeilingDatumDeclarationTopic(row.originalText))
+      knownNotes.set(row.labelId, row.originalText)
+  }
+  const reportedNotes = new Map<string, string>()
+  for (const row of report.unsupportedDeclarations) {
+    if (
+      !row ||
+      typeof row !== 'object' ||
+      !hasOnlyKeys(row, ['labelId', 'originalText', 'reason']) ||
+      !isBoundedLabel(row.labelId) ||
+      reportedNotes.has(row.labelId) ||
+      typeof row.originalText !== 'string' ||
+      !nativeCeilingDatumDeclarationTopic(row.originalText) ||
+      nativeCeilingDatumDeclaration(row.originalText) !== null ||
+      row.reason !== 'unsupported-ceiling-datum-declaration' ||
+      knownNotes.get(row.labelId) !== row.originalText
+    )
+      return false
+    reportedNotes.set(row.labelId, row.originalText)
+  }
+  const operations = new Set<number>()
+  for (const row of report.declarations) {
+    if (
+      !row ||
+      typeof row !== 'object' ||
+      !hasOnlyKeys(row, [
+        'labelId',
+        'originalText',
+        'scope',
+        'datum',
+        'minimumMm',
+        'maximumMm',
+        'status',
+        'inkSourceOperation',
+        'reason',
+      ]) ||
+      !isBoundedLabel(row.labelId) ||
+      declarations.has(row.labelId) ||
+      reportedNotes.has(row.labelId) ||
+      knownNotes.get(row.labelId) !== row.originalText ||
+      typeof row.originalText !== 'string'
+    )
+      return false
+    const literal = nativeCeilingDatumDeclaration(row.originalText)
+    if (
+      !literal ||
+      row.scope !== literal.scope ||
+      row.datum !== literal.datum ||
+      row.minimumMm !== literal.minimumMm ||
+      row.maximumMm !== literal.maximumMm
+    )
+      return false
+    if (row.inkSourceOperation !== null) {
+      if (
+        !Number.isSafeInteger(row.inkSourceOperation) ||
+        row.inkSourceOperation < 0 ||
+        operations.has(row.inkSourceOperation) ||
+        heights.locations?.observations.some(
+          (location) => location.inkSourceOperation === row.inkSourceOperation,
+        )
+      )
+        return false
+      operations.add(row.inkSourceOperation)
+    }
+    declarations.set(row.labelId, row)
+    reportedNotes.set(row.labelId, row.originalText)
+  }
+  if (reportedNotes.size !== knownNotes.size) return false
+  const first = report.declarations[0]
+  const conflict =
+    !!first &&
+    report.declarations.some(
+      (row) =>
+        row.datum !== first.datum ||
+        row.minimumMm !== first.minimumMm ||
+        row.maximumMm !== first.maximumMm,
+    )
+  for (const row of report.declarations) {
+    if (conflict) {
+      if (row.status !== 'unresolved' || row.reason !== 'conflicting-ceiling-datum-declarations')
+        return false
+    } else if (row.inkSourceOperation !== null) {
+      if (row.status !== 'verified' || row.reason !== null) return false
+    } else if (
+      row.status !== 'unresolved' ||
+      !['height-datum-ink-unavailable', 'height-datum-ink-unverified'].includes(row.reason ?? '')
+    )
+      return false
+  }
+  const globalVerified =
+    report.declarations.length > 0 && report.declarations.every((row) => row.status === 'verified')
+  const locations = new Map(
+    heights.locations?.status === 'draft'
+      ? heights.locations.observations.map((row) => [row.labelId, row])
+      : [],
+  )
+  const observations = new Map(heights.observations.map((row) => [row.labelId, row]))
+  const cavities = new Map(floor.candidates.map((row) => [row.id, row]))
+  const schedule = packet.roomSchedule
+  const scheduleRows = schedule?.status === 'draft' ? schedule.rows : []
+  const seen = new Set<string>()
+  let targetsCount = 0
+  for (const row of report.bindings) {
+    if (
+      !row ||
+      typeof row !== 'object' ||
+      !hasOnlyKeys(row, ['labelId', 'objectStatus', 'objectReason', 'targets', 'datumEvidence']) ||
+      !isBoundedLabel(row.labelId) ||
+      seen.has(row.labelId) ||
+      !observations.has(row.labelId) ||
+      !Array.isArray(row.targets) ||
+      row.targets.length > 100 ||
+      !row.datumEvidence ||
+      typeof row.datumEvidence !== 'object' ||
+      !hasOnlyKeys(row.datumEvidence, ['status', 'kind', 'sourceLabelIds', 'reason']) ||
+      !Array.isArray(row.datumEvidence.sourceLabelIds) ||
+      row.datumEvidence.sourceLabelIds.length > 101 ||
+      !row.datumEvidence.sourceLabelIds.every(isBoundedLabel) ||
+      new Set(row.datumEvidence.sourceLabelIds).size !== row.datumEvidence.sourceLabelIds.length
+    )
+      return false
+    seen.add(row.labelId)
+    targetsCount += row.targets.length
+    if (targetsCount > 10000) return false
+    const height = observations.get(row.labelId)
+    if (!height) return false
+    const location = locations.get(row.labelId)
+    const eligible =
+      height.quantityKind === 'finished-ceiling' && height.valueMm > 0 && height.valueMm <= 6000
+    const hasInk = location && location.inkSourceOperation !== null
+    let objectStatus: typeof row.objectStatus = 'unresolved'
+    let objectReason: string | null = 'height-object-role-unresolved'
+    let datumStatus: typeof row.datumEvidence.status = 'unresolved'
+    let datumKind: typeof row.datumEvidence.kind = null
+    let datumReason: string | null = 'height-object-role-unresolved'
+    let datumRefs: string[] = []
+    const expectedTargets: typeof row.targets = []
+    if (eligible && !hasInk) objectReason = datumReason = 'height-caption-ink-unverified'
+    if (eligible && hasInk) {
+      const inline = height.datum === 'unspecified' ? null : height.datum
+      datumRefs = [
+        ...(inline ? [height.labelId] : []),
+        ...report.declarations.map((item) => item.labelId),
+        ...report.unsupportedDeclarations.map((item) => item.labelId),
+      ]
+      if (report.unsupportedDeclarations.length)
+        datumReason = 'unsupported-ceiling-datum-declarations'
+      else if (report.declarations.length && (!globalVerified || conflict))
+        datumReason = conflict
+          ? 'conflicting-ceiling-datum-declarations'
+          : 'height-datum-ink-unverified'
+      else if (inline && first && inline !== first.datum)
+        datumReason = 'inline-global-height-datum-conflict'
+      else if (
+        report.declarations.some(
+          (item) => height.valueMm < item.minimumMm || height.valueMm > item.maximumMm,
+        )
+      )
+        datumReason = 'ceiling-height-outside-declared-range'
+      else if (inline || globalVerified) {
+        datumStatus = 'documentary'
+        datumKind = inline ?? first?.datum ?? null
+        datumReason = null
+      } else datumReason = 'height-datum-unspecified'
+      const leader = location.leader
+      objectReason = leader?.reason ?? 'height-object-leader-unverified'
+      if (leader?.status === 'linked' && leader.cavityIds.length === 1) {
+        const cavity = cavities.get(leader.cavityIds[0] ?? '')
+        if (!cavity || cavity.omittedBoundaryInkCount > 0)
+          objectReason = 'height-object-floor-unverified'
+        else {
+          for (const markerLabelId of cavity.markerLabelIds)
+            for (const link of scheduleRows)
+              if (
+                link.markerStatus === 'linked' &&
+                link.markerLabelIds.length === 1 &&
+                link.markerLabelIds[0] === markerLabelId
+              )
+                expectedTargets.push({
+                  kind: 'finished-ceiling',
+                  cavityId: cavity.id,
+                  sourceRoomNumber: link.sourceNumber,
+                  roomName: link.name,
+                  markerLabelId,
+                })
+          if (
+            expectedTargets.length === 1 &&
+            cavity.markerStatus === 'unambiguous' &&
+            cavity.markerLabelIds.length === 1 &&
+            schedule?.status === 'draft'
+          ) {
+            objectStatus = 'proposed'
+            objectReason = null
+          } else if (expectedTargets.length > 1 || cavity.markerStatus === 'ambiguous') {
+            objectStatus = 'ambiguous'
+            objectReason = 'height-object-marker-ambiguous'
+          } else objectReason = 'height-object-schedule-unverified'
+        }
+      }
+    }
+    if (
+      row.objectStatus !== objectStatus ||
+      row.objectReason !== objectReason ||
+      row.datumEvidence.status !== datumStatus ||
+      row.datumEvidence.kind !== datumKind ||
+      row.datumEvidence.reason !== datumReason ||
+      row.datumEvidence.sourceLabelIds.length !== datumRefs.length ||
+      row.datumEvidence.sourceLabelIds.some((id, index) => id !== datumRefs[index]) ||
+      row.targets.length !== expectedTargets.length
+    )
+      return false
+    for (const [index, target] of row.targets.entries()) {
+      const expected = expectedTargets[index]
+      if (
+        !target ||
+        typeof target !== 'object' ||
+        !expected ||
+        !hasOnlyKeys(target, [
+          'kind',
+          'cavityId',
+          'sourceRoomNumber',
+          'roomName',
+          'markerLabelId',
+        ]) ||
+        target.kind !== expected.kind ||
+        target.cavityId !== expected.cavityId ||
+        target.sourceRoomNumber !== expected.sourceRoomNumber ||
+        target.roomName !== expected.roomName ||
+        target.markerLabelId !== expected.markerLabelId
+      )
+        return false
+    }
+  }
+  return seen.size === observations.size
+}
+
 function isRoomSchedule(value: unknown, packet: NativeReviewPacket): boolean {
   if (value === undefined) return true
   if (!value || typeof value !== 'object') return false
@@ -1952,6 +2232,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isFloorCavities(packet.floorCavities, packet) ||
     !isHeightObservations(packet.heightObservations, packet) ||
     !isRoomSchedule(packet.roomSchedule, packet) ||
+    !isHeightObjects(packet.heightObjects, packet) ||
     !isDimensionTargets(packet.dimensionTargets, packet) ||
     !isFloorOpeningSides(packet.floorOpeningSides, packet) ||
     !isSavedFrameRooms(packet.savedFrameRooms, packet) ||

@@ -929,6 +929,72 @@ function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
           вершина. Это не подтверждение владельца высоты или общего уровня отсчёта для 3D.
         </p>
       ) : null}
+      {packet.heightObjects ? (
+        packet.heightObjects.status === 'unresolved' ? (
+          <p className="break-all text-ink-2">
+            Связи высот с объектами удержаны: {packet.heightObjects.refusalReason}.
+          </p>
+        ) : (
+          <details className="text-ink-2">
+            <summary className="min-h-11 cursor-pointer py-3">
+              Предложения объектов высот:{' '}
+              {
+                packet.heightObjects.bindings.filter((item) => item.objectStatus === 'proposed')
+                  .length
+              }
+              ; документарный вид отсчёта:{' '}
+              {
+                packet.heightObjects.bindings.filter(
+                  (item) => item.datumEvidence.status === 'documentary',
+                ).length
+              }
+            </summary>
+            <p>
+              Вид отсчёта — не единый ноль пола. Предложения чистого потолка, уровни пола и порогов
+              не приняты в геометрию 2D/3D; существующий и чистый пол не приравниваются.
+            </p>
+            <ul className="mt-3 space-y-2">
+              {packet.heightObjects.unsupportedDeclarations.map((item) => (
+                <li key={`height-unsupported:${item.labelId}`} className="break-all">
+                  {item.labelId}: «{item.originalText}» — объявление отсчёта удержано: {item.reason}
+                  . Уровень пола из этой подписи не переносится.
+                </li>
+              ))}
+              {packet.heightObjects.declarations.map((item) => (
+                <li key={`height-declaration:${item.labelId}`} className="break-all">
+                  {item.labelId}: «{item.originalText}» — {item.minimumMm}–{item.maximumMm} мм,{' '}
+                  {heightDatumMessages[item.datum]};{' '}
+                  {item.status === 'verified'
+                    ? 'исходная подпись проверена'
+                    : `удержано — ${item.reason}`}
+                  .
+                </li>
+              ))}
+              {packet.heightObjects.bindings.map((item) => (
+                <li key={`height-object:${item.labelId}`} className="break-all">
+                  {item.labelId}:{' '}
+                  {item.objectStatus === 'proposed'
+                    ? 'предложение чистого потолка'
+                    : `объект удержан — ${item.objectReason}`}
+                  .
+                  {item.targets.map((target) => (
+                    <span key={`${target.cavityId}:${target.markerLabelId}`}>
+                      {' '}
+                      Полость {target.cavityId}, комната {target.sourceRoomNumber} «
+                      {target.roomName}», метка {target.markerLabelId}.
+                    </span>
+                  ))}{' '}
+                  Отсчёт:{' '}
+                  {item.datumEvidence.status === 'documentary' && item.datumEvidence.kind
+                    ? `${heightDatumMessages[item.datumEvidence.kind]}; исходные подписи: ${item.datumEvidence.sourceLabelIds.join(', ')}`
+                    : `удержан — ${item.datumEvidence.reason}`}
+                  .
+                </li>
+              ))}
+            </ul>
+          </details>
+        )
+      ) : null}
       {dimensions?.status === 'draft' || heights?.status === 'draft' ? (
         <details className="text-ink-2">
           <summary className="min-h-11 cursor-pointer py-3">

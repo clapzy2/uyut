@@ -689,6 +689,121 @@ describe('read-only native review presentation', () => {
     expect(packet).toEqual(before)
   })
 
+  it('shows documentary height object proposals without accepting owners, floor levels or a shared zero', () => {
+    const packet = nativeDimensionPacket()
+    const baseline = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    packet.heightObjects = {
+      status: 'draft',
+      refusalReason: null,
+      unsupportedDeclarations: [],
+      declarations: [
+        {
+          labelId: 'datum-note',
+          originalText: 'Исходный <потолок>',
+          scope: 'apartment-finished-ceilings',
+          datum: 'existing-floor',
+          minimumMm: 2600,
+          maximumMm: 2800,
+          status: 'verified',
+          inkSourceOperation: 200,
+          reason: null,
+        },
+      ],
+      bindings: [
+        {
+          labelId: 'height-0',
+          objectStatus: 'proposed',
+          objectReason: null,
+          targets: [
+            {
+              kind: 'finished-ceiling',
+              cavityId: 'cavity-10',
+              sourceRoomNumber: 1,
+              roomName: 'Гостиная <исходная>',
+              markerLabelId: 'circle-1',
+            },
+          ],
+          datumEvidence: {
+            status: 'documentary',
+            kind: 'existing-floor',
+            sourceLabelIds: ['datum-note'],
+            reason: null,
+          },
+        },
+        {
+          labelId: 'height-1',
+          objectStatus: 'unresolved',
+          objectReason: 'height-object-leader-unverified',
+          targets: [],
+          datumEvidence: {
+            status: 'unresolved',
+            kind: null,
+            sourceLabelIds: [],
+            reason: 'height-datum-unspecified',
+          },
+        },
+      ],
+    }
+    const before = structuredClone(packet)
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Предложения объектов высот: 1; документарный вид отсчёта: 1')
+    expect(html).toContain('Вид отсчёта — не единый ноль пола')
+    expect(html).toContain('не приняты в геометрию 2D/3D')
+    expect(html).toContain('существующий и чистый пол не приравниваются')
+    expect(html).toContain('Гостиная &lt;исходная&gt;')
+    expect(html).toContain('Исходный &lt;потолок&gt;')
+    expect(html).toContain('height-object-leader-unverified')
+    expect(html).toContain('исходные подписи: datum-note')
+    expect(packet).toEqual(before)
+    expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(baseline.match(/<svg\b.*?<\/svg>/s)?.[0])
+    expect(html.match(/<button\b/g)?.length).toEqual(baseline.match(/<button\b/g)?.length)
+  })
+
+  it('discloses unsupported competing ceiling notes without treating them as a floor datum', () => {
+    const packet = nativeDimensionPacket()
+    packet.heightObjects = {
+      status: 'draft',
+      refusalReason: null,
+      declarations: [],
+      bindings: [],
+      unsupportedDeclarations: [
+        {
+          labelId: 'competing-note',
+          originalText: 'Потолок в квартире от пола, кроме <кухни>',
+          reason: 'unsupported-ceiling-datum-declaration',
+        },
+      ],
+    }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Предложения объектов высот: 0; документарный вид отсчёта: 0')
+    expect(html).toContain('кроме &lt;кухни&gt;')
+    expect(html).toContain('объявление отсчёта удержано: unsupported-ceiling-datum-declaration')
+    expect(html).toContain('Уровень пола из этой подписи не переносится')
+    expect(html).not.toContain('исходная подпись проверена')
+  })
+
+  it('shows atomic height-object refusal without positive proposals or documentary counts', () => {
+    const packet = nativeDimensionPacket()
+    packet.heightObjects = {
+      status: 'unresolved',
+      refusalReason: 'height-object-source-held',
+      declarations: [],
+      unsupportedDeclarations: [],
+      bindings: [],
+    }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Связи высот с объектами удержаны: height-object-source-held')
+    expect(html).not.toContain('Предложения объектов высот:')
+  })
+
   it('separates legacy role counts from strict held source-run bindings without SVG or actions', () => {
     const packet = nativeDimensionPacket()
     packet.sourceCaptionBindings = {
