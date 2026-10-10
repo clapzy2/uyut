@@ -166,6 +166,112 @@ function isGlazingSymbols(value: unknown, image: NativeReviewPacket['image']): b
   })
 }
 
+function isSourceLinks(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const links = value as NonNullable<NativeReviewPacket['sourceLinks']>
+  if (
+    !Array.isArray(links.doors) ||
+    !Array.isArray(links.glazing) ||
+    !Array.isArray(links.groups) ||
+    [links.doors, links.glazing, links.groups].some((items) => items.length > 100)
+  )
+    return false
+  if (links.status === 'unresolved')
+    return (
+      typeof links.refusalReason === 'string' &&
+      !!links.refusalReason.trim() &&
+      links.refusalReason.length <= 128 &&
+      links.doors.length === 0 &&
+      links.glazing.length === 0 &&
+      links.groups.length === 0
+    )
+  if (links.status !== 'draft' || links.refusalReason !== null) return false
+  if (
+    packet.doorSymbols?.status === 'unresolved' ||
+    packet.openingFrames?.status === 'unresolved' ||
+    packet.glazingSymbols?.status === 'unresolved'
+  )
+    return false
+
+  const doorIds = new Set(packet.doorSymbols?.candidates.map((candidate) => candidate.id) ?? [])
+  const frameIds = new Set(packet.openingFrames?.candidates.map((candidate) => candidate.id) ?? [])
+  const glazingIds = new Set(
+    packet.glazingSymbols?.candidates.map((candidate) => candidate.id) ?? [],
+  )
+  if (links.doors.length !== doorIds.size || links.glazing.length !== glazingIds.size) return false
+  const checkedDoors = new Set<string>()
+  for (const door of links.doors) {
+    if (
+      !door ||
+      typeof door !== 'object' ||
+      !doorIds.has(door.symbolId) ||
+      checkedDoors.has(door.symbolId) ||
+      !['linked', 'ambiguous', 'unresolved'].includes(door.status)
+    )
+      return false
+    checkedDoors.add(door.symbolId)
+    if (door.status !== 'linked') {
+      if (door.targetKind !== null || door.targetId !== null || door.relation !== null) return false
+    } else if (door.targetKind === 'opening-frame') {
+      if (!frameIds.has(door.targetId ?? '') || door.relation !== 'jamb-to-frame') return false
+    } else if (door.targetKind === 'glazing-panel') {
+      if (!glazingIds.has(door.targetId ?? '') || door.relation !== 'shared-cap-edge') return false
+    } else return false
+  }
+  const checkedGlazing = new Set<string>()
+  const twoSidedGlazing = new Set<string>()
+  for (const glazing of links.glazing) {
+    if (
+      !glazing ||
+      typeof glazing !== 'object' ||
+      !glazingIds.has(glazing.symbolId) ||
+      checkedGlazing.has(glazing.symbolId) ||
+      !['two-sided', 'ambiguous', 'unresolved'].includes(glazing.status)
+    )
+      return false
+    checkedGlazing.add(glazing.symbolId)
+    if (glazing.status === 'two-sided') twoSidedGlazing.add(glazing.symbolId)
+  }
+
+  const groupIds = new Set<string>()
+  const groupedGlazing = new Set<string>()
+  const groupedDoors = new Set<string>()
+  for (const group of links.groups) {
+    if (
+      !group ||
+      typeof group !== 'object' ||
+      typeof group.id !== 'string' ||
+      !group.id.trim() ||
+      group.id.length > 128 ||
+      groupIds.has(group.id) ||
+      !Array.isArray(group.glazingIds) ||
+      group.glazingIds.length < 2 ||
+      group.glazingIds.length > 100 ||
+      !Array.isArray(group.doorIds) ||
+      group.doorIds.length > 100
+    )
+      return false
+    groupIds.add(group.id)
+    for (const id of group.glazingIds) {
+      if (!twoSidedGlazing.has(id) || groupedGlazing.has(id)) return false
+      groupedGlazing.add(id)
+    }
+    for (const id of group.doorIds) {
+      if (groupedDoors.has(id)) return false
+      const door = links.doors.find((check) => check.symbolId === id)
+      if (
+        door?.status !== 'linked' ||
+        door.targetKind !== 'glazing-panel' ||
+        !group.glazingIds.includes(door.targetId ?? '')
+      )
+        return false
+      groupedDoors.add(id)
+    }
+  }
+  return true
+}
+
 function isSavedReview(value: unknown, source: NativeReviewPacket['source']): boolean {
   if (!value || typeof value !== 'object') return false
   const saved = value as NativeReviewPacket['savedReview']
@@ -261,6 +367,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isDoorSymbols(packet.doorSymbols, packet.image) ||
     !isOpeningFrames(packet.openingFrames, packet.image) ||
     !isGlazingSymbols(packet.glazingSymbols, packet.image) ||
+    !isSourceLinks(packet.sourceLinks, packet) ||
     !Array.isArray(packet.faces) ||
     packet.faces.length > 100 ||
     !Array.isArray(packet.issues) ||

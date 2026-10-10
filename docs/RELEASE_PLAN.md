@@ -6,7 +6,23 @@
 
 ### Текущий результат последней пачки
 
-Добавлен общий source-профиль корпуса с двумя точно примыкающими торцами.
+Добавлены exact source connections уже найденных символов. Створка связывается
+с рамкой только через её source jamb path и буквальное ребро corner→hinge;
+с остеклением - через целое общее cap edge, не proximity/closedTip projection.
+Glazing outer caps получают положительные collinear контакты с source profiles,
+не доказательство полной ширины косяка или роли стены. Группы образуются только
+при actual bridging edge того же профиля; shared operation alone недостаточно.
+Fresh primary PDF:2source-linked door symbols,8two-sided glazing,4observed groups,
+одна с capped leaf. На ещё6 PDF не получено новых links/groups; baseline glyphs
+сохранены. Exact aliases, ambiguity и200kwork/50contacts atomically bounded.
+Private UI показывает состав и ограничения; SVG не меняется, free floor/room/
+wall ownership не принят. 3776tests/253files, typecheck7, lint888, build/diff и
+independent source/metamorphic audit прошли; Firefox390/1280px без page overflow.
+Роли стен/помещений, floor partitions/thresholds, full inventory/metric/vertical
+proof и source-based2D/3D остаются следующим этапом. Production, saved geometry,
+DB/PR/AI/deploy не менялись. Журнал содержит реплеи и точные пределы результата.
+
+Предыдущая пачка добавила общий source-профиль корпуса с двумя точно примыкающими торцами.
 Он используется для исходных профилей остекления и составных створок, без
 склейки/подгонки точек. Обычный quarter-swing guard сохранён; только capped-panel
 профиль допускает actual sweep80..100° при прежнем circle-shape fit0.005.

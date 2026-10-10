@@ -6,8 +6,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import sharp from 'sharp'
 import { preparePlanPage } from '../lib/projects/plan-document'
-import { nativeDoorSymbolCandidates } from '../lib/projects/plan-native-door-symbols'
-import { nativeOpeningFrameCandidates } from '../lib/projects/plan-native-opening-frames'
+import { nativeOpeningSourceLinks } from '../lib/projects/plan-native-opening-links'
 import { nativeReviewPacket } from '../lib/projects/plan-native-review-packet'
 
 const [pdfPath, pageValue, outputPath] = process.argv.slice(2)
@@ -24,8 +23,9 @@ const input = {
   lineworkSource: page.lineworkRasterSource,
 }
 const before = structuredClone(input)
-const doors = nativeDoorSymbolCandidates(input)
-const frames = nativeOpeningFrameCandidates(input)
+const connections = nativeOpeningSourceLinks(input)
+const doors = connections.doorSymbols
+const frames = connections.openingFrames
 const source = {
   sha256: createHash('sha256').update(body).digest('hex'),
   pdfPage: pageNumber,
@@ -53,6 +53,7 @@ await writeFile(
       },
       doors,
       frames,
+      connections,
       packet,
       caveat:
         'Automatic source symbol/frame candidates; not physical openings, complete free floor, metric proof or confirmed 2D/3D.',
@@ -100,6 +101,12 @@ console.log(
       frames: frames.candidates.length,
       glazingPanels: packet.glazingSymbols?.candidates.length ?? 0,
       compoundPanelRefusal: doors.compoundPanels.refusalReason,
+      sourceLinkedDoors: connections.doorLinks.filter((link) => link.status === 'linked').length,
+      glazingWithTwoSourceContacts: connections.glazingLinks.filter(
+        (link) => link.status === 'two-sided',
+      ).length,
+      sourceSymbolGroups: connections.groups.length,
+      sourceLinkRefusal: connections.refusalReason,
       doorRefusal: doors.refusalReason,
       frameRefusal: frames.refusalReason,
       skippedCurves: input.work.skippedCurves,

@@ -116,6 +116,93 @@ export function SavedReviewCoverage({
   )
 }
 
+function SourceSymbolLinks({ links }: { links: NonNullable<NativeReviewPacket['sourceLinks']> }) {
+  return (
+    <section
+      className="space-y-2 text-[13px] leading-relaxed"
+      aria-label="Контакты исходных символов"
+    >
+      <h4 className="text-[14px] font-medium">Контакты исходных символов</h4>
+      <p className="text-ink-2">
+        Проверяются только наблюдаемые контакты линий исходника. Принадлежность стене или комнате,
+        полный контур косяков, граница свободного пола и полный перечень окон не подтверждены.
+      </p>
+      {links.status === 'unresolved' ? (
+        <p className="text-ink-2">
+          Поиск контактов не завершён; частичный набор не показан. Ограничение:{' '}
+          <span className="break-all">{links.refusalReason}</span>.
+        </p>
+      ) : (
+        <>
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <dt className="text-ink-2">Связанные дверные символы</dt>
+              <dd>{links.doors.filter((door) => door.status === 'linked').length}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-2">Профили с контактами на двух торцах</dt>
+              <dd>{links.glazing.filter((glazing) => glazing.status === 'two-sided').length}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-2">Группы исходных символов</dt>
+              <dd>{links.groups.length}</dd>
+            </div>
+          </dl>
+          <p className="text-ink-2">
+            Это не число дверей, окон или балконных блоков. Новые соединительные линии, пороги и
+            контуры пола не добавляются.
+          </p>
+          <details>
+            <summary className="min-h-11 cursor-pointer py-3">Состав найденных контактов</summary>
+            {links.doors.length || links.glazing.length ? (
+              <ul className="list-disc space-y-2 pl-5">
+                {links.doors.map((door) => (
+                  <li key={`door:${door.symbolId}`}>
+                    <span className="break-all">{door.symbolId}</span>:{' '}
+                    {door.status === 'linked' ? (
+                      <>
+                        {door.relation === 'jamb-to-frame'
+                          ? 'контакт створки и исходной линии косяка с рамкой'
+                          : 'общая торцевая линия створки и профиля остекления'}{' '}
+                        — <span className="break-all">{door.targetId}</span>.
+                      </>
+                    ) : door.status === 'ambiguous' ? (
+                      'несколько возможных контактов, связь не выбрана.'
+                    ) : (
+                      'однозначный контакт не найден.'
+                    )}
+                  </li>
+                ))}
+                {links.glazing.map((glazing) => (
+                  <li key={`glazing:${glazing.symbolId}`}>
+                    <span className="break-all">{glazing.symbolId}</span>:{' '}
+                    {glazing.status === 'two-sided'
+                      ? 'найдены исходные контакты на двух торцах профиля.'
+                      : glazing.status === 'ambiguous'
+                        ? 'контакты неоднозначны, связь не выбрана.'
+                        : 'контакты на двух торцах не найдены.'}
+                  </li>
+                ))}
+                {links.groups.map((group, index) => (
+                  <li key={`group:${group.id}`}>
+                    Группа {index + 1}: профилей {group.glazingIds.length}, дверных символов{' '}
+                    {group.doorIds.length}.{' '}
+                    <span className="break-all">
+                      {[...group.glazingIds, ...group.doorIds].join(', ')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-ink-2">Нет исходных символов для проверки контактов.</p>
+            )}
+          </details>
+        </>
+      )}
+    </section>
+  )
+}
+
 export function NativeReviewResult({
   packet,
   imageUrl,
@@ -227,6 +314,7 @@ export function NativeReviewResult({
           ) : null}
         </div>
       ) : null}
+      {packet.sourceLinks ? <SourceSymbolLinks links={packet.sourceLinks} /> : null}
       <label className="flex min-h-11 items-center gap-2 text-[13px]">
         <input
           type="checkbox"

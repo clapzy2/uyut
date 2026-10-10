@@ -1,9 +1,8 @@
 import type { PlanReading } from '@uyut/db'
 import type { NativeTextAnchors } from './plan-document'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
-import { nativeDoorSymbolCandidates } from './plan-native-door-symbols'
 import { nativeFaceAnnotationCandidates } from './plan-native-face-annotations'
-import { nativeOpeningFrameCandidates } from './plan-native-opening-frames'
+import { nativeOpeningSourceLinks } from './plan-native-opening-links'
 import { automaticNativeRoomCandidates, nativeRoomPolygonKey } from './plan-native-room-candidates'
 import {
   inspectReviewedPageCoverage,
@@ -73,6 +72,19 @@ export type NativeReviewPacket = {
       polygons: { x: number; y: number }[][]
       centerline: { start: { x: number; y: number }; end: { x: number; y: number } }
     }[]
+  }
+  sourceLinks?: {
+    status: 'draft' | 'unresolved'
+    refusalReason: string | null
+    doors: {
+      symbolId: string
+      status: 'linked' | 'ambiguous' | 'unresolved'
+      targetKind: 'opening-frame' | 'glazing-panel' | null
+      targetId: string | null
+      relation: 'jamb-to-frame' | 'shared-cap-edge' | null
+    }[]
+    glazing: { symbolId: string; status: 'two-sided' | 'ambiguous' | 'unresolved' }[]
+    groups: { id: string; glazingIds: string[]; doorIds: string[] }[]
   }
   issues: { code: string; message: string }[]
   readiness: { readyFor2D: false; readyFor3D: false; readOnly: true }
@@ -161,8 +173,16 @@ export function nativeReviewPacket(input: {
   const rooms = automaticNativeRoomCandidates(common)
   const annotations = nativeFaceAnnotationCandidates(common)
   const dimensions = automaticNativeDimensionRoles({ ...common, source })
-  const doors = nativeDoorSymbolCandidates(common)
-  const frames = nativeOpeningFrameCandidates(common)
+  const connections = nativeOpeningSourceLinks(common)
+  const doors = connections.doorSymbols
+  const frames = connections.openingFrames
+  packet.sourceLinks = {
+    status: connections.status,
+    refusalReason: connections.refusalReason,
+    doors: connections.doorLinks.map(({ evidence: _evidence, ...link }) => link),
+    glazing: connections.glazingLinks.map(({ symbolId, status }) => ({ symbolId, status })),
+    groups: connections.groups.map(({ bridges: _bridges, ...group }) => group),
+  }
   const scale = native.pageNormalizedScale
   if (scale) {
     const raster = (point: { x: number; y: number }) => ({
@@ -330,6 +350,7 @@ export function nativeReviewPacket(input: {
     ['door-symbol-search', doors.refusalReason],
     ['opening-frame-search', frames.refusalReason],
     ['panel-profile-search', doors.compoundPanels.refusalReason],
+    ['source-link-search', connections.refusalReason],
   ] as const) {
     if (reason)
       issue(

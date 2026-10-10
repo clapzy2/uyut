@@ -281,6 +281,98 @@ describe('whole-page native inspection, separate from saved geometry', () => {
     expect(packet.issues.some((issue) => issue.code.startsWith('panel-profile-search:'))).toBe(true)
     expect(packet.readiness.readOnly).toBe(true)
   })
+  it('serializes source symbol groups without transferring contact proof to a floor', () => {
+    const input = fixture()
+    const addPath = (operationIndex: number, points: number[][], closed = true) => {
+      input.work.paths.push({
+        operationIndex,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed,
+        points: points.map(([x, y]) => ({ x: x as number, y: y as number })),
+      })
+    }
+    for (const [base, left] of [
+      [80, 100],
+      [84, 215],
+    ] as const) {
+      addPath(base, [
+        [left, 100],
+        [left + 100, 100],
+        [left + 100, 105],
+        [left, 105],
+      ])
+      addPath(base + 1, [
+        [left - 5, 100],
+        [left, 100],
+        [left, 105],
+        [left - 5, 105],
+      ])
+      addPath(base + 2, [
+        [left + 100, 100],
+        [left + 105, 100],
+        [left + 105, 105],
+        [left + 100, 105],
+      ])
+      addPath(
+        base + 3,
+        [
+          [left, 102.5],
+          [left + 100, 102.5],
+        ],
+        false,
+      )
+    }
+    addPath(90, [
+      [80, 95],
+      [95, 95],
+      [95, 102.5],
+      [90, 102.5],
+      [90, 110],
+      [80, 110],
+    ])
+    addPath(91, [
+      [320, 95],
+      [335, 95],
+      [335, 110],
+      [325, 110],
+      [325, 102.5],
+      [320, 102.5],
+    ])
+    addPath(92, [
+      [203, 98],
+      [212, 98],
+      [212, 100],
+      [210, 100],
+      [210, 102.5],
+      [205, 102.5],
+      [205, 100],
+      [203, 100],
+    ])
+    const before = structuredClone(input)
+    const packet = nativeReviewPacket(input)
+    expect(packet.sourceLinks).toEqual({
+      status: 'draft',
+      refusalReason: null,
+      doors: [],
+      glazing: [
+        { symbolId: 'native-glazing-symbol-80:0', status: 'two-sided' },
+        { symbolId: 'native-glazing-symbol-84:0', status: 'two-sided' },
+      ],
+      groups: [
+        {
+          id: 'native-source-symbol-group-1',
+          glazingIds: ['native-glazing-symbol-80:0', 'native-glazing-symbol-84:0'],
+          doorIds: [],
+        },
+      ],
+    })
+    expect(packet.sourceLinks).not.toHaveProperty('profiles')
+    expect(packet.sourceLinks?.groups[0]).not.toHaveProperty('bridges')
+    expect(packet).not.toHaveProperty('footprint')
+    expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+    expect(input).toEqual(before)
+  })
   it('shows shared-wall source candidates without erasing frames or approving a floor', () => {
     const input = connectedNativeRoomFixture()
     const before = structuredClone(input)

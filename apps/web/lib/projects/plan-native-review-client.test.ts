@@ -117,6 +117,346 @@ function loadFixture(packet: NativeReviewPacket, headers: Record<string, string>
   return loadNativeReview(input(), fetcher as typeof fetch)
 }
 
+function sourceLinksFixture() {
+  const result = fixture()
+  const { packet } = result
+  const door = doorSymbols().candidates[0]
+  const glazing = glazingSymbols().candidates[0]
+  if (!door || !glazing) throw new Error('Source symbol fixture is missing')
+  packet.doorSymbols = {
+    status: 'draft',
+    refusalReason: null,
+    candidates: ['door-frame', 'door-glazing', 'door-unresolved', 'door-ambiguous'].map((id) => ({
+      ...structuredClone(door),
+      id,
+    })),
+  }
+  packet.openingFrames = openingFrames()
+  packet.glazingSymbols = {
+    status: 'draft',
+    refusalReason: null,
+    candidates: ['glazing-1', 'glazing-2', 'glazing-unresolved', 'glazing-ambiguous'].map((id) => ({
+      ...structuredClone(glazing),
+      id,
+    })),
+  }
+  const links: NonNullable<NativeReviewPacket['sourceLinks']> = {
+    status: 'draft',
+    refusalReason: null,
+    doors: [
+      {
+        symbolId: 'door-frame',
+        status: 'linked',
+        targetKind: 'opening-frame',
+        targetId: 'native-opening-frame-1:0',
+        relation: 'jamb-to-frame',
+      },
+      {
+        symbolId: 'door-glazing',
+        status: 'linked',
+        targetKind: 'glazing-panel',
+        targetId: 'glazing-1',
+        relation: 'shared-cap-edge',
+      },
+      {
+        symbolId: 'door-unresolved',
+        status: 'unresolved',
+        targetKind: null,
+        targetId: null,
+        relation: null,
+      },
+      {
+        symbolId: 'door-ambiguous',
+        status: 'ambiguous',
+        targetKind: null,
+        targetId: null,
+        relation: null,
+      },
+    ],
+    glazing: [
+      { symbolId: 'glazing-1', status: 'two-sided' },
+      { symbolId: 'glazing-2', status: 'two-sided' },
+      { symbolId: 'glazing-unresolved', status: 'unresolved' },
+      { symbolId: 'glazing-ambiguous', status: 'ambiguous' },
+    ],
+    groups: [
+      { id: 'source-group-1', glazingIds: ['glazing-1', 'glazing-2'], doorIds: ['door-glazing'] },
+    ],
+  }
+  packet.sourceLinks = links
+  return { ...result, links }
+}
+
+describe('bounded source-only symbol links', () => {
+  it('preserves checks and group references without adding geometric or readiness evidence', async () => {
+    const { packet, headers, links } = sourceLinksFixture()
+    const sourceGeometry = structuredClone({
+      doors: packet.doorSymbols,
+      frames: packet.openingFrames,
+      glazing: packet.glazingSymbols,
+      faces: packet.faces,
+    })
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.sourceLinks).toEqual(links)
+    expect({
+      doors: loaded.doorSymbols,
+      frames: loaded.openingFrames,
+      glazing: loaded.glazingSymbols,
+      faces: loaded.faces,
+    }).toEqual(sourceGeometry)
+    expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it.each(['draft', 'unresolved'] as const)('accepts an empty %s contact layer', async (status) => {
+    const { packet, headers } = fixture()
+    packet.sourceLinks = {
+      status,
+      refusalReason: status === 'unresolved' ? 'source-link-search-budget' : null,
+      doors: [],
+      glazing: [],
+      groups: [],
+    }
+    expect((await loadFixture(packet, headers)).packet.sourceLinks).toEqual(packet.sourceLinks)
+  })
+  it('accepts an atomic refusal without pretending that all available symbols were checked', async () => {
+    const { packet, headers } = sourceLinksFixture()
+    packet.sourceLinks = {
+      status: 'unresolved',
+      refusalReason: 'source-link-search-budget',
+      doors: [],
+      glazing: [],
+      groups: [],
+    }
+    expect((await loadFixture(packet, headers)).packet.sourceLinks?.status).toBe('unresolved')
+  })
+  it('allows a standalone linked pane and a group without door symbols', async () => {
+    const { packet, headers, links } = sourceLinksFixture()
+    const group = links.groups[0]
+    if (!group) throw new Error('Source group fixture is missing')
+    group.doorIds = []
+    expect((await loadFixture(packet, headers)).packet.sourceLinks?.groups[0]?.doorIds).toEqual([])
+    links.groups = []
+    expect((await loadFixture(packet, headers)).packet.sourceLinks?.doors[1]?.status).toBe('linked')
+  })
+  it('preserves exactly 100 referenced profiles and a bounded 128-character group ID', async () => {
+    const { packet, headers, links } = sourceLinksFixture()
+    const symbols = packet.glazingSymbols
+    const glazing = symbols?.candidates[0]
+    if (!symbols || !glazing) throw new Error('Glazing fixture is missing')
+    symbols.candidates = Array.from({ length: 100 }, (_, index) => ({
+      ...structuredClone(glazing),
+      id: `glazing-${index + 1}`,
+    }))
+    links.glazing = symbols.candidates.map(({ id }) => ({ symbolId: id, status: 'two-sided' }))
+    links.groups = [
+      {
+        id: 'g'.repeat(128),
+        glazingIds: symbols.candidates.map(({ id }) => id),
+        doorIds: ['door-glazing'],
+      },
+    ]
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.sourceLinks?.glazing).toHaveLength(100)
+    expect(loaded.sourceLinks?.groups[0]?.glazingIds).toHaveLength(100)
+  })
+  it('preserves exactly 100 linked door checks and group members', async () => {
+    const { packet, headers, links } = sourceLinksFixture()
+    const symbols = packet.doorSymbols
+    const symbol = symbols?.candidates[0]
+    const group = links.groups[0]
+    if (!symbols || !symbol || !group) throw new Error('Door group fixture is missing')
+    symbols.candidates = Array.from({ length: 100 }, (_, index) => ({
+      ...structuredClone(symbol),
+      id: `door-${index}`,
+    }))
+    links.doors = symbols.candidates.map(({ id }) => ({
+      symbolId: id,
+      status: 'linked',
+      targetKind: 'glazing-panel',
+      targetId: 'glazing-1',
+      relation: 'shared-cap-edge',
+    }))
+    group.doorIds = symbols.candidates.map(({ id }) => id)
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.sourceLinks?.doors).toHaveLength(100)
+    expect(loaded.sourceLinks?.groups[0]?.doorIds).toHaveLength(100)
+  })
+  it('accepts a bounded 128-character refusal without any partial references', async () => {
+    const { packet, headers } = fixture()
+    packet.sourceLinks = {
+      status: 'unresolved',
+      refusalReason: 'r'.repeat(128),
+      doors: [],
+      glazing: [],
+      groups: [],
+    }
+    expect((await loadFixture(packet, headers)).packet.sourceLinks?.refusalReason).toHaveLength(128)
+  })
+  it.each([
+    'null-layer',
+    'status',
+    'draft-reason',
+    'empty-reason',
+    'long-reason',
+    'refusal-with-doors',
+    'refusal-with-glazing',
+    'refusal-with-groups',
+    'missing-doors',
+    'missing-glazing',
+    'missing-groups',
+    'door-limit',
+    'glazing-limit',
+    'group-limit',
+    'null-door',
+    'unknown-door',
+    'duplicate-door',
+    'missing-door-check',
+    'door-status',
+    'unknown-target-kind',
+    'missing-target',
+    'unknown-frame',
+    'unknown-glazing',
+    'frame-relation',
+    'glazing-relation',
+    'unresolved-target',
+    'ambiguous-target',
+    'unresolved-relation',
+    'ambiguous-relation',
+    'null-glazing',
+    'unknown-glazing-check',
+    'duplicate-glazing',
+    'missing-glazing-check',
+    'glazing-status',
+    'null-group',
+    'blank-group-id',
+    'long-group-id',
+    'duplicate-group-id',
+    'missing-group-glazing',
+    'missing-group-doors',
+    'singleton-group',
+    'group-glazing-limit',
+    'group-door-limit',
+    'unknown-group-glazing',
+    'unresolved-group-glazing',
+    'ambiguous-group-glazing',
+    'duplicate-group-glazing',
+    'globally-duplicate-glazing',
+    'unknown-group-door',
+    'unresolved-group-door',
+    'ambiguous-group-door',
+    'frame-group-door',
+    'foreign-group-door',
+    'duplicate-group-door',
+    'refused-door-layer',
+    'refused-frame-layer',
+    'refused-glazing-layer',
+  ])('rejects malformed contact references atomically: %s', async (change) => {
+    const { packet, headers, links } = sourceLinksFixture()
+    const [frameDoor, glazingDoor, unresolvedDoor, ambiguousDoor] = links.doors
+    const [glazing] = links.glazing
+    const [group] = links.groups
+    if (!frameDoor || !glazingDoor || !unresolvedDoor || !ambiguousDoor || !glazing || !group)
+      throw new Error('Source links fixture is missing')
+    if (change === 'null-layer') Object.assign(packet, { sourceLinks: null })
+    if (change === 'status') Object.assign(links, { status: 'accepted' })
+    if (change === 'draft-reason') links.refusalReason = 'source-link-search-budget'
+    if (change === 'empty-reason' || change === 'long-reason') {
+      Object.assign(links, {
+        status: 'unresolved',
+        refusalReason: change === 'empty-reason' ? ' ' : 'r'.repeat(129),
+        doors: [],
+        glazing: [],
+        groups: [],
+      })
+    }
+    if (change.startsWith('refusal-with-')) {
+      links.status = 'unresolved'
+      links.refusalReason = 'source-link-search-budget'
+      if (change !== 'refusal-with-doors') links.doors = []
+      if (change !== 'refusal-with-glazing') links.glazing = []
+      if (change !== 'refusal-with-groups') links.groups = []
+    }
+    if (change === 'missing-doors') Object.assign(links, { doors: null })
+    if (change === 'missing-glazing') Object.assign(links, { glazing: null })
+    if (change === 'missing-groups') Object.assign(links, { groups: null })
+    if (change === 'door-limit') links.doors = Array(101).fill(frameDoor)
+    if (change === 'glazing-limit') links.glazing = Array(101).fill(glazing)
+    if (change === 'group-limit') links.groups = Array(101).fill(group)
+    if (change === 'null-door') Object.assign(links.doors, { 0: null })
+    if (change === 'unknown-door') frameDoor.symbolId = 'unknown-door'
+    if (change === 'duplicate-door') links.doors[1] = structuredClone(frameDoor)
+    if (change === 'missing-door-check') links.doors.pop()
+    if (change === 'door-status') Object.assign(frameDoor, { status: 'accepted' })
+    if (change === 'unknown-target-kind') Object.assign(frameDoor, { targetKind: 'wall' })
+    if (change === 'missing-target') frameDoor.targetId = null
+    if (change === 'unknown-frame') frameDoor.targetId = 'unknown-frame'
+    if (change === 'unknown-glazing') glazingDoor.targetId = 'unknown-glazing'
+    if (change === 'frame-relation') frameDoor.relation = 'shared-cap-edge'
+    if (change === 'glazing-relation') glazingDoor.relation = 'jamb-to-frame'
+    if (change === 'unresolved-target') unresolvedDoor.targetId = frameDoor.targetId
+    if (change === 'ambiguous-target') ambiguousDoor.targetKind = 'opening-frame'
+    if (change === 'unresolved-relation') unresolvedDoor.relation = 'jamb-to-frame'
+    if (change === 'ambiguous-relation') ambiguousDoor.relation = 'shared-cap-edge'
+    if (change === 'null-glazing') Object.assign(links.glazing, { 0: null })
+    if (change === 'unknown-glazing-check') glazing.symbolId = 'unknown-glazing'
+    if (change === 'duplicate-glazing') links.glazing[1] = structuredClone(glazing)
+    if (change === 'missing-glazing-check') links.glazing.pop()
+    if (change === 'glazing-status') Object.assign(glazing, { status: 'linked' })
+    if (change === 'null-group') Object.assign(links.groups, { 0: null })
+    if (change === 'blank-group-id') group.id = ' '
+    if (change === 'long-group-id') group.id = 'g'.repeat(129)
+    if (change === 'duplicate-group-id') links.groups.push(structuredClone(group))
+    if (change === 'missing-group-glazing') Object.assign(group, { glazingIds: null })
+    if (change === 'missing-group-doors') Object.assign(group, { doorIds: null })
+    if (change === 'singleton-group') group.glazingIds.pop()
+    if (change === 'group-glazing-limit') group.glazingIds = Array(101).fill('glazing-1')
+    if (change === 'group-door-limit') group.doorIds = Array(101).fill('door-glazing')
+    if (change === 'unknown-group-glazing') group.glazingIds[0] = 'unknown-glazing'
+    if (change === 'unresolved-group-glazing') group.glazingIds[0] = 'glazing-unresolved'
+    if (change === 'ambiguous-group-glazing') group.glazingIds[0] = 'glazing-ambiguous'
+    if (change === 'duplicate-group-glazing') group.glazingIds[1] = 'glazing-1'
+    if (change === 'globally-duplicate-glazing')
+      links.groups.push({ ...structuredClone(group), id: 'source-group-2', doorIds: [] })
+    if (change === 'unknown-group-door') group.doorIds[0] = 'unknown-door'
+    if (change === 'unresolved-group-door') group.doorIds[0] = 'door-unresolved'
+    if (change === 'ambiguous-group-door') group.doorIds[0] = 'door-ambiguous'
+    if (change === 'frame-group-door') group.doorIds[0] = 'door-frame'
+    if (change === 'foreign-group-door') {
+      glazingDoor.targetId = 'glazing-unresolved'
+    }
+    if (change === 'duplicate-group-door') group.doorIds.push('door-glazing')
+    if (change.startsWith('refused-')) {
+      const layer =
+        change === 'refused-door-layer'
+          ? packet.doorSymbols
+          : change === 'refused-frame-layer'
+            ? packet.openingFrames
+            : packet.glazingSymbols
+      if (!layer) throw new Error('Candidate layer fixture is missing')
+      Object.assign(layer, {
+        status: 'unresolved',
+        refusalReason: 'source-search-budget',
+        candidates: [],
+      })
+      if (change === 'refused-door-layer') links.doors = []
+      if (change === 'refused-frame-layer') {
+        frameDoor.status = 'unresolved'
+        frameDoor.targetKind = null
+        frameDoor.targetId = null
+        frameDoor.relation = null
+      }
+      if (change === 'refused-glazing-layer') {
+        links.glazing = []
+        links.groups = []
+        glazingDoor.status = 'unresolved'
+        glazingDoor.targetKind = null
+        glazingDoor.targetId = null
+        glazingDoor.relation = null
+      }
+    }
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+})
+
 describe('atomic private native image/packet loading', () => {
   function coveredFixture() {
     const result = fixture()

@@ -2018,3 +2018,85 @@ productionbuild/diff passed; independent scoped review/repro controls completed.
 swings/frames к source wall openings и numbered areas, различение window/door/
 balconyblock и связанный inventory free floor/walls/thresholds, не adoption этих
 source glyphs в confirmed2D/3D. Никакие fixture source IDs не служат recognizer input.
+
+## 10 октября: exact связи символов, рамок и исходных профилей
+
+nativeOpeningSourceLinks заново вычисляет source door/frame/panel candidates из
+выбранного PDF, не принимает caller-supplied/golden IDs за связь. Native straight
+closed orthogonal simple profiles6..100vertices сохраняют исходные edges и
+exact repaint aliases (canonical winding/start, без edits/simplifying source
+vertices). Components with curved/clipped siblings не служат profile evidence.
+200klink-work/50contacts-per-end дают atomic refusal без ранних частичных links.
+Unsupported candidate search удерживает links отдельно, прежние glyph overlays
+сохраняются. Output flags floor/roomOwnership/passages/full inventory всегдаfalse.
+
+Door→frame требует strict-interior source hinge на реальном long edge рамки и
+actual source connector corner→hinge. Connector path должен уже участвовать в
+истинных frame-jamb contacts. Отдельная чужая линия рядом не привязывает glyph.
+Door→glazing требует whole shared cap edge при hinge на endpoint этого ребра.
+Совпадение только точки, частичного отрезка или fit-range не является связью.
+Все target competitors учитываются; closest/largest/op-id не выбирают владельца.
+ClosedTip никогда не snap-ится в frame/panel или threshold proof.
+
+Glazing contacts - positive collinear overlap actual outer-cap edge с actual
+profile edge. Span endpoints выбраны из исходных endpoints, не computed join.
+Необрезанные source refs обеих линий сохранены. Это часто лишь HALF cap depth:
+two-sided означает contact at both ends, не complete jamb coverage или wall kind.
+Exact repeated paint одного полного profile даёт aliases; разные geometry owners
+создают ambiguity. Нулевая длина, corner touch, gap/overlap offsets не подгоняются.
+Группа требует противоположных торцов одного направления, общего unique profile
+И буквального original bridge edge с endpoints на обеих source contacts. Один
+common profile ID без такого ребра не объединяет панели. Деление bridge на два
+отрезка также не дорисовывает новый bridge. Groups - observed symbol assemblies,
+не полноценные оконные/балконные блоки или inventory единиц покупки.
+
+Fresh apartment74.77 existing page6 без reviewed input/golden IDs:2door links,
+8two-sided glazing contacts,4groups. Entrance889→frame556: hinge313.106,303.149
+на longedge556:3 и connector886:0; path886 даёт jamb contact886:5. Arc closedTip
+313.108,350.369 НЕ лежит точно на frame x313.106 и не используется как source
+endpoint. Balcony581→glazing774: leafcap577:2 и closedcap771:1 - полные reverse
+copies338.96,68.665↔335.593,68.665. Обе линии actual native sources.
+
+Source glazing endpoint profiles:723→718/720;730→720/726;
+767→762/764;774→764/770;900→895/897;907→897/903;
+1021→1016/1018;1028→1018/1024. Контакты3/5 у middle profiles связаны реальными
+bridge edges4:720,764,897,1018. Groups723+730,767+774(+door581),900+907,1021+1028.
+Не заявлены4полных окна: например третья living pane746 всё ещё held из-за
+overlapping cap. Caption выхода на балкон не создаёт отсутствующий floor polygon.
+45skippedCurves/0clips, исходные SHA/JPEG и old2door/7frame/8glazing baseline
+сохранены. Full original page/overlay просмотрены. Canonical replay artifacts:
+tmp/native-source-links-20261010-apartment-final/. Runner прежний:
+bench-native-openings.ts PDF PAGE FRESH_DIR, теперь raw contact refs/bridges вJSON.
+На остальных6 controlled PDFs новыхlinks/groups0; BASIS/Basman source door1
+сохранены, Life explicitopening-candidates-unavailable, остальные scoped0.
+Artifacts tmp/native-source-links-20261010-SOURCE/. Не universal source acceptance.
+
+Private packet сериализует только ID/status/relations/groups, НЕ detailedprofiles,
+bridge geometry/contacts или review/floor authority. Client проверяет полный
+набор checks для visible candidate IDs, правильные target refs/kind/relation,
+unique IDs/global members, two-sided group glazing и linked doors своего group
+target. Draft при unavailable parent отвергается; unresolved только bounded reason
+и пустые arrays. Old optional packet format совместим. UI показывает counts2/8/4,
+раскрываемый состав и unknown wall/room/floor ownership; SVG до/после byte-identical.
+Existing sourceRevision/image hash gates/readOnlyfalse2Dfalse3D сохранены.
+Штатный room transfer, geometry/pageReview/DB и user project не изменялись.
+
+33core focused controls + consumer/decoder/UI regressions. Independent audit:
+fresh real source reversepathorder, operation IDs+17000/omission refs, reversed
+winding и exact profile repaints дали те же2/8/4, group sizes2+2+2+(2,1door).
+Source snapshots immutable. Splitting actual4bridges into collinear source pieces
+дал groups0 при прежних2doorlinks/8two-sided;1e-9nearrepaint не усилил связи.
+Confirmed actionable defects не обнаружены. Это дополнительные bounded проверки,
+не признание wall/floor/metric/vertical completeness.
+
+Firefox/Playwright: realcurrentcomponent/mockprivateAPI/actualPDFpixels;
+1280/390px, expandable contacts с длинными IDs withoutpageoverflow, counts2/8/4;
+SVG по-прежнему2arcs/12lines/31polygons, никаких fabricated connection edges.
+Full-size1414px scroll вfocusable view, pagewidth390.0console errors/warnings.
+Screenshots output/playwright/native-source-links-desktop.png,
+output/playwright/native-source-links-mobile.png. Browser/helper остановлены,
+ephemeralhelper удалён. Live account/auth/PG не проверялись.
+3776tests/253files, typecheck7, lint888, productionbuild/diff passed.
+AI/project writes/PR/deploy0. Следующий этап - source-bound принадлежность стенам
+и numbered room areas, floor boundary/threshold inventory и независимая metric
+приёмка; текущие graphic groups не становятся confirmed2D/3D по этой связке.

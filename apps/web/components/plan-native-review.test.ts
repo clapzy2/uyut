@@ -8,6 +8,70 @@ import {
 import { inspectReviewedPageCoverage } from '@/lib/projects/plan-page-reviewed-coverage'
 import { NativeReviewResult, PlanNativeReview, SavedReviewCoverage } from './plan-native-review'
 
+function linkedSourcePacket() {
+  const packet = nativeReviewPacket({
+    source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },
+    image: { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 },
+  })
+  packet.doorSymbols = {
+    status: 'draft',
+    refusalReason: null,
+    candidates: [
+      {
+        id: 'door-panel',
+        arc: {
+          start: { x: 50, y: 100 },
+          segments: [
+            {
+              control1: { x: 50, y: 72.386 },
+              control2: { x: 72.386, y: 50 },
+              end: { x: 100, y: 50 },
+            },
+          ],
+        },
+        leaf: { start: { x: 100, y: 100 }, end: { x: 50, y: 100 } },
+        endpointResidualPixels: 0.083,
+      },
+    ],
+  }
+  packet.glazingSymbols = {
+    status: 'draft',
+    refusalReason: null,
+    candidates: ['glazing-1', 'glazing-2'].map((id, index) => ({
+      id,
+      polygons: [0, 5, 10].map((offset) => [
+        { x: 30 + offset, y: 40 + index * 60 },
+        { x: 100 + offset, y: 40 + index * 60 },
+        { x: 100 + offset, y: 50 + index * 60 },
+        { x: 30 + offset, y: 50 + index * 60 },
+      ]),
+      centerline: {
+        start: { x: 30, y: 45 + index * 60 },
+        end: { x: 100, y: 45 + index * 60 },
+      },
+    })),
+  }
+  packet.sourceLinks = {
+    status: 'draft',
+    refusalReason: null,
+    doors: [
+      {
+        symbolId: 'door-panel',
+        status: 'linked',
+        targetKind: 'glazing-panel',
+        targetId: 'glazing-1',
+        relation: 'shared-cap-edge',
+      },
+    ],
+    glazing: [
+      { symbolId: 'glazing-1', status: 'two-sided' },
+      { symbolId: 'glazing-2', status: 'two-sided' },
+    ],
+    groups: [{ id: 'group-1', glazingIds: ['glazing-1', 'glazing-2'], doorIds: ['door-panel'] }],
+  }
+  return packet
+}
+
 describe('read-only native review presentation', () => {
   it('distinguishes no saved review from unavailable native data without save buttons', () => {
     const empty = renderToStaticMarkup(
@@ -373,6 +437,110 @@ describe('read-only native review presentation', () => {
       expect(html).not.toContain('<polygon')
       expect(html).not.toContain('<line')
       expect(html).not.toContain('<path')
+      expect(html).not.toContain('Подтвердить')
+      expect(html).not.toContain('Сохранить')
+    },
+  )
+  it('describes source contacts and symbol groups without drawing new connectors or floor', () => {
+    const packet = linkedSourcePacket()
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    const sourceOnly = structuredClone(packet)
+    delete sourceOnly.sourceLinks
+    const sourceOnlyHtml = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet: sourceOnly, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Контакты исходных символов')
+    expect(html).toContain('Связанные дверные символы</dt><dd>1</dd>')
+    expect(html).toContain('Профили с контактами на двух торцах</dt><dd>2</dd>')
+    expect(html).toContain('Группы исходных символов</dt><dd>1</dd>')
+    expect(html).toContain('Это не число дверей, окон или балконных блоков')
+    expect(html).toContain('граница свободного пола и полный перечень окон не подтверждены')
+    expect(html).toContain('полный контур косяков')
+    expect(html).toContain('Принадлежность стене или комнате')
+    expect(html).toContain('Новые соединительные линии, пороги и контуры пола не добавляются')
+    expect(html).toContain('общая торцевая линия створки и профиля остекления')
+    expect(html).toContain('Группа 1: профилей 2, дверных символов 1')
+    expect(html).toContain('glazing-1, glazing-2, door-panel')
+    expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(
+      sourceOnlyHtml.match(/<svg\b.*?<\/svg>/s)?.[0],
+    )
+    expect(html.match(/type="checkbox"/g)).toHaveLength(3)
+    expect(html).not.toContain('Подтвердить')
+    expect(html).not.toContain('Сохранить')
+    expect(sourceOnlyHtml).not.toContain('Контакты исходных символов')
+  })
+  it('derives positive counts from checks and never treats unresolved checks as matches', () => {
+    const packet = linkedSourcePacket()
+    const links = packet.sourceLinks
+    if (!links) throw new Error('Source links fixture is missing')
+    Object.assign(links, { counts: { linkedDoors: 999, twoSidedGlazing: 999, groups: 999 } })
+    links.doors.push(
+      {
+        symbolId: 'door-unresolved',
+        status: 'unresolved',
+        targetKind: null,
+        targetId: null,
+        relation: null,
+      },
+      {
+        symbolId: 'door-ambiguous',
+        status: 'ambiguous',
+        targetKind: null,
+        targetId: null,
+        relation: null,
+      },
+      {
+        symbolId: 'door-frame',
+        status: 'linked',
+        targetKind: 'opening-frame',
+        targetId: 'frame-1',
+        relation: 'jamb-to-frame',
+      },
+    )
+    links.glazing.push(
+      { symbolId: 'glazing-unresolved', status: 'unresolved' },
+      { symbolId: 'glazing-ambiguous', status: 'ambiguous' },
+    )
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Связанные дверные символы</dt><dd>2</dd>')
+    expect(html).toContain('Профили с контактами на двух торцах</dt><dd>2</dd>')
+    expect(html).toContain('Группы исходных символов</dt><dd>1</dd>')
+    expect(html).not.toContain('999')
+    expect(html).toContain('контакт створки и исходной линии косяка с рамкой')
+    expect(html).toContain('несколько возможных контактов, связь не выбрана')
+    expect(html).toContain('однозначный контакт не найден')
+    expect(html).toContain('контакты неоднозначны, связь не выбрана')
+    expect(html).toContain('контакты на двух торцах не найдены')
+  })
+  it.each(['draft', 'unresolved'] as const)(
+    'shows an empty %s contact layer honestly',
+    (status) => {
+      const packet = linkedSourcePacket()
+      packet.sourceLinks = {
+        status,
+        refusalReason: status === 'unresolved' ? 'source-link-search-budget' : null,
+        doors: [],
+        glazing: [],
+        groups: [],
+      }
+      const html = renderToStaticMarkup(
+        createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+      )
+      if (status === 'unresolved') {
+        expect(html).toContain('Поиск контактов не завершён; частичный набор не показан')
+        expect(html).toContain('source-link-search-budget')
+        expect(html).not.toContain('Связанные дверные символы')
+        expect(html).not.toContain('Состав найденных контактов')
+      } else {
+        expect(html).toContain('Связанные дверные символы</dt><dd>0</dd>')
+        expect(html).toContain('Профили с контактами на двух торцах</dt><dd>0</dd>')
+        expect(html).toContain('Группы исходных символов</dt><dd>0</dd>')
+        expect(html).toContain('Нет исходных символов для проверки контактов')
+      }
       expect(html).not.toContain('Подтвердить')
       expect(html).not.toContain('Сохранить')
     },
