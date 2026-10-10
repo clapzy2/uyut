@@ -8,6 +8,7 @@ import type {
   PlanOpening,
   PlanPoint,
   PlanRoomShape,
+  PlanVerticalReference,
   PlanWall,
   RoomSpaceKind,
 } from '@uyut/db'
@@ -31,8 +32,13 @@ import { PlanObstaclesEditor } from '@/components/plan-obstacles-editor'
 import { PlanOpeningMeasurementEditor } from '@/components/plan-opening-measurement-editor'
 import { PlanRouteCheck } from '@/components/plan-route-check'
 import { PlanSourceRoomCoverage } from '@/components/plan-source-room-coverage'
+import { PlanVerticalReferenceEditor } from '@/components/plan-vertical-reference-editor'
 import { doorClearanceZone } from '@/lib/projects/clearance-zones'
-import { manualRoomCoverage, missingManualSourceRooms } from '@/lib/projects/manual-plan-geometry'
+import {
+  findPlanRoomReading,
+  manualRoomCoverage,
+  missingManualSourceRooms,
+} from '@/lib/projects/manual-plan-geometry'
 import {
   inspectManualPlanCompleteness,
   inspectPlanGeometry,
@@ -54,6 +60,14 @@ import {
 } from '@/lib/projects/plan-opening-measurements'
 import { pdfRasterPreview } from '@/lib/projects/plan-pdf-raster-preview'
 import { inspectPlanVerticalDimensions } from '@/lib/projects/plan-vertical-dimensions'
+import { applyPlanVerticalReference } from '@/lib/projects/plan-vertical-reference'
+import {
+  buildVerticalReferenceRequest,
+  createVerticalReferenceDraft,
+  prepareVerticalReferenceGeometry,
+  type VerticalReferenceDraft,
+  verticalReferenceDraftSnapshot,
+} from '@/lib/projects/plan-vertical-reference-edit'
 import {
   addRoomContourPoint,
   MAX_ROOM_CONTOUR_POINTS,
@@ -687,6 +701,12 @@ export function PlanGeometryEditor({
   const [measurementCalibration, setMeasurementCalibration] = useState(geometry.pdfCalibration)
   const [measurementRequests, setMeasurementRequests] = useState<OpeningMeasurementRequest[]>([])
   const [rooms, setRooms] = useState(() => geometry.rooms)
+  const [verticalReference, setVerticalReference] = useState<PlanVerticalReference | undefined>(
+    () => geometry.verticalReference,
+  )
+  const [verticalDraft, setVerticalDraft] = useState<VerticalReferenceDraft>()
+  const [removeVerticalReference, setRemoveVerticalReference] = useState(false)
+  const [verifiedVerticalEdit, setVerifiedVerticalEdit] = useState<string>()
   const [kitchenItems, setKitchenItems] = useState(() => geometry.kitchenItems ?? [])
   const [utilityPoints, setUtilityPoints] = useState(() => geometry.utilityPoints ?? [])
   const [obstacles, setObstacles] = useState<PlanObstacle[]>(() => geometry.obstacles ?? [])
@@ -802,6 +822,9 @@ export function PlanGeometryEditor({
     routeStartOpeningId,
     imageCalibration,
     measurementRequests,
+    verticalReference,
+    verticalDraft,
+    removeVerticalReference,
   ])
   const verified = verifiedEdit === editSnapshot
   const [selectionKind, selectionId] = selection.split(':')
@@ -831,10 +854,90 @@ export function PlanGeometryEditor({
       editableCalibration: preview.ok ? preview.pdfCalibration : measurementCalibration,
     }
   }, [walls, openings, rooms, measurementCalibration, measurementRequests])
+  // Match server-owned room categories before drafting exact owner snapshots.
+  // Client preview metadata below are never sent as approval authority.
+  const referenceGeometryBase = useMemo<PlanGeometry>(
+    () => ({
+      ...geometry,
+      walls,
+      openings,
+      rooms: rooms.map((room) => {
+        const { spaceKind: _previousKind, ...shape } = room
+        const label = findPlanRoomReading(room, roomReadings)
+        return { ...shape, ...(label?.spaceKind ? { spaceKind: label.spaceKind } : {}) }
+      }),
+      pdfCalibration: editableCalibration,
+      imageCalibration,
+      verticalReference,
+    }),
+    [
+      geometry,
+      walls,
+      openings,
+      rooms,
+      roomReadings,
+      editableCalibration,
+      imageCalibration,
+      verticalReference,
+    ],
+  )
+  const preparedReference = useMemo(
+    () => prepareVerticalReferenceGeometry(referenceGeometryBase, roomReadings),
+    [referenceGeometryBase, roomReadings],
+  )
+  const referenceGeometry =
+    verticalDraft && preparedReference.ok ? preparedReference.geometry : referenceGeometryBase
+  const verticalSnapshot = JSON.stringify([
+    referenceGeometry,
+    verticalDraft,
+    removeVerticalReference,
+  ])
+  const verticalAcknowledged = verifiedVerticalEdit === verticalSnapshot
+  const verticalDraftResult = verticalDraft
+    ? buildVerticalReferenceRequest(referenceGeometry, verticalDraft)
+    : undefined
+  const verticalFloorPrecisionIssue =
+    verticalDraft &&
+    isRaster &&
+    footprint?.some((point) =>
+      [point.xCm, point.yCm].some((value) => Math.round(value * 10) / 10 !== value),
+    )
+      ? 'Граница пола точнее миллиметра. Сначала сохраните обычный черновик и загрузите его заново, затем сверьте высоты. Отметки не перенесём через округление.'
+      : undefined
+  const verticalRequest = removeVerticalReference
+    ? null
+    : verticalDraftResult?.ok
+      ? verticalDraftResult.request
+      : undefined
+  const verticalError =
+    (verticalDraft && !preparedReference.ok ? preparedReference.error : undefined) ??
+    verticalFloorPrecisionIssue ??
+    (verticalDraftResult && !verticalDraftResult.ok
+      ? verticalDraftResult.error
+      : (verticalDraft || removeVerticalReference) && !verticalAcknowledged
+        ? removeVerticalReference
+          ? 'Подтвердите снятие высотного отсчёта перед сохранением.'
+          : 'Отдельно подтвердите общий высотный отсчёт и введённые отметки.'
+        : undefined)
+  const verticalPreview =
+    removeVerticalReference || verticalDraftResult?.ok
+      ? applyPlanVerticalReference(
+          referenceGeometry,
+          verticalRequest,
+          'pending-client-verification',
+          '2026-10-11T00:00:00.000Z',
+        )
+      : undefined
+  const inspectedVerticalGeometry = verticalPreview?.ok
+    ? verticalPreview.geometry
+    : referenceGeometry
   const issues = useMemo(
     () => [
       ...inspectPlanGeometry({ ...geometry, walls, openings, rooms }),
-      ...inspectPlanVerticalDimensions({ walls, openings }),
+      ...inspectPlanVerticalDimensions(inspectedVerticalGeometry),
+      ...(verticalError
+        ? [{ id: 'vertical-reference-edit', severity: 'error' as const, message: verticalError }]
+        : []),
       ...(geometry.source === 'manual' || isRaster
         ? [
             ...inspectManualPlanCompleteness({
@@ -880,6 +983,8 @@ export function PlanGeometryEditor({
       roomReadings,
       editableCalibration,
       isRaster,
+      inspectedVerticalGeometry,
+      verticalError,
     ],
   )
   const blockingIssues = issues.filter(
@@ -890,8 +995,26 @@ export function PlanGeometryEditor({
       ? 'Нанесите замкнутую границу пола вместе с балконом. Обрезанный исходник оставьте черновиком.'
       : planImageConfirmationIssue(currentImageCalibration)
     : undefined
+  const confirmationIdentityIssue =
+    verticalReference !== undefined &&
+    !verticalDraft &&
+    !removeVerticalReference &&
+    preparedReference.ok &&
+    verticalReferenceDraftSnapshot(referenceGeometryBase) !==
+      verticalReferenceDraftSnapshot(preparedReference.geometry)
+      ? 'При подтверждении изменится номер или название владельца пола по экспликации. Откройте «Общий высотный отсчёт и отметки» и пересверьте привязки до подтверждения схемы.'
+      : undefined
   const confirmationIssues: PlanGeometryIssue[] = [
     ...issues.filter((issue) => issue.severity === 'error'),
+    ...(confirmationIdentityIssue
+      ? [
+          {
+            id: 'vertical-reference-confirm-identity',
+            severity: 'error' as const,
+            message: confirmationIdentityIssue,
+          },
+        ]
+      : []),
     ...(imageFloorIssue
       ? [{ id: 'manual-image-floor', severity: 'error' as const, message: imageFloorIssue }]
       : []),
@@ -1142,6 +1265,10 @@ export function PlanGeometryEditor({
     setMeasurementCalibration(nextGeometry.pdfCalibration)
     setMeasurementRequests([])
     setRooms(nextGeometry.rooms)
+    setVerticalReference(nextGeometry.verticalReference)
+    setVerticalDraft(undefined)
+    setRemoveVerticalReference(false)
+    setVerifiedVerticalEdit(undefined)
     setKitchenItems(nextGeometry.kitchenItems ?? [])
     setUtilityPoints(nextGeometry.utilityPoints ?? [])
     setObstacles(nextGeometry.obstacles ?? [])
@@ -1161,16 +1288,21 @@ export function PlanGeometryEditor({
 
   function save(mode: 'draft' | 'confirm') {
     setError(undefined)
+    if (verticalError) {
+      setError(verticalError)
+      return
+    }
     startSaving(async () => {
       try {
+        const { verticalReference: _storedReference, ...editableGeometry } = geometry
         const result = await savePlanGeometry(
           projectId,
           {
-            ...geometry,
+            ...editableGeometry,
             footprint: footprint ?? null,
             walls,
             openings,
-            rooms,
+            rooms: verticalRequest ? referenceGeometry.rooms : rooms,
             kitchenItems,
             utilityPoints,
             obstacles,
@@ -1178,6 +1310,7 @@ export function PlanGeometryEditor({
             routeStartOpeningId,
             imageCalibration: imageCalibration ?? null,
             openingMeasurementRequests: activeMeasurementRequests,
+            ...(verticalRequest === undefined ? {} : { verticalReferenceRequest: verticalRequest }),
           },
           mode,
           baseRevision,
@@ -1187,6 +1320,7 @@ export function PlanGeometryEditor({
           if (result.code === 'plan-conflict') {
             setConflict(true)
             setVerifiedEdit(undefined)
+            setVerifiedVerticalEdit(undefined)
             router.refresh()
           }
           return
@@ -1459,7 +1593,10 @@ export function PlanGeometryEditor({
           />
           <PlanRouteCheck
             geometry={{
-              ...geometry,
+              ...inspectedVerticalGeometry,
+              // A prepared removal is not a saved removal. Keep the transfer
+              // blocker until the server confirms that the datum was cleared.
+              ...(verticalReference !== undefined ? { verticalReference } : {}),
               walls,
               openings,
               rooms,
@@ -2025,6 +2162,39 @@ export function PlanGeometryEditor({
             </div>
           </div>
 
+          <PlanVerticalReferenceEditor
+            geometry={referenceGeometry}
+            draft={verticalDraft}
+            acknowledged={verticalAcknowledged}
+            removal={removeVerticalReference}
+            pending={saving}
+            startError={preparedReference.ok ? undefined : preparedReference.error}
+            onStart={() => {
+              if (!preparedReference.ok) return
+              setVerticalDraft(
+                createVerticalReferenceDraft(preparedReference.geometry, () => crypto.randomUUID()),
+              )
+              setRemoveVerticalReference(false)
+              setVerifiedVerticalEdit(undefined)
+            }}
+            onChange={(draft) => {
+              setVerticalDraft(draft)
+              setVerifiedVerticalEdit(undefined)
+            }}
+            onAcknowledge={(checked) =>
+              setVerifiedVerticalEdit(checked ? verticalSnapshot : undefined)
+            }
+            onRemove={() => {
+              setVerticalDraft(undefined)
+              setRemoveVerticalReference(true)
+              setVerifiedVerticalEdit(undefined)
+            }}
+            onCancel={() => {
+              setVerticalDraft(undefined)
+              setRemoveVerticalReference(false)
+              setVerifiedVerticalEdit(undefined)
+            }}
+          />
           <FormError message={error} />
           {geometry.source === 'manual' ? (
             <div className="mt-4 border-l-2 border-accent pl-4 text-[13px] leading-relaxed text-ink-2">

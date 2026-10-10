@@ -145,6 +145,29 @@ function accepted() {
 }
 
 describe('explicit common vertical reference', () => {
+  it('holds a threshold when one source side also claims a different aperture partner', () => {
+    const geometry = accepted()
+    const original = required(required(geometry.pdfCalibration).openingFacePairs?.[0])
+    const host = required(geometry.walls[1])
+    const competing = {
+      ...structuredClone(required(geometry.openings[1])),
+      id: 'competing',
+      wallId: host.id,
+    }
+    geometry.openings.push(competing)
+    required(geometry.pdfCalibration).openingFacePairs?.push({
+      bindings: [
+        structuredClone(original.bindings[0]),
+        { opening: competing, wall: structuredClone(host) },
+      ],
+      jambs: structuredClone(original.jambs),
+    })
+    expect(inspectPlanVerticalReference(geometry)[0]?.message).toContain(
+      'двух подтверждённых сторон',
+    )
+    expect(currentPlanVerticalReference(geometry)).toBeUndefined()
+    expect(applyPlanVerticalReference(geometry, undefined, 'owner', verifiedAt).ok).toBe(false)
+  })
   it('holds both owner assignments when source faces coincide on two floor boundaries', () => {
     const { geometry, request } = fixture()
     const inside = required(geometry.rooms[0])

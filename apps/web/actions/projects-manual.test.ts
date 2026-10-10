@@ -14,6 +14,11 @@ import {
   openingMeasurementSnapshot,
   openingMeasurementWallSnapshot,
 } from '@/lib/projects/plan-opening-measurements'
+import {
+  buildVerticalReferenceRequest,
+  createVerticalReferenceDraft,
+  prepareVerticalReferenceGeometry,
+} from '@/lib/projects/plan-vertical-reference-edit'
 import { planVolume } from '@/lib/projects/plan-volume'
 import openApartmentSource from '../../../jobs/fixtures/open-swiss-apartment-35063.json'
 import openApartment from '../../../jobs/fixtures/open-swiss-apartment-35063-geometry.json'
@@ -379,6 +384,50 @@ describe('manual plan draft', () => {
     )
     if (!saved.ok) throw new Error(saved.error)
     expect(saved.data.geometry).not.toHaveProperty('verticalReference')
+  })
+
+  it('keeps the reviewed room identity through draft saving and later confirmation', async () => {
+    source.planUrl = 'plan.pdf'
+    source.planReading.rooms = [{ name: 'Кухня', sourceNumber: 1, kind: 'kitchen', areaM2: 20 }]
+    const geometry: PlanGeometry = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      footprint: corners,
+      rooms: [{ name: 'Кухня', polygon: corners }],
+      pdfCalibration: nativePdfCalibration,
+    }
+    source.planReading.geometry = geometry
+    const prepared = prepareVerticalReferenceGeometry(geometry, source.planReading.rooms)
+    if (!prepared.ok) throw new Error(prepared.error)
+    expect(prepared.geometry.rooms[0]?.sourceNumber).toBe(1)
+    expect(geometry.rooms[0]?.sourceNumber).toBeUndefined()
+    let identity = 0
+    const draft = createVerticalReferenceDraft(prepared.geometry, () => `qa-${++identity}`)
+    const floor = draft.floors[0]
+    if (!floor) throw new Error('Missing physical floor')
+    draft.kind = 'finished-floor'
+    draft.zeroFloorId = floor.id
+    draft.sourceKind = 'site-measurement'
+    draft.sourceReference = 'Synthetic identity regression, not user measurements'
+    floor.surface = 'finished-floor'
+    floor.elevation = '0'
+    for (const base of draft.wallBases) base.floorId = floor.id
+    const request = buildVerticalReferenceRequest(prepared.geometry, draft)
+    if (!request.ok) throw new Error(request.error)
+    const saved = await savePlanGeometry(
+      projectId,
+      {
+        ...prepared.geometry,
+        verticalReferenceRequest: request.request,
+      },
+      'draft',
+    )
+    if (!saved.ok) throw new Error(saved.error)
+    source.planReading.geometry = saved.data.geometry
+    const confirmed = await savePlanGeometry(projectId, saved.data.geometry, 'confirm')
+    if (!confirmed.ok) throw new Error(confirmed.error)
+    expect(confirmed.data.geometry.verticalReference).toEqual(saved.data.geometry.verticalReference)
+    expect(confirmed.data.geometry.rooms).toEqual(prepared.geometry.rooms)
   })
 
   it.each([null, false, 0, ''])(

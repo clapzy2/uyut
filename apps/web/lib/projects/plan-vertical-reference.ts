@@ -273,6 +273,20 @@ export function inspectPlanVerticalReference(geometry: ReferenceGeometry): PlanG
     )
       sourcePairs.push([proof.opening.id, proof.oppositeBinding.opening.id])
   }
+  const partners = new Map<string, Set<string>>()
+  for (const pair of sourcePairs) {
+    const [first, second] = pair
+    if (!first || !second) continue
+    for (const [owner, other] of [
+      [first, second],
+      [second, first],
+    ]) {
+      if (!owner || !other) continue
+      const known = partners.get(owner) ?? new Set<string>()
+      known.add(other)
+      partners.set(owner, known)
+    }
+  }
   if (!unique(reference.thresholds.map((value) => value.id)))
     return fail('повторяются идентификаторы порогов.')
   const seenOpenings = new Set<string>()
@@ -282,6 +296,8 @@ export function inspectPlanVerticalReference(geometry: ReferenceGeometry): PlanG
       a.floorId === b.floorId ||
       a.opening.wallId === b.opening.wallId ||
       a.opening.id === b.opening.id ||
+      partners.get(a.opening.id)?.size !== 1 ||
+      partners.get(b.opening.id)?.size !== 1 ||
       !sourcePairs.some((pair) => pair.includes(a.opening.id) && pair.includes(b.opening.id))
     )
       return fail('порог требует двух подтверждённых сторон одного проёма и разных полов.')
