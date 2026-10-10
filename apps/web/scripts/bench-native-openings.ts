@@ -7,6 +7,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import sharp from 'sharp'
 import { preparePlanPage } from '../lib/projects/plan-document'
+import { nativeFloorCavityCandidates } from '../lib/projects/plan-native-floor-cavities'
 import { nativeOpeningSourceLinks } from '../lib/projects/plan-native-opening-links'
 import { nativeReviewPacket } from '../lib/projects/plan-native-review-packet'
 import { nativeReviewedFrameRooms } from '../lib/projects/plan-native-reviewed-frame-rooms'
@@ -41,6 +42,7 @@ const savedReading = savedReadingPath
   : undefined
 const scheduleNumbers = nativeRoomNumberScheduleLinks(input)
 const circles = scheduleNumbers.circles
+const floor = nativeFloorCavityCandidates(input)
 const frameRooms = nativeReviewedFrameRooms({ ...input, source, reading: savedReading })
 const packet = nativeReviewPacket({ ...input, source, image: input.native.source, savedReading })
 assert.deepEqual(input, before)
@@ -68,6 +70,7 @@ await writeFile(
       circles,
       roomScheduleEvidence: scheduleNumbers.schedule,
       numberScheduleLinks: scheduleNumbers.report,
+      floor,
       frameRooms,
       packet,
       caveat:
@@ -107,6 +110,31 @@ await sharp(page.image.body)
   .composite([{ input: Buffer.from(overlay) }])
   .png()
   .toFile(resolve(directory, 'source-opening-candidates.png'))
+const raster = (point: { x: number; y: number }) => ({
+  x: point.x * (input.native.pageNormalizedScale?.x ?? 1),
+  y: point.y * (input.native.pageNormalizedScale?.y ?? 1),
+})
+const floorOutlines = floor.cavities
+  .filter((cell) => cell.markerLabelIds.length)
+  .map(
+    (cell) =>
+      `<polygon points="${cell.polygon
+        .map(raster)
+        .map((point) => `${point.x},${point.y}`)
+        .join(' ')}" fill="none" stroke="#047857" stroke-width="3"/>`,
+  )
+const thresholdOutlines = floor.thresholds.map(
+  (threshold) =>
+    `<polygon points="${threshold.polygon
+      .map(raster)
+      .map((point) => `${point.x},${point.y}`)
+      .join(' ')}" fill="none" stroke="#7c3aed" stroke-width="3" stroke-dasharray="5 3"/>`,
+)
+const floorOverlay = `<svg xmlns="http://www.w3.org/2000/svg" width="${page.image.width}" height="${page.image.height}">${[...floorOutlines, ...thresholdOutlines].join('')}</svg>`
+await sharp(page.image.body)
+  .composite([{ input: Buffer.from(floorOverlay) }])
+  .png()
+  .toFile(resolve(directory, 'source-floor-candidates.png'))
 console.log(
   JSON.stringify(
     {
@@ -128,6 +156,12 @@ console.log(
         (row) => row.markerStatus === 'linked',
       ).length,
       scheduleRefusal: scheduleNumbers.report.refusalReason,
+      floorCavityRefusal: floor.refusalReason,
+      sourceBackedCavities: floor.cavities.length,
+      numberedCavities: floor.cavities.filter((cell) => cell.markerLabelIds.length).length,
+      sourceThresholdStrips: floor.thresholds.length,
+      sourceProfileClosures: floor.closures.length,
+      unprovedCavities: floor.unprovedCavityCount,
       savedFrameReview: frameRooms.status,
       twoReviewedSides: frameRooms.frames.filter((frame) => frame.status === 'two-reviewed-sides')
         .length,

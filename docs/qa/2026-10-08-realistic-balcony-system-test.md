@@ -2301,3 +2301,126 @@ production/DB/saved geometry/PR/deploy не изменены.
 полное назначение проёмов/граней помещениям, independent metric/vertical proof,
 затем source-based2D/3D end-to-end acceptance. Готовая экспликация этой пачки
 не считается готовой геометрией квартиры или универсальным PDF/OCR reader.
+
+## 10 октября: исходные полости, границы и логические полосы порогов
+
+nativeClosedStrokeRuns выделяет actual simple closed source strokes и contiguous
+literal closed subruns по точному повторению исходной вершины. Metadata close
+сохраняет реальное замыкающее ребро; открытый путь не получает нового close.
+Все directed segment indexes, prefix/suffix, exact repaint aliases сохраняются.
+Own curved/clipped operation siblings не восстанавливаются. Отдельные касающиеся
+curve/clip bounds записываются в conflictedCandidates/boundaryOmissions, не
+стираются и не дают physical authority. Neutral minimumEdges3..100 позволяет
+профильному pass использовать6; общий cap100 включает clean/conflicted/aliases,
+work200k атомарен. Отказ не возвращает ранние частичные source proofs.
+
+nativeFloorCavityCandidates заново вычисляет loops, frames и numeric circles.
+Нет reviewed contours, handwritten IDs или fixed gray policy. Paint группируется
+по фактическому native fillColor. Compound primitives допускаются только при
+отсутствии positive-area overlap: неизвестный fill-rule нельзя заменить union.
+Некорректные/неполные paint ops удерживают пересекающиеся полости. Точно нулевые
+коллинеарные fill subpaths не дают площади, но их исходные stroke-команды остаются.
+Это не очищение source layer или permission удалить кривые/аннотации.
+
+Unpainted profile closure требует actual closed stroke run≥6edges, отсутствия
+полностью содержащегося paint primitive и контактов минимум2 paint operations
+на параллельных исходных гранях с разными координатами/противоположными traversal
+directions. Контакты на одной стороне/L-corner не подходят. Для каждой исходной
+рамки отдельно требуется full gap-free source paint coverage ОБОИХ jambs.
+Competing paint colors не выбираются first/nearest и не используются как closure.
+Такие полосы и профили - только документальные логические разделители, не
+материальные стены, полный window/door kind или принятые физические пороги.
+
+Polygon-clipping union даёт предложенные negative-space rings, не proof.
+Каждое опубликованное ребро требует полного interval coverage исходными edges
+трёх разных kinds: paint-boundary/frame-side/profile-side. Exact decimal
+orientation, source endpoints/refs сохранены; нет epsilon, snap или extension.
+Разрыв1e-9 не закрывается. Disconnected painted island внутри кольца удерживает
+всю полость (nested-painted-island), не заливается и не исчезает. Unsupported
+compound paint так же записан как unresolved-paint-topology. Unproved rings
+сохраняются с исходной proposal geometry(≤100vertices)/bounds/reason, не только
+числовым счётчиком; bbox никогда не выдаётся за их контур пола.
+Limits:2mwork,≤32paintcolors/1000primitives-per-color,≤5000booleaninputpoints,
+≤100cavities/4000publishedvertices. Physical floor/ownership/passages/fullinventory
+и metric/vertical готовность остаютсяfalse. Это отдельный read-only source profile.
+
+Fresh primary existing page6 без savedReading/source-ID selectors:
+tmp/native-floor-cavities-20261010-primary-final/.
+20source-backed cavities +1 unproved small/sliver contour.6 cells с метками:
+2;1+5;3;4;6;7. Остальные14 не названы комнатами/шахтами; sanitary-like sourcecell
+тоже сохранена без номера.8 circle/table documentary links не повышены до8
+floor owners.7 source-jamb-backed frame strips +5 actual profile closures.
+Whole source profiles:572/787/792/920; open1041 даёт literal segments1..15,
+points1==points16; исходный prefixsegment0 остаётся unknown. Для source792 старый
+glazing matcher всё ещё удерживает overlapping cap746/750; он не ослаблен ради
+успеха floor pass. Здесь независимо проверена геометрическая полость без window
+kind claim. Room6-like cell начинаетсяy527.017, не прежний manual-envelope523.447.
+
+Actual rawcolor contrast:#545454 и#ffffff не дают closures/frames/cells;
+#989898 даёт5 qualifying closures/7frames. Эти числа - observations, не constants
+кода. Raw gray union alone имел12 малых полостей, ни одной с whole circle hull:
+новый результат требует реально нарисованных logical opening separators.
+Любая часть boundary/area, полученная только процентной заполненностью stroke
+BODY607/737, не принималась: nonzero slivers и white cutouts сохраняются.
+Closed BODY873/914 содержат пустоты, поэтому whole-stroke fill какwall запрещён.
+
+Circles сопоставляются только whole original control hull strictly inside cell,
+с boundary-touch rejection.1+5 сохраняется общей зоной. Outboard8 остаётся
+unresolvedMarkerLabelId native-text-222; nearest область не назначается. В отдельной
+read-only проверке source leader4009:0:0 второй конец821.863342.871 внутри одной
+полости, а конец889.910338.064 не совпадает с circle endpoint. Идеальный extrema
+ellipse даётscore1.000115>1, НО actual cubic contour3989 действительно содержит
+этот конец (rational monotonic quarter witness t6083/100000). Это не противоречие:
+ellipse-fit не равен исходной Bézier-геометрии. Общий сертифицированный Bézier
+point/leader resolver ещё не реализован; нельзя объяснять current unresolved
+нахождением точки вне настоящего кружка. Геометрия пола не дорисовывается по номеру.
+
+Raw source curves45/clips0 и original SHA/JPEG сохранены, unknown inside strokes
+посчитаны отдельно, boundary omissions3 остаются видимыми. Primary overlay
+source-floor-candidates.png просмотрен: реальные source corners/diagonal/step
+и7 полос рамок, без заливки и отсутствующего balcony floor. Raw20cavity proposals
+не превращаются в confirmed PlanGeometry/pageReview/metric footprint.
+Архивная ручная fixture отдельно replayed:
+tmp/native-floor-cavities-20261010-primary-reviewed-final/.
+Автоматические20/6/7/5/1 не изменились; manual report остался5/1/1. Это проверка
+независимости автоматического pass, не reviewed inventory как recognizer input.
+
+Ещё6controlledPDFs: BASIS0cavities; Basman3unmarked; Remplanner4unmarked;
+Life explicit incomplete-native-layer; Designgroup candidate-limit с empty output;
+colored Chigintseva0 по новому cavity-profile. Его прежние19fills/8named associations
+и8documentary table rows сохранены; L-shaped6vertex balcony fill не заменён
+прямоугольником. У него нет qualifying closed-stroke/frame inventory;33curves и
+18clips сохранены. Scoped0 не назван полной успешной схемой/отсутствием комнат.
+Raw diagnostic sourcefiles:tmp/floor-inventory-20261010-scope/;
+replays tmp/native-floor-cavities-20261010-SOURCE-a/.
+bench-native-openings.ts PDF PAGE FRESH_DIR [SAVED_READING_JSON] теперь сохраняет
+raw floor proofs и отдельный source-floor-candidates.png, без изменений oldglyphPNG.
+
+Private packet сериализует только candidate rasterpolygons, IDs/markerstate,
+logical closure refs/counts и held reasons, не detailed source edge proofs,
+paint colors, accepted floor flags или bbox-as-floor. Client проверяет full parent
+circle accounting, real ambiguity, bounded vertices, existing frame refs и
+unique nonambiguous closure identities; extra authority keys не допускаются.
+UI показывает6numbered/14unknown/7strips/5closures/1held и unknownink1925 counted
+per-cell, без сообщения что это1925физических препятствий. Newlayer defaultOFF:
+old SVG2arcs/12lines/31polygons byte-equivalent; ON adds ONLY6green outlines и
+7purple parent-frame outlines, все13 с explicit fillnone(total44polygons).
+Unknown/sliver polygons остаются в отчёте; необозначенные области не названы shafts.
+
+72closed-run tests +28 source-floor controls +48client/UI additions;
+4323webtests/259files, typecheck7, lint900, productionbuild/diff passed.
+Independent actualsource replay подтвердил20+1/6/7/5 и full interval proofs каждой
+публикуемой границы; островки/compound-loss repro исправлены и сохранены. Source
+snapshots immutable, output detached. Firefox realcomponent/mockprivateAPI/actual
+JPEG:1280/390px no pageoverflow, expandedunknown/reasons, default/off/on layers,
+focusable1414px fullsize scroll(tabIndex0),0console errors/warnings. Screenshots:
+output/playwright/native-floor-cavities-desktop.png,
+native-floor-cavities-mobile-expanded.png иnative-floor-cavities-overlay.png.
+Browser/server закрыты, ephemeral helper удалён. Live auth/PG не проверялись.
+Source PDF/user project/DB/saved geometry/AIbudget/PR/deploy не изменены.
+
+Остаток: подтверждённые semantic wall/opening/floor roles, полноценный area coverage
+с техническими полостями и physical thresholds, general exact leader association,
+независимый metric/vertical proof и source-based2D/3D adoption после приёмки.
+Текущая пачка завершает bounded candidate assembly, не универсальное подтверждение
+физического пола квартиры.

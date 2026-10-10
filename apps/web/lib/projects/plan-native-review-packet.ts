@@ -2,6 +2,7 @@ import type { PlanReading } from '@uyut/db'
 import type { NativeTextAnchors } from './plan-document'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
 import { nativeFaceAnnotationCandidates } from './plan-native-face-annotations'
+import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
 import { nativeOpeningSourceLinks } from './plan-native-opening-links'
 import { nativeReviewedFrameRooms } from './plan-native-reviewed-frame-rooms'
 import { automaticNativeRoomCandidates, nativeRoomPolygonKey } from './plan-native-room-candidates'
@@ -97,6 +98,29 @@ export type NativeReviewPacket = {
     cues: { labelId: string; sourceNumber: number }[]
   }
   roomSchedule?: NativeRoomScheduleReport
+  floorCavities?: {
+    status: 'draft' | 'unresolved'
+    refusalReason: string | null
+    candidates: {
+      id: string
+      polygon: { x: number; y: number }[]
+      markerLabelIds: string[]
+      markerStatus: 'unambiguous' | 'ambiguous' | 'unmarked' | 'unavailable'
+      closureIds: string[]
+      unknownInteriorStrokeCount: number
+      omittedBoundaryInkCount: number
+    }[]
+    thresholds: { frameId: string; paintAmbiguous: boolean }[]
+    closures: {
+      id: string
+      sourceKind: 'closed-path' | 'literal-closed-run'
+      remainingSegmentCount: number
+      paintAmbiguous: boolean
+    }[]
+    unprovedCavities: { reason: string; vertexCount: number }[]
+    unresolvedMarkerLabelIds: string[]
+    markersAvailable: boolean
+  }
   savedFrameRooms?:
     | { status: 'not-saved' }
     | { status: 'unavailable' | 'refused'; reason: string }
@@ -229,6 +253,7 @@ export function nativeReviewPacket(input: {
   const annotations = nativeFaceAnnotationCandidates(common)
   const dimensions = automaticNativeDimensionRoles({ ...common, source })
   const connections = nativeOpeningSourceLinks(common)
+  const floor = nativeFloorCavityCandidates(common)
   const doors = connections.doorSymbols
   const frames = connections.openingFrames
   packet.sourceLinks = {
@@ -244,6 +269,35 @@ export function nativeReviewPacket(input: {
       x: point.x * scale.x,
       y: point.y * scale.y,
     })
+    packet.floorCavities = {
+      status: floor.status,
+      refusalReason: floor.refusalReason,
+      candidates: floor.cavities.map((cell) => ({
+        id: cell.id,
+        polygon: cell.polygon.map(raster),
+        markerLabelIds: cell.markerLabelIds,
+        markerStatus: cell.markerStatus,
+        closureIds: cell.closureIds,
+        unknownInteriorStrokeCount: cell.unknownInteriorStrokeCount,
+        omittedBoundaryInkCount: cell.omittedBoundaryInkCount,
+      })),
+      thresholds: floor.thresholds.map(({ frameId, paintColors }) => ({
+        frameId,
+        paintAmbiguous: paintColors.length !== 1,
+      })),
+      closures: floor.closures.map((closure) => ({
+        id: closure.id,
+        sourceKind: closure.sourceKind,
+        remainingSegmentCount: closure.remainingSegments.length,
+        paintAmbiguous: closure.paintColors.length !== 1,
+      })),
+      unprovedCavities: floor.unprovedCavities.map(({ reason, vertexCount }) => ({
+        reason,
+        vertexCount,
+      })),
+      unresolvedMarkerLabelIds: floor.unresolvedMarkerLabelIds,
+      markersAvailable: floor.markersAvailable,
+    }
     packet.doorSymbols = {
       status: doors.status,
       refusalReason: doors.refusalReason,
@@ -408,6 +462,7 @@ export function nativeReviewPacket(input: {
     ['source-link-search', connections.refusalReason],
     ['number-circle-search', circles.refusalReason],
     ['room-schedule-search', scheduleNumbers.report.refusalReason],
+    ['floor-cavity-search', floor.refusalReason],
   ] as const) {
     if (reason)
       issue(

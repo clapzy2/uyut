@@ -1,0 +1,533 @@
+import { describe, expect, it } from 'vitest'
+import { exactNativeOrientation, exactNativePointKey } from './plan-native-exact-intersections'
+import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
+import type { Bounds, PagePoint, PdfCurvePath, PdfVectorPath } from './plan-pdf-linework'
+
+type Input = Parameters<typeof nativeFloorCavityCandidates>[0]
+
+function path(
+  operationIndex: number,
+  points: number[][],
+  paint: PdfVectorPath['paint'] = 'stroke',
+): PdfVectorPath {
+  return {
+    operationIndex,
+    subpathIndex: 0,
+    paint,
+    closed: true,
+    ...(paint === 'stroke' ? {} : { fillColor: '#736a5d' }),
+    points: points.map(([x, y]) => ({ x: x as number, y: y as number })),
+  }
+}
+
+function paintBox(operation: number, left: number, top: number, right: number, bottom: number) {
+  return path(
+    operation,
+    [
+      [left, top],
+      [right, top],
+      [right, bottom],
+      [left, bottom],
+    ],
+    'fill-stroke',
+  )
+}
+
+function fixture(): Input {
+  const source = { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 }
+  return {
+    native: {
+      source,
+      originalPdfSha256: 'b'.repeat(64),
+      complete: true,
+      pageNormalizedScale: { x: 1, y: 1 },
+      labels: [],
+    },
+    lineworkSource: { ...source },
+    work: {
+      coordinateSystem: 'page-0-1000',
+      pageWidth: 1000,
+      pageHeight: 1000,
+      paths: [
+        // Source paint with actual top and bottom gaps. No saved contours, IDs
+        // supplied as selectors, fitted room box, or chosen wall-colour input.
+        paintBox(1, 90, 90, 100, 320),
+        paintBox(2, 300, 90, 310, 320),
+        paintBox(3, 100, 90, 140, 100),
+        paintBox(4, 260, 90, 300, 100),
+        paintBox(5, 100, 300, 160, 320),
+        paintBox(6, 240, 300, 300, 320),
+        path(10, [
+          [140, 90],
+          [260, 90],
+          [260, 100],
+          [255, 100],
+          [255, 102],
+          [145, 102],
+          [145, 100],
+          [140, 100],
+        ]),
+        path(11, [
+          [160, 300],
+          [240, 300],
+          [240, 320],
+          [160, 320],
+        ]),
+        // Six-vertex structural contact outlines, independently painted and
+        // backed by complete source paint along the two short frame edges.
+        path(12, [
+          [100, 300],
+          [160, 300],
+          [160, 320],
+          [155, 320],
+          [155, 325],
+          [100, 325],
+        ]),
+        path(13, [
+          [240, 300],
+          [300, 300],
+          [300, 325],
+          [245, 325],
+          [245, 320],
+          [240, 320],
+        ]),
+      ],
+      skippedCurves: 0,
+      clippedPaths: 0,
+      unsupportedPaths: 0,
+      unsupportedContexts: 0,
+      truncated: false,
+    },
+  }
+}
+
+function sourcePath(input: Input, operation: number) {
+  const found = input.work.paths.find((item) => item.operationIndex === operation)
+  if (!found) throw new Error('Missing synthetic source path')
+  return found
+}
+
+function circle(input: Input, number: number, center: PagePoint = { x: 200, y: 200 }) {
+  const radius = 10
+  const k = (4 / 3) * Math.tan(Math.PI / 8)
+  const points = [
+    { x: center.x + radius, y: center.y },
+    { x: center.x, y: center.y + radius },
+    { x: center.x - radius, y: center.y },
+    { x: center.x, y: center.y - radius },
+    { x: center.x + radius, y: center.y },
+  ]
+  input.work.curvePaths ??= []
+  const index = input.work.curvePaths.length
+  const curve: PdfCurvePath = {
+    operationIndex: 100 + index,
+    subpathIndex: 0,
+    operationSubpathCount: 1,
+    paint: 'stroke',
+    closed: true,
+    start: points[0] as PagePoint,
+    segments: points.slice(1).map((end, segmentIndex) => {
+      const start = points[segmentIndex] as PagePoint
+      return {
+        kind: 'cubic',
+        control1: { x: start.x - k * (start.y - center.y), y: start.y + k * (start.x - center.x) },
+        control2: { x: end.x + k * (end.y - center.y), y: end.y - k * (end.x - center.x) },
+        end,
+      }
+    }),
+  }
+  input.work.curvePaths.push(curve)
+  input.native.labels.push({
+    id: `native-text-${index}`,
+    nativeIndex: index,
+    name: String(number),
+    point: { ...center },
+    pagePoint: { ...center },
+    rotation: 0,
+  })
+  refreshOmissions(input)
+  return curve
+}
+
+function refreshOmissions(input: Input) {
+  input.work.skippedCurves = input.work.curvePaths?.length ?? 0
+  input.work.skippedCurveBounds = (input.work.curvePaths ?? []).map((curve) => {
+    const points = [
+      curve.start,
+      ...curve.segments.flatMap((segment) =>
+        segment.kind === 'cubic'
+          ? [segment.control1, segment.control2, segment.end]
+          : segment.kind === 'quadratic'
+            ? [segment.control, segment.end]
+            : [segment.end],
+      ),
+    ]
+    return { operationIndex: curve.operationIndex, bounds: bounds(points) }
+  })
+}
+
+function bounds(points: PagePoint[]): Bounds {
+  return {
+    left: Math.min(...points.map((point) => point.x)),
+    right: Math.max(...points.map((point) => point.x)),
+    top: Math.min(...points.map((point) => point.y)),
+    bottom: Math.max(...points.map((point) => point.y)),
+  }
+}
+
+function expectLiteralBoundaryProof(
+  input: Input,
+  result: ReturnType<typeof nativeFloorCavityCandidates>,
+) {
+  for (const cavity of result.cavities) {
+    expect(cavity.boundaries).toHaveLength(cavity.polygon.length)
+    for (const [index, boundary] of cavity.boundaries.entries()) {
+      expect(boundary.start).toEqual(cavity.polygon[index])
+      expect(boundary.end).toEqual(cavity.polygon[(index + 1) % cavity.polygon.length])
+      expect(boundary.supports.length).toBeGreaterThan(0)
+      const axis = boundary.start.x === boundary.end.x ? 'y' : 'x'
+      const from = Math.min(boundary.start[axis], boundary.end[axis])
+      const to = Math.max(boundary.start[axis], boundary.end[axis])
+      const intervals: { from: number; to: number }[] = []
+      for (const support of boundary.supports) {
+        const evidence = sourcePath(input, support.edge.operationIndex)
+        expect(evidence.subpathIndex).toBe(support.edge.subpathIndex)
+        expect(evidence.points[support.edge.segmentIndex]).toEqual(support.edge.start)
+        expect(evidence.points[(support.edge.segmentIndex + 1) % evidence.points.length]).toEqual(
+          support.edge.end,
+        )
+        expect(exactNativeOrientation(boundary.start, boundary.end, support.edge.start)).toBe(0)
+        expect(exactNativeOrientation(boundary.start, boundary.end, support.edge.end)).toBe(0)
+        intervals.push({
+          from: Math.max(from, Math.min(support.edge.start[axis], support.edge.end[axis])),
+          to: Math.min(to, Math.max(support.edge.start[axis], support.edge.end[axis])),
+        })
+      }
+      let covered = from
+      for (const interval of intervals.sort((a, b) => a.from - b.from)) {
+        expect(interval.from).toBeLessThanOrEqual(covered)
+        expect(interval.to).toBeGreaterThan(interval.from)
+        covered = Math.max(covered, interval.to)
+      }
+      expect(covered).toBe(to)
+    }
+  }
+}
+
+describe('native painted cavities with documented source opening boundaries', () => {
+  it('assembles one source-backed negative-space cell without a saved contour or selected colour', () => {
+    const input = fixture()
+    circle(input, 1)
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.status).toBe('draft')
+    expect(result.refusalReason).toBeNull()
+    expect(result.thresholds).toHaveLength(1)
+    expect(result.closures).toHaveLength(1)
+    expect(result.cavities).toHaveLength(1)
+    expect(result.cavities[0]).toMatchObject({
+      paintColor: '#736a5d',
+      markerLabelIds: ['native-text-0'],
+      markerStatus: 'unambiguous',
+      omittedBoundaryInkCount: 0,
+    })
+    expect(bounds(result.cavities[0]?.polygon ?? [])).toEqual({
+      left: 100,
+      top: 100,
+      right: 300,
+      bottom: 300,
+    })
+    expectLiteralBoundaryProof(input, result)
+    expect(result).toMatchObject({
+      readOnly: true,
+      completeFloorInventory: false,
+      roomOwnershipConfirmed: false,
+      physicalPassagesAccepted: false,
+      readyFor2D: false,
+      readyFor3D: false,
+    })
+    for (const key of ['reading', 'pageReview', 'geometry', 'footprint', 'floorAreaM2'])
+      expect(result).not.toHaveProperty(key)
+  })
+
+  it('does not snap a positive 1e-9 paint/profile contact gap closed', () => {
+    const input = fixture()
+    for (const point of sourcePath(input, 3).points) if (point.x === 140) point.x -= 1e-9
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.closures).toEqual([])
+    expect(result.cavities).toEqual([])
+  })
+
+  it('requires complete paint coverage across both actual frame jamb spans', () => {
+    const input = fixture()
+    for (const point of sourcePath(input, 5).points) if (point.y === 320) point.y -= 1e-9
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.thresholds).toEqual([])
+    expect(result.cavities).toEqual([])
+  })
+
+  it('cannot invent a threshold where one complex source jamb outline is absent', () => {
+    const input = fixture()
+    input.work.paths = input.work.paths.filter((item) => item.operationIndex !== 12)
+    expect(nativeFloorCavityCandidates(input).thresholds).toEqual([])
+    expect(nativeFloorCavityCandidates(input).cavities).toEqual([])
+  })
+
+  it('rejects two positive contacts from two paint operations on the same profile side', () => {
+    const input = fixture()
+    input.work.paths = input.work.paths.filter((item) => ![3, 4].includes(item.operationIndex))
+    input.work.paths.push(paintBox(3, 100, 90, 140, 95), paintBox(14, 100, 95, 140, 100))
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.closures).toEqual([])
+    expect(result.cavities).toEqual([])
+  })
+
+  it('requires two independent paint operations, not two subpaths of one compound operation', () => {
+    const input = fixture()
+    const right = sourcePath(input, 4)
+    right.operationIndex = 3
+    right.subpathIndex = 1
+    expect(nativeFloorCavityCandidates(input).closures).toEqual([])
+  })
+
+  it('preserves exact source repaint aliases without duplicating a profile closure', () => {
+    const input = fixture()
+    input.work.paths.push({ ...structuredClone(sourcePath(input, 10)), operationIndex: 40 })
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.closures).toHaveLength(1)
+    expect(result.cavities).toHaveLength(1)
+    expectLiteralBoundaryProof(input, result)
+  })
+
+  it('does not choose a paint colour when the same closures have competing colour support', () => {
+    const input = fixture()
+    input.work.paths.push(
+      ...input.work.paths
+        .filter((item) => item.paint !== 'stroke')
+        .map((item) => ({
+          ...structuredClone(item),
+          operationIndex: item.operationIndex + 30,
+          fillColor: '#a3512e',
+        })),
+    )
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.closures).toHaveLength(1)
+    expect(result.closures[0]?.paintColors).toEqual(['#736a5d', '#a3512e'])
+    expect(result.thresholds[0]?.paintColors).toEqual(['#736a5d', '#a3512e'])
+    expect(result.cavities).toEqual([])
+  })
+
+  it('retains an actual closed suffix and its unused prefix without flipping path.closed', () => {
+    const input = fixture()
+    const profile = sourcePath(input, 10)
+    const first = profile.points[0]
+    if (!first) throw new Error('Missing fixture profile')
+    profile.points = [{ x: 120, y: 90 }, ...profile.points, { ...first }]
+    profile.closed = false
+    const before = structuredClone(input)
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.cavities).toHaveLength(1)
+    expect(result.closures[0]).toMatchObject({
+      sourceKind: 'literal-closed-run',
+      remainingSegments: [{ operationIndex: 10, segmentIndex: 0 }],
+    })
+    expectLiteralBoundaryProof(input, result)
+    expect(input).toEqual(before)
+  })
+
+  it('withholds an overlapping compound paint bar instead of guessing its fill rule', () => {
+    const input = fixture()
+    input.work.paths.push({ ...paintBox(3, 110, 90, 140, 100), subpathIndex: 1 })
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.cavities).toEqual([])
+    expect(result.closures).toEqual([])
+  })
+
+  it('does not drop a disconnected paint island inside a simple emitted cavity', () => {
+    const input = fixture()
+    input.work.paths.push(paintBox(30, 180, 180, 220, 220))
+    const result = nativeFloorCavityCandidates(input)
+    // The simple-polygon output cannot encode this occupied island as a hole.
+    expect(result.cavities).toEqual([])
+    expect(result.unprovedCavityCount).toBeGreaterThan(0)
+    expect(result.unprovedCavities).toContainEqual(
+      expect.objectContaining({ reason: 'nested-painted-island', vertexCount: 8 }),
+    )
+  })
+
+  it('withholds a cavity intersecting unresolved compound paint instead of erasing that interior ink', () => {
+    const input = fixture()
+    input.work.paths.push(paintBox(30, 180, 180, 220, 220), {
+      ...paintBox(30, 190, 190, 230, 230),
+      subpathIndex: 1,
+    })
+    const before = structuredClone(input)
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.cavities).toEqual([])
+    expect(result.unprovedCavities).toContainEqual(
+      expect.objectContaining({ reason: 'unresolved-paint-topology' }),
+    )
+    expect(input).toEqual(before)
+    expect(result.completeFloorInventory).toBe(false)
+  })
+
+  it('preserves a rejected thin raw cavity rather than silently deleting a source sliver', () => {
+    const input = fixture()
+    input.work.paths.push(
+      paintBox(30, 490, 490, 500, 510),
+      paintBox(31, 501, 490, 511, 510),
+      paintBox(32, 500, 490, 501, 500),
+      paintBox(33, 500, 500.0001, 501, 510),
+    )
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.cavities).toHaveLength(1)
+    expect(result.unprovedCavityCount).toBe(1)
+    expect(result.unprovedCavities).toEqual([
+      expect.objectContaining({
+        reason: 'unsupported-cavity-polygon',
+        vertexCount: 4,
+        bounds: { left: 500, top: 500, right: 501, bottom: 500.0001 },
+        polygon: expect.any(Array),
+      }),
+    ])
+  })
+
+  it('keeps unmarked source cavities rather than deleting them to match printed room counts', () => {
+    const result = nativeFloorCavityCandidates(fixture())
+    expect(result.cavities).toHaveLength(1)
+    expect(result.cavities[0]).toMatchObject({ markerStatus: 'unmarked', markerLabelIds: [] })
+    expect(result.completeFloorInventory).toBe(false)
+  })
+
+  it('retains both source markers in one joint cell without inventing a separating wall', () => {
+    const input = fixture()
+    circle(input, 1, { x: 170, y: 200 })
+    circle(input, 5, { x: 230, y: 200 })
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.cavities).toHaveLength(1)
+    expect(result.cavities[0]).toMatchObject({
+      markerStatus: 'unambiguous',
+      markerLabelIds: ['native-text-0', 'native-text-1'],
+    })
+    expect(result.roomOwnershipConfirmed).toBe(false)
+  })
+
+  it('marks repeated source numbers ambiguous even when both circles lie in the same cell', () => {
+    const input = fixture()
+    circle(input, 1, { x: 170, y: 200 })
+    circle(input, 1, { x: 230, y: 200 })
+    expect(nativeFloorCavityCandidates(input).cavities[0]?.markerStatus).toBe('ambiguous')
+  })
+
+  it('does not attach the outboard number 8 by proximity or by matching printed area', () => {
+    const input = fixture()
+    circle(input, 8, { x: 340, y: 200 })
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.cavities[0]).toMatchObject({ markerStatus: 'unmarked', markerLabelIds: [] })
+    expect(result.unresolvedMarkerLabelIds).toEqual(['native-text-0'])
+  })
+
+  it('checks original cubic control hull, not the label baseline or fitted-circle box', () => {
+    const input = fixture()
+    const cue = circle(input, 1, { x: 289.999, y: 200 })
+    const segment = cue.segments[0]
+    if (segment?.kind !== 'cubic') throw new Error('Missing fixture cubic')
+    segment.control1.x = 300.001
+    refreshOmissions(input)
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.markersAvailable).toBe(true)
+    expect(result.cavities[0]?.markerLabelIds).toEqual([])
+    expect(result.unresolvedMarkerLabelIds).toEqual(['native-text-0'])
+  })
+
+  it('keeps annotation strokes, original curves and their omission counts inside a candidate', () => {
+    const input = fixture()
+    circle(input, 1)
+    const annotation = path(30, [
+      [150, 150],
+      [170, 155],
+    ])
+    annotation.closed = false
+    input.work.paths.push(annotation)
+    const before = structuredClone(input)
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.cavities).toHaveLength(1)
+    expect(result.cavities[0]?.unknownInteriorStrokeCount).toBeGreaterThan(0)
+    expect(input.work.skippedCurves).toBe(1)
+    expect(input.work.curvePaths).toHaveLength(1)
+    expect(input).toEqual(before)
+    expect(result.physicalPassagesAccepted).toBe(false)
+  })
+
+  it('records omitted boundary ink without silently repairing or deleting its source count', () => {
+    const input = fixture()
+    input.work.skippedCurves = 1
+    input.work.skippedCurveBounds = [
+      { operationIndex: 50, bounds: { left: 95, top: 180, right: 105, bottom: 190 } },
+    ]
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.cavities).toHaveLength(1)
+    expect(result.cavities[0]?.omittedBoundaryInkCount).toBe(1)
+    expect(result.cavities[0]?.markerStatus).toBe('unavailable')
+    expect(result.completeFloorInventory).toBe(false)
+    expect(input.work.skippedCurves).toBe(1)
+  })
+
+  it('does not use a partial command inventory as a unique marker proof', () => {
+    const input = fixture()
+    circle(input, 1)
+    circle(input, 5, { x: 240, y: 200 })
+    input.work.curvePaths?.pop()
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.cavities).toHaveLength(1)
+    expect(result.markersAvailable).toBe(false)
+    expect(result.cavities[0]).toMatchObject({ markerStatus: 'unavailable', markerLabelIds: [] })
+  })
+
+  it.each(['hash', 'page', 'scale', 'duplicate-ref', 'unsupported-layer'] as const)(
+    'withholds the whole candidate inventory after %s source failure',
+    (failure) => {
+      const input = fixture()
+      if (failure === 'hash') input.lineworkSource.sha256 = 'c'.repeat(64)
+      if (failure === 'page') input.lineworkSource.page = 2
+      if (failure === 'scale') delete input.native.pageNormalizedScale
+      if (failure === 'duplicate-ref') input.work.paths.push(structuredClone(sourcePath(input, 1)))
+      if (failure === 'unsupported-layer') input.work.unsupportedContexts = 1
+      const result = nativeFloorCavityCandidates(input)
+      expect(result.status).toBe('unresolved')
+      expect(result.cavities).toEqual([])
+      expect(result.thresholds).toEqual([])
+      expect(result.closures).toEqual([])
+    },
+  )
+
+  it('refuses oversized source paths atomically rather than returning earlier floor cells', () => {
+    const input = fixture()
+    input.work.paths = Array.from({ length: 3001 }, (_, index) => ({
+      ...path(index, [
+        [1, 1],
+        [2, 2],
+      ]),
+      closed: false,
+    }))
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.status).toBe('unresolved')
+    expect(result.cavities).toEqual([])
+    expect(result.thresholds).toEqual([])
+  })
+
+  it('keeps source snapshots immutable and detaches polygon, edge and closure output', () => {
+    const input = fixture()
+    const before = structuredClone(input)
+    const result = nativeFloorCavityCandidates(input)
+    const cell = result.cavities[0]
+    const closure = result.closures[0]
+    if (!cell || !closure) throw new Error('Missing fixture cavity')
+    const corner = cell.polygon[0]
+    const support = cell.boundaries[0]?.supports[0]
+    if (corner) corner.x = 999
+    if (support) support.edge.start.x = 999
+    if (closure.polygon[0]) closure.polygon[0].x = 999
+    expect(input).toEqual(before)
+    expect(exactNativePointKey(sourcePath(input, 10).points[0] as PagePoint)).not.toBeNull()
+  })
+})

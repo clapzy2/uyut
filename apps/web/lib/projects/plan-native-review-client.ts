@@ -408,6 +408,164 @@ function isRoomSchedule(value: unknown, packet: NativeReviewPacket): boolean {
   return usedMarkerIds.size === circleNumbers.size
 }
 
+function isFloorCavities(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const floor = value as NonNullable<NativeReviewPacket['floorCavities']>
+  const collections = [
+    floor.candidates,
+    floor.thresholds,
+    floor.closures,
+    floor.unprovedCavities,
+    floor.unresolvedMarkerLabelIds,
+  ]
+  if (
+    !hasOnlyKeys(floor, [
+      'status',
+      'refusalReason',
+      'candidates',
+      'thresholds',
+      'closures',
+      'unprovedCavities',
+      'unresolvedMarkerLabelIds',
+      'markersAvailable',
+    ]) ||
+    typeof floor.markersAvailable !== 'boolean' ||
+    collections.some((items) => !Array.isArray(items) || items.length > 100)
+  )
+    return false
+  if (floor.status === 'unresolved')
+    return isBoundedLabel(floor.refusalReason) && collections.every((items) => items.length === 0)
+  if (
+    floor.status !== 'draft' ||
+    floor.refusalReason !== null ||
+    !packet.numberCircles ||
+    packet.openingFrames?.status !== 'draft' ||
+    floor.markersAvailable !== (packet.numberCircles.status === 'draft')
+  )
+    return false
+  const boundedCount = (value: unknown, maximum: number) =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= maximum
+  const frameIds = new Set(packet.openingFrames.candidates.map(({ id }) => id))
+  const closures = new Map<string, boolean>()
+  for (const threshold of floor.thresholds) {
+    if (
+      !threshold ||
+      typeof threshold !== 'object' ||
+      !hasOnlyKeys(threshold, ['frameId', 'paintAmbiguous']) ||
+      !isBoundedLabel(threshold.frameId) ||
+      !frameIds.has(threshold.frameId) ||
+      closures.has(threshold.frameId) ||
+      typeof threshold.paintAmbiguous !== 'boolean'
+    )
+      return false
+    closures.set(threshold.frameId, threshold.paintAmbiguous)
+  }
+  for (const closure of floor.closures) {
+    if (
+      !closure ||
+      typeof closure !== 'object' ||
+      !hasOnlyKeys(closure, ['id', 'sourceKind', 'remainingSegmentCount', 'paintAmbiguous']) ||
+      !isBoundedLabel(closure.id) ||
+      closures.has(closure.id) ||
+      !['closed-path', 'literal-closed-run'].includes(closure.sourceKind) ||
+      !boundedCount(closure.remainingSegmentCount, 20000) ||
+      typeof closure.paintAmbiguous !== 'boolean'
+    )
+      return false
+    closures.set(closure.id, closure.paintAmbiguous)
+  }
+  const cueNumbers = new Map(
+    packet.numberCircles.cues.map(({ labelId, sourceNumber }) => [labelId, sourceNumber]),
+  )
+  const numberCounts = new Map<number, number>()
+  for (const number of cueNumbers.values())
+    numberCounts.set(number, (numberCounts.get(number) ?? 0) + 1)
+  const candidateIds = new Set<string>()
+  const markerClaims = new Map<string, typeof floor.candidates>()
+  let vertices = 0
+  for (const cell of floor.candidates) {
+    if (
+      !cell ||
+      typeof cell !== 'object' ||
+      !hasOnlyKeys(cell, [
+        'id',
+        'polygon',
+        'markerLabelIds',
+        'markerStatus',
+        'closureIds',
+        'unknownInteriorStrokeCount',
+        'omittedBoundaryInkCount',
+      ]) ||
+      !isBoundedLabel(cell.id) ||
+      candidateIds.has(cell.id) ||
+      !Array.isArray(cell.polygon) ||
+      cell.polygon.length < 3 ||
+      cell.polygon.length > 100 ||
+      !cell.polygon.every(
+        (point) => isInImage(point, packet.image) && hasOnlyKeys(point, ['x', 'y']),
+      ) ||
+      !Array.isArray(cell.markerLabelIds) ||
+      cell.markerLabelIds.length > 100 ||
+      !Array.isArray(cell.closureIds) ||
+      cell.closureIds.length > 100 ||
+      !boundedCount(cell.unknownInteriorStrokeCount, 20000) ||
+      !boundedCount(cell.omittedBoundaryInkCount, 6000)
+    )
+      return false
+    candidateIds.add(cell.id)
+    vertices += cell.polygon.length
+    if (vertices > 4000) return false
+    const ownMarkers = new Set<string>()
+    for (const id of cell.markerLabelIds) {
+      if (!isBoundedLabel(id) || !cueNumbers.has(id) || ownMarkers.has(id)) return false
+      ownMarkers.add(id)
+      const claims = markerClaims.get(id) ?? []
+      claims.push(cell)
+      markerClaims.set(id, claims)
+    }
+    const ownClosures = new Set<string>()
+    for (const id of cell.closureIds) {
+      if (!isBoundedLabel(id) || closures.get(id) !== false || ownClosures.has(id)) return false
+      ownClosures.add(id)
+    }
+    if (!floor.markersAvailable) {
+      if (cell.markerStatus !== 'unavailable' || cell.markerLabelIds.length) return false
+    } else if (cell.markerStatus === 'unmarked') {
+      if (cell.markerLabelIds.length) return false
+    } else if (
+      !['unambiguous', 'ambiguous'].includes(cell.markerStatus) ||
+      !cell.markerLabelIds.length
+    )
+      return false
+  }
+  for (const cell of floor.candidates) {
+    const competition = cell.markerLabelIds.some(
+      (id) =>
+        (markerClaims.get(id)?.length ?? 0) > 1 ||
+        (numberCounts.get(cueNumbers.get(id) as number) ?? 0) > 1,
+    )
+    if (cell.markerStatus === 'unambiguous' && competition) return false
+    if (cell.markerStatus === 'ambiguous' && !competition) return false
+  }
+  const unresolved = new Set<string>()
+  for (const id of floor.unresolvedMarkerLabelIds) {
+    if (!isBoundedLabel(id) || !cueNumbers.has(id) || markerClaims.has(id) || unresolved.has(id))
+      return false
+    unresolved.add(id)
+  }
+  if (markerClaims.size + unresolved.size !== cueNumbers.size) return false
+  return floor.unprovedCavities.every(
+    (item) =>
+      item &&
+      typeof item === 'object' &&
+      hasOnlyKeys(item, ['reason', 'vertexCount']) &&
+      isBoundedLabel(item.reason) &&
+      boundedCount(item.vertexCount, 100000) &&
+      item.vertexCount >= 3,
+  )
+}
+
 function isSavedFrameRooms(value: unknown, packet: NativeReviewPacket): boolean {
   if (value === undefined) return true
   if (!value || typeof value !== 'object') return false
@@ -624,6 +782,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isSourceLinks(packet.sourceLinks, packet) ||
     !isNumberCircles(packet.numberCircles) ||
     !isRoomSchedule(packet.roomSchedule, packet) ||
+    !isFloorCavities(packet.floorCavities, packet) ||
     !isSavedFrameRooms(packet.savedFrameRooms, packet) ||
     !Array.isArray(packet.faces) ||
     packet.faces.length > 100 ||

@@ -159,6 +159,59 @@ function documentarySchedulePacket() {
   return packet
 }
 
+function floorCavityPacket() {
+  const packet = documentarySchedulePacket()
+  packet.openingFrames = {
+    status: 'draft',
+    refusalReason: null,
+    candidates: Array.from({ length: 7 }, (_, index) => ({
+      id: `source-frame-${index}`,
+      polygon: [
+        { x: 10, y: 10 + index * 20 },
+        { x: 100, y: 10 + index * 20 },
+        { x: 100, y: 20 + index * 20 },
+        { x: 10, y: 20 + index * 20 },
+      ],
+    })),
+  }
+  packet.floorCavities = {
+    status: 'draft',
+    refusalReason: null,
+    markersAvailable: true,
+    candidates: [[1, 5], [2], [3], [4], [6], [7], []].map((numbers, index) => ({
+      id: `source-cell-${index}`,
+      polygon: [
+        { x: 200 + index * 10, y: 100 },
+        { x: 300 + index * 10, y: 100 },
+        { x: 300 + index * 10, y: 200 },
+      ],
+      markerStatus: numbers.length ? 'unambiguous' : 'unmarked',
+      markerLabelIds: numbers.map((number) => `native-circle-${number}`),
+      closureIds: [],
+      unknownInteriorStrokeCount: index === 0 ? 2 : index === 6 ? 1 : 0,
+      omittedBoundaryInkCount: index === 0 ? 1 : 0,
+    })),
+    thresholds: packet.openingFrames.candidates.map(({ id }) => ({
+      frameId: id,
+      paintAmbiguous: false,
+    })),
+    closures: Array.from({ length: 5 }, (_, index) => ({
+      id: `source-profile-${index}`,
+      sourceKind: index === 0 ? 'literal-closed-run' : 'closed-path',
+      remainingSegmentCount: index === 0 ? 1 : 0,
+      paintAmbiguous: false,
+    })),
+    unprovedCavities: [
+      { reason: 'unsupported-cavity-polygon', vertexCount: 4 },
+      { reason: 'unsupported-cavity-polygon', vertexCount: 4 },
+      { reason: 'nested-painted-island', vertexCount: 4 },
+      { reason: 'unresolved-paint-topology', vertexCount: 8 },
+    ],
+    unresolvedMarkerLabelIds: ['native-circle-8'],
+  }
+  return packet
+}
+
 describe('read-only native review presentation', () => {
   it('distinguishes no saved review from unavailable native data without save buttons', () => {
     const empty = renderToStaticMarkup(
@@ -328,6 +381,104 @@ describe('read-only native review presentation', () => {
     expect(html).toContain('scope="row"')
     expect(html).not.toContain('Подтвердить')
     expect(html).not.toContain('Сохранить')
+  })
+  it('keeps the floor layer off by default and preserves all source SVG glyphs while reporting logical candidates', () => {
+    const packet = floorCavityPacket()
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    const withoutFloor = structuredClone(packet)
+    delete withoutFloor.floorCavities
+    const baseline = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet: withoutFloor, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Кандидаты границ пола и порогов')
+    expect(html).toContain('Кандидаты с цифровыми метками</dt><dd>6</dd>')
+    expect(html).toContain('Неразмеченные области</dt><dd>1</dd>')
+    expect(html).toContain('Логические полосы по рамкам</dt><dd>7</dd>')
+    expect(html).toContain('Профильные замыкания</dt><dd>5</dd>')
+    expect(html).toContain('Неподтверждённые области в отчёте</dt><dd>4</dd>')
+    expect(html).toContain('Неизвестные линии внутри, по кандидатам</dt><dd>3</dd>')
+    expect(html).toContain('Пропуски на границах, по кандидатам</dt><dd>1</dd>')
+    expect(html).toContain('логические разделители, не физические стены или проверенные пороги')
+    expect(html).toContain('не подтверждает точный пол')
+    expect(html).toContain('свободный проход или готовность 2D/3D')
+    expect(html).toContain('Показать кандидаты с метками — зелёные контуры')
+    expect(html).toContain('<input type="checkbox"/>Показать кандидаты с метками')
+    expect(html).toContain('source-cell-0</span>: метки 1 + 5')
+    expect(html).toContain('Метки без найденного кандидата: 8. Ближайшая область не назначается')
+    expect(html).toContain('Вершин: 4; областей: 2')
+    expect(html).toContain('nested-painted-island')
+    expect(html).toContain('unresolved-paint-topology')
+    expect(html).toContain('не удалены и не названы шахтами')
+    expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(baseline.match(/<svg\b.*?<\/svg>/s)?.[0])
+    expect(html).not.toContain('stroke="#15803d"')
+    expect(html).not.toContain('stroke="#7e22ce"')
+    expect(html).not.toContain('Подтвердить')
+    expect(html).not.toContain('Сохранить')
+    expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it('keeps competing cavities and paint ambiguity visible without selecting a room or material wall', () => {
+    const packet = floorCavityPacket()
+    const floor = packet.floorCavities
+    const cell = floor?.candidates[0]
+    const closure = floor?.closures[0]
+    const threshold = floor?.thresholds[0]
+    if (!floor || !cell || !closure || !threshold) throw new Error('Floor fixture is missing')
+    cell.markerStatus = 'ambiguous'
+    floor.candidates.push({ ...structuredClone(cell), id: 'source-competing-cell' })
+    closure.paintAmbiguous = true
+    threshold.paintAmbiguous = true
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Есть конкурирующие метки или области; принадлежность не выбрана')
+    expect(html).toContain('Заливка неоднозначна; замыкание не используется для этих областей')
+    expect(html).toContain(
+      'неоднозначная заливка логической полосы; в границах областей не используется',
+    )
+    expect(html).toContain('source-competing-cell')
+    expect(html).not.toContain('Подтвердить')
+  })
+  it('distinguishes missing numeric evidence from unmarked source cells', () => {
+    const packet = floorCavityPacket()
+    const floor = packet.floorCavities
+    if (!floor) throw new Error('Floor fixture is missing')
+    packet.numberCircles = { status: 'unresolved', refusalReason: 'circle-search-budget', cues: [] }
+    floor.markersAvailable = false
+    floor.unresolvedMarkerLabelIds = []
+    for (const cell of floor.candidates) {
+      cell.markerStatus = 'unavailable'
+      cell.markerLabelIds = []
+    }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Цифровые метки недоступны для сверки; это не отсутствие помещений')
+    expect(html).toContain('Неразмеченные области</dt><dd>0</dd>')
+    expect(html).toContain('проверка меток недоступна')
+    expect(html).not.toContain('stroke="#15803d"')
+  })
+  it('shows an atomic floor refusal without empty-success counters or a floor-layer control', () => {
+    const packet = floorCavityPacket()
+    packet.floorCavities = {
+      status: 'unresolved',
+      refusalReason: 'floor-cavity-work-limit',
+      markersAvailable: true,
+      candidates: [],
+      thresholds: [],
+      closures: [],
+      unprovedCavities: [],
+      unresolvedMarkerLabelIds: [],
+    }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Поиск не завершён; частичные границы не показаны')
+    expect(html).toContain('floor-cavity-work-limit')
+    expect(html).not.toContain('Кандидаты с цифровыми метками</dt>')
+    expect(html).not.toContain('Показать кандидаты с метками — зелёные контуры')
+    expect(html).not.toContain('Подтвердить')
   })
   it('exposes ambiguity, missing observations and unlisted numeric markers instead of calling all rows matched', () => {
     const packet = documentarySchedulePacket()

@@ -317,6 +317,172 @@ function RoomSchedule({ report }: { report: NonNullable<NativeReviewPacket['room
   )
 }
 
+const floorCavityReasons: Record<string, string> = {
+  'unsupported-cavity-polygon':
+    'Контур не прошёл проверку; в том числе могут быть малые обломки границы.',
+  'nested-painted-island': 'Внутри есть отдельный островок исходной заливки.',
+  'unresolved-paint-topology': 'Топология исходной заливки неоднозначна.',
+  'boundary-source-gap': 'Не для всей границы найдено исходное линейное основание.',
+}
+
+function FloorCavityReview({
+  report,
+  circles,
+  showLayer,
+  onToggle,
+}: {
+  report: NonNullable<NativeReviewPacket['floorCavities']>
+  circles: NativeReviewPacket['numberCircles']
+  showLayer: boolean
+  onToggle: (value: boolean) => void
+}) {
+  const numbers = new Map(circles?.cues.map(({ labelId, sourceNumber }) => [labelId, sourceNumber]))
+  const markerNumbers = (ids: string[]) =>
+    [...new Set(ids.map((id) => numbers.get(id)).filter((number) => number !== undefined))].join(
+      ' + ',
+    )
+  const heldGroups = new Map<string, { reason: string; vertexCount: number; count: number }>()
+  for (const item of report.unprovedCavities) {
+    const key = `${item.reason}:${item.vertexCount}`
+    const group = heldGroups.get(key)
+    if (group) group.count++
+    else heldGroups.set(key, { ...item, count: 1 })
+  }
+  return (
+    <section
+      className="space-y-2 border-t border-line pt-3 text-[13px] leading-relaxed"
+      aria-label="Кандидаты границ пола и порогов"
+    >
+      <h4 className="text-[14px] font-medium">Кандидаты границ пола и порогов</h4>
+      {report.status === 'unresolved' ? (
+        <p className="break-all text-ink-2">
+          Поиск не завершён; частичные границы не показаны. Ограничение: {report.refusalReason}.
+        </p>
+      ) : (
+        <>
+          <p className="text-ink-2">
+            Это математические области по исходным линиям и заливкам. Полосы рамок и профильные
+            замыкания — логические разделители, не физические стены или проверенные пороги.
+            Совпадение цифровой метки с таблицей не подтверждает точный пол, владельца комнаты,
+            свободный проход или готовность 2D/3D.
+          </p>
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <dt className="text-ink-2">Кандидаты с цифровыми метками</dt>
+              <dd>{report.candidates.filter((cell) => cell.markerLabelIds.length > 0).length}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-2">Неразмеченные области</dt>
+              <dd>{report.candidates.filter((cell) => cell.markerStatus === 'unmarked').length}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-2">Логические полосы по рамкам</dt>
+              <dd>{report.thresholds.length}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-2">Профильные замыкания</dt>
+              <dd>{report.closures.length}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-2">Неподтверждённые области в отчёте</dt>
+              <dd>{report.unprovedCavities.length}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-2">Неизвестные линии внутри, по кандидатам</dt>
+              <dd>
+                {report.candidates.reduce((sum, cell) => sum + cell.unknownInteriorStrokeCount, 0)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-2">Пропуски на границах, по кандидатам</dt>
+              <dd>
+                {report.candidates.reduce((sum, cell) => sum + cell.omittedBoundaryInkCount, 0)}
+              </dd>
+            </div>
+          </dl>
+          {!report.markersAvailable ? (
+            <p className="text-ink-2">
+              Цифровые метки недоступны для сверки; это не отсутствие помещений.
+            </p>
+          ) : null}
+          {report.unresolvedMarkerLabelIds.length ? (
+            <p className="text-ink-2">
+              Метки без найденного кандидата: {markerNumbers(report.unresolvedMarkerLabelIds)}.
+              Ближайшая область не назначается.
+            </p>
+          ) : null}
+          {report.candidates.some((cell) => cell.markerStatus === 'ambiguous') ? (
+            <p className="text-ink-2">
+              Есть конкурирующие метки или области; принадлежность не выбрана.
+            </p>
+          ) : null}
+          {report.thresholds.length ||
+          report.candidates.some((cell) => cell.markerLabelIds.length) ? (
+            <label className="flex min-h-11 items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showLayer}
+                onChange={(event) => onToggle(event.target.checked)}
+              />
+              Показать кандидаты с метками — зелёные контуры; логические полосы — фиолетовый пунктир
+            </label>
+          ) : null}
+          <details className="text-ink-2">
+            <summary className="min-h-11 cursor-pointer py-3">
+              Области, замыкания и удержанные ограничения
+            </summary>
+            <p>
+              Неразмеченные области, малые обломки, островки и спорная топология не удалены и не
+              названы шахтами. Это не полный перечень пола.
+            </p>
+            <ul className="mt-2 list-disc space-y-2 pl-5">
+              {report.candidates.map((cell) => (
+                <li key={cell.id}>
+                  <span className="break-all">{cell.id}</span>:{' '}
+                  {cell.markerLabelIds.length
+                    ? `метки ${markerNumbers(cell.markerLabelIds)}`
+                    : cell.markerStatus === 'unavailable'
+                      ? 'проверка меток недоступна'
+                      : 'без цифровой метки'}
+                  ; неизвестных линий {cell.unknownInteriorStrokeCount}, пропусков на границе{' '}
+                  {cell.omittedBoundaryInkCount}.
+                </li>
+              ))}
+              {report.closures.map((closure) => (
+                <li key={closure.id}>
+                  <span className="break-all">{closure.id}</span>:{' '}
+                  {closure.sourceKind === 'closed-path'
+                    ? 'исходный замкнутый путь'
+                    : 'буквально замкнувшийся участок исходного пути'}
+                  ; вне участка осталось отрезков {closure.remainingSegmentCount}.
+                  {closure.paintAmbiguous
+                    ? ' Заливка неоднозначна; замыкание не используется для этих областей.'
+                    : null}
+                </li>
+              ))}
+              {report.thresholds
+                .filter((threshold) => threshold.paintAmbiguous)
+                .map((threshold) => (
+                  <li key={threshold.frameId}>
+                    <span className="break-all">{threshold.frameId}</span>: неоднозначная заливка
+                    логической полосы; в границах областей не используется.
+                  </li>
+                ))}
+              {[...heldGroups.entries()].map(([key, item]) => (
+                <li key={key}>
+                  {floorCavityReasons[item.reason] ?? 'Область требует отдельной сверки исходника.'}{' '}
+                  Вершин: {item.vertexCount}; областей: {item.count}.{' '}
+                  <span className="break-all">{item.reason}</span>.
+                </li>
+              ))}
+            </ul>
+          </details>
+        </>
+      )}
+    </section>
+  )
+}
+
 const frameNumberCueMessages = {
   inside: 'Цифровая метка строго внутри сохранённого контура.',
   'not-inside': 'Цифровая метка не находится строго внутри сохранённого контура.',
@@ -427,6 +593,7 @@ export function NativeReviewResult({
   const [showFills, setShowFills] = useState(false)
   const [showOpeningCandidates, setShowOpeningCandidates] = useState(true)
   const [showGlazingCandidates, setShowGlazingCandidates] = useState(true)
+  const [showFloorCavities, setShowFloorCavities] = useState(false)
   const [fullSize, setFullSize] = useState(false)
   const visible = packet.faces.filter((face) => face.layer === 'stroke' || showFills)
   const hasOpeningCandidates =
@@ -476,6 +643,14 @@ export function NativeReviewResult({
         </div>
       ) : null}
       {packet.roomSchedule ? <RoomSchedule report={packet.roomSchedule} /> : null}
+      {packet.floorCavities ? (
+        <FloorCavityReview
+          report={packet.floorCavities}
+          circles={packet.numberCircles}
+          showLayer={showFloorCavities}
+          onToggle={setShowFloorCavities}
+        />
+      ) : null}
       {packet.doorSymbols || packet.openingFrames ? (
         <div className="space-y-2 text-[13px] leading-relaxed">
           {packet.doorSymbols ? (
@@ -706,6 +881,48 @@ export function NativeReviewResult({
                 </g>
               ))
             : null}
+          {showFloorCavities && packet.floorCavities?.status === 'draft' ? (
+            <g fill="none" strokeWidth="2">
+              {packet.floorCavities.candidates
+                .filter((cell) => cell.markerLabelIds.length)
+                .map((cell) => (
+                  <polygon
+                    key={cell.id}
+                    points={cell.polygon.map((point) => `${point.x},${point.y}`).join(' ')}
+                    stroke="#15803d"
+                    fill="none"
+                    strokeDasharray={cell.markerStatus === 'ambiguous' ? '5 4' : undefined}
+                    vectorEffect="non-scaling-stroke"
+                  >
+                    <title>
+                      Математический кандидат границы с цифровыми метками. Не точный пол, не
+                      подтверждённая комната и не свободный проход.
+                    </title>
+                  </polygon>
+                ))}
+              {packet.floorCavities.thresholds.map((threshold) => {
+                const frame = packet.openingFrames?.candidates.find(
+                  ({ id }) => id === threshold.frameId,
+                )
+                return frame ? (
+                  <polygon
+                    key={`threshold:${frame.id}`}
+                    points={frame.polygon.map((point) => `${point.x},${point.y}`).join(' ')}
+                    stroke="#7e22ce"
+                    fill="none"
+                    strokeDasharray="5 4"
+                    vectorEffect="non-scaling-stroke"
+                  >
+                    <title>
+                      Логическая полоса по исходной рамке. Это не физический порог, не материальная
+                      стена и не проверенный проход.
+                      {threshold.paintAmbiguous ? ' Заливка неоднозначна.' : null}
+                    </title>
+                  </polygon>
+                ) : null
+              })}
+            </g>
+          ) : null}
         </svg>
       </section>
       <p className="text-[13px] leading-relaxed text-ink-2">

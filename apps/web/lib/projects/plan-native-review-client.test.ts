@@ -524,6 +524,244 @@ describe('documentary room schedule and complete numeric-marker accounting', () 
   })
 })
 
+describe('bounded source-backed floor cavities without accepted ownership', () => {
+  function floorFixture() {
+    const result = fixture()
+    result.packet.openingFrames = openingFrames()
+    result.packet.numberCircles = {
+      status: 'draft',
+      refusalReason: null,
+      cues: [1, 5, 8].map((sourceNumber) => ({ labelId: `circle-${sourceNumber}`, sourceNumber })),
+    }
+    const floor: NonNullable<NativeReviewPacket['floorCavities']> = {
+      status: 'draft',
+      refusalReason: null,
+      markersAvailable: true,
+      candidates: [
+        {
+          id: 'source-cavity-1',
+          polygon: [
+            { x: 100, y: 100 },
+            { x: 300, y: 100 },
+            { x: 300, y: 300 },
+            { x: 100, y: 300 },
+          ],
+          markerStatus: 'unambiguous',
+          markerLabelIds: ['circle-1', 'circle-5'],
+          closureIds: ['native-opening-frame-1:0', 'source-profile'],
+          unknownInteriorStrokeCount: 2,
+          omittedBoundaryInkCount: 1,
+        },
+        {
+          id: 'source-cavity-unmarked',
+          polygon: [
+            { x: 400, y: 100 },
+            { x: 500, y: 100 },
+            { x: 500, y: 200 },
+          ],
+          markerStatus: 'unmarked',
+          markerLabelIds: [],
+          closureIds: [],
+          unknownInteriorStrokeCount: 0,
+          omittedBoundaryInkCount: 0,
+        },
+      ],
+      thresholds: [{ frameId: 'native-opening-frame-1:0', paintAmbiguous: false }],
+      closures: [
+        {
+          id: 'source-profile',
+          sourceKind: 'literal-closed-run',
+          remainingSegmentCount: 1,
+          paintAmbiguous: false,
+        },
+      ],
+      unprovedCavities: [{ reason: 'nested-painted-island', vertexCount: 4 }],
+      unresolvedMarkerLabelIds: ['circle-8'],
+    }
+    result.packet.floorCavities = floor
+    return { ...result, floor }
+  }
+  it('keeps joint numeric cues and unresolved outboard markers without constructing accepted rooms', async () => {
+    const { packet, headers, floor } = floorFixture()
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.floorCavities).toEqual(floor)
+    expect(loaded.openingFrames).toEqual(packet.openingFrames)
+    expect(loaded.faces).toEqual(packet.faces)
+    expect(loaded.savedReview).toEqual(packet.savedReview)
+    expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it('allows shared marker claims only when every claimant is genuinely ambiguous', async () => {
+    const { packet, headers, floor } = floorFixture()
+    const cell = floor.candidates[0]
+    if (!cell) throw new Error('Floor fixture is missing')
+    cell.markerStatus = 'ambiguous'
+    floor.candidates.push({ ...structuredClone(cell), id: 'competing-cavity' })
+    expect((await loadFixture(packet, headers)).packet.floorCavities).toEqual(floor)
+  })
+  it('keeps duplicate parent numbers ambiguous even if a duplicate marker has no candidate', async () => {
+    const { packet, headers, floor } = floorFixture()
+    const cell = floor.candidates[0]
+    if (!cell || !packet.numberCircles) throw new Error('Floor fixture is missing')
+    packet.numberCircles.cues.push({ labelId: 'circle-1-extra', sourceNumber: 1 })
+    cell.markerStatus = 'ambiguous'
+    floor.unresolvedMarkerLabelIds.push('circle-1-extra')
+    expect((await loadFixture(packet, headers)).packet.floorCavities).toEqual(floor)
+  })
+  it('distinguishes unavailable marker search from unmarked cells', async () => {
+    const { packet, headers, floor } = floorFixture()
+    packet.numberCircles = { status: 'unresolved', refusalReason: 'circle-search-budget', cues: [] }
+    floor.markersAvailable = false
+    floor.unresolvedMarkerLabelIds = []
+    for (const cell of floor.candidates) {
+      cell.markerStatus = 'unavailable'
+      cell.markerLabelIds = []
+    }
+    expect((await loadFixture(packet, headers)).packet.floorCavities).toEqual(floor)
+  })
+  it('accepts an empty atomic refusal without requiring parent candidate layers', async () => {
+    const { packet, headers } = fixture()
+    packet.floorCavities = {
+      status: 'unresolved',
+      refusalReason: 'r'.repeat(128),
+      markersAvailable: false,
+      candidates: [],
+      thresholds: [],
+      closures: [],
+      unprovedCavities: [],
+      unresolvedMarkerLabelIds: [],
+    }
+    expect((await loadFixture(packet, headers)).packet.floorCavities).toEqual(packet.floorCavities)
+  })
+  it('accepts exactly 4000 cell vertices and the diagnostic count bounds', async () => {
+    const { packet, headers, floor } = floorFixture()
+    const source = floor.candidates[1]
+    if (!source) throw new Error('Floor fixture is missing')
+    floor.candidates = Array.from({ length: 40 }, (_, index) => ({
+      ...structuredClone(source),
+      id: `cell-${index}`,
+      polygon: Array.from({ length: 100 }, (_, vertex) => ({
+        x: 100 + vertex,
+        y: 100 + (vertex % 3),
+      })),
+    }))
+    floor.unresolvedMarkerLabelIds = ['circle-1', 'circle-5', 'circle-8']
+    const first = floor.candidates[0]
+    if (!first) throw new Error('Floor fixture is missing')
+    first.unknownInteriorStrokeCount = 20000
+    first.omittedBoundaryInkCount = 6000
+    floor.unprovedCavities = Array.from({ length: 100 }, () => ({
+      reason: 'r'.repeat(128),
+      vertexCount: 100000,
+    }))
+    expect((await loadFixture(packet, headers)).packet.floorCavities).toEqual(floor)
+  })
+  it.each([
+    'null-layer',
+    'status',
+    'draft-reason',
+    'refusal-with-cells',
+    'missing-parent-circles',
+    'missing-parent-frames',
+    'marker-availability',
+    'cell-limit',
+    'duplicate-cell',
+    'vertices-limit',
+    'total-vertices',
+    'nonfinite-point',
+    'outside-point',
+    'point-authority',
+    'foreign-marker',
+    'duplicate-own-marker',
+    'omitted-marker',
+    'unresolved-claimed',
+    'false-ambiguous',
+    'shared-unambiguous',
+    'duplicate-number-unambiguous',
+    'unknown-closure',
+    'duplicate-closure-ref',
+    'ambiguous-used-closure',
+    'ambiguous-used-threshold',
+    'duplicate-threshold',
+    'foreign-threshold',
+    'closure-id-collision',
+    'interior-count',
+    'omission-count',
+    'bad-source-kind',
+    'remaining-count',
+    'paint-flag',
+    'unproved-reason',
+    'unproved-vertices',
+    'accepted-floor',
+    'room-name',
+    'cell-area',
+  ])('refuses malformed or overclaimed cavities atomically: %s', async (change) => {
+    const { packet, headers, floor } = floorFixture()
+    const cell = floor.candidates[0]
+    const closure = floor.closures[0]
+    const threshold = floor.thresholds[0]
+    const point = cell?.polygon[0]
+    if (!cell || !closure || !threshold || !point) throw new Error('Floor fixture is missing')
+    if (change === 'null-layer') Object.assign(packet, { floorCavities: null })
+    if (change === 'status') Object.assign(floor, { status: 'accepted' })
+    if (change === 'draft-reason') floor.refusalReason = 'incomplete'
+    if (change === 'refusal-with-cells')
+      Object.assign(floor, { status: 'unresolved', refusalReason: 'incomplete' })
+    if (change === 'missing-parent-circles') delete packet.numberCircles
+    if (change === 'missing-parent-frames') delete packet.openingFrames
+    if (change === 'marker-availability') floor.markersAvailable = false
+    if (change === 'cell-limit') floor.candidates = Array(101).fill(cell)
+    if (change === 'duplicate-cell') floor.candidates.push(structuredClone(cell))
+    if (change === 'vertices-limit') cell.polygon = Array(101).fill(cell.polygon[0])
+    if (change === 'total-vertices')
+      floor.candidates = Array.from({ length: 41 }, (_, index) => ({
+        ...structuredClone(cell),
+        id: `cell-${index}`,
+        markerStatus: 'ambiguous',
+        polygon: Array.from({ length: 100 }, (_, vertex) => ({
+          x: vertex + 100,
+          y: 100 + (vertex % 3),
+        })),
+      }))
+    if (change === 'nonfinite-point') point.x = NaN
+    if (change === 'outside-point') point.x = -1
+    if (change === 'point-authority') Object.assign(point, { sourceProof: 'accepted' })
+    if (change === 'foreign-marker') cell.markerLabelIds.push('foreign')
+    if (change === 'duplicate-own-marker') cell.markerLabelIds.push('circle-1')
+    if (change === 'omitted-marker') floor.unresolvedMarkerLabelIds = []
+    if (change === 'unresolved-claimed') floor.unresolvedMarkerLabelIds.push('circle-1')
+    if (change === 'false-ambiguous') cell.markerStatus = 'ambiguous'
+    if (change === 'shared-unambiguous')
+      floor.candidates.push({
+        ...structuredClone(cell),
+        id: 'competitor',
+        markerStatus: 'ambiguous',
+      })
+    if (change === 'duplicate-number-unambiguous' && packet.numberCircles) {
+      packet.numberCircles.cues.push({ labelId: 'extra-1', sourceNumber: 1 })
+      floor.unresolvedMarkerLabelIds.push('extra-1')
+    }
+    if (change === 'unknown-closure') cell.closureIds.push('unknown')
+    if (change === 'duplicate-closure-ref') cell.closureIds.push(closure.id)
+    if (change === 'ambiguous-used-closure') closure.paintAmbiguous = true
+    if (change === 'ambiguous-used-threshold') threshold.paintAmbiguous = true
+    if (change === 'duplicate-threshold') floor.thresholds.push({ ...threshold })
+    if (change === 'foreign-threshold') threshold.frameId = 'foreign'
+    if (change === 'closure-id-collision') closure.id = threshold.frameId
+    if (change === 'interior-count') cell.unknownInteriorStrokeCount = 20001
+    if (change === 'omission-count') cell.omittedBoundaryInkCount = 6001
+    if (change === 'bad-source-kind') Object.assign(closure, { sourceKind: 'inferred-wall' })
+    if (change === 'remaining-count') closure.remainingSegmentCount = 20001
+    if (change === 'paint-flag') Object.assign(closure, { paintAmbiguous: 'false' })
+    if (change === 'unproved-reason') floor.unprovedCavities = [{ reason: ' ', vertexCount: 4 }]
+    if (change === 'unproved-vertices')
+      floor.unprovedCavities = [{ reason: 'island', vertexCount: 2 }]
+    if (change === 'accepted-floor') Object.assign(floor, { completeFloorInventory: true })
+    if (change === 'room-name') Object.assign(cell, { roomName: 'Шахта' })
+    if (change === 'cell-area') Object.assign(cell, { areaM2: 12 })
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+})
+
 describe('bounded source-only symbol links', () => {
   it('preserves checks and group references without adding geometric or readiness evidence', async () => {
     const { packet, headers, links } = sourceLinksFixture()
