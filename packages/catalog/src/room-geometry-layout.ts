@@ -272,6 +272,9 @@ export function roomLayoutInputFromGeometry(
   roomName: string,
   measurements: RoomMeasurements | null | undefined,
 ): GeometryRoomLayoutInput | null {
+  // This horizontal-only contract must not silently flatten explicit floor levels,
+  // including stale or malformed references that cannot be transferred safely.
+  if (geometry?.verticalReference !== undefined) return null
   if (geometry?.status !== 'confirmed' || geometry.pdfCalibration?.derivedOpeningIds.length)
     return null
   const matchingRooms = geometry.rooms.filter(

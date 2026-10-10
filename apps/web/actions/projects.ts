@@ -52,6 +52,10 @@ import { retainedPlanPageReview } from '@/lib/projects/plan-page-review'
 import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
 import { applyPlanVerticalDimensions } from '@/lib/projects/plan-vertical-dimensions'
+import {
+  applyPlanVerticalReference,
+  inspectPlanVerticalReference,
+} from '@/lib/projects/plan-vertical-reference'
 import * as repository from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { deleteObject, getObject, putObject } from '@/lib/storage'
@@ -674,7 +678,30 @@ export async function savePlanGeometry(
     const checkedRooms =
       mode === 'draft' ? geometry : reconcilePlanGeometryRooms(geometry, roomReadings)
     if (!checkedRooms) return { ok: false, error: 'В схеме должно остаться не меньше трёх стен.' }
-    const verticalDimensions = applyPlanVerticalDimensions(checkedRooms, submitted)
+    const referenceGeometry: PlanGeometry = {
+      ...checkedRooms,
+      // Stamp against the final persisted horizontal geometry, not an untrusted
+      // browser footprint or a room category normalized later in this action.
+      ...(!raster && before.footprint ? { footprint: structuredClone(before.footprint) } : {}),
+      ...(before.voids ? { voids: structuredClone(before.voids) } : {}),
+      ...(imageCalibration ? { imageCalibration } : {}),
+      rooms: checkedRooms.rooms.map((room) => {
+        const { spaceKind: _previousKind, ...shape } = room
+        const label = findPlanRoomReading(room, roomReadings)
+        return { ...shape, ...(label?.spaceKind ? { spaceKind: label.spaceKind } : {}) }
+      }),
+      ...(before.verticalReference !== undefined
+        ? { verticalReference: before.verticalReference }
+        : {}),
+    }
+    const verticalReference = applyPlanVerticalReference(
+      referenceGeometry,
+      submitted.verticalReferenceRequest,
+      userId,
+      new Date().toISOString(),
+    )
+    if (!verticalReference.ok) return verticalReference
+    const verticalDimensions = applyPlanVerticalDimensions(verticalReference.geometry, submitted)
     if (!verticalDimensions.ok) return verticalDimensions
     // Native PDF boundaries remain source-owned. Raster floor edits are validated above;
     // source voids are retained independently of the editable outer boundary.
@@ -721,12 +748,6 @@ export async function savePlanGeometry(
     }
     const saved: NonNullable<PlanReading['geometry']> = {
       ...checked,
-      rooms: checked.rooms.map((room) => {
-        const shape = { ...room }
-        delete shape.spaceKind
-        const label = findPlanRoomReading(room, roomReadings)
-        return { ...shape, ...(label?.spaceKind ? { spaceKind: label.spaceKind } : {}) }
-      }),
       // Keep trusted source explanations; browser warnings cannot erase or certify evidence.
       ...(before.pdfCalibration
         ? { warnings: [...new Set([...before.warnings, ...checked.warnings])] }
@@ -755,6 +776,8 @@ export async function savePlanGeometry(
       status: mode === 'draft' ? 'draft' : 'confirmed',
       ...(mode === 'confirm' ? { confirmedAt: new Date().toISOString() } : {}),
     }
+    const referenceIssue = inspectPlanVerticalReference(saved)[0]
+    if (referenceIssue) return { ok: false, error: referenceIssue.message }
     const reading: PlanReading = {
       ...project.planReading,
       ...(sourceRooms && project.planReading.pageReview

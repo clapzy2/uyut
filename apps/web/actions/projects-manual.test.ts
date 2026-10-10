@@ -284,6 +284,114 @@ describe('manual plan draft', () => {
     expect(cleared.data.geometry.openings[0]).not.toHaveProperty('heightCm')
   })
 
+  it('stores a separately acknowledged datum, stamps the owner and preserves it on ordinary saves', async () => {
+    const geometry: PlanGeometry = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      rooms: kitchenContour,
+    }
+    const request = {
+      version: 1,
+      id: 'measured-datum',
+      kind: 'finished-floor',
+      zeroFloorId: 'kitchen-floor',
+      acknowledged: true,
+      floors: [
+        { id: 'kitchen-floor', room: kitchenContour[0], surface: 'finished-floor', elevationCm: 0 },
+      ],
+      ceilings: [{ id: 'kitchen-ceiling', floorId: 'kitchen-floor', elevationCm: 266.3 }],
+      wallBases: closedWalls.map((wall) => ({ wall, floorId: 'kitchen-floor' })),
+      thresholds: [],
+      source: { kind: 'site-measurement', reference: 'Synthetic measurement only' },
+    }
+    const forged = await savePlanGeometry(
+      projectId,
+      {
+        ...geometry,
+        verticalReferenceRequest: { ...request, verifiedBy: 'attacker' },
+      },
+      'draft',
+    )
+    expect(forged.ok).toBe(false)
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+
+    const saved = await savePlanGeometry(
+      projectId,
+      { ...geometry, verticalReferenceRequest: request },
+      'draft',
+    )
+    if (!saved.ok) throw new Error(saved.error)
+    expect(saved.data.geometry.verticalReference).toMatchObject({
+      verifiedBy: 'owner',
+      kind: 'finished-floor',
+      zeroFloorId: 'kitchen-floor',
+    })
+    expect(saved.data.geometry.verticalReference?.verifiedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(saved.data.geometry.walls).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ heightCm: 266.3 })]),
+    )
+    source.planReading.geometry = saved.data.geometry
+    const preserved = await savePlanGeometry(
+      projectId,
+      {
+        ...saved.data.geometry,
+        // Ordinary client geometry is not an approval request or a way to erase it.
+        verticalReference: { id: 'attacker', verifiedBy: 'attacker' },
+      },
+      'draft',
+    )
+    if (!preserved.ok) throw new Error(preserved.error)
+    expect(preserved.data.geometry.verticalReference).toEqual(saved.data.geometry.verticalReference)
+
+    const changedRooms = structuredClone(preserved.data.geometry.rooms)
+    const vertex = changedRooms[0]?.polygon[0]
+    if (!vertex) throw new Error('Missing contour')
+    vertex.xCm += 1
+    mocks.setPlanReading.mockClear()
+    const stale = await savePlanGeometry(
+      projectId,
+      { ...preserved.data.geometry, rooms: changedRooms },
+      'draft',
+    )
+    expect(stale.ok).toBe(false)
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+    const cleared = await savePlanGeometry(
+      projectId,
+      {
+        ...preserved.data.geometry,
+        rooms: changedRooms,
+        verticalReferenceRequest: null,
+      },
+      'draft',
+    )
+    if (!cleared.ok) throw new Error(cleared.error)
+    expect(cleared.data.geometry).not.toHaveProperty('verticalReference')
+  })
+
+  it('does not adopt a browser reference without a dedicated approval request', async () => {
+    const saved = await savePlanGeometry(
+      projectId,
+      {
+        ...emptyManualGeometry,
+        verticalReference: { verifiedBy: 'owner', zeroFloorId: 'invented', floors: [] },
+      },
+      'draft',
+    )
+    if (!saved.ok) throw new Error(saved.error)
+    expect(saved.data.geometry).not.toHaveProperty('verticalReference')
+  })
+
+  it.each([null, false, 0, ''])(
+    'retains a malformed stored reference %j as a blocker',
+    async (reference) => {
+      source.planReading.geometry = { ...emptyManualGeometry }
+      Object.assign(source.planReading.geometry, { verticalReference: reference })
+      const result = await savePlanGeometry(projectId, emptyManualGeometry, 'draft')
+      expect(result.ok).toBe(false)
+      expect(mocks.setPlanReading).not.toHaveBeenCalled()
+    },
+  )
+
   it('отклоняет недопустимую толщину до записи в проект', async () => {
     const wall = closedWalls[0]
     if (!wall) throw new Error('Missing manual wall')

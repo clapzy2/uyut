@@ -45,6 +45,22 @@ const geometry: PlanGeometry = {
 }
 
 describe('проёмы комнаты из 2D-схемы', () => {
+  it('does not flatten explicit floor references into the local horizontal contract', () => {
+    const legacy = roomLayoutInputFromGeometry(geometry, 'Гостиная', null)
+    expect(legacy).not.toBeNull()
+    expect(
+      roomLayoutInputFromGeometry({ ...geometry, verticalReference: undefined }, 'Гостиная', null),
+    ).toEqual(legacy)
+
+    for (const reference of [null, false, 0, '', {}, { floors: [{ elevationCm: -15 }] }]) {
+      const held = { ...geometry, verticalReference: reference } as unknown as PlanGeometry
+      expect(roomLayoutInputFromGeometry(held, 'Гостиная', null)).toBeNull()
+      expect(
+        roomLayoutInputFromGeometry(held, 'Гостиная', { widthCm: 400, depthCm: 300 }),
+      ).toBeNull()
+    }
+  })
+
   it('сохраняет дробные сантиметры в контуре и проёмах', () => {
     const result = roomLayoutInputFromGeometry(geometry, 'Гостиная', {
       widthCm: 400.5,

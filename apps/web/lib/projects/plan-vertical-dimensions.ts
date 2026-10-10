@@ -2,9 +2,38 @@ import type { PlanGeometry, PlanOpening } from '@uyut/db'
 import { z } from 'zod'
 import type { PlanGeometryIssue } from './plan-geometry-inspection'
 import { currentOpeningFacePairs, currentOpeningWidthProofs } from './plan-opening-face-pairs'
+import {
+  currentPlanVerticalReference,
+  inspectPlanVerticalReference,
+  openingOnVerticalFloorBoundary,
+} from './plan-vertical-reference'
 
 type VerticalGeometry = Pick<PlanGeometry, 'walls' | 'openings'> &
-  Partial<Pick<PlanGeometry, 'rooms' | 'pdfCalibration'>>
+  Partial<
+    Pick<
+      PlanGeometry,
+      'rooms' | 'pdfCalibration' | 'verticalReference' | 'imageCalibration' | 'footprint' | 'voids'
+    >
+  >
+
+/** Compare entered decimal values without rounding a small physical difference away. */
+function equalElevations(first: [number, number], second: [number, number]): boolean {
+  if ([...first, ...second].some((value) => !Number.isFinite(value))) return false
+  const values = [...first, ...second].map((value) => {
+    const [mantissa = '', exponent = '0'] = value.toString().split('e')
+    const [whole = '', fraction = ''] = mantissa.split('.')
+    const places = fraction.length - Number(exponent)
+    return {
+      integer: BigInt(whole + fraction) * (places < 0 ? 10n ** BigInt(-places) : 1n),
+      places: Math.max(0, places),
+    }
+  })
+  const precision = Math.max(...values.map(({ places }) => places))
+  const scaled = values.map(({ integer, places }) => integer * 10n ** BigInt(precision - places))
+  return (
+    (scaled[0] as bigint) + (scaled[1] as bigint) === (scaled[2] as bigint) + (scaled[3] as bigint)
+  )
+}
 
 const height = z.number().finite().positive().max(600).optional()
 const thickness = z.number().finite().min(1).max(100).optional()
@@ -74,6 +103,14 @@ export type PlanVerticalMeasurementReport = ReturnType<typeof planVerticalMeasur
 
 export function inspectPlanVerticalDimensions(geometry: VerticalGeometry): PlanGeometryIssue[] {
   const issues: PlanGeometryIssue[] = []
+  const referenceGeometry = { ...geometry, rooms: geometry.rooms ?? [] }
+  const referenceIssues = inspectPlanVerticalReference(referenceGeometry)
+  if (referenceIssues.length) return referenceIssues
+  const reference = currentPlanVerticalReference(referenceGeometry)
+  const floors = new Map(reference?.floors.map((floor) => [floor.id, floor]))
+  const wallFloors = new Map(
+    reference?.wallBases.map(({ wall, floorId }) => [wall.id, floors.get(floorId)]),
+  )
   if (
     geometry.walls.some(({ id }) => !dimensionId.safeParse(id).success) ||
     geometry.openings.some(
@@ -180,16 +217,58 @@ export function inspectPlanVerticalDimensions(geometry: VerticalGeometry): PlanG
         first.heightCm !== undefined &&
         second.heightCm !== undefined &&
         first.heightCm !== second.heightCm
+      const firstFloor = wallFloors.get(first.wallId)
+      const secondFloor = wallFloors.get(second.wallId)
+      const unresolvedBottomReference =
+        reference &&
+        first.bottomCm !== undefined &&
+        second.bottomCm !== undefined &&
+        (firstFloor?.surface !== 'finished-floor' || secondFloor?.surface !== 'finished-floor')
+      if (unresolvedBottomReference) {
+        issues.push({
+          id: `opening-paired-floor-reference-${ids.join('-')}`,
+          severity: 'error',
+          message:
+            'Нижняя грань проёма измерена от чистого пола. Для сравнения сторон нужны отметки чистого пола; уровень существующего пола их не заменяет.',
+          openingIds: ids,
+        })
+        continue
+      }
+      if (
+        reference &&
+        first.bottomCm !== undefined &&
+        second.bottomCm !== undefined &&
+        (!firstFloor ||
+          !secondFloor ||
+          !openingOnVerticalFloorBoundary(referenceGeometry, first.id, firstFloor.id) ||
+          !openingOnVerticalFloorBoundary(referenceGeometry, second.id, secondFloor.id))
+      ) {
+        issues.push({
+          id: `opening-paired-floor-owner-${ids.join('-')}`,
+          severity: 'error',
+          message:
+            'Стороны проёма не привязаны однозначно к границам назначенных полов. Сверьте хозяев отметок перед сравнением нижних граней.',
+          openingIds: ids,
+        })
+        continue
+      }
       const conflictingBottom =
         first.bottomCm !== undefined &&
         second.bottomCm !== undefined &&
-        first.bottomCm !== second.bottomCm
+        (reference && firstFloor !== undefined && secondFloor !== undefined
+          ? !equalElevations(
+              [firstFloor.elevationCm, first.bottomCm],
+              [secondFloor.elevationCm, second.bottomCm],
+            )
+          : first.bottomCm !== second.bottomCm)
       if (conflictingHeight || conflictingBottom) {
         issues.push({
           id: `opening-paired-height-${ids.join('-')}`,
           severity: 'error',
           message: conflictingBottom
-            ? 'Нижние грани двух сторон одного проёма различаются. Уточните уровни пола и общий высотный отсчёт: текущая плоская модель не переносит этот перепад в 2D/3D.'
+            ? reference
+              ? 'Нижние грани двух сторон одного проёма не совпадают в общем высотном отсчёте. Сверьте отметки полов и локальные мерки проёма.'
+              : 'Нижние грани двух сторон одного проёма различаются. Уточните уровни пола и общий высотный отсчёт: текущая плоская модель не переносит этот перепад в 2D/3D.'
             : 'У двух сторон одного проёма различаются высоты. Сверьте мерки до переноса в 2D/3D.',
           openingIds: ids,
         })

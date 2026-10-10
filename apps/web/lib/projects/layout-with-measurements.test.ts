@@ -25,6 +25,42 @@ const sofa: LayoutItem = {
 }
 
 describe('layout measurement bounds', () => {
+  it('holds explicit floor references instead of falling back to a measured box', () => {
+    const geometry: PlanGeometry = {
+      version: 1,
+      status: 'confirmed',
+      widthCm: 300.5,
+      heightCm: 200,
+      walls: [],
+      openings: [],
+      warnings: [],
+      rooms: [],
+    }
+    const legacy = layoutWithMeasurements('Комната', measurements, geometry, [sofa])
+    expect(legacy).not.toBeNull()
+    expect(
+      layoutWithMeasurements(
+        'Комната',
+        measurements,
+        { ...geometry, verticalReference: undefined },
+        [sofa],
+      ),
+    ).toEqual(legacy)
+
+    // Stored JSON is untrusted at this boundary; even falsy or broken references
+    // must not become the legacy flat-floor model through a truthiness check.
+    for (const reference of [null, false, 0, '', {}, { floors: [{ elevationCm: -15 }] }]) {
+      for (const status of ['draft', 'confirmed'] as const) {
+        const held = {
+          ...geometry,
+          status,
+          verticalReference: reference,
+        } as unknown as PlanGeometry
+        expect(layoutWithMeasurements('Комната', measurements, held, [sofa])).toBeNull()
+      }
+    }
+  })
+
   it('keeps a draft contour as unresolved when falling back to a rectangular preview', () => {
     const geometry: PlanGeometry = {
       version: 1,

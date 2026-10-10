@@ -4,6 +4,7 @@ import { doorClearanceZone } from './clearance-zones'
 import { inspectPdfClearanceRoutes } from './plan-pdf-clearance-route'
 import { inspectSourceClearanceRoutes } from './plan-source-clearance-route'
 import { inspectPlanVerticalDimensions, openingFloorLevel } from './plan-vertical-dimensions'
+import { referenceTransferIssue } from './plan-vertical-reference'
 
 function body(start: PlanPoint, end: PlanPoint, thicknessCm: number): Polygon {
   const length = Math.hypot(end.xCm - start.xCm, end.yCm - start.yCm)
@@ -21,6 +22,8 @@ function body(start: PlanPoint, end: PlanPoint, thicknessCm: number): Polygon {
 
 /** Осевые стены и исходные PDF-грани рассчитываются раздельно, без подмены одной модели другой. */
 export function inspectMetricClearanceRoutes(geometry: PlanGeometry) {
+  const referenceIssue = referenceTransferIssue(geometry)
+  if (referenceIssue) return { missing: referenceIssue.message, result: undefined }
   if (geometry.pdfCalibration) return inspectPdfClearanceRoutes(geometry)
   if (!geometry.footprint || geometry.footprint.length < 3)
     return { missing: 'Укажите границу пола квартиры для проверки переходов.', result: undefined }

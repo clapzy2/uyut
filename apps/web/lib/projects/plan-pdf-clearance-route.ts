@@ -9,6 +9,7 @@ import {
 import { pdfPolygonIsValid } from './plan-pdf-room-binding'
 import { inspectSourceClearanceRoutes } from './plan-source-clearance-route'
 import { inspectPlanVerticalDimensions, openingFloorLevel } from './plan-vertical-dimensions'
+import { referenceTransferIssue } from './plan-vertical-reference'
 
 const samePoint = (a: PlanPoint, b: PlanPoint) => a.xCm === b.xCm && a.yCm === b.yCm
 const samePagePoint = (a: { x: number; y: number }, b: { x: number; y: number }) =>
@@ -153,6 +154,8 @@ function closedSpans(start: PlanPoint, end: PlanPoint, cuts: Face[]) {
 /** Только доказанные комнаты и дверные переходы; остальной PDF не объявляется полом. */
 export function inspectPdfClearanceRoutes(geometry: PlanGeometry) {
   const missing = (message: string) => ({ missing: message, result: undefined })
+  const referenceIssue = referenceTransferIssue(geometry)
+  if (referenceIssue) return missing(referenceIssue.message)
   const calibration = geometry.pdfCalibration
   const width = geometry.routeWidthCm
   if (!calibration || !width || !Number.isFinite(width) || width < 40 || width > 200)

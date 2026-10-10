@@ -8,6 +8,7 @@ import {
   type PlanVerticalMeasurementReport,
   planVerticalMeasurementReport,
 } from './plan-vertical-dimensions'
+import { referenceTransferIssue } from './plan-vertical-reference'
 import { wallElevationPanels } from './wall-elevation'
 import { type WallSolidFace, wallSolidFaces } from './wall-solid'
 import { joinWallSolids } from './wall-solid-union'
@@ -210,6 +211,9 @@ function addWallInterval(
 
 /** Build a viewing model only from confirmed 2D coordinates and current source relations. */
 export function planVolume(geometry: PlanGeometry): PlanVolume | null {
+  // Until every floor, wall and furnishing has a signed base, do not flatten an
+  // explicitly reviewed vertical model into the legacy Z=0 scene.
+  if (referenceTransferIssue(geometry)) return null
   if (geometry.status !== 'confirmed' || !geometry.footprint || geometry.footprint.length < 3) {
     return null
   }

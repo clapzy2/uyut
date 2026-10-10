@@ -236,6 +236,56 @@ export type PlanOpeningMeasurement = {
   verifiedBy: string
 }
 
+/** Explicit common datum and physical owners; never populated by plan recognition. */
+export type PlanVerticalReference = {
+  version: 1
+  id: string
+  kind: 'existing-floor' | 'finished-floor'
+  zeroFloorId: string
+  floors: Array<{
+    id: string
+    room: PlanRoomShape
+    surface: 'existing-floor' | 'finished-floor'
+    elevationCm: number
+  }>
+  /** Finished ceiling elevation in this datum, not the structural wall height. */
+  ceilings?: Array<{ id: string; floorId: string; elevationCm: number }>
+  wallBases: Array<{
+    wall: Pick<PlanWall, 'id' | 'kind' | 'start' | 'end' | 'thicknessCm'>
+    floorId: string
+  }>
+  /** Threshold top, not the lower edge of the aperture or a sill surface. */
+  thresholds: Array<{
+    id: string
+    bindings: [
+      {
+        opening: Pick<PlanOpening, 'id' | 'type' | 'wallId' | 'offsetCm' | 'widthCm'>
+        floorId: string
+      },
+      {
+        opening: Pick<PlanOpening, 'id' | 'type' | 'wallId' | 'offsetCm' | 'widthCm'>
+        floorId: string
+      },
+    ]
+    elevationCm: number
+  }>
+  source: { kind: 'site-measurement' | 'dimensioned-drawing'; reference: string }
+  /** Server-owned horizontal/source context at approval; edits invalidate the datum. */
+  contextSnapshot: {
+    footprint?: PlanPoint[]
+    voids?: PlanVoid[]
+    imageCalibration?: PlanImageCalibration
+    pdfCalibration?: {
+      sourceSha256: string
+      pdfPage: number
+      cmPerPoint: number
+      origin: { x: number; y: number }
+    }
+  }
+  verifiedAt: string
+  verifiedBy: string
+}
+
 export type PlanGeometry = {
   version: 1
   status: 'draft' | 'confirmed'
@@ -247,6 +297,7 @@ export type PlanGeometry = {
   walls: PlanWall[]
   openings: PlanOpening[]
   rooms: PlanRoomShape[]
+  verticalReference?: PlanVerticalReference
   /** Reviewed extent of the apartment floor, including open balcony edges; not wall axes. */
   footprint?: PlanPoint[]
   /** Reviewed non-floor regions, retained as polygons rather than enclosing rectangles. */
