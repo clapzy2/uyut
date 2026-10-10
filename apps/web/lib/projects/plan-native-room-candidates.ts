@@ -1,8 +1,8 @@
-import { planTabularScheduleEvidence } from '@uyut/ai'
 import type { NativeTextAnchors } from './plan-document'
 import { exactNativeOrientation, exactNativeSegmentsTouch } from './plan-native-exact-intersections'
 import { nativeFillCandidates } from './plan-native-fill-candidates'
 import { nativeRoomFrameFaceCandidates } from './plan-native-room-frame-faces'
+import { nativeRoomScheduleEvidence } from './plan-native-room-schedule'
 import { nativeStrokeCycleCandidates } from './plan-native-stroke-candidates'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import { type NativePageSegment, nativePageSegments } from './plan-pdf-opening-endpoint'
@@ -11,8 +11,6 @@ import { bindObservedRegionLabels, type RegionLabelFrame } from './plan-raster-r
 
 type Box = { left: number; top: number; right: number; bottom: number }
 type FrameCue = { bounds: Box; sides: NativePageSegment[]; uncertain: boolean }
-const roomName =
-  /^(?:прихожая|кухня(?:[-–— ]гостиная)?|гостиная|спальня|коридор|ванная|санузел|туалет|комната|жилая комната|детская|кабинет|гардеробная|кладовая|балкон|лоджия)(?:\s+\d{1,2})?$/iu
 const verticalKey = (x: number, top: number, bottom: number) => `${x}:${top}:${bottom}`
 
 /** Exact outline identity only; bounded cuts may add redundant collinear vertices.
@@ -229,39 +227,16 @@ export function automaticNativeRoomCandidates(input: {
   )
     return fail('missing-native-text-provenance')
   if (strokeGeometry.truncated) return fail('incomplete-native-room-cycles')
-  const items = native.labels.map((label) => ({
-    text: label.name,
-    rotation: label.rotation as number,
-    ...(label.pagePoint ?? {}),
-  }))
-  const table = planTabularScheduleEvidence(items)
-  if (!table || [...table.values()].some((row) => !roomName.test(row.name)))
-    return fail('unsupported-or-ambiguous-room-table')
-  const rows = [...table].map(([sourceNumber, row]) => ({
-    sourceNumber,
-    name: row.name,
-    documentaryAreaM2: row.areaM2,
-    numberLabelId: native.labels[row.numberItemIndex]?.id,
-    nameLabelId: native.labels[row.nameItemIndex]?.id,
-    areaLabelId: native.labels[row.areaItemIndex]?.id,
-  }))
-  const tableIds = new Set(
-    rows.flatMap((row) => [row.numberLabelId, row.nameLabelId, row.areaLabelId]),
-  )
-  const headers = native.labels.filter(
-    (label) =>
-      label.rotation === 0 &&
-      ['№', 'наименование', 'площадь'].includes(label.name.toLocaleLowerCase('ru')),
-  )
-  const rowPoints = native.labels
-    .filter((label) => tableIds.has(label.id))
-    .map((label) => label.pagePoint as PagePoint)
-  const tableBounds = {
-    left: Math.min(...headers.map((label) => label.pagePoint?.x ?? 0)) - 15,
-    right: Math.max(...headers.map((label) => label.pagePoint?.x ?? 0)) + 40,
-    top: Math.min(...headers.map((label) => label.pagePoint?.y ?? 0)) - 2,
-    bottom: Math.max(...rowPoints.map((point) => point.y)) + 2,
-  }
+  const schedule = nativeRoomScheduleEvidence(input)
+  if (schedule.status !== 'draft' || !schedule.tableBounds)
+    return fail(schedule.reason ?? 'unsupported-or-ambiguous-room-table')
+  const rows = schedule.rows
+  const table = new Map(rows.map((row) => [row.sourceNumber, row]))
+  const tableIds = new Set([
+    ...schedule.headerLabelIds,
+    ...rows.flatMap((row) => [row.numberLabelId, row.nameLabelId, row.areaLabelId]),
+  ])
+  const tableBounds = schedule.tableBounds
   const numeric = native.labels.filter((label) => {
     const p = label.pagePoint
     return (

@@ -314,6 +314,100 @@ function isNumberCircles(value: unknown): boolean {
   })
 }
 
+function isRoomSchedule(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const schedule = value as NonNullable<NativeReviewPacket['roomSchedule']>
+  if (
+    !hasOnlyKeys(schedule, ['status', 'refusalReason', 'rows', 'unlistedMarkerLabelIds']) ||
+    !Array.isArray(schedule.rows) ||
+    !Array.isArray(schedule.unlistedMarkerLabelIds) ||
+    schedule.unlistedMarkerLabelIds.length > 100
+  )
+    return false
+  if (schedule.status === 'unresolved')
+    return (
+      isBoundedLabel(schedule.refusalReason) &&
+      schedule.rows.length === 0 &&
+      schedule.unlistedMarkerLabelIds.length === 0
+    )
+  if (
+    schedule.status !== 'draft' ||
+    schedule.refusalReason !== null ||
+    schedule.rows.length < 3 ||
+    schedule.rows.length > 50 ||
+    !packet.numberCircles
+  )
+    return false
+  const circleNumbers = new Map(
+    packet.numberCircles.cues.map(({ labelId, sourceNumber }) => [labelId, sourceNumber]),
+  )
+  const tableLabelIds = new Set<string>()
+  const usedMarkerIds = new Set<string>()
+  const tableNumbers = new Set<number>()
+  for (const [index, row] of schedule.rows.entries()) {
+    if (
+      !row ||
+      typeof row !== 'object' ||
+      !hasOnlyKeys(row, [
+        'sourceNumber',
+        'name',
+        'documentaryAreaM2',
+        'numberLabelId',
+        'nameLabelId',
+        'areaLabelId',
+        'markerStatus',
+        'markerLabelIds',
+      ]) ||
+      row.sourceNumber !== index + 1 ||
+      typeof row.name !== 'string' ||
+      row.name !== row.name.trim() ||
+      row.name.length < 1 ||
+      row.name.length > 80 ||
+      typeof row.documentaryAreaM2 !== 'number' ||
+      !Number.isFinite(row.documentaryAreaM2) ||
+      row.documentaryAreaM2 <= 0 ||
+      row.documentaryAreaM2 > 999.99 ||
+      !Array.isArray(row.markerLabelIds) ||
+      row.markerLabelIds.length > 100
+    )
+      return false
+    tableNumbers.add(row.sourceNumber)
+    for (const id of [row.numberLabelId, row.nameLabelId, row.areaLabelId]) {
+      if (!isBoundedLabel(id) || tableLabelIds.has(id) || circleNumbers.has(id)) return false
+      tableLabelIds.add(id)
+    }
+    const count = row.markerLabelIds.length
+    if (packet.numberCircles.status === 'unresolved') {
+      if (row.markerStatus !== 'unavailable' || count !== 0) return false
+    } else if (
+      row.markerStatus !== (count === 0 ? 'unobserved' : count === 1 ? 'linked' : 'ambiguous')
+    )
+      return false
+    for (const id of row.markerLabelIds) {
+      if (
+        !isBoundedLabel(id) ||
+        circleNumbers.get(id) !== row.sourceNumber ||
+        usedMarkerIds.has(id)
+      )
+        return false
+      usedMarkerIds.add(id)
+    }
+  }
+  for (const id of schedule.unlistedMarkerLabelIds) {
+    const number = circleNumbers.get(id)
+    if (
+      !isBoundedLabel(id) ||
+      number === undefined ||
+      tableNumbers.has(number) ||
+      usedMarkerIds.has(id)
+    )
+      return false
+    usedMarkerIds.add(id)
+  }
+  return usedMarkerIds.size === circleNumbers.size
+}
+
 function isSavedFrameRooms(value: unknown, packet: NativeReviewPacket): boolean {
   if (value === undefined) return true
   if (!value || typeof value !== 'object') return false
@@ -529,6 +623,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isGlazingSymbols(packet.glazingSymbols, packet.image) ||
     !isSourceLinks(packet.sourceLinks, packet) ||
     !isNumberCircles(packet.numberCircles) ||
+    !isRoomSchedule(packet.roomSchedule, packet) ||
     !isSavedFrameRooms(packet.savedFrameRooms, packet) ||
     !Array.isArray(packet.faces) ||
     packet.faces.length > 100 ||

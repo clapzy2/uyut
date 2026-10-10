@@ -211,6 +211,112 @@ const frameRoomStatusMessages = {
   unresolved: 'Стороны не сопоставлены',
 }
 
+const scheduleMarkerMessages = {
+  linked: 'Номер совпал',
+  ambiguous: 'Неоднозначно',
+  unobserved: 'Не наблюдалась',
+  unavailable: 'Поиск недоступен',
+}
+
+function RoomSchedule({ report }: { report: NonNullable<NativeReviewPacket['roomSchedule']> }) {
+  return (
+    <section
+      className="space-y-2 border-t border-line pt-3 text-[13px] leading-relaxed"
+      aria-label="Экспликация и цифровые метки"
+    >
+      <h4 className="text-[14px] font-medium">Экспликация и цифровые метки</h4>
+      {report.status === 'unresolved' ? (
+        <div className="text-ink-2">
+          <p>Таблица не распознана однозначно; частичный перечень не показан.</p>
+          <details>
+            <summary className="min-h-11 cursor-pointer py-3">
+              Ограничение поиска экспликации
+            </summary>
+            <p className="break-all">{report.refusalReason}</p>
+          </details>
+        </div>
+      ) : (
+        <>
+          <p className="text-ink-2">
+            Совпадение номера в таблице и окружности — документальная связь, не принадлежность метки
+            комнате или подтверждение границы свободного пола. Площади — подписи на листе, не
+            обмеры; мерки и масштаб этим не принимаются.
+          </p>
+          <table className="w-full table-fixed text-left text-[12px] sm:text-[13px]">
+            <caption className="sr-only">Нативная экспликация и наблюдения цифровых меток</caption>
+            <thead className="border-b border-line text-ink-2">
+              <tr>
+                <th scope="col" className="w-[8%] py-2 pr-1 font-normal">
+                  №
+                </th>
+                <th scope="col" className="w-[36%] py-2 pr-2 font-normal">
+                  Наименование
+                </th>
+                <th scope="col" className="w-[22%] py-2 pr-2 font-normal">
+                  На листе, м²
+                </th>
+                <th scope="col" className="w-[34%] py-2 font-normal">
+                  Метка
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.rows.map((row) => (
+                <tr key={row.sourceNumber} className="border-b border-line align-top">
+                  <th scope="row" className="py-2 pr-1 font-normal">
+                    {row.sourceNumber}
+                  </th>
+                  <td className="break-words py-2 pr-2">{row.name}</td>
+                  <td className="break-all py-2 pr-2 tabular-nums">
+                    {String(row.documentaryAreaM2).replace('.', ',')}
+                  </td>
+                  <td className="break-words py-2 text-ink-2">
+                    {scheduleMarkerMessages[row.markerStatus]}
+                    {row.markerStatus === 'ambiguous' ? ` (${row.markerLabelIds.length})` : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {report.unlistedMarkerLabelIds.length ? (
+            <p className="text-ink-2">
+              Метки без строки в экспликации: {report.unlistedMarkerLabelIds.length}. Это не
+              дополнительные комнаты.
+            </p>
+          ) : null}
+          <details className="text-ink-2">
+            <summary className="min-h-11 cursor-pointer py-3">
+              Подписи исходника и связи номеров
+            </summary>
+            <ol className="list-decimal space-y-2 pl-5">
+              {report.rows.map((row) => (
+                <li key={row.sourceNumber}>
+                  <p className="break-all">
+                    Строка {row.sourceNumber}: {row.numberLabelId}, {row.nameLabelId},{' '}
+                    {row.areaLabelId}.
+                  </p>
+                  <p className="break-all">
+                    Метки:{' '}
+                    {row.markerLabelIds.length
+                      ? row.markerLabelIds.join(', ')
+                      : 'нет наблюдаемых связей'}
+                    .
+                  </p>
+                </li>
+              ))}
+            </ol>
+            {report.unlistedMarkerLabelIds.length ? (
+              <p className="mt-2 break-all">
+                Без строки: {report.unlistedMarkerLabelIds.join(', ')}.
+              </p>
+            ) : null}
+          </details>
+        </>
+      )}
+    </section>
+  )
+}
+
 const frameNumberCueMessages = {
   inside: 'Цифровая метка строго внутри сохранённого контура.',
   'not-inside': 'Цифровая метка не находится строго внутри сохранённого контура.',
@@ -342,7 +448,7 @@ export function NativeReviewResult({
           <dd>{packet.counts.strokeFaces}</dd>
         </div>
         <div>
-          <dt className="text-ink-2">Связи с номерами</dt>
+          <dt className="text-ink-2">Контуры с номерами</dt>
           <dd>{packet.counts.numberedAssociations}</dd>
         </div>
         <div>
@@ -357,8 +463,10 @@ export function NativeReviewResult({
             {packet.numberCircles.status === 'unresolved'
               ? 'поиск не завершён'
               : packet.numberCircles.cues.length}
-            . Это нативные подписи PDF, не OCR и не число распознанных комнат. Назначение меток и их
-            связь с экспликацией не подтверждены.
+            . Это нативные подписи PDF, не OCR и не число распознанных комнат.{' '}
+            {packet.roomSchedule?.status === 'draft'
+              ? 'Сверка с экспликацией показана ниже; принадлежность меток помещениям не подтверждена.'
+              : 'Назначение меток и их связь с экспликацией не подтверждены.'}
           </p>
           {packet.numberCircles.status === 'unresolved' ? (
             <p className="break-all">
@@ -367,6 +475,7 @@ export function NativeReviewResult({
           ) : null}
         </div>
       ) : null}
+      {packet.roomSchedule ? <RoomSchedule report={packet.roomSchedule} /> : null}
       {packet.doorSymbols || packet.openingFrames ? (
         <div className="space-y-2 text-[13px] leading-relaxed">
           {packet.doorSymbols ? (

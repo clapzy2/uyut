@@ -7,10 +7,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import sharp from 'sharp'
 import { preparePlanPage } from '../lib/projects/plan-document'
-import { nativeNumberCircleCandidates } from '../lib/projects/plan-native-number-circles'
 import { nativeOpeningSourceLinks } from '../lib/projects/plan-native-opening-links'
 import { nativeReviewPacket } from '../lib/projects/plan-native-review-packet'
 import { nativeReviewedFrameRooms } from '../lib/projects/plan-native-reviewed-frame-rooms'
+import { nativeRoomNumberScheduleLinks } from '../lib/projects/plan-native-room-number-links'
 
 const [pdfPath, pageValue, outputPath, savedReadingPath] = process.argv.slice(2)
 const pageNumber = Number(pageValue)
@@ -39,7 +39,8 @@ const source = {
 const savedReading = savedReadingPath
   ? JSON.parse(await readFile(resolve(savedReadingPath), 'utf8'))
   : undefined
-const circles = nativeNumberCircleCandidates(input)
+const scheduleNumbers = nativeRoomNumberScheduleLinks(input)
+const circles = scheduleNumbers.circles
 const frameRooms = nativeReviewedFrameRooms({ ...input, source, reading: savedReading })
 const packet = nativeReviewPacket({ ...input, source, image: input.native.source, savedReading })
 assert.deepEqual(input, before)
@@ -65,6 +66,8 @@ await writeFile(
       frames,
       connections,
       circles,
+      roomScheduleEvidence: scheduleNumbers.schedule,
+      numberScheduleLinks: scheduleNumbers.report,
       frameRooms,
       packet,
       caveat:
@@ -120,6 +123,11 @@ console.log(
       sourceSymbolGroups: connections.groups.length,
       sourceLinkRefusal: connections.refusalReason,
       numericCircleCues: circles.cues.length,
+      documentaryRoomRows: scheduleNumbers.report.rows.length,
+      tableLinkedNumericRows: scheduleNumbers.report.rows.filter(
+        (row) => row.markerStatus === 'linked',
+      ).length,
+      scheduleRefusal: scheduleNumbers.report.refusalReason,
       savedFrameReview: frameRooms.status,
       twoReviewedSides: frameRooms.frames.filter((frame) => frame.status === 'two-reviewed-sides')
         .length,

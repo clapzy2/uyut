@@ -130,6 +130,35 @@ function manualFrameRoomsPacket() {
   return packet
 }
 
+function documentarySchedulePacket() {
+  const packet = manualFrameRoomsPacket()
+  packet.roomSchedule = {
+    status: 'draft',
+    refusalReason: null,
+    rows: [
+      'Прихожая',
+      'Кухня',
+      'Гостиная',
+      'Спальня',
+      'Коридор',
+      'Спальня',
+      'Ванная',
+      'Санузел',
+    ].map((name, index) => ({
+      sourceNumber: index + 1,
+      name,
+      documentaryAreaM2: index === 0 ? 5.53 : 2 + index,
+      numberLabelId: `table-number-${index + 1}`,
+      nameLabelId: `table-name-${index + 1}`,
+      areaLabelId: `table-area-${index + 1}`,
+      markerStatus: 'linked',
+      markerLabelIds: [`native-circle-${index + 1}`],
+    })),
+    unlistedMarkerLabelIds: [],
+  }
+  return packet
+}
+
 describe('read-only native review presentation', () => {
   it('distinguishes no saved review from unavailable native data without save buttons', () => {
     const empty = renderToStaticMarkup(
@@ -261,6 +290,122 @@ describe('read-only native review presentation', () => {
     expect(html).not.toContain('Подтвердить')
     expect(html).not.toContain('Сохранить')
     expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it('presents documentary table matches without accepting outboard markers as room or floor owners', () => {
+    const packet = documentarySchedulePacket()
+    if (packet.savedFrameRooms?.status !== 'checked')
+      throw new Error('Manual frame fixture is missing')
+    const side = packet.savedFrameRooms.frames[0]?.sides[0]
+    if (!side) throw new Error('Manual side fixture is missing')
+    side.roomSourceNumbers = [8]
+    side.numberCue = 'not-inside'
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    const withoutTable = structuredClone(packet)
+    delete withoutTable.roomSchedule
+    const baseline = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet: withoutTable, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Экспликация и цифровые метки')
+    expect(html).toContain('Нативная экспликация и наблюдения цифровых меток')
+    expect(html).toContain('документальная связь, не принадлежность метки комнате')
+    expect(html).toContain('Площади — подписи на листе, не обмеры')
+    expect(html).toContain('мерки и масштаб этим не принимаются')
+    expect(html).toContain('Сверка с экспликацией показана ниже')
+    expect(html).toContain('Контуры с номерами</dt><dd>0</dd>')
+    expect(html).not.toContain('Связи с номерами</dt>')
+    expect(html).not.toContain('связь с экспликацией не подтверждены')
+    expect(html).toContain('Санузел</td>')
+    expect(html).toContain('5,53</td>')
+    expect(html.match(/Номер совпал/g)).toHaveLength(8)
+    expect(html).toContain('Номера из ручной разметки: 8')
+    expect(html).toContain('Цифровая метка не находится строго внутри сохранённого контура')
+    expect(html.match(/<svg\b.*?<\/svg>/s)?.[0]).toEqual(baseline.match(/<svg\b.*?<\/svg>/s)?.[0])
+    expect(html.match(/<button\b/g)?.length).toEqual(baseline.match(/<button\b/g)?.length)
+    expect(html).toContain('w-full table-fixed')
+    expect(html).toContain('scope="col"')
+    expect(html).toContain('scope="row"')
+    expect(html).not.toContain('Подтвердить')
+    expect(html).not.toContain('Сохранить')
+  })
+  it('exposes ambiguity, missing observations and unlisted numeric markers instead of calling all rows matched', () => {
+    const packet = documentarySchedulePacket()
+    const report = packet.roomSchedule
+    const [first, second] = report?.rows ?? []
+    if (!report || !first || !second) throw new Error('Room schedule fixture is missing')
+    first.markerStatus = 'ambiguous'
+    first.markerLabelIds.push('native-circle-1-extra')
+    second.markerStatus = 'unobserved'
+    second.markerLabelIds = []
+    report.unlistedMarkerLabelIds = ['native-circle-9']
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Неоднозначно (2)')
+    expect(html).toContain('Не наблюдалась')
+    expect(html).toContain('Метки без строки в экспликации: 1')
+    expect(html).toContain('Это не дополнительные комнаты')
+    expect(html).toContain('table-number-1, table-name-1, table-area-1')
+    expect(html).toContain('native-circle-1, native-circle-1-extra')
+    expect(html).toContain('Без строки: native-circle-9')
+    expect(html).toContain('Подписи исходника и связи номеров')
+    expect(html.match(/Номер совпал/g)).toHaveLength(6)
+    expect(html).not.toContain('Подтвердить')
+  })
+  it('shows the documentary table with unavailable circle observations, not false missing-marker success', () => {
+    const packet = documentarySchedulePacket()
+    if (!packet.roomSchedule) throw new Error('Room schedule fixture is missing')
+    for (const row of packet.roomSchedule.rows) {
+      row.markerStatus = 'unavailable'
+      row.markerLabelIds = []
+    }
+    packet.numberCircles = { status: 'unresolved', refusalReason: 'circle-search-budget', cues: [] }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html.match(/Поиск недоступен/g)).toHaveLength(8)
+    expect(html).toContain('Цифровые метки в окружностях: поиск не завершён')
+    expect(html).toContain('circle-search-budget')
+    expect(html).toContain('Прихожая</td>')
+    expect(html).not.toContain('Не наблюдалась')
+    expect(html).not.toContain('Номер совпал')
+  })
+  it('shows schedule refusal with no empty-success table or partial native labels', () => {
+    const packet = documentarySchedulePacket()
+    packet.roomSchedule = {
+      status: 'unresolved',
+      refusalReason: 'unsupported-native-schedule',
+      rows: [],
+      unlistedMarkerLabelIds: [],
+    }
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Таблица не распознана однозначно; частичный перечень не показан')
+    expect(html).toContain('unsupported-native-schedule')
+    expect(html).not.toContain('<table')
+    expect(html).not.toContain('table-number-1')
+    expect(html).not.toContain('Сверка с экспликацией показана ниже')
+    expect(html).not.toContain('Подтвердить')
+    expect(html).not.toContain('Сохранить')
+  })
+  it('escapes table text and wraps long native provenance IDs without changing the source SVG', () => {
+    const packet = documentarySchedulePacket()
+    const row = packet.roomSchedule?.rows[0]
+    if (!row) throw new Error('Room schedule fixture is missing')
+    row.name = '<script>alert("test")</script>'
+    row.numberLabelId = 'n'.repeat(128)
+    row.documentaryAreaM2 = 1e-8
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('&lt;script&gt;alert(&quot;test&quot;)&lt;/script&gt;')
+    expect(html).not.toContain('<script>')
+    expect(html).toContain('class="break-words py-2 pr-2"')
+    expect(html).toContain('class="break-all"')
+    expect(html).toContain('1e-8</td>')
+    expect(html).toContain('n'.repeat(128))
   })
   it('reports observed numbers outside manual contours without relocating them or naming owners', () => {
     const packet = manualFrameRoomsPacket()

@@ -2,10 +2,13 @@ import type { PlanReading } from '@uyut/db'
 import type { NativeTextAnchors } from './plan-document'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
 import { nativeFaceAnnotationCandidates } from './plan-native-face-annotations'
-import { nativeNumberCircleCandidates } from './plan-native-number-circles'
 import { nativeOpeningSourceLinks } from './plan-native-opening-links'
 import { nativeReviewedFrameRooms } from './plan-native-reviewed-frame-rooms'
 import { automaticNativeRoomCandidates, nativeRoomPolygonKey } from './plan-native-room-candidates'
+import {
+  type NativeRoomScheduleReport,
+  nativeRoomNumberScheduleLinks,
+} from './plan-native-room-number-links'
 import {
   inspectReviewedPageCoverage,
   type ReviewedPageCoverage,
@@ -93,6 +96,7 @@ export type NativeReviewPacket = {
     refusalReason: string | null
     cues: { labelId: string; sourceNumber: number }[]
   }
+  roomSchedule?: NativeRoomScheduleReport
   savedFrameRooms?:
     | { status: 'not-saved' }
     | { status: 'unavailable' | 'refused'; reason: string }
@@ -204,12 +208,14 @@ export function nativeReviewPacket(input: {
   if (native.originalPdfSha256 !== source.sha256)
     throw new Error('Native inspection source hash changed')
   const common = { native, work, lineworkSource }
-  const circles = nativeNumberCircleCandidates(common)
+  const scheduleNumbers = nativeRoomNumberScheduleLinks(common)
+  const circles = scheduleNumbers.circles
   packet.numberCircles = {
     status: circles.status,
     refusalReason: circles.refusalReason,
     cues: circles.cues.map(({ labelId, sourceNumber }) => ({ labelId, sourceNumber })),
   }
+  packet.roomSchedule = scheduleNumbers.report
   const correspondences = nativeReviewedFrameRooms({ ...common, source, reading: savedReading })
   if (correspondences.status === 'checked')
     packet.savedFrameRooms = { status: 'checked', frames: correspondences.frames }
@@ -401,6 +407,7 @@ export function nativeReviewPacket(input: {
     ['panel-profile-search', doors.compoundPanels.refusalReason],
     ['source-link-search', connections.refusalReason],
     ['number-circle-search', circles.refusalReason],
+    ['room-schedule-search', scheduleNumbers.report.refusalReason],
   ] as const) {
     if (reason)
       issue(

@@ -200,6 +200,19 @@ describe('whole-page native inspection, separate from saved geometry', () => {
       image: input.native.source,
     })
     expect(packet.counts.numberedAssociations).toBe(3)
+    expect(packet.roomSchedule).toMatchObject({
+      status: 'draft',
+      refusalReason: null,
+      rows: [
+        { sourceNumber: 1, name: 'Спальня', documentaryAreaM2: 12.5, markerStatus: 'unobserved' },
+        { sourceNumber: 2, name: 'Спальня', documentaryAreaM2: 12.5, markerStatus: 'unobserved' },
+        { sourceNumber: 3, name: 'Балкон', documentaryAreaM2: 5.5, markerStatus: 'unobserved' },
+      ],
+      unlistedMarkerLabelIds: [],
+    })
+    expect(packet.roomSchedule?.rows[0]).not.toHaveProperty('polygon')
+    expect(packet.roomSchedule?.rows[0]).not.toHaveProperty('tableEdges')
+    expect(packet.roomSchedule).not.toHaveProperty('roomOwnershipConfirmed')
     expect(packet.counts.fillCandidates).toBe(0)
     expect(packet.faces.filter((face) => face.roomName).map((face) => face.roomName)).toEqual([
       'Спальня',
@@ -421,6 +434,8 @@ describe('whole-page native inspection, separate from saved geometry', () => {
           { x: 500 + index / 100, y: 700 },
         ],
       })
+    // Keep this unrelated overlay grid away from the documentary table. A grid
+    // cutting through its captions now correctly holds the table, tested separately.
     for (let column = 0; column <= 5; column++)
       input.work.paths.push({
         operationIndex: 600 + column,
@@ -428,8 +443,8 @@ describe('whole-page native inspection, separate from saved geometry', () => {
         paint: 'stroke',
         closed: false,
         points: [
-          { x: 50 + column * 60, y: 450 },
-          { x: 50 + column * 60, y: 850 },
+          { x: 650 + column * 60, y: 450 },
+          { x: 650 + column * 60, y: 850 },
         ],
       })
     for (let row = 0; row <= 10; row++)
@@ -439,8 +454,8 @@ describe('whole-page native inspection, separate from saved geometry', () => {
         paint: 'stroke',
         closed: false,
         points: [
-          { x: 50, y: 450 + row * 40 },
-          { x: 350, y: 450 + row * 40 },
+          { x: 650, y: 450 + row * 40 },
+          { x: 950, y: 450 + row * 40 },
         ],
       })
     // This legacy localized-omission path does not run the complete-layer face expansion.

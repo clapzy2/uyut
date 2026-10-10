@@ -281,6 +281,249 @@ describe('bounded native numeric-circle observations', () => {
   })
 })
 
+describe('documentary room schedule and complete numeric-marker accounting', () => {
+  function scheduleFixture() {
+    const result = fixture()
+    const circles: NonNullable<NativeReviewPacket['numberCircles']> = {
+      status: 'draft',
+      refusalReason: null,
+      cues: [
+        { labelId: 'circle-1', sourceNumber: 1 },
+        { labelId: 'circle-2-a', sourceNumber: 2 },
+        { labelId: 'circle-2-b', sourceNumber: 2 },
+        { labelId: 'circle-8', sourceNumber: 8 },
+      ],
+    }
+    const schedule: NonNullable<NativeReviewPacket['roomSchedule']> = {
+      status: 'draft',
+      refusalReason: null,
+      rows: ['Прихожая', 'Гостиная', 'Балкон'].map((name, index) => ({
+        sourceNumber: index + 1,
+        name,
+        documentaryAreaM2: [5.8, 14.9, 2.4][index] ?? 1,
+        numberLabelId: `table-number-${index + 1}`,
+        nameLabelId: `table-name-${index + 1}`,
+        areaLabelId: `table-area-${index + 1}`,
+        markerStatus: index === 0 ? 'linked' : index === 1 ? 'ambiguous' : 'unobserved',
+        markerLabelIds:
+          index === 0 ? ['circle-1'] : index === 1 ? ['circle-2-a', 'circle-2-b'] : [],
+      })),
+      unlistedMarkerLabelIds: ['circle-8'],
+    }
+    result.packet.numberCircles = circles
+    result.packet.roomSchedule = schedule
+    return { ...result, schedule, circles }
+  }
+  it('preserves printed documentary rows and numeric matches without constructing room ownership', async () => {
+    const { packet, headers, schedule } = scheduleFixture()
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.roomSchedule).toEqual(schedule)
+    expect(loaded.numberCircles).toEqual(packet.numberCircles)
+    expect(loaded.faces).toEqual(packet.faces)
+    expect(loaded.savedReview).toEqual(packet.savedReview)
+    expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it('preserves table rows when the numeric-circle search is unavailable, not unobserved', async () => {
+    const { packet, headers, schedule } = scheduleFixture()
+    packet.numberCircles = { status: 'unresolved', refusalReason: 'circle-search-budget', cues: [] }
+    schedule.unlistedMarkerLabelIds = []
+    for (const row of schedule.rows) {
+      row.markerStatus = 'unavailable'
+      row.markerLabelIds = []
+    }
+    expect((await loadFixture(packet, headers)).packet.roomSchedule).toEqual(schedule)
+  })
+  it('accepts a bounded atomic schedule refusal without requiring number-circle data', async () => {
+    const { packet, headers } = fixture()
+    packet.roomSchedule = {
+      status: 'unresolved',
+      refusalReason: 'r'.repeat(128),
+      rows: [],
+      unlistedMarkerLabelIds: [],
+    }
+    delete packet.numberCircles
+    expect((await loadFixture(packet, headers)).packet.roomSchedule).toEqual(packet.roomSchedule)
+  })
+  it('accepts 50 contiguous table rows and all 100 parent markers, with bounded source labels', async () => {
+    const { packet, headers, schedule, circles } = scheduleFixture()
+    schedule.rows = Array.from({ length: 50 }, (_, index) => ({
+      sourceNumber: index + 1,
+      name: index === 0 ? 'Н'.repeat(80) : `Помещение ${index + 1}`,
+      documentaryAreaM2: index === 49 ? 999.99 : 0.01,
+      numberLabelId: index === 0 ? 'n'.repeat(128) : `table-number-${index}`,
+      nameLabelId: `table-name-${index}`,
+      areaLabelId: `table-area-${index}`,
+      markerStatus: 'ambiguous',
+      markerLabelIds: [`circle-${index}-a`, `circle-${index}-b`],
+    }))
+    circles.cues = schedule.rows.flatMap((row) =>
+      row.markerLabelIds.map((labelId) => ({ labelId, sourceNumber: row.sourceNumber })),
+    )
+    schedule.unlistedMarkerLabelIds = []
+    expect((await loadFixture(packet, headers)).packet.roomSchedule).toEqual(schedule)
+  })
+  it('accepts exactly 100 unlisted observed markers only for numbers outside the table', async () => {
+    const { packet, headers, schedule, circles } = scheduleFixture()
+    circles.cues = Array.from({ length: 100 }, (_, index) => ({
+      labelId: `extra-${index}`,
+      sourceNumber: index + 4,
+    }))
+    for (const row of schedule.rows) {
+      row.markerStatus = 'unobserved'
+      row.markerLabelIds = []
+    }
+    schedule.unlistedMarkerLabelIds = circles.cues.map(({ labelId }) => labelId)
+    expect((await loadFixture(packet, headers)).packet.roomSchedule).toEqual(schedule)
+  })
+  it.each([
+    'null-report',
+    'status',
+    'draft-reason',
+    'blank-reason',
+    'long-reason',
+    'refusal-with-rows',
+    'refusal-with-unlisted',
+    'missing-rows',
+    'empty-rows',
+    'short-rows',
+    'row-limit',
+    'null-row',
+    'noncontiguous-number',
+    'string-number',
+    'row-order',
+    'missing-name',
+    'blank-name',
+    'padded-name',
+    'long-name',
+    'string-area',
+    'zero-area',
+    'negative-area',
+    'large-area',
+    'nonfinite-area',
+    'blank-label',
+    'long-label',
+    'missing-label',
+    'row-label-duplicate',
+    'global-label-duplicate',
+    'table-circle-overlap',
+    'missing-parent',
+    'missing-markers',
+    'marker-limit',
+    'foreign-marker',
+    'wrong-number',
+    'blank-marker',
+    'long-marker',
+    'duplicate-marker',
+    'marker-status',
+    'linked-empty',
+    'linked-many',
+    'ambiguous-one',
+    'unobserved-with-marker',
+    'unavailable-with-parent-draft',
+    'available-status-with-parent-unresolved',
+    'omitted-marker',
+    'missing-unlisted',
+    'unlisted-limit',
+    'foreign-unlisted',
+    'duplicate-unlisted',
+    'unlisted-table-number',
+    'unlisted-and-row-overlap',
+    'source-polygon',
+    'room-ownership',
+    'room-name',
+    'metric-acceptance',
+  ])('refuses malformed or overclaimed schedule atomically: %s', async (change) => {
+    const { packet, headers, schedule, circles } = scheduleFixture()
+    const [first, second, third] = schedule.rows
+    if (!first || !second || !third) throw new Error('Room schedule fixture is missing')
+    if (change === 'null-report') Object.assign(packet, { roomSchedule: null })
+    if (change === 'status') Object.assign(schedule, { status: 'accepted' })
+    if (change === 'draft-reason') schedule.refusalReason = 'source-unavailable'
+    if (change === 'blank-reason' || change === 'long-reason')
+      Object.assign(schedule, {
+        status: 'unresolved',
+        refusalReason: change === 'blank-reason' ? ' ' : 'r'.repeat(129),
+        rows: [],
+        unlistedMarkerLabelIds: [],
+      })
+    if (change === 'refusal-with-rows')
+      Object.assign(schedule, {
+        status: 'unresolved',
+        refusalReason: 'source-unavailable',
+        unlistedMarkerLabelIds: [],
+      })
+    if (change === 'refusal-with-unlisted')
+      Object.assign(schedule, {
+        status: 'unresolved',
+        refusalReason: 'source-unavailable',
+        rows: [],
+      })
+    if (change === 'missing-rows') Object.assign(schedule, { rows: null })
+    if (change === 'empty-rows') schedule.rows = []
+    if (change === 'short-rows') schedule.rows.pop()
+    if (change === 'row-limit') schedule.rows = Array(51).fill(first)
+    if (change === 'null-row') Object.assign(schedule.rows, { 0: null })
+    if (change === 'noncontiguous-number') third.sourceNumber = 4
+    if (change === 'string-number') Object.assign(first, { sourceNumber: '1' })
+    if (change === 'row-order') schedule.rows = [second, first, third]
+    if (change === 'missing-name') Object.assign(first, { name: undefined })
+    if (change === 'blank-name') first.name = ' '
+    if (change === 'padded-name') first.name = ' Прихожая '
+    if (change === 'long-name') first.name = 'Н'.repeat(81)
+    if (change === 'string-area') Object.assign(first, { documentaryAreaM2: '5.8' })
+    if (change === 'zero-area') first.documentaryAreaM2 = 0
+    if (change === 'negative-area') first.documentaryAreaM2 = -1
+    if (change === 'large-area') first.documentaryAreaM2 = 1000
+    if (change === 'nonfinite-area') first.documentaryAreaM2 = Infinity
+    if (change === 'blank-label') first.nameLabelId = ' '
+    if (change === 'long-label') first.areaLabelId = 'a'.repeat(129)
+    if (change === 'missing-label') Object.assign(first, { numberLabelId: undefined })
+    if (change === 'row-label-duplicate') first.areaLabelId = first.nameLabelId
+    if (change === 'global-label-duplicate') second.numberLabelId = first.nameLabelId
+    if (change === 'table-circle-overlap') first.numberLabelId = 'circle-1'
+    if (change === 'missing-parent') delete packet.numberCircles
+    if (change === 'missing-markers') Object.assign(first, { markerLabelIds: null })
+    if (change === 'marker-limit') second.markerLabelIds = Array(101).fill('circle-2-a')
+    if (change === 'foreign-marker') first.markerLabelIds = ['foreign-circle']
+    if (change === 'wrong-number') first.markerLabelIds = ['circle-2-a']
+    if (change === 'blank-marker') first.markerLabelIds = [' ']
+    if (change === 'long-marker') first.markerLabelIds = ['m'.repeat(129)]
+    if (change === 'duplicate-marker') second.markerLabelIds = ['circle-2-a', 'circle-2-a']
+    if (change === 'marker-status') Object.assign(first, { markerStatus: 'owned' })
+    if (change === 'linked-empty') first.markerLabelIds = []
+    if (change === 'linked-many') second.markerStatus = 'linked'
+    if (change === 'ambiguous-one') first.markerStatus = 'ambiguous'
+    if (change === 'unobserved-with-marker') first.markerStatus = 'unobserved'
+    if (change === 'unavailable-with-parent-draft') third.markerStatus = 'unavailable'
+    if (change === 'available-status-with-parent-unresolved') {
+      circles.status = 'unresolved'
+      circles.refusalReason = 'source-unavailable'
+      circles.cues = []
+      schedule.unlistedMarkerLabelIds = []
+      for (const row of schedule.rows) row.markerLabelIds = []
+    }
+    if (change === 'omitted-marker') {
+      second.markerLabelIds = ['circle-2-a']
+      second.markerStatus = 'linked'
+    }
+    if (change === 'missing-unlisted') Object.assign(schedule, { unlistedMarkerLabelIds: null })
+    if (change === 'unlisted-limit') schedule.unlistedMarkerLabelIds = Array(101).fill('circle-8')
+    if (change === 'foreign-unlisted') schedule.unlistedMarkerLabelIds = ['foreign-circle']
+    if (change === 'duplicate-unlisted') schedule.unlistedMarkerLabelIds.push('circle-8')
+    if (change === 'unlisted-table-number') {
+      second.markerStatus = 'unobserved'
+      second.markerLabelIds = []
+      schedule.unlistedMarkerLabelIds.push('circle-2-a', 'circle-2-b')
+    }
+    if (change === 'unlisted-and-row-overlap') schedule.unlistedMarkerLabelIds.push('circle-1')
+    if (change === 'source-polygon') Object.assign(first, { polygon: [] })
+    if (change === 'room-ownership') Object.assign(schedule, { roomOwnershipConfirmed: true })
+    if (change === 'room-name') Object.assign(first, { roomName: 'Комната' })
+    if (change === 'metric-acceptance') Object.assign(first, { metricAccepted: true })
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+})
+
 describe('bounded source-only symbol links', () => {
   it('preserves checks and group references without adding geometric or readiness evidence', async () => {
     const { packet, headers, links } = sourceLinksFixture()

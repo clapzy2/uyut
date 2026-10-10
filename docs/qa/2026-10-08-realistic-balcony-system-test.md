@@ -2194,3 +2194,110 @@ ephemeral helper удалён. Live auth/PG/project state не проверял�
 зонами, separate source floor partitions/threshold inventory, wall/glazing kind
 и независимая metric/vertical приёмка. Ручные соответствия текущей пачки не
 выдаются за automatic floor recognition или готовую точную2D/3D квартиры.
+
+## 10 октября: автоматическая экспликация и цифровые метки
+
+nativeRoomScheduleEvidence - отдельный native-only documentary parser, не
+изменение общего packages/ai/floor-plan-schedule.ts или штатного AI reader.
+Legacy strict baseline сохраняется для ненарисованных/поддержанных таблиц.
+Разнесённые/составные заголовки принимаются только через exact исходную сетку:
+4 continuous vertical rails и full-width horizontal rows; baseline не расширен.
+№(+п/п), Наименование и Площадь,(+м²/м+²) должны лежать в3 разных соседних
+header cells. Caption provenance/raster mapping, native source SHA/page/frame,
+полнота text, omission bounds и native refs проверяются до разбора.
+MAX_WORK200k,≤1000labels/3000paths/20000points/50roomrows. Нарисованная сетка
+должна пройти complete cell inventory, даже если старый baseline parser смог
+прочитать строки. Неизвестные/дублированные/развёрнутые подписи, gaps/лишние
+столбцы/неполные строки, header competitors и curve/clip bounds в таблице
+удерживают весь набор, без частичных rows/nearest-caption join.
+
+Строки1..N содержат только name/documentaryAreaM2 и original number/name/area
+label IDs. Явная последняя итоговая строка не становится комнатой. Сумма или
+напечатанная площадь не строят footprint и не доказывают сантиметры. Native grid
+сейчас поддерживает именно continuous full-width strokes: сегментированные или
+неполные таблицы не угадываются. Source tableEdges сохраняются как raw snapshots,
+но не передаются клиенту как floor/room geometry.
+
+nativeRoomNumberScheduleLinks заново вычисляет table и circle inventories по
+одному исходнику; не принимает injected schedule IDs/reviewed room ownership.
+Одна круговая метка с тем же номером - linked; повторные - ambiguous, без выбора
+по близости. Нет circle cue - unobserved; неполные circle commands - unavailable,
+при этом проверенные документальные rows сохраняются. Дополнительные observed
+номера без row показываются отдельно, не создают новые комнаты. Номера могут
+быть вынесены за контур: table-to-number link не равен room/floor assignment.
+
+Fresh primary existing page6 БЕЗ savedReading/ручных IDs:
+tmp/native-room-schedule-20261010-primary-final/.
+Результат8 documentary rows/8 circle links;0 contour associations,0 accepted
+floors. Raw layoutBasis exact-native-grid,15 исходных table segments.
+Bounds84.006..319.667×434.576..565.479. Rails4214/3508/3506/3507,
+horizontals3578/3579/3581..3587/3589/3590. Headings находятся в реальных ячейках,
+не соединены условной общей baseline. Row source references:
+1 Прихожая4.21: number141/name140/area143→circle text123;
+2 Кухня12.35:148/147/150→215;
+3 Гостиная17.05:153/152/155→216;
+4 Спальня15.39:158/157/160→218;
+5 Коридор7.70:163/162/165→219;
+6 Спальня12.23:177/176/179→220;
+7 Ванная3.89:168/167/170→221;
+8 Санузел1.95:250/249/252→222.
+Все IDs имеют prefix native-text-. WC8 остаётся outboard/unknown polygon owner;
+caption name в таблице не переносит метку внутрь. Existing45skippedCurves/0clips
+и baseline2door/7frames/8glazing/2source-doorlinks/8contacts/4groups сохранены.
+Тот же PDF с архивной ручной fixture отдельно повторён:
+tmp/native-room-schedule-20261010-primary-reviewed-final/.
+Прежние5two-reviewed/1one-sided/1coincident не изменились;8tablelinks не заменяют
+ручную topology или envelope-only contour. Actual project не изменялся.
+
+Остальные6 controlled PDFs: Chigintseva existingpage3 даёт8 документальных rows
+через прежний strict-native-baselines; круговых cues0 (метки прямоугольные).
+Старые19fill candidates/8named associations preserved EXACTLY against prior
+tmp/native-frame-rooms-20261010-chigintseva-final/result.json:2433,2510,2545,
+2580,2615,2650,2685,2720. Это не новая floor acceptance и не доказательство
+complete extraction(33curves/18clips). Source page/экспликация просмотрены.
+BASIS/Basman/Designgroup/Remplanner schedule unsupported-or-ambiguous;
+Life incomplete-native-layer. Нули не выданы за successful empty table.
+Artifacts tmp/native-room-schedule-20261010-SOURCE-final/.
+Runner bench-native-openings.ts PDF PAGE FRESH_DIR [SAVED_READING_JSON] теперь
+сохраняет raw schedule tableEdges и минимальные number links отдельно.
+AI requests/actual project writes0.
+
+automaticNativeRoomCandidates переиспользует native schedule rows/header IDs
+и bounds; существующий boxed-caption→observed-region pass не расширен до circle
+floor ownership. Private packet roomSchedule содержит only documentary rows+
+marker IDs/status/unlisted list, без raw edges/polygon/metric/ownership flags.
+Decoder требует contiguous bounded rows, unique table source IDs, полный учёт
+каждой parent circle cue ровно один раз, matching sourceNumber и cardinality
+linked/ambiguous/unobserved/unavailable. Parent IDs/table IDs не пересекаются;
+отсутствующие/чужие/лишние поля и claimed floor ownership не принимаются.
+Optional legacy compatibility сохранена. UI добавляет compact source table;
+top counter теперь «Контуры с номерами», не противоречит8 table-marker links при0
+region assignments. SVG unchanged2arcs/12lines/31polygons; no save/geometry adoption.
+
+Independent agent concrete repro нашёл outer-boundary caption discard и
+malformed-grid→baseline escape. Все4outer-edge подписи теперь удерживаются;
+extra/missing internal/outer rails не становятся baseline-only table. Full-width
+row groups сохраняют evidence drawn grid даже при пропавших внешних rails.
+97 parser controls,19 fresh no-mock link controls,73 client/UI additions.
+Старый oversized-overlay test fixture имел6-column grid непосредственно через
+табличные подписи; теперь такой ambiguity корректно удерживает table. Его
+unrelated budget grid перенесён в x650..950, сохраняет прежние103 shapes/53stroke
+counts/3associations и проверку отказа от oversized overlay; parser defect
+отдельно покрыт malformed-cell controls, assertion не ослаблен.
+
+Fresh independent primary source extraction/order permutations сохранили8
+documentary links и exact original text IDs; output proofs detached,input immutable.
+Ранее найденные bypasses перепроверены после исправления, новых дефектов нет.
+4175webtests/257files, typecheck7, lint896, production build/diff passed.
+Firefox/mock API/actual primary JPEG:8 rows,1280/390px без page overflow,
+expanded provenance details и focusable1414px full-size scroll(tabIndex0).
+Console0errors/0warnings. Current component screenshots просмотрены:
+output/playwright/native-room-schedule-desktop.png,
+native-room-schedule-mobile.png иnative-room-schedule-mobile-expanded.png.
+Helper/browser закрыты, ephemeral helper удалён. Live auth/PG не проверялись;
+production/DB/saved geometry/PR/deploy не изменены.
+
+Основной остаток - реальные floor partitions/thresholds и inventory source walls,
+полное назначение проёмов/граней помещениям, independent metric/vertical proof,
+затем source-based2D/3D end-to-end acceptance. Готовая экспликация этой пачки
+не считается готовой геометрией квартиры или универсальным PDF/OCR reader.
