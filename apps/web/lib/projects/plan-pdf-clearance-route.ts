@@ -19,6 +19,7 @@ import {
 } from './plan-opening-face-pairs'
 import { pdfPolygonIsValid } from './plan-pdf-room-binding'
 import { inspectSourceClearanceRoutes } from './plan-source-clearance-route'
+import { type ExteriorOpeningWitness, inspectTransferWallSolids } from './plan-transfer-wall-solids'
 import { inspectPlanVerticalDimensions, openingFloorLevel } from './plan-vertical-dimensions'
 import { signedPlanFloors } from './plan-vertical-floor-geometry'
 import { openingOnVerticalFloorBoundary } from './plan-vertical-reference'
@@ -279,6 +280,9 @@ export type FurnitureRouteBody = {
   goal?: { roomId: string; point?: PlanPoint }
   extraSolids?: Polygon[]
   maxNodes?: number
+  blockedVolume?: (bounds: [number, number, number, number]) => boolean
+  /** Internal raw outer gate evidence. It never creates a projected indoor portal or floor. */
+  exteriorOpeningWitness?: ExteriorOpeningWitness
 }
 
 export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: FurnitureRouteBody) {
@@ -297,6 +301,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
           transfer.carryElevationCm > 1200 ||
           typeof transfer.endpointCheck !== 'function')) ||
       (transfer.endpointCheck !== undefined && typeof transfer.endpointCheck !== 'function') ||
+      (transfer.blockedVolume !== undefined && typeof transfer.blockedVolume !== 'function') ||
       (transfer.origin !== undefined &&
         (!transfer.origin.point ||
           ![transfer.origin.point.xCm, transfer.origin.point.yCm].every(Number.isFinite) ||
@@ -429,7 +434,11 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
 
   const pairs = currentOpeningFacePairs(geometry)
   const sourcePairs = calibration.sourceOpeningFacePairs ?? calibration.openingFacePairs ?? []
-  if (pairs.length !== sourcePairs.length)
+  const exterior = transfer?.exteriorOpeningWitness
+  if (exterior && inspectTransferWallSolids(geometry, exterior).error)
+    return missing('Наружная пара косяков не подтверждена текущими отдельными обмерами.')
+  const outsidePairs = exterior && !pairs.includes(exterior.pair) ? 1 : 0
+  if (pairs.length + outsidePairs !== sourcePairs.length)
     return missing('После правки проёмов или контуров повторно сверьте переходы с исходным PDF.')
   const widthProofs = currentOpeningWidthProofs(geometry)
   const entryProofs = widthProofs.filter(
@@ -792,6 +801,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
               ...(transfer.allowQuarterTurns ? { allowQuarterTurns: true } : {}),
               ...(transfer.endpointCheck ? { endpointCheck: transfer.endpointCheck } : {}),
               ...(transfer.goal ? { goal: transfer.goal } : {}),
+              ...(transfer.blockedVolume ? { blockedVolume: transfer.blockedVolume } : {}),
             }
           : {}),
         stepCm: 10,

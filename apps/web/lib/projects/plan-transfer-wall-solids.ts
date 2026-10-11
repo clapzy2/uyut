@@ -1,4 +1,5 @@
 import {
+  compareDecimalSums,
   cross,
   dot,
   integerPoints,
@@ -13,8 +14,11 @@ import {
   inspectPlanThresholdSurfaces,
   planOpeningEndpoints,
 } from '@uyut/catalog/plan-threshold-geometry'
-import { signedPlanFloors } from '@uyut/catalog/plan-vertical-floor-geometry'
-import type { PlanGeometry, PlanPoint, PlanWall } from '@uyut/db'
+import {
+  signedPlanFloors,
+  verticalReferenceReviewKey,
+} from '@uyut/catalog/plan-vertical-floor-geometry'
+import type { PlanGeometry, PlanOpeningFacePair, PlanPoint, PlanWall } from '@uyut/db'
 import type { Polygon } from 'polygon-clipping'
 import { enclosingTurnBounds } from './plan-transfer-enclosure'
 import { inspectPlanVerticalDimensions } from './plan-vertical-dimensions'
@@ -30,6 +34,16 @@ export type TransferWallSolids = {
   error?: string
   solids: Polygon[]
   openings: TransferWallOpening[]
+}
+/** Internal, current raw source gate backed by a separately acknowledged exterior survey. */
+export type ExteriorOpeningWitness = {
+  pair: PlanOpeningFacePair
+  geometryKey: string
+  referenceKey: string
+  outerOpeningId: string
+  outerBottomElevationCm: number
+  outerTopElevationCm: number
+  thresholdElevationCm: number
 }
 type Interval = { start: PlanPoint; end: PlanPoint }
 const body = (points: PlanPoint[]): Polygon => [points.map(({ xCm, yCm }) => [xCm, yCm])]
@@ -86,7 +100,10 @@ function coveredHost(wall: PlanWall, intervals: Interval[]): boolean {
 }
 
 /** Full-height wall occupancy plus separately gated source openings. Unknown means blocked. */
-export function inspectTransferWallSolids(geometry: PlanGeometry): TransferWallSolids {
+export function inspectTransferWallSolids(
+  geometry: PlanGeometry,
+  exterior?: ExteriorOpeningWitness,
+): TransferWallSolids {
   const fail = (error: string): TransferWallSolids => ({ error, solids: [], openings: [] })
   try {
     const calibration = geometry.pdfCalibration
@@ -147,6 +164,53 @@ export function inspectTransferWallSolids(geometry: PlanGeometry): TransferWallS
     const strips = currentWallFacePairs(geometry)
     const pairs = currentOpeningFacePairs(geometry)
     const sourcePairs = calibration.sourceOpeningFacePairs ?? calibration.openingFacePairs ?? []
+    if (exterior) {
+      const signed = signedPlanFloors(geometry)
+      const raw = currentOpeningFacePairs({
+        ...geometry,
+        pdfCalibration: { ...calibration, openingFacePairs: sourcePairs },
+      })
+      const currentCuts = raw.every(({ bindings }) =>
+        bindings.every(({ opening, cut }) => {
+          const ends = planOpeningEndpoints(geometry, opening.id)
+          return (
+            ends &&
+            cut &&
+            [ends, [ends[1], ends[0]]].some((candidate) =>
+              cut.every(
+                (point, index) =>
+                  point.xCm === candidate[index]?.xCm && point.yCm === candidate[index]?.yCm,
+              ),
+            )
+          )
+        }),
+      )
+      const projectedInSource = pairs.every((projected) =>
+        raw.some((source) =>
+          projected.bindings.every(({ opening }) =>
+            source.bindings.some((binding) => binding.opening.id === opening.id),
+          ),
+        ),
+      )
+      if (
+        !signed?.ok ||
+        exterior.geometryKey !== JSON.stringify(geometry) ||
+        exterior.referenceKey !== verticalReferenceReviewKey(signed.reference) ||
+        !raw.includes(exterior.pair) ||
+        raw.length !== sourcePairs.length ||
+        !currentCuts ||
+        !projectedInSource ||
+        !exterior.pair.bindings.some(({ opening }) => opening.id === exterior.outerOpeningId) ||
+        ![
+          exterior.outerBottomElevationCm,
+          exterior.outerTopElevationCm,
+          exterior.thresholdElevationCm,
+        ].every(Number.isFinite) ||
+        exterior.outerTopElevationCm <= exterior.outerBottomElevationCm
+      )
+        return fail('Наружная пара косяков не подтверждена текущим обмером и исходными связями.')
+      if (!pairs.includes(exterior.pair)) pairs.push(exterior.pair)
+    }
     if (strips.length !== sourceStrips.length || pairs.length !== sourcePairs.length)
       return fail('Грани стен или косяков PDF изменились; нужна повторная сверка исходных связей.')
     const intervals = new Map(geometry.walls.map((wall) => [wall.id, [] as Interval[]]))
@@ -185,6 +249,29 @@ export function inspectTransferWallSolids(geometry: PlanGeometry): TransferWallS
       const bottomTerms: number[][] = []
       const topTerms: number[][] = []
       for (const binding of pair.bindings) {
+        if (exterior?.pair === pair && binding.opening.id === exterior.outerOpeningId) {
+          const current = geometry.openings.find(({ id }) => id === binding.opening.id)
+          const base = reference?.wallBases.find(({ wall }) => wall.id === binding.wall.id)
+          const floor = reference?.floors.find(({ id }) => id === base?.floorId)
+          if (
+            !current ||
+            !floor ||
+            current.bottomCm === undefined ||
+            current.heightCm === undefined ||
+            compareDecimalSums(
+              [exterior.outerBottomElevationCm],
+              [floor.elevationCm, current.bottomCm],
+            ) < 0 ||
+            compareDecimalSums(
+              [exterior.outerTopElevationCm],
+              [floor.elevationCm, current.bottomCm, current.heightCm],
+            ) > 0
+          )
+            return fail('Наружные отметки не могут ослаблять уже сверенные границы проёма.')
+          bottomTerms.push([exterior.outerBottomElevationCm])
+          topTerms.push([exterior.outerTopElevationCm])
+          continue
+        }
         const opening = geometry.openings.find((value) => value.id === binding.opening.id)
         const base = reference?.wallBases.find((value) => value.wall.id === binding.wall.id)
         const floor = reference?.floors.find((value) => value.id === base?.floorId)
@@ -213,7 +300,16 @@ export function inspectTransferWallSolids(geometry: PlanGeometry): TransferWallS
         openingIds: ids,
         bottomTerms: bottomTerms.length === 2 ? bottomTerms : [],
         topTerms: topTerms.length === 2 ? topTerms : [],
-        ...(threshold ? { thresholdElevationCm: threshold.elevationCm } : {}),
+        ...(exterior?.pair === pair
+          ? {
+              thresholdElevationCm: Math.max(
+                exterior.thresholdElevationCm,
+                threshold?.elevationCm ?? -Infinity,
+              ),
+            }
+          : threshold
+            ? { thresholdElevationCm: threshold.elevationCm }
+            : {}),
       })
     }
     if (geometry.walls.some((wall) => !coveredHost(wall, intervals.get(wall.id) ?? [])))

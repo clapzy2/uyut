@@ -47,6 +47,32 @@ function adjoiningRooms() {
 
 describe('exact furniture route connectors', () => {
   const points = (polygon: Polygon) => (polygon[0] ?? []).map(([xCm, yCm]) => ({ xCm, yCm }))
+  it('checks the full initial body before any route work', () => {
+    const blockedVolume = vi.fn(() => true)
+    const result = inspectSourceClearanceRoutes({ ...fixture(), blockedVolume })
+    expect(result.routes).toEqual([])
+    expect(result.checkedNodes).toBe(0)
+    expect(blockedVolume).toHaveBeenCalledExactlyOnceWith([65, 65, 135, 135])
+  })
+  it('rejects an exact off-grid connector that crosses an occupied volume', () => {
+    const input = {
+      freeFloor: [box(0, 0, 300, 200)],
+      rooms: [{ id: 'target', polygon: points(box(0, 0, 300, 200)) }],
+      start: { xCm: 50, yCm: 100 },
+      widthCm: 20,
+      goal: { roomId: 'target', point: { xCm: 250.25, yCm: 100 } },
+      maxNodes: 3,
+    }
+    expect(inspectSourceClearanceRoutes(input).routes).toHaveLength(1)
+    const blockedVolume = vi.fn(
+      ([left, , right]: [number, number, number, number]) => left < 150 && right > 150,
+    )
+    const held = inspectSourceClearanceRoutes({ ...input, blockedVolume })
+    expect(held.routes).toEqual([])
+    expect(blockedVolume.mock.calls.some(([bounds]) => bounds[0] < 150 && bounds[2] > 150)).toBe(
+      true,
+    )
+  })
   it('finishes at an off-grid measured point with independently certified continuous segments', () => {
     const input = fixture()
     const target = { xCm: 310.25, yCm: 104.75 }
@@ -247,6 +273,21 @@ describe('continuous source clearance routes', () => {
       maxNodes: 6000,
     }
   }
+  it('checks the entire quarter-turn square even when both endpoint rectangles are clear', () => {
+    const input = { ...turningRoom(), allowQuarterTurns: true }
+    expect(inspectSourceClearanceRoutes(input).routes).toHaveLength(1)
+    const blockedVolume = vi.fn(
+      ([left, top, right, bottom]: [number, number, number, number]) =>
+        right - left > 125 && bottom - top > 125,
+    )
+    const held = inspectSourceClearanceRoutes({ ...input, blockedVolume })
+    expect(held.routes).toEqual([])
+    expect(
+      blockedVolume.mock.calls.some(
+        ([bounds]) => bounds[2] - bounds[0] > 125 && bounds[3] - bounds[1] > 125,
+      ),
+    ).toBe(true)
+  })
   it('keeps absent and false turn policies exactly compatible with the fixed rectangle', () => {
     const input = { ...fixture(), footprintCm: { widthCm: 120, depthCm: 40 } }
     const fixed = inspectSourceClearanceRoutes(input)

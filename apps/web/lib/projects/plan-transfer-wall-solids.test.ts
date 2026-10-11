@@ -1,7 +1,8 @@
+import { verticalReferenceReviewKey } from '@uyut/catalog/plan-vertical-floor-geometry'
 import type { PlanGeometry, PlanOpeningFacePair, PlanPoint, PlanWallFacePair } from '@uyut/db'
 import polygonClipping, { type Polygon } from 'polygon-clipping'
 import { describe, expect, it } from 'vitest'
-import { inspectTransferWallSolids } from './plan-transfer-wall-solids'
+import { type ExteriorOpeningWitness, inspectTransferWallSolids } from './plan-transfer-wall-solids'
 import { applyPlanVerticalReference } from './plan-vertical-reference'
 
 const point = (xCm: number, yCm: number): PlanPoint => ({ xCm, yCm })
@@ -131,6 +132,81 @@ function surveyed(): PlanGeometry {
 }
 
 describe('conservative transfer wall solids', () => {
+  it.each(['snapshot', 'source-cut'] as const)(
+    'an explicit raw entry witness cannot hide a stale non-entry %s',
+    (mutation) => {
+      let geometry = surveyed()
+      const calibration = required(geometry.pdfCalibration)
+      const internal = required(required(calibration.openingFacePairs)[0])
+      const extra: PlanOpeningFacePair = structuredClone(internal)
+      for (const [index, binding] of extra.bindings.entries()) {
+        binding.opening.id = `raw-entry-${index}`
+        binding.opening.offsetCm = 220
+        binding.opening.widthCm = 30
+        binding.cut = [point(binding.wall.start.xCm, 220), point(binding.wall.start.xCm, 250)]
+        geometry.openings.push(structuredClone(binding.opening))
+      }
+      calibration.sourceOpeningFacePairs = [structuredClone(internal), extra]
+      calibration.openingWidthProofs = extra.bindings.map((binding, index) => ({
+        ...structuredClone(binding),
+        labelIndex: index,
+      }))
+      const originalStrip = firstStrip(geometry)
+      calibration.sourceWallFacePairs = [
+        [0, 100],
+        [200, 220],
+        [250, 300],
+      ].map(([start, end]) => ({
+        ...structuredClone(originalStrip),
+        faces: originalStrip.faces.map((face) => ({
+          ...structuredClone(face),
+          start: point(face.start.xCm, required(start)),
+          end: point(face.end.xCm, required(end)),
+        })) as PlanWallFacePair['faces'],
+        openings: structuredClone(geometry.openings),
+      }))
+      const reference = required(geometry.verticalReference)
+      const accepted = applyPlanVerticalReference(
+        geometry,
+        {
+          version: 1,
+          id: reference.id,
+          kind: reference.kind,
+          zeroFloorId: reference.zeroFloorId,
+          acknowledged: true,
+          floors: reference.floors,
+          ceilings: reference.ceilings,
+          wallBases: reference.wallBases,
+          thresholds: reference.thresholds,
+          source: reference.source,
+        },
+        'test',
+        '2026-10-11T16:00:00.000Z',
+      )
+      if (!accepted.ok) throw new Error(accepted.error)
+      geometry = accepted.geometry
+      const currentCalibration = required(geometry.pdfCalibration)
+      const raw = required(currentCalibration.sourceOpeningFacePairs)
+      const witness = (): ExteriorOpeningWitness => ({
+        pair: required(raw[1]),
+        geometryKey: JSON.stringify(geometry),
+        referenceKey: verticalReferenceReviewKey(required(geometry.verticalReference)),
+        outerOpeningId: 'raw-entry-1',
+        outerBottomElevationCm: 0,
+        outerTopElevationCm: 220,
+        thresholdElevationCm: 0,
+      })
+      expect(inspectTransferWallSolids(geometry, witness()).error).toBeUndefined()
+      const stale = required(raw[0]).bindings[0]
+      if (mutation === 'snapshot') stale.opening.widthCm = 101
+      else required(stale.cut)[1].yCm = 201
+      // Refreshing both request keys cannot turn unrelated stale source evidence current.
+      const held = inspectTransferWallSolids(geometry, witness())
+      expect(held.error).toBeDefined()
+      expect(held.solids).toEqual([])
+      expect(held.openings).toEqual([])
+    },
+  )
   it.each(['height', 'bottom', 'wall-head'] as const)(
     'holds invalid defined vertical metadata instead of emitting clearance terms: %s',
     (field) => {

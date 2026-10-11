@@ -56,6 +56,8 @@ export function inspectSourceClearanceRoutes(input: {
   allowQuarterTurns?: boolean
   /** Additional certificate for raising/tilting at start and landing, not for translations. */
   endpointCheck?: (point: PlanPoint, roomId?: string) => boolean
+  /** True rejects the whole translation/turn envelope, not merely its centre. */
+  blockedVolume?: (bounds: [number, number, number, number]) => boolean
   /** Exact connector destination; absence preserves room-area goals. */
   goal?: { roomId: string; point?: PlanPoint }
   stepCm?: number
@@ -84,6 +86,8 @@ export function inspectSourceClearanceRoutes(input: {
     throw new Error('Некорректная точная конечная точка маршрута')
   if (input.endpointCheck !== undefined && typeof input.endpointCheck !== 'function')
     throw new Error('Некорректная проверка зоны подъёма и установки')
+  if (input.blockedVolume !== undefined && typeof input.blockedVolume !== 'function')
+    throw new Error('Некорректная проверка занятого объёма')
   if (
     footprint !== undefined &&
     (!footprint ||
@@ -194,9 +198,11 @@ export function inspectSourceClearanceRoutes(input: {
     ]
   }
   const clearRectangle = (left: number, top: number, right: number, bottom: number) =>
+    !input.blockedVolume?.([left, top, right, bottom]) &&
     !boundaryBarriers.some((barrier) =>
       intersectsOpenRectangle(barrier, left, top, right, bottom),
-    ) && fits(rectangle(left, top, right, bottom), freeFloor)
+    ) &&
+    fits(rectangle(left, top, right, bottom), freeFloor)
   const base = {
     widthCm: input.widthCm,
     stepCm: step,

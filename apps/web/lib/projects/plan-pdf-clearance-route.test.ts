@@ -191,6 +191,39 @@ function signedFixture(secondLevel = 0, thresholdTop?: number, balcony = false):
   return accepted.geometry
 }
 
+describe('PDF occupied-volume callback', () => {
+  it('forwards the whole initial footprint without admitting a blocked route', () => {
+    const geometry = signedFixture(0, 0)
+    for (const opening of geometry.openings) {
+      opening.bottomCm = 0
+      opening.heightCm = 220
+    }
+    const reference = required(geometry.verticalReference)
+    reference.ceilings = reference.floors.map((floor, index) => ({
+      id: `callback-ceiling-${index}`,
+      floorId: floor.id,
+      elevationCm: 270,
+    }))
+    const body = { widthCm: 20, depthCm: 20, heightCm: 100 }
+    const baseline = inspectPdfClearanceRoutes(geometry, body)
+    expect(baseline.missing).toBeUndefined()
+    expect(baseline.result?.routes).toHaveLength(2)
+    const seen: Array<[number, number, number, number]> = []
+    const held = inspectPdfClearanceRoutes(geometry, {
+      ...body,
+      blockedVolume: (bounds) => {
+        seen.push(bounds)
+        return true
+      },
+    })
+    expect(held.result?.routes).toEqual([])
+    expect(held.result?.checkedNodes).toBe(0)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.[2]).toBeGreaterThan(seen[0]?.[0] ?? Infinity)
+    expect(seen[0]?.[3]).toBeGreaterThan(seen[0]?.[1] ?? Infinity)
+  })
+})
+
 describe('signed continuous floor routes', () => {
   it('checks a proved balcony portal by the same flush-floor conditions', () => {
     expect(inspectPdfClearanceRoutes(signedFixture(0, 0, true)).result?.routes).toHaveLength(2)

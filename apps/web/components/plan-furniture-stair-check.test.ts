@@ -171,7 +171,7 @@ beforeEach(() => {
   })
 })
 function expanded(
-  input: typeof fields | typeof turningFields = fields,
+  input: typeof fields & Record<string, unknown> = fields,
   acknowledged = true,
   response?: ReturnType<typeof inspectFurnitureStairTransfer>,
 ) {
@@ -185,6 +185,203 @@ function expanded(
 }
 
 describe('measured stair transfer form', () => {
+  it('submits measured polygon stations without deriving wedges or changing coordinates', () => {
+    const layout = [
+      {
+        kind: 'landing',
+        polygon: [
+          { xCm: -20, yCm: 0 },
+          { xCm: 140, yCm: 0 },
+          { xCm: 0, yCm: 140 },
+        ],
+        station: { xCm: 20, yCm: 35 },
+        elevationCm: 0,
+        ceilingElevationCm: 360,
+      },
+    ]
+    const input = { ...fields, polygonMode: true, polygonLayoutJson: JSON.stringify(layout) }
+    const tree = expanded(input)
+    elements(tree)
+      .find((item) => item.props.children === 'Проверить марш')
+      ?.props.onClick?.()
+    expect(vi.mocked(inspectFurnitureStairTransfer).mock.calls[0]?.[1]).toMatchObject({
+      version: 3,
+      layout,
+    })
+    const survey = vi.mocked(inspectFurnitureStairTransfer).mock.calls[0]?.[1]
+    expect(survey).not.toHaveProperty('treads')
+    expect(survey).not.toHaveProperty('direction')
+    const html = renderToStaticMarkup(tree)
+    expect(html).toContain('Обмеры полигональных участков (JSON)')
+    expect(html).toContain('центральная пустота не заполняется')
+    expect(html).not.toContain('Длина нижней площадки, см')
+  })
+  it.each([true, false, undefined])(
+    'claims exterior checking only from the completed result flag: %s',
+    (exteriorChecked) => {
+      const input = { ...deliveryFields, exteriorEnabled: true, exteriorJson: '{}' }
+      const snapshot = `${JSON.stringify(deliveryGeometry)}:${JSON.stringify(profileFields)}:${JSON.stringify(input)}`
+      const response = {
+        ...deliveryResponse,
+        result: { ...deliveryResponse.result, exteriorChecked, leavesChecked: exteriorChecked },
+      }
+      vi.mocked(useState)
+        .mockReturnValueOnce([true, vi.fn()])
+        .mockReturnValueOnce([input, vi.fn()])
+        .mockReturnValueOnce([snapshot, vi.fn()])
+        .mockReturnValueOnce([
+          { key: snapshot, response: { result: stairResult, notes: [] }, delivery: response },
+          vi.fn(),
+        ])
+      const html = renderToStaticMarkup(
+        PlanFurnitureStairCheck({ geometry: deliveryGeometry, profileFields }),
+      )
+      expect(html.includes('Единый путь с наружным заносом построен')).toBe(
+        exteriorChecked === true,
+      )
+      expect(html.includes('Обмеренные дверные створки учтены в едином пути')).toBe(
+        exteriorChecked === true,
+      )
+    },
+  )
+  it.each([
+    'exteriorEnabled',
+    'doorLeavesEnabled',
+    'exteriorJson',
+    'doorLeavesJson',
+    'polygonLayoutJson',
+  ])('revokes the acknowledgement and result for %s edits', (field) => {
+    const input = { ...fields, exteriorEnabled: true, doorLeavesEnabled: true, polygonMode: true }
+    const setFields = vi.fn()
+    const setAck = vi.fn()
+    const setChecked = vi.fn()
+    vi.mocked(useState)
+      .mockReturnValueOnce([true, vi.fn()])
+      .mockReturnValueOnce([input, setFields])
+      .mockReturnValueOnce(['old', setAck])
+      .mockReturnValueOnce([undefined, setChecked])
+    const tree = PlanFurnitureStairCheck({ geometry, profileFields })
+    elements(tree)
+      .find((item) => item.props.id === `stair-stair-test-${field}`)
+      ?.props.onChange?.({ currentTarget: { value: '[]', checked: false } })
+    expect(setFields).toHaveBeenCalledTimes(1)
+    expect(setAck).toHaveBeenCalledWith(undefined)
+    expect(setChecked).toHaveBeenCalledWith(undefined)
+  })
+  it.each(['', '{', '{}', 'false', 'null'])(
+    'holds malformed or non-array polygon JSON: %s',
+    (polygonLayoutJson) => {
+      const tree = expanded({ ...fields, polygonMode: true, polygonLayoutJson })
+      elements(tree)
+        .find((item) => item.props.children === 'Проверить марш')
+        ?.props.onClick?.()
+      expect(inspectFurnitureStairTransfer).not.toHaveBeenCalled()
+    },
+  )
+  it.each(['polygonMode', 'turning'])(
+    'switches mutually exclusive stair modes and revokes confirmation: %s',
+    (field) => {
+      const setFields = vi.fn()
+      const setAck = vi.fn()
+      const setChecked = vi.fn()
+      vi.mocked(useState)
+        .mockReturnValueOnce([true, vi.fn()])
+        .mockReturnValueOnce([{ ...fields, turning: true, polygonMode: true }, setFields])
+        .mockReturnValueOnce(['old', setAck])
+        .mockReturnValueOnce([undefined, setChecked])
+      const tree = PlanFurnitureStairCheck({ geometry, profileFields })
+      elements(tree)
+        .find((item) => item.props.id === `stair-stair-test-${field}`)
+        ?.props.onChange?.({ currentTarget: { checked: true } })
+      expect(
+        setFields.mock.calls[0]?.[0]({ ...fields, turning: true, polygonMode: true }),
+      ).toMatchObject({
+        [field]: true,
+        [field === 'turning' ? 'polygonMode' : 'turning']: false,
+      })
+      expect(setAck).toHaveBeenCalledWith(undefined)
+      expect(setChecked).toHaveBeenCalledWith(undefined)
+    },
+  )
+  it('submits access JSON only for the full route and overrides its binding metadata', () => {
+    const exterior = {
+      openingId: 'entry',
+      outside: { start: { xCm: -60, yCm: 40 } },
+      geometryKey: 'forged',
+      acknowledged: false,
+    }
+    const leaves = [{ openingId: 'entry', openAngleDeg: -95, mode: 'fixed-open' }]
+    const input = {
+      ...fields,
+      exteriorEnabled: true,
+      exteriorJson: JSON.stringify(exterior),
+      doorLeavesEnabled: true,
+      doorLeavesJson: JSON.stringify(leaves),
+    }
+    const tree = expanded(input)
+    const nodes = elements(tree)
+    nodes.find((item) => item.props.children === 'Проверить марш')?.props.onClick?.()
+    expect(inspectFurnitureStairTransfer).toHaveBeenCalledTimes(1)
+    expect(inspectFurnitureDeliveryViaStairs).not.toHaveBeenCalled()
+    nodes
+      .find((item) => item.props.children === 'Проверить путь от стартовой двери')
+      ?.props.onClick?.()
+    expect(vi.mocked(inspectFurnitureDeliveryViaStairs).mock.calls[0]?.[4]).toMatchObject({
+      exterior: {
+        openingId: 'entry',
+        geometryKey: JSON.stringify(geometry),
+        version: 1,
+        acknowledged: true,
+        source: { reference: fields.sourceReference },
+      },
+      doorLeaves: { geometryKey: JSON.stringify(geometry), acknowledged: true, leaves },
+    })
+    expect(
+      vi.mocked(inspectFurnitureDeliveryViaStairs).mock.calls[0]?.[4]?.doorLeaves,
+    ).not.toHaveProperty('version')
+    const html = renderToStaticMarkup(tree)
+    expect(html).toContain('outerBottomElevationCm')
+    expect(html).toContain('outerTopElevationCm')
+    expect(html).toContain('corridorCeilingElevationCm')
+    expect(renderToStaticMarkup(tree)).toContain('Кнопка «Проверить марш» их не проверяет')
+  })
+  it.each([
+    { exteriorEnabled: true, exteriorJson: '[]' },
+    { exteriorEnabled: true, exteriorJson: 'null' },
+    { doorLeavesEnabled: true, doorLeavesJson: '{}' },
+    { doorLeavesEnabled: true, doorLeavesJson: '{' },
+  ])('does not call the joint inspector for invalid access JSON: %j', (extra) => {
+    const tree = expanded({ ...fields, ...extra })
+    elements(tree)
+      .find((item) => item.props.children === 'Проверить путь от стартовой двери')
+      ?.props.onClick?.()
+    expect(inspectFurnitureDeliveryViaStairs).not.toHaveBeenCalled()
+  })
+  it('does not coerce truthy strings to access flags', () => {
+    const tree = expanded({
+      ...fields,
+      exteriorEnabled: 'true',
+      exteriorJson: '{}',
+      doorLeavesEnabled: 'true',
+      doorLeavesJson: '[]',
+    })
+    elements(tree)
+      .find((item) => item.props.children === 'Проверить путь от стартовой двери')
+      ?.props.onClick?.()
+    expect(vi.mocked(inspectFurnitureDeliveryViaStairs).mock.calls[0]).toHaveLength(4)
+    expect(renderToStaticMarkup(tree)).not.toContain('Обмеры дверных створок (JSON)')
+  })
+  it('renders polygons and XY stations for the polygon mode rather than a folded elevation chart', () => {
+    const tree = expanded({ ...fields, polygonMode: true, polygonLayoutJson: '[]' }, true, {
+      notes: [],
+      result: stairResult,
+    })
+    const html = renderToStaticMarkup(tree)
+    expect(html).toContain('Локальный путь по полигональному маршу построен')
+    expect(html).toContain('План измеренных участков поворотной лестницы')
+    expect(html).toContain('Проверенная позиция 1: 125, 60, низ 0 см')
+    expect(html).not.toContain('Высотный профиль измеренного марша')
+  })
   it('calls the joint inspector only for the complete-path action, with explicit target and survey', () => {
     vi.mocked(useState)
       .mockReturnValueOnce([true, vi.fn()])

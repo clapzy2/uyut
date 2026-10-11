@@ -1,3 +1,5 @@
+import type { PlanPoint } from '@uyut/db'
+
 /** Directed arithmetic enclosures, not physical fitting tolerances. */
 const SCALE = 10n ** 48n
 type Interval = { lower: bigint; upper: bigint }
@@ -144,4 +146,117 @@ export function tiltedBoxEnvelope(
   const tiltedHeightCm = enclosingNumber(add(multiply(dimension, sin), multiply(height, cos)).upper)
   if (extentCm === undefined || tiltedHeightCm === undefined) return undefined
   return { extentCm, heightCm: tiltedHeightCm }
+}
+
+function signedInterval(value: number): Interval {
+  if (value >= 0) return decimalInterval(value)
+  const positive = decimalInterval(-value)
+  return { lower: -positive.upper, upper: -positive.lower }
+}
+const negate = (value: Interval): Interval => ({ lower: -value.upper, upper: -value.lower })
+function signedMultiply(first: Interval, second: Interval): Interval {
+  const products = [
+    first.lower * second.lower,
+    first.lower * second.upper,
+    first.upper * second.lower,
+    first.upper * second.upper,
+  ]
+  const lower = products.reduce((a, b) => (a < b ? a : b))
+  const upper = products.reduce((a, b) => (a > b ? a : b))
+  return {
+    lower: lower >= 0n ? lower / SCALE : -ceilDivide(-lower, SCALE),
+    upper: upper >= 0n ? ceilDivide(upper, SCALE) : -(-upper / SCALE),
+  }
+}
+function signedTrig(degrees: number) {
+  if (degrees === 0) return { sin: { lower: 0n, upper: 0n }, cos: { lower: SCALE, upper: SCALE } }
+  if (Math.abs(degrees) === 90)
+    return {
+      sin: { lower: degrees > 0 ? SCALE : -SCALE, upper: degrees > 0 ? SCALE : -SCALE },
+      cos: { lower: 0n, upper: 0n },
+    }
+  if (Math.abs(degrees) === 180)
+    return { sin: { lower: 0n, upper: 0n }, cos: { lower: -SCALE, upper: -SCALE } }
+  const original = decimalInterval(Math.abs(degrees))
+  const reduced =
+    Math.abs(degrees) <= 90
+      ? original
+      : subtract({ lower: 180n * SCALE, upper: 180n * SCALE }, original)
+  const radians = divide(multiply(reduced, PI), 180n)
+  const positiveSin = trigInterval(radians, 'sin')
+  const positiveCos = trigInterval(radians, 'cos')
+  return {
+    sin: degrees < 0 ? negate(positiveSin) : positiveSin,
+    cos: Math.abs(degrees) > 90 ? negate(positiveCos) : positiveCos,
+  }
+}
+function directedNumber(bound: bigint, direction: 'up' | 'down'): number | undefined {
+  let candidate = Number(`${bound}e-48`)
+  const view = new DataView(new ArrayBuffer(8))
+  for (let attempt = 0; attempt < 16 && Number.isFinite(candidate); attempt += 1) {
+    const exact = decimalFraction(candidate)
+    const difference = exact.numerator * SCALE - bound * exact.denominator
+    if (direction === 'up' ? difference >= 0n : difference <= 0n) return candidate
+    if (candidate === 0) candidate = direction === 'up' ? Number.MIN_VALUE : -Number.MIN_VALUE
+    else {
+      view.setFloat64(0, candidate)
+      const increment = candidate > 0 === (direction === 'up') ? 1n : -1n
+      view.setBigUint64(0, view.getBigUint64(0) + increment)
+      candidate = view.getFloat64(0)
+    }
+  }
+  return undefined
+}
+
+/** Full-thickness inflated enclosure: measured fixed pose or a conservative full-circle sweep. */
+export function doorLeafBounds(
+  hinge: PlanPoint,
+  closedTip: PlanPoint,
+  thicknessCm: number,
+  angleDeg: number,
+  mode: 'fixed-open' | 'moving',
+): [number, number, number, number] | undefined {
+  if (
+    !hinge ||
+    !closedTip ||
+    ![hinge.xCm, hinge.yCm, closedTip.xCm, closedTip.yCm, thicknessCm, angleDeg].every(
+      Number.isFinite,
+    ) ||
+    thicknessCm <= 0 ||
+    Math.abs(angleDeg) > 180 ||
+    !['fixed-open', 'moving'].includes(mode) ||
+    (hinge.xCm === closedTip.xCm && hinge.yCm === closedTip.yCm)
+  )
+    return undefined
+  const x = signedInterval(hinge.xCm)
+  const y = signedInterval(hinge.yCm)
+  const dx = subtract(signedInterval(closedTip.xCm), x)
+  const dy = subtract(signedInterval(closedTip.yCm), y)
+  const thickness = decimalInterval(thicknessCm)
+  let bounds: [bigint, bigint, bigint, bigint]
+  if (mode === 'moving') {
+    const magnitude = (value: Interval) => {
+      const first = value.lower < 0n ? -value.lower : value.lower
+      const last = value.upper < 0n ? -value.upper : value.upper
+      return first > last ? first : last
+    }
+    const radius = magnitude(dx) + magnitude(dy) + thickness.upper
+    bounds = [x.lower - radius, y.lower - radius, x.upper + radius, y.upper + radius]
+  } else {
+    const { sin, cos } = signedTrig(angleDeg)
+    const tipX = add(x, subtract(signedMultiply(dx, cos), signedMultiply(dy, sin)))
+    const tipY = add(y, add(signedMultiply(dx, sin), signedMultiply(dy, cos)))
+    bounds = [
+      (x.lower < tipX.lower ? x.lower : tipX.lower) - thickness.upper,
+      (y.lower < tipY.lower ? y.lower : tipY.lower) - thickness.upper,
+      (x.upper > tipX.upper ? x.upper : tipX.upper) + thickness.upper,
+      (y.upper > tipY.upper ? y.upper : tipY.upper) + thickness.upper,
+    ]
+  }
+  const [left, top, right, bottom] = bounds.map((bound, index) =>
+    directedNumber(bound, index < 2 ? 'down' : 'up'),
+  )
+  if (left === undefined || top === undefined || right === undefined || bottom === undefined)
+    return undefined
+  return [left, top, right, bottom]
 }

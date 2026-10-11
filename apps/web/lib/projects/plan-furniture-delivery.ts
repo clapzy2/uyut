@@ -4,6 +4,11 @@ import { planOpeningEndpoints } from '@uyut/catalog/plan-threshold-geometry'
 import { signedPlanFloors } from '@uyut/catalog/plan-vertical-floor-geometry'
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import type { Polygon } from 'polygon-clipping'
+import { doorLeafBlocks, inspectFurnitureDoorLeaves } from './plan-furniture-door-leaves'
+import {
+  furnitureExteriorOpeningWitness,
+  inspectFurnitureExteriorIngress,
+} from './plan-furniture-exterior'
 import {
   type FurnitureStairTransferResult,
   furnitureStairSurveySchema,
@@ -24,7 +29,9 @@ type Position = PlanPoint & { zCm: number; orientation?: 0 | 90 }
 export type FurnitureDeliveryResult = {
   points: Position[]
   stairs: FurnitureStairTransferResult
-  segments: { entry: Position[]; stairs: Position[]; exit: Position[] }
+  segments: { entry: Position[]; stairs: Position[]; exit: Position[]; exterior?: Position[] }
+  exteriorChecked?: boolean
+  leavesChecked?: boolean
   targetRoomId: string
   checkedNodes: number
 }
@@ -34,12 +41,13 @@ const samePosition = (first: Position, second: Position) =>
   first.zCm === second.zCm &&
   (first.orientation ?? 0) === (second.orientation ?? 0)
 
-/** Indoor door zone -> measured stair chain -> target room. Exterior ingress is not inferred. */
+/** Continuous measured route; exterior and leaves are opt-in, never inferred. */
 export function inspectFurnitureDeliveryViaStairs(
   geometry: PlanGeometry,
   surveyInput: unknown,
   profile: Profile,
   targetRoomId: string,
+  accessInput?: { exterior?: unknown; doorLeaves?: unknown },
 ): { error?: string; notes: string[]; result?: FurnitureDeliveryResult } {
   const notes = [
     'Проверяется единый внутренний путь от площадки выбранной стартовой двери через обмеренную лестницу до целевой комнаты. Пространство перед дверью, наружный порог и сам внешний занос не объявляются проверенными.',
@@ -50,6 +58,14 @@ export function inspectFurnitureDeliveryViaStairs(
   const fail = (error: string) => ({ error, notes })
   try {
     if (
+      accessInput !== undefined &&
+      (!accessInput ||
+        typeof accessInput !== 'object' ||
+        Array.isArray(accessInput) ||
+        Object.keys(accessInput).some((key) => key !== 'exterior' && key !== 'doorLeaves'))
+    )
+      return fail('Не распознаны включённые обмеры наружного заноса и створок.')
+    if (
       !/^\d+$/u.test(targetRoomId) ||
       String(Number(targetRoomId)) !== targetRoomId ||
       !geometry.rooms[Number(targetRoomId)]
@@ -57,7 +73,32 @@ export function inspectFurnitureDeliveryViaStairs(
       return fail('Выберите существующую целевую комнату.')
     const parsed = furnitureStairSurveySchema.safeParse(surveyInput)
     if (!parsed.success) return fail('Сначала нужны полные подтверждённые обмеры лестницы.')
-    const stairResponse = inspectFurnitureStairTransfer(geometry, surveyInput, profile)
+    const exteriorRequested = accessInput?.exterior !== undefined
+    const leavesRequested = accessInput?.doorLeaves !== undefined
+    if (exteriorRequested && !leavesRequested)
+      return fail('Для наружного заноса нужны подтверждённые обмеры всех дверных створок.')
+    const leaves = leavesRequested
+      ? inspectFurnitureDoorLeaves(geometry, accessInput?.doorLeaves)
+      : undefined
+    if (leaves?.error) return fail(leaves.error)
+    const exteriorOpeningWitness = exteriorRequested
+      ? furnitureExteriorOpeningWitness(geometry, accessInput?.exterior)
+      : undefined
+    const blockedVolume = leaves
+      ? (bounds: [number, number, number, number], bottom: number, top: number) =>
+          doorLeafBlocks(leaves.volumes, bounds, bottom, top)
+      : undefined
+    if (leaves)
+      notes[3] =
+        'Проверяются измеренные объёмы всех дверных створок: фиксированная открытая поза либо консервативный объём всего движения. Открывание, удержание двери и усилия не проверяются.'
+    const stairResponse = inspectFurnitureStairTransfer(
+      geometry,
+      surveyInput,
+      profile,
+      blockedVolume || exteriorOpeningWitness
+        ? { blockedVolume, exteriorOpeningWitness }
+        : undefined,
+    )
     if (!stairResponse.result)
       return fail(stairResponse.error ?? 'Путь по лестнице не подтверждён.')
     const stairs = stairResponse.result
@@ -105,7 +146,7 @@ export function inspectFurnitureDeliveryViaStairs(
     const absolute = (value: bigint) => (value < 0n ? -value : value)
     if (dimensions.x * absolute(dx) + dimensions.y * absolute(dy) > dx * dx + dy * dy)
       return fail('Проекция вертикального габарита шире подтверждённого стартового проёма.')
-    const wallModel = inspectTransferWallSolids(geometry)
+    const wallModel = inspectTransferWallSolids(geometry, exteriorOpeningWitness)
     if (wallModel.error) return fail(wallModel.error)
     const solidsAt = (base: number): Polygon[] => [
       ...wallModel.solids,
@@ -127,7 +168,14 @@ export function inspectFurnitureDeliveryViaStairs(
     const entryInspection = inspectPdfClearanceRoutes(geometry, {
       ...body,
       goal: { roomId: String(firstRoom), point: start },
+      ...(exteriorOpeningWitness ? { exteriorOpeningWitness } : {}),
       extraSolids: solidsAt(start.zCm),
+      ...(blockedVolume
+        ? {
+            blockedVolume: (bounds: [number, number, number, number]) =>
+              blockedVolume(bounds, start.zCm, enclosingDecimalSum([start.zCm, body.heightCm])),
+          }
+        : {}),
       maxNodes: budget - stairWork,
     })
     const before = entryInspection.result?.routes.find(
@@ -145,14 +193,45 @@ export function inspectFurnitureDeliveryViaStairs(
     }))
     if (!entry.at(-1) || !samePosition(entry.at(-1) as Position, start))
       return fail('Участок от двери не совпадает с началом лестницы по X/Y/Z.')
-    const remaining = budget - stairWork - (entryInspection.result?.checkedNodes ?? budget)
+    let remaining = budget - stairWork - (entryInspection.result?.checkedNodes ?? budget)
+    if (remaining < 1) return fail('Исчерпан общий бюджет проверки переноса.')
+    const exteriorInspection =
+      exteriorRequested && entry[0] && leaves
+        ? inspectFurnitureExteriorIngress(
+            geometry,
+            accessInput?.exterior,
+            body,
+            entry[0],
+            leaves.volumes,
+            remaining - 1,
+          )
+        : undefined
+    if (exteriorRequested && !exteriorInspection?.points)
+      return fail(exteriorInspection?.error ?? 'Не подтверждён непрерывный наружный занос.')
+    const exterior = exteriorInspection?.points?.map((point) => ({
+      ...point,
+      ...(survey.allowQuarterTurns ? { orientation: 0 as const } : {}),
+    }))
+    if (
+      exterior &&
+      (!exterior.at(-1) || !entry[0] || !samePosition(exterior.at(-1) as Position, entry[0]))
+    )
+      return fail('Наружный занос не совпадает с внутренним путём по X/Y/Z и положению мебели.')
+    remaining -= exteriorInspection?.checkedNodes ?? 0
     if (remaining < 1) return fail('Исчерпан общий бюджет проверки переноса.')
     const exitInspection = inspectPdfClearanceRoutes(geometry, {
       ...body,
       ...(end.orientation === 90 ? { widthCm: body.depthCm, depthCm: body.widthCm } : {}),
       origin: { point: end, floorId: finalFloorId },
+      ...(exteriorOpeningWitness ? { exteriorOpeningWitness } : {}),
       goal: { roomId: targetRoomId },
       extraSolids: solidsAt(end.zCm),
+      ...(blockedVolume
+        ? {
+            blockedVolume: (bounds: [number, number, number, number]) =>
+              blockedVolume(bounds, end.zCm, enclosingDecimalSum([end.zCm, body.heightCm])),
+          }
+        : {}),
       maxNodes: remaining,
     })
     const after = exitInspection.result?.routes.find(
@@ -170,16 +249,27 @@ export function inspectFurnitureDeliveryViaStairs(
     }))
     if (!exit[0] || !samePosition(end, exit[0]))
       return fail('Конец лестницы не совпадает с продолжением по X/Y/Z.')
-    const points = [...entry, ...stairs.points.slice(1), ...exit.slice(1)]
+    const points = [
+      ...(exterior ?? entry),
+      ...(exterior ? entry.slice(1) : []),
+      ...stairs.points.slice(1),
+      ...exit.slice(1),
+    ]
+    if (exterior)
+      notes[0] =
+        'Проверяется единый путь от измеренной наружной площадки через обе грани дверного блока, обмеренную лестницу и до целевой комнаты. Подход до наружной площадки не включён.'
     return {
       notes,
       result: {
         points,
         stairs,
-        segments: { entry, stairs: stairs.points, exit },
+        segments: { entry, stairs: stairs.points, exit, ...(exterior ? { exterior } : {}) },
+        ...(exterior ? { exteriorChecked: true } : {}),
+        ...(leaves ? { leavesChecked: true } : {}),
         targetRoomId,
         checkedNodes:
           stairWork +
+          (exteriorInspection?.checkedNodes ?? 0) +
           (entryInspection.result?.checkedNodes ?? 0) +
           (exitInspection.result?.checkedNodes ?? 0),
       },

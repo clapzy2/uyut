@@ -1,4 +1,12 @@
-import { compareDecimalSums } from '@uyut/catalog/plan-exact-geometry'
+import {
+  compareDecimalSums,
+  cross,
+  type IntegerPoint,
+  integerPoints,
+  onIntegerSegment,
+  sign,
+  vector,
+} from '@uyut/catalog/plan-exact-geometry'
 import {
   signedElevationSum,
   signedPlanFloors,
@@ -13,7 +21,7 @@ import {
   enclosingTurnBounds,
   enclosingTurnSide,
 } from './plan-transfer-enclosure'
-import { inspectTransferWallSolids } from './plan-transfer-wall-solids'
+import { type ExteriorOpeningWitness, inspectTransferWallSolids } from './plan-transfer-wall-solids'
 
 const length = z.number().finite().positive().max(10000)
 const coordinate = z.number().finite().min(0).max(10000)
@@ -90,9 +98,46 @@ const turningStairSurveySchema = straightStairSurveyObject
   .strict()
   .refine((value) => value.tilt !== 'none' || value.angleDeg === undefined || value.angleDeg === 0)
 
+const polygonStairSurveySchema = straightStairSurveyObject
+  .omit({
+    direction: true,
+    startCm: true,
+    crossStartCm: true,
+    widthCm: true,
+    lowerLandingLengthCm: true,
+    upperLandingLengthCm: true,
+    lowerLandingCeilingCm: true,
+    upperLandingCeilingCm: true,
+    treads: true,
+  })
+  .extend({
+    version: z.literal(3),
+    layout: z
+      .array(
+        z
+          .object({
+            kind: z.enum(['landing', 'tread']),
+            polygon: z
+              .array(z.object({ xCm: coordinate, yCm: coordinate }).strict())
+              .min(3)
+              .max(32),
+            station: z.object({ xCm: coordinate, yCm: coordinate }).strict(),
+            elevationCm: elevation,
+            ceilingElevationCm: ceiling,
+          })
+          .strict(),
+      )
+      .min(3)
+      .max(128),
+  })
+  .strict()
+  .refine((value) => value.layout.reduce((count, item) => count + item.polygon.length, 0) <= 2048)
+  .refine((value) => value.tilt !== 'none' || value.angleDeg === undefined || value.angleDeg === 0)
+
 export const furnitureStairSurveySchema = z.union([
   straightStairSurveySchema,
   turningStairSurveySchema,
+  polygonStairSurveySchema,
 ])
 export type FurnitureStairSurvey = z.infer<typeof furnitureStairSurveySchema>
 type Profile = {
@@ -115,6 +160,7 @@ type Region = {
   kind: 'landing' | 'tread'
   index: number
   polygon: PlanPoint[]
+  station?: PlanPoint
   elevationCm: number
   ceilingElevationCm: number
 }
@@ -150,6 +196,80 @@ function rectangle(left: number, top: number, right: number, bottom: number): Pl
     { xCm: left, yCm: bottom },
   ]
 }
+function segmentsTouch(a: IntegerPoint, b: IntegerPoint, c: IntegerPoint, d: IntegerPoint) {
+  const ab = vector(a, b)
+  const cd = vector(c, d)
+  return (
+    onIntegerSegment(c, a, b) ||
+    onIntegerSegment(d, a, b) ||
+    onIntegerSegment(a, c, d) ||
+    onIntegerSegment(b, c, d) ||
+    (sign(cross(ab, vector(a, c))) * sign(cross(ab, vector(a, d))) < 0 &&
+      sign(cross(cd, vector(c, a))) * sign(cross(cd, vector(c, b))) < 0)
+  )
+}
+
+/** Decimal-exact topology: no snapping across gaps or self-crossing survey edges. */
+export function simpleSurveyRing(points: PlanPoint[]): boolean {
+  const ring = integerPoints(points)
+  let area = 0n
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i] as IntegerPoint
+    const b = ring[(i + 1) % ring.length] as IntegerPoint
+    if (a.x === b.x && a.y === b.y) return false
+    area += cross(a, b)
+    const c = ring[(i + 2) % ring.length] as IntegerPoint
+    if (
+      cross(vector(a, b), vector(b, c)) === 0n &&
+      (onIntegerSegment(c, a, b) || onIntegerSegment(a, b, c))
+    )
+      return false
+    for (let j = i + 1; j < ring.length; j++) {
+      if (j === i + 1 || (i === 0 && j === ring.length - 1)) continue
+      if (segmentsTouch(a, b, ring[j] as IntegerPoint, ring[(j + 1) % ring.length] as IntegerPoint))
+        return false
+    }
+  }
+  return area !== 0n
+}
+
+function sharesSurveyEdge(left: PlanPoint[], right: PlanPoint[]): boolean {
+  const points = integerPoints([...left, ...right])
+  const first = points.slice(0, left.length)
+  const second = points.slice(left.length)
+  return first.some((a, i) => {
+    const b = first[(i + 1) % first.length] as IntegerPoint
+    return second.some((c, j) => {
+      const d = second[(j + 1) % second.length] as IntegerPoint
+      const direction = vector(a, b)
+      if (cross(direction, vector(a, c)) !== 0n || cross(direction, vector(a, d)) !== 0n)
+        return false
+      const axis = direction.x !== 0n ? 'x' : 'y'
+      const min = (x: bigint, y: bigint) => (x < y ? x : y)
+      const max = (x: bigint, y: bigint) => (x > y ? x : y)
+      return (
+        max(min(a[axis], b[axis]), min(c[axis], d[axis])) <
+        min(max(a[axis], b[axis]), max(c[axis], d[axis]))
+      )
+    })
+  })
+}
+
+function ownsSurveyStation(ring: PlanPoint[], station: PlanPoint): boolean {
+  const integers = integerPoints([...ring, station])
+  const point = integers.pop() as IntegerPoint
+  let winding = 0
+  for (let i = 0; i < integers.length; i++) {
+    const a = integers[i] as IntegerPoint
+    const b = integers[(i + 1) % integers.length] as IntegerPoint
+    if (onIntegerSegment(point, a, b)) return true
+    const side = cross(vector(a, b), vector(a, point))
+    if (a.y <= point.y && b.y > point.y && side > 0n) winding++
+    if (a.y > point.y && b.y <= point.y && side < 0n) winding--
+  }
+  return winding !== 0
+}
+
 function exactSum(values: number[]): number {
   const result = values.reduce(signedElevationSum, 0)
   if (!Number.isFinite(result) || compareDecimalSums([result], values) !== 0)
@@ -174,6 +294,14 @@ export function inspectFurnitureStairTransfer(
   geometry: PlanGeometry,
   input: unknown,
   profile: Profile,
+  options?: {
+    exteriorOpeningWitness?: ExteriorOpeningWitness
+    blockedVolume?: (
+      bounds: [number, number, number, number],
+      bottom: number,
+      top: number,
+    ) => boolean
+  },
 ): { error?: string; notes: string[]; result?: FurnitureStairTransferResult } {
   const notes = [
     'Проверяется только явно обмеренный прямой марш и две площадки. Это отдельный локальный путь, а не доставка от входной двери квартиры.',
@@ -214,6 +342,12 @@ export function inspectFurnitureStairTransfer(
       'Проверяется явно обмеренная цепочка прямых участков и поворотных площадок. Это локальный путь между двумя полами; общий маршрут требует отдельного соединения с входом.'
     notes[2] =
       'Поворотные участки задаются отдельными прямоугольными площадками. Винтовые, диагональные и многоэтажные перекрывающиеся контуры не достраиваются; отказ не доказывает невозможность переноса.'
+  }
+  if (survey.version === 3) {
+    notes[0] =
+      'Проверяется обмеренная цепочка многоугольных ступеней и площадок с явно заданными точками переноса, включая забежные и один неперекрывающийся виток винтовой лестницы.'
+    notes[2] =
+      'Радиус и число ступеней не создают геометрию. Перекрывающиеся в плане витки не поддерживаются. Проверяется консервативный полный прямоугольный габарит; отказ не доказывает невозможность переноса.'
   }
   const geometryKey = furnitureStairGeometryKey(geometry)
   if (
@@ -257,10 +391,13 @@ export function inspectFurnitureStairTransfer(
   }
   try {
     const regions: Region[] = []
-    if (survey.version === 2) {
+    if (survey.version !== 1) {
       for (const [index, item] of survey.layout.entries()) {
+        if (survey.version === 3 && !simpleSurveyRing(item.polygon))
+          return fail('Нужны простые ненулевые обмеренные многоугольники без самопересечений.')
         const [a, b, c, d] = item.polygon as [PlanPoint, PlanPoint, PlanPoint, PlanPoint]
         if (
+          survey.version === 2 &&
           !(
             a.xCm < c.xCm &&
             a.yCm < c.yCm &&
@@ -285,10 +422,12 @@ export function inspectFurnitureStairTransfer(
           const p = previous.polygon[0] as PlanPoint
           const q = previous.polygon[2] as PlanPoint
           const connected =
-            ((a.xCm === q.xCm || c.xCm === p.xCm) &&
-              Math.max(a.yCm, p.yCm) < Math.min(c.yCm, q.yCm)) ||
-            ((a.yCm === q.yCm || c.yCm === p.yCm) &&
-              Math.max(a.xCm, p.xCm) < Math.min(c.xCm, q.xCm))
+            survey.version === 3
+              ? sharesSurveyEdge(previous.polygon, item.polygon)
+              : ((a.xCm === q.xCm || c.xCm === p.xCm) &&
+                  Math.max(a.yCm, p.yCm) < Math.min(c.yCm, q.yCm)) ||
+                ((a.yCm === q.yCm || c.yCm === p.yCm) &&
+                  Math.max(a.xCm, p.xCm) < Math.min(c.xCm, q.xCm))
           if (!connected)
             return fail(
               'Соседние обмеренные участки должны иметь общую ненулевую грань; пробелы и касания углами не соединяются.',
@@ -386,7 +525,7 @@ export function inspectFurnitureStairTransfer(
         )
       if (
         (region.kind === 'tread' ||
-          (survey.version === 2 && region !== firstRegion && region !== lastRegion)) &&
+          (survey.version !== 1 && region !== firstRegion && region !== lastRegion)) &&
         signed.reference.floors.some(
           (floor) =>
             polygonClipping.intersection(regionBody, polygon(floor.room.polygon)).length > 0,
@@ -444,10 +583,17 @@ export function inspectFurnitureStairTransfer(
         ),
       ),
     )
-    const walls = inspectTransferWallSolids(geometry)
+    const walls = inspectTransferWallSolids(geometry, options?.exteriorOpeningWitness)
     if (walls.error) return fail(walls.error)
     const touched = (bounds: ReturnType<typeof bodyBounds>) =>
       regions.filter((region) => {
+        if (survey.version === 3)
+          return (
+            polygonClipping.intersection(
+              polygon(rectangle(bounds.leftCm, bounds.topCm, bounds.rightCm, bounds.bottomCm)),
+              polygon(region.polygon),
+            ).length > 0
+          )
         const box = region.polygon
         const a = box[0] as PlanPoint
         const b = box[2] as PlanPoint
@@ -469,13 +615,22 @@ export function inspectFurnitureStairTransfer(
       }
     }
     const allowTurns = survey.allowQuarterTurns === true
+    const chargeWork = allowTurns || options?.blockedVolume !== undefined
     let checkedStages = 0
     const certify = (bounds: Bounds) => {
-      if (allowTurns) {
+      if (chargeWork) {
         if (checkedStages >= 6000)
           throw new Error('Исчерпан общий бюджет проверки манёвров лестницы.')
         checkedStages += 1
       }
+      if (
+        options?.blockedVolume?.(
+          [bounds.leftCm, bounds.topCm, bounds.rightCm, bounds.bottomCm],
+          bounds.bottomElevationCm,
+          bounds.topElevationCm,
+        )
+      )
+        throw new Error('Проверяемый объём пересекает обмеренную дверную створку или её движение.')
       const body = polygon(rectangle(bounds.leftCm, bounds.topCm, bounds.rightCm, bounds.bottomCm))
       const blockedOpenings = walls.openings.filter(
         (opening) =>
@@ -521,6 +676,12 @@ export function inspectFurnitureStairTransfer(
       ])
     }
     const centre = (region: Region): PlanPoint => {
+      if (survey.version === 3) {
+        if (!region.station) throw new Error('Нужна обмеренная точка переноса каждого участка.')
+        if (!ownsSurveyStation(region.polygon, region.station))
+          throw new Error('Точка переноса не принадлежит своему обмеренному участку.')
+        return region.station
+      }
       const first = region.polygon[0]
       const opposite = region.polygon[2]
       if (!first || !opposite) throw new Error('Не найдены измеренные границы площадки.')
@@ -587,6 +748,7 @@ export function inspectFurnitureStairTransfer(
         const pointCount = points.length
         let accepted = false
         for (const corner of [
+          ...(survey.version === 3 ? [target] : []),
           { xCm: target.xCm, yCm: origin.yCm },
           { xCm: origin.xCm, yCm: target.yCm },
         ]) {
@@ -595,7 +757,7 @@ export function inspectFurnitureStairTransfer(
           points.length = pointCount
           try {
             translateTo(corner)
-            translateTo(target)
+            if (corner.xCm !== target.xCm || corner.yCm !== target.yCm) translateTo(target)
             accepted = true
             break
           } catch {
@@ -649,6 +811,7 @@ export function inspectFurnitureStairTransfer(
             origin.xCm === target.xCm || origin.yCm === target.yCm
               ? [target]
               : [
+                  ...(survey.version === 3 ? [target] : []),
                   { xCm: target.xCm, yCm: origin.yCm },
                   { xCm: origin.xCm, yCm: target.yCm },
                 ]
@@ -750,7 +913,7 @@ export function inspectFurnitureStairTransfer(
         regions,
         points,
         stages,
-        ...(allowTurns ? { checkedStages } : {}),
+        ...(chargeWork ? { checkedStages } : {}),
       },
     }
   } catch (error) {

@@ -247,6 +247,117 @@ function turningDeliveryFixture() {
   return { geometry: current, input, profile: furniture }
 }
 
+/** Real raw exterior source pair; the outside floor stays outside apartment rooms. */
+function pairedExteriorDeliveryFixture() {
+  const geometry = fixture()
+  const inner = required(geometry.openings[0])
+  const outerWall = required(geometry.walls[1])
+  const outer = { ...structuredClone(inner), id: 'outer-entry', wallId: outerWall.id }
+  geometry.openings.push(outer)
+  const calibration = required(geometry.pdfCalibration)
+  const proof = required(calibration.openingWidthProofs?.[0])
+  const oppositeBinding = {
+    opening: structuredClone(outer),
+    wall: structuredClone(outerWall),
+    cut: [point(70, -20), point(180, -20)] as [PlanPoint, PlanPoint],
+  }
+  proof.oppositeBinding = oppositeBinding
+  calibration.sourceOpeningFacePairs = [
+    {
+      bindings: [structuredClone(proof), structuredClone(oppositeBinding)],
+      jambs: [
+        { operationIndex: 2, subpathIndex: 0, segmentIndex: 0 },
+        { operationIndex: 2, subpathIndex: 0, segmentIndex: 1 },
+      ],
+    },
+  ]
+  const full = required(calibration.sourceWallFacePairs?.[0])
+  calibration.sourceWallFacePairs = [
+    [0, 70],
+    [180, 250],
+  ].map(([left, right], index) => ({
+    faces: full.faces.map((face) => ({
+      ...structuredClone(face),
+      start: point(required(left), face.start.yCm),
+      end: point(required(right), face.end.yCm),
+      nativeSegment: { ...face.nativeSegment, operationIndex: 3 + index },
+    })) as PlanWallFacePair['faces'],
+    openings: structuredClone(geometry.openings),
+  }))
+  const reference = required(geometry.verticalReference)
+  const accepted = applyPlanVerticalReference(
+    geometry,
+    {
+      version: 1,
+      id: reference.id,
+      kind: reference.kind,
+      zeroFloorId: reference.zeroFloorId,
+      acknowledged: true,
+      floors: reference.floors,
+      ceilings: reference.ceilings,
+      wallBases: reference.wallBases,
+      thresholds: reference.thresholds,
+      source: reference.source,
+    },
+    'test-surveyor',
+    '2026-10-11T15:20:00.000Z',
+  )
+  if (!accepted.ok) throw new Error(accepted.error)
+  return accepted.geometry
+}
+
+function exteriorAccess(geometry: PlanGeometry) {
+  const geometryKey = JSON.stringify(geometry)
+  const referenceKey = verticalReferenceReviewKey(required(geometry.verticalReference))
+  return {
+    exterior: {
+      version: 1 as const,
+      geometryKey,
+      referenceKey,
+      source: {
+        kind: 'site-measurement' as const,
+        reference: 'Synthetic exterior landing and measured aperture',
+      },
+      acknowledged: true as const,
+      openingId: 'entry',
+      outerWallId: 'entry-back',
+      outerCut: [point(70, -20), point(180, -20)] as [PlanPoint, PlanPoint],
+      outerBottomElevationCm: 0,
+      outerTopElevationCm: 220,
+      corridorCeilingElevationCm: 220,
+      thresholdElevationCm: 5,
+      carryElevationCm: 10,
+      outside: {
+        polygon: box(0, -320, 250, -20),
+        start: point(125, -150),
+        elevationCm: -10,
+        ceilingElevationCm: 360,
+      },
+    },
+    doorLeaves: {
+      geometryKey,
+      referenceKey,
+      source: {
+        kind: 'site-measurement' as const,
+        reference: 'Synthetic fixed entry leaf including hardware',
+      },
+      acknowledged: true as const,
+      leaves: [
+        {
+          openingId: 'entry',
+          hinge: point(70, 0),
+          closedTip: point(180, 0),
+          thicknessCm: 3,
+          bottomElevationCm: 0,
+          topElevationCm: 210,
+          openAngleDeg: 90,
+          mode: 'fixed-open' as 'fixed-open' | 'moving',
+        },
+      ],
+    },
+  }
+}
+
 describe('continuous indoor delivery through a measured stair flight', () => {
   it('preserves a certified stair yaw through a narrow-room exit and charges the shared work budget', () => {
     const { geometry, input, profile: furniture } = turningDeliveryFixture()
@@ -436,5 +547,177 @@ describe('continuous indoor delivery through a measured stair flight', () => {
       goal: { roomId: '1' },
     })
     expect(inspected.result?.routes.some((route) => route.roomId === '1') ?? false).toBe(false)
+  })
+})
+
+describe('continuous exterior-door-stair-room furniture delivery', () => {
+  it('carries a real paired exterior source gate through stairs and both PDF connectors', () => {
+    const geometry = pairedExteriorDeliveryFixture()
+    const access = exteriorAccess(geometry)
+    const before = structuredClone({ geometry, access })
+    // Without the explicit external witness, the unowned outer source face
+    // remains held rather than being assigned an invented indoor floor.
+    expect(
+      inspectFurnitureDeliveryViaStairs(geometry, survey(geometry), profile, '1').result,
+    ).toBeUndefined()
+    const response = inspectFurnitureDeliveryViaStairs(
+      geometry,
+      survey(geometry),
+      profile,
+      '1',
+      access,
+    )
+    expect(response.error).toBeUndefined()
+    const result = required(response.result)
+    expect(result.exteriorChecked).toBe(true)
+    expect(result.leavesChecked).toBe(true)
+    expect(required(result.segments.exterior).at(-1)).toEqual(result.segments.entry[0])
+    expect(result.segments.entry.at(-1)).toEqual(result.segments.stairs[0])
+    expect(result.segments.stairs.at(-1)).toEqual(result.segments.exit[0])
+    expect(result.checkedNodes).toBeLessThanOrEqual(6000)
+    expect({ geometry, access }).toEqual(before)
+  })
+
+  it('rejects low, stale or loosening witnesses for a real paired exterior gate', () => {
+    const geometry = pairedExteriorDeliveryFixture()
+    const access = exteriorAccess(geometry)
+    for (const exterior of [
+      { ...access.exterior, outerTopElevationCm: 179.999 },
+      { ...access.exterior, outerTopElevationCm: 220.001 },
+      { ...access.exterior, outerBottomElevationCm: -0.001 },
+      { ...access.exterior, geometryKey: 'stale' },
+      { ...access.exterior, referenceKey: 'stale' },
+      { ...access.exterior, outerCut: [point(71, -20), point(181, -20)] },
+    ]) {
+      expect(
+        inspectFurnitureDeliveryViaStairs(geometry, survey(geometry), profile, '1', {
+          ...access,
+          exterior,
+        }).result,
+      ).toBeUndefined()
+    }
+  })
+
+  it('joins all measured segments with common work budget and no position jump', () => {
+    const geometry = fixture()
+    const access = exteriorAccess(geometry)
+    const response = inspectFurnitureDeliveryViaStairs(
+      geometry,
+      survey(geometry),
+      profile,
+      '1',
+      access,
+    )
+    expect(response.error).toBeUndefined()
+    const result = required(response.result)
+    expect(result.exteriorChecked).toBe(true)
+    expect(result.leavesChecked).toBe(true)
+    expect(required(result.segments.exterior).at(-1)).toEqual(result.segments.entry[0])
+    expect(result.points[0]).toMatchObject({ xCm: 125, yCm: -150, zCm: -10 })
+    expect(result.segments.entry.at(-1)).toEqual(result.segments.stairs[0])
+    expect(result.segments.stairs.at(-1)).toEqual(result.segments.exit[0])
+    expect(result.points.at(-1)).toEqual(result.segments.exit.at(-1))
+    expect(result.checkedNodes).toBeLessThanOrEqual(6000)
+    expect(result.checkedNodes).toBeGreaterThan(
+      result.stairs.checkedStages ?? result.stairs.stages.length,
+    )
+  })
+
+  it('does not change the legacy indoor result when access is absent', () => {
+    const geometry = fixture()
+    const first = inspectFurnitureDeliveryViaStairs(geometry, survey(geometry), profile, '1')
+    const second = inspectFurnitureDeliveryViaStairs(
+      geometry,
+      survey(geometry),
+      profile,
+      '1',
+      undefined,
+    )
+    expect(second).toEqual(first)
+    expect(first.result?.points[0]?.yCm).toBeGreaterThanOrEqual(0)
+  })
+
+  it('can explicitly check leaves on an indoor-only route without claiming exterior ingress', () => {
+    const geometry = fixture()
+    const access = exteriorAccess(geometry)
+    const response = inspectFurnitureDeliveryViaStairs(geometry, survey(geometry), profile, '1', {
+      doorLeaves: access.doorLeaves,
+    })
+    expect(response.error).toBeUndefined()
+    expect(response.result?.leavesChecked).toBe(true)
+    expect(response.result?.exteriorChecked).not.toBe(true)
+    expect(response.result?.segments.exterior).toBeUndefined()
+  })
+
+  it.each(['fixed-open', 'moving'] as const)(
+    'blocks closed or moving door poses across the whole route (%s)',
+    (mode) => {
+      const geometry = fixture()
+      const access = exteriorAccess(geometry)
+      const leaf = required(access.doorLeaves.leaves[0])
+      leaf.mode = mode
+      leaf.openAngleDeg = mode === 'fixed-open' ? 0 : 90
+      expect(
+        inspectFurnitureDeliveryViaStairs(geometry, survey(geometry), profile, '1', access).result,
+      ).toBeUndefined()
+    },
+  )
+
+  it('rejects incomplete or stale exterior and leaf surveys without producing a partial route', () => {
+    const geometry = fixture()
+    const access = exteriorAccess(geometry)
+    for (const input of [
+      { exterior: access.exterior },
+      { ...access, exterior: { ...access.exterior, geometryKey: 'stale' } },
+      { ...access, exterior: { ...access.exterior, referenceKey: 'stale' } },
+      { ...access, doorLeaves: { ...access.doorLeaves, geometryKey: 'stale' } },
+      { ...access, doorLeaves: { ...access.doorLeaves, referenceKey: 'stale' } },
+      { ...access, doorLeaves: { ...access.doorLeaves, leaves: [] } },
+    ]) {
+      expect(
+        inspectFurnitureDeliveryViaStairs(geometry, survey(geometry), profile, '1', input).result,
+      ).toBeUndefined()
+    }
+  })
+
+  it('holds low exterior roof or outer jamb head even when the indoor door and stairs fit', () => {
+    const geometry = fixture()
+    expect(
+      inspectFurnitureDeliveryViaStairs(geometry, survey(geometry), profile, '1').error,
+    ).toBeUndefined()
+    const access = exteriorAccess(geometry)
+    access.exterior.outerTopElevationCm = 179.999
+    expect(
+      inspectFurnitureDeliveryViaStairs(geometry, survey(geometry), profile, '1', access).result,
+    ).toBeUndefined()
+    access.exterior.outerTopElevationCm = 220
+    access.exterior.outside.ceilingElevationCm = 179.999
+    expect(
+      inspectFurnitureDeliveryViaStairs(geometry, survey(geometry), profile, '1', access).result,
+    ).toBeUndefined()
+  })
+
+  it('checks a leaf during the full stair translation, not just at its endpoints', () => {
+    const geometry = fixture()
+    const access = exteriorAccess(geometry)
+    // A separately measured wider leaf is fixed parallel to Y at X=180. The
+    // entry connector at X=125 is clear; the first stair translation crosses it.
+    Object.assign(required(access.doorLeaves.leaves[0]), {
+      hinge: point(180, 0),
+      closedTip: point(20, 0),
+      openAngleDeg: -90,
+    })
+    expect(
+      inspectFurnitureDeliveryViaStairs(geometry, survey(geometry), profile, '1').error,
+    ).toBeUndefined()
+    const response = inspectFurnitureDeliveryViaStairs(
+      geometry,
+      survey(geometry),
+      profile,
+      '1',
+      access,
+    )
+    expect(response.result).toBeUndefined()
+    expect(response.error).toBeDefined()
   })
 })

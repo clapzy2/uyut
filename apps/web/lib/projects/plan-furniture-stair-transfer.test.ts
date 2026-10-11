@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   type FurnitureStairSurvey,
   furnitureStairGeometryKey,
+  furnitureStairSurveySchema,
   inspectFurnitureStairTransfer,
 } from './plan-furniture-stair-transfer'
 import { applyPlanVerticalReference } from './plan-vertical-reference'
@@ -193,6 +194,256 @@ function turningFixture(uTurn = false, turnWidth = 160) {
   }
   return { geometry: result, input }
 }
+
+/** Synthetic tape-survey sectors, not a radius-generated estimate of a real staircase. */
+function polygonFixture(sectorCount = 8) {
+  const outer = [
+    [580, 400],
+    [540, 540],
+    [400, 580],
+    [260, 540],
+    [220, 400],
+    [260, 260],
+    [400, 220],
+    [540, 260],
+  ].map(([xCm, yCm]) => ({ xCm: required(xCm), yCm: required(yCm) }))
+  const inner = [
+    [460, 400],
+    [445, 445],
+    [400, 460],
+    [355, 445],
+    [340, 400],
+    [355, 355],
+    [400, 340],
+    [445, 355],
+  ].map(([xCm, yCm]) => ({ xCm: required(xCm), yCm: required(yCm) }))
+  const layout: Extract<FurnitureStairSurvey, { version: 3 }>['layout'] = Array.from(
+    { length: sectorCount },
+    (_, index) => {
+      const next = (index + 1) % 8
+      const polygon = [
+        required(inner[index]),
+        required(outer[index]),
+        required(outer[next]),
+        required(inner[next]),
+      ]
+      return {
+        kind: index === 0 || index === sectorCount - 1 ? 'landing' : 'tread',
+        polygon,
+        station: {
+          xCm: polygon.reduce((sum, point) => sum + point.xCm, 0) / 4,
+          yCm: polygon.reduce((sum, point) => sum + point.yCm, 0) / 4,
+        },
+        elevationCm: index * 18,
+        ceilingElevationCm: 400 + index * 18,
+      }
+    },
+  )
+  const rooms = [
+    { name: 'Нижняя площадка', polygon: required(layout[0]).polygon },
+    { name: 'Верхняя площадка', polygon: required(layout.at(-1)).polygon },
+  ]
+  const geometry: PlanGeometry = {
+    version: 1,
+    status: 'confirmed',
+    widthCm: 800,
+    heightCm: 800,
+    footprint: box(0, 0, 800, 800),
+    rooms,
+    walls: [],
+    openings: [],
+    warnings: [],
+    voids: [{ id: 'central-hole', polygon: inner }],
+  }
+  const accepted = applyPlanVerticalReference(
+    geometry,
+    {
+      version: 1,
+      id: 'polygon-stairs',
+      kind: 'finished-floor',
+      zeroFloorId: 'lower',
+      acknowledged: true,
+      floors: rooms.map((room, index) => ({
+        id: index ? 'upper' : 'lower',
+        room,
+        surface: 'finished-floor',
+        elevationCm: index ? (sectorCount - 1) * 18 : 0,
+      })),
+      ceilings: [
+        { id: 'lower-head', floorId: 'lower', elevationCm: 400 },
+        { id: 'upper-head', floorId: 'upper', elevationCm: 400 + (sectorCount - 1) * 18 },
+      ],
+      wallBases: [],
+      thresholds: [],
+      source: { kind: 'site-measurement', reference: 'Synthetic measured polygon sectors' },
+    },
+    'test-surveyor',
+    '2026-10-11T08:00:00.000Z',
+  )
+  if (!accepted.ok) throw new Error(accepted.error)
+  const current = accepted.geometry
+  const common = survey(current)
+  const request: Extract<FurnitureStairSurvey, { version: 3 }> = {
+    version: 3,
+    referenceKey: common.referenceKey,
+    geometryKey: common.geometryKey,
+    source: common.source,
+    lowerFloorId: 'lower',
+    upperFloorId: 'upper',
+    layout,
+    travelDirection: 'up',
+    carryClearanceCm: 5,
+    tilt: 'none',
+    acknowledged: true,
+  }
+  return { geometry: current, request }
+}
+const parcel = { widthCm: 20, depthCm: 20, heightCm: 40, clearanceCm: 1, orientation: 0 as const }
+
+describe('measured winder and non-overlapping spiral sectors', () => {
+  it('accepts an explicitly measured concave outer notch without filling it', () => {
+    const { geometry, request } = polygonFixture()
+    const item = required(request.layout[2])
+    item.polygon.splice(2, 0, { xCm: 330, yCm: 530 })
+    expect(inspectFurnitureStairTransfer(geometry, request, parcel).error).toBeUndefined()
+    // The same shape holds an attempted path through the notch instead of using its convex hull.
+    item.station = { xCm: 330, yCm: 548 }
+    expect(inspectFurnitureStairTransfer(geometry, request, parcel).result).toBeUndefined()
+  })
+  it('rejects station ownership outside the polygon even when the box overlaps it', () => {
+    const { geometry, request } = polygonFixture()
+    required(request.layout[2]).station = { xCm: 400.01, yCm: 490 }
+    expect(inspectFurnitureStairTransfer(geometry, request, parcel).error).toContain(
+      'не принадлежит',
+    )
+  })
+  it('checks a future tread under the footprint before the centre reaches it', () => {
+    const { geometry, request } = polygonFixture()
+    required(request.layout[2]).station = { xCm: 307.5, yCm: 492.5 }
+    const inspection = inspectFurnitureStairTransfer(geometry, request, parcel)
+    expect(inspection.error).toBeUndefined()
+    const target = required(inspection.result).points.find(
+      (point) => point.xCm === 307.5 && point.yCm === 492.5,
+    )
+    expect(target?.zCm).toBeGreaterThanOrEqual(59)
+    required(request.layout[3]).ceilingElevationCm = 94
+    expect(inspectFurnitureStairTransfer(geometry, request, parcel).result).toBeUndefined()
+  })
+  it('limits total measured vertices independently of the per-region cap', () => {
+    const { request } = polygonFixture()
+    const item = required(request.layout[0])
+    request.layout = Array.from({ length: 128 }, () => ({
+      ...item,
+      polygon: Array.from({ length: 17 }, (_, index) => required(item.polygon[index % 4])),
+    }))
+    expect(furnitureStairSurveySchema.safeParse(request).success).toBe(false)
+  })
+  it('rejects a star-shaped self-intersection rather than triangulating it', () => {
+    const { geometry, request } = polygonFixture()
+    required(request.layout[2]).polygon = [
+      { xCm: 300, yCm: 450 },
+      { xCm: 330, yCm: 540 },
+      { xCm: 250, yCm: 480 },
+      { xCm: 350, yCm: 480 },
+      { xCm: 270, yCm: 540 },
+    ]
+    expect(inspectFurnitureStairTransfer(geometry, request, parcel).error).toContain(
+      'самопересечений',
+    )
+  })
+  it.each([3, 8])('certifies full upright parcel sweeps across %s measured sectors', (count) => {
+    const { geometry, request } = polygonFixture(count)
+    const inspection = inspectFurnitureStairTransfer(geometry, request, parcel)
+    expect(inspection.error).toBeUndefined()
+    expect(inspection.result?.regions).toHaveLength(count)
+    expect(inspection.result?.points.at(-1)?.zCm).toBe((count - 1) * 18)
+    const result = required(inspection.result)
+    const polygons = result.regions.map(
+      (region) => [region.polygon.map((p) => [p.xCm, p.yCm])] as Polygon,
+    )
+    const union = polygonClipping.union(required(polygons[0]), ...polygons.slice(1))
+    for (const stage of result.stages) {
+      const b = stage.bounds
+      const body = [
+        box(b.leftCm, b.topCm, b.rightCm, b.bottomCm).map((p) => [p.xCm, p.yCm]),
+      ] as Polygon
+      expect(polygonClipping.difference(body, union)).toEqual([])
+      for (const region of result.regions) {
+        if (
+          polygonClipping.intersection(body, [region.polygon.map((p) => [p.xCm, p.yCm])] as Polygon)
+            .length
+        ) {
+          expect(b.bottomElevationCm).toBeGreaterThanOrEqual(region.elevationCm)
+          expect(b.topElevationCm).toBeLessThanOrEqual(region.ceilingElevationCm)
+        }
+      }
+    }
+  })
+  it('descends the same survey without synthesizing an alternate geometry', () => {
+    const { geometry, request } = polygonFixture()
+    request.travelDirection = 'down'
+    const result = inspectFurnitureStairTransfer(geometry, request, parcel)
+    expect(result.error).toBeUndefined()
+    expect(result.result?.points[0]?.zCm).toBe(126)
+    expect(result.result?.points.at(-1)?.zCm).toBe(0)
+  })
+  it('accepts clockwise and cyclic polygon vertex order with exact shared edges', () => {
+    const { geometry, request } = polygonFixture()
+    for (const item of request.layout)
+      item.polygon = [...item.polygon.slice(2), ...item.polygon.slice(0, 2)].reverse()
+    expect(inspectFurnitureStairTransfer(geometry, request, parcel).error).toBeUndefined()
+  })
+  it.each([
+    'station',
+    'self-cross',
+    'duplicate',
+    'gap',
+    'overlap',
+    'ceiling',
+    'source',
+    'caps',
+  ] as const)('holds malformed %s evidence', (kind) => {
+    const { geometry, request } = polygonFixture()
+    const item = required(request.layout[2])
+    if (kind === 'station') item.station = { xCm: 400, yCm: 400 }
+    if (kind === 'self-cross')
+      item.polygon = [
+        required(item.polygon[0]),
+        required(item.polygon[2]),
+        required(item.polygon[1]),
+        required(item.polygon[3]),
+      ]
+    if (kind === 'duplicate') item.polygon.push(required(item.polygon[0]))
+    if (kind === 'gap') item.polygon = item.polygon.map((p) => ({ ...p, xCm: p.xCm + 0.000001 }))
+    if (kind === 'overlap') item.polygon = required(request.layout[1]).polygon
+    if (kind === 'ceiling') item.ceilingElevationCm = item.elevationCm + 10
+    if (kind === 'source') request.source.reference = ''
+    if (kind === 'caps') item.polygon = Array.from({ length: 33 }, () => required(item.polygon[0]))
+    expect(inspectFurnitureStairTransfer(geometry, request, parcel).result).toBeUndefined()
+  })
+  it('does not let a wide box bridge the central void', () => {
+    const { geometry, request } = polygonFixture()
+    expect(
+      inspectFurnitureStairTransfer(geometry, request, { ...parcel, widthCm: 180, depthCm: 180 })
+        .result,
+    ).toBeUndefined()
+  })
+  it('rejects a missing explicitly measured station', () => {
+    const { geometry, request } = polygonFixture()
+    const changed = JSON.parse(JSON.stringify(request))
+    delete changed.layout[1].station
+    expect(inspectFurnitureStairTransfer(geometry, changed, parcel).result).toBeUndefined()
+  })
+  it('does not connect adjacent regions by a single shared corner', () => {
+    const { geometry, request } = polygonFixture()
+    const item = required(request.layout[2])
+    item.polygon = box(220, 580, 400, 700)
+    item.station = { xCm: 310, yCm: 640 }
+    expect(inspectFurnitureStairTransfer(geometry, request, parcel).error).toContain(
+      'общую ненулевую грань',
+    )
+  })
+})
 
 describe('explicit turning measured stair chain', () => {
   it.each(['up', 'down'] as const)(
@@ -424,6 +675,77 @@ describe('explicit turning measured stair chain', () => {
   })
 })
 describe('local measured straight-flight furniture transfer', () => {
+  it('rejects an occupied volume reached only by the intermediate tilt envelope', () => {
+    const geometry = fixture()
+    const input = { ...survey(geometry), tilt: 'depth' as const, angleDeg: 30, carryClearanceCm: 0 }
+    const body = { ...profile, depthCm: 35, heightCm: 105 }
+    const baseline = required(inspectFurnitureStairTransfer(geometry, input, body).result)
+    const intermediateHeight = (baseline.sweepHeightCm + baseline.carried.heightCm) / 2
+    expect(intermediateHeight).toBeGreaterThan(body.heightCm + 2 * body.clearanceCm)
+    const seen: Array<{ bottom: number; top: number }> = []
+    const held = inspectFurnitureStairTransfer(geometry, input, body, {
+      blockedVolume: (_bounds, bottom, top) => {
+        seen.push({ bottom, top })
+        return bottom === 0 && top >= intermediateHeight
+      },
+    })
+    expect(held.result).toBeUndefined()
+    expect(held.error).toContain('створку')
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toEqual({ bottom: 0, top: baseline.sweepHeightCm })
+  })
+  it('rejects a leaf touched only during the final lowering sweep', () => {
+    const geometry = fixture()
+    const input = survey(geometry)
+    const baseline = required(inspectFurnitureStairTransfer(geometry, input, profile).result)
+    const final = required(baseline.stages.at(-1))
+    expect(final.kind).toBe('lower')
+    const seen: Array<{ left: number; bottom: number; top: number }> = []
+    const held = inspectFurnitureStairTransfer(geometry, input, profile, {
+      blockedVolume: (bounds, bottom, top) => {
+        seen.push({ left: bounds[0], bottom, top })
+        return bounds[0] > 600 && bottom <= 199 && top >= 199
+      },
+    })
+    expect(held.result).toBeUndefined()
+    expect(held.error).toContain('створку')
+    expect(seen.at(-1)).toEqual({
+      left: final.bounds.leftCm,
+      bottom: final.bounds.bottomElevationCm,
+      top: final.bounds.topElevationCm,
+    })
+    expect(seen.slice(0, -1).every(({ left, bottom }) => left <= 600 || bottom > 199)).toBe(true)
+  })
+  it('charges all occupied-volume attempts against the same stair work count', () => {
+    const { geometry, input } = turningFixture(false, 220)
+    const body = { ...profile, widthCm: 60, depthCm: 180, orientation: 90 as const }
+    let attempts = 0
+    let rejectedAttempts = 0
+    const checked = required(
+      inspectFurnitureStairTransfer(
+        geometry,
+        {
+          ...input,
+          allowQuarterTurns: true,
+        },
+        body,
+        {
+          blockedVolume: ([left, top, right, bottom]) => {
+            attempts++
+            if (left > 400 && right - left > 200 && bottom - top < 100) {
+              rejectedAttempts++
+              return true
+            }
+            return false
+          },
+        },
+      ).result,
+    )
+    expect(checked.checkedStages).toBe(attempts)
+    expect(rejectedAttempts).toBeGreaterThan(0)
+    expect(attempts).toBeGreaterThan(checked.stages.length)
+    expect(attempts).toBeLessThanOrEqual(6000)
+  })
   it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
     'holds a malformed fixed obstacle rather than ignoring or reversing its solid: %j',
     (widthCm) => {
