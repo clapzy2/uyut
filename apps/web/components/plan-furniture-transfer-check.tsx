@@ -13,6 +13,7 @@ type ProfileFields = {
   heightCm: string
   clearanceCm: string
   orientation: '0' | '90'
+  allowTurns: boolean
 }
 const emptyFields: ProfileFields = {
   widthCm: '',
@@ -20,6 +21,7 @@ const emptyFields: ProfileFields = {
   heightCm: '',
   clearanceCm: '',
   orientation: '0',
+  allowTurns: false,
 }
 const labels = [
   ['widthCm', 'Ширина габарита, см'],
@@ -48,8 +50,38 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
   const result = current?.inspection?.result
   const start = result?.routes[0]?.points[0]
   const footprint = result?.footprintCm
+  const turnSweep =
+    fields.allowTurns &&
+    result?.turnPolicy === 'conservative-square' &&
+    result.turnSweepCm !== undefined &&
+    Number.isFinite(result.turnSweepCm) &&
+    result.turnSweepCm > 0
+      ? result.turnSweepCm
+      : undefined
+  const turns = new Map<string, { xCm: number; yCm: number; from: 0 | 90; to: 0 | 90 }>()
+  if (turnSweep !== undefined) {
+    for (const route of result?.routes ?? []) {
+      for (const [index, point] of route.points.entries()) {
+        const previous = route.points[index - 1]
+        if (
+          previous?.orientation !== undefined &&
+          point.orientation !== undefined &&
+          previous.orientation !== point.orientation &&
+          previous.xCm === point.xCm &&
+          previous.yCm === point.yCm
+        ) {
+          turns.set(`${point.xCm},${point.yCm}`, {
+            xCm: point.xCm,
+            yCm: point.yCm,
+            from: previous.orientation,
+            to: point.orientation,
+          })
+        }
+      }
+    }
+  }
 
-  function change(field: keyof ProfileFields, value: string) {
+  function change<Key extends keyof ProfileFields>(field: Key, value: ProfileFields[Key]) {
     setFields((previous) => ({ ...previous, [field]: value }))
     setAcknowledgedKey(undefined)
     setChecked(undefined)
@@ -70,6 +102,7 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
           heightCm: number(fields.heightCm),
           clearanceCm: number(fields.clearanceCm),
           orientation: Number(fields.orientation),
+          allowTurns: fields.allowTurns,
           acknowledged,
         }),
       })
@@ -94,8 +127,9 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
         переносимого предмета: размеры собранной мебели из каталога не подставляются автоматически.
       </p>
       <p className="mt-2 text-xs leading-relaxed text-ink-2">
-        Только горизонтальное перемещение вертикального габарита в фиксированном положении. Повороты
-        вдоль пути, наклон, подъём и лестницы не рассчитываются.
+        {fields.allowTurns
+          ? 'Габарит остаётся вертикальным. Поворот на месте на 90° допускается только внутри свободного консервативного квадрата со стороной, равной диагонали габарита с запасом. Наклон, подъём и лестницы не рассчитываются.'
+          : 'Только горизонтальное перемещение вертикального габарита в фиксированном положении. Повороты вдоль пути, наклон, подъём и лестницы не рассчитываются.'}
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         {labels.map(([field, label]) => (
@@ -121,7 +155,9 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
           <select
             id={`${id}-orientation`}
             value={fields.orientation}
-            onChange={(event) => change('orientation', event.currentTarget.value)}
+            onChange={(event) =>
+              change('orientation', event.currentTarget.value === '90' ? '90' : '0')
+            }
             className="min-h-11 w-full border border-line-strong bg-paper px-3 py-2 text-ink focus-visible:outline-2 focus-visible:outline-accent"
           >
             <option value="0">0°: ширина по X, глубина по Y</option>
@@ -129,12 +165,23 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
           </select>
         </label>
       </div>
+      <label className="mt-3 flex min-h-11 items-start gap-2 text-sm leading-relaxed text-ink">
+        <input
+          id={`${id}-allow-turns`}
+          type="checkbox"
+          className="mt-1 accent-accent"
+          checked={fields.allowTurns}
+          onChange={(event) => change('allowTurns', event.currentTarget.checked)}
+        />
+        Разрешить повороты на месте на 90° по консервативному квадрату
+      </label>
       <p className="mt-2 text-xs leading-relaxed text-ink-2">
         Запас добавляется с каждой стороны ширины и глубины, а по высоте - только над предметом;
         основание остаётся на полу. Пустое поле означает неизвестное значение, а не ноль.
       </p>
       <label className="mt-3 flex min-h-11 items-start gap-2 text-sm leading-relaxed text-ink">
         <input
+          id={`${id}-acknowledged`}
           type="checkbox"
           className="mt-1 accent-accent"
           checked={acknowledged}
@@ -143,7 +190,8 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
             setChecked(undefined)
           }}
         />
-        Я сверил переносимый габарит, запас и выбранное положение по обмеру предмета или упаковки.
+        Я сверил переносимый габарит, запас, начальное положение и выбранный режим поворотов по
+        обмеру предмета или упаковки.
       </label>
       <Button type="button" variant="secondary" className="mt-3" onClick={check}>
         Проверить габарит
@@ -188,7 +236,9 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
             {footprint ? (
               <p className="mt-1 text-xs text-ink-2">
                 Проверяемый прямоугольник с запасом: {footprint.widthCm} × {footprint.depthCm} см.
-                Положение не меняется вдоль пути.
+                {turnSweep !== undefined
+                  ? ' Начальное положение; поворот меняет местами ширину и глубину.'
+                  : ' Положение не меняется вдоль пути.'}
               </p>
             ) : null}
             {result.unresolvedRoomIds.length ? (
@@ -268,7 +318,47 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
                   <title>Стартовый прямоугольник с заданным запасом</title>
                 </rect>
               ) : null}
+              {[...turns.values()].map((turn, index) => (
+                <g key={`${turn.xCm},${turn.yCm}`} data-transfer-turn={String(index + 1)}>
+                  <title>{`Поворот ${index + 1}: ${turn.from}° → ${turn.to}° относительно начального положения; квадрат ${turnSweep} см`}</title>
+                  <rect
+                    x={turn.xCm - (turnSweep ?? 0) / 2}
+                    y={turn.yCm - (turnSweep ?? 0) / 2}
+                    width={turnSweep}
+                    height={turnSweep}
+                    fill="none"
+                    stroke="var(--accent)"
+                    strokeWidth="2"
+                    strokeDasharray="5 3"
+                  />
+                  <circle
+                    cx={turn.xCm}
+                    cy={turn.yCm}
+                    r="10"
+                    fill="var(--paper)"
+                    stroke="var(--accent)"
+                    strokeWidth="2"
+                  />
+                  <text
+                    x={turn.xCm}
+                    y={turn.yCm}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize="12"
+                    fill="var(--accent)"
+                  >
+                    {index + 1}
+                  </text>
+                </g>
+              ))}
             </svg>
+            {turnSweep !== undefined ? (
+              <p className="mt-1 text-xs text-ink-2">
+                Номера отмечают найденные повороты на месте: {turns.size}. Пунктирный квадрат -
+                проверенная зона поворота со стороной {turnSweep} см, не точная траектория углов
+                предмета. Направления 0°/90° отсчитываются от выбранного начального положения.
+              </p>
+            ) : null}
             <p className="mt-1 text-xs text-ink-2">
               Сетка поиска {result.stepCm} см. Линия показывает только проверенный горизонтальный
               путь заданного прямоугольника.
@@ -313,8 +403,10 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
         </div>
       ) : null}
       <p className="mt-3 text-xs leading-relaxed text-ink-2">
-        Габарит остаётся вертикальным и в одном положении: повороты на 90° вдоль пути, наклон,
-        подъём, лестницы, внешний вход, место для грузчиков и их головы, масса предмета не
+        {fields.allowTurns
+          ? 'Проверяется только выбранная консервативная модель поворота на месте. '
+          : 'Габарит остаётся вертикальным и в одном положении; повороты вдоль пути не проверяются. '}
+        Наклон, подъём, лестницы, внешний вход, место для грузчиков и их головы, масса предмета не
         проверяются. Другая подвижная мебель не учтена. Неизвестные высоты проёмов и потолков
         требуют обмера. Найденный путь не подтверждает физический перенос мебели.
       </p>

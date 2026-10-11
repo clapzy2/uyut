@@ -1,3 +1,4 @@
+import { integerPoints } from '@uyut/catalog/plan-exact-geometry'
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import polygonClipping, { type MultiPolygon, type Polygon } from 'polygon-clipping'
 
@@ -44,7 +45,78 @@ function intersectsOpenRectangle(
   return true
 }
 
-/** Fixed-axis constructive routes; no rotations, tilt or stairs are inferred. Grid failure is unresolved. */
+/** Numeric enclosure only; never a physical fitting tolerance. */
+function adjacentFloat(value: number, direction: 'up' | 'down'): number {
+  if (!Number.isFinite(value)) return value
+  if (value === 0) return direction === 'up' ? Number.MIN_VALUE : -Number.MIN_VALUE
+  const view = new DataView(new ArrayBuffer(8))
+  view.setFloat64(0, value)
+  const increment = value > 0 === (direction === 'up') ? 1n : -1n
+  view.setBigUint64(0, view.getBigUint64(0) + increment)
+  return view.getFloat64(0)
+}
+
+function enclosingTurnSide(width: number, depth: number): number | undefined {
+  let side = Math.hypot(width, depth)
+  for (let attempt = 0; attempt < 16 && Number.isFinite(side); attempt += 1) {
+    const [body, square] = integerPoints([
+      { xCm: width, yCm: depth },
+      { xCm: side, yCm: 0 },
+    ])
+    if (body && square && square.x * square.x >= body.x * body.x + body.y * body.y) return side
+    side = adjacentFloat(side, 'up')
+  }
+  return undefined
+}
+
+function enclosingTurnBounds(point: PlanPoint, width: number, depth: number, side: number) {
+  let half = adjacentFloat(side / 2, 'up')
+  let certified = false
+  for (let attempt = 0; attempt < 16 && Number.isFinite(half); attempt += 1) {
+    const [body, radius] = integerPoints([
+      { xCm: width, yCm: depth },
+      { xCm: half, yCm: 0 },
+    ])
+    if (body && radius && 4n * radius.x * radius.x >= body.x * body.x + body.y * body.y) {
+      certified = true
+      break
+    }
+    half = adjacentFloat(half, 'up')
+  }
+  if (!certified) return undefined
+  const bounds: [number, number, number, number] = [
+    adjacentFloat(point.xCm - half, 'down'),
+    adjacentFloat(point.yCm - half, 'down'),
+    adjacentFloat(point.xCm + half, 'up'),
+    adjacentFloat(point.yCm + half, 'up'),
+  ]
+  for (let attempt = 0; attempt < 16 && bounds.every(Number.isFinite); attempt += 1) {
+    const [body, centre, lower, upper] = integerPoints([
+      { xCm: width, yCm: depth },
+      point,
+      { xCm: bounds[0], yCm: bounds[1] },
+      { xCm: bounds[2], yCm: bounds[3] },
+    ])
+    if (!body || !centre || !lower || !upper) return undefined
+    const diagonal = body.x * body.x + body.y * body.y
+    const distances = [
+      centre.x - lower.x,
+      centre.y - lower.y,
+      upper.x - centre.x,
+      upper.y - centre.y,
+    ]
+    const failures = distances.map(
+      (distance) => distance <= 0n || 4n * distance * distance < diagonal,
+    )
+    if (!failures.some(Boolean)) return bounds
+    for (const [index, failed] of failures.entries()) {
+      if (failed) bounds[index] = adjacentFloat(bounds[index] as number, index < 2 ? 'down' : 'up')
+    }
+  }
+  return undefined
+}
+
+/** Constructive planar routes. Optional quarter turns use a conservative full-sweep square; no tilt or stairs. */
 export function inspectSourceClearanceRoutes(input: {
   freeFloor: MultiPolygon
   rooms: Array<{ id: string; polygon: PlanPoint[] }>
@@ -52,6 +124,7 @@ export function inspectSourceClearanceRoutes(input: {
   widthCm: number
   /** Optional rigid body in the plan axes. Absence preserves the legacy square exactly. */
   footprintCm?: { widthCm: number; depthCm: number }
+  allowQuarterTurns?: boolean
   stepCm?: number
   maxNodes?: number
   metricObstacles?: Pick<PlanGeometry, 'obstacles' | 'voids'>
@@ -79,6 +152,14 @@ export function inspectSourceClearanceRoutes(input: {
       footprint.depthCm <= 0)
   )
     throw new Error('Некорректный прямоугольный габарит для переноса')
+  if (
+    (input.allowQuarterTurns !== undefined && typeof input.allowQuarterTurns !== 'boolean') ||
+    (input.allowQuarterTurns === true && !footprint)
+  )
+    throw new Error('Для поворотов нужен явный прямоугольный габарит и логический режим')
+  const allowTurns = input.allowQuarterTurns === true
+  const turnSweepCm =
+    allowTurns && footprint ? enclosingTurnSide(footprint.widthCm, footprint.depthCm) : undefined
   const boundaryBarriers = input.boundaryBarriers ?? []
   for (const { start, end } of boundaryBarriers) {
     if (
@@ -122,13 +203,13 @@ export function inspectSourceClearanceRoutes(input: {
     : input.freeFloor
   const fits = (shape: Polygon, floor: MultiPolygon) =>
     polygonClipping.difference(shape, floor).length === 0
-  const bodyAt = (point: PlanPoint) =>
-    rectangle(
-      point.xCm - halfWidth,
-      point.yCm - halfDepth,
-      point.xCm + halfWidth,
-      point.yCm + halfDepth,
-    )
+  type Orientation = 0 | 90
+  const halfSizes = (orientation: Orientation): [number, number] =>
+    orientation === 0 ? [halfWidth, halfDepth] : [halfDepth, halfWidth]
+  const bodyAt = (point: PlanPoint, orientation: Orientation) => {
+    const [xHalf, yHalf] = halfSizes(orientation)
+    return rectangle(point.xCm - xHalf, point.yCm - yHalf, point.xCm + xHalf, point.yCm + yHalf)
+  }
   const clearRectangle = (left: number, top: number, right: number, bottom: number) =>
     !boundaryBarriers.some((barrier) =>
       intersectsOpenRectangle(barrier, left, top, right, bottom),
@@ -136,6 +217,7 @@ export function inspectSourceClearanceRoutes(input: {
   const base = {
     widthCm: input.widthCm,
     stepCm: step,
+    ...(allowTurns ? { turnPolicy: 'conservative-square' as const, turnSweepCm } : {}),
     ...(footprint
       ? {
           footprint: 'axis-aligned-rectangle' as const,
@@ -164,8 +246,14 @@ export function inspectSourceClearanceRoutes(input: {
     id: room.id,
     floor: [room.polygon.map(({ xCm, yCm }) => [xCm, yCm])] as Polygon,
   }))
-  const queue = [{ point: input.start, parent: -1 }]
-  const visited = new Set(['0,0'])
+  const queue: Array<{ point: PlanPoint; parent: number; orientation: Orientation }> = [
+    { point: input.start, parent: -1, orientation: 0 },
+  ]
+  const stateKey = (point: PlanPoint, orientation: Orientation) => {
+    const position = `${Math.round((point.xCm - input.start.xCm) / step)},${Math.round((point.yCm - input.start.yCm) / step)}`
+    return allowTurns ? `${position},${orientation}` : position
+  }
+  const visited = new Set([stateKey(input.start, 0)])
   const found = new Map<string, number>()
   let cursor = 0
   let limited = false
@@ -173,8 +261,10 @@ export function inspectSourceClearanceRoutes(input: {
     const node = queue[cursor]
     if (!node) break
     for (const room of rooms) {
-      if (!found.has(room.id) && fits(bodyAt(node.point), [room.floor])) found.set(room.id, cursor)
+      if (!found.has(room.id) && fits(bodyAt(node.point, node.orientation), [room.floor]))
+        found.set(room.id, cursor)
     }
+    const [xHalf, yHalf] = halfSizes(node.orientation)
     for (const [dx, dy] of [
       [step, 0],
       [-step, 0],
@@ -183,15 +273,15 @@ export function inspectSourceClearanceRoutes(input: {
     ]) {
       if (dx === undefined || dy === undefined) continue
       const point = { xCm: node.point.xCm + dx, yCm: node.point.yCm + dy }
-      const key = `${Math.round((point.xCm - input.start.xCm) / step)},${Math.round((point.yCm - input.start.yCm) / step)}`
+      const key = stateKey(point, node.orientation)
       if (visited.has(key)) continue
       // Swept rectangle proves the entire translation, not just both endpoint squares.
       if (
         !clearRectangle(
-          Math.min(point.xCm, node.point.xCm) - halfWidth,
-          Math.min(point.yCm, node.point.yCm) - halfDepth,
-          Math.max(point.xCm, node.point.xCm) + halfWidth,
-          Math.max(point.yCm, node.point.yCm) + halfDepth,
+          Math.min(point.xCm, node.point.xCm) - xHalf,
+          Math.min(point.yCm, node.point.yCm) - yHalf,
+          Math.max(point.xCm, node.point.xCm) + xHalf,
+          Math.max(point.yCm, node.point.yCm) + yHalf,
         )
       )
         continue
@@ -200,16 +290,33 @@ export function inspectSourceClearanceRoutes(input: {
         continue
       }
       visited.add(key)
-      queue.push({ point, parent: cursor })
+      queue.push({ point, parent: cursor, orientation: node.orientation })
+    }
+    if (allowTurns && footprint && turnSweepCm !== undefined) {
+      const orientation: Orientation = node.orientation === 0 ? 90 : 0
+      const key = stateKey(node.point, orientation)
+      const bounds = enclosingTurnBounds(
+        node.point,
+        footprint.widthCm,
+        footprint.depthCm,
+        turnSweepCm,
+      )
+      if (!visited.has(key) && bounds !== undefined && clearRectangle(...bounds)) {
+        if (queue.length >= maxNodes) limited = true
+        else {
+          visited.add(key)
+          queue.push({ point: node.point, parent: cursor, orientation })
+        }
+      }
     }
     cursor += 1
   }
   const routes = [...found].map(([roomId, index]) => {
-    const points: PlanPoint[] = []
+    const points: Array<PlanPoint & { orientation?: Orientation }> = []
     for (let current = index; current >= 0; ) {
       const node = queue[current]
       if (!node) break
-      points.push(node.point)
+      points.push(allowTurns ? { ...node.point, orientation: node.orientation } : node.point)
       current = node.parent
     }
     return { roomId, points: points.reverse() }

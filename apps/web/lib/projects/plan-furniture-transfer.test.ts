@@ -404,4 +404,105 @@ describe('bounded upright rigid furniture transfer', () => {
     expect(result.vertical?.elevationCm).toBe(-15)
     for (const route of result.routes) for (const point of route.points) expect(point.zCm).toBe(-15)
   })
+  it('keeps absent and explicit false turn permission on the fixed-orientation contract', () => {
+    const geometry = fixture({ narrow: true })
+    const profile = { ...request, widthCm: 120, depthCm: 40, clearanceCm: 0, orientation: 90 }
+    const original = inspectFurnitureTransfer(geometry, profile)
+    const disabled = inspectFurnitureTransfer(geometry, { ...profile, allowTurns: false })
+    expect(disabled.inspection).toEqual(original.inspection)
+    for (const route of original.inspection?.result?.routes ?? [])
+      for (const point of route.points) expect('orientation' in point).toBe(false)
+  })
+  it('allows explicitly requested upright quarter turns, with same-centre orientation steps', () => {
+    const geometry = fixture({ narrow: true })
+    const before = structuredClone(geometry)
+    const response = inspectFurnitureTransfer(geometry, {
+      ...request,
+      widthCm: 120,
+      depthCm: 40,
+      clearanceCm: 0,
+      orientation: 90,
+      allowTurns: true,
+    })
+    const result = required(response.inspection?.result)
+    expect(result.routes).toHaveLength(2)
+    expect(result.checkedNodes).toBeLessThanOrEqual(6000)
+    const route = required(result.routes.find((entry) => entry.roomId === '1'))
+    const orientation = (point: PlanPoint): unknown =>
+      'orientation' in point ? point.orientation : undefined
+    expect(orientation(required(route.points[0]))).toBe(0)
+    expect(orientation(required(route.points.at(-1)))).toBe(90)
+    const allowed = polygonClipping.union(
+      body(required(geometry.rooms[0]).polygon),
+      body(required(geometry.rooms[1]).polygon),
+      body(box(300, 100, 320, 200)),
+    )
+    let turns = 0
+    for (let index = 1; index < route.points.length; index++) {
+      const previous = required(route.points[index - 1])
+      const current = required(route.points[index])
+      expect(current.zCm).toBe(0)
+      if (orientation(previous) !== orientation(current)) {
+        turns++
+        expect(current.xCm).toBe(previous.xCm)
+        expect(current.yCm).toBe(previous.yCm)
+        // An independent integer upper bound: 128² > 40²+120². This contains
+        // every intermediate rotated rectangle, without relying on Math.hypot.
+        const fullTurn = body(
+          box(current.xCm - 64, current.yCm - 64, current.xCm + 64, current.yCm + 64),
+        )
+        expect(polygonClipping.difference(fullTurn, allowed)).toEqual([])
+      } else {
+        const halfWidth = orientation(current) === 0 ? 20 : 60
+        const halfDepth = orientation(current) === 0 ? 60 : 20
+        const swept = body(
+          box(
+            Math.min(previous.xCm, current.xCm) - halfWidth,
+            Math.min(previous.yCm, current.yCm) - halfDepth,
+            Math.max(previous.xCm, current.xCm) + halfWidth,
+            Math.max(previous.yCm, current.yCm) + halfDepth,
+          ),
+        )
+        expect(polygonClipping.difference(swept, allowed)).toEqual([])
+      }
+    }
+    expect(turns).toBeGreaterThan(0)
+    expect(response.notes.join(' ')).toContain('90')
+    expect(geometry).toEqual(before)
+  })
+  it.each([true, false])('still requires acknowledgement when allowTurns is %s', (allowTurns) => {
+    const response = inspectFurnitureTransfer(fixture(), {
+      ...request,
+      allowTurns,
+      acknowledged: false,
+    })
+    expect(response.error).toBeTruthy()
+    expect(response.inspection).toBeUndefined()
+  })
+  it.each([1, 'true', null])('does not coerce non-boolean turn permission: %j', (allowTurns) => {
+    const response = inspectFurnitureTransfer(fixture(), { ...request, allowTurns })
+    expect(response.error).toBeTruthy()
+    expect(response.inspection).toBeUndefined()
+  })
+  it.each([{ ceiling: 'unknown' as const }, { ceiling: 180 }, { entryHeight: 'unknown' as const }])(
+    'does not bypass unknown or low start headroom by enabling turns: %j',
+    (options) => {
+      const response = inspectFurnitureTransfer(fixture(options), { ...request, allowTurns: true })
+      expect(response.inspection?.result?.routes.length ?? 0).toBe(0)
+    },
+  )
+  it.each([
+    { secondLevel: -15 },
+    { thresholdTop: 2 },
+    { portalHeight: 'unknown' as const },
+    { secondCeiling: 180 },
+    { secondCeiling: 'unknown' as const },
+  ])('does not turn, lift or tilt through an independently held transition: %j', (options) => {
+    const result = required(
+      inspectFurnitureTransfer(fixture(options), { ...request, allowTurns: true }).inspection
+        ?.result,
+    )
+    expect(result.routes.some((route) => route.roomId === '1')).toBe(false)
+    expect(result.unresolvedRoomIds).toContain('1')
+  })
 })

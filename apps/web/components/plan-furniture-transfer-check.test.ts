@@ -33,7 +33,14 @@ const geometry: PlanGeometry = {
     },
   ],
 }
-const fields = { widthCm: '60', depthCm: '40', heightCm: '100', clearanceCm: '1', orientation: '0' }
+const fields = {
+  widthCm: '60',
+  depthCm: '40',
+  heightCm: '100',
+  clearanceCm: '1',
+  orientation: '0',
+  allowTurns: false,
+}
 const key = `${JSON.stringify(geometry)}:${JSON.stringify(fields)}`
 const response: ReturnType<typeof inspectFurnitureTransfer> = {
   notes: ['Неизвестная высота проёма требует обмера.'],
@@ -92,6 +99,8 @@ describe('rigid furniture transfer UI', () => {
     expect(html.match(/inputMode="decimal"/g)).toHaveLength(4)
     expect(html.match(/value=""/g)).toHaveLength(4)
     expect(html).not.toContain('checked=""')
+    expect(html).toContain('Разрешить повороты на месте на 90°')
+    expect(html).toContain('в фиксированном положении')
     expect(html).not.toContain('<form')
     expect(html).toContain('type="button"')
     expect(html).toContain('90°: глубина по X, ширина по Y')
@@ -128,6 +137,7 @@ describe('rigid furniture transfer UI', () => {
       heightCm: 100,
       clearanceCm: 1,
       orientation: 0,
+      allowTurns: false,
       acknowledged: true,
     }
     if (!measured.inspection?.result) throw new Error('Missing seeded transfer result')
@@ -146,12 +156,16 @@ describe('rigid furniture transfer UI', () => {
     expect(html).toContain('Что учитывает расчёт')
   })
 
-  it.each(['geometry', 'profile'] as const)(
+  it.each(['geometry', 'profile', 'turn-mode'] as const)(
     'hides checked paths and acknowledgement after changing %s',
     (change) => {
       vi.mocked(useState)
         .mockReturnValueOnce([
-          change === 'profile' ? { ...fields, widthCm: '61' } : fields,
+          change === 'profile'
+            ? { ...fields, widthCm: '61' }
+            : change === 'turn-mode'
+              ? { ...fields, allowTurns: true }
+              : fields,
           vi.fn(),
         ])
         .mockReturnValueOnce([key, vi.fn()])
@@ -163,7 +177,7 @@ describe('rigid furniture transfer UI', () => {
       )
       expect(html).toContain('Прежние пути скрыты')
       expect(html).not.toContain('<polyline')
-      expect(html).not.toContain('checked=""')
+      expect(html).not.toMatch(/id="transfer-test-acknowledged"[^>]*checked/u)
     },
   )
 
@@ -178,6 +192,7 @@ describe('rigid furniture transfer UI', () => {
       heightCm: undefined,
       clearanceCm: undefined,
       orientation: 0,
+      allowTurns: false,
       acknowledged: false,
     })
   })
@@ -244,7 +259,7 @@ describe('rigid furniture transfer UI', () => {
     const width = nodes.find(
       (node) => node.props.id === 'transfer-test-widthCm' && node.props.onChange,
     )
-    const checkbox = nodes.find((node) => node.props.type === 'checkbox')
+    const checkbox = nodes.find((node) => node.props.id === 'transfer-test-acknowledged')
     if (!width?.props.onChange || !checkbox?.props.onChange) throw new Error('Missing input')
     width.props.onChange({ currentTarget: { value: '65' } })
     expect(setFields).toHaveBeenCalled()
@@ -252,5 +267,86 @@ describe('rigid furniture transfer UI', () => {
     expect(setChecked).toHaveBeenCalledWith(undefined)
     checkbox.props.onChange({ currentTarget: { checked: false } })
     expect(setChecked).toHaveBeenCalledTimes(2)
+  })
+
+  it('includes the optional turn policy in the acknowledged profile and resets acknowledgement after a mode edit', () => {
+    const turningFields = { ...fields, allowTurns: true }
+    const turningKey = `${JSON.stringify(geometry)}:${JSON.stringify(turningFields)}`
+    const setAcknowledged = vi.fn()
+    const setChecked = vi.fn()
+    vi.mocked(useState)
+      .mockReturnValueOnce([turningFields, vi.fn()])
+      .mockReturnValueOnce([turningKey, setAcknowledged])
+      .mockReturnValueOnce([undefined, setChecked])
+    const nodes = elements(PlanFurnitureTransferCheck({ geometry }))
+    const button = nodes.find((node) => node.props.onClick)
+    const mode = nodes.find((node) => node.props.id === 'transfer-test-allow-turns')
+    if (!button?.props.onClick || !mode?.props.onChange) throw new Error('Missing turn controls')
+    button.props.onClick()
+    expect(inspectFurnitureTransfer).toHaveBeenCalledWith(
+      geometry,
+      expect.objectContaining({ allowTurns: true, acknowledged: true }),
+    )
+    mode.props.onChange({ currentTarget: { checked: false } })
+    expect(setAcknowledged).toHaveBeenCalledWith(undefined)
+    expect(setChecked).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('shows only real same-center quarter-turn witnesses and their supplied sweep square', () => {
+    const turningFields = { ...fields, allowTurns: true }
+    const turningKey = `${JSON.stringify(geometry)}:${JSON.stringify(turningFields)}`
+    const measured = structuredClone(response)
+    if (!measured.inspection?.result) throw new Error('Missing seeded transfer result')
+    measured.inspection.result.turnPolicy = 'conservative-square'
+    measured.inspection.result.turnSweepCm = 75
+    measured.inspection.result.routes = [
+      {
+        roomId: '0',
+        points: [
+          { xCm: 90, yCm: 90, orientation: 0 },
+          { xCm: 90, yCm: 90, orientation: 90 },
+          { xCm: 120, yCm: 90, orientation: 90 },
+        ],
+      },
+    ]
+    vi.mocked(useState)
+      .mockReturnValueOnce([turningFields, vi.fn()])
+      .mockReturnValueOnce([turningKey, vi.fn()])
+      .mockReturnValueOnce([{ key: turningKey, result: measured }, vi.fn()])
+    const html = renderToStaticMarkup(createElement(PlanFurnitureTransferCheck, { geometry }))
+    expect(html).toContain('консервативного квадрата')
+    expect(html).toContain('data-transfer-turn="1"')
+    expect(html).not.toContain('data-transfer-turn="2"')
+    expect(html).toContain('Поворот 1: 0° → 90°')
+    expect(html).toContain('x="52.5" y="52.5" width="75" height="75"')
+    expect(html).toContain('Номера отмечают найденные повороты на месте: 1')
+    expect(html).not.toContain('Положение не меняется вдоль пути')
+    expect(html).not.toContain('<animate')
+    expect(html).toContain('не подтверждает физический перенос мебели')
+  })
+
+  it('does not invent an in-place turn when only movement or an orientation change between different centers is supplied', () => {
+    const turningFields = { ...fields, allowTurns: true }
+    const turningKey = `${JSON.stringify(geometry)}:${JSON.stringify(turningFields)}`
+    const measured = structuredClone(response)
+    if (!measured.inspection?.result) throw new Error('Missing seeded transfer result')
+    measured.inspection.result.turnPolicy = 'conservative-square'
+    measured.inspection.result.turnSweepCm = 75
+    measured.inspection.result.routes = [
+      {
+        roomId: '0',
+        points: [
+          { xCm: 90, yCm: 90, orientation: 0 },
+          { xCm: 100, yCm: 90, orientation: 90 },
+        ],
+      },
+    ]
+    vi.mocked(useState)
+      .mockReturnValueOnce([turningFields, vi.fn()])
+      .mockReturnValueOnce([turningKey, vi.fn()])
+      .mockReturnValueOnce([{ key: turningKey, result: measured }, vi.fn()])
+    const html = renderToStaticMarkup(createElement(PlanFurnitureTransferCheck, { geometry }))
+    expect(html).not.toContain('data-transfer-turn=')
+    expect(html).toContain('Номера отмечают найденные повороты на месте: 0')
   })
 })

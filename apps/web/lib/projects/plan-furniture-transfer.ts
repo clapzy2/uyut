@@ -10,6 +10,7 @@ const requestSchema = z
     heightCm: z.number().finite().positive().max(600),
     clearanceCm: z.number().finite().min(0).max(100),
     orientation: z.union([z.literal(0), z.literal(90)]),
+    allowTurns: z.boolean().optional(),
     acknowledged: z.literal(true),
   })
   .strict()
@@ -52,6 +53,9 @@ export function inspectFurnitureTransfer(
       notes,
     }
   const profile = parsed.data
+  if (profile.allowTurns)
+    notes[0] =
+      'Разрешены повороты на 90° на месте: вся область поворота проверяется консервативным квадратом, покрывающим вращение габарита с запасом. Наклон, подъём, вес и места для людей не учтены; отказ такой проверки не доказывает невозможность манёвра.'
   const margin = signedElevationSum(profile.clearanceCm, profile.clearanceCm)
   const width = profile.orientation === 0 ? profile.widthCm : profile.depthCm
   const depth = profile.orientation === 0 ? profile.depthCm : profile.widthCm
@@ -59,6 +63,7 @@ export function inspectFurnitureTransfer(
     widthCm: signedElevationSum(width, margin),
     depthCm: signedElevationSum(depth, margin),
     heightCm: signedElevationSum(profile.heightCm, profile.clearanceCm),
+    ...(profile.allowTurns ? { allowQuarterTurns: true } : {}),
   })
   return { profile, inspection, notes }
 }

@@ -28,8 +28,13 @@ export function withRouteElevation(
   vertical?: RouteVertical,
 ): Omit<ReturnType<typeof inspectSourceClearanceRoutes>, 'routes'> & {
   footprintCm?: { widthCm: number; depthCm: number }
+  turnPolicy?: 'conservative-square'
+  turnSweepCm?: number
   vertical?: RouteVertical
-  routes: Array<{ roomId: string; points: Array<PlanPoint & { zCm?: number }> }>
+  routes: Array<{
+    roomId: string
+    points: Array<PlanPoint & { zCm?: number; orientation?: 0 | 90 }>
+  }>
 } {
   if (!vertical) return result
   return {
@@ -254,7 +259,12 @@ function entryZone(geometry: PlanGeometry, opening: PlanGeometry['openings'][num
 }
 
 /** Только доказанные комнаты и дверные переходы; остальной PDF не объявляется полом. */
-export type FurnitureRouteBody = { widthCm: number; depthCm: number; heightCm: number }
+export type FurnitureRouteBody = {
+  widthCm: number
+  depthCm: number
+  heightCm: number
+  allowQuarterTurns?: boolean
+}
 
 export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: FurnitureRouteBody) {
   const missing = (message: string) => ({ missing: message, result: undefined })
@@ -264,6 +274,8 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
   if (
     transfer !== undefined &&
     (!transfer ||
+      (transfer.allowQuarterTurns !== undefined &&
+        typeof transfer.allowQuarterTurns !== 'boolean') ||
       !reference ||
       ![transfer.widthCm, transfer.depthCm, transfer.heightCm].every(
         (value) => Number.isFinite(value) && value > 0,
@@ -676,7 +688,10 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
         start,
         widthCm: width,
         ...(transfer
-          ? { footprintCm: { widthCm: transfer.widthCm, depthCm: transfer.depthCm } }
+          ? {
+              footprintCm: { widthCm: transfer.widthCm, depthCm: transfer.depthCm },
+              ...(transfer.allowQuarterTurns ? { allowQuarterTurns: true } : {}),
+            }
           : {}),
         stepCm: 10,
         maxNodes: 6000,

@@ -1,5 +1,5 @@
 import polygonClipping, { type Polygon } from 'polygon-clipping'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { inspectSourceClearanceRoutes } from './plan-source-clearance-route'
 
 function box(left: number, top: number, right: number, bottom: number): Polygon {
@@ -46,6 +46,204 @@ function adjoiningRooms() {
 }
 
 describe('continuous source clearance routes', () => {
+  const points = (polygon: Polygon) => (polygon[0] ?? []).map(([xCm, yCm]) => ({ xCm, yCm }))
+  function turningRoom() {
+    return {
+      freeFloor: [box(0, 0, 130, 130)],
+      rooms: [{ id: 'destination', polygon: points(box(45, 5, 85, 125)) }],
+      start: { xCm: 65, yCm: 65 },
+      widthCm: 120,
+      footprintCm: { widthCm: 120, depthCm: 40 },
+      stepCm: 10,
+      maxNodes: 6000,
+    }
+  }
+  it('keeps absent and false turn policies exactly compatible with the fixed rectangle', () => {
+    const input = { ...fixture(), footprintCm: { widthCm: 120, depthCm: 40 } }
+    const fixed = inspectSourceClearanceRoutes(input)
+    expect(inspectSourceClearanceRoutes({ ...input, allowQuarterTurns: false })).toEqual(fixed)
+    expect(inspectSourceClearanceRoutes({ ...input, allowQuarterTurns: undefined })).toEqual(fixed)
+    expect(Object.hasOwn(fixed, 'turnPolicy')).toBe(false)
+    expect(Object.hasOwn(fixed, 'turnSweepCm')).toBe(false)
+    expect(
+      fixed.routes.every((route) =>
+        route.points.every((point) => !Object.hasOwn(point, 'orientation')),
+      ),
+    ).toBe(true)
+  })
+  it('constructs an L-corridor route only with a proven turn space and explicit orientation states', () => {
+    const freeFloor = polygonClipping.union(
+      box(0, 110, 300, 190),
+      box(230, 80, 370, 220),
+      box(260, 150, 340, 500),
+    )
+    const input = {
+      freeFloor,
+      rooms: [{ id: 'end', polygon: points(box(260, 300, 340, 500)) }],
+      start: { xCm: 80, yCm: 150 },
+      widthCm: 120,
+      footprintCm: { widthCm: 120, depthCm: 40 },
+      maxNodes: 6000,
+    }
+    expect(inspectSourceClearanceRoutes(input).status).toBe('unresolved')
+    const result = inspectSourceClearanceRoutes({ ...input, allowQuarterTurns: true })
+    expect(result.status).toBe('constructive-routes')
+    expect(result.turnPolicy).toBe('conservative-square')
+    expect(result.turnSweepCm).toBe(Math.hypot(120, 40))
+    const route = result.routes[0]?.points ?? []
+    const turns = route.filter((point, index) => {
+      const previous = route[index - 1]
+      return (
+        previous &&
+        previous.xCm === point.xCm &&
+        previous.yCm === point.yCm &&
+        previous.orientation !== point.orientation
+      )
+    })
+    expect(turns.length).toBeGreaterThan(0)
+    for (const point of turns) {
+      const half = Math.hypot(120, 40) / 2
+      expect(
+        polygonClipping.difference(
+          box(point.xCm - half, point.yCm - half, point.xCm + half, point.yCm + half),
+          freeFloor,
+        ),
+      ).toEqual([])
+    }
+    expect(route.at(-1)?.orientation).toBe(90)
+  })
+  it('does not rotate in a narrow cross even though both endpoint orientations fit', () => {
+    const freeFloor = polygonClipping.union(box(0, 130, 500, 170), box(280, 0, 320, 500))
+    expect(polygonClipping.difference(box(240, 130, 360, 170), freeFloor)).toEqual([])
+    expect(polygonClipping.difference(box(280, 90, 320, 210), freeFloor)).toEqual([])
+    const result = inspectSourceClearanceRoutes({
+      freeFloor,
+      rooms: [{ id: 'end', polygon: points(box(280, 300, 320, 500)) }],
+      start: { xCm: 80, yCm: 150 },
+      widthCm: 120,
+      footprintCm: { widthCm: 120, depthCm: 40 },
+      allowQuarterTurns: true,
+      maxNodes: 6000,
+    })
+    expect(result.status).toBe('unresolved')
+    expect(result.reason).toBe('no-constructed-route')
+    expect(result.routes).toEqual([])
+  })
+  it.each(['obstacle', 'void', 'barrier'] as const)(
+    'holds a turn when its square sweep meets an endpoint-free %s corner',
+    (mode) => {
+      const input = turningRoom()
+      expect(inspectSourceClearanceRoutes({ ...input, allowQuarterTurns: true }).status).toBe(
+        'constructive-routes',
+      )
+      const result = inspectSourceClearanceRoutes({
+        ...input,
+        allowQuarterTurns: true,
+        ...(mode === 'obstacle'
+          ? {
+              metricObstacles: {
+                obstacles: [
+                  { id: 'corner', kind: 'fixed' as const, xCm: 2, yCm: 2, widthCm: 1, depthCm: 1 },
+                ],
+              },
+            }
+          : {}),
+        ...(mode === 'void'
+          ? { metricObstacles: { voids: [{ id: 'corner', polygon: points(box(2, 2, 3, 3)) }] } }
+          : {}),
+        ...(mode === 'barrier'
+          ? { boundaryBarriers: [{ start: { xCm: 2, yCm: 2 }, end: { xCm: 3, yCm: 3 } }] }
+          : {}),
+      })
+      expect(result.status).toBe('unresolved')
+      expect(result.reason).toBe('no-constructed-route')
+    },
+  )
+  it('shares one node budget between translation and orientation states', () => {
+    const input = { ...turningRoom(), allowQuarterTurns: true, stepCm: 100 }
+    const limited = inspectSourceClearanceRoutes({ ...input, maxNodes: 1 })
+    expect(limited.reason).toBe('search-limit')
+    expect(limited.checkedNodes).toBe(1)
+    const result = inspectSourceClearanceRoutes({ ...input, maxNodes: 2 })
+    expect(result.status).toBe('constructive-routes')
+    expect(result.checkedNodes).toBe(2)
+    expect(result.routes[0]?.points.map((point) => point.orientation)).toEqual([0, 90])
+    expect(result.routes[0]?.points.map(({ xCm, yCm }) => ({ xCm, yCm }))).toEqual([
+      input.start,
+      input.start,
+    ])
+  })
+  it('does not certify a turn square whose rounded hypot is smaller than the exact decimal diagonal', () => {
+    // A hypot result observed in another supported JS runtime; do not depend on
+    // this runtime choosing the same rounded transcendental result.
+    const side = 15.620499351813308
+    const centre = side / 2
+    const hypot = vi.spyOn(Math, 'hypot').mockReturnValue(side)
+    try {
+      const result = inspectSourceClearanceRoutes({
+        freeFloor: [box(0, 0, side, side)],
+        rooms: [
+          { id: 'rotated', polygon: points(box(centre - 6, centre - 5, centre + 6, centre + 5)) },
+        ],
+        start: { xCm: centre, yCm: centre },
+        widthCm: 10,
+        footprintCm: { widthCm: 10, depthCm: 12 },
+        allowQuarterTurns: true,
+        stepCm: 1,
+        maxNodes: 100,
+      })
+      expect(result.turnSweepCm).toBeGreaterThan(side)
+      expect(result.status).toBe('unresolved')
+      expect(result.routes).toEqual([])
+    } finally {
+      hypot.mockRestore()
+    }
+  })
+  it.each([null, 0, 1, 'true', {}])(
+    'rejects nonboolean turn flags instead of selecting a default %#',
+    (allowQuarterTurns) => {
+      expect(() =>
+        inspectSourceClearanceRoutes({
+          ...turningRoom(),
+          allowQuarterTurns,
+        } as unknown as Parameters<typeof inspectSourceClearanceRoutes>[0]),
+      ).toThrow('логический режим')
+    },
+  )
+  it('requires an explicit body before opting into turns', () => {
+    expect(() => inspectSourceClearanceRoutes({ ...fixture(), allowQuarterTurns: true })).toThrow(
+      'явный прямоугольный габарит',
+    )
+  })
+  it('certifies all four distances from a decimal centre after enclosing the halved turn diagonal', () => {
+    const centre = 12.083045973594572
+    const input = {
+      freeFloor: [box(0, 0, 50, 50)],
+      rooms: [
+        { id: 'rotated', polygon: points(box(centre - 11, centre - 5, centre + 11, centre + 5)) },
+      ],
+      start: { xCm: centre, yCm: centre },
+      widthCm: 10,
+      footprintCm: { widthCm: 10, depthCm: 22 },
+      allowQuarterTurns: true,
+      stepCm: 100,
+      maxNodes: 2,
+    }
+    const hypot = vi.spyOn(Math, 'hypot').mockReturnValue(24.166091947189145)
+    try {
+      const held = inspectSourceClearanceRoutes(input)
+      expect(held.status).toBe('unresolved')
+      expect(held.routes).toEqual([])
+      const open = inspectSourceClearanceRoutes({
+        ...input,
+        freeFloor: [box(-0.0001, -0.0001, 50, 50)],
+      })
+      expect(open.status).toBe('constructive-routes')
+      expect(open.routes[0]?.points.map((point) => point.orientation)).toEqual([0, 90])
+    } finally {
+      hypot.mockRestore()
+    }
+  })
   it('preserves the exact square result and omits rectangle metadata when no footprint is supplied', () => {
     const input = fixture()
     const legacy = inspectSourceClearanceRoutes(input)
