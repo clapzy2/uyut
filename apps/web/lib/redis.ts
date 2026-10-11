@@ -1,5 +1,5 @@
 import { Ratelimit } from '@upstash/ratelimit'
-import { Redis } from '@upstash/redis'
+import { errors, Redis } from '@upstash/redis'
 import type { SecondaryStorage } from 'better-auth'
 import { getEnv } from './env'
 
@@ -32,7 +32,21 @@ export function createAuthStorage(): SecondaryStorage {
   const prefix = 'auth:'
   return {
     get: async (key) => {
-      const value = await getRawRedis().get<string>(prefix + key)
+      const client = getRawRedis()
+      let value: string | null
+      try {
+        value = await client.get<string>(prefix + key)
+      } catch (error) {
+        if (
+          !(error instanceof errors.UpstashJSONParseError) ||
+          error.message !== 'Unable to parse response body: '
+        ) {
+          throw error
+        }
+        // SDK retries fetch failures, but not an empty HTTP response. GET is idempotent;
+        // retry it once without treating a failed read as a cache miss.
+        value = await client.get<string>(prefix + key)
+      }
       return value ?? null
     },
     set: async (key, value, ttl) => {
