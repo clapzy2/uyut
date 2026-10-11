@@ -46,6 +46,58 @@ function adjoiningRooms() {
 }
 
 describe('continuous source clearance routes', () => {
+  it('rejects an uncertified start maneuver before searching any route nodes', () => {
+    const endpointCheck = vi.fn(() => false)
+    const result = inspectSourceClearanceRoutes({ ...fixture(), endpointCheck })
+    expect(result.routes).toEqual([])
+    expect(result.reason).toBe('entry-footprint')
+    expect(result.checkedNodes).toBe(0)
+    expect(endpointCheck).toHaveBeenCalledExactlyOnceWith({ xCm: 100, yCm: 100 })
+  })
+
+  it('continues beyond the first fitting destination footprint until a landing maneuver fits', () => {
+    const visitedDestination: number[] = []
+    const result = inspectSourceClearanceRoutes({
+      ...fixture(),
+      endpointCheck: (point, roomId) => {
+        if (roomId !== '1') return true
+        visitedDestination.push(point.xCm)
+        return point.xCm >= 300
+      },
+    })
+    expect(result.routes.map((route) => route.roomId)).toEqual(['0', '1'])
+    const destination = result.routes.find((route) => route.roomId === '1')
+    expect(destination?.points.at(-1)?.xCm).toBeGreaterThanOrEqual(300)
+    expect(visitedDestination.some((xCm) => xCm < 300)).toBe(true)
+  })
+
+  it('keeps a rejected landing unresolved under the same global node budget', () => {
+    const result = inspectSourceClearanceRoutes({
+      ...fixture(),
+      maxNodes: 30,
+      endpointCheck: (_point, roomId) => roomId !== '1',
+    })
+    expect(result.checkedNodes).toBeLessThanOrEqual(30)
+    expect(result.unresolvedRoomIds).toContain('1')
+    expect(result.routes.some((route) => route.roomId === '1')).toBe(false)
+  })
+
+  it('preserves the absent endpoint policy and the legacy fixed-orientation output exactly', () => {
+    const input = fixture()
+    const absent = inspectSourceClearanceRoutes(input)
+    expect(inspectSourceClearanceRoutes({ ...input, endpointCheck: undefined })).toEqual(absent)
+    expect(inspectSourceClearanceRoutes({ ...input, endpointCheck: () => true })).toEqual(absent)
+  })
+
+  it.each([false, 1, 'true'])('rejects a non-callable endpoint policy: %j', (endpointCheck) => {
+    expect(() =>
+      inspectSourceClearanceRoutes({
+        ...fixture(),
+        endpointCheck: endpointCheck as unknown as (point: { xCm: number; yCm: number }) => boolean,
+      }),
+    ).toThrow()
+  })
+
   const points = (polygon: Polygon) => (polygon[0] ?? []).map(([xCm, yCm]) => ({ xCm, yCm }))
   function turningRoom() {
     return {

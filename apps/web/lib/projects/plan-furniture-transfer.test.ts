@@ -1,7 +1,9 @@
 import type { PlanGeometry, PlanOpeningBinding, PlanPoint, PlanWallFacePair } from '@uyut/db'
 import polygonClipping, { type Polygon } from 'polygon-clipping'
 import { describe, expect, it } from 'vitest'
+import { furnitureManeuverEnvelope } from './plan-furniture-maneuver'
 import { inspectFurnitureTransfer } from './plan-furniture-transfer'
+import { inspectPdfClearanceRoutes } from './plan-pdf-clearance-route'
 import { applyPlanVerticalReference } from './plan-vertical-reference'
 
 const p = (xCm: number, yCm: number): PlanPoint => ({ xCm, yCm })
@@ -34,6 +36,7 @@ type Options = {
   ceiling?: number | 'unknown'
   secondCeiling?: number | 'unknown'
   entryHeight?: number | 'unknown'
+  entryDepth?: number
   portalHeight?: number | 'unknown'
   portalBottom?: number | 'unknown'
 }
@@ -63,7 +66,7 @@ function fixture(options: Options = {}): PlanGeometry {
       widthCm: 160,
       bottomCm: 0,
       heightCm: options.entryHeight === 'unknown' ? undefined : (options.entryHeight ?? 210),
-      clearance: { side: 'left', depthCm: 150, shape: 'rectangle' },
+      clearance: { side: 'left', depthCm: options.entryDepth ?? 150, shape: 'rectangle' },
     },
     {
       id: 'first',
@@ -504,5 +507,274 @@ describe('bounded upright rigid furniture transfer', () => {
     )
     expect(result.routes.some((route) => route.roomId === '1')).toBe(false)
     expect(result.unresolvedRoomIds).toContain('1')
+  })
+})
+
+describe('prescribed lifted furniture maneuvers', () => {
+  it('requires an internal endpoint certificate even for a direct elevated adapter call', () => {
+    const inspection = inspectPdfClearanceRoutes(fixture(), {
+      widthCm: 40,
+      depthCm: 80,
+      heightCm: 180,
+      carryElevationCm: 20,
+    })
+    expect(inspection.missing).toBeTruthy()
+    expect(inspection.result).toBeUndefined()
+  })
+  const lifted = {
+    ...request,
+    clearanceCm: 0,
+    maneuver: { carryElevationCm: 20, tilt: 'none' as const },
+  }
+  const reachesSecondRoom = (geometry: PlanGeometry, profile: unknown = lifted) =>
+    inspectFurnitureTransfer(geometry, profile).inspection?.result?.routes.some(
+      (route) => route.roomId === '1',
+    ) ?? false
+
+  it('lifts across a confirmed raised threshold, while the absent mode remains held', () => {
+    const geometry = fixture({ thresholdTop: 15 })
+    const before = structuredClone(geometry)
+    expect(reachesSecondRoom(geometry, { ...request, clearanceCm: 0 })).toBe(false)
+    const response = inspectFurnitureTransfer(geometry, lifted)
+    const result = required(response.inspection?.result)
+    expect(result.routes.map((route) => route.roomId)).toEqual(['0', '1'])
+    expect(result.vertical?.elevationCm).toBe(20)
+    for (const route of result.routes) for (const point of route.points) expect(point.zCm).toBe(20)
+    expect(geometry).toEqual(before)
+  })
+
+  it('crosses different reviewed floors only above their absolute lower aperture bounds', () => {
+    const geometry = fixture({ secondLevel: 10, portalBottom: 10, thresholdTop: 15 })
+    expect(reachesSecondRoom(geometry)).toBe(true)
+    expect(inspectFurnitureTransfer(geometry, lifted).maneuver?.stages).toContainEqual({
+      roomId: '1',
+      startFloorElevationCm: 0,
+      endFloorElevationCm: 10,
+      liftCm: 20,
+      lowerCm: 10,
+    })
+    expect(
+      reachesSecondRoom(geometry, {
+        ...lifted,
+        maneuver: { carryElevationCm: 9, tilt: 'none' },
+      }),
+    ).toBe(false)
+  })
+
+  it('does not replace a signed negative datum with zero when lifting', () => {
+    const geometry = fixture({ negative: true, thresholdTop: -10 })
+    const response = inspectFurnitureTransfer(geometry, {
+      ...lifted,
+      maneuver: { carryElevationCm: -5, tilt: 'none' },
+    })
+    const result = required(response.inspection?.result)
+    expect(result.routes.map((route) => route.roomId)).toEqual(['0', '1'])
+    expect(result.vertical?.elevationCm).toBe(-5)
+    for (const route of result.routes) for (const point of route.points) expect(point.zCm).toBe(-5)
+  })
+
+  it.each([
+    { thresholdTop: 'unknown' as const },
+    { thresholdTop: 21 },
+    { portalBottom: 'unknown' as const },
+    { portalBottom: 21, thresholdTop: 21 },
+    { portalHeight: 'unknown' as const },
+    { portalHeight: 199.999999999 },
+    { secondCeiling: 'unknown' as const },
+    { secondCeiling: 199.999999999 },
+  ])('does not bypass an unknown or insufficient crossing witness: %j', (options) => {
+    expect(reachesSecondRoom(fixture(options))).toBe(false)
+  })
+
+  it('accepts exact carry top equality with both measured aperture heads and ceilings', () => {
+    expect(reachesSecondRoom(fixture({ ceiling: 200, entryHeight: 200, portalHeight: 200 }))).toBe(
+      true,
+    )
+  })
+
+  it('does not round a positive decimal carry elevation away at an aperture head', () => {
+    expect(
+      reachesSecondRoom(fixture({ portalHeight: 180 }), {
+        ...lifted,
+        maneuver: { carryElevationCm: 0.00000000000001, tilt: 'none' },
+      }),
+    ).toBe(false)
+  })
+
+  it('compares the full tilt sweep plus carry exactly against the reviewed ceiling', () => {
+    const geometry = fixture({ entryDepth: 300, secondCeiling: 184.39088914585776 })
+    const profile = {
+      ...request,
+      widthCm: 40,
+      depthCm: 60,
+      heightCm: 180,
+      clearanceCm: 0,
+      maneuver: { carryElevationCm: 0, tilt: 'width' },
+    }
+    expect(reachesSecondRoom(geometry, profile)).toBe(true)
+    // Adding 1e-14 to the certified diagonal rounds to that same Number.
+    expect(
+      reachesSecondRoom(geometry, {
+        ...profile,
+        maneuver: { carryElevationCm: 0.00000000000001, tilt: 'width' },
+      }),
+    ).toBe(false)
+  })
+
+  it('holds a full tilt sweep that exceeds the ceiling despite rounded sum equality', () => {
+    const envelope = required(
+      furnitureManeuverEnvelope(
+        fixture({ ceiling: 315.6204993518133 }),
+        { widthCm: 10, depthCm: 10, heightCm: 12 },
+        { carryElevationCm: 300, tilt: 'width' },
+        0,
+        false,
+      ),
+    )
+    expect(envelope.endpointCheck(p(150, 150))).toBe(false)
+  })
+
+  it.each([
+    { ceiling: 'unknown' as const },
+    { ceiling: 199.999999999 },
+    { entryHeight: 'unknown' as const },
+    { entryHeight: 199.999999999 },
+  ])('holds unknown or insufficient start clearance at carry height: %j', (options) => {
+    expect(
+      inspectFurnitureTransfer(fixture(options), lifted).inspection?.result?.routes ?? [],
+    ).toEqual([])
+  })
+
+  it('preserves diagonal source threshold geometry during a lifted crossing', () => {
+    expect(reachesSecondRoom(fixture({ diagonal: true, thresholdTop: 15 }))).toBe(true)
+  })
+
+  it('lays the width-height cross-section down before a low portal and restores it inside the destination', () => {
+    const geometry = fixture({ entryDepth: 300, entryHeight: 260, portalHeight: 100 })
+    const response = inspectFurnitureTransfer(geometry, {
+      ...request,
+      widthCm: 40,
+      depthCm: 60,
+      heightCm: 240,
+      clearanceCm: 0,
+      maneuver: { carryElevationCm: 10, tilt: 'width' },
+    })
+    const result = required(response.inspection?.result)
+    expect(result.footprintCm).toEqual({ widthCm: 240, depthCm: 60 })
+    expect(result.routes.map((route) => route.roomId)).toEqual(['0', '1'])
+    expect(response.maneuver).toMatchObject({
+      carryElevationCm: 10,
+      tilt: 'width',
+      carriedHeightCm: 40,
+    })
+    expect(required(response.maneuver).sweepHeightCm).toBeGreaterThanOrEqual(240)
+    expect(required(response.maneuver).stages).toContainEqual({
+      roomId: '1',
+      startFloorElevationCm: 0,
+      endFloorElevationCm: 0,
+      liftCm: 10,
+      lowerCm: 10,
+    })
+  })
+
+  it('expands all entered clearances before a depth tilt and initial yaw permutation', () => {
+    const response = inspectFurnitureTransfer(fixture({ entryDepth: 300, portalHeight: 100 }), {
+      ...request,
+      widthCm: 40,
+      depthCm: 60,
+      heightCm: 180,
+      clearanceCm: 5,
+      orientation: 90,
+      maneuver: { carryElevationCm: 10, tilt: 'depth' },
+    })
+    const result = required(response.inspection?.result)
+    expect(result.footprintCm).toEqual({ widthCm: 190, depthCm: 50 })
+    expect(result.routes.map((route) => route.roomId)).toEqual(['0', '1'])
+  })
+
+  it('holds a tilt whose carried endpoint fits but whose complete source sweep crosses the wall', () => {
+    const response = inspectFurnitureTransfer(fixture({ portalHeight: 100 }), {
+      ...request,
+      widthCm: 40,
+      depthCm: 60,
+      heightCm: 180,
+      clearanceCm: 0,
+      maneuver: { carryElevationCm: 10, tilt: 'depth' },
+    })
+    expect(response.inspection?.result?.routes ?? []).toEqual([])
+  })
+
+  it.each(['void', 'fixed'] as const)(
+    'holds a %s intersecting only the full tilt sweep, not its carried endpoint',
+    (kind) => {
+      let geometry = fixture({ entryDepth: 300, portalHeight: 100 })
+      if (kind === 'void') {
+        geometry.voids = [{ id: 'sweep-hole', polygon: box(241, 145, 242, 155) }]
+        geometry = resurvey(geometry)
+      } else {
+        geometry.obstacles = [
+          { id: 'sweep-fixed', kind: 'fixed', xCm: 241, yCm: 145, widthCm: 1, depthCm: 10 },
+        ]
+      }
+      const response = inspectFurnitureTransfer(geometry, {
+        ...request,
+        widthCm: 40,
+        depthCm: 60,
+        heightCm: 180,
+        clearanceCm: 0,
+        maneuver: { carryElevationCm: 10, tilt: 'width' },
+      })
+      expect(response.inspection?.result?.reason).toBe('entry-footprint')
+      expect(response.inspection?.result?.routes).toEqual([])
+    },
+  )
+
+  it('holds a low destination ceiling even when the carried pose fits below it', () => {
+    expect(
+      reachesSecondRoom(fixture({ entryDepth: 300, secondCeiling: 200, portalHeight: 100 }), {
+        ...request,
+        widthCm: 40,
+        depthCm: 60,
+        heightCm: 180,
+        clearanceCm: 0,
+        maneuver: { carryElevationCm: 10, tilt: 'width' },
+      }),
+    ).toBe(true)
+    expect(
+      reachesSecondRoom(fixture({ entryDepth: 300, secondCeiling: 190, portalHeight: 100 }), {
+        ...request,
+        widthCm: 40,
+        depthCm: 60,
+        heightCm: 180,
+        clearanceCm: 0,
+        maneuver: { carryElevationCm: 10, tilt: 'width' },
+      }),
+    ).toBe(false)
+  })
+
+  it.each([
+    null,
+    false,
+    {},
+    { carryElevationCm: 20 },
+    { carryElevationCm: '20', tilt: 'none' },
+    { carryElevationCm: Number.NaN, tilt: 'none' },
+    { carryElevationCm: -601, tilt: 'none' },
+    { carryElevationCm: 1201, tilt: 'none' },
+    { carryElevationCm: 20, tilt: 'arbitrary' },
+    { carryElevationCm: 20, tilt: 'width', angle: 45 },
+  ])('rejects malformed, coerced or unspecified maneuver inputs: %j', (maneuver) => {
+    const response = inspectFurnitureTransfer(fixture(), { ...request, maneuver })
+    expect(response.error).toBeTruthy()
+    expect(response.inspection).toBeUndefined()
+  })
+
+  it('still requires acknowledgement and current floor-source approval for maneuvers', () => {
+    expect(
+      inspectFurnitureTransfer(fixture(), { ...lifted, acknowledged: false }).error,
+    ).toBeTruthy()
+    const geometry = fixture()
+    required(required(geometry.rooms[0]).polygon[0]).xCm += 1
+    expect(inspectFurnitureTransfer(geometry, lifted).inspection?.result).toBeUndefined()
   })
 })

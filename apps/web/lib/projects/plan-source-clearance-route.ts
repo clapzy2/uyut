@@ -1,6 +1,6 @@
-import { integerPoints } from '@uyut/catalog/plan-exact-geometry'
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import polygonClipping, { type MultiPolygon, type Polygon } from 'polygon-clipping'
+import { enclosingTurnBounds, enclosingTurnSide } from './plan-transfer-enclosure'
 
 function rectangle(left: number, top: number, right: number, bottom: number): Polygon {
   return [
@@ -14,7 +14,7 @@ function rectangle(left: number, top: number, right: number, bottom: number): Po
   ]
 }
 
-function intersectsOpenRectangle(
+export function intersectsOpenRectangle(
   barrier: { start: PlanPoint; end: PlanPoint },
   left: number,
   top: number,
@@ -45,77 +45,6 @@ function intersectsOpenRectangle(
   return true
 }
 
-/** Numeric enclosure only; never a physical fitting tolerance. */
-function adjacentFloat(value: number, direction: 'up' | 'down'): number {
-  if (!Number.isFinite(value)) return value
-  if (value === 0) return direction === 'up' ? Number.MIN_VALUE : -Number.MIN_VALUE
-  const view = new DataView(new ArrayBuffer(8))
-  view.setFloat64(0, value)
-  const increment = value > 0 === (direction === 'up') ? 1n : -1n
-  view.setBigUint64(0, view.getBigUint64(0) + increment)
-  return view.getFloat64(0)
-}
-
-function enclosingTurnSide(width: number, depth: number): number | undefined {
-  let side = Math.hypot(width, depth)
-  for (let attempt = 0; attempt < 16 && Number.isFinite(side); attempt += 1) {
-    const [body, square] = integerPoints([
-      { xCm: width, yCm: depth },
-      { xCm: side, yCm: 0 },
-    ])
-    if (body && square && square.x * square.x >= body.x * body.x + body.y * body.y) return side
-    side = adjacentFloat(side, 'up')
-  }
-  return undefined
-}
-
-function enclosingTurnBounds(point: PlanPoint, width: number, depth: number, side: number) {
-  let half = adjacentFloat(side / 2, 'up')
-  let certified = false
-  for (let attempt = 0; attempt < 16 && Number.isFinite(half); attempt += 1) {
-    const [body, radius] = integerPoints([
-      { xCm: width, yCm: depth },
-      { xCm: half, yCm: 0 },
-    ])
-    if (body && radius && 4n * radius.x * radius.x >= body.x * body.x + body.y * body.y) {
-      certified = true
-      break
-    }
-    half = adjacentFloat(half, 'up')
-  }
-  if (!certified) return undefined
-  const bounds: [number, number, number, number] = [
-    adjacentFloat(point.xCm - half, 'down'),
-    adjacentFloat(point.yCm - half, 'down'),
-    adjacentFloat(point.xCm + half, 'up'),
-    adjacentFloat(point.yCm + half, 'up'),
-  ]
-  for (let attempt = 0; attempt < 16 && bounds.every(Number.isFinite); attempt += 1) {
-    const [body, centre, lower, upper] = integerPoints([
-      { xCm: width, yCm: depth },
-      point,
-      { xCm: bounds[0], yCm: bounds[1] },
-      { xCm: bounds[2], yCm: bounds[3] },
-    ])
-    if (!body || !centre || !lower || !upper) return undefined
-    const diagonal = body.x * body.x + body.y * body.y
-    const distances = [
-      centre.x - lower.x,
-      centre.y - lower.y,
-      upper.x - centre.x,
-      upper.y - centre.y,
-    ]
-    const failures = distances.map(
-      (distance) => distance <= 0n || 4n * distance * distance < diagonal,
-    )
-    if (!failures.some(Boolean)) return bounds
-    for (const [index, failed] of failures.entries()) {
-      if (failed) bounds[index] = adjacentFloat(bounds[index] as number, index < 2 ? 'down' : 'up')
-    }
-  }
-  return undefined
-}
-
 /** Constructive planar routes. Optional quarter turns use a conservative full-sweep square; no tilt or stairs. */
 export function inspectSourceClearanceRoutes(input: {
   freeFloor: MultiPolygon
@@ -125,6 +54,8 @@ export function inspectSourceClearanceRoutes(input: {
   /** Optional rigid body in the plan axes. Absence preserves the legacy square exactly. */
   footprintCm?: { widthCm: number; depthCm: number }
   allowQuarterTurns?: boolean
+  /** Additional certificate for raising/tilting at start and landing, not for translations. */
+  endpointCheck?: (point: PlanPoint, roomId?: string) => boolean
   stepCm?: number
   maxNodes?: number
   metricObstacles?: Pick<PlanGeometry, 'obstacles' | 'voids'>
@@ -142,6 +73,8 @@ export function inspectSourceClearanceRoutes(input: {
     throw new Error('Некорректные параметры поиска маршрута')
   }
   const footprint = input.footprintCm
+  if (input.endpointCheck !== undefined && typeof input.endpointCheck !== 'function')
+    throw new Error('Некорректная проверка зоны подъёма и установки')
   if (
     footprint !== undefined &&
     (!footprint ||
@@ -226,6 +159,7 @@ export function inspectSourceClearanceRoutes(input: {
       : { footprint: 'axis-aligned-square' as const }),
   }
   if (
+    (input.endpointCheck !== undefined && !input.endpointCheck(input.start)) ||
     !clearRectangle(
       input.start.xCm - halfWidth,
       input.start.yCm - halfDepth,
@@ -261,7 +195,11 @@ export function inspectSourceClearanceRoutes(input: {
     const node = queue[cursor]
     if (!node) break
     for (const room of rooms) {
-      if (!found.has(room.id) && fits(bodyAt(node.point, node.orientation), [room.floor]))
+      if (
+        !found.has(room.id) &&
+        fits(bodyAt(node.point, node.orientation), [room.floor]) &&
+        (!input.endpointCheck || input.endpointCheck(node.point, room.id))
+      )
         found.set(room.id, cursor)
     }
     const [xHalf, yHalf] = halfSizes(node.orientation)

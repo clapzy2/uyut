@@ -1,4 +1,10 @@
-import { dot, exactSegmentContains, integerPoints, vector } from '@uyut/catalog/plan-exact-geometry'
+import {
+  compareDecimalSums,
+  dot,
+  exactSegmentContains,
+  integerPoints,
+  vector,
+} from '@uyut/catalog/plan-exact-geometry'
 import {
   inspectPlanThresholdSurfaces,
   planOpeningEndpoints,
@@ -264,6 +270,10 @@ export type FurnitureRouteBody = {
   depthCm: number
   heightCm: number
   allowQuarterTurns?: boolean
+  /** Explicit absolute base elevation for a prescribed carried crossing, not a stair model. */
+  carryElevationCm?: number
+  /** Internal start/landing maneuver proof; never accepted from serialized user input. */
+  endpointCheck?: (point: PlanPoint, roomId?: string) => boolean
 }
 
 export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: FurnitureRouteBody) {
@@ -276,6 +286,12 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
     (!transfer ||
       (transfer.allowQuarterTurns !== undefined &&
         typeof transfer.allowQuarterTurns !== 'boolean') ||
+      (transfer.carryElevationCm !== undefined &&
+        (!Number.isFinite(transfer.carryElevationCm) ||
+          transfer.carryElevationCm < -600 ||
+          transfer.carryElevationCm > 1200 ||
+          typeof transfer.endpointCheck !== 'function')) ||
+      (transfer.endpointCheck !== undefined && typeof transfer.endpointCheck !== 'function') ||
       !reference ||
       ![transfer.widthCm, transfer.depthCm, transfer.heightCm].every(
         (value) => Number.isFinite(value) && value > 0,
@@ -303,14 +319,20 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
         }),
       )
     : undefined
+  const carried = transfer?.carryElevationCm !== undefined
+  const carryElevation = transfer?.carryElevationCm
   const heldTransitions: RouteVertical['heldTransitions'] = []
   const usableFloors = reference?.floors.filter((floor) => {
     if (floor.surface !== 'finished-floor') return false
     if (!transfer) return true
     const ceiling = reference.ceilings?.find((ceiling) => ceiling.floorId === floor.id)
+    const base = carryElevation ?? floor.elevationCm
     return (
       ceiling !== undefined &&
-      signedElevationSum(floor.elevationCm, transfer.heightCm) <= ceiling.elevationCm
+      base >= floor.elevationCm &&
+      (carried
+        ? compareDecimalSums([base, transfer.heightCm], [ceiling.elevationCm]) <= 0
+        : signedElevationSum(base, transfer.heightCm) <= ceiling.elevationCm)
     )
   })
   const usableFloorIds = new Set(usableFloors?.map((floor) => floor.id))
@@ -335,7 +357,9 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
       if (!usableFloorIds.has(floor.id))
         heldTransitions.push({
           openingIds: [],
-          reason: `${floor.room.name}: отметка чистового потолка неизвестна либо габарит с запасом выше потолка.`,
+          reason: carried
+            ? `${floor.room.name}: основание переноса ниже чистового пола либо отметка потолка неизвестна или недостаточна для габарита на этой высоте.`
+            : `${floor.room.name}: отметка чистового потолка неизвестна либо габарит с запасом выше потолка.`,
         })
     }
   const calibration = geometry.pdfCalibration
@@ -415,14 +439,27 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
   )
     return missing('Стартовая дверь уже выбранной ширины прохода.')
   const entryOpening = geometry.openings.find((opening) => opening.id === entry.opening.id)
+  const entryBase = reference?.wallBases.find((base) => base.wall.id === entry.wall.id)
+  const startElevation = elevations?.get(entryFace.roomIndex)
   if (
     transfer &&
-    (entryOpening?.bottomCm !== 0 ||
+    (!entryOpening ||
+      entryOpening.bottomCm === undefined ||
       entryOpening.heightCm === undefined ||
-      entryOpening.heightCm < transfer.heightCm)
+      (carried
+        ? startElevation === undefined ||
+          carryElevation === undefined ||
+          compareDecimalSums([carryElevation], [startElevation, entryOpening.bottomCm]) < 0 ||
+          compareDecimalSums(
+            [carryElevation, transfer.heightCm],
+            [startElevation, entryOpening.bottomCm, entryOpening.heightCm],
+          ) > 0
+        : entryOpening.bottomCm !== 0 || entryOpening.heightCm < transfer.heightCm))
   )
     return missing(
-      'У стартового проёма неизвестна нижняя грань или высота, есть подъём либо габарит с запасом выше проёма. Перенос не проверен.',
+      carried
+        ? 'У стартового проёма неизвестны абсолютные грани либо габарит на выбранной отметке выходит за вертикальный просвет. Перенос не проверен.'
+        : 'У стартового проёма неизвестна нижняя грань или высота, есть подъём либо габарит с запасом выше проёма. Перенос не проверен.',
     )
   if (!reference && entryOpening && ['raised', 'invalid'].includes(openingFloorLevel(entryOpening)))
     return missing(
@@ -448,11 +485,11 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
   const entryFloor = floors[entryFace.roomIndex]
   if (!entryFloor || polygonClipping.difference(startBody, entryFloor).length > 0)
     return missing('Стартовая свободная зона должна целиком лежать внутри комнаты у двери.')
-  const entryBase = reference?.wallBases.find((base) => base.wall.id === entry.wall.id)
-  const startElevation = elevations?.get(entryFace.roomIndex)
   if (transfer && entryBase && !usableFloorIds.has(entryBase.floorId))
     return missing(
-      'Для стартового пола неизвестна отметка чистового потолка либо габарит с запасом выше потолка. Перенос не проверен.',
+      carried
+        ? 'Для стартового пола основание переноса ниже пола либо отметка потолка неизвестна или недостаточна на выбранной высоте. Перенос не проверен.'
+        : 'Для стартового пола неизвестна отметка чистового потолка либо габарит с запасом выше потолка. Перенос не проверен.',
     )
   if (
     reference &&
@@ -569,22 +606,54 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
         reason = 'Не подтверждён владелец стороны проёма.'
       else if (owners.some((owner) => owner?.surface !== 'finished-floor'))
         reason = 'Не подтверждён чистовой пол.'
-      else if (owners[0]?.elevationCm !== owners[1]?.elevationCm)
+      else if (!carried && owners[0]?.elevationCm !== owners[1]?.elevationCm)
         reason = 'Разные отметки полов: преодоление ступени не проверяется.'
-      else if (currentOpenings.some((opening) => opening?.bottomCm !== 0))
-        reason = 'Нижняя грань проёма неизвестна или поднята над полом.'
+      else if (
+        currentOpenings.some((opening, index) => {
+          const floor = owners[index]
+          return (
+            opening?.bottomCm === undefined ||
+            (carried
+              ? !floor ||
+                carryElevation === undefined ||
+                compareDecimalSums([carryElevation], [floor.elevationCm, opening.bottomCm]) < 0
+              : opening.bottomCm !== 0)
+          )
+        })
+      )
+        reason = carried
+          ? 'Нижняя грань проёма неизвестна либо основание переноса ниже неё.'
+          : 'Нижняя грань проёма неизвестна или поднята над полом.'
       else if (!threshold) reason = 'Отметка верха порога не подтверждена.'
-      else if (threshold.elevationCm !== owners[0]?.elevationCm)
-        reason = 'Верх порога выше пола: преодоление ступени не проверяется.'
-      else if (owners[0]?.elevationCm !== startElevation)
+      else if (
+        carried
+          ? carryElevation === undefined || threshold.elevationCm > carryElevation
+          : threshold.elevationCm !== owners[0]?.elevationCm
+      )
+        reason = carried
+          ? 'Верх порога выше выбранного основания переноса.'
+          : 'Верх порога выше пола: преодоление ступени не проверяется.'
+      else if (!carried && owners[0]?.elevationCm !== startElevation)
         reason = 'Переход находится на другом уровне, чем стартовая зона.'
       else if (transfer && owners.some((owner) => !owner || !usableFloorIds.has(owner.id)))
         reason = 'Неизвестна отметка потолка либо габарит с запасом выше потолка.'
       else if (
         transfer &&
-        currentOpenings.some(
-          (opening) => opening?.heightCm === undefined || opening.heightCm < transfer.heightCm,
-        )
+        currentOpenings.some((opening, index) => {
+          const floor = owners[index]
+          return (
+            opening?.heightCm === undefined ||
+            (carried
+              ? !floor ||
+                opening.bottomCm === undefined ||
+                carryElevation === undefined ||
+                compareDecimalSums(
+                  [carryElevation, transfer.heightCm],
+                  [floor.elevationCm, opening.bottomCm, opening.heightCm],
+                ) > 0
+              : opening.heightCm < transfer.heightCm)
+          )
+        })
       )
         reason = 'Высота проёма неизвестна либо габарит с запасом выше проёма.'
       else if (!thresholdSurfaces.some((surface) => surface.id === threshold.id))
@@ -661,7 +730,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
         .filter(
           (surface) =>
             surface.surface === 'finished-floor' &&
-            surface.elevationCm === startElevation &&
+            (carried || surface.elevationCm === startElevation) &&
             (!transfer || usableFloorIds.has(surface.floorId)),
         )
         .map(
@@ -691,6 +760,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
           ? {
               footprintCm: { widthCm: transfer.widthCm, depthCm: transfer.depthCm },
               ...(transfer.allowQuarterTurns ? { allowQuarterTurns: true } : {}),
+              ...(transfer.endpointCheck ? { endpointCheck: transfer.endpointCheck } : {}),
             }
           : {}),
         stepCm: 10,
@@ -707,7 +777,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
       reference && startElevation !== undefined
         ? {
             referenceId: reference.id,
-            elevationCm: startElevation,
+            elevationCm: carryElevation ?? startElevation,
             heldTransitions,
           }
         : undefined,

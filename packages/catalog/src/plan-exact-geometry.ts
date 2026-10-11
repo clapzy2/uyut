@@ -34,6 +34,14 @@ export const cross = (a: IntegerPoint, b: IntegerPoint): bigint => a.x * b.y - a
 export const dot = (a: IntegerPoint, b: IntegerPoint): bigint => a.x * b.x + a.y * b.y
 export const sign = (value: bigint): number => (value < 0n ? -1 : value > 0n ? 1 : 0)
 
+/** Compare sums of declared decimal centimetres without rounding an intermediate total. */
+export function compareDecimalSums(left: readonly number[], right: readonly number[]): number {
+  const values = integerPoints([...left, ...right].map((value) => ({ xCm: value, yCm: 0 })))
+  const first = values.slice(0, left.length).reduce((total, point) => total + point.x, 0n)
+  const second = values.slice(left.length).reduce((total, point) => total + point.x, 0n)
+  return sign(first - second)
+}
+
 export function onIntegerSegment(
   point: IntegerPoint,
   start: IntegerPoint,
