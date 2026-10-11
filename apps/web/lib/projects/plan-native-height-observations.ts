@@ -6,6 +6,7 @@ import {
   nativeHeightCaption,
   nativeHeightMillimetreDeclarationIndex,
 } from './plan-native-height-caption'
+import { nativeResetNoteBounds } from './plan-native-height-group'
 import { nativeCaptionInkIssue } from './plan-pdf-caption-binding'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
@@ -70,6 +71,9 @@ function documentaryUnitEvidence(
     }
   if (!ink.complete || ink.items.length !== 1 || ink.unresolved.length !== 0) return
   const item = ink.items[0]
+  const resetBounds = item?.sourceResetCaption
+    ? nativeResetNoteBounds(item, label, work)
+    : undefined
   if (
     !item ||
     item.index !== label.nativeIndex ||
@@ -78,8 +82,10 @@ function documentaryUnitEvidence(
     !item.baselineEnd ||
     !pointValid(item.baselineStart) ||
     !pointValid(item.baselineEnd) ||
-    Math.abs(item.baselineStart.x - label.pagePoint.x) > 1e-7 ||
-    Math.abs(item.baselineStart.y - label.pagePoint.y) > 1e-7
+    (item.sourceResetCaption
+      ? !resetBounds
+      : Math.abs(item.baselineStart.x - label.pagePoint.x) > 1e-7 ||
+        Math.abs(item.baselineStart.y - label.pagePoint.y) > 1e-7)
   )
     return
   const dx = (item.baselineEnd.x - item.baselineStart.x) * work.pageWidth

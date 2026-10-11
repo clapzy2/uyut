@@ -46,6 +46,10 @@ const PlanPageContourEditor = dynamic(
   () => import('./plan-page-contour-editor').then((module) => module.PlanPageContourEditor),
   { loading: () => <p role="status">Открываем исходный лист…</p> },
 )
+const PlanPaintedFloorReviewEditor = dynamic(
+  () => import('./plan-painted-floor-review').then((module) => module.PlanPaintedFloorReviewEditor),
+  { loading: () => null },
+)
 
 /**
  * Подсказка в поле желания. Разная по типам комнат: «побольше света» в санузле и в спальне
@@ -316,17 +320,36 @@ export function PlanReadingCard({
     planIsPdf &&
     activeReading?.sourcePage === Number(page) &&
     activeReading.planState === 'existing' ? (
-      <PlanNativeReview
-        key={`${baseRevision}:${page}`}
-        projectId={projectId}
-        pageNumber={Number(page)}
-        sourceRevision={baseRevision}
-        disabled={reading_ || saving || conflict}
-        onConflict={() => {
-          setConflict(true)
-          router.refresh()
-        }}
-      />
+      <>
+        <PlanNativeReview
+          key={`${baseRevision}:${page}`}
+          projectId={projectId}
+          pageNumber={Number(page)}
+          sourceRevision={baseRevision}
+          disabled={reading_ || saving || conflict}
+          onConflict={() => {
+            setConflict(true)
+            router.refresh()
+          }}
+        />
+        <PlanPaintedFloorReviewEditor
+          key={`painted-floor:${baseRevision}:${page}`}
+          projectId={projectId}
+          revision={baseRevision}
+          savedJson={activeReading.paintedFloorReview?.draftJson}
+          disabled={reading_ || saving || conflict || reviewEditing}
+          onSaved={(data) => {
+            setActiveReading(data.reading)
+            setBaseRevision(data.revision)
+            toast({ title: 'Выбор областей пола сохранён как черновик', tone: 'success' })
+            router.refresh()
+          }}
+          onConflict={() => {
+            setConflict(true)
+            router.refresh()
+          }}
+        />
+      </>
     ) : null
   const reviewedPage = review?.contours.source.pdfPage === Number(page)
   const canReviewPage =

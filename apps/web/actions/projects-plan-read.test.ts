@@ -149,6 +149,48 @@ describe('plan reading actions', () => {
     if (!result.ok) throw new Error(result.error)
     expect(result.data.reading).not.toHaveProperty('deliveryMeasurements')
   })
+  it('preserves explicit floor selections on same-source reading and room confirmation, never adopts reader selections', async () => {
+    const paintedFloorReview = {
+      version: 1 as const,
+      savedAt: '2026-10-12T00:00:00Z',
+      draftJson: 'owner source review',
+    }
+    const before = { ...reading, paintedFloorReview }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    mocks.read.mockResolvedValue({
+      ...reading,
+      paintedFloorReview: { ...paintedFloorReview, draftJson: 'reader forgery' },
+    })
+    const result = await readPlan(projectId, 6, planEditRevision('plan.pdf', before))
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading.paintedFloorReview).toEqual(paintedFloorReview)
+    await confirmPlanRooms(projectId, input(), planEditRevision('plan.pdf', before))
+    expect(mocks.setReading.mock.calls.at(-1)?.[2].paintedFloorReview).toEqual(paintedFloorReview)
+  })
+  it('does not carry a floor selection to another page or accept one from the reader', async () => {
+    const paintedFloorReview = {
+      version: 1 as const,
+      savedAt: '2026-10-12T00:00:00Z',
+      draftJson: 'owner source review',
+    }
+    mocks.owner.mockResolvedValue({
+      planUrl: 'plan.pdf',
+      planReading: { ...reading, paintedFloorReview },
+    })
+    mocks.read.mockResolvedValue({ ...reading, sourcePage: 7, paintedFloorReview })
+    const result = await readPlan(
+      projectId,
+      7,
+      planEditRevision('plan.pdf', { ...reading, paintedFloorReview }),
+    )
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading).not.toHaveProperty('paintedFloorReview')
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: reading })
+    mocks.read.mockResolvedValue({ ...reading, paintedFloorReview })
+    const noPrevious = await readPlan(projectId, 6, planEditRevision('plan.pdf', reading))
+    if (!noPrevious.ok) throw new Error(noPrevious.error)
+    expect(noPrevious.data.reading).not.toHaveProperty('paintedFloorReview')
+  })
 
   it.each(['plan.PNG', 'plan.pdf', 'plan.PDF'])(
     'rejects each populated axis from %s without explicit review before any write',

@@ -92,7 +92,8 @@ describe('literal source height observation inventory, never vertical model tran
         expect(row.unitEvidence?.labelId).toBe('native-text-237')
         expect(row.unitEvidence?.originalText).toBe('5. Размеры указаны в миллиметрах')
         expect(row.unitEvidence?.source).toEqual(input.source)
-        expect(row.issueCodes).toContain('height-unit-ink-unverified')
+        expect(row.unitEvidence?.inkSourceOperation).toBe(14076)
+        expect(row.issueCodes).not.toContain('height-unit-ink-unverified')
         expect(row.mayAcceptFor3D).toBe(false)
       }
       const { nativeHeightSourceLocations } = await import('./plan-native-height-locations')

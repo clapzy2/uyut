@@ -5,6 +5,24 @@ export type NativeCeilingDatumDeclaration = {
   maximumMm: number
 }
 
+/** A local height reference is not an apartment-wide elevation or a common zero. */
+export function nativeFinishedFloorHeightReference(text: string): boolean {
+  if (text.length > 200 || /[^\p{L}\d. \t\r\n\u00a0\u202f]/u.test(text)) return false
+  const normalized = text.replace(/[ \t\r\n\u00a0\u202f]+/gu, ' ').trim()
+  return /^(?:[1-9]\d?\. )?Все отметки высот на замере даны от чистового пола\.?$/iu.test(
+    normalized,
+  )
+}
+
+export function nativeFinishedFloorHeightReferenceTopic(text: string): boolean {
+  if (text.length > 200) return false
+  const topic = text.replace(/\s+/gu, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '')
+  return (
+    /отметки? высот/iu.test(topic) &&
+    /(?:чистового|существующего|чернового|готового) пола/iu.test(topic)
+  )
+}
+
 // One closed source-note grammar, not a general prose or numeric extractor.
 const declaration =
   /^(?:[1-9]\d?\. )?потолок в квартире ?[-–—:] ?(?:натяжной|подвесной|чистовой|чистый), отметки потолка в пределах: от (\d{1,4}(?:[.,]\d{1,3})?) ?(мм|см|mm|cm|м|m) до (\d{1,4}(?:[.,]\d{1,3})?) ?(мм|см|mm|cm|м|m) от уровня (существующего|чистого|чистового|готового) пола\.?$/iu

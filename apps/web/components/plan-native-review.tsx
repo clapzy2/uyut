@@ -7,6 +7,7 @@ import {
   NativeReviewRequestError,
 } from '@/lib/projects/plan-native-review-client'
 import type { NativeReviewPacket } from '@/lib/projects/plan-native-review-packet'
+import { NativeSourceObjectSummary } from './plan-native-source-objects'
 
 const coverageMessages: Record<string, string> = {
   'native-extraction-incomplete':
@@ -1527,6 +1528,7 @@ export function NativeReviewResult({
   const [showOpeningCandidates, setShowOpeningCandidates] = useState(true)
   const [showGlazingCandidates, setShowGlazingCandidates] = useState(true)
   const [showFilledPanels, setShowFilledPanels] = useState(false)
+  const [showSavedFloors, setShowSavedFloors] = useState(false)
   const [showFloorCavities, setShowFloorCavities] = useState(false)
   const [showOrderedPaint, setShowOrderedPaint] = useState(false)
   const [fullSize, setFullSize] = useState(false)
@@ -1687,6 +1689,11 @@ export function NativeReviewResult({
         />
       ) : null}
       {packet.sourceLinks ? <SourceSymbolLinks links={packet.sourceLinks} /> : null}
+      <NativeSourceObjectSummary
+        packet={packet}
+        showFloors={showSavedFloors}
+        onShowFloors={setShowSavedFloors}
+      />
       <label className="flex min-h-11 items-center gap-2 text-[13px]">
         <input
           type="checkbox"
@@ -1886,6 +1893,23 @@ export function NativeReviewResult({
                 </g>
               ))
             : null}
+          {showSavedFloors && packet.savedPaintedFloors?.status === 'checked' ? (
+            <g fill="none" stroke="#15803d" strokeWidth="2">
+              {packet.savedPaintedFloors.floors.map((floor) => (
+                <path
+                  key={floor.id}
+                  d={orderedPaintPath(floor)}
+                  fillRule="evenodd"
+                  vectorEffect="non-scaling-stroke"
+                >
+                  <title>
+                    {floor.sourceRoomKey} — {floor.name}. Выбранная область исходника, не
+                    подтверждённая физическая граница.
+                  </title>
+                </path>
+              ))}
+            </g>
+          ) : null}
           {showFloorCavities && packet.floorCavities?.status === 'draft' ? (
             <g fill="none" strokeWidth="2">
               {packet.floorCavities.candidates
@@ -1944,6 +1968,9 @@ export function NativeReviewResult({
           : null}
         {showFilledPanels
           ? ' Красный пунктир показывает исходные залитые профили, не подтверждённые физические проёмы.'
+          : null}
+        {showSavedFloors
+          ? ' Зелёные контуры — сохранённый выбор областей исходника, не подтверждённые обмеры или физические стены.'
           : null}
       </p>
       <SavedReviewCoverage savedReview={packet.savedReview} />

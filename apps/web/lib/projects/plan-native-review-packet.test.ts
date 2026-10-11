@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { nativeAnnotationFixture } from '../../scripts/qa-native-annotation-fixture'
 import { nativeReviewPacket } from './plan-native-review-packet'
+import { nativeVisiblePaintRegions } from './plan-native-visible-paint'
 import {
   connectedNativeRoomFixture,
   numberedNativeRoomFixture,
@@ -135,6 +136,94 @@ describe('whole-page native inspection, separate from saved geometry', () => {
     expect(packet.glazingSymbols?.candidates).toEqual([])
     expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
     expect(input).toEqual(before)
+  })
+  it('rechecks saved source-floor geometry including decimal ownership, and holds a stale selection', () => {
+    const input = fixture()
+    input.work.paths.push({
+      operationIndex: 100,
+      subpathIndex: 0,
+      paint: 'fill',
+      closed: true,
+      points: [
+        { x: 600, y: 600 },
+        { x: 800, y: 600 },
+        { x: 800, y: 800 },
+        { x: 600, y: 800 },
+      ],
+    })
+    input.native.labels.push(
+      {
+        id: 'native-text-400',
+        nativeIndex: 400,
+        name: 'Гардероб',
+        point: { x: 650, y: 650 },
+        pagePoint: { x: 650, y: 650 },
+        rotation: 0,
+      },
+      {
+        id: 'native-text-401',
+        nativeIndex: 401,
+        name: '3.1',
+        point: { x: 650, y: 670 },
+        pagePoint: { x: 650, y: 670 },
+        rotation: 0,
+      },
+    )
+    const region = nativeVisiblePaintRegions(input).regions.find(
+      (region) => region.candidateId === 'native-fill-100:0',
+    )
+    const piece = region?.pieces[0]
+    if (!piece) throw new Error('Missing source-floor piece')
+    const reviewed = {
+      review: 'manual-native-painted-floor-review',
+      source: input.source,
+      rasterSource: input.image,
+      floors: [
+        {
+          candidateId: 'native-fill-100:0',
+          pieceIndex: 0,
+          polygon: piece.polygon,
+          holes: piece.holes,
+          owner: {
+            sourceRoomKey: '3.1',
+            nameLabelId: 'native-text-400',
+            numberLabelId: 'native-text-401',
+          },
+          boundaryRoles: piece.polygon.map((_, edgeIndex) => ({ edgeIndex, kind: 'unresolved' })),
+        },
+      ],
+    }
+    const reading: PlanReading = {
+      readAt: '2026-10-12',
+      rooms: [],
+      sourcePage: 1,
+      planState: 'existing',
+      paintedFloorReview: {
+        version: 1,
+        savedAt: '2026-10-12',
+        draftJson: JSON.stringify(reviewed),
+      },
+    }
+    const packet = nativeReviewPacket({ ...input, savedReading: reading })
+    expect(packet.savedPaintedFloors).toMatchObject({
+      status: 'checked',
+      physicalBoundariesAccepted: false,
+      measurementsConfirmed: false,
+      commonZeroConfirmed: false,
+      floors: [{ sourceRoomKey: '3.1', name: 'Гардероб', unresolvedEdges: 4 }],
+    })
+    expect(packet.readiness.readyFor3D).toBe(false)
+    const firstPoint = reviewed.floors[0]?.polygon[0]
+    if (!firstPoint) throw new Error('Missing reviewed point')
+    firstPoint.x += 1
+    reading.paintedFloorReview = {
+      version: 1,
+      savedAt: '2026-10-12',
+      draftJson: JSON.stringify(reviewed),
+    }
+    expect(
+      nativeReviewPacket({ ...input, savedReading: reading }).savedPaintedFloors,
+    ).toMatchObject({ status: 'refused', floors: [] })
   })
   it('keeps scale and jamb diagnostics separate from accepted calibration and geometry', () => {
     const input = fixture()
