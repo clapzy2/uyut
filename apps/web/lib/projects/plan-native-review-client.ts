@@ -175,6 +175,77 @@ function isGlazingSymbols(value: unknown, image: NativeReviewPacket['image']): b
   })
 }
 
+function isFilledPanelSymbols(value: unknown, image: NativeReviewPacket['image']): boolean {
+  if (value === undefined) return true
+  if (!isCandidateLayer(value)) return false
+  const report = value as NonNullable<NativeReviewPacket['filledPanelSymbols']>
+  if (
+    !hasOnlyKeys(report, [
+      'status',
+      'basis',
+      'refusalReason',
+      'completeOpeningInventory',
+      'physicalJambAccepted',
+      'physicalPassageAccepted',
+      'closesFloorBoundary',
+      'finalPaintVisibilityProved',
+      'candidates',
+    ]) ||
+    report.basis !== 'native-filled-quad-and-opposed-cap-overlap' ||
+    report.completeOpeningInventory !== false ||
+    report.physicalJambAccepted !== false ||
+    report.physicalPassageAccepted !== false ||
+    report.closesFloorBoundary !== false ||
+    report.finalPaintVisibilityProved !== false
+  )
+    return false
+  const ids = new Set<string>()
+  const usedRefs = new Set<string>()
+  return report.candidates.every((candidate) => {
+    if (
+      !candidate ||
+      typeof candidate !== 'object' ||
+      !hasOnlyKeys(candidate, [
+        'id',
+        'sourceRefs',
+        'polygons',
+        'laterPaintCount',
+        'omittedInkCount',
+      ]) ||
+      typeof candidate.id !== 'string' ||
+      ids.has(candidate.id) ||
+      !Array.isArray(candidate.sourceRefs) ||
+      candidate.sourceRefs.length !== 3 ||
+      !Array.isArray(candidate.polygons) ||
+      candidate.polygons.length !== 3 ||
+      !candidate.polygons.every((polygon) => isSourceQuad(polygon, image)) ||
+      ![candidate.laterPaintCount, candidate.omittedInkCount].every(
+        (count) => Number.isSafeInteger(count) && count >= 0 && count <= 100_000,
+      )
+    )
+      return false
+    for (const ref of candidate.sourceRefs) {
+      if (
+        !ref ||
+        typeof ref !== 'object' ||
+        !hasOnlyKeys(ref, ['operationIndex', 'subpathIndex']) ||
+        ![ref.operationIndex, ref.subpathIndex].every(
+          (index) => Number.isSafeInteger(index) && index >= 0 && index < 100_000,
+        )
+      )
+        return false
+      const key = `${ref.operationIndex}:${ref.subpathIndex}`
+      if (usedRefs.has(key)) return false
+      usedRefs.add(key)
+    }
+    const body = candidate.sourceRefs[0]
+    if (!body || candidate.id !== `native-filled-panel-${body.operationIndex}:${body.subpathIndex}`)
+      return false
+    ids.add(candidate.id)
+    return true
+  })
+}
+
 function isSourceLinks(value: unknown, packet: NativeReviewPacket): boolean {
   if (value === undefined) return true
   if (!value || typeof value !== 'object') return false
@@ -2443,6 +2514,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isDoorSymbols(packet.doorSymbols, packet.image) ||
     !isOpeningFrames(packet.openingFrames, packet.image) ||
     !isGlazingSymbols(packet.glazingSymbols, packet.image) ||
+    !isFilledPanelSymbols(packet.filledPanelSymbols, packet.image) ||
     !isSourceLinks(packet.sourceLinks, packet) ||
     !isNumberCircles(packet.numberCircles) ||
     !isDimensionDiscovery(packet.dimensionDiscovery, packet) ||

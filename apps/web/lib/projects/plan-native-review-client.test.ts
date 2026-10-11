@@ -129,6 +129,154 @@ function loadFixture(
   return loadNativeReview({ ...input(), page: options.page ?? 1 }, fetcher as typeof fetch)
 }
 
+describe('filled-quad profile contract, separate from physical openings', () => {
+  function required<T>(value: T | undefined): T {
+    if (value === undefined) throw new Error('Missing filled-profile fixture')
+    return value
+  }
+  function filledFixture() {
+    const result = fixture()
+    const polygon = (left: number, right: number) => [
+      { x: left, y: 40 },
+      { x: right, y: 40 },
+      { x: right, y: 50 },
+      { x: left, y: 50 },
+    ]
+    result.packet.filledPanelSymbols = {
+      status: 'draft',
+      basis: 'native-filled-quad-and-opposed-cap-overlap',
+      refusalReason: null,
+      completeOpeningInventory: false,
+      physicalJambAccepted: false,
+      physicalPassageAccepted: false,
+      closesFloorBoundary: false,
+      finalPaintVisibilityProved: false,
+      candidates: [
+        {
+          id: 'native-filled-panel-10:0',
+          sourceRefs: [10, 11, 12].map((operationIndex) => ({ operationIndex, subpathIndex: 0 })),
+          polygons: [polygon(30, 100), polygon(25, 32), polygon(98, 105)],
+          laterPaintCount: 5,
+          omittedInkCount: 2,
+        },
+      ],
+    }
+    return result
+  }
+  it('loads source paint profiles without admitting physical geometry', async () => {
+    const { packet, headers } = filledFixture()
+    const result = await loadFixture(packet, headers)
+    expect(result.packet.filledPanelSymbols).toEqual(packet.filledPanelSymbols)
+    expect(result.packet.readiness).toEqual({
+      readOnly: true,
+      readyFor2D: false,
+      readyFor3D: false,
+    })
+    expect(result.packet.openingFrames).toBeUndefined()
+    expect(result.packet).not.toHaveProperty('geometry')
+  })
+  it.each([
+    'completeOpeningInventory',
+    'physicalJambAccepted',
+    'physicalPassageAccepted',
+    'closesFloorBoundary',
+    'finalPaintVisibilityProved',
+  ])('rejects promotion of %s', async (key) => {
+    const { packet, headers } = filledFixture()
+    Object.assign(packet.filledPanelSymbols as object, { [key]: true })
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
+  it.each([
+    [
+      'wrong basis',
+      (report: NonNullable<NativeReviewPacket['filledPanelSymbols']>) =>
+        Object.assign(report, { basis: 'native-body-and-two-endcap-profile' }),
+    ],
+    [
+      'unknown geometry',
+      (report: NonNullable<NativeReviewPacket['filledPanelSymbols']>) =>
+        Object.assign(report, { geometry: {} }),
+    ],
+    [
+      'foreign identity',
+      (report: NonNullable<NativeReviewPacket['filledPanelSymbols']>) => {
+        required(report.candidates[0]).id = 'native-filled-panel-99:0'
+      },
+    ],
+    [
+      'duplicate cap',
+      (report: NonNullable<NativeReviewPacket['filledPanelSymbols']>) => {
+        const candidate = required(report.candidates[0])
+        candidate.sourceRefs[2] = required(candidate.sourceRefs[1])
+      },
+    ],
+    [
+      'missing cap',
+      (report: NonNullable<NativeReviewPacket['filledPanelSymbols']>) => {
+        required(report.candidates[0]).polygons.pop()
+      },
+    ],
+    [
+      'out of image',
+      (report: NonNullable<NativeReviewPacket['filledPanelSymbols']>) => {
+        const polygon = required(required(report.candidates[0]).polygons[0])
+        required(polygon[0]).x = -1
+      },
+    ],
+    [
+      'fractional count',
+      (report: NonNullable<NativeReviewPacket['filledPanelSymbols']>) => {
+        required(report.candidates[0]).laterPaintCount = 0.5
+      },
+    ],
+    [
+      'partial refused inventory',
+      (report: NonNullable<NativeReviewPacket['filledPanelSymbols']>) => {
+        report.status = 'unresolved'
+        report.refusalReason = 'filled-panel-search-budget'
+      },
+    ],
+  ] as const)('rejects %s atomically', async (_name, mutate) => {
+    const { packet, headers } = filledFixture()
+    mutate(required(packet.filledPanelSymbols))
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
+  it('accepts an atomic source refusal with no profiles', async () => {
+    const { packet, headers } = filledFixture()
+    const report = required(packet.filledPanelSymbols)
+    report.status = 'unresolved'
+    report.refusalReason = 'filled-panel-search-budget'
+    report.candidates = []
+    expect((await loadFixture(packet, headers)).packet.filledPanelSymbols).toEqual(report)
+  })
+  it('rejects competing body/cap roles across different profiles', async () => {
+    const { packet, headers } = filledFixture()
+    const report = required(packet.filledPanelSymbols)
+    const competing = structuredClone(required(report.candidates[0]))
+    competing.id = 'native-filled-panel-11:0'
+    competing.sourceRefs = [11, 20, 21].map((operationIndex) => ({
+      operationIndex,
+      subpathIndex: 0,
+    }))
+    report.candidates.push(competing)
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
+  it('refuses more profiles than the public producer limit', async () => {
+    const { packet, headers } = filledFixture()
+    const report = required(packet.filledPanelSymbols)
+    const original = required(report.candidates[0])
+    report.candidates = Array.from({ length: 101 }, (_, index) => ({
+      ...structuredClone(original),
+      id: `native-filled-panel-${index * 3}:0`,
+      sourceRefs: [index * 3, index * 3 + 1, index * 3 + 2].map((operationIndex) => ({
+        operationIndex,
+        subpathIndex: 0,
+      })),
+    }))
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
+})
+
 describe('positive painted-region context contract', () => {
   function contextFixture() {
     const result = fixture()

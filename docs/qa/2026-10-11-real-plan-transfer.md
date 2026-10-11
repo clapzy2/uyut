@@ -245,10 +245,10 @@ Independent opening audit found no defensible change to the rectangular stroke
 detector: Rebrina still has zero frame candidates. Visible window bodies are
 skew filled quadrilaterals; retained cap/body endpoints can differ by one
 extractor quantization unit. Widening tolerances or declaring them physical
-openings would invent evidence. A subsequent source-linked quadrilateral/jamb
-detector needs lossless coordinates or explicit coordinate uncertainty. Floor
-role, metric ownership and vertical-reference binding are also still required
-before automatic 2D/3D transfer.
+openings would invent evidence. The follow-up below instead uses exact source
+paint overlap, without claiming a shared centerline or physical jamb. Floor
+role, metric ownership and vertical-reference binding are still required before
+automatic 2D/3D transfer.
 
 Verification: 6,952 web tests / 303 files, seven-package typecheck, Biome 995 files,
 production build and diff check passed. Independent final review found no
@@ -260,6 +260,48 @@ overflow (1265 px document within 1280 px viewport). Screenshot:
 uses mocked private HTTP, not authenticated account persistence. Its counters
 recorded one inspection, one image request, zero mutations and zero paid requests.
 No source-file edits or new paid AI requests were needed for this stage.
+
+### Filled-quadrilateral profile follow-up
+
+Independent inspection of the original decompressed PDF content showed that
+the small cap/body endpoint differences exist in its original decimal lexemes,
+not only in PDF.js Float32 buffers or our extractor rounding. Nevertheless,
+all four body/cap pairs strictly overlap as polygons in both original drawing
+coordinates and retained extractor coordinates. This supplies source paint
+contact, not a shared centerline, full jamb or physical opening.
+
+A separate bounded whole-inventory detector now finds two source profiles on
+Rebrina page 3: body 2035 with caps 2031/2027 and body 2059 with caps 2055/2051.
+These are two drawn profile components, not a claim of two windows. Each has
+a convex filled four-vertex body and caps covering opposed short-edge midpoints
+with exact positive polygon overlap. Rotation/shear do not require invented
+orthogonality; fill colour supplies no window/door semantics. Original vertices
+and operation refs are preserved. Competing caps, shared components and body/cap
+role conflicts hold the corresponding profiles. Whole-page search and result
+limits refuse atomically instead of exposing a partial accepted inventory.
+
+Independent review caught an approximate JS midpoint witness and a producer/
+client mismatch for a component used as both body and cap. Both were fixed:
+midpoint predicates now use source-decimal integer numerators with denominator
+two, and competing component roles are held before transport. Negative tests
+include true boundary contact, tiny gaps, competing bodies/caps, malformed
+provenance, source mismatch and budget exhaustion. The actual-PDF test searches
+the entire original SHA-pinned page, not a production source-ref allowlist.
+
+The private inspection has a distinct `filledPanelSymbols` contract and an
+opt-in red dashed source overlay. Neither existing opening frames nor glazing
+profiles are replaced. All physical jamb, passage, floor-closure, final-paint
+visibility and complete-opening-inventory flags remain false. The two profiles
+retain 20/22 later-operation warnings; 532 global clipped paths remain visible.
+Original-PDF component browser QA showed both profiles over their actual source
+positions, ten held height observations and no warning/error console logs.
+Proof: `output/playwright/real-plan-filled-profiles-20261012.jpg`.
+
+Final local verification for this follow-up: 6,993 web tests / 304 files,
+seven-package typecheck, Biome 997 files, production build and diff check passed.
+Independent review rechecked both fixes and the unchanged actual original.
+The standalone browser recorded one inspection, one image request and zero
+mutations/paid requests. This is not yet a live-account deployment receipt.
 
 ### Earlier offline regression verification
 

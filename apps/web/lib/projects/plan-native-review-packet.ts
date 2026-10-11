@@ -10,6 +10,7 @@ import {
   nativeDimensionTargets,
 } from './plan-native-dimension-targets'
 import { nativeFaceAnnotationCandidates } from './plan-native-face-annotations'
+import { nativeFilledPanelCandidates } from './plan-native-filled-panels'
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
 import {
   type NativeFloorOpeningReport,
@@ -140,6 +141,23 @@ export type NativeReviewPacket = {
     }[]
     glazing: { symbolId: string; status: 'two-sided' | 'ambiguous' | 'unresolved' }[]
     groups: { id: string; glazingIds: string[]; doorIds: string[] }[]
+  }
+  filledPanelSymbols?: {
+    status: 'draft' | 'unresolved'
+    basis: 'native-filled-quad-and-opposed-cap-overlap'
+    refusalReason: string | null
+    completeOpeningInventory: false
+    physicalJambAccepted: false
+    physicalPassageAccepted: false
+    closesFloorBoundary: false
+    finalPaintVisibilityProved: false
+    candidates: {
+      id: string
+      sourceRefs: { operationIndex: number; subpathIndex: number }[]
+      polygons: { x: number; y: number }[][]
+      laterPaintCount: number
+      omittedInkCount: number
+    }[]
   }
   numberCircles?: {
     status: 'draft' | 'unresolved'
@@ -315,6 +333,7 @@ export function nativeReviewPacket(input: {
   if (native.originalPdfSha256 !== source.sha256)
     throw new Error('Native inspection source hash changed')
   const common = { native, work, lineworkSource }
+  const filledPanels = nativeFilledPanelCandidates(common)
   const scheduleNumbers = nativeRoomNumberScheduleLinks(common)
   const circles = scheduleNumbers.circles
   packet.numberCircles = {
@@ -414,6 +433,26 @@ export function nativeReviewPacket(input: {
       x: point.x * scale.x,
       y: point.y * scale.y,
     })
+    packet.filledPanelSymbols = {
+      status: filledPanels.status,
+      basis: filledPanels.basis,
+      refusalReason: filledPanels.refusalReason,
+      completeOpeningInventory: false,
+      physicalJambAccepted: false,
+      physicalPassageAccepted: false,
+      closesFloorBoundary: false,
+      finalPaintVisibilityProved: false,
+      candidates: filledPanels.panels.map((panel) => ({
+        id: panel.id,
+        sourceRefs: [panel.body, ...panel.caps].map(({ operationIndex, subpathIndex }) => ({
+          operationIndex,
+          subpathIndex,
+        })),
+        polygons: [panel.body, ...panel.caps].map((path) => path.points.map(raster)),
+        laterPaintCount: panel.laterPaintCount,
+        omittedInkCount: panel.unresolvedInk.length,
+      })),
+    }
     packet.floorCavities = {
       status: floor.status,
       refusalReason: floor.refusalReason,
