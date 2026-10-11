@@ -1479,7 +1479,7 @@ export function NativeReviewResult({
     (packet.doorSymbols?.candidates.length ?? 0) + (packet.openingFrames?.candidates.length ?? 0) >
     0
   return (
-    <div className="mt-4 space-y-4">
+    <div className="mt-4 min-w-0 max-w-full space-y-4">
       <p className="border-l-2 border-accent pl-3 text-[14px] leading-relaxed text-ink-2">
         Это проверка исходного листа, не готовая схема квартиры. Сохранённые комнаты, мерки и 2D/3D
         не меняются.
@@ -1644,7 +1644,7 @@ export function NativeReviewResult({
         </p>
       ) : null}
       <section
-        className="overflow-auto border border-line bg-white"
+        className="min-w-0 w-full max-w-full overflow-auto border border-line bg-white"
         style={fullSize ? { maxHeight: '70vh' } : undefined}
         tabIndex={fullSize ? 0 : undefined}
         aria-label="Область просмотра исходного листа"
@@ -1975,7 +1975,7 @@ export function PlanNativeReview({
     }
   }
   return (
-    <details className="mt-5 border-t border-line pt-4">
+    <details className="mt-5 min-w-0 max-w-full border-t border-line pt-4">
       <summary className="min-h-11 cursor-pointer py-2 text-[14px] font-medium">
         Проверка исходного листа без AI
       </summary>

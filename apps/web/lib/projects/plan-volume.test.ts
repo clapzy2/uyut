@@ -43,6 +43,10 @@ const geometry: PlanGeometry = {
 }
 
 describe('planVolume', () => {
+  it('refuses a source-review hold even if a stale artifact says confirmed', () => {
+    expect(planVolume({ ...geometry, requiresSourceReviewReimport: true })).toBeNull()
+    expect(planVolume(geometry)).not.toBeNull()
+  })
   it('сохраняет заданные кухонные рабочие зоны без списка покупок', () => {
     const source: PlanGeometry = {
       ...geometry,

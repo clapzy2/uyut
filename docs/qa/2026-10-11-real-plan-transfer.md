@@ -4,7 +4,7 @@
 
 Re-extract original PDF source layers, compare them to the visible survey sheet, run one fresh image-model reading without reviewed contours, and replay the application's post-reader gates. Fix reproducible losses or unsafe promotions. Missing geometry, height ownership or floor datum must remain missing rather than becoming an approximate accepted model.
 
-This audit does not use the previous synthetic delivery project as a source-plan recognition test. No account/project records, subscriptions, passwords or source files are changed.
+The offline audit does not use the previous synthetic delivery project as a source-plan recognition test. Those stages changed no account/project records, subscriptions, passwords or source files. The separate live-account follow-up below explicitly records its QA-project writes.
 
 ## Actual sources
 
@@ -144,7 +144,69 @@ persistence or full automatic 2D/3D proof.
 
 Local evidence is under `tmp/real-plan-*20261011*`, `tmp/real-transfer-control-20261011/` and `output/quality-bench/plan-74-77-native-text-real-transfer-20261011/`. These ignored artifacts are not synthetic replacements for the PDFs.
 
-## Regression verification
+## Live-account follow-up after hosting recovery
+
+The host recovered after the owner reported topping up its blocked account. Read-only checks
+found the PR106 web image healthy, SSH responsive, no uninterruptible disk processes and
+normalizing I/O pressure. A new boot was observed; the agent did not reboot or stop the host.
+This recovery does not establish the cause of the earlier disk stall or authorize further
+support intervention. The other project on the same VPS must not be stopped.
+
+The authenticated site has no new-project action under its current free-plan limit. The
+existing disposable QA project `cd049367-2dab-4e92-99bb-809913d8ddfd` was reused, not the
+owner's apartment or the synthetic delivery project. Its unrelated synthetic room and item
+remain; its old manual geometry was invalidated by uploading a new source. The project title
+and old total area are not the identity or area of the uploaded apartment.
+
+Two uploads of the unchanged Rebrina original (10,779,428 bytes, below the 15 MiB file limit)
+failed before persistence. Production logged `Unexpected end of form`. Next's proxy clones
+request bodies with a separate default 10 MiB cap, and `/projects` passes through this proxy.
+The old 16 MiB Server Action limit did not override that cap. The fix aligns both limits at
+16 MiB, retaining the existing 15 MiB file limit and multipart allowance. A config regression
+and a genuine HTTP/browser E2E with an 11 MiB synthetic PDF protect against truncation; no
+copyrighted source or AI call is needed by that regression.
+
+The unchanged 74.77 m2 original (5,842,197 bytes, same SHA-256 listed above) uploaded normally.
+One fresh paid site reading of page 6 returned eight rooms and the eight documented areas.
+Native post-reader checks withheld width/depth/ceiling claims and the model's geometry rather
+than supplying estimates. The live private inspection loaded without a DTO error and showed
+seven numbered floor candidates, seven opening-frame candidates, eight glazing-profile
+candidates, 72 dimensional candidates, 16 height observations and 45 skipped curves.
+These counts are observations, not a complete physical floor/opening/height inventory.
+
+Four supported room records were transferred through the normal UI, with missing dimensions
+left missing. A page reload retained the source page and saved room list. The old synthetic
+control room was not overwritten. No accepted apartment footprint or 3D model was created.
+The UI's next measurement link incorrectly chose the unrelated older room; it now prefers a
+room matched to the current reading using the existing matching rules.
+
+The live full-scale inspection also expanded the entire page from a 572 px viewport to
+1,451 px. The full-size drawing now remains inside a bounded scroll region: shrinkable grid
+tracks and ancestors do not rescale the original SVG or clip its annotations. Synthetic
+layout controls verify only scrolling; they are not recognition proof.
+
+Independent audit reproduced a separate native-source update dead end: importing an exterior
+envelope without a floor, then adding the floor in the source review, left the metric draft
+unchanged and reimport unavailable. A changed reviewed source could also leave old confirmed
+geometry active. Matching source-derived geometry now receives a server-owned reimport hold,
+retaining coordinates and raw surveys but withholding confirmation, volume, layouts, floor
+levels and delivery certification. Identical geometry/proof refreshes and unrelated manual
+drawings are not invalidated. Explicit acknowledged reimport uses fresh source evidence and
+atomic revision checks; it only rebuilds a held source-derived draft, never confirms it.
+Measurements are preserved only on unique unchanged owners. Unsafe reattachment refuses the
+write and retains the old data; opening measurement certificates and changed vertical-datum
+ownership still need a separate manual rebinding workflow.
+
+Independent final review caught and fixed two additional boundary cases: JSONB reordering of
+the legacy source identity could evade the stale-source hold, and a separately measured wall
+thickness could be dropped during otherwise safe reimport. Regressions cover reordered source
+properties and unchanged/moved wall owners with `measuredThicknessCm` as their only measurement.
+
+**Live outcome:** upload, reading, private inspection and supported room persistence were
+observed on the actual site. Automatic accepted 2D/3D remains blocked by physical-boundary,
+metric-owner and vertical-reference proof gaps. Do not describe this as complete recognition.
+
+### Earlier offline regression verification
 
 - Full web suite: 6,821 tests / 300 files passed, including local-only original PDF re-extractions when that ignored source exists. Public CI does not require copyrighted PDFs; deterministic unit controls remain present there.
 - Typecheck: seven packages passed. Biome: 988 files passed, changed code formatted. Production build and diff check passed.

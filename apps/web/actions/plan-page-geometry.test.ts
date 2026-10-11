@@ -86,9 +86,230 @@ describe('create metric draft from reviewed source page', () => {
     mocks.owner.mockResolvedValue(project)
     mocks.object.mockResolvedValue({ body: Buffer.from('pdf') })
     mocks.prepare.mockResolvedValue(page)
-    mocks.convert.mockReturnValue({ ok: true, geometry })
+    mocks.convert.mockReturnValue({ ok: true, geometry: structuredClone(geometry) })
     mocks.save.mockResolvedValue(undefined)
   })
+
+  it('explicitly updates an envelope-only held draft with the newly reviewed floor', async () => {
+    const before: PlanReading = {
+      ...reading,
+      geometry: { ...geometry, requiresSourceReviewReimport: true },
+      deliveryMeasurements: {
+        version: 1,
+        savedAt: 'old',
+        draftJson: 'raw survey',
+        reportJson: 'old report',
+      },
+    }
+    const footprint = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 300, yCm: 0 },
+      { xCm: 300, yCm: 500 },
+      { xCm: 0, yCm: 500 },
+    ]
+    mocks.owner.mockResolvedValue({ ...project, planReading: before })
+    mocks.convert.mockReturnValue({ ok: true, geometry: { ...geometry, footprint, warnings: [] } })
+    const expectedRevision = planEditRevision('plan.pdf', before)
+    expect((await createPlanPageGeometryDraft('project', [4], expectedRevision)).ok).toBe(false)
+    expect(mocks.save).not.toHaveBeenCalled()
+    const result = await createPlanPageGeometryDraft(
+      'project',
+      [4],
+      expectedRevision,
+      undefined,
+      true,
+      true,
+    )
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.geometry.footprint).toEqual(footprint)
+    expect(result.data.geometry.status).toBe('draft')
+    expect(result.data.geometry.requiresSourceReviewReimport).toBeUndefined()
+    expect(result.data.geometry.confirmedAt).toBeUndefined()
+    expect(mocks.save.mock.calls[0]?.[2].deliveryMeasurements).toEqual({
+      version: 1,
+      savedAt: 'old',
+      draftJson: 'raw survey',
+    })
+    expect(before.geometry?.requiresSourceReviewReimport).toBe(true)
+  })
+
+  it('cannot use client acknowledgement to replace an ordinary existing drawing', async () => {
+    const before = { ...reading, geometry }
+    mocks.owner.mockResolvedValue({ ...project, planReading: before })
+    expect(
+      (
+        await createPlanPageGeometryDraft(
+          'project',
+          [4],
+          planEditRevision('plan.pdf', before),
+          undefined,
+          true,
+          true,
+        )
+      ).ok,
+    ).toBe(false)
+    expect(mocks.convert).not.toHaveBeenCalled()
+    expect(mocks.save).not.toHaveBeenCalled()
+  })
+
+  it('does not replace a held native draft bound to a different PDF page', async () => {
+    const before = {
+      ...reading,
+      geometry: {
+        ...geometry,
+        requiresSourceReviewReimport: true as const,
+        pdfCalibration: {
+          sourceSha256: source.sha256,
+          pdfPage: 7,
+          cmPerPoint: 1,
+          origin: { x: 0, y: 0 },
+          anchorRoomNumbers: [4],
+          labelIndexes: [],
+          derivedOpeningIds: [],
+        },
+      },
+    }
+    mocks.owner.mockResolvedValue({ ...project, planReading: before })
+    const result = await createPlanPageGeometryDraft(
+      'project',
+      [4],
+      planEditRevision('plan.pdf', before),
+      undefined,
+      true,
+      true,
+    )
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('другому исходному PDF-листу'),
+    })
+    expect(mocks.convert).not.toHaveBeenCalled()
+    expect(mocks.save).not.toHaveBeenCalled()
+  })
+
+  it('refuses to discard an independent object during source reimport', async () => {
+    const before = {
+      ...reading,
+      geometry: {
+        ...geometry,
+        requiresSourceReviewReimport: true as const,
+        obstacles: [
+          {
+            id: 'manual_column',
+            kind: 'column' as const,
+            xCm: 10,
+            yCm: 10,
+            widthCm: 20,
+            depthCm: 20,
+          },
+        ],
+      },
+    }
+    mocks.owner.mockResolvedValue({ ...project, planReading: before })
+    const result = await createPlanPageGeometryDraft(
+      'project',
+      [4],
+      planEditRevision('plan.pdf', before),
+      undefined,
+      true,
+      true,
+    )
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('Сохранённое препятствие'),
+    })
+    expect(mocks.save).not.toHaveBeenCalled()
+    expect(before.geometry.obstacles).toHaveLength(1)
+  })
+
+  it.each(['unchanged', 'moved'] as const)(
+    'keeps measured 3D thickness only on its %s source host',
+    async (change) => {
+      // No ordinary thickness or height is set: measuredThicknessCm alone must trigger preservation.
+      const wall = {
+        id: 'source-wall',
+        kind: 'inner' as const,
+        start: { xCm: 0, yCm: 0 },
+        end: { xCm: 100, yCm: 0 },
+        measuredThicknessCm: 20.5,
+      }
+      const before = {
+        ...reading,
+        geometry: { ...geometry, requiresSourceReviewReimport: true as const, walls: [wall] },
+      }
+      mocks.owner.mockResolvedValue({ ...project, planReading: before })
+      const { measuredThicknessCm: _measured, ...horizontal } = wall
+      mocks.convert.mockReturnValue({
+        ok: true,
+        geometry: {
+          ...geometry,
+          walls: [{ ...horizontal, ...(change === 'moved' ? { end: { xCm: 110, yCm: 0 } } : {}) }],
+        },
+      })
+      const result = await createPlanPageGeometryDraft(
+        'project',
+        [4],
+        planEditRevision('plan.pdf', before),
+        undefined,
+        true,
+        true,
+      )
+      if (change === 'unchanged') {
+        if (!result.ok) throw new Error(result.error)
+        expect(result.data.geometry.walls[0]?.measuredThicknessCm).toBe(20.5)
+        expect(result.data.geometry.status).toBe('draft')
+      } else {
+        expect(result).toMatchObject({ ok: false, error: expect.stringContaining('толщина стены') })
+        expect(mocks.save).not.toHaveBeenCalled()
+      }
+      expect(before.geometry.walls[0]?.measuredThicknessCm).toBe(20.5)
+    },
+  )
+
+  it.each(['preserve', 'moved'] as const)(
+    'handles measured source wall %s without guessing its owner',
+    async (change) => {
+      const wall = {
+        id: 'source-wall',
+        kind: 'inner' as const,
+        start: { xCm: 0, yCm: 0 },
+        end: { xCm: 100, yCm: 0 },
+        heightCm: 267.5,
+      }
+      const before = {
+        ...reading,
+        geometry: { ...geometry, requiresSourceReviewReimport: true as const, walls: [wall] },
+      }
+      mocks.owner.mockResolvedValue({ ...project, planReading: before })
+      const { heightCm: _height, ...horizontal } = wall
+      mocks.convert.mockReturnValue({
+        ok: true,
+        geometry: {
+          ...geometry,
+          walls: [{ ...horizontal, ...(change === 'moved' ? { end: { xCm: 110, yCm: 0 } } : {}) }],
+        },
+      })
+      const result = await createPlanPageGeometryDraft(
+        'project',
+        [4],
+        planEditRevision('plan.pdf', before),
+        undefined,
+        true,
+        true,
+      )
+      if (change === 'preserve') {
+        if (!result.ok) throw new Error(result.error)
+        expect(result.data.geometry.walls[0]?.heightCm).toBe(267.5)
+        expect(result.data.geometry.status).toBe('draft')
+      } else {
+        expect(result).toMatchObject({
+          ok: false,
+          error: expect.stringContaining('все обмеры сохранены'),
+        })
+        expect(mocks.save).not.toHaveBeenCalled()
+        expect(before.geometry.walls[0]?.heightCm).toBe(267.5)
+      }
+    },
+  )
 
   it('uses fresh PDF evidence and atomically creates an unconfirmed draft', async () => {
     const result = await createPlanPageGeometryDraft('project', [4], revision)

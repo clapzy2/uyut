@@ -48,6 +48,29 @@ const render = (value: PlanReading) =>
   )
 
 describe('explicit source page import choice', () => {
+  it('offers a held source reimport only with a separate initially unchecked acknowledgement', () => {
+    const value: PlanReading = {
+      ...reading,
+      geometry: {
+        version: 1,
+        status: 'draft',
+        requiresSourceReviewReimport: true,
+        widthCm: 300,
+        heightCm: 500,
+        walls: [],
+        openings: [],
+        rooms: [],
+        warnings: [],
+      },
+    }
+    const html = render(value)
+    expect(html).toContain('Подтверждаю замену горизонтального черновика')
+    expect(html).toContain('Обновить 2D-черновик из PDF')
+    expect(html).toContain('иначе замена будет отклонена без потери данных')
+    expect(html).not.toContain('checked=')
+    expect(html).toContain('disabled=')
+    expect(html).not.toContain('Существующий 2D-чертёж эта кнопка не заменяет')
+  })
   it('offers a shared physical zone only once with both printed identities', () => {
     const value = structuredClone(reading)
     value.rooms.push(

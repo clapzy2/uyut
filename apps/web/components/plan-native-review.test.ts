@@ -378,6 +378,22 @@ function nativeDimensionPacket() {
 }
 
 describe('read-only native review presentation', () => {
+  it('bounds the source viewport without clipping its scrollable drawing or annotations', () => {
+    const packet = nativeReviewPacket({
+      source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },
+      image: { sha256: 'a'.repeat(64), page: 1, width: 1414, height: 1000 },
+    })
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('class="mt-4 min-w-0 max-w-full space-y-4"')
+    expect(html).toMatch(
+      /<section class="min-w-0 w-full max-w-full overflow-auto border border-line bg-white" aria-label="Область просмотра исходного листа">/,
+    )
+    expect(html).toContain('viewBox="0 0 1414 1000"')
+    expect(html).toContain('width="1414" height="1000"')
+    expect(html).not.toContain('overflow-hidden')
+  })
   it('distinguishes no saved review from unavailable native data without save buttons', () => {
     const empty = renderToStaticMarkup(
       createElement(SavedReviewCoverage, { savedReview: { status: 'not-saved' } }),

@@ -173,6 +173,7 @@ function addWallInterval(
 
 /** Build a viewing model only from confirmed 2D coordinates and current source relations. */
 export function planVolume(geometry: PlanGeometry): PlanVolume | null {
+  if (geometry.requiresSourceReviewReimport) return null
   const signed = signedPlanFloors(geometry)
   if (signed && !signed.ok) return null
   if (geometry.status !== 'confirmed' || !geometry.footprint || geometry.footprint.length < 3) {

@@ -178,8 +178,8 @@ export default async function ProjectPage({ params }: { params: Params }) {
         shoppingCount={shopping.count}
       />
 
-      <div className="mt-10 grid gap-10 lg:grid-cols-[5fr_7fr] lg:gap-14">
-        <div id="project-plan" className="scroll-mt-24">
+      <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-14">
+        <div id="project-plan" className="min-w-0 scroll-mt-24">
           <p className={labelClassName}>План</p>
           {planUrl ? (
             <>

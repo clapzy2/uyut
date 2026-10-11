@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto'
 import { planMeasurementTextItems } from '@uyut/ai'
-import type { PlanReading } from '@uyut/db'
+import type { PlanPageContours, PlanReading } from '@uyut/db'
 import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
 import type { ActionResult } from '@/actions/projects'
@@ -11,10 +11,11 @@ import { AccessError, assertOwner } from '@/lib/projects/access'
 import { PlanReadError, preparePlanPage } from '@/lib/projects/plan-document'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { verifyPlanPageOpenings } from '@/lib/projects/plan-page-feature-checks'
+import { planPageGeometryElementId } from '@/lib/projects/plan-page-metric-draft'
 import { planPageContoursSchema, planPageReviewIssue } from '@/lib/projects/plan-page-review'
 import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
 import { pdfDimensionForEdge } from '@/lib/projects/plan-pdf-edge-dimension'
-import { pdfContourIdentity } from '@/lib/projects/plan-pdf-room-binding'
+import { pdfContourIdentity, pdfContourKey } from '@/lib/projects/plan-pdf-room-binding'
 import { setPlanReading } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { getObject } from '@/lib/storage'
@@ -31,6 +32,75 @@ const floorReviewMessages: Record<string, string> = {
     'Техническая пустота выходит за границу пола. Сверьте её контур с исходным листом.',
   'non-native-floor-vertex':
     'Привяжите каждую вершину границы пола к узлу исходного PDF. Произвольные точки не сохраняются.',
+}
+
+function contourGeometryKey(contours: PlanPageContours): string {
+  const sorted = <T>(items: T[], key: (item: T) => string) =>
+    [...items].sort((left, right) => key(left).localeCompare(key(right)))
+  // Proof metadata can be refreshed without moving a physical boundary. Printed
+  // dimension choices, however, affect the metric scale and must remain significant.
+  return JSON.stringify(
+    {
+      source: contours.source,
+      pageWidth: contours.pageWidth,
+      pageHeight: contours.pageHeight,
+      exterior: contours.exterior
+        ? {
+            polygon: contours.exterior.polygon,
+            boundaryRole: contours.exterior.boundaryRole ?? 'floor',
+          }
+        : null,
+      floor: contours.floor?.polygon ?? null,
+      voids: sorted(contours.voids ?? [], (item) => item.id),
+      rooms: sorted(contours.rooms, pdfContourKey).map((room) => ({
+        identity: pdfContourKey(room),
+        polygon: room.polygon,
+        conditionalEdges: (room.conditionalEdges ?? [])
+          .map((edge) => edge.wallEdgeIndex)
+          .sort((a, b) => a - b),
+        dimensionEdges: sorted(room.dimensionEdges ?? [], (edge) => String(edge.wallEdgeIndex)),
+        openings: sorted(room.openings ?? [], (opening) => opening.id).map((opening) => ({
+          id: opening.id,
+          kind: opening.kind,
+          wallEdgeIndex: opening.wallEdgeIndex,
+          start: opening.start,
+          end: opening.end,
+        })),
+        obstacles: sorted(room.obstacles ?? [], (obstacle) => obstacle.id),
+      })),
+    },
+    (_key, value) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+        : value,
+  )
+}
+
+function geometryUsesReview(reading: PlanReading, contours: PlanPageContours): boolean {
+  const geometry = reading.geometry
+  if (!geometry) return false
+  const calibration = geometry.pdfCalibration
+  if (calibration)
+    return (
+      calibration.sourceSha256 === contours.source.sha256 &&
+      calibration.pdfPage === contours.source.pdfPage
+    )
+  // Legacy imports have no global calibration. Only server-generated IDs tied to
+  // this exact file/page/contour identify them; unrelated manual drawings stay intact.
+  // The original importer serialized this order; JSONB does not preserve key order.
+  const importedSource = {
+    sha256: contours.source.sha256,
+    pdfPage: contours.source.pdfPage,
+    state: contours.source.state,
+  }
+  return contours.rooms.some((room) =>
+    room.polygon.some((_point, index) =>
+      geometry.walls.some(
+        (wall) =>
+          wall.id === planPageGeometryElementId(importedSource, pdfContourKey(room), 'wall', index),
+      ),
+    ),
+  )
 }
 
 /** Saving a page contour does not call the AI reader or confirm apartment measurements. */
@@ -125,6 +195,30 @@ export async function savePlanPageReview(
           openings: verifyPlanPageOpenings(page.linework, source, contours, page.image.planText),
         },
       },
+    }
+    const previousContours = before.pageReview?.contours
+    if (
+      previousContours &&
+      before.geometry &&
+      geometryUsesReview(before, previousContours) &&
+      contourGeometryKey(previousContours) !== contourGeometryKey(contours)
+    ) {
+      const { confirmedAt: _confirmation, ...geometry } = before.geometry
+      reading.geometry = {
+        ...geometry,
+        status: 'draft',
+        requiresSourceReviewReimport: true,
+        warnings: [
+          ...new Set([
+            ...geometry.warnings,
+            'Исходная разметка PDF изменилась. Прежние координаты и обмеры сохранены как черновик; обновите перенос из исходного листа и заново сверьте высоты, уровни и маршрут заноса перед подтверждением.',
+          ]),
+        ],
+      }
+      if (before.deliveryMeasurements) {
+        const { reportJson: _report, ...measurements } = before.deliveryMeasurements
+        reading.deliveryMeasurements = measurements
+      }
     }
     // The repository compares both the file key and the complete JSONB reading atomically.
     await setPlanReading(session.user.id, projectId, reading, project)

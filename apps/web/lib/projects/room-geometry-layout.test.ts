@@ -45,6 +45,15 @@ const geometry: PlanGeometry = {
 }
 
 describe('проёмы комнаты из 2D-схемы', () => {
+  it('does not use a stale confirmed artifact while source reimport is required', () => {
+    expect(
+      roomLayoutInputFromGeometry(
+        { ...geometry, requiresSourceReviewReimport: true },
+        'Гостиная',
+        null,
+      ),
+    ).toBeNull()
+  })
   it('does not flatten explicit floor references into the local horizontal contract', () => {
     const legacy = roomLayoutInputFromGeometry(geometry, 'Гостиная', null)
     expect(legacy).not.toBeNull()

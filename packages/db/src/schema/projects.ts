@@ -292,6 +292,8 @@ export type PlanGeometry = {
   /** Ручная схема начинается с пустого полотна, без выдуманного результата распознавания. */
   source?: 'manual'
   confirmedAt?: string
+  /** Server-owned hold after a native source review changes; clearing requires explicit reimport. */
+  requiresSourceReviewReimport?: true
   widthCm: number
   heightCm: number
   walls: PlanWall[]

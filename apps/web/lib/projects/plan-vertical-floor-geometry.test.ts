@@ -63,6 +63,16 @@ function accepted(
 }
 
 describe('known signed physical floor surfaces', () => {
+  it('holds a changed source review without erasing measured levels', () => {
+    const geometry = accepted()
+    geometry.requiresSourceReviewReimport = true
+    const reference = structuredClone(geometry.verticalReference)
+    expect(signedPlanFloors(geometry)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('разметка PDF изменилась'),
+    })
+    expect(geometry.verticalReference).toEqual(reference)
+  })
   it('returns separate levels and never fills the unknown extent between rooms', () => {
     const geometry = accepted()
     const before = structuredClone(geometry)
