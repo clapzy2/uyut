@@ -37,13 +37,28 @@ export default function PlanSceneViewer({
   const [sectionHeight, setSectionHeight] = useState(90)
   const instructionsId = useId()
   const sectionId = useId()
-  let wallHeight = 0
-  for (const wall of model.walls) wallHeight = Math.max(wallHeight, wall.topCm ?? 0)
+  let wallHeight = model.floorSurfaces ? Number.NEGATIVE_INFINITY : 0
+  for (const wall of model.walls) {
+    if (wall.topCm !== undefined) wallHeight = Math.max(wallHeight, wall.topCm)
+  }
   for (const face of model.solidFaces) {
     for (const point of face.points) wallHeight = Math.max(wallHeight, point.zCm)
   }
-  const sectionMax = Math.max(1, Math.ceil(wallHeight))
-  const cutHeight = Math.min(sectionHeight, sectionMax)
+  const sectionMax = model.floorSurfaces
+    ? Number.isFinite(wallHeight)
+      ? Math.ceil(wallHeight)
+      : 1
+    : Math.max(1, Math.ceil(wallHeight))
+  const sectionAvailable = model.floorSurfaces ? Number.isFinite(wallHeight) : wallHeight > 0
+  const sectionMin = model.floorSurfaces
+    ? Math.floor(
+        Math.min(
+          ...model.floorSurfaces.map((floor) => floor.elevationCm),
+          ...model.walls.map((wall) => wall.bottomCm),
+        ),
+      )
+    : 1
+  const cutHeight = Math.max(sectionMin, Math.min(sectionHeight, sectionMax))
   const canFocus =
     selection?.kind === 'room'
       ? model.rooms?.some((room) => room.id === selection.id)
@@ -53,7 +68,7 @@ export default function PlanSceneViewer({
     scene.current?.setWalls(walls)
     scene.current?.setZones(zones)
     scene.current?.setGestures(gestures)
-    scene.current?.setSection(section && wallHeight > 0, cutHeight)
+    scene.current?.setSection(section && sectionAvailable, cutHeight)
   })
 
   useEffect(() => {
@@ -89,8 +104,8 @@ export default function PlanSceneViewer({
     scene.current?.setGestures(gestures)
   }, [gestures])
   useEffect(() => {
-    scene.current?.setSection(section && wallHeight > 0, cutHeight)
-  }, [section, wallHeight, cutHeight])
+    scene.current?.setSection(section && sectionAvailable, cutHeight)
+  }, [section, sectionAvailable, cutHeight])
   useEffect(() => {
     if (failed) {
       scene.current?.dispose()
@@ -173,7 +188,7 @@ export default function PlanSceneViewer({
             Управлять мышью и жестами
           </label>
         </div>
-        {wallHeight > 0 ? (
+        {sectionAvailable ? (
           <div className="w-full border-t border-line pt-3 text-sm text-ink">
             <label className="flex min-h-11 items-center gap-2">
               <input
@@ -187,11 +202,14 @@ export default function PlanSceneViewer({
             </label>
             {section ? (
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                <label htmlFor={sectionId}>Высота среза: {cutHeight} см от пола</label>
+                <label htmlFor={sectionId}>
+                  {model.verticalDatum ? 'Отметка среза' : 'Высота среза'}: {cutHeight} см
+                  {model.verticalDatum ? ' от общего нуля' : ' от пола'}
+                </label>
                 <input
                   id={sectionId}
                   type="range"
-                  min={1}
+                  min={sectionMin}
                   max={sectionMax}
                   step={1}
                   value={cutHeight}
@@ -249,6 +267,9 @@ export default function PlanSceneViewer({
         ))}
       </ul>
       <p className="mt-3 text-xs leading-relaxed text-ink-2">
+        {model.verticalDatum
+          ? 'Отметки полов и верха порогов показаны от общего нуля; низ проёма — отдельная грань. Толщина порога не достраивается. '
+          : null}
         Пол, проёмы и габариты мебели перенесены из проверенной схемы без новой расстановки. Мебель
         показана габаритными блоками, не точными моделями изделий. Стены без высоты и проёмы без
         вертикальных мерок отмечены только на полу; мебель без высоты — плоским пунктирным контуром.

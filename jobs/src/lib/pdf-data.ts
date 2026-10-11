@@ -7,7 +7,10 @@ import {
   type WorksRates,
 } from '@uyut/catalog'
 import { effectiveSize, effectiveSizeReading, itemSizeSourceLabel } from '@uyut/catalog/item-size'
-import { layoutWithMeasurements } from '@uyut/catalog/layout-with-measurements'
+import { inspectStoredPlanDelivery } from '@uyut/catalog/plan-delivery-record'
+import { inspectPlanThresholdSurfaces } from '@uyut/catalog/plan-threshold-geometry'
+import { signedPlanFloors } from '@uyut/catalog/plan-vertical-floor-geometry'
+import { layoutWithMeasurements } from '@uyut/catalog/reviewed-layout-with-measurements'
 import { shoppingOffer } from '@uyut/catalog/shopping-offer'
 import {
   type CatalogCategory,
@@ -390,6 +393,37 @@ export async function buildPdfData(input: {
 }): Promise<PdfData> {
   const { snapshot, kind, options, rates } = input
   const { project } = snapshot
+  const geometry = project.planReading?.geometry
+  const deliveryPlan = inspectStoredPlanDelivery(
+    geometry,
+    project.planReading?.deliveryMeasurements,
+  )
+  let verticalPlan: PdfData['verticalPlan']
+  if (geometry?.verticalReference !== undefined) {
+    const signed = signedPlanFloors(geometry)
+    if (!signed?.ok) {
+      verticalPlan = {
+        status: 'held',
+        warnings: [signed?.error ?? 'Общий высотный отсчёт не подтверждён.'],
+      }
+    } else {
+      const thresholds = inspectPlanThresholdSurfaces(geometry)
+      verticalPlan = {
+        status: 'confirmed',
+        datum: {
+          id: signed.reference.id,
+          kind: signed.reference.kind,
+          zeroFloorId: signed.reference.zeroFloorId,
+        },
+        source: signed.reference.source,
+        reviewedAt: signed.reference.verifiedAt,
+        floors: signed.surfaces,
+        thresholds: thresholds.surfaces,
+        ceilings: signed.reference.ceilings ?? [],
+        warnings: thresholds.issues.map((issue) => issue.message),
+      }
+    }
+  }
   // Без адреса ссылки вшились бы в купленный PDF ведущими на чужой домен: лучше упасть
   const appUrl = requireEnv('APP_URL')
 
@@ -430,6 +464,16 @@ export async function buildPdfData(input: {
         : [null, null, []]
       const plan = plans.get(room.id) ?? null
       const measurementNotes: string[] = []
+      if (plan?.floorLevel && verticalPlan?.status === 'confirmed') {
+        const ceiling = verticalPlan.ceilings.find(
+          (ceiling) => ceiling.floorId === plan.floorLevel?.floorId,
+        )
+        measurementNotes.push(
+          ceiling
+            ? `Потолок: отметка ${formatDimensionCm(ceiling.elevationCm)} см от общего нуля.`
+            : 'Отметка потолка этого пола неизвестна; вертикальное размещение не проверено.',
+        )
+      }
       if (room.measurements?.ceilingCm !== undefined) {
         measurementNotes.push(
           `Высота потолка по мерке комнаты: ${formatDimensionCm(room.measurements.ceilingCm)} см.`,
@@ -583,5 +627,7 @@ export async function buildPdfData(input: {
     estimate,
     rates,
     brief: input.brief,
+    ...(verticalPlan ? { verticalPlan } : {}),
+    ...(deliveryPlan ? { deliveryPlan } : {}),
   }
 }

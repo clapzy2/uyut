@@ -5,6 +5,10 @@ import type {
   PlanPageSegmentRef,
 } from '@uyut/db'
 import {
+  exactNativePolygonContains,
+  exactNativePolygonsOverlap,
+} from './plan-native-exact-intersections'
+import {
   planPageContoursSchema,
   planPageFeaturesIssue,
   sourceRoomContourVertices,
@@ -152,7 +156,9 @@ export function verifyPlanPageOpeningFaces(
         sum +
         room.polygon.length +
         (room.obstacles ?? []).reduce((count, obstacle) => count + obstacle.polygon.length, 0),
-      contours.exterior?.polygon.length ?? 0,
+      (contours.exterior?.polygon.length ?? 0) +
+        (contours.floor?.polygon.length ?? 0) +
+        (contours.voids ?? []).reduce((sum, voidArea) => sum + voidArea.polygon.length, 0),
     ) > 2000
   )
     return []
@@ -303,13 +309,78 @@ export function verifyPlanPageOpeningFaces(
     })
   }
   const jambBetween = (a: PagePoint, b: PagePoint) => segments.get(segmentKey(a, b))
+  const reservedAreas = [
+    ...contours.rooms.map((room) => ({
+      polygon: room.polygon,
+      reason: 'opening-strip-overlaps-room',
+    })),
+    ...(contours.voids ?? []).map((voidArea) => ({
+      polygon: voidArea.polygon,
+      reason: 'opening-strip-overlaps-void',
+    })),
+  ].map((area) => ({
+    ...area,
+    left: Math.min(...area.polygon.map((point) => point.x)),
+    right: Math.max(...area.polygon.map((point) => point.x)),
+    top: Math.min(...area.polygon.map((point) => point.y)),
+    bottom: Math.max(...area.polygon.map((point) => point.y)),
+  }))
+  const boundaries = [
+    ...(contours.exterior
+      ? [{ polygon: contours.exterior.polygon, reason: 'opening-strip-outside-exterior' }]
+      : []),
+    ...(contours.floor
+      ? [{ polygon: contours.floor.polygon, reason: 'opening-strip-outside-floor' }]
+      : []),
+  ]
+  // Request-local geometric reuse: reverse face checks describe the same corridor.
+  const stripIssues = new Map<string, string | undefined>()
+  let stripWork = 200_000
+  const stripIssue = (face: Face, other: Face): string | undefined => {
+    const strip = [face.low, face.high, other.high, other.low]
+    const left = Math.min(...strip.map((point) => point.x))
+    const right = Math.max(...strip.map((point) => point.x))
+    const top = Math.min(...strip.map((point) => point.y))
+    const bottom = Math.max(...strip.map((point) => point.y))
+    const key = JSON.stringify([left, top, right, bottom])
+    if (stripIssues.has(key)) return stripIssues.get(key)
+    let issue: string | undefined
+    for (const boundary of boundaries) {
+      stripWork -= strip.length * boundary.polygon.length
+      if (stripWork < 0) return 'opening-strip-work-limit'
+      if (exactNativePolygonContains(boundary.polygon, strip) !== true) {
+        issue = boundary.reason
+        break
+      }
+    }
+    if (issue) {
+      stripIssues.set(key, issue)
+      return issue
+    }
+    for (const area of reservedAreas) {
+      // Boundary-only contact is expected at the two faces and jambs.
+      if (area.left >= right || area.right <= left || area.top >= bottom || area.bottom <= top)
+        continue
+      stripWork -= strip.length * area.polygon.length
+      if (stripWork < 0) return 'opening-strip-work-limit'
+      // All reviewed rooms participate, including a concave part of a paired room.
+      // A midpoint alone can miss an off-centre third owner. Unknown precision holds the pair.
+      if (exactNativePolygonsOverlap(strip, area.polygon) !== false) {
+        issue = area.reason
+        break
+      }
+    }
+    stripIssues.set(key, issue)
+    return issue
+  }
   const faces = openings.map(({ room, opening }) => openingFace(room, opening))
-  return openings.map(({ room, opening }, index) => {
+  const checks: PdfOpeningFaceCheck[] = openings.map(({ room, opening }, index) => {
     const reference = { ...pdfContourIdentity(room), openingId: opening.id }
     const face = faces[index]
     if (!face) return { ...reference, status: 'unresolved', reason: 'non-exact-axis-aligned-face' }
     const matches: Array<{ face: Face; jambs: [PdfOpeningJamb, PdfOpeningJamb] }> = []
     let hasOppositeFace = false
+    let corridorIssue: string | undefined
     for (const other of faces) {
       if (
         !other ||
@@ -331,7 +402,11 @@ export function verifyPlanPageOpeningFaces(
       hasOppositeFace = true
       const low = jambBetween(face.low, other.low)
       const high = jambBetween(face.high, other.high)
-      if (low && high) matches.push({ face: other, jambs: [low, high] })
+      if (low && high) {
+        const issue = stripIssue(face, other)
+        if (issue) corridorIssue = issue
+        else matches.push({ face: other, jambs: [low, high] })
+      }
     }
     if (matches.length > 1)
       return { ...reference, status: 'ambiguous', reason: 'competing-native-door-faces' }
@@ -341,9 +416,19 @@ export function verifyPlanPageOpeningFaces(
       : {
           ...reference,
           status: 'unresolved',
-          reason: hasOppositeFace ? 'no-two-native-jambs' : 'no-opposing-door-face',
+          reason:
+            corridorIssue ?? (hasOppositeFace ? 'no-two-native-jambs' : 'no-opposing-door-face'),
         }
   })
+  // A work-limit refusal is atomic; earlier partial matches cannot be reused as proof.
+  return stripWork < 0
+    ? openings.map(({ room, opening }) => ({
+        ...pdfContourIdentity(room),
+        openingId: opening.id,
+        status: 'unresolved',
+        reason: 'opening-strip-work-limit',
+      }))
+    : checks
 }
 
 /** Retain a pair once, only when both faces have the same unique opposite. */

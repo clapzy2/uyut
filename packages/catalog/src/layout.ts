@@ -139,6 +139,19 @@ export type RoomFunctionCheck = {
 export type RoomFunctionProfile = 'living' | 'bedroom' | 'kitchen' | 'kid' | 'studio'
 
 export type RoomLayout = {
+  /** Explicit reviewed supporting floor; absence preserves legacy local Z=0. */
+  floorLevel?: {
+    referenceId: string
+    referenceKind: 'existing-floor' | 'finished-floor'
+    zeroFloorId: string
+    floorId: string
+    elevationCm: number
+    surface: 'existing-floor' | 'finished-floor'
+    reviewKey: string
+    worldPolygon: LayoutPoint[]
+    origin: LayoutPoint
+    surfaces: Array<{ floor: LayoutPoint[]; voids: LayoutPoint[][] }>
+  }
   /** Условия достоверности исходных размеров, показываются вместе со схемой. */
   measurementNote?: string
   widthCm: number

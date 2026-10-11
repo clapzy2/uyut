@@ -27,7 +27,9 @@ const context: PlanReadingGeometryContext = {
     pageWidth: 842,
     pageHeight: 1191,
     paths: [...annotated.dimensionPaths, ...leaders.paths] as PdfVectorPath[],
-    skippedCurves: 45,
+    // Selected straight rails/leaders are a unit control, not a complete source-page audit.
+    // Nonzero omitted-curve counts require their actual localized bounds (tested below).
+    skippedCurves: 0,
     unsupportedPaths: 0,
     unsupportedContexts: 0,
     clippedPaths: 0,
@@ -125,6 +127,54 @@ describe('reviewed-page geometry gate after the native-text parser', () => {
     })
     expect(checked.rooms[0]?.measurementWarnings?.join()).toContain('Ширина')
   })
+  it('clears an exterior width assigned past a smaller intervening room before transfer', () => {
+    const bedroom = annotated.rooms.find((room) => room.roomSourceNumber === 4)
+    if (!bedroom) throw new Error('Missing annotated bedroom')
+    const target = {
+      roomSourceNumber: 4,
+      polygon: bedroom.polygon.map((point) => ({ ...point, y: point.y + 48 })),
+    }
+    const extensions: PdfVectorPath[] = [643.528, 844.512].map((x, index) => ({
+      operationIndex: 9000 + index,
+      subpathIndex: 0,
+      closed: false,
+      paint: 'stroke',
+      points: [
+        { x, y: 90 },
+        { x, y: 134 },
+      ],
+    }))
+    const widthOnly = data(4)
+    const reading = read([
+      {
+        ...widthOnly,
+        depthMm: undefined,
+        measurementEvidence: { width: widthOnly.measurementEvidence.width },
+      },
+    ])
+    const reviewedContext = {
+      ...context,
+      linework: { ...context.linework, paths: [...context.linework.paths, ...extensions] },
+      contours: { ...context.contours, rooms: [target] },
+    }
+    expect(verifyPlanReadingGeometry(reading, reviewedContext).rooms[0]?.widthCm).toBe(298.5)
+
+    reviewedContext.contours.rooms.push({
+      roomSourceNumber: 99,
+      polygon: [
+        { x: 730, y: 105 },
+        { x: 735, y: 105 },
+        { x: 735, y: 125 },
+        { x: 730, y: 125 },
+      ],
+    })
+    const checked = verifyPlanReadingGeometry(reading, reviewedContext)
+    expect(checked.rooms[0]?.widthCm).toBeUndefined()
+    expect(checked.rooms[0]?.measurementEvidence).toBeUndefined()
+    expect(checked.rooms[0]?.measurementWarnings?.join()).toContain('Ширина')
+    expect(planRows({ ...checked, readAt: '2026-10-09T20:00:00.000Z' })[0]?.width).toBe('')
+    expect(reading.rooms[0]?.widthCm).toBe(298.5)
+  })
   it('rejects a partial chain with correct native text and arithmetic', () => {
     const bedroom = data(4)
     const reading = read([
@@ -163,6 +213,17 @@ describe('reviewed-page geometry gate after the native-text parser', () => {
     { source: { ...context.source, state: 'proposed' as const } },
     { linework: { ...context.linework, truncated: true } },
     { linework: { ...context.linework, unsupportedContexts: 1 } },
+    { linework: { ...context.linework, skippedCurves: 45 } },
+    { linework: { ...context.linework, clippedPaths: 1 } },
+    { linework: { ...context.linework, skippedCurveBoundsTruncated: true } },
+    { linework: { ...context.linework, clippedPathBoundsTruncated: true } },
+    { linework: { ...context.linework, pageHeight: Number.NaN } },
+    {
+      linework: {
+        ...context.linework,
+        paths: [...context.linework.paths, context.linework.paths[0] as PdfVectorPath],
+      },
+    },
     { linework: { ...context.linework, pageWidth: 841 } },
     { planText: undefined },
     { planText: '{broken' },
@@ -171,6 +232,41 @@ describe('reviewed-page geometry gate after the native-text parser', () => {
     expect(reading.rooms[0]?.widthCm).toBeUndefined()
     expect(reading.rooms[0]?.depthCm).toBeUndefined()
     expect(reading.rooms[0]?.measurementEvidence).toBeUndefined()
+  })
+  it('keeps remote localized curves but holds only the dimension beside an omitted native curve', () => {
+    const curve = {
+      operationIndex: 999_999,
+      subpathIndex: 0,
+      bounds: { left: 900, top: 900, right: 910, bottom: 910 },
+    }
+    const remoteLayer = {
+      ...context.linework,
+      skippedCurves: 1,
+      skippedCurveBounds: [curve],
+    }
+    const input = read([data(4)])
+    expect(gate(input, { linework: remoteLayer }).rooms[0]).toMatchObject({
+      widthCm: 298.5,
+      depthCm: 515.6,
+    })
+    const label = textItems[data(4).measurementEvidence.width.textItemIndexes[0] ?? -1]
+    if (!label) throw new Error('Missing source width label')
+    const checked = gate(input, {
+      linework: {
+        ...remoteLayer,
+        skippedCurveBounds: [
+          {
+            ...curve,
+            bounds: { left: label.x, top: label.y, right: label.x + 1, bottom: label.y + 1 },
+          },
+        ],
+      },
+    })
+    expect(checked.rooms[0]?.widthCm).toBeUndefined()
+    expect(checked.rooms[0]?.measurementEvidence?.width).toBeUndefined()
+    expect(checked.rooms[0]?.depthCm).toBe(515.6)
+    expect(checked.rooms[0]?.measurementWarnings?.join()).toContain('Ширина')
+    expect(input.rooms[0]?.widthCm).toBe(298.5)
   })
   it.each(['unknown', 'proposed', undefined] as const)(
     'rejects reading state %s for existing contours',

@@ -11,6 +11,9 @@ export function layoutWithMeasurements(
   items: readonly LayoutItem[],
   roomKind?: LayoutRoomKind,
 ): RoomLayout | null {
+  // This entry point is horizontal-only. Common datums use the separately
+  // reviewed entry point, never the rectangular measurement fallback below.
+  if (geometry?.verticalReference !== undefined) return null
   const geometryInput = roomLayoutInputFromGeometry(geometry, name, measurements)
   let measurementNote = measurementNotice(measurements)
   if (geometryInput) {

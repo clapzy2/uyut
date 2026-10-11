@@ -1,5 +1,6 @@
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import polygonClipping, { type MultiPolygon, type Polygon } from 'polygon-clipping'
+import { enclosingTurnBounds, enclosingTurnSide } from './plan-transfer-enclosure'
 
 function rectangle(left: number, top: number, right: number, bottom: number): Polygon {
   return [
@@ -13,7 +14,7 @@ function rectangle(left: number, top: number, right: number, bottom: number): Po
   ]
 }
 
-function intersectsOpenRectangle(
+export function intersectsOpenRectangle(
   barrier: { start: PlanPoint; end: PlanPoint },
   left: number,
   top: number,
@@ -44,12 +45,21 @@ function intersectsOpenRectangle(
   return true
 }
 
-/** Constructive, axis-aligned square routes. Failure on this grid is not proof of impassability. */
+/** Constructive planar routes. Optional quarter turns use a conservative full-sweep square; no tilt or stairs. */
 export function inspectSourceClearanceRoutes(input: {
   freeFloor: MultiPolygon
   rooms: Array<{ id: string; polygon: PlanPoint[] }>
   start: PlanPoint
   widthCm: number
+  /** Optional rigid body in the plan axes. Absence preserves the legacy square exactly. */
+  footprintCm?: { widthCm: number; depthCm: number }
+  allowQuarterTurns?: boolean
+  /** Additional certificate for raising/tilting at start and landing, not for translations. */
+  endpointCheck?: (point: PlanPoint, roomId?: string) => boolean
+  /** True rejects the whole translation/turn envelope, not merely its centre. */
+  blockedVolume?: (bounds: [number, number, number, number]) => boolean
+  /** Exact connector destination; absence preserves room-area goals. */
+  goal?: { roomId: string; point?: PlanPoint }
   stepCm?: number
   maxNodes?: number
   metricObstacles?: Pick<PlanGeometry, 'obstacles' | 'voids'>
@@ -66,6 +76,36 @@ export function inspectSourceClearanceRoutes(input: {
   ) {
     throw new Error('Некорректные параметры поиска маршрута')
   }
+  const footprint = input.footprintCm
+  if (
+    input.goal &&
+    (!input.rooms.some((room) => room.id === input.goal?.roomId) ||
+      (input.goal.point !== undefined &&
+        ![input.goal.point.xCm, input.goal.point.yCm].every(Number.isFinite)))
+  )
+    throw new Error('Некорректная точная конечная точка маршрута')
+  if (input.endpointCheck !== undefined && typeof input.endpointCheck !== 'function')
+    throw new Error('Некорректная проверка зоны подъёма и установки')
+  if (input.blockedVolume !== undefined && typeof input.blockedVolume !== 'function')
+    throw new Error('Некорректная проверка занятого объёма')
+  if (
+    footprint !== undefined &&
+    (!footprint ||
+      typeof footprint !== 'object' ||
+      Array.isArray(footprint) ||
+      ![footprint.widthCm, footprint.depthCm].every(Number.isFinite) ||
+      footprint.widthCm <= 0 ||
+      footprint.depthCm <= 0)
+  )
+    throw new Error('Некорректный прямоугольный габарит для переноса')
+  if (
+    (input.allowQuarterTurns !== undefined && typeof input.allowQuarterTurns !== 'boolean') ||
+    (input.allowQuarterTurns === true && !footprint)
+  )
+    throw new Error('Для поворотов нужен явный прямоугольный габарит и логический режим')
+  const allowTurns = input.allowQuarterTurns === true
+  const turnSweepCm =
+    allowTurns && footprint ? enclosingTurnSide(footprint.widthCm, footprint.depthCm) : undefined
   const boundaryBarriers = input.boundaryBarriers ?? []
   for (const { start, end } of boundaryBarriers) {
     if (
@@ -75,7 +115,8 @@ export function inspectSourceClearanceRoutes(input: {
       throw new Error('Некорректный отрезок физической границы')
     }
   }
-  const half = input.widthCm / 2
+  const halfWidth = (footprint?.widthCm ?? input.widthCm) / 2
+  const halfDepth = (footprint?.depthCm ?? input.widthCm) / 2
   const obstacleBodies: Polygon[] = (input.metricObstacles?.voids ?? []).map((region) => [
     region.polygon.map(({ xCm, yCm }) => [xCm, yCm]),
   ])
@@ -108,44 +149,159 @@ export function inspectSourceClearanceRoutes(input: {
     : input.freeFloor
   const fits = (shape: Polygon, floor: MultiPolygon) =>
     polygonClipping.difference(shape, floor).length === 0
-  const square = (point: PlanPoint) =>
-    rectangle(point.xCm - half, point.yCm - half, point.xCm + half, point.yCm + half)
+  type Orientation = 0 | 90
+  const halfSizes = (orientation: Orientation): [number, number] =>
+    orientation === 0 ? [halfWidth, halfDepth] : [halfDepth, halfWidth]
+  const bodyAt = (point: PlanPoint, orientation: Orientation) => {
+    if (input.goal) return rectangle(...boundsAt(point, orientation))
+    const [xHalf, yHalf] = halfSizes(orientation)
+    return rectangle(point.xCm - xHalf, point.yCm - yHalf, point.xCm + xHalf, point.yCm + yHalf)
+  }
+  const boundsAt = (
+    point: PlanPoint,
+    orientation: Orientation,
+  ): [number, number, number, number] => {
+    const width =
+      orientation === 0
+        ? (footprint?.widthCm ?? input.widthCm)
+        : (footprint?.depthCm ?? input.widthCm)
+    const depth =
+      orientation === 0
+        ? (footprint?.depthCm ?? input.widthCm)
+        : (footprint?.widthCm ?? input.widthCm)
+    const horizontal = enclosingTurnBounds(point, width, 0, width)
+    const vertical = enclosingTurnBounds(point, depth, 0, depth)
+    if (!horizontal || !vertical)
+      throw new Error('Не удалось оградить полный габарит соединительного пути')
+    return [horizontal[0], vertical[1], horizontal[2], vertical[3]]
+  }
+  const sweepBounds = (
+    from: PlanPoint,
+    to: PlanPoint,
+    orientation: Orientation,
+  ): [number, number, number, number] => {
+    const [xHalf, yHalf] = halfSizes(orientation)
+    if (!input.goal)
+      return [
+        Math.min(from.xCm, to.xCm) - xHalf,
+        Math.min(from.yCm, to.yCm) - yHalf,
+        Math.max(from.xCm, to.xCm) + xHalf,
+        Math.max(from.yCm, to.yCm) + yHalf,
+      ]
+    const first = boundsAt(from, orientation)
+    const last = boundsAt(to, orientation)
+    return [
+      Math.min(first[0], last[0]),
+      Math.min(first[1], last[1]),
+      Math.max(first[2], last[2]),
+      Math.max(first[3], last[3]),
+    ]
+  }
   const clearRectangle = (left: number, top: number, right: number, bottom: number) =>
+    !input.blockedVolume?.([left, top, right, bottom]) &&
     !boundaryBarriers.some((barrier) =>
       intersectsOpenRectangle(barrier, left, top, right, bottom),
-    ) && fits(rectangle(left, top, right, bottom), freeFloor)
-  const base = { widthCm: input.widthCm, stepCm: step, footprint: 'axis-aligned-square' as const }
+    ) &&
+    fits(rectangle(left, top, right, bottom), freeFloor)
+  const base = {
+    widthCm: input.widthCm,
+    stepCm: step,
+    ...(allowTurns ? { turnPolicy: 'conservative-square' as const, turnSweepCm } : {}),
+    ...(footprint
+      ? {
+          footprint: 'axis-aligned-rectangle' as const,
+          footprintCm: { widthCm: footprint.widthCm, depthCm: footprint.depthCm },
+        }
+      : { footprint: 'axis-aligned-square' as const }),
+  }
   if (
-    !clearRectangle(
-      input.start.xCm - half,
-      input.start.yCm - half,
-      input.start.xCm + half,
-      input.start.yCm + half,
-    )
+    (input.endpointCheck !== undefined && !input.endpointCheck(input.start)) ||
+    !(input.goal
+      ? clearRectangle(...boundsAt(input.start, 0))
+      : clearRectangle(
+          input.start.xCm - halfWidth,
+          input.start.yCm - halfDepth,
+          input.start.xCm + halfWidth,
+          input.start.yCm + halfDepth,
+        ))
   ) {
     return {
       ...base,
       status: 'unresolved' as const,
       reason: 'entry-footprint' as const,
       checkedNodes: 0,
-      unresolvedRoomIds: input.rooms.map((room) => room.id),
+      unresolvedRoomIds: input.rooms
+        .filter((room) => !input.goal || room.id === input.goal.roomId)
+        .map((room) => room.id),
       routes: [],
     }
   }
-  const rooms = input.rooms.map((room) => ({
-    id: room.id,
-    floor: [room.polygon.map(({ xCm, yCm }) => [xCm, yCm])] as Polygon,
-  }))
-  const queue = [{ point: input.start, parent: -1 }]
-  const visited = new Set(['0,0'])
+  const rooms = input.rooms
+    .filter((room) => !input.goal || room.id === input.goal.roomId)
+    .map((room) => ({
+      id: room.id,
+      floor: [room.polygon.map(({ xCm, yCm }) => [xCm, yCm])] as Polygon,
+    }))
+  const queue: Array<{ point: PlanPoint; parent: number; orientation: Orientation }> = [
+    { point: input.start, parent: -1, orientation: 0 },
+  ]
+  const stateKey = (point: PlanPoint, orientation: Orientation) => {
+    const position = `${Math.round((point.xCm - input.start.xCm) / step)},${Math.round((point.yCm - input.start.yCm) / step)}`
+    return allowTurns ? `${position},${orientation}` : position
+  }
+  const visited = new Set([stateKey(input.start, 0)])
   const found = new Map<string, number>()
+  const terminalPaths = new Map<string, PlanPoint[]>()
+  let terminalNodes = 0
   let cursor = 0
   let limited = false
   while (cursor < queue.length && found.size < rooms.length) {
     const node = queue[cursor]
     if (!node) break
     for (const room of rooms) {
-      if (!found.has(room.id) && fits(square(node.point), [room.floor])) found.set(room.id, cursor)
+      if (input.goal?.point && !found.has(room.id)) {
+        const target = input.goal.point
+        if (
+          fits(bodyAt(target, node.orientation), [room.floor]) &&
+          (!input.endpointCheck || input.endpointCheck(target, room.id))
+        ) {
+          const candidates = [
+            [{ xCm: target.xCm, yCm: node.point.yCm }, target],
+            [{ xCm: node.point.xCm, yCm: target.yCm }, target],
+          ]
+          for (const candidate of candidates) {
+            let previous = node.point
+            const tail: PlanPoint[] = []
+            let valid = true
+            for (const point of candidate) {
+              if (point.xCm === previous.xCm && point.yCm === previous.yCm) continue
+              if (!clearRectangle(...sweepBounds(previous, point, node.orientation))) {
+                valid = false
+                break
+              }
+              tail.push(point)
+              previous = point
+            }
+            if (!valid) continue
+            if (queue.length + terminalNodes + tail.length > maxNodes) {
+              limited = true
+              continue
+            }
+            terminalNodes += tail.length
+            terminalPaths.set(room.id, tail)
+            found.set(room.id, cursor)
+            break
+          }
+        }
+        continue
+      }
+      if (
+        !input.goal?.point &&
+        !found.has(room.id) &&
+        fits(bodyAt(node.point, node.orientation), [room.floor]) &&
+        (!input.endpointCheck || input.endpointCheck(node.point, room.id))
+      )
+        found.set(room.id, cursor)
     }
     for (const [dx, dy] of [
       [step, 0],
@@ -155,36 +311,53 @@ export function inspectSourceClearanceRoutes(input: {
     ]) {
       if (dx === undefined || dy === undefined) continue
       const point = { xCm: node.point.xCm + dx, yCm: node.point.yCm + dy }
-      const key = `${Math.round((point.xCm - input.start.xCm) / step)},${Math.round((point.yCm - input.start.yCm) / step)}`
+      const key = stateKey(point, node.orientation)
       if (visited.has(key)) continue
       // Swept rectangle proves the entire translation, not just both endpoint squares.
-      if (
-        !clearRectangle(
-          Math.min(point.xCm, node.point.xCm) - half,
-          Math.min(point.yCm, node.point.yCm) - half,
-          Math.max(point.xCm, node.point.xCm) + half,
-          Math.max(point.yCm, node.point.yCm) + half,
-        )
-      )
-        continue
-      if (queue.length >= maxNodes) {
+      if (!clearRectangle(...sweepBounds(node.point, point, node.orientation))) continue
+      if (queue.length + terminalNodes >= maxNodes) {
         limited = true
         continue
       }
       visited.add(key)
-      queue.push({ point, parent: cursor })
+      queue.push({ point, parent: cursor, orientation: node.orientation })
+    }
+    if (allowTurns && footprint && turnSweepCm !== undefined) {
+      const orientation: Orientation = node.orientation === 0 ? 90 : 0
+      const key = stateKey(node.point, orientation)
+      const bounds = enclosingTurnBounds(
+        node.point,
+        footprint.widthCm,
+        footprint.depthCm,
+        turnSweepCm,
+      )
+      if (!visited.has(key) && bounds !== undefined && clearRectangle(...bounds)) {
+        if (queue.length + terminalNodes >= maxNodes) limited = true
+        else {
+          visited.add(key)
+          queue.push({ point: node.point, parent: cursor, orientation })
+        }
+      }
     }
     cursor += 1
   }
   const routes = [...found].map(([roomId, index]) => {
-    const points: PlanPoint[] = []
+    const points: Array<PlanPoint & { orientation?: Orientation }> = []
     for (let current = index; current >= 0; ) {
       const node = queue[current]
       if (!node) break
-      points.push(node.point)
+      points.push(allowTurns ? { ...node.point, orientation: node.orientation } : node.point)
       current = node.parent
     }
-    return { roomId, points: points.reverse() }
+    const ordered = points.reverse()
+    const orientation = queue[index]?.orientation
+    const completed: Array<PlanPoint & { orientation?: Orientation }> = [
+      ...ordered,
+      ...(terminalPaths.get(roomId) ?? []).map((point) =>
+        allowTurns ? { ...point, orientation } : point,
+      ),
+    ]
+    return { roomId, points: completed }
   })
   return {
     ...base,
@@ -196,7 +369,7 @@ export function inspectSourceClearanceRoutes(input: {
         : limited
           ? ('search-limit' as const)
           : ('no-constructed-route' as const),
-    checkedNodes: cursor,
+    checkedNodes: cursor + terminalNodes,
     unresolvedRoomIds: rooms.filter((room) => !found.has(room.id)).map((room) => room.id),
     routes,
   }

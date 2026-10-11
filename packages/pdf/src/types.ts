@@ -1,4 +1,6 @@
 import type { Estimate, RoomLayout, WorksRates } from '@uyut/catalog'
+import type { PlanDeliveryPresentation } from '@uyut/catalog/plan-delivery-record'
+import type { VolumeFloorSurface, VolumeThreshold } from '@uyut/catalog/plan-volume-types'
 import type { ContractorBrief, ExportKind } from '@uyut/db'
 
 /** Картинка для документа: data URI, чтобы Chromium не ходил в сеть при печати */
@@ -52,6 +54,19 @@ export type PdfShoppingGroup = { roomName: string; items: PdfShoppingItem[] }
 
 export type PdfContact = { clientName?: string; address?: string; phone?: string }
 
+export type PdfVerticalPlan =
+  | { status: 'held'; warnings: string[] }
+  | {
+      status: 'confirmed'
+      datum: { id: string; kind: 'existing-floor' | 'finished-floor'; zeroFloorId: string }
+      source: { kind: 'site-measurement' | 'dimensioned-drawing'; reference: string }
+      reviewedAt: string
+      floors: VolumeFloorSurface[]
+      thresholds: VolumeThreshold[]
+      ceilings: { floorId: string; elevationCm: number }[]
+      warnings: string[]
+    }
+
 export type PdfData = {
   kind: ExportKind
   generatedAt: Date
@@ -79,4 +94,8 @@ export type PdfData = {
   /** For geometry-only reports with no price inputs; never display zero as a quote. */
   estimateStatus?: 'not-calculated'
   brief: ContractorBrief | null
+  /** Explicitly reviewed signed surfaces; never inferred from the render or a flat zero mesh. */
+  verticalPlan?: PdfVerticalPlan
+  /** Stored, current measured route; held reports carry no successful path. */
+  deliveryPlan?: PlanDeliveryPresentation
 }

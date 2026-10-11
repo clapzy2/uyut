@@ -28,11 +28,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     !pageParam ||
     !/^[1-9]\d{0,3}$/.test(pageParam) ||
     !/^[a-f0-9]{64}$/.test(revision ?? '') ||
-    (format !== null && format !== 'points' && format !== 'raster')
+    (format !== null &&
+      !['points', 'raster', 'native-review', 'native-review-image'].includes(format))
   )
     return failure('Проверьте выбранный лист и версию плана.', 400)
   const pageNumber = Number(pageParam)
   const raster = format === 'raster'
+  const nativeReview = format === 'native-review'
+  const nativeReviewImage = format === 'native-review-image'
+  const inspection = nativeReview || nativeReviewImage
   const { id } = await params
   try {
     const project = await assertOwnerOrCollaborator(session.user.id, id)
@@ -47,6 +51,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         project.planReading.planState !== 'proposed')
     )
       return failure('Выберите прочитанный обмерный или проектный лист.', 400)
+    if (inspection && project.planReading.planState !== 'existing')
+      return failure('Для проверки выберите обмерный лист существующей квартиры.', 400)
     if (
       raster &&
       (project.planReading.pageReview ||
@@ -57,11 +63,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const object = await getObject(project.planUrl)
     const body = Buffer.from(object.body)
     const sha256 = createHash('sha256').update(body).digest('hex')
-    const page = await preparePlanPage(body, true, pageNumber, !raster)
+    const page = nativeReview
+      ? await preparePlanPage(body, true, pageNumber, true, true)
+      : await preparePlanPage(body, true, pageNumber, inspection ? false : !raster)
     const labels = planMeasurementTextItems(page.image.planText)
     if (
       page.pageNumber !== pageNumber ||
       (!raster &&
+        !inspection &&
         (!page.linework ||
           page.linework.paths.length === 0 ||
           page.linework.truncated ||
@@ -79,6 +88,37 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       'X-Plan-Sha256': sha256,
       'X-Plan-Page-Count': String(page.pageCount),
       'X-Plan-Page': String(page.pageNumber),
+    }
+    if (inspection) {
+      const imageSha256 = createHash('sha256').update(page.image.body).digest('hex')
+      const headers = {
+        ...sourceHeaders,
+        'X-Plan-Image-Width': String(page.image.width),
+        'X-Plan-Image-Height': String(page.image.height),
+        'X-Plan-Image-Sha256': imageSha256,
+      }
+      if (nativeReviewImage)
+        return new Response(new Uint8Array(page.image.body), {
+          headers: { ...headers, 'content-type': 'image/jpeg' },
+        })
+      const { nativeReviewPacket } = await import('@/lib/projects/plan-native-review-packet')
+      const packet = nativeReviewPacket({
+        source: { sha256, pdfPage: pageNumber, state: 'existing' },
+        image: {
+          sha256: imageSha256,
+          page: pageNumber,
+          width: page.image.width,
+          height: page.image.height,
+        },
+        native: page.nativeTextAnchors,
+        work: page.linework,
+        lineworkSource: page.lineworkRasterSource,
+        savedReading: current.planReading ?? undefined,
+      })
+      const afterInspection = await assertOwnerOrCollaborator(session.user.id, id)
+      if (revision !== planEditRevision(afterInspection.planUrl, afterInspection.planReading))
+        return failure('План изменился. Загрузите актуальную версию.', 409)
+      return Response.json({ ...packet, sourceRevision: revision }, { headers })
     }
     if (raster) {
       return new Response(new Uint8Array(page.image.body), {

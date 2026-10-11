@@ -59,6 +59,195 @@ function dispose(scene: PlanScene) {
 }
 
 describe('геометрия настоящей 3D-сцены', () => {
+  it('использует обрезанные куски пола вместо сырого контура комнаты с касающейся шахтой', () => {
+    const owner = rectangle(0, 0, 100, 100)
+    const clipped = [
+      { xCm: 0, yCm: 0 },
+      { xCm: 100, yCm: 0 },
+      { xCm: 100, yCm: 100 },
+      { xCm: 50, yCm: 100 },
+      { xCm: 50, yCm: 50 },
+      { xCm: 0, yCm: 50 },
+    ]
+    const scene = buildPlanScene(
+      model({
+        floor: owner,
+        voids: [rectangle(0, 50, 50, 50)],
+        rooms: [{ id: 'room', title: 'Комната', floor: owner, baseCm: -15 }],
+        floorSurfaces: [
+          {
+            id: 'piece',
+            floorId: 'floor',
+            title: 'Комната',
+            floor: clipped,
+            voids: [],
+            elevationCm: -15,
+            surface: 'finished-floor',
+            roomId: 'room',
+          },
+        ],
+      }),
+    )
+    expect(scene.surfaces).toHaveLength(1)
+    expect(scene.surfaces[0]?.roomId).toBe('room')
+    expect(area(required(scene.surfaces[0]).geometry)).toBeCloseTo(0.75)
+    dispose(scene)
+  })
+
+  it('переносит отдельные полы, нижние грани и мебель в подписанный общий отсчёт без нулевой плиты', () => {
+    const floor = rectangle(100, 200, 400, 300)
+    const scene = buildPlanScene(
+      model({
+        floorSurfaces: [
+          {
+            id: 'balcony-floor',
+            floorId: 'balcony',
+            title: 'Балкон',
+            floor,
+            voids: [rectangle(200, 300, 50, 50)],
+            elevationCm: -15,
+            surface: 'finished-floor',
+            roomId: 'balcony',
+          },
+        ],
+        verticalDatum: { id: 'datum', kind: 'finished-floor', zeroFloorId: 'interior' },
+        rooms: [{ id: 'balcony', title: 'Балкон', floor, baseCm: -15 }],
+        walls: [
+          {
+            id: 'unknown-wall',
+            wallId: 'unknown-wall',
+            kind: 'outer',
+            start: required(floor[0]),
+            end: required(floor[1]),
+            bottomCm: -15,
+          },
+        ],
+        openings: [
+          {
+            id: 'lower',
+            type: 'balcony',
+            start: required(floor[0]),
+            end: required(floor[1]),
+            bottomCm: -14,
+            heightCm: 210,
+            baseCm: -15,
+            cut: true,
+          },
+          {
+            id: 'unknown',
+            type: 'door',
+            start: required(floor[0]),
+            end: required(floor[1]),
+            baseCm: -15,
+            cut: false,
+          },
+        ],
+        thresholds: [
+          {
+            id: 'threshold',
+            floor: rectangle(100, 200, 50, 20),
+            elevationCm: 2,
+            floorIds: ['interior', 'balcony'],
+            floorElevationsCm: [0, -15],
+          },
+        ],
+        furniture: [
+          {
+            id: 'desk',
+            title: 'Стол',
+            floor: rectangle(300, 300, 50, 50),
+            baseCm: -15,
+            heightCm: 75,
+          },
+          { id: 'chair', title: 'Стул', floor: rectangle(400, 300, 50, 50), baseCm: -15 },
+        ],
+        floorZones: [
+          {
+            id: 'zone',
+            title: 'Проход',
+            kind: 'operation',
+            floor: rectangle(300, 400, 50, 50),
+            baseCm: -15,
+          },
+        ],
+      }),
+    )
+    expect(scene.surfaces.some((surface) => surface.id === 'floor')).toBe(false)
+    const floors = scene.surfaces.filter((surface) => surface.kind === 'floor')
+    expect(floors).toHaveLength(1)
+    expect(area(required(floors[0]).geometry)).toBeCloseTo(11.75)
+    expect(scene.surfaces.some((surface) => surface.kind === 'room')).toBe(false)
+    expect(floors[0]?.roomId).toBe('balcony')
+    for (const id of ['balcony-floor', 'zone']) {
+      for (const point of positions(
+        required(scene.surfaces.find((surface) => surface.id === id)).geometry,
+      ))
+        expect(point[1]).toBeCloseTo(-0.15)
+    }
+    for (const id of ['unknown-wall', 'unknown']) {
+      for (const point of positions(required(scene.lines.find((line) => line.id === id)).geometry))
+        expect(point[1]).toBeCloseTo(-0.15)
+    }
+    expect(
+      positions(required(scene.lines.find((line) => line.id === 'lower')).geometry)[0]?.[1],
+    ).toBeCloseTo(-0.14)
+    expect(
+      positions(
+        required(scene.surfaces.find((surface) => surface.id === 'threshold')).geometry,
+      )[0]?.[1],
+    ).toBeCloseTo(0.02)
+    const desk = scene.surfaces
+      .filter((surface) => surface.furnitureId === 'desk')
+      .flatMap((surface) => positions(surface.geometry))
+    expect(Math.min(...desk.map((point) => point[1]))).toBeCloseTo(-0.15)
+    expect(Math.max(...desk.map((point) => point[1]))).toBeCloseTo(0.6)
+    const chair = scene.surfaces
+      .filter((surface) => surface.furnitureId === 'chair')
+      .flatMap((surface) => positions(surface.geometry))
+    expect(chair.every((point) => Math.abs(point[1] + 0.15) < 1e-6)).toBe(true)
+    dispose(scene)
+  })
+
+  it('не подменяет пустые или неверные подписанные поверхности общей плитой', () => {
+    expect(() => buildPlanScene(model({ floorSurfaces: [] }))).toThrow()
+    for (const floor of [rectangle(0, 0, 0, 50), rectangle(0, 0, Number.NaN, 50)]) {
+      expect(() =>
+        buildPlanScene(
+          model({
+            floorSurfaces: [
+              {
+                id: 'bad',
+                floorId: 'bad',
+                title: 'bad',
+                floor,
+                voids: [],
+                elevationCm: -15,
+                surface: 'finished-floor',
+              },
+            ],
+          }),
+        ),
+      ).toThrow()
+    }
+    expect(() =>
+      buildPlanScene(
+        model({
+          floorSurfaces: [
+            {
+              id: 'bad',
+              floorId: 'bad',
+              title: 'bad',
+              floor: rectangle(0, 0, 50, 50),
+              voids: [],
+              elevationCm: Number.NaN,
+              surface: 'finished-floor',
+            },
+          ],
+        }),
+      ),
+    ).toThrow()
+  })
+
   it('переводит сантиметры в метры и переносит высоту на ось Y, не сдвигая начало плана', () => {
     const scene = buildPlanScene(
       model({

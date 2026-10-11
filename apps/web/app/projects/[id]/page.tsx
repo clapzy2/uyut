@@ -1,4 +1,5 @@
 import { estimateProject } from '@uyut/catalog'
+import type { PlanReading } from '@uyut/db'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
@@ -37,6 +38,11 @@ import { presignedObjectUrl } from '@/lib/storage'
 type Params = Promise<{ id: string }>
 
 const labelClassName = 'mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2'
+
+function planFormReading(reading: PlanReading): PlanReading {
+  const { deliveryMeasurements: _deliveryMeasurements, ...formReading } = reading
+  return formReading
+}
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const session = await getSession()
@@ -97,7 +103,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
   const isOwner = project.role === 'owner'
   const apartment = apartmentPlan(project.rooms)
   const planUrl = project.planUrl ? await presignedObjectUrl(project.planUrl) : null
-  const planIsPdf = project.planUrl?.endsWith('.pdf') ?? false
+  const planIsPdf = project.planUrl?.toLowerCase().endsWith('.pdf') ?? false
   const sourceRevision = planEditRevision(project.planUrl, project.planReading)
   const geometryReadings = project.planReading
     ? geometryRoomReadings(
@@ -253,10 +259,10 @@ export default async function ProjectPage({ params }: { params: Params }) {
               key={project.planUrl}
               projectId={project.id}
               sourceRevision={sourceRevision}
-              reading={project.planReading}
+              reading={project.planReading ? planFormReading(project.planReading) : null}
               hasPlan={Boolean(project.planUrl)}
               planIsPdf={planIsPdf}
-              planSourceUrl={planIsPdf ? null : planUrl}
+              planSourceUrl={planUrl}
               roomCount={project.rooms.length}
               existing={project.rooms.map((room) => ({
                 id: room.id,
@@ -376,7 +382,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
               key={sourceRevision}
               projectId={project.id}
               sourceRevision={sourceRevision}
-              reading={project.planReading}
+              reading={planFormReading(project.planReading)}
             />
           ) : null}
           <ManualPlanGeometryStart projectId={project.id} />

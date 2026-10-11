@@ -1,0 +1,25 @@
+{
+  "review": "manual-native-dimension-review",
+  "source": {
+    "sha256": "d0ab7f756492e4c2bc11a7870bfcb6815a96daf04127095ba73bcdc6f5a6e058",
+    "pdfPage": 3,
+    "state": "existing"
+  },
+  "rasterSource": {
+    "sha256": "f6577ca5a86797ed36bc76561a2255e6181b9045bf8973591dcab3c1e83efbaf",
+    "page": 3,
+    "width": 2000,
+    "height": 1414
+  },
+  "chains": [
+    { "id": "bedroom-top-width", "axis": "width", "labelIds": ["native-text-104"] },
+    { "id": "bedroom-depth", "axis": "aligned", "labelIds": ["native-text-181"] },
+    {
+      "id": "balcony-width-chain",
+      "axis": "width",
+      "labelIds": ["native-text-196", "native-text-198"]
+    },
+    { "id": "balcony-depth", "axis": "aligned", "labelIds": ["native-text-199"] }
+  ],
+  "wallOperations": []
+}

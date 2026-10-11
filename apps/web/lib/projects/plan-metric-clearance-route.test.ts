@@ -1,6 +1,7 @@
 import type { PlanGeometry } from '@uyut/db'
 import { expect, it } from 'vitest'
 import { inspectMetricClearanceRoutes } from './plan-metric-clearance-route'
+import { applyPlanVerticalReference } from './plan-vertical-reference'
 
 const rectangle = (left: number, top: number, right: number, bottom: number) => [
   { xCm: left, yCm: top },
@@ -57,6 +58,41 @@ it('passes the physical wall-axis model into continuous route search', () => {
   expect(inspectMetricClearanceRoutes(fixture()).result?.status).toBe('constructive-routes')
 })
 
+it.each([0, -2, -15])(
+  'keeps signed axis routes inside the selected physical floor: %s',
+  (level) => {
+    const geometry = fixture()
+    geometry.status = 'confirmed'
+    const accepted = applyPlanVerticalReference(
+      geometry,
+      {
+        version: 1,
+        id: 'synthetic-axis-zero',
+        kind: 'finished-floor',
+        zeroFloorId: 'floor-0',
+        acknowledged: true,
+        floors: geometry.rooms.map((room, index) => ({
+          id: `floor-${index}`,
+          room,
+          surface: 'finished-floor',
+          elevationCm: index ? level : 0,
+        })),
+        wallBases: geometry.walls.map((wall) => ({ wall, floorId: 'floor-0' })),
+        thresholds: [],
+        source: { kind: 'site-measurement', reference: 'Synthetic axis test only' },
+      },
+      'test',
+      '2026-10-11T09:00:00.000Z',
+    )
+    if (!accepted.ok) throw new Error(accepted.error)
+    const result = inspectMetricClearanceRoutes(accepted.geometry).result
+    expect(result?.routes).toHaveLength(1)
+    expect(result?.unresolvedRoomIds).toEqual(['1'])
+    expect(result?.vertical?.elevationCm).toBe(0)
+    expect(result?.vertical?.heldTransitions).toHaveLength(1)
+  },
+)
+
 it('recalculates after a doorway edit instead of keeping the earlier route', () => {
   const geometry = fixture()
   expect(inspectMetricClearanceRoutes(geometry).result?.routes).toHaveLength(2)
@@ -103,4 +139,36 @@ it('does not silently discard a door whose host wall was removed', () => {
   const geometry = fixture()
   geometry.walls = geometry.walls.filter((wall) => wall.id !== 'middle')
   expect(inspectMetricClearanceRoutes(geometry).missing).toContain('привязку')
+})
+
+it.each([10, 0.000000001])(
+  'does not turn a measured raised threshold %s into continuous floor',
+  (bottomCm) => {
+    const geometry = fixture()
+    const door = geometry.openings.find(({ id }) => id === 'between')
+    if (!door) throw new Error('Missing doorway')
+    const before = structuredClone(geometry)
+    door.bottomCm = bottomCm
+    expect(inspectMetricClearanceRoutes(geometry).result?.unresolvedRoomIds).toEqual(['1'])
+    door.bottomCm = 0
+    expect(inspectMetricClearanceRoutes(geometry).result?.routes).toHaveLength(2)
+    delete door.bottomCm
+    expect(geometry).toEqual(before)
+  },
+)
+
+it('refuses a raised entry threshold and explicit impossible heights while keeping unknown legacy heights conditional', () => {
+  const geometry = fixture()
+  const entry = geometry.openings[0]
+  const door = geometry.openings[1]
+  if (!entry || !door) throw new Error('Missing openings')
+  entry.bottomCm = 10
+  expect(inspectMetricClearanceRoutes(geometry).missing).toContain('порог')
+  entry.bottomCm = 0
+  for (const wall of geometry.walls) wall.heightCm = 270
+  door.bottomCm = 0
+  door.heightCm = 350
+  expect(inspectMetricClearanceRoutes(geometry).result).toBeUndefined()
+  door.heightCm = 210
+  expect(inspectMetricClearanceRoutes(geometry).result?.routes).toHaveLength(2)
 })

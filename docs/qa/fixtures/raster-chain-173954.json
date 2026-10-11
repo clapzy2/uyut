@@ -1,0 +1,7 @@
+{
+  "sourceSha256": "e1cc817fec73ed2a967e542125411feccdd5dcfd6f22a0b41b5432a48844a2e0",
+  "width": 1095,
+  "height": 1098,
+  "crop": { "left": 0, "top": 83, "width": 29, "height": 424 },
+  "expected": [3700]
+}

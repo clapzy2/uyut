@@ -4,7 +4,14 @@ import type { PlanGeometry } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import openApartment from '../../../../jobs/fixtures/open-swiss-apartment-35063-geometry.json'
 import { apartmentVolume } from './apartment-volume'
+import { layoutWithMeasurements as signedLayoutWithMeasurements } from './layout-with-measurements'
+import { applyPlanVerticalReference } from './plan-vertical-reference'
 import { planVolume } from './plan-volume'
+
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error('Missing synthetic fixture value')
+  return value
+}
 
 function rectangle(x: number, y: number, width: number, depth: number) {
   return [
@@ -84,6 +91,118 @@ function layout(width = 400): RoomLayout {
 }
 
 describe('мебель комнат в общем объёме квартиры', () => {
+  function signedFixture() {
+    const source: PlanGeometry = {
+      ...geometry(),
+      walls: [],
+      widthCm: 900,
+      heightCm: 300,
+      footprint: rectangle(0, 0, 900, 300),
+      rooms: [
+        { name: 'Гостиная', polygon: rectangle(0, 0, 500, 300) },
+        { name: 'Балкон', spaceKind: 'balcony', polygon: rectangle(500, 0, 400, 300) },
+      ],
+    }
+    const accepted = applyPlanVerticalReference(
+      source,
+      {
+        version: 1,
+        id: 'test-survey',
+        kind: 'finished-floor',
+        zeroFloorId: 'inside',
+        acknowledged: true,
+        floors: source.rooms.map((room, index) => ({
+          id: index ? 'balcony' : 'inside',
+          room,
+          surface: 'finished-floor',
+          elevationCm: index ? -15 : 0,
+        })),
+        wallBases: [],
+        thresholds: [],
+        source: { kind: 'site-measurement', reference: 'Synthetic fixture, not real measurements' },
+      },
+      'test-owner',
+      '2026-10-11T09:00:00.000Z',
+    )
+    if (!accepted.ok) throw new Error(accepted.error)
+    const result = signedLayoutWithMeasurements('Балкон', null, accepted.geometry, [])
+    if (!result) throw new Error('Signed layout held')
+    return {
+      source: accepted.geometry,
+      room: {
+        roomId: 'project-balcony',
+        roomName: 'Балкон',
+        layout: { ...result, placed: layout().placed, placementInputs: layout().placementInputs },
+      },
+    }
+  }
+  it('translates furniture in XY only and links the measured negative floor to the project room', () => {
+    const { source, room } = signedFixture()
+    const result = apartmentVolume(source, [room])
+    expect(result.notes).toEqual([])
+    expect(result.model?.furniture?.[0]).toMatchObject({
+      roomId: 'project-balcony',
+      baseCm: -15,
+      floor: [
+        { xCm: 525, yCm: 30 },
+        { xCm: 585, yCm: 30 },
+        { xCm: 585, yCm: 130 },
+        { xCm: 525, yCm: 130 },
+      ],
+    })
+    expect(result.model?.floorSurfaces?.find((floor) => floor.floorId === 'balcony')?.roomId).toBe(
+      'project-balcony',
+    )
+    expect(result.model?.rooms?.find((entry) => entry.id === 'project-balcony')?.baseCm).toBe(-15)
+  })
+  it('holds a cached layout after re-review, level mutation or tampered clipped region', () => {
+    for (const mutation of ['review', 'level', 'surface', 'room'] as const) {
+      const { source, room } = signedFixture()
+      if (mutation === 'review')
+        required(source.verticalReference).verifiedAt = '2026-10-11T10:00:00.000Z'
+      if (mutation === 'level')
+        required(required(source.verticalReference).floors[1]).elevationCm = -14
+      if (mutation === 'surface')
+        required(required(required(room.layout.floorLevel).surfaces[0]).floor[0]).xCm = 1
+      if (mutation === 'room') room.roomName = 'Гостиная'
+      const result = apartmentVolume(source, [room])
+      expect(result.model?.furniture ?? []).toEqual([])
+      expect(result.notes.length).toBeGreaterThan(0)
+    }
+  })
+  it('holds cached furniture when the ceiling changes without changing the reference ID or stamp', () => {
+    const { source } = signedFixture()
+    const reference = required(source.verticalReference)
+    // Synthetic finished balcony at the common zero: a 250 cm cabinet fits 270,
+    // but not 240. Reusing the old review must not transfer its stale fit check.
+    required(reference.floors[1]).elevationCm = 0
+    reference.ceilings = [{ id: 'balcony-ceiling', floorId: 'balcony', elevationCm: 270 }]
+    const cached = signedLayoutWithMeasurements('Балкон', null, source, [
+      {
+        id: 'cabinet',
+        title: 'Tall cabinet',
+        category: 'sofa',
+        quantity: 1,
+        dimensions: { width: 60, depth: 60, height: 250 },
+      },
+    ])
+    if (!cached) throw new Error('Missing synthetic signed cabinet layout')
+    const room = { roomId: 'project-balcony', roomName: 'Балкон', layout: cached }
+    expect(apartmentVolume(source, [room]).model?.furniture).toHaveLength(1)
+    const previousId = reference.id
+    const previousStamp = reference.verifiedAt
+    required(reference.ceilings[0]).elevationCm = 240
+    expect(reference.id).toBe(previousId)
+    expect(reference.verifiedAt).toBe(previousStamp)
+    const result = apartmentVolume(source, [room])
+    expect(result.model).not.toBeNull()
+    expect(result.model?.furniture).toEqual([])
+    expect(result.notes.some((note) => note.includes('отсчёт изменились'))).toBe(true)
+    expect(
+      result.model?.floorSurfaces?.find((floor) => floor.floorId === 'balcony')?.elevationCm,
+    ).toBe(0)
+    expect(cached.placementInputs[0]?.heightCm).toBe(250)
+  })
   it('не теряет базовые кухонные зоны при пустой или отвергнутой расстановке', () => {
     const source: PlanGeometry = {
       ...geometry(),

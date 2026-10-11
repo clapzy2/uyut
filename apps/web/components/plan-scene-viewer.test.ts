@@ -44,6 +44,32 @@ const model: PlanVolume = {
 }
 
 describe('3D-просмотр', () => {
+  it('объясняет общий отсчёт пола и отдельную отметку верха порога', () => {
+    const html = renderToStaticMarkup(
+      createElement(PlanSceneViewer, {
+        model: {
+          ...model,
+          floorSurfaces: [
+            {
+              id: 'balcony',
+              floorId: 'balcony',
+              title: 'Балкон',
+              floor: model.floor,
+              voids: [],
+              elevationCm: -15,
+              surface: 'finished-floor',
+            },
+          ],
+          verticalDatum: { id: 'datum', kind: 'finished-floor', zeroFloorId: 'interior' },
+        },
+        onFallback: () => {},
+      }),
+    )
+    expect(html).toContain('Отметки полов и верха порогов показаны от общего нуля')
+    expect(html).toContain('низ проёма — отдельная грань')
+    expect(html).toContain('Толщина порога не достраивается')
+  })
+
   it('оставляет доступные кнопки, описание и неизвестную высоту без запуска WebGL на сервере', () => {
     const html = renderToStaticMarkup(
       createElement(PlanSceneViewer, { model, onFallback: () => {} }),

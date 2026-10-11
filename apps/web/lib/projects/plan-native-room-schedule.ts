@@ -1,0 +1,427 @@
+import { planTabularScheduleEvidence } from '@uyut/ai'
+import type { NativeTextAnchors } from './plan-document'
+import { nativeFillCandidates } from './plan-native-fill-candidates'
+import type { Bounds, PagePoint, PdfLinework } from './plan-pdf-linework'
+import { type NativePageSegment, nativePageSegments } from './plan-pdf-opening-endpoint'
+import type { RegionLabelFrame } from './plan-raster-region-labels'
+
+export type NativeRoomScheduleRow = {
+  sourceNumber: number
+  name: string
+  documentaryAreaM2: number
+  numberLabelId: string
+  nameLabelId: string
+  areaLabelId: string
+}
+type Label = NativeTextAnchors['labels'][number]
+type Grid = { bounds: Bounds; columns: number[]; rows: number[]; edges: NativePageSegment[] }
+const MAX_WORK = 200_000
+const roomName =
+  /^(?:прихожая|кухня(?:[-–— ]гостиная)?|гостиная|спальня|коридор|ванная|санузел|туалет|комната|жилая комната|детская|кабинет|гардеробная|кладовая|балкон|лоджия)(?:\s+\d{1,2})?$/iu
+const numberHeading = /^№(?:\s*п\/п)?$/u
+const nameHeading = /^наименование$/iu
+const areaHeading = /^площадь(?:,|,?\s+[мm][²2])?$/iu
+const areaValue = /^\d{1,3}[,.]\d{1,2}(?:\s*[мm]²)?$/iu
+const totalName = /^(?:общая площадь|итого|всего)$/iu
+const pointValid = (point: PagePoint) =>
+  [point.x, point.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000)
+const overlaps = (a: Bounds, b: Bounds) =>
+  a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top
+const inside = (point: PagePoint, bounds: Bounds) =>
+  point.x > bounds.left && point.x < bounds.right && point.y > bounds.top && point.y < bounds.bottom
+const boundsOf = (points: PagePoint[]): Bounds => ({
+  left: Math.min(...points.map((point) => point.x)),
+  top: Math.min(...points.map((point) => point.y)),
+  right: Math.max(...points.map((point) => point.x)),
+  bottom: Math.max(...points.map((point) => point.y)),
+})
+
+/** Documentary rows only. A source grid is not a room boundary or an area-derived polygon. */
+export function nativeRoomScheduleEvidence(input: {
+  native: NativeTextAnchors
+  work: PdfLinework
+  lineworkSource: RegionLabelFrame
+}) {
+  const { native, work } = input
+  let rows: NativeRoomScheduleRow[] = []
+  let tableBounds: Bounds | null = null
+  let headerLabelIds: string[] = []
+  let tableEdges: NativePageSegment[] = []
+  let layoutBasis: 'strict-native-baselines' | 'exact-native-grid' | null = null
+  const finish = (reason: string | null) => ({
+    status: reason ? ('unresolved' as const) : ('draft' as const),
+    reason,
+    rows: reason ? [] : structuredClone(rows),
+    headerLabelIds: reason ? [] : [...headerLabelIds],
+    tableBounds: reason ? null : tableBounds && { ...tableBounds },
+    tableEdges: reason ? [] : structuredClone(tableEdges),
+    layoutBasis: reason ? null : layoutBasis,
+    basis: 'native-room-schedule-evidence' as const,
+    source: { ...native.source },
+    originalPdfSha256: native.originalPdfSha256,
+    roomOwnershipConfirmed: false as const,
+    closesFloorBoundary: false as const,
+  })
+  try {
+    if (nativeFillCandidates(input).refusalReason === 'incomplete-native-layer')
+      return finish('incomplete-native-layer')
+  } catch {
+    return finish('source-frame-unavailable')
+  }
+  const scale = native.pageNormalizedScale
+  if (!scale || !native.complete || native.labels.length > 1000)
+    return finish('incomplete-native-text')
+  const labelIds = new Set<string>()
+  for (const label of native.labels) {
+    const point = label.pagePoint
+    if (
+      !Number.isSafeInteger(label.nativeIndex) ||
+      (label.nativeIndex ?? -1) < 0 ||
+      label.id !== `native-text-${label.nativeIndex}` ||
+      labelIds.has(label.id) ||
+      !label.name ||
+      label.name !== label.name.trim() ||
+      label.name.length > 200 ||
+      !point ||
+      !pointValid(point) ||
+      !Number.isFinite(label.rotation) ||
+      ![label.point.x, label.point.y].every(Number.isFinite) ||
+      Math.abs(label.point.x - point.x * scale.x) > 1e-6 ||
+      Math.abs(label.point.y - point.y * scale.y) > 1e-6
+    )
+      return finish('invalid-native-text-provenance')
+    labelIds.add(label.id)
+  }
+  const omissions = [...(work.skippedCurveBounds ?? []), ...(work.clippedPathBounds ?? [])]
+  if (
+    ![work.skippedCurves, work.clippedPaths].every(
+      (value) => Number.isSafeInteger(value) && value >= 0,
+    ) ||
+    (work.skippedCurveBounds?.length ?? 0) !== work.skippedCurves ||
+    (work.clippedPathBounds?.length ?? 0) !== work.clippedPaths ||
+    omissions.length > 6000 ||
+    omissions.some(
+      ({ operationIndex, bounds }) =>
+        !Number.isSafeInteger(operationIndex) ||
+        operationIndex < 0 ||
+        ![bounds.left, bounds.top, bounds.right, bounds.bottom].every(Number.isFinite) ||
+        bounds.left > bounds.right ||
+        bounds.top > bounds.bottom,
+    )
+  )
+    return finish('invalid-omission-provenance')
+  const refs = new Set<string>()
+  const operationCounts = new Map<number, number>()
+  for (const path of work.paths) {
+    const ref = `${path.operationIndex}:${path.subpathIndex}`
+    if (
+      refs.has(ref) ||
+      ![path.operationIndex, path.subpathIndex].every(
+        (value) => Number.isSafeInteger(value) && value >= 0,
+      ) ||
+      !['stroke', 'fill', 'fill-stroke'].includes(path.paint) ||
+      typeof path.closed !== 'boolean' ||
+      path.points.some((point) => !pointValid(point))
+    )
+      return finish('invalid-native-provenance')
+    refs.add(ref)
+    operationCounts.set(path.operationIndex, (operationCounts.get(path.operationIndex) ?? 0) + 1)
+  }
+  const numbers = native.labels.filter((label) => numberHeading.test(label.name))
+  const names = native.labels.filter((label) => nameHeading.test(label.name))
+  const areas = native.labels.filter((label) => areaHeading.test(label.name))
+  if (numbers.length !== 1 || names.length !== 1 || areas.length !== 1)
+    return finish('unsupported-or-ambiguous-room-table')
+  const headings = [numbers[0], names[0], areas[0]] as Label[]
+  if (headings.some((label) => label.rotation !== 0))
+    return finish('unsupported-or-ambiguous-room-table')
+  const table = planTabularScheduleEvidence(
+    native.labels.map((label) => ({
+      text: label.name,
+      rotation: label.rotation as number,
+      ...(label.pagePoint as PagePoint),
+    })),
+  )
+  if (table) {
+    rows = [...table].map(([sourceNumber, row]) => ({
+      sourceNumber,
+      name: row.name,
+      documentaryAreaM2: row.areaM2,
+      numberLabelId: native.labels[row.numberItemIndex]?.id ?? '',
+      nameLabelId: native.labels[row.nameItemIndex]?.id ?? '',
+      areaLabelId: native.labels[row.areaItemIndex]?.id ?? '',
+    }))
+    if (
+      rows.some(
+        (row) =>
+          !roomName.test(row.name) || !row.numberLabelId || !row.nameLabelId || !row.areaLabelId,
+      )
+    )
+      return finish('unsupported-or-ambiguous-room-table')
+    const ids = new Set(
+      rows.flatMap((row) => [row.numberLabelId, row.nameLabelId, row.areaLabelId]),
+    )
+    headerLabelIds = headings.map((label) => label.id)
+    tableBounds = boundsOf(
+      native.labels
+        .filter((label) => ids.has(label.id) || headerLabelIds.includes(label.id))
+        .map((label) => label.pagePoint as PagePoint),
+    )
+    if (omissions.some((item) => overlaps(item.bounds, tableBounds as Bounds)))
+      return finish('table-native-geometry-incomplete')
+    layoutBasis = 'strict-native-baselines'
+  }
+
+  // The alternate profile is a complete exact three-column grid, not wider text tolerances.
+  let remainingWork = MAX_WORK
+  const workLimit = Symbol('table-work-limit')
+  const spend = (count = 1) => {
+    remainingWork -= count
+    if (remainingWork < 0) throw workLimit
+  }
+  const omittedOperations = new Set(omissions.map((item) => item.operationIndex))
+  const paths = new Map(
+    work.paths.map((path) => [`${path.operationIndex}:${path.subpathIndex}`, path]),
+  )
+  const rawSegments = nativePageSegments(work)
+  const eligible = rawSegments.filter((segment) => {
+    const path = paths.get(`${segment.operationIndex}:${segment.subpathIndex}`)
+    return (
+      path?.paint === 'stroke' &&
+      operationCounts.get(segment.operationIndex) === 1 &&
+      !omittedOperations.has(segment.operationIndex)
+    )
+  })
+  const groups = new Map<
+    string,
+    { top: number; bottom: number; columns: Map<number, NativePageSegment[]> }
+  >()
+  for (const segment of eligible) {
+    if (segment.start.x !== segment.end.x || segment.start.y === segment.end.y) continue
+    const top = Math.min(segment.start.y, segment.end.y),
+      bottom = Math.max(segment.start.y, segment.end.y)
+    const key = `${top}:${bottom}`
+    const group = groups.get(key) ?? {
+      top,
+      bottom,
+      columns: new Map<number, NativePageSegment[]>(),
+    }
+    group.columns.set(segment.start.x, [...(group.columns.get(segment.start.x) ?? []), segment])
+    groups.set(key, group)
+  }
+  const grids: Grid[] = []
+  let structuredGridPresent = false
+  try {
+    const horizontalGroups = new Map<string, { left: number; right: number; ys: Set<number> }>()
+    for (const segment of eligible) {
+      spend()
+      if (segment.start.y !== segment.end.y || segment.start.x === segment.end.x) continue
+      const left = Math.min(segment.start.x, segment.end.x),
+        right = Math.max(segment.start.x, segment.end.x)
+      const key = `${left}:${right}`
+      const group = horizontalGroups.get(key) ?? { left, right, ys: new Set<number>() }
+      group.ys.add(segment.start.y)
+      horizontalGroups.set(key, group)
+    }
+    // Full-width row strokes also retain evidence of a drawn schedule when an outer
+    // vertical rail is missing. Do not let that absence downgrade it to bare baselines.
+    for (const group of horizontalGroups.values()) {
+      spend()
+      if (group.ys.size < 4) continue
+      const bounds = {
+        left: group.left,
+        right: group.right,
+        top: Math.min(...group.ys),
+        bottom: Math.max(...group.ys),
+      }
+      if (headings.every((label) => inside(label.pagePoint as PagePoint, bounds)))
+        structuredGridPresent = true
+    }
+    for (const group of groups.values()) {
+      spend()
+      if (group.columns.size < 2) continue
+      const columns = [...group.columns.keys()].sort((a, b) => a - b)
+      const left = columns[0] as number,
+        right = columns.at(-1) as number
+      if (
+        !headings.every((label) =>
+          inside(label.pagePoint as PagePoint, {
+            left,
+            right,
+            top: group.top,
+            bottom: group.bottom,
+          }),
+        )
+      )
+        continue
+      const horizontals = eligible.filter((segment) => {
+        spend()
+        return (
+          segment.start.y === segment.end.y &&
+          segment.start.y >= group.top &&
+          segment.start.y <= group.bottom &&
+          Math.min(segment.start.x, segment.end.x) === left &&
+          Math.max(segment.start.x, segment.end.x) === right
+        )
+      })
+      const rowLines = [...new Set(horizontals.map((segment) => segment.start.y))].sort(
+        (a, b) => a - b,
+      )
+      // Detect the enclosing drawn schedule before requiring the supported column count.
+      // A missing/extra divider must not turn a damaged grid into baseline-only evidence.
+      // A page border with only its top/bottom strokes is not a schedule grid.
+      if (rowLines.length >= 4) structuredGridPresent = true
+      if (
+        group.columns.size !== 4 ||
+        rowLines.length < 5 ||
+        rowLines.length > 53 ||
+        rowLines[0] !== group.top ||
+        rowLines.at(-1) !== group.bottom
+      )
+        continue
+      const headerBottom = rowLines[1] as number
+      if (
+        !headings.every((label, index) =>
+          inside(label.pagePoint as PagePoint, {
+            left: columns[index] as number,
+            right: columns[index + 1] as number,
+            top: group.top,
+            bottom: headerBottom,
+          }),
+        )
+      )
+        continue
+      grids.push({
+        bounds: { left, right, top: group.top, bottom: group.bottom },
+        columns,
+        rows: rowLines,
+        edges: [...group.columns.values()].flat().concat(horizontals),
+      })
+    }
+    if (grids.length === 0 && table && !structuredGridPresent) return finish(null)
+    if (grids.length !== 1) return finish('unsupported-or-ambiguous-room-table')
+    const grid = grids[0] as Grid
+    if (omissions.some((item) => overlaps(item.bounds, grid.bounds)))
+      return finish('table-native-geometry-incomplete')
+    const cells: Label[][][] = []
+    for (let rowIndex = 0; rowIndex < grid.rows.length - 1; rowIndex++) {
+      const row: Label[][] = [[], [], []]
+      for (const label of native.labels) {
+        spend()
+        const point = label.pagePoint as PagePoint
+        if (
+          point.x < grid.bounds.left ||
+          point.x > grid.bounds.right ||
+          point.y < grid.bounds.top ||
+          point.y > grid.bounds.bottom
+        )
+          continue
+        if (grid.rows.includes(point.y) || grid.columns.includes(point.x))
+          return finish('ambiguous-native-table-cell')
+        if (
+          point.y < (grid.rows[rowIndex] as number) ||
+          point.y > (grid.rows[rowIndex + 1] as number)
+        )
+          continue
+        for (let column = 0; column < 3; column++) {
+          if (
+            point.x > (grid.columns[column] as number) &&
+            point.x < (grid.columns[column + 1] as number)
+          )
+            row[column]?.push(label)
+        }
+      }
+      cells.push(row)
+    }
+    // Undeclared strokes partitioning a cell are not silently ignored as decorative text.
+    for (const segment of rawSegments) {
+      spend()
+      const box = boundsOf([segment.start, segment.end])
+      if (
+        box.right <= grid.bounds.left ||
+        box.left >= grid.bounds.right ||
+        box.bottom <= grid.bounds.top ||
+        box.top >= grid.bounds.bottom
+      )
+        continue
+      const onRail = segment.start.x === segment.end.x && grid.columns.includes(segment.start.x)
+      const onRow = segment.start.y === segment.end.y && grid.rows.includes(segment.start.y)
+      if (!onRail && !onRow) return finish('ambiguous-native-table-grid')
+    }
+    const header = cells[0] as Label[][]
+    const headerAllowed = [
+      (label: Label) => numberHeading.test(label.name) || label.name === 'п/п',
+      (label: Label) => nameHeading.test(label.name),
+      (label: Label) =>
+        areaHeading.test(label.name) || /^(?:[мm][²2]|[мm]|²|2)$/iu.test(label.name),
+    ]
+    if (
+      header.some((cell, index) =>
+        cell.some((label) => label.rotation !== 0 || !headerAllowed[index]?.(label)),
+      )
+    )
+      return finish('unsupported-or-ambiguous-room-table')
+    if ((header[0]?.length ?? 0) > 2 || header[1]?.length !== 1 || (header[2]?.length ?? 0) > 3)
+      return finish('unsupported-or-ambiguous-room-table')
+    const optionalNumber = header[0]?.filter((label) => !numberHeading.test(label.name)) ?? []
+    const optionalArea = header[2]?.filter((label) => !areaHeading.test(label.name)) ?? []
+    if (
+      optionalNumber.length > 1 ||
+      new Set(optionalArea.map((label) => label.name.toLocaleLowerCase('ru'))).size !==
+        optionalArea.length ||
+      (optionalArea.length === 1 && !/^[мm][²2]$/iu.test(optionalArea[0]?.name ?? '')) ||
+      (optionalArea.length === 2 && !optionalArea.some((label) => /^[мm]$/iu.test(label.name))) ||
+      (optionalArea.length === 2 && !optionalArea.some((label) => /^(?:²|2)$/u.test(label.name)))
+    )
+      return finish('unsupported-or-ambiguous-room-table')
+    rows = []
+    for (let index = 1; index < cells.length; index++) {
+      const row = cells[index] as Label[][]
+      const number = row[0]?.[0],
+        name = row[1]?.[0],
+        area = row[2]?.[0]
+      if (
+        row.flat().some((label) => label.rotation !== 0) ||
+        row[1]?.length !== 1 ||
+        row[2]?.length !== 1 ||
+        !name ||
+        !area ||
+        !areaValue.test(area.name)
+      )
+        return finish('unsupported-or-ambiguous-room-table')
+      if (totalName.test(name.name)) {
+        if (row[0]?.length !== 0 || index !== cells.length - 1)
+          return finish('unsupported-or-ambiguous-room-table')
+        continue
+      }
+      if (
+        row[0]?.length !== 1 ||
+        !number ||
+        !/^[1-9]\d?$/.test(number.name) ||
+        !roomName.test(name.name) ||
+        Number(number.name) !== rows.length + 1
+      )
+        return finish('unsupported-or-ambiguous-room-table')
+      const documentaryAreaM2 = Number(area.name.replace(/\s*[мm]²$/iu, '').replace(',', '.'))
+      if (!Number.isFinite(documentaryAreaM2) || documentaryAreaM2 <= 0)
+        return finish('unsupported-or-ambiguous-room-table')
+      rows.push({
+        sourceNumber: Number(number.name),
+        name: name.name,
+        documentaryAreaM2,
+        numberLabelId: number.id,
+        nameLabelId: name.id,
+        areaLabelId: area.id,
+      })
+    }
+    if (rows.length < 3 || rows.length > 50) return finish('unsupported-or-ambiguous-room-table')
+    tableBounds = grid.bounds
+    tableEdges = grid.edges
+    headerLabelIds = header.flat().map((label) => label.id)
+    layoutBasis = 'exact-native-grid'
+    return finish(null)
+  } catch (error) {
+    if (error === workLimit) return finish('native-table-work-limit')
+    throw error
+  }
+}

@@ -1,5 +1,7 @@
 import type { LayoutProblem, RoomLayout } from '@uyut/catalog'
 import { WALKWAY_CM } from '@uyut/catalog'
+import { signedElevationSum } from '@uyut/catalog/plan-vertical-floor-geometry'
+import { roomVolume } from '@uyut/catalog/room-volume'
 import {
   escapeHtml as esc,
   formatArea,
@@ -102,6 +104,18 @@ const CSS = `
   .plan .status { font-size: 9.5pt; }
   .plan .bad { color: #7c2f3b; }
   .plan-page .plan svg { max-height: 120mm; }
+  .vertical-plan .plan svg { max-height: 90mm; }
+  .vertical-plan table { width: 100%; margin-top: 3mm; font-size: 9pt; border-collapse: collapse; }
+  .vertical-plan th, .vertical-plan td { text-align: left; padding: 2mm 2mm 2mm 0; border-bottom: 1px solid #ddd4c1; vertical-align: top; overflow-wrap: anywhere; }
+  .vertical-plan tr { break-inside: avoid; }
+  .vertical-plan thead { display: table-header-group; }
+  .delivery-plan > * { margin-bottom: 4mm; }
+  .delivery-plan .delivery-map { display: block; width: 100%; height: 95mm; break-inside: avoid; }
+  .delivery-plan table { width: 100%; border-collapse: collapse; font-size: 8pt; table-layout: fixed; }
+  .delivery-plan th, .delivery-plan td { text-align: left; padding: 1.1mm 1mm; border-bottom: 1px solid #ddd4c1; vertical-align: top; overflow-wrap: anywhere; }
+  .delivery-plan thead { display: table-header-group; }
+  .delivery-plan tr { break-inside: avoid; }
+  .delivery-plan h3 { break-after: avoid; }
   .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; }
   .thumbs .img { height: 27mm; overflow: hidden; }
   .thumbs .cap { font-size: 7.5pt; color: #6d6656; margin-top: 1.5mm; }
@@ -201,6 +215,8 @@ function estimateScope(data: PdfData): string {
 
 function about(data: PdfData, free: boolean): string {
   const contents = [
+    data.verticalPlan ? 'Полы и пороги' : null,
+    data.deliveryPlan ? 'Маршрут заноса' : null,
     ...data.rooms.map((room) => room.name),
     'Список покупок',
     data.estimateStatus === 'not-calculated' ? null : 'Смета',
@@ -271,6 +287,9 @@ function roomPlan(plan: RoomLayout | null): string {
   if (!plan) {
     return ''
   }
+  if (plan.floorLevel !== undefined && !roomVolume(plan)) {
+    return '<div class="plan"><p class="verdict status bad">Привязка уровня пола устарела или некорректна. Схема не перенесена на условный ноль.</p></div>'
+  }
   const safetyNote =
     plan.safetySummary.status !== 'checked'
       ? `<p class="verdict status${plan.safetySummary.status === 'blocked' ? ' bad' : ''}">${esc(plan.safetySummary.title)}. ${esc(plan.safetySummary.detail)}</p>`
@@ -331,7 +350,10 @@ function roomPlan(plan: RoomLayout | null): string {
         input?.heightCm === undefined
           ? 'высота не указана'
           : `высота ${formatDimensionCm(input.heightCm)} см`
-      return `<p class="verdict">${index + 1} · ${esc(place.title)} · на схеме ${formatDimensionCm(place.widthCm)} × ${formatDimensionCm(place.depthCm)} см; ${height}</p>`
+      const level = plan.floorLevel
+        ? `; основание ${formatDimensionCm(plan.floorLevel.elevationCm)} см от общего нуля; ${input?.heightCm === undefined ? 'отметка верха неизвестна' : `верх ${formatDimensionCm(signedElevationSum(plan.floorLevel.elevationCm, input.heightCm))} см от общего нуля`}`
+        : ''
+      return `<p class="verdict">${index + 1} · ${esc(place.title)} · на схеме ${formatDimensionCm(place.widthCm)} × ${formatDimensionCm(place.depthCm)} см; ${height}${level}</p>`
     })
     .join('')
   const verdict =
@@ -354,14 +376,21 @@ function roomPlan(plan: RoomLayout | null): string {
     plan.placed.length > 0 || hasGeometry
       ? `<svg viewBox="${left} ${top} ${right - left} ${bottom - top}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
           ${
-            plan.floorPolygon
-              ? `<polygon points="${plan.floorPolygon
+            plan.floorLevel
+              ? plan.floorLevel.surfaces
                   .map(
-                    (point) =>
-                      `${(point.xCm * scale).toFixed(1)},${(point.yCm * scale).toFixed(1)}`,
+                    (surface) =>
+                      `<path data-signed-room-floor="${esc(plan.floorLevel?.floorId ?? '')}" d="${svgFloorPath(surface.floor, surface.voids, scale)}" fill="#faf7f0" fill-rule="evenodd" stroke="#2f2a20" stroke-width="2"/>`,
                   )
-                  .join(' ')}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>`
-              : `<rect x="0" y="0" width="${width}" height="${height}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>`
+                  .join('')
+              : plan.floorPolygon
+                ? `<polygon points="${plan.floorPolygon
+                    .map(
+                      (point) =>
+                        `${(point.xCm * scale).toFixed(1)},${(point.yCm * scale).toFixed(1)}`,
+                    )
+                    .join(' ')}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>`
+                : `<rect x="0" y="0" width="${width}" height="${height}" fill="#faf7f0" stroke="#2f2a20" stroke-width="2"/>`
           }
           ${openings}
           ${fixedZones}
@@ -372,6 +401,7 @@ function roomPlan(plan: RoomLayout | null): string {
   return `
       <div class="plan">
         <p class="eyebrow">Вид сверху · ${formatDimensionCm(plan.widthCm)} × ${formatDimensionCm(plan.depthCm)} см</p>
+        ${plan.floorLevel ? `<p class="verdict">Пол: отметка ${formatDimensionCm(plan.floorLevel.elevationCm)} см от общего нуля; ${plan.floorLevel.surface === 'finished-floor' ? 'чистовой пол' : 'существующий пол'}. Пустоты не заполнены.</p>` : ''}
         ${plan.measurementNote ? `<p class="verdict status">${esc(plan.measurementNote)}</p>` : ''}
         ${safetyNote}
         ${unmeasuredNote}
@@ -381,6 +411,160 @@ function roomPlan(plan: RoomLayout | null): string {
         ${verdict}
         ${operationNote}
       </div>`
+}
+
+function svgFloorPath(
+  floor: readonly { xCm: number; yCm: number }[],
+  voids: readonly (readonly { xCm: number; yCm: number }[])[],
+  scale: number,
+): string {
+  return [floor, ...voids]
+    .map(
+      (ring) =>
+        `M ${ring.map((point) => `${point.xCm * scale} ${point.yCm * scale}`).join(' L ')} Z`,
+    )
+    .join(' ')
+}
+
+function verticalPlanPage(data: PdfData, free: boolean): string {
+  const report = data.verticalPlan
+  if (!report) return ''
+  const warningList = (messages: string[]) =>
+    messages.length
+      ? `<ul class="small" style="margin-top:4mm">${messages.map((message) => `<li>${esc(message)}</li>`).join('')}</ul>`
+      : ''
+  const header = `${ribbon(free)}<p class="eyebrow">Общий высотный отсчёт</p><h1 style="margin-top:3mm">Полы и пороги</h1>`
+  if (report.status === 'held')
+    return `<section class="page">${header}<p class="small" style="margin-top:6mm">Перенос уровней приостановлен. Непроверенная геометрия не заменена плоской плитой на нуле.</p>${warningList(report.warnings)}</section>`
+  const points = [
+    ...report.floors.flatMap((floor) => floor.floor),
+    ...report.thresholds.flatMap((threshold) => threshold.floor),
+  ]
+  const finite =
+    report.floors.length > 0 &&
+    points.every((point) => Number.isFinite(point.xCm) && Number.isFinite(point.yCm)) &&
+    report.floors.every(
+      (floor) =>
+        Number.isFinite(floor.elevationCm) &&
+        floor.floor.length >= 3 &&
+        floor.voids.every(
+          (hole) =>
+            hole.length >= 3 &&
+            hole.every((point) => Number.isFinite(point.xCm) && Number.isFinite(point.yCm)),
+        ),
+    ) &&
+    report.thresholds.every(
+      (threshold) =>
+        Number.isFinite(threshold.elevationCm) &&
+        threshold.floor.length >= 3 &&
+        threshold.floorElevationsCm.every(Number.isFinite),
+    ) &&
+    report.ceilings.every((ceiling) => Number.isFinite(ceiling.elevationCm))
+  if (!finite)
+    return `<section class="page">${header}<p class="small">Перенос уровней приостановлен: поверхности некорректны; условный ноль не подставлен.</p></section>`
+  const left = Math.min(...points.map((point) => point.xCm))
+  const top = Math.min(...points.map((point) => point.yCm))
+  const width = Math.max(...points.map((point) => point.xCm)) - left
+  const height = Math.max(...points.map((point) => point.yCm)) - top
+  const floors = [...new Map(report.floors.map((floor) => [floor.floorId, floor])).values()]
+  const rows = floors
+    .map((floor, index) => {
+      const ceiling = report.ceilings.find((ceiling) => ceiling.floorId === floor.floorId)
+      return `<tr><td>Ф${index + 1}: ${esc(floor.title)}${floor.floorId === report.datum.zeroFloorId ? ' (нулевой пол)' : ''}</td><td>${floor.surface === 'finished-floor' ? 'Чистовой' : 'Существующий'}</td><td>${formatDimensionCm(floor.elevationCm)} см</td><td>${ceiling ? `${formatDimensionCm(ceiling.elevationCm)} см` : 'Неизвестна'}</td></tr>`
+    })
+    .join('')
+  const thresholdRows = report.thresholds
+    .map(
+      (threshold, index) =>
+        `<tr data-threshold-row="${esc(threshold.id)}"><td>П${index + 1}</td><td>${esc(threshold.floorIds.map((id) => floors.find((floor) => floor.floorId === id)?.title ?? id).join(' / '))}</td><td>${formatDimensionCm(threshold.elevationCm)} см</td></tr>`,
+    )
+    .join('')
+  const labelSize = Math.max(width, height, 1) / 35
+  const thresholdCorners = report.thresholds.flatMap((threshold) => threshold.floor)
+  const floorLabelAnchor = (floor: (typeof floors)[number]) =>
+    floor.floor.find(
+      (point) =>
+        !thresholdCorners.some((corner) => corner.xCm === point.xCm && corner.yCm === point.yCm),
+    ) ?? floor.floor[0]
+  const label = (point: { xCm: number; yCm: number } | undefined, title: string) =>
+    point
+      ? `<g><circle cx="${point.xCm}" cy="${point.yCm}" r="${labelSize * 0.7}" fill="#fbf8f1" stroke="#7c2f3b" stroke-width="1"/><text x="${point.xCm}" y="${point.yCm}" font-size="${labelSize}" text-anchor="middle" dominant-baseline="central" fill="#7c2f3b">${title}</text></g>`
+      : ''
+  return `<section class="page vertical-plan">${header}
+    <p class="small" style="margin-top:5mm">Отсчёт: ${esc(report.datum.id)}. Ноль связан с ${report.datum.kind === 'finished-floor' ? 'чистовым' : 'существующим'} полом. Источник: ${report.source.kind === 'site-measurement' ? 'обмер' : 'размерный чертёж'} - ${esc(report.source.reference)}. Сверено пользователем: ${esc(report.reviewedAt)}.</p>
+    <div class="plan" style="margin-top:5mm"><svg viewBox="${left - labelSize} ${top - labelSize} ${Math.max(width, 1) + labelSize * 2} ${Math.max(height, 1) + labelSize * 2}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" aria-label="Подтверждённые поверхности пола и верха порогов">
+      ${report.floors.map((floor) => `<path data-project-floor="${esc(floor.id)}" d="${svgFloorPath(floor.floor, floor.voids, 1)}" fill="#faf7f0" fill-rule="evenodd" stroke="#2f2a20" stroke-width="2"><title>${esc(floor.title)}: ${formatDimensionCm(floor.elevationCm)} см</title></path>`).join('')}
+      ${report.thresholds.map((threshold) => `<path data-project-threshold="${esc(threshold.id)}" d="${svgFloorPath(threshold.floor, [], 1)}" fill="#f0dcdf" stroke="#7c2f3b" stroke-width="1"><title>Верх порога: ${formatDimensionCm(threshold.elevationCm)} см</title></path>`).join('')}
+      ${floors.map((floor, index) => label(floorLabelAnchor(floor), `Ф${index + 1}`)).join('')}
+      ${report.thresholds.map((threshold, index) => label(threshold.floor[0], `П${index + 1}`)).join('')}
+    </svg></div>
+    <h3 style="margin-top:5mm">Отметки от общего нуля</h3><table style="width:100%;margin-top:3mm;font-size:9pt;border-collapse:collapse"><thead><tr><th>Физический пол</th><th>Поверхность</th><th>Пол</th><th>Потолок</th></tr></thead><tbody>${rows}</tbody></table>
+    <h3 style="margin-top:5mm">Известные поверхности порогов</h3>${thresholdRows ? `<table style="width:100%;margin-top:3mm;font-size:9pt;border-collapse:collapse"><thead><tr><th>Порог</th><th>Стороны</th><th>Верх</th></tr></thead><tbody>${thresholdRows}</tbody></table>` : '<p class="small">Подтверждённых поверхностей порогов для этого переноса нет. Это не означает, что порогов нет или что их высота равна нулю.</p>'}
+    <p class="small" style="margin-top:5mm">Показаны только известные куски пола; пустоты и области между ними не заполнены. Верх порога и нижняя грань проёма - разные мерки. Толщина пола и порогов не достроена. Неизвестные отметки не равны нулю; это не инженерный чертёж или подтверждение безбарьерного прохода.</p>${warningList(report.warnings)}
+  </section>`
+}
+
+/** Flowing tables deliberately have no fixed height: every position and swept bound survives print. */
+function deliveryPlanPages(data: PdfData, free: boolean): string {
+  const report = data.deliveryPlan
+  if (!report) return ''
+  const header = `${ribbon(free)}<p class="eyebrow">Обмеры и геометрическая проверка</p><h1>Маршрут заноса</h1>`
+  if (report.status === 'held') {
+    return `<section class="page delivery-plan">${header}<p>Маршрут не подтверждён для текущей схемы. Успешный путь не показан.</p><ul>${report.warnings.map((warning) => `<li>${esc(warning)}</li>`).join('')}</ul></section>`
+  }
+  // Unlike presentation dimensions elsewhere, the route keeps the supplied decimal values.
+  const number = (value: number) => esc(String(value))
+  const position = (point: (typeof report.points)[number]) =>
+    `${number(point.xCm)} / ${number(point.yCm)} / ${number(point.zCm)}`
+  const allPoints = [...report.points, ...report.regions.flatMap((region) => region.polygon)]
+  const left = Math.min(...allPoints.map((point) => point.xCm))
+  const top = Math.min(...allPoints.map((point) => point.yCm))
+  const width = Math.max(...allPoints.map((point) => point.xCm)) - left
+  const height = Math.max(...allPoints.map((point) => point.yCm)) - top
+  const margin = Math.max(width, height, 1) / 25
+  const map = `<svg class="delivery-map" data-delivery-map="true" xmlns="http://www.w3.org/2000/svg" viewBox="${left - margin} ${top - margin} ${Math.max(width, 1) + margin * 2} ${Math.max(height, 1) + margin * 2}" preserveAspectRatio="xMidYMid meet" aria-label="Проекция маршрута заноса на XY">
+    ${report.regions.map((region) => `<polygon points="${region.polygon.map((point) => `${point.xCm},${point.yCm}`).join(' ')}" fill="${region.kind === 'landing' ? '#efe9dc' : '#f0dcdf'}" stroke="#8b8474" stroke-width="${margin / 25}"><title>Участок ${region.index + 1}: пол ${number(region.elevationCm)} см, потолок ${number(region.ceilingElevationCm)} см</title></polygon>`).join('')}
+    <polyline points="${report.points.map((point) => `${point.xCm},${point.yCm}`).join(' ')}" fill="none" stroke="#7c2f3b" stroke-width="${margin / 8}" stroke-linejoin="round"/>
+    ${[report.points[0], report.points.at(-1)].map((point, index) => (point ? `<circle cx="${point.xCm}" cy="${point.yCm}" r="${margin / 3}" fill="${index === 0 ? '#6d6656' : '#7c2f3b'}"><title>${index === 0 ? 'Начало' : 'Конец'}: ${position(point)} см</title></circle>` : '')).join('')}
+  </svg>`
+  const profile = report.profile
+  const stageNames = {
+    lift: 'Подъём',
+    translate: 'Перенос',
+    lower: 'Опускание',
+    tilt: 'Наклон',
+    untilt: 'Выпрямление',
+    turn: 'Поворот',
+  }
+  const points = report.points
+    .map(
+      (point, index) =>
+        `<tr data-delivery-position="${index + 1}"><td>${index + 1}</td><td>${number(point.xCm)}</td><td>${number(point.yCm)}</td><td>${number(point.zCm)}</td><td>${number(point.orientation ?? 0)}°</td></tr>`,
+    )
+    .join('')
+  const stages = report.stages
+    .map((stage, index) => {
+      const bounds = stage.bounds
+      return `<tr data-delivery-stage="${index + 1}"><td>${index + 1}. ${stageNames[stage.kind]}</td><td>${position(stage.from)}<br/>→ ${position(stage.to)}</td><td>${number(bounds.leftCm)} / ${number(bounds.topCm)}<br/>${number(bounds.rightCm)} / ${number(bounds.bottomCm)}</td><td>${number(bounds.bottomElevationCm)} / ${number(bounds.topElevationCm)}</td></tr>`
+    })
+    .join('')
+  const regions = report.regions
+    .map(
+      (region) =>
+        `<tr data-delivery-region="${region.index + 1}"><td>${region.index + 1}. ${region.kind === 'landing' ? 'Площадка' : 'Ступень'}</td><td>${number(region.elevationCm)} / ${number(region.ceilingElevationCm)}</td><td>${region.polygon.map((point) => `${number(point.xCm)} / ${number(point.yCm)}`).join('; ')}</td></tr>`,
+    )
+    .join('')
+  return `<section class="page delivery-plan">${header}
+    <p>Сохранённый маршрут до комнаты «${esc(report.targetRoomName)}». Проверка по обмерам: ${esc(report.reviewedAt)}.</p>
+    <p class="small">Габарит: ${number(profile.widthCm)} × ${number(profile.depthCm)} × ${number(profile.heightCm)} см. Запас: ${number(profile.clearanceCm)} см. Исходная ориентация: ${number(profile.orientation)}°.</p>
+    <p class="small">Наружный занос: ${report.exteriorChecked ? 'проверен от обмеренной площадки' : 'не проверен'}. Створки: ${report.leavesChecked ? 'измеренные объёмы включены' : 'не проверены'}.</p>
+    <p class="small">Это снимок геометрической проверки, не гарантия доставки. Люди, масса, усилия и удержание дверей не проверены. После изменения схемы, обмеров или габарита нужен новый расчёт.</p>
+    ${map}<p class="small">Проекция XY без дорисовки неизвестного пола. Начало серое, конец бордовый. X вправо, Y вниз; Z от сверенного общего нуля. Подъёмы в этой проекции могут совпадать: точные отметки приведены далее.</p>
+    <ul class="small">${report.notes.map((note) => `<li>${esc(note)}</li>`).join('')}</ul>
+  </section>
+  <section class="page delivery-plan">${ribbon(free)}<h2>Точки полного пути</h2><p class="small">Все координаты в сантиметрах, без округления. Точки не заменяют проверенные объёмы движений.</p><table><thead><tr><th>№</th><th>X</th><th>Y</th><th>Z</th><th>Поворот XY</th></tr></thead><tbody>${points}</tbody></table></section>
+  <section class="page delivery-plan">${ribbon(free)}<h2>Обмеренные участки лестницы</h2><p class="small">Отметки пола и потолка от общего нуля, сантиметры. Контур: последовательные вершины X / Y; последняя соединяется с первой. Неизвестное пространство между участками не заполнено.</p><table><thead><tr><th>Участок</th><th>Пол / потолок Z</th><th>Вершины контура XY</th></tr></thead><tbody>${regions}</tbody></table></section>
+  <section class="page delivery-plan">${ribbon(free)}<h2>Проверенные движения на лестнице</h2><p class="small">Границы консервативного объёма: XY слева/сверху и справа/снизу; Z снизу/сверху. Включают наклон и поворот, а не только линию центров.</p><table><thead><tr><th>Этап</th><th>От / до: X / Y / Z</th><th>Границы XY</th><th>Границы Z</th></tr></thead><tbody>${stages}</tbody></table></section>`
 }
 
 function planProblems(problems: readonly LayoutProblem[]): string {
@@ -692,6 +876,8 @@ ${CSS}
 ${free ? '<div class="wm-layer"></div>' : ''}
 ${cover(data, free)}
 ${about(data, free)}
+${verticalPlanPage(data, free)}
+${deliveryPlanPages(data, free)}
 ${data.rooms.map((room, index) => (room.hasConcept === false ? '' : roomPage(room, index, free)) + roomPlanPage(room, free)).join('')}
 ${shopping(data, free)}
 ${data.estimateStatus === 'not-calculated' ? '' : estimatePage(data, free)}

@@ -12,7 +12,11 @@ import {
   planMeasurementTextItems,
   validatePlanMeasurement,
 } from './floor-plan-measurements'
-import { planRoomSchedule, scheduleRoomNameMatches } from './floor-plan-schedule'
+import {
+  planRoomSchedule,
+  planTotalAreaConflict,
+  scheduleRoomNameMatches,
+} from './floor-plan-schedule'
 
 /**
  * Чтение обмерного плана квартиры.
@@ -401,6 +405,12 @@ export function parseFloorPlan(
         return undefined
       }
       measurementEvidence[side] = evidence
+      if (options.requireMeasurementEvidence && !textItems) {
+        const label = side === 'width' ? 'Ширина' : side === 'depth' ? 'Глубина' : 'Высота потолка'
+        measurementWarnings.push(
+          `${label}: число прочитано по изображению. Принадлежность подписи этой комнате и полнота цепочки независимо не подтверждены — сверьте исходник или обмер.`,
+        )
+      }
       return value
     }
     const widthCm = measurement('width')
@@ -483,7 +493,15 @@ export function parseFloorPlan(
     options.requireMeasurementEvidence || parsed.ceilingEvidence != null
   const ceiling =
     ceilingsDiffer || (requireCeilingEvidence && !ceilingEvidence) ? undefined : readCeiling
-  const total = areaM2(parsed.totalAreaM2)
+  const totalConflict = planTotalAreaConflict(textItems)
+  const total = totalConflict ? undefined : areaM2(parsed.totalAreaM2)
+  if (totalConflict) {
+    const warning = `Общая площадь: в экспликации ${totalConflict.scheduleAreaM2.toLocaleString('ru-RU')} м², в подписи квартиры ${totalConflict.apartmentAreaM2.toLocaleString('ru-RU')} м². Уточните, какие помещения включены; общий итог оставлен пустым, площади помещений сохранены отдельно.`
+    for (const room of rooms) {
+      room.measurementWarnings ??= []
+      room.measurementWarnings.push(warning)
+    }
+  }
   const geometry = reconcilePlanGeometryRooms(parsePlanGeometry(parsed.geometry), rooms)
   return {
     planState:
@@ -783,5 +801,96 @@ export function createFalPlanReader(apiKey: string): PlanReader {
       throw new FalError('план не прочитан: пустой ответ')
     }
     return parseFloorPlan(output, { requireMeasurementEvidence: true, planText: image.planText })
+  }
+}
+
+/** Agreement is not source verification. Never select a disputed value by area fitting. */
+export function reconcileRasterReadings(first: PlanReading, second?: PlanReading): PlanReading {
+  const result = structuredClone(first)
+  const key = (room: PlanRoom) =>
+    JSON.stringify([
+      room.sourceNumber ?? null,
+      room.name.trim().toLocaleLowerCase('ru'),
+      room.kind,
+      room.spaceKind ?? null,
+    ])
+  const inventoryMatches =
+    second &&
+    first.rooms.length === second.rooms.length &&
+    new Set(first.rooms.map(key)).size === first.rooms.length &&
+    new Set(second.rooms.map(key)).size === second.rooms.length &&
+    first.rooms.every((room) => second.rooms.some((other) => key(other) === key(room)))
+  for (const room of result.rooms) {
+    const other = inventoryMatches
+      ? second?.rooms.find((entry) => key(entry) === key(room))
+      : undefined
+    const warnings = [...(room.measurementWarnings ?? [])]
+    if (!second)
+      warnings.push('Повторное чтение не выполнено. Размеры остаются непроверенными кандидатами.')
+    else {
+      for (const side of ['width', 'depth', 'ceiling'] as const) {
+        const field = side === 'ceiling' ? 'ceilingCm' : (`${side}Cm` as const)
+        if (room[field] === undefined) continue
+        if (
+          !other ||
+          room[field] !== other[field] ||
+          JSON.stringify(room.measurementEvidence?.[side]?.segmentsMm) !==
+            JSON.stringify(other.measurementEvidence?.[side]?.segmentsMm)
+        ) {
+          delete room[field]
+          if (room.measurementEvidence) delete room.measurementEvidence[side]
+          warnings.push(
+            `${side === 'width' ? 'Ширина' : side === 'depth' ? 'Глубина' : 'Высота потолка'}: два чтения не согласованы — число убрано, нужен исходник или обмер.`,
+          )
+        }
+      }
+      if (!other || room.areaM2 !== other.areaM2) {
+        delete room.areaM2
+        warnings.push(
+          'Площадь или идентичность комнаты не согласована между чтениями — сверьте подпись.',
+        )
+      }
+    }
+    delete room.rechecked
+    room.measurementWarnings = warnings
+  }
+  if (
+    !second ||
+    !inventoryMatches ||
+    JSON.stringify(first.geometry) !== JSON.stringify(second.geometry)
+  ) {
+    delete result.geometry
+    for (const room of result.rooms)
+      room.measurementWarnings?.push(
+        'Геометрия не подтверждена повторным чтением. Нужна сверка или ручная разметка.',
+      )
+  } else if (result.geometry) {
+    result.geometry.status = 'draft'
+    delete result.geometry.confirmedAt
+    delete result.geometry.footprint
+    result.geometry.warnings.push(
+      'Граница пола от модели не является проверенным исходным контуром. Нужна отдельная сверка.',
+    )
+  }
+  if (!second || first.ceilingCm !== second.ceilingCm) {
+    delete result.ceilingCm
+    delete result.ceilingEvidence
+  }
+  if (second && first.totalAreaM2 !== second.totalAreaM2) delete result.totalAreaM2
+  if (second && first.planState !== second.planState) result.planState = 'unknown'
+  return result
+}
+
+/** At most two reader invocations; no automatic correction, geometry promotion or third attempt. */
+export function createRasterPlanReader(read: PlanReader): PlanReader {
+  return async (image) => {
+    const first = await read(image)
+    let second: PlanReading | undefined
+    try {
+      second = await read(image)
+    } catch {
+      /* A failed reread is not agreement. */
+    }
+    return reconcileRasterReadings(first, second)
   }
 }

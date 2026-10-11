@@ -1,3 +1,4 @@
+import { inspectStoredPlanDelivery } from '@uyut/catalog/plan-delivery-record'
 import type { PlanReading } from '@uyut/db'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
@@ -57,7 +58,7 @@ const reading: PlanReading = {
   ],
 }
 
-function input(ceilingCm = '') {
+function input(ceilingCm = '', reviewed = true) {
   return {
     condition: 'bare',
     ceilingCm,
@@ -71,6 +72,7 @@ function input(ceilingCm = '') {
       ceilingCm: String(room.ceilingCm),
       widthCm: String(room.widthCm),
       depthCm: String(room.depthCm),
+      ...(reviewed ? { widthReviewed: true, depthReviewed: true } : {}),
       areaM2: String(room.areaM2),
       wish: '',
     })),
@@ -86,75 +88,155 @@ describe('plan reading actions', () => {
     mocks.createRooms.mockResolvedValue({ created: 2, updated: 0 })
   })
 
-  it('rejects each populated raster axis without explicit review before any write', async () => {
-    mocks.owner.mockResolvedValue({ planUrl: 'plan.PNG', planReading: reading })
-    const revision = planEditRevision('plan.PNG', reading)
-    for (const axis of ['widthReviewed', 'depthReviewed'] as const) {
+  it('retains account surveys on room confirmation while the changed scheme revokes the report', async () => {
+    const deliveryMeasurements = {
+      version: 1 as const,
+      savedAt: '2026-10-11T12:00:00.000Z',
+      draftJson: '{"raw-survey":"kept"}',
+      reportJson: '{"old-report":"not trusted"}',
+    }
+    const geometry = {
+      version: 1 as const,
+      status: 'confirmed' as const,
+      widthCm: 500,
+      heightCm: 400,
+      walls: [],
+      openings: [],
+      rooms: [],
+      warnings: [],
+    }
+    const before = { ...reading, geometry, deliveryMeasurements }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    expect(
+      (await confirmPlanRooms(projectId, input(), planEditRevision('plan.pdf', before))).ok,
+    ).toBe(true)
+    const saved = mocks.createRooms.mock.calls[0]?.[2].reading as PlanReading
+    expect(saved.deliveryMeasurements).toEqual(deliveryMeasurements)
+    expect(saved.geometry?.status).toBe('draft')
+    expect(inspectStoredPlanDelivery(saved.geometry, saved.deliveryMeasurements)?.status).toBe(
+      'held',
+    )
+  })
+
+  it('re-reading the same file retains account surveys instead of replacing them with reader output', async () => {
+    const deliveryMeasurements = {
+      version: 1 as const,
+      savedAt: '2026-10-11T12:00:00.000Z',
+      draftJson: 'saved user measurements',
+    }
+    const before = { ...reading, deliveryMeasurements }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    mocks.read.mockResolvedValue({
+      ...reading,
+      deliveryMeasurements: { ...deliveryMeasurements, draftJson: 'reader forgery' },
+    })
+    const result = await readPlan(projectId, 6, planEditRevision('plan.pdf', before))
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading.deliveryMeasurements).toEqual(deliveryMeasurements)
+  })
+
+  it('does not accept a checked delivery record supplied by the plan reader', async () => {
+    mocks.read.mockResolvedValue({
+      ...reading,
+      deliveryMeasurements: {
+        version: 1,
+        savedAt: '2026-10-11T12:00:00.000Z',
+        draftJson: 'forged',
+        reportJson: 'forged report',
+      },
+    })
+    const result = await readPlan(projectId, 6, planEditRevision('plan.pdf', reading))
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading).not.toHaveProperty('deliveryMeasurements')
+  })
+
+  it.each(['plan.PNG', 'plan.pdf', 'plan.PDF'])(
+    'rejects each populated axis from %s without explicit review before any write',
+    async (planUrl) => {
+      mocks.owner.mockResolvedValue({ planUrl, planReading: reading })
+      const revision = planEditRevision(planUrl, reading)
+      for (const axis of ['widthReviewed', 'depthReviewed'] as const) {
+        const data = {
+          ...input(),
+          rooms: input().rooms.map((room) => ({
+            ...room,
+            widthReviewed: true,
+            depthReviewed: true,
+            [axis]: false,
+          })),
+        }
+        expect(await confirmPlanRooms(projectId, data, revision)).toMatchObject({
+          ok: false,
+          error: expect.stringContaining('Сверьте каждую непустую ось'),
+        })
+      }
+      expect(await confirmPlanRooms(projectId, input('', false), revision)).toMatchObject({
+        ok: false,
+      })
+      expect(mocks.createRooms).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['plan.webp', 'plan.pdf'])(
+    'also requires review of source-only utility dimensions from %s',
+    async (planUrl) => {
+      const data = input('', false)
+      data.rooms = data.rooms.map((room) => ({ ...room, include: false, utility: true }))
+      mocks.owner.mockResolvedValue({ planUrl, planReading: reading })
+      expect(
+        await confirmPlanRooms(projectId, data, planEditRevision(planUrl, reading)),
+      ).toMatchObject({ ok: false })
+      expect(mocks.createRooms).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['plan.png', 'plan.pdf'])(
+    'transfers corrected and explicitly reviewed axes from %s without physical verification',
+    async (planUrl) => {
+      mocks.owner.mockResolvedValue({ planUrl, planReading: reading })
       const data = {
         ...input(),
         rooms: input().rooms.map((room) => ({
           ...room,
+          widthCm: '320',
+          depthCm: '600',
           widthReviewed: true,
           depthReviewed: true,
-          [axis]: false,
         })),
       }
-      expect(await confirmPlanRooms(projectId, data, revision)).toMatchObject({
-        ok: false,
-        error: expect.stringContaining('Сверьте каждую непустую ось'),
-      })
-    }
-    expect(await confirmPlanRooms(projectId, input(), revision)).toMatchObject({ ok: false })
-    expect(mocks.createRooms).not.toHaveBeenCalled()
-  })
+      expect(
+        await confirmPlanRooms(projectId, data, planEditRevision(planUrl, reading)),
+      ).toMatchObject({ ok: true })
+      const saved = mocks.createRooms.mock.calls[0]?.[2]
+      expect(saved.rooms[0].measurements).toMatchObject({ widthCm: 320, depthCm: 600 })
+      expect(saved.rooms[0].measurements).not.toHaveProperty('verification')
+      expect(saved.reading.rooms[0]).not.toHaveProperty('widthReviewed')
+      expect(saved.reading.rooms[0]).not.toHaveProperty('depthReviewed')
+    },
+  )
 
-  it('also requires review of source-only raster utility dimensions', async () => {
-    const data = input()
-    data.rooms = data.rooms.map((room) => ({ ...room, include: false, utility: true }))
-    mocks.owner.mockResolvedValue({ planUrl: 'plan.webp', planReading: reading })
+  it.each(['plan.png', 'plan.pdf'])(
+    'allows explicit omission of axes from %s without submitting null as an existing-size wipe',
+    async (planUrl) => {
+      mocks.owner.mockResolvedValue({ planUrl, planReading: reading })
+      const data = input('', false)
+      data.rooms = data.rooms.map((room) => ({ ...room, widthCm: '', depthCm: '' }))
+      expect(
+        await confirmPlanRooms(projectId, data, planEditRevision(planUrl, reading)),
+      ).toMatchObject({ ok: true })
+      const saved = mocks.createRooms.mock.calls[0]?.[2]
+      expect(saved.rooms[0].measurements).not.toHaveProperty('widthCm')
+      expect(saved.rooms[0].measurements).not.toHaveProperty('depthCm')
+    },
+  )
+
+  it('requires PDF axis review again after an earlier transfer', async () => {
+    const before = { ...reading, confirmedAt: '2026-10-08T00:00:00.000Z' }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
     expect(
-      await confirmPlanRooms(projectId, data, planEditRevision('plan.webp', reading)),
+      await confirmPlanRooms(projectId, input('', false), planEditRevision('plan.pdf', before)),
     ).toMatchObject({ ok: false })
     expect(mocks.createRooms).not.toHaveBeenCalled()
-  })
-
-  it('transfers corrected and explicitly reviewed raster axes without physical verification', async () => {
-    mocks.owner.mockResolvedValue({ planUrl: 'plan.png', planReading: reading })
-    const data = {
-      ...input(),
-      rooms: input().rooms.map((room) => ({
-        ...room,
-        widthCm: '320',
-        depthCm: '600',
-        widthReviewed: true,
-        depthReviewed: true,
-      })),
-    }
-    expect(
-      await confirmPlanRooms(projectId, data, planEditRevision('plan.png', reading)),
-    ).toMatchObject({ ok: true })
-    const saved = mocks.createRooms.mock.calls[0]?.[2]
-    expect(saved.rooms[0].measurements).toMatchObject({ widthCm: 320, depthCm: 600 })
-    expect(saved.rooms[0].measurements).not.toHaveProperty('verification')
-    expect(saved.reading.rooms[0]).not.toHaveProperty('widthReviewed')
-  })
-
-  it('allows explicit omission of raster axes without submitting null as an existing-size wipe', async () => {
-    mocks.owner.mockResolvedValue({ planUrl: 'plan.png', planReading: reading })
-    const data = input()
-    data.rooms = data.rooms.map((room) => ({ ...room, widthCm: '', depthCm: '' }))
-    expect(
-      await confirmPlanRooms(projectId, data, planEditRevision('plan.png', reading)),
-    ).toMatchObject({ ok: true })
-    const saved = mocks.createRooms.mock.calls[0]?.[2]
-    expect(saved.rooms[0].measurements).not.toHaveProperty('widthCm')
-    expect(saved.rooms[0].measurements).not.toHaveProperty('depthCm')
-  })
-
-  it('does not apply raster acknowledgment requirements to the existing PDF path', async () => {
-    expect(
-      await confirmPlanRooms(projectId, input(), planEditRevision('plan.pdf', reading)),
-    ).toMatchObject({ ok: true })
   })
 
   it('saves added source rows with unknown measurements and no selected furniture rooms', async () => {
@@ -479,6 +561,15 @@ describe('plan reading actions', () => {
     expect(mocks.createRooms.mock.calls[0]?.[2].rooms[0].measurements).not.toHaveProperty(
       'verification',
     )
+  })
+
+  it('does not use a saved PDF contour review as an axis-review acknowledgment', async () => {
+    const before = { ...reading, pageReview }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    expect(
+      await confirmPlanRooms(projectId, input('', false), planEditRevision('plan.pdf', before)),
+    ).toMatchObject({ ok: false })
+    expect(mocks.createRooms).not.toHaveBeenCalled()
   })
 
   it('drops the review when ordinary reading switches to a different sheet', async () => {

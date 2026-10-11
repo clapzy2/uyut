@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
-import type { PlanReading } from '@uyut/ai'
+import { type PlanReading, parseFloorPlan } from '@uyut/ai'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import native from '../../../../docs/qa/fixtures/apartment-74-77-native-labels.json'
 import annotated from '../../../../docs/qa/fixtures/apartment-74-77-page-contours.json'
+import nativeAreas from '../../../../docs/qa/fixtures/basis-native-total-area.json'
 import type { PdfRoomContours } from './plan-pdf-room-binding'
 
 const mocks = vi.hoisted(() => ({ read: vi.fn(), prepare: vi.fn(), object: vi.fn() }))
@@ -43,7 +44,8 @@ const linework = {
   pageWidth: 842,
   pageHeight: 1191,
   paths: annotated.dimensionPaths as import('./plan-pdf-linework').PdfVectorPath[],
-  skippedCurves: 45,
+  // This mocked layer contains selected straight rails, not the complete PDF.
+  skippedCurves: 0,
   unsupportedPaths: 0,
   unsupportedContexts: 0,
   clippedPaths: 0,
@@ -108,10 +110,46 @@ describe('single-page plan reader budget', () => {
 
   it('uses one paid call without automatic side rechecks', async () => {
     const reading = await readPlanFromStorage('plan.PDF', 6)
-    expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, false)
+    expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, true)
     expect(mocks.read).toHaveBeenCalledTimes(1)
     expect(reading).toMatchObject({ sourcePage: 6, pageCount: 48, planState: 'existing' })
-    expect(reading.rooms[0]).toMatchObject({ widthCm: 296.4, depthCm: 420.5 })
+    expect(reading.rooms[0]?.widthCm).toBeUndefined()
+    expect(reading.rooms[0]?.depthCm).toBeUndefined()
+    expect(reading.rooms[0]?.areaM2).toBe(12.35)
+  })
+
+  it('keeps withheld native total and source warning through the storage reader path', async () => {
+    mocks.prepare.mockResolvedValue({
+      image: {
+        body: Buffer.from('basis-page3'),
+        contentType: 'image/jpeg',
+        planText: JSON.stringify(nativeAreas.items),
+      },
+      pageNumber: 3,
+      pageCount: 33,
+    })
+    mocks.read.mockImplementation(async (image) =>
+      parseFloorPlan(
+        JSON.stringify({
+          planState: 'existing',
+          totalAreaM2: 48.22,
+          rooms: [
+            { name: 'Помещение', sourceNumber: 1, areaM2: 40.13 },
+            { name: 'Балкон 01', sourceNumber: 2, areaM2: 4.75 },
+            { name: 'Балкон 02', sourceNumber: 3, areaM2: 3.34 },
+          ],
+        }),
+        { requireMeasurementEvidence: true, planText: image.planText },
+      ),
+    )
+    const reading = await readPlanFromStorage('plan.pdf', 3)
+    expect(reading.totalAreaM2).toBeUndefined()
+    expect(reading.rooms.map((room) => room.areaM2)).toEqual([40.13, 4.75, 3.34])
+    expect(
+      reading.rooms.every((room) => room.measurementWarnings?.[0]?.includes('Общая площадь')),
+    ).toBe(true)
+    expect(reading.sourcePage).toBe(3)
+    expect(mocks.read).toHaveBeenCalledTimes(1)
   })
 
   it('makes no paid call if the selected page is invalid', async () => {
@@ -122,7 +160,7 @@ describe('single-page plan reader budget', () => {
     consoleError.mockRestore()
   })
 
-  it('retains a raster floor candidate but cannot bypass reviewed PDF floor provenance', async () => {
+  it('does not keep a model-only raster or PDF floor as source-proven geometry', async () => {
     const geometry = {
       version: 1,
       status: 'draft',
@@ -143,7 +181,8 @@ describe('single-page plan reader budget', () => {
       rooms: [{ name: 'Балкон', kind: 'living', spaceKind: 'balcony' }],
       geometry,
     })
-    expect((await readPlanFromStorage('plan.webp')).geometry?.footprint).toEqual(geometry.footprint)
+    expect((await readPlanFromStorage('plan.webp')).geometry?.footprint).toBeUndefined()
+    expect(mocks.read).toHaveBeenCalledTimes(2)
     expect((await readPlanFromStorage('plan.pdf')).geometry?.footprint).toBeUndefined()
     expect(geometry.footprint).toHaveLength(3)
   })
@@ -164,6 +203,31 @@ describe('single-page plan reader budget', () => {
     expect(mocks.read).toHaveBeenCalledTimes(1)
     expect(reading.rooms[0]).toMatchObject({ widthCm: 296.4, depthCm: 420.5 })
   })
+  it.each([
+    { skippedCurves: 45 },
+    { clippedPaths: 1 },
+    {
+      skippedCurves: 1,
+      skippedCurveBounds: [
+        {
+          operationIndex: 999_999,
+          subpathIndex: 0,
+          bounds: { left: 218, top: 95, right: 219, bottom: 96 },
+        },
+      ],
+    },
+  ])(
+    'does not let a manual room review bypass missing native dimension paths %j',
+    async (change) => {
+      mocks.prepare.mockResolvedValue({ ...reviewedPage(), linework: { ...linework, ...change } })
+      mocks.read.mockResolvedValue(structuredClone(reviewedReading))
+      const reading = await readPlanFromStorage('plan.pdf', 6, reviewed)
+      expect(reading.rooms[0]?.widthCm).toBeUndefined()
+      expect(reading.rooms[0]?.areaM2).toBe(12.35)
+      if ('skippedCurveBounds' in change) expect(reading.rooms[0]?.depthCm).toBe(420.5)
+      expect(mocks.read).toHaveBeenCalledTimes(1)
+    },
+  )
   it.each([
     [
       'changed file',
@@ -257,10 +321,36 @@ describe('single-page plan reader budget', () => {
     ).rejects.toThrow('требуют уточнения')
     expect(mocks.read).not.toHaveBeenCalled()
   })
-  it('keeps default reading unchanged without asking for diagnostic vectors or a test fixture', async () => {
-    const expected = { ...reviewedReading, sourcePage: 6, pageCount: 48 }
+  it('checks native chains on the ordinary PDF path without a manual review annotation', async () => {
+    const page = reviewedPage()
+    mocks.prepare.mockResolvedValue({ ...page, linework: { ...linework, skippedCurves: 0 } })
     mocks.read.mockResolvedValue(structuredClone(reviewedReading))
-    expect(await readPlanFromStorage('plan.pdf', 6)).toEqual(expected)
-    expect(mocks.prepare.mock.calls[0]?.[3]).toBe(false)
+    const reading = await readPlanFromStorage('plan.pdf', 6)
+    expect(reading.rooms[0]).toMatchObject({ widthCm: 296.4, depthCm: 420.5, areaM2: 12.35 })
+    expect(reading.rooms[0]?.measurementWarnings?.join(' ')).toContain('не подтверждены')
+    expect(mocks.prepare.mock.calls[0]?.[3]).toBe(true)
+    expect(mocks.read).toHaveBeenCalledTimes(1)
+  })
+  it('does not fall back to baseline-origin matches when prepared caption geometry is incomplete', async () => {
+    mocks.prepare.mockResolvedValue({
+      ...reviewedPage(),
+      linework: { ...linework, skippedCurves: 0 },
+      nativeCaptionGeometry: {
+        source: {
+          sha256: createHash('sha256').update('pdf').digest('hex'),
+          pdfPage: 6,
+          pageWidth: 842,
+          pageHeight: 1191,
+        },
+        complete: false,
+        items: [],
+      },
+    })
+    mocks.read.mockResolvedValue(structuredClone(reviewedReading))
+    const result = await readPlanFromStorage('plan.pdf', 6)
+    expect(result.rooms[0]?.widthCm).toBeUndefined()
+    expect(result.rooms[0]?.depthCm).toBeUndefined()
+    expect(result.rooms[0]?.areaM2).toBe(12.35)
+    expect(mocks.read).toHaveBeenCalledTimes(1)
   })
 })

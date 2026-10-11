@@ -1,0 +1,429 @@
+# Полный BASIS: чтение с текстовым слоем и без него
+
+Результат: размеры и метрическая геометрия не приняты. Полный исходник
+устранил обрезанный балкон из тестового входа, но не ошибки привязки чисел.
+Правильные площади не доказывают правильность 2D/3D.
+
+## Исходник и независимый эталон
+
+[Публичный BASIS PDF](https://en.designartspace.com/storage/editor/BASIS_plan.pdf),
+PDF-страница 3, печатный лист 2 «Обмерный план», existing state. Локальная копия:
+`C:/Users/Lenovo/Documents/Codex/2026-09-26/1-pdf-1-2-pdf-3/outputs/moscow_basis_47m2.pdf`.
+SHA256: `eacadf4cf2a58a2f595ba192f3b9be49062f0215b49dffb3ccc920ee669b7eeb`.
+Полный лист просмотрен визуально; независимый source audit проверил подписи
+и цепочки. Геометрия соседних проектных страниц не использовалась.
+
+`fixtures/basis-existing-reader-reference.json` хранит проверенные факты
+и явные пробелы, не результат модели:
+
+- Экспликация: №01 «Помещение» 40,13 м², №02 «Балкон 01» 4,75 м²,
+  №03 «Балкон 02» 3,34 м². Это не три функциональные комнаты будущего интерьера.
+- Итог таблицы 48,22 м² конфликтует с 47,4 м² в штампе. Ни одна цифра
+  не выбрана как исправленная общая площадь.
+- Пролёты основной зоны: 7088 мм по низу и 5832 мм по вертикали.
+  Цепочки: 4308+820+75+1885; 4291+1541; 3069+2763.
+  Это не прямоугольник свободного пола: внутри есть перегородка и выступы.
+- 340 мм вложены в 3069 мм, а не добавляются к нему. 826+2268+948=4042 мм
+  относятся к левому локальному пролёту, не ко всей основной зоне.
+- Балконы сверху: слева 4191×1134 мм, справа 2942×1134 мм. Соответствие
+  левого/правого контура номерам таблицы по площади правдоподобно, но не считается
+  независимым доказательством идентичности. Общая глубина одинакова, её можно
+  оценить без этой привязки.
+- +2,650/+2,660/+2,600 не являются потолками. H двери/подоконника/порога
+  тоже не доказывает высоту комнаты. Потолки неизвестны.
+
+Это два прямоугольных балкона. Проверка **не закрывает** реальное распознавание
+балкона с диагональной стороной из исходной квартиры 28,8 м².
+
+## Контроль эксперимента
+
+Два отдельных пакета по четыре reader calls: A - рабочий промпт, B - кандидат
+с общими правилами против смешения уровней, соседних зон и вложенных цепочек.
+В каждом два повтора native-text и два image-only. Всего 8 платных вызовов reader,
+без новой генерации интерьеров и без записи в проекты. Offline оценка не платная.
+
+Во всех восьми чтениях одни JPEG bytes 2000×1414:
+SHA256 `257082a96743eac14dde34d2ccfe4542c99296a338f9584016d4ef619a9d6e00`.
+Native-text дополнительно получает фактические text items PDF. Image-only
+не получает текстовый слой. Ожидаемые числа эталона не передавались модели.
+PNG сохранён для просмотра; **это не PNG upload/auth/storage E2E**.
+Модель `anthropic/claude-sonnet-4.5`, temperature 0, max_tokens 12000.
+
+Промпт A SHA256:
+`ef49c15f7b30d74ff3ae1eb4b58938ae68553bff25c8524247e1b7c009f1d38c`.
+Промпт B SHA256:
+`e6e80896ef5d9508861d3bdc5f25ed1f6213bbc2312802b234469875c914d78c`.
+Кандидат сохранён в `fixtures/plan-reader-candidate-20261009.txt`.
+**Рабочий FLOOR_PLAN_PROMPT не заменён**: кандидат остаётся только QA.
+Parser соответствует локальному HEAD `9d16540`; в этой пачке он не менялся.
+Общие правила кандидата не содержат размеров из эталона.
+
+## Наблюдённый результат
+
+Размеры ниже после parser, в сантиметрах. «Неизвестно» не означает успешное чтение.
+
+| Пакет / режим | Пролёт основной зоны, два повтора | Потолки после parser | Стены / проёмы / контуры помещений |
+| --- | --- | --- | --- |
+| A / native-text | оба 708,8×696,6; лишние +113,4 по глубине | неизвестны | 13/4/2; 8/3/2 |
+| A / image-only | оба 404,2×429,1; выбран локальный пролёт | ошибочные 265/266/266 | 10/2/2; 12/2/2 |
+| B / native-text | оба ширина и глубина неизвестны | неизвестны | 12/2/0; 12/4/2 |
+| B / image-only | оба ширина 708,8; глубина неизвестна | неизвестны | 15/0/2; 15/0/1 |
+
+Raw B image-only всё ещё возвращает глубину основной зоны 4291 мм; parser
+удаляет её как неподтверждённую. Это не прочитанные правильные 5832 мм.
+В B native-text raw 7088/4291 также не проходят evidence/повторное использование
+индексов. Потеря ранее правильной ширины A native-text - не улучшение.
+
+Все восемь чтений правильно вернули три индивидуальные площади: 24/24 подписи.
+A image-only run2 добавил лишнее «Помещение 2» без номера. В B image-only
+этого не произошло; имена/номера/числовые значения/evidence повторились.
+Но оба дали балконам 1124 вместо видимых 1134 мм: ошибка -1 см сохраняется
+при совпадении ответов. Совпадение не становится source proof.
+
+Native-text переносит отдельные цифры, но назначает их не тем комнатам.
+A назначал балконам глубины 185,1/125,2 или 306,9/185,1 см.
+B назначал 91,2 и 276,3/185,1 см; ширину 165 см взял из соседнего остекления.
+Индекс подписи и верная арифметика не доказывают принадлежность.
+
+Raw B native-text **по-прежнему придумывает потолки**: [2650,null,2600] и
+[2650,null,null] мм. Их удаляет parser. Только B image-only вернул null уже
+в raw. Parsed ceilingPass не равен соблюдению правила моделью. В A native-text
+raw потолки уже были null; здесь есть регрессия кандидата.
+
+Все восемь ответов выбрали 48,22 м² без отражения конфликта с 47,4.
+Правило кандидата totalAreaM2=null не выполнено: conflictWithheld=false,
+sourceConflict=true, resolved=false.
+
+Ни в одной из четырёх пар полная geometry не повторилась. Количество стен
+не оценивает правильность: независимого полного эталона осей, стен, пола и
+проёмов нет. IoU, физические проходы и метрическая 3D корректность не измерены.
+
+## Защитный путь приложения
+
+Runner сохраняет application JSON, не пишет в БД:
+
+- Image-only A: конфликт inventory/names сбрасывает спорные значения/evidence;
+  geometry удалена. Общая площадь модели остаётся 48,22.
+- Image-only B: повторившиеся площади/числа сохраняются **вместе с ошибочными
+  112,4 см** и предупреждениями. Geometry удалена из-за несовпадения.
+- Native-text: рабочий PDF путь делает одно чтение; application использует run1
+  и удаляет непроверенный model footprint. A оставляет ошибочные размеры;
+  B оставляет неверные размеры балконов и стены/проёмы без комнатных контуров.
+  Это draft, не source-accepted схема.
+
+Защита полезна против нестабильного ответа, но не обнаруживает одинаковую
+ошибку двух чтений. Не заявляется, что все ошибочные мерки/схемы устранены.
+2D и 3D по этому чтению не приняты.
+
+## Артефакты и повторение
+
+Локальные пакеты: `output/quality-bench/basis-20261009-live-a/` и
+`output/quality-bench/basis-20261009-live-b/`. Каждый содержит input JPEG/PNG,
+native-text.json, manifest, четыре raw/parsed ответа, application и evaluation.json.
+Offline report сохраняет SHA raw/parsed и raw ceilings рядом с parsed checks.
+Артефакты ignored; исходник не добавлен в Git и не опубликован сервисом.
+
+Из `apps/web`, без оплаты:
+
+```powershell
+bun --no-env-file run scripts/report-basis-modalities.ts ../../output/quality-bench/basis-20261009-live-a ../../output/quality-bench/basis-20261009-live-b
+```
+
+Подготовка свежего каталога также не вызывает AI без `--run-paid`:
+
+```powershell
+bun --no-env-file run scripts/bench-basis-modalities.ts C:/Users/Lenovo/Documents/Codex/2026-09-26/1-pdf-1-2-pdf-3/outputs/moscow_basis_47m2.pdf ../../output/quality-bench/basis-fresh-preview --candidate-prompt
+```
+
+Платный rerun требует явного `--run-paid` и FAL_KEY через обычный env file.
+Без `--candidate-prompt` используется A. Воспроизводимость - одинаковые входы,
+условия и сохранённая оценка, не гарантия одинаковых ответов модели.
+
+## Следующая работа и границы
+
+1. Независимая привязка размерной линии: концы, вложенные интервалы, направление
+   и границы комнаты. Не заменять это complete:true, индексом подписи, повторным
+   совпадением или подгонкой по площади.
+2. Привязка sourceNumber к source-space контуру с видимым доказательством;
+   затем перенос комнат, балконов и проёмов в метрическую схему.
+3. Доказательство полного пола/внешней границы и масштаба перед приёмкой 2D/3D.
+   Непроверенные метрические координаты нельзя накладывать через bbox stretch.
+4. Полный реальный исходник с диагональным балконом и независимыми размерами.
+   Синтетический диагональный контроль не заменяет его.
+
+Production и пользовательские проекты не менялись. Live browser UI, сохранение
+в аккаунте, 3D browser replay и PDF экспорт этой пачкой не тестировались.
+Число unit tests не закрывает эти ограничения.
+
+## Проверка инструментов этой пачки
+
+Девять focused regressions проверяют несовпадение/дубликаты sourceNumber,
+вложенный отрезок, неизвестные размеры, конфликт итогов, повторяющуюся ошибку,
+room/apartment ceilings и отсутствие геометрии. Пустые контуры не выдаются
+за совпавшую геометрию: comparison=null.
+
+Финальный web suite: 3222 tests / 243 файла прошли. Typecheck семи пакетов,
+lint 866 файлов, production build и diff check прошли. Candidate preview
+выполнил 0 paid reader calls; его hash точно совпал с пакетом B. Offline report
+повторно собран без модели. Независимое read-only review блокеров не нашло.
+Это приёмка QA-инструментов, а не приёмка распознавания исходника.
+
+## Первый рабочий фикс: неоднозначная общая площадь native PDF
+
+После baseline исправлен parser, а не промпт: planTotalAreaConflict проверяет
+явную нумерованную таблицу №/Наименование/Площадь, её единственную числовую
+строку итога с единицей площади, и полную квалифицированную подпись квартиры.
+Не берёт сумму комнат, не ищет любой похожий decimal и не выбирает «более
+правильную» площадь по model response. Разные определения площади могут
+включать балконы по-разному, поэтому предупреждение просит уточнить состав,
+а не объявляет математическую ошибку в исходном плане.
+
+При доказанной неоднозначности totalAreaM2 остаётся пустым независимо от цифры,
+выбранной моделью. Индивидуальные площади и размеры этим не исправляются и
+не удаляются. Предупреждение прикрепляется к существующим rooms после их
+обычной фильтрации; оно не возвращает отброшенные пустые помещения. Штатные
+planRows и PlanReadingCard уже показывают measurementWarnings; новых полей БД,
+миграций и UI-компонентов не понадобилось. Mocked storage path и статический
+рендер формы проверяют, что отсутствующий итог и предупреждение доходят до неё.
+
+Scope: native text с позициями, поддержанная однозначная таблица минимум из
+трёх строк и читаемый итог возле её нижней границы. Неполные/дублированные
+таблицы, displaced/rotated/unpositioned labels, голое число без единиц,
+пример в свободном тексте и подпись площади отдельной комнаты не квалифицируются.
+Отсутствие найденного конфликта **не доказывает** правильность model total.
+Image-only OCR, другие формы экспликации и стены/проёмы этим не поддержаны.
+
+Native labels fixture `fixtures/basis-native-total-area.json` содержит только
+14 нужных исходных items с сохранёнными индексами, SHA/page и исходным count67.
+Она не является полным текстовым слоем или геометрическим эталоном.
+
+Все восемь архивных raw ответов пересобраны текущим parser с полным исходным
+native-text.json в режиме `report-basis-modalities.ts ... --reparse` (без API).
+Новые отчёты `evaluation-current-parser.json` не заменяют старые raw/parsed,
+application и evaluation.json. Original/replayed hashes различаются явно.
+Результат: 4/4 native ответа - total unknown, все 12/12 индивидуальных площадей
+сохранены; 4/4 image-only - прежние model totals, coverage не заявлено. Ошибки
+глубины основной зоны, размеров балконов и geometry остались прежними.
+
+Проверки: 28 новых cases, всего 3250 web tests / 244 файла; typecheck семи
+пакетов, lint 868 файлов, production build и diff check прошли. Independent
+review без открытых находок; исправлен обнаруженный выбор невалидного header.
+Новых AI расходов, DB/project writes, PR и deployment не было. Live UI/browser
+и реальное сохранение в аккаунте не проверялись; подтверждение этих путей
+не подменяется mocked storage test или renderToStaticMarkup.
+
+## Рабочая пачка: обычный PDF, native цепочки и обязательная сверка осей
+
+Новый `verifyPlanReadingNativeChains` вызывается в обычном `readPlanFromStorage`
+после одного reader call. PDF теперь запрашивает native linework того же выбранного
+листа; вручную размеченный путь по-прежнему использует более строгий room gate.
+Индексы evidence относятся только к фактическому compact planText массиву этого
+чтения, не к original nativeTextAnchors.nativeIndex.
+
+Для непустых width/depth проверяются прежние labels/arithmetic и нативные
+линии-кандидаты. Неудача/неподдержанный слой оставляет ось неизвестной и очищает
+её evidence/estimated/rechecked; значения не дополняются из площади или эталона.
+Успех оставляет только кандидата с явным предупреждением: даже связь подписи с
+линией, принадлежность комнате и полнота её охвата не доказаны. Geometry модели
+обычного PDF удаляется независимо от совпадения чисел: проверка рейки не проверяет
+стены, проёмы или полный пол. Areas/ceilings/state остаются предметом своих
+проверок, не «исправляются» этим guard.
+
+Ограничения: 3000 paths, 20k points, 40 chain checks; span extraction кэшируется
+по оси только внутри запроса на неизменный свежий лист. Отказываются чужой/неясный
+state/page, неполные layers, clipped/unsupported contexts, duplicate path IDs,
+invalid coordinates и truncated omitted bounds. Кривые разрешаются лишь при
+полном согласованном списке localized bounds и отсутствии пересечения с выбранной
+рейкой/её концами/label с запасом 6 physical PDF pt. Unlocalized curves блокируют
+проверку. Это консервативное local screening, не доказательство полноты страницы.
+
+Исправлена отдельная ошибка helper: разные subpaths одной paint operation больше
+не считаются повторным использованием одной рейки. Новый optional linePaths
+сохраняет operation/subpath, старое lineOperations не удалено. Повтор одной
+рейки, конкурирующие paths и неоднозначные стрелки не разрешены. Этот фикс **не
+исправляет** composite7088 на BASIS: там label75 попадает на рейку1885, а не на
+свой короткий сегмент. Совпадающие tick repaint не были ослаблены.
+
+### Изменение действительного пути переноса
+
+confirmPlanRooms больше не исключает `.pdf` из отдельной width/depth сверки.
+Проверяются также include=false/utility строки. Каждую заполненную ось нужно
+явно проверить или очистить; отсутствие осей не превращается в wipe уже
+измеренных комнат. Галочки относятся к конкретным значениям/room scope,
+сбрасываются при правке и не сохраняются как physical verification.
+Их наличие означает выбор пользователя, а не машинное подтверждение исходника.
+PlanReadingCard использует те же controls для PDF и raster. PDF source link
+открывает signed file с #page=activeReading.sourcePage, не mutable page selector.
+Новых DB полей, новых data-source statuses и raw HTML не введено.
+
+### Fresh source replay и границы покрытия
+
+`bench-basis-native-chain-gate.ts` читает весь исходный PDF page3 в память,
+проверяет SHA/image/text equality с архивом A/B, повторяет четыре native raw
+ответа через текущий parser+guard. Goldens в модели не используются; controls
+выбраны вручную и не подменяют реальные ответы модели. Новых provider calls и
+project writes нет. Файлы: `output/quality-bench/basis-20261009-native-chain-gate-c/`
+(input.jpg, full linework.json, report.json). Ранний -a отказал всем осям из-за
+глобальной curve policy; -b/-c применяют localized screening.
+
+Fresh source: 1216 paths, 2781 points, skippedCurves31/localizedBounds31,
+boundsTruncated=false; unsupported/contexts/clipped0, truncated=false. Пропуски
+не обнулены. В четырёх ответах основные оси и model geometry удерживаются;
+все индивидуальные площади и guard общей площади сохранены. Оставшиеся
+неверные назначения реальных локальных рейк:
+
+| Пакет | Неизвестные основные оси | Остались только кандидатами |
+| --- | --- | --- |
+| A1 | обе | Bal01 depth185,1 см |
+| A2 | обе | Bal01 width165 см; Bal02 depth185,1 см |
+| B1 | обе | Bal01 width165 см; Bal02 depth276,3 см |
+| B2 | обе | Bal01 width165 см; Bal02 depth185,1 см |
+
+Это не исправленные размеры балконов и не accepted 2D/3D. Изолированные source
+controls: main5832 `[28,27]` и прямой7088 `[45]` дают helper candidate; ошибочный
+extended6966 `[29,28,27]` disconnected; nested6172 `[39,44,47]` ambiguous/branched.
+Correct direct7088 удерживается новым guard из-за близкого omitted curve bbox
+дверной дуги. Correct5832 проходит как кандидат, но ни один архивный model run
+не предоставил такое evidence: автоматическое восстановление не заявлено.
+Single75 `[25]` ошибочно связывается helper с рейкой1885 и может остаться
+кандидатом; в обычном parser этот слишком маленький room-side также не проходит
+MIN_SIDE. Это известная label-placement граница, не room/rail proof. Именно
+поэтому candidate нельзя автоматически переносить или использовать как масштаб
+подтверждённого пола. Для настоящей точности нужна следующая label/contour пачка.
+
+Gate replay на четырёх локальных случаях занял примерно15–25 ms, без PDF render
+и сети. Это не измерение production latency и не performance guarantee.
+
+### Проверки
+
+Full web suite: 3286 tests/245 файлов с --maxWorkers=4; typecheck7, lint871,
+production build и diff check прошли. Один первоначальный parallel full run
+получил 5s timeout старого layout seed20260912 при одновременном typecheck;
+focused повтор и ограниченный worker count прошли. Глобальные timeout/test
+условия не ослаблялись. Independent review нашёл omitted-bounds-truncated gap;
+оба flags закрыты и покрыты regression, открытых integration blockers не осталось.
+
+Tests проверяют connected/partial/source-unknown chains, local omitted bounds,
+limits, copy immutability, model geometry holding, factory compatibility,
+compound subpath identity, default storage path с одним mocked reader call,
+PDF/raster action rejection/omission/corrected transfer и static form controls.
+PostgreSQL integration обновлён, но не запускался: docker API pipe отсутствует,
+локальный daemon не стартован. Live browser/реальное сохранение в аккаунте,
+новые AI requests, deployment и исходный user project не выполнялись/не менялись.
+
+## Следующая рабочая пачка: baseline caption geometry и вынесенный короткий размер
+
+preparePlanPage при запросе linework теперь возвращает private nativeCaptionGeometry.
+Она содержит file SHA/page/frame, compact planText index, исходную строку/rotation,
+rounded origin и точные baseline start/end числовых native runs. End строится по
+TextItem.width вдоль единичного transform направления через viewport scale1;
+это midpoint advance, не bbox видимого ink и не центр комнаты. Недоступные/invalid
+metrics, trim/clip текста, неверная ориентация или budget/extraction failure делают
+context incomplete. Native source indices не смешиваются с compact indices.
+Эта metadata не включается в model prompt: text/image bytes остались прежними.
+
+Caption matcher подключён к обычному PDF guard и к width/depth reviewed-page gate.
+Поддержан cardinal0/90 вариант; rich context с aligned axis явно отказывает,
+а прежний API без контекста сохранён как legacy candidate path, не точная привязка.
+Если новый context предоставлен, но неполон/чужой/невалиден, fallback к baseline
+origin не выполняется. Source SHA/page/frame, positions, direction, unique index
+и positive numeric captions проверяются до поиска. Поиск/топология ограничены
+200k comparisons, matcher/spans кэшируются только на неизменный request-local source.
+
+Обычная подпись должна иметь единственный source baseline midpoint у середины
+нативной рейки (0,12 physical pt tolerance) и правильную строку/направление.
+Вынесенная подпись поддерживается лишь когда её advance не помещается в короткий
+пролёт, ближайший конец baseline совпадает с внешней проекцией уникальной засечки,
+а сам пролёт уникально соединён с двумя unbranched соседними рейками с уникальными
+centered captions. Отношения graphic lengths проверяют напечатанное число с
+1мм tolerance; производное значение не выдаётся вместо source caption.
+Площадь/эталон/имя комнаты в этот выбор не входят.
+
+Каждая рейка должна иметь уникальную caption claim: совпавшая centred/outboard или
+дублированная вынесенная подпись дают ambiguity. Коллинеарные положительно
+перекрывающиеся альтернативы и competing operation/subpath definitions также
+отказываются; обычное касание последовательных сегментов не является overlap.
+Duplicate ticks/branches не схлопывались ради успешного результата.
+
+На fresh BASIS page3 nativeCaptionGeometry complete=true,30 numeric runs. Текст
+SHA `fd44414e0a714d7c610a8fb355bd1b01d29ae96c65484297cc1205e13199bb6c` и image
+SHA прежние. Context75 index25 соответствует original raw index37, не наоборот.
+Its14,7034pt advance вынесен за короткую5,315pt рейку8079 и совпадает с outer tick;
+820/1885 neighbours задают согласованные native ratios. Результат fresh controls:
+
+| Контроль | Результат rich caption context |
+| --- | --- |
+| 75 `[25]` | candidate на8079, больше не на1885rail8100 |
+| 4308+820+75+1885 `[23,24,25,26]` | candidate7088, operations8030/8058/8079/8100 |
+| прямой7088 `[45]` | candidate9198 |
+| main5832 `[28,27]` | candidate8243/8215 |
+| extended6966 `[29,28,27]` | disconnected refusal |
+| nested6172 `[39,44,47]` | ambiguous branched refusal |
+| local1851 `[37]` | candidate; принадлежность балкону не доказана |
+
+Артефакты `output/quality-bench/basis-20261009-caption-binding-c/`: input.jpg,
+full linework.json, caption-geometry.json и report.json. Source/header/indices в
+алгоритме не hardcoded: перечисленные controls выбирает QA runner, не mapper.
+Повтор четырёх архивных native model answers **не исправил room ownership**:
+основные оси/geometry всё ещё held из-за nearby omitted curves, ошибочные реальные
+локальные spans сохраняются только кандидатами. Новая правильная связь75 не
+принимает пол, room contours, открывания, высоты или3D. Raster OCR не реализован.
+
+Проверки: 3331 web tests/246 файлов (--maxWorkers=4), typecheck7, lint873,
+production build и diff check прошли. Producer tests проверяют источник/compact
+namespace, UserUnit/viewports, nonfinite/missing/trimmed width и budget/rotation.
+Matcher controls проверяют обе стороны/оси, уникальность claims, competing refs,
+overlap/branch/fork, исходные числа без подстановки, bounded work и copy immutability;
+native tick-linework integration проверяет и чистую цепь, и перекрывающую fork.
+Storage test запрещает fallback при incomplete prepared caption context.
+Independent review выявил два ambiguity gaps; они закрыты и повторно проверены.
+Новых provider calls, project/DB writes, browser/PG tests, PR и deployment не было.
+
+## Проверка принадлежности вынесенных цепочек и полноты размеченного слоя
+
+Воспроизведены и исправлены два независимых случая ложного сохранения оси:
+
+- externalRectangleDimension игнорировал другую комнату, если её проекция не
+  совпадала целиком с габаритом выбранного прямоугольника. Внешняя цепочка могла
+  перескочить через узкую промежуточную комнату; ни midpoints сегментов, ни две
+  выносные линии не обязательно пересекали её. Теперь проверяется любое
+  перекрытие проекций с physical tolerance; ближняя/равноудалённая зона блокирует
+  уникальность владельца. Комнаты сбоку или дальше выбранной поверхности не
+  блокируют исходный положительный контроль. Правило одинаково для width/depth.
+- verifyPlanReadingGeometry не применял guard пропущенных линий обычного PDF.
+  Сверка комнаты сохраняла размер даже при clippedPaths, неизвестных bounds
+  кривых или кривой рядом с рейкой. Общая source/layer проверка вынесена в
+  plan-pdf-dimension-source.ts и используется обоими путями без ослабления
+  прежнего обычного guard. Local omission test сохраняет тот же 6pt corridor
+  вокруг caption/rail/endpoints. Достоверные удалённые локализованные дуги
+  разрешены; хорды вместо дуг и выдуманные bounds не добавлялись.
+
+Регрессии проверяют обе оси, узкую соседнюю зону между midpoints, пересечение у
+конца цепочки, сохранение допустимых соседей, очистку поля/evidence перед
+planRows, сохранение площадей и отсутствие мутации входа. Storage-reader tests
+проходят полный mocked reviewed route за один reader call. Субагент отдельно
+повторил rich-caption пример: чистая цепочка/дальняя дуга сохранены, clipping,
+локальная дуга и отсутствие bounds удерживают размер в обоих путях.
+
+Старые unit mocks содержали skippedCurves45 от полного исходного листа, но
+передавали только выбранные straight rails/leaders. Их метаданные теперь явно
+описывают этот ограниченный unit-layer с нулём кривых. Новый отрицательный
+контроль с count45 без bounds требует отказа. Это не изменение полного PDF,
+golden-эталона или доказательство полноты source page; реальные31 кривые BASIS
+и их bounds в fresh replay сохранены.
+
+Fresh replay: output/quality-bench/basis-20261009-room-owner-guard/. SHA исходника,
+изображения, native text, raw answers, outcomes и controls совпадают с
+basis-20261009-caption-binding-c (кроме времени исполнения). Provider calls0,
+project writes0. Обычный путь без reviewed contours по-прежнему не доказывает
+room ownership: локальные1650/1851/2763 могут оставаться кандидатами, основные
+оси/model geometry удержаны. Эта пачка закрывает обходы при проверке владельца,
+но не реализует автоматическое назначение балконов и не принимает полный пол,
+стены, проёмы, высоты или metric2D/3D. SourceNumber из экспликации нельзя
+связывать с левым/правым балконом только по площади.
+
+Проверки: 3344 web tests/246 файлов (--maxWorkers=4), typecheck7, lint874,
+production build и diff check прошли. Новых платных AI calls, DB/project writes,
+browser/PG integration, PR и deployment нет. Следующий шаг - доказанная
+пространственная identity и классификация границ по полному исходнику,
+не ослабление текущих отказов ради заполненных полей.

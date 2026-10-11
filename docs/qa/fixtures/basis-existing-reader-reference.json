@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "source": {
+    "url": "https://en.designartspace.com/storage/editor/BASIS_plan.pdf",
+    "sha256": "eacadf4cf2a58a2f595ba192f3b9be49062f0215b49dffb3ccc920ee669b7eeb",
+    "pdfPage": 3,
+    "printedSheet": 2,
+    "state": "existing"
+  },
+  "printedTableTotalM2": 48.22,
+  "printedTitleAreaM2": 47.4,
+  "uniformCeilingKnown": false,
+  "rooms": [
+    { "sourceNumber": 1, "name": "Помещение", "areaM2": 40.13 },
+    { "sourceNumber": 2, "name": "Балкон 01", "areaM2": 4.75 },
+    { "sourceNumber": 3, "name": "Балкон 02", "areaM2": 3.34 }
+  ],
+  "mainEnvelope": {
+    "widthMm": 7088,
+    "depthMm": 5832,
+    "scope": "single main-zone bounding spans, not free-floor area",
+    "chainsMm": [[4308, 820, 75, 1885], [4291, 1541], [3069, 2763]]
+  },
+  "localChains": [
+    {
+      "id": "left-bay-width",
+      "segmentsMm": [826, 2268, 948],
+      "totalMm": 4042,
+      "wholeRoomDimension": false
+    },
+    {
+      "id": "right-lower-band",
+      "segmentsMm": [912, 1851],
+      "totalMm": 2763,
+      "wholeRoomDimension": false
+    }
+  ],
+  "nestedSegment": { "valueMm": 340, "insideMm": 3069, "mustNotAddToTotal": true },
+  "spatialBalconyDimensions": [
+    { "location": "left", "widthMm": 4191, "depthMm": 1134 },
+    { "location": "right", "widthMm": 2942, "depthMm": 1134 }
+  ],
+  "unverified": [
+    "table balcony number to spatial contour mapping: area association is not independent identity proof",
+    "complete wall inventory",
+    "wall axes and thicknesses",
+    "complete floor boundary",
+    "balcony door clear widths",
+    "ceiling heights",
+    "metric 3D source acceptance"
+  ],
+  "notes": [
+    "Only existing measure page; later planned functional rooms must not be imported",
+    "Title 47.4 conflicts with table 48.22; do not force either value to resolve source ambiguity",
+    "Main-envelope rectangle area is not free-floor area; internal partition and projections exist",
+    "Manual visual review plus independent source audit; no golden values supplied to the image-only model"
+  ]
+}

@@ -2,6 +2,7 @@ import type { PlanGeometry, PlanOpeningBinding, PlanPoint } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import { inspectMetricClearanceRoutes } from './plan-metric-clearance-route'
 import { inspectPdfClearanceRoutes } from './plan-pdf-clearance-route'
+import { applyPlanVerticalReference } from './plan-vertical-reference'
 
 const point = (xCm: number, yCm: number): PlanPoint => ({ xCm, yCm })
 const box = (left: number, top: number, right: number, bottom: number) => [
@@ -131,7 +132,322 @@ function required<T>(value: T | undefined): T {
   return value
 }
 
+// Synthetic survey, not measurements recovered from the user's plan.
+function signedFixture(secondLevel = 0, thresholdTop?: number, balcony = false): PlanGeometry {
+  const geometry = fixture()
+  geometry.status = 'confirmed'
+  geometry.footprint = box(0, 0, 410, 240)
+  for (const opening of geometry.openings) opening.bottomCm = 0
+  if (balcony) {
+    for (const opening of geometry.openings.filter((value) => value.id !== 'entry'))
+      opening.type = 'balcony'
+    for (const binding of pair(geometry).bindings) binding.opening.type = 'balcony'
+  }
+  const floors = geometry.rooms.map((room, index) => ({
+    id: `floor-${index}`,
+    room: structuredClone(room),
+    surface: 'finished-floor' as const,
+    elevationCm: index === 0 ? 0 : secondLevel,
+  }))
+  const bindings = pair(geometry).bindings.map((binding, index) => ({
+    opening: {
+      id: binding.opening.id,
+      type: binding.opening.type,
+      wallId: binding.opening.wallId,
+      offsetCm: binding.opening.offsetCm,
+      widthCm: binding.opening.widthCm,
+    },
+    floorId: `floor-${index}`,
+  }))
+  const accepted = applyPlanVerticalReference(
+    geometry,
+    {
+      version: 1,
+      id: 'synthetic-survey',
+      kind: 'finished-floor',
+      zeroFloorId: 'floor-0',
+      acknowledged: true,
+      floors,
+      wallBases: geometry.walls.map(({ id, kind, start, end }) => ({
+        wall: { id, kind, start, end },
+        floorId: id === 'second-face' ? 'floor-1' : 'floor-0',
+      })),
+      thresholds:
+        thresholdTop === undefined
+          ? []
+          : [
+              {
+                id: 'synthetic-threshold',
+                bindings,
+                elevationCm: thresholdTop,
+              },
+            ],
+      source: { kind: 'site-measurement', reference: 'Synthetic route test only' },
+    },
+    'test-surveyor',
+    '2026-10-11T09:00:00.000Z',
+  )
+  if (!accepted.ok) throw new Error(accepted.error)
+  return accepted.geometry
+}
+
+describe('PDF occupied-volume callback', () => {
+  it('forwards the whole initial footprint without admitting a blocked route', () => {
+    const geometry = signedFixture(0, 0)
+    for (const opening of geometry.openings) {
+      opening.bottomCm = 0
+      opening.heightCm = 220
+    }
+    const reference = required(geometry.verticalReference)
+    reference.ceilings = reference.floors.map((floor, index) => ({
+      id: `callback-ceiling-${index}`,
+      floorId: floor.id,
+      elevationCm: 270,
+    }))
+    const body = { widthCm: 20, depthCm: 20, heightCm: 100 }
+    const baseline = inspectPdfClearanceRoutes(geometry, body)
+    expect(baseline.missing).toBeUndefined()
+    expect(baseline.result?.routes).toHaveLength(2)
+    const seen: Array<[number, number, number, number]> = []
+    const held = inspectPdfClearanceRoutes(geometry, {
+      ...body,
+      blockedVolume: (bounds) => {
+        seen.push(bounds)
+        return true
+      },
+    })
+    expect(held.result?.routes).toEqual([])
+    expect(held.result?.checkedNodes).toBe(0)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.[2]).toBeGreaterThan(seen[0]?.[0] ?? Infinity)
+    expect(seen[0]?.[3]).toBeGreaterThan(seen[0]?.[1] ?? Infinity)
+  })
+})
+
+describe('signed continuous floor routes', () => {
+  it('checks a proved balcony portal by the same flush-floor conditions', () => {
+    expect(inspectPdfClearanceRoutes(signedFixture(0, 0, true)).result?.routes).toHaveLength(2)
+    expect(
+      inspectPdfClearanceRoutes(signedFixture(0, undefined, true)).result?.unresolvedRoomIds,
+    ).toEqual(['1'])
+  })
+  it('joins known coplanar finished floors only with an explicit flush threshold', () => {
+    const geometry = signedFixture(0, 0)
+    const result = required(inspectPdfClearanceRoutes(geometry).result)
+    expect(result.routes).toHaveLength(2)
+    expect(result.vertical).toEqual({
+      referenceId: 'synthetic-survey',
+      elevationCm: 0,
+      heldTransitions: [],
+    })
+    expect(
+      result.routes.every((route) =>
+        route.points.every((point) => 'zCm' in point && point.zCm === 0),
+      ),
+    ).toBe(true)
+  })
+  it.each([undefined, 2])('holds an unknown or raised threshold top %s', (top) => {
+    const result = required(inspectPdfClearanceRoutes(signedFixture(0, top)).result)
+    expect(result.unresolvedRoomIds).toEqual(['1'])
+    expect(result.vertical?.heldTransitions).toHaveLength(1)
+  })
+  it.each([-2, -15])('does not turn floor level %s into a continuous step crossing', (level) => {
+    const geometry = signedFixture(level, 0)
+    const opening = required(geometry.openings.find((value) => value.id === 'second'))
+    opening.bottomCm = -level
+    const result = required(inspectPdfClearanceRoutes(geometry).result)
+    expect(result.unresolvedRoomIds).toEqual(['1'])
+    expect(result.vertical?.heldTransitions[0]?.reason).toContain('Разные отметки')
+  })
+  it('holds unknown local bottom even with a flush known threshold', () => {
+    const geometry = signedFixture(0, 0)
+    delete required(geometry.openings.find((value) => value.id === 'second')).bottomCm
+    const result = required(inspectPdfClearanceRoutes(geometry).result)
+    expect(result.unresolvedRoomIds).toEqual(['1'])
+    expect(result.vertical?.heldTransitions[0]?.reason).toContain('Нижняя грань')
+  })
+  it('does not infer external entry crossing from an inside start', () => {
+    const geometry = signedFixture(0, 0)
+    required(geometry.openings.find((value) => value.id === 'entry')).bottomCm = 2
+    expect(inspectPdfClearanceRoutes(geometry).result?.routes).toHaveLength(2)
+  })
+  it('reports negative Z when starting inside the lowered balcony floor', () => {
+    const geometry = signedFixture(-15, 0)
+    const opening = required(geometry.openings.find((value) => value.id === 'second'))
+    opening.bottomCm = 15
+    opening.clearance = { side: 'right', depthCm: 100, shape: 'rectangle' }
+    geometry.routeStartOpeningId = opening.id
+    const binding = required(pair(geometry).bindings[1])
+    required(required(geometry.pdfCalibration).openingWidthProofs).push({
+      ...structuredClone(binding),
+      labelIndex: 99,
+    })
+    const result = required(inspectPdfClearanceRoutes(geometry).result)
+    expect(result.routes.map((route) => route.roomId)).toEqual(['1'])
+    expect(result.vertical?.elevationCm).toBe(-15)
+    expect(
+      result.routes.every((route) =>
+        route.points.every((point) => 'zCm' in point && point.zCm === -15),
+      ),
+    ).toBe(true)
+  })
+  it.each(['draft', 'stale', 'malformed'] as const)('holds %s reference', (mode) => {
+    const geometry = signedFixture(0, 0)
+    if (mode === 'draft') geometry.status = 'draft'
+    if (mode === 'stale') required(required(geometry.rooms[1]).polygon[0]).xCm += 1
+    if (mode === 'malformed') required(geometry.verticalReference).verifiedAt = 'invalid'
+    expect(inspectPdfClearanceRoutes(geometry).result).toBeUndefined()
+  })
+  it('is unchanged under threshold binding reversal', () => {
+    const geometry = signedFixture(0, 0)
+    const before = inspectPdfClearanceRoutes(geometry).result
+    required(required(geometry.verticalReference).thresholds[0]).bindings.reverse()
+    expect(inspectPdfClearanceRoutes(geometry).result).toEqual(before)
+  })
+  it.each([0, -2])('joins open zones only at the same signed floor level: %s', (level) => {
+    const geometry = openZones()
+    geometry.status = 'confirmed'
+    geometry.footprint = box(0, 0, 400, 200)
+    const accepted = applyPlanVerticalReference(
+      geometry,
+      {
+        version: 1,
+        id: 'open-zone-zero',
+        kind: 'finished-floor',
+        zeroFloorId: 'floor-0',
+        acknowledged: true,
+        floors: geometry.rooms.map((room, index) => ({
+          id: `floor-${index}`,
+          room,
+          surface: 'finished-floor',
+          elevationCm: index ? level : 0,
+        })),
+        wallBases: geometry.walls.map((wall) => ({ wall, floorId: 'floor-0' })),
+        thresholds: [],
+        source: { kind: 'site-measurement', reference: 'Synthetic open zone test' },
+      },
+      'test',
+      '2026-10-11T09:00:00.000Z',
+    )
+    if (!accepted.ok) throw new Error(accepted.error)
+    const result = required(inspectPdfClearanceRoutes(accepted.geometry).result)
+    expect(result.routes).toHaveLength(level === 0 ? 2 : 1)
+  })
+  it.each([0, -2])(
+    'joins diagonal reciprocal open zones only on one confirmed level: %s',
+    (level) => {
+      const geometry = openZones()
+      const rotate = ({ xCm, yCm }: PlanPoint): PlanPoint => ({
+        xCm: 300 + xCm * 0.6 - yCm * 0.8,
+        yCm: 100 + xCm * 0.8 + yCm * 0.6,
+      })
+      geometry.status = 'confirmed'
+      geometry.widthCm = 600
+      geometry.heightCm = 600
+      geometry.routeWidthCm = 40
+      geometry.footprint = box(0, 0, 400, 200).map(rotate)
+      geometry.rooms = geometry.rooms.map((room) => ({
+        ...room,
+        polygon: room.polygon.map(rotate),
+      }))
+      geometry.walls = geometry.walls.map((wall) => ({
+        ...wall,
+        start: rotate(wall.start),
+        end: rotate(wall.end),
+      }))
+      const calibration = required(geometry.pdfCalibration)
+      calibration.wallFaceRoomPolygons = structuredClone(geometry.rooms.map((room) => room.polygon))
+      calibration.sourceOpenZoneBoundaries = calibration.sourceOpenZoneBoundaries?.map((proof) => ({
+        ...proof,
+        polygon: proof.polygon.map(rotate),
+      }))
+      calibration.openingWidthProofs = calibration.openingWidthProofs?.map((proof) => ({
+        ...proof,
+        wall: { ...proof.wall, start: rotate(proof.wall.start), end: rotate(proof.wall.end) },
+        cut: proof.cut?.map(rotate) as [PlanPoint, PlanPoint],
+      }))
+      const accepted = applyPlanVerticalReference(
+        geometry,
+        {
+          version: 1,
+          id: 'diagonal-open-zero',
+          kind: 'finished-floor',
+          zeroFloorId: 'floor-0',
+          acknowledged: true,
+          floors: geometry.rooms.map((room, index) => ({
+            id: `floor-${index}`,
+            room,
+            surface: 'finished-floor',
+            elevationCm: index ? level : 0,
+          })),
+          wallBases: geometry.walls.map((wall) => ({ wall, floorId: 'floor-0' })),
+          thresholds: [],
+          source: { kind: 'site-measurement', reference: 'Synthetic diagonal open zones' },
+        },
+        'test',
+        '2026-10-11T09:00:00.000Z',
+      )
+      if (!accepted.ok) throw new Error(accepted.error)
+      expect(inspectPdfClearanceRoutes(accepted.geometry).result?.routes).toHaveLength(
+        level === 0 ? 2 : 1,
+      )
+      // The pre-existing horizontal-only branch stays closed to this new signed feature.
+      expect(inspectPdfClearanceRoutes(geometry).result).toBeUndefined()
+    },
+  )
+})
+
 describe('проходы между исходными PDF-контурами', () => {
+  it.each(['same-ids', 'different-ids'])(
+    'не скрывает повторную исходную пару поднятым порогом: %s',
+    (kind) => {
+      const geometry = fixture()
+      const original = pair(geometry)
+      const duplicate = structuredClone(original)
+      if (kind === 'different-ids') {
+        for (const binding of duplicate.bindings) {
+          binding.opening.id += '-duplicate'
+          geometry.openings.push(structuredClone(binding.opening))
+        }
+      }
+      geometry.pdfCalibration?.openingFacePairs?.push(duplicate)
+      const door = geometry.openings.find(({ id }) => id === 'first')
+      if (!door) throw new Error('Missing opening')
+      door.bottomCm = 10
+      const before = structuredClone(geometry)
+      expect(inspectPdfClearanceRoutes(geometry).result).toBeUndefined()
+      expect(inspectPdfClearanceRoutes(geometry).missing).toContain('однозначность')
+      expect(geometry).toEqual(before)
+    },
+  )
+  it.each([10, 0.000000001])(
+    'не открывает полосу по полу при текущем поднятом низе %s',
+    (bottomCm) => {
+      const geometry = fixture()
+      const door = geometry.openings.find(({ id }) => id === 'first')
+      if (!door) throw new Error('Missing current opening')
+      const sourceProofs = structuredClone(geometry.pdfCalibration)
+      door.bottomCm = bottomCm
+      expect(inspectPdfClearanceRoutes(geometry).result?.unresolvedRoomIds).toEqual(['1'])
+      expect(geometry.pdfCalibration).toEqual(sourceProofs)
+      door.bottomCm = 0
+      expect(inspectPdfClearanceRoutes(geometry).result?.routes).toHaveLength(2)
+    },
+  )
+  it('проверяет текущую высоту проёма независимо от горизонтального source snapshot', () => {
+    const geometry = fixture()
+    const door = geometry.openings.find(({ id }) => id === 'first')
+    const entry = geometry.openings.find(({ id }) => id === 'entry')
+    if (!door || !entry) throw new Error('Missing fixture')
+    for (const wall of geometry.walls) wall.heightCm = 270
+    door.bottomCm = 0
+    door.heightCm = 350
+    expect(inspectPdfClearanceRoutes(geometry).result).toBeUndefined()
+    door.heightCm = 210
+    expect(inspectPdfClearanceRoutes(geometry).result?.routes).toHaveLength(2)
+    entry.bottomCm = 10
+    expect(inspectPdfClearanceRoutes(geometry).missing).toContain('порог')
+  })
   it('соединяет доказанные открытые зоны без вымышленной двери', () => {
     const geometry = openZones()
     geometry.routeWidthCm = 90

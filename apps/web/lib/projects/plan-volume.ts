@@ -1,83 +1,42 @@
 import { kitchenClearanceZones } from '@uyut/catalog/geometry'
+import {
+  inspectPlanThresholdSurfaces,
+  planOpeningEndpoints,
+} from '@uyut/catalog/plan-threshold-geometry'
+import type {
+  OpeningSpan,
+  PlanSolidFace,
+  PlanVolume,
+  VolumeFloorSurface,
+  VolumeFloorZone,
+  VolumeFurniture,
+  WallSpan,
+} from '@uyut/catalog/plan-volume-types'
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
+import polygonClipping, { type Polygon } from 'polygon-clipping'
 import { kitchenItemIssues, kitchenItemsSchema, kitchenLabels } from './kitchen-items'
 import type { PlanGeometryIssue } from './plan-geometry-inspection'
 import { currentWallFacePairs } from './plan-opening-face-pairs'
-import { inspectPlanVerticalDimensions } from './plan-vertical-dimensions'
+import {
+  inspectPlanVerticalDimensions,
+  planVerticalMeasurementReport,
+} from './plan-vertical-dimensions'
+import { signedElevationSum, signedPlanFloors } from './plan-vertical-floor-geometry'
 import { wallElevationPanels } from './wall-elevation'
-import { type WallSolidFace, wallSolidFaces } from './wall-solid'
+import { wallSolidFaces } from './wall-solid'
 import { joinWallSolids } from './wall-solid-union'
 
-export type WallSpan = {
-  id: string
-  start: PlanPoint
-  end: PlanPoint
-  kind: 'outer' | 'inner'
-  bottomCm: number
-  topCm?: number
-  solid?: boolean
-  wallId: string
-  thicknessCm?: number
-}
-
-export type PlanSolidFace = {
-  id: string
-  kind: 'outer' | 'inner'
-  role: WallSolidFace['role']
-  points: (PlanPoint & { zCm: number })[]
-  holes?: (PlanPoint & { zCm: number })[][]
-}
-
-export type OpeningSpan = {
-  id: string
-  type: 'door' | 'window' | 'balcony'
-  start: PlanPoint
-  end: PlanPoint
-  bottomCm?: number
-  heightCm?: number
-  cut: boolean
-}
-
-export type PlanVolume = {
-  floor: PlanPoint[]
-  voids: PlanPoint[][]
-  walls: WallSpan[]
-  openings: OpeningSpan[]
-  wallSource: 'centerline' | 'pdf-faces' | 'room-layout'
-  solidFaces: PlanSolidFace[]
-  joinedSolids: boolean
-  issues: PlanGeometryIssue[]
-  furniture?: VolumeFurniture[]
-  floorZones?: VolumeFloorZone[]
-  rooms?: VolumeRoom[]
-  layoutNote?: string
-}
-
-export type VolumeRoom = {
-  id: string
-  title: string
-  floor: PlanPoint[]
-  /** A source contour without a linked project-room page. */
-  sourceOnly?: boolean
-}
-
-export type VolumeFloorZone = {
-  id: string
-  roomId?: string
-  title: string
-  kind: 'door' | 'balcony' | 'radiator' | 'obstacle' | 'operation'
-  floor: PlanPoint[]
-  preliminary?: boolean
-}
-
-export type VolumeFurniture = {
-  id: string
-  itemId?: string
-  roomId?: string
-  title: string
-  floor: PlanPoint[]
-  heightCm?: number
-}
+export type {
+  OpeningSpan,
+  PlanSolidFace,
+  PlanVolume,
+  VolumeFloorSurface,
+  VolumeFloorZone,
+  VolumeFurniture,
+  VolumeRoom,
+  VolumeThreshold,
+  WallSpan,
+} from '@uyut/catalog/plan-volume-types'
 
 function interpolate(start: PlanPoint, end: PlanPoint, ratio: number): PlanPoint {
   return {
@@ -95,8 +54,13 @@ function addWallInterval(
   intervalEnd: PlanPoint,
   sourceOpenings: PlanGeometry['openings'],
   solidFaces: PlanSolidFace[],
-  { allowThickness, recordOpenings }: { allowThickness: boolean; recordOpenings: boolean },
+  {
+    allowThickness,
+    recordOpenings,
+    baseCm,
+  }: { allowThickness: boolean; recordOpenings: boolean; baseCm?: number },
 ) {
+  const base = baseCm ?? 0
   const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
   if (length <= 0) return
 
@@ -151,8 +115,8 @@ function addWallInterval(
       start: pointAt(low + panel.startCm),
       end: pointAt(low + panel.endCm),
       kind: wall.kind,
-      bottomCm: panel.bottomCm,
-      topCm: panel.topCm,
+      bottomCm: signedElevationSum(base, panel.bottomCm),
+      topCm: panel.topCm === undefined ? undefined : signedElevationSum(base, panel.topCm),
       ...(solid ? { solid: true, thicknessCm: wall.measuredThicknessCm } : {}),
     })
   }
@@ -180,7 +144,7 @@ function addWallInterval(
           return {
             xCm: onAxis.xCm + normalX * point.depthCm,
             yCm: onAxis.yCm + normalY * point.depthCm,
-            zCm: point.heightCm,
+            zCm: signedElevationSum(base, point.heightCm),
           }
         }),
       })
@@ -193,18 +157,24 @@ function addWallInterval(
       type: cut.opening.type,
       start: pointAt(cut.start),
       end: pointAt(cut.end),
-      bottomCm: cut.opening.bottomCm,
+      bottomCm:
+        cut.opening.bottomCm === undefined
+          ? undefined
+          : signedElevationSum(base, cut.opening.bottomCm),
       heightCm: cut.opening.heightCm,
       cut:
         wall.heightCm !== undefined &&
         cut.opening.bottomCm !== undefined &&
         cut.opening.heightCm !== undefined,
+      ...(baseCm === undefined ? {} : { baseCm }),
     })
   }
 }
 
 /** Build a viewing model only from confirmed 2D coordinates and current source relations. */
 export function planVolume(geometry: PlanGeometry): PlanVolume | null {
+  const signed = signedPlanFloors(geometry)
+  if (signed && !signed.ok) return null
   if (geometry.status !== 'confirmed' || !geometry.footprint || geometry.footprint.length < 3) {
     return null
   }
@@ -215,9 +185,30 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
   const walls: WallSpan[] = []
   const openings: OpeningSpan[] = []
   const solidFaces: PlanSolidFace[] = []
+  const levelIssues: PlanGeometryIssue[] = []
+  const reference = signed?.ok ? signed.reference : undefined
+  const floors = new Map(reference?.floors.map((floor) => [floor.id, floor]))
+  const wallFloors = new Map(
+    reference?.wallBases.map((base) => [base.wall.id, floors.get(base.floorId)]),
+  )
+  const projectedOpenings: PlanGeometry['openings'] = reference
+    ? geometry.openings.map((opening) => {
+        const floor = wallFloors.get(opening.wallId)
+        if (floor?.surface === 'finished-floor' || opening.bottomCm === undefined) return opening
+        levelIssues.push({
+          id: `volume-opening-floor-${opening.id}`,
+          severity: 'warning',
+          openingIds: [opening.id],
+          message:
+            'Нижняя грань проёма измерена от чистового пола, а его отметка здесь не задана. Проём остаётся условным, без выреза по высоте.',
+        })
+        const { bottomCm: _localBottom, ...unknownBottom } = opening
+        return unknownBottom
+      })
+    : geometry.openings
 
   if (geometry.pdfCalibration) {
-    if (geometry.pdfCalibration.exteriorBoundaryRole !== 'floor') return null
+    if (!reference && geometry.pdfCalibration.exteriorBoundaryRole !== 'floor') return null
     const sourcePairs = geometry.pdfCalibration.sourceWallFacePairs ?? []
     const currentPairs = currentWallFacePairs(geometry)
     if (sourcePairs.length === 0 || currentPairs.length !== sourcePairs.length) return null
@@ -226,50 +217,87 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
       for (const face of pair.faces) {
         const wall = geometry.walls.find((item) => item.id === face.wall.id)
         if (!wall) return null
-        const currentOpenings = geometry.openings.filter((item) =>
+        const floor = wallFloors.get(wall.id)
+        if (reference && !floor) return null
+        const currentOpenings = projectedOpenings.filter((item) =>
           pair.openings.some((o) => o.id === item.id),
         )
         addWallInterval(walls, openings, wall, face.start, face.end, currentOpenings, solidFaces, {
           allowThickness: false,
           recordOpenings: false,
+          ...(floor ? { baseCm: floor.elevationCm } : {}),
         })
       }
     }
     // Proof intervals exclude door/window gaps. Preserve each source-bound opening
     // independently of those intervals; do not fill the gap with invented wall faces.
     const provenOpeningIds = new Set(currentPairs.flatMap((pair) => pair.openings.map((o) => o.id)))
-    for (const opening of geometry.openings) {
+    for (const opening of projectedOpenings) {
       if (!provenOpeningIds.has(opening.id)) continue
       const wall = geometry.walls.find((candidate) => candidate.id === opening.wallId)
       if (!wall) return null
+      const floor = wallFloors.get(wall.id)
+      if (reference && !floor) return null
       const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
       if (length <= 0 || opening.offsetCm < 0 || opening.offsetCm + opening.widthCm > length + 1e-7)
         return null
+      const endpoints = reference ? planOpeningEndpoints(geometry, opening.id) : undefined
+      if (reference && !endpoints) {
+        levelIssues.push({
+          id: `volume-opening-cut-${opening.id}`,
+          severity: 'warning',
+          openingIds: [opening.id],
+          message:
+            'Исходные грани проёма расходятся. Его положение не заменяется приблизительным интервалом по стене.',
+        })
+        continue
+      }
       openings.push({
         id: `${opening.id}-pdf`,
         type: opening.type,
-        start: interpolate(wall.start, wall.end, opening.offsetCm / length),
-        end: interpolate(wall.start, wall.end, (opening.offsetCm + opening.widthCm) / length),
-        bottomCm: opening.bottomCm,
+        start: endpoints?.[0] ?? interpolate(wall.start, wall.end, opening.offsetCm / length),
+        end:
+          endpoints?.[1] ??
+          interpolate(wall.start, wall.end, (opening.offsetCm + opening.widthCm) / length),
+        bottomCm:
+          opening.bottomCm === undefined
+            ? undefined
+            : signedElevationSum(floor?.elevationCm ?? 0, opening.bottomCm),
         heightCm: opening.heightCm,
         cut:
           wall.heightCm !== undefined &&
           opening.bottomCm !== undefined &&
           opening.heightCm !== undefined,
+        ...(floor ? { baseCm: floor.elevationCm } : {}),
       })
     }
   } else {
     for (const wall of geometry.walls) {
-      addWallInterval(walls, openings, wall, wall.start, wall.end, geometry.openings, solidFaces, {
+      const floor = wallFloors.get(wall.id)
+      if (reference && !floor) return null
+      addWallInterval(walls, openings, wall, wall.start, wall.end, projectedOpenings, solidFaces, {
         allowThickness: true,
         recordOpenings: true,
+        ...(floor ? { baseCm: floor.elevationCm } : {}),
       })
     }
   }
 
-  const joined = geometry.pdfCalibration ? undefined : joinWallSolids(walls, geometry)
+  const globalOpeningBottoms = reference
+    ? new Map(
+        projectedOpenings.flatMap((opening) => {
+          const floor = wallFloors.get(opening.wallId)
+          return floor && opening.bottomCm !== undefined
+            ? [[opening.id, signedElevationSum(floor.elevationCm, opening.bottomCm)] as const]
+            : []
+        }),
+      )
+    : undefined
+  const joined = geometry.pdfCalibration
+    ? undefined
+    : joinWallSolids(walls, geometry, globalOpeningBottoms)
   if (joined === null) return null
-  const furniture: VolumeFurniture[] = kitchenItems.data.map((item) => ({
+  let furniture: VolumeFurniture[] = kitchenItems.data.map((item) => ({
     id: `kitchen:${item.id}`,
     title: kitchenLabels[item.kind],
     floor: [
@@ -290,7 +318,7 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
     severity: 'warning',
     message,
   }))
-  const floorZones: VolumeFloorZone[] = kitchenItems.data.flatMap((item, index) =>
+  let floorZones: VolumeFloorZone[] = kitchenItems.data.flatMap((item, index) =>
     kitchenClearanceZones(item, index).map((zone) => ({
       id: `kitchen-zone:${zone.id}`,
       title: zone.label,
@@ -302,6 +330,67 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
         : {}),
     })),
   )
+  const surfaces = signed?.ok ? signed.surfaces : undefined
+  if (surfaces) {
+    const supported = (polygon: PlanPoint[]) =>
+      reference?.floors.filter((floor) => {
+        if (floor.surface !== 'finished-floor') return false
+        const pieces = surfaces
+          .filter((surface) => surface.floorId === floor.id)
+          .map(surfacePolygon)
+        return (
+          pieces.length > 0 &&
+          polygonClipping.difference(polygonBody(polygon), ...pieces).length === 0
+        )
+      }) ?? []
+    furniture = furniture.flatMap((item) => {
+      const owners = supported(item.floor)
+      const owner = owners.length === 1 ? owners[0] : undefined
+      if (!owner) {
+        levelIssues.push({
+          id: `volume-floor-owner-${item.id}`,
+          severity: 'warning',
+          message: `${item.title}: не найден единственный подтверждённый чистовой пол. Предмет не переносится на условный уровень 0.`,
+        })
+        return []
+      }
+      const ceiling = reference?.ceilings?.find((ceiling) => ceiling.floorId === owner.id)
+      if (
+        item.heightCm !== undefined &&
+        ceiling &&
+        signedElevationSum(owner.elevationCm, item.heightCm) > ceiling.elevationCm
+      ) {
+        levelIssues.push({
+          id: `volume-ceiling-${item.id}`,
+          severity: 'error',
+          message: `${item.title}: верх предмета выше подтверждённого потолка. Размеры не уменьшены; размещение требует исправления.`,
+        })
+      } else if (!ceiling || item.heightCm === undefined) {
+        levelIssues.push({
+          id: `volume-ceiling-unknown-${item.id}`,
+          severity: 'warning',
+          message: `${item.title}: высота предмета или отметка потолка неизвестна. Вертикальное размещение не проверено.`,
+        })
+      }
+      return [{ ...item, baseCm: owner.elevationCm }]
+    })
+    floorZones = floorZones.flatMap((zone) => {
+      const owners = supported(zone.floor)
+      const owner = owners.length === 1 ? owners[0] : undefined
+      if (!owner) {
+        levelIssues.push({
+          id: `volume-zone-floor-${zone.id}`,
+          severity: 'warning',
+          message: `${zone.title}: рабочая зона выходит за известный чистовой пол. Она не переносится на условный уровень 0.`,
+        })
+        return []
+      }
+      return [{ ...zone, baseCm: owner.elevationCm }]
+    })
+  }
+  const thresholdReport = reference ? inspectPlanThresholdSurfaces(geometry) : undefined
+  const thresholds = thresholdReport?.surfaces
+  levelIssues.push(...(thresholdReport?.issues ?? []))
   return {
     floor: geometry.footprint,
     voids: (geometry.voids ?? []).map((item) => item.polygon),
@@ -310,13 +399,55 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
     wallSource: geometry.pdfCalibration ? 'pdf-faces' : 'centerline',
     solidFaces: joined?.faces ?? solidFaces,
     joinedSolids: joined !== undefined,
-    issues: [...(joined?.issues ?? []), ...kitchenIssues],
-    rooms: geometry.rooms.flatMap((room, index) =>
-      room.spaceKind === 'balcony' || room.spaceKind === 'loggia' || /балкон|лоджи/i.test(room.name)
-        ? [{ id: `plan-space:${index}`, title: room.name, floor: room.polygon, sourceOnly: true }]
-        : [],
-    ),
+    issues: [...(joined?.issues ?? []), ...kitchenIssues, ...levelIssues],
+    verticalMeasurements: planVerticalMeasurementReport(geometry),
+    rooms: reference
+      ? reference.floors.map((floor) => ({
+          id: `plan-floor:${floor.id}`,
+          title: floor.room.name,
+          floor: floor.room.polygon,
+          sourceOnly: true,
+          baseCm: floor.elevationCm,
+          floorId: floor.id,
+        }))
+      : geometry.rooms.flatMap((room, index) =>
+          room.spaceKind === 'balcony' ||
+          room.spaceKind === 'loggia' ||
+          /балкон|лоджи/i.test(room.name)
+            ? [
+                {
+                  id: `plan-space:${index}`,
+                  title: room.name,
+                  floor: room.polygon,
+                  sourceOnly: true,
+                },
+              ]
+            : [],
+        ),
     ...(furniture.length > 0 ? { furniture } : {}),
     ...(floorZones.length > 0 ? { floorZones } : {}),
+    ...(reference && surfaces
+      ? {
+          floorSurfaces: surfaces,
+          thresholds,
+          verticalDatum: {
+            id: reference.id,
+            kind: reference.kind,
+            zeroFloorId: reference.zeroFloorId,
+          },
+          layoutNote:
+            'Показаны только подтверждённые поверхности помещений и известные поверхности порогов. Области между ними не достраиваются плитой на нуле; толщина пола и порогов не задана.',
+        }
+      : {}),
   }
+}
+
+function surfacePolygon(surface: VolumeFloorSurface): Polygon {
+  return [surface.floor, ...surface.voids].map((ring) =>
+    ring.map(({ xCm, yCm }) => [xCm, yCm] as [number, number]),
+  )
+}
+
+function polygonBody(polygon: PlanPoint[]): Polygon {
+  return [polygon.map(({ xCm, yCm }) => [xCm, yCm] as [number, number])]
 }

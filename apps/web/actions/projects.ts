@@ -52,6 +52,10 @@ import { retainedPlanPageReview } from '@/lib/projects/plan-page-review'
 import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
 import { applyPlanVerticalDimensions } from '@/lib/projects/plan-vertical-dimensions'
+import {
+  applyPlanVerticalReference,
+  inspectPlanVerticalReference,
+} from '@/lib/projects/plan-vertical-reference'
 import * as repository from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { deleteObject, getObject, putObject } from '@/lib/storage'
@@ -246,7 +250,17 @@ export async function readPlan(
     const parsed = useReviewedContours
       ? await readPlanFromStorage(project.planUrl, pageNumber, review?.contours)
       : await readPlanFromStorage(project.planUrl, pageNumber)
-    const reading: PlanReading = { ...parsed, readAt: new Date().toISOString() }
+    // A plan reader is not a writer of server-checked delivery reports. Keep the
+    // user's raw survey; any new geometry will independently invalidate its proof.
+    const { deliveryMeasurements: _untrustedDelivery, ...sourceReading } = parsed as typeof parsed &
+      Pick<PlanReading, 'deliveryMeasurements'>
+    const reading: PlanReading = {
+      ...sourceReading,
+      ...(project.planReading?.deliveryMeasurements
+        ? { deliveryMeasurements: project.planReading.deliveryMeasurements }
+        : {}),
+      readAt: new Date().toISOString(),
+    }
     const retainedReview = project.planReading
       ? retainedPlanPageReview(project.planReading, reading)
       : undefined
@@ -674,7 +688,30 @@ export async function savePlanGeometry(
     const checkedRooms =
       mode === 'draft' ? geometry : reconcilePlanGeometryRooms(geometry, roomReadings)
     if (!checkedRooms) return { ok: false, error: 'В схеме должно остаться не меньше трёх стен.' }
-    const verticalDimensions = applyPlanVerticalDimensions(checkedRooms, submitted)
+    const referenceGeometry: PlanGeometry = {
+      ...checkedRooms,
+      // Stamp against the final persisted horizontal geometry, not an untrusted
+      // browser footprint or a room category normalized later in this action.
+      ...(!raster && before.footprint ? { footprint: structuredClone(before.footprint) } : {}),
+      ...(before.voids ? { voids: structuredClone(before.voids) } : {}),
+      ...(imageCalibration ? { imageCalibration } : {}),
+      rooms: checkedRooms.rooms.map((room) => {
+        const { spaceKind: _previousKind, ...shape } = room
+        const label = findPlanRoomReading(room, roomReadings)
+        return { ...shape, ...(label?.spaceKind ? { spaceKind: label.spaceKind } : {}) }
+      }),
+      ...(before.verticalReference !== undefined
+        ? { verticalReference: before.verticalReference }
+        : {}),
+    }
+    const verticalReference = applyPlanVerticalReference(
+      referenceGeometry,
+      submitted.verticalReferenceRequest,
+      userId,
+      new Date().toISOString(),
+    )
+    if (!verticalReference.ok) return verticalReference
+    const verticalDimensions = applyPlanVerticalDimensions(verticalReference.geometry, submitted)
     if (!verticalDimensions.ok) return verticalDimensions
     // Native PDF boundaries remain source-owned. Raster floor edits are validated above;
     // source voids are retained independently of the editable outer boundary.
@@ -721,12 +758,6 @@ export async function savePlanGeometry(
     }
     const saved: NonNullable<PlanReading['geometry']> = {
       ...checked,
-      rooms: checked.rooms.map((room) => {
-        const shape = { ...room }
-        delete shape.spaceKind
-        const label = findPlanRoomReading(room, roomReadings)
-        return { ...shape, ...(label?.spaceKind ? { spaceKind: label.spaceKind } : {}) }
-      }),
       // Keep trusted source explanations; browser warnings cannot erase or certify evidence.
       ...(before.pdfCalibration
         ? { warnings: [...new Set([...before.warnings, ...checked.warnings])] }
@@ -755,6 +786,8 @@ export async function savePlanGeometry(
       status: mode === 'draft' ? 'draft' : 'confirmed',
       ...(mode === 'confirm' ? { confirmedAt: new Date().toISOString() } : {}),
     }
+    const referenceIssue = inspectPlanVerticalReference(saved)[0]
+    if (referenceIssue) return { ok: false, error: referenceIssue.message }
     const reading: PlanReading = {
       ...project.planReading,
       ...(sourceRooms && project.planReading.pageReview
@@ -819,20 +852,18 @@ export async function confirmPlanRooms(
       return { ok: false, error: 'Сначала загрузите и прочитайте план квартиры.' }
     }
     const beforeReading = project.planReading
-    // A raster model's arithmetic and self-reported chain are not independent source proof.
+    // A model's arithmetic and self-reported chain are not independent source proof.
     // Require a deliberate review of each populated axis, including utility/source-only rows.
-    if (!project.planUrl.toLowerCase().endsWith('.pdf')) {
-      const unreviewed = rooms.find(
-        (room) =>
-          (room.widthCm !== null && room.widthReviewed !== true) ||
-          (room.depthCm !== null && room.depthReviewed !== true),
-      )
-      if (unreviewed)
-        return {
-          ok: false,
-          error: `Сверьте каждую непустую ось комнаты «${unreviewed.name || roomKindLabels[unreviewed.kind]}» с исходным изображением или явно очистите неподтверждённые размеры.`,
-        }
-    }
+    const unreviewed = rooms.find(
+      (room) =>
+        (room.widthCm !== null && room.widthReviewed !== true) ||
+        (room.depthCm !== null && room.depthReviewed !== true),
+    )
+    if (unreviewed)
+      return {
+        ok: false,
+        error: `Сверьте каждую непустую ось комнаты «${unreviewed.name || roomKindLabels[unreviewed.kind]}» с исходным листом или явно очистите неподтверждённые размеры.`,
+      }
     const numbered = rooms.flatMap((room) =>
       room.sourceNumber === undefined ? [] : [room.sourceNumber],
     )
@@ -868,6 +899,9 @@ export async function confirmPlanRooms(
       ...(project.planReading?.geometry === undefined
         ? {}
         : { geometry: project.planReading.geometry }),
+      ...(project.planReading.deliveryMeasurements
+        ? { deliveryMeasurements: project.planReading.deliveryMeasurements }
+        : {}),
       rooms: rooms.map((room) => {
         const source = findPlanRoomReading(room, beforeReading.rooms)
         const measurementEvidence = retainedPlanMeasurementEvidence(room, source)

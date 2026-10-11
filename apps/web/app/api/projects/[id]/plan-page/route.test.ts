@@ -83,12 +83,146 @@ const request = (page = '6', version = revision, format?: string) =>
 const context = { params: Promise.resolve({ id: 'project' }) }
 
 describe('private PDF page preview', () => {
+  function savedProject() {
+    const savedReading: PlanReading = {
+      ...structuredClone(reading),
+      pageReview: {
+        version: 1,
+        savedAt: '2026-10-09',
+        contours: {
+          source: {
+            sha256: createHash('sha256').update('pdf').digest('hex'),
+            pdfPage: 6,
+            state: 'existing',
+          },
+          coordinateSystem: 'page-0-1000',
+          review: 'manual-source-review',
+          pageWidth: page.linework.pageWidth,
+          pageHeight: page.linework.pageHeight,
+          rooms: [
+            {
+              roomSourceNumber: 4,
+              polygon: [
+                { x: 12.345678, y: 20 },
+                { x: 30, y: 40 },
+                { x: 50, y: 60 },
+              ],
+            },
+          ],
+        },
+      },
+    }
+    return { ...project, planReading: savedReading }
+  }
   beforeEach(() => {
     vi.resetAllMocks()
     mocks.session.mockResolvedValue({ user: { id: 'partner' } })
     mocks.access.mockResolvedValue(project)
     mocks.object.mockResolvedValue({ body: Buffer.from('pdf') })
     mocks.prepare.mockResolvedValue(page)
+  })
+  it('returns fresh coverage for saved review without serializing the reading or saved geometry', async () => {
+    const own = savedProject(),
+      before = structuredClone(own)
+    mocks.access.mockResolvedValue(own)
+    const result = await GET(
+      request('6', planEditRevision(own.planUrl, own.planReading), 'native-review'),
+      context,
+    )
+    expect(result.status).toBe(200)
+    const packet = await result.json()
+    expect(packet.savedReview).toMatchObject({
+      status: 'checked',
+      coverage: { status: 'partial', floorBoundary: 'missing' },
+    })
+    expect(packet.savedReview.coverage.source.sha256).toBe(result.headers.get('x-plan-sha256'))
+    expect(packet).not.toHaveProperty('pageReview')
+    expect(packet).not.toHaveProperty('planReading')
+    expect(packet.savedReview.coverage).not.toHaveProperty('reviewSpans')
+    expect(own).toEqual(before)
+  })
+  it('rejects a saved-review change during coverage inspection even when PDF URL is unchanged', async () => {
+    const own = savedProject(),
+      changed = structuredClone(own)
+    if (!changed.planReading.pageReview) throw new Error('Missing review')
+    changed.planReading.pageReview.savedAt = '2026-10-10'
+    mocks.access
+      .mockResolvedValueOnce(own)
+      .mockResolvedValueOnce(own)
+      .mockResolvedValueOnce(changed)
+    const result = await GET(
+      request('6', planEditRevision(own.planUrl, own.planReading), 'native-review'),
+      context,
+    )
+    expect(result.status).toBe(409)
+    expect(result.headers.get('cache-control')).toBe('private, no-store')
+  })
+
+  it('returns a read-only unresolved whole-page packet when native layers are unavailable', async () => {
+    const result = await GET(request('6', revision, 'native-review'), context)
+    expect(result.status).toBe(200)
+    expect(result.headers.get('cache-control')).toBe('private, no-store')
+    const body = await result.json()
+    expect(body).toMatchObject({
+      version: 1,
+      status: 'unresolved',
+      sourceRevision: revision,
+      readiness: { readyFor2D: false, readyFor3D: false, readOnly: true },
+    })
+    expect(body.source.sha256).toBe(result.headers.get('x-plan-sha256'))
+    expect(body.image.sha256).toBe(result.headers.get('x-plan-image-sha256'))
+    expect(body).not.toHaveProperty('geometry')
+    expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, true, true)
+    expect(mocks.access).toHaveBeenCalledTimes(3)
+  })
+  it('returns private inspection pixels without requiring AI room numbers', async () => {
+    const withoutNumbers = { ...reading, rooms: [{ name: 'Комната', kind: 'bedroom' as const }] }
+    const own = { ...project, planReading: withoutNumbers }
+    mocks.access.mockResolvedValue(own)
+    const version = planEditRevision(own.planUrl, withoutNumbers)
+    const result = await GET(request('6', version, 'native-review-image'), context)
+    expect(result.status).toBe(200)
+    expect(result.headers.get('x-plan-image-sha256')).toMatch(/^[a-f0-9]{64}$/)
+    expect(await result.text()).toBe('jpeg')
+    expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, false)
+  })
+  it.each(['native-review', 'native-review-image'])(
+    'protects %s before loading private source',
+    async (format) => {
+      mocks.session.mockResolvedValue(null)
+      expect((await GET(request('6', revision, format), context)).status).toBe(401)
+      expect(mocks.object).not.toHaveBeenCalled()
+      expect(mocks.prepare).not.toHaveBeenCalled()
+    },
+  )
+  it('rejects a proposed page for native inspection without extraction', async () => {
+    const proposed = { ...reading, planState: 'proposed' as const }
+    mocks.access.mockResolvedValue({ ...project, planReading: proposed })
+    expect(
+      (
+        await GET(
+          request('6', planEditRevision(project.planUrl, proposed), 'native-review'),
+          context,
+        )
+      ).status,
+    ).toBe(400)
+    expect(mocks.prepare).not.toHaveBeenCalled()
+  })
+  it('rejects a source change during whole-page inspection', async () => {
+    mocks.access
+      .mockResolvedValueOnce(project)
+      .mockResolvedValueOnce(project)
+      .mockResolvedValueOnce({ ...project, planUrl: 'changed.pdf' })
+    const result = await GET(request('6', revision, 'native-review'), context)
+    expect(result.status).toBe(409)
+    expect(result.headers.get('cache-control')).toBe('private, no-store')
+  })
+  it('rechecks access before returning the inspection packet', async () => {
+    mocks.access
+      .mockResolvedValueOnce(project)
+      .mockResolvedValueOnce(project)
+      .mockRejectedValueOnce(new AccessError('revoked'))
+    expect((await GET(request('6', revision, 'native-review'), context)).status).toBe(404)
   })
 
   it('returns only private pixels and source metadata to an authorized collaborator', async () => {
@@ -300,3 +434,5 @@ describe('private PDF page preview', () => {
     expect((await GET(request('1', version, 'raster'), context)).status).toBe(422)
   })
 })
+
+import { createHash } from 'node:crypto'

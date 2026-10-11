@@ -57,6 +57,114 @@ const linework: PdfLinework = {
 }
 
 describe('versioned source page review', () => {
+  function crossingReview() {
+    const work = structuredClone(linework)
+    work.paths = [
+      {
+        ...at(linework.paths),
+        points: [
+          { x: 10, y: 10 },
+          { x: 40, y: 10 },
+        ],
+      },
+      {
+        ...at(linework.paths),
+        operationIndex: 2,
+        points: [
+          { x: 30, y: 0 },
+          { x: 30, y: 30 },
+        ],
+      },
+    ]
+    const input = structuredClone(contours)
+    at(input.rooms).vertexProofs = [
+      {
+        vertexIndex: 1,
+        kind: 'bounded-native-crossing',
+        segments: work.paths.map((path) => ({
+          operationIndex: path.operationIndex,
+          subpathIndex: 0,
+          segmentIndex: 0,
+          start: { ...at(path.points) },
+          end: { ...at(path.points, 1) },
+        })) as NonNullable<PlanPageContours['rooms'][number]['vertexProofs']>[number]['segments'],
+      },
+    ]
+    return { input, work }
+  }
+
+  it('rechecks an explicitly reviewed bounded crossing against fresh native segments', () => {
+    const { input, work } = crossingReview()
+    const before = structuredClone({ input, work })
+    expect(planPageContoursSchema.safeParse(input).success).toBe(true)
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBeUndefined()
+    expect({ input, work }).toEqual(before)
+    delete at(input.rooms).vertexProofs
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBe(
+      'non-native-contour-vertex',
+    )
+  })
+
+  it.each([
+    'rounded',
+    'changed-segment',
+    'duplicate-proof',
+    'duplicate-ref',
+    'invalid-index',
+    'same-segment',
+    'extension',
+  ])('refuses %s vertex evidence without snapping or extending source lines', (change) => {
+    const { input, work } = crossingReview()
+    const room = at(input.rooms)
+    const proof = at(room.vertexProofs)
+    if (change === 'rounded') at(room.polygon, 1).x += 0.000001
+    if (change === 'changed-segment') at(at(work.paths).points, 1).x += 1
+    if (change === 'duplicate-proof') room.vertexProofs?.push(structuredClone(proof))
+    if (change === 'duplicate-ref') {
+      const duplicate = structuredClone(at(work.paths))
+      at(duplicate.points, 1).x += 1
+      work.paths.push(duplicate)
+    }
+    if (change === 'invalid-index') proof.vertexIndex = 90
+    if (change === 'same-segment') proof.segments[1] = structuredClone(proof.segments[0])
+    if (change === 'extension') {
+      at(at(work.paths).points, 1).x = 20
+      proof.segments[0].end.x = 20
+    }
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBe(
+      'non-native-contour-vertex',
+    )
+  })
+
+  it('uses the same fresh vertex proof for an exterior and a separate floor', () => {
+    const { input, work } = crossingReview()
+    const room = at(input.rooms)
+    input.exterior = {
+      polygon: structuredClone(room.polygon),
+      vertexProofs: structuredClone(room.vertexProofs),
+    }
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBeUndefined()
+    delete input.exterior.vertexProofs
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBe(
+      'non-native-contour-vertex',
+    )
+    const envelope = [
+      { x: 0, y: 0 },
+      { x: 50, y: 0 },
+      { x: 50, y: 50 },
+      { x: 0, y: 50 },
+    ]
+    input.exterior = { polygon: envelope, boundaryRole: 'outer-wall-envelope' }
+    work.paths.push({ ...at(linework.paths), operationIndex: 3, points: envelope, closed: true })
+    input.floor = {
+      polygon: structuredClone(room.polygon),
+      vertexProofs: structuredClone(room.vertexProofs),
+    }
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBeUndefined()
+    delete input.floor.vertexProofs
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBe('non-native-floor-vertex')
+  })
+
   it('accepts a separate floor only inside an explicit outer-wall envelope with native vertices', () => {
     const exterior = {
       boundaryRole: 'outer-wall-envelope' as const,

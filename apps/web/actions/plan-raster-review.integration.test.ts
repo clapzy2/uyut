@@ -41,7 +41,7 @@ const measured = {
   },
 }
 
-describe('raster axis review through actions and PostgreSQL', () => {
+describe('source axis review through actions and PostgreSQL', () => {
   beforeAll(async () => {
     const databaseUrl = new URL(process.env.DATABASE_URL ?? '')
     if (
@@ -49,7 +49,7 @@ describe('raster axis review through actions and PostgreSQL', () => {
       !['5432', '58432'].includes(databaseUrl.port) ||
       !['/uyut', '/domitsa_ui_qa'].includes(databaseUrl.pathname)
     )
-      throw new Error('Raster review integration requires a local PostgreSQL database')
+      throw new Error('Source review integration requires a local PostgreSQL database')
     const [owner] = await getDb()
       .insert(users)
       .values({ email: `raster-review-${randomUUID()}@example.test`, displayName: 'Synthetic QA' })
@@ -63,7 +63,7 @@ describe('raster axis review through actions and PostgreSQL', () => {
   })
 
   async function fixture(extension: string) {
-    const project = await createProject(local.owner, { title: 'Synthetic raster review' })
+    const project = await createProject(local.owner, { title: 'Synthetic source review' })
     await setProjectPlan(local.owner, project.id, `qa/review.${extension}`, project)
     await setPlanReading(
       local.owner,
@@ -99,38 +99,50 @@ describe('raster axis review through actions and PostgreSQL', () => {
     }
   }
 
-  it('rejects an unreviewed raster without changing the reading or existing measured room', async () => {
-    const control = await fixture('png')
-    expect(
-      await confirmPlanRooms(control.projectId, control.input, control.revision),
-    ).toMatchObject({
-      ok: false,
-    })
-    const saved = await getProject(local.owner, control.projectId)
-    expect(saved.planReading).toEqual(reading)
-    expect(saved.rooms[0]?.measurements).toEqual(measured)
-  })
+  it.each(['png', 'pdf'])(
+    'rejects an unreviewed %s without changing the reading or existing measured room',
+    async (extension) => {
+      const control = await fixture(extension)
+      expect(
+        await confirmPlanRooms(control.projectId, control.input, control.revision),
+      ).toMatchObject({
+        ok: false,
+      })
+      const saved = await getProject(local.owner, control.projectId)
+      expect(saved.planReading).toEqual(reading)
+      expect(saved.rooms[0]?.measurements).toEqual(measured)
+    },
+  )
 
-  it('preserves existing sizes and physical verification when axes are explicitly omitted', async () => {
-    const control = await fixture('webp')
+  it.each(['webp', 'pdf'])(
+    'preserves existing sizes and physical verification when %s axes are explicitly omitted',
+    async (extension) => {
+      const control = await fixture(extension)
+      const input = {
+        ...control.input,
+        rooms: control.input.rooms.map((room) => ({ ...room, widthCm: '', depthCm: '' })),
+      }
+      expect(await confirmPlanRooms(control.projectId, input, control.revision)).toMatchObject({
+        ok: true,
+      })
+      const saved = await getProject(local.owner, control.projectId)
+      expect(saved.rooms[0]?.measurements).toEqual(measured)
+      expect(saved.planReading?.rooms[0]).not.toHaveProperty('widthCm')
+      expect(saved.planReading?.rooms[0]).not.toHaveProperty('depthCm')
+    },
+  )
+
+  it('transfers explicitly reviewed PDF axes without physical verification', async () => {
+    const control = await fixture('pdf')
     const input = {
       ...control.input,
-      rooms: control.input.rooms.map((room) => ({ ...room, widthCm: '', depthCm: '' })),
+      rooms: control.input.rooms.map((room) => ({
+        ...room,
+        widthReviewed: true,
+        depthReviewed: true,
+      })),
     }
     expect(await confirmPlanRooms(control.projectId, input, control.revision)).toMatchObject({
-      ok: true,
-    })
-    const saved = await getProject(local.owner, control.projectId)
-    expect(saved.rooms[0]?.measurements).toEqual(measured)
-    expect(saved.planReading?.rooms[0]).not.toHaveProperty('widthCm')
-    expect(saved.planReading?.rooms[0]).not.toHaveProperty('depthCm')
-  })
-
-  it('keeps the legacy PDF transfer path available without raster acknowledgment flags', async () => {
-    const control = await fixture('pdf')
-    expect(
-      await confirmPlanRooms(control.projectId, control.input, control.revision),
-    ).toMatchObject({
       ok: true,
     })
     const saved = await getProject(local.owner, control.projectId)

@@ -1,5 +1,8 @@
 import type { RoomLayout } from '@uyut/catalog'
-import type { Concept, Room } from '@uyut/db'
+import { inspectStoredPlanDelivery } from '@uyut/catalog/plan-delivery-record'
+import { inspectPlanThresholdSurfaces } from '@uyut/catalog/plan-threshold-geometry'
+import { signedPlanFloors } from '@uyut/catalog/plan-vertical-floor-geometry'
+import type { Concept, PlanGeometry, PlanReading, Room } from '@uyut/db'
 import Link from 'next/link'
 import { pluralItems, pluralPositions } from '@/lib/shopping/format'
 import type { ShoppingItemView } from '@/lib/shopping/repository'
@@ -57,11 +60,18 @@ export function ExportComposition({
   projectId,
   rooms,
   items,
+  geometry,
+  deliveryMeasurements,
 }: {
   projectId: string
   rooms: ReturnType<typeof exportRoomComposition>[]
   items: readonly ExportItem[]
+  geometry?: PlanGeometry
+  deliveryMeasurements?: PlanReading['deliveryMeasurements']
 }) {
+  const delivery = inspectStoredPlanDelivery(geometry, deliveryMeasurements)
+  const signed = geometry ? signedPlanFloors(geometry) : undefined
+  const thresholds = signed?.ok && geometry ? inspectPlanThresholdSurfaces(geometry) : undefined
   const variants = items.filter((item) => item.variant).length
   const notices = items.filter((item) => item.catalogNotice).length
   const missingSizes = items.filter(
@@ -81,6 +91,22 @@ export function ExportComposition({
       <p className="mt-3 text-[14px] leading-relaxed text-ink">
         Обложка и сведения о квартире, список покупок и ориентировочная смета.
       </p>
+      {signed ? (
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
+          {signed.ok
+            ? `Полы и пороги: физических полов ${signed.reference.floors.length}, известных поверхностей порогов ${thresholds?.surfaces.length ?? 0}. Отметки и источник сверки будут перенесены в отдельный раздел.`
+            : `Полы и пороги: перенос приостановлен. В PDF сохранится предупреждение: ${signed.error}`}{' '}
+          Неизвестные отметки и неподтверждённые поверхности не достраиваются; замечания
+          сохраняются.
+        </p>
+      ) : null}
+      {delivery ? (
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
+          {delivery.status === 'checked'
+            ? `Маршрут заноса до комнаты «${delivery.targetRoomName}»: сохранённый серверный расчёт, ${delivery.points.length} позиций и ${delivery.stages.length} этапов лестницы. Наружный участок ${delivery.exteriorChecked ? 'проверен' : 'не проверен'}, створки ${delivery.leavesChecked ? 'учтены' : 'не проверены'}. Схема и отметки войдут в PDF; это не гарантия доставки.`
+            : `Маршрут заноса: в PDF будет предупреждение вместо проверенного пути. ${delivery.warnings.join(' ')}`}
+        </p>
+      ) : null}
       <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
         {items.length > 0
           ? `${pluralPositions(items.length)} · ${pluralItems(items.reduce((sum, item) => sum + item.quantity, 0))}. Позиций с выбранным вариантом: ${variants}.`

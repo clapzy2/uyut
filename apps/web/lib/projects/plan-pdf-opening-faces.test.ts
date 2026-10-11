@@ -1,6 +1,8 @@
-import type { PlanPageContours } from '@uyut/db'
+import type { PlanPageContours, PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import page from '../../../../docs/qa/fixtures/apartment-74-77-complete-page.json'
+import { planPageContoursSchema } from './plan-page-review'
+import { inspectReviewedPageCoverage } from './plan-page-reviewed-coverage'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import { pairPlanPageOpeningFaces, verifyPlanPageOpeningFaces } from './plan-pdf-opening-faces'
 
@@ -161,6 +163,34 @@ function mixedRevealFixture() {
   return input
 }
 
+function addThirdRoom(input: ReturnType<typeof fixture>, polygon: PdfVectorPath['points']) {
+  input.contours.rooms.push({ roomSourceNumber: 3, polygon })
+  input.work.paths.push({
+    operationIndex: 99999,
+    subpathIndex: 0,
+    paint: 'stroke',
+    closed: true,
+    points: polygon,
+  })
+}
+
+function swapAxes(input: ReturnType<typeof fixture>) {
+  const swap = (point: { x: number; y: number }) => ({ x: point.y, y: point.x })
+  for (const room of input.contours.rooms) {
+    room.polygon = room.polygon.map(swap)
+    for (const opening of room.openings ?? []) {
+      opening.start = swap(opening.start)
+      opening.end = swap(opening.end)
+    }
+  }
+  for (const path of input.work.paths) path.points = path.points.map(swap)
+  const width = input.work.pageWidth
+  input.work.pageWidth = input.work.pageHeight
+  input.work.pageHeight = width
+  input.contours.pageWidth = input.work.pageWidth
+  input.contours.pageHeight = input.work.pageHeight
+}
+
 describe('physical door face candidates from two native reveals', () => {
   it('accepts two native reveals painted with a hairline fill and a backed partial stroke', () => {
     const input = mixedRevealFixture()
@@ -211,6 +241,353 @@ describe('physical door face candidates from two native reveals', () => {
         expect(stroke?.points).toEqual([jamb.start, jamb.end])
       }
     expect(input).toEqual(before)
+  })
+  it.each(['centered', 'off-center'])(
+    'does not connect door faces through a %s intervening source room',
+    (position) => {
+      const input = separatelyPaintedFixture()
+      expect(pairs(input)).toHaveLength(1)
+      const polygon =
+        position === 'centered'
+          ? [
+              { x: 60, y: 170 },
+              { x: 90, y: 170 },
+              { x: 90, y: 180 },
+              { x: 60, y: 180 },
+            ]
+          : [
+              { x: 51, y: 151 },
+              { x: 53, y: 151 },
+              { x: 53, y: 153 },
+              { x: 51, y: 153 },
+            ]
+      addThirdRoom(input, polygon)
+      const before = structuredClone(input)
+      expect(pairs(input)).toEqual([])
+      expect(verifyPlanPageOpeningFaces(input.work, input.source, input.contours)).toEqual([
+        expect.objectContaining({ status: 'unresolved', reason: 'opening-strip-overlaps-room' }),
+        expect.objectContaining({ status: 'unresolved', reason: 'opening-strip-overlaps-room' }),
+      ])
+      expect(input).toEqual(before)
+    },
+  )
+  it.each(['whole-strip', 'crossing-edges', 'boundary-contact'])(
+    'uses full polygon intersection rather than a midpoint for %s',
+    (position) => {
+      const input = separatelyPaintedFixture()
+      const polygon =
+        position === 'whole-strip'
+          ? [
+              { x: 25, y: 150 },
+              { x: 125, y: 150 },
+              { x: 125, y: 200 },
+              { x: 25, y: 200 },
+            ]
+          : position === 'crossing-edges'
+            ? [
+                { x: 25, y: 155 },
+                { x: 125, y: 155 },
+                { x: 125, y: 156 },
+                { x: 25, y: 156 },
+              ]
+            : [
+                { x: 40, y: 170 },
+                { x: 50, y: 170 },
+                { x: 50, y: 180 },
+                { x: 40, y: 180 },
+              ]
+      addThirdRoom(input, polygon)
+      expect(pairs(input)).toHaveLength(position === 'boundary-contact' ? 1 : 0)
+    },
+  )
+  it('does not pair through a concave part of one of the two declared neighbours', () => {
+    const input = separatelyPaintedFixture()
+    const first = input.contours.rooms[0]
+    const door = first?.openings?.[0]
+    if (!first || !door) throw new Error('Missing door face')
+    first.polygon = [
+      { x: 25, y: 100 },
+      { x: 135, y: 100 },
+      { x: 135, y: 185 },
+      { x: 90, y: 185 },
+      { x: 90, y: 170 },
+      { x: 125, y: 170 },
+      { x: 125, y: 150 },
+      { x: 25, y: 150 },
+    ]
+    door.wallEdgeIndex = 6
+    input.work.paths.push({
+      operationIndex: 99999,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: true,
+      points: first.polygon,
+    })
+    expect(pairs(input)).toEqual([])
+    expect(verifyPlanPageOpeningFaces(input.work, input.source, input.contours)[0]).toMatchObject({
+      status: 'unresolved',
+      reason: 'opening-strip-overlaps-room',
+    })
+  })
+  it('does not pair across a declared no-floor void in the source strip', () => {
+    const input = separatelyPaintedFixture()
+    const polygon = [
+      { x: 60, y: 170 },
+      { x: 90, y: 170 },
+      { x: 90, y: 180 },
+      { x: 60, y: 180 },
+    ]
+    input.contours.voids = [{ id: 'void-in-strip', polygon }]
+    input.work.paths.push({
+      operationIndex: 99999,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: true,
+      points: polygon,
+    })
+    expect(pairs(input)).toEqual([])
+    expect(verifyPlanPageOpeningFaces(input.work, input.source, input.contours)[0]).toMatchObject({
+      status: 'unresolved',
+      reason: 'opening-strip-overlaps-void',
+    })
+  })
+  it.each(['exterior', 'floor'] as const)(
+    'does not connect through a known outside notch in the declared %s boundary',
+    (kind) => {
+      const input = separatelyPaintedFixture()
+      const polygon = [
+        { x: 25, y: 100 },
+        { x: 125, y: 100 },
+        { x: 125, y: 250 },
+        { x: 25, y: 250 },
+        { x: 25, y: 200 },
+        { x: 110, y: 200 },
+        { x: 110, y: 150 },
+        { x: 25, y: 150 },
+      ]
+      input.work.paths.push({
+        operationIndex: 99999,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: true,
+        points: polygon,
+      })
+      if (kind === 'exterior')
+        input.contours.exterior = { boundaryRole: 'outer-wall-envelope', polygon }
+      else {
+        const envelope = [
+          { x: 25, y: 100 },
+          { x: 125, y: 100 },
+          { x: 125, y: 250 },
+          { x: 25, y: 250 },
+        ]
+        input.contours.exterior = { boundaryRole: 'outer-wall-envelope', polygon: envelope }
+        input.contours.floor = { polygon }
+      }
+      expect(planPageContoursSchema.safeParse(input.contours).success).toBe(true)
+      expect(pairs(input)).toEqual([])
+      expect(verifyPlanPageOpeningFaces(input.work, input.source, input.contours)[0]).toMatchObject(
+        {
+          status: 'unresolved',
+          reason: `opening-strip-outside-${kind}`,
+        },
+      )
+    },
+  )
+  it('retains a strip within the declared boundary, including contact along a jamb', () => {
+    const input = separatelyPaintedFixture()
+    const polygon = [
+      { x: 25, y: 100 },
+      { x: 125, y: 100 },
+      { x: 125, y: 250 },
+      { x: 25, y: 250 },
+      { x: 25, y: 200 },
+      { x: 50, y: 200 },
+      { x: 50, y: 150 },
+      { x: 25, y: 150 },
+    ]
+    input.contours.exterior = { boundaryRole: 'outer-wall-envelope', polygon }
+    input.work.paths.push({
+      operationIndex: 99999,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: true,
+      points: polygon,
+    })
+    expect(pairs(input)).toHaveLength(1)
+  })
+  it.each([false, true])(
+    'keeps the same direct-neighbour rule on swapped axes: %s',
+    (transpose) => {
+      const input = separatelyPaintedFixture()
+      if (transpose) swapAxes(input)
+      expect(pairs(input)).toHaveLength(1)
+      const polygon = [
+        { x: 60, y: 170 },
+        { x: 90, y: 170 },
+        { x: 90, y: 180 },
+        { x: 60, y: 180 },
+      ]
+      addThirdRoom(
+        input,
+        transpose ? polygon.map((point) => ({ x: point.y, y: point.x })) : polygon,
+      )
+      expect(pairs(input)).toEqual([])
+      expect(
+        verifyPlanPageOpeningFaces(input.work, input.source, input.contours).every(
+          (check) => check.status === 'unresolved',
+        ),
+      ).toBe(true)
+    },
+  )
+  it('does not count the false pair in the same-source saved review report', () => {
+    const input = separatelyPaintedFixture()
+    addThirdRoom(input, [
+      { x: 60, y: 170 },
+      { x: 90, y: 170 },
+      { x: 90, y: 180 },
+      { x: 60, y: 180 },
+    ])
+    const reading: PlanReading = {
+      readAt: '2026-10-10',
+      sourcePage: input.source.pdfPage,
+      planState: 'existing',
+      rooms: input.contours.rooms.map((room) => ({
+        name: `Комната ${room.roomSourceNumber}`,
+        sourceNumber: room.roomSourceNumber,
+        kind: 'living',
+      })),
+    }
+    const report = inspectReviewedPageCoverage({ ...input, reading, linework: input.work })
+    expect(report.status).toBe('partial')
+    expect(report.openings).toMatchObject({
+      declaredDoors: 2,
+      doorPairCandidates: 0,
+      pairedDoorFaces: 0,
+      unresolvedDoorChecks: 2,
+    })
+    expect(report.issues).toContain('door-face-pairing-partial')
+    expect(report.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it('keeps an intervening-room refusal when contour order, winding and source directions change', () => {
+    const input = separatelyPaintedFixture()
+    addThirdRoom(input, [
+      { x: 60, y: 170 },
+      { x: 90, y: 170 },
+      { x: 90, y: 180 },
+      { x: 60, y: 180 },
+    ])
+    input.contours.rooms.reverse()
+    for (const room of input.contours.rooms) {
+      room.polygon.reverse()
+      for (const opening of room.openings ?? []) {
+        opening.wallEdgeIndex =
+          (room.polygon.length - 2 - opening.wallEdgeIndex + room.polygon.length) %
+          room.polygon.length
+        const start = opening.start
+        opening.start = opening.end
+        opening.end = start
+      }
+    }
+    for (const path of input.work.paths) path.points.reverse()
+    expect(pairs(input)).toEqual([])
+    expect(
+      verifyPlanPageOpeningFaces(input.work, input.source, input.contours).every(
+        (check) => check.status === 'unresolved' && check.reason === 'opening-strip-overlaps-room',
+      ),
+    ).toBe(true)
+  })
+  it('withholds all matches on the strip work limit instead of retaining earlier partial pairs', () => {
+    // Deliberately adversarial synthetic inventory, not a surveyed apartment or floor acceptance.
+    const source = { sha256: 'a'.repeat(64), pdfPage: 1, state: 'existing' as const }
+    const rooms: PlanPageContours['rooms'] = Array.from({ length: 100 }, (_, index) => {
+      const top = 5 + index * 9
+      const bottom = top + 4
+      const polygon = [
+        { x: 25, y: top },
+        { x: 125, y: top },
+      ]
+      for (let part = 1; part <= 7; part++) polygon.push({ x: 125, y: top + (4 * part) / 7 })
+      polygon.push({ x: 25, y: bottom })
+      for (let part = 1; part <= 6; part++) polygon.push({ x: 25, y: bottom - (4 * part) / 7 })
+      return {
+        roomSourceNumber: index + 1,
+        polygon,
+        openings: [
+          {
+            id: `top-${index}`,
+            kind: 'door',
+            wallEdgeIndex: 0,
+            start: { x: 50, y: top },
+            end: { x: 100, y: top },
+          },
+          {
+            id: `bottom-${index}`,
+            kind: 'door',
+            wallEdgeIndex: 8,
+            start: { x: 50, y: bottom },
+            end: { x: 100, y: bottom },
+          },
+        ],
+      }
+    })
+    const paths: PdfVectorPath[] = rooms.map((room, index) => ({
+      operationIndex: index,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: true,
+      points: room.polygon,
+    }))
+    let count = 0
+    for (let first = 0; first < 100 && count < 3400; first++) {
+      for (let second = first + 1; second < 100 && count < 3400; second++) {
+        const start = 9 + first * 9
+        const end = 5 + second * 9
+        const points = [
+          { x: 50, y: start },
+          { x: 50, y: end },
+          { x: 100, y: end },
+          { x: 100, y: start },
+        ]
+        if (count % 2 === 0)
+          paths.push({
+            operationIndex: 1000 + count,
+            subpathIndex: 0,
+            paint: 'stroke',
+            closed: true,
+            points,
+          })
+        else paths.at(-1)?.points.push(...points)
+        count++
+      }
+    }
+    const work: PdfLinework = {
+      coordinateSystem: 'page-0-1000',
+      pageWidth: 1000,
+      pageHeight: 1000,
+      paths,
+      skippedCurves: 0,
+      clippedPaths: 0,
+      unsupportedPaths: 0,
+      unsupportedContexts: 0,
+      truncated: false,
+    }
+    const contours: PlanPageContours = {
+      source,
+      coordinateSystem: 'page-0-1000',
+      review: 'manual-source-review',
+      pageWidth: 1000,
+      pageHeight: 1000,
+      rooms,
+    }
+    const checks = verifyPlanPageOpeningFaces(work, source, contours)
+    expect(planPageContoursSchema.safeParse(contours).success).toBe(true)
+    expect(checks).toHaveLength(200)
+    expect(
+      checks.every(
+        (check) => check.status === 'unresolved' && check.reason === 'opening-strip-work-limit',
+      ),
+    ).toBe(true)
   })
 
   it.each(['remove-strokes', 'move-strokes', 'fill-only', 'compound-fill'] as const)(
@@ -362,7 +739,7 @@ describe('physical door face candidates from two native reveals', () => {
     expect(pairs(input)).toEqual(before)
   })
 
-  it('refuses several opposing room faces even when each has two native segments', () => {
+  it('does not count a farther face through an intervening room as a competing immediate neighbour', () => {
     const input = fixture()
     const rectangle = (number: number, top: number, bottom: number, edge: number) => ({
       roomSourceNumber: number,
@@ -411,10 +788,16 @@ describe('physical door face candidates from two native reveals', () => {
     )
     const result = verifyPlanPageOpeningFaces(input.work, input.source, input.contours)
     expect(result.find((check) => check.openingId === 'door-1')).toMatchObject({
-      status: 'ambiguous',
-      reason: 'competing-native-door-faces',
+      status: 'candidate',
+      opposite: { openingId: 'door-2', roomSourceNumber: 2 },
     })
-    expect(pairs(input)).toEqual([])
+    expect(result.find((check) => check.openingId === 'door-3')).toMatchObject({
+      status: 'unresolved',
+      reason: 'opening-strip-overlaps-room',
+    })
+    expect(pairs(input).map((pair) => pair.openings.map((face) => face.openingId).sort())).toEqual([
+      ['door-1', 'door-2'],
+    ])
   })
 
   it('does not substitute a nearby face or a window for a declared door face', () => {

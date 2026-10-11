@@ -471,6 +471,53 @@ describe('planVolume', () => {
     expect(vertical?.walls.filter((wall) => wall.bottomCm === 210)).toHaveLength(2)
     expect(vertical?.solidFaces).toHaveLength(0)
 
+    // One physical aperture has two current PDF-face copies. A flat viewing model
+    // must not silently render disagreeing heights or collapse different floor datums.
+    for (const relation of ['faces', 'width'] as const) {
+      const measured = structuredClone(pdfGeometry)
+      const calibration = measured.pdfCalibration
+      const first = measured.openings[0]
+      const second = measured.openings[1]
+      const firstHost = measured.walls[0]
+      const secondHost = measured.walls[1]
+      if (!calibration || !first || !second || !firstHost || !secondHost)
+        throw new Error('Missing measured pair')
+      const firstBinding = structuredClone({ opening: first, wall: firstHost })
+      const secondBinding = structuredClone({ opening: second, wall: secondHost })
+      if (relation === 'faces') {
+        calibration.openingFacePairs = [
+          {
+            bindings: [firstBinding, secondBinding],
+            jambs: [segment, { ...segment, segmentIndex: 2 }],
+          },
+        ]
+      } else {
+        calibration.openingWidthProofs = [
+          {
+            ...firstBinding,
+            labelIndex: 1,
+            sameOpeningAs: { roomSourceNumber: 1, openingId: second.id },
+            oppositeBinding: secondBinding,
+          },
+        ]
+      }
+      expect(planVolume(measured)?.verticalMeasurements?.surfaceStatus).toBe('complete')
+      for (const dimension of ['bottomCm', 'heightCm'] as const) {
+        const conflicting = structuredClone(measured)
+        const opposite = conflicting.openings[1]
+        if (!opposite || opposite[dimension] === undefined) throw new Error('Missing measurement')
+        opposite[dimension] += 0.000000001
+        const before = structuredClone(conflicting)
+        expect(planVolume(conflicting)).toBeNull()
+        expect(conflicting).toEqual(before)
+      }
+      delete second.bottomCm
+      const partial = planVolume(measured)
+      expect(partial?.verticalMeasurements?.surfaceStatus).toBe('partial')
+      expect(partial?.openings.find(({ id }) => id === `${second.id}-pdf`)?.cut).toBe(false)
+      expect(second).not.toHaveProperty('bottomCm')
+    }
+
     const editedWall = pdfGeometry.walls[0]
     const calibration = pdfGeometry.pdfCalibration
     if (!editedWall || !calibration) throw new Error('Missing PDF proof')

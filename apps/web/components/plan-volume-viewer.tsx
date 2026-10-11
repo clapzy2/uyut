@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
+import { signedElevationSum } from '@/lib/projects/plan-vertical-floor-geometry'
 import type { PlanVolume } from '@/lib/projects/plan-volume'
 import {
   DEFAULT_VOLUME_TILT,
@@ -22,12 +23,94 @@ function pathRing(points: VolumeScreenPoint[]): string {
   return `M ${points.map((point) => `${point.x} ${point.y}`).join(' L ')} Z`
 }
 
+function openingTop(model: PlanVolume, opening: PlanVolume['openings'][number]): number {
+  const bottom = opening.bottomCm ?? 0
+  const height = opening.heightCm ?? 0
+  return model.floorSurfaces === undefined ? bottom + height : signedElevationSum(bottom, height)
+}
+
 function facesViewer(points: VolumeScreenPoint[]): boolean {
   return (
     points.reduce((area, point, index) => {
       const next = points[(index + 1) % points.length]
       return next ? area + point.x * next.y - next.x * point.y : area
     }, 0) > 1e-7
+  )
+}
+
+function measurableFloorRing(points: PlanVolume['floor']): boolean {
+  const first = points[0]
+  const last = points[points.length - 1]
+  const ring =
+    first && last && first.xCm === last.xCm && first.yCm === last.yCm ? points.slice(0, -1) : points
+  if (ring.length < 3) return false
+  let area = 0
+  for (const [index, point] of ring.entries()) {
+    const next = ring[(index + 1) % ring.length]
+    if (!next || !Number.isFinite(point.xCm) || !Number.isFinite(point.yCm)) return false
+    if (point.xCm === next.xCm && point.yCm === next.yCm) return false
+    area += point.xCm * next.yCm - next.xCm * point.yCm
+  }
+  return Number.isFinite(area) && area !== 0
+}
+
+function VerticalModelMeasurements({
+  report,
+}: {
+  report: NonNullable<PlanVolume['verticalMeasurements']>
+}) {
+  const missing = [
+    { label: 'Высота стен', ids: report.missingWallHeightIds },
+    { label: 'Толщина стен', ids: report.missingWallThicknessIds },
+    { label: 'Высота проёмов', ids: report.missingOpeningHeightIds },
+    { label: 'Нижняя грань проёмов', ids: report.missingOpeningBottomIds },
+  ]
+  return (
+    <section
+      className="mb-3 border border-line px-3 py-2 text-sm leading-relaxed text-ink-2"
+      aria-label="Мерки объёмной модели"
+    >
+      <h3 className="font-medium text-ink">Мерки объёмной модели</h3>
+      <p className="mt-1">
+        {report.surfaceStatus === 'invalid'
+          ? 'Некоторые вертикальные мерки некорректны. Исправьте их в редакторе; объём не считается сверенным.'
+          : report.surfaceStatus === 'partial'
+            ? 'Вертикальные мерки заполнены частично. Условные поверхности оставлены для обзора; недостающие значения нужно ввести в редакторе.'
+            : report.missingWallThicknessIds.length
+              ? 'Высоты и нижние грани заполнены; толщины стен ещё неполные.'
+              : 'Высоты, нижние грани и толщины заполнены.'}
+      </p>
+      <p className="mt-1 text-xs">
+        Это полнота введённых полей, не подтверждение обмера, высоты потолка или физического
+        прохода.
+      </p>
+      {missing.some(({ ids }) => ids.length) ? (
+        <details className="mt-1 text-xs">
+          <summary className="min-h-11 cursor-pointer py-2">Какие мерки нужно уточнить</summary>
+          <ul className="list-disc space-y-1 pl-4">
+            {missing
+              .filter(({ ids }) => ids.length)
+              .map(({ label, ids }) => (
+                <li key={label} className="break-all">
+                  {label}: {ids.length} — {ids.join(', ')}.
+                </li>
+              ))}
+          </ul>
+        </details>
+      ) : null}
+      {report.unknownThresholdIds.length ? (
+        <p className="mt-1 text-xs break-all">
+          Уровень порога не указан: {report.unknownThresholdIds.length} —{' '}
+          {report.unknownThresholdIds.join(', ')}.
+        </p>
+      ) : null}
+      {report.raisedThresholdIds.length ? (
+        <p className="mt-1 text-xs break-all">
+          Поднятая нижняя грань: {report.raisedThresholdIds.length} —{' '}
+          {report.raisedThresholdIds.join(', ')}. Это не непрерывный ровный пол.
+        </p>
+      ) : null}
+    </section>
   )
 }
 
@@ -42,7 +125,7 @@ export default function PlanVolumeViewer({
   const [tilt, setTilt] = useState(DEFAULT_VOLUME_TILT)
   const [zoom, setZoom] = useState(1)
   const [section, setSection] = useState(false)
-  const [sectionHeight, setSectionHeight] = useState(90)
+  const [savedSectionHeight, setSectionHeight] = useState(90)
   const [showZones, setShowZones] = useState(true)
   const [selection, setSelection] = useState<VolumeSelection>(null)
   const press = useRef<{
@@ -76,9 +159,38 @@ export default function PlanVolumeViewer({
   )
   const unknownHeights = furniture.filter((item) => item.heightCm === undefined)
   const floorZones = model.floorZones ?? []
+  const floorSurfaces = model.floorSurfaces ?? [
+    {
+      id: 'floor',
+      floor: model.floor,
+      voids: model.voids,
+      elevationCm: 0,
+      title: 'Пол',
+      roomId: undefined,
+    },
+  ]
+  if (
+    floorSurfaces.length === 0 ||
+    floorSurfaces.some(
+      (floor) =>
+        !Number.isFinite(floor.elevationCm) ||
+        !measurableFloorRing(floor.floor) ||
+        floor.voids.some((hole) => !measurableFloorRing(hole)),
+    )
+  )
+    throw new Error('Invalid floor surfaces')
+  const projectedFloors = floorSurfaces.map((floor) => ({
+    ...floor,
+    points: floor.floor.map((point) => project(point, floor.elevationCm)),
+    holes: floor.voids.map((hole) => hole.map((point) => project(point, floor.elevationCm))),
+  }))
+  const thresholds = (model.thresholds ?? []).map((threshold) => ({
+    ...threshold,
+    points: threshold.floor.map((point) => project(point, threshold.elevationCm)),
+  }))
   const zones = floorZones.map((zone) => ({
     ...zone,
-    points: zone.floor.map((point) => project(point)),
+    points: zone.floor.map((point) => project(point, zone.baseCm ?? 0)),
   }))
 
   // This rise is a drawing parameter, not a ceiling measurement or saved geometry.
@@ -89,8 +201,22 @@ export default function PlanVolumeViewer({
       Math.max(...xCoordinates) - Math.min(...xCoordinates),
       Math.max(...yCoordinates) - Math.min(...yCoordinates),
     ) * 0.3
-  const floor = model.floor.map((point) => project(point))
-  const voids = model.voids.map((polygon) => polygon.map((point) => project(point)))
+  const floor = projectedFloors.flatMap((surface) => surface.points)
+  const sectionMin = model.floorSurfaces
+    ? Math.floor(
+        Math.min(
+          ...floorSurfaces.map((surface) => surface.elevationCm),
+          ...model.walls.map((wall) => wall.bottomCm),
+        ),
+      )
+    : 20
+  const sectionMax = model.floorSurfaces
+    ? Math.max(
+        sectionMin + 1,
+        ...model.walls.map((wall) => Math.ceil(wall.topCm ?? wall.bottomCm + illustrativeRise)),
+      )
+    : 300
+  const sectionHeight = Math.max(sectionMin, Math.min(savedSectionHeight, sectionMax))
   const hasMeasuredWalls = model.walls.some((wall) => wall.topCm !== undefined)
   const hasIllustrativeWalls = model.walls.some((wall) => wall.topCm === undefined)
   const wallFaces = model.walls
@@ -107,14 +233,14 @@ export default function PlanVolumeViewer({
           project(
             wall.end,
             section
-              ? Math.min(wall.topCm ?? illustrativeRise, sectionHeight)
-              : (wall.topCm ?? illustrativeRise),
+              ? Math.min(wall.topCm ?? wall.bottomCm + illustrativeRise, sectionHeight)
+              : (wall.topCm ?? wall.bottomCm + illustrativeRise),
           ),
           project(
             wall.start,
             section
-              ? Math.min(wall.topCm ?? illustrativeRise, sectionHeight)
-              : (wall.topCm ?? illustrativeRise),
+              ? Math.min(wall.topCm ?? wall.bottomCm + illustrativeRise, sectionHeight)
+              : (wall.topCm ?? wall.bottomCm + illustrativeRise),
           ),
         ],
         holes: [],
@@ -171,6 +297,8 @@ export default function PlanVolumeViewer({
   ].sort((a, b) => a.depth - b.depth)
   const projectedCorners = [
     ...floor,
+    ...thresholds.flatMap((threshold) => threshold.points),
+    ...rooms.flatMap((room) => room.floor.map((point) => project(point, room.baseCm ?? 0))),
     ...zones.flatMap((zone) => zone.points),
     ...surfaces.flatMap((wall) => wall.points),
     ...model.openings.flatMap((opening) =>
@@ -179,14 +307,14 @@ export default function PlanVolumeViewer({
             project(
               opening.start,
               section
-                ? Math.min(opening.bottomCm + opening.heightCm, sectionHeight)
-                : opening.bottomCm + opening.heightCm,
+                ? Math.min(openingTop(model, opening), sectionHeight)
+                : openingTop(model, opening),
             ),
             project(
               opening.end,
               section
-                ? Math.min(opening.bottomCm + opening.heightCm, sectionHeight)
-                : opening.bottomCm + opening.heightCm,
+                ? Math.min(openingTop(model, opening), sectionHeight)
+                : openingTop(model, opening),
             ),
           ]
         : [],
@@ -207,9 +335,18 @@ export default function PlanVolumeViewer({
 
   return (
     <div className="mt-4">
+      {model.verticalDatum ? (
+        <p className="mb-3 text-sm text-ink-2">
+          Отметки полов и верха порогов показаны от общего нуля; низ проёма — отдельная грань.
+          Толщина порога не достраивается.
+        </p>
+      ) : null}
+      {!roomLayout && model.verticalMeasurements ? (
+        <VerticalModelMeasurements report={model.verticalMeasurements} />
+      ) : null}
       {model.issues.length > 0 ? (
         <div className="mb-3 border border-danger px-4 py-3 text-sm text-ink" role="status">
-          <p>Перед выбором расстановки уточните пересечения:</p>
+          <p>Уточните замечания перед выбором расстановки:</p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {model.issues.map((issue) => (
               <li key={issue.id}>{issue.message}</li>
@@ -218,6 +355,9 @@ export default function PlanVolumeViewer({
         </div>
       ) : null}
       <PlanVolumeControls
+        sectionMin={sectionMin}
+        sectionMax={sectionMax}
+        commonDatum={model.verticalDatum !== undefined}
         angle={angle}
         tilt={tilt}
         zoom={zoom}
@@ -324,19 +464,43 @@ export default function PlanVolumeViewer({
             : 'Объёмный просмотр подтверждённой двухмерной схемы'
         }
       >
-        <path
-          d={[pathRing(floor), ...voids.map(pathRing)].join(' ')}
-          fill="var(--accent-tint)"
-          fillRule="evenodd"
-          stroke="var(--accent)"
-          strokeWidth="2"
-          vectorEffect="non-scaling-stroke"
-        />
-        {rooms.map((room) => (
+        {projectedFloors.map((surface) => (
+          <path
+            key={surface.id}
+            data-volume-floor={surface.id}
+            data-volume-room={surface.roomId}
+            d={[pathRing(surface.points), ...surface.holes.map(pathRing)].join(' ')}
+            fill={
+              surface.roomId !== undefined && selectedRoomId === surface.roomId
+                ? 'var(--accent)'
+                : 'var(--accent-tint)'
+            }
+            fillRule="evenodd"
+            stroke="var(--accent)"
+            strokeWidth="2"
+            vectorEffect="non-scaling-stroke"
+          >
+            <title>{`${surface.title}${model.verticalDatum ? ` · отметка ${surface.elevationCm} см от общего нуля` : ''}`}</title>
+          </path>
+        ))}
+        {thresholds.map((threshold) => (
+          <polygon
+            key={threshold.id}
+            data-volume-threshold={threshold.id}
+            points={polygonPoints(threshold.points)}
+            fill="var(--accent)"
+            stroke="var(--ink)"
+            strokeWidth="1.5"
+            vectorEffect="non-scaling-stroke"
+          >
+            <title>{`Верх порога · отметка ${threshold.elevationCm} см от общего нуля; толщина не указана`}</title>
+          </polygon>
+        ))}
+        {(model.floorSurfaces === undefined ? rooms : []).map((room) => (
           <polygon
             key={`room-${room.id}`}
             data-volume-room={room.id}
-            points={polygonPoints(room.floor.map((point) => project(point)))}
+            points={polygonPoints(room.floor.map((point) => project(point, room.baseCm ?? 0)))}
             fill={selectedRoomId === room.id ? 'var(--accent)' : 'transparent'}
             fillOpacity={selectedRoomId === room.id ? 0.2 : 0}
             stroke={selectedRoomId === room.id ? 'var(--accent)' : 'none'}
@@ -441,8 +605,8 @@ export default function PlanVolumeViewer({
           const color = opening.type === 'window' ? 'var(--accent)' : 'var(--danger)'
           if (opening.bottomCm !== undefined && opening.heightCm !== undefined) {
             const top = section
-              ? Math.min(opening.bottomCm + opening.heightCm, sectionHeight)
-              : opening.bottomCm + opening.heightCm
+              ? Math.min(openingTop(model, opening), sectionHeight)
+              : openingTop(model, opening)
             if (top <= opening.bottomCm) return null
             return (
               <polygon
@@ -458,12 +622,12 @@ export default function PlanVolumeViewer({
                 strokeWidth="3"
                 vectorEffect="non-scaling-stroke"
               >
-                <title>{`${title} · низ ${opening.bottomCm} см · высота ${opening.heightCm} см`}</title>
+                <title>{`${title} · низ ${opening.bottomCm} см${model.verticalDatum ? ' от общего нуля' : ''} · высота ${opening.heightCm} см`}</title>
               </polygon>
             )
           }
-          const start = project(opening.start)
-          const end = project(opening.end)
+          const start = project(opening.start, opening.baseCm ?? 0)
+          const end = project(opening.end, opening.baseCm ?? 0)
           return (
             <line
               key={opening.id}
@@ -487,7 +651,7 @@ export default function PlanVolumeViewer({
                   xCm: item.floor.reduce((sum, point) => sum + point.xCm, 0) / item.floor.length,
                   yCm: item.floor.reduce((sum, point) => sum + point.yCm, 0) / item.floor.length,
                 },
-                item.heightCm ?? 0,
+                (item.baseCm ?? 0) + (item.heightCm ?? 0),
               )
               return (
                 <text

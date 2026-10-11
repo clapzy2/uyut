@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import nativeLabels from '../../../../docs/qa/fixtures/apartment-74-77-native-labels.json'
 import annotated from '../../../../docs/qa/fixtures/apartment-74-77-page-contours.json'
 import nativeFeatures from '../../../../docs/qa/fixtures/apartment-74-77-page-features.json'
+import type { NativeDimensionCaptionContext } from './plan-pdf-caption-binding'
 import {
   createPdfOpeningSpanVerifier,
   type PdfOpeningAnnotation,
@@ -68,6 +69,106 @@ const check = (
 ) => pdfWidthChain({ ...work, paths }, contours.source, { ...contours, rooms }, 4, input, total)
 
 describe('native page dimension without invented room ownership', () => {
+  it('binds a displaced native caption to its short tick rail, but rejects an overlapping fork', () => {
+    const source = { sha256: 'a'.repeat(64), pdfPage: 3, state: 'existing' as const }
+    const rails = [
+      [10, 110],
+      [110, 120],
+      [120, 320],
+    ]
+    const paths: PdfVectorPath[] = rails.map(([start = 0, end = 0], index) => ({
+      operationIndex: index,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: start, y: 100 },
+        { x: end, y: 100 },
+      ],
+    }))
+    for (const [index, x] of [10, 110, 120, 320].entries())
+      paths.push({
+        operationIndex: index + 3,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: x - 4, y: 96 },
+          { x: x + 4, y: 104 },
+        ],
+      })
+    const work: PdfLinework = {
+      coordinateSystem: 'page-0-1000',
+      pageWidth: 500,
+      pageHeight: 500,
+      paths,
+      skippedCurves: 0,
+      clippedPaths: 0,
+      unsupportedPaths: 0,
+      unsupportedContexts: 0,
+      truncated: false,
+    }
+    const context: NativeDimensionCaptionContext = {
+      source: { ...source, pageWidth: 500, pageHeight: 500 },
+      complete: true,
+      items: [
+        {
+          index: 0,
+          text: '1000',
+          rotation: 0,
+          origin: { x: 50, y: 96 },
+          baselineStart: { x: 50, y: 96 },
+          baselineEnd: { x: 70, y: 96 },
+        },
+        {
+          index: 1,
+          text: '100',
+          rotation: 0,
+          origin: { x: 124, y: 96 },
+          baselineStart: { x: 124, y: 96 },
+          baselineEnd: { x: 154, y: 96 },
+        },
+        {
+          index: 2,
+          text: '2000',
+          rotation: 0,
+          origin: { x: 210, y: 96 },
+          baselineStart: { x: 210, y: 96 },
+          baselineEnd: { x: 230, y: 96 },
+        },
+      ],
+    }
+    const labels = context.items.map((item) => ({
+      index: item.index,
+      text: item.text,
+      rotation: item.rotation,
+      ...item.origin,
+    }))
+    const direct = pdfNativePageDimensionChain(work, source, labels, 3100, 'width', context)
+    expect(direct).toMatchObject({ status: 'candidate', lineOperations: [0, 1, 2] })
+    const target = labels[1]
+    if (!target) throw new Error('Missing short caption')
+    expect(
+      pdfNativePageDimensionChain(work, source, [target], 100, 'width', context),
+    ).toMatchObject({ status: 'candidate', lineOperations: [1] })
+    expect(pdfNativePageDimensionChain(work, source, labels, 3100, 'width')).toMatchObject({
+      status: 'unresolved',
+      reason: 'reused-dimension-line',
+    })
+    paths.push({
+      operationIndex: 20,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 110, y: 100 },
+        { x: 320, y: 100 },
+      ],
+    })
+    expect(pdfNativePageDimensionChain(work, source, labels, 3100, 'width', context).status).toBe(
+      'ambiguous',
+    )
+  })
   it('proves a printed chain using its connected native spans', () => {
     expect(pdfNativePageDimensionChain(work, contours.source, labels, 2985, 'width')).toMatchObject(
       {
@@ -77,6 +178,45 @@ describe('native page dimension without invented room ownership', () => {
         basis: 'native-page-dimension',
       },
     )
+  })
+
+  it.each(['width', 'aligned'] as const)(
+    'keeps distinct rail subpaths in a compound paint operation in %s mode',
+    (axis) => {
+      const operations = [2310, 2338, 2364]
+      const paths = work.paths.map((path) => {
+        const subpathIndex = operations.indexOf(path.operationIndex)
+        return subpathIndex === -1 ? path : { ...path, operationIndex: 9000, subpathIndex }
+      })
+
+      expect(
+        pdfNativePageDimensionChain({ ...work, paths }, contours.source, labels, 2985, axis),
+      ).toMatchObject({
+        status: 'candidate',
+        lineOperations: [9000, 9000, 9000],
+        linePaths: [
+          { operationIndex: 9000, subpathIndex: 0 },
+          { operationIndex: 9000, subpathIndex: 1 },
+          { operationIndex: 9000, subpathIndex: 2 },
+        ],
+      })
+    },
+  )
+
+  it.each(['width', 'aligned'] as const)('refuses two labels using one rail in %s mode', (axis) => {
+    const reusedLabels = [firstLabel, { ...firstLabel, index: 999, x: firstLabel.x + 1 }]
+
+    expect(
+      pdfNativePageDimensionChain(work, contours.source, reusedLabels, 1878, axis),
+    ).toMatchObject({ status: 'unresolved', reason: 'reused-dimension-line' })
+  })
+
+  it.each([0, 1])('refuses competing rails with compound subpath %i', (subpathIndex) => {
+    const paths = [...work.paths, { ...firstLine, subpathIndex }]
+
+    expect(
+      pdfNativePageDimensionChain({ ...work, paths }, contours.source, labels, 2985, 'width'),
+    ).toMatchObject({ status: 'ambiguous', reason: 'multiple-dimension-lines' })
   })
 
   it('refuses proposed state and a truncated native extraction', () => {
@@ -208,6 +348,79 @@ describe('native horizontal dimension chains against page contours', () => {
       check([...work.paths, ...extensions], labels, 2985, [shiftedRoom, nearerRoom]),
     ).toMatchObject({ status: 'unresolved', reason: 'dimension-outside-room' })
   })
+  it.each(['width', 'depth'] as const)(
+    'does not assign an exterior %s chain through a narrower room between the rail and target',
+    (axis) => {
+      const swap = (point: { x: number; y: number }) =>
+        axis === 'width' ? point : { x: point.y, y: point.x }
+      const target = {
+        ...bedroom,
+        polygon: bedroom.polygon.map((point) => swap({ ...point, y: point.y + 48 })),
+      }
+      const extensions: PdfVectorPath[] = [643.528, 844.512].map((x, index) => ({
+        operationIndex: 9000 + index,
+        subpathIndex: 0,
+        closed: false,
+        paint: 'stroke',
+        points: [swap({ x, y: 90 }), swap({ x, y: 134 })],
+      }))
+      const projectedWork = {
+        ...work,
+        pageWidth: axis === 'width' ? work.pageWidth : work.pageHeight,
+        pageHeight: axis === 'width' ? work.pageHeight : work.pageWidth,
+        paths: [
+          ...work.paths.map((path) => ({ ...path, points: path.points.map(swap) })),
+          ...extensions,
+        ],
+      }
+      const projectedLabels = labels.map((label) => ({
+        ...label,
+        ...swap(label),
+        rotation: axis === 'width' ? 0 : 90,
+      }))
+      const verify = (others: PdfRoomContours['rooms']) =>
+        (axis === 'width' ? pdfWidthChain : pdfDepthChain)(
+          projectedWork,
+          contours.source,
+          {
+            ...contours,
+            pageWidth: projectedWork.pageWidth,
+            pageHeight: projectedWork.pageHeight,
+            rooms: [target, ...others],
+          },
+          4,
+          projectedLabels,
+          2985,
+        )
+      const smallerRoom = (left: number, right: number, top: number, bottom: number) => ({
+        roomSourceNumber: 99,
+        polygon: [
+          { x: left, y: top },
+          { x: right, y: top },
+          { x: right, y: bottom },
+          { x: left, y: bottom },
+        ].map(swap),
+      })
+
+      expect(verify([])).toMatchObject({
+        status: 'candidate',
+        basis: 'native-exterior-dimension',
+      })
+      // Neither the rail's segment midpoints nor its two extensions hit this narrow room.
+      expect(verify([smallerRoom(730, 735, 105, 125)])).toMatchObject({
+        status: 'unresolved',
+        reason: 'dimension-outside-room',
+      })
+      // A real nearer neighbour at one measured end also prevents unique ownership.
+      expect(verify([smallerRoom(643.528, 690, 105, 125)])).toMatchObject({
+        status: 'unresolved',
+        reason: 'dimension-outside-room',
+      })
+      // Rooms to the side or farther from the rail do not obscure the target face.
+      expect(verify([smallerRoom(850, 900, 105, 125)]).status).toBe('candidate')
+      expect(verify([smallerRoom(730, 735, 300, 350)]).status).toBe('candidate')
+    },
+  )
   it.each([2310, 2314, 2319])('does not bridge a missing stem or arrow %i', (operation) => {
     expect(check(work.paths.filter((p) => p.operationIndex !== operation)).status).toBe(
       'unresolved',

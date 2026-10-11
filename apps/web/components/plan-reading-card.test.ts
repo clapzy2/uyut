@@ -1,7 +1,9 @@
+import { parseFloorPlan } from '@uyut/ai'
 import type { PlanReading } from '@uyut/db'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
+import nativeAreas from '../../../docs/qa/fixtures/basis-native-total-area.json'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 vi.mock('@/actions/projects', () => ({
@@ -10,7 +12,7 @@ vi.mock('@/actions/projects', () => ({
   readPlan: vi.fn(),
 }))
 
-import type { ExistingRoom } from '@/lib/projects/plan-rows'
+import { type ExistingRoom, planRows } from '@/lib/projects/plan-rows'
 import { PlanReadingCard } from './plan-reading-card'
 
 function render(
@@ -26,7 +28,7 @@ function render(
       reading,
       hasPlan: true,
       planIsPdf,
-      planSourceUrl: planIsPdf ? null : '/source-image',
+      planSourceUrl: planIsPdf ? '/source-plan.pdf?signature=synthetic' : '/source-image',
       roomCount,
       existing,
     }),
@@ -34,6 +36,27 @@ function render(
 }
 
 describe('plan review form', () => {
+  it('shows source total-area ambiguity while retaining individual area input values', () => {
+    const reading = parseFloorPlan(
+      JSON.stringify({
+        planState: 'existing',
+        totalAreaM2: 48.22,
+        rooms: [
+          { name: 'Помещение', sourceNumber: 1, areaM2: 40.13 },
+          { name: 'Балкон 01', sourceNumber: 2, areaM2: 4.75 },
+          { name: 'Балкон 02', sourceNumber: 3, areaM2: 3.34 },
+        ],
+      }),
+      { planText: JSON.stringify(nativeAreas.items) },
+    )
+    const html = render({ ...reading, readAt: '2026-10-09' })
+    expect(html).toContain('Общая площадь: в экспликации 48,22 м², в подписи квартиры 47,4 м²')
+    expect(html).toContain('какие помещения включены')
+    expect(html).toContain('value="40,13"')
+    expect(html).toContain('value="4,75"')
+    expect(html).toContain('value="3,34"')
+    expect(reading.totalAreaM2).toBeUndefined()
+  })
   it('requires separate unchecked source-axis review for raster dimensions and offers explicit omission', () => {
     const reading: PlanReading = {
       readAt: '2026-10-08',
@@ -47,7 +70,45 @@ describe('plan review form', () => {
     expect(html).toContain('не обнаруживает перестановку осей')
     // The room-selection checkbox is checked; neither source-axis acknowledgment is.
     expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(1)
-    expect(render(reading)).not.toContain('Сверил горизонтальную ширину')
+  })
+  it('requires separate unchecked source-axis review for PDF dimensions and links the read sheet', () => {
+    const reading: PlanReading = {
+      readAt: '2026-10-09',
+      sourcePage: 6,
+      rooms: [{ name: 'Гостиная', kind: 'living', widthCm: 600, depthCm: 320 }],
+    }
+    const html = render(reading)
+    expect(html).toContain('Сверил горизонтальную ширину')
+    expect(html).toContain('Сверил вертикальную глубину')
+    expect(html).toContain('с исходным листом')
+    expect(html).toContain('Очистить неподтверждённые оси')
+    expect(html).toContain('href="/source-plan.pdf?signature=synthetic#page=6"')
+    expect(html).toContain('Открыть исходный лист PDF для сверки · страница 6')
+    expect(html).toContain('не обнаруживает перестановку осей')
+    expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(1)
+  })
+  it('reopens saved dimension candidates without carrying source-axis acknowledgments', () => {
+    const saved: PlanReading = {
+      readAt: '2026-10-09',
+      confirmedAt: '2026-10-09',
+      sourcePage: 6,
+      rooms: [
+        {
+          name: 'Гостиная',
+          kind: 'living',
+          widthCm: 600,
+          depthCm: 320,
+          dimensionSources: {
+            widthCm: { valueCm: 600, source: 'plan' },
+            depthCm: { valueCm: 320, source: 'entered' },
+          },
+        },
+      ],
+    }
+    const [reopened] = planRows(saved)
+    expect(reopened).toMatchObject({ width: '600', depth: '320' })
+    expect(reopened?.widthReviewed).not.toBe(true)
+    expect(reopened?.depthReviewed).not.toBe(true)
   })
   it('leads an unread plan to the selected sheet and explains the review before room transfer', () => {
     const html = render(null)

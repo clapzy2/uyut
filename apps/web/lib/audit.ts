@@ -18,6 +18,7 @@ export type AuditAction =
   | 'project.plan_page_reviewed'
   | 'project.plan_geometry_confirmed'
   | 'project.plan_geometry_drafted'
+  | 'project.delivery_measurements_saved'
   | 'project.plan_rooms'
   | 'onboarding.completed'
   | 'concepts.requested'

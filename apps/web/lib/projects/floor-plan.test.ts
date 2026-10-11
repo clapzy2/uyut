@@ -20,6 +20,55 @@ function answer(rooms: unknown[], ceilingMm: number | null = 2700): string {
   return JSON.stringify({ ceilingMm, rooms })
 }
 
+describe('raster model evidence is not independent measurement verification', () => {
+  it('keeps the partial-chain claim visible as unverified, never inventing missing segments', () => {
+    const raw = answer([
+      {
+        name: 'ГОСТИНАЯ',
+        areaM2: 14.9,
+        depthMm: 2516,
+        measurementEvidence: {
+          depth: {
+            kind: 'vertical-chain',
+            scope: 'room',
+            roomName: 'ГОСТИНАЯ',
+            complete: true,
+            segmentsMm: [2516],
+          },
+        },
+      },
+    ])
+    const room = parseFloorPlan(raw, { requireMeasurementEvidence: true }).rooms[0]
+    expect(room?.depthCm).toBe(251.6)
+    expect(room?.measurementEvidence?.depth?.segmentsMm).toEqual([2516])
+    expect(
+      room?.measurementWarnings?.some((warning) => warning.includes('независимо не подтверждены')),
+    ).toBe(true)
+  })
+  it('does not turn an arithmetically complete raster chain into source verification', () => {
+    const raw = answer([
+      {
+        name: 'ГОСТИНАЯ',
+        depthMm: 4644,
+        measurementEvidence: {
+          depth: {
+            kind: 'vertical-chain',
+            scope: 'room',
+            roomName: 'ГОСТИНАЯ',
+            complete: true,
+            segmentsMm: [1600, 528, 2516],
+          },
+        },
+      },
+    ])
+    const room = parseFloorPlan(raw, { requireMeasurementEvidence: true }).rooms[0]
+    expect(room?.depthCm).toBe(464.4)
+    expect(
+      room?.measurementWarnings?.some((warning) => warning.includes('независимо не подтверждены')),
+    ).toBe(true)
+  })
+})
+
 const validGeometry = {
   widthMm: 5000,
   heightMm: 4000,

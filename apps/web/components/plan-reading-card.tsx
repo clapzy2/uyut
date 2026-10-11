@@ -38,6 +38,10 @@ import {
 } from '@/lib/projects/plan-rows'
 
 const numberFieldClassName = `${inputClassName} h-10 text-[14px]`
+const PlanNativeReview = dynamic(
+  () => import('./plan-native-review').then((module) => module.PlanNativeReview),
+  { loading: () => null },
+)
 const PlanPageContourEditor = dynamic(
   () => import('./plan-page-contour-editor').then((module) => module.PlanPageContourEditor),
   { loading: () => <p role="status">Открываем исходный лист…</p> },
@@ -308,6 +312,22 @@ export function PlanReadingCard({
   ) : null
 
   const review = activeReading?.pageReview
+  const nativeReviewControl =
+    planIsPdf &&
+    activeReading?.sourcePage === Number(page) &&
+    activeReading.planState === 'existing' ? (
+      <PlanNativeReview
+        key={`${baseRevision}:${page}`}
+        projectId={projectId}
+        pageNumber={Number(page)}
+        sourceRevision={baseRevision}
+        disabled={reading_ || saving || conflict}
+        onConflict={() => {
+          setConflict(true)
+          router.refresh()
+        }}
+      />
+    ) : null
   const reviewedPage = review?.contours.source.pdfPage === Number(page)
   const canReviewPage =
     planIsPdf &&
@@ -471,6 +491,7 @@ export function PlanReadingCard({
             </Button>
           </details>
         ) : null}
+        {nativeReviewControl}
         {pageReviewControl}
         {reading_ ? (
           <div
@@ -497,6 +518,10 @@ export function PlanReadingCard({
   const missingSourceRows = (activeReading?.pageReview?.sourceRooms ?? []).filter(
     (room) => !rows.some((row) => row.sourceNumber === room.sourceNumber),
   )
+  const sourceSheetUrl =
+    planSourceUrl && planIsPdf
+      ? `${planSourceUrl}#page=${activeReading?.sourcePage ?? 1}`
+      : planSourceUrl
 
   return (
     <fieldset
@@ -526,34 +551,34 @@ export function PlanReadingCard({
         данных 2D-схему нужно сверить заново.
       </p>
 
-      {!planIsPdf ? (
-        <div className="mt-4 space-y-3 border-l-2 border-accent pl-4 text-[14px] leading-relaxed text-ink-2">
-          <p>
-            На изображении ширина идёт по горизонтали (X →), глубина — по вертикали (Y ↓). Сверьте
-            каждую непустую ось с подписью и её привязкой к этой комнате; совпадение площади не
-            обнаруживает перестановку осей. Галочки ниже означают вашу сверку чертежа, а не
-            автоматическую проверку или замер на месте.
-          </p>
-          {planSourceUrl ? (
-            <a href={planSourceUrl} target="_blank" rel="noopener noreferrer" className="underline">
-              Открыть исходное изображение для сверки
-            </a>
-          ) : null}
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={saving || conflict || reviewEditing}
-            onClick={() => setRows((current) => current?.map(clearUnreviewedPlanAxes) ?? null)}
-          >
-            Очистить неподтверждённые оси
-          </Button>
-          <p>
-            После очистки можно перенести комнаты без этих размеров и уточнить их позже. Уже
-            сохранённые мерки существующих комнат не стираются.
-          </p>
-        </div>
-      ) : null}
+      <div className="mt-4 space-y-3 border-l-2 border-accent pl-4 text-[14px] leading-relaxed text-ink-2">
+        <p>
+          На исходном листе ширина идёт по горизонтали (X →), глубина — по вертикали (Y ↓). Сверьте
+          каждую непустую ось с подписью и её привязкой к этой комнате; совпадение площади не
+          обнаруживает перестановку осей. Галочки ниже означают вашу сверку чертежа, а не
+          автоматическую проверку или замер на месте.
+        </p>
+        {sourceSheetUrl ? (
+          <a href={sourceSheetUrl} target="_blank" rel="noopener noreferrer" className="underline">
+            {planIsPdf
+              ? `Открыть исходный лист PDF для сверки · страница ${activeReading?.sourcePage ?? 1}`
+              : 'Открыть исходное изображение для сверки'}
+          </a>
+        ) : null}
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={saving || conflict || reviewEditing}
+          onClick={() => setRows((current) => current?.map(clearUnreviewedPlanAxes) ?? null)}
+        >
+          Очистить неподтверждённые оси
+        </Button>
+        <p>
+          После очистки можно перенести комнаты без этих размеров и уточнить их позже. Уже
+          сохранённые мерки существующих комнат не стираются.
+        </p>
+      </div>
 
       {noSides ? (
         <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
@@ -744,29 +769,28 @@ export function PlanReadingCard({
                     className={`${numberFieldClassName} mt-1 w-24`}
                   />
                 </label>
-                {!planIsPdf ? (
-                  <div className="w-full space-y-2 text-[13px] text-ink-2">
-                    {(['width', 'depth'] as const).map((axis) => (
-                      <label key={axis} className="flex min-h-11 items-start gap-2 py-2">
-                        <input
-                          type="checkbox"
-                          className="mt-0.5 size-[18px] shrink-0 cursor-pointer appearance-none rounded-xs border border-control bg-paper checked:border-accent checked:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                          checked={row[`${axis}Reviewed`] === true}
-                          disabled={!row[axis].trim() || saving || conflict || reviewEditing}
-                          onChange={(event) =>
-                            patch(index, { [`${axis}Reviewed`]: event.currentTarget.checked })
-                          }
-                        />
-                        <span>
-                          {axis === 'width'
-                            ? 'Сверил горизонтальную ширину'
-                            : 'Сверил вертикальную глубину'}{' '}
-                          комнаты «{row.name || index + 1}» с исходным изображением
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                ) : null}
+                <div className="w-full space-y-2 text-[13px] text-ink-2">
+                  {(['width', 'depth'] as const).map((axis) => (
+                    <label key={axis} className="flex min-h-11 items-start gap-2 py-2">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 size-[18px] shrink-0 cursor-pointer appearance-none rounded-xs border border-control bg-paper checked:border-accent checked:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                        checked={row[`${axis}Reviewed`] === true}
+                        disabled={!row[axis].trim() || saving || conflict || reviewEditing}
+                        onChange={(event) =>
+                          patch(index, { [`${axis}Reviewed`]: event.currentTarget.checked })
+                        }
+                      />
+                      <span>
+                        {axis === 'width'
+                          ? 'Сверил горизонтальную ширину'
+                          : 'Сверил вертикальную глубину'}{' '}
+                        комнаты «{row.name || index + 1}»{' '}
+                        {planIsPdf ? 'с исходным листом' : 'с исходным изображением'}
+                      </span>
+                    </label>
+                  ))}
+                </div>
                 <label className="text-[13px] text-ink-2">
                   Площадь, м²
                   <input
@@ -870,6 +894,7 @@ export function PlanReadingCard({
         })}
       </ul>
 
+      {nativeReviewControl}
       {pageReviewControl}
       <details className="mt-4">
         <summary className="min-h-11 cursor-pointer py-2 text-[14px] text-ink-2">

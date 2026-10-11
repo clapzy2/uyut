@@ -236,6 +236,56 @@ export type PlanOpeningMeasurement = {
   verifiedBy: string
 }
 
+/** Explicit common datum and physical owners; never populated by plan recognition. */
+export type PlanVerticalReference = {
+  version: 1
+  id: string
+  kind: 'existing-floor' | 'finished-floor'
+  zeroFloorId: string
+  floors: Array<{
+    id: string
+    room: PlanRoomShape
+    surface: 'existing-floor' | 'finished-floor'
+    elevationCm: number
+  }>
+  /** Finished ceiling elevation in this datum, not the structural wall height. */
+  ceilings?: Array<{ id: string; floorId: string; elevationCm: number }>
+  wallBases: Array<{
+    wall: Pick<PlanWall, 'id' | 'kind' | 'start' | 'end' | 'thicknessCm'>
+    floorId: string
+  }>
+  /** Threshold top, not the lower edge of the aperture or a sill surface. */
+  thresholds: Array<{
+    id: string
+    bindings: [
+      {
+        opening: Pick<PlanOpening, 'id' | 'type' | 'wallId' | 'offsetCm' | 'widthCm'>
+        floorId: string
+      },
+      {
+        opening: Pick<PlanOpening, 'id' | 'type' | 'wallId' | 'offsetCm' | 'widthCm'>
+        floorId: string
+      },
+    ]
+    elevationCm: number
+  }>
+  source: { kind: 'site-measurement' | 'dimensioned-drawing'; reference: string }
+  /** Server-owned horizontal/source context at approval; edits invalidate the datum. */
+  contextSnapshot: {
+    footprint?: PlanPoint[]
+    voids?: PlanVoid[]
+    imageCalibration?: PlanImageCalibration
+    pdfCalibration?: {
+      sourceSha256: string
+      pdfPage: number
+      cmPerPoint: number
+      origin: { x: number; y: number }
+    }
+  }
+  verifiedAt: string
+  verifiedBy: string
+}
+
 export type PlanGeometry = {
   version: 1
   status: 'draft' | 'confirmed'
@@ -247,6 +297,7 @@ export type PlanGeometry = {
   walls: PlanWall[]
   openings: PlanOpening[]
   rooms: PlanRoomShape[]
+  verticalReference?: PlanVerticalReference
   /** Reviewed extent of the apartment floor, including open balcony edges; not wall axes. */
   footprint?: PlanPoint[]
   /** Reviewed non-floor regions, retained as polygons rather than enclosing rectangles. */
@@ -313,6 +364,15 @@ export type PlanPageSegmentRef = {
   segmentIndex: number
 }
 export type PlanPageEndpointProof = PlanPageSegmentRef & { kind: 'native-edge-crossing' }
+/** Freshly rechecked bounded crossing, not a guessed or snapped polygon vertex. */
+export type PlanPageVertexProof = {
+  vertexIndex: number
+  kind: 'bounded-native-crossing'
+  segments: [
+    PlanPageSegmentRef & { start: { x: number; y: number }; end: { x: number; y: number } },
+    PlanPageSegmentRef & { start: { x: number; y: number }; end: { x: number; y: number } },
+  ]
+}
 export type PlanPageOpening = {
   id: string
   kind: 'door' | 'window' | 'balcony'
@@ -354,16 +414,18 @@ export type PlanPageContours = {
   pageHeight: number
   exterior?: {
     polygon: Array<{ x: number; y: number }>
+    vertexProofs?: PlanPageVertexProof[]
     /** Omitted on older reviews, which treated this polygon as the floor boundary. */
     boundaryRole?: 'floor' | 'outer-wall-envelope'
   }
   /** Separate reviewed floor boundary inside an explicitly identified outer-wall envelope. */
-  floor?: { polygon: Array<{ x: number; y: number }> }
+  floor?: { polygon: Array<{ x: number; y: number }>; vertexProofs?: PlanPageVertexProof[] }
   /** Reviewed non-room space such as a technical shaft; never inferred from a gap. */
   voids?: Array<{ id: string; polygon: Array<{ x: number; y: number }> }>
   rooms: Array<
     PlanPageRoomIdentity & {
       polygon: Array<{ x: number; y: number }>
+      vertexProofs?: PlanPageVertexProof[]
       conditionalEdges?: PlanPageConditionalEdge[]
       dimensionEdges?: PlanPageDimensionEdge[]
       /** Ручная разметка исходного листа, без автоматического перевода в сантиметры. */
@@ -413,6 +475,13 @@ export type PlanReading = {
   geometry?: PlanGeometry
   /** Ручная привязка комнат к исходному листу; не подтверждение натурного обмера. */
   pageReview?: PlanPageReview
+  /** Обмеры заноса; отчёт записывает только повторная серверная проверка. */
+  deliveryMeasurements?: {
+    version: 1
+    savedAt: string
+    draftJson: string
+    reportJson?: string
+  }
   /** Когда прочитали, ISO-строкой: в jsonb дата всё равно станет строкой */
   readAt: string
   confirmedAt?: string

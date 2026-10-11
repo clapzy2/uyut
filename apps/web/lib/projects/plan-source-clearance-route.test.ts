@@ -1,5 +1,5 @@
 import polygonClipping, { type Polygon } from 'polygon-clipping'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { inspectSourceClearanceRoutes } from './plan-source-clearance-route'
 
 function box(left: number, top: number, right: number, bottom: number): Polygon {
@@ -45,7 +45,584 @@ function adjoiningRooms() {
   }
 }
 
+describe('exact furniture route connectors', () => {
+  const points = (polygon: Polygon) => (polygon[0] ?? []).map(([xCm, yCm]) => ({ xCm, yCm }))
+  it('checks the full initial body before any route work', () => {
+    const blockedVolume = vi.fn(() => true)
+    const result = inspectSourceClearanceRoutes({ ...fixture(), blockedVolume })
+    expect(result.routes).toEqual([])
+    expect(result.checkedNodes).toBe(0)
+    expect(blockedVolume).toHaveBeenCalledExactlyOnceWith([65, 65, 135, 135])
+  })
+  it('rejects an exact off-grid connector that crosses an occupied volume', () => {
+    const input = {
+      freeFloor: [box(0, 0, 300, 200)],
+      rooms: [{ id: 'target', polygon: points(box(0, 0, 300, 200)) }],
+      start: { xCm: 50, yCm: 100 },
+      widthCm: 20,
+      goal: { roomId: 'target', point: { xCm: 250.25, yCm: 100 } },
+      maxNodes: 3,
+    }
+    expect(inspectSourceClearanceRoutes(input).routes).toHaveLength(1)
+    const blockedVolume = vi.fn(
+      ([left, , right]: [number, number, number, number]) => left < 150 && right > 150,
+    )
+    const held = inspectSourceClearanceRoutes({ ...input, blockedVolume })
+    expect(held.routes).toEqual([])
+    expect(blockedVolume.mock.calls.some(([bounds]) => bounds[0] < 150 && bounds[2] > 150)).toBe(
+      true,
+    )
+  })
+  it('finishes at an off-grid measured point with independently certified continuous segments', () => {
+    const input = fixture()
+    const target = { xCm: 310.25, yCm: 104.75 }
+    const result = inspectSourceClearanceRoutes({ ...input, goal: { roomId: '1', point: target } })
+    expect(result.status).toBe('constructive-routes')
+    expect(result.routes.map((route) => route.roomId)).toEqual(['1'])
+    const route = result.routes[0]
+    expect(route?.points.at(-1)).toEqual(target)
+    for (let index = 1; index < (route?.points.length ?? 0); index++) {
+      const a = route?.points[index - 1]
+      const b = route?.points[index]
+      if (!a || !b) throw new Error('Missing connector segment')
+      expect(a.xCm === b.xCm || a.yCm === b.yCm).toBe(true)
+      const sweep = box(
+        Math.min(a.xCm, b.xCm) - 35,
+        Math.min(a.yCm, b.yCm) - 35,
+        Math.max(a.xCm, b.xCm) + 35,
+        Math.max(a.yCm, b.yCm) + 35,
+      )
+      expect(polygonClipping.difference(sweep, input.freeFloor)).toEqual([])
+    }
+  })
+  it.each([false, true])(
+    'connects an L corridor using only the safe axis ordering: mirrored=%s',
+    (mirrored) => {
+      const floor = polygonClipping.union(box(0, 0, 180, 80), box(100, 0, 180, 200))
+      const swap = (point: { xCm: number; yCm: number }) =>
+        mirrored ? { xCm: point.yCm, yCm: point.xCm } : point
+      const freeFloor = mirrored
+        ? floor.map((polygon) =>
+            polygon.map((ring) => ring.map(([x, y]) => [y, x] as [number, number])),
+          )
+        : floor
+      const target = swap({ xCm: 140.25, yCm: 160.75 })
+      const result = inspectSourceClearanceRoutes({
+        freeFloor,
+        rooms: [{ id: 'target', polygon: points(box(100, 80, 180, 200)).map(swap) }],
+        start: swap({ xCm: 30, yCm: 40 }),
+        widthCm: 20,
+        goal: { roomId: 'target', point: target },
+        maxNodes: 3,
+      })
+      expect(result.status).toBe('constructive-routes')
+      expect(result.routes[0]?.points).toHaveLength(3)
+      expect(result.routes[0]?.points.at(-1)).toEqual(target)
+      expect(result.checkedNodes).toBe(3)
+    },
+  )
+  it('cannot jump between disconnected floor pieces even when both exact endpoints fit', () => {
+    const first = box(0, 0, 100, 100)
+    const second = box(110, 0, 210, 100)
+    const result = inspectSourceClearanceRoutes({
+      freeFloor: polygonClipping.union(first, second),
+      rooms: [{ id: 'target', polygon: points(second) }],
+      start: { xCm: 50, yCm: 50 },
+      widthCm: 20,
+      goal: { roomId: 'target', point: { xCm: 160.25, yCm: 50.25 } },
+      maxNodes: 100,
+    })
+    expect(result.routes).toEqual([])
+    expect(result.unresolvedRoomIds).toEqual(['target'])
+  })
+  it('returns only the requested room for a room-area goal', () => {
+    const result = inspectSourceClearanceRoutes({ ...adjoiningRooms(), goal: { roomId: '1' } })
+    expect(result.routes.map((route) => route.roomId)).toEqual(['1'])
+    expect(result.unresolvedRoomIds).toEqual([])
+  })
+  it.each([1, 2, 3])(
+    'shares the bounded node budget with both off-grid terminal nodes: %s',
+    (maxNodes) => {
+      const floor = box(0, 0, 200, 200)
+      const result = inspectSourceClearanceRoutes({
+        freeFloor: [floor],
+        rooms: [{ id: 'target', polygon: points(floor) }],
+        start: { xCm: 50, yCm: 50 },
+        widthCm: 20,
+        goal: { roomId: 'target', point: { xCm: 100.25, yCm: 100.75 } },
+        maxNodes,
+      })
+      expect(result.checkedNodes).toBeLessThanOrEqual(maxNodes)
+      expect(result.routes.length).toBe(maxNodes === 3 ? 1 : 0)
+      if (maxNodes !== 3) expect(result.reason).toBe('search-limit')
+    },
+  )
+  it('does not require extra terminal nodes when the goal equals the starting measured point', () => {
+    const input = fixture()
+    const result = inspectSourceClearanceRoutes({
+      ...input,
+      maxNodes: 1,
+      goal: { roomId: '0', point: input.start },
+    })
+    expect(result.routes[0]?.points).toEqual([input.start])
+    expect(result.checkedNodes).toBe(1)
+  })
+  it('rejects a source body outside the floor before checking connector tails', () => {
+    const result = inspectSourceClearanceRoutes({
+      ...fixture(),
+      start: { xCm: 1, yCm: 100 },
+      goal: { roomId: '1' },
+    })
+    expect(result.reason).toBe('entry-footprint')
+    expect(result.checkedNodes).toBe(0)
+    expect(result.routes).toEqual([])
+    expect(result.unresolvedRoomIds).toEqual(['1'])
+  })
+  it('does not accept a target centre when part of its body leaves the requested room', () => {
+    const result = inspectSourceClearanceRoutes({
+      ...fixture(),
+      goal: { roomId: '1', point: { xCm: 211, yCm: 100 } },
+      maxNodes: 50,
+    })
+    expect(result.routes).toEqual([])
+    expect(result.unresolvedRoomIds).toEqual(['1'])
+  })
+  it('holds a rounded-down half width at the exact zero-side target boundary', () => {
+    const floor = box(0, 0, 100, 100)
+    const result = inspectSourceClearanceRoutes({
+      freeFloor: [floor],
+      rooms: [{ id: 'target', polygon: points(floor) }],
+      start: { xCm: 50, yCm: 50 },
+      widthCm: 24.166091947189145,
+      footprintCm: { widthCm: 24.166091947189145, depthCm: 10 },
+      goal: { roomId: 'target', point: { xCm: 12.083045973594572, yCm: 50 } },
+      maxNodes: 50,
+    })
+    expect(result.routes).toEqual([])
+  })
+  it('preserves the absent exact-goal output including legacy metadata', () => {
+    const input = fixture()
+    expect(inspectSourceClearanceRoutes({ ...input, goal: undefined })).toEqual(
+      inspectSourceClearanceRoutes(input),
+    )
+  })
+})
+
 describe('continuous source clearance routes', () => {
+  it('rejects an uncertified start maneuver before searching any route nodes', () => {
+    const endpointCheck = vi.fn(() => false)
+    const result = inspectSourceClearanceRoutes({ ...fixture(), endpointCheck })
+    expect(result.routes).toEqual([])
+    expect(result.reason).toBe('entry-footprint')
+    expect(result.checkedNodes).toBe(0)
+    expect(endpointCheck).toHaveBeenCalledExactlyOnceWith({ xCm: 100, yCm: 100 })
+  })
+
+  it('continues beyond the first fitting destination footprint until a landing maneuver fits', () => {
+    const visitedDestination: number[] = []
+    const result = inspectSourceClearanceRoutes({
+      ...fixture(),
+      endpointCheck: (point, roomId) => {
+        if (roomId !== '1') return true
+        visitedDestination.push(point.xCm)
+        return point.xCm >= 300
+      },
+    })
+    expect(result.routes.map((route) => route.roomId)).toEqual(['0', '1'])
+    const destination = result.routes.find((route) => route.roomId === '1')
+    expect(destination?.points.at(-1)?.xCm).toBeGreaterThanOrEqual(300)
+    expect(visitedDestination.some((xCm) => xCm < 300)).toBe(true)
+  })
+
+  it('keeps a rejected landing unresolved under the same global node budget', () => {
+    const result = inspectSourceClearanceRoutes({
+      ...fixture(),
+      maxNodes: 30,
+      endpointCheck: (_point, roomId) => roomId !== '1',
+    })
+    expect(result.checkedNodes).toBeLessThanOrEqual(30)
+    expect(result.unresolvedRoomIds).toContain('1')
+    expect(result.routes.some((route) => route.roomId === '1')).toBe(false)
+  })
+
+  it('preserves the absent endpoint policy and the legacy fixed-orientation output exactly', () => {
+    const input = fixture()
+    const absent = inspectSourceClearanceRoutes(input)
+    expect(inspectSourceClearanceRoutes({ ...input, endpointCheck: undefined })).toEqual(absent)
+    expect(inspectSourceClearanceRoutes({ ...input, endpointCheck: () => true })).toEqual(absent)
+  })
+
+  it.each([false, 1, 'true'])('rejects a non-callable endpoint policy: %j', (endpointCheck) => {
+    expect(() =>
+      inspectSourceClearanceRoutes({
+        ...fixture(),
+        endpointCheck: endpointCheck as unknown as (point: { xCm: number; yCm: number }) => boolean,
+      }),
+    ).toThrow()
+  })
+
+  const points = (polygon: Polygon) => (polygon[0] ?? []).map(([xCm, yCm]) => ({ xCm, yCm }))
+  function turningRoom() {
+    return {
+      freeFloor: [box(0, 0, 130, 130)],
+      rooms: [{ id: 'destination', polygon: points(box(45, 5, 85, 125)) }],
+      start: { xCm: 65, yCm: 65 },
+      widthCm: 120,
+      footprintCm: { widthCm: 120, depthCm: 40 },
+      stepCm: 10,
+      maxNodes: 6000,
+    }
+  }
+  it('checks the entire quarter-turn square even when both endpoint rectangles are clear', () => {
+    const input = { ...turningRoom(), allowQuarterTurns: true }
+    expect(inspectSourceClearanceRoutes(input).routes).toHaveLength(1)
+    const blockedVolume = vi.fn(
+      ([left, top, right, bottom]: [number, number, number, number]) =>
+        right - left > 125 && bottom - top > 125,
+    )
+    const held = inspectSourceClearanceRoutes({ ...input, blockedVolume })
+    expect(held.routes).toEqual([])
+    expect(
+      blockedVolume.mock.calls.some(
+        ([bounds]) => bounds[2] - bounds[0] > 125 && bounds[3] - bounds[1] > 125,
+      ),
+    ).toBe(true)
+  })
+  it('keeps absent and false turn policies exactly compatible with the fixed rectangle', () => {
+    const input = { ...fixture(), footprintCm: { widthCm: 120, depthCm: 40 } }
+    const fixed = inspectSourceClearanceRoutes(input)
+    expect(inspectSourceClearanceRoutes({ ...input, allowQuarterTurns: false })).toEqual(fixed)
+    expect(inspectSourceClearanceRoutes({ ...input, allowQuarterTurns: undefined })).toEqual(fixed)
+    expect(Object.hasOwn(fixed, 'turnPolicy')).toBe(false)
+    expect(Object.hasOwn(fixed, 'turnSweepCm')).toBe(false)
+    expect(
+      fixed.routes.every((route) =>
+        route.points.every((point) => !Object.hasOwn(point, 'orientation')),
+      ),
+    ).toBe(true)
+  })
+  it('constructs an L-corridor route only with a proven turn space and explicit orientation states', () => {
+    const freeFloor = polygonClipping.union(
+      box(0, 110, 300, 190),
+      box(230, 80, 370, 220),
+      box(260, 150, 340, 500),
+    )
+    const input = {
+      freeFloor,
+      rooms: [{ id: 'end', polygon: points(box(260, 300, 340, 500)) }],
+      start: { xCm: 80, yCm: 150 },
+      widthCm: 120,
+      footprintCm: { widthCm: 120, depthCm: 40 },
+      maxNodes: 6000,
+    }
+    expect(inspectSourceClearanceRoutes(input).status).toBe('unresolved')
+    const result = inspectSourceClearanceRoutes({ ...input, allowQuarterTurns: true })
+    expect(result.status).toBe('constructive-routes')
+    expect(result.turnPolicy).toBe('conservative-square')
+    expect(result.turnSweepCm).toBe(Math.hypot(120, 40))
+    const route = result.routes[0]?.points ?? []
+    const turns = route.filter((point, index) => {
+      const previous = route[index - 1]
+      return (
+        previous &&
+        previous.xCm === point.xCm &&
+        previous.yCm === point.yCm &&
+        previous.orientation !== point.orientation
+      )
+    })
+    expect(turns.length).toBeGreaterThan(0)
+    for (const point of turns) {
+      const half = Math.hypot(120, 40) / 2
+      expect(
+        polygonClipping.difference(
+          box(point.xCm - half, point.yCm - half, point.xCm + half, point.yCm + half),
+          freeFloor,
+        ),
+      ).toEqual([])
+    }
+    expect(route.at(-1)?.orientation).toBe(90)
+  })
+  it('does not rotate in a narrow cross even though both endpoint orientations fit', () => {
+    const freeFloor = polygonClipping.union(box(0, 130, 500, 170), box(280, 0, 320, 500))
+    expect(polygonClipping.difference(box(240, 130, 360, 170), freeFloor)).toEqual([])
+    expect(polygonClipping.difference(box(280, 90, 320, 210), freeFloor)).toEqual([])
+    const result = inspectSourceClearanceRoutes({
+      freeFloor,
+      rooms: [{ id: 'end', polygon: points(box(280, 300, 320, 500)) }],
+      start: { xCm: 80, yCm: 150 },
+      widthCm: 120,
+      footprintCm: { widthCm: 120, depthCm: 40 },
+      allowQuarterTurns: true,
+      maxNodes: 6000,
+    })
+    expect(result.status).toBe('unresolved')
+    expect(result.reason).toBe('no-constructed-route')
+    expect(result.routes).toEqual([])
+  })
+  it.each(['obstacle', 'void', 'barrier'] as const)(
+    'holds a turn when its square sweep meets an endpoint-free %s corner',
+    (mode) => {
+      const input = turningRoom()
+      expect(inspectSourceClearanceRoutes({ ...input, allowQuarterTurns: true }).status).toBe(
+        'constructive-routes',
+      )
+      const result = inspectSourceClearanceRoutes({
+        ...input,
+        allowQuarterTurns: true,
+        ...(mode === 'obstacle'
+          ? {
+              metricObstacles: {
+                obstacles: [
+                  { id: 'corner', kind: 'fixed' as const, xCm: 2, yCm: 2, widthCm: 1, depthCm: 1 },
+                ],
+              },
+            }
+          : {}),
+        ...(mode === 'void'
+          ? { metricObstacles: { voids: [{ id: 'corner', polygon: points(box(2, 2, 3, 3)) }] } }
+          : {}),
+        ...(mode === 'barrier'
+          ? { boundaryBarriers: [{ start: { xCm: 2, yCm: 2 }, end: { xCm: 3, yCm: 3 } }] }
+          : {}),
+      })
+      expect(result.status).toBe('unresolved')
+      expect(result.reason).toBe('no-constructed-route')
+    },
+  )
+  it('shares one node budget between translation and orientation states', () => {
+    const input = { ...turningRoom(), allowQuarterTurns: true, stepCm: 100 }
+    const limited = inspectSourceClearanceRoutes({ ...input, maxNodes: 1 })
+    expect(limited.reason).toBe('search-limit')
+    expect(limited.checkedNodes).toBe(1)
+    const result = inspectSourceClearanceRoutes({ ...input, maxNodes: 2 })
+    expect(result.status).toBe('constructive-routes')
+    expect(result.checkedNodes).toBe(2)
+    expect(result.routes[0]?.points.map((point) => point.orientation)).toEqual([0, 90])
+    expect(result.routes[0]?.points.map(({ xCm, yCm }) => ({ xCm, yCm }))).toEqual([
+      input.start,
+      input.start,
+    ])
+  })
+  it('does not certify a turn square whose rounded hypot is smaller than the exact decimal diagonal', () => {
+    // A hypot result observed in another supported JS runtime; do not depend on
+    // this runtime choosing the same rounded transcendental result.
+    const side = 15.620499351813308
+    const centre = side / 2
+    const hypot = vi.spyOn(Math, 'hypot').mockReturnValue(side)
+    try {
+      const result = inspectSourceClearanceRoutes({
+        freeFloor: [box(0, 0, side, side)],
+        rooms: [
+          { id: 'rotated', polygon: points(box(centre - 6, centre - 5, centre + 6, centre + 5)) },
+        ],
+        start: { xCm: centre, yCm: centre },
+        widthCm: 10,
+        footprintCm: { widthCm: 10, depthCm: 12 },
+        allowQuarterTurns: true,
+        stepCm: 1,
+        maxNodes: 100,
+      })
+      expect(result.turnSweepCm).toBeGreaterThan(side)
+      expect(result.status).toBe('unresolved')
+      expect(result.routes).toEqual([])
+    } finally {
+      hypot.mockRestore()
+    }
+  })
+  it.each([null, 0, 1, 'true', {}])(
+    'rejects nonboolean turn flags instead of selecting a default %#',
+    (allowQuarterTurns) => {
+      expect(() =>
+        inspectSourceClearanceRoutes({
+          ...turningRoom(),
+          allowQuarterTurns,
+        } as unknown as Parameters<typeof inspectSourceClearanceRoutes>[0]),
+      ).toThrow('логический режим')
+    },
+  )
+  it('requires an explicit body before opting into turns', () => {
+    expect(() => inspectSourceClearanceRoutes({ ...fixture(), allowQuarterTurns: true })).toThrow(
+      'явный прямоугольный габарит',
+    )
+  })
+  it('certifies all four distances from a decimal centre after enclosing the halved turn diagonal', () => {
+    const centre = 12.083045973594572
+    const input = {
+      freeFloor: [box(0, 0, 50, 50)],
+      rooms: [
+        { id: 'rotated', polygon: points(box(centre - 11, centre - 5, centre + 11, centre + 5)) },
+      ],
+      start: { xCm: centre, yCm: centre },
+      widthCm: 10,
+      footprintCm: { widthCm: 10, depthCm: 22 },
+      allowQuarterTurns: true,
+      stepCm: 100,
+      maxNodes: 2,
+    }
+    const hypot = vi.spyOn(Math, 'hypot').mockReturnValue(24.166091947189145)
+    try {
+      const held = inspectSourceClearanceRoutes(input)
+      expect(held.status).toBe('unresolved')
+      expect(held.routes).toEqual([])
+      const open = inspectSourceClearanceRoutes({
+        ...input,
+        freeFloor: [box(-0.0001, -0.0001, 50, 50)],
+      })
+      expect(open.status).toBe('constructive-routes')
+      expect(open.routes[0]?.points.map((point) => point.orientation)).toEqual([0, 90])
+    } finally {
+      hypot.mockRestore()
+    }
+  })
+  it('preserves the exact square result and omits rectangle metadata when no footprint is supplied', () => {
+    const input = fixture()
+    const legacy = inspectSourceClearanceRoutes(input)
+    expect(inspectSourceClearanceRoutes({ ...input, footprintCm: undefined })).toEqual(legacy)
+    expect(Object.hasOwn(legacy, 'footprintCm')).toBe(false)
+    expect(legacy.footprint).toBe('axis-aligned-square')
+  })
+  it('uses independent body width and depth without finding a hidden rotated orientation', () => {
+    const input = fixture(80)
+    const horizontal = inspectSourceClearanceRoutes({
+      ...input,
+      footprintCm: { widthCm: 120, depthCm: 40 },
+    })
+    expect(horizontal.status).toBe('constructive-routes')
+    expect(horizontal).toMatchObject({
+      footprint: 'axis-aligned-rectangle',
+      footprintCm: { widthCm: 120, depthCm: 40 },
+    })
+    expect(
+      inspectSourceClearanceRoutes({ ...input, footprintCm: { widthCm: 40, depthCm: 120 } }).status,
+    ).toBe('unresolved')
+    const transposed = {
+      ...input,
+      freeFloor: input.freeFloor.map((polygon) =>
+        polygon.map((ring) => ring.map(([x, y]) => [y, x] as [number, number])),
+      ),
+      rooms: input.rooms.map((room) => ({
+        ...room,
+        polygon: room.polygon.map(({ xCm, yCm }) => ({ xCm: yCm, yCm: xCm })),
+      })),
+      start: { xCm: input.start.yCm, yCm: input.start.xCm },
+    }
+    expect(
+      inspectSourceClearanceRoutes({ ...transposed, footprintCm: { widthCm: 120, depthCm: 40 } })
+        .status,
+    ).toBe('unresolved')
+    expect(
+      inspectSourceClearanceRoutes({ ...transposed, footprintCm: { widthCm: 40, depthCm: 120 } })
+        .status,
+    ).toBe('constructive-routes')
+  })
+  it('checks the entire wider rectangle corner against fixed obstacles and interior voids', () => {
+    const input = fixture()
+    const footprintCm = { widthCm: 120, depthCm: 40 }
+    const obstacles = [
+      { id: 'corner', kind: 'fixed' as const, xCm: 159, yCm: 119, widthCm: 10, depthCm: 10 },
+    ]
+    expect(
+      inspectSourceClearanceRoutes({ ...input, metricObstacles: { obstacles } }).reason,
+    ).not.toBe('entry-footprint')
+    expect(
+      inspectSourceClearanceRoutes({ ...input, footprintCm, metricObstacles: { obstacles } })
+        .reason,
+    ).toBe('entry-footprint')
+    expect(
+      inspectSourceClearanceRoutes({
+        ...input,
+        footprintCm,
+        metricObstacles: {
+          voids: [
+            {
+              id: 'hole',
+              polygon: [
+                { xCm: 145, yCm: 90 },
+                { xCm: 155, yCm: 90 },
+                { xCm: 155, yCm: 100 },
+                { xCm: 145, yCm: 100 },
+              ],
+            },
+          ],
+        },
+      }).reason,
+    ).toBe('entry-footprint')
+  })
+  it.each(['barrier', 'obstacle', 'void'] as const)(
+    'checks a whole rectangular sweep across a thin %s between grid nodes',
+    (mode) => {
+      const input = { ...fixture(), footprintCm: { widthCm: 1, depthCm: 80 }, stepCm: 20 }
+      const result = inspectSourceClearanceRoutes({
+        ...input,
+        ...(mode === 'barrier'
+          ? { boundaryBarriers: [{ start: { xCm: 205, yCm: 0 }, end: { xCm: 205, yCm: 200 } }] }
+          : {}),
+        ...(mode === 'obstacle'
+          ? {
+              metricObstacles: {
+                obstacles: [
+                  {
+                    id: 'thin',
+                    kind: 'fixed' as const,
+                    xCm: 205,
+                    yCm: 0,
+                    widthCm: 1,
+                    depthCm: 200,
+                  },
+                ],
+              },
+            }
+          : {}),
+        ...(mode === 'void'
+          ? {
+              metricObstacles: {
+                voids: [
+                  {
+                    id: 'shaft',
+                    polygon: [
+                      { xCm: 205, yCm: 0 },
+                      { xCm: 206, yCm: 0 },
+                      { xCm: 206, yCm: 200 },
+                      { xCm: 205, yCm: 200 },
+                    ],
+                  },
+                ],
+              },
+            }
+          : {}),
+      })
+      expect(result.status).toBe('unresolved')
+      expect(result.reason).toBe('no-constructed-route')
+      expect(result.unresolvedRoomIds).toEqual(['1'])
+    },
+  )
+  it('reports the bounded search limitation for a rectangle instead of claiming impassability', () => {
+    const result = inspectSourceClearanceRoutes({
+      ...fixture(),
+      footprintCm: { widthCm: 120, depthCm: 40 },
+      maxNodes: 1,
+    })
+    expect(result.reason).toBe('search-limit')
+    expect(result.footprint).toBe('axis-aligned-rectangle')
+  })
+  it.each([
+    null,
+    false,
+    [],
+    {},
+    { widthCm: 1 },
+    { widthCm: 0, depthCm: 2 },
+    { widthCm: 2, depthCm: -1 },
+    { widthCm: NaN, depthCm: 2 },
+    { widthCm: 2, depthCm: Infinity },
+    { widthCm: '20', depthCm: 20 },
+  ])('rejects invalid present rectangular footprints without square fallback %#', (footprintCm) => {
+    expect(() =>
+      inspectSourceClearanceRoutes({ ...fixture(), footprintCm } as unknown as Parameters<
+        typeof inspectSourceClearanceRoutes
+      >[0]),
+    ).toThrow('прямоугольный габарит')
+  })
   it('does not pass an uncut physical boundary between adjoining room polygons', () => {
     const input = adjoiningRooms()
     expect(inspectSourceClearanceRoutes(input).status).toBe('constructive-routes')

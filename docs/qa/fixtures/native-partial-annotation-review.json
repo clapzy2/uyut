@@ -1,0 +1,101 @@
+[
+  {
+    "file": "moscow_basis_47m2.pdf",
+    "reviewed": {
+      "review": "manual-native-annotation-review",
+      "source": {
+        "sha256": "eacadf4cf2a58a2f595ba192f3b9be49062f0215b49dffb3ccc920ee669b7eeb",
+        "pdfPage": 3,
+        "state": "existing"
+      },
+      "rasterSource": {
+        "sha256": "257082a96743eac14dde34d2ccfe4542c99296a338f9584016d4ef619a9d6e00",
+        "page": 3,
+        "width": 2000,
+        "height": 1414
+      },
+      "walls": [],
+      "exclusions": [
+        {
+          "ref": { "operationIndex": 8222, "subpathIndex": 0, "segmentIndex": 0 },
+          "start": { "x": 116.593, "y": 737.102 },
+          "end": { "x": 122.546, "y": 745.519 },
+          "role": "dimension-tick",
+          "valueMm": 1541,
+          "label": {
+            "id": "native-text-40",
+            "text": "1 541",
+            "pagePoint": { "x": 118.08097377818969, "y": 695.7847983969427 },
+            "rotation": 90.00000000000595
+          }
+        }
+      ]
+    }
+  },
+  {
+    "file": "moscow_basman_68m2.pdf",
+    "reviewed": {
+      "review": "manual-native-annotation-review",
+      "source": {
+        "sha256": "f3a94ec764d645fdadff4f1b44813c7990d55479853afff2ea202cd793d7aec2",
+        "pdfPage": 3,
+        "state": "existing"
+      },
+      "rasterSource": {
+        "sha256": "9227cc31dc8e20e65d599289133bc4040f9779628e7e9a373cd0de830def019a",
+        "page": 3,
+        "width": 2000,
+        "height": 1414
+      },
+      "walls": [],
+      "exclusions": [
+        {
+          "ref": { "operationIndex": 15197, "subpathIndex": 0, "segmentIndex": 0 },
+          "start": { "x": 245.903, "y": 745.856 },
+          "end": { "x": 248.879, "y": 750.065 },
+          "role": "dimension-tick",
+          "valueMm": 300,
+          "label": {
+            "id": "native-text-21",
+            "text": "300",
+            "pagePoint": { "x": 245.90368458968712, "y": 745.0799433050753 },
+            "rotation": 90.00000000000583
+          }
+        }
+      ]
+    }
+  },
+  {
+    "file": "moscow_ryazansky_remplanner.pdf",
+    "reviewed": {
+      "review": "manual-native-annotation-review",
+      "source": {
+        "sha256": "26b6a49e0512205ee50b1179b7b7447859864db8d3e92375b69a45edadcbc69c",
+        "pdfPage": 3,
+        "state": "existing"
+      },
+      "rasterSource": {
+        "sha256": "23ff9a8da4b389327fc9b4f7d4f54196be92e1f557a15c4264bdf99f997107bc",
+        "page": 3,
+        "width": 2000,
+        "height": 1414
+      },
+      "walls": [],
+      "exclusions": [
+        {
+          "ref": { "operationIndex": 3470, "subpathIndex": 0, "segmentIndex": 0 },
+          "start": { "x": 97.924, "y": 359.64 },
+          "end": { "x": 95.066, "y": 363.681 },
+          "role": "dimension-tick",
+          "valueMm": 820,
+          "label": {
+            "id": "native-text-31",
+            "text": "820",
+            "pagePoint": { "x": 111.44957061575089, "y": 360.3150702912572 },
+            "rotation": 0
+          }
+        }
+      ]
+    }
+  }
+]

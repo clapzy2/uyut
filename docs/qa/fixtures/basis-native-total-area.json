@@ -1,0 +1,108 @@
+{
+  "source": {
+    "sha256": "eacadf4cf2a58a2f595ba192f3b9be49062f0215b49dffb3ccc920ee669b7eeb",
+    "pdfPage": 3
+  },
+  "scope": "Selected native area labels only; not geometry or OCR acceptance",
+  "originalTextItemCount": 67,
+  "items": [
+    {
+      "index": 5,
+      "text": "Объект по адресу: г.Москва, квартира 47,4 кв.м.",
+      "x": 703,
+      "y": 912,
+      "rotation": 0
+    },
+    {
+      "index": 10,
+      "text": "№",
+      "x": 707,
+      "y": 147,
+      "rotation": 0
+    },
+    {
+      "index": 11,
+      "text": "01",
+      "x": 708,
+      "y": 186,
+      "rotation": 0
+    },
+    {
+      "index": 12,
+      "text": "02",
+      "x": 707,
+      "y": 213,
+      "rotation": 0
+    },
+    {
+      "index": 13,
+      "text": "03",
+      "x": 707,
+      "y": 240,
+      "rotation": 0
+    },
+    {
+      "index": 14,
+      "text": "Наименование",
+      "x": 802,
+      "y": 147,
+      "rotation": 0
+    },
+    {
+      "index": 15,
+      "text": "Помещение",
+      "x": 741,
+      "y": 186,
+      "rotation": 0
+    },
+    {
+      "index": 16,
+      "text": "Балкон 01",
+      "x": 741,
+      "y": 213,
+      "rotation": 0
+    },
+    {
+      "index": 17,
+      "text": "Балкон 02",
+      "x": 741,
+      "y": 240,
+      "rotation": 0
+    },
+    {
+      "index": 18,
+      "text": "Площадь",
+      "x": 939,
+      "y": 147,
+      "rotation": 0
+    },
+    {
+      "index": 19,
+      "text": "40,13",
+      "x": 948,
+      "y": 186,
+      "rotation": 0
+    },
+    {
+      "index": 20,
+      "text": "4,75",
+      "x": 950,
+      "y": 213,
+      "rotation": 0
+    },
+    {
+      "index": 21,
+      "text": "3,34",
+      "x": 950,
+      "y": 240,
+      "rotation": 0
+    },
+    {
+      "index": 22,
+      "text": "48,22 м²",
+      "x": 940,
+      "y": 263,
+      "rotation": 0
+    }
+  ]
+}

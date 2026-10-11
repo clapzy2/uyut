@@ -1,17 +1,23 @@
 import 'server-only'
 
 import { createHash } from 'node:crypto'
-import { createFalPlanReader, type PlanReading, planMeasurementTextItems } from '@uyut/ai'
+import {
+  createFalPlanReader,
+  createRasterPlanReader,
+  type PlanReading,
+  planMeasurementTextItems,
+} from '@uyut/ai'
 import { getEnv } from '@/lib/env'
 import { getObject } from '@/lib/storage'
 import { PlanReadError, preparePlanPage } from './plan-document'
 import { planPageFeaturesIssue } from './plan-page-review'
 import { type PdfRoomContours, pdfContourIssue } from './plan-pdf-room-binding'
 import { verifyPlanReadingGeometry } from './plan-reading-geometry'
+import { verifyPlanReadingNativeChains } from './plan-reading-native-chains'
 
 export { PlanReadError } from './plan-document'
 
-/** Один выбранный лист — один AI-запрос. Проектные и обмерные листы не объединяем. */
+/** Один PDF-лист — одно чтение; растр — до двух для выявления конфликтов. Листы не объединяем. */
 export async function readPlanFromStorage(
   key: string,
   pageNumber = 1,
@@ -25,7 +31,7 @@ export async function readPlanFromStorage(
     const object = await getObject(key)
     const body = Buffer.from(object.body)
     const isPdf = key.toLowerCase().endsWith('.pdf')
-    const sha256 = reviewedContours ? createHash('sha256').update(body).digest('hex') : undefined
+    const sha256 = isPdf ? createHash('sha256').update(body).digest('hex') : undefined
     if (
       reviewedContours &&
       (!isPdf ||
@@ -35,7 +41,7 @@ export async function readPlanFromStorage(
       throw new PlanReadError(
         'Разметка относится к другому файлу или листу. Сверьте исходный план перед чтением.',
       )
-    const page = await preparePlanPage(body, isPdf, pageNumber, reviewedContours !== undefined)
+    const page = await preparePlanPage(body, isPdf, pageNumber, isPdf)
     if (reviewedContours) {
       const labels = planMeasurementTextItems(page.image.planText)
       if (
@@ -59,7 +65,8 @@ export async function readPlanFromStorage(
           'Разметка или векторный слой требуют уточнения. Чтение не запущено; проверьте контуры выбранного листа.',
         )
     }
-    const reading = await createFalPlanReader(apiKey)(page.image)
+    const reader = createFalPlanReader(apiKey)
+    const reading = await (isPdf ? reader : createRasterPlanReader(reader))(page.image)
     if (reading.rooms.length === 0) {
       throw new PlanReadError(
         'Не удалось уверенно прочитать помещения на выбранном листе. Проверьте номер страницы или впишите данные вручную.',
@@ -74,11 +81,24 @@ export async function readPlanFromStorage(
       result.geometry = { ...result.geometry }
       delete result.geometry.footprint
     }
-    if (!reviewedContours || !page.linework || !sha256) return result
+    if (!reviewedContours) {
+      if (!isPdf) return result
+      const state = result.planState
+      return verifyPlanReadingNativeChains(result, {
+        ...(sha256 && (state === 'existing' || state === 'proposed')
+          ? { source: { sha256, pdfPage: page.pageNumber, state } }
+          : {}),
+        linework: page.linework,
+        planText: page.image.planText,
+        nativeCaptionGeometry: page.nativeCaptionGeometry,
+      })
+    }
+    if (!page.linework || !sha256) return result
     return verifyPlanReadingGeometry(result, {
       source: { sha256, pdfPage: page.pageNumber, state: reviewedContours.source.state },
       linework: page.linework,
       planText: page.image.planText,
+      nativeCaptionGeometry: page.nativeCaptionGeometry,
       contours: reviewedContours,
     })
   } catch (error) {

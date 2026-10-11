@@ -1,6 +1,11 @@
 import { type PlanReading, planMeasurementTextItems, validatePlanMeasurement } from '@uyut/ai'
 import { type PageAreaConflict, planPageAreaConflicts } from './plan-page-area-conflicts'
+import type { NativeDimensionCaptionContext } from './plan-pdf-caption-binding'
 import { pdfDepthChain, pdfWidthChain } from './plan-pdf-dimension-chain'
+import {
+  pdfNativeDimensionChainIsUnobscured,
+  pdfNativeDimensionSourceIssue,
+} from './plan-pdf-dimension-source'
 import { pdfCalloutLeader } from './plan-pdf-leaders'
 import type { PdfLinework } from './plan-pdf-linework'
 import {
@@ -15,6 +20,7 @@ export type PlanReadingGeometryContext = {
   source: PdfPlanSource
   linework: PdfLinework
   planText?: string
+  nativeCaptionGeometry?: NativeDimensionCaptionContext
   contours: PdfRoomContours
 }
 
@@ -31,6 +37,7 @@ export function verifyPlanReadingGeometry(
 ): PlanReading {
   const { source, linework, contours } = context
   const sourceIssue = pdfContourIssue(linework, source, contours)
+  const dimensionSourceIssue = pdfNativeDimensionSourceIssue(source, linework)
   const sameState = reading.planState === source.state
   const samePage = reading.sourcePage === undefined || reading.sourcePage === source.pdfPage
   const textItems = planMeasurementTextItems(context.planText)
@@ -95,17 +102,21 @@ export function verifyPlanReadingGeometry(
                 : undefined
             accepted = owner?.status === 'candidate' && owner.roomSourceNumber === number
           } else {
-            const chain = (side === 'width' ? pdfWidthChain : pdfDepthChain)(
-              linework,
-              source,
-              contours,
-              number,
-              labels,
-              Math.round(value * 10),
-            )
+            const chain = dimensionSourceIssue
+              ? undefined
+              : (side === 'width' ? pdfWidthChain : pdfDepthChain)(
+                  linework,
+                  source,
+                  contours,
+                  number,
+                  labels,
+                  Math.round(value * 10),
+                  context.nativeCaptionGeometry,
+                )
             // A matching total is insufficient if the evidence assigned each number to the wrong label.
             accepted =
-              chain.status === 'candidate' &&
+              chain?.status === 'candidate' &&
+              pdfNativeDimensionChainIsUnobscured(linework, chain, labels) &&
               chain.segments.every((segment) => {
                 const index = evidence?.textItemIndexes?.indexOf(segment.labelIndex) ?? -1
                 return index >= 0 && evidence?.segmentsMm[index] === segment.valueMm

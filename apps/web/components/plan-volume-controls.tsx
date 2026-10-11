@@ -9,6 +9,9 @@ type VolumeControlsProps = {
   section: boolean
   sectionHeight: number
   roomLayout: boolean
+  sectionMin?: number
+  sectionMax?: number
+  commonDatum?: boolean
   setAngle: Dispatch<SetStateAction<number>>
   setTilt: Dispatch<SetStateAction<number>>
   setZoom: Dispatch<SetStateAction<number>>
@@ -24,6 +27,9 @@ export function PlanVolumeControls({
   section,
   sectionHeight,
   roomLayout,
+  sectionMin = 20,
+  sectionMax = 300,
+  commonDatum = false,
   setAngle,
   setTilt,
   setZoom,
@@ -113,12 +119,13 @@ export function PlanVolumeControls({
           </label>
           {section ? (
             <label className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
-              Срез на высоте {sectionHeight} см
+              {commonDatum ? 'Отметка среза' : 'Срез на высоте'} {sectionHeight} см
+              {commonDatum ? ' от общего нуля' : ''}
               <input
                 type="range"
-                min="20"
-                max="300"
-                step="10"
+                min={sectionMin}
+                max={sectionMax}
+                step={commonDatum ? 1 : 10}
                 value={sectionHeight}
                 onChange={(event) => setSectionHeight(Number(event.currentTarget.value))}
                 aria-label="Высота среза стен, см"

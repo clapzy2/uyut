@@ -1,0 +1,37 @@
+{
+  "review": "manual-native-face-review",
+  "source": {
+    "sha256": "d0ab7f756492e4c2bc11a7870bfcb6815a96daf04127095ba73bcdc6f5a6e058",
+    "pdfPage": 3,
+    "state": "existing"
+  },
+  "rasterSource": {
+    "sha256": "f6577ca5a86797ed36bc76561a2255e6181b9045bf8973591dcab3c1e83efbaf",
+    "page": 3,
+    "width": 2000,
+    "height": 1414
+  },
+  "faces": [
+    {
+      "ref": { "operationIndex": 2741, "subpathIndex": 0, "segmentIndex": 0 },
+      "kind": "wall-face"
+    },
+    {
+      "ref": { "operationIndex": 2762, "subpathIndex": 0, "segmentIndex": 0 },
+      "kind": "reviewed-opening-boundary"
+    },
+    {
+      "ref": { "operationIndex": 2755, "subpathIndex": 0, "segmentIndex": 0 },
+      "kind": "wall-face"
+    },
+    {
+      "ref": { "operationIndex": 2727, "subpathIndex": 0, "segmentIndex": 0 },
+      "kind": "wall-face"
+    },
+    {
+      "ref": { "operationIndex": 2748, "subpathIndex": 0, "segmentIndex": 0 },
+      "kind": "reviewed-opening-boundary"
+    },
+    { "ref": { "operationIndex": 2734, "subpathIndex": 0, "segmentIndex": 0 }, "kind": "wall-face" }
+  ]
+}
