@@ -1345,6 +1345,51 @@ function SavedFrameRooms({
   )
 }
 
+function PaintedRegionContext({
+  report,
+}: {
+  report: NonNullable<NativeReviewPacket['paintedRegionContext']>
+}) {
+  return (
+    <section
+      className="space-y-2 border-t border-line pt-3 text-[13px] leading-relaxed"
+      aria-label="Границы залитых областей исходника"
+    >
+      <h4 className="text-[14px] font-medium">Границы залитых областей исходника</h4>
+      <p className="text-ink-2">
+        Помещения могут быть нарисованы отдельными заливками, а не полостями между стенами. Эти
+        исходные контуры доступны через «Показать также области из заливок» ниже. Белая заливка сама
+        по себе не означает свободный пол: она может закрывать колонну, окно или другую часть
+        рисунка. Порядок рисования и пропуски требуют сверки; контуры не приняты для 2D/3D.
+      </p>
+      {report.status === 'unresolved' ? (
+        <p className="break-all text-ink-2">
+          Контекст заливок не проверен: {report.refusalReason}.
+        </p>
+      ) : (
+        <details className="text-ink-2">
+          <summary className="min-h-11 cursor-pointer py-3">
+            Исходные операции и возможные перекрытия ({report.regions.length})
+          </summary>
+          <ul className="space-y-2">
+            {report.regions.map((region) => (
+              <li key={region.candidateId} className="break-words">
+                {region.candidateId}: более ранние заливки — {region.earlierPaintCount}, более
+                поздние — {region.laterPaintCount}, неоднозначные пересечения —{' '}
+                {region.unresolvedPaintCount}, возможные пропуски в пределах области —{' '}
+                {region.possibleOmissionCount}.
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2">
+            Пересечение габаритов пропуска — только предупреждение, не доказательство его формы.
+          </p>
+        </details>
+      )}
+    </section>
+  )
+}
+
 export function NativeReviewResult({
   packet,
   imageUrl,
@@ -1405,6 +1450,9 @@ export function NativeReviewResult({
         </div>
       ) : null}
       {packet.roomSchedule ? <RoomSchedule report={packet.roomSchedule} /> : null}
+      {packet.paintedRegionContext ? (
+        <PaintedRegionContext report={packet.paintedRegionContext} />
+      ) : null}
       {packet.floorCavities ? (
         <FloorCavityReview
           report={packet.floorCavities}

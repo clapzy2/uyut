@@ -25,6 +25,7 @@ import {
   nativeHeightObservations,
 } from './plan-native-height-observations'
 import { nativeOpeningSourceLinks } from './plan-native-opening-links'
+import { nativePaintedRegionContext } from './plan-native-painted-region-context'
 import { nativeReviewedFrameRooms } from './plan-native-reviewed-frame-rooms'
 import { automaticNativeRoomCandidates, nativeRoomPolygonKey } from './plan-native-room-candidates'
 import {
@@ -67,6 +68,18 @@ export type NativeReviewPacket = {
     annotationHint: boolean
     roomName?: string
   }[]
+  paintedRegionContext?: {
+    status: 'draft' | 'unresolved'
+    refusalReason: string | null
+    regions: {
+      candidateId: string
+      sourceRef: { operationIndex: number; subpathIndex: number }
+      earlierPaintCount: number
+      laterPaintCount: number
+      unresolvedPaintCount: number
+      possibleOmissionCount: number
+    }[]
+  }
   doorSymbols?: {
     status: 'draft' | 'unresolved'
     refusalReason: string | null
@@ -534,6 +547,31 @@ export function nativeReviewPacket(input: {
       'Достигнут лимит областей для наложения. Неполный набор контуров не показан; нужна отдельная сверка исходника.',
     )
   } else packet.faces = faces
+  const paintContext = nativePaintedRegionContext(common)
+  packet.paintedRegionContext =
+    faces.length > 100
+      ? {
+          status: 'unresolved',
+          refusalReason: 'native-overlay-limit',
+          regions: [],
+        }
+      : {
+          status: paintContext.status,
+          refusalReason: paintContext.refusalReason,
+          regions: paintContext.contexts.map((context) => ({
+            candidateId: context.candidateId,
+            sourceRef: context.sourceRef,
+            earlierPaintCount: context.paintContacts.filter(
+              (contact) => contact.order === 'earlier',
+            ).length,
+            laterPaintCount: context.paintContacts.filter((contact) => contact.order === 'later')
+              .length,
+            unresolvedPaintCount: context.paintContacts.filter(
+              (contact) => contact.relation === 'unresolved-paint',
+            ).length,
+            possibleOmissionCount: context.possibleOmissions.length,
+          })),
+        }
   packet.counts = {
     fillCandidates: fills.candidates.length,
     strokeFaces: strokeOverlays.size,

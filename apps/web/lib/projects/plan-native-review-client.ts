@@ -2259,6 +2259,77 @@ function isSavedReview(value: unknown, source: NativeReviewPacket['source']): bo
   return true
 }
 
+function isPaintedRegionContext(packet: NativeReviewPacket): boolean {
+  const report = packet.paintedRegionContext
+  if (report === undefined) return true
+  if (
+    !report ||
+    typeof report !== 'object' ||
+    Object.keys(report).some((key) => !['status', 'refusalReason', 'regions'].includes(key)) ||
+    !Array.isArray(report.regions) ||
+    report.regions.length > 50 ||
+    !Array.isArray(packet.faces) ||
+    packet.faces.some((face) => !face || typeof face !== 'object') ||
+    !packet.extraction ||
+    ![packet.extraction.skippedCurves, packet.extraction.clippedPaths].every(
+      (count) => Number.isSafeInteger(count) && count >= 0,
+    )
+  )
+    return false
+  if (report.status === 'unresolved')
+    return (
+      typeof report.refusalReason === 'string' &&
+      report.refusalReason.length > 0 &&
+      report.refusalReason.length <= 128 &&
+      report.regions.length === 0
+    )
+  if (report.status !== 'draft' || report.refusalReason !== null) return false
+  const fills = new Set(packet.faces.filter((face) => face.layer === 'fill').map((face) => face.id))
+  if (fills.size !== report.regions.length) return false
+  const seen = new Set<string>()
+  return report.regions.every((region) => {
+    if (
+      !region ||
+      typeof region !== 'object' ||
+      Object.keys(region).some(
+        (key) =>
+          ![
+            'candidateId',
+            'sourceRef',
+            'earlierPaintCount',
+            'laterPaintCount',
+            'unresolvedPaintCount',
+            'possibleOmissionCount',
+          ].includes(key),
+      ) ||
+      !fills.has(region.candidateId) ||
+      seen.has(region.candidateId) ||
+      !region.sourceRef ||
+      typeof region.sourceRef !== 'object' ||
+      Object.keys(region.sourceRef).some(
+        (key) => !['operationIndex', 'subpathIndex'].includes(key),
+      ) ||
+      ![region.sourceRef.operationIndex, region.sourceRef.subpathIndex].every(
+        (index) => Number.isSafeInteger(index) && index >= 0 && index < 100_000,
+      ) ||
+      region.candidateId !==
+        `native-fill-${region.sourceRef.operationIndex}:${region.sourceRef.subpathIndex}` ||
+      ![region.earlierPaintCount, region.laterPaintCount, region.unresolvedPaintCount].every(
+        (count) => Number.isSafeInteger(count) && count >= 0 && count <= 3000,
+      ) ||
+      region.earlierPaintCount + region.laterPaintCount > 3000 ||
+      region.unresolvedPaintCount > region.earlierPaintCount + region.laterPaintCount ||
+      !Number.isSafeInteger(region.possibleOmissionCount) ||
+      region.possibleOmissionCount < 0 ||
+      region.possibleOmissionCount >
+        packet.extraction.skippedCurves + packet.extraction.clippedPaths
+    )
+      return false
+    seen.add(region.candidateId)
+    return true
+  })
+}
+
 function isPacket(value: unknown, page: number, revision: string): value is NativeReviewPacket {
   if (!value || typeof value !== 'object') return false
   const packet = value as NativeReviewPacket
@@ -2294,6 +2365,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isDimensionTargets(packet.dimensionTargets, packet) ||
     !isFloorOpeningSides(packet.floorOpeningSides, packet) ||
     !isSavedFrameRooms(packet.savedFrameRooms, packet) ||
+    !isPaintedRegionContext(packet) ||
     !Array.isArray(packet.faces) ||
     packet.faces.length > 100 ||
     !Array.isArray(packet.issues) ||

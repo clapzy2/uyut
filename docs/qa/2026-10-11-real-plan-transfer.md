@@ -44,6 +44,52 @@ Provider-reported usage for the single new request: 15,747 tokens and USD 0.1235
 
 ## Gate and next work
 
+### Follow-up: positive paint and arbitrary-angle frame correspondence
+
+Fresh source inspection identified a distinction missed by the cavity-only interpretation:
+Rebrina's eight room shapes are positive white paint masks (operations 1462, 1491, 1527,
+1563, 1591, 1611, 1631, 1651), already present in the 14 fill candidates. The six union
+holes are a column and small mask-overlap slivers, not six missing room floors. Do not
+repair those holes and report them as rooms. White paint is not a physical-floor role.
+
+The inspection now references those existing positive polygons separately from negative
+space and reports earlier/later different-colour paint and possible omitted-ink bounds.
+For example, kitchen mask 1462 intersects the later grey column operation 13501;
+the hall mask 1651 already goes around that column. Compound, unknown and omitted paint
+remains unresolved. These diagnostics do not certify the final visible fill, room owner,
+floor boundary or height owner. No polygons are duplicated or source masks flattened into
+an accepted floor. The public packet contains bounded counts, not the full internal contact
+inventory. A client regression protects unresolved reports when omission counters exceed
+the extractor's separately capped bounds inventory.
+
+Exact source-decimal rectangular opening frames now support arbitrary orientation with
+the actual page X/Y raster scale; no floating rotation or angle tolerance alters the
+source vertices. Opposed profile contacts and frame/floor-side correspondence use exact
+parallelism, collinearity and relative polygon winding rather than horizontal/vertical
+bounding-box normals. Repaint aliases and competing frames use source vertices and exact
+polygon overlap. Small displaced edges and partial jamb coverage remain held.
+
+**Actual source result:** the original Rebrina page still yields zero opening-frame
+candidates. Exact rotated fixtures verify the new angle support, not recovery of this
+rounded/incomplete source. Its 14 positive paint shapes are available for visual inspection;
+its six unproved cavities and ten unclassified H observations remain unaccepted. No new
+AI call or account/project mutation was performed in this follow-up.
+
+Another concrete remaining issue: Boolean-union intersections are rounded Number points
+that can fail exact collinearity against both original source edges. The first column-hole
+vertex matches a rational crossing numerically, while another differs by approximately
+2.84e-14. An epsilon or snap is not a valid repair. Existing rational graph support needs
+source-linked local paint-role selection: the whole white graph correctly refuses ambiguous
+nearby window intersections. A manually narrowed graph is not automatic recognition.
+
+Verification: 6,859 web tests / 301 files, typecheck seven packages, Biome 990 files,
+production build and diff check passed. Independent reviews found and closed the client
+omission-counter regression. Actual UI/core with the original PDF and mocked private HTTP
+showed the new 14-shape context and unchanged source overlay; viewport/scroll widths were
+1265/1265 and 375/375, with no warning/error console logs. This is local component QA,
+not real-account authorization/persistence proof. Screenshots are under
+`output/playwright/real-plan-positive-regions*20261011.jpg`.
+
 **BLOCKERS for automatic accepted 2D/3D on these sources:** clipped/curved source completeness, rotated opening/frame support, full physical floor boundary and opening inventory, independent metric supports, object-specific heights, and shared floor/threshold datum. Approximate envelopes or rectangle fallbacks must not close these gaps.
 
 **IMPORTANT:** decimal source-room numbering and split/subscript height captions need explicit source-linked support. A room number, a wall gap, a door swing and a free-floor threshold are different evidence.

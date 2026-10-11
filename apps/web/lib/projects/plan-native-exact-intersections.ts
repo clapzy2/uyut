@@ -107,6 +107,23 @@ export function exactNativeOrientation(a: PagePoint, b: PagePoint, p: PagePoint)
   return determinant < 0n ? -1 : determinant > 0n ? 1 : 0
 }
 
+/** Parallel nonzero source directions, without translating/rounding their endpoints. */
+export function exactNativeDirectionsParallel(
+  first: Pick<NativePageSegment, 'start' | 'end'>,
+  second: Pick<NativePageSegment, 'start' | 'end'>,
+): boolean | null {
+  const integers = integerPoints([first.start, first.end, second.start, second.end])
+  if (!integers) return null
+  const [a, b, c, d] = integers.points
+  if (!a || !b || !c || !d) return null
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const ex = d.x - c.x
+  const ey = d.y - c.y
+  if ((dx === 0n && dy === 0n) || (ex === 0n && ey === 0n)) return false
+  return dx * ey === dy * ex
+}
+
 /** Location in an already validated simple source polygon, without an epsilon. */
 export function exactNativePointLocation(polygon: readonly PagePoint[], point: PagePoint) {
   if (polygon.length < 3 || polygon.length > 100) return 'unresolved' as const

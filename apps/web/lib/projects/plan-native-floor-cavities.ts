@@ -2,6 +2,7 @@ import polygonClipping, { type Polygon } from 'polygon-clipping'
 import type { NativeTextAnchors } from './plan-document'
 import { type NativeClosedStrokeRun, nativeClosedStrokeRuns } from './plan-native-closed-runs'
 import {
+  exactNativeDirectionsParallel,
   exactNativeOrientation,
   exactNativePolygonContains,
   exactNativePolygonsOverlap,
@@ -287,17 +288,14 @@ export function nativeFloorCavityCandidates(input: Input) {
         const opposed = contacts.some((first) =>
           contacts.some((second) => {
             spend()
-            if (first.start.x === first.end.x && second.start.x === second.end.x)
-              return (
-                first.start.x !== second.start.x &&
-                Math.sign(first.end.y - first.start.y) === -Math.sign(second.end.y - second.start.y)
-              )
-            if (first.start.y === first.end.y && second.start.y === second.end.y)
-              return (
-                first.start.y !== second.start.y &&
-                Math.sign(first.end.x - first.start.x) === -Math.sign(second.end.x - second.start.x)
-              )
-            return false
+            if (exactNativeDirectionsParallel(first, second) !== true) return false
+            const side = exactNativeOrientation(first.start, first.end, second.start)
+            if (side === null || side === 0) return false
+            const axis = first.start.x === first.end.x ? 'y' : 'x'
+            return (
+              Math.sign(first.end[axis] - first.start[axis]) ===
+              -Math.sign(second.end[axis] - second.start[axis])
+            )
           }),
         )
         if (!opposed || paintOperations.size < 2) continue

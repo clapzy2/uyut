@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { NativeTextAnchors } from './plan-document'
-import { nativeOpeningFrameCandidates } from './plan-native-opening-frames'
-import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
+import {
+  exactNativeOpeningFrameShape,
+  nativeOpeningFrameCandidates,
+} from './plan-native-opening-frames'
+import type { PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 
 const raster = { sha256: 'b'.repeat(64), page: 1, width: 1000, height: 1000 }
 const native: NativeTextAnchors = {
@@ -68,7 +71,132 @@ const run = (layer = work(), anchors = native) =>
     lineworkSource: anchors.source,
   })
 
+function rotated(layer: PdfLinework, scaleX = 1): PdfLinework {
+  return {
+    ...structuredClone(layer),
+    paths: layer.paths.map((source) => ({
+      ...source,
+      points: source.points.map(({ x, y }) => ({
+        x: ((3 * x - 4 * y) / 5 + 300) / scaleX,
+        y: (4 * x + 3 * y) / 5 + 100,
+      })),
+    })),
+  }
+}
+
 describe('painted native opening frame candidates', () => {
+  const realSource = fileURLToPath(
+    new URL('../../../../output/pdf/source-search-20261003/rebrina-original.pdf', import.meta.url),
+  )
+  it.skipIf(!existsSync(realSource))(
+    'does not advertise a recovered opening inventory for the actual Rebrina survey',
+    async () => {
+      const body = await readFile(realSource)
+      expect(createHash('sha256').update(body).digest('hex')).toBe(
+        '2e141c135812c81719e1f4783173cb5202e20041ac494d3cc799eb37ad62ad4e',
+      )
+      const { preparePlanPage } = await import('./plan-document')
+      const page = await preparePlanPage(body, true, 3, true, true)
+      if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+        throw new Error('Missing original native PDF evidence')
+      const result = nativeOpeningFrameCandidates({
+        native: page.nativeTextAnchors,
+        work: page.linework,
+        lineworkSource: page.lineworkRasterSource,
+      })
+      expect(result.refusalReason).toBeNull()
+      expect(result.candidates).toEqual([])
+      expect(result.completeOpeningInventory).toBe(false)
+      expect(result.closesFloorBoundary).toBe(false)
+    },
+    30_000,
+  )
+
+  it('exposes exact topology without confusing it with a physical rectangle proof', () => {
+    const points: [PagePoint, PagePoint, PagePoint, PagePoint] = [
+      { x: 1, y: 1 },
+      { x: 11, y: 6 },
+      { x: 12, y: 8 },
+      { x: 2, y: 3 },
+    ]
+    expect(exactNativeOpeningFrameShape(points)).toBe(true)
+    expect(exactNativeOpeningFrameShape(points, { x: 1, y: 1 })).toBe(false)
+    expect(exactNativeOpeningFrameShape([...points].reverse())).toBe(true)
+    expect(exactNativeOpeningFrameShape([points[0], points[2], points[1], points[3]])).toBe(false)
+    expect(exactNativeOpeningFrameShape(points.map((point) => ({ x: point.x, y: 1 })))).toBe(false)
+    expect(exactNativeOpeningFrameShape(points.map((point) => ({ ...point, x: 1001 })))).toBe(false)
+  })
+
+  it('retains arbitrary-angle source vertices and exact collinear jamb coverage without snapping', () => {
+    const input = rotated(work())
+    const result = run(input)
+    expect(result.candidates).toHaveLength(1)
+    expect(result.coverageScope).toBe('exact-physical-rectangular-source-frames-only')
+    expect(result.candidates[0]?.frame).toEqual(input.paths[0])
+    expect(result.candidates[0]?.longEdges.map((edge) => edge.segmentIndex)).toEqual([0, 2])
+    expect(result.candidates[0]?.jambs.map((jamb) => jamb.sourceEdges[0]?.operationIndex)).toEqual([
+      3, 2,
+    ])
+    expect(result.candidates[0]).toMatchObject({
+      openingKind: null,
+      semanticStatus: 'unclassified',
+      physicalPassageAccepted: false,
+      closesFloorBoundary: false,
+    })
+  })
+
+  it('checks physical right angles under anisotropic normalized-page coordinates', () => {
+    const input = rotated(work(), 0.5)
+    const anchors = {
+      ...native,
+      source: { ...raster, width: 500 },
+      pageNormalizedScale: { x: 0.5, y: 1 },
+    }
+    expect(run(input, anchors).candidates).toHaveLength(1)
+    // The same source quadrilateral is a parallelogram, not a rectangle, on a square page.
+    expect(run(input).candidates).toEqual([])
+  })
+
+  it('does not promote nearly rectangular or nearly collinear rotated source ink', () => {
+    const distorted = rotated(work())
+    const vertex = distorted.paths[0]?.points[1]
+    if (vertex) vertex.x += 0.000000001
+    expect(run(distorted).candidates).toEqual([])
+    const separated = rotated(work())
+    const host = separated.paths[1]
+    if (host) host.points = host.points.map((point) => ({ ...point, x: point.x + 0.000000001 }))
+    expect(run(separated).candidates).toEqual([])
+  })
+
+  it('deduplicates rotated repaints with reversed winding and shifted first vertex', () => {
+    const input = rotated(work())
+    const frame = input.paths[0] as PdfVectorPath
+    const vertices = frame.points.slice(0, -1).reverse()
+    const shifted = [...vertices.slice(1), vertices[0] as { x: number; y: number }]
+    const first = shifted[0]
+    if (!first) throw new Error('Missing alias vertex')
+    const alias = { ...frame, operationIndex: 4, points: [...shifted, first] }
+    input.paths.push(alias)
+    const result = run(input)
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0]?.repaintAliases).toEqual([alias])
+  })
+
+  it('does not confuse overlapping axis bounds with overlapping rotated painted frames', () => {
+    const input = work()
+    const second = structuredClone(input.paths).map((source) => ({
+      ...source,
+      operationIndex: source.operationIndex + 10,
+      points: source.points.map((point) => ({ ...point, y: point.y + 20 })),
+    }))
+    input.paths.push(...second)
+    const result = run(rotated(input))
+    expect(result.candidates).toHaveLength(2)
+    const overlapping = work()
+    overlapping.paths.push(rectangle(5, 100, 200, 105, 115))
+    expect(run(rotated(overlapping)).candidates).toEqual([])
+  })
+
   it('retains actual rectangle, long boundary edges and fully containing jamb source edges', () => {
     const input = work()
     const original = structuredClone(input)
@@ -334,3 +462,8 @@ describe('painted native opening frame candidates', () => {
     })
   })
 })
+
+import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
