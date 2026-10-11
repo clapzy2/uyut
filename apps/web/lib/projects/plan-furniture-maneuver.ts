@@ -3,6 +3,7 @@ import { signedElevationSum, signedPlanFloors } from '@uyut/catalog/plan-vertica
 import type { PlanGeometry, PlanPoint } from '@uyut/db'
 import polygonClipping, { type MultiPolygon, type Polygon } from 'polygon-clipping'
 import { intersectsOpenRectangle } from './plan-source-clearance-route'
+import { tiltedBoxEnvelope } from './plan-tilt-angle-envelope'
 import {
   enclosingDecimalSum,
   enclosingTurnBounds,
@@ -12,6 +13,7 @@ import {
 export type FurnitureManeuver = {
   carryElevationCm: number
   tilt: 'none' | 'width' | 'depth'
+  angleDeg?: number
 }
 
 export type FurnitureManeuverResult = FurnitureManeuver & {
@@ -36,18 +38,22 @@ export function furnitureManeuverEnvelope(
 ) {
   const signed = signedPlanFloors(geometry)
   if (!signed?.ok) return undefined
+  if (maneuver.tilt === 'none' && maneuver.angleDeg !== undefined && maneuver.angleDeg !== 0)
+    return undefined
+  const angle = maneuver.tilt === 'none' ? 0 : (maneuver.angleDeg ?? 90)
   const dimension = maneuver.tilt === 'width' ? upright.widthCm : upright.depthCm
-  const diagonal =
-    maneuver.tilt === 'none' ? upright.heightCm : enclosingTurnSide(dimension, upright.heightCm)
+  const tilted = tiltedBoxEnvelope(dimension, upright.heightCm, angle)
+  if (!tilted) return undefined
+  const diagonal = angle === 0 ? upright.heightCm : enclosingTurnSide(dimension, upright.heightCm)
   if (diagonal === undefined) return undefined
   const carried = {
-    widthCm: maneuver.tilt === 'width' ? upright.heightCm : upright.widthCm,
-    depthCm: maneuver.tilt === 'depth' ? upright.heightCm : upright.depthCm,
-    heightCm: maneuver.tilt === 'none' ? upright.heightCm : dimension,
+    widthCm: maneuver.tilt === 'width' ? tilted.extentCm : upright.widthCm,
+    depthCm: maneuver.tilt === 'depth' ? tilted.extentCm : upright.depthCm,
+    heightCm: tilted.heightCm,
   }
   const sweep = {
-    widthCm: maneuver.tilt === 'width' ? diagonal : upright.widthCm,
-    depthCm: maneuver.tilt === 'depth' ? diagonal : upright.depthCm,
+    widthCm: maneuver.tilt === 'width' && angle > 0 ? diagonal : upright.widthCm,
+    depthCm: maneuver.tilt === 'depth' && angle > 0 ? diagonal : upright.depthCm,
   }
   // At each pitch angle the XY centre stays fixed and the Z centre follows
   // half the rotated height. Both rotated extents are at most the diagonal,

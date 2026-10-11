@@ -17,8 +17,12 @@ const requestSchema = z
       .object({
         carryElevationCm: z.number().finite().min(-600).max(1200),
         tilt: z.enum(['none', 'width', 'depth']),
+        angleDeg: z.number().finite().min(0).max(90).optional(),
       })
       .strict()
+      .refine(
+        (value) => value.tilt !== 'none' || value.angleDeg === undefined || value.angleDeg === 0,
+      )
       .optional(),
     acknowledged: z.literal(true),
   })
@@ -74,7 +78,7 @@ export function inspectFurnitureTransfer(
         widthCm: enclosingDecimalSum([profile.widthCm, profile.clearanceCm, profile.clearanceCm]),
         depthCm: enclosingDecimalSum([profile.depthCm, profile.clearanceCm, profile.clearanceCm]),
         heightCm: enclosingDecimalSum(
-          profile.maneuver.tilt === 'none'
+          profile.maneuver.tilt === 'none' || profile.maneuver.angleDeg === 0
             ? [profile.heightCm, profile.clearanceCm]
             : [profile.heightCm, profile.clearanceCm, profile.clearanceCm],
         ),
@@ -86,7 +90,7 @@ export function inspectFurnitureTransfer(
     if (!envelope)
       return { profile, error: 'Не удалось подтвердить область полного подъёма и наклона.', notes }
     notes[0] =
-      'Проверяется предписанный перенос на одной абсолютной отметке над подтверждёнными полами и верхом порога. Подъём и опускание выполняются целиком внутри одной комнаты; наклон только на 90° с неизменным центром по X/Y и постоянной нижней границей, с вертикальным перемещением центра. Вся область наклона ограждена диагональным квадратом. Лестничные марши, произвольные углы, вес, люди и физическая возможность подъёма не проверяются.'
+      'Проверяется предписанный перенос на одной абсолютной отметке над подтверждёнными полами и верхом порога. Подъём и опускание выполняются целиком внутри одной комнаты; наклон в одном выбранном сечении от 0° до заданного угла (не более 90°), с неизменным центром по X/Y и постоянной нижней границей, с вертикальным перемещением центра. Вся область наклона консервативно ограждена полным диагональным квадратом, а конечная поза рассчитана для введённого угла. Отказ не доказывает невозможность другого манёвра. Лестничные марши здесь, составные наклоны, вес, люди и физическая возможность подъёма не проверяются.'
     const inspection = inspectPdfClearanceRoutes(geometry, {
       ...envelope.carried,
       carryElevationCm: profile.maneuver.carryElevationCm,

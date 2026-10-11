@@ -6,6 +6,7 @@ import type { PlanGeometry } from '@uyut/db'
 import { Button } from '@uyut/ui'
 import { useId, useMemo, useState } from 'react'
 import { inspectFurnitureTransfer } from '@/lib/projects/plan-furniture-transfer'
+import { PlanFurnitureStairCheck } from './plan-furniture-stair-check'
 
 type ProfileFields = {
   widthCm: string
@@ -17,6 +18,7 @@ type ProfileFields = {
   allowManeuver: boolean
   carryElevationCm: string
   tilt: 'none' | 'width' | 'depth'
+  angleDeg: string
 }
 const emptyFields: ProfileFields = {
   widthCm: '',
@@ -28,6 +30,7 @@ const emptyFields: ProfileFields = {
   allowManeuver: false,
   carryElevationCm: '',
   tilt: 'none',
+  angleDeg: '90',
 }
 const labels = [
   ['widthCm', 'Ширина габарита, см'],
@@ -49,6 +52,8 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
   }>()
   const current = checked?.key === key ? checked.result : undefined
   const acknowledged = acknowledgedKey === key
+  const selectedAngle = Number((fields.angleDeg ?? '90').trim().replace(',', '.'))
+  const hasTilt = fields.allowManeuver && fields.tilt !== 'none' && selectedAngle > 0
   const transitions = useMemo(
     () => inspectThresholdLevelTransitions(JSON.parse(snapshot) as PlanGeometry),
     [snapshot],
@@ -99,6 +104,7 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
       if (!/^[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)$/u.test(decimal)) return Number.NaN
       return Number(decimal.replace(',', '.'))
     }
+    const angle = number(fields.angleDeg ?? '90')
     try {
       setChecked({
         key,
@@ -114,6 +120,9 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
                 maneuver: {
                   carryElevationCm: number(fields.carryElevationCm),
                   tilt: fields.tilt,
+                  ...(fields.tilt !== 'none'
+                    ? { angleDeg: angle === undefined ? Number.NaN : angle }
+                    : {}),
                 },
               }
             : {}),
@@ -142,7 +151,7 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
       </p>
       <p className="mt-2 text-xs leading-relaxed text-ink-2">
         {fields.allowManeuver
-          ? 'Подъём и опускание проверяются только на концах найденного пути. По пути основание удерживается на одной заданной отметке от общего нуля. Можно проверить укладку на бок на 90° с полной консервативной зоной наклона; произвольные углы и лестничные марши не рассчитываются.'
+          ? 'Подъём и опускание проверяются только на концах найденного пути. По пути основание удерживается на одной заданной отметке от общего нуля. Можно задать наклон от 0° до 90° в одном выбранном сечении. Вся непрерывная зона наклона проверяется консервативно, а не только конечное положение.'
           : fields.allowTurns
             ? 'Габарит остаётся вертикальным. Поворот на месте на 90° допускается только внутри свободного консервативного квадрата со стороной, равной диагонали габарита с запасом. Наклон, подъём и лестницы не рассчитываются.'
             : 'Только горизонтальное перемещение вертикального габарита в фиксированном положении. Повороты вдоль пути, наклон, подъём и лестницы не рассчитываются.'}
@@ -230,21 +239,37 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
               className="min-h-11 w-full border border-line-strong bg-paper px-3 py-2 text-ink focus-visible:outline-2 focus-visible:outline-accent"
             >
               <option value="none">Вертикально, без наклона</option>
-              <option value="width">На бок: ширина ↔ высота (90°)</option>
-              <option value="depth">На бок: глубина ↔ высота (90°)</option>
+              <option value="width">Наклон в сечении ширина/высота</option>
+              <option value="depth">Наклон в сечении глубина/высота</option>
             </select>
           </label>
+          {fields.tilt !== 'none' ? (
+            <label htmlFor={`${id}-angle`} className="flex flex-col gap-1 text-sm text-ink-2">
+              Угол наклона, °
+              <input
+                id={`${id}-angle`}
+                type="text"
+                inputMode="decimal"
+                maxLength={20}
+                value={fields.angleDeg ?? '90'}
+                onChange={(event) => change('angleDeg', event.currentTarget.value)}
+                className="min-h-11 w-full border border-line-strong bg-paper px-3 py-2 text-ink focus-visible:outline-2 focus-visible:outline-accent"
+              />
+            </label>
+          ) : null}
           <p className="text-xs leading-relaxed text-ink-2 sm:col-span-2">
-            Это абсолютная отметка, не величина подъёма: возможны отрицательные значения. При
-            укладке меняются местами размеры с запасом. Центр на плане остаётся на месте, а низ
-            удерживается на заданной отметке; проверяется вся зона наклона, не только два конечных
-            положения. Отдельная ступень допускается только с подтверждённой геометрией.
+            Отметка низа абсолютная, не величина подъёма: возможны отрицательные значения. Центр на
+            плане остаётся на месте, а низ удерживается на заданной отметке. Для ненулевого наклона
+            на всех углах от 0° до выбранного значения используется охватывающая зона полного
+            поворота на 90° по диагонали сечения. Это консервативное ограничение может отклонить
+            физически возможный манёвр. Отдельная ступень допускается только с подтверждённой
+            геометрией.
           </p>
         </div>
       ) : null}
       <p className="mt-2 text-xs leading-relaxed text-ink-2">
-        {fields.allowManeuver && fields.tilt !== 'none'
-          ? 'Для укладки на бок каждый из трёх размеров заранее увеличивается на два запаса. После наклона исходная высота становится горизонтальным размером, сохраняя запас с каждой стороны. По вертикали это более строгая зона, чем при переносе без наклона: весь двойной запас располагается над основанием;'
+        {hasTilt
+          ? 'Для ненулевого наклона каждый из трёх размеров заранее увеличивается на два запаса. При 90° исходная высота становится горизонтальным размером, сохраняя запас с каждой стороны. По вертикали это более строгая зона, чем при переносе без наклона: весь двойной запас располагается над основанием;'
           : 'Запас добавляется с каждой стороны ширины и глубины, а по высоте - только над предметом;'}
         {fields.allowManeuver
           ? ' основание при переносе удерживается на заданной отметке.'
@@ -264,7 +289,7 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
         />
         Я сверил переносимый габарит, запас, начальное положение и выбранный режим поворотов по
         обмеру предмета или упаковки. Для подъёма также сверил общую отметку переноса и положение
-        при переносе.
+        при переносе и выбранный угол наклона.
       </label>
       <Button type="button" variant="secondary" className="mt-3" onClick={check}>
         Проверить габарит
@@ -318,8 +343,8 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
                   {current.maneuver.tilt === 'none'
                     ? ' Без наклона.'
                     : current.maneuver.tilt === 'width'
-                      ? ' Укладка на бок: ширина ↔ высота (90°).'
-                      : ' Укладка на бок: глубина ↔ высота (90°).'}{' '}
+                      ? ` Наклон в сечении ширина/высота: ${current.maneuver.angleDeg ?? 90}°.`
+                      : ` Наклон в сечении глубина/высота: ${current.maneuver.angleDeg ?? 90}°.`}{' '}
                   Консервативная высота зоны манёвра {current.maneuver.sweepHeightCm} см.
                 </p>
                 <ul className="mt-1 space-y-1">
@@ -333,7 +358,7 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
                 </ul>
                 <p className="mt-1">
                   Линия на плане показывает перенос на постоянной высоте. Для перечисленных комнат
-                  подъём, опускание и выбранная укладка на бок проверены отдельно в конечных точках
+                  подъём, опускание и выбранный наклон проверены отдельно в конечных точках
                   найденных путей. Это не проверка движения по лестничному маршу и не гарантия
                   доставки.
                 </p>
@@ -512,7 +537,7 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
       ) : null}
       <p className="mt-3 text-xs leading-relaxed text-ink-2">
         {fields.allowManeuver
-          ? 'Проверяется выбранный перенос на постоянной отметке, подъём и опускание на концах пути и выбранная укладка на бок. Произвольные углы наклона не проверяются. '
+          ? 'Проверяется выбранный перенос на постоянной отметке, подъём и опускание на концах пути и выбранный угол наклона в одном сечении. Наклон одновременно по двум осям и противоположное направление наклона не проверяются. '
           : fields.allowTurns
             ? 'Проверяется только выбранная консервативная модель поворота на месте. '
             : 'Габарит остаётся вертикальным и в одном положении; повороты вдоль пути не проверяются. '}
@@ -521,6 +546,7 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
         учтена. Неизвестные высоты проёмов и потолков требуют обмера. Найденный путь не подтверждает
         физический перенос мебели.
       </p>
+      <PlanFurnitureStairCheck geometry={geometry} profileFields={fields} />
     </section>
   )
 }

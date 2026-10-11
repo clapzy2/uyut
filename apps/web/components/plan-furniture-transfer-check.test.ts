@@ -392,6 +392,83 @@ describe('rigid furniture transfer UI', () => {
     expect(html).not.toContain('каждый из трёх размеров заранее увеличивается на два запаса')
   })
 
+  it('shows a deliberate 90-degree initial angle only after selecting a tilt axis', () => {
+    vi.mocked(useState).mockReturnValueOnce([
+      { ...fields, allowManeuver: true, carryElevationCm: '20', tilt: 'depth', angleDeg: '90' },
+      vi.fn(),
+    ])
+    const html = renderToStaticMarkup(createElement(PlanFurnitureTransferCheck, { geometry }))
+    expect(html).toContain('Угол наклона, °')
+    expect(html).toContain('id="transfer-test-angle"')
+    expect(html).toContain('value="90"')
+    expect(html).toContain('на всех углах от 0° до выбранного значения')
+    expect(html).toMatch(/охватывающая зона полного\s+поворота на 90°/)
+    expect(html).toMatch(/может отклонить\s+физически возможный/)
+    expect(html).not.toContain('Произвольные углы наклона не проверяются')
+  })
+
+  it.each([
+    ['35,5', 35.5],
+    ['.5', 0.5],
+    ['0', 0],
+    ['90', 90],
+    ['-1', -1],
+    ['91', 91],
+    ['', Number.NaN],
+    ['   ', Number.NaN],
+    ['1e1', Number.NaN],
+    ['0x10', Number.NaN],
+  ])(
+    'passes explicit tilt angle %s for validation without restoring an empty value to 90',
+    (value, expected) => {
+      vi.mocked(useState).mockReturnValueOnce([
+        { ...fields, allowManeuver: true, carryElevationCm: '20', tilt: 'width', angleDeg: value },
+        vi.fn(),
+      ])
+      elements(PlanFurnitureTransferCheck({ geometry }))
+        .find((node) => node.props.onClick)
+        ?.props.onClick?.()
+      expect(inspectFurnitureTransfer).toHaveBeenCalledWith(
+        geometry,
+        expect.objectContaining({
+          maneuver: { carryElevationCm: 20, tilt: 'width', angleDeg: expected },
+        }),
+      )
+    },
+  )
+
+  it('uses only the above-height reserve for a selected axis at exactly zero degrees', () => {
+    vi.mocked(useState).mockReturnValueOnce([
+      { ...fields, allowManeuver: true, carryElevationCm: '20', tilt: 'width', angleDeg: '0' },
+      vi.fn(),
+    ])
+    const html = renderToStaticMarkup(createElement(PlanFurnitureTransferCheck, { geometry }))
+    expect(html).toContain('по высоте - только над предметом')
+    expect(html).not.toContain('каждый из трёх размеров заранее увеличивается на два запаса')
+  })
+
+  it('revokes acknowledgement and checked routes when the entered angle changes', () => {
+    const carryingFields = {
+      ...fields,
+      allowManeuver: true,
+      carryElevationCm: '20',
+      tilt: 'width',
+      angleDeg: '35,5',
+    }
+    const carryingKey = `${JSON.stringify(geometry)}:${JSON.stringify(carryingFields)}`
+    const setAcknowledged = vi.fn()
+    const setChecked = vi.fn()
+    vi.mocked(useState)
+      .mockReturnValueOnce([carryingFields, vi.fn()])
+      .mockReturnValueOnce([carryingKey, setAcknowledged])
+      .mockReturnValueOnce([{ key: carryingKey, result: response }, setChecked])
+    elements(PlanFurnitureTransferCheck({ geometry }))
+      .find((node) => node.props.id === 'transfer-test-angle')
+      ?.props.onChange?.({ currentTarget: { value: '40' } })
+    expect(setAcknowledged).toHaveBeenCalledWith(undefined)
+    expect(setChecked).toHaveBeenCalledWith(undefined)
+  })
+
   it.each([
     ['-15,5', -15.5],
     ['+0.5', 0.5],
@@ -416,7 +493,7 @@ describe('rigid furniture transfer UI', () => {
     expect(inspectFurnitureTransfer).toHaveBeenCalledWith(
       geometry,
       expect.objectContaining({
-        maneuver: { carryElevationCm: expected, tilt: 'width' },
+        maneuver: { carryElevationCm: expected, tilt: 'width', angleDeg: 90 },
         acknowledged: true,
       }),
     )
@@ -448,56 +525,61 @@ describe('rigid furniture transfer UI', () => {
     },
   )
 
-  it('prints carried rather than raw upright height and measured endpoint lifting without promising delivery', () => {
-    const carryingFields = {
-      ...fields,
-      allowManeuver: true,
-      carryElevationCm: '-5',
-      tilt: 'width',
-    }
-    const carryingKey = `${JSON.stringify(geometry)}:${JSON.stringify(carryingFields)}`
-    const measured = structuredClone(response)
-    measured.profile = {
-      widthCm: 60,
-      depthCm: 40,
-      heightCm: 100,
-      clearanceCm: 1,
-      orientation: 0,
-      acknowledged: true,
-    }
-    measured.maneuver = {
-      carryElevationCm: -5,
-      tilt: 'width',
-      carriedHeightCm: 62,
-      sweepHeightCm: 119,
-      stages: [
-        {
-          roomId: '0',
-          startFloorElevationCm: -15,
-          endFloorElevationCm: -10,
-          liftCm: 10,
-          lowerCm: 5,
-        },
-      ],
-    }
-    if (!measured.inspection?.result) throw new Error('Missing seeded transfer result')
-    measured.inspection.result.vertical = {
-      referenceId: 'datum',
-      elevationCm: -5,
-      heldTransitions: [],
-    }
-    vi.mocked(useState)
-      .mockReturnValueOnce([carryingFields, vi.fn()])
-      .mockReturnValueOnce([carryingKey, vi.fn()])
-      .mockReturnValueOnce([{ key: carryingKey, result: measured }, vi.fn()])
-    const html = renderToStaticMarkup(createElement(PlanFurnitureTransferCheck, { geometry }))
-    expect(html).toMatch(/верх габарита с запасом над ним\s+57 см/)
-    expect(html).toContain('подъём 10 см, опускание 5 см')
-    expect(html).toContain('пол в начале -15 см, пол в конце -10 см')
-    expect(html).toContain('высота зоны манёвра 119 см')
-    expect(html).toContain('Это не проверка движения по лестничному маршу')
-    expect(html).toContain('не гарантия доставки')
-    expect(html).not.toContain('Это положение без подъёма и наклона')
-    expect(html).not.toContain('Наклон, подъём, лестницы, внешний вход')
-  })
+  it.each([undefined, 35.5])(
+    'prints actual angle %s, carried height and endpoint lifting without promising delivery',
+    (angleDeg) => {
+      const carryingFields = {
+        ...fields,
+        allowManeuver: true,
+        carryElevationCm: '-5',
+        tilt: 'width',
+      }
+      const carryingKey = `${JSON.stringify(geometry)}:${JSON.stringify(carryingFields)}`
+      const measured = structuredClone(response)
+      measured.profile = {
+        widthCm: 60,
+        depthCm: 40,
+        heightCm: 100,
+        clearanceCm: 1,
+        orientation: 0,
+        acknowledged: true,
+      }
+      measured.maneuver = {
+        carryElevationCm: -5,
+        tilt: 'width',
+        ...(angleDeg === undefined ? {} : { angleDeg }),
+        carriedHeightCm: 62,
+        sweepHeightCm: 119,
+        stages: [
+          {
+            roomId: '0',
+            startFloorElevationCm: -15,
+            endFloorElevationCm: -10,
+            liftCm: 10,
+            lowerCm: 5,
+          },
+        ],
+      }
+      if (!measured.inspection?.result) throw new Error('Missing seeded transfer result')
+      measured.inspection.result.vertical = {
+        referenceId: 'datum',
+        elevationCm: -5,
+        heldTransitions: [],
+      }
+      vi.mocked(useState)
+        .mockReturnValueOnce([carryingFields, vi.fn()])
+        .mockReturnValueOnce([carryingKey, vi.fn()])
+        .mockReturnValueOnce([{ key: carryingKey, result: measured }, vi.fn()])
+      const html = renderToStaticMarkup(createElement(PlanFurnitureTransferCheck, { geometry }))
+      expect(html).toMatch(/верх габарита с запасом над ним\s+57 см/)
+      expect(html).toContain('подъём 10 см, опускание 5 см')
+      expect(html).toContain('пол в начале -15 см, пол в конце -10 см')
+      expect(html).toContain('высота зоны манёвра 119 см')
+      expect(html).toContain(`Наклон в сечении ширина/высота: ${angleDeg ?? 90}°`)
+      expect(html).toContain('Это не проверка движения по лестничному маршу')
+      expect(html).toContain('не гарантия доставки')
+      expect(html).not.toContain('Это положение без подъёма и наклона')
+      expect(html).not.toContain('Наклон, подъём, лестницы, внешний вход')
+    },
+  )
 })

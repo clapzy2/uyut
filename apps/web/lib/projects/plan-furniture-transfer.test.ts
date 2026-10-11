@@ -511,6 +511,61 @@ describe('bounded upright rigid furniture transfer', () => {
 })
 
 describe('prescribed lifted furniture maneuvers', () => {
+  it('carries a tall box at a selected fractional tilt through a low portal', () => {
+    const geometry = fixture({ entryDepth: 300, entryHeight: 260, portalHeight: 140 })
+    const profile = {
+      ...request,
+      widthCm: 40,
+      depthCm: 60,
+      heightCm: 240,
+      clearanceCm: 0,
+      maneuver: { carryElevationCm: 10, tilt: 'width' as const, angleDeg: 70.25 },
+    }
+    const response = inspectFurnitureTransfer(geometry, profile)
+    expect(response.inspection?.result?.routes.map((route) => route.roomId)).toEqual(['0', '1'])
+    expect(response.maneuver?.angleDeg).toBe(70.25)
+    expect(response.maneuver?.carriedHeightCm).toBeGreaterThan(40)
+    expect(response.maneuver?.carriedHeightCm).toBeLessThan(130)
+    expect(
+      inspectFurnitureTransfer(geometry, {
+        ...profile,
+        maneuver: { ...profile.maneuver, angleDeg: 45 },
+      }).inspection?.result?.routes.some((route) => route.roomId === '1'),
+    ).toBe(false)
+  })
+  it('still certifies the complete tilt zone rather than only the small partial-angle carried pose', () => {
+    const response = inspectFurnitureTransfer(
+      fixture({ entryDepth: 300, secondCeiling: 200, portalHeight: 140 }),
+      {
+        ...request,
+        widthCm: 40,
+        depthCm: 60,
+        heightCm: 240,
+        clearanceCm: 0,
+        maneuver: { carryElevationCm: 10, tilt: 'width', angleDeg: 70 },
+      },
+    )
+    expect(response.inspection?.result?.routes.some((route) => route.roomId === '1')).toBe(false)
+  })
+  it.each([Number.NaN, -1, 90.001, '45', null])(
+    'rejects an invalid explicit angle: %j',
+    (angleDeg) => {
+      expect(
+        inspectFurnitureTransfer(fixture(), {
+          ...request,
+          maneuver: { carryElevationCm: 10, tilt: 'width', angleDeg },
+        }).error,
+      ).toBeTruthy()
+    },
+  )
+  it('does not silently rotate a request explicitly marked without tilt', () => {
+    expect(
+      inspectFurnitureTransfer(fixture(), {
+        ...request,
+        maneuver: { carryElevationCm: 10, tilt: 'none', angleDeg: 45 },
+      }).error,
+    ).toBeTruthy()
+  })
   it('requires an internal endpoint certificate even for a direct elevated adapter call', () => {
     const inspection = inspectPdfClearanceRoutes(fixture(), {
       widthCm: 40,
