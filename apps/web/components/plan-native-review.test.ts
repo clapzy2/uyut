@@ -578,6 +578,37 @@ describe('read-only native review presentation', () => {
     },
   )
 
+  it.each([null, 123])(
+    'shows documentary mm evidence without promoting heights: %s',
+    (operation) => {
+      const packet = nativeDimensionPacket()
+      const height = packet.heightObservations?.observations[0]
+      if (!height) throw new Error('Missing height control')
+      height.unitEvidence = {
+        kind: 'same-page-millimetre-declaration',
+        labelId: 'native-text-237',
+        nativeIndex: 237,
+        originalText: '5. Размеры указаны в миллиметрах',
+        inkSourceOperation: operation,
+        source: { ...packet.source },
+      }
+      const before = structuredClone(packet)
+      const html = renderToStaticMarkup(
+        createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+      )
+      expect(html).toContain('Единицы взяты из примечания этого же листа')
+      expect(html).toContain('native-text-237')
+      expect(html).toContain('Это не подтверждает вид высоты, её владельца или общий ноль пола')
+      expect(html).toContain(
+        operation === null
+          ? 'Точное соответствие примечания отображённым PDF-глифам не подтверждено'
+          : 'Исходные глифы примечания проверены',
+      )
+      expect(html).not.toContain('Сохранить')
+      expect(packet).toEqual(before)
+      expect(packet.readiness.readyFor3D).toBe(false)
+    },
+  )
   it('shows whole-caption cavity locations without calling them height owners or adding geometry actions', () => {
     const packet = nativeDimensionPacket()
     const heights = packet.heightObservations

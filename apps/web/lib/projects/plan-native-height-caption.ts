@@ -12,6 +12,39 @@ export type NativeHeightCaption = {
   issueCodes: string[]
 }
 
+/** A closed same-page units note, never an inferred unit or a height owner. */
+export function nativeHeightMillimetreDeclarationIndex(texts: string[]): number | null {
+  const topics = texts.flatMap((text, index) => {
+    // Hidden controls can expose a competing note, never make it acceptable.
+    const topic = text.replace(/[\p{Cc}\p{Cf}]/gu, '')
+    return /размер[а-яё]*|единиц[а-яё]*|миллиметр|сантиметр|метр|(?:^|\s)(?:мм|см|м|mm|cm|m)(?=$|[\s.,])/iu.test(
+      topic,
+    ) && /указан|дан[а-яё]*|измер|единиц|миллиметр|сантиметр|метр|высот/iu.test(topic)
+      ? [index]
+      : []
+  })
+  if (topics.length !== 1) return null
+  const index = topics[0] as number
+  const text = texts[index] as string
+  if (/[^\p{L}\d. \t\r\n\u00a0\u202f]/u.test(text)) return null
+  const normalized = text.replace(/[ \t\r\n\u00a0\u202f]+/gu, ' ').trim()
+  return /^(?:[1-9]\d?\. )?Размеры указаны в миллиметрах\.?$/iu.test(normalized) ? index : null
+}
+
+/** Retains a unitless H caption only under documentary mm evidence. No role or datum inference. */
+export function nativeDocumentaryHeightCaption(text: string): NativeHeightCaption | null {
+  const match = /^[hн]\s*=\s*(\d{1,4})$/iu.exec(text)
+  if (!match) return null
+  const valueMm = Number(match[1])
+  if (valueMm <= 0 || valueMm > 6000) return null
+  return {
+    valueMm,
+    quantityKind: 'unclassified-height',
+    datum: 'unspecified',
+    issueCodes: ['height-role-unclassified', 'height-datum-unverified'],
+  }
+}
+
 // Negation or uncertainty withholds both the object and the reference level.
 const qualifiedHeight =
   /(?:^|[^\p{L}\d])(?:не|нет|без|отсутств[а-яё]*|не(?:проверен|извест|уточн|определ|замерен|измерен|подтвержд)[а-яё]*|предполага[а-яё]*|будущ[а-яё]*|планиру[а-яё]*)(?=$|[^\p{L}\d])|\?/iu

@@ -41,6 +41,15 @@ export function verifyPlanReadingNativeChains(
   for (const room of result.rooms) nameCounts.set(room.name, (nameCounts.get(room.name) ?? 0) + 1)
   let checks = 0
   for (const room of result.rooms) {
+    // Text/value agreement cannot prove which room owns a ceiling callout.
+    // The ordinary PDF route has no reviewed contours or height-owner proof.
+    if (room.ceilingCm !== undefined || room.measurementEvidence?.ceiling !== undefined) {
+      delete room.ceilingCm
+      delete room.measurementEvidence?.ceiling
+      const warning =
+        'Высота потолка: привязка исходной подписи или выноски к этой комнате не подтверждена. Сверьте её на листе или по обмеру — поле оставлено для уточнения.'
+      room.measurementWarnings = [...new Set([...(room.measurementWarnings ?? []), warning])]
+    }
     for (const side of ['width', 'depth'] as const) {
       const value = room[axes[side]]
       if (value === undefined) continue
@@ -90,6 +99,15 @@ export function verifyPlanReadingNativeChains(
     }
     if (room.measurementEvidence && Object.keys(room.measurementEvidence).length === 0)
       delete room.measurementEvidence
+  }
+  if (result.ceilingCm !== undefined || result.ceilingEvidence !== undefined) {
+    delete result.ceilingCm
+    delete result.ceilingEvidence
+    for (const room of result.rooms) {
+      const warning =
+        'Общая высота: единая высота всех помещений не подтверждена исходным PDF-листом. Сверьте высоты отдельных комнат; значение оставлено пустым.'
+      room.measurementWarnings = [...new Set([...(room.measurementWarnings ?? []), warning])]
+    }
   }
   // Matching labels/rails do not validate a vision-model metric mesh or a complete floor.
   if (result.geometry) {

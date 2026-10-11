@@ -1,6 +1,12 @@
 import type { NativeTextAnchors } from './plan-document'
 import { nativeFillCandidates } from './plan-native-fill-candidates'
-import { type NativeHeightCaption, nativeHeightCaption } from './plan-native-height-caption'
+import {
+  type NativeHeightCaption,
+  nativeDocumentaryHeightCaption,
+  nativeHeightCaption,
+  nativeHeightMillimetreDeclarationIndex,
+} from './plan-native-height-caption'
+import { nativeCaptionInkIssue } from './plan-pdf-caption-binding'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
 import type { RegionLabelFrame } from './plan-raster-region-labels'
@@ -10,11 +16,108 @@ export type NativeHeightObservation = NativeHeightCaption & {
   originalText: string
   pagePoint: PagePoint
   mayAcceptFor3D: false
+  unitEvidence?: {
+    kind: 'same-page-millimetre-declaration'
+    labelId: string
+    originalText: string
+    nativeIndex: number
+    inkSourceOperation: number | null
+    source: PdfPlanSource
+  }
 }
 
 const MAX_OBSERVATIONS = 100
 const pointValid = (point: PagePoint) =>
   [point.x, point.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000)
+
+function documentaryUnitEvidence(
+  input: Parameters<typeof nativeHeightObservations>[0],
+): NativeHeightObservation['unitEvidence'] | undefined {
+  const { native, work, source } = input
+  const position = nativeHeightMillimetreDeclarationIndex(native.labels.map((label) => label.name))
+  if (position === null || native.vectorInkRefusal) return
+  const label = native.labels[position]
+  const ink = native.heightUnitInk
+  if (
+    !label?.pagePoint ||
+    !ink?.source ||
+    ink.source.sha256 !== source.sha256 ||
+    ink.source.pdfPage !== source.pdfPage ||
+    ink.source.pageWidth !== work.pageWidth ||
+    ink.source.pageHeight !== work.pageHeight ||
+    ink.refusalReason !== null ||
+    !Array.isArray(ink.items) ||
+    !Array.isArray(ink.unresolved) ||
+    typeof ink.complete !== 'boolean'
+  )
+    return
+  // A native show-run identity omission is retained as documentary text only.
+  // It does not certify note glyph visibility, ownership or geometry transfer.
+  if (
+    ink.complete === false &&
+    ink.items.length === 0 &&
+    ink.unresolved.length === 1 &&
+    ink.unresolved[0]?.index === label.nativeIndex &&
+    ink.unresolved[0]?.reason === 'native-text-show-identity-unresolved'
+  )
+    return {
+      kind: 'same-page-millimetre-declaration',
+      labelId: label.id,
+      originalText: label.name,
+      nativeIndex: label.nativeIndex as number,
+      inkSourceOperation: null,
+      source: { ...source },
+    }
+  if (!ink.complete || ink.items.length !== 1 || ink.unresolved.length !== 0) return
+  const item = ink.items[0]
+  if (
+    !item ||
+    item.index !== label.nativeIndex ||
+    item.text !== label.name ||
+    !item.baselineStart ||
+    !item.baselineEnd ||
+    !pointValid(item.baselineStart) ||
+    !pointValid(item.baselineEnd) ||
+    Math.abs(item.baselineStart.x - label.pagePoint.x) > 1e-7 ||
+    Math.abs(item.baselineStart.y - label.pagePoint.y) > 1e-7
+  )
+    return
+  const dx = (item.baselineEnd.x - item.baselineStart.x) * work.pageWidth
+  const dy = (item.baselineEnd.y - item.baselineStart.y) * work.pageHeight
+  const delta = Math.abs(((-Math.atan2(dy, dx) * 180) / Math.PI - (label.rotation as number)) % 360)
+  if (
+    (dx === 0 && dy === 0) ||
+    Math.min(delta, 360 - delta) > 1e-6 ||
+    nativeCaptionInkIssue(
+      {
+        source: ink.source,
+        complete: true,
+        items: [
+          {
+            index: item.index,
+            text: item.text,
+            rotation: label.rotation as number,
+            origin: item.baselineStart,
+            baselineStart: item.baselineStart,
+            baselineEnd: item.baselineEnd,
+            inkPolygon: item.quad,
+            inkSourceOperation: item.operationIndex,
+          },
+        ],
+      },
+      work,
+    )
+  )
+    return
+  return {
+    kind: 'same-page-millimetre-declaration',
+    labelId: label.id,
+    originalText: label.name,
+    nativeIndex: item.index,
+    inkSourceOperation: item.operationIndex,
+    source: { ...source },
+  }
+}
 
 /** Literal vertical references only. No caption joining, room ownership or geometry mutation. */
 export function nativeHeightObservations(input: {
@@ -115,9 +218,16 @@ export function nativeHeightObservations(input: {
     if (issues.length > MAX_OBSERVATIONS) throw outputLimit
   }
   try {
+    const units = documentaryUnitEvidence(input)
     for (const label of native.labels) {
       const text = label.name
-      const caption = nativeHeightCaption(text)
+      const literal = nativeHeightCaption(text)
+      const documentary = units ? nativeDocumentaryHeightCaption(text) : null
+      if (documentary && units?.inkSourceOperation === null)
+        documentary.issueCodes.push('height-unit-ink-unverified')
+      const caption = documentary
+        ? { status: 'observed' as const, observation: documentary }
+        : literal
       if (caption.status === 'not-height') continue
       if (caption.status === 'unresolved') {
         issue(label.id, text, caption.code)
@@ -129,6 +239,7 @@ export function nativeHeightObservations(input: {
         originalText: text,
         pagePoint: { ...(label.pagePoint as PagePoint) },
         mayAcceptFor3D: false,
+        ...(documentary && units ? { unitEvidence: structuredClone(units) } : {}),
       })
       if (observations.length > MAX_OBSERVATIONS) return finish('height-observation-output-limit')
       for (const code of caption.observation.issueCodes) issue(label.id, text, code)

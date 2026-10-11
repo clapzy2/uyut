@@ -1022,6 +1022,17 @@ function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
                     {item.labelId}: «{item.originalText}» — {item.valueMm} мм;{' '}
                     {heightQuantityMessages[item.quantityKind]}, {heightDatumMessages[item.datum]}.
                     Не принято для 3D.
+                    {item.unitEvidence ? (
+                      <span>
+                        {' '}
+                        Единицы взяты из примечания этого же листа: {item.unitEvidence.labelId} «
+                        {item.unitEvidence.originalText}».
+                        {item.unitEvidence.inkSourceOperation === null
+                          ? ' Точное соответствие примечания отображённым PDF-глифам не подтверждено.'
+                          : ' Исходные глифы примечания проверены.'}{' '}
+                        Это не подтверждает вид высоты, её владельца или общий ноль пола.
+                      </span>
+                    ) : null}
                     {item.issueCodes.length ? ` Ограничения: ${item.issueCodes.join(', ')}.` : null}
                   </li>
                 ))

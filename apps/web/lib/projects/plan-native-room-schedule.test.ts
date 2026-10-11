@@ -176,14 +176,66 @@ describe('native room schedule documentary evidence', () => {
     expect(nativeRoomScheduleEvidence(fixture({ count })).rows).toHaveLength(count)
   })
   it.each([2, 51])('holds %i room rows', (count) => expectHeld(fixture({ count })))
-  it.each(['Наименование', 'Площадь,', '№'])(
-    'holds competing %s headers anywhere on the source page',
-    (name) => {
-      const input = fixture()
-      addLabel(input, name, 700, 700)
-      expectHeld(input, 'unsupported-or-ambiguous-room-table')
-    },
-  )
+  it.each(['Площадь,', '№'])('holds competing %s headers anywhere on the source page', (name) => {
+    const input = fixture()
+    addLabel(input, name, 700, 700)
+    expectHeld(input, 'unsupported-or-ambiguous-room-table')
+  })
+  it('scopes a repeated legend name heading through the complete source grid', () => {
+    const input = fixture()
+    const expected = nativeRoomScheduleEvidence(input)
+    // This is the same duplicate heading found in the real Rebrina wall legend.
+    addLabel(input, 'Наименование', 700, 700)
+    const before = structuredClone(input)
+    const result = nativeRoomScheduleEvidence(input)
+    expect(result).toEqual(expected)
+    expect(input).toEqual(before)
+  })
+  it('does not choose the first repeated name heading in extraction order', () => {
+    const input = fixture()
+    addLabel(input, 'Наименование', 700, 700)
+    input.native.labels.reverse()
+    const result = nativeRoomScheduleEvidence(input)
+    expect(result.status).toBe('draft')
+    expect(result.layoutBasis).toBe('exact-native-grid')
+    expect(result.rows).toHaveLength(3)
+  })
+  it('holds repeated name headings without a complete grid', () => {
+    const input = fixture({ legacy: true, grid: false })
+    addLabel(input, 'Наименование', 700, 700)
+    expectHeld(input, 'unsupported-or-ambiguous-room-table')
+  })
+  it('holds two name headings inside the actual source header cell', () => {
+    const input = fixture()
+    addLabel(input, 'Наименование', 180, 110)
+    expectHeld(input, 'unsupported-or-ambiguous-room-table')
+  })
+  it('holds two complete valid schedules rather than picking one grid', () => {
+    const input = fixture()
+    const second = fixture()
+    for (const label of second.native.labels) {
+      const point = label.pagePoint as PagePoint
+      addLabel(input, label.name, point.x + 400, point.y + 400)
+    }
+    for (const path of second.work.paths) {
+      const start = path.points[0] as PagePoint
+      const end = path.points[1] as PagePoint
+      addLine(input, { x: start.x + 400, y: start.y + 400 }, { x: end.x + 400, y: end.y + 400 })
+    }
+    expectHeld(input, 'unsupported-or-ambiguous-room-table')
+  })
+  it('does not ignore a damaged grid when a separate legend heading exists', () => {
+    const input = fixture()
+    input.work.paths.splice(1, 1)
+    addLabel(input, 'Наименование', 700, 700)
+    expectHeld(input, 'unsupported-or-ambiguous-room-table')
+  })
+  it('keeps decimal source identifiers held instead of coercing them to integer rooms', () => {
+    const input = fixture()
+    labelOf(input, '2').name = '3.1'
+    addLabel(input, 'Наименование', 700, 700)
+    expectHeld(input, 'unsupported-or-ambiguous-room-table')
+  })
   it.each(['Прихожая', 'Кухня', 'Спальня'])(
     'requires supported documentary name in %s row',
     (name) => {

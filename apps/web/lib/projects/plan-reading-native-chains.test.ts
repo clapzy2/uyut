@@ -61,6 +61,77 @@ function reading(indexes = expected?.widthLabels ?? []) {
 }
 
 describe('ordinary PDF native-chain containment, not room ownership acceptance', () => {
+  it('withholds a genuine ceiling caption assigned by the model to a different room', () => {
+    const planText = JSON.stringify([{ text: 'натяжной-2663мм', x: 400, y: 200, rotation: 0 }])
+    const input = parseFloorPlan(
+      JSON.stringify({
+        planState: 'existing',
+        rooms: [
+          {
+            name: 'Гостиная',
+            sourceNumber: 3,
+            areaM2: 17.05,
+            ceilingMm: 2663,
+            measurementEvidence: {
+              ceiling: {
+                kind: 'ceiling',
+                scope: 'room',
+                sourceNumber: 3,
+                complete: true,
+                segmentsMm: [2663],
+                textItemIndexes: [0],
+              },
+            },
+          },
+        ],
+      }),
+      { requireMeasurementEvidence: true, planText },
+    )
+    expect(input.rooms[0]?.ceilingCm).toBe(266.3)
+    const before = structuredClone(input)
+    const checked = verifyPlanReadingNativeChains(input, { ...context, planText })
+    expect(checked.rooms[0]?.ceilingCm).toBeUndefined()
+    expect(checked.rooms[0]?.measurementEvidence).toBeUndefined()
+    expect(checked.rooms[0]?.measurementWarnings?.join(' ')).toContain('привязка исходной подписи')
+    expect(input).toEqual(before)
+  })
+
+  it.each([undefined, context.linework])(
+    'holds room and apartment ceiling claims without changing a retained native width candidate',
+    (work) => {
+      const input = reading()
+      const room = input.rooms[0]
+      if (!room) throw new Error('Missing control room')
+      room.ceilingCm = 267.2
+      room.measurementEvidence = {
+        ...room.measurementEvidence,
+        ceiling: {
+          kind: 'ceiling',
+          scope: 'room',
+          sourceNumber: 4,
+          complete: true,
+          segmentsMm: [2672],
+        },
+      }
+      input.ceilingCm = 267.2
+      input.ceilingEvidence = {
+        kind: 'ceiling',
+        scope: 'apartment',
+        complete: true,
+        segmentsMm: [2672],
+      }
+      const before = structuredClone(input)
+      const checked = verifyPlanReadingNativeChains(input, { ...context, linework: work })
+      expect(checked.ceilingCm).toBeUndefined()
+      expect(checked.ceilingEvidence).toBeUndefined()
+      expect(checked.rooms[0]?.ceilingCm).toBeUndefined()
+      expect(checked.rooms[0]?.measurementEvidence?.ceiling).toBeUndefined()
+      expect(checked.rooms[0]?.widthCm).toBe(work ? 298.5 : undefined)
+      expect(checked.rooms[0]?.measurementWarnings?.join(' ')).toContain('единая высота')
+      expect(input).toEqual(before)
+    },
+  )
+
   it('retains a native candidate with explicit ownership/full-span warning, without mutating inputs', () => {
     const input = reading()
     const before = structuredClone({ input, context })
