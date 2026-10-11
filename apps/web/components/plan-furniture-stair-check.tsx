@@ -3,57 +3,26 @@
 import { verticalReferenceReviewKey } from '@uyut/catalog/plan-vertical-floor-geometry'
 import type { PlanGeometry } from '@uyut/db'
 import { Button } from '@uyut/ui'
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { inspectFurnitureDeliveryViaStairs } from '@/lib/projects/plan-furniture-delivery'
+import {
+  type FurnitureDeliveryDraftFields as Fields,
+  MAX_FURNITURE_DELIVERY_DRAFT_BYTES,
+  type FurnitureDeliveryProfileFields as ProfileFields,
+  parseFurnitureDeliveryDraft,
+  serializeFurnitureDeliveryDraft,
+} from '@/lib/projects/plan-furniture-delivery-archive'
+import {
+  type FurnitureDeliveryReportRequest,
+  serializeFurnitureDeliveryReport,
+} from '@/lib/projects/plan-furniture-delivery-report'
 import {
   furnitureStairGeometryKey,
   inspectFurnitureStairTransfer,
 } from '@/lib/projects/plan-furniture-stair-transfer'
 
-type ProfileFields = {
-  widthCm: string
-  depthCm: string
-  heightCm: string
-  clearanceCm: string
-  orientation: '0' | '90'
-}
-type StepFields = { id: string; runCm: string; elevationCm: string; ceilingElevationCm: string }
-type LayoutFields = {
-  id: string
-  kind: 'landing' | 'tread'
-  leftCm: string
-  topCm: string
-  rightCm: string
-  bottomCm: string
-  elevationCm: string
-  ceilingElevationCm: string
-}
-type Fields = {
-  polygonMode?: boolean
-  polygonLayoutJson?: string
-  exteriorEnabled?: boolean
-  exteriorJson?: string
-  doorLeavesEnabled?: boolean
-  doorLeavesJson?: string
-  turning?: boolean
-  layout?: LayoutFields[]
-  targetRoomId?: string
-  allowQuarterTurns?: boolean
-  lowerFloorId: string
-  upperFloorId: string
-  direction: 'x' | 'y'
-  travelDirection: 'up' | 'down'
-  startCm: string
-  crossStartCm: string
-  widthCm: string
-  lowerLandingLengthCm: string
-  upperLandingLengthCm: string
-  carryClearanceCm: string
-  sourceReference: string
-  tilt: 'none' | 'width' | 'depth'
-  angleDeg: string
-  steps: StepFields[]
-}
+type StepFields = Fields['steps'][number]
+type LayoutFields = NonNullable<Fields['layout']>[number]
 const blankStep = (id: string): StepFields => ({
   id,
   runCm: '',
@@ -138,14 +107,44 @@ function decimal(value: string): number {
     : Number.NaN
 }
 
+function nextFieldId(items: { id: string }[], prefix: string): string {
+  const ids = new Set(items.map((item) => item.id))
+  let index = items.length + 1
+  while (ids.has(`${prefix}-${index}`)) index += 1
+  return `${prefix}-${index}`
+}
+
+function downloadJson(text: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json;charset=utf-8' }))
+  const link = document.createElement('a')
+  try {
+    link.href = url
+    link.download = filename
+    document.body.append(link)
+    link.click()
+  } finally {
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+}
+
 /** Separate surveyed flight; never an inferred connection in the apartment's route graph. */
 export function PlanFurnitureStairCheck({
   geometry,
-  profileFields,
+  profileFields: suppliedProfileFields,
 }: {
   geometry: PlanGeometry
   profileFields: ProfileFields
 }) {
+  // The parent also owns unrelated flat-route options. Only these five fields
+  // describe the body used by this checker and its portable draft.
+  const profileFields: ProfileFields = {
+    widthCm: suppliedProfileFields.widthCm,
+    depthCm: suppliedProfileFields.depthCm,
+    heightCm: suppliedProfileFields.heightCm,
+    clearanceCm: suppliedProfileFields.clearanceCm,
+    orientation: suppliedProfileFields.orientation,
+  }
   const id = `stair-${useId()}`
   const [expanded, setExpanded] = useState(false)
   const [fields, setFields] = useState<Fields>(initialFields)
@@ -155,7 +154,13 @@ export function PlanFurnitureStairCheck({
     key: string
     response: ReturnType<typeof inspectFurnitureStairTransfer>
     delivery?: ReturnType<typeof inspectFurnitureDeliveryViaStairs>
+    request?: FurnitureDeliveryReportRequest
   }>()
+  const [fileNotice, setFileNotice] = useState<string>()
+  const [pendingImport, setPendingImport] = useState<{ text: string; filename: string }>()
+  const importGeneration = useRef(0)
+  const importContext = useRef({ geometry, profileFields })
+  importContext.current = { geometry, profileFields }
   const current = checked?.key === key ? checked.response : undefined
   const reference = geometry.verticalReference
   const floors = reference?.floors.filter((floor) => floor.surface === 'finished-floor') ?? []
@@ -173,6 +178,82 @@ export function PlanFurnitureStairCheck({
     }))
     setAcknowledgedKey(undefined)
     setChecked(undefined)
+    setFileNotice(undefined)
+  }
+
+  async function readDraft(file: File | undefined) {
+    const generation = ++importGeneration.current
+    setPendingImport(undefined)
+    setFileNotice(undefined)
+    if (!file) return
+    if (file.size > MAX_FURNITURE_DELIVERY_DRAFT_BYTES) {
+      setFileNotice('Файл больше 2 МиБ. Обмеры не изменены.')
+      return
+    }
+    try {
+      const text = await file.text()
+      if (generation !== importGeneration.current) return
+      const parsed = parseFurnitureDeliveryDraft(
+        text,
+        importContext.current.geometry,
+        importContext.current.profileFields,
+      )
+      if (!parsed.fields) {
+        setFileNotice(parsed.error ?? 'Не удалось прочитать обмеры.')
+        return
+      }
+      setPendingImport({ text, filename: file.name })
+      setFileNotice('Черновик прочитан. Применение заменит поля обмеров и снимет подтверждение.')
+    } catch {
+      if (generation === importGeneration.current) {
+        setFileNotice('Не удалось прочитать файл. Обмеры не изменены.')
+      }
+    }
+  }
+
+  function applyDraft() {
+    if (!pendingImport) return
+    const parsed = parseFurnitureDeliveryDraft(pendingImport.text, geometry, profileFields)
+    if (!parsed.fields) {
+      setFileNotice(parsed.error ?? 'Не удалось применить обмеры.')
+      return
+    }
+    setFields(parsed.fields)
+    setAcknowledgedKey(undefined)
+    setChecked(undefined)
+    setPendingImport(undefined)
+    setFileNotice('Обмеры загружены без подтверждения. Сверьте их и запустите новую проверку.')
+  }
+
+  function saveDraft() {
+    try {
+      downloadJson(
+        serializeFurnitureDeliveryDraft(geometry, profileFields, fields),
+        'domitsa-delivery-measurements.json',
+      )
+      setFileNotice(
+        'Файл обмеров подготовлен для скачивания. В аккаунте эти обмеры не сохраняются.',
+      )
+    } catch {
+      setFileNotice('Не удалось выгрузить обмеры. Проверьте длину полей и размер черновика.')
+    }
+  }
+
+  function saveReport() {
+    if (!delivery || !checked?.request || acknowledgedKey !== key) return
+    const report = serializeFurnitureDeliveryReport(geometry, checked.request)
+    if (!report.text) {
+      setFileNotice(report.error ?? 'Полный маршрут не подтверждён; отчёт не выгружен.')
+      return
+    }
+    try {
+      downloadJson(report.text, 'domitsa-delivery-route.json')
+      setFileNotice(
+        'Отчёт повторной проверки подготовлен для скачивания. Это снимок, не гарантия доставки.',
+      )
+    } catch {
+      setFileNotice('Не удалось скачать отчёт. Обмеры и результат на экране не изменены.')
+    }
   }
   function check(complete = false) {
     try {
@@ -273,6 +354,14 @@ export function PlanFurnitureStairCheck({
         setChecked({
           key,
           delivery: response,
+          request: {
+            survey,
+            profile,
+            targetRoomId: fields.targetRoomId ?? '',
+            ...(fields.exteriorEnabled === true || fields.doorLeavesEnabled === true
+              ? { accessInput }
+              : {}),
+          },
           response: {
             error: response.error,
             notes: response.notes,
@@ -320,6 +409,57 @@ export function PlanFurnitureStairCheck({
             внутри сверенной схемы. Площадки должны принадлежать выбранным чистовым полам;
             записанные стены, пустоты и препятствия не удаляются.
           </p>
+          <div className="mt-3 border-b border-line pb-3">
+            <div className="flex flex-wrap gap-3">
+              <Button type="button" variant="secondary" onClick={saveDraft}>
+                Скачать обмеры JSON
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={!delivery || !checked?.request || acknowledgedKey !== key}
+                onClick={saveReport}
+              >
+                Скачать проверенный маршрут JSON
+              </Button>
+            </div>
+            <label
+              htmlFor={`${id}-draft-file`}
+              className="mt-3 flex flex-col gap-1 text-sm text-ink-2"
+            >
+              Открыть файл обмеров (JSON, до 2 МиБ)
+              <input
+                id={`${id}-draft-file`}
+                type="file"
+                accept=".json,application/json"
+                className={`${controlClass} min-w-0`}
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0]
+                  event.currentTarget.value = ''
+                  void readDraft(file)
+                }}
+              />
+            </label>
+            <p className="mt-2 text-xs leading-relaxed text-ink-2">
+              Можно сохранить незавершённые обмеры. Файл привязан к этой схеме, общему нулю и
+              текущему габариту мебели. Загрузка не подтверждает размеры. Отчёт содержит точные
+              данные расчёта X/Y/Z, этапы и ограничения; его нельзя загрузить как обмеры.
+              Автоматического сохранения в аккаунте нет.
+            </p>
+            {pendingImport ? (
+              <div className="mt-2">
+                <p className="break-all text-xs text-ink-2">Файл: {pendingImport.filename}</p>
+                <Button type="button" variant="secondary" className="mt-2" onClick={applyDraft}>
+                  Заменить обмеры из файла
+                </Button>
+              </div>
+            ) : null}
+            {fileNotice ? (
+              <p className="mt-2 text-xs text-ink-2" role="status">
+                {fileNotice}
+              </p>
+            ) : null}
+          </div>
           <label className="mt-3 flex min-h-11 items-start gap-2 text-sm text-ink">
             <input
               id={`${id}-turning`}
@@ -566,7 +706,7 @@ export function PlanFurnitureStairCheck({
                   onClick={() =>
                     change('layout', [
                       ...(fields.layout ?? []),
-                      blankLayout(`layout-${(fields.layout?.length ?? 0) + 1}`, 'tread'),
+                      blankLayout(nextFieldId(fields.layout ?? [], 'layout'), 'tread'),
                     ])
                   }
                 >
@@ -626,7 +766,7 @@ export function PlanFurnitureStairCheck({
                   variant="secondary"
                   disabled={fields.steps.length >= 64}
                   onClick={() =>
-                    change('steps', [...fields.steps, blankStep(`step-${fields.steps.length + 1}`)])
+                    change('steps', [...fields.steps, blankStep(nextFieldId(fields.steps, 'step'))])
                   }
                 >
                   Добавить ступень

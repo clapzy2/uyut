@@ -3,6 +3,7 @@ import type { PlanGeometry, PlanPoint, PlanWallFacePair } from '@uyut/db'
 import polygonClipping, { type Polygon } from 'polygon-clipping'
 import { describe, expect, it } from 'vitest'
 import { inspectFurnitureDeliveryViaStairs } from './plan-furniture-delivery'
+import { serializeFurnitureDeliveryReport } from './plan-furniture-delivery-report'
 import {
   type FurnitureStairSurvey,
   furnitureStairGeometryKey,
@@ -357,6 +358,95 @@ function exteriorAccess(geometry: PlanGeometry) {
     },
   }
 }
+
+describe('rechecked portable delivery reports', () => {
+  it.each([false, true])(
+    'exports complete numeric stages and actual exterior scope: %s',
+    (exterior) => {
+      const geometry = fixture()
+      const request = {
+        survey: survey(geometry),
+        profile,
+        targetRoomId: '1',
+        ...(exterior ? { accessInput: exteriorAccess(geometry) } : {}),
+      }
+      const response = inspectFurnitureDeliveryViaStairs(
+        geometry,
+        request.survey,
+        request.profile,
+        request.targetRoomId,
+        request.accessInput,
+      )
+      const report = serializeFurnitureDeliveryReport(geometry, request)
+      expect(report.error).toBeUndefined()
+      const document = JSON.parse(required(report.text))
+      expect(document.kind).toBe('domitsa-furniture-delivery-report')
+      expect(document.version).toBe(1)
+      expect(document.units).toBe('cm')
+      expect(document.geometry).toEqual(geometry)
+      expect(document.request).toEqual(request)
+      expect(document.result).toEqual(response.result)
+      expect(document.notes).toEqual(response.notes)
+      expect(document.scope).toEqual({
+        completeRoute: true,
+        exteriorChecked: exterior,
+        leavesChecked: exterior,
+      })
+      expect(document.result.stairs.stages.length).toBeGreaterThan(0)
+      expect(document.limitations.join(' ')).toContain('не гарантия доставки')
+      expect(document.limitations.join(' ')).toContain('новый расчёт')
+    },
+  )
+
+  it('does not round fractional exterior heights in the exported request or points', () => {
+    const geometry = fixture()
+    const accessInput = exteriorAccess(geometry)
+    accessInput.exterior.outside.elevationCm = -10.123456789
+    const report = serializeFurnitureDeliveryReport(geometry, {
+      survey: survey(geometry),
+      profile,
+      targetRoomId: '1',
+      accessInput,
+    })
+    const document = JSON.parse(required(report.text))
+    expect(document.request.accessInput.exterior.outside.elevationCm).toBe(-10.123456789)
+    expect(document.result.points[0].zCm).toBe(-10.123456789)
+  })
+
+  it('does not export when a previously valid geometry is changed', () => {
+    const geometry = fixture()
+    const request = { survey: survey(geometry), profile, targetRoomId: '1' }
+    expect(serializeFurnitureDeliveryReport(geometry, request).text).toBeDefined()
+    geometry.widthCm += 1
+    const report = serializeFurnitureDeliveryReport(geometry, request)
+    expect(report.text).toBeUndefined()
+    expect(report.error).toBeDefined()
+  })
+
+  it.each([
+    'missing acknowledgement',
+    'closed leaf',
+    'missing target',
+    'stale exterior',
+    'incomplete heights',
+  ])('exports no success or partial route for %s', (failure) => {
+    const geometry = fixture()
+    const request = {
+      survey: { ...survey(geometry), acknowledged: failure !== 'missing acknowledgement' },
+      profile,
+      targetRoomId: failure === 'missing target' ? '' : '1',
+      accessInput: exteriorAccess(geometry),
+    }
+    if (failure === 'closed leaf')
+      required(request.accessInput.doorLeaves.leaves[0]).openAngleDeg = 0
+    if (failure === 'stale exterior') request.accessInput.exterior.geometryKey = 'stale'
+    if (failure === 'incomplete heights')
+      request.accessInput.exterior.outerTopElevationCm = Number.NaN
+    const report = serializeFurnitureDeliveryReport(geometry, request)
+    expect(report.text).toBeUndefined()
+    expect(report.error).toBeDefined()
+  })
+})
 
 describe('continuous indoor delivery through a measured stair flight', () => {
   it('preserves a certified stair yaw through a narrow-room exit and charges the shared work budget', () => {

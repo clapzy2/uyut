@@ -1,8 +1,16 @@
 import type { PlanGeometry } from '@uyut/db'
-import { createElement, isValidElement, type ReactElement, type ReactNode, useState } from 'react'
+import {
+  createElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+  useRef,
+  useState,
+} from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { inspectFurnitureDeliveryViaStairs } from '@/lib/projects/plan-furniture-delivery'
+import { serializeFurnitureDeliveryDraft } from '@/lib/projects/plan-furniture-delivery-archive'
 import { inspectFurnitureStairTransfer } from '@/lib/projects/plan-furniture-stair-transfer'
 import { PlanFurnitureStairCheck } from './plan-furniture-stair-check'
 
@@ -10,6 +18,7 @@ vi.mock('react', async (original) => ({
   ...(await original<typeof import('react')>()),
   useState: vi.fn(),
   useId: () => 'stair-test',
+  useRef: vi.fn((initial: unknown) => ({ current: initial })),
 }))
 vi.mock('@/lib/projects/plan-furniture-stair-transfer', () => ({
   furnitureStairGeometryKey: (geometry: unknown) => JSON.stringify(geometry),
@@ -148,8 +157,11 @@ const deliveryResponse: ReturnType<typeof inspectFurnitureDeliveryViaStairs> = {
 type Props = {
   children?: ReactNode
   id?: string
+  disabled?: boolean
   onClick?: () => void
-  onChange?: (event: { currentTarget: { value?: string; checked?: boolean } }) => void
+  onChange?: (event: {
+    currentTarget: { value?: string; checked?: boolean; files?: File[] }
+  }) => void
 }
 function elements(node: ReactNode): ReactElement<Props>[] {
   if (Array.isArray(node)) return node.flatMap(elements)
@@ -158,6 +170,7 @@ function elements(node: ReactNode): ReactElement<Props>[] {
 }
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.mocked(useRef).mockImplementation((initial: unknown) => ({ current: initial }))
   vi.mocked(useState).mockImplementation(
     (initial?: unknown): ReturnType<typeof useState> => [
       typeof initial === 'function' ? initial() : initial,
@@ -169,6 +182,10 @@ beforeEach(() => {
     error: 'Путь не проверен',
     notes: [],
   })
+})
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 function expanded(
   input: typeof fields & Record<string, unknown> = fields,
@@ -185,6 +202,232 @@ function expanded(
 }
 
 describe('measured stair transfer form', () => {
+  it('downloads the five relevant body fields when the parent passes additional flat-route options', async () => {
+    vi.useFakeTimers()
+    const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:download')
+    const revokeObjectURL = vi.fn()
+    const anchor = { href: '', download: '', click: vi.fn(), remove: vi.fn() }
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
+    vi.stubGlobal('document', { createElement: () => anchor, body: { append: vi.fn() } })
+    vi.mocked(useState).mockReturnValueOnce([true, vi.fn()]).mockReturnValueOnce([fields, vi.fn()])
+    const parentProfile = {
+      ...profileFields,
+      allowTurns: true,
+      allowManeuver: true,
+      carryElevationCm: '',
+      tilt: 'none',
+      angleDeg: '90',
+    }
+    const tree = PlanFurnitureStairCheck({ geometry, profileFields: parentProfile })
+    elements(tree)
+      .find((item) => item.props.children === 'Скачать обмеры JSON')
+      ?.props.onClick?.()
+    expect(anchor.click).toHaveBeenCalledOnce()
+    expect(anchor.download).toBe('domitsa-delivery-measurements.json')
+    const blob = createObjectURL.mock.calls[0]?.[0] as Blob | undefined
+    expect(blob).toBeDefined()
+    const document = JSON.parse((await blob?.text()) ?? '')
+    expect(document.profileFields).toEqual(profileFields)
+    expect(document).not.toHaveProperty('acknowledged')
+    expect(document).not.toHaveProperty('result')
+    vi.runOnlyPendingTimers()
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:download')
+  })
+
+  it('does not announce a stale import when the furniture changes while reading the file', async () => {
+    const notice = vi.fn()
+    const setPending = vi.fn()
+    const context = { current: { geometry, profileFields } }
+    vi.mocked(useRef).mockReturnValueOnce({ current: 0 }).mockReturnValueOnce(context)
+    vi.mocked(useState)
+      .mockReturnValueOnce([true, vi.fn()])
+      .mockReturnValueOnce([fields, vi.fn()])
+      .mockReturnValueOnce([key, vi.fn()])
+      .mockReturnValueOnce([undefined, vi.fn()])
+      .mockReturnValueOnce([undefined, notice])
+      .mockReturnValueOnce([undefined, setPending])
+    const tree = PlanFurnitureStairCheck({ geometry, profileFields })
+    const data = {
+      ...fields,
+      direction: 'x' as const,
+      travelDirection: 'up' as const,
+      tilt: 'depth' as const,
+    }
+    const text = serializeFurnitureDeliveryDraft(geometry, profileFields, data)
+    let finish: (text: string) => void = () => {
+      throw new Error('Reader not started')
+    }
+    const file = {
+      name: 'old.json',
+      size: 100,
+      text: () =>
+        new Promise<string>((resolve) => {
+          finish = resolve
+        }),
+    } as File
+    elements(tree)
+      .find((item) => item.props.id === 'stair-stair-test-draft-file')
+      ?.props.onChange?.({ currentTarget: { files: [file] } })
+    context.current = { geometry, profileFields: { ...profileFields, widthCm: '56' } }
+    finish(text)
+    await vi.waitFor(() =>
+      expect(notice).toHaveBeenCalledWith(expect.stringContaining('отличаются')),
+    )
+    expect(setPending).not.toHaveBeenCalledWith(expect.objectContaining({ filename: 'old.json' }))
+  })
+
+  it('ignores an old read after a newer file has been selected', async () => {
+    const notice = vi.fn()
+    const setPending = vi.fn()
+    vi.mocked(useState)
+      .mockReturnValueOnce([true, vi.fn()])
+      .mockReturnValueOnce([fields, vi.fn()])
+      .mockReturnValueOnce([key, vi.fn()])
+      .mockReturnValueOnce([undefined, vi.fn()])
+      .mockReturnValueOnce([undefined, notice])
+      .mockReturnValueOnce([undefined, setPending])
+    const tree = PlanFurnitureStairCheck({ geometry, profileFields })
+    let finish: (text: string) => void = () => {
+      throw new Error('Reader not started')
+    }
+    const old = {
+      name: 'old.json',
+      size: 100,
+      text: () =>
+        new Promise<string>((resolve) => {
+          finish = resolve
+        }),
+    } as File
+    const latest = {
+      name: 'large.json',
+      size: 2 * 1024 * 1024 + 1,
+      text: vi.fn(),
+    } as unknown as File
+    const input = elements(tree).find((item) => item.props.id === 'stair-stair-test-draft-file')
+    input?.props.onChange?.({ currentTarget: { files: [old] } })
+    input?.props.onChange?.({ currentTarget: { files: [latest] } })
+    const data = {
+      ...fields,
+      direction: 'x' as const,
+      travelDirection: 'up' as const,
+      tilt: 'depth' as const,
+    }
+    finish(serializeFurnitureDeliveryDraft(geometry, profileFields, data))
+    await Promise.resolve()
+    expect(setPending).not.toHaveBeenCalledWith(expect.objectContaining({ filename: 'old.json' }))
+    expect(notice).toHaveBeenLastCalledWith(expect.stringContaining('больше 2 МиБ'))
+  })
+  it('allows incomplete draft download but never exports an unverified local route', () => {
+    const tree = expanded(fields, false)
+    const nodes = elements(tree)
+    expect(
+      nodes.find((item) => item.props.children === 'Скачать обмеры JSON')?.props.disabled,
+    ).not.toBe(true)
+    expect(
+      nodes.find((item) => item.props.children === 'Скачать проверенный маршрут JSON')?.props
+        .disabled,
+    ).toBe(true)
+    const html = renderToStaticMarkup(tree)
+    expect(html).toContain('Автоматического сохранения в аккаунте нет')
+    expect(html).toContain('его нельзя загрузить как обмеры')
+  })
+
+  it('applies a loaded draft only explicitly and revokes acknowledgement and old proof', () => {
+    const setFields = vi.fn()
+    const setAck = vi.fn()
+    const setChecked = vi.fn()
+    const imported = {
+      ...fields,
+      startCm: '12,5000',
+      direction: 'x' as const,
+      travelDirection: 'up' as const,
+      tilt: 'depth' as const,
+    }
+    const text = serializeFurnitureDeliveryDraft(geometry, profileFields, imported)
+    vi.mocked(useState)
+      .mockReturnValueOnce([true, vi.fn()])
+      .mockReturnValueOnce([fields, setFields])
+      .mockReturnValueOnce([key, setAck])
+      .mockReturnValueOnce([undefined, setChecked])
+      .mockReturnValueOnce([undefined, vi.fn()])
+      .mockReturnValueOnce([{ text, filename: 'survey.json' }, vi.fn()])
+    const tree = PlanFurnitureStairCheck({ geometry, profileFields })
+    expect(setFields).not.toHaveBeenCalled()
+    elements(tree)
+      .find((item) => item.props.children === 'Заменить обмеры из файла')
+      ?.props.onClick?.()
+    expect(setFields).toHaveBeenCalledWith(imported)
+    expect(setAck).toHaveBeenCalledWith(undefined)
+    expect(setChecked).toHaveBeenCalledWith(undefined)
+  })
+
+  it('revalidates a prepared import against changed furniture before applying, without losing fields', () => {
+    const setFields = vi.fn()
+    const setAck = vi.fn()
+    const setChecked = vi.fn()
+    const notice = vi.fn()
+    const imported = {
+      ...fields,
+      direction: 'x' as const,
+      travelDirection: 'up' as const,
+      tilt: 'depth' as const,
+    }
+    const text = serializeFurnitureDeliveryDraft(geometry, profileFields, imported)
+    vi.mocked(useState)
+      .mockReturnValueOnce([true, vi.fn()])
+      .mockReturnValueOnce([fields, setFields])
+      .mockReturnValueOnce([key, setAck])
+      .mockReturnValueOnce([undefined, setChecked])
+      .mockReturnValueOnce([undefined, notice])
+      .mockReturnValueOnce([{ text, filename: 'survey.json' }, vi.fn()])
+    const tree = PlanFurnitureStairCheck({
+      geometry,
+      profileFields: { ...profileFields, widthCm: '56' },
+    })
+    elements(tree)
+      .find((item) => item.props.children === 'Заменить обмеры из файла')
+      ?.props.onClick?.()
+    expect(notice).toHaveBeenCalledWith(expect.stringContaining('отличаются'))
+    expect(setFields).not.toHaveBeenCalled()
+    expect(setAck).not.toHaveBeenCalled()
+    expect(setChecked).not.toHaveBeenCalled()
+  })
+
+  it('rejects an oversized file before reading and leaves measurements untouched', () => {
+    const setFields = vi.fn()
+    const notice = vi.fn()
+    const text = vi.fn()
+    vi.mocked(useState)
+      .mockReturnValueOnce([true, vi.fn()])
+      .mockReturnValueOnce([fields, setFields])
+      .mockReturnValueOnce([key, vi.fn()])
+      .mockReturnValueOnce([undefined, vi.fn()])
+      .mockReturnValueOnce([undefined, notice])
+    const tree = PlanFurnitureStairCheck({ geometry, profileFields })
+    elements(tree)
+      .find((item) => item.props.id === 'stair-stair-test-draft-file')
+      ?.props.onChange?.({
+        currentTarget: {
+          files: [{ name: 'large.json', size: 2 * 1024 * 1024 + 1, text } as unknown as File],
+          value: 'large.json',
+        },
+      })
+    expect(text).not.toHaveBeenCalled()
+    expect(setFields).not.toHaveBeenCalled()
+    expect(notice).toHaveBeenCalledWith(expect.stringContaining('больше 2 МиБ'))
+  })
+
+  it('adds a unique step identifier after importing nonsequential identifiers', () => {
+    const setFields = vi.fn()
+    const input = { ...fields, steps: [{ ...fields.steps[0], id: 'step-2' }] }
+    vi.mocked(useState).mockReturnValueOnce([true, vi.fn()]).mockReturnValueOnce([input, setFields])
+    const tree = PlanFurnitureStairCheck({ geometry, profileFields })
+    elements(tree)
+      .find((item) => item.props.children === 'Добавить ступень')
+      ?.props.onClick?.()
+    const update = setFields.mock.calls[0]?.[0] as (previous: typeof input) => typeof input
+    expect(update(input).steps.map((step) => step.id)).toEqual(['step-2', 'step-3'])
+  })
   it('submits measured polygon stations without deriving wedges or changing coordinates', () => {
     const layout = [
       {
