@@ -33,6 +33,7 @@ import {
   nativeRoomNumberScheduleLinks,
 } from './plan-native-room-number-links'
 import { type NativeScaleEvidenceReport, nativeScaleEvidence } from './plan-native-scale-evidence'
+import { nativeVisiblePaintRegions } from './plan-native-visible-paint'
 import {
   inspectReviewedPageCoverage,
   type ReviewedPageCoverage,
@@ -78,6 +79,19 @@ export type NativeReviewPacket = {
       laterPaintCount: number
       unresolvedPaintCount: number
       possibleOmissionCount: number
+    }[]
+  }
+  orderedPaint?: {
+    status: 'diagnostic' | 'unresolved'
+    refusalReason: string | null
+    regions: {
+      candidateId: string
+      status: 'diagnostic' | 'held'
+      refusalReason: string | null
+      maskCount: number
+      omittedStrokeCount: number
+      boundaryInkComplete: boolean
+      pieces: { polygon: { x: number; y: number }[]; holes: { x: number; y: number }[][] }[]
     }[]
   }
   doorSymbols?: {
@@ -572,6 +586,35 @@ export function nativeReviewPacket(input: {
             possibleOmissionCount: context.possibleOmissions.length,
           })),
         }
+  const orderedPaint = nativeVisiblePaintRegions(common)
+  if (scale && faces.length <= 100) {
+    const rasterPoint = (point: { x: number; y: number }) => ({
+      x: point.x * scale.x,
+      y: point.y * scale.y,
+    })
+    packet.orderedPaint = {
+      status: orderedPaint.status,
+      refusalReason: orderedPaint.refusalReason,
+      regions: orderedPaint.regions.map((region) => ({
+        candidateId: region.candidateId,
+        status: region.status,
+        refusalReason: region.refusalReason,
+        maskCount: region.masks.length,
+        omittedStrokeCount: region.omittedStrokeCount,
+        boundaryInkComplete: region.boundaryInkComplete,
+        pieces: region.pieces.map((piece) => ({
+          polygon: piece.polygon.map(rasterPoint),
+          holes: piece.holes.map((hole) => hole.map(rasterPoint)),
+        })),
+      })),
+    }
+  } else {
+    packet.orderedPaint = {
+      status: 'unresolved',
+      refusalReason: 'source-overlay-unavailable',
+      regions: [],
+    }
+  }
   packet.counts = {
     fillCandidates: fills.candidates.length,
     strokeFaces: strokeOverlays.size,

@@ -213,6 +213,97 @@ describe('positive painted-region context contract', () => {
   })
 })
 
+describe('ordered source paint fragments', () => {
+  function orderedFixture() {
+    const result = fixture()
+    result.packet.faces = [
+      {
+        id: 'native-fill-10:0',
+        layer: 'fill',
+        annotationHint: false,
+        polygon: [
+          { x: 10, y: 10 },
+          { x: 100, y: 10 },
+          { x: 100, y: 100 },
+          { x: 10, y: 100 },
+        ],
+      },
+    ]
+    result.packet.extraction.clippedPaths = 2
+    const face = result.packet.faces[0]
+    if (!face) throw new Error('Missing source painted face')
+    result.packet.orderedPaint = {
+      status: 'diagnostic',
+      refusalReason: null,
+      regions: [
+        {
+          candidateId: 'native-fill-10:0',
+          status: 'diagnostic',
+          refusalReason: null,
+          maskCount: 1,
+          omittedStrokeCount: 2,
+          boundaryInkComplete: false,
+          pieces: [
+            {
+              polygon: face.polygon,
+              holes: [
+                [
+                  { x: 30, y: 30 },
+                  { x: 40, y: 30 },
+                  { x: 40, y: 40 },
+                  { x: 30, y: 40 },
+                ],
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    return result
+  }
+
+  it('loads fragments and explicit holes with nonzero source omissions', async () => {
+    const { packet, headers } = orderedFixture()
+    const result = await loadFixture(packet, headers)
+    expect(result.packet.orderedPaint).toEqual(packet.orderedPaint)
+    expect(result.packet.readiness.readyFor3D).toBe(false)
+  })
+
+  it.each([
+    'foreign-id',
+    'duplicate',
+    'claimed-completeness',
+    'omissions',
+    'outside-point',
+    'short-hole',
+    'held-pieces',
+    'extra-authority',
+    'partial-global',
+  ] as const)('rejects %s ordered paint without publishing partial fragments', async (kind) => {
+    const { packet, headers } = orderedFixture()
+    const report = packet.orderedPaint
+    const region = report?.regions[0]
+    const piece = region?.pieces[0]
+    if (!report || !region || !piece) throw new Error('Missing ordered paint fixture')
+    if (kind === 'foreign-id') region.candidateId = 'native-fill-11:0'
+    if (kind === 'duplicate') report.regions.push(structuredClone(region))
+    if (kind === 'claimed-completeness') region.boundaryInkComplete = true
+    if (kind === 'omissions') region.omittedStrokeCount = 3
+    if (kind === 'outside-point') piece.polygon = [{ x: -1, y: 10 }, ...piece.polygon.slice(1)]
+    if (kind === 'short-hole') piece.holes = [[{ x: 10, y: 10 }]]
+    if (kind === 'held-pieces') {
+      region.status = 'held'
+      region.refusalReason = 'ambiguous-nearby-intersections'
+    }
+    if (kind === 'extra-authority') Object.assign(region, { readyFor3D: true })
+    if (kind === 'partial-global') {
+      report.status = 'unresolved'
+      report.refusalReason = 'visible-paint-output-limit'
+    }
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+})
+
 function sourceLinksFixture() {
   const result = fixture()
   const { packet } = result
