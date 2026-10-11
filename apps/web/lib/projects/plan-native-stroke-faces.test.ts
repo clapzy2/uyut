@@ -127,3 +127,93 @@ describe('computed bounded crossings and numerical ambiguity', () => {
     expect(result.faces[0]?.edges.some((edge) => edge.sourceRefs.length === 2)).toBe(true)
   })
 })
+
+describe('opt-in exact positive-paint topology', () => {
+  const options = { topology: 'source-decimal-rational' } as const
+  const rectangle = [
+    segment(0, 0, 0, 10, 0),
+    segment(1, 10, 0, 10, 10),
+    segment(2, 10, 10, 0, 10),
+    segment(3, 0, 10, 0, 0),
+  ]
+  it('retains distinct nearby bounded rational cuts without snapping', () => {
+    const input = [
+      ...rectangle,
+      segment(4, 0, 5, 10, 5),
+      segment(5, 0, 0, 10, 9.9999999999998),
+      segment(6, 5, 5, 5, 10),
+    ]
+    expect(boundedNativeStrokeFaces(input).refusalReason).toBe('ambiguous-nearby-intersections')
+    const result = boundedNativeStrokeFaces(input, 0, options)
+    expect(result.refusalReason).toBeNull()
+    expect(result.faces.length).toBeGreaterThan(1)
+    const nodes = new Set(result.faces.flatMap((face) => face.exactPointKeys ?? []))
+    expect(nodes.has('5/1:5/1')).toBe(true)
+    expect(nodes.has(result.intersections[0]?.exactPointKey as string)).toBe(true)
+    expect(
+      result.intersections.some((proof) => proof.point.x > 5 && proof.point.x < 5 + 1e-9),
+    ).toBe(true)
+    const canonical = (value: typeof result) =>
+      value.faces.map((face) => [...(face.exactPointKeys ?? [])].sort().join('|')).sort()
+    const reversed = boundedNativeStrokeFaces(
+      [...input].reverse().map((edge) => ({ ...edge, start: edge.end, end: edge.start })),
+      0,
+      options,
+    )
+    expect(reversed.refusalReason).toBeNull()
+    expect(canonical(reversed)).toEqual(canonical(result))
+  })
+  it('still refuses distinct rational vertices with identical display coordinates', () => {
+    const result = boundedNativeStrokeFaces(
+      [segment(0, 0, 1, 3, 1), segment(1, 1, 0, 1.0000000000000002, 2), segment(2, 1, 1, 1, 2)],
+      0,
+      options,
+    )
+    expect(result).toMatchObject({ refusalReason: 'unrepresentable-intersection', faces: [] })
+  })
+  it('preserves a representable tiny face and its exact area threshold', () => {
+    const input = [
+      segment(0, 100, 100, 100.0000000001, 100),
+      segment(1, 100.0000000001, 100, 100.0000000001, 200),
+      segment(2, 100.0000000001, 200, 100, 200),
+      segment(3, 100, 200, 100, 100),
+    ]
+    expect(boundedNativeStrokeFaces(input, 1e-8, options).faces).toHaveLength(1)
+    expect(boundedNativeStrokeFaces(input, 1.00000000001e-8, options).faces).toHaveLength(0)
+  })
+  it('orders almost parallel rays exactly while retaining the default physical guard', () => {
+    const input = [
+      ...rectangle,
+      segment(4, 0, 0, 10, 10),
+      segment(5, 0, 1e-13, 10, 9.9999999999999),
+    ]
+    expect(boundedNativeStrokeFaces(input.slice(4)).refusalReason).toBe(
+      'ill-conditioned-intersection',
+    )
+    const result = boundedNativeStrokeFaces(input, 0, options)
+    expect(result.refusalReason).toBeNull()
+    expect(result.faces).toHaveLength(4)
+    expect(result.intersections[0]?.exactPointKey).toBe('5/1:5/1')
+  })
+  it('does not accept a ring containing disconnected interior evidence as a holeless face', () => {
+    const result = boundedNativeStrokeFaces([...rectangle, segment(4, 4, 4, 6, 6)], 0, options)
+    expect(result.refusalReason).toBeNull()
+    expect(result.faces).toHaveLength(0)
+  })
+  it('splits shared diagonal edges and keeps every supporting source reference', () => {
+    const result = boundedNativeStrokeFaces(
+      [
+        segment(0, 100, 100, 400, 250),
+        segment(1, 400, 250, 100, 400),
+        segment(2, 100, 400, 100, 100),
+        segment(3, 200, 150, 300, 200),
+      ],
+      0,
+      options,
+    )
+    expect(result.refusalReason).toBeNull()
+    expect(result.faces).toHaveLength(1)
+    expect(result.faces[0]?.edges.some((edge) => edge.sourceRefs.length === 2)).toBe(true)
+    expect(result.faces[0]?.exactPointKeys).toHaveLength(5)
+  })
+})

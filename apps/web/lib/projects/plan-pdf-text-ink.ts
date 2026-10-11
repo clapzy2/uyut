@@ -4,6 +4,14 @@ import type { PagePoint } from './plan-pdf-linework'
 type Matrix = [number, number, number, number, number, number]
 type Quad = [PagePoint, PagePoint, PagePoint, PagePoint]
 type InkBounds = { left: number; bottom: number; right: number; top: number }
+type SourceShow = {
+  operationIndex: number
+  text: string
+  charSpacing: number
+  wordSpacing: number
+  glyphWidths: number[]
+  textMatrix: Matrix
+}
 
 export type PdfTextInkFont = {
   fontMatrix?: ArrayLike<number>
@@ -24,6 +32,18 @@ export type NativeNumericTextInk = {
     quad: Quad
     baselineStart: PagePoint
     baselineEnd: PagePoint
+    sourceGroup?: {
+      operationIndexes: number[]
+      shows: SourceShow[]
+      packedTextMatrixOperationIndex?: number
+      packedTranslation?: [number, number]
+      cursorOffset?: [number, number]
+      packedTextMatrix?: Matrix
+      sourceCtm?: Matrix
+      textContentTransform?: Matrix
+      fontSize?: number
+      horizontalScale?: number
+    }
   }[]
   unresolved: { index: number; reason: string }[]
 }
@@ -44,6 +64,12 @@ type State = {
   active: boolean
   quantizedTextLinear: boolean
   textAdvanceUnverified: boolean
+  packedOrigin?: {
+    operationIndex: number
+    matrix: Matrix
+    lineOffset: [number, number]
+    textOffset: [number, number]
+  }
   clips: Quad[]
   reason?: string
 }
@@ -58,6 +84,13 @@ type Run = {
   fontSize: number
   hScale: number
   quantizedTextLinear: boolean
+  endTransform: Matrix
+  sourceOperations: number[]
+  cursorAdvance: number
+  nonzeroSpacing: boolean
+  textRise: number
+  shows: SourceShow[]
+  packedOrigin?: State['packedOrigin']
   quad?: Quad
   reason?: string
 }
@@ -388,11 +421,28 @@ export function nativeNumericTextInk(input: {
       selectedLiterals.add(item.str.trim())
     }
   }
+  const selectedLiteralList = [...selectedLiterals]
+  let work = 0
   const selectedIndexSet = new Set(selectedIndexes)
   const selectsLiteral = (literal: string) =>
     selectedIndexes === undefined
       ? nativeDimensionCaptionMillimetres(literal.trim()) !== undefined
       : selectedLiterals.has(literal.trim())
+  const selectsFragment = (literal: string) =>
+    selectsLiteral(literal) ||
+    (selectedIndexes !== undefined &&
+      literal.length > 0 &&
+      selectedLiteralList.some((selected) => {
+        if (work > MAX_WORK) return false
+        work += selected.length + literal.length
+        return selected.includes(literal)
+      }))
+  const startsSelectedLiteral = (fragment: string) =>
+    selectedLiteralList.some((literal) => {
+      if (work > MAX_WORK) return false
+      work += literal.length + fragment.length
+      return literal.startsWith(fragment)
+    })
   const text: { index: number; item: TextItem }[] = []
   for (const [index, raw] of textItems.entries()) {
     if (!raw || typeof raw !== 'object' || !('str' in raw) || typeof raw.str !== 'string') continue
@@ -431,7 +481,6 @@ export function nativeNumericTextInk(input: {
   let pendingClip = false
   let markedReason: string | undefined
   const markedStack: (string | undefined)[] = []
-  let work = 0
   const save = () => stack.push(structuredClone(state))
   const restore = () => {
     const prior = stack.pop()
@@ -443,6 +492,11 @@ export function nativeNumericTextInk(input: {
     state.lineMatrix = translate(state.lineMatrix, x, y)
     state.textMatrix = [...state.lineMatrix]
     state.textAdvanceUnverified = false
+    if (state.packedOrigin) {
+      state.packedOrigin.lineOffset[0] += x
+      state.packedOrigin.lineOffset[1] += y
+      state.packedOrigin.textOffset = [...state.packedOrigin.lineOffset]
+    }
   }
   for (let operationIndex = 0; operationIndex < operatorList.fnArray.length; operationIndex++) {
     if (++work > MAX_WORK) return fail('text-ink-budget-exceeded')
@@ -464,6 +518,7 @@ export function nativeNumericTextInk(input: {
       state.textMatrix = [...IDENTITY]
       state.lineMatrix = [...IDENTITY]
       state.quantizedTextLinear = false
+      delete state.packedOrigin
       state.textAdvanceUnverified = false
     } else if (name === 'endText') state.active = false
     else if (name === 'setFont') {
@@ -477,6 +532,14 @@ export function nativeNumericTextInk(input: {
       state.textMatrix = [...m]
       state.lineMatrix = [...m]
       state.quantizedTextLinear = args.length === 1 && args[0] instanceof Float32Array
+      if (state.quantizedTextLinear)
+        state.packedOrigin = {
+          operationIndex,
+          matrix: [...m],
+          lineOffset: [0, 0],
+          textOffset: [0, 0],
+        }
+      else delete state.packedOrigin
       state.textAdvanceUnverified = false
     } else if (name === 'moveText' || name === 'setLeadingMoveText') {
       if (args.length !== 2 || !args.every(Number.isFinite))
@@ -594,8 +657,6 @@ export function nativeNumericTextInk(input: {
         state.hScale > 0
       if (state.fontSize <= 0 || state.hScale <= 0 || state.renderingMode !== 0 || pendingClip)
         reason ??= 'unsupported-native-text-ink-mode'
-      if (state.charSpacing !== 0 || state.wordSpacing !== 0)
-        reason ??= 'unsupported-native-text-ink-spacing'
       const trm = multiply(
         state.ctm,
         multiply(state.textMatrix, [
@@ -618,6 +679,9 @@ export function nativeNumericTextInk(input: {
       let lastSpacing = 0
       let str = ''
       const originalTextMatrix: Matrix = [...state.textMatrix]
+      const originalPackedOrigin = state.packedOrigin
+        ? structuredClone(state.packedOrigin)
+        : undefined
       let literal = ''
       for (const glyph of glyphs) {
         if (typeof glyph === 'number') continue
@@ -633,7 +697,7 @@ export function nativeNumericTextInk(input: {
         if (work > MAX_WORK) return fail('text-ink-budget-exceeded')
         literal += glyph.unicode
       }
-      const selected = selectsLiteral(literal)
+      const selected = selectsFragment(literal)
       for (const glyph of glyphs) {
         if (++work > MAX_WORK) return fail('text-ink-budget-exceeded')
         if (typeof glyph === 'number') {
@@ -656,7 +720,16 @@ export function nativeNumericTextInk(input: {
           state.fontSize > 0
             ? (state.charSpacing + (glyph.isSpace ? state.wordSpacing : 0)) / state.fontSize
             : 0
-        if (glyph.isInFont !== true || glyph.accent) reason ??= 'unsupported-native-text-ink-glyph'
+        // Some embedded PDFs encode a blank outside the font's mapped glyph set.
+        // Only the original empty outline can prove that this contributes no ink;
+        // its source advance still participates in the full caption identity.
+        const missingWhitespace =
+          glyph.isInFont === false &&
+          glyph.isSpace === false &&
+          !glyph.accent &&
+          /^[ \u00a0\u202f]$/u.test(glyph.unicode)
+        if ((!missingWhitespace && glyph.isInFont !== true) || glyph.accent)
+          reason ??= 'unsupported-native-text-ink-glyph'
         if (glyph.isSpace && !/^[ \u00a0\u202f]+$/.test(glyph.unicode))
           reason ??= 'unsupported-native-text-ink-glyph'
         if (selected && !glyph.isSpace) {
@@ -669,6 +742,9 @@ export function nativeNumericTextInk(input: {
             /* Do not substitute a system font. */
           }
           const path = values(rawPath, MAX_PATH_VALUES)
+          const verifiedEmptyWhitespace = missingWhitespace && path?.length === 0
+          if (missingWhitespace && !verifiedEmptyWhitespace)
+            reason ??= 'unsupported-native-text-ink-glyph'
           if (path) work += path.length * 3
           if (work > MAX_WORK) return fail('text-ink-budget-exceeded')
           // Bound the actual outline in an orthonormal source-baseline frame.
@@ -684,8 +760,8 @@ export function nativeNumericTextInk(input: {
               ])
             : undefined
           const bounds = projectedPath ? pdfGlyphInkBounds(projectedPath) : undefined
-          if (!bounds) reason ??= 'native-glyph-ink-unavailable'
-          else {
+          if (!bounds && !verifiedEmptyWhitespace) reason ??= 'native-glyph-ink-unavailable'
+          else if (bounds) {
             ink.left = Math.min(ink.left, bounds.left)
             ink.right = Math.max(ink.right, bounds.right)
             ink.bottom = Math.min(ink.bottom, bounds.bottom)
@@ -696,8 +772,10 @@ export function nativeNumericTextInk(input: {
         lastSpacing = spacing
       }
       state.textMatrix = translate(state.textMatrix, advance * state.fontSize * state.hScale, 0)
+      if (state.packedOrigin)
+        state.packedOrigin.textOffset[0] += advance * state.fontSize * state.hScale
       if (!advanceKnown) state.textAdvanceUnverified = true
-      if (!selectsLiteral(str)) continue
+      if (!selectsFragment(str)) continue
       if (str !== str.trim()) reason ??= 'unsupported-native-text-ink-text'
       if (
         !Number.isFinite(advance) ||
@@ -722,6 +800,34 @@ export function nativeNumericTextInk(input: {
         fontSize: state.fontSize,
         hScale: state.hScale,
         quantizedTextLinear: state.quantizedTextLinear,
+        endTransform: multiply(
+          state.ctm,
+          multiply(state.textMatrix, [
+            state.fontSize * state.hScale,
+            0,
+            0,
+            state.fontSize,
+            0,
+            state.rise,
+          ]),
+        ),
+        sourceOperations: [operationIndex],
+        cursorAdvance: advance,
+        nonzeroSpacing: state.charSpacing !== 0 || state.wordSpacing !== 0,
+        textRise: state.rise,
+        shows: [
+          {
+            operationIndex,
+            text: str,
+            charSpacing: state.charSpacing,
+            wordSpacing: state.wordSpacing,
+            glyphWidths: glyphs
+              .filter((glyph) => typeof glyph !== 'number')
+              .map((glyph) => glyph.width as number),
+            textMatrix: originalTextMatrix,
+          },
+        ],
+        ...(originalPackedOrigin ? { packedOrigin: originalPackedOrigin } : {}),
         quad,
         reason,
       })
@@ -738,10 +844,83 @@ export function nativeNumericTextInk(input: {
   }
   if (stack.length || markedStack.length || pendingClip || state.active)
     return fail('invalid-text-ink-state-stack')
+  // TextContent joins glyph shows on one source text line. Reconstruct only
+  // literal consecutive shows, never neighbouring labels or different BTs.
+  const candidates = runs.filter((run) => selectsLiteral(run.text))
+  if (selectedIndexes !== undefined) {
+    for (let start = 0; start < runs.length; start++) {
+      if (work > MAX_WORK) return fail('text-ink-budget-exceeded')
+      const first = runs[start] as Run
+      if (!startsSelectedLiteral(first.text)) continue
+      let group = structuredClone(first)
+      for (let next = start + 1; next < runs.length; next++) {
+        if (group.sourceOperations.length >= 50) break
+        const run = runs[next] as Run
+        if (++work > MAX_WORK) return fail('text-ink-budget-exceeded')
+        const previous = runs[next - 1] as Run
+        let continuation = true
+        for (let index = previous.operationIndex + 1; index < run.operationIndex; index++) {
+          if (++work > MAX_WORK) return fail('text-ink-budget-exceeded')
+          if (names.get(operatorList.fnArray[index] as number) !== 'setCharSpacing') {
+            continuation = false
+            break
+          }
+        }
+        if (
+          !continuation ||
+          run.fontName !== first.fontName ||
+          run.fontSize !== first.fontSize ||
+          run.hScale !== first.hScale ||
+          run.ctm.some((value, index) => value !== first.ctm[index]) ||
+          run.transform.some(
+            (value, index) =>
+              Math.abs(value - (previous.endTransform[index] as number)) > ARITHMETIC_EPSILON,
+          ) ||
+          first.reason ||
+          run.reason ||
+          !group.quad ||
+          !run.quad
+        )
+          break
+        const text = group.text + run.text
+        if (text.length > 200 || !startsSelectedLiteral(text)) break
+        const scale = Math.hypot(first.transform[0], first.transform[1])
+        const ux = first.transform[0] / scale,
+          uy = first.transform[1] / scale
+        const corners = [...group.quad, ...run.quad].map((point) => ({
+          x: (point.x - first.transform[4]) * ux + (point.y - first.transform[5]) * uy,
+          y: -(point.x - first.transform[4]) * uy + (point.y - first.transform[5]) * ux,
+        }))
+        group = {
+          ...group,
+          text,
+          advance: group.cursorAdvance + run.advance,
+          cursorAdvance: group.cursorAdvance + run.cursorAdvance,
+          endTransform: [...run.endTransform],
+          nonzeroSpacing: group.nonzeroSpacing || run.nonzeroSpacing,
+          sourceOperations: [...group.sourceOperations, run.operationIndex],
+          shows: [...group.shows, ...run.shows],
+          quad: rectangle(
+            {
+              left: Math.min(...corners.map((point) => point.x)),
+              right: Math.max(...corners.map((point) => point.x)),
+              bottom: Math.min(...corners.map((point) => point.y)),
+              top: Math.max(...corners.map((point) => point.y)),
+            },
+            [ux, uy, -uy, ux, first.transform[4], first.transform[5]],
+          ),
+        }
+        if (selectsLiteral(text)) {
+          candidates.push(structuredClone(group))
+          if (candidates.length > MAX_ITEMS) return fail('text-ink-budget-exceeded')
+        }
+      }
+    }
+  }
   const items: NativeNumericTextInk['items'] = []
   const unresolved: NativeNumericTextInk['unresolved'] = []
   const identities = text.map(({ index, item }) => {
-    const matches = runs.filter((run) => {
+    const matches = candidates.filter((run) => {
       if (++work > MAX_WORK) return false
       if (run.text !== item.str || run.fontName !== item.fontName) return false
       const [a, b, c, d] = run.ctm
@@ -771,7 +950,29 @@ export function nativeNumericTextInk(input: {
         Math.abs(run.transform[4] - item.transform[4]) <= ARITHMETIC_EPSILON &&
         Math.abs(run.transform[5] - item.transform[5]) <= ARITHMETIC_EPSILON &&
         linear.every((v, i) => Math.fround(v) === run.textMatrix[i])
-      if (!exactTransform && !quantizedTransform) return false
+      const origin = run.packedOrigin
+      // Installed PDF.js packs Tm operands for render operations but keeps
+      // source doubles in TextContent. Prove the original quantization cell
+      // after undoing CTM and the explicit source text cursor, not tolerance.
+      const recoveredTranslation: [number, number] = [
+        (d * (item.transform[4] - run.ctm[4]) - c * (item.transform[5] - run.ctm[5])) /
+          determinant -
+          (linear[0] as number) * (origin?.textOffset[0] ?? 0) -
+          (linear[2] as number) * (origin?.textOffset[1] ?? 0),
+        (-b * (item.transform[4] - run.ctm[4]) + a * (item.transform[5] - run.ctm[5])) /
+          determinant -
+          (linear[1] as number) * (origin?.textOffset[0] ?? 0) -
+          (linear[3] as number) * (origin?.textOffset[1] ?? 0),
+      ]
+      const quantizedGroup =
+        run.sourceOperations.length > 1 &&
+        run.textRise === 0 &&
+        !!origin &&
+        linear.every((value, index) => Math.fround(value) === origin.matrix[index]) &&
+        recoveredTranslation.every(
+          (value, index) => Math.fround(value) === origin.matrix[index + 4],
+        )
+      if (!exactTransform && !quantizedTransform && !quantizedGroup) return false
       // TextContent measures advances with text-line and CTM X scales separately.
       // This is not the physical baseline norm when a rotated run has an anisotropic CTM.
       const advanceScale =
@@ -787,7 +988,7 @@ export function nativeNumericTextInk(input: {
   const claims = new Map<Run, number>()
   for (const { matches } of identities)
     for (const run of matches) claims.set(run, (claims.get(run) ?? 0) + 1)
-  if (runs.some((run) => !claims.has(run))) return fail('unmatched-native-numeric-text-show')
+  if (candidates.some((run) => !claims.has(run))) return fail('unmatched-native-numeric-text-show')
   const normalized = (p: PagePoint): PagePoint | undefined => {
     const [x, y] = viewport.convertToViewportPoint(p.x, p.y)
     if (
@@ -814,8 +1015,15 @@ export function nativeNumericTextInk(input: {
       })
       continue
     }
-    if (run.reason || !run.quad) {
-      unresolved.push({ index, reason: run.reason ?? 'native-glyph-ink-unavailable' })
+    if (run.reason || !run.quad || (run.nonzeroSpacing && run.sourceOperations.length === 1)) {
+      unresolved.push({
+        index,
+        reason:
+          run.reason ??
+          (run.nonzeroSpacing
+            ? 'unsupported-native-text-ink-spacing'
+            : 'native-glyph-ink-unavailable'),
+      })
       continue
     }
     const quad = run.quad.map(normalized)
@@ -833,6 +1041,29 @@ export function nativeNumericTextInk(input: {
       quad: quad as Quad,
       baselineStart,
       baselineEnd,
+      ...(run.sourceOperations.length > 1
+        ? {
+            sourceGroup: {
+              operationIndexes: [...run.sourceOperations],
+              shows: structuredClone(run.shows),
+              ...(run.packedOrigin
+                ? {
+                    packedTextMatrixOperationIndex: run.packedOrigin.operationIndex,
+                    packedTranslation: [run.packedOrigin.matrix[4], run.packedOrigin.matrix[5]] as [
+                      number,
+                      number,
+                    ],
+                    cursorOffset: [...run.packedOrigin.textOffset] as [number, number],
+                    packedTextMatrix: [...run.packedOrigin.matrix] as Matrix,
+                    sourceCtm: [...run.ctm] as Matrix,
+                    textContentTransform: [...item.transform] as Matrix,
+                    fontSize: run.fontSize,
+                    horizontalScale: run.hScale,
+                  }
+                : {}),
+            },
+          }
+        : {}),
     })
   }
   return { complete: unresolved.length === 0, refusalReason: null, items, unresolved }

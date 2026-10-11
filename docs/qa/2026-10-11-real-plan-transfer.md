@@ -206,6 +206,61 @@ properties and unchanged/moved wall owners with `measuredThicknessCm` as their o
 observed on the actual site. Automatic accepted 2D/3D remains blocked by physical-boundary,
 metric-owner and vertical-reference proof gaps. Do not describe this as complete recognition.
 
+## Source topology and height-caption recovery — 12 October
+
+The unchanged original Rebrina page 3 now computes surviving paint for all eight
+room-shaped source operations (1462, 1491, 1527, 1563, 1591, 1611, 1631, 1651):
+nine pieces in total, not nine rooms. Previously only operation 1527 completed
+among these eight. Kitchen 1462 includes all 21 later masks, including grey column
+13501; its graph has 118 rational intersection proofs. No later mask was removed
+to obtain this result. Rational cut identity survives face ordering, containment
+and paint accounting instead of being rebuilt from rounded display points.
+Distinct cuts aliasing to the same Number coordinate still cause atomic refusal.
+Existing budgets and default physical/cavity graph guards remain unchanged.
+
+Exactness is relative to retained extractor coordinates: the native line
+extractor has already quantized coordinates to 0.001 page units. It is not proof
+of lossless original PDF coordinates. All eight paint boundaries remain
+incomplete; the global 532 clipped paths and possible omitted strokes remain
+visible. These pieces do not certify physical free floor, room ownership or
+2D/3D readiness.
+
+Rebrina height-caption ink now retains ten source-verified contiguous glyph-show
+groups, previously zero. Original operations, matrices and spacing are retained.
+A narrowly verified Float32 text-matrix/raw TextContent lineage supplies a
+conservative translation envelope, not a relocated exact glyph box. Producer
+and consumer cap groups at 50 shows; the 51-show regression holds that group
+without losing an unrelated valid caption. Rotated/sheared groups and mixed
+text-object joins remain unsupported. The units note and four split/subscript
+door/window captions on this sheet are not recovered. All ten height roles,
+owners and their common vertical reference remain unconfirmed.
+
+On unchanged 74.77 m2 page 6, verified height-caption ink increased from 14 to 16.
+The two recovered captions contain an embedded whitespace glyph with a known
+advance and explicitly empty native outline. Missing/nonempty outlines, unknown
+advances and non-whitespace glyphs still refuse. The balcony-door caption is
+not assigned to aperture versus leaf height without separate proof.
+
+Independent opening audit found no defensible change to the rectangular stroke
+detector: Rebrina still has zero frame candidates. Visible window bodies are
+skew filled quadrilaterals; retained cap/body endpoints can differ by one
+extractor quantization unit. Widening tolerances or declaring them physical
+openings would invent evidence. A subsequent source-linked quadrilateral/jamb
+detector needs lossless coordinates or explicit coordinate uncertainty. Floor
+role, metric ownership and vertical-reference binding are also still required
+before automatic 2D/3D transfer.
+
+Verification: 6,952 web tests / 303 files, seven-package typecheck, Biome 995 files,
+production build and diff check passed. Independent final review found no
+blocking issues after the producer/consumer cap fix. Original-PDF browser QA
+showed all eight source-operation pieces in the purple layer, ten held height
+observations, unchanged omissions and no warning/error console logs or document
+overflow (1265 px document within 1280 px viewport). Screenshot:
+`output/playwright/real-plan-source-topology-20261012.jpg`. The local component
+uses mocked private HTTP, not authenticated account persistence. Its counters
+recorded one inspection, one image request, zero mutations and zero paid requests.
+No source-file edits or new paid AI requests were needed for this stage.
+
 ### Earlier offline regression verification
 
 - Full web suite: 6,821 tests / 300 files passed, including local-only original PDF re-extractions when that ignored source exists. Public CI does not require copyrighted PDFs; deterministic unit controls remain present there.

@@ -326,7 +326,9 @@ export function nativeVisiblePaintRegions(input: Input) {
       hold('mixed-disconnected-mask-topology')
       continue
     }
-    const graph = boundedNativeStrokeFaces([...source, ...maskSegments.flat()])
+    const graph = boundedNativeStrokeFaces([...source, ...maskSegments.flat()], 0, {
+      topology: 'source-decimal-rational',
+    })
     if (graph.refusalReason) {
       hold(graph.refusalReason)
       continue
@@ -353,7 +355,9 @@ export function nativeVisiblePaintRegions(input: Input) {
     }
     let accountedArea = fraction(0n)
     for (const face of graph.faces) {
-      const faceRing = rationalRing(face.polygon)
+      const faceRing = face.exactPointKeys
+        ? face.exactPointKeys.map(pointFromKey)
+        : rationalRing(face.polygon)
       if (faceRing.some((point) => !point)) {
         hold('missing-rational-face-proof')
         break
