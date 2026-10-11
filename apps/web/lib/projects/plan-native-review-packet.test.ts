@@ -96,6 +96,46 @@ describe('whole-page native inspection, separate from saved geometry', () => {
     expect(JSON.stringify(result)).not.toContain('manual-native-annotation-review')
     expect(input).toEqual(before)
   })
+  it('exposes filled source profiles independently of physical frames and glazing', () => {
+    const input = fixture()
+    const rectangle = (operationIndex: number, left: number, right: number) => ({
+      operationIndex,
+      subpathIndex: 0,
+      paint: 'fill' as const,
+      closed: true,
+      points: [
+        { x: left, y: 40 },
+        { x: right, y: 40 },
+        { x: right, y: 50 },
+        { x: left, y: 50 },
+      ],
+    })
+    input.work.paths.push(rectangle(100, 30, 100), rectangle(101, 25, 32), rectangle(102, 98, 105))
+    const before = structuredClone(input)
+    const packet = nativeReviewPacket(input)
+    expect(packet.filledPanelSymbols).toMatchObject({
+      status: 'draft',
+      basis: 'native-filled-quad-and-opposed-cap-overlap',
+      completeOpeningInventory: false,
+      physicalJambAccepted: false,
+      physicalPassageAccepted: false,
+      closesFloorBoundary: false,
+      finalPaintVisibilityProved: false,
+      candidates: [
+        {
+          id: 'native-filled-panel-100:0',
+          sourceRefs: [100, 102, 101].map((operationIndex) => ({
+            operationIndex,
+            subpathIndex: 0,
+          })),
+        },
+      ],
+    })
+    expect(packet.openingFrames?.candidates).toEqual([])
+    expect(packet.glazingSymbols?.candidates).toEqual([])
+    expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+    expect(input).toEqual(before)
+  })
   it('keeps scale and jamb diagnostics separate from accepted calibration and geometry', () => {
     const input = fixture()
     const before = structuredClone(input)

@@ -116,6 +116,63 @@ export function SavedReviewCoverage({
   )
 }
 
+function FilledPanelSymbols({
+  report,
+  visible,
+  onVisibilityChange,
+}: {
+  report: NonNullable<NativeReviewPacket['filledPanelSymbols']>
+  visible: boolean
+  onVisibilityChange: (visible: boolean) => void
+}) {
+  return (
+    <section
+      className="space-y-2 text-[13px] leading-relaxed"
+      aria-label="Залитые профили исходника"
+    >
+      <h4 className="text-[14px] font-medium">Залитые профили исходника</h4>
+      <p>
+        Профили из залитых четырёхугольников:{' '}
+        {report.status === 'unresolved' ? 'поиск не завершён' : report.candidates.length}.
+      </p>
+      <p className="text-ink-2">
+        Корпус и два противоположных торца найдены по перекрытию исходных заливок, в том числе
+        наклонных. Это сходство рисунка, не число окон или дверей. Полный контур косяков, видимость
+        после поздних штрихов, высоты, физический проход и граница пола не подтверждены.
+      </p>
+      {report.status === 'unresolved' ? (
+        <p className="break-all text-ink-2">Ограничение поиска: {report.refusalReason}.</p>
+      ) : report.candidates.length ? (
+        <>
+          <details>
+            <summary className="min-h-11 cursor-pointer py-3">Исходные корпуса и торцы</summary>
+            <ul className="list-disc space-y-2 pl-5 text-ink-2">
+              {report.candidates.map((candidate) => (
+                <li key={candidate.id}>
+                  <span className="break-all">{candidate.id}</span>: операции{' '}
+                  {candidate.sourceRefs
+                    .map((ref) => `${ref.operationIndex}:${ref.subpathIndex}`)
+                    .join(', ')}
+                  . Поздних операций рисования — {candidate.laterPaintCount}; возможных пропусков —{' '}
+                  {candidate.omittedInkCount}. Назначение проёма не принято.
+                </li>
+              ))}
+            </ul>
+          </details>
+          <label className="flex min-h-11 items-center gap-2">
+            <input
+              type="checkbox"
+              checked={visible}
+              onChange={(event) => onVisibilityChange(event.target.checked)}
+            />
+            Показать залитые профили — красный пунктир, не проверенные проёмы
+          </label>
+        </>
+      ) : null}
+    </section>
+  )
+}
+
 function SourceSymbolLinks({ links }: { links: NonNullable<NativeReviewPacket['sourceLinks']> }) {
   return (
     <section
@@ -1469,6 +1526,7 @@ export function NativeReviewResult({
   const [showFills, setShowFills] = useState(false)
   const [showOpeningCandidates, setShowOpeningCandidates] = useState(true)
   const [showGlazingCandidates, setShowGlazingCandidates] = useState(true)
+  const [showFilledPanels, setShowFilledPanels] = useState(false)
   const [showFloorCavities, setShowFloorCavities] = useState(false)
   const [showOrderedPaint, setShowOrderedPaint] = useState(false)
   const [fullSize, setFullSize] = useState(false)
@@ -1620,6 +1678,13 @@ export function NativeReviewResult({
             </label>
           ) : null}
         </div>
+      ) : null}
+      {packet.filledPanelSymbols ? (
+        <FilledPanelSymbols
+          report={packet.filledPanelSymbols}
+          visible={showFilledPanels}
+          onVisibilityChange={setShowFilledPanels}
+        />
       ) : null}
       {packet.sourceLinks ? <SourceSymbolLinks links={packet.sourceLinks} /> : null}
       <label className="flex min-h-11 items-center gap-2 text-[13px]">
@@ -1797,6 +1862,30 @@ export function NativeReviewResult({
                 </g>
               ))
             : null}
+          {showFilledPanels && packet.filledPanelSymbols?.status === 'draft'
+            ? packet.filledPanelSymbols.candidates.map((candidate) => (
+                <g
+                  key={candidate.id}
+                  fill="none"
+                  stroke="#dc2626"
+                  strokeWidth="2"
+                  strokeDasharray="4 3"
+                >
+                  {candidate.polygons.map((polygon) => (
+                    <polygon
+                      key={polygon.map((point) => `${point.x}:${point.y}`).join(';')}
+                      points={polygon.map((point) => `${point.x},${point.y}`).join(' ')}
+                      vectorEffect="non-scaling-stroke"
+                    >
+                      <title>
+                        Исходный залитый корпус или торец с перекрытием. Косяки, вид проёма, высоты
+                        и граница пола не подтверждены.
+                      </title>
+                    </polygon>
+                  ))}
+                </g>
+              ))
+            : null}
           {showFloorCavities && packet.floorCavities?.status === 'draft' ? (
             <g fill="none" strokeWidth="2">
               {packet.floorCavities.candidates
@@ -1852,6 +1941,9 @@ export function NativeReviewResult({
           : null}
         {packet.glazingSymbols?.candidates.length
           ? ' Синие линии показывают только исходные профили остекления, не определяют окна или балконные двери.'
+          : null}
+        {showFilledPanels
+          ? ' Красный пунктир показывает исходные залитые профили, не подтверждённые физические проёмы.'
           : null}
       </p>
       <SavedReviewCoverage savedReview={packet.savedReview} />
