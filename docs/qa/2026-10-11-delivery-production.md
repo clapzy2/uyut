@@ -31,6 +31,7 @@ Fixture: rigid package `40 x 60 x 170 cm`, zero clearance; lower floor `0 cm`, u
 9. PDF progress advanced to completion without page reload. Export `faf36f32-bd48-424a-b0e2-a0123ceb143f` produced a free watermarked `15`-page document in about `21` seconds, downloaded through the application's link.
 10. All 15 pages were rendered with Poppler and visually reviewed. Floors/general zero, route overview, all 28 XYZ positions, 12 stair regions and all 23 movement bounds were present. No clipped rows or overlapping text were observed. Room warnings and physical-delivery limitations remained present.
 11. In the narrow browser view, document width equalled viewport width (`572 px`), with no horizontal overflow. A requested 390-pixel override did not take effect in the connected browser; therefore this is not a verified 390-pixel device test. The override was reset.
+12. Two live authenticated tabs loaded and applied the same account revision. The first saved a draft; the stale second tab's save was rejected without replacing its fields. The first tab subsequently recalculated and saved the valid full server route again. The downloaded PDF remains the earlier immutable snapshot.
 
 Local evidence: `output/playwright/delivery-production-3d-20261011.jpg` and `output/pdf/delivery-production-qa-20261011.pdf` (ignored artifacts, not repository assets).
 
@@ -38,5 +39,5 @@ Local evidence: `output/playwright/delivery-production-3d-20261011.jpg` and `out
 
 - A focused follow-up retries an auth-storage GET once for the actual SDK empty-body JSON parse error. A second failure still propagates; set, delete, get-and-delete, counters and limits are unchanged. This does not implement sustained-outage DB fallback. No auth/rate-limit bypass was used in this acceptance.
 - PDF movement tables currently preserve raw conservative floating-point bounds, including long decimal tails. They fit, but user-facing numeric presentation could be improved without weakening calculation bounds.
-- This acceptance does not cover live simultaneous-tab CAS conflicts, payment, AI recognition, real source wall extraction, or physical transportation. Their automated checks and other QA records are separate evidence.
+- This acceptance does not cover payment, AI recognition, real source wall extraction, or physical transportation. Their automated checks and other QA records are separate evidence.
 - No existing customer project, account role, subscription, password, or session was modified. Only the isolated QA project's measurements, report and free export were written through the UI.
