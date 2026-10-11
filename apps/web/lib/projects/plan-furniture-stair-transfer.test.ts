@@ -1,5 +1,6 @@
 import { verticalReferenceReviewKey } from '@uyut/catalog/plan-vertical-floor-geometry'
-import type { PlanGeometry, PlanPoint } from '@uyut/db'
+import type { PlanGeometry, PlanPoint, PlanWallFacePair } from '@uyut/db'
+import polygonClipping, { type Polygon } from 'polygon-clipping'
 import { describe, expect, it } from 'vitest'
 import {
   type FurnitureStairSurvey,
@@ -74,7 +75,7 @@ function fixture(direction: 'x' | 'y' = 'x'): PlanGeometry {
   rotated.heightCm = 780
   return rotated
 }
-function survey(geometry: PlanGeometry): FurnitureStairSurvey {
+function survey(geometry: PlanGeometry): Extract<FurnitureStairSurvey, { version: 1 }> {
   if (!geometry.verticalReference) throw new Error('Missing reference')
   return {
     version: 1,
@@ -102,6 +103,326 @@ function survey(geometry: PlanGeometry): FurnitureStairSurvey {
     acknowledged: true,
   }
 }
+
+function turningFixture(uTurn = false, turnWidth = 160) {
+  const original = fixture()
+  const geometry = {
+    ...original,
+    heightCm: 900,
+    footprint: box(0, 0, 780, 900),
+    verticalReference: undefined,
+  }
+  const lowerRoom = required(geometry.rooms?.[0])
+  const upperRoom = {
+    name: 'Верхняя площадка',
+    polygon: uTurn ? box(0, 300, 250, 550) : box(350, 230 + turnWidth, 780, 900),
+  }
+  geometry.rooms = [lowerRoom, upperRoom]
+  const reference = required(original.verticalReference)
+  const accepted = applyPlanVerticalReference(
+    geometry,
+    {
+      version: 1,
+      id: reference.id,
+      kind: reference.kind,
+      zeroFloorId: reference.zeroFloorId,
+      acknowledged: true,
+      ceilings: reference.ceilings,
+      wallBases: reference.wallBases,
+      thresholds: reference.thresholds,
+      source: reference.source,
+      floors: reference.floors.map((floor) => ({
+        ...floor,
+        room: floor.id === 'lower' ? lowerRoom : upperRoom,
+      })),
+    },
+    'test-surveyor',
+    '2026-10-11T08:00:00.000Z',
+  )
+  if (!accepted.ok) throw new Error(accepted.error)
+  const result = accepted.geometry
+  const common = survey(result)
+  const layout: Extract<FurnitureStairSurvey, { version: 2 }>['layout'] = [
+    { kind: 'landing', polygon: box(0, 90, 250, 210), elevationCm: 0, ceilingElevationCm: 360 },
+    ...Array.from({ length: 5 }, (_, index) => ({
+      kind: 'tread' as const,
+      polygon: box(250 + index * 28, 90, 278 + index * 28, 210),
+      elevationCm: 18 * (index + 1),
+      ceilingElevationCm: 500,
+    })),
+    {
+      kind: 'landing',
+      polygon: box(390, 90, 390 + turnWidth, uTurn ? 430 : 90 + turnWidth),
+      elevationCm: 90,
+      ceilingElevationCm: 500,
+    },
+    ...Array.from({ length: 5 }, (_, index) => ({
+      kind: 'tread' as const,
+      polygon: uTurn
+        ? box(362 - index * 28, 310, 390 - index * 28, 430)
+        : box(
+            270 + turnWidth,
+            90 + turnWidth + index * 28,
+            390 + turnWidth,
+            118 + turnWidth + index * 28,
+          ),
+      elevationCm: 108 + index * 18,
+      ceilingElevationCm: 558,
+    })),
+    {
+      kind: 'landing',
+      polygon: uTurn
+        ? box(0, 310, 250, 430)
+        : box(270 + turnWidth, 230 + turnWidth, 390 + turnWidth, 480 + turnWidth),
+      elevationCm: 198,
+      ceilingElevationCm: 558,
+    },
+  ]
+  const input: Extract<FurnitureStairSurvey, { version: 2 }> = {
+    version: 2,
+    referenceKey: common.referenceKey,
+    geometryKey: common.geometryKey,
+    source: common.source,
+    lowerFloorId: common.lowerFloorId,
+    upperFloorId: common.upperFloorId,
+    travelDirection: 'up',
+    carryClearanceCm: 5,
+    tilt: 'none',
+    acknowledged: true,
+    layout,
+  }
+  return { geometry: result, input }
+}
+
+describe('explicit turning measured stair chain', () => {
+  it.each(['up', 'down'] as const)(
+    'certifies an actual whole furniture yaw on the intermediate landing: %s',
+    (travelDirection) => {
+      const { geometry, input } = turningFixture(false, 220)
+      const body = {
+        ...profile,
+        widthCm: 60,
+        depthCm: 180,
+        orientation: travelDirection === 'up' ? (90 as const) : (0 as const),
+      }
+      expect(
+        inspectFurnitureStairTransfer(geometry, { ...input, travelDirection }, body).result,
+      ).toBeUndefined()
+      const response = inspectFurnitureStairTransfer(
+        geometry,
+        { ...input, travelDirection, allowQuarterTurns: true },
+        body,
+      )
+      expect(response.error).toBeUndefined()
+      const result = required(response.result)
+      expect(result.points[0]?.orientation).toBe(0)
+      expect(result.points.at(-1)?.orientation).toBe(90)
+      const turns = result.stages.filter((stage) => stage.kind === 'turn')
+      expect(turns).toHaveLength(1)
+      const turn = required(turns[0])
+      expect([turn.from.xCm, turn.from.yCm, turn.from.zCm]).toEqual([
+        turn.to.xCm,
+        turn.to.yCm,
+        turn.to.zCm,
+      ])
+      expect(turn.from.orientation).toBe(0)
+      expect(turn.to.orientation).toBe(90)
+      const landing = required(result.regions[6])
+      const sweep: Polygon = [
+        box(turn.bounds.leftCm, turn.bounds.topCm, turn.bounds.rightCm, turn.bounds.bottomCm).map(
+          (point) => [point.xCm, point.yCm],
+        ),
+      ]
+      expect(
+        polygonClipping.difference(sweep, [
+          landing.polygon.map((point) => [point.xCm, point.yCm] as [number, number]),
+        ]),
+      ).toEqual([])
+      expect((turn.bounds.rightCm - turn.bounds.leftCm) ** 2).toBeGreaterThanOrEqual(
+        64 ** 2 + 184 ** 2,
+      )
+      expect(result.checkedStages).toBeGreaterThanOrEqual(result.stages.length)
+      expect(result.checkedStages).toBeLessThanOrEqual(6000)
+      expect(result.points.at(-1)?.zCm).toBe(travelDirection === 'up' ? 198 : 0)
+    },
+  )
+  it.each(['small-landing', 'obstacle', 'head'] as const)(
+    'does not accept an unsafe whole yaw sweep: %s',
+    (failure) => {
+      const { geometry, input } = turningFixture(false, failure === 'small-landing' ? 160 : 220)
+      if (failure === 'head') required(input.layout[6]).ceilingElevationCm = 240
+      if (failure === 'obstacle') {
+        geometry.obstacles = [
+          { id: 'turn-corner', kind: 'fixed', xCm: 405, yCm: 105, widthCm: 5, depthCm: 5 },
+        ]
+        input.geometryKey = furnitureStairGeometryKey(geometry)
+      }
+      const response = inspectFurnitureStairTransfer(
+        geometry,
+        { ...input, allowQuarterTurns: true },
+        { ...profile, widthCm: 60, depthCm: 180, orientation: 90 },
+      )
+      expect(response.result).toBeUndefined()
+    },
+  )
+  it.each(['up', 'down'] as const)(
+    'combines fixed arbitrary tilt with a certified horizontal yaw and final untilt: %s',
+    (travelDirection) => {
+      const { geometry, input } = turningFixture(false, 220)
+      const response = inspectFurnitureStairTransfer(
+        geometry,
+        {
+          ...input,
+          travelDirection,
+          allowQuarterTurns: true,
+          tilt: 'width',
+          angleDeg: 30,
+        },
+        {
+          ...profile,
+          widthCm: 60,
+          depthCm: 180,
+          heightCm: 60,
+          orientation: travelDirection === 'up' ? 90 : 0,
+        },
+      )
+      expect(response.error).toBeUndefined()
+      const result = required(response.result)
+      expect(result.stages.some((stage) => stage.kind === 'turn')).toBe(true)
+      expect(result.stages.find((stage) => stage.kind === 'tilt')?.from.orientation).toBe(0)
+      expect(result.stages.find((stage) => stage.kind === 'untilt')?.to.orientation).toBe(90)
+      expect(result.points.at(-1)?.zCm).toBe(travelDirection === 'up' ? 198 : 0)
+    },
+  )
+  it('does not turn on a large tread even when its swept square could fit horizontally', () => {
+    const { geometry, input } = turningFixture(false, 220)
+    const region = required(input.layout[6])
+    region.kind = 'tread'
+    region.elevationCm = 99
+    expect(
+      inspectFurnitureStairTransfer(
+        geometry,
+        { ...input, allowQuarterTurns: true },
+        {
+          ...profile,
+          widthCm: 60,
+          depthCm: 180,
+          orientation: 90,
+        },
+      ).result,
+    ).toBeUndefined()
+  })
+  it('preserves absent/false quarter-turn policy and never adds orientation metadata by default', () => {
+    const { geometry, input } = turningFixture()
+    const result = inspectFurnitureStairTransfer(geometry, input, profile)
+    expect(
+      inspectFurnitureStairTransfer(geometry, { ...input, allowQuarterTurns: false }, profile),
+    ).toEqual(result)
+    expect(result.result?.points.every((point) => !Object.hasOwn(point, 'orientation'))).toBe(true)
+    expect(Object.hasOwn(required(result.result), 'checkedStages')).toBe(false)
+  })
+  it.each([false, true])('certifies a measured %s turning chain in both directions', (uTurn) => {
+    const { geometry, input } = turningFixture(uTurn)
+    for (const travelDirection of ['up', 'down'] as const) {
+      const response = inspectFurnitureStairTransfer(
+        geometry,
+        { ...input, travelDirection },
+        profile,
+      )
+      expect(response.error).toBeUndefined()
+      const result = required(response.result)
+      expect(result.points[0]?.zCm).toBe(travelDirection === 'up' ? 0 : 198)
+      expect(result.points.at(-1)?.zCm).toBe(travelDirection === 'up' ? 198 : 0)
+      expect(result.regions).toHaveLength(13)
+      for (const stage of result.stages.filter((stage) => stage.kind === 'translate')) {
+        expect(stage.from.xCm === stage.to.xCm || stage.from.yCm === stage.to.yCm).toBe(true)
+        expect(stage.from.zCm).toBe(stage.to.zCm)
+      }
+      const bodies = result.regions.map(
+        (region): Polygon => [region.polygon.map((point) => [point.xCm, point.yCm])],
+      )
+      const union = polygonClipping.union(required(bodies[0]), ...bodies.slice(1))
+      for (const stage of result.stages) {
+        const bounds = stage.bounds
+        const sweep: Polygon = [
+          box(bounds.leftCm, bounds.topCm, bounds.rightCm, bounds.bottomCm).map((point) => [
+            point.xCm,
+            point.yCm,
+          ]),
+        ]
+        expect(polygonClipping.difference(sweep, union)).toEqual([])
+        for (const region of result.regions) {
+          const regionBody: Polygon = [region.polygon.map((point) => [point.xCm, point.yCm])]
+          if (!polygonClipping.intersection(sweep, regionBody).length) continue
+          expect(bounds.bottomElevationCm).toBeGreaterThanOrEqual(region.elevationCm)
+          expect(bounds.topElevationCm).toBeLessThanOrEqual(region.ceilingElevationCm)
+        }
+      }
+    }
+  })
+  it('preserves the legacy result exactly when converting a straight chain to explicit regions', () => {
+    const geometry = fixture()
+    const legacy = required(
+      inspectFurnitureStairTransfer(geometry, survey(geometry), profile).result,
+    )
+    const { input } = turningFixture()
+    const common = survey(geometry)
+    const explicit = {
+      ...input,
+      referenceKey: common.referenceKey,
+      geometryKey: common.geometryKey,
+      layout: legacy.regions.map(({ index: _index, ...region }) => region),
+    }
+    expect(inspectFurnitureStairTransfer(geometry, explicit, profile).result).toEqual(legacy)
+  })
+  it.each(['gap', 'overlap', 'corner', 'diagonal', 'reversed-height', 'unknown-head'] as const)(
+    'holds invalid measured topology: %s',
+    (failure) => {
+      const { geometry, input } = turningFixture()
+      const region = required(input.layout[6])
+      if (failure === 'gap') region.polygon = box(391, 90, 550, 250)
+      if (failure === 'overlap') region.polygon = box(380, 90, 550, 250)
+      if (failure === 'corner') region.polygon = box(390, 210, 550, 250)
+      if (failure === 'diagonal') required(region.polygon[1]).yCm += 1
+      if (failure === 'reversed-height') region.elevationCm = 80
+      if (failure === 'unknown-head') region.ceilingElevationCm = Number.NaN
+      expect(inspectFurnitureStairTransfer(geometry, input, profile).result).toBeUndefined()
+    },
+  )
+  it('does not invent yaw rotation when the fixed envelope cannot traverse a measured bend', () => {
+    const { geometry, input } = turningFixture()
+    expect(
+      inspectFurnitureStairTransfer(geometry, input, { ...profile, widthCm: 160 }).result,
+    ).toBeUndefined()
+  })
+  it('holds low ceiling over the next higher step reached by the whole furniture envelope', () => {
+    const { geometry, input } = turningFixture()
+    required(input.layout[8]).ceilingElevationCm = 200
+    expect(inspectFurnitureStairTransfer(geometry, input, profile).result).toBeUndefined()
+  })
+  it('cannot bypass a fixed object inside the intermediate turning landing', () => {
+    const { geometry, input } = turningFixture()
+    geometry.obstacles = [
+      { id: 'measured-cabinet', kind: 'fixed', xCm: 450, yCm: 160, widthCm: 30, depthCm: 30 },
+    ]
+    input.geometryKey = furnitureStairGeometryKey(geometry)
+    expect(inspectFurnitureStairTransfer(geometry, input, profile).result).toBeUndefined()
+  })
+  it('does not replace an existing void with a measured turning landing', () => {
+    const { geometry, input } = turningFixture()
+    geometry.voids = [{ id: 'surveyed-hole', polygon: box(450, 160, 480, 190) }]
+    required(geometry.verticalReference).contextSnapshot.voids = structuredClone(geometry.voids)
+    input.geometryKey = furnitureStairGeometryKey(geometry)
+    input.referenceKey = verticalReferenceReviewKey(required(geometry.verticalReference))
+    expect(inspectFurnitureStairTransfer(geometry, input, profile).error).toMatch(/пустоту/)
+  })
+  it('rejects a measured intermediate landing covering an already recorded physical floor', () => {
+    const { geometry, input } = turningFixture()
+    const landing = required(input.layout[6])
+    landing.polygon = box(0, 0, 100, 100)
+    expect(inspectFurnitureStairTransfer(geometry, input, profile).result).toBeUndefined()
+  })
+})
 describe('local measured straight-flight furniture transfer', () => {
   it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
     'holds a malformed fixed obstacle rather than ignoring or reversing its solid: %j',
@@ -394,9 +715,56 @@ describe('local measured straight-flight furniture transfer', () => {
       origin: { x: 0, y: 0 },
     }
     const result = inspectFurnitureStairTransfer(geometry, survey(geometry), profile)
-    expect(result.error).toMatch(/грани стен PDF/)
+    expect(result.error).toMatch(/исходные грани PDF/)
     expect(result.result).toBeUndefined()
   })
+  it.each([false, true])(
+    'checks reviewed PDF wall strips along the full stair sweep: blocked=%s',
+    (blocked) => {
+      const geometry = fixture()
+      const top = blocked ? 140 : 40
+      geometry.walls = [top, top + 20].map((yCm, index) => ({
+        id: `pdf-face-${index}`,
+        kind: 'inner',
+        start: { xCm: 0, yCm },
+        end: { xCm: 780, yCm },
+      }))
+      required(geometry.verticalReference).wallBases = geometry.walls.map((wall) => ({
+        wall,
+        floorId: 'lower',
+      }))
+      geometry.pdfCalibration = {
+        sourceSha256: 'a'.repeat(64),
+        pdfPage: 1,
+        cmPerPoint: 1,
+        origin: { x: 0, y: 0 },
+        anchorRoomNumbers: [],
+        labelIndexes: [],
+        derivedOpeningIds: [],
+        wallFaceRoomPolygons: geometry.rooms.map((room) => structuredClone(room.polygon)),
+        sourceWallFacePairs: [
+          {
+            faces: geometry.walls.map((wall, index) => ({
+              wall: structuredClone(wall),
+              start: wall.start,
+              end: wall.end,
+              nativeSegment: { operationIndex: 1, subpathIndex: 0, segmentIndex: index },
+            })) as PlanWallFacePair['faces'],
+            openings: [],
+          },
+        ],
+      }
+      required(geometry.verticalReference).contextSnapshot.pdfCalibration = {
+        sourceSha256: geometry.pdfCalibration.sourceSha256,
+        pdfPage: 1,
+        cmPerPoint: 1,
+        origin: { x: 0, y: 0 },
+      }
+      const response = inspectFurnitureStairTransfer(geometry, survey(geometry), profile)
+      if (blocked) expect(response.result).toBeUndefined()
+      else expect(response.error).toBeUndefined()
+    },
+  )
   it('never mutates geometry or stores a new slab from explicit surveyed elevations', () => {
     const geometry = fixture()
     const before = JSON.stringify(geometry)

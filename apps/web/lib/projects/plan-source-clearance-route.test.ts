@@ -45,6 +45,143 @@ function adjoiningRooms() {
   }
 }
 
+describe('exact furniture route connectors', () => {
+  const points = (polygon: Polygon) => (polygon[0] ?? []).map(([xCm, yCm]) => ({ xCm, yCm }))
+  it('finishes at an off-grid measured point with independently certified continuous segments', () => {
+    const input = fixture()
+    const target = { xCm: 310.25, yCm: 104.75 }
+    const result = inspectSourceClearanceRoutes({ ...input, goal: { roomId: '1', point: target } })
+    expect(result.status).toBe('constructive-routes')
+    expect(result.routes.map((route) => route.roomId)).toEqual(['1'])
+    const route = result.routes[0]
+    expect(route?.points.at(-1)).toEqual(target)
+    for (let index = 1; index < (route?.points.length ?? 0); index++) {
+      const a = route?.points[index - 1]
+      const b = route?.points[index]
+      if (!a || !b) throw new Error('Missing connector segment')
+      expect(a.xCm === b.xCm || a.yCm === b.yCm).toBe(true)
+      const sweep = box(
+        Math.min(a.xCm, b.xCm) - 35,
+        Math.min(a.yCm, b.yCm) - 35,
+        Math.max(a.xCm, b.xCm) + 35,
+        Math.max(a.yCm, b.yCm) + 35,
+      )
+      expect(polygonClipping.difference(sweep, input.freeFloor)).toEqual([])
+    }
+  })
+  it.each([false, true])(
+    'connects an L corridor using only the safe axis ordering: mirrored=%s',
+    (mirrored) => {
+      const floor = polygonClipping.union(box(0, 0, 180, 80), box(100, 0, 180, 200))
+      const swap = (point: { xCm: number; yCm: number }) =>
+        mirrored ? { xCm: point.yCm, yCm: point.xCm } : point
+      const freeFloor = mirrored
+        ? floor.map((polygon) =>
+            polygon.map((ring) => ring.map(([x, y]) => [y, x] as [number, number])),
+          )
+        : floor
+      const target = swap({ xCm: 140.25, yCm: 160.75 })
+      const result = inspectSourceClearanceRoutes({
+        freeFloor,
+        rooms: [{ id: 'target', polygon: points(box(100, 80, 180, 200)).map(swap) }],
+        start: swap({ xCm: 30, yCm: 40 }),
+        widthCm: 20,
+        goal: { roomId: 'target', point: target },
+        maxNodes: 3,
+      })
+      expect(result.status).toBe('constructive-routes')
+      expect(result.routes[0]?.points).toHaveLength(3)
+      expect(result.routes[0]?.points.at(-1)).toEqual(target)
+      expect(result.checkedNodes).toBe(3)
+    },
+  )
+  it('cannot jump between disconnected floor pieces even when both exact endpoints fit', () => {
+    const first = box(0, 0, 100, 100)
+    const second = box(110, 0, 210, 100)
+    const result = inspectSourceClearanceRoutes({
+      freeFloor: polygonClipping.union(first, second),
+      rooms: [{ id: 'target', polygon: points(second) }],
+      start: { xCm: 50, yCm: 50 },
+      widthCm: 20,
+      goal: { roomId: 'target', point: { xCm: 160.25, yCm: 50.25 } },
+      maxNodes: 100,
+    })
+    expect(result.routes).toEqual([])
+    expect(result.unresolvedRoomIds).toEqual(['target'])
+  })
+  it('returns only the requested room for a room-area goal', () => {
+    const result = inspectSourceClearanceRoutes({ ...adjoiningRooms(), goal: { roomId: '1' } })
+    expect(result.routes.map((route) => route.roomId)).toEqual(['1'])
+    expect(result.unresolvedRoomIds).toEqual([])
+  })
+  it.each([1, 2, 3])(
+    'shares the bounded node budget with both off-grid terminal nodes: %s',
+    (maxNodes) => {
+      const floor = box(0, 0, 200, 200)
+      const result = inspectSourceClearanceRoutes({
+        freeFloor: [floor],
+        rooms: [{ id: 'target', polygon: points(floor) }],
+        start: { xCm: 50, yCm: 50 },
+        widthCm: 20,
+        goal: { roomId: 'target', point: { xCm: 100.25, yCm: 100.75 } },
+        maxNodes,
+      })
+      expect(result.checkedNodes).toBeLessThanOrEqual(maxNodes)
+      expect(result.routes.length).toBe(maxNodes === 3 ? 1 : 0)
+      if (maxNodes !== 3) expect(result.reason).toBe('search-limit')
+    },
+  )
+  it('does not require extra terminal nodes when the goal equals the starting measured point', () => {
+    const input = fixture()
+    const result = inspectSourceClearanceRoutes({
+      ...input,
+      maxNodes: 1,
+      goal: { roomId: '0', point: input.start },
+    })
+    expect(result.routes[0]?.points).toEqual([input.start])
+    expect(result.checkedNodes).toBe(1)
+  })
+  it('rejects a source body outside the floor before checking connector tails', () => {
+    const result = inspectSourceClearanceRoutes({
+      ...fixture(),
+      start: { xCm: 1, yCm: 100 },
+      goal: { roomId: '1' },
+    })
+    expect(result.reason).toBe('entry-footprint')
+    expect(result.checkedNodes).toBe(0)
+    expect(result.routes).toEqual([])
+    expect(result.unresolvedRoomIds).toEqual(['1'])
+  })
+  it('does not accept a target centre when part of its body leaves the requested room', () => {
+    const result = inspectSourceClearanceRoutes({
+      ...fixture(),
+      goal: { roomId: '1', point: { xCm: 211, yCm: 100 } },
+      maxNodes: 50,
+    })
+    expect(result.routes).toEqual([])
+    expect(result.unresolvedRoomIds).toEqual(['1'])
+  })
+  it('holds a rounded-down half width at the exact zero-side target boundary', () => {
+    const floor = box(0, 0, 100, 100)
+    const result = inspectSourceClearanceRoutes({
+      freeFloor: [floor],
+      rooms: [{ id: 'target', polygon: points(floor) }],
+      start: { xCm: 50, yCm: 50 },
+      widthCm: 24.166091947189145,
+      footprintCm: { widthCm: 24.166091947189145, depthCm: 10 },
+      goal: { roomId: 'target', point: { xCm: 12.083045973594572, yCm: 50 } },
+      maxNodes: 50,
+    })
+    expect(result.routes).toEqual([])
+  })
+  it('preserves the absent exact-goal output including legacy metadata', () => {
+    const input = fixture()
+    expect(inspectSourceClearanceRoutes({ ...input, goal: undefined })).toEqual(
+      inspectSourceClearanceRoutes(input),
+    )
+  })
+})
+
 describe('continuous source clearance routes', () => {
   it('rejects an uncertified start maneuver before searching any route nodes', () => {
     const endpointCheck = vi.fn(() => false)

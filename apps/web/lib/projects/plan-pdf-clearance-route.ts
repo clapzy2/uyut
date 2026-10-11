@@ -20,7 +20,7 @@ import {
 import { pdfPolygonIsValid } from './plan-pdf-room-binding'
 import { inspectSourceClearanceRoutes } from './plan-source-clearance-route'
 import { inspectPlanVerticalDimensions, openingFloorLevel } from './plan-vertical-dimensions'
-import { signedElevationSum, signedPlanFloors } from './plan-vertical-floor-geometry'
+import { signedPlanFloors } from './plan-vertical-floor-geometry'
 import { openingOnVerticalFloorBoundary } from './plan-vertical-reference'
 
 export type RouteVertical = {
@@ -274,6 +274,11 @@ export type FurnitureRouteBody = {
   carryElevationCm?: number
   /** Internal start/landing maneuver proof; never accepted from serialized user input. */
   endpointCheck?: (point: PlanPoint, roomId?: string) => boolean
+  /** Internal connector only: the start is still on one current finished floor. */
+  origin?: { point: PlanPoint; floorId: string }
+  goal?: { roomId: string; point?: PlanPoint }
+  extraSolids?: Polygon[]
+  maxNodes?: number
 }
 
 export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: FurnitureRouteBody) {
@@ -292,6 +297,14 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
           transfer.carryElevationCm > 1200 ||
           typeof transfer.endpointCheck !== 'function')) ||
       (transfer.endpointCheck !== undefined && typeof transfer.endpointCheck !== 'function') ||
+      (transfer.origin !== undefined &&
+        (!transfer.origin.point ||
+          ![transfer.origin.point.xCm, transfer.origin.point.yCm].every(Number.isFinite) ||
+          !reference?.floors.some((floor) => floor.id === transfer.origin?.floorId))) ||
+      (transfer.maxNodes !== undefined &&
+        (!Number.isInteger(transfer.maxNodes) ||
+          transfer.maxNodes < 1 ||
+          transfer.maxNodes > 6000)) ||
       !reference ||
       ![transfer.widthCm, transfer.depthCm, transfer.heightCm].every(
         (value) => Number.isFinite(value) && value > 0,
@@ -330,9 +343,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
     return (
       ceiling !== undefined &&
       base >= floor.elevationCm &&
-      (carried
-        ? compareDecimalSums([base, transfer.heightCm], [ceiling.elevationCm]) <= 0
-        : signedElevationSum(base, transfer.heightCm) <= ceiling.elevationCm)
+      compareDecimalSums([base, transfer.heightCm], [ceiling.elevationCm]) <= 0
     )
   })
   const usableFloorIds = new Set(usableFloors?.map((floor) => floor.id))
@@ -440,9 +451,23 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
     return missing('Стартовая дверь уже выбранной ширины прохода.')
   const entryOpening = geometry.openings.find((opening) => opening.id === entry.opening.id)
   const entryBase = reference?.wallBases.find((base) => base.wall.id === entry.wall.id)
-  const startElevation = elevations?.get(entryFace.roomIndex)
+  const originFloor = reference?.floors.find((floor) => floor.id === transfer?.origin?.floorId)
+  const startRoomIndex = originFloor
+    ? geometry.rooms.findIndex(
+        (room) =>
+          room.name === originFloor.room.name &&
+          room.polygon.length === originFloor.room.polygon.length &&
+          room.polygon.every((point, index) => {
+            const other = originFloor.room.polygon[index]
+            return other !== undefined && samePoint(point, other)
+          }),
+      )
+    : entryFace.roomIndex
+  const startFloorId = originFloor?.id ?? entryBase?.floorId
+  const startElevation = elevations?.get(startRoomIndex)
   if (
     transfer &&
+    !transfer.origin &&
     (!entryOpening ||
       entryOpening.bottomCm === undefined ||
       entryOpening.heightCm === undefined ||
@@ -466,14 +491,17 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
       'У стартового проёма поднятая или некорректная нижняя грань. Непрерывный путь по полу через порог здесь не проверяется.',
     )
   const zone = entryOpening && entryZone(geometry, entryOpening, entryFace)
-  if (!zone) return missing('Задайте внутреннюю стартовую зону у выбранной двери.')
-  const start = zone.polygon.reduce(
-    (sum, point) => ({
-      xCm: sum.xCm + point.xCm / zone.polygon.length,
-      yCm: sum.yCm + point.yCm / zone.polygon.length,
-    }),
-    { xCm: 0, yCm: 0 },
-  )
+  let start = transfer?.origin?.point
+  if (!start) {
+    if (!zone) return missing('Задайте внутреннюю стартовую зону у выбранной двери.')
+    start = zone.polygon.reduce(
+      (sum, point) => ({
+        xCm: sum.xCm + point.xCm / zone.polygon.length,
+        yCm: sum.yCm + point.yCm / zone.polygon.length,
+      }),
+      { xCm: 0, yCm: 0 },
+    )
+  }
   const half = width / 2
   const halfDepth = (transfer?.depthCm ?? width) / 2
   const startBody = body([
@@ -482,10 +510,10 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
     { xCm: start.xCm + half, yCm: start.yCm + halfDepth },
     { xCm: start.xCm - half, yCm: start.yCm + halfDepth },
   ])
-  const entryFloor = floors[entryFace.roomIndex]
+  const entryFloor = floors[startRoomIndex]
   if (!entryFloor || polygonClipping.difference(startBody, entryFloor).length > 0)
     return missing('Стартовая свободная зона должна целиком лежать внутри комнаты у двери.')
-  if (transfer && entryBase && !usableFloorIds.has(entryBase.floorId))
+  if (transfer && startFloorId && !usableFloorIds.has(startFloorId))
     return missing(
       carried
         ? 'Для стартового пола основание переноса ниже пола либо отметка потолка неизвестна или недостаточна на выбранной высоте. Перенос не проверен.'
@@ -493,12 +521,13 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
     )
   if (
     reference &&
-    (!entryBase ||
+    (!startFloorId ||
       startElevation === undefined ||
-      !openingOnVerticalFloorBoundary(geometry, entry.opening.id, entryBase.floorId))
+      (!transfer?.origin &&
+        !openingOnVerticalFloorBoundary(geometry, entry.opening.id, startFloorId)))
   )
     return missing('Стартовая зона требует подтверждённого владельца чистового пола.')
-  if (signed?.ok && entryBase) {
+  if (signed?.ok && startFloorId) {
     const owners = signed.surfaces.filter(
       (surface) =>
         surface.surface === 'finished-floor' &&
@@ -509,7 +538,7 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
           ),
         ]).length === 0,
     )
-    if (owners.length !== 1 || owners[0]?.floorId !== entryBase.floorId)
+    if (owners.length !== 1 || owners[0]?.floorId !== startFloorId)
       return missing('Стартовая зона должна целиком лежать на одном подтверждённом чистовом полу.')
   }
 
@@ -745,8 +774,9 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
   const firstFloor = routeFloors[0]
   if (!firstFloor) return missing('Добавьте подтверждённый контур стартовой комнаты.')
   const floorAndPortals = polygonClipping.union(firstFloor, ...routeFloors.slice(1), ...portals)
-  const freeFloor = strips.length
-    ? polygonClipping.difference(floorAndPortals, ...strips)
+  const occupied = [...strips, ...(transfer?.extraSolids ?? [])]
+  const freeFloor = occupied.length
+    ? polygonClipping.difference(floorAndPortals, ...occupied)
     : floorAndPortals
   return {
     missing: undefined,
@@ -761,10 +791,11 @@ export function inspectPdfClearanceRoutes(geometry: PlanGeometry, transfer?: Fur
               footprintCm: { widthCm: transfer.widthCm, depthCm: transfer.depthCm },
               ...(transfer.allowQuarterTurns ? { allowQuarterTurns: true } : {}),
               ...(transfer.endpointCheck ? { endpointCheck: transfer.endpointCheck } : {}),
+              ...(transfer.goal ? { goal: transfer.goal } : {}),
             }
           : {}),
         stepCm: 10,
-        maxNodes: 6000,
+        maxNodes: transfer?.maxNodes ?? 6000,
         boundaryBarriers,
         metricObstacles: {
           voids: geometry.voids,

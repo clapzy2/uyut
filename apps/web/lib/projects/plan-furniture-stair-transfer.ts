@@ -13,12 +13,13 @@ import {
   enclosingTurnBounds,
   enclosingTurnSide,
 } from './plan-transfer-enclosure'
+import { inspectTransferWallSolids } from './plan-transfer-wall-solids'
 
 const length = z.number().finite().positive().max(10000)
 const coordinate = z.number().finite().min(0).max(10000)
 const elevation = z.number().finite().min(-600).max(600)
 const ceiling = z.number().finite().min(-600).max(1200)
-export const furnitureStairSurveySchema = z
+const straightStairSurveyObject = z
   .object({
     version: z.literal(1),
     referenceKey: z.string().min(1).max(1000000),
@@ -50,10 +51,49 @@ export const furnitureStairSurveySchema = z
     tilt: z.enum(['none', 'width', 'depth']),
     angleDeg: z.number().finite().min(0).max(90).optional(),
     acknowledged: z.literal(true),
+    allowQuarterTurns: z.boolean().optional(),
+  })
+  .strict()
+
+const straightStairSurveySchema = straightStairSurveyObject.refine(
+  (value) => value.tilt !== 'none' || value.angleDeg === undefined || value.angleDeg === 0,
+)
+
+const turningStairSurveySchema = straightStairSurveyObject
+  .omit({
+    direction: true,
+    startCm: true,
+    crossStartCm: true,
+    widthCm: true,
+    lowerLandingLengthCm: true,
+    upperLandingLengthCm: true,
+    lowerLandingCeilingCm: true,
+    upperLandingCeilingCm: true,
+    treads: true,
+  })
+  .extend({
+    version: z.literal(2),
+    layout: z
+      .array(
+        z
+          .object({
+            kind: z.enum(['landing', 'tread']),
+            polygon: z.array(z.object({ xCm: coordinate, yCm: coordinate }).strict()).length(4),
+            elevationCm: elevation,
+            ceilingElevationCm: ceiling,
+          })
+          .strict(),
+      )
+      .min(3)
+      .max(128),
   })
   .strict()
   .refine((value) => value.tilt !== 'none' || value.angleDeg === undefined || value.angleDeg === 0)
 
+export const furnitureStairSurveySchema = z.union([
+  straightStairSurveySchema,
+  turningStairSurveySchema,
+])
 export type FurnitureStairSurvey = z.infer<typeof furnitureStairSurveySchema>
 type Profile = {
   widthCm: number
@@ -62,7 +102,7 @@ type Profile = {
   clearanceCm: number
   orientation: 0 | 90
 }
-type Position = PlanPoint & { zCm: number }
+type Position = PlanPoint & { zCm: number; orientation?: 0 | 90 }
 type Bounds = {
   leftCm: number
   topCm: number
@@ -79,7 +119,7 @@ type Region = {
   ceilingElevationCm: number
 }
 type Stage = {
-  kind: 'lift' | 'translate' | 'lower' | 'tilt' | 'untilt'
+  kind: 'lift' | 'translate' | 'lower' | 'tilt' | 'untilt' | 'turn'
   from: Position
   to: Position
   bounds: Bounds
@@ -94,6 +134,7 @@ export type FurnitureStairTransferResult = {
   regions: Region[]
   points: Position[]
   stages: Stage[]
+  checkedStages?: number
 }
 
 /** Exact current request context, not recognition or independent measurement evidence. */
@@ -125,16 +166,6 @@ function bodyBounds(point: PlanPoint, width: number, depth: number) {
     topCm: vertical[1],
     rightCm: horizontal[2],
     bottomCm: vertical[3],
-  }
-}
-function horizontalWallBounds(start: PlanPoint, end: PlanPoint, thickness: number) {
-  const first = bodyBounds(start, thickness, thickness)
-  const last = bodyBounds(end, thickness, thickness)
-  return {
-    leftCm: Math.min(first.leftCm, last.leftCm),
-    topCm: Math.min(first.topCm, last.topCm),
-    rightCm: Math.max(first.rightCm, last.rightCm),
-    bottomCm: Math.max(first.bottomCm, last.bottomCm),
   }
 }
 
@@ -175,6 +206,15 @@ export function inspectFurnitureStairTransfer(
       signed && !signed.ok ? signed.error : 'Нужны подтверждённый общий отсчёт и чистовые полы.',
     )
   const survey = parsed.data
+  if (survey.allowQuarterTurns === true)
+    notes[1] +=
+      ' Дополнительный поворот габарита на 90° проверяется только целиком внутри промежуточной площадки; отметки ориентации заданы относительно исходной позы.'
+  if (survey.version === 2) {
+    notes[0] =
+      'Проверяется явно обмеренная цепочка прямых участков и поворотных площадок. Это локальный путь между двумя полами; общий маршрут требует отдельного соединения с входом.'
+    notes[2] =
+      'Поворотные участки задаются отдельными прямоугольными площадками. Винтовые, диагональные и многоэтажные перекрывающиеся контуры не достраиваются; отказ не доказывает невозможность переноса.'
+  }
   const geometryKey = furnitureStairGeometryKey(geometry)
   if (
     geometryKey.length > 1000000 ||
@@ -195,12 +235,16 @@ export function inspectFurnitureStairTransfer(
     lower.elevationCm >= upper.elevationCm ||
     !lowerCeiling ||
     !upperCeiling ||
-    survey.lowerLandingCeilingCm > lowerCeiling.elevationCm ||
-    survey.upperLandingCeilingCm > upperCeiling.elevationCm
+    (survey.version === 1
+      ? survey.lowerLandingCeilingCm
+      : (survey.layout[0]?.ceilingElevationCm ?? Infinity)) > lowerCeiling.elevationCm ||
+    (survey.version === 1
+      ? survey.upperLandingCeilingCm
+      : (survey.layout.at(-1)?.ceilingElevationCm ?? Infinity)) > upperCeiling.elevationCm
   )
     return fail('Нужны разные подтверждённые чистовые полы и известные потолки обеих площадок.')
   let previousElevation = lower.elevationCm
-  for (const tread of survey.treads) {
+  for (const tread of survey.version === 1 ? survey.treads : []) {
     if (
       tread.elevationCm <= previousElevation ||
       tread.elevationCm >= upper.elevationCm ||
@@ -212,40 +256,98 @@ export function inspectFurnitureStairTransfer(
     previousElevation = tread.elevationCm
   }
   try {
-    let along = survey.startCm
-    const crossEnd = exactSum([survey.crossStartCm, survey.widthCm])
     const regions: Region[] = []
-    const appendRegion = (kind: Region['kind'], run: number, floor: number, head: number) => {
-      const end = exactSum([along, run])
-      if (end > 10000 || crossEnd > 10000 || head <= floor)
-        throw new Error('Границы или потолок марша выходят за поддерживаемые обмеры.')
-      const vertices =
-        survey.direction === 'x'
-          ? rectangle(along, survey.crossStartCm, end, crossEnd)
-          : rectangle(survey.crossStartCm, along, crossEnd, end)
-      regions.push({
-        kind,
-        index: regions.length,
-        polygon: vertices,
-        elevationCm: floor,
-        ceilingElevationCm: head,
-      })
-      along = end
+    if (survey.version === 2) {
+      for (const [index, item] of survey.layout.entries()) {
+        const [a, b, c, d] = item.polygon as [PlanPoint, PlanPoint, PlanPoint, PlanPoint]
+        if (
+          !(
+            a.xCm < c.xCm &&
+            a.yCm < c.yCm &&
+            a.yCm === b.yCm &&
+            b.xCm === c.xCm &&
+            c.yCm === d.yCm &&
+            d.xCm === a.xCm
+          )
+        )
+          return fail(
+            'Нужны явно обмеренные прямоугольники по X/Y в порядке: левый верхний, правый верхний, правый нижний, левый нижний угол.',
+          )
+        if (item.ceilingElevationCm <= item.elevationCm)
+          return fail('Каждой ступени и площадке нужна известная отметка потолка выше пола.')
+        const previous = regions.at(-1)
+        if (previous) {
+          if (
+            item.elevationCm < previous.elevationCm ||
+            (item.kind === 'tread' && item.elevationCm === previous.elevationCm)
+          )
+            return fail('Цепочка обмеров должна идти снизу вверх без обратных ступеней.')
+          const p = previous.polygon[0] as PlanPoint
+          const q = previous.polygon[2] as PlanPoint
+          const connected =
+            ((a.xCm === q.xCm || c.xCm === p.xCm) &&
+              Math.max(a.yCm, p.yCm) < Math.min(c.yCm, q.yCm)) ||
+            ((a.yCm === q.yCm || c.yCm === p.yCm) &&
+              Math.max(a.xCm, p.xCm) < Math.min(c.xCm, q.xCm))
+          if (!connected)
+            return fail(
+              'Соседние обмеренные участки должны иметь общую ненулевую грань; пробелы и касания углами не соединяются.',
+            )
+        }
+        if (
+          regions.some(
+            (region) =>
+              polygonClipping.intersection(polygon(region.polygon), polygon(item.polygon)).length,
+          )
+        )
+          return fail('Обмеренные ступени и площадки не должны перекрываться в плане.')
+        regions.push({ ...item, index })
+      }
+      if (
+        regions[0]?.kind !== 'landing' ||
+        regions.at(-1)?.kind !== 'landing' ||
+        regions[0]?.elevationCm !== lower.elevationCm ||
+        regions.at(-1)?.elevationCm !== upper.elevationCm ||
+        !regions.some((region) => region.kind === 'tread')
+      )
+        return fail(
+          'Цепочка должна начинаться и заканчиваться площадками на выбранных чистовых полах и содержать ступени.',
+        )
+    } else {
+      let along = survey.startCm
+      const crossEnd = exactSum([survey.crossStartCm, survey.widthCm])
+      const appendRegion = (kind: Region['kind'], run: number, floor: number, head: number) => {
+        const end = exactSum([along, run])
+        if (end > 10000 || crossEnd > 10000 || head <= floor)
+          throw new Error('Границы или потолок марша выходят за поддерживаемые обмеры.')
+        const vertices =
+          survey.direction === 'x'
+            ? rectangle(along, survey.crossStartCm, end, crossEnd)
+            : rectangle(survey.crossStartCm, along, crossEnd, end)
+        regions.push({
+          kind,
+          index: regions.length,
+          polygon: vertices,
+          elevationCm: floor,
+          ceilingElevationCm: head,
+        })
+        along = end
+      }
+      appendRegion(
+        'landing',
+        survey.lowerLandingLengthCm,
+        lower.elevationCm,
+        survey.lowerLandingCeilingCm,
+      )
+      for (const tread of survey.treads)
+        appendRegion('tread', tread.runCm, tread.elevationCm, tread.ceilingElevationCm)
+      appendRegion(
+        'landing',
+        survey.upperLandingLengthCm,
+        upper.elevationCm,
+        survey.upperLandingCeilingCm,
+      )
     }
-    appendRegion(
-      'landing',
-      survey.lowerLandingLengthCm,
-      lower.elevationCm,
-      survey.lowerLandingCeilingCm,
-    )
-    for (const tread of survey.treads)
-      appendRegion('tread', tread.runCm, tread.elevationCm, tread.ceilingElevationCm)
-    appendRegion(
-      'landing',
-      survey.upperLandingLengthCm,
-      upper.elevationCm,
-      survey.upperLandingCeilingCm,
-    )
     const firstRegion = regions[0] as Region
     const lastRegion = regions.at(-1) as Region
     const surfaceBody = (floorId: string): Polygon[] =>
@@ -283,7 +385,8 @@ export function inspectFurnitureStairTransfer(
           'Обмеренный марш выходит за сверенную границу или пересекает записанную пустоту.',
         )
       if (
-        region.kind === 'tread' &&
+        (region.kind === 'tread' ||
+          (survey.version === 2 && region !== firstRegion && region !== lastRegion)) &&
         signed.reference.floors.some(
           (floor) =>
             polygonClipping.intersection(regionBody, polygon(floor.room.polygon)).length > 0,
@@ -341,34 +444,8 @@ export function inspectFurnitureStairTransfer(
         ),
       ),
     )
-    const wallSolids: Polygon[] = []
-    if (geometry.pdfCalibration && geometry.walls.length)
-      return fail(
-        'Исходные грани стен PDF не являются физическими осями. Для марша нужна отдельная проверка полных стен; толщина не превращает грань в ось.',
-      )
-    for (const wall of geometry.walls) {
-      if (
-        !wall.start ||
-        !wall.end ||
-        ![wall.start.xCm, wall.start.yCm, wall.end.xCm, wall.end.yCm].every(Number.isFinite) ||
-        (wall.start.xCm === wall.end.xCm && wall.start.yCm === wall.end.yCm)
-      )
-        return fail('Не подтверждены конечные координаты физических осей стен.')
-      const thickness = wall.measuredThicknessCm
-      if (
-        thickness === undefined ||
-        !Number.isFinite(thickness) ||
-        thickness <= 0 ||
-        thickness > 100
-      )
-        return fail(
-          'Физическая толщина и ось каждой стены должны быть отдельно сверены; неизвестные стены не заменяются линиями.',
-        )
-      const bounds = horizontalWallBounds(wall.start, wall.end, thickness)
-      wallSolids.push(
-        polygon(rectangle(bounds.leftCm, bounds.topCm, bounds.rightCm, bounds.bottomCm)),
-      )
-    }
+    const walls = inspectTransferWallSolids(geometry)
+    if (walls.error) return fail(walls.error)
     const touched = (bounds: ReturnType<typeof bodyBounds>) =>
       regions.filter((region) => {
         const box = region.polygon
@@ -391,12 +468,33 @@ export function inspectFurnitureStairTransfer(
         bottomCm: Math.max(a.bottomCm, b.bottomCm),
       }
     }
+    const allowTurns = survey.allowQuarterTurns === true
+    let checkedStages = 0
     const certify = (bounds: Bounds) => {
+      if (allowTurns) {
+        if (checkedStages >= 6000)
+          throw new Error('Исчерпан общий бюджет проверки манёвров лестницы.')
+        checkedStages += 1
+      }
       const body = polygon(rectangle(bounds.leftCm, bounds.topCm, bounds.rightCm, bounds.bottomCm))
+      const blockedOpenings = walls.openings.filter(
+        (opening) =>
+          opening.bottomTerms.length !== 2 ||
+          opening.topTerms.length !== 2 ||
+          opening.thresholdElevationCm === undefined ||
+          compareDecimalSums([bounds.bottomElevationCm], [opening.thresholdElevationCm]) < 0 ||
+          opening.bottomTerms.some(
+            (terms) => compareDecimalSums([bounds.bottomElevationCm], terms) < 0,
+          ) ||
+          opening.topTerms.some((terms) => compareDecimalSums([bounds.topElevationCm], terms) > 0),
+      )
       if (
         polygonClipping.difference(body, union).length ||
         obstacles.some((obstacle) => polygonClipping.intersection(body, obstacle).length) ||
-        wallSolids.some((wall) => polygonClipping.intersection(body, wall).length > 0)
+        walls.solids.some((wall) => polygonClipping.intersection(body, wall).length > 0) ||
+        blockedOpenings.some(
+          (opening) => polygonClipping.intersection(body, opening.polygon).length > 0,
+        )
       )
         throw new Error(
           'Весь непрерывный габарит выходит из измеренного марша или пересекает стену/неподвижный предмет.',
@@ -437,6 +535,7 @@ export function inspectFurnitureStairTransfer(
       [start, startRegion],
       [finish, endRegion],
     ] as const) {
+      if (allowTurns && region === endRegion) continue
       const bounds = bodyBounds(point, endpoint.widthCm, endpoint.depthCm)
       if (
         polygonClipping.difference(
@@ -447,7 +546,13 @@ export function inspectFurnitureStairTransfer(
         return fail('Вся область подъёма и наклона должна лежать на одной измеренной площадке.')
     }
     const stages: Stage[] = []
-    const points: Position[] = [{ ...start, zCm: startRegion.elevationCm }]
+    const points: Position[] = [
+      {
+        ...start,
+        zCm: startRegion.elevationCm,
+        ...(allowTurns ? { orientation: 0 as const } : {}),
+      },
+    ]
     let position = points[0] as Position
     const stage = (kind: Stage['kind'], to: Position, shape = carried) => {
       const bounds = {
@@ -463,17 +568,175 @@ export function inspectFurnitureStairTransfer(
     const startingBase = requiredBase(bodyBounds(start, carried.widthCm, carried.depthCm))
     if (startingBase !== position.zCm) stage('lift', { ...position, zCm: startingBase }, endpoint)
     if (angleDeg > 0) stage('tilt', position, endpoint)
-    for (const region of ordered.slice(1)) {
-      const target = centre(region)
+    const translateTo = (target: PlanPoint) => {
       const base = Math.max(position.zCm, requiredBase(horizontalBounds(position, target)))
       if (base > position.zCm) stage('lift', { ...position, zCm: base })
       stage('translate', { ...target, zCm: base })
       const settled = requiredBase(bodyBounds(target, carried.widthCm, carried.depthCm))
       if (settled < position.zCm) stage('lower', { ...position, zCm: settled })
     }
-    if (angleDeg > 0) stage('untilt', position, endpoint)
-    if (position.zCm !== endRegion.elevationCm)
-      stage('lower', { ...position, zCm: endRegion.elevationCm }, endpoint)
+    if (!allowTurns) {
+      for (const region of ordered.slice(1)) {
+        const target = centre(region)
+        if (survey.version === 1 || position.xCm === target.xCm || position.yCm === target.yCm) {
+          translateTo(target)
+          continue
+        }
+        const origin = { ...position }
+        const stageCount = stages.length
+        const pointCount = points.length
+        let accepted = false
+        for (const corner of [
+          { xCm: target.xCm, yCm: origin.yCm },
+          { xCm: origin.xCm, yCm: target.yCm },
+        ]) {
+          position = { ...origin }
+          stages.length = stageCount
+          points.length = pointCount
+          try {
+            translateTo(corner)
+            translateTo(target)
+            accepted = true
+            break
+          } catch {
+            // Try the other measured-axis bend; no failed partial path is retained.
+          }
+        }
+        if (!accepted)
+          throw new Error(
+            'Не подтверждён полный габарит на поворотной площадке и обеих соединяющих перемещениях. Вращение мебели в этом режиме не достраивается.',
+          )
+      }
+      if (angleDeg > 0) stage('untilt', position, endpoint)
+      if (position.zCm !== endRegion.elevationCm)
+        stage('lower', { ...position, zCm: endRegion.elevationCm }, endpoint)
+    } else {
+      type PathState = { position: Position; points: Position[]; stages: Stage[] }
+      const snapshot = (): PathState => ({
+        position: { ...position },
+        points: [...points],
+        stages: [...stages],
+      })
+      const restore = (state: PathState) => {
+        position = { ...state.position }
+        points.splice(0, points.length, ...state.points)
+        stages.splice(0, stages.length, ...state.stages)
+      }
+      const shapeAt = (shape: typeof carried, orientation: 0 | 90) =>
+        orientation === 0
+          ? shape
+          : {
+              widthCm: shape.depthCm,
+              depthCm: shape.widthCm,
+              heightCm: shape.heightCm,
+            }
+      const move = (target: PlanPoint, orientation: 0 | 90) => {
+        const shape = shapeAt(carried, orientation)
+        const base = Math.max(position.zCm, requiredBase(horizontalBounds(position, target, shape)))
+        if (base > position.zCm) stage('lift', { ...position, zCm: base }, shape)
+        stage('translate', { ...target, zCm: base, orientation }, shape)
+        const settled = requiredBase(bodyBounds(target, shape.widthCm, shape.depthCm))
+        if (settled < position.zCm) stage('lower', { ...position, zCm: settled }, shape)
+      }
+      let states: PathState[] = [snapshot()]
+      for (const region of ordered.slice(1)) {
+        const target = centre(region)
+        const arrivals = new Map<0 | 90, PathState>()
+        for (const state of states) {
+          const orientation = state.position.orientation ?? 0
+          const origin = state.position
+          const corners =
+            origin.xCm === target.xCm || origin.yCm === target.yCm
+              ? [target]
+              : [
+                  { xCm: target.xCm, yCm: origin.yCm },
+                  { xCm: origin.xCm, yCm: target.yCm },
+                ]
+          for (const corner of corners) {
+            restore(state)
+            try {
+              move(corner, orientation)
+              if (corner.xCm !== target.xCm || corner.yCm !== target.yCm) move(target, orientation)
+              arrivals.set(orientation, snapshot())
+              break
+            } catch {
+              // A bounded alternative axis ordering; failed partial paths are discarded.
+            }
+          }
+        }
+        if (!arrivals.size)
+          throw new Error(
+            'Не подтверждён полный габарит непрерывного перемещения между площадками и ступенями.',
+          )
+        const next = new Map(arrivals)
+        if (region.kind === 'landing' && region !== endRegion) {
+          const side = enclosingTurnSide(carried.widthCm, carried.depthCm)
+          const turnBounds = side === undefined ? undefined : bodyBounds(target, side, side)
+          const bounds: [number, number, number, number] | undefined = turnBounds
+            ? [turnBounds.leftCm, turnBounds.topCm, turnBounds.rightCm, turnBounds.bottomCm]
+            : undefined
+          if (
+            bounds &&
+            side !== undefined &&
+            polygonClipping.difference(polygon(rectangle(...bounds)), polygon(region.polygon))
+              .length === 0
+          ) {
+            const turnShape = { widthCm: side, depthCm: side, heightCm: carried.heightCm }
+            for (const [orientation, state] of arrivals) {
+              const turned: 0 | 90 = orientation === 0 ? 90 : 0
+              if (next.has(turned)) continue
+              restore(state)
+              try {
+                const base = Math.max(
+                  position.zCm,
+                  requiredBase({
+                    leftCm: bounds[0],
+                    topCm: bounds[1],
+                    rightCm: bounds[2],
+                    bottomCm: bounds[3],
+                  }),
+                )
+                if (base > position.zCm) stage('lift', { ...position, zCm: base }, turnShape)
+                stage('turn', { ...position, orientation: turned }, turnShape)
+                const shape = shapeAt(carried, turned)
+                const settled = requiredBase(bodyBounds(target, shape.widthCm, shape.depthCm))
+                if (settled < position.zCm) stage('lower', { ...position, zCm: settled }, shape)
+                next.set(turned, snapshot())
+              } catch {
+                // A turn is not retained unless the whole swept square and head clearance fit.
+              }
+            }
+          }
+        }
+        states = [...next.values()]
+      }
+      let completed = false
+      for (const state of states) {
+        restore(state)
+        const shape = shapeAt(endpoint, position.orientation ?? 0)
+        const bounds = bodyBounds(position, shape.widthCm, shape.depthCm)
+        if (
+          polygonClipping.difference(
+            polygon(rectangle(bounds.leftCm, bounds.topCm, bounds.rightCm, bounds.bottomCm)),
+            polygon(endRegion.polygon),
+          ).length
+        )
+          continue
+        try {
+          if (angleDeg > 0) stage('untilt', position, shape)
+          if (position.zCm !== endRegion.elevationCm)
+            stage('lower', { ...position, zCm: endRegion.elevationCm }, shape)
+          completed = true
+          break
+        } catch {
+          // Try the other reachable final orientation; no partial lowering is accepted.
+        }
+      }
+      if (!completed)
+        throw new Error(
+          'Не подтверждены полный разворот наклона и установка габарита на конечной площадке.',
+        )
+    }
     if (!stages.length) return fail('Не удалось построить непрерывный путь по маршу.')
     return {
       notes,
@@ -487,6 +750,7 @@ export function inspectFurnitureStairTransfer(
         regions,
         points,
         stages,
+        ...(allowTurns ? { checkedStages } : {}),
       },
     }
   } catch (error) {
