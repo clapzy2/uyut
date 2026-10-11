@@ -47,6 +47,22 @@ const extract = (operations: Operation[]) =>
   )
 
 describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
+  it.each([
+    [ops.stroke, 'stroke'],
+    [ops.fill, 'fill'],
+    [ops.fillStroke, 'fill-stroke'],
+  ] as const)('retains the actual paint role for omitted paths (%s)', (paint, paintKind) => {
+    const result = extract([
+      [ops.constructPath, [paint, [new Float32Array([0, -10, 20, 1, 30, 20])], []]],
+      [ops.constructPath, [paint, [new Float32Array([0, 10, 20, 2, 20, 30, 30, 40, 40, 40])], []]],
+    ])
+    expect(result.clippedPaths).toBe(1)
+    expect(result.clippedPathBounds?.[0]?.paint).toBe(paintKind)
+    expect(result.skippedCurves).toBe(1)
+    expect(result.skippedCurveBounds?.[0]?.paint).toBe(paintKind)
+    expect(result.paths).toEqual([])
+  })
+
   it('не считает пустой endPath потерянной геометрией и сохраняет соседние линии', () => {
     const result = extract([
       stroke([0, 10, 20, 1, 30, 20]),
@@ -168,6 +184,7 @@ describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
       {
         operationIndex: 0,
         bounds: { left: 100, top: 800, right: 400, bottom: 900 },
+        paint: 'stroke',
       },
     ])
     expect(result.paths).toHaveLength(1)
@@ -279,6 +296,7 @@ describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
       {
         operationIndex: 4,
         bounds: { left: 150, top: 825, right: 350, bottom: 925 },
+        paint: 'stroke',
       },
     ])
     expect(result.unsupportedContexts).toBe(0)

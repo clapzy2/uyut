@@ -1390,6 +1390,75 @@ function PaintedRegionContext({
   )
 }
 
+function OrderedPaintReview({
+  report,
+  showLayer,
+  onToggle,
+}: {
+  report: NonNullable<NativeReviewPacket['orderedPaint']>
+  showLayer: boolean
+  onToggle: (value: boolean) => void
+}) {
+  return (
+    <section
+      className="space-y-2 border-t border-line pt-3 text-[13px] leading-relaxed"
+      aria-label="Фрагменты заливок после перекрытий"
+    >
+      <h4 className="text-[14px] font-medium">Фрагменты заливок после перекрытий</h4>
+      <p className="text-ink-2">
+        Где расчёт однозначен, из исходной заливки вычтены более поздние заливки, включая маленькие
+        и того же цвета. Это части конкретной операции PDF, не готовый свободный пол. Пропущенные
+        штрихи остаются неизвестными; цвет, вырез или рамка не назначают комнату, колонну, проём или
+        высоту. Данные не переносятся в 2D/3D.
+      </p>
+      {report.status === 'unresolved' ? (
+        <p className="break-all text-ink-2">
+          Расчёт удержан: {report.refusalReason}. Частичный слой не показан.
+        </p>
+      ) : (
+        <>
+          <details className="text-ink-2">
+            <summary className="min-h-11 cursor-pointer py-3">
+              Состав фрагментов и удержанные ограничения
+            </summary>
+            <ul className="space-y-2">
+              {report.regions.map((region) => (
+                <li key={region.candidateId} className="break-words">
+                  {region.candidateId}:{' '}
+                  {region.status === 'held'
+                    ? `удержано (${region.refusalReason})`
+                    : `фрагментов — ${region.pieces.length}, вырезов — ${region.pieces.reduce((sum, piece) => sum + piece.holes.length, 0)}`}
+                  . Поздних заливок — {region.maskCount}; возможных пропущенных штрихов —{' '}
+                  {region.omittedStrokeCount}.
+                  {!region.boundaryInkComplete ? ' Полнота линий границы не подтверждена.' : ''}
+                </li>
+              ))}
+            </ul>
+          </details>
+          {report.regions.some((region) => region.pieces.length > 0) ? (
+            <label className="flex min-h-11 items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showLayer}
+                onChange={(event) => onToggle(event.target.checked)}
+              />
+              Показать вычисленные фрагменты — фиолетовый слой, не принятый пол
+            </label>
+          ) : null}
+        </>
+      )}
+    </section>
+  )
+}
+
+function orderedPaintPath(
+  piece: NonNullable<NativeReviewPacket['orderedPaint']>['regions'][number]['pieces'][number],
+): string {
+  return [piece.polygon, ...piece.holes]
+    .map((ring) => `M ${ring.map((point) => `${point.x} ${point.y}`).join(' L ')} Z`)
+    .join(' ')
+}
+
 export function NativeReviewResult({
   packet,
   imageUrl,
@@ -1401,8 +1470,11 @@ export function NativeReviewResult({
   const [showOpeningCandidates, setShowOpeningCandidates] = useState(true)
   const [showGlazingCandidates, setShowGlazingCandidates] = useState(true)
   const [showFloorCavities, setShowFloorCavities] = useState(false)
+  const [showOrderedPaint, setShowOrderedPaint] = useState(false)
   const [fullSize, setFullSize] = useState(false)
-  const visible = packet.faces.filter((face) => face.layer === 'stroke' || showFills)
+  const visible = packet.faces.filter(
+    (face) => face.layer === 'stroke' || (showFills && !showOrderedPaint),
+  )
   const hasOpeningCandidates =
     (packet.doorSymbols?.candidates.length ?? 0) + (packet.openingFrames?.candidates.length ?? 0) >
     0
@@ -1452,6 +1524,13 @@ export function NativeReviewResult({
       {packet.roomSchedule ? <RoomSchedule report={packet.roomSchedule} /> : null}
       {packet.paintedRegionContext ? (
         <PaintedRegionContext report={packet.paintedRegionContext} />
+      ) : null}
+      {packet.orderedPaint ? (
+        <OrderedPaintReview
+          report={packet.orderedPaint}
+          showLayer={showOrderedPaint}
+          onToggle={setShowOrderedPaint}
+        />
       ) : null}
       {packet.floorCavities ? (
         <FloorCavityReview
@@ -1606,6 +1685,24 @@ export function NativeReviewResult({
               </title>
             </polygon>
           ))}
+          {showOrderedPaint && packet.orderedPaint?.status === 'diagnostic'
+            ? packet.orderedPaint.regions.flatMap((region) =>
+                region.pieces.map((piece) => (
+                  <path
+                    key={`${region.candidateId}:${orderedPaintPath(piece)}`}
+                    d={orderedPaintPath(piece)}
+                    fill="#7c3aed"
+                    fillOpacity="0.12"
+                    fillRule="evenodd"
+                    stroke="#7c3aed"
+                    strokeWidth="2"
+                    vectorEffect="non-scaling-stroke"
+                  >
+                    <title>{`${region.candidateId}: вычисленный фрагмент исходной заливки. Видимый свободный пол и готовность 2D/3D не подтверждены.`}</title>
+                  </path>
+                )),
+              )
+            : null}
           {showOpeningCandidates && packet.doorSymbols?.status === 'draft'
             ? packet.doorSymbols.candidates.map((symbol) => {
                 const parts =
@@ -1747,6 +1844,9 @@ export function NativeReviewResult({
       <p className="text-[13px] leading-relaxed text-ink-2">
         Бирюзовые контуры — неизвестные области. Розовые — предполагаемые таблицы и служебные поля.
         Ни один цвет не означает подтверждённую комнату.
+        {showOrderedPaint
+          ? ' Фиолетовые фрагменты — результат расчёта заливок, не проверенный свободный пол.'
+          : ''}
         {packet.openingFrames?.candidates.length
           ? ' Оранжевый пунктир обводит только нарисованные в исходнике рамки, не добавляет порог или границу пола.'
           : null}

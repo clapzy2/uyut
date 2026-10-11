@@ -37,6 +37,55 @@ it('separates positive source paint from negative-space floor cavities and warns
   expect(html).not.toContain('Подтвердить')
 })
 
+it('explains ordered paint fragments without promoting holes or stroke omissions to floor proof', () => {
+  const packet = nativeReviewPacket({
+    source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },
+    image: { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 },
+  })
+  packet.orderedPaint = {
+    status: 'diagnostic',
+    refusalReason: null,
+    regions: [
+      {
+        candidateId: 'native-fill-1527:0',
+        status: 'diagnostic',
+        refusalReason: null,
+        maskCount: 2,
+        omittedStrokeCount: 90,
+        boundaryInkComplete: false,
+        pieces: [
+          {
+            polygon: [
+              { x: 10, y: 10 },
+              { x: 100, y: 10 },
+              { x: 100, y: 100 },
+            ],
+            holes: [],
+          },
+        ],
+      },
+      {
+        candidateId: 'native-fill-1462:0',
+        status: 'held',
+        refusalReason: 'ambiguous-nearby-intersections',
+        maskCount: 21,
+        omittedStrokeCount: 122,
+        boundaryInkComplete: false,
+        pieces: [],
+      },
+    ],
+  }
+  const html = renderToStaticMarkup(
+    createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+  )
+  expect(html).toContain('Фрагменты заливок после перекрытий')
+  expect(html).toContain('не готовый свободный пол')
+  expect(html).toContain('ambiguous-nearby-intersections')
+  expect(html).toContain('Полнота линий границы не подтверждена')
+  expect(html).toContain('не принятый пол')
+  expect(html).not.toContain('Подтвердить')
+})
+
 function linkedSourcePacket() {
   const packet = nativeReviewPacket({
     source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },

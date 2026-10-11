@@ -37,10 +37,18 @@ export type PdfLinework = {
   unsupportedContexts: number
   clippedPaths: number
   /** Diagnostic bounds of omitted paths; never evidence that their visible part was absent. */
-  clippedPathBounds?: Array<{ operationIndex: number; bounds: Bounds }>
+  clippedPathBounds?: Array<{
+    operationIndex: number
+    bounds: Bounds
+    paint?: PdfVectorPath['paint']
+  }>
   clippedPathBoundsTruncated?: boolean
   /** Control-point bounds of omitted curves; the curve is never flattened into a wall. */
-  skippedCurveBounds?: Array<{ operationIndex: number; bounds: Bounds }>
+  skippedCurveBounds?: Array<{
+    operationIndex: number
+    bounds: Bounds
+    paint?: PdfVectorPath['paint']
+  }>
   skippedCurveBoundsTruncated?: boolean
   truncated: boolean
 }
@@ -500,6 +508,7 @@ export function extractPdfLinework(
       result.unsupportedPaths++
       continue
     }
+    const paintKind: PdfVectorPath['paint'] = filled ? (stroked ? 'fill-stroke' : 'fill') : 'stroke'
     for (const [subpathIndex, path] of transformed.entries()) {
       if (path.curved) {
         result.skippedCurves++
@@ -507,6 +516,7 @@ export function extractPdfLinework(
           result.skippedCurveBounds.push({
             operationIndex,
             bounds: pointBounds([...path.points, ...path.controlPoints]),
+            paint: paintKind,
           })
         } else {
           result.skippedCurveBoundsTruncated = true
@@ -567,6 +577,7 @@ export function extractPdfLinework(
           result.clippedPathBounds.push({
             operationIndex,
             bounds: pointBounds(path.points),
+            paint: paintKind,
           })
         } else {
           result.clippedPathBoundsTruncated = true

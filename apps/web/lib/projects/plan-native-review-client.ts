@@ -2330,6 +2330,96 @@ function isPaintedRegionContext(packet: NativeReviewPacket): boolean {
   })
 }
 
+function isOrderedPaint(packet: NativeReviewPacket): boolean {
+  const report = packet.orderedPaint
+  if (report === undefined) return true
+  if (
+    !report ||
+    typeof report !== 'object' ||
+    !hasOnlyKeys(report, ['status', 'refusalReason', 'regions']) ||
+    !Array.isArray(report.regions) ||
+    report.regions.length > 50 ||
+    !Array.isArray(packet.faces) ||
+    packet.faces.some((face) => !face || typeof face !== 'object')
+  )
+    return false
+  if (report.status === 'unresolved')
+    return (
+      typeof report.refusalReason === 'string' &&
+      report.refusalReason.length > 0 &&
+      report.refusalReason.length <= 128 &&
+      report.regions.length === 0
+    )
+  if (report.status !== 'diagnostic' || report.refusalReason !== null || !packet.extraction)
+    return false
+  const fills = new Set(packet.faces.filter((face) => face.layer === 'fill').map((face) => face.id))
+  if (fills.size !== report.regions.length) return false
+  const seen = new Set<string>()
+  let pointCount = 0
+  let pieceCount = 0
+  const validRing = (ring: unknown): boolean => {
+    if (
+      !Array.isArray(ring) ||
+      ring.length < 3 ||
+      ring.length > 100 ||
+      !ring.every((point) => isInImage(point, packet.image))
+    )
+      return false
+    pointCount += ring.length
+    return pointCount <= 10_000
+  }
+  return report.regions.every((region) => {
+    if (
+      !region ||
+      typeof region !== 'object' ||
+      !hasOnlyKeys(region, [
+        'candidateId',
+        'status',
+        'refusalReason',
+        'maskCount',
+        'omittedStrokeCount',
+        'boundaryInkComplete',
+        'pieces',
+      ]) ||
+      !fills.has(region.candidateId) ||
+      seen.has(region.candidateId) ||
+      !Number.isSafeInteger(region.maskCount) ||
+      region.maskCount < 0 ||
+      region.maskCount > 3000 ||
+      !Number.isSafeInteger(region.omittedStrokeCount) ||
+      region.omittedStrokeCount < 0 ||
+      region.omittedStrokeCount >
+        packet.extraction.skippedCurves + packet.extraction.clippedPaths ||
+      typeof region.boundaryInkComplete !== 'boolean' ||
+      (region.omittedStrokeCount > 0 && region.boundaryInkComplete) ||
+      !Array.isArray(region.pieces) ||
+      region.pieces.length > 100
+    )
+      return false
+    seen.add(region.candidateId)
+    if (region.status === 'held')
+      return (
+        typeof region.refusalReason === 'string' &&
+        region.refusalReason.length > 0 &&
+        region.refusalReason.length <= 128 &&
+        region.pieces.length === 0
+      )
+    if (region.status !== 'diagnostic' || region.refusalReason !== null) return false
+    pieceCount += region.pieces.length
+    if (pieceCount > 500) return false
+    return region.pieces.every(
+      (piece) =>
+        piece &&
+        typeof piece === 'object' &&
+        hasOnlyKeys(piece, ['polygon', 'holes']) &&
+        validRing(piece.polygon) &&
+        Array.isArray(piece.holes) &&
+        piece.holes.length <= 50 &&
+        piece.holes.every(validRing),
+    )
+  })
+}
+
 function isPacket(value: unknown, page: number, revision: string): value is NativeReviewPacket {
   if (!value || typeof value !== 'object') return false
   const packet = value as NativeReviewPacket
@@ -2366,6 +2456,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isFloorOpeningSides(packet.floorOpeningSides, packet) ||
     !isSavedFrameRooms(packet.savedFrameRooms, packet) ||
     !isPaintedRegionContext(packet) ||
+    !isOrderedPaint(packet) ||
     !Array.isArray(packet.faces) ||
     packet.faces.length > 100 ||
     !Array.isArray(packet.issues) ||

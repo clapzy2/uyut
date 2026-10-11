@@ -92,6 +92,52 @@ not real-account authorization/persistence proof. Screenshots are under
 
 **BLOCKERS for automatic accepted 2D/3D on these sources:** clipped/curved source completeness, rotated opening/frame support, full physical floor boundary and opening inventory, independent metric supports, object-specific heights, and shared floor/threshold datum. Approximate envelopes or rectangle fallbacks must not close these gaps.
 
+### Follow-up: ordered retained-paint fragments
+
+Added source-linked subtraction of later paint from each existing positive candidate.
+Cutters come from **all retained filled paths**, including small columns/windows and
+same-colour repaints, not only the 14 candidate-sized shapes. Same-colour subtraction
+describes the surviving part of one source operation; it does not say that the later
+same-colour patch is occupied floor. No colour-based physical role is assigned.
+
+Crossing boundaries use the existing source-backed planar graph. Face membership and
+area accounting use rational intersection keys rather than rounded display coordinates.
+Original segment indexes and intersection proofs remain attached internally. Completely
+contained disjoint masks retain explicit holes. Mixed disconnected/intersecting topology,
+ambiguous nearby intersections and incomplete area partitions hold the whole candidate;
+there is no epsilon/snap repair or partial-layer promotion.
+
+The extractor now retains the actual `stroke`/`fill`/`fill-stroke` role for curve and clipped
+omissions. Legacy omissions without that optional provenance remain unknown. A documented
+stroke-only omission does not block this **filled-path mathematical calculation**, but its
+count remains nonzero and boundary-ink completeness stays false. Unknown/filled omissions
+contacting a candidate hold it. Neither the kernel nor the public view confirms total visible
+ink, a physical free floor, room/height ownership, centimetre scale or 2D/3D readiness.
+
+Fresh original Rebrina page: candidate 1527 (study paint mask) gives one diagnostic piece
+with three rational intersection proofs and 90 possible omitted stroke bounds. Candidate
+11775 gives one diagnostic piece with two proofs; its physical role is unclassified.
+Kitchen 1462 remains held for `ambiguous-nearby-intersections`, with all 21 later masks,
+including small grey column 13501, accounted for. The other seven room masks are still
+held. The unchanged global source count is 532 clipped paths. Do not report a successful
+kitchen column cut, eight recovered floors or an accepted 3D plan from these results.
+
+The UI has a separate purple fragment layer with even-odd hole rendering. The original
+positive fill overlay is hidden while this layer is selected so it cannot visually fill
+the calculated holes. Existing read-only inspection/load, private source pairing and save
+behaviour are unchanged. DTO/core output limits agree: 50 regions, 100 pieces per region,
+500 pieces globally, 10,000 points, plus an internal 1,000-intersection-proof limit.
+Independent review caught a producer/client 110-piece mismatch; an atomic-refusal regression
+now covers it.
+
+Verification: 6,889 web tests / 302 files passed; seven-package typecheck, Biome 992 files,
+production build and diff check passed. Actual original-PDF component QA with mocked private
+HTTP showed the held kitchen and the diagnostic study fragment, preserved 532 omissions,
+and had no warning/error console logs or document overflow at 1265/1265 and 375/375 pixels.
+Proof: `output/playwright/real-plan-ordered-paint-20261011.jpg`. No new AI requests, source
+file edits, migrations or account/project writes were made. This is not production account
+persistence or full automatic 2D/3D proof.
+
 **IMPORTANT:** decimal source-room numbering and split/subscript height captions need explicit source-linked support. A room number, a wall gap, a door swing and a free-floor threshold are different evidence.
 
 **Recommendation:** ship the bounded correctness fixes after regression and UI checks; do not advertise complete automatic 2D/3D recognition for these sheets. Preserve original hashes and before/after evidence when extending the next stage.
