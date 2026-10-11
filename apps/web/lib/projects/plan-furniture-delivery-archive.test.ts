@@ -49,6 +49,32 @@ const draftText = (changes: Record<string, unknown> = {}) =>
   JSON.stringify({ ...buildFurnitureDeliveryDraft(geometry, profile, fields()), ...changes })
 
 describe('portable furniture delivery drafts', () => {
+  it('allows editor empty collections for a legacy model without hiding real changes', () => {
+    const current = { ...geometry, obstacles: [], kitchenItems: [] }
+    expect(parseFurnitureDeliveryDraft(draftText(), current, profile).fields).toEqual(fields())
+    expect(
+      parseFurnitureDeliveryDraft(
+        draftText(),
+        {
+          ...current,
+          obstacles: [{ id: 'column', kind: 'column', xCm: 10, yCm: 10, widthCm: 40, depthCm: 40 }],
+        },
+        profile,
+      ).fields,
+    ).toBeUndefined()
+    expect(
+      parseFurnitureDeliveryDraft(
+        draftText(),
+        {
+          ...current,
+          kitchenItems: [
+            { id: 'cabinet', kind: 'cabinet', xCm: 10, yCm: 10, widthCm: 40, depthCm: 40 },
+          ],
+        },
+        profile,
+      ).fields,
+    ).toBeUndefined()
+  })
   it('keeps a draft current after JSONB changes only object property order', () => {
     const reordered = JSON.parse(
       JSON.stringify(geometry, (_key, value) =>
