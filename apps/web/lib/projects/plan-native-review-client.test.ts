@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { loadNativeReview } from './plan-native-review-client'
 import { type NativeReviewPacket, nativeReviewPacket } from './plan-native-review-packet'
@@ -113,11 +116,17 @@ function cappedDoorSymbols(): NonNullable<NativeReviewPacket['doorSymbols']> {
   return symbols
 }
 
-function loadFixture(packet: NativeReviewPacket, headers: Record<string, string>) {
+function loadFixture(
+  packet: NativeReviewPacket,
+  headers: Record<string, string>,
+  options: { imageBody?: Uint8Array<ArrayBuffer>; page?: number } = {},
+) {
   const fetcher = vi.fn(async (url: string) =>
-    url.includes('native-review-image') ? new Response(body, { headers }) : Response.json(packet),
+    url.includes('native-review-image')
+      ? new Response(options.imageBody ?? body, { headers })
+      : Response.json(packet),
   )
-  return loadNativeReview(input(), fetcher as typeof fetch)
+  return loadNativeReview({ ...input(), page: options.page ?? 1 }, fetcher as typeof fetch)
 }
 
 function sourceLinksFixture() {
@@ -1708,6 +1717,167 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
     result.packet.heightObservations = heights
     return { ...result, heights }
   }
+
+  function documentaryHeightFixture(inkSourceOperation: number | null = null) {
+    const result = heightFixture()
+    const row = result.heights.observations[0]
+    if (!row) throw new Error('Missing height fixture')
+    Object.assign(row, {
+      originalText: 'Н=3790',
+      valueMm: 3790,
+      quantityKind: 'unclassified-height',
+      issueCodes: [
+        'height-role-unclassified',
+        'height-datum-unverified',
+        ...(inkSourceOperation === null ? ['height-unit-ink-unverified'] : []),
+      ],
+      unitEvidence: {
+        kind: 'same-page-millimetre-declaration',
+        labelId: 'native-text-237',
+        originalText: '5. Размеры указаны в миллиметрах',
+        nativeIndex: 237,
+        inkSourceOperation,
+        source: structuredClone(result.packet.source),
+      },
+    })
+    result.heights.issues = row.issueCodes.map((code) => ({
+      labelId: row.labelId,
+      originalText: row.originalText,
+      code,
+    }))
+    return { ...result, row }
+  }
+
+  it.each([null, 19])(
+    'accepts documentary height with separately retained note glyph operation %s',
+    async (operation) => {
+      const { packet, headers, heights } = documentaryHeightFixture(operation)
+      expect((await loadFixture(packet, headers)).packet.heightObservations).toEqual(heights)
+    },
+  )
+
+  it.each([
+    'null',
+    'extra-key',
+    'kind',
+    'label-alias',
+    'same-label',
+    'bad-index',
+    'unsafe-index',
+    'bad-caption-id',
+    'negative-operation',
+    'fractional-operation',
+    'missing-operation',
+    'source-sha',
+    'source-page',
+    'source-state',
+    'source-extra',
+    'note-negated',
+    'note-exception',
+    'note-unit',
+    'note-hidden',
+    'inline-alias',
+    'value',
+    'role',
+    'datum',
+    'authority',
+    'missing-ink-code',
+    'unexpected-ink-code',
+    'extra-code',
+    'conflicting-note',
+    'conflicting-operation',
+  ])('rejects malformed or authoritative documentary height: %s', async (change) => {
+    const { packet, headers, heights, row } = documentaryHeightFixture()
+    const units = row.unitEvidence
+    if (!units) throw new Error('Missing documentary units fixture')
+    if (change === 'null') Object.assign(row, { unitEvidence: null })
+    if (change === 'extra-key') Object.assign(units, { verified: true })
+    if (change === 'kind') Object.assign(units, { kind: 'inline-mm' })
+    if (change === 'label-alias') units.labelId = 'native-text-0237'
+    if (change === 'same-label') {
+      units.labelId = row.labelId
+      units.nativeIndex = 20
+    }
+    if (change === 'bad-index') units.nativeIndex = -1
+    if (change === 'unsafe-index') units.nativeIndex = 1000
+    if (change === 'bad-caption-id') row.labelId = 'fake-text-20'
+    if (change === 'negative-operation') units.inkSourceOperation = -1
+    if (change === 'fractional-operation') units.inkSourceOperation = 1.5
+    if (change === 'missing-operation') Object.assign(units, { inkSourceOperation: undefined })
+    if (change === 'source-sha') units.source.sha256 = 'c'.repeat(64)
+    if (change === 'source-page') units.source.pdfPage++
+    if (change === 'source-state') units.source.state = 'proposed'
+    if (change === 'source-extra') Object.assign(units.source, { accepted: true })
+    if (change === 'note-negated') units.originalText = 'Размеры не указаны в миллиметрах'
+    if (change === 'note-exception') units.originalText += ', кроме высот'
+    if (change === 'note-unit') units.originalText = 'Размеры указаны в метрах'
+    if (change === 'note-hidden') units.originalText = 'Раз\u200bмеры указаны в миллиметрах'
+    if (change === 'inline-alias') row.originalText = 'Н=3790 мм'
+    if (change === 'value') row.valueMm++
+    if (change === 'role') row.quantityKind = 'finished-ceiling'
+    if (change === 'datum') row.datum = 'finished-floor'
+    if (change === 'authority') Object.assign(row, { mayAcceptFor3D: true })
+    if (change === 'missing-ink-code') row.issueCodes.pop()
+    if (change === 'unexpected-ink-code') units.inkSourceOperation = 19
+    if (change === 'extra-code') row.issueCodes.push('verified-native-units')
+    if (change === 'conflicting-note' || change === 'conflicting-operation') {
+      const other = structuredClone(row)
+      other.labelId = 'native-text-21'
+      if (!other.unitEvidence) throw new Error('Missing second units fixture')
+      if (change === 'conflicting-note') {
+        other.unitEvidence.nativeIndex = 238
+        other.unitEvidence.labelId = 'native-text-238'
+      } else other.unitEvidence.inkSourceOperation = 19
+      heights.observations.push(other)
+    }
+    heights.issues = heights.observations.flatMap((observation) =>
+      observation.issueCodes.map((code) => ({
+        labelId: observation.labelId,
+        originalText: observation.originalText,
+        code,
+      })),
+    )
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+
+  const realHeightSource = fileURLToPath(
+    new URL('../../../../output/pdf/source-search-20261003/rebrina-original.pdf', import.meta.url),
+  )
+  it.skipIf(!existsSync(realHeightSource))(
+    'loads the actual original Rebrina packet and image without documentary height 422',
+    async () => {
+      const bytes = await readFile(realHeightSource)
+      const sha256 = createHash('sha256').update(bytes).digest('hex')
+      expect(sha256).toBe('2e141c135812c81719e1f4783173cb5202e20041ac494d3cc799eb37ad62ad4e')
+      const { preparePlanPage } = await import('./plan-document')
+      const page = await preparePlanPage(bytes, true, 3, true, true)
+      const imageSha256 = createHash('sha256').update(page.image.body).digest('hex')
+      const packet = nativeReviewPacket({
+        source: { sha256, pdfPage: 3, state: 'existing' },
+        image: { sha256: imageSha256, page: 3, width: page.image.width, height: page.image.height },
+        native: page.nativeTextAnchors,
+        work: page.linework,
+        lineworkSource: page.lineworkRasterSource,
+      })
+      packet.sourceRevision = revision
+      const headers = {
+        'content-type': 'image/jpeg',
+        'x-plan-sha256': sha256,
+        'x-plan-image-sha256': imageSha256,
+        'x-plan-page': '3',
+        'x-plan-image-width': String(page.image.width),
+        'x-plan-image-height': String(page.image.height),
+      }
+      const loaded = (
+        await loadFixture(packet, headers, { imageBody: new Uint8Array(page.image.body), page: 3 })
+      ).packet
+      expect(loaded.heightObservations?.observations).toHaveLength(10)
+      expect(
+        loaded.heightObservations?.observations[0]?.unitEvidence?.inkSourceOperation,
+      ).toBeNull()
+      expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+    },
+  )
 
   it('retains raw source text, unresolved datum and exact parent omission counts', async () => {
     const { packet, headers, heights } = heightFixture()

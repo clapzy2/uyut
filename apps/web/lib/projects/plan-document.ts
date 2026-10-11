@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto'
 import sharp from 'sharp'
-import { nativeHeightCaption } from './plan-native-height-caption'
+import {
+  nativeDocumentaryHeightCaption,
+  nativeHeightCaption,
+  nativeHeightMillimetreDeclarationIndex,
+} from './plan-native-height-caption'
 import { nativeCeilingDatumDeclarationTopic } from './plan-native-height-datum-caption'
 import {
   type NativeDimensionCaptionContext,
@@ -36,6 +40,9 @@ export type NativeTextAnchors = {
     source: { sha256: string; pdfPage: number; pageWidth: number; pageHeight: number }
   }
   heightDatumInk?: NativeNumericTextInk & {
+    source: { sha256: string; pdfPage: number; pageWidth: number; pageHeight: number }
+  }
+  heightUnitInk?: NativeNumericTextInk & {
     source: { sha256: string; pdfPage: number; pageWidth: number; pageHeight: number }
   }
   // Baseline origins from PDF text transforms, not glyph boxes or inferred room centres.
@@ -209,12 +216,19 @@ export async function preparePlanPage(
             isOptionalContentVisible: (properties) => optionalContentConfig?.isVisible(properties),
           })
         : undefined
+    const heightUnitIndex =
+      includeNativeTextAnchors && textContent && textContent.items.length <= 1000
+        ? nativeHeightMillimetreDeclarationIndex(
+            textContent.items.map((item) => ('str' in item ? item.str.trim() : '')),
+          )
+        : null
     const heightIndexes =
       includeNativeTextAnchors && textContent && textContent.items.length <= 1000
         ? textContent.items.flatMap((item, index) =>
             'str' in item &&
             item.str.length <= 200 &&
-            nativeHeightCaption(item.str.trim()).status === 'observed'
+            (nativeHeightCaption(item.str.trim()).status === 'observed' ||
+              (heightUnitIndex !== null && nativeDocumentaryHeightCaption(item.str.trim())))
               ? [index]
               : [],
           )
@@ -227,6 +241,20 @@ export async function preparePlanPage(
             textItems: textContent.items,
             viewport: nativeViewport,
             selectedTextIndexes: heightIndexes,
+            getFont: (fontName) => page.commonObjs.get(fontName),
+            getGlyphPath: (fontName, fontChar) =>
+              page.commonObjs.get(`${fontName}_path_${fontChar}`).path,
+            isOptionalContentVisible: (properties) => optionalContentConfig?.isVisible(properties),
+          })
+        : undefined
+    const heightUnitInk =
+      heightUnitIndex !== null && nativeOperators && nativeViewport && textContent
+        ? nativeNumericTextInk({
+            operatorList: nativeOperators,
+            operators: pdfjs.OPS,
+            textItems: textContent.items,
+            viewport: nativeViewport,
+            selectedTextIndexes: [heightUnitIndex],
             getFont: (fontName) => page.commonObjs.get(fontName),
             getGlyphPath: (fontName, fontChar) =>
               page.commonObjs.get(`${fontName}_path_${fontChar}`).path,
@@ -436,6 +464,16 @@ export async function preparePlanPage(
       if (heightInk && nativeViewport)
         nativeTextAnchors.heightCaptionInk = {
           ...heightInk,
+          source: {
+            sha256: createHash('sha256').update(body).digest('hex'),
+            pdfPage: pageNumber,
+            pageWidth: nativeViewport.width,
+            pageHeight: nativeViewport.height,
+          },
+        }
+      if (heightUnitInk && nativeViewport)
+        nativeTextAnchors.heightUnitInk = {
+          ...heightUnitInk,
           source: {
             sha256: createHash('sha256').update(body).digest('hex'),
             pdfPage: pageNumber,

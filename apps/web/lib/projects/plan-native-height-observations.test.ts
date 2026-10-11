@@ -1,4 +1,12 @@
+import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import {
+  nativeDocumentaryHeightCaption,
+  nativeHeightMillimetreDeclarationIndex,
+} from './plan-native-height-caption'
 import { nativeHeightObservations } from './plan-native-height-observations'
 
 type Input = Parameters<typeof nativeHeightObservations>[0]
@@ -54,6 +62,206 @@ function expectHeld(input: Input, reason: string) {
 }
 
 describe('literal source height observation inventory, never vertical model transfer', () => {
+  const realSource = fileURLToPath(
+    new URL('../../../../output/pdf/source-search-20261003/rebrina-original.pdf', import.meta.url),
+  )
+  it.skipIf(!existsSync(realSource))(
+    'retains the real Rebrina H captions but never treats them as accepted ceilings',
+    async () => {
+      const body = await readFile(realSource)
+      const sha256 = createHash('sha256').update(body).digest('hex')
+      expect(sha256).toBe('2e141c135812c81719e1f4783173cb5202e20041ac494d3cc799eb37ad62ad4e')
+      const { preparePlanPage } = await import('./plan-document')
+      const page = await preparePlanPage(body, true, 3, true, true)
+      if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+        throw new Error('Missing real native source layers')
+      const input: Input = {
+        source: { sha256, pdfPage: 3, state: 'existing' },
+        native: page.nativeTextAnchors,
+        work: page.linework,
+        lineworkSource: page.lineworkRasterSource,
+      }
+      const result = nativeHeightObservations(input)
+      expect(result.observations.map((row) => row.valueMm)).toEqual([
+        3277, 3773, 3790, 3780, 360, 360, 3790, 2835, 3495, 3790,
+      ])
+      for (const row of result.observations) {
+        expect(row.originalText).toBe(`Н=${row.valueMm}`)
+        expect(row.quantityKind).toBe('unclassified-height')
+        expect(row.datum).toBe('unspecified')
+        expect(row.unitEvidence?.labelId).toBe('native-text-237')
+        expect(row.unitEvidence?.originalText).toBe('5. Размеры указаны в миллиметрах')
+        expect(row.unitEvidence?.source).toEqual(input.source)
+        expect(row.issueCodes).toContain('height-unit-ink-unverified')
+        expect(row.mayAcceptFor3D).toBe(false)
+      }
+      const { nativeHeightSourceLocations } = await import('./plan-native-height-locations')
+      const locations = nativeHeightSourceLocations(input)
+      expect(locations.observations.every((row) => row.status === 'unresolved')).toBe(true)
+      expect(locations.mayTransfer3D).toBe(false)
+      const { nativeHeightObjectEvidence } = await import('./plan-native-height-objects')
+      const objects = nativeHeightObjectEvidence(input)
+      expect(objects.bindings.every((row) => row.objectStatus === 'unresolved')).toBe(true)
+      expect(objects.mayTransfer2D3D).toBe(false)
+    },
+  )
+  function documentaryFixture() {
+    const input = fixture(['Н=3790', '5. Размеры указаны в миллиметрах'])
+    const label = input.native.labels[1]
+    if (!label?.pagePoint) throw new Error('Missing documentary note fixture')
+    input.native.heightUnitInk = {
+      source: {
+        sha256: input.source.sha256,
+        pdfPage: input.source.pdfPage,
+        pageWidth: input.work.pageWidth,
+        pageHeight: input.work.pageHeight,
+      },
+      complete: true,
+      refusalReason: null,
+      items: [
+        {
+          index: 1,
+          text: label.name,
+          fontName: 'synthetic-test-font',
+          operationIndex: 19,
+          baselineStart: { ...label.pagePoint },
+          baselineEnd: { x: 120, y: label.pagePoint.y },
+          quad: [
+            { x: 100, y: 98 },
+            { x: 120, y: 98 },
+            { x: 120, y: 101 },
+            { x: 100, y: 101 },
+          ],
+        },
+      ],
+      unresolved: [],
+    }
+    return input
+  }
+  it('retains raw unitless height under exact same-page units ink without inventing role or datum', () => {
+    const input = documentaryFixture()
+    const before = structuredClone(input)
+    const result = nativeHeightObservations(input)
+    expect(result.observations).toMatchObject([
+      {
+        originalText: 'Н=3790',
+        labelId: 'native-text-0',
+        valueMm: 3790,
+        quantityKind: 'unclassified-height',
+        datum: 'unspecified',
+        mayAcceptFor3D: false,
+        unitEvidence: {
+          labelId: 'native-text-1',
+          originalText: '5. Размеры указаны в миллиметрах',
+          nativeIndex: 1,
+          inkSourceOperation: 19,
+          source: input.source,
+        },
+      },
+    ])
+    expect(result.assignsGeometryHeights).toBe(false)
+    expect(input).toEqual(before)
+  })
+  it.each([
+    'Размеры не указаны в миллиметрах',
+    'Размеры указаны в сантиметрах',
+    'Размеры указаны в миллиметрах кроме высот',
+    'Размеры указаны в миллиметрах и сантиметрах',
+    'Размеры указаны в миллиметрах?',
+    'Раз\u200bмеры указаны в миллиметрах',
+  ])('holds conflicting or qualified unit declaration %s', (text) => {
+    expect(nativeHeightMillimetreDeclarationIndex(['Н=3790', text])).toBeNull()
+  })
+  it('holds duplicate and contradictory same-page declarations', () => {
+    const note = 'Размеры указаны в миллиметрах'
+    expect(nativeHeightMillimetreDeclarationIndex([note, note])).toBeNull()
+    expect(
+      nativeHeightMillimetreDeclarationIndex([note, 'Высоты указаны в сантиметрах']),
+    ).toBeNull()
+    expect(nativeHeightMillimetreDeclarationIndex([note, 'Высоты в см'])).toBeNull()
+    expect(nativeHeightMillimetreDeclarationIndex([note, 'Высоты указаны в метрах'])).toBeNull()
+    expect(nativeHeightMillimetreDeclarationIndex([note, 'Высоты в м'])).toBeNull()
+    expect(nativeHeightMillimetreDeclarationIndex([note, 'Высоты в m'])).toBeNull()
+    expect(
+      nativeHeightMillimetreDeclarationIndex([note, 'Раз\u200bмеры не указаны в миллиметрах']),
+    ).toBeNull()
+  })
+  it.each(['Высоты указаны в метрах', 'Высоты в м', 'Высоты в m'])(
+    'does not inventory a metre height as millimetres: %s',
+    (exception) => {
+      const input = documentaryFixture()
+      input.native.labels.push({
+        id: 'native-text-2',
+        nativeIndex: 2,
+        name: exception,
+        rotation: 0,
+        point: { x: 100, y: 102 },
+        pagePoint: { x: 100, y: 102 },
+      })
+      expect(nativeHeightObservations(input).observations).toEqual([])
+    },
+  )
+  it('keeps documentary-only units visible without claiming unresolved note glyphs as verified', () => {
+    const input = documentaryFixture()
+    const ink = input.native.heightUnitInk
+    if (!ink) throw new Error('Missing units ink fixture')
+    ink.complete = false
+    ink.items = []
+    ink.unresolved = [{ index: 1, reason: 'native-text-show-identity-unresolved' }]
+    const row = nativeHeightObservations(input).observations[0]
+    expect(row?.originalText).toBe('Н=3790')
+    expect(row?.unitEvidence?.inkSourceOperation).toBeNull()
+    expect(row?.issueCodes).toContain('height-unit-ink-unverified')
+    expect(row?.quantityKind).toBe('unclassified-height')
+    expect(row?.datum).toBe('unspecified')
+    expect(row?.mayAcceptFor3D).toBe(false)
+    for (const mutation of ['index', 'reason', 'source', 'page']) {
+      const bad = structuredClone(input)
+      const badInk = bad.native.heightUnitInk
+      const unresolved = badInk?.unresolved[0]
+      if (!badInk || !unresolved) throw new Error('Missing unresolved units fixture')
+      if (mutation === 'index') unresolved.index++
+      if (mutation === 'reason') unresolved.reason = 'native-text-show-visibility-unresolved'
+      if (mutation === 'source') badInk.source.sha256 = 'c'.repeat(64)
+      if (mutation === 'page') badInk.source.pdfPage++
+      expect(nativeHeightObservations(bad).observations).toEqual([])
+    }
+  })
+  it.each(['Н=0', 'Н=-360', 'Н=6001', 'H1=3790', 'Н=3790 мм', 'Н=3790 360', 'Н=37,90', 'Н≈3790'])(
+    'does not parse unsupported unitless caption %s',
+    (text) => {
+      expect(nativeDocumentaryHeightCaption(text)).toBeNull()
+    },
+  )
+  it.each([
+    'missing',
+    'different-source',
+    'different-page',
+    'different-index',
+    'different-text',
+    'shifted-baseline',
+    'reversed-baseline',
+    'invalid-quad',
+    'incomplete',
+    'hidden',
+  ])('withholds documentary height when unit provenance is %s', (mutation) => {
+    const input = documentaryFixture()
+    const ink = input.native.heightUnitInk
+    const item = ink?.items[0]
+    const corner = item?.quad[2]
+    if (!ink || !item || !corner) throw new Error('Missing units glyph fixture')
+    if (mutation === 'missing') delete input.native.heightUnitInk
+    if (mutation === 'different-source') ink.source.sha256 = 'c'.repeat(64)
+    if (mutation === 'different-page') ink.source.pdfPage++
+    if (mutation === 'different-index') item.index++
+    if (mutation === 'different-text') item.text += '.'
+    if (mutation === 'shifted-baseline') item.baselineStart.x++
+    if (mutation === 'reversed-baseline') item.baselineEnd.x = 90
+    if (mutation === 'invalid-quad') corner.x++
+    if (mutation === 'incomplete') ink.complete = false
+    if (mutation === 'hidden') input.native.vectorInkRefusal = 'hidden-optional-content'
+    expect(nativeHeightObservations(input).observations).toEqual([])
+  })
   it.each([
     'Потолки в квартире отсчитываются от уровня пола.',
     'Потолочные размеры в квартире от уровня пола кроме ванной.',

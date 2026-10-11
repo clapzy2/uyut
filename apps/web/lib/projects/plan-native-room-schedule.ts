@@ -130,18 +130,24 @@ export function nativeRoomScheduleEvidence(input: {
   const numbers = native.labels.filter((label) => numberHeading.test(label.name))
   const names = native.labels.filter((label) => nameHeading.test(label.name))
   const areas = native.labels.filter((label) => areaHeading.test(label.name))
-  if (numbers.length !== 1 || names.length !== 1 || areas.length !== 1)
+  if (numbers.length !== 1 || names.length === 0 || areas.length !== 1)
     return finish('unsupported-or-ambiguous-room-table')
   const headings = [numbers[0], names[0], areas[0]] as Label[]
-  if (headings.some((label) => label.rotation !== 0))
+  const outerHeadings = [numbers[0], areas[0]] as Label[]
+  if (outerHeadings.some((label) => label.rotation !== 0))
     return finish('unsupported-or-ambiguous-room-table')
-  const table = planTabularScheduleEvidence(
-    native.labels.map((label) => ({
-      text: label.name,
-      rotation: label.rotation as number,
-      ...(label.pagePoint as PagePoint),
-    })),
-  )
+  // A repeated name heading may belong to a separate wall legend. Only a complete
+  // source grid can disambiguate it; never pick the first or nearest label.
+  const table =
+    names.length === 1 && names[0]?.rotation === 0
+      ? planTabularScheduleEvidence(
+          native.labels.map((label) => ({
+            text: label.name,
+            rotation: label.rotation as number,
+            ...(label.pagePoint as PagePoint),
+          })),
+        )
+      : undefined
   if (table) {
     rows = [...table].map(([sourceNumber, row]) => ({
       sourceNumber,
@@ -234,7 +240,10 @@ export function nativeRoomScheduleEvidence(input: {
         top: Math.min(...group.ys),
         bottom: Math.max(...group.ys),
       }
-      if (headings.every((label) => inside(label.pagePoint as PagePoint, bounds)))
+      if (
+        outerHeadings.every((label) => inside(label.pagePoint as PagePoint, bounds)) &&
+        names.some((label) => inside(label.pagePoint as PagePoint, bounds))
+      )
         structuredGridPresent = true
     }
     for (const group of groups.values()) {
@@ -244,7 +253,7 @@ export function nativeRoomScheduleEvidence(input: {
       const left = columns[0] as number,
         right = columns.at(-1) as number
       if (
-        !headings.every((label) =>
+        !outerHeadings.every((label) =>
           inside(label.pagePoint as PagePoint, {
             left,
             right,
@@ -280,8 +289,18 @@ export function nativeRoomScheduleEvidence(input: {
       )
         continue
       const headerBottom = rowLines[1] as number
+      const nameLabels = names.filter((label) =>
+        inside(label.pagePoint as PagePoint, {
+          left: columns[1] as number,
+          right: columns[2] as number,
+          top: group.top,
+          bottom: headerBottom,
+        }),
+      )
+      if (nameLabels.length !== 1) continue
+      const gridHeadings = [numbers[0], nameLabels[0], areas[0]] as Label[]
       if (
-        !headings.every((label, index) =>
+        !gridHeadings.every((label, index) =>
           inside(label.pagePoint as PagePoint, {
             left: columns[index] as number,
             right: columns[index + 1] as number,

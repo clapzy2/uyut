@@ -1,4 +1,8 @@
-import { nativeHeightCaption } from './plan-native-height-caption'
+import {
+  nativeDocumentaryHeightCaption,
+  nativeHeightCaption,
+  nativeHeightMillimetreDeclarationIndex,
+} from './plan-native-height-caption'
 import {
   nativeCeilingDatumDeclaration,
   nativeCeilingDatumDeclarationTopic,
@@ -1185,9 +1189,11 @@ function isHeightObservations(value: unknown, packet: NativeReviewPacket): boole
     'height-datum-unverified',
     'ambiguous-height-datum',
     'height-outside-model-range',
+    'height-unit-ink-unverified',
   ])
   const observations = new Map<string, (typeof heights.observations)[number]>()
   const labelTexts = new Map<string, string>()
+  let sharedUnits: string | undefined
   for (const observation of heights.observations) {
     if (
       !observation ||
@@ -1200,6 +1206,7 @@ function isHeightObservations(value: unknown, packet: NativeReviewPacket): boole
         'datum',
         'issueCodes',
         'mayAcceptFor3D',
+        ...('unitEvidence' in observation ? ['unitEvidence'] : []),
       ]) ||
       !isBoundedLabel(observation.labelId) ||
       observations.has(observation.labelId) ||
@@ -1220,7 +1227,58 @@ function isHeightObservations(value: unknown, packet: NativeReviewPacket): boole
       new Set(observation.issueCodes).size !== observation.issueCodes.length
     )
       return false
-    const caption = nativeHeightCaption(observation.originalText)
+    const units = observation.unitEvidence
+    let documentary = null
+    if ('unitEvidence' in observation) {
+      if (
+        !units ||
+        typeof units !== 'object' ||
+        !hasOnlyKeys(units, [
+          'kind',
+          'labelId',
+          'originalText',
+          'nativeIndex',
+          'inkSourceOperation',
+          'source',
+        ]) ||
+        units.kind !== 'same-page-millimetre-declaration' ||
+        !Number.isSafeInteger(units.nativeIndex) ||
+        units.nativeIndex < 0 ||
+        units.nativeIndex >= 1000 ||
+        units.labelId !== `native-text-${units.nativeIndex}` ||
+        units.labelId === observation.labelId ||
+        !/^native-text-(?:0|[1-9]\d{0,2})$/u.test(observation.labelId) ||
+        !originalText(units.originalText) ||
+        nativeHeightMillimetreDeclarationIndex([units.originalText]) !== 0 ||
+        (units.inkSourceOperation !== null &&
+          (!Number.isSafeInteger(units.inkSourceOperation) || units.inkSourceOperation < 0)) ||
+        !units.source ||
+        typeof units.source !== 'object' ||
+        !hasOnlyKeys(units.source, ['sha256', 'pdfPage', 'state']) ||
+        units.source.sha256 !== packet.source.sha256 ||
+        units.source.pdfPage !== packet.source.pdfPage ||
+        units.source.state !== packet.source.state
+      )
+        return false
+      const unitKey = JSON.stringify([
+        units.labelId,
+        units.originalText,
+        units.nativeIndex,
+        units.inkSourceOperation,
+        units.source.sha256,
+        units.source.pdfPage,
+        units.source.state,
+      ])
+      if (sharedUnits !== undefined && sharedUnits !== unitKey) return false
+      sharedUnits = unitKey
+      documentary = nativeDocumentaryHeightCaption(observation.originalText)
+      if (!documentary) return false
+      if (units.inkSourceOperation === null)
+        documentary.issueCodes.push('height-unit-ink-unverified')
+    }
+    const caption = documentary
+      ? { status: 'observed' as const, observation: documentary }
+      : nativeHeightCaption(observation.originalText)
     if (
       caption.status !== 'observed' ||
       caption.observation.valueMm !== observation.valueMm ||
