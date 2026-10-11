@@ -369,10 +369,18 @@ function exteriorAccess(geometry: PlanGeometry) {
 }
 
 describe('server snapshot presentation with actual solver', () => {
-  it.each([false, true])(
-    'normalizes and checks account/PDF/3D snapshot, exterior=%s',
-    (external) => {
-      const geometry = external ? pairedExteriorDeliveryFixture() : fixture()
+  it.each([
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true],
+  ])(
+    'normalizes and checks account/PDF/3D snapshot, exterior=%s, editor defaults=%s',
+    (external, editorDefaults) => {
+      const storedGeometry = external ? pairedExteriorDeliveryFixture() : fixture()
+      const geometry = editorDefaults
+        ? { ...storedGeometry, obstacles: [], kitchenItems: [] }
+        : storedGeometry
       const measured = survey(geometry)
       const access = exteriorAccess(geometry)
       const fields: FurnitureDeliveryDraftFields = {
@@ -420,7 +428,7 @@ describe('server snapshot presentation with actual solver', () => {
         ...JSON.parse(report.text),
         savedDraftKey: canonicalPlanDeliveryJson(JSON.parse(draftJson)),
       })
-      const result = inspectStoredPlanDelivery(geometry, {
+      const result = inspectStoredPlanDelivery(storedGeometry, {
         version: 1,
         savedAt: '2026-10-11T12:00:00.000Z',
         draftJson,

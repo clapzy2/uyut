@@ -164,7 +164,21 @@ export function canonicalPlanDeliveryJson(value: unknown): string {
 }
 
 export function samePlanDeliveryGeometry(first: unknown, second: unknown): boolean {
-  return canonicalPlanDeliveryJson(first) === canonicalPlanDeliveryJson(second)
+  const withEditorDefaults = (value: unknown) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+    const geometry = value as Record<string, unknown>
+    // The editor and checker already use [] for these two absent collections.
+    // A non-empty list, null, or any other field must still compare exactly.
+    return {
+      ...geometry,
+      obstacles: geometry.obstacles === undefined ? [] : geometry.obstacles,
+      kitchenItems: geometry.kitchenItems === undefined ? [] : geometry.kitchenItems,
+    }
+  }
+  return (
+    canonicalPlanDeliveryJson(withEditorDefaults(first)) ===
+    canonicalPlanDeliveryJson(withEditorDefaults(second))
+  )
 }
 
 const recordSchema = z
@@ -208,9 +222,8 @@ export function inspectStoredPlanDelivery(
       report.savedDraftKey !== canonicalPlanDeliveryJson(draft) ||
       draft.kind !== 'domitsa-furniture-delivery' ||
       draft.version !== 1 ||
-      canonicalPlanDeliveryJson(JSON.parse(draft.geometryKey)) !==
-        canonicalPlanDeliveryJson(geometry) ||
-      canonicalPlanDeliveryJson(report.geometry) !== canonicalPlanDeliveryJson(geometry) ||
+      !samePlanDeliveryGeometry(JSON.parse(draft.geometryKey), geometry) ||
+      !samePlanDeliveryGeometry(report.geometry, geometry) ||
       report.request.survey.geometryKey !== draft.geometryKey ||
       report.request.survey.referenceKey !== draft.referenceKey ||
       report.request.targetRoomId !== draft.fields?.targetRoomId ||

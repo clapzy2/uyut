@@ -155,6 +155,17 @@ describe('account delivery measurements', () => {
     expect(result).toMatchObject({ ok: false, code: 'plan-conflict' })
   })
 
+  it('saves editor empty collections against legacy storage without allowing unknown/null values', async () => {
+    const displayed = { ...geometry, obstacles: [], kitchenItems: [] }
+    const editorText = serializeFurnitureDeliveryDraft(displayed, profileFields, fields)
+    expect((await savePlanDeliveryMeasurements('project', editorText, revision)).ok).toBe(true)
+    expect(samePlanDeliveryGeometry(geometry, displayed)).toBe(true)
+    expect(samePlanDeliveryGeometry(geometry, { ...displayed, obstacles: null })).toBe(false)
+    expect(samePlanDeliveryGeometry(geometry, { ...displayed, kitchenItems: null })).toBe(false)
+    expect(samePlanDeliveryGeometry(geometry, { ...displayed, walls: null })).toBe(false)
+    expect(samePlanDeliveryGeometry(geometry, { ...displayed, widthCm: 301 })).toBe(false)
+  })
+
   it.each(['stale-revision', 'solver', 'database-cas', 'owner'])(
     'fails closed for %s',
     async (reason) => {
