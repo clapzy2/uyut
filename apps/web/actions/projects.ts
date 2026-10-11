@@ -366,6 +366,13 @@ export async function savePlanGeometry(
     if (!project.planReading || !before) {
       return { ok: false, error: 'Сначала прочитайте план и постройте 2D-схему.' }
     }
+    if (mode === 'confirm' && before.requiresSourceReviewReimport) {
+      return {
+        ok: false,
+        error:
+          'Исходная разметка PDF изменилась. Прежняя схема сохранена как черновик; сначала обновите перенос из исходного листа, затем заново сверьте обмеры и подтвердите схему.',
+      }
+    }
     const submitted = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
     const pdf = project.planUrl?.toLowerCase().endsWith('.pdf') ?? false
     // A scanned PDF is still an image source when its manual scheme has a reviewed
@@ -758,6 +765,9 @@ export async function savePlanGeometry(
     }
     const saved: NonNullable<PlanReading['geometry']> = {
       ...checked,
+      ...(before.requiresSourceReviewReimport
+        ? { requiresSourceReviewReimport: true as const }
+        : {}),
       // Keep trusted source explanations; browser warnings cannot erase or certify evidence.
       ...(before.pdfCalibration
         ? { warnings: [...new Set([...before.warnings, ...checked.warnings])] }

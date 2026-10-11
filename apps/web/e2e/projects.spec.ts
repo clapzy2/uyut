@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { type Browser, expect, type Page, test } from '@playwright/test'
 import sharp from 'sharp'
 
@@ -151,6 +152,42 @@ test.describe
       await page.reload()
       await expect(page.getByLabel('Ширина, см')).toHaveValue('140')
       await expect(page.getByLabel('Глубина комнаты, см')).toHaveValue('425')
+    })
+
+    test('a PDF above the proxy default survives multipart upload and reload', async ({ page }) => {
+      test.setTimeout(60_000)
+      await registerViaForm(page, uniqueEmail('large-plan'))
+      await page.goto('/onboarding/step-1')
+      await page.getByLabel('Название проекта').fill('Большой PDF · синтетический контроль')
+      await page.getByRole('button', { name: 'Убрать' }).last().click()
+      await page.getByRole('button', { name: 'Дальше' }).click()
+      await expect(page).toHaveURL(/\/onboarding\/step-2\?project=[0-9a-f-]{36}/)
+      const projectId = new URL(page.url()).searchParams.get('project')
+      await page.goto(`/projects/${projectId}`)
+
+      // Valid source page plus trailing whitespace: no copyrighted PDF and no AI call.
+      // The payload exceeds Next's 10 MiB proxy clone default, but stays below 15 MiB.
+      const fixture = await readFile(
+        new URL('./fixtures/synthetic-scanned-plan.pdf', import.meta.url),
+      )
+      const source = Buffer.concat([fixture, Buffer.alloc(11 * 1024 * 1024, 0x20)])
+      expect(source.length).toBeGreaterThan(10 * 1024 * 1024)
+      expect(source.length).toBeLessThan(15 * 1024 * 1024)
+      await page.locator('#plan').setInputFiles({
+        name: 'large-synthetic-plan.pdf',
+        mimeType: 'application/pdf',
+        buffer: source,
+      })
+      await expect(page.getByText('План загружен', { exact: true })).toBeVisible()
+      const openPlan = page.getByRole('link', { name: 'Открыть', exact: true })
+      await expect(openPlan).toBeVisible()
+      const stored = await page.request.get((await openPlan.getAttribute('href')) ?? '')
+      expect(stored.status()).toBe(200)
+      expect(stored.headers()['content-type']).toBe('application/pdf')
+      expect(await stored.body()).toEqual(source)
+      await page.reload()
+      await expect(page.getByRole('link', { name: 'Открыть', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Прочитать выбранный лист' })).toBeEnabled()
     })
 
     test('a stranger sees neither the project nor the room', async ({

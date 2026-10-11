@@ -161,6 +161,30 @@ describe('manual plan draft', () => {
     })
   })
 
+  it('cannot clear the server-owned source reimport hold by confirming or saving a draft', async () => {
+    source.planReading.geometry = { ...emptyManualGeometry, requiresSourceReviewReimport: true }
+    const confirm = await savePlanGeometry(projectId, emptyManualGeometry, 'confirm')
+    expect(confirm).toMatchObject({ ok: false, error: expect.stringContaining('обновите перенос') })
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+    const draft = await savePlanGeometry(
+      projectId,
+      { ...emptyManualGeometry, requiresSourceReviewReimport: false },
+      'draft',
+    )
+    expect(draft.ok).toBe(true)
+    if (draft.ok) expect(draft.data.geometry.requiresSourceReviewReimport).toBe(true)
+  })
+
+  it('does not accept a browser-supplied source reimport marker for an unrelated drawing', async () => {
+    const draft = await savePlanGeometry(
+      projectId,
+      { ...emptyManualGeometry, requiresSourceReviewReimport: true },
+      'draft',
+    )
+    expect(draft.ok).toBe(true)
+    if (draft.ok) expect(draft.data.geometry.requiresSourceReviewReimport).toBeUndefined()
+  })
+
   it('сохраняет проверенные границу пола и пустоты из источника, а не из правки браузера', async () => {
     source.planUrl = 'plan.pdf'
     const voids = [

@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
-import type { PlanPageContours, PlanReading } from '@uyut/db'
+import type { PlanGeometry, PlanPageContours, PlanReading } from '@uyut/db'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
+import { planPageGeometryElementId } from '@/lib/projects/plan-page-metric-draft'
 import { edgeDimensionFixture } from '@/lib/projects/test-fixtures/plan-page-edge-dimensions'
 import features from '../../../docs/qa/fixtures/apartment-74-77-page-features.json'
 
@@ -133,6 +134,156 @@ describe('save source page review action', () => {
     }
     return { reviewed, native }
   }
+
+  function importedGeometry(): PlanGeometry {
+    return {
+      version: 1,
+      source: 'manual',
+      status: 'confirmed',
+      confirmedAt: '2026-10-11T12:00:00.000Z',
+      widthCm: 100,
+      heightCm: 100,
+      walls: [
+        {
+          id: planPageGeometryElementId(contours.source, '4', 'wall', 0),
+          kind: 'inner',
+          start: { xCm: 10, yCm: 10 },
+          end: { xCm: 30, yCm: 10 },
+          heightCm: 267.5,
+        },
+      ],
+      rooms: [],
+      openings: [],
+      warnings: [],
+    }
+  }
+
+  it.each(['calibrated', 'legacy'] as const)(
+    'holds %s imported geometry after a genuine floor change, preserving raw data',
+    async (kind) => {
+      const { reviewed, native } = separateFloorFixture()
+      mocks.prepare.mockResolvedValue(native)
+      const geometry = importedGeometry()
+      if (kind === 'calibrated')
+        geometry.pdfCalibration = {
+          sourceSha256: contours.source.sha256,
+          pdfPage: 6,
+          cmPerPoint: 1,
+          origin: { x: 0, y: 0 },
+          anchorRoomNumbers: [4],
+          labelIndexes: [],
+          derivedOpeningIds: [],
+        }
+      const before: PlanReading = {
+        ...reading,
+        confirmedAt: '2026-10-11T12:00:00.000Z',
+        geometry,
+        pageReview: { version: 1, savedAt: 'old', contours },
+        deliveryMeasurements: {
+          version: 1,
+          savedAt: 'old',
+          draftJson: 'raw survey',
+          reportJson: 'old proof',
+        },
+      }
+      mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+      const result = await savePlanPageReview(
+        'project',
+        reviewed,
+        planEditRevision('plan.pdf', before),
+      )
+      if (!result.ok) throw new Error(result.error)
+      expect(result.data.reading.geometry).toMatchObject({
+        status: 'draft',
+        requiresSourceReviewReimport: true,
+        walls: geometry.walls,
+      })
+      expect(result.data.reading.geometry).not.toHaveProperty('confirmedAt')
+      expect(result.data.reading.geometry?.warnings.join(' ')).toContain('обмеры сохранены')
+      expect(result.data.reading.confirmedAt).toBe(before.confirmedAt)
+      expect(result.data.reading.deliveryMeasurements).toEqual({
+        version: 1,
+        savedAt: 'old',
+        draftJson: 'raw survey',
+      })
+      expect(before.geometry?.status).toBe('confirmed')
+      expect(before.deliveryMeasurements?.reportJson).toBe('old proof')
+    },
+  )
+
+  it('does not invalidate an unrelated manual drawing when source contours change', async () => {
+    const { reviewed, native } = separateFloorFixture()
+    mocks.prepare.mockResolvedValue(native)
+    const geometry = importedGeometry()
+    if (geometry.walls[0]) geometry.walls[0].id = 'manual_unrelated'
+    const before = {
+      ...reading,
+      geometry,
+      pageReview: { version: 1 as const, savedAt: 'old', contours },
+    }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    const result = await savePlanPageReview(
+      'project',
+      reviewed,
+      planEditRevision('plan.pdf', before),
+    )
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading.geometry).toEqual(geometry)
+  })
+
+  it('recognizes legacy imported IDs after JSONB reorders the persisted source keys', async () => {
+    const { reviewed, native } = separateFloorFixture()
+    mocks.prepare.mockResolvedValue(native)
+    const geometry = importedGeometry()
+    const reorderedContours = {
+      ...contours,
+      source: {
+        state: contours.source.state,
+        pdfPage: contours.source.pdfPage,
+        sha256: contours.source.sha256,
+      },
+    }
+    expect(JSON.stringify(reorderedContours.source)).not.toBe(JSON.stringify(contours.source))
+    const before = {
+      ...reading,
+      geometry,
+      pageReview: { version: 1 as const, savedAt: 'old', contours: reorderedContours },
+    }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    const result = await savePlanPageReview(
+      'project',
+      reviewed,
+      planEditRevision('plan.pdf', before),
+    )
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading.geometry).toMatchObject({
+      status: 'draft',
+      requiresSourceReviewReimport: true,
+    })
+    expect(result.data.reading.geometry).not.toHaveProperty('confirmedAt')
+    expect(before.geometry.status).toBe('confirmed')
+  })
+
+  it('keeps imported confirmation for identical contours and refreshed proof metadata', async () => {
+    const geometry = importedGeometry()
+    const metadataOnly = {
+      ...contours,
+      rooms: contours.rooms.map((room) => ({ ...room, vertexProofs: [] })),
+    }
+    const before = {
+      ...reading,
+      geometry,
+      pageReview: { version: 1 as const, savedAt: 'old', contours },
+    }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    const result = await savePlanPageReview(
+      'project',
+      metadataOnly,
+      planEditRevision('plan.pdf', before),
+    )
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading.geometry).toEqual(geometry)
+  })
 
   it('saves separate floor only after rereading its native PDF vertices', async () => {
     const { reviewed, native } = separateFloorFixture()

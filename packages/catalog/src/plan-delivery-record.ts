@@ -207,6 +207,10 @@ export function inspectStoredPlanDelivery(
     status: 'held',
     warnings: [warning],
   })
+  if (geometry?.requiresSourceReviewReimport)
+    return held(
+      'Исходная разметка PDF изменилась. Обновите перенос схемы и заново проверьте маршрут заноса.',
+    )
   try {
     const stored = recordSchema.parse(record)
     if (new TextEncoder().encode(stored.draftJson).byteLength > 2 * 1024 * 1024)

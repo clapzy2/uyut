@@ -140,6 +140,26 @@ describe('plan review form', () => {
     expect(html).toContain('использует AI и заменит данные в форме')
   })
 
+  it('opens a room matched to this reading before an unrelated older room', () => {
+    const html = render(
+      {
+        readAt: '2026-10-11',
+        confirmedAt: '2026-10-11',
+        sourcePage: 6,
+        planState: 'existing',
+        rooms: [{ name: 'Кухня', kind: 'kitchen', sourceNumber: 2 }],
+      },
+      2,
+      [
+        { id: 'older-control', name: 'Синтетический контроль', kind: 'living', notes: null },
+        { id: 'source-kitchen', name: 'Кухня', kind: 'kitchen', notes: null },
+      ],
+    )
+    expect(html).toContain('href="/projects/project/rooms/source-kitchen#room-measurements"')
+    expect(html).toContain('aria-label="Открыть мерки комнаты Кухня"')
+    expect(html).not.toContain('/rooms/older-control#room-measurements')
+  })
+
   it('names room transfer explicitly and labels each room selection for assistive technology', () => {
     const html = render({
       readAt: '2026-10-03',

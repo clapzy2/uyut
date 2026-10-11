@@ -406,6 +406,10 @@ export function PlanReadingCard({
     ) : null
 
   if (!rows) {
+    const transferredRow = reading
+      ? planRows(reading, existing).find((row) => row.roomId && !row.unsupported)
+      : undefined
+    const nextRoom = existing.find((room) => room.id === transferredRow?.roomId) ?? existing[0]
     let summary =
       'Попробуем прочитать названия комнат и подписанные мерки. Затем вы сверите результат с исходным листом и выберете, какие комнаты перенести.'
     if (confirmed && roomCount > 0) {
@@ -439,11 +443,11 @@ export function PlanReadingCard({
         ) : null}
         {!reading ? pageSelector : null}
         <div className="mt-4 flex flex-wrap gap-3">
-          {confirmed && existing[0] ? (
+          {confirmed && nextRoom ? (
             <Link
-              href={`/projects/${projectId}/rooms/${existing[0].id}#room-measurements`}
+              href={`/projects/${projectId}/rooms/${nextRoom.id}#room-measurements`}
               className={buttonClassName({ className: 'max-w-full' })}
-              aria-label={`Открыть мерки комнаты ${existing[0].name}`}
+              aria-label={`Открыть мерки комнаты ${nextRoom.name}`}
             >
               Открыть мерки комнаты
             </Link>

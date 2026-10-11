@@ -369,6 +369,14 @@ function exteriorAccess(geometry: PlanGeometry) {
 }
 
 describe('server snapshot presentation with actual solver', () => {
+  it('holds a source-review change before trusting any saved delivery proof', () => {
+    expect(
+      inspectStoredPlanDelivery({ requiresSourceReviewReimport: true } as PlanGeometry, {}),
+    ).toMatchObject({
+      status: 'held',
+      warnings: [expect.stringContaining('разметка PDF изменилась')],
+    })
+  })
   it.each([
     [false, false],
     [true, false],

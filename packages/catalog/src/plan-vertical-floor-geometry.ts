@@ -143,6 +143,10 @@ const points = (ring: Ring): PlanPoint[] => openRing(ring.map(([xCm, yCm]) => ({
 export function signedPlanFloors(geometry: PlanGeometry): SignedFloors | undefined {
   if (geometry.verticalReference === undefined) return undefined
   const fail = (error: string): SignedFloors => ({ ok: false, error })
+  if (geometry.requiresSourceReviewReimport)
+    return fail(
+      'Исходная разметка PDF изменилась. Обновите перенос схемы перед проверкой уровней пола.',
+    )
   const inputPolygons = [
     geometry.footprint ?? [],
     ...geometry.rooms.map((room) => room.polygon),

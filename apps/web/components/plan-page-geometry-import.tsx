@@ -69,8 +69,10 @@ export function PlanPageGeometryImport({
   const [error, setError] = useState<string>()
   const [conflict, setConflict] = useState(false)
   const [saving, startSaving] = useTransition()
+  const [replaceAcknowledged, setReplaceAcknowledged] = useState(false)
+  const replacing = reading.geometry?.requiresSourceReviewReimport === true
   if (
-    reading.geometry ||
+    (reading.geometry && !replacing) ||
     reading.planState !== 'existing' ||
     !reading.confirmedAt ||
     !options.length
@@ -87,6 +89,7 @@ export function PlanPageGeometryImport({
           sourceRevision,
           globalScale && !edgeScale ? [Number(anchor)] : undefined,
           edgeScale,
+          replacing && replaceAcknowledged,
         )
         if (!result.ok) {
           setError(result.error)
@@ -125,6 +128,22 @@ export function PlanPageGeometryImport({
         Это ещё не подтверждённая расстановка. После переноса откройте редактор и сверьте контуры,
         проёмы и мерки по исходному листу или замерам на месте.
       </p>
+      {replacing ? (
+        <label className="mt-4 flex min-h-11 max-w-2xl items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1 size-4 shrink-0 accent-accent"
+            checked={replaceAcknowledged}
+            disabled={saving || conflict}
+            onChange={(event) => setReplaceAcknowledged(event.target.checked)}
+          />
+          <span>
+            Подтверждаю замену горизонтального черновика по новой разметке исходного PDF. Обмеры
+            сохранятся только при однозначной прежней привязке; иначе замена будет отклонена без
+            потери данных. Подтверждение схемы и маршрут заноса нужно проверить заново.
+          </span>
+        </label>
+      ) : null}
       {sourceRooms.length > 0 ? (
         <div className="mt-5 max-w-2xl border-l-2 border-accent bg-accent-tint/20 py-3 pl-4 pr-3">
           <p className="text-[13px] font-medium text-ink">
@@ -243,9 +262,14 @@ export function PlanPageGeometryImport({
         <Button
           onClick={createDraft}
           pending={saving}
-          disabled={!selected.length || selected.length > 12 || conflict}
+          disabled={
+            !selected.length ||
+            selected.length > 12 ||
+            conflict ||
+            (replacing && !replaceAcknowledged)
+          }
         >
-          Создать 2D-черновик из PDF
+          {replacing ? 'Обновить 2D-черновик из PDF' : 'Создать 2D-черновик из PDF'}
         </Button>
         {conflict ? (
           <Button variant="secondary" onClick={() => router.refresh()}>
@@ -267,7 +291,10 @@ export function PlanPageGeometryImport({
       )}
       <p className="mt-3 max-w-2xl text-xs leading-relaxed text-ink-2">
         В редакторе нужно дополнить внешний контур, остальные комнаты и проёмы, открывание дверей и
-        высоты подоконников, затем сверить схему. Существующий 2D-чертёж эта кнопка не заменяет.
+        высоты подоконников, затем сверить схему.{' '}
+        {replacing
+          ? 'Обновление заменяет только явно выбранный устаревший черновик после вашего согласия.'
+          : 'Существующий 2D-чертёж эта кнопка не заменяет.'}
       </p>
     </section>
   )

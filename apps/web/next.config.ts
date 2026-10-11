@@ -50,8 +50,12 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // next dev иначе подкладывает в проект служебные md-файлы для сторонних инструментов
   agentRules: false,
-  // Планы до 15 МБ приходят через Server Action одним запросом
-  experimental: { serverActions: { bodySizeLimit: '16mb' } },
+  // Proxy клонирует тело до Server Action. Оба лимита должны пропускать план
+  // до 15 МБ вместе с multipart-обёрткой, иначе proxy обрежет форму на 10 МБ.
+  experimental: {
+    proxyClientMaxBodySize: '16mb',
+    serverActions: { bodySizeLimit: '16mb' },
+  },
   async headers() {
     return [{ source: '/(.*)', headers: securityHeaders }]
   },
