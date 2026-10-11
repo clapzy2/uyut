@@ -5,7 +5,10 @@ import {
   nativeHeightCaption,
   nativeHeightMillimetreDeclarationIndex,
 } from './plan-native-height-caption'
-import { nativeCeilingDatumDeclarationTopic } from './plan-native-height-datum-caption'
+import {
+  nativeCeilingDatumDeclarationTopic,
+  nativeFinishedFloorHeightReferenceTopic,
+} from './plan-native-height-datum-caption'
 import {
   type NativeDimensionCaptionContext,
   nativeDimensionCaptionMillimetres,
@@ -40,6 +43,9 @@ export type NativeTextAnchors = {
     source: { sha256: string; pdfPage: number; pageWidth: number; pageHeight: number }
   }
   heightDatumInk?: NativeNumericTextInk & {
+    source: { sha256: string; pdfPage: number; pageWidth: number; pageHeight: number }
+  }
+  heightFloorReferenceInk?: NativeNumericTextInk & {
     source: { sha256: string; pdfPage: number; pageWidth: number; pageHeight: number }
   }
   heightUnitInk?: NativeNumericTextInk & {
@@ -285,6 +291,28 @@ export async function preparePlanPage(
             isOptionalContentVisible: (properties) => optionalContentConfig?.isVisible(properties),
           })
         : undefined
+    const floorReferenceIndexes =
+      includeNativeTextAnchors && textContent && textContent.items.length <= 1000
+        ? textContent.items.flatMap((item, index) =>
+            'str' in item && nativeFinishedFloorHeightReferenceTopic(item.str.trim())
+              ? [index]
+              : [],
+          )
+        : []
+    const floorReferenceInk =
+      floorReferenceIndexes.length && nativeOperators && nativeViewport && textContent
+        ? nativeNumericTextInk({
+            operatorList: nativeOperators,
+            operators: pdfjs.OPS,
+            textItems: textContent.items,
+            viewport: nativeViewport,
+            selectedTextIndexes: floorReferenceIndexes,
+            getFont: (fontName) => page.commonObjs.get(fontName),
+            getGlyphPath: (fontName, fontChar) =>
+              page.commonObjs.get(`${fontName}_path_${fontChar}`).path,
+            isOptionalContentVisible: (properties) => optionalContentConfig?.isVisible(properties),
+          })
+        : undefined
     const vectorInkRefusal =
       includeNativeTextAnchors && nativeOperators
         ? pdfNativePaintVisibilityIssue({
@@ -474,6 +502,16 @@ export async function preparePlanPage(
       if (heightUnitInk && nativeViewport)
         nativeTextAnchors.heightUnitInk = {
           ...heightUnitInk,
+          source: {
+            sha256: createHash('sha256').update(body).digest('hex'),
+            pdfPage: pageNumber,
+            pageWidth: nativeViewport.width,
+            pageHeight: nativeViewport.height,
+          },
+        }
+      if (floorReferenceInk && nativeViewport)
+        nativeTextAnchors.heightFloorReferenceInk = {
+          ...floorReferenceInk,
           source: {
             sha256: createHash('sha256').update(body).digest('hex'),
             pdfPage: pageNumber,

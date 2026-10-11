@@ -8,6 +8,7 @@ import {
   nativeCeilingDatumDeclarationTopic,
 } from './plan-native-height-datum-caption'
 import type { NativeReviewPacket } from './plan-native-review-packet'
+import { nativeSourceObjectReportsValid } from './plan-native-source-object-contract'
 
 export class NativeReviewRequestError extends Error {
   constructor(
@@ -2515,6 +2516,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isOpeningFrames(packet.openingFrames, packet.image) ||
     !isGlazingSymbols(packet.glazingSymbols, packet.image) ||
     !isFilledPanelSymbols(packet.filledPanelSymbols, packet.image) ||
+    !nativeSourceObjectReportsValid(packet) ||
     !isSourceLinks(packet.sourceLinks, packet) ||
     !isNumberCircles(packet.numberCircles) ||
     !isDimensionDiscovery(packet.dimensionDiscovery, packet) ||

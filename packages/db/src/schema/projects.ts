@@ -477,6 +477,12 @@ export type PlanReading = {
   geometry?: PlanGeometry
   /** Ручная привязка комнат к исходному листу; не подтверждение натурного обмера. */
   pageReview?: PlanPageReview
+  /** Explicit source-paint floor selections; separate from confirmed geometry or site surveys. */
+  paintedFloorReview?: {
+    version: 1
+    savedAt: string
+    draftJson: string
+  }
   /** Обмеры заноса; отчёт записывает только повторная серверная проверка. */
   deliveryMeasurements?: {
     version: 1

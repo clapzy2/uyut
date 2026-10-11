@@ -303,6 +303,66 @@ Independent review rechecked both fixes and the unchanged actual original.
 The standalone browser recorded one inspection, one image request and zero
 mutations/paid requests. This is not yet a live-account deployment receipt.
 
+### Explicit floor-source ownership, end coverage and documentary reference notes
+
+The next bounded stage adds an explicit source-space floor selection. Every
+selected polygon/hole snapshot is recomputed from fresh paint operations and
+compared without moving source points. Exact intersection keys, masks and
+boundary references are retained. A reviewed caption-origin association keeps
+the literal source room key, including `3.1`, independently of the old integer
+room schema. It does not assert whole-glyph containment or accepted physical
+ownership. Boundary roles are source-review declarations; unknown roles remain
+unknown. Hole boundaries do not acquire invented wall roles.
+
+The original QA selection contains eight named pieces, with 144 unresolved
+outer edges. Wardrobe 1631's unlabelled second piece is not assigned another
+floor owner. The kitchen/entry paint transition near the beam/column is not a
+continuous wall, and the kitchen/bedroom transition is not snapped into a
+threshold. All source boundaries remain incomplete. This is not an automatic
+physical-floor classifier or a complete apartment model.
+
+An owner-only action stores validated declarations as a separate JSONB-backed
+reading field through the existing repository CAS. It validates UTF-8 size,
+current PDF/page/state, original and raster hashes and fresh source geometry.
+Every nested input object is strict; client-supplied proof/physical claims are
+rejected during saving and subsequent recheck. Existing rooms, geometry,
+page review and delivery surveys remain unchanged. Same-page/state rereading
+and room confirmation retain the owner's field; AI-supplied selections are
+never adopted. Changing pages does not carry the selection forward. A separate
+advanced JSON editor requires explicit acknowledgement, is not an ordinary
+finished graphical floor editor, and never confirms measurements or transfers
+the draft to 2D/3D.
+
+The source profile-end correspondence now searches independent exact-collinear
+edges across the whole inventory. Actual 2035 has one complete stroke end 2131
+and competing fill/stroke coverage 2023/2115 at its other end. Actual 2059 has
+competing coverage 2047/2223 and no exact independent opposite end. Nearby 2207
+is not moved to fit. These profiles belong to the larger source cut 1959;
+mullions/brackets must not be declared structural wall jambs. All physical
+jamb, wall, passage, visibility and floor-closure acceptance remains false.
+
+Two documentary notes now retain source-linked reset/TJ fragments: units 237
+uses operations 14076/14079/14082; finished-floor height reference 230 uses
+14006/14009/14012. Glyph widths, spacing, literal TJ values, original packed
+matrices and explicitly generated PDF.js spaces are validated. Bounds include
+Float32 operand uncertainty, not invented exact baseline coordinates. These
+notes specify units/reference kind only. The two H=360 rises, beam heights and
+unclassified H captions do not establish surface ownership, coplanar floors
+or one shared world zero.
+
+Independent review caught two recheck-contract differences: unknown proof keys
+in saved JSON and end indices that could refer to long body edges. Strict
+core keys now refuse the former; the wire validator checks actual short-edge
+parity and independent source references, refusing own body/caps. Regressions
+cover both failures. Final local verification: 7,121 web tests / 309 files,
+seven-package typecheck, Biome 1009 files, production build and diff check passed.
+Original-PDF component QA loaded all eight saved source selections, literal
+`3.1`, the verified local reference and held jambs, with no warning/error logs
+or overflow (1265 px document within 1280 px viewport). Its mocked private HTTP
+recorded one inspection, one image and zero mutation/paid requests. Screenshot:
+`output/playwright/real-plan-selected-floors-20261012.jpg`. This offline fixture
+is not yet a live-account persistence receipt.
+
 ### Earlier offline regression verification
 
 - Full web suite: 6,821 tests / 300 files passed, including local-only original PDF re-extractions when that ignored source exists. Public CI does not require copyrighted PDFs; deterministic unit controls remain present there.

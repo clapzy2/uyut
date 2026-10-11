@@ -2195,9 +2195,9 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
         await loadFixture(packet, headers, { imageBody: new Uint8Array(page.image.body), page: 3 })
       ).packet
       expect(loaded.heightObservations?.observations).toHaveLength(10)
-      expect(
-        loaded.heightObservations?.observations[0]?.unitEvidence?.inkSourceOperation,
-      ).toBeNull()
+      expect(loaded.heightObservations?.observations[0]?.unitEvidence?.inkSourceOperation).toBe(
+        14076,
+      )
       expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
     },
   )

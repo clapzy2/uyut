@@ -10,12 +10,17 @@ import {
   nativeDimensionTargets,
 } from './plan-native-dimension-targets'
 import { nativeFaceAnnotationCandidates } from './plan-native-face-annotations'
+import { nativeFilledPanelJambContacts } from './plan-native-filled-panel-jambs'
 import { nativeFilledPanelCandidates } from './plan-native-filled-panels'
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
 import {
   type NativeFloorOpeningReport,
   nativeFloorOpeningSides,
 } from './plan-native-floor-opening-sides'
+import {
+  type NativeHeightFloorReferences,
+  nativeHeightFloorReferenceEvidence,
+} from './plan-native-height-floor-reference'
 import { nativeHeightSourceLocations } from './plan-native-height-locations'
 import {
   type NativeHeightObjectReport,
@@ -26,6 +31,10 @@ import {
   nativeHeightObservations,
 } from './plan-native-height-observations'
 import { nativeOpeningSourceLinks } from './plan-native-opening-links'
+import {
+  nativePaintedFloorReview,
+  type ReviewedNativePaintedFloors,
+} from './plan-native-painted-floor-review'
 import { nativePaintedRegionContext } from './plan-native-painted-region-context'
 import { nativeReviewedFrameRooms } from './plan-native-reviewed-frame-rooms'
 import { automaticNativeRoomCandidates, nativeRoomPolygonKey } from './plan-native-room-candidates'
@@ -186,6 +195,44 @@ export type NativeReviewPacket = {
     >
   }
   heightObjects?: NativeHeightObjectReport
+  heightFloorReferences?: NativeHeightFloorReferences
+  filledPanelEnds?: {
+    status: 'draft' | 'unresolved'
+    refusalReason: string | null
+    physicalJambAccepted: false
+    wallOwnershipConfirmed: false
+    panels: {
+      panelId: string
+      status: 'paired' | 'partial' | 'ambiguous' | 'unobserved' | 'unresolved'
+      ends: {
+        edgeIndex: number
+        status: 'matched' | 'partial' | 'ambiguous' | 'unobserved' | 'unresolved'
+        coverage: 'complete' | 'partial' | 'unproved'
+        reason: string | null
+        sourceEdges: { operationIndex: number; subpathIndex: number; segmentIndex: number }[]
+      }[]
+    }[]
+  }
+  savedPaintedFloors?: {
+    status: 'not-saved' | 'refused' | 'checked'
+    reason: string | null
+    physicalBoundariesAccepted: false
+    measurementsConfirmed: false
+    commonZeroConfirmed: false
+    floors: {
+      id: string
+      candidateId: string
+      sourceRoomKey: string
+      name: string
+      nameLabelId: string
+      numberLabelId: string
+      polygon: { x: number; y: number }[]
+      holes: { x: number; y: number }[][]
+      unresolvedEdges: number
+      omittedStrokeCount: number
+      boundaryInkComplete: boolean
+    }[]
+  }
   floorOpeningSides?: NativeFloorOpeningReport
   floorCavities?: {
     status: 'draft' | 'unresolved'
@@ -334,6 +381,29 @@ export function nativeReviewPacket(input: {
     throw new Error('Native inspection source hash changed')
   const common = { native, work, lineworkSource }
   const filledPanels = nativeFilledPanelCandidates(common)
+  packet.heightFloorReferences = nativeHeightFloorReferenceEvidence({ ...common, source })
+  const panelEnds = nativeFilledPanelJambContacts(common)
+  packet.filledPanelEnds = {
+    status: panelEnds.status,
+    refusalReason: panelEnds.refusalReason,
+    physicalJambAccepted: false,
+    wallOwnershipConfirmed: false,
+    panels: panelEnds.panels.map((panel) => ({
+      panelId: panel.panelId,
+      status: panel.status,
+      ends: panel.ends.map((end) => ({
+        edgeIndex: end.profileEdge.segmentIndex,
+        status: end.status,
+        coverage: end.coverage,
+        reason: end.reason,
+        sourceEdges: end.sourceEdges.map(({ operationIndex, subpathIndex, segmentIndex }) => ({
+          operationIndex,
+          subpathIndex,
+          segmentIndex,
+        })),
+      })),
+    })),
+  }
   const scheduleNumbers = nativeRoomNumberScheduleLinks(common)
   const circles = scheduleNumbers.circles
   packet.numberCircles = {
@@ -433,6 +503,45 @@ export function nativeReviewPacket(input: {
       x: point.x * scale.x,
       y: point.y * scale.y,
     })
+    packet.savedPaintedFloors = {
+      status: 'not-saved',
+      reason: null,
+      floors: [],
+      physicalBoundariesAccepted: false,
+      measurementsConfirmed: false,
+      commonZeroConfirmed: false,
+    }
+    const savedFloors = savedReading?.paintedFloorReview
+    if (savedFloors) {
+      try {
+        if (
+          savedFloors.version !== 1 ||
+          typeof savedFloors.draftJson !== 'string' ||
+          new TextEncoder().encode(savedFloors.draftJson).byteLength > 65_536
+        )
+          throw new Error('invalid-saved-painted-floor-review')
+        const reviewed = JSON.parse(savedFloors.draftJson) as ReviewedNativePaintedFloors
+        const report = nativePaintedFloorReview({ ...common, reviewed })
+        packet.savedPaintedFloors.status = report.refusalReason ? 'refused' : 'checked'
+        packet.savedPaintedFloors.reason = report.refusalReason
+        packet.savedPaintedFloors.floors = report.floors.map((floor) => ({
+          id: floor.id,
+          candidateId: floor.candidateId,
+          sourceRoomKey: floor.owner.sourceRoomKey,
+          name: floor.owner.name,
+          nameLabelId: floor.owner.nameLabelId,
+          numberLabelId: floor.owner.numberLabelId,
+          polygon: floor.polygon.map(raster),
+          holes: floor.holes.map((hole) => hole.map(raster)),
+          unresolvedEdges: floor.edges.filter((edge) => edge.declaredRole === 'unresolved').length,
+          omittedStrokeCount: floor.omittedStrokeCount,
+          boundaryInkComplete: floor.boundaryInkComplete,
+        }))
+      } catch {
+        packet.savedPaintedFloors.status = 'refused'
+        packet.savedPaintedFloors.reason = 'invalid-saved-painted-floor-review'
+      }
+    }
     packet.filledPanelSymbols = {
       status: filledPanels.status,
       basis: filledPanels.basis,

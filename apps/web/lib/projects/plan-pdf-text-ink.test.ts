@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
-import { nativeHeightGroupBounds } from './plan-native-height-group'
+import { nativeHeightGroupBounds, nativeResetNoteBounds } from './plan-native-height-group'
 import { nativeNumericTextInk, type PdfTextInkFont, pdfGlyphInkBounds } from './plan-pdf-text-ink'
 
 const OPS = {
@@ -402,7 +402,7 @@ describe('source-contiguous grouped height shows', () => {
     import.meta.url,
   )
   it.skipIf(!existsSync(source))(
-    'recovers ten real H groups while holding the noncontiguous units note',
+    'recovers real H groups and the reset-based units and floor-reference notes',
     async () => {
       const body = await readFile(source)
       expect(createHash('sha256').update(body).digest('hex')).toBe(
@@ -418,10 +418,25 @@ describe('source-contiguous grouped height shows', () => {
       expect(ink?.items.find((item) => item.index === 151)?.sourceGroup?.operationIndexes).toEqual([
         9183, 9185, 9187,
       ])
-      expect(page.nativeTextAnchors?.heightUnitInk?.items).toEqual([])
-      expect(page.nativeTextAnchors?.heightUnitInk?.unresolved).toEqual([
-        { index: 237, reason: 'native-text-show-identity-unresolved' },
-      ])
+      const unitInk = page.nativeTextAnchors?.heightUnitInk
+      expect(unitInk?.complete).toBe(true)
+      expect(unitInk?.unresolved).toEqual([])
+      expect(
+        unitInk?.items[0]?.sourceResetCaption?.shows.map((show) => show.operationIndex),
+      ).toEqual([14076, 14079, 14082])
+      expect(unitInk?.items[0]?.sourceResetCaption?.generatedSpacesBefore).toEqual([2])
+      const unitLabel = page.nativeTextAnchors?.labels.find((label) => label.nativeIndex === 237)
+      if (!unitInk?.items[0] || !unitLabel || !page.linework)
+        throw new Error('Missing real unit note')
+      expect(nativeResetNoteBounds(unitInk.items[0], unitLabel, page.linework)).not.toBeNull()
+      const floorInk = page.nativeTextAnchors?.heightFloorReferenceInk
+      expect(floorInk?.complete).toBe(true)
+      expect(floorInk?.unresolved).toEqual([])
+      expect(floorInk?.items[0]?.text).toBe('1. Все отметки высот на замере даны от чистового пола')
+      expect(floorInk?.items[0]?.sourceResetCaption?.generatedSpacesBefore).toEqual([2])
+      const floorLabel = page.nativeTextAnchors?.labels.find((label) => label.nativeIndex === 230)
+      if (!floorInk?.items[0] || !floorLabel) throw new Error('Missing real reference note')
+      expect(nativeResetNoteBounds(floorInk.items[0], floorLabel, page.linework)).not.toBeNull()
       if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
         throw new Error('Missing real source layers')
       const { nativeHeightSourceLocations } = await import('./plan-native-height-locations')
@@ -442,6 +457,130 @@ describe('source-contiguous grouped height shows', () => {
       expect(locations.mayTransfer3D).toBe(false)
     },
   )
+})
+
+describe('closed documentary notes with source resets and spacing', () => {
+  function noteFixture(phrase = 'Размеры указаны в миллиметрах', extra: Operation[] = []) {
+    const characters = Array.from(phrase, (character) => ({
+      ...glyph(character, character === ' ' ? 400 : 500),
+      isSpace: false,
+    }))
+    const glyphs: (ReturnType<typeof glyph> | number)[] = [
+      ...characters.slice(0, 8),
+      2.5,
+      ...characters.slice(8),
+    ]
+    const width = 13 + characters.reduce((sum, character) => sum + character.width / 100, 0) - 0.025
+    const operations: Operation[] = [
+      ['setFont', ['f1', 10]],
+      ['beginText'],
+      ['setTextMatrix', [new Float32Array([1, 0, 0, 1, 100, 100])]],
+      ['showText', [[glyph('5')]]],
+      ['setTextMatrix', [new Float32Array([1, 0, 0, 1, 105, 100])]],
+      ['showText', [[glyph('.')]]],
+      ...extra,
+      ['setTextMatrix', [new Float32Array([1, 0, 0, 1, 113, 100])]],
+      ['showText', [glyphs]],
+      ['endText'],
+    ]
+    const input = fixture(operations, [
+      { str: `5. ${phrase}`, fontName: 'f1', width, transform: [10, 0, 0, 10, 100, 100] },
+    ])
+    input.selectedTextIndexes = [0]
+    input.getGlyphPath = (_font, character) =>
+      character === ' ' ? new Float32Array([4]) : digitPath
+    return input
+  }
+  it.each(['Размеры указаны в миллиметрах', 'Все отметки высот на замере даны от чистового пола'])(
+    'recovers only the closed source note %s with explicit generated-space and TJ evidence',
+    (phrase) => {
+      const input = noteFixture(phrase)
+      const result = nativeNumericTextInk(input)
+      expect(result.complete).toBe(true)
+      expect(result.items).toHaveLength(1)
+      expect(result.items[0]?.sourceGroup).toBeUndefined()
+      expect(result.items[0]?.sourceResetCaption?.generatedSpacesBefore).toEqual([2])
+      expect(result.items[0]?.sourceResetCaption?.shows[2]?.adjustments).toEqual([
+        { glyphIndex: 8, value: 2.5 },
+      ])
+      const item = result.items[0]
+      if (!item) throw new Error('Missing source note')
+      expect(
+        nativeResetNoteBounds(
+          item,
+          { name: `5. ${phrase}`, pagePoint: { x: 100, y: 900 }, rotation: 0 },
+          { pageWidth: 1000, pageHeight: 1000 },
+        ),
+      ).not.toBeNull()
+    },
+  )
+  it.each([
+    'width',
+    'origin',
+    'empty-space-path-missing',
+    'space-has-ink',
+    'font-reset',
+    'BT-reset',
+    'large-gap',
+    'line-shift',
+    'unrelated-note',
+  ])('withholds unproved note composition: %s', (mutation) => {
+    const extra: Operation[] =
+      mutation === 'font-reset'
+        ? [['setFont', ['f1', 10]]]
+        : mutation === 'BT-reset'
+          ? [['endText'], ['beginText']]
+          : []
+    const input = noteFixture(
+      mutation === 'unrelated-note' ? 'Любая произвольная подпись' : undefined,
+      extra,
+    )
+    const item = input.textItems[0] as { width: number; transform: Matrix }
+    if (mutation === 'width') item.width += 0.01
+    if (mutation === 'origin') item.transform[4] += 0.01
+    if (mutation === 'empty-space-path-missing')
+      input.getGlyphPath = (_font, character) => (character === ' ' ? undefined : digitPath)
+    if (mutation === 'space-has-ink') input.getGlyphPath = () => digitPath
+    if (mutation === 'large-gap' || mutation === 'line-shift') {
+      const packed = (input.operatorList.argsArray[6] as Float32Array[])[0]
+      if (!packed) throw new Error('Missing packed reset')
+      const position = mutation === 'large-gap' ? 4 : 5
+      packed[position] = (packed[position] as number) + 10
+    }
+    // A whitespace glyph with actual ink is retained, not silently erased.
+    if (mutation === 'space-has-ink') {
+      expect(nativeNumericTextInk(input).items).toHaveLength(1)
+    } else expect(nativeNumericTextInk(input).items).toEqual([])
+  })
+  it.each([
+    'space-proof',
+    'TJ-proof',
+    'fragment-origin',
+    'render-box',
+    'width',
+    'raw-label-origin',
+    'operation',
+    'missing-show',
+    'oversized-show-list',
+  ])('rejects conflicting serialized note proof: %s', (mutation) => {
+    const item = nativeNumericTextInk(noteFixture()).items[0]
+    const proof = item?.sourceResetCaption,
+      fragment = proof?.shows[2]
+    if (!item || !proof || !fragment?.packedOrigin || !fragment.adjustments || !fragment.quad)
+      throw new Error('Missing note proof')
+    const label = { name: item.text, pagePoint: { x: 100, y: 900 }, rotation: 0 }
+    if (mutation === 'space-proof') proof.generatedSpacesBefore = []
+    if (mutation === 'TJ-proof') fragment.adjustments = []
+    if (mutation === 'fragment-origin') fragment.packedOrigin.matrix[4] += 0.01
+    if (mutation === 'render-box') fragment.quad[0].x += 0.01
+    if (mutation === 'width') proof.textContentWidth += 0.01
+    if (mutation === 'raw-label-origin') label.pagePoint.x += 0.01
+    if (mutation === 'operation') fragment.operationIndex--
+    if (mutation === 'missing-show') proof.shows.splice(1, 1)
+    if (mutation === 'oversized-show-list')
+      proof.shows = Array.from({ length: 51 }, () => proof.shows[0] as typeof fragment)
+    expect(nativeResetNoteBounds(item, label, { pageWidth: 1000, pageHeight: 1000 })).toBeNull()
+  })
 })
 
 describe('explicit selected source text ink', () => {

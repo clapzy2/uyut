@@ -252,8 +252,11 @@ export async function readPlan(
       : await readPlanFromStorage(project.planUrl, pageNumber)
     // A plan reader is not a writer of server-checked delivery reports. Keep the
     // user's raw survey; any new geometry will independently invalidate its proof.
-    const { deliveryMeasurements: _untrustedDelivery, ...sourceReading } = parsed as typeof parsed &
-      Pick<PlanReading, 'deliveryMeasurements'>
+    const {
+      deliveryMeasurements: _untrustedDelivery,
+      paintedFloorReview: _untrustedPaintedFloorReview,
+      ...sourceReading
+    } = parsed as typeof parsed & Pick<PlanReading, 'deliveryMeasurements' | 'paintedFloorReview'>
     const reading: PlanReading = {
       ...sourceReading,
       ...(project.planReading?.deliveryMeasurements
@@ -265,6 +268,12 @@ export async function readPlan(
       ? retainedPlanPageReview(project.planReading, reading)
       : undefined
     if (retainedReview) reading.pageReview = retainedReview
+    if (
+      project.planReading?.paintedFloorReview &&
+      project.planReading.sourcePage === reading.sourcePage &&
+      project.planReading.planState === reading.planState
+    )
+      reading.paintedFloorReview = project.planReading.paintedFloorReview
     await repository.setPlanReading(userId, projectId, reading, project)
     await recordAudit({
       action: 'project.plan_read',
@@ -911,6 +920,9 @@ export async function confirmPlanRooms(
         : { geometry: project.planReading.geometry }),
       ...(project.planReading.deliveryMeasurements
         ? { deliveryMeasurements: project.planReading.deliveryMeasurements }
+        : {}),
+      ...(project.planReading.paintedFloorReview
+        ? { paintedFloorReview: project.planReading.paintedFloorReview }
         : {}),
       rooms: rooms.map((room) => {
         const source = findPlanRoomReading(room, beforeReading.rooms)
