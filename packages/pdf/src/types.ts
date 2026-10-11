@@ -1,4 +1,5 @@
 import type { Estimate, RoomLayout, WorksRates } from '@uyut/catalog'
+import type { PlanDeliveryPresentation } from '@uyut/catalog/plan-delivery-record'
 import type { VolumeFloorSurface, VolumeThreshold } from '@uyut/catalog/plan-volume-types'
 import type { ContractorBrief, ExportKind } from '@uyut/db'
 
@@ -95,4 +96,6 @@ export type PdfData = {
   brief: ContractorBrief | null
   /** Explicitly reviewed signed surfaces; never inferred from the render or a flat zero mesh. */
   verticalPlan?: PdfVerticalPlan
+  /** Stored, current measured route; held reports carry no successful path. */
+  deliveryPlan?: PlanDeliveryPresentation
 }

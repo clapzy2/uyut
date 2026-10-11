@@ -7,6 +7,7 @@ import {
   type WorksRates,
 } from '@uyut/catalog'
 import { effectiveSize, effectiveSizeReading, itemSizeSourceLabel } from '@uyut/catalog/item-size'
+import { inspectStoredPlanDelivery } from '@uyut/catalog/plan-delivery-record'
 import { inspectPlanThresholdSurfaces } from '@uyut/catalog/plan-threshold-geometry'
 import { signedPlanFloors } from '@uyut/catalog/plan-vertical-floor-geometry'
 import { layoutWithMeasurements } from '@uyut/catalog/reviewed-layout-with-measurements'
@@ -393,6 +394,10 @@ export async function buildPdfData(input: {
   const { snapshot, kind, options, rates } = input
   const { project } = snapshot
   const geometry = project.planReading?.geometry
+  const deliveryPlan = inspectStoredPlanDelivery(
+    geometry,
+    project.planReading?.deliveryMeasurements,
+  )
   let verticalPlan: PdfData['verticalPlan']
   if (geometry?.verticalReference !== undefined) {
     const signed = signedPlanFloors(geometry)
@@ -623,5 +628,6 @@ export async function buildPdfData(input: {
     rates,
     brief: input.brief,
     ...(verticalPlan ? { verticalPlan } : {}),
+    ...(deliveryPlan ? { deliveryPlan } : {}),
   }
 }

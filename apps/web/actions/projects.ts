@@ -250,7 +250,17 @@ export async function readPlan(
     const parsed = useReviewedContours
       ? await readPlanFromStorage(project.planUrl, pageNumber, review?.contours)
       : await readPlanFromStorage(project.planUrl, pageNumber)
-    const reading: PlanReading = { ...parsed, readAt: new Date().toISOString() }
+    // A plan reader is not a writer of server-checked delivery reports. Keep the
+    // user's raw survey; any new geometry will independently invalidate its proof.
+    const { deliveryMeasurements: _untrustedDelivery, ...sourceReading } = parsed as typeof parsed &
+      Pick<PlanReading, 'deliveryMeasurements'>
+    const reading: PlanReading = {
+      ...sourceReading,
+      ...(project.planReading?.deliveryMeasurements
+        ? { deliveryMeasurements: project.planReading.deliveryMeasurements }
+        : {}),
+      readAt: new Date().toISOString(),
+    }
     const retainedReview = project.planReading
       ? retainedPlanPageReview(project.planReading, reading)
       : undefined
@@ -889,6 +899,9 @@ export async function confirmPlanRooms(
       ...(project.planReading?.geometry === undefined
         ? {}
         : { geometry: project.planReading.geometry }),
+      ...(project.planReading.deliveryMeasurements
+        ? { deliveryMeasurements: project.planReading.deliveryMeasurements }
+        : {}),
       rooms: rooms.map((room) => {
         const source = findPlanRoomReading(room, beforeReading.rooms)
         const measurementEvidence = retainedPlanMeasurementEvidence(room, source)

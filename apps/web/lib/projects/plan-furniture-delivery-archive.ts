@@ -155,7 +155,13 @@ export function parseFurnitureDeliveryDraft(
     return { error: 'Неверный формат или версия черновика переноса.' }
   }
   const draft = parsed.data
-  if (draft.geometryKey !== furnitureStairGeometryKey(geometry)) {
+  let savedGeometry: unknown
+  try {
+    savedGeometry = JSON.parse(draft.geometryKey)
+  } catch {
+    return { error: 'Не удалось прочитать геометрию черновика.' }
+  }
+  if (!samePlanDeliveryGeometry(savedGeometry, geometry)) {
     return { error: 'Схема изменилась: черновик относится к другой геометрии.' }
   }
   if (draft.referenceKey !== referenceKey(geometry)) {
@@ -170,3 +176,5 @@ export function parseFurnitureDeliveryDraft(
   }
   return { fields: draft.fields }
 }
+
+import { samePlanDeliveryGeometry } from '@uyut/catalog/plan-delivery-record'

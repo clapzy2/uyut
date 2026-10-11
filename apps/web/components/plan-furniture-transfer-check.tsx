@@ -6,6 +6,7 @@ import type { PlanGeometry } from '@uyut/db'
 import { Button } from '@uyut/ui'
 import { useId, useMemo, useState } from 'react'
 import { inspectFurnitureTransfer } from '@/lib/projects/plan-furniture-transfer'
+import type { PlanDeliveryAccountContext } from './plan-delivery-account'
 import { PlanFurnitureStairCheck } from './plan-furniture-stair-check'
 
 type ProfileFields = {
@@ -40,7 +41,13 @@ const labels = [
 ] as const
 
 /** Separate rigid-body test, not a verdict that furniture can physically be carried in. */
-export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometry }) {
+export function PlanFurnitureTransferCheck({
+  geometry,
+  account,
+}: {
+  geometry: PlanGeometry
+  account?: PlanDeliveryAccountContext
+}) {
   const id = useId()
   const snapshot = JSON.stringify(geometry)
   const [fields, setFields] = useState<ProfileFields>(emptyFields)
@@ -546,7 +553,16 @@ export function PlanFurnitureTransferCheck({ geometry }: { geometry: PlanGeometr
         учтена. Неизвестные высоты проёмов и потолков требуют обмера. Найденный путь не подтверждает
         физический перенос мебели.
       </p>
-      <PlanFurnitureStairCheck geometry={geometry} profileFields={fields} />
+      <PlanFurnitureStairCheck
+        geometry={geometry}
+        profileFields={fields}
+        account={account}
+        onProfileFieldsChange={(profile) => {
+          setFields((previous) => ({ ...previous, ...profile }))
+          setAcknowledgedKey(undefined)
+          setChecked(undefined)
+        }}
+      />
     </section>
   )
 }

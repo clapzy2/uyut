@@ -5,9 +5,16 @@ import { Button } from '@uyut/ui'
 import { useState } from 'react'
 import { inspectMetricClearanceRoutes } from '@/lib/projects/plan-metric-clearance-route'
 import { openingFloorLevel } from '@/lib/projects/plan-vertical-dimensions'
+import type { PlanDeliveryAccountContext } from './plan-delivery-account'
 import { PlanFurnitureTransferCheck } from './plan-furniture-transfer-check'
 
-export function PlanRouteCheck({ geometry }: { geometry: PlanGeometry }) {
+export function PlanRouteCheck({
+  geometry,
+  account,
+}: {
+  geometry: PlanGeometry
+  account?: PlanDeliveryAccountContext
+}) {
   const snapshot = JSON.stringify(geometry)
   const [checked, setChecked] = useState<{
     snapshot: string
@@ -203,7 +210,7 @@ export function PlanRouteCheck({ geometry }: { geometry: PlanGeometry }) {
           </>
         ) : null}
       </div>
-      <PlanFurnitureTransferCheck geometry={geometry} />
+      <PlanFurnitureTransferCheck geometry={geometry} account={account} />
     </section>
   )
 }

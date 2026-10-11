@@ -1,3 +1,4 @@
+import { inspectStoredPlanDelivery } from '@uyut/catalog/plan-delivery-record'
 import type { PlanReading } from '@uyut/db'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
@@ -85,6 +86,68 @@ describe('plan reading actions', () => {
     mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: reading })
     mocks.read.mockResolvedValue(reading)
     mocks.createRooms.mockResolvedValue({ created: 2, updated: 0 })
+  })
+
+  it('retains account surveys on room confirmation while the changed scheme revokes the report', async () => {
+    const deliveryMeasurements = {
+      version: 1 as const,
+      savedAt: '2026-10-11T12:00:00.000Z',
+      draftJson: '{"raw-survey":"kept"}',
+      reportJson: '{"old-report":"not trusted"}',
+    }
+    const geometry = {
+      version: 1 as const,
+      status: 'confirmed' as const,
+      widthCm: 500,
+      heightCm: 400,
+      walls: [],
+      openings: [],
+      rooms: [],
+      warnings: [],
+    }
+    const before = { ...reading, geometry, deliveryMeasurements }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    expect(
+      (await confirmPlanRooms(projectId, input(), planEditRevision('plan.pdf', before))).ok,
+    ).toBe(true)
+    const saved = mocks.createRooms.mock.calls[0]?.[2].reading as PlanReading
+    expect(saved.deliveryMeasurements).toEqual(deliveryMeasurements)
+    expect(saved.geometry?.status).toBe('draft')
+    expect(inspectStoredPlanDelivery(saved.geometry, saved.deliveryMeasurements)?.status).toBe(
+      'held',
+    )
+  })
+
+  it('re-reading the same file retains account surveys instead of replacing them with reader output', async () => {
+    const deliveryMeasurements = {
+      version: 1 as const,
+      savedAt: '2026-10-11T12:00:00.000Z',
+      draftJson: 'saved user measurements',
+    }
+    const before = { ...reading, deliveryMeasurements }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
+    mocks.read.mockResolvedValue({
+      ...reading,
+      deliveryMeasurements: { ...deliveryMeasurements, draftJson: 'reader forgery' },
+    })
+    const result = await readPlan(projectId, 6, planEditRevision('plan.pdf', before))
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading.deliveryMeasurements).toEqual(deliveryMeasurements)
+  })
+
+  it('does not accept a checked delivery record supplied by the plan reader', async () => {
+    mocks.read.mockResolvedValue({
+      ...reading,
+      deliveryMeasurements: {
+        version: 1,
+        savedAt: '2026-10-11T12:00:00.000Z',
+        draftJson: 'forged',
+        reportJson: 'forged report',
+      },
+    })
+    const result = await readPlan(projectId, 6, planEditRevision('plan.pdf', reading))
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading).not.toHaveProperty('deliveryMeasurements')
   })
 
   it.each(['plan.PNG', 'plan.pdf', 'plan.PDF'])(

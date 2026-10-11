@@ -1,7 +1,8 @@
 import type { RoomLayout } from '@uyut/catalog'
+import { inspectStoredPlanDelivery } from '@uyut/catalog/plan-delivery-record'
 import { inspectPlanThresholdSurfaces } from '@uyut/catalog/plan-threshold-geometry'
 import { signedPlanFloors } from '@uyut/catalog/plan-vertical-floor-geometry'
-import type { Concept, PlanGeometry, Room } from '@uyut/db'
+import type { Concept, PlanGeometry, PlanReading, Room } from '@uyut/db'
 import Link from 'next/link'
 import { pluralItems, pluralPositions } from '@/lib/shopping/format'
 import type { ShoppingItemView } from '@/lib/shopping/repository'
@@ -60,12 +61,15 @@ export function ExportComposition({
   rooms,
   items,
   geometry,
+  deliveryMeasurements,
 }: {
   projectId: string
   rooms: ReturnType<typeof exportRoomComposition>[]
   items: readonly ExportItem[]
   geometry?: PlanGeometry
+  deliveryMeasurements?: PlanReading['deliveryMeasurements']
 }) {
+  const delivery = inspectStoredPlanDelivery(geometry, deliveryMeasurements)
   const signed = geometry ? signedPlanFloors(geometry) : undefined
   const thresholds = signed?.ok && geometry ? inspectPlanThresholdSurfaces(geometry) : undefined
   const variants = items.filter((item) => item.variant).length
@@ -94,6 +98,13 @@ export function ExportComposition({
             : `Полы и пороги: перенос приостановлен. В PDF сохранится предупреждение: ${signed.error}`}{' '}
           Неизвестные отметки и неподтверждённые поверхности не достраиваются; замечания
           сохраняются.
+        </p>
+      ) : null}
+      {delivery ? (
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
+          {delivery.status === 'checked'
+            ? `Маршрут заноса до комнаты «${delivery.targetRoomName}»: сохранённый серверный расчёт, ${delivery.points.length} позиций и ${delivery.stages.length} этапов лестницы. Наружный участок ${delivery.exteriorChecked ? 'проверен' : 'не проверен'}, створки ${delivery.leavesChecked ? 'учтены' : 'не проверены'}. Схема и отметки войдут в PDF; это не гарантия доставки.`
+            : `Маршрут заноса: в PDF будет предупреждение вместо проверенного пути. ${delivery.warnings.join(' ')}`}
         </p>
       ) : null}
       <p className="mt-1 text-[13px] leading-relaxed text-ink-2">

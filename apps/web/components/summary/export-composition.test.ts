@@ -42,6 +42,37 @@ function markup(compositionRooms: ReturnType<typeof exportRoomComposition>[], it
 }
 
 describe('PDF composition before checkout', () => {
+  it('discloses saved draft-only delivery measurements as a warning instead of a checked route', () => {
+    const html = renderToStaticMarkup(
+      createElement(ExportComposition, {
+        projectId: 'project',
+        rooms: [],
+        items: [],
+        deliveryMeasurements: { version: 1, savedAt: '2026-10-11T12:00:00.000Z', draftJson: '{}' },
+      }),
+    )
+    expect(html).toContain('Маршрут заноса: в PDF будет предупреждение')
+    expect(html).toContain('сохранены как черновик')
+    expect(html).not.toContain('сохранённый серверный расчёт')
+  })
+  it('discloses corrupt saved delivery data before assembling a PDF', () => {
+    const html = renderToStaticMarkup(
+      createElement(ExportComposition, {
+        projectId: 'project',
+        rooms: [],
+        items: [],
+        deliveryMeasurements: {
+          version: 1,
+          savedAt: '2026-10-11T12:00:00.000Z',
+          draftJson: '{}',
+          reportJson: 'broken',
+        },
+      }),
+    )
+    expect(html).toContain('Маршрут заноса: в PDF будет предупреждение')
+    expect(html).toContain('повреждены')
+    expect(html).not.toContain('сохранённый серверный расчёт')
+  })
   it('describes an independent signed-floor section even without room pages or shopping', () => {
     const polygon = [
       { xCm: 0, yCm: 0 },

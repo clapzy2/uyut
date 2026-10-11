@@ -1,4 +1,5 @@
 import { estimateProject } from '@uyut/catalog'
+import type { PlanReading } from '@uyut/db'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
@@ -37,6 +38,11 @@ import { presignedObjectUrl } from '@/lib/storage'
 type Params = Promise<{ id: string }>
 
 const labelClassName = 'mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2'
+
+function planFormReading(reading: PlanReading): PlanReading {
+  const { deliveryMeasurements: _deliveryMeasurements, ...formReading } = reading
+  return formReading
+}
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const session = await getSession()
@@ -253,7 +259,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
               key={project.planUrl}
               projectId={project.id}
               sourceRevision={sourceRevision}
-              reading={project.planReading}
+              reading={project.planReading ? planFormReading(project.planReading) : null}
               hasPlan={Boolean(project.planUrl)}
               planIsPdf={planIsPdf}
               planSourceUrl={planUrl}
@@ -376,7 +382,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
               key={sourceRevision}
               projectId={project.id}
               sourceRevision={sourceRevision}
-              reading={project.planReading}
+              reading={planFormReading(project.planReading)}
             />
           ) : null}
           <ManualPlanGeometryStart projectId={project.id} />

@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./geometry": "./src/geometry.ts",
+    "./plan-delivery-record": "./src/plan-delivery-record.ts",
     "./freshness": "./src/freshness.ts",
     "./shopping-offer": "./src/shopping-offer.ts",
     "./item-size": "./src/item-size.ts",

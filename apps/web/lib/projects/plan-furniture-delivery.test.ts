@@ -1,8 +1,17 @@
+import {
+  canonicalPlanDeliveryJson,
+  inspectStoredPlanDelivery,
+} from '@uyut/catalog/plan-delivery-record'
 import { verticalReferenceReviewKey } from '@uyut/catalog/plan-vertical-floor-geometry'
 import type { PlanGeometry, PlanPoint, PlanWallFacePair } from '@uyut/db'
 import polygonClipping, { type Polygon } from 'polygon-clipping'
 import { describe, expect, it } from 'vitest'
 import { inspectFurnitureDeliveryViaStairs } from './plan-furniture-delivery'
+import {
+  type FurnitureDeliveryDraftFields,
+  serializeFurnitureDeliveryDraft,
+} from './plan-furniture-delivery-archive'
+import { createFurnitureDeliveryRequest } from './plan-furniture-delivery-input'
 import { serializeFurnitureDeliveryReport } from './plan-furniture-delivery-report'
 import {
   type FurnitureStairSurvey,
@@ -358,6 +367,74 @@ function exteriorAccess(geometry: PlanGeometry) {
     },
   }
 }
+
+describe('server snapshot presentation with actual solver', () => {
+  it.each([false, true])(
+    'normalizes and checks account/PDF/3D snapshot, exterior=%s',
+    (external) => {
+      const geometry = external ? pairedExteriorDeliveryFixture() : fixture()
+      const measured = survey(geometry)
+      const access = exteriorAccess(geometry)
+      const fields: FurnitureDeliveryDraftFields = {
+        lowerFloorId: measured.lowerFloorId,
+        upperFloorId: measured.upperFloorId,
+        direction: measured.direction,
+        travelDirection: measured.travelDirection,
+        startCm: String(measured.startCm),
+        crossStartCm: String(measured.crossStartCm),
+        widthCm: String(measured.widthCm),
+        lowerLandingLengthCm: String(measured.lowerLandingLengthCm),
+        upperLandingLengthCm: String(measured.upperLandingLengthCm),
+        carryClearanceCm: String(measured.carryClearanceCm),
+        sourceReference: ` ${measured.source.reference} `,
+        tilt: 'none',
+        angleDeg: '0',
+        targetRoomId: '1',
+        steps: measured.treads.map((step, index) => ({
+          id: String(index),
+          runCm: String(step.runCm),
+          elevationCm: String(step.elevationCm),
+          ceilingElevationCm: String(step.ceilingElevationCm),
+        })),
+        ...(external
+          ? {
+              exteriorEnabled: true,
+              exteriorJson: JSON.stringify(access.exterior),
+              doorLeavesEnabled: true,
+              doorLeavesJson: JSON.stringify(access.doorLeaves.leaves),
+            }
+          : {}),
+      }
+      const profileFields = {
+        widthCm: '40',
+        depthCm: '60',
+        heightCm: '170',
+        clearanceCm: '0',
+        orientation: '0' as const,
+      }
+      const draftJson = serializeFurnitureDeliveryDraft(geometry, profileFields, fields)
+      const request = createFurnitureDeliveryRequest(geometry, profileFields, fields, true)
+      const report = serializeFurnitureDeliveryReport(geometry, request)
+      if (!report.text) throw new Error(report.error)
+      const reportJson = JSON.stringify({
+        ...JSON.parse(report.text),
+        savedDraftKey: canonicalPlanDeliveryJson(JSON.parse(draftJson)),
+      })
+      const result = inspectStoredPlanDelivery(geometry, {
+        version: 1,
+        savedAt: '2026-10-11T12:00:00.000Z',
+        draftJson,
+        reportJson,
+      })
+      expect(result).toMatchObject({
+        status: 'checked',
+        targetRoomName: 'Upper room',
+        exteriorChecked: external,
+        leavesChecked: external,
+      })
+    },
+  )
+})
 
 describe('rechecked portable delivery reports', () => {
   it.each([false, true])(

@@ -1592,6 +1592,7 @@ export function PlanGeometryEditor({
             onChange={setObstacles}
           />
           <PlanRouteCheck
+            account={{ projectId, revision: baseRevision, onRevisionChange: setBaseRevision }}
             geometry={{
               ...inspectedVerticalGeometry,
               // A prepared removal is not a saved removal. Keep the transfer

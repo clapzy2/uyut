@@ -1,6 +1,5 @@
 'use client'
 
-import { verticalReferenceReviewKey } from '@uyut/catalog/plan-vertical-floor-geometry'
 import type { PlanGeometry } from '@uyut/db'
 import { Button } from '@uyut/ui'
 import { useId, useRef, useState } from 'react'
@@ -12,14 +11,14 @@ import {
   parseFurnitureDeliveryDraft,
   serializeFurnitureDeliveryDraft,
 } from '@/lib/projects/plan-furniture-delivery-archive'
+import { createFurnitureDeliveryRequest } from '@/lib/projects/plan-furniture-delivery-input'
 import {
   type FurnitureDeliveryReportRequest,
   serializeFurnitureDeliveryReport,
 } from '@/lib/projects/plan-furniture-delivery-report'
-import {
-  furnitureStairGeometryKey,
-  inspectFurnitureStairTransfer,
-} from '@/lib/projects/plan-furniture-stair-transfer'
+import { inspectFurnitureStairTransfer } from '@/lib/projects/plan-furniture-stair-transfer'
+import { PlanDeliveryAccount, type PlanDeliveryAccountContext } from './plan-delivery-account'
+import PlanDeliveryVolume from './plan-delivery-volume'
 
 type StepFields = Fields['steps'][number]
 type LayoutFields = NonNullable<Fields['layout']>[number]
@@ -100,13 +99,6 @@ const dimensionFormat = new Intl.NumberFormat('ru-RU', {
   maximumFractionDigits: 2,
   useGrouping: false,
 })
-function decimal(value: string): number {
-  const text = value.trim()
-  return /^[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)$/u.test(text)
-    ? Number(text.replace(',', '.'))
-    : Number.NaN
-}
-
 function nextFieldId(items: { id: string }[], prefix: string): string {
   const ids = new Set(items.map((item) => item.id))
   let index = items.length + 1
@@ -132,9 +124,13 @@ function downloadJson(text: string, filename: string) {
 export function PlanFurnitureStairCheck({
   geometry,
   profileFields: suppliedProfileFields,
+  account,
+  onProfileFieldsChange,
 }: {
   geometry: PlanGeometry
   profileFields: ProfileFields
+  account?: PlanDeliveryAccountContext
+  onProfileFieldsChange?: (profile: ProfileFields) => void
 }) {
   // The parent also owns unrelated flat-route options. Only these five fields
   // describe the body used by this checker and its portable draft.
@@ -257,111 +253,23 @@ export function PlanFurnitureStairCheck({
   }
   function check(complete = false) {
     try {
-      const ceiling = (floorId: string) =>
-        reference?.ceilings?.find((item) => item.floorId === floorId)?.elevationCm
-      const survey = {
-        geometryKey: furnitureStairGeometryKey(geometry),
-        referenceKey: reference ? verticalReferenceReviewKey(reference) : '',
-        source: { kind: 'site-measurement', reference: fields.sourceReference },
-        lowerFloorId: fields.lowerFloorId,
-        upperFloorId: fields.upperFloorId,
-        ...(fields.polygonMode === true
-          ? {
-              version: 3,
-              layout: (() => {
-                const layout: unknown = JSON.parse(fields.polygonLayoutJson ?? '')
-                if (!Array.isArray(layout)) throw new Error('Нужен массив участков')
-                return layout
-              })(),
-            }
-          : fields.turning
-            ? {
-                version: 2,
-                layout: (fields.layout ?? []).map((section) => ({
-                  kind: section.kind,
-                  polygon: [
-                    { xCm: decimal(section.leftCm), yCm: decimal(section.topCm) },
-                    { xCm: decimal(section.rightCm), yCm: decimal(section.topCm) },
-                    { xCm: decimal(section.rightCm), yCm: decimal(section.bottomCm) },
-                    { xCm: decimal(section.leftCm), yCm: decimal(section.bottomCm) },
-                  ],
-                  elevationCm: decimal(section.elevationCm),
-                  ceilingElevationCm: decimal(section.ceilingElevationCm),
-                })),
-              }
-            : {
-                version: 1,
-                direction: fields.direction,
-                startCm: decimal(fields.startCm),
-                crossStartCm: decimal(fields.crossStartCm),
-                widthCm: decimal(fields.widthCm),
-                lowerLandingLengthCm: decimal(fields.lowerLandingLengthCm),
-                upperLandingLengthCm: decimal(fields.upperLandingLengthCm),
-                lowerLandingCeilingCm: ceiling(fields.lowerFloorId),
-                upperLandingCeilingCm: ceiling(fields.upperFloorId),
-                treads: fields.steps.map((step) => ({
-                  runCm: decimal(step.runCm),
-                  elevationCm: decimal(step.elevationCm),
-                  ceilingElevationCm: decimal(step.ceilingElevationCm),
-                })),
-              }),
-        travelDirection: fields.travelDirection,
-        carryClearanceCm: decimal(fields.carryClearanceCm),
-        tilt: fields.tilt,
-        ...(fields.tilt === 'none' ? {} : { angleDeg: decimal(fields.angleDeg) }),
-        acknowledged: acknowledgedKey === key,
-        ...(fields.allowQuarterTurns ? { allowQuarterTurns: true } : {}),
-      }
-      const profile = {
-        widthCm: decimal(profileFields.widthCm),
-        depthCm: decimal(profileFields.depthCm),
-        heightCm: decimal(profileFields.heightCm),
-        clearanceCm: decimal(profileFields.clearanceCm),
-        orientation: profileFields.orientation === '90' ? (90 as const) : (0 as const),
-      }
+      const request = createFurnitureDeliveryRequest(
+        geometry,
+        profileFields,
+        fields,
+        acknowledgedKey === key,
+        complete,
+      )
+      const { survey, profile } = request
       if (complete) {
-        const accessInput: { exterior?: unknown; doorLeaves?: unknown } = {}
-        const accessMetadata = {
-          version: 1,
-          geometryKey: survey.geometryKey,
-          referenceKey: survey.referenceKey,
-          source: survey.source,
-          acknowledged: survey.acknowledged,
-        }
-        if (fields.exteriorEnabled === true) {
-          const exterior: unknown = JSON.parse(fields.exteriorJson ?? '')
-          if (!exterior || typeof exterior !== 'object' || Array.isArray(exterior)) {
-            throw new Error('Нужен объект наружных обмеров')
-          }
-          accessInput.exterior = { ...exterior, ...accessMetadata }
-        }
-        if (fields.doorLeavesEnabled === true) {
-          const leaves: unknown = JSON.parse(fields.doorLeavesJson ?? '')
-          if (!Array.isArray(leaves)) throw new Error('Нужен массив створок')
-          accessInput.doorLeaves = {
-            geometryKey: accessMetadata.geometryKey,
-            referenceKey: accessMetadata.referenceKey,
-            source: accessMetadata.source,
-            acknowledged: accessMetadata.acknowledged,
-            leaves,
-          }
-        }
-        const request = [geometry, survey, profile, fields.targetRoomId ?? ''] as const
-        const response =
-          fields.exteriorEnabled === true || fields.doorLeavesEnabled === true
-            ? inspectFurnitureDeliveryViaStairs(...request, accessInput)
-            : inspectFurnitureDeliveryViaStairs(...request)
+        const argumentsWithoutAccess = [geometry, survey, profile, request.targetRoomId] as const
+        const response = request.accessInput
+          ? inspectFurnitureDeliveryViaStairs(...argumentsWithoutAccess, request.accessInput)
+          : inspectFurnitureDeliveryViaStairs(...argumentsWithoutAccess)
         setChecked({
           key,
           delivery: response,
-          request: {
-            survey,
-            profile,
-            targetRoomId: fields.targetRoomId ?? '',
-            ...(fields.exteriorEnabled === true || fields.doorLeavesEnabled === true
-              ? { accessInput }
-              : {}),
-          },
+          request,
           response: {
             error: response.error,
             notes: response.notes,
@@ -443,9 +351,28 @@ export function PlanFurnitureStairCheck({
             <p className="mt-2 text-xs leading-relaxed text-ink-2">
               Можно сохранить незавершённые обмеры. Файл привязан к этой схеме, общему нулю и
               текущему габариту мебели. Загрузка не подтверждает размеры. Отчёт содержит точные
-              данные расчёта X/Y/Z, этапы и ограничения; его нельзя загрузить как обмеры.
-              Автоматического сохранения в аккаунте нет.
+              данные расчёта X/Y/Z, этапы и ограничения; его нельзя загрузить как обмеры. Файл сам
+              по себе не сохраняет обмеры в аккаунте.
             </p>
+            {account && onProfileFieldsChange ? (
+              <PlanDeliveryAccount
+                account={account}
+                geometry={geometry}
+                profileFields={profileFields}
+                fields={fields}
+                canSaveChecked={Boolean(delivery && checked?.request && acknowledgedKey === key)}
+                onLoaded={(profile, loadedFields) => {
+                  onProfileFieldsChange(profile)
+                  setFields(loadedFields)
+                  setAcknowledgedKey(undefined)
+                  setChecked(undefined)
+                  setFileNotice(undefined)
+                  setPendingImport(undefined)
+                }}
+              />
+            ) : (
+              <p className="mt-2 text-xs text-ink-2">Автоматического сохранения в аккаунте нет.</p>
+            )}
             {pendingImport ? (
               <div className="mt-2">
                 <p className="break-all text-xs text-ink-2">Файл: {pendingImport.filename}</p>
@@ -1003,6 +930,13 @@ export function PlanFurnitureStairCheck({
                         </polyline>
                       </svg>
                     </>
+                  ) : null}
+                  {delivery && checked?.request ? (
+                    <PlanDeliveryVolume
+                      geometry={geometry}
+                      request={checked.request}
+                      result={delivery}
+                    />
                   ) : null}
                   <p className="mt-1 text-xs text-ink-2">
                     Переносимый габарит с запасом (приближённо){' '}

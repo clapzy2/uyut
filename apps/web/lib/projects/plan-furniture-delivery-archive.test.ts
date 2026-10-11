@@ -49,6 +49,18 @@ const draftText = (changes: Record<string, unknown> = {}) =>
   JSON.stringify({ ...buildFurnitureDeliveryDraft(geometry, profile, fields()), ...changes })
 
 describe('portable furniture delivery drafts', () => {
+  it('keeps a draft current after JSONB changes only object property order', () => {
+    const reordered = JSON.parse(
+      JSON.stringify(geometry, (_key, value) =>
+        value && typeof value === 'object' && !Array.isArray(value)
+          ? Object.fromEntries(Object.entries(value).reverse())
+          : value,
+      ),
+    ) as PlanGeometry
+    expect(parseFurnitureDeliveryDraft(draftText(), reordered, profile).fields).toEqual(fields())
+    reordered.widthCm += 0.000001
+    expect(parseFurnitureDeliveryDraft(draftText(), reordered, profile).fields).toBeUndefined()
+  })
   it('rejects mutually exclusive stair modes instead of silently prioritising one', () => {
     expect(
       furnitureDeliveryDraftFieldsSchema.safeParse({

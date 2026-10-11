@@ -156,6 +156,7 @@ export default async function SummaryPage({
       rooms={compositionRooms}
       items={list.items}
       geometry={geometry}
+      deliveryMeasurements={project.planReading?.deliveryMeasurements}
     />
   )
   const overview = geometry ? apartmentVolume(geometry, layouts) : null

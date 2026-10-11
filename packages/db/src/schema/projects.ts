@@ -475,6 +475,13 @@ export type PlanReading = {
   geometry?: PlanGeometry
   /** Ручная привязка комнат к исходному листу; не подтверждение натурного обмера. */
   pageReview?: PlanPageReview
+  /** Обмеры заноса; отчёт записывает только повторная серверная проверка. */
+  deliveryMeasurements?: {
+    version: 1
+    savedAt: string
+    draftJson: string
+    reportJson?: string
+  }
   /** Когда прочитали, ISO-строкой: в jsonb дата всё равно станет строкой */
   readAt: string
   confirmedAt?: string
