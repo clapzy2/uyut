@@ -3,6 +3,7 @@ import {
   exactNativeOrientation,
   exactNativePointKey,
 } from './plan-native-exact-intersections'
+import { nativeFaceRationalPredicates } from './plan-native-face-rational'
 import type { PagePoint } from './plan-pdf-linework'
 import { type NativePageSegment, nativeEdgeCrossing } from './plan-pdf-opening-endpoint'
 import { pdfPointInside, pdfPolygonIsValid } from './plan-pdf-room-binding'
@@ -16,7 +17,8 @@ const contains = (segment: NativePageSegment, point: PagePoint) =>
   point.y >= Math.min(segment.start.y, segment.end.y) &&
   point.y <= Math.max(segment.start.y, segment.end.y)
 type Edge = { start: PagePoint; end: PagePoint; sourceRefs: NativePageSegment[] }
-type Face = { polygon: PagePoint[]; edges: Edge[] }
+type Face = { polygon: PagePoint[]; edges: Edge[]; exactPointKeys?: string[] }
+type TopologyOptions = { topology: 'source-decimal-rational' }
 export type NativeIntersectionProof = {
   point: PagePoint
   kind: 'computed-bounded-intersection'
@@ -25,8 +27,8 @@ export type NativeIntersectionProof = {
   arithmetic: 'source-decimal-rational'
   exactPointKey: string
 }
-function computedCrossing(a: NativePageSegment, b: NativePageSegment) {
-  const crossing = exactNativeCrossing(a, b)
+function computedCrossing(a: NativePageSegment, b: NativePageSegment, options?: TopologyOptions) {
+  const crossing = exactNativeCrossing(a, b, options)
   if (!crossing.point) return { reason: crossing.reason }
   return {
     proof: {
@@ -40,8 +42,16 @@ function computedCrossing(a: NativePageSegment, b: NativePageSegment) {
   }
 }
 
-/** Planar candidates from bounded source intersections; not room/floor classification. */
-export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[], minimumArea = 0) {
+/** Planar candidates from bounded source intersections; not room/floor classification.
+ * Exact topology is opt-in for paint partitioning, not physical stroke acceptance.
+ */
+export function boundedNativeStrokeFaces(
+  segments: readonly NativePageSegment[],
+  minimumArea = 0,
+  options?: TopologyOptions,
+) {
+  const exact =
+    options?.topology === 'source-decimal-rational' ? nativeFaceRationalPredicates() : null
   const faces: Face[] = []
   const intersections: NativeIntersectionProof[] = []
   const fail = (reason: string, blockedSourceRefs: NativePageSegment[] = []) => ({
@@ -128,7 +138,7 @@ export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[],
       )
       const distinct = new Map(points.map((point) => [key(point), point]))
       let computedProof: NativeIntersectionProof | undefined
-      const crossing = nativeEdgeCrossing([left.start, left.end], right)
+      const crossing = exact ? null : nativeEdgeCrossing([left.start, left.end], right)
       if (crossing) distinct.set(key(crossing), crossing)
       if (!distinct.size) {
         const a1 = cross(left.start, left.end, right.start),
@@ -143,7 +153,7 @@ export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[],
           Math.sign(a1) !== Math.sign(a2) &&
           Math.sign(b1) !== Math.sign(b2)
         ) {
-          const computed = computedCrossing(left, right)
+          const computed = computedCrossing(left, right, options)
           if (!computed.proof) return fail(computed.reason, [left, right])
           // Reuse only identical exact rational coordinates, not nearby decimal points.
           const point = canonicalPoints.get(computed.proof.exactPointKey) ?? computed.proof.point
@@ -165,7 +175,7 @@ export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[],
         // Check exact cuts too, even when they follow a computed intersection.
         // Refuse numerical ambiguity; never snap or silently merge vertices.
         for (const index of [a.index, b.index])
-          if (!cuts[index]?.has(pointKey))
+          if (!exact && !cuts[index]?.has(pointKey))
             for (const existing of cuts[index]?.values() ?? []) {
               if (--budget < 0) return fail('intersection-consistency-budget')
               if (
@@ -186,7 +196,15 @@ export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[],
       Math.abs(segment.end.x - segment.start.x) >= Math.abs(segment.end.y - segment.start.y)
         ? 'x'
         : 'y'
-    const points = [...(cuts[index]?.values() ?? [])].sort((a, b) => a[axis] - b[axis])
+    const points = [...(cuts[index]?.values() ?? [])].sort((a, b) =>
+      exact
+        ? exact.compareAxis(
+            vertexKeys.get(key(a)) as string,
+            vertexKeys.get(key(b)) as string,
+            axis,
+          )
+        : a[axis] - b[axis],
+    )
     for (let pointIndex = 1; pointIndex < points.length; pointIndex++) {
       if (++pieces > 20_000) return fail('split-edge-limit')
       const start = points[pointIndex - 1],
@@ -220,6 +238,12 @@ export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[],
       const left = halfEdges[a],
         right = halfEdges[b]
       if (!left || !right) return 0
+      if (exact)
+        return exact.compareDirections(
+          vertexKeys.get(key(left.from)) as string,
+          vertexKeys.get(key(left.to)) as string,
+          vertexKeys.get(key(right.to)) as string,
+        )
       return (
         Math.atan2(left.to.y - left.from.y, left.to.x - left.from.x) -
         Math.atan2(right.to.y - right.from.y, right.to.x - right.from.x)
@@ -263,11 +287,18 @@ export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[],
       const following = polygon[(index + 1) % polygon.length]
       return following ? sum + point.x * following.y - following.x * point.y : sum
     }, 0)
-    if (twiceArea <= 0 || twiceArea < minimumArea * 2 || polygon.length < 3 || polygon.length > 100)
+    const exactPointKeys = polygon.map((point) => vertexKeys.get(key(point)) as string)
+    if (
+      polygon.length < 3 ||
+      polygon.length > 100 ||
+      (exact
+        ? !exact.positiveAreaAtLeast(exactPointKeys, minimumArea)
+        : twiceArea <= 0 || twiceArea < minimumArea * 2)
+    )
       continue
     budget -= polygon.length * polygon.length
     if (budget < 0) return fail('polygon-validation-budget')
-    if (!pdfPolygonIsValid(polygon)) continue
+    if (exact ? !exact.simple(exactPointKeys) : !pdfPolygonIsValid(polygon)) continue
     const nodes = new Set(polygon.map(key))
     let containsOtherNode = false
     // A simple ring cannot represent holes or disconnected interior evidence.
@@ -277,25 +308,48 @@ export function boundedNativeStrokeFaces(segments: readonly NativePageSegment[],
       top: Math.min(...polygon.map((p) => p.y)),
       bottom: Math.max(...polygon.map((p) => p.y)),
     }
+    const exactBounds = exact
+      ? (['x', 'y'] as const).map((axis) => {
+          let low = exactPointKeys[0] as string
+          let high = low
+          for (const pointKey of exactPointKeys) {
+            if (exact.compareAxis(pointKey, low, axis) < 0) low = pointKey
+            if (exact.compareAxis(pointKey, high, axis) > 0) high = pointKey
+          }
+          return { axis, low, high }
+        })
+      : []
     for (const point of vertices) {
       if (--budget < 0) return fail('interior-search-budget')
+      const exactPointKey = vertexKeys.get(key(point)) as string
       if (
         nodes.has(key(point)) ||
-        point.x < bounds.left ||
-        point.x > bounds.right ||
-        point.y < bounds.top ||
-        point.y > bounds.bottom
+        (exact &&
+          exactBounds.some(
+            ({ axis, low, high }) =>
+              exact.compareAxis(exactPointKey, low, axis) < 0 ||
+              exact.compareAxis(exactPointKey, high, axis) > 0,
+          )) ||
+        (!exact &&
+          (point.x < bounds.left ||
+            point.x > bounds.right ||
+            point.y < bounds.top ||
+            point.y > bounds.bottom))
       )
         continue
       budget -= polygon.length
       if (budget < 0) return fail('interior-search-budget')
-      if (pdfPointInside(point, polygon)) {
+      if (
+        exact
+          ? exact.location(exactPointKeys, exactPointKey) === 'inside'
+          : pdfPointInside(point, polygon)
+      ) {
         containsOtherNode = true
         break
       }
     }
     if (containsOtherNode) continue
-    faces.push({ polygon, edges: faceEdges })
+    faces.push({ polygon, edges: faceEdges, ...(exact ? { exactPointKeys } : {}) })
     if (faces.length > 1000) return fail('face-count-limit')
   }
   return { faces, refusalReason: null, blockedSourceRefs: [] as NativePageSegment[], intersections }

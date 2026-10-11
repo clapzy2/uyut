@@ -4,6 +4,7 @@ import {
   exactNativeSegmentsTouch,
 } from './plan-native-exact-intersections'
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
+import { nativeHeightGroupBounds } from './plan-native-height-group'
 import { createNativeHeightLeaderVerifier } from './plan-native-height-leaders'
 import { nativeHeightObservations } from './plan-native-height-observations'
 import { nativeCaptionInkIssue } from './plan-pdf-caption-binding'
@@ -77,6 +78,7 @@ export function nativeHeightSourceLocations(input: Input) {
   )
   const indexes = new Set<number>()
   const operations = new Set<number>()
+  const groupBounds = new Map<number, PagePoint[]>()
   for (const item of [...ink.items, ...ink.unresolved]) {
     if (
       !item ||
@@ -98,6 +100,11 @@ export function nativeHeightSourceLocations(input: Input) {
     return finish('invalid-height-ink-inventory')
   for (const item of ink.items) {
     const label = labels.get(item.index)
+    if (item.sourceGroup) {
+      const bounds = label ? nativeHeightGroupBounds(item, label, input.work) : null
+      if (!bounds) return finish('invalid-height-ink-provenance')
+      groupBounds.set(item.index, bounds)
+    }
     if (
       !label?.pagePoint ||
       item.text !== label.name ||
@@ -112,11 +119,16 @@ export function nativeHeightSourceLocations(input: Input) {
       !validPoint(item.baselineEnd) ||
       // Only floating arithmetic between the two extractor frames, never a
       // polygon snap or permission to move a caption across a boundary.
-      Math.abs(item.baselineStart.x - label.pagePoint.x) > 1e-7 ||
-      Math.abs(item.baselineStart.y - label.pagePoint.y) > 1e-7
+      (!groupBounds.has(item.index) &&
+        (Math.abs(item.baselineStart.x - label.pagePoint.x) > 1e-7 ||
+          Math.abs(item.baselineStart.y - label.pagePoint.y) > 1e-7))
     )
       return finish('invalid-height-ink-provenance')
     operations.add(item.operationIndex)
+    for (const operation of item.sourceGroup?.operationIndexes.slice(1) ?? []) {
+      if (operations.has(operation)) return finish('invalid-height-ink-provenance')
+      operations.add(operation)
+    }
     const dx = (item.baselineEnd.x - item.baselineStart.x) * input.work.pageWidth
     const dy = (item.baselineEnd.y - item.baselineStart.y) * input.work.pageHeight
     const angle = (-Math.atan2(dy, dx) * 180) / Math.PI
@@ -204,7 +216,8 @@ export function nativeHeightSourceLocations(input: Input) {
       }
       observations.push(row)
       if (!item) continue
-      const location = locatePolygon(item.quad)
+      const captionBounds = groupBounds.get(item.index) ?? item.quad
+      const location = locatePolygon(captionBounds)
       row.cavityIds = location.cavityIds
       if (row.cavityIds.length > 1) {
         row.status = 'ambiguous'
@@ -219,7 +232,7 @@ export function nativeHeightSourceLocations(input: Input) {
       }
       // Caption position and the leader's annotation target are different facts.
       // Even a perfect chain supplies neither a semantic owner nor a floor datum.
-      const leader = verifyLeader(item.quad)
+      const leader = verifyLeader(captionBounds)
       if (leader.reason === 'height-leader-work-limit') return finish(leader.reason)
       row.leader = {
         status: leader.status === 'ambiguous' ? 'ambiguous' : 'unresolved',

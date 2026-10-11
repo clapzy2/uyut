@@ -1,4 +1,8 @@
+import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
+import { nativeHeightGroupBounds } from './plan-native-height-group'
 import { nativeNumericTextInk, type PdfTextInkFont, pdfGlyphInkBounds } from './plan-pdf-text-ink'
 
 const OPS = {
@@ -88,6 +92,117 @@ function withOperation(operation: Operation): Input {
   ])
 }
 
+describe('original empty whitespace glyphs in height captions', () => {
+  function blankFixture() {
+    const text = 'h пр.-2079мм'
+    const glyphs = Array.from(text, (character) =>
+      character === ' '
+        ? { ...glyph(character, 400), fontChar: 'Ú', isSpace: false, isInFont: false }
+        : glyph(character),
+    )
+    const input = fixture(
+      [
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['moveText', [10, 40]],
+        ['showText', [glyphs]],
+        ['endText'],
+      ],
+      [
+        {
+          str: text,
+          fontName: 'f1',
+          transform: [10, 0, 0, 10, 10, 40],
+          width: glyphs.reduce((sum, row) => sum + row.width / 100, 0),
+        },
+      ],
+    )
+    input.selectedTextIndexes = [0]
+    input.getGlyphPath = (_font, character) => (character === 'Ú' ? new Float32Array() : digitPath)
+    return { input, glyphs }
+  }
+
+  it('uses a native empty outline as zero ink while preserving the source advance', () => {
+    const { input } = blankFixture()
+    const result = nativeNumericTextInk(input)
+    expect(result.complete).toBe(true)
+    expect(result.unresolved).toEqual([])
+    expect(result.items[0]?.text).toBe('h пр.-2079мм')
+    expect(result.items[0]?.baselineEnd.x).toBeCloseTo(69)
+  })
+
+  it.each([
+    'missing-outline',
+    'nonempty-outline',
+    'non-whitespace',
+    'space-flag',
+    'unknown-font-membership',
+    'wrong-advance',
+  ])('does not treat %s as proof of an original blank', (mutation) => {
+    const { input, glyphs } = blankFixture()
+    const blank = glyphs[1]
+    if (!blank) throw new Error('Missing blank glyph')
+    if (mutation === 'missing-outline')
+      input.getGlyphPath = () => {
+        throw new Error('No outline')
+      }
+    if (mutation === 'nonempty-outline') input.getGlyphPath = () => digitPath
+    if (mutation === 'non-whitespace') blank.unicode = 'X'
+    if (mutation === 'space-flag') blank.isSpace = true
+    if (mutation === 'unknown-font-membership') Object.assign(blank, { isInFont: undefined })
+    if (mutation === 'wrong-advance') blank.width = 401
+    expect(nativeNumericTextInk(input).items).toEqual([])
+  })
+
+  const realSource =
+    'C:/Users/Lenovo/Documents/Codex/2026-09-26/1-pdf-1-2-pdf-3/outputs/apartment_74_77m2_full_project.pdf'
+  it.skipIf(!existsSync(realSource))(
+    'recovers both literal real-source caption outlines without accepting heights',
+    async () => {
+      const body = await readFile(realSource)
+      expect(createHash('sha256').update(body).digest('hex')).toBe(
+        'd79a89eba7d262f2615a9c9f99c03be4553d85c5f737423c51f98e8c9f5da1ab',
+      )
+      const { preparePlanPage } = await import('./plan-document')
+      const page = await preparePlanPage(body, true, 6, true, true)
+      const ink = page.nativeTextAnchors?.heightCaptionInk
+      expect(ink?.complete).toBe(true)
+      expect(ink?.unresolved).toEqual([])
+      expect(
+        ink?.items
+          .filter((row) => [226, 230].includes(row.index))
+          .map((row) => ({ index: row.index, text: row.text, operationIndex: row.operationIndex })),
+      ).toEqual([
+        { index: 226, text: 'h б.дв.-2281мм', operationIndex: 4029 },
+        { index: 230, text: 'h пр.-2079мм', operationIndex: 4059 },
+      ])
+      if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+        throw new Error('Missing real source layers')
+      const { nativeHeightObservations } = await import('./plan-native-height-observations')
+      const observations = nativeHeightObservations({
+        source: {
+          sha256: createHash('sha256').update(body).digest('hex'),
+          pdfPage: 6,
+          state: 'existing',
+        },
+        native: page.nativeTextAnchors,
+        work: page.linework,
+        lineworkSource: page.lineworkRasterSource,
+      })
+      expect(observations.mayAcceptFor3D).toBe(false)
+      expect(observations.assignsGeometryHeights).toBe(false)
+      expect(
+        observations.observations.find((row) => row.labelId === 'native-text-226')?.quantityKind,
+      ).toBe('unclassified-height')
+      expect(
+        observations.observations.every(
+          (row) => row.mayAcceptFor3D === false && row.datum === 'unspecified',
+        ),
+      ).toBe(true)
+    },
+  )
+})
+
 function selectedHeightFixture(): Input {
   const text = 'натяжной-2663мм'
   return {
@@ -104,6 +219,230 @@ function selectedHeightFixture(): Input {
     selectedTextIndexes: [0],
   }
 }
+
+describe('source-contiguous grouped height shows', () => {
+  function groupedFixture(extra: Operation[] = []) {
+    const sourceMatrix: Matrix = [1, 0, 0, 1, 251.6095, 292.8608]
+    const operations: Operation[] = [
+      ['setFont', ['f1', 10]],
+      ['beginText'],
+      ['setTextMatrix', [new Float32Array(sourceMatrix)]],
+      ['moveText', [-3.981, -11.292]],
+      ['setCharSpacing', [0.1]],
+      ['showText', [[glyph('H')]]],
+      ...extra,
+      ['setCharSpacing', [0.2]],
+      ['showText', [[glyph('=')]]],
+      ['setCharSpacing', [0.3]],
+      ['showText', [Array.from('3790', (character) => glyph(character))]],
+      ['endText'],
+    ]
+    const input = fixture(operations, [
+      {
+        str: 'H=3790',
+        fontName: 'f1',
+        width: 31.2,
+        transform: [10, 0, 0, 10, sourceMatrix[4] - 3.981, sourceMatrix[5] - 11.292],
+      },
+    ])
+    input.selectedTextIndexes = [0]
+    return input
+  }
+
+  it('recovers one literal source line with spacing and an explicit packed-origin proof', () => {
+    const input = groupedFixture()
+    const result = nativeNumericTextInk(input)
+    expect(result.complete).toBe(true)
+    expect(result.items).toHaveLength(1)
+    const item = result.items[0]
+    expect(item?.sourceGroup?.operationIndexes).toEqual([5, 7, 9])
+    expect(item?.sourceGroup?.shows.map((show) => show.charSpacing)).toEqual([0.1, 0.2, 0.3])
+    expect(item?.sourceGroup?.shows.map((show) => show.glyphWidths)).toEqual([
+      [500],
+      [500],
+      [500, 500, 500, 500],
+    ])
+    expect(item?.sourceGroup?.cursorOffset).toEqual([-3.981, -11.292])
+    expect(item?.sourceGroup?.packedTextMatrixOperationIndex).toBe(2)
+    expect(item?.sourceGroup?.textContentTransform).toEqual(
+      (input.textItems[0] as { transform: Matrix }).transform,
+    )
+    // Source render origin is retained, not replaced with the unquantized item.
+    expect(item?.baselineStart.x).toBe(Math.fround(251.6095) - 3.981)
+    expect(item?.baselineStart.x).not.toBe(
+      (input.textItems[0] as { transform: Matrix }).transform[4],
+    )
+  })
+
+  it('keeps both render and source translation inside the conservative height envelope', () => {
+    const input = groupedFixture()
+    const item = nativeNumericTextInk(input).items[0]
+    if (!item) throw new Error('Missing grouped ink')
+    const raw = (input.textItems[0] as { transform: Matrix }).transform
+    const label = { name: item.text, rotation: 0, pagePoint: { x: raw[4], y: 1000 - raw[5] } }
+    const bounds = nativeHeightGroupBounds(item, label, { pageWidth: 1000, pageHeight: 1000 })
+    expect(bounds).not.toBeNull()
+    const shifted = item.quad.map((point) => ({
+      x: point.x + label.pagePoint.x - item.baselineStart.x,
+      y: point.y + label.pagePoint.y - item.baselineStart.y,
+    }))
+    for (const point of [...item.quad, ...shifted]) {
+      expect(point.x).toBeGreaterThanOrEqual(Math.min(...(bounds ?? []).map((point) => point.x)))
+      expect(point.x).toBeLessThanOrEqual(Math.max(...(bounds ?? []).map((point) => point.x)))
+      expect(point.y).toBeGreaterThanOrEqual(Math.min(...(bounds ?? []).map((point) => point.y)))
+      expect(point.y).toBeLessThanOrEqual(Math.max(...(bounds ?? []).map((point) => point.y)))
+    }
+  })
+  it('withholds a 51-show group without discarding another complete literal caption', () => {
+    const operations: Operation[] = [
+      ['setFont', ['f1', 10]],
+      ['beginText'],
+      ['moveText', [10, 40]],
+      ...Array.from({ length: 51 }, (): Operation => ['showText', [[glyph('H')]]]),
+      ['endText'],
+      ['beginText'],
+      ['moveText', [400, 40]],
+      ['showText', [Array.from('H=3790', (character) => glyph(character))]],
+      ['endText'],
+    ]
+    const input = fixture(operations, [
+      { str: 'H'.repeat(51), fontName: 'f1', width: 255, transform: [10, 0, 0, 10, 10, 40] },
+      { str: 'H=3790', fontName: 'f1', width: 30, transform: [10, 0, 0, 10, 400, 40] },
+    ])
+    input.selectedTextIndexes = [0, 1]
+    const result = nativeNumericTextInk(input)
+    expect(result.refusalReason).toBeNull()
+    expect(result.complete).toBe(false)
+    expect(result.items.map((item) => item.index)).toEqual([1])
+    expect(result.unresolved).toEqual([
+      { index: 0, reason: 'native-text-show-identity-unresolved' },
+    ])
+  })
+  it.each([
+    'offset',
+    'glyph-width',
+    'spacing',
+    'matrix',
+    'operation',
+    'font-size',
+    'baseline',
+    'source-point',
+    'word-spacing',
+    'rotated',
+    'missing-baseline',
+  ])('rejects incomplete or conflicting source-group lineage: %s', (mutation) => {
+    const input = groupedFixture()
+    const item = nativeNumericTextInk(input).items[0]
+    const group = item?.sourceGroup
+    const show = group?.shows[0]
+    if (!item || !group?.cursorOffset || !group.packedTextMatrix || !show)
+      throw new Error('Missing group fixture')
+    const raw = (input.textItems[0] as { transform: Matrix }).transform
+    const label = { name: item.text, rotation: 0, pagePoint: { x: raw[4], y: 1000 - raw[5] } }
+    if (mutation === 'offset') group.cursorOffset[0] += 0.01
+    if (mutation === 'glyph-width') show.glyphWidths[0] = 501
+    if (mutation === 'spacing') show.charSpacing += 0.01
+    if (mutation === 'matrix') group.packedTextMatrix[4] += 0.01
+    if (mutation === 'operation') show.operationIndex++
+    if (mutation === 'font-size') group.fontSize = 11
+    if (mutation === 'baseline') item.baselineStart.x += 0.01
+    if (mutation === 'source-point') label.pagePoint.x += 0.01
+    if (mutation === 'word-spacing') show.wordSpacing = 1
+    if (mutation === 'rotated') label.rotation = 1
+    if (mutation === 'missing-baseline') Object.assign(item, { baselineStart: undefined })
+    expect(nativeHeightGroupBounds(item, label, { pageWidth: 1000, pageHeight: 1000 })).toBeNull()
+  })
+  it.each(
+    [
+      ['endText'],
+      ['moveText', [0, 0]],
+      ['setFont', ['f1', 10]],
+      ['setTextRise', [0]],
+      ['setTextMatrix', [new Float32Array([1, 0, 0, 1, 252.7285, 281.5688])]],
+    ].map((operation) => ({ operation: operation as Operation })),
+  )('does not cross independent source state $operation', ({ operation }) => {
+    expect(nativeNumericTextInk(groupedFixture([operation])).items).toEqual([])
+  })
+
+  it.each([
+    'origin-cell',
+    'linear-cell',
+    'width',
+    'unknown-glyph',
+    'nonempty-missing-space',
+    'duplicate-item',
+  ])('holds an unproved group identity: %s', (mutation) => {
+    const input = groupedFixture()
+    const item = input.textItems[0] as { transform: Matrix; width: number }
+    if (mutation === 'origin-cell') item.transform[4] += 0.001
+    if (mutation === 'linear-cell') item.transform[0] += 0.001
+    if (mutation === 'width') item.width += 0.001
+    if (mutation === 'unknown-glyph') {
+      const glyphs = (input.operatorList.argsArray[7] as unknown[][])[0] as ReturnType<
+        typeof glyph
+      >[]
+      Object.assign(glyphs[0] as object, { isInFont: false })
+    }
+    if (mutation === 'nonempty-missing-space') {
+      const glyphs = (input.operatorList.argsArray[7] as unknown[][])[0] as ReturnType<
+        typeof glyph
+      >[]
+      Object.assign(glyphs[0] as object, { unicode: ' ', isInFont: false, isSpace: false })
+    }
+    if (mutation === 'duplicate-item') {
+      input.textItems = [...input.textItems, structuredClone(item)]
+      Object.assign(input.textItems[1] as object, { str: 'H=3790', fontName: 'f1' })
+      input.selectedTextIndexes = [0, 1]
+    }
+    expect(nativeNumericTextInk(input).items).toEqual([])
+  })
+
+  const source = new URL(
+    '../../../../output/pdf/source-search-20261003/rebrina-original.pdf',
+    import.meta.url,
+  )
+  it.skipIf(!existsSync(source))(
+    'recovers ten real H groups while holding the noncontiguous units note',
+    async () => {
+      const body = await readFile(source)
+      expect(createHash('sha256').update(body).digest('hex')).toBe(
+        '2e141c135812c81719e1f4783173cb5202e20041ac494d3cc799eb37ad62ad4e',
+      )
+      const { preparePlanPage } = await import('./plan-document')
+      const page = await preparePlanPage(body, true, 3, true, true)
+      const ink = page.nativeTextAnchors?.heightCaptionInk
+      expect(ink?.complete).toBe(true)
+      expect(ink?.items).toHaveLength(10)
+      expect(ink?.unresolved).toEqual([])
+      expect(ink?.items.every((item) => item.sourceGroup?.shows.length === 3)).toBe(true)
+      expect(ink?.items.find((item) => item.index === 151)?.sourceGroup?.operationIndexes).toEqual([
+        9183, 9185, 9187,
+      ])
+      expect(page.nativeTextAnchors?.heightUnitInk?.items).toEqual([])
+      expect(page.nativeTextAnchors?.heightUnitInk?.unresolved).toEqual([
+        { index: 237, reason: 'native-text-show-identity-unresolved' },
+      ])
+      if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+        throw new Error('Missing real source layers')
+      const { nativeHeightSourceLocations } = await import('./plan-native-height-locations')
+      const locations = nativeHeightSourceLocations({
+        source: {
+          sha256: createHash('sha256').update(body).digest('hex'),
+          pdfPage: 3,
+          state: 'existing',
+        },
+        native: page.nativeTextAnchors,
+        work: page.linework,
+        lineworkSource: page.lineworkRasterSource,
+      })
+      expect(locations.refusalReason).toBeNull()
+      expect(locations.observations).toHaveLength(10)
+      expect(locations.observations.every((row) => row.inkSourceOperation !== null)).toBe(true)
+      expect(locations.roomOwnershipConfirmed).toBe(false)
+      expect(locations.mayTransfer3D).toBe(false)
+    },
+  )
+})
 
 describe('explicit selected source text ink', () => {
   it('keeps the numeric default byte-identical and does not add height captions implicitly', () => {

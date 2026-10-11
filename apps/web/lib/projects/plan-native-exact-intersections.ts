@@ -289,7 +289,11 @@ export function exactNativePolygonContains(
   }
   return true
 }
-export function exactNativeCrossing(a: NativePageSegment, b: NativePageSegment) {
+export function exactNativeCrossing(
+  a: NativePageSegment,
+  b: NativePageSegment,
+  options?: { topology: 'source-decimal-rational' },
+) {
   const integers = integerPoints([a.start, a.end, b.start, b.end])
   if (!integers) return { reason: 'unsupported-coordinate-precision' as const }
   const [p, endP, q, endQ] = integers.points
@@ -301,11 +305,15 @@ export function exactNativeCrossing(a: NativePageSegment, b: NativePageSegment) 
     t = delta.x * s.y - delta.y * s.x,
     u = delta.x * r.y - delta.y * r.x
   const physicalDeterminant = Math.abs(Number(determinant)) / Number(integers.scale) ** 2
+  // Paint topology may use a provably nonzero rational determinant. Physical
+  // stroke callers keep their conditioning guard; neither mode may alias nodes.
   if (
-    physicalDeterminant <=
-    Math.hypot(a.end.x - a.start.x, a.end.y - a.start.y) *
-      Math.hypot(b.end.x - b.start.x, b.end.y - b.start.y) *
-      1e-12
+    determinant === 0n ||
+    (options?.topology !== 'source-decimal-rational' &&
+      physicalDeterminant <=
+        Math.hypot(a.end.x - a.start.x, a.end.y - a.start.y) *
+          Math.hypot(b.end.x - b.start.x, b.end.y - b.start.y) *
+          1e-12)
   )
     return { reason: 'ill-conditioned-intersection' as const }
   if (determinant < 0n) {

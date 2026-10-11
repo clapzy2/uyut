@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -224,7 +225,11 @@ const original = resolve('../../output/pdf/source-search-20261003/rebrina-origin
 it.skipIf(!existsSync(original))(
   'fresh real survey never exposes a held region as accepted floor',
   async () => {
-    const page = await preparePlanPage(readFileSync(original), true, 3, true, true)
+    const bytes = readFileSync(original)
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(
+      '2e141c135812c81719e1f4783173cb5202e20041ac494d3cc799eb37ad62ad4e',
+    )
+    const page = await preparePlanPage(bytes, true, 3, true, true)
     if (!page.nativeTextAnchors || !page.lineworkRasterSource || !page.linework)
       throw new Error('Missing source extraction')
     const result = nativeVisiblePaintRegions({
@@ -245,8 +250,19 @@ it.skipIf(!existsSync(original))(
     expect(recovered?.intersections).toHaveLength(3)
     const kitchen = result.regions.find((item) => item.sourceRef.operationIndex === 1462)
     expect(kitchen?.masks).toContainEqual({ operationIndex: 13501, subpathIndex: 0 })
-    expect(kitchen?.refusalReason).toBe('ambiguous-nearby-intersections')
-    expect(kitchen?.pieces).toEqual([])
+    expect(kitchen).toMatchObject({ status: 'diagnostic', refusalReason: null })
+    expect(kitchen?.pieces).toHaveLength(1)
+    expect(kitchen?.intersections).toHaveLength(118)
+    const roomOperations = [1462, 1491, 1527, 1563, 1591, 1611, 1631, 1651]
+    const roomPaint = result.regions.filter((item) =>
+      roomOperations.includes(item.sourceRef.operationIndex),
+    )
+    expect(roomPaint).toHaveLength(8)
+    expect(
+      roomPaint.every((item) => item.status === 'diagnostic' && item.refusalReason === null),
+    ).toBe(true)
+    expect(roomPaint.reduce((count, item) => count + item.pieces.length, 0)).toBe(9)
+    expect(roomPaint.every((item) => !item.boundaryInkComplete)).toBe(true)
     expect(result.omissionCounts.clippedPaths).toBe(532)
     for (const item of result.regions) if (item.status === 'held') expect(item.pieces).toEqual([])
   },
