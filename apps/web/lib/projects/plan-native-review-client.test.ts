@@ -129,6 +129,90 @@ function loadFixture(
   return loadNativeReview({ ...input(), page: options.page ?? 1 }, fetcher as typeof fetch)
 }
 
+describe('positive painted-region context contract', () => {
+  function contextFixture() {
+    const result = fixture()
+    result.packet.faces = [
+      {
+        id: 'native-fill-10:0',
+        layer: 'fill',
+        annotationHint: false,
+        polygon: [
+          { x: 10, y: 10 },
+          { x: 100, y: 10 },
+          { x: 100, y: 100 },
+          { x: 10, y: 100 },
+        ],
+      },
+    ]
+    result.packet.counts.fillCandidates = 1
+    result.packet.paintedRegionContext = {
+      status: 'draft',
+      refusalReason: null,
+      regions: [
+        {
+          candidateId: 'native-fill-10:0',
+          sourceRef: { operationIndex: 10, subpathIndex: 0 },
+          earlierPaintCount: 2,
+          laterPaintCount: 1,
+          unresolvedPaintCount: 1,
+          possibleOmissionCount: 0,
+        },
+      ],
+    }
+    return result
+  }
+
+  it('loads source paint-order diagnostics without floor or room acceptance', async () => {
+    const { packet, headers } = contextFixture()
+    const loaded = await loadFixture(packet, headers)
+    expect(loaded.packet.paintedRegionContext).toEqual(packet.paintedRegionContext)
+    expect(loaded.packet.readiness).toEqual({
+      readOnly: true,
+      readyFor2D: false,
+      readyFor3D: false,
+    })
+  })
+
+  it('loads an unresolved paint report when omission counters exceed retained bounds', async () => {
+    const { packet, headers } = contextFixture()
+    packet.extraction.clippedPaths = 3001
+    packet.paintedRegionContext = {
+      status: 'unresolved',
+      refusalReason: 'incomplete-native-layer',
+      regions: [],
+    }
+    const result = await loadFixture(packet, headers)
+    expect(result.packet.paintedRegionContext?.status).toBe('unresolved')
+  })
+
+  it.each([
+    'foreign-id',
+    'duplicate',
+    'missing-region',
+    'count',
+    'omissions',
+    'extra-claim',
+    'refused-partial',
+  ] as const)('rejects %s paint context instead of treating it as floor evidence', async (kind) => {
+    const { packet, headers } = contextFixture()
+    const report = packet.paintedRegionContext
+    const region = report?.regions[0]
+    if (!report || !region) throw new Error('Missing painted-region context fixture')
+    if (kind === 'foreign-id') region.sourceRef.operationIndex = 11
+    if (kind === 'duplicate') report.regions.push(structuredClone(region))
+    if (kind === 'missing-region') report.regions = []
+    if (kind === 'count') region.unresolvedPaintCount = 4
+    if (kind === 'omissions') region.possibleOmissionCount = 1
+    if (kind === 'extra-claim') Object.assign(report, { readyFor3D: true })
+    if (kind === 'refused-partial') {
+      report.status = 'unresolved'
+      report.refusalReason = 'paint-context-work-limit'
+    }
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
+})
+
 function sourceLinksFixture() {
   const result = fixture()
   const { packet } = result

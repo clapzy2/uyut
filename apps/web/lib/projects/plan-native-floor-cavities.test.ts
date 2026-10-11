@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { exactNativeOrientation, exactNativePointKey } from './plan-native-exact-intersections'
+import {
+  exactNativeDirectionsParallel,
+  exactNativeOrientation,
+  exactNativePointKey,
+} from './plan-native-exact-intersections'
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
 import { nativeReviewPacket } from './plan-native-review-packet'
 import type { Bounds, PagePoint, PdfCurvePath, PdfVectorPath } from './plan-pdf-linework'
@@ -216,6 +220,46 @@ function expectLiteralBoundaryProof(
 }
 
 describe('native painted cavities with documented source opening boundaries', () => {
+  it('proves opposed diagonal profile contacts without changing the source paths', () => {
+    const input = fixture()
+    for (const path of input.work.paths) {
+      path.points = path.points.map(({ x, y }) => ({
+        x: 500 + (3 * x - 4 * y) / 5,
+        y: (4 * x + 3 * y) / 5,
+      }))
+    }
+    const before = structuredClone(input)
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.closures).toHaveLength(1)
+    expect(result.thresholds).toHaveLength(1)
+    expect(result.cavities).toHaveLength(1)
+    expectLiteralBoundaryProof(input, result)
+    expect(result.readyFor2D).toBe(false)
+    expect(result.readyFor3D).toBe(false)
+    expect(input).toEqual(before)
+  })
+
+  it('distinguishes parallel diagonal source directions from nearby and zero directions', () => {
+    const first = { start: { x: 10, y: 10 }, end: { x: 40, y: 50 } }
+    const second = { start: { x: 110, y: 110 }, end: { x: 80, y: 70 } }
+    expect(exactNativeDirectionsParallel(first, second)).toBe(true)
+    expect(
+      exactNativeDirectionsParallel(first, {
+        ...second,
+        end: { ...second.end, x: second.end.x + 1e-9 },
+      }),
+    ).toBe(false)
+    expect(exactNativeDirectionsParallel(first, { start: first.start, end: first.start })).toBe(
+      false,
+    )
+    expect(
+      exactNativeDirectionsParallel(first, {
+        ...second,
+        end: { x: Number.NaN, y: 70 },
+      }),
+    ).toBeNull()
+  })
+
   it('assembles one source-backed negative-space cell without a saved contour or selected colour', () => {
     const input = fixture()
     circle(input, 1)

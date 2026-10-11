@@ -181,6 +181,52 @@ function expectRefused(input: Input, reason: string) {
   expect(input).toEqual(before)
 }
 
+function rotateSource(input: Input, cosine: number, sine: number) {
+  const rotate = (point: PagePoint): PagePoint => ({
+    x: 400 + cosine * point.x - sine * point.y,
+    y: 300 + sine * point.x + cosine * point.y,
+  })
+  for (const cell of input.floor.cavities) cell.polygon = cell.polygon.map(rotate)
+  for (const frame of input.links.openingFrames.candidates)
+    frame.frame.points = frame.frame.points.map(rotate)
+  rebuild(input)
+}
+
+describe('arbitrary-angle floor/frame source correspondence', () => {
+  it.each([
+    [0.6, 0.8],
+    [0.8, -0.6],
+    [0, 1],
+  ])('retains both source sides at direction %s/%s without page-box normals', (cosine, sine) => {
+    const input = fixture()
+    rotateSource(input, cosine, sine)
+    const result = expectReport(input, 'two-sided')
+    expect(result.frames[0]?.sides.map((side) => side.status)).toEqual(['matched', 'matched'])
+    expect(
+      result.frames[0]?.sides.flatMap((side) => side.contacts.map((item) => item.cavityId)),
+    ).toEqual(['upper', 'lower'])
+  })
+
+  it('does not turn a small displaced rotated boundary into a source contact', () => {
+    const input = fixture()
+    rotateSource(input, 0.6, 0.8)
+    const upper = cellOf(input, 'upper')
+    upper.polygon = upper.polygon.map((point) => ({ x: point.x, y: point.y - 1e-9 }))
+    rebuild(input)
+    const result = expectReport(input, 'one-sided')
+    expect(result.frames[0]?.sides[0]?.contacts).toEqual([])
+  })
+
+  it('keeps reversed polygon winding equivalent for rotated source interiors', () => {
+    const input = fixture()
+    rotateSource(input, 0.6, 0.8)
+    for (const cell of input.floor.cavities) cell.polygon.reverse()
+    frameOf(input).frame.points.reverse()
+    rebuild(input)
+    expectReport(input, 'two-sided')
+  })
+})
+
 describe('fresh source-cavity contacts to logical opening-frame sides', () => {
   it('pairs two exact source-supported sides without inventing room or passage authority', () => {
     const input = fixture()

@@ -1,13 +1,11 @@
 import type { NativeTextAnchors } from './plan-document'
-import { exactNativeOrientation, exactNativePointKey } from './plan-native-exact-intersections'
-import { nativeFillCandidates } from './plan-native-fill-candidates'
 import {
-  type Bounds,
-  type PagePoint,
-  type PdfLinework,
-  type PdfVectorPath,
-  pdfVectorRectangle,
-} from './plan-pdf-linework'
+  exactNativeOrientation,
+  exactNativePointKey,
+  exactNativePolygonsOverlap,
+} from './plan-native-exact-intersections'
+import { nativeFillCandidates } from './plan-native-fill-candidates'
+import type { Bounds, PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import type { NativePageSegment } from './plan-pdf-opening-endpoint'
 import type { RegionLabelFrame } from './plan-raster-region-labels'
 
@@ -28,6 +26,68 @@ const MAX_CANDIDATES = 100
 const MAX_COMPARISONS = 200_000
 const MAX_ASPECT_RATIO = 0.4
 const samePoint = (a: PagePoint, b: PagePoint) => a.x === b.x && a.y === b.y
+
+function polygonPoints(path: PdfVectorPath): PagePoint[] {
+  const first = path.points[0]
+  const last = path.points.at(-1)
+  return first && last && samePoint(first, last) ? path.points.slice(0, -1) : path.points
+}
+
+// Prove the shape in the source-decimal domain, after accounting for page aspect.
+// Floating rotations, snapping and angle tolerances would change the source evidence.
+export function exactNativeOpeningFrameShape(
+  points: PagePoint[],
+  scale?: { x: number; y: number },
+): boolean {
+  if (points.length !== 4 || points.some((point) => exactNativePointKey(point) === null))
+    return false
+  if (
+    scale &&
+    (!Number.isFinite(scale.x) || !Number.isFinite(scale.y) || scale.x <= 0 || scale.y <= 0)
+  )
+    return false
+  const decimals = [
+    ...points.flatMap((point) => [point.x, point.y]),
+    ...(scale ? [scale.x, scale.y] : []),
+  ].map((value) => {
+    const [mantissa = '', exponent = '0'] = value.toString().split('e')
+    const [whole = '', fraction = ''] = mantissa.split('.')
+    const places = fraction.length - Number(exponent)
+    if (Math.abs(places) > 18) return null
+    return {
+      value: BigInt(whole + fraction) * (places < 0 ? 10n ** BigInt(-places) : 1n),
+      places: Math.max(0, places),
+    }
+  })
+  if (decimals.some((value) => value === null)) return false
+  const places = Math.max(...decimals.map((value) => value?.places ?? 0))
+  const integers = decimals.map((value) =>
+    value ? value.value * 10n ** BigInt(places - value.places) : 0n,
+  )
+  const [ax, ay, bx, by, cx, cy, dx, dy] = integers as [
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+  ]
+  if (ax + cx !== bx + dx || ay + cy !== by + dy) return false
+  const first = { x: bx - ax, y: by - ay }
+  const second = { x: cx - bx, y: cy - by }
+  if (first.x * second.y - first.y * second.x === 0n) return false
+  // A packet consumer without the raster scale can verify topology, not physical right angles.
+  if (!scale) return true
+  const scaleX = integers[8] as bigint
+  const scaleY = integers[9] as bigint
+  return (
+    (first.x !== 0n || first.y !== 0n) &&
+    (second.x !== 0n || second.y !== 0n) &&
+    first.x * second.x * scaleX ** 2n + first.y * second.y * scaleY ** 2n === 0n
+  )
+}
 
 function completeJambCoverage(jamb: NativePageSegment, sources: NativePageSegment[]): boolean {
   const axis = jamb.start.x === jamb.end.x ? 'y' : 'x'
@@ -87,7 +147,7 @@ export function nativeOpeningFrameCandidates(input: {
   const finish = (reason: string | null) => ({
     status: reason ? ('unresolved' as const) : ('draft' as const),
     basis: 'native-painted-frame-and-jamb-contacts' as const,
-    coverageScope: 'axis-aligned-source-frames-only' as const,
+    coverageScope: 'exact-physical-rectangular-source-frames-only' as const,
     source: native.source,
     originalPdfSha256: native.originalPdfSha256,
     candidates: reason ? [] : structuredClone(candidates),
@@ -161,39 +221,46 @@ export function nativeOpeningFrameCandidates(input: {
     .filter((edge) => !samePoint(edge.start, edge.end))
   const rectangles = new Map<
     string,
-    { path: PdfVectorPath; aliases: PdfVectorPath[]; bounds: Bounds }
+    { path: PdfVectorPath; aliases: PdfVectorPath[]; bounds: Bounds; shortEdgeParity: number }
   >()
   for (const path of work.paths) {
     if (!supported(path)) continue
-    const bounds = pdfVectorRectangle(path)
-    if (!bounds) continue
-    const width = (bounds.right - bounds.left) * scale.x
-    const height = (bounds.bottom - bounds.top) * scale.y
+    const points = polygonPoints(path)
+    if (!exactNativeOpeningFrameShape(points, scale)) continue
+    const edges = sourceEdges(path)
+    const lengths = edges
+      .slice(0, 2)
+      .map((edge) =>
+        Math.hypot((edge.end.x - edge.start.x) * scale.x, (edge.end.y - edge.start.y) * scale.y),
+      )
+    const width = lengths[0] as number
+    const height = lengths[1] as number
     if (
       Math.min(width, height) <= 0 ||
       Math.max(width, height) < 5 ||
       Math.min(width, height) / Math.max(width, height) > MAX_ASPECT_RATIO
     )
       continue
-    const key = `${bounds.left}:${bounds.top}:${bounds.right}:${bounds.bottom}`
+    const bounds = {
+      left: Math.min(...points.map((point) => point.x)),
+      right: Math.max(...points.map((point) => point.x)),
+      top: Math.min(...points.map((point) => point.y)),
+      bottom: Math.max(...points.map((point) => point.y)),
+    }
+    const key = points
+      .map((point) => exactNativePointKey(point))
+      .sort()
+      .join('|')
     const previous = rectangles.get(key)
     if (previous) previous.aliases.push(path)
-    else rectangles.set(key, { path, aliases: [], bounds })
+    else rectangles.set(key, { path, aliases: [], bounds, shortEdgeParity: width < height ? 0 : 1 })
   }
   let comparisons = 0
   const spend = () => ++comparisons <= MAX_COMPARISONS
   const pending: { candidate: NativeOpeningFrame; bounds: Bounds }[] = []
-  for (const { path, aliases, bounds } of rectangles.values()) {
+  for (const { path, aliases, bounds, shortEdgeParity } of rectangles.values()) {
     const edges = sourceEdges(path)
-    const length = (edge: NativePageSegment) =>
-      Math.hypot((edge.end.x - edge.start.x) * scale.x, (edge.end.y - edge.start.y) * scale.y)
-    const lengths = edges.map(length)
-    const minimum = Math.min(...lengths)
-    const jambEdges = edges.filter((_, index) => lengths[index] === minimum)
-    if (jambEdges.length !== 2) {
-      reject(path, 'ambiguous-frame-axis')
-      continue
-    }
+    const jambEdges = edges.filter((_, index) => index % 2 === shortEdgeParity)
     const jambs: NativeOpeningFrame['jambs'] = []
     for (const frameEdge of jambEdges) {
       const sourceMatches: NativePageSegment[] = []
@@ -238,7 +305,7 @@ export function nativeOpeningFrameCandidates(input: {
         id: `native-opening-frame-${path.operationIndex}:${path.subpathIndex}`,
         frame: path,
         repaintAliases: aliases,
-        longEdges: edges.filter((_, index) => lengths[index] !== minimum),
+        longEdges: edges.filter((_, index) => index % 2 !== shortEdgeParity),
         jambs,
         unresolvedInk,
         openingKind: null,
@@ -258,7 +325,11 @@ export function nativeOpeningFrameCandidates(input: {
         Math.min(first.bounds.right, second.bounds.right) >
           Math.max(first.bounds.left, second.bounds.left) &&
         Math.min(first.bounds.bottom, second.bounds.bottom) >
-          Math.max(first.bounds.top, second.bounds.top)
+          Math.max(first.bounds.top, second.bounds.top) &&
+        exactNativePolygonsOverlap(
+          polygonPoints(first.candidate.frame),
+          polygonPoints(second.candidate.frame),
+        ) !== false
       ) {
         competing.add(first.candidate)
         competing.add(second.candidate)

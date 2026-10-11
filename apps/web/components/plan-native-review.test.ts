@@ -8,6 +8,35 @@ import {
 import { inspectReviewedPageCoverage } from '@/lib/projects/plan-page-reviewed-coverage'
 import { NativeReviewResult, PlanNativeReview, SavedReviewCoverage } from './plan-native-review'
 
+it('separates positive source paint from negative-space floor cavities and warns about masks', () => {
+  const packet = nativeReviewPacket({
+    source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },
+    image: { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 },
+  })
+  packet.paintedRegionContext = {
+    status: 'draft',
+    refusalReason: null,
+    regions: [
+      {
+        candidateId: 'native-fill-1462:0',
+        sourceRef: { operationIndex: 1462, subpathIndex: 0 },
+        earlierPaintCount: 0,
+        laterPaintCount: 1,
+        unresolvedPaintCount: 0,
+        possibleOmissionCount: 4,
+      },
+    ],
+  }
+  const html = renderToStaticMarkup(
+    createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+  )
+  expect(html).toContain('Границы залитых областей исходника')
+  expect(html).toContain('Белая заливка сама по себе не означает свободный пол')
+  expect(html).toContain('контуры не приняты для 2D/3D')
+  expect(html).toContain('native-fill-1462:0')
+  expect(html).not.toContain('Подтвердить')
+})
+
 function linkedSourcePacket() {
   const packet = nativeReviewPacket({
     source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },

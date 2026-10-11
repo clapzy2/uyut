@@ -5,8 +5,9 @@ import {
   exactNativePolygonWinding,
 } from './plan-native-exact-intersections'
 import type { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
+import { exactNativeOpeningFrameShape } from './plan-native-opening-frames'
 import type { nativeOpeningSourceLinks } from './plan-native-opening-links'
-import { type Bounds, pdfVectorRectangle } from './plan-pdf-linework'
+import type { Bounds } from './plan-pdf-linework'
 
 export type NativeFloorOpeningSide = {
   frameEdgeIndex: number
@@ -145,14 +146,22 @@ export function nativeFloorOpeningSides(floor: Floor, links: Links) {
         row.reason = 'competing-strip-paint'
         continue
       }
-      const bounds = pdfVectorRectangle(frame.frame)
-      if (!bounds || frame.longEdges.length !== 2) return finish('unsupported-source-frame-sides')
       const first = frame.frame.points[0],
         last = frame.frame.points.at(-1)
       const polygon =
         first && last && first.x === last.x && first.y === last.y
           ? frame.frame.points.slice(0, -1)
           : frame.frame.points
+      if (!exactNativeOpeningFrameShape(polygon) || frame.longEdges.length !== 2)
+        return finish('unsupported-source-frame-sides')
+      const bounds: Bounds = {
+        left: Math.min(...polygon.map((point) => point.x)),
+        right: Math.max(...polygon.map((point) => point.x)),
+        top: Math.min(...polygon.map((point) => point.y)),
+        bottom: Math.max(...polygon.map((point) => point.y)),
+      }
+      const frameWinding = exactNativePolygonWinding(polygon)
+      if (frameWinding === null) return finish('unsupported-source-frame-sides')
       if (
         polygon.some((point) => exactNativePointKey(point) === null) ||
         frame.longEdges.some(
@@ -188,12 +197,10 @@ export function nativeFloorOpeningSides(floor: Floor, links: Links) {
         continue
       }
       for (const side of frame.longEdges) {
-        const along = side.start.y === side.end.y ? 'x' : 'y'
-        const across = along === 'x' ? 'y' : 'x'
+        const along = side.start.x === side.end.x ? 'y' : 'x'
         const from = Math.min(side.start[along], side.end[along])
         const to = Math.max(side.start[along], side.end[along])
-        const coordinate = side.start[across]
-        const outside = coordinate === (across === 'x' ? bounds.left : bounds.top) ? -1 : 1
+        const frameDirection = frameWinding * Math.sign(side.end[along] - side.start[along])
         const contacts: NativeFloorOpeningSide['contacts'] = []
         for (const cell of floor.cavities) {
           const intervals: { from: number; to: number }[] = []
@@ -201,16 +208,20 @@ export function nativeFloorOpeningSides(floor: Floor, links: Links) {
           let unproved = cell.paintColor !== threshold.paintColors[0]
           for (const [index, edge] of cell.boundaries.entries()) {
             spend()
-            if (edge.start[across] !== coordinate || edge.end[across] !== coordinate) continue
+            if (
+              exactNativeOrientation(side.start, side.end, edge.start) !== 0 ||
+              exactNativeOrientation(side.start, side.end, edge.end) !== 0
+            )
+              continue
             const start = Math.max(from, Math.min(edge.start[along], edge.end[along]))
             const end = Math.min(to, Math.max(edge.start[along], edge.end[along]))
             if (start >= end) continue
             boundaryEdgeIndices.push(index)
-            const normal =
-              (windings.get(cell.id) as number) *
-              Math.sign(edge.end[along] - edge.start[along]) *
-              (along === 'x' ? 1 : -1)
-            if (normal !== outside) unproved = true
+            const cavityDirection =
+              (windings.get(cell.id) as number) * Math.sign(edge.end[along] - edge.start[along])
+            // Adjacent interiors must lie on opposite sides of this exact source line.
+            // A page-space bounding box cannot establish that for a rotated strip.
+            if (cavityDirection !== -frameDirection) unproved = true
             const supports: { from: number; to: number }[] = []
             for (const support of edge.supports) {
               spend()
