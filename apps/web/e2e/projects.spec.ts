@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { type Browser, expect, type Page, test } from '@playwright/test'
 import sharp from 'sharp'
 
@@ -167,9 +168,7 @@ test.describe
 
       // Valid source page plus trailing whitespace: no copyrighted PDF and no AI call.
       // The payload exceeds Next's 10 MiB proxy clone default, but stays below 15 MiB.
-      const fixture = await readFile(
-        new URL('./fixtures/synthetic-scanned-plan.pdf', import.meta.url),
-      )
+      const fixture = await readFile(resolve('e2e/fixtures/synthetic-scanned-plan.pdf'))
       const source = Buffer.concat([fixture, Buffer.alloc(11 * 1024 * 1024, 0x20)])
       expect(source.length).toBeGreaterThan(10 * 1024 * 1024)
       expect(source.length).toBeLessThan(15 * 1024 * 1024)
