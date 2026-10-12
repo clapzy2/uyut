@@ -682,6 +682,7 @@ function DimensionTargetsReview({
     const displayed = Number(value.toPrecision(6))
     return `разрыв ${displayed === value ? '' : '≈'}${displayed} pt PDF`
   }
+  const directionText = { width: 'X', depth: 'Y', aligned: 'наклонное направление' }
   return (
     <section
       className="space-y-2 border-t border-line pt-3 text-[13px] leading-relaxed"
@@ -692,6 +693,10 @@ function DimensionTargetsReview({
         Проверяем исходные связи размерной линии с целой гранью пола или рамкой проёма. Это не
         подтверждение стены, помещения или физического прохода и не готовность переноса в 2D/3D.
         Разрыв выносной линии не достраивается автоматически.
+      </p>
+      <p className="text-ink-2">
+        Для наклонных линий учитываем ширину и высоту PDF-листа. Совпадение штрихов на экране ещё не
+        доказывает точный контакт исходных линий или принадлежность размера целой грани.
       </p>
       {report.status === 'unresolved' ? (
         <p className="break-all text-ink-2">
@@ -722,9 +727,12 @@ function DimensionTargetsReview({
                   <li key={item.labelId} className="break-all">
                     {item.labelId}: {item.valueMm} мм; {dimensionTargetMessages[item.status]}.
                     {item.reason ? ` Ограничение: ${item.reason}.` : ''}
+                    <p className="mt-1">Направление: {directionText[item.axis]}.</p>
                     {item.targets.map((target) => (
                       <div key={`${target.kind}:${target.id}`} className="mt-1 pl-2">
-                        {target.kind === 'floor-boundary' ? 'Граница пола' : 'Рамка проёма'}{' '}
+                        {target.kind === 'floor-boundary'
+                          ? 'Исходная граница области (пол не подтверждён)'
+                          : 'Исходная рамка (проём не подтверждён)'}{' '}
                         {target.id}.
                         {target.faces.map((face) => (
                           <div key={face.edgeIndex} className="mt-1 pl-2">

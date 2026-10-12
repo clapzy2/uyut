@@ -1278,6 +1278,61 @@ describe('read-only native review presentation', () => {
     expect(html).not.toContain('Копировать')
     expect(packet).toEqual(before)
   })
+  it('labels aligned source witnesses without claiming an accepted floor or closing a drafting gap', () => {
+    const packet = floorCavityPacket()
+    packet.dimensionTargets = {
+      status: 'draft',
+      refusalReason: null,
+      unresolved: [],
+      jambSpans: [],
+      observations: [
+        {
+          labelId: 'aligned-source',
+          valueMm: 530,
+          axis: 'aligned',
+          status: 'detached',
+          reason: 'detached-source-extension',
+          targets: [
+            {
+              kind: 'floor-boundary',
+              id: 'source-cell-0',
+              faces: [
+                {
+                  edgeIndex: 0,
+                  status: 'detached',
+                  reason: 'detached-source-extension',
+                  supportRefs: [{ operationIndex: 10, subpathIndex: 0, segmentIndex: 0 }],
+                  endpointWitnesses: [
+                    {
+                      status: 'detached',
+                      gapPoints: 2.5,
+                      sourceRefs: [{ operationIndex: 11, subpathIndex: 0, segmentIndex: 0 }],
+                    },
+                    {
+                      status: 'continuous',
+                      gapPoints: 0,
+                      sourceRefs: [{ operationIndex: 12, subpathIndex: 0, segmentIndex: 0 }],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    const before = structuredClone(packet)
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Направление: наклонное направление')
+    expect(html).toContain('Исходная граница области (пол не подтверждён)')
+    expect(html).toContain('разрыв 2.5 pt PDF')
+    expect(html).toContain('учитываем ширину и высоту PDF-листа')
+    expect(html).toContain('не доказывает точный контакт исходных линий')
+    expect(html).not.toContain('Подтвердить')
+    expect(packet).toEqual(before)
+  })
   it('shows conflicting whole-floor captions separately without altering face witnesses or geometry', () => {
     const packet = floorCavityPacket()
     const beforeTargets = structuredClone(packet)

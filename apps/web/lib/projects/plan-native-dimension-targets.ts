@@ -1,6 +1,9 @@
 import type { PlanPageSegmentRef } from '@uyut/db'
 import { nativeCaptionBindings } from './plan-native-caption-bindings'
-import { exactNativeOrientation } from './plan-native-exact-intersections'
+import {
+  exactNativeDirectionsParallel,
+  exactNativeOrientation,
+} from './plan-native-exact-intersections'
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
 import { type NativeOpeningFrame, nativeOpeningFrameCandidates } from './plan-native-opening-frames'
 import { pdfNativeDimensionSourceIssue } from './plan-pdf-dimension-source'
@@ -78,6 +81,58 @@ const within = (value: number, first: number, last: number) =>
 const validPoint = (point: PagePoint | undefined): point is PagePoint =>
   !!point &&
   [point.x, point.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000)
+
+// The normalized image axes are not physical page axes on a non-square PDF.
+// Compare decimal operands as integers before taking the physical dot product.
+function physicalDotSign(a: PagePoint, b: PagePoint, c: PagePoint, d: PagePoint, input: Input) {
+  const values = [
+    a.x,
+    a.y,
+    b.x,
+    b.y,
+    c.x,
+    c.y,
+    d.x,
+    d.y,
+    input.work.pageWidth,
+    input.work.pageHeight,
+  ]
+  const decimals = values.map((value) => {
+    if (!Number.isFinite(value) || value < 0) return null
+    const [mantissa = '', exponent = '0'] = value.toString().split('e')
+    const [whole = '', fraction = ''] = mantissa.split('.')
+    const places = fraction.length - Number(exponent)
+    if (places > 20 || places < -6) return null
+    return {
+      value: BigInt(whole + fraction) * (places < 0 ? 10n ** BigInt(-places) : 1n),
+      places: Math.max(0, places),
+    }
+  })
+  if (decimals.some((value) => !value)) return null
+  const places = Math.max(...decimals.map((value) => value?.places ?? 0))
+  const scaled = decimals.map(
+    (value) => (value?.value ?? 0n) * 10n ** BigInt(places - (value?.places ?? 0)),
+  )
+  const [
+    ax = 0n,
+    ay = 0n,
+    bx = 0n,
+    by = 0n,
+    cx = 0n,
+    cy = 0n,
+    dx = 0n,
+    dy = 0n,
+    width = 0n,
+    height = 0n,
+  ] = scaled
+  const dot = (bx - ax) * (dx - cx) * width * width + (by - ay) * (dy - cy) * height * height
+  return dot < 0n ? -1 : dot > 0n ? 1 : 0
+}
+
+const pointOnSegment = (point: PagePoint, segment: NativePageSegment) =>
+  exactNativeOrientation(segment.start, segment.end, point) === 0 &&
+  within(point.x, segment.start.x, segment.end.x) &&
+  within(point.y, segment.start.y, segment.end.y)
 
 function bindingSnapshot(bindings: Bindings) {
   return JSON.stringify({
@@ -259,6 +314,47 @@ export function nativeDimensionTargets(input: Input, suppliedBindings?: Bindings
       gapPoints: (Math.abs(endpoint - corner[across]) * pageLength) / 1000,
     }
   }
+  const alignedWitness = (tip: PagePoint, corner: PagePoint): EndpointWitness => {
+    const continuous: NativePageSegment[] = []
+    const detached: NativePageSegment[] = []
+    for (const segment of segments) {
+      spend()
+      if (!pointOnSegment(tip, segment)) continue
+      if (
+        exactNativeOrientation(tip, corner, segment.start) !== 0 ||
+        exactNativeOrientation(tip, corner, segment.end) !== 0
+      )
+        continue
+      if (pointOnSegment(corner, segment)) {
+        continuous.push(segment)
+        continue
+      }
+      const path = paths.get(`${segment.operationIndex}:${segment.subpathIndex}`)
+      if (path?.paint !== 'stroke' || path.closed || path.points.length !== 2) continue
+      const toward = [segment.start, segment.end].filter(
+        (end) => physicalDotSign(tip, corner, tip, end, input) === 1,
+      )
+      if (toward.length) detached.push(segment)
+    }
+    const matches = [...continuous, ...detached]
+    const groups = new Set(matches.map(spanKey))
+    if (!groups.size) return { status: 'unresolved', sourceRefs: [], gapPoints: null }
+    if (groups.size > 1)
+      return { status: 'ambiguous', sourceRefs: sourceRefs(matches), gapPoints: null }
+    if (continuous.length)
+      return { status: 'continuous', sourceRefs: sourceRefs(continuous), gapPoints: 0 }
+    const segment = detached[0] as NativePageSegment
+    const endpoint =
+      physicalDotSign(tip, corner, tip, segment.start, input) === 1 ? segment.start : segment.end
+    return {
+      status: 'detached',
+      sourceRefs: sourceRefs(detached),
+      gapPoints: Math.hypot(
+        ((endpoint.x - corner.x) * input.work.pageWidth) / 1000,
+        ((endpoint.y - corner.y) * input.work.pageHeight) / 1000,
+      ),
+    }
+  }
   try {
     for (const binding of [...fresh.candidates].sort((a, b) =>
       a.labelId.localeCompare(b.labelId),
@@ -274,29 +370,40 @@ export function nativeDimensionTargets(input: Input, suppliedBindings?: Bindings
       }
       observations.push(row)
       if (observations.length > MAX_OBSERVATIONS) throw exhausted
-      if (binding.axis !== 'width' && binding.axis !== 'depth') {
-        row.reason = 'non-cardinal-source-target-not-supported'
-        continue
-      }
       const span = binding.spanEnds
       if (span?.length !== 2 || !span.every(validPoint)) {
         row.reason = 'source-caption-span-unavailable'
         continue
       }
-      const along = binding.axis === 'width' ? 'x' : 'y'
+      const aligned = binding.axis === 'aligned'
+      const along = binding.axis === 'width' || aligned ? 'x' : 'y'
       const across = along === 'x' ? 'y' : 'x'
-      const tips = [...span].sort((a, b) => a[along] - b[along]) as [PagePoint, PagePoint]
-      if (tips[0][along] === tips[1][along] || tips[0][across] !== tips[1][across]) {
+      const tips = [...span].sort((a, b) => a[along] - b[along] || a[across] - b[across]) as [
+        PagePoint,
+        PagePoint,
+      ]
+      if (
+        pointKey(tips[0]) === pointKey(tips[1]) ||
+        (!aligned && (tips[0][along] === tips[1][along] || tips[0][across] !== tips[1][across]))
+      ) {
         row.reason = 'unsupported-source-caption-span'
         continue
       }
       for (const face of faces) {
         spend()
-        const corners = [face.start, face.end].sort((a, b) => a[along] - b[along]) as [
-          PagePoint,
-          PagePoint,
-        ]
-        if (
+        const corners = [face.start, face.end].sort(
+          (a, b) => a[along] - b[along] || a[across] - b[across],
+        ) as [PagePoint, PagePoint]
+        if (aligned) {
+          if (
+            exactNativeDirectionsParallel({ start: tips[0], end: tips[1] }, face) !== true ||
+            pointKey(corners[0]) === pointKey(tips[0]) ||
+            pointKey(corners[1]) === pointKey(tips[1]) ||
+            physicalDotSign(tips[0], tips[1], tips[0], corners[0], input) !== 0 ||
+            physicalDotSign(tips[0], tips[1], tips[1], corners[1], input) !== 0
+          )
+            continue
+        } else if (
           corners[0][along] !== tips[0][along] ||
           corners[1][along] !== tips[1][along] ||
           corners[0][across] !== corners[1][across] ||
@@ -317,8 +424,8 @@ export function nativeDimensionTargets(input: Input, suppliedBindings?: Bindings
         )
           continue
         const endpointWitnesses: [EndpointWitness, EndpointWitness] = [
-          witness(tips[0], corners[0], along),
-          witness(tips[1], corners[1], along),
+          aligned ? alignedWitness(tips[0], corners[0]) : witness(tips[0], corners[0], along),
+          aligned ? alignedWitness(tips[1], corners[1]) : witness(tips[1], corners[1], along),
         ]
         const padX = (6 * 1000) / input.work.pageWidth
         const padY = (6 * 1000) / input.work.pageHeight
@@ -384,6 +491,9 @@ export function nativeDimensionTargets(input: Input, suppliedBindings?: Bindings
       }
       // A pair of proved jambs defines the same measured interval on both long
       // sides. Retain every face and drawing gap; this proof selects no side.
+      // Non-cardinal source-face evidence does not establish the existing
+      // cardinal frame/jamb interval contract or choose a physical opening.
+      if (binding.axis === 'aligned') continue
       const target = row.targets.length === 1 ? row.targets[0] : undefined
       const frame = target?.kind === 'opening-frame' ? sourceFrames.get(target.id) : undefined
       if (

@@ -1469,6 +1469,38 @@ describe('rotated captions and bounded source dimension targets', () => {
     expect(loaded.dimensionTargets).toEqual(report)
     expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
   })
+  it.each(['continuous', 'detached'] as const)(
+    'retains an aligned %s source-face report without a cardinal jamb interval',
+    async (status) => {
+      const { packet, headers, report, target } = targetFixture()
+      const row = report.observations.find((row) => row.axis === 'aligned')
+      if (!row) throw new Error('Missing aligned source caption')
+      row.status = status
+      row.reason = status === 'continuous' ? null : 'detached-source-extension'
+      row.targets = [structuredClone(target)]
+      const face = row.targets[0]?.faces[0]
+      if (!face) throw new Error('Missing aligned source face')
+      face.status = status
+      face.reason = row.reason
+      if (status === 'detached') {
+        face.endpointWitnesses[0].status = 'detached'
+        face.endpointWitnesses[0].gapPoints = 2.5
+      }
+      report.jambSpans = []
+      const loaded = (await loadFixture(packet, headers)).packet
+      expect(loaded.dimensionTargets).toEqual(report)
+      expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+    },
+  )
+  it('refuses a forged cardinal jamb interval attached to an aligned caption', async () => {
+    const { packet, headers, report, span } = pairedJambFixture()
+    const row = report.observations.find((row) => row.axis === 'aligned')
+    if (!row) throw new Error('Missing aligned source caption')
+    span.labelId = row.labelId
+    span.valueMm = row.valueMm
+    Object.assign(span, { axis: 'aligned' })
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
   function repeatedFloorFixture(valueMm: number) {
     const result = targetFixture()
     result.packet.numberCircles = { status: 'draft', refusalReason: null, cues: [] }

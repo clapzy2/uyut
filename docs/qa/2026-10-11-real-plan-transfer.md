@@ -463,6 +463,46 @@ Final local gate: 7,219 web tests / 313 files passed with four workers,
 seven-package typecheck, production build, Biome1017files and diff check passed.
 No PDF, source coordinate, accepted model or unrelated stored measurement changed.
 
+### Exact aligned source targets — 12 October
+
+Aligned captions no longer stop at the categorical unsupported-orientation
+gate. The existing target verifier checks unchanged source whole-face vectors,
+both perpendicular endpoint relations and bounded extension witnesses. Decimal
+BigInt signs use page width²/height²; image-normalized perpendicularity on a
+non-square PDF is not physical-page perpendicularity. Exact repaint aliases
+are retained, differently bounded witnesses remain alternatives, omitted ink
+holds the result and the 2,000,000 work budget remains unchanged. Literal
+detached gaps are measured in physical PDF points. Neither points nor angles
+are snapped, fitted or inverse-projected. The cardinal jamb interval contract
+is not reused for aligned faces.
+
+Exact rational rotated synthetic controls pass on square and non-square sheets,
+including a 2.5-point detached gap, reversed extension and face endpoint order,
+alternative boundary order, branching, tiny nonzero contacts, omitted ink and
+a closed detached path. Those controls are not an original-source success.
+The unchanged Rebrina original still returns five unresolved whole-target rows
+and no target/jamb interval. A local-only fresh original regression asserts
+that refusal, source immutability and false 2D/3D transfer flags.
+
+Independent inspection of original PDF decimal operands, not just render
+Float32 values, finds all ten apparent rail-tip/extension centreline contacts
+nonzero. The visible pen ink overlaps, but is not exact centreline incidence.
+Drafting extension endpoints stay about 1.68 PDF points away from nearby
+source faces. 1506 concerns a window-block span; 817/430 are door-related
+subspans; 530 concerns column/beam geometry, not a whole entry-floor face.
+684 has an equal translated vector to source fill1858 edge2, but vector equality
+alone proves neither physical ownership nor the complete extension contact.
+These cases must not be labelled Float32 noise or closed by an arbitrary tolerance.
+
+Wire tests retain continuous/detached aligned source rows without geometry
+authority and reject a fabricated cardinal jamb interval for an aligned label.
+The UI names source boundaries/frames as unconfirmed and shows direction;
+it explains the difference between visible stroke overlap and exact contact.
+No accepted geometry, stored floor, height binding or room measurement changes.
+Local gate: 7,236 web tests / 313 files passed with four workers, seven-package
+typecheck, production build, Biome1017files and diff check passed. Independent
+review found no blocking issue and the reversed-endpoint regressions passed.
+
 ### Earlier offline regression verification
 
 - Full web suite: 6,821 tests / 300 files passed, including local-only original PDF re-extractions when that ignored source exists. Public CI does not require copyrighted PDFs; deterministic unit controls remain present there.
