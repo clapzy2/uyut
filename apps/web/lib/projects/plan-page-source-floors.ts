@@ -1,8 +1,12 @@
 import type { PlanReading } from '@uyut/db'
 import { exactNativePointKey } from './plan-native-exact-intersections'
 import {
+  nativePaintedFloorBoundarySupports,
+  type SourcePaintBoundarySupport,
+} from './plan-native-painted-floor-boundaries'
+import type {
   nativePaintedFloorReview,
-  type ReviewedNativePaintedFloors,
+  ReviewedNativePaintedFloors,
 } from './plan-native-painted-floor-review'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
 
@@ -17,6 +21,7 @@ export type SourceFloorReference = {
   reason: string | null
   readOnly: true
   physicalBoundariesAccepted: false
+  boundaryInspection?: { status: 'checked' | 'held'; reason: string | null }
   floors: {
     id: string
     sourceRoomKey: string
@@ -28,6 +33,7 @@ export type SourceFloorReference = {
     nonDecimalVertices: number
     omittedStrokeCount: number
     boundaryInkComplete: boolean
+    boundarySupports?: SourcePaintBoundarySupport[]
   }[]
 }
 
@@ -71,9 +77,13 @@ export function planPageSourceFloors(input: {
     if (saved.version !== 1 || Buffer.byteLength(saved.draftJson, 'utf8') > 65536)
       return hold('invalid-saved-painted-floor-review')
     const reviewed = JSON.parse(saved.draftJson) as ReviewedNativePaintedFloors
-    const fresh = nativePaintedFloorReview({ ...input.evidence, reviewed })
+    const fresh = nativePaintedFloorBoundarySupports({ ...input.evidence, reviewed })
     if (fresh.refusalReason) return hold(fresh.refusalReason)
     report.status = 'checked'
+    report.boundaryInspection = {
+      status: fresh.boundaryInspection.status,
+      reason: fresh.boundaryInspection.reason,
+    }
     report.floors = fresh.floors.map((floor) => ({
       id: floor.id,
       sourceRoomKey: floor.owner.sourceRoomKey,
@@ -91,6 +101,13 @@ export function planPageSourceFloors(input: {
       }, 0),
       omittedStrokeCount: floor.omittedStrokeCount,
       boundaryInkComplete: floor.boundaryInkComplete,
+      ...(fresh.boundaryInspection.status === 'checked'
+        ? {
+            boundarySupports: fresh.boundaryInspection.floors.find(
+              (inspection) => inspection.floorId === floor.id,
+            )?.edges,
+          }
+        : {}),
     }))
     return report
   } catch {

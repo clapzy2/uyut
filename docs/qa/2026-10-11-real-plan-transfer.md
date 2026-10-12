@@ -44,6 +44,27 @@ Provider-reported usage for the single new request: 15,747 tokens and USD 0.1235
 
 ## Gate and next work
 
+### Follow-up: exact source-boundary coverage and paint-side linkage — 13 October
+
+The source-reference adapter now derives each outer/hole edge from a fresh painted
+floor review and original fill-only segments. Rational interval intersection and
+coverage use canonical keys, not display coordinates. Source-region side reverses
+for holes, while raw paint side is computed from the original command winding.
+Neither colour nor a declared wall-face role establishes construction semantics.
+The legacy stroked-edge contract is unchanged.
+
+Possible omitted ink is counted using the existing conservative complete vector
+envelope rule. Text/image events cannot justify absence of an omitted vector.
+Work/output/ref limits hold the inspection atomically; verified source snapshots
+stay available for unclassified save. Client validation checks every ring/edge,
+coverage, side, competing contacts, duplicate refs and bounds. The editor shows
+a source command table, with no physical acceptance or new manual JSON storage.
+
+Fresh original replay: eight regions, 144 linked source edges, 89 adjacent to
+opposite paint and 71 with possible omitted ink. Whole source-topology roundtrip
+remains unchanged and metric/2D/3D gates remain closed. These are source-span
+results, not an accepted wall/floor/jamb inventory or a completed volume.
+
 ### Follow-up: exact selected source topology in persisted working contours
 
 Rooms may carry an explicit unclassified-source-paint snapshot: floor id, exact
