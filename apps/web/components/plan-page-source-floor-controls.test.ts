@@ -67,6 +67,61 @@ function html(input: Parameters<typeof PlanPageSourceFloorControls>[0]) {
 }
 
 describe('source floor controls', () => {
+  it('shows source command coverage and paint side without claiming a physical wall or jamb', () => {
+    const input = props({
+      reference: {
+        ...reference,
+        boundaryInspection: { status: 'checked', reason: null },
+        floors: [
+          {
+            ...floor,
+            boundarySupports: [
+              {
+                ringIndex: 0,
+                edgeIndex: 0,
+                sourceRegionSide: 'left',
+                status: 'linked',
+                coverage: 'complete',
+                reason: null,
+                omittedInkCount: 2,
+                contacts: [
+                  {
+                    operationIndex: 10,
+                    subpathIndex: 0,
+                    segmentIndex: 2,
+                    startKey: '10/1:10/1',
+                    endKey: '30/1:10/1',
+                    paintSide: 'opposite-region',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    })
+    const markup = html(input)
+    expect(markup).toContain('Проверка граней исходного контура')
+    expect(markup).toContain('Полное покрытие источником')
+    expect(markup).toContain('10/0/2')
+    expect(markup).toContain('С другой стороны')
+    expect(markup).toContain('Возможных пропусков: 2')
+    expect(markup).toContain('ещё не проверка строительных стен, косяков или проходов')
+    expect(markup).not.toContain('physicalJambAccepted')
+  })
+
+  it('keeps whole-source copy available when boundary inspection exceeds its budget', () => {
+    const input = props({
+      reference: {
+        ...reference,
+        boundaryInspection: { status: 'held', reason: 'source-boundary-work-limit' },
+      },
+    })
+    expect(html(input)).toContain('Сам исходный снимок остаётся доступен')
+    expect(html(input)).toContain('source-boundary-work-limit')
+    expect(buttons(PlanPageSourceFloorControls(input))[1]?.props.disabled).toBe(false)
+  })
+
   it('offers a lazy toggle without claiming physical boundaries', () => {
     const input = props({ reference: undefined, shown: false })
     const markup = html(input)

@@ -1,20 +1,45 @@
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { z } from 'zod'
 import { exactNativePointKey } from '@/lib/projects/plan-native-exact-intersections'
+import { nativeFaceRationalPredicates } from '@/lib/projects/plan-native-face-rational'
 import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
 import type { PageContourDraft, PlanPagePreview } from './plan-page-contour-editor-model'
 
 const point = z.strictObject({ x: z.number().min(0).max(1000), y: z.number().min(0).max(1000) })
 const ring = z.array(point).min(3).max(100)
-const keys = z
-  .array(
-    z
-      .string()
-      .max(256)
-      .regex(/^(0|[1-9]\d*)\/[1-9]\d*:(0|[1-9]\d*)\/[1-9]\d*$/),
-  )
-  .min(3)
-  .max(100)
+const exactKey = z
+  .string()
+  .max(256)
+  .regex(/^(0|[1-9]\d*)\/[1-9]\d*:(0|[1-9]\d*)\/[1-9]\d*$/)
+const keys = z.array(exactKey).min(3).max(100)
+const boundarySupport = z.strictObject({
+  ringIndex: z.number().int().min(0).max(50),
+  edgeIndex: z.number().int().min(0).max(99),
+  sourceRegionSide: z.enum(['left', 'right']),
+  status: z.enum(['linked', 'partial', 'ambiguous', 'unobserved']),
+  coverage: z.enum(['complete', 'partial', 'unproved']),
+  reason: z
+    .enum([
+      'partial-source-span',
+      'competing-source-sides',
+      'competing-source-spans',
+      'missing-source-span',
+    ])
+    .nullable(),
+  omittedInkCount: z.number().int().min(0).max(6000),
+  contacts: z
+    .array(
+      z.strictObject({
+        operationIndex: z.number().int().min(0).max(99999),
+        subpathIndex: z.number().int().min(0).max(3000),
+        segmentIndex: z.number().int().min(0).max(20000),
+        startKey: exactKey,
+        endKey: exactKey,
+        paintSide: z.enum(['selected-region', 'opposite-region']),
+      }),
+    )
+    .max(100),
+})
 const referenceSchema = z.strictObject({
   version: z.literal(1),
   coordinateSystem: z.literal('page-0-1000'),
@@ -30,6 +55,12 @@ const referenceSchema = z.strictObject({
   reason: z.string().max(256).nullable(),
   readOnly: z.literal(true),
   physicalBoundariesAccepted: z.literal(false),
+  boundaryInspection: z
+    .strictObject({
+      status: z.enum(['checked', 'held']),
+      reason: z.string().min(1).max(256).nullable(),
+    })
+    .optional(),
   floors: z
     .array(
       z.strictObject({
@@ -43,6 +74,7 @@ const referenceSchema = z.strictObject({
         nonDecimalVertices: z.number().int().min(0).max(5100),
         omittedStrokeCount: z.number().int().min(0).max(6000),
         boundaryInkComplete: z.boolean(),
+        boundarySupports: z.array(boundarySupport).max(5100).optional(),
       }),
     )
     .max(50),
@@ -66,7 +98,17 @@ export function sourceFloorReferenceFromResponse(
     (report.status === 'held' ? !report.reason : report.reason !== null)
   )
     return null
+  const inspection = report.boundaryInspection
+  if (
+    inspection &&
+    (report.status !== 'checked' ||
+      (inspection.status === 'held' ? !inspection.reason : inspection.reason !== null))
+  )
+    return null
   let pointCount = 0
+  let contactCount = 0
+  let workLeft = 300_000
+  const exact = nativeFaceRationalPredicates()
   const owners = new Set<string>()
   const ids = new Set<string>()
   for (const floor of report.floors) {
@@ -100,6 +142,81 @@ export function sourceFloorReferenceFromResponse(
       floor.boundaryInkComplete !== (floor.omittedStrokeCount === 0)
     )
       return null
+    const supports = floor.boundarySupports
+    if (inspection?.status !== 'checked') {
+      if (supports !== undefined) return null
+      continue
+    }
+    const rings = [floor.exactPointKeys, ...floor.holeExactPointKeys]
+    if (!supports || supports.length !== rings.reduce((sum, ring) => sum + ring.length, 0))
+      return null
+    const seenEdges = new Set<string>()
+    const sides = rings.map((ring, index) => exact.winding(ring) * (index === 0 ? 1 : -1))
+    for (const support of supports) {
+      const ring = rings[support.ringIndex]
+      const start = ring?.[support.edgeIndex]
+      const end = ring?.[(support.edgeIndex + 1) % ring.length]
+      const edgeId = `${support.ringIndex}:${support.edgeIndex}`
+      const side = sides[support.ringIndex]
+      if (
+        !start ||
+        !end ||
+        !side ||
+        seenEdges.has(edgeId) ||
+        support.sourceRegionSide !== (side > 0 ? 'left' : 'right')
+      )
+        return null
+      seenEdges.add(edgeId)
+      contactCount += support.contacts.length
+      workLeft -= support.contacts.length
+      if (contactCount > 10000) return null
+      const refs = new Set<string>()
+      for (const contact of support.contacts) {
+        const ref = `${contact.operationIndex}:${contact.subpathIndex}:${contact.segmentIndex}`
+        const overlap = exact.sharedSpan(start, end, contact.startKey, contact.endKey)
+        if (
+          refs.has(ref) ||
+          overlap?.startKey !== contact.startKey ||
+          overlap.endKey !== contact.endKey
+        )
+          return null
+        refs.add(ref)
+      }
+      const complete = exact.coversSpan(start, end, support.contacts)
+      const competingSides = new Set(support.contacts.map((contact) => contact.paintSide)).size > 1
+      const competingSpans = support.contacts.some((contact, index) =>
+        support.contacts.slice(index + 1).some((other) => {
+          if (--workLeft < 0) return false
+          return (
+            (contact.operationIndex !== other.operationIndex ||
+              contact.subpathIndex !== other.subpathIndex) &&
+            exact.sharedSpan(contact.startKey, contact.endKey, other.startKey, other.endKey) !==
+              null
+          )
+        }),
+      )
+      if (workLeft < 0) return null
+      const reason = competingSides
+        ? 'competing-source-sides'
+        : competingSpans
+          ? 'competing-source-spans'
+          : complete
+            ? null
+            : support.contacts.length
+              ? 'partial-source-span'
+              : 'missing-source-span'
+      const status =
+        competingSides || competingSpans
+          ? 'ambiguous'
+          : complete
+            ? 'linked'
+            : support.contacts.length
+              ? 'partial'
+              : 'unobserved'
+      const coverage = complete ? 'complete' : support.contacts.length ? 'partial' : 'unproved'
+      if (support.status !== status || support.reason !== reason || support.coverage !== coverage)
+        return null
+    }
   }
   return report
 }

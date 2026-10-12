@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { exactNativePointKey } from '@/lib/projects/plan-native-exact-intersections'
+import { floorHeightFixture } from '@/lib/projects/plan-native-reviewed-floor-heights.fixture'
 import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
+import { planPageSourceFloors } from '@/lib/projects/plan-page-source-floors'
 import { pageContourRoomsForSave } from './plan-page-contour-editor-model'
 import {
   sourceFloorDraft,
@@ -46,7 +48,95 @@ function floor() {
   if (!value) throw new Error('Missing source reference')
   return value
 }
+
+function inspectedReference() {
+  const evidence = floorHeightFixture()
+  const report = planPageSourceFloors({
+    source: evidence.reviewedFloors.source,
+    sourceRevision: 'b'.repeat(64),
+    pageWidth: 1000,
+    pageHeight: 1000,
+    evidence,
+    reading: {
+      sourcePage: 3,
+      planState: 'existing',
+      readAt: '2026-10-13',
+      rooms: [{ name: 'Спальня', kind: 'bedroom', sourceNumber: 3.1 }],
+      paintedFloorReview: {
+        version: 1,
+        savedAt: 'old',
+        draftJson: JSON.stringify(evidence.reviewedFloors),
+      },
+    },
+  })
+  const preview = { ...page, sha256: report.source.sha256, width: 1000, height: 1000 }
+  return { report, preview }
+}
 describe('source reference parsing and lossless whole-ring draft copy', () => {
+  it('accepts fresh exact support rows without copying them into physical or saved topology', () => {
+    const { report, preview } = inspectedReference()
+    expect(report.boundaryInspection).toEqual({ status: 'checked', reason: null })
+    expect(
+      sourceFloorReferenceFromResponse(JSON.parse(JSON.stringify(report)), preview, 'b'.repeat(64)),
+    ).toEqual(report)
+    const selected = report.floors[0]
+    if (!selected) throw new Error('Missing source snapshot')
+    const copy = sourceFloorDraft(selected)
+    if (copy.kind !== 'candidate') throw new Error('Source copy held')
+    expect(copy.draft).not.toHaveProperty('boundarySupports')
+    expect(copy.draft.sourceTopology).not.toHaveProperty('boundarySupports')
+  })
+
+  it.each([
+    'missing-row',
+    'duplicate-row',
+    'ring',
+    'edge',
+    'region-side',
+    'span',
+    'sub-double-gap',
+    'coverage',
+    'duplicate-contact',
+    'competing-contact',
+    'missing-status',
+    'held-status',
+    'authority',
+  ] as const)('rejects inconsistent boundary support metadata: %s', (fault) => {
+    const { report, preview } = inspectedReference()
+    const selected = report.floors[0]
+    const rows = selected?.boundarySupports
+    const row = rows?.[0]
+    const contact = row?.contacts[0]
+    if (!selected || !rows || !row || !contact) throw new Error('Missing boundary fixture')
+    if (fault === 'missing-row') rows.pop()
+    if (fault === 'duplicate-row') rows[1] = structuredClone(row)
+    if (fault === 'ring') row.ringIndex = 1
+    if (fault === 'edge') row.edgeIndex = 99
+    if (fault === 'region-side') row.sourceRegionSide = 'right'
+    if (fault === 'span') contact.endKey = '400/1:100/1'
+    if (fault === 'sub-double-gap') {
+      const denominator = 10n ** 40n
+      contact.startKey = `${100n * denominator + 1n}/${denominator}:100/1`
+    }
+    if (fault === 'coverage') row.coverage = 'partial'
+    if (fault === 'duplicate-contact') row.contacts.push(structuredClone(contact))
+    if (fault === 'competing-contact')
+      row.contacts.push({ ...contact, operationIndex: 20, paintSide: 'opposite-region' })
+    if (fault === 'missing-status') delete report.boundaryInspection
+    if (fault === 'held-status')
+      report.boundaryInspection = { status: 'held', reason: 'source-boundary-work-limit' }
+    if (fault === 'authority') Object.assign(row, { physicalJambAccepted: true })
+    expect(sourceFloorReferenceFromResponse(report, preview, 'b'.repeat(64))).toBeNull()
+  })
+
+  it('keeps the source reference usable when inspection is held, without stale proof rows', () => {
+    const { report, preview } = inspectedReference()
+    report.boundaryInspection = { status: 'held', reason: 'source-boundary-work-limit' }
+    for (const selected of report.floors) delete selected.boundarySupports
+    expect(sourceFloorReferenceFromResponse(report, preview, 'b'.repeat(64))).toEqual(report)
+    expect(sourceFloorDraft(report.floors[0]).kind).toBe('candidate')
+  })
+
   it('keeps raw PDF coordinates with non-square page axes, not a raster conversion', () => {
     const input = reference()
     const before = structuredClone(input)

@@ -64,7 +64,60 @@ export function nativeFaceRationalPredicates() {
     }
     return result
   }
+  const sharedSpan = (a: string, b: string, c: string, d: string) => {
+    const first = point(a)
+    const second = point(b)
+    const third = point(c)
+    const fourth = point(d)
+    const axis = compare(first.x, second.x) === 0 ? 'y' : 'x'
+    if (
+      compare(first[axis], second[axis]) === 0 ||
+      orientation(first, second, third) !== 0n ||
+      orientation(first, second, fourth) !== 0n
+    )
+      return null
+    const ordered = (start: string, end: string) =>
+      compare(point(start)[axis], point(end)[axis]) <= 0 ? [start, end] : [end, start]
+    const [firstStart, firstEnd] = ordered(a, b) as [string, string]
+    const [secondStart, secondEnd] = ordered(c, d) as [string, string]
+    const startKey =
+      compare(point(firstStart)[axis], point(secondStart)[axis]) >= 0 ? firstStart : secondStart
+    const endKey =
+      compare(point(firstEnd)[axis], point(secondEnd)[axis]) <= 0 ? firstEnd : secondEnd
+    return compare(point(startKey)[axis], point(endKey)[axis]) < 0 ? { startKey, endKey } : null
+  }
   return {
+    orientation(a: string, b: string, probe: string) {
+      const turn = orientation(point(a), point(b), point(probe))
+      return turn < 0n ? -1 : turn > 0n ? 1 : 0
+    },
+    winding(keys: string[]) {
+      const polygon = keys.map(point)
+      const area = polygon.reduce((sum, vertex, index) => {
+        const next = polygon[(index + 1) % polygon.length] as Point
+        return add(sum, subtract(multiply(vertex.x, next.y), multiply(next.x, vertex.y)))
+      }, fraction(0n))
+      return area.n < 0n ? -1 : area.n > 0n ? 1 : 0
+    },
+    sharedSpan,
+    coversSpan(a: string, b: string, spans: { startKey: string; endKey: string }[]) {
+      const target = sharedSpan(a, b, a, b)
+      if (!target) return false
+      const axis = compare(point(a).x, point(b).x) === 0 ? 'y' : 'x'
+      const compareKeys = (first: string, second: string) =>
+        compare(point(first)[axis], point(second)[axis])
+      const contacts = spans
+        .map((span) => sharedSpan(a, b, span.startKey, span.endKey))
+        .filter((span) => span !== null)
+        .sort((first, second) => compareKeys(first.startKey, second.startKey))
+      let covered = target.startKey
+      for (const contact of contacts) {
+        if (compareKeys(contact.startKey, covered) > 0) return false
+        if (compareKeys(contact.endKey, covered) > 0) covered = contact.endKey
+        if (compareKeys(covered, target.endKey) === 0) return true
+      }
+      return false
+    },
     equalSpanVectors(a: string, b: string, c: string, d: string) {
       const firstStart = point(a)
       const firstEnd = point(b)
