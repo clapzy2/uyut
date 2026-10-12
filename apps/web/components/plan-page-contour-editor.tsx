@@ -1,7 +1,12 @@
 // biome-ignore-all lint/suspicious/noArrayIndexKey: ordered polygon vertices keep their coordinate-field identity
 'use client'
 
-import type { PlanPageContours, PlanPageEndpointProof, PlanReading } from '@uyut/db'
+import type {
+  PlanPageContours,
+  PlanPageEndpointProof,
+  PlanPageVertexProof,
+  PlanReading,
+} from '@uyut/db'
 import { Button, inputClassName } from '@uyut/ui'
 import { type MouseEvent, useEffect, useRef, useState } from 'react'
 import { savePlanPageReview } from '@/actions/plan-page-review'
@@ -47,6 +52,7 @@ import { PlanPageEdgeDimensions } from './plan-page-edge-dimensions'
 import { PlanPageFeatureOverlay } from './plan-page-feature-overlay'
 import { type NewPageFeatureKind, PlanPageFeatures } from './plan-page-features'
 import { PlanPagePointControls } from './plan-page-point-controls'
+import { snapPageSourceContourPoint } from './plan-page-vertex-candidate'
 
 const MAX_POINTS = 100
 
@@ -95,6 +101,7 @@ export function PlanPageContourEditor({
     point: PageContourPoint
     index?: number
     proof?: PlanPageEndpointProof
+    vertexProof?: PlanPageVertexProof
   }>()
   const [nodeFeedback, setNodeFeedback] = useState<string>()
   const [loading, setLoading] = useState(true)
@@ -273,21 +280,25 @@ export function PlanPageContourEditor({
   function changeSelected(
     polygon: PageContourPoint[],
     closed = false,
-    replacement?: { index: number; proof?: PlanPageEndpointProof },
+    replacement?: {
+      index: number
+      proof?: PlanPageEndpointProof
+      vertexProof?: PlanPageVertexProof
+    },
   ) {
     if (pointsLocked) return
     if (editingBoundary) {
       if (editingBoundary === 'floor') {
         setFloor((current) => ({
           polygon,
-          vertexProofs: pageContourVertexProofsChanged(current, polygon),
+          vertexProofs: pageContourVertexProofsChanged(current, polygon, replacement),
         }))
         setFloorClosed(closed)
       } else {
         setExterior((current) => ({
           ...current,
           polygon,
-          vertexProofs: pageContourVertexProofsChanged(current, polygon),
+          vertexProofs: pageContourVertexProofsChanged(current, polygon, replacement),
         }))
         setExteriorClosed(closed)
       }
@@ -315,7 +326,7 @@ export function PlanPageContourEditor({
                   ...pdfContourIdentity(selectedIdentity),
                   polygon,
                   closed,
-                  vertexProofs: pageContourVertexProofsChanged(before, polygon),
+                  vertexProofs: pageContourVertexProofsChanged(before, polygon, replacement),
                   ...(before?.openings ? { openings: before.openings } : {}),
                   ...(before?.conditionalEdges
                     ? { conditionalEdges: before.conditionalEdges }
@@ -480,12 +491,26 @@ export function PlanPageContourEditor({
     const candidate =
       a && b
         ? snapPageOpeningPoint(point, nativePoints, preview, [a, b], nativeSegments)
-        : snapPageContourPoint(point, nativePoints, preview)
+        : selectedVoid || (!editingBoundary && target.kind === 'obstacle')
+          ? snapPageContourPoint(point, nativePoints, preview)
+          : snapPageSourceContourPoint(
+              point,
+              nativePoints,
+              preview,
+              nativeSegments,
+              index ?? points.length,
+            )
     setChecked(false)
     setProposal(undefined)
     if (candidate.kind === 'none') {
       setNodeFeedback(
         'Рядом нет узла исходного PDF. Увеличьте лист и отметьте пересечение линий точнее.',
+      )
+    } else if (candidate.kind === 'held') {
+      setNodeFeedback(
+        candidate.reason === 'intersection-budget'
+          ? 'В этой точке слишком много исходных линий для однозначной проверки. Выберите исходный узел или уточните участок.'
+          : 'Пересечение нельзя сохранить без потери исходной точности. Оно не округляется до ближайшей вершины; выберите проверенный узел PDF.',
       )
     } else if (candidate.kind === 'ambiguous') {
       setNodeFeedback(
@@ -494,13 +519,16 @@ export function PlanPageContourEditor({
     } else {
       setProposal({
         point: candidate.point,
-        proof: candidate.proof,
+        proof: 'proof' in candidate ? candidate.proof : undefined,
+        vertexProof: 'vertexProof' in candidate ? candidate.vertexProof : undefined,
         ...(index !== undefined ? { index } : {}),
       })
       setNodeFeedback(
-        candidate.proof
-          ? 'Проверьте пересечение исходного отрезка со стороной комнаты. Сервер повторно вычислит его по этому PDF; произвольные координаты не принимаются.'
-          : 'Проверьте отмеченный узел на листе и примите привязку. Координаты берутся из исходного PDF без округления.',
+        'vertexProof' in candidate && candidate.vertexProof
+          ? 'Проверьте пересечение двух ограниченных линий PDF. Точная дробная запись и исходные отрезки сохраняются; сервер пересчитает пересечение без округления. Назначение стены или пола этим не подтверждается.'
+          : 'proof' in candidate && candidate.proof
+            ? 'Проверьте пересечение исходного отрезка со стороной комнаты. Сервер повторно вычислит его по этому PDF; произвольные координаты не принимаются.'
+            : 'Проверьте отмеченный узел на листе и примите привязку. Координаты берутся из исходного PDF без округления.',
       )
     }
   }
@@ -514,6 +542,7 @@ export function PlanPageContourEditor({
     changeSelected(polygon, proposal.index === undefined ? false : closed, {
       index: proposal.index ?? points.length,
       proof: proposal.proof,
+      vertexProof: proposal.vertexProof,
     })
     setNodeFeedback(
       'Точка привязана к исходным линиям PDF. Подписанный размер сверяется отдельно после сохранения.',

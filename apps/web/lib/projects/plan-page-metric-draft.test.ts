@@ -448,6 +448,83 @@ describe('native PDF page to metric draft', () => {
       false,
     )
   })
+  it('retains a decimal-exact diagonal floor crossing without confirming the metric draft', () => {
+    const { reading, context, path } = synthetic()
+    const envelope = [
+      { x: 0, y: 0 },
+      { x: 330, y: 0 },
+      { x: 330, y: 430 },
+      { x: 0, y: 430 },
+    ]
+    const polygon = [
+      { x: 5, y: 5 },
+      { x: 315, y: 5 },
+      { x: 320, y: 10 },
+      { x: 320, y: 420 },
+      { x: 5, y: 420 },
+    ]
+    const diagonalPaths = [
+      path([
+        { x: 305, y: 0 },
+        { x: 325, y: 10 },
+      ]),
+      path([
+        { x: 305, y: 10 },
+        { x: 325, y: 0 },
+      ]),
+    ]
+    context.linework.paths.push(
+      path(envelope, true),
+      path([
+        { x: 5, y: 5 },
+        { x: 5, y: 420 },
+        { x: 320, y: 420 },
+        { x: 320, y: 10 },
+      ]),
+      ...diagonalPaths,
+    )
+    const segments = nativePageSegments({ ...context.linework, paths: diagonalPaths })
+    const first = segments[0]
+    const second = segments[1]
+    if (!first || !second) throw new Error('Missing diagonal source segments')
+    context.contours.exterior = { boundaryRole: 'outer-wall-envelope', polygon: envelope }
+    context.contours.floor = {
+      polygon,
+      vertexProofs: [
+        {
+          vertexIndex: 1,
+          kind: 'bounded-native-rational-crossing',
+          exactPointKey: '315/1:5/1',
+          segments: [first, second],
+        },
+      ],
+    }
+    const before = structuredClone(context)
+    const nodes = context.linework.paths.flatMap((item) => item.points)
+    const resavedFloor = pageFloorForSave(
+      context.contours.floor,
+      true,
+      nodes,
+      nativePageSegments(context.linework),
+    )
+    expect(resavedFloor).toEqual(context.contours.floor)
+    const result = planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [4] }, [4])
+    expect(result.ok, result.ok ? '' : result.error).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.geometry.footprint).toEqual(polygon.map(({ x, y }) => ({ xCm: x, yCm: y })))
+    expect(result.geometry.status).toBe('draft')
+    expect(result.geometry.confirmedAt).toBeUndefined()
+    expect(planVolume(result.geometry)).toBeNull()
+    expect(roomLayoutInputFromGeometry(result.geometry, 'Спальня', null)).toBeNull()
+    expect(context).toEqual(before)
+    const proof = context.contours.floor.vertexProofs?.[0]
+    if (proof?.kind !== 'bounded-native-rational-crossing') throw new Error('Missing floor proof')
+    proof.exactPointKey = '321/1:5/1'
+    expect(planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [4] }, [4]).ok).toBe(
+      false,
+    )
+  })
+
   it('transfers a separately reviewed floor without creating walls from its boundary', () => {
     const { reading, context, path } = synthetic()
     const envelope = [

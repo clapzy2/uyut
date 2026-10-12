@@ -1,7 +1,11 @@
 import type { PlanPageContours, PlanPageReview, PlanReading } from '@uyut/db'
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { z } from 'zod'
-import { exactNativePolygonsOverlap } from './plan-native-exact-intersections'
+import {
+  exactNativeCrossing,
+  exactNativePointKey,
+  exactNativePolygonsOverlap,
+} from './plan-native-exact-intersections'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import {
   type NativePageSegment,
@@ -36,11 +40,22 @@ const vertexSegmentSchema = endpointProofSchema.omit({ kind: true }).extend({
 })
 const vertexProofsSchema = z
   .array(
-    z.strictObject({
-      vertexIndex: z.number().int().min(0).max(99),
-      kind: z.literal('bounded-native-crossing'),
-      segments: z.tuple([vertexSegmentSchema, vertexSegmentSchema]),
-    }),
+    z.discriminatedUnion('kind', [
+      z.strictObject({
+        vertexIndex: z.number().int().min(0).max(99),
+        kind: z.literal('bounded-native-crossing'),
+        segments: z.tuple([vertexSegmentSchema, vertexSegmentSchema]),
+      }),
+      z.strictObject({
+        vertexIndex: z.number().int().min(0).max(99),
+        kind: z.literal('bounded-native-rational-crossing'),
+        segments: z.tuple([vertexSegmentSchema, vertexSegmentSchema]),
+        exactPointKey: z
+          .string()
+          .max(256)
+          .regex(/^(0|[1-9]\d*)\/[1-9]\d*:(0|[1-9]\d*)\/[1-9]\d*$/),
+      }),
+    ]),
   )
   .max(100)
   .optional()
@@ -500,11 +515,15 @@ export function sourceRoomContourVertices(
   const proven = new Set<number>()
   for (const proof of room.vertexProofs ?? []) {
     const point = room.polygon[proof.vertexIndex]
-    if (!point || proof.kind !== 'bounded-native-crossing' || proven.has(proof.vertexIndex))
+    if (
+      !point ||
+      !['bounded-native-crossing', 'bounded-native-rational-crossing'].includes(proof.kind) ||
+      proven.has(proof.vertexIndex)
+    )
       return false
     const first = byRef.get(refKey(proof.segments[0]))
     const second = byRef.get(refKey(proof.segments[1]))
-    if (!first || !second) return false
+    if (!first || !second || refKey(first) === refKey(second)) return false
     if (
       [first, second].some((segment, index) => {
         const snapshot = proof.segments[index]
@@ -518,8 +537,23 @@ export function sourceRoomContourVertices(
       })
     )
       return false
-    const crossing = nativeEdgeCrossing([first.start, first.end], second)
-    if (!crossing || crossing.x !== point.x || crossing.y !== point.y) return false
+    if (proof.kind === 'bounded-native-rational-crossing') {
+      const crossing = exactNativeCrossing(first, second)
+      // The current contour/metric consumers operate on decimal coordinates.
+      // Retain arbitrary-angle evidence only when no rational vertex is rounded
+      // into that domain. Non-terminating intersections remain held here.
+      if (
+        !crossing.point ||
+        crossing.exactPointKey !== proof.exactPointKey ||
+        exactNativePointKey(crossing.point) !== crossing.exactPointKey ||
+        crossing.point.x !== point.x ||
+        crossing.point.y !== point.y
+      )
+        return false
+    } else {
+      const crossing = nativeEdgeCrossing([first.start, first.end], second)
+      if (!crossing || crossing.x !== point.x || crossing.y !== point.y) return false
+    }
     proven.add(proof.vertexIndex)
   }
   for (const edge of room.conditionalEdges ?? []) {

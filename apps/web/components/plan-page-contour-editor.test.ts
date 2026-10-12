@@ -54,6 +54,8 @@ const slots = {
   imageReady: 12,
   nativePoints: 13,
   nativeSegments: 14,
+  proposal: 17,
+  feedback: 18,
   loading: 19,
   checked: 23,
   state: 24,
@@ -133,6 +135,85 @@ function updateFor(index: number, before: unknown): unknown {
 }
 
 describe('editor crossing proof wiring', () => {
+  it.each(['room', 'floor', 'exterior'] as const)(
+    'requires explicit acceptance of a diagonal %s vertex and carries its exact proof',
+    (kind) => {
+      const fixture = sourceFixture()
+      const drafts = contourDraftsFromSaved(fixture.contours.rooms)
+      const segments = [
+        {
+          operationIndex: 1,
+          subpathIndex: 0,
+          segmentIndex: 0,
+          start: { x: 10, y: 10 },
+          end: { x: 30, y: 30 },
+        },
+        {
+          operationIndex: 2,
+          subpathIndex: 0,
+          segmentIndex: 0,
+          start: { x: 10, y: 30 },
+          end: { x: 30, y: 10 },
+        },
+      ]
+      hooks.values.set(slots.drafts, drafts)
+      hooks.values.set(slots.exterior, fixture.contours.exterior)
+      hooks.values.set(slots.floor, fixture.contours.floor)
+      hooks.values.set(slots.boundary, kind === 'room' ? undefined : kind)
+      hooks.values.set(slots.preview, { width: 1000, height: 1000 })
+      hooks.values.set(slots.nativePoints, fixture.polygon)
+      hooks.values.set(slots.nativeSegments, segments)
+      hooks.values.set(slots.imageReady, true)
+      hooks.values.set(slots.loading, false)
+      const editor = renderEditor(fixture.reading)
+      childProps<ComponentProps<typeof PlanPagePointControls>>(
+        editor,
+        PlanPagePointControls,
+      ).onPropose({ x: 20, y: 20 }, 1)
+      const proposal = updateFor(slots.proposal, undefined)
+      expect(proposal).toMatchObject({
+        point: { x: 20, y: 20 },
+        index: 1,
+        vertexProof: {
+          kind: 'bounded-native-rational-crossing',
+          exactPointKey: '20/1:20/1',
+          vertexIndex: 1,
+        },
+      })
+      const slot = kind === 'room' ? slots.drafts : slots[kind]
+      expect(hooks.setters.get(slot)).not.toHaveBeenCalled()
+      hooks.values.set(slots.proposal, proposal)
+      hooks.cursor = 0
+      const acceptedEditor = renderEditor(fixture.reading)
+      const section = (
+        acceptedEditor.props.children as ReactElement<{ children: ReactElement[] }>[]
+      ).find(
+        (child) =>
+          Array.isArray(child?.props?.children) &&
+          child.props.children.some(
+            (item) => (item?.props as { children?: unknown })?.children === 'Принять узел PDF',
+          ),
+      )
+      const accept = section?.props.children.find(
+        (item) => (item?.props as { children?: unknown })?.children === 'Принять узел PDF',
+      ) as ReactElement<{ onClick: () => void }> | undefined
+      if (!accept) throw new Error('Explicit acceptance control missing')
+      accept.props.onClick()
+      const result = updateFor(slot, kind === 'room' ? drafts : fixture.contours[kind])
+      const contour = kind === 'room' ? (result as typeof drafts)[0] : result
+      expect(contour).toMatchObject({
+        vertexProofs: [
+          { kind: 'bounded-native-rational-crossing', exactPointKey: '20/1:20/1', vertexIndex: 1 },
+        ],
+      })
+      expect((contour as { polygon: { x: number; y: number }[] }).polygon[1]).toEqual({
+        x: 20,
+        y: 20,
+      })
+      expect(savePlanPageReview).not.toHaveBeenCalled()
+    },
+  )
+
   it.each(['room', 'floor', 'exterior'] as const)(
     'retains %s proofs when closing and discards only a moved vertex proof',
     (kind) => {

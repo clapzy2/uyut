@@ -6,6 +6,7 @@ import type {
   PlanPageOpeningCheck,
   PlanPageReview,
   PlanPageRoomIdentity,
+  PlanPageVertexProof,
   PlanRoomReading,
 } from '@uyut/db'
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
@@ -119,13 +120,23 @@ export function pageFloorForSave(
 export function pageContourVertexProofsChanged(
   before: Pick<PlanPageContours['rooms'][number], 'polygon' | 'vertexProofs'> | undefined,
   polygon: PageContourPoint[],
+  replacement?: { index: number; vertexProof?: PlanPageVertexProof },
 ): PlanPageContours['rooms'][number]['vertexProofs'] {
   const retained = before?.vertexProofs?.filter(({ vertexIndex }) => {
+    if (replacement?.index === vertexIndex) return false
     const oldPoint = before.polygon[vertexIndex]
     const point = polygon[vertexIndex]
     return oldPoint && point && oldPoint.x === point.x && oldPoint.y === point.y
   })
-  return retained?.length ? structuredClone(retained) : undefined
+  const proofs = retained ? structuredClone(retained) : []
+  if (
+    replacement?.vertexProof &&
+    replacement.index === replacement.vertexProof.vertexIndex &&
+    polygon[replacement.index] &&
+    finiteContourPoint(polygon[replacement.index] as PageContourPoint)
+  )
+    proofs.push(structuredClone(replacement.vertexProof))
+  return proofs.length ? proofs : undefined
 }
 
 /** A started void must be closed and bound to original PDF vertices before saving. */

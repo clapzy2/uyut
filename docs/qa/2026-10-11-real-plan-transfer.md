@@ -44,6 +44,30 @@ Provider-reported usage for the single new request: 15,747 tokens and USD 0.1235
 
 ## Gate and next work
 
+### Follow-up: decimal-exact arbitrary-angle source stroke vertices
+
+Reviewed source contours now support a distinct bounded native rational crossing
+proof. The server recomputes the physical-conditioned intersection of two unique
+fresh stroke refs, checks their endpoint snapshots and canonical exact key, and
+requires that the displayed decimal point round-trips to that exact key. Legacy
+cardinal proof semantics remain unchanged. Non-terminating rational coordinates,
+changed refs/snapshots, unreduced or aliased keys, duplicate evidence, unbounded
+extensions and ill-conditioned crossings remain held.
+
+The editor searches nearby source segments only for room/floor/exterior vertices.
+The 3-point screen-distance window proposes a location, never adjusts the source
+intersection. At most 200 nearby segments and 20,000 input segments are inspected;
+competing pairs or nearby locations are not selected by array order. An unsupported
+nearby rational is not ignored in favour of a supported alternative. Exact native
+nodes remain authoritative. Acceptance is explicit; replacing a vertex removes its
+old proof, while opening endpoint, obstacle and technical-void behavior is unchanged.
+
+A synthetic five-vertex floor with a diagonal notch is freshly revalidated and
+round-tripped through the editor into the metric draft. Layout/3D stay unconfirmed.
+This does not import the original painted-floor selections: those include fill-mask
+intersections outside the current stroke proof contract. Rational topology and holes,
+physical wall/jamb evidence, independent scale and vertical levels remain unfinished.
+
 ### Follow-up: retain source vertex evidence through the contour editor
 
 The existing server accepts bounded native segment crossings in reviewed room,

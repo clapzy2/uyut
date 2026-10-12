@@ -1,12 +1,15 @@
 import type { PlanPageContours, PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
+import { exactNativeCrossing } from './plan-native-exact-intersections'
 import {
   planPageContoursSchema,
   planPageFeaturesIssue,
   planPageReviewIssue,
   retainedPlanPageReview,
+  sourceRoomContourVertices,
 } from './plan-page-review'
 import type { PdfLinework } from './plan-pdf-linework'
+import { nativePageSegments } from './plan-pdf-opening-endpoint'
 
 const contours: PlanPageContours = {
   source: { sha256: 'a'.repeat(64), pdfPage: 6, state: 'existing' },
@@ -125,6 +128,173 @@ describe('versioned source page review', () => {
     expect(planPageReviewIssue(input, reading, input.source, work)).toBe(
       'non-native-contour-vertex',
     )
+  })
+
+  function diagonalCrossingReview() {
+    const work = structuredClone(linework)
+    work.paths = [
+      {
+        ...at(linework.paths),
+        points: [
+          { x: 10, y: 10 },
+          { x: 40, y: 40 },
+        ],
+      },
+      {
+        ...at(linework.paths),
+        operationIndex: 2,
+        points: [
+          { x: 10, y: 35 },
+          { x: 35, y: 10 },
+        ],
+      },
+    ]
+    const segments = nativePageSegments(work)
+    const input = structuredClone(contours)
+    const room = at(input.rooms)
+    room.polygon = [
+      { x: 10, y: 10 },
+      { x: 22.5, y: 22.5 },
+      { x: 35, y: 10 },
+    ]
+    room.vertexProofs = [
+      {
+        vertexIndex: 1,
+        kind: 'bounded-native-rational-crossing',
+        exactPointKey: '45/2:45/2',
+        segments: [structuredClone(at(segments)), structuredClone(at(segments, 1))],
+      },
+    ]
+    return { input, work }
+  }
+
+  it('rechecks an exactly representable diagonal crossing without moving source coordinates', () => {
+    const { input, work } = diagonalCrossingReview()
+    const before = structuredClone({ input, work })
+    expect(planPageContoursSchema.safeParse(input).success).toBe(true)
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBeUndefined()
+    expect({ input, work }).toEqual(before)
+  })
+
+  it.each([
+    'wrong-key',
+    'unreduced-key',
+    'rounded-point',
+    'stale-snapshot',
+    'duplicate-index',
+    'duplicate-ref',
+    'same-ref',
+    'missing-source',
+    'extension',
+    'legacy-kind',
+  ])('refuses %s diagonal crossing evidence without coordinate repair', (change) => {
+    const { input, work } = diagonalCrossingReview()
+    const room = at(input.rooms)
+    const proof = at(room.vertexProofs)
+    if (proof.kind !== 'bounded-native-rational-crossing') throw new Error('Missing rational proof')
+    if (change === 'wrong-key') proof.exactPointKey = '46/2:45/2'
+    if (change === 'unreduced-key') proof.exactPointKey = '90/4:90/4'
+    if (change === 'rounded-point') at(room.polygon, 1).x += 0.000001
+    if (change === 'stale-snapshot') proof.segments[0].end.x += 1
+    if (change === 'duplicate-index') room.vertexProofs?.push(structuredClone(proof))
+    if (change === 'duplicate-ref') work.paths.push(structuredClone(at(work.paths)))
+    if (change === 'same-ref') proof.segments[1] = structuredClone(proof.segments[0])
+    if (change === 'missing-source') work.paths.pop()
+    if (change === 'extension') {
+      at(at(work.paths).points, 1).x = 20
+      at(at(work.paths).points, 1).y = 20
+      proof.segments[0].end = { x: 20, y: 20 }
+    }
+    if (change === 'legacy-kind')
+      room.vertexProofs = [
+        {
+          vertexIndex: proof.vertexIndex,
+          kind: 'bounded-native-crossing',
+          segments: proof.segments,
+        },
+      ]
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBe(
+      'non-native-contour-vertex',
+    )
+  })
+
+  it.each([undefined, '', '0/0:1/1', '-1/1:1/1', '045/2:45/2', '2.25e1:2.25e1', '1'.repeat(257)])(
+    'bounds the exact-key wire format before source revalidation (%s)',
+    (exactPointKey) => {
+      const { input } = diagonalCrossingReview()
+      const proof = at(at(input.rooms).vertexProofs)
+      expect(
+        planPageContoursSchema.safeParse({
+          ...input,
+          rooms: [{ ...at(input.rooms), vertexProofs: [{ ...proof, exactPointKey }] }],
+        }).success,
+      ).toBe(false)
+    },
+  )
+
+  it('holds a non-terminating source crossing instead of accepting its rounded display point', () => {
+    const { input, work } = diagonalCrossingReview()
+    at(work.paths, 1).points = [
+      { x: 10, y: 11 },
+      { x: 40, y: 10 },
+    ]
+    const segments = nativePageSegments(work)
+    const crossing = exactNativeCrossing(at(segments), at(segments, 1))
+    if (!crossing.point) throw new Error('Missing rational source intersection')
+    const room = at(input.rooms)
+    room.polygon[1] = crossing.point
+    room.polygon[2] = { x: 40, y: 10 }
+    room.vertexProofs = [
+      {
+        vertexIndex: 1,
+        kind: 'bounded-native-rational-crossing',
+        exactPointKey: crossing.exactPointKey,
+        segments: [at(segments), at(segments, 1)],
+      },
+    ]
+    expect(planPageContoursSchema.safeParse(input).success).toBe(true)
+    expect(planPageReviewIssue(input, reading, input.source, work)).toBe(
+      'non-native-contour-vertex',
+    )
+  })
+
+  it('keeps the physical conditioning guard even for a rational proof', () => {
+    const first = {
+      operationIndex: 1,
+      subpathIndex: 0,
+      segmentIndex: 0,
+      start: { x: 0, y: 0 },
+      end: { x: 1000, y: 1000 },
+    }
+    const second = {
+      operationIndex: 2,
+      subpathIndex: 0,
+      segmentIndex: 0,
+      start: { x: 0, y: 0.00000000000001 },
+      end: { x: 1000, y: 999.9999999999999 },
+    }
+    const paintCrossing = exactNativeCrossing(first, second, {
+      topology: 'source-decimal-rational',
+    })
+    if (!paintCrossing.point) throw new Error('Missing paint-only rational crossing')
+    expect(exactNativeCrossing(first, second).reason).toBe('ill-conditioned-intersection')
+    expect(
+      sourceRoomContourVertices(
+        {
+          polygon: [{ x: 0, y: 0 }, paintCrossing.point, { x: 1000, y: 0 }],
+          vertexProofs: [
+            {
+              vertexIndex: 1,
+              kind: 'bounded-native-rational-crossing',
+              exactPointKey: paintCrossing.exactPointKey,
+              segments: [first, second],
+            },
+          ],
+        },
+        new Set(['0:0', '1000:0']),
+        [first, second],
+      ),
+    ).toBe(false)
   })
 
   it.each([
