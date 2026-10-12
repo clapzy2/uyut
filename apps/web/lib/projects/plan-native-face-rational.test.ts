@@ -1,10 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { nativeFaceRationalPredicates } from './plan-native-face-rational'
+import {
+  nativeFaceRationalPredicates,
+  nativePagePointKeyIsCanonical,
+} from './plan-native-face-rational'
 
 const diagonal = ['1/3:1/3', '2/3:2/3', '4/3:4/3', '7/3:7/3'] as const
 const span = (startKey: string, endKey: string) => ({ startKey, endKey })
 
 describe('exact rational boundary span predicates', () => {
+  it('checks perpendicular offsets in physical page coordinates without rounding rational points', () => {
+    const exact = nativeFaceRationalPredicates()
+    expect(exact.physicalDotSign('0/1:0/1', '1/3:1/3', '0/1:1/3', '2/3:0/1', 1, 2)).toBe(-1)
+    expect(exact.physicalDotSign('0/1:0/1', '1/3:1/3', '0/1:1/3', '4/3:0/1', 1, 2)).toBe(0)
+    expect(exact.physicalDotSign('0/1:0/1', '1/3:1/3', '0/1:1/3', '4/3:0/1', 2, 1)).toBe(1)
+    expect(() => exact.physicalDotSign('0/1:0/1', '1/3:1/3', '0/1:1/3', '4/3:0/1', 0, 1)).toThrow()
+  })
+  it.each(['2/6:1/3', '0/2:1/1', '1001/1:0/1', '-1/1:0/1', '1/0:0/1'])(
+    'rejects noncanonical or unbounded page key %s',
+    (key) => expect(nativePagePointKeyIsCanonical(key)).toBe(false),
+  )
+  it('retains genuinely canonical fractions for exact page references', () => {
+    expect(nativePagePointKeyIsCanonical('1/3:1000/1')).toBe(true)
+    expect(nativePagePointKeyIsCanonical('0/1:0/1')).toBe(true)
+  })
   it('computes orientation without reducing thirds to display coordinates', () => {
     const exact = nativeFaceRationalPredicates()
     expect(exact.orientation(diagonal[0], diagonal[3], diagonal[1])).toBe(0)

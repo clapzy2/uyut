@@ -119,6 +119,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           pageWidth: page.linework.pageWidth,
           pageHeight: page.linework.pageHeight,
           reading: current.planReading,
+          includeSpanVisibility: request.nextUrl.searchParams.get('evidenceVersion') === '2',
           evidence:
             page.nativeTextAnchors && page.lineworkRasterSource
               ? {
@@ -156,6 +157,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         work: page.linework,
         lineworkSource: page.lineworkRasterSource,
         savedReading: current.planReading ?? undefined,
+        includeEndpointWitnesses: request.nextUrl.searchParams.get('evidenceVersion') === '2',
       })
       const afterInspection = await assertOwnerOrCollaborator(session.user.id, id)
       if (revision !== planEditRevision(afterInspection.planUrl, afterInspection.planReading))

@@ -35,6 +35,43 @@ function refreshSelection(fixture: ReturnType<typeof input>) {
 }
 
 describe('fresh exact source paint boundary coverage, not physical walls', () => {
+  it('checks later ordinary paint separately from exact boundary coverage when explicitly requested', () => {
+    const fixture = input()
+    fixture.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 10,
+          kind: 'vector',
+          subpathCount: 1,
+          bounds: { left: 100, top: 100, right: 300, bottom: 300 },
+          reason: null,
+        },
+        {
+          operationIndex: 1000,
+          kind: 'image',
+          bounds: { left: 90, top: 90, right: 310, bottom: 310 },
+          reason: null,
+        },
+      ],
+    }
+    const legacy = nativePaintedFloorBoundarySupports(fixture)
+    const result = nativePaintedFloorBoundarySupports({ ...fixture, includeSpanVisibility: true })
+    expect(legacy.boundaryInspection.floors[0]?.edges[0]?.contacts[0]).not.toHaveProperty(
+      'visibility',
+    )
+    for (const row of result.boundaryInspection.floors[0]?.edges ?? []) {
+      expect(row).toMatchObject({ status: 'linked', coverage: 'complete', omittedInkCount: 0 })
+      expect(row.contacts[0]?.visibility).toMatchObject({
+        status: 'held',
+        reason: 'later-paint-may-cover-source-span',
+        blockerOperations: [1000],
+      })
+    }
+    expect(result.floors).toEqual(legacy.floors)
+    expect(result.physicalBoundariesAccepted).toBe(false)
+  })
   it('links fill-only boundaries without changing the legacy stroked-edge contract', () => {
     const fixture = input()
     const before = structuredClone(fixture)

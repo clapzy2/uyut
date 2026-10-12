@@ -183,6 +183,20 @@ export function PlanPageSourceFloorControls({
                                 Возможных пропусков: {edge.omittedInkCount}
                               </p>
                             ) : null}
+                            {edge.contacts.some((contact) => contact.visibility) ? (
+                              <p className="text-ink-2">
+                                {edge.contacts.every(
+                                  (contact) => contact.visibility?.status === 'unoccluded',
+                                )
+                                  ? 'Поздняя краска исключена на этих отрезках'
+                                  : 'Видимость исходных отрезков удержана'}
+                                {edge.contacts.some(
+                                  (contact) => contact.visibility?.blockerOperations.length,
+                                )
+                                  ? ` · возможных наложений: ${new Set(edge.contacts.flatMap((contact) => contact.visibility?.blockerOperations ?? [])).size}`
+                                  : null}
+                              </p>
+                            ) : null}
                           </td>
                           <td className="py-2 text-ink-2">
                             {sides.size > 1
@@ -282,6 +296,21 @@ export function PlanPageSourceFloorControls({
                                 ) : null}
                                 {target.laterPaintCount ? (
                                   <p>Поздних наложений: {target.laterPaintCount}</p>
+                                ) : null}
+                                {target.visibility ? (
+                                  <p>
+                                    {target.visibility.status === 'unoccluded'
+                                      ? 'Поздняя краска исключена на исходном отрезке'
+                                      : 'Видимость исходного отрезка удержана'}
+                                    {target.visibility.blockerOperations.length
+                                      ? ` · возможных наложений: ${target.visibility.blockerOperations.length}`
+                                      : null}
+                                  </p>
+                                ) : null}
+                                {target.independentVisibility?.some(
+                                  (item) => item.visibility.status === 'held',
+                                ) ? (
+                                  <p>Видимость независимых косяковых источников удержана</p>
                                 ) : null}
                               </td>
                             </tr>

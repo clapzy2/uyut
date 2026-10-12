@@ -1,7 +1,10 @@
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { z } from 'zod'
 import { exactNativePointKey } from '@/lib/projects/plan-native-exact-intersections'
-import { nativeFaceRationalPredicates } from '@/lib/projects/plan-native-face-rational'
+import {
+  nativeFaceRationalPredicates,
+  nativePagePointKeyIsCanonical,
+} from '@/lib/projects/plan-native-face-rational'
 import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
 import type { PageContourDraft, PlanPagePreview } from './plan-page-contour-editor-model'
 
@@ -11,12 +14,53 @@ const exactKey = z
   .string()
   .max(256)
   .regex(/^(0|[1-9]\d*)\/[1-9]\d*:(0|[1-9]\d*)\/[1-9]\d*$/)
+  .refine(nativePagePointKeyIsCanonical)
 const keys = z.array(exactKey).min(3).max(100)
 const sourceRef = z.strictObject({
   operationIndex: z.number().int().min(0).max(99999),
   subpathIndex: z.number().int().min(0).max(3000),
   segmentIndex: z.number().int().min(0).max(20000),
 })
+const spanVisibility = z.strictObject({
+  status: z.enum(['unoccluded', 'held']),
+  reason: z.string().min(1).max(128).nullable(),
+  sourceRef: sourceRef.nullable(),
+  blockerOperations: z.array(z.number().int().min(0).max(99999)).max(6000),
+})
+function validVisibility(
+  value: z.infer<typeof spanVisibility>,
+  expected: z.infer<typeof sourceRef>,
+) {
+  const ref = value.sourceRef
+  const blockers = value.blockerOperations
+  if (
+    ref &&
+    (ref.operationIndex !== expected.operationIndex ||
+      ref.subpathIndex !== expected.subpathIndex ||
+      ref.segmentIndex !== expected.segmentIndex)
+  )
+    return false
+  if (
+    blockers.some(
+      (operation, index) =>
+        !ref ||
+        operation <= ref.operationIndex ||
+        (index > 0 && operation <= (blockers[index - 1] as number)),
+    )
+  )
+    return false
+  return value.status === 'unoccluded'
+    ? ref !== null && value.reason === null && blockers.length === 0
+    : value.reason === 'later-paint-may-cover-source-span'
+      ? ref !== null && blockers.length > 0
+      : [
+          'paint-envelope-inventory-unavailable',
+          'source-span-provenance-unavailable',
+          'source-span-snapshot-mismatch',
+        ].includes(value.reason ?? '') &&
+        ref === null &&
+        blockers.length === 0
+}
 const openingInspection = z.strictObject({
   status: z.enum(['checked', 'held']),
   reason: z.string().min(1).max(256).nullable(),
@@ -42,6 +86,18 @@ const openingInspection = z.strictObject({
         laterPaintCount: z.number().int().min(0).max(20000).nullable(),
         status: z.enum(['matched', 'partial', 'ambiguous', 'unobserved', 'unresolved']),
         coverage: z.enum(['complete', 'partial', 'unproved']),
+        visibility: spanVisibility.optional(),
+        independentVisibility: z
+          .array(
+            z.strictObject({
+              sourceRef,
+              startKey: exactKey,
+              endKey: exactKey,
+              visibility: spanVisibility,
+            }),
+          )
+          .max(100)
+          .optional(),
         contacts: z
           .array(
             z.strictObject({
@@ -82,6 +138,7 @@ const boundarySupport = z.strictObject({
         startKey: exactKey,
         endKey: exactKey,
         paintSide: z.enum(['selected-region', 'opposite-region']),
+        visibility: spanVisibility.optional(),
       }),
     )
     .max(100),
@@ -155,6 +212,7 @@ export function sourceFloorReferenceFromResponse(
   let pointCount = 0
   let contactCount = 0
   let workLeft = 300_000
+  let visibilityReferences = 0
   const exact = nativeFaceRationalPredicates()
   const owners = new Set<string>()
   const ids = new Set<string>()
@@ -219,6 +277,9 @@ export function sourceFloorReferenceFromResponse(
       if (contactCount > 10000) return null
       const refs = new Set<string>()
       for (const contact of support.contacts) {
+        if (contact.visibility && !validVisibility(contact.visibility, contact)) return null
+        visibilityReferences += contact.visibility?.blockerOperations.length ?? 0
+        if (visibilityReferences > 40_000) return null
         const ref = `${contact.operationIndex}:${contact.subpathIndex}:${contact.segmentIndex}`
         const overlap = exact.sharedSpan(start, end, contact.startKey, contact.endKey)
         if (
@@ -293,6 +354,30 @@ export function sourceFloorReferenceFromResponse(
       )
         return null
       targetIds.add(target.id)
+      if (target.visibility && !validVisibility(target.visibility, target.sourceRef)) return null
+      visibilityReferences += target.visibility?.blockerOperations.length ?? 0
+      if (visibilityReferences > 40_000) return null
+      if ((target.visibility === undefined) !== (target.independentVisibility === undefined))
+        return null
+      if (target.independentVisibility) {
+        if (target.independentVisibility.length !== target.independentSourceRefs.length) return null
+        for (const [index, item] of target.independentVisibility.entries()) {
+          visibilityReferences += item.visibility.blockerOperations.length
+          if (visibilityReferences > 40_000) return null
+          const expected = target.independentSourceRefs[index]
+          const span = exact.sharedSpan(target.startKey, target.endKey, item.startKey, item.endKey)
+          if (
+            !expected ||
+            item.sourceRef.operationIndex !== expected.operationIndex ||
+            item.sourceRef.subpathIndex !== expected.subpathIndex ||
+            item.sourceRef.segmentIndex !== expected.segmentIndex ||
+            span?.startKey !== item.startKey ||
+            span.endKey !== item.endKey ||
+            !validVisibility(item.visibility, expected)
+          )
+            return null
+        }
+      }
       const refs = target.independentSourceRefs.map(
         (ref) => `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`,
       )

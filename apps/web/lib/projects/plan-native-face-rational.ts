@@ -17,6 +17,21 @@ const compare = (a: Fraction, b: Fraction) => {
   const value = a.n * b.d - b.n * a.d
   return value < 0n ? -1 : value > 0n ? 1 : 0
 }
+/** Canonical bounded source-page keys, not approximate coordinate equivalence. */
+export function nativePagePointKeyIsCanonical(value: unknown): value is string {
+  if (
+    typeof value !== 'string' ||
+    value.length > 256 ||
+    !/^(0|[1-9]\d*)\/[1-9]\d*:(0|[1-9]\d*)\/[1-9]\d*$/.test(value)
+  )
+    return false
+  return value.split(':').every((coordinate) => {
+    const [n, d] = coordinate.split('/').map(BigInt)
+    if (n === undefined || !d || n > 1000n * d) return false
+    const reduced = fraction(n, d)
+    return coordinate === `${reduced.n}/${reduced.d}`
+  })
+}
 function pointFromKey(key: string): Point {
   const coordinates = key.split(':').map((coordinate) => {
     const [n, d] = coordinate.split('/').map(BigInt)
@@ -87,6 +102,29 @@ export function nativeFaceRationalPredicates() {
     return compare(point(startKey)[axis], point(endKey)[axis]) < 0 ? { startKey, endKey } : null
   }
   return {
+    physicalDotSign(a: string, b: string, c: string, d: string, width: number, height: number) {
+      const scale = (value: number) => {
+        if (!Number.isFinite(value) || value <= 0) throw new Error('Invalid physical page scale')
+        const [mantissa = '', exponent = '0'] = value.toString().split('e')
+        const [whole = '', decimals = ''] = mantissa.split('.')
+        const places = decimals.length - Number(exponent)
+        if (Math.abs(places) > 18) throw new Error('Unsupported physical page scale precision')
+        return places < 0
+          ? fraction(BigInt(whole + decimals) * 10n ** BigInt(-places))
+          : fraction(BigInt(whole + decimals), 10n ** BigInt(places))
+      }
+      const w = scale(width),
+        h = scale(height)
+      const start = point(a),
+        end = point(b),
+        first = point(c),
+        last = point(d)
+      const dot = add(
+        multiply(multiply(subtract(end.x, start.x), subtract(last.x, first.x)), multiply(w, w)),
+        multiply(multiply(subtract(end.y, start.y), subtract(last.y, first.y)), multiply(h, h)),
+      )
+      return dot.n < 0n ? -1 : dot.n > 0n ? 1 : 0
+    },
     orientation(a: string, b: string, probe: string) {
       const turn = orientation(point(a), point(b), point(probe))
       return turn < 0n ? -1 : turn > 0n ? 1 : 0

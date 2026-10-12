@@ -93,6 +93,12 @@ describe('source floor controls', () => {
               laterPaintCount: 3,
               status: 'ambiguous',
               coverage: 'complete',
+              visibility: {
+                status: 'held',
+                reason: 'later-paint-may-cover-source-span',
+                sourceRef: { operationIndex: 20, subpathIndex: 0, segmentIndex: 1 },
+                blockerOperations: [1000],
+              },
               contacts: [
                 {
                   floorId: floor.id,
@@ -115,6 +121,7 @@ describe('source floor controls', () => {
     expect(markup).toContain('Конец по источнику: Неоднозначная связь')
     expect(markup).toContain('Возможных пропусков: 2')
     expect(markup).toContain('Поздних наложений: 3')
+    expect(markup).toContain('Видимость исходного отрезка удержана')
     expect(markup).toContain('Совпадение не подтверждает физический косяк')
     expect(input.onCopy).not.toHaveBeenCalled()
   })

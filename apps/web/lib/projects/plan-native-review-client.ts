@@ -3,6 +3,10 @@ import {
   planRoomSourceNumbersInScheduleOrder,
 } from '@uyut/db/source-room-number'
 import {
+  nativeFaceRationalPredicates,
+  nativePagePointKeyIsCanonical,
+} from './plan-native-face-rational'
+import {
   nativeDocumentaryHeightCaption,
   nativeHeightCaption,
   nativeHeightMillimetreDeclarationIndex,
@@ -923,6 +927,7 @@ function isSelectedDimensionBoundaries(value: unknown, packet: NativeReviewPacke
   if (captions.size !== report.observations.length) return false
   let totalCandidates = 0,
     totalRefs = 0
+  const exact = nativeFaceRationalPredicates()
   return report.observations.every((row) => {
     if (
       !row ||
@@ -953,20 +958,30 @@ function isSelectedDimensionBoundaries(value: unknown, packet: NativeReviewPacke
           'span',
           'sourceRefs',
           'boundaryInkComplete',
+          ...('ringIndex' in candidate ? ['ringIndex'] : []),
+          ...('endpointBinding' in candidate ? ['endpointBinding'] : []),
           ...('boundaryVisibility' in candidate ? ['boundaryVisibility'] : []),
         ])
       )
         return false
       const floor = floors.get(candidate.floorId)
-      const key = `${candidate.floorId}:${candidate.edgeIndex}`
+      const ringIndex = candidate.ringIndex ?? 0
+      const ring = ringIndex === 0 ? floor?.polygon : floor?.holes[ringIndex - 1]
+      const key = `${candidate.floorId}:${ringIndex}:${candidate.edgeIndex}`
       if (
         !floor ||
         seen.has(key) ||
         candidate.sourceRoomKey !== floor.sourceRoomKey ||
         candidate.boundaryInkComplete !== floor.boundaryInkComplete ||
+        ('ringIndex' in candidate && !Number.isSafeInteger(candidate.ringIndex)) ||
+        !Number.isSafeInteger(ringIndex) ||
+        ringIndex < 0 ||
+        ringIndex > floor.holes.length ||
+        !ring ||
         !Number.isSafeInteger(candidate.edgeIndex) ||
         candidate.edgeIndex < 0 ||
-        candidate.edgeIndex >= floor.polygon.length ||
+        candidate.edgeIndex >= ring.length ||
+        (ringIndex > 0 && candidate.declaredRole !== 'unresolved') ||
         !['wall-face', 'opening-boundary', 'level-separator', 'unresolved'].includes(
           candidate.declaredRole,
         ) ||
@@ -995,6 +1010,112 @@ function isSelectedDimensionBoundaries(value: unknown, packet: NativeReviewPacke
         })
       )
         return false
+      if (candidate.endpointBinding !== undefined) {
+        const binding = candidate.endpointBinding
+        const keys =
+          ringIndex === 0 ? floor.exactPointKeys : floor.holeExactPointKeys?.[ringIndex - 1]
+        const page = packet.sourcePageSize
+        if (
+          !binding ||
+          !hasOnlyKeys(binding, ['status', 'reason', 'witnesses']) ||
+          candidate.ringIndex === undefined ||
+          !keys ||
+          keys.length !== ring.length ||
+          !keys.every(nativePagePointKeyIsCanonical) ||
+          !page ||
+          !Array.isArray(binding.witnesses)
+        )
+          return false
+        if (binding.witnesses.length === 0) {
+          if (
+            binding.status !== 'unresolved' ||
+            binding.reason !== 'source-corner-offset-not-perpendicular'
+          )
+            return false
+        } else {
+          if (binding.witnesses.length !== 2) return false
+          for (const witness of binding.witnesses) {
+            if (
+              !witness ||
+              !hasOnlyKeys(witness, ['status', 'tipKey', 'cornerKey', 'sourceRefs']) ||
+              !nativePagePointKeyIsCanonical(witness.tipKey) ||
+              !nativePagePointKeyIsCanonical(witness.cornerKey) ||
+              witness.tipKey === witness.cornerKey ||
+              !['continuous', 'detached', 'ambiguous', 'unresolved'].includes(witness.status) ||
+              !Array.isArray(witness.sourceRefs) ||
+              witness.sourceRefs.length > 100 ||
+              (witness.status === 'unresolved'
+                ? witness.sourceRefs.length !== 0
+                : witness.sourceRefs.length < (witness.status === 'ambiguous' ? 2 : 1))
+            )
+              return false
+            const witnesses = new Set<string>()
+            for (const ref of witness.sourceRefs) {
+              if (
+                !ref ||
+                !hasOnlyKeys(ref, ['operationIndex', 'subpathIndex', 'segmentIndex']) ||
+                !Number.isSafeInteger(ref.operationIndex) ||
+                ref.operationIndex < 0 ||
+                ref.operationIndex >= 100_000 ||
+                !Number.isSafeInteger(ref.subpathIndex) ||
+                ref.subpathIndex < 0 ||
+                ref.subpathIndex > 3000 ||
+                ref.segmentIndex !== 0
+              )
+                return false
+              const id = `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`
+              if (witnesses.has(id)) return false
+              witnesses.add(id)
+            }
+            totalRefs += witness.sourceRefs.length
+            if (totalRefs > 20_000) return false
+          }
+          const [first, second] = binding.witnesses
+          const a = keys[candidate.edgeIndex],
+            b = keys[(candidate.edgeIndex + 1) % keys.length]
+          if (!first || !second || !a || !b) return false
+          if (
+            !(
+              (first.cornerKey === a && second.cornerKey === b) ||
+              (first.cornerKey === b && second.cornerKey === a)
+            ) ||
+            !exact.equalSpanVectors(
+              first.tipKey,
+              second.tipKey,
+              first.cornerKey,
+              second.cornerKey,
+            ) ||
+            binding.witnesses.some(
+              (witness) =>
+                exact.physicalDotSign(
+                  first.tipKey,
+                  second.tipKey,
+                  witness.tipKey,
+                  witness.cornerKey,
+                  page.width,
+                  page.height,
+                ) !== 0,
+            )
+          )
+            return false
+          const status = binding.witnesses.some((witness) => witness.status === 'ambiguous')
+            ? 'ambiguous'
+            : binding.witnesses.some((witness) => witness.status === 'unresolved')
+              ? 'unresolved'
+              : binding.witnesses.some((witness) => witness.status === 'detached')
+                ? 'detached'
+                : 'continuous'
+          const reason =
+            status === 'ambiguous'
+              ? 'competing-bounded-source-witnesses'
+              : status === 'unresolved'
+                ? 'missing-bounded-source-witness'
+                : status === 'detached'
+                  ? 'detached-source-extension'
+                  : null
+          if (binding.status !== status || binding.reason !== reason) return false
+        }
+      }
       const visibility = candidate.boundaryVisibility
       if (visibility === undefined) return true
       if (
@@ -2815,6 +2936,12 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     ![packet.image.width, packet.image.height].every(
       (size) => Number.isSafeInteger(size) && size > 0 && size <= 10000,
     ) ||
+    (packet.sourcePageSize !== undefined &&
+      (!packet.sourcePageSize ||
+        !hasOnlyKeys(packet.sourcePageSize, ['width', 'height']) ||
+        ![packet.sourcePageSize.width, packet.sourcePageSize.height].every(
+          (size) => Number.isFinite(size) && size > 0 && size <= 100_000,
+        ))) ||
     packet.readiness?.readOnly !== true ||
     packet.readiness.readyFor2D !== false ||
     packet.readiness.readyFor3D !== false ||
@@ -2897,7 +3024,11 @@ export async function loadNativeReview(
   fetcher: typeof fetch = fetch,
 ) {
   const base = `/api/projects/${encodeURIComponent(input.projectId)}/plan-page`
-  const query = new URLSearchParams({ page: String(input.page), revision: input.revision })
+  const query = new URLSearchParams({
+    page: String(input.page),
+    revision: input.revision,
+    evidenceVersion: '2',
+  })
   const options = { signal: input.signal, cache: 'no-store' as const }
   const [jsonResponse, imageResponse] = await Promise.all([
     fetcher(`${base}?${query}&format=native-review`, options),

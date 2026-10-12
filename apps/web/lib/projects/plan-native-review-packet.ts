@@ -68,6 +68,7 @@ export type NativeReviewPacket = {
   source: PdfPlanSource
   image: RegionLabelFrame
   sourceRevision?: string
+  sourcePageSize?: { width: number; height: number }
   extraction: {
     textComplete: boolean
     geometryComplete: boolean
@@ -250,6 +251,8 @@ export type NativeReviewPacket = {
       numberLabelId: string
       polygon: { x: number; y: number }[]
       holes: { x: number; y: number }[][]
+      exactPointKeys?: string[]
+      holeExactPointKeys?: string[][]
       unresolvedEdges: number
       omittedStrokeCount: number
       boundaryInkComplete: boolean
@@ -329,6 +332,7 @@ export function nativeReviewPacket(input: {
   work?: PdfLinework
   lineworkSource?: RegionLabelFrame
   savedReading?: PlanReading
+  includeEndpointWitnesses?: boolean
 }): NativeReviewPacket {
   const { source, image, native, work, lineworkSource } = input
   const packet: NativeReviewPacket = {
@@ -356,6 +360,8 @@ export function nativeReviewPacket(input: {
     savedReview: { status: 'not-saved' },
     savedFrameRooms: { status: 'not-saved' },
   }
+  if (input.includeEndpointWitnesses && work)
+    packet.sourcePageSize = { width: work.pageWidth, height: work.pageHeight }
   const issue = (code: string, message: string) => packet.issues.push({ code, message })
   if (source.state !== 'existing' || source.pdfPage !== image.page)
     throw new Error('Native inspection requires the selected existing-state page')
@@ -559,12 +565,15 @@ export function nativeReviewPacket(input: {
           numberLabelId: floor.owner.numberLabelId,
           polygon: floor.polygon.map(raster),
           holes: floor.holes.map((hole) => hole.map(raster)),
+          ...(input.includeEndpointWitnesses
+            ? { exactPointKeys: floor.exactPointKeys, holeExactPointKeys: floor.holeExactPointKeys }
+            : {}),
           unresolvedEdges: floor.edges.filter((edge) => edge.declaredRole === 'unresolved').length,
           omittedStrokeCount: floor.omittedStrokeCount,
           boundaryInkComplete: floor.boundaryInkComplete,
         }))
         packet.selectedDimensionBoundaries = nativeSelectedDimensionBoundaries(
-          { ...common, source, reviewed },
+          { ...common, source, reviewed, includeEndpointWitnesses: input.includeEndpointWitnesses },
           captionBindings,
         )
       } catch {

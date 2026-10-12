@@ -2,15 +2,21 @@ import type { PlanPageSegmentRef } from '@uyut/db'
 import { nativeCaptionBindings } from './plan-native-caption-bindings'
 import { exactNativePointKey } from './plan-native-exact-intersections'
 import { nativeFaceRationalPredicates } from './plan-native-face-rational'
+import { nativePaintedFloorBoundarySupports } from './plan-native-painted-floor-boundaries'
 import {
   nativePaintedFloorReview,
   type PaintedFloorBoundaryRole,
   type ReviewedNativePaintedFloors,
 } from './plan-native-painted-floor-review'
+import {
+  type SelectedDimensionEndpointBinding,
+  selectedDimensionWitnesses,
+} from './plan-native-selected-dimension-witnesses'
 import { pdfPaintInventoryIsComplete, pdfPaintMayTouchSpan } from './plan-pdf-paint-exclusion'
 
 type Input = Parameters<typeof nativeCaptionBindings>[0] & {
   reviewed: ReviewedNativePaintedFloors
+  includeEndpointWitnesses?: boolean
 }
 type Bindings = ReturnType<typeof nativeCaptionBindings>
 export type NativeSelectedDimensionBoundaryReport = {
@@ -28,6 +34,8 @@ export type NativeSelectedDimensionBoundaryReport = {
       floorId: string
       sourceRoomKey: string
       edgeIndex: number
+      ringIndex?: number
+      endpointBinding?: SelectedDimensionEndpointBinding
       declaredRole: PaintedFloorBoundaryRole
       span: 'whole-translated-source-vector'
       sourceRefs: PlanPageSegmentRef[]
@@ -99,6 +107,29 @@ export function nativeSelectedDimensionBoundaries(input: Input, suppliedBindings
   const paintComplete = pdfPaintInventoryIsComplete(paint)
   const exhausted = Symbol('selected-dimension-work-limit')
   const outputLimit = Symbol('selected-dimension-output-limit')
+  let supported: ReturnType<typeof nativePaintedFloorBoundarySupports> | undefined
+  let endpointWitnesses: ReturnType<typeof selectedDimensionWitnesses> | undefined
+  if (input.includeEndpointWitnesses) {
+    try {
+      supported = nativePaintedFloorBoundarySupports(input)
+      if (supported.refusalReason || supported.boundaryInspection.status !== 'checked')
+        return finish(supported.refusalReason ?? 'selected-source-boundary-inspection-unavailable')
+      endpointWitnesses = selectedDimensionWitnesses(
+        input.work,
+        () => {
+          if (--work < 0) throw exhausted
+        },
+        (count) => {
+          refCount += count
+          if (refCount > MAX_REFS) throw outputLimit
+        },
+      )
+    } catch (error) {
+      if (error === exhausted) return finish('selected-dimension-work-limit')
+      if (error === outputLimit) return finish('selected-dimension-output-limit')
+      return finish('selected-dimension-witness-source-unavailable')
+    }
+  }
   type Candidate =
     NativeSelectedDimensionBoundaryReport['observations'][number]['candidates'][number]
   const boundaryVisibility = (
@@ -179,36 +210,63 @@ export function nativeSelectedDimensionBoundaries(input: Input, suppliedBindings
         continue
       }
       for (const floor of floors.floors) {
-        for (const [edgeIndex, edge] of floor.edges.entries()) {
-          if (--work < 0) return finish('selected-dimension-work-limit')
-          const edgeStart = floor.exactPointKeys[edgeIndex]
-          const edgeEnd = floor.exactPointKeys[(edgeIndex + 1) % floor.edges.length]
-          if (!edgeStart || !edgeEnd || edgeStart === edgeEnd)
-            return finish('selected-floor-edge-identity-unavailable')
-          if (
-            !exact.equalSpanVectors(start, end, edgeStart, edgeEnd) &&
-            !exact.equalSpanVectors(start, end, edgeEnd, edgeStart)
-          )
-            continue
-          candidateCount++
-          refCount += edge.sourceRefs.length
-          if (candidateCount > MAX_CANDIDATES || refCount > MAX_REFS)
-            return finish('selected-dimension-output-limit')
-          const visibility = boundaryVisibility(edgeStart, edgeEnd, edge.sourceRefs)
-          row.candidates.push({
-            floorId: floor.id,
-            sourceRoomKey: floor.owner.sourceRoomKey,
-            edgeIndex,
-            declaredRole: edge.declaredRole,
-            span: 'whole-translated-source-vector',
-            sourceRefs: edge.sourceRefs.map(({ operationIndex, subpathIndex, segmentIndex }) => ({
-              operationIndex,
-              subpathIndex,
-              segmentIndex,
-            })),
-            boundaryInkComplete: floor.boundaryInkComplete,
-            ...(visibility ? { boundaryVisibility: visibility } : {}),
-          })
+        const rings = input.includeEndpointWitnesses
+          ? [floor.exactPointKeys, ...floor.holeExactPointKeys]
+          : [floor.exactPointKeys]
+        for (const [ringIndex, ring] of rings.entries()) {
+          for (const [edgeIndex, edgeStart] of ring.entries()) {
+            if (--work < 0) return finish('selected-dimension-work-limit')
+            const edgeEnd = ring[(edgeIndex + 1) % ring.length]
+            if (!edgeStart || !edgeEnd || edgeStart === edgeEnd)
+              return finish('selected-floor-edge-identity-unavailable')
+            const forward = exact.equalSpanVectors(start, end, edgeStart, edgeEnd)
+            if (!forward && !exact.equalSpanVectors(start, end, edgeEnd, edgeStart)) continue
+            const sourceRefs =
+              ringIndex === 0
+                ? (floor.edges[edgeIndex]?.sourceRefs ?? [])
+                : (supported?.boundaryInspection.floors
+                    .find((row) => row.floorId === floor.id)
+                    ?.edges.find(
+                      (edge) => edge.ringIndex === ringIndex && edge.edgeIndex === edgeIndex,
+                    )
+                    ?.contacts.map(({ operationIndex, subpathIndex, segmentIndex }) => ({
+                      operationIndex,
+                      subpathIndex,
+                      segmentIndex,
+                    })) ?? [])
+            const declaredRole =
+              ringIndex === 0
+                ? (floor.edges[edgeIndex]?.declaredRole ?? 'unresolved')
+                : 'unresolved'
+            candidateCount++
+            refCount += sourceRefs.length
+            if (candidateCount > MAX_CANDIDATES || refCount > MAX_REFS)
+              return finish('selected-dimension-output-limit')
+            const visibility = boundaryVisibility(edgeStart, edgeEnd, sourceRefs)
+            row.candidates.push({
+              floorId: floor.id,
+              sourceRoomKey: floor.owner.sourceRoomKey,
+              edgeIndex,
+              declaredRole,
+              span: 'whole-translated-source-vector',
+              sourceRefs: sourceRefs.map(({ operationIndex, subpathIndex, segmentIndex }) => ({
+                operationIndex,
+                subpathIndex,
+                segmentIndex,
+              })),
+              boundaryInkComplete: floor.boundaryInkComplete,
+              ...(endpointWitnesses
+                ? {
+                    ringIndex,
+                    endpointBinding: endpointWitnesses(
+                      [start, end],
+                      forward ? [edgeStart, edgeEnd] : [edgeEnd, edgeStart],
+                    ),
+                  }
+                : {}),
+              ...(visibility ? { boundaryVisibility: visibility } : {}),
+            })
+          }
         }
       }
       if (row.candidates.length) {

@@ -49,14 +49,35 @@ function floor() {
   return value
 }
 
-function inspectedReference() {
+function inspectedReference(visibility = false) {
   const evidence = floorHeightFixture()
+  if (visibility)
+    evidence.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 10,
+          kind: 'vector',
+          subpathCount: 1,
+          bounds: { left: 100, top: 100, right: 300, bottom: 300 },
+          reason: null,
+        },
+        {
+          operationIndex: 1000,
+          kind: 'image',
+          bounds: { left: 90, top: 90, right: 310, bottom: 310 },
+          reason: null,
+        },
+      ],
+    }
   const report = planPageSourceFloors({
     source: evidence.reviewedFloors.source,
     sourceRevision: 'b'.repeat(64),
     pageWidth: 1000,
     pageHeight: 1000,
     evidence,
+    includeSpanVisibility: visibility,
     reading: {
       sourcePage: 3,
       planState: 'existing',
@@ -73,6 +94,37 @@ function inspectedReference() {
   return { report, preview }
 }
 describe('source reference parsing and lossless whole-ring draft copy', () => {
+  it('accepts fresh later-paint holds without copying visibility proof into saved geometry', () => {
+    const { report, preview } = inspectedReference(true)
+    expect(
+      sourceFloorReferenceFromResponse(JSON.parse(JSON.stringify(report)), preview, 'b'.repeat(64)),
+    ).toEqual(report)
+    const contact = report.floors[0]?.boundarySupports?.[0]?.contacts[0]
+    expect(contact?.visibility).toMatchObject({
+      status: 'held',
+      reason: 'later-paint-may-cover-source-span',
+      blockerOperations: [1000],
+    })
+    expect(contact?.visibility?.sourceRef).not.toHaveProperty('start')
+    expect(sourceFloorDraft(report.floors[0])).not.toHaveProperty('draft.sourceTopology.visibility')
+  })
+  it.each([
+    'false-clear',
+    'source-ref',
+    'early-blocker',
+    'duplicate-blocker',
+    'unknown-reason',
+  ] as const)('rejects invalid visibility proof %s', (fault) => {
+    const { report, preview } = inspectedReference(true)
+    const visibility = report.floors[0]?.boundarySupports?.[0]?.contacts[0]?.visibility
+    if (!visibility?.sourceRef) throw new Error('Missing visibility fixture')
+    if (fault === 'false-clear') visibility.status = 'unoccluded'
+    if (fault === 'source-ref') visibility.sourceRef.segmentIndex = 3
+    if (fault === 'early-blocker') visibility.blockerOperations = [1]
+    if (fault === 'duplicate-blocker') visibility.blockerOperations = [1000, 1000]
+    if (fault === 'unknown-reason') visibility.reason = 'physical-wall-confirmed'
+    expect(sourceFloorReferenceFromResponse(report, preview, 'b'.repeat(64))).toBeNull()
+  })
   function openingReference() {
     const input = inspectedReference()
     const floor = input.report.floors[0]
