@@ -668,6 +668,33 @@ typecheck, production build, Biome 1,025 files and diffcheck passed. Independent
 review caught silently skipped separated/combined child rows and an exponential
 numeric-text alias; fixed and regression-covered before release.
 
+### Explicit recovery of identifiers lost by older readings — 12 October
+
+Live PR119 QA found that the saved original Wardrobe reading had no numeric
+identifier. Source floor3.1 was still checked, but editor choices remained1..7.
+The identity guard therefore required a legacy-data recovery path, not a claim
+that the old editor could already select3.1.
+
+The new owner-only actions prepare the current PDF again, verify its hash/page
+and raster provenance, and derive a fresh painted-floor review. A missing room
+number is proposed only for a unique exact-trim reading name and unique reviewed
+source owner. Known numbers, collisions and ambiguous names are never replaced.
+Save accepts only selected floor IDs/room indices plus explicit acknowledgement;
+the server recomputes mappings and uses full-reading atomic CAS. Only the missing
+sourceNumber changes. Every measurement, geometry and saved floor/height review
+is retained. No AI request or metric/physical confirmation is involved.
+
+UI uses the existing form conventions and requires load, unchecked selection,
+and explicit source-number acknowledgement. Dirty room rows and an open source
+editor block recovery; pending recovery locks the parent form so a returned
+reading cannot overwrite newly typed edits. Unknown save outcomes require a
+page refresh rather than blindly retrying a stale revision.
+
+Local gate: 7,692 tests / 320 files with 4 workers, seven-package typecheck,
+production build, Biome 1,031 files and diffcheck passed. Independent review
+found no blocker; live async load/save locking and post-reload editor selection
+are the remaining deployment checks.
+
 ### Earlier offline regression verification
 
 - Full web suite: 6,821 tests / 300 files passed, including local-only original PDF re-extractions when that ignored source exists. Public CI does not require copyrighted PDFs; deterministic unit controls remain present there.
