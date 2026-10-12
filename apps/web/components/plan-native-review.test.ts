@@ -8,6 +8,18 @@ import {
 import { inspectReviewedPageCoverage } from '@/lib/projects/plan-page-reviewed-coverage'
 import { NativeReviewResult, PlanNativeReview, SavedReviewCoverage } from './plan-native-review'
 
+it('distinguishes saved source-floor selections from an absent 2D contour review', () => {
+  const html = renderToStaticMarkup(
+    createElement(SavedReviewCoverage, {
+      savedReview: { status: 'not-saved' },
+      hasSourceFloors: true,
+    }),
+  )
+  expect(html).toContain('Выбранные области пола сохранены отдельно')
+  expect(html).toContain('Контуры комнат и проёмов для 2D ещё не приняты')
+  expect(html).not.toContain('Ручная разметка этого листа ещё не сохранена')
+})
+
 it('separates positive source paint from negative-space floor cavities and warns about masks', () => {
   const packet = nativeReviewPacket({
     source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },

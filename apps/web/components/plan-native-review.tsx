@@ -37,15 +37,19 @@ const coverageMessages: Record<string, string> = {
 
 export function SavedReviewCoverage({
   savedReview,
+  hasSourceFloors = false,
 }: {
   savedReview: NativeReviewPacket['savedReview']
+  hasSourceFloors?: boolean
 }) {
   return (
     <section className="border-t border-line pt-3" aria-label="Проверка сохранённой разметки">
       <h4 className="text-[14px] font-medium">Проверка сохранённой разметки</h4>
       {savedReview.status === 'not-saved' ? (
         <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-          Ручная разметка этого листа ещё не сохранена. Найденные выше области не заменяют её.
+          {hasSourceFloors
+            ? 'Выбранные области пола сохранены отдельно. Контуры комнат и проёмов для 2D ещё не приняты.'
+            : 'Ручная разметка этого листа ещё не сохранена. Найденные выше области не заменяют её.'}
         </p>
       ) : savedReview.status === 'unavailable' ? (
         <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
@@ -1973,7 +1977,10 @@ export function NativeReviewResult({
           ? ' Зелёные контуры — сохранённый выбор областей исходника, не подтверждённые обмеры или физические стены.'
           : null}
       </p>
-      <SavedReviewCoverage savedReview={packet.savedReview} />
+      <SavedReviewCoverage
+        savedReview={packet.savedReview}
+        hasSourceFloors={packet.savedPaintedFloors?.status === 'checked'}
+      />
       {packet.savedFrameRooms &&
       (packet.savedFrameRooms.status !== 'not-saved' ||
         (packet.openingFrames?.candidates.length ?? 0) > 0) ? (
