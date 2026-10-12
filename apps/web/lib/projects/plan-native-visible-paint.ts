@@ -4,6 +4,7 @@ import {
   exactNativePolygonsOverlap,
   exactNativeSegmentsTouch,
 } from './plan-native-exact-intersections'
+import { nativeFaceRationalPredicates } from './plan-native-face-rational'
 import { nativeFillCandidates } from './plan-native-fill-candidates'
 import { nativePaintedRegionContext } from './plan-native-painted-region-context'
 import { boundedNativeStrokeFaces, type NativeIntersectionProof } from './plan-native-stroke-faces'
@@ -293,27 +294,29 @@ export function nativeVisiblePaintRegions(input: Input) {
           maskSegments[index]?.some((b) => exactNativeSegmentsTouch(a, b) !== false),
         ),
     )
-    if (strictlyContained.every(Boolean)) {
-      // Disconnected inner rings cannot be flattened into a simple graph face.
-      // Keep explicit holes, only when their positive areas are mutually disjoint.
-      if (
-        masks.some((mask, index) =>
-          masks
-            .slice(index + 1)
-            .some(
-              (other) =>
-                exactNativePolygonsOverlap(mask.polygon, other.polygon) !== false ||
-                sourceSegments(mask.polygon, mask.path).some((a) =>
-                  sourceSegments(other.polygon, other.path).some(
-                    (b) => exactNativeSegmentsTouch(a, b) !== false,
-                  ),
-                ),
-            ),
-        )
-      ) {
-        hold('overlapping-or-touching-inner-masks')
-        continue
+    // Enclosed rings remain explicit holes, never graph bridges. Their relation
+    // to every other mask must be disjoint, including masks cutting the perimeter.
+    for (let index = 0; index < masks.length; index++) {
+      for (let other = index + 1; other < masks.length; other++) {
+        if (!strictlyContained[index] && !strictlyContained[other]) continue
+        const first = masks[index] as (typeof masks)[number]
+        const second = masks[other] as (typeof masks)[number]
+        budget -= 3 * first.polygon.length * second.polygon.length
+        if (budget < 0) return finish('visible-paint-work-limit')
+        if (
+          exactNativePolygonsOverlap(first.polygon, second.polygon) !== false ||
+          maskSegments[index]?.some((a) =>
+            maskSegments[other]?.some((b) => exactNativeSegmentsTouch(a, b) !== false),
+          )
+        ) {
+          hold('overlapping-or-touching-inner-masks')
+          break
+        }
       }
+      if (region.refusalReason) break
+    }
+    if (region.refusalReason) continue
+    if (strictlyContained.every(Boolean)) {
       region.pieces = [
         {
           polygon: region.sourcePolygon,
@@ -327,13 +330,12 @@ export function nativeVisiblePaintRegions(input: Input) {
       ]
       continue
     }
-    if (strictlyContained.some(Boolean)) {
-      hold('mixed-disconnected-mask-topology')
-      continue
-    }
-    const graph = boundedNativeStrokeFaces([...source, ...maskSegments.flat()], 0, {
-      topology: 'source-decimal-rational',
-    })
+    const crossingMasks = masks.filter((_, index) => !strictlyContained[index])
+    const graph = boundedNativeStrokeFaces(
+      [...source, ...maskSegments.filter((_, index) => !strictlyContained[index]).flat()],
+      0,
+      { topology: 'source-decimal-rational' },
+    )
     if (graph.refusalReason) {
       hold(graph.refusalReason)
       continue
@@ -350,7 +352,9 @@ export function nativeVisiblePaintRegions(input: Input) {
         return key ? pointFromKey(key) : null
       })
     const sourceRing = rationalRing(candidate.polygon)
-    const maskRings = masks.map((mask) => rationalRing(mask.polygon))
+    // Hole paint must not classify a whole face: a face's interior witness may
+    // legitimately lie in a hole. Account for holes after the exact partition.
+    const maskRings = crossingMasks.map((mask) => rationalRing(mask.polygon))
     if (
       sourceRing.some((point) => !point) ||
       maskRings.some((polygon) => polygon.some((point) => !point))
@@ -359,6 +363,7 @@ export function nativeVisiblePaintRegions(input: Input) {
       continue
     }
     let accountedArea = fraction(0n)
+    const retainedFaceKeys: string[][] = []
     for (const face of graph.faces) {
       const faceRing = face.exactPointKeys
         ? face.exactPointKeys.map(pointFromKey)
@@ -382,8 +387,10 @@ export function nativeVisiblePaintRegions(input: Input) {
       }
       if (sourceLocation !== 'inside') continue
       accountedArea = add(accountedArea, twiceArea(faceRing as RationalPoint[]))
-      if (maskLocations.every((value) => value === 'outside'))
+      if (maskLocations.every((value) => value === 'outside')) {
         region.pieces.push({ polygon: face.polygon, holes: [], edges: face.edges })
+        retainedFaceKeys.push(face.exactPointKeys ?? [])
+      }
     }
     if (region.refusalReason) continue
     const expectedArea = twiceArea(sourceRing as RationalPoint[])
@@ -391,6 +398,45 @@ export function nativeVisiblePaintRegions(input: Input) {
       hold('incomplete-rational-face-partition')
       continue
     }
+    const predicates = nativeFaceRationalPredicates()
+    for (const [index, mask] of masks.entries()) {
+      if (!strictlyContained[index]) continue
+      const holeKeys = mask.polygon.map(exactNativePointKey)
+      if (holeKeys.some((key) => !key)) {
+        hold('unsupported-source-decimal-precision')
+        break
+      }
+      const exactHole = holeKeys as string[]
+      const owners: number[] = []
+      for (const [pieceIndex, faceKeys] of retainedFaceKeys.entries()) {
+        if (!faceKeys.length) {
+          hold('missing-rational-face-proof')
+          break
+        }
+        budget -= 2 * exactHole.length * faceKeys.length
+        if (budget < 0) return finish('visible-paint-work-limit')
+        const inside = exactHole.every((key) => predicates.location(faceKeys, key) === 'inside')
+        const touches = exactHole.some((start, edgeIndex) =>
+          faceKeys.some((faceStart, faceEdgeIndex) =>
+            predicates.segmentsTouch(
+              start,
+              exactHole[(edgeIndex + 1) % exactHole.length] as string,
+              faceStart,
+              faceKeys[(faceEdgeIndex + 1) % faceKeys.length] as string,
+            ),
+          ),
+        )
+        if (inside && !touches) owners.push(pieceIndex)
+      }
+      if (region.refusalReason) break
+      if (owners.length !== 1) {
+        hold('unresolved-inner-mask-face')
+        break
+      }
+      const piece = region.pieces[owners[0] as number] as NativeVisiblePaintPiece
+      piece.holes.push(mask.polygon)
+    }
+    if (region.refusalReason) continue
     region.intersections = graph.intersections
   }
   // Fill partitioning is unchanged. Only now can omission completeness be

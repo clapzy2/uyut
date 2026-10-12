@@ -260,6 +260,50 @@ describe('explicit source-painted floor review', () => {
     expect(result.floors[0]?.masks).toEqual([{ operationIndex: 20, subpathIndex: 0 }])
     expect(result.physicalBoundariesAccepted).toBe(false)
   })
+  it('revalidates a saved diagonal cut and hole against fresh source without metric acceptance', () => {
+    const hole = rectangle(200, 200, 230, 230)
+    const input = common([
+      paint(10, rectangle(100, 100, 300, 300)),
+      paint(20, hole),
+      paint(30, [
+        { x: 251, y: 80 },
+        { x: 310, y: 111 },
+        { x: 270, y: 141 },
+      ]),
+    ])
+    const reviewed = JSON.parse(JSON.stringify(selection(input))) as ReviewedNativePaintedFloors
+    const result = nativePaintedFloorReview({ ...input, reviewed })
+    expect(result.status).toBe('reviewed-draft')
+    expect(result.floors[0]?.holes).toEqual([hole])
+    expect(result.floors[0]?.holeExactPointKeys[0]).toEqual([
+      '200/1:200/1',
+      '230/1:200/1',
+      '230/1:230/1',
+      '200/1:230/1',
+    ])
+    expect(result.floors[0]?.intersections.length).toBeGreaterThan(0)
+    expect(result).toMatchObject({
+      physicalBoundariesAccepted: false,
+      measurementsConfirmed: false,
+      commonZeroConfirmed: false,
+      readyFor2D: false,
+      readyFor3D: false,
+    })
+    required(required(reviewed.floors[0]).holes[0])[0] = { x: 200.001, y: 200 }
+    const stale = nativePaintedFloorReview({ ...input, reviewed })
+    expect(stale.status).toBe('held')
+    expect(stale.floors).toEqual([])
+  })
+  it('refuses ownership inside a hole of a cut source piece', () => {
+    const input = common([
+      paint(10, rectangle(100, 100, 300, 300)),
+      paint(20, rectangle(140, 140, 170, 190)),
+      paint(30, rectangle(280, 150, 320, 180)),
+    ])
+    expect(nativePaintedFloorReview({ ...input, reviewed: selection(input) }).refusalReason).toBe(
+      'painted-floor-owner-outside-piece',
+    )
+  })
   it('does not give two source pieces the same reviewed owner', () => {
     const input = common([
       paint(10, rectangle(100, 100, 300, 300)),

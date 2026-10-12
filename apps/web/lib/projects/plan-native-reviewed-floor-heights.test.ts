@@ -108,31 +108,46 @@ describe('reviewed source room-height bindings', () => {
     item.baselineEnd = { x: 350, y: 190 }
     expect(nativeReviewedFloorHeightBindings(input).options).toEqual([])
   })
-  it('does not bind captions inside a paint hole', () => {
-    const input = floorHeightFixture()
-    input.work.paths.push({
-      operationIndex: 20,
-      subpathIndex: 0,
-      paint: 'fill',
-      closed: true,
-      points: rectangle(140, 178, 205, 195),
-    })
-    const piece = nativeVisiblePaintRegions(input).regions.find(
-      (region) => region.candidateId === 'native-fill-10:0',
-    )?.pieces[0]
-    if (!piece) throw new Error('Missing punched piece')
-    const floor = input.reviewedFloors.floors[0]
-    if (!floor) throw new Error('Missing synthetic floor')
-    Object.assign(floor, {
-      polygon: piece.polygon,
-      holes: piece.holes,
-      boundaryRoles: piece.polygon.map((_, edgeIndex) => ({ edgeIndex, kind: 'unresolved' })),
-    })
-    expect(nativePaintedFloorReview({ ...input, reviewed: input.reviewedFloors }).status).toBe(
-      'reviewed-draft',
-    )
-    expect(nativeReviewedFloorHeightBindings(input).options).toEqual([])
-  })
+  it.each([false, true])(
+    'does not bind captions inside a paint hole with perimeter cut=%s',
+    (cut) => {
+      const input = floorHeightFixture()
+      input.work.paths.push({
+        operationIndex: 20,
+        subpathIndex: 0,
+        paint: 'fill',
+        closed: true,
+        points: rectangle(140, 178, 205, 195),
+      })
+      if (cut)
+        input.work.paths.push({
+          operationIndex: 30,
+          subpathIndex: 0,
+          paint: 'fill',
+          closed: true,
+          points: [
+            { x: 251, y: 80 },
+            { x: 310, y: 111 },
+            { x: 270, y: 141 },
+          ],
+        })
+      const piece = nativeVisiblePaintRegions(input).regions.find(
+        (region) => region.candidateId === 'native-fill-10:0',
+      )?.pieces[0]
+      if (!piece) throw new Error('Missing punched piece')
+      const floor = input.reviewedFloors.floors[0]
+      if (!floor) throw new Error('Missing synthetic floor')
+      Object.assign(floor, {
+        polygon: piece.polygon,
+        holes: piece.holes,
+        boundaryRoles: piece.polygon.map((_, edgeIndex) => ({ edgeIndex, kind: 'unresolved' })),
+      })
+      expect(nativePaintedFloorReview({ ...input, reviewed: input.reviewedFloors }).status).toBe(
+        'reviewed-draft',
+      )
+      expect(nativeReviewedFloorHeightBindings(input).options).toEqual([])
+    },
+  )
   const original =
     'C:/Users/Lenovo/Desktop/Room_project/output/pdf/source-search-20261003/rebrina-original.pdf'
   const reviewPath =
