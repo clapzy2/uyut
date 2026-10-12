@@ -114,7 +114,7 @@ export function nativeDimensionTargets(input: Input, suppliedBindings?: Bindings
     mayTransfer2D: false as const,
     mayTransfer3D: false as const,
   })
-  const issue = pdfNativeDimensionSourceIssue(input.source, input.work)
+  const issue = pdfNativeDimensionSourceIssue(input.source, input.work, 'bounded-clipped-ink')
   if (issue) return finish(issue)
   if (
     input.native.labels.length > 1000 ||
@@ -325,15 +325,17 @@ export function nativeDimensionTargets(input: Input, suppliedBindings?: Bindings
         const points = [...tips, ...corners]
         const omitted =
           face.omitted ||
-          (input.work.skippedCurveBounds ?? []).some(({ bounds }) => {
-            spend()
-            return (
-              bounds.right >= Math.min(...points.map(({ x }) => x)) - padX &&
-              bounds.left <= Math.max(...points.map(({ x }) => x)) + padX &&
-              bounds.bottom >= Math.min(...points.map(({ y }) => y)) - padY &&
-              bounds.top <= Math.max(...points.map(({ y }) => y)) + padY
-            )
-          })
+          [...(input.work.skippedCurveBounds ?? []), ...(input.work.clippedPathBounds ?? [])].some(
+            ({ bounds }) => {
+              spend()
+              return (
+                bounds.right >= Math.min(...points.map(({ x }) => x)) - padX &&
+                bounds.left <= Math.max(...points.map(({ x }) => x)) + padX &&
+                bounds.bottom >= Math.min(...points.map(({ y }) => y)) - padY &&
+                bounds.top <= Math.max(...points.map(({ y }) => y)) + padY
+              )
+            },
+          )
         const ambiguous = endpointWitnesses.some(({ status }) => status === 'ambiguous')
         const missing = endpointWitnesses.some(({ status }) => status === 'unresolved')
         const detached = endpointWitnesses.some(({ status }) => status === 'detached')

@@ -403,6 +403,41 @@ describe('explicit original-native caption bridge, not metric/room acceptance', 
     expect(nativeCaptionBindings(input).candidates).toHaveLength(1)
     expect(input.work.skippedCurves).toBe(1)
   })
+  it.each(['stroke', 'fill', 'fill-stroke'] as const)(
+    'checks bounded clipped %s ink locally without erasing the omission inventory',
+    (paint) => {
+      const input = fixture()
+      input.work.clippedPaths = 1
+      input.work.clippedPathBounds = [
+        { operationIndex: 30, paint, bounds: { left: -20, right: -10, top: 700, bottom: 710 } },
+      ]
+      expect(nativeCaptionBindings(input).candidates).toHaveLength(1)
+      present(input.work.clippedPathBounds[0]).bounds = {
+        left: 90,
+        right: 110,
+        top: 160,
+        bottom: 180,
+      }
+      expect(nativeCaptionBindings(input).unresolved).toEqual([
+        { labelId: 'native-text-10', reason: 'omitted-ink-near-source-caption-rail' },
+      ])
+      expect(input.work.clippedPaths).toBe(1)
+    },
+  )
+  it('checks clipped ink at the far end of an outboard caption and its centred witnesses', () => {
+    for (const bounds of [
+      { left: 150, right: 153, top: 95, bottom: 97 },
+      { left: 20, right: 21, top: 99, bottom: 101 },
+      { left: 250, right: 251, top: 99, bottom: 101 },
+    ]) {
+      const input = outboardFixture()
+      input.work.clippedPaths = 1
+      input.work.clippedPathBounds = [{ operationIndex: 99, bounds, paint: 'fill' }]
+      expect(nativeCaptionBindings(input).candidates.map(({ valueMm }) => valueMm)).not.toContain(
+        100,
+      )
+    }
+  })
   it('requires two unobscured independently centred witnesses for an outboard caption', () => {
     const input = outboardFixture()
     const result = nativeCaptionBindings(input)

@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { NativeTextAnchors } from './plan-document'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
@@ -57,6 +61,55 @@ function fixture() {
   return { native, source, work, lineworkSource: frame }
 }
 describe('automatic printed dimension roles, not permission to erase lines', () => {
+  const realSource = fileURLToPath(
+    new URL('../../../../output/pdf/source-search-20261003/rebrina-original.pdf', import.meta.url),
+  )
+  it.skipIf(!existsSync(realSource))(
+    'checks the original Rebrina cardinal rail without exhausting work on rotated wall strokes',
+    async () => {
+      const body = await readFile(realSource)
+      const sha256 = createHash('sha256').update(body).digest('hex')
+      expect(sha256).toBe('2e141c135812c81719e1f4783173cb5202e20041ac494d3cc799eb37ad62ad4e')
+      const { preparePlanPage } = await import('./plan-document')
+      const page = await preparePlanPage(body, true, 3, true, true)
+      if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+        throw new Error('Missing original PDF layers')
+      const input = {
+        native: page.nativeTextAnchors,
+        work: page.linework,
+        lineworkSource: page.lineworkRasterSource,
+        source: { sha256, pdfPage: 3, state: 'existing' as const },
+      }
+      const result = automaticNativeDimensionRoles(input)
+      expect(result.refusalReason).toBeNull()
+      expect(result.candidates).toHaveLength(1)
+      expect(result.candidates[0]).toMatchObject({
+        labelId: 'native-text-120',
+        valueMm: 580,
+        axis: 'width',
+        rail: { operationIndex: 8058 },
+      })
+      expect(result.candidates[0]?.ticks.map((tick) => tick.operationIndex)).toEqual([8064, 8068])
+      expect(
+        result.unresolved.filter((row) => row.reason === 'unsupported-dimension-orientation'),
+      ).toHaveLength(68)
+      expect(
+        result.unresolved.filter((row) => row.reason === 'no-connected-dimension-line'),
+      ).toHaveLength(22)
+      const label = input.native.labels.find((row) => row.id === 'native-text-120')
+      if (!label?.pagePoint) throw new Error('Missing original 580 mm caption')
+      const legacy = pdfNativePageDimensionChain(
+        input.work,
+        input.source,
+        [{ index: 120, text: label.name, ...label.pagePoint, rotation: 0 }],
+        580,
+        'width',
+      )
+      if (legacy.status !== 'candidate') throw new Error(legacy.reason)
+      expect(result.candidates[0]?.spanEnds).toEqual(legacy.ends)
+      expect(result.mayEraseSourceStrokes).toBe(false)
+    },
+  )
   it.each([180, -90, 270])(
     'checks cardinal rotation %s without changing source text',
     (rotation) => {
@@ -298,7 +351,47 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
     })
   })
 
-  it('withholds the whole report after bounded second-axis preparation exhausts discovery work', () => {
+  it('keeps off-axis source strokes without charging them as rails on both axes', () => {
+    const input = fixture()
+    for (let index = 0; index < 1500; index++)
+      input.work.paths.push({
+        operationIndex: 100 + index,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: 500, y: 10 + index * 0.5 },
+          { x: 501, y: 10.75 + index * 0.5 },
+        ],
+      })
+    const before = structuredClone(input)
+    const result = automaticNativeDimensionRoles(input)
+    expect(result.refusalReason).toBeNull()
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0]?.rail.operationIndex).toBe(1)
+    expect(input).toEqual(before)
+  })
+
+  it('still refuses an off-axis branch connected to an eligible rail endpoint', () => {
+    const input = fixture()
+    input.work.paths.push({
+      operationIndex: 4,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 100, y: 170 },
+        { x: 100.5, y: 170.4 },
+      ],
+    })
+    expect(automaticNativeDimensionRoles(input)).toMatchObject({
+      refusalReason: null,
+      candidates: [],
+      unresolved: [{ labelId: 'native-text-10', reason: 'branched-dimension-line' }],
+    })
+  })
+
+  it('withholds the whole report when actual axis-eligible preparation exhausts discovery work', () => {
     const input = fixture()
     input.native.labels.push({
       id: 'native-text-20',
@@ -342,15 +435,15 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
     ]
     input.work.paths.push(...depth)
     expect(automaticNativeDimensionRoles(input).candidates).toHaveLength(2)
-    for (let index = 0; index < 1100; index++)
+    for (let index = 0; index < 2200; index++)
       input.work.paths.push({
         operationIndex: 100 + index,
         subpathIndex: 0,
         paint: 'stroke',
         closed: false,
         points: [
-          { x: 500, y: 10 + index * 0.75 },
-          { x: 700, y: 10 + index * 0.75 },
+          { x: 500, y: 10 + index * 0.4 },
+          { x: 700, y: 10 + index * 0.4 },
         ],
       })
     const before = structuredClone(input)

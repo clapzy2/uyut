@@ -7,7 +7,10 @@ import {
   createPdfNativePageDimensionChainVerifier,
   type PdfNativePageDimensionChain,
 } from './plan-pdf-dimension-chain'
-import { pdfNativeDimensionSourceIssue } from './plan-pdf-dimension-source'
+import {
+  pdfNativeDimensionChainIsUnobscured,
+  pdfNativeDimensionSourceIssue,
+} from './plan-pdf-dimension-source'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
 
@@ -47,7 +50,7 @@ export function createRotatedNativeCaptionVerifier(
   context: NativeDimensionCaptionContext,
 ): (label: Label, valueMm: number) => PdfNativePageDimensionChain {
   const fail = (reason: string): PdfNativePageDimensionChain => ({ status: 'unresolved', reason })
-  const sourceIssue = pdfNativeDimensionSourceIssue(source, work)
+  const sourceIssue = pdfNativeDimensionSourceIssue(source, work, 'bounded-clipped-ink')
   if (sourceIssue) return () => fail(sourceIssue)
   const physical = (point: PagePoint) => ({
     x: (point.x * work.pageWidth) / 1000,
@@ -275,6 +278,13 @@ export function createRotatedNativeCaptionVerifier(
       axis: nativeCaptionDimensionAxis(label.rotation),
       ends: [start, end],
       segments,
+    }
+    // Omission bounds belong to the unchanged source frame, not the private
+    // rotated matcher. Check complete caption ink and span after mapping back.
+    if (!pdfNativeDimensionChainIsUnobscured(work, original, [{ ...label, ...caption }])) {
+      const held = fail('omitted-ink-near-source-caption-rail')
+      cache.set(label.index, held)
+      return structuredClone(held)
     }
     cache.set(label.index, original)
     return structuredClone(original)

@@ -67,6 +67,34 @@ function fixture(rotation = 0) {
 afterEach(() => vi.restoreAllMocks())
 
 describe('strict rotated source-caption projection, not model acceptance', () => {
+  it.each([0, 90, -43.956296393540775])(
+    'checks complete clipped ink in original coordinates at rotation %s',
+    (rotation) => {
+      const data = fixture(rotation)
+      data.work.clippedPaths = 1
+      data.work.clippedPathBounds = [
+        {
+          operationIndex: 30,
+          paint: 'fill',
+          bounds: { left: -20, right: -10, top: 700, bottom: 710 },
+        },
+      ]
+      expect(data.verify().status).toBe('candidate')
+      const tip = data.point(100, 170)
+      const omission = data.work.clippedPathBounds[0]
+      if (!omission) throw new Error('Missing synthetic clipped path')
+      omission.bounds = {
+        left: tip.x,
+        right: tip.x,
+        top: tip.y,
+        bottom: tip.y,
+      }
+      expect(data.verify()).toEqual({
+        status: 'unresolved',
+        reason: 'omitted-ink-near-source-caption-rail',
+      })
+    },
+  )
   it.each([0, 90, 180, -90, 270, 360, 90.00000000000595, -43.956296393540775, 0.3])(
     'checks raw rotation %s with exact original endpoints on a non-square page',
     (rotation) => {

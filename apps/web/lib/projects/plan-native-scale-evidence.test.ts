@@ -98,6 +98,28 @@ function renameDimension(input: Input, index: number, value: number) {
 afterEach(() => vi.restoreAllMocks())
 
 describe('independent source drawing X/Y scale evidence', () => {
+  it('does not count a clipped independent witness toward an accepted common scale', () => {
+    const input = fixture()
+    input.work.clippedPaths = 1
+    input.work.clippedPathBounds = [
+      {
+        operationIndex: 100,
+        paint: 'fill',
+        bounds: { left: -20, right: -10, top: 700, bottom: 710 },
+      },
+    ]
+    expect(nativeScaleEvidence(input).commonScale.status).toBe('consistent')
+    const omission = input.work.clippedPathBounds[0]
+    if (!omission) throw new Error('Missing synthetic clipped path')
+    omission.bounds = { left: 900, right: 900, top: 500, bottom: 500 }
+    const result = nativeScaleEvidence(input)
+    expect(result.axes[1]?.status).toBe('insufficient')
+    expect(result.axes[1]?.observations.map(({ labelId }) => labelId)).not.toContain(
+      'native-text-3',
+    )
+    expect(result.commonScale.status).toBe('insufficient')
+    expect(result.mayTransfer3D).toBe(false)
+  })
   it('checks both axes and every source span without conversion authority or input changes', () => {
     const input = fixture()
     const before = structuredClone(input)
