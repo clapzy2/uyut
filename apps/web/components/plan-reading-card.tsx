@@ -457,7 +457,8 @@ export function PlanReadingCard({
             >
               {reviewedPage ? 'Изменить разметку листа' : 'Разметить комнаты и объекты'}
             </Button>
-            {reviewedPage ? (
+            {reviewedPage &&
+            !review.contours.rooms.some((room) => room.sourceTopology !== undefined) ? (
               <Button
                 type="button"
                 variant="secondary"
@@ -474,6 +475,9 @@ export function PlanReadingCard({
           <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
             Сохранено контуров: {review.contours.rooms.length}, страница {page}. Повторное чтение
             использует AI и заменит данные в форме; контуры проверим по тому же файлу.
+            {review.contours.rooms.some((room) => room.sourceTopology !== undefined)
+              ? ' Исходные снимки с точными пересечениями и вырезами ещё не являются подтверждёнными физическими границами.'
+              : null}
           </p>
         ) : null}
         {reviewedPage && review.featureChecks?.openings.length ? (

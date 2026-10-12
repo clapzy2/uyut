@@ -71,6 +71,13 @@ export function PlanPageGeometryImport({
   const [saving, startSaving] = useTransition()
   const [replaceAcknowledged, setReplaceAcknowledged] = useState(false)
   const replacing = reading.geometry?.requiresSourceReviewReimport === true
+  if (reading.pageReview?.contours.rooms.some((room) => room.sourceTopology !== undefined))
+    return (
+      <p role="status" className="text-sm leading-relaxed text-ink-2">
+        Исходные контуры сохранены с точными пересечениями и вырезами. Их физические границы ещё не
+        проверены; перенос в метрическую 2D/3D-модель пока недоступен.
+      </p>
+    )
   if (
     (reading.geometry && !replacing) ||
     reading.planState !== 'existing' ||

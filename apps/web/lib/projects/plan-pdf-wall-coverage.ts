@@ -43,6 +43,7 @@ export function planPageWallReviewQueue(
   cmPerPoint: number,
   scope: 'interior' | 'exterior' = 'interior',
 ): Array<PdfWallCoverageSpan & { lengthCm: number }> {
+  if (contours.rooms.some((room) => room.sourceTopology !== undefined)) return []
   if (!Number.isFinite(cmPerPoint) || cmPerPoint <= 0)
     throw new Error('Wall review requires a positive finite PDF scale.')
   return spans
@@ -73,6 +74,7 @@ export function classifyPlanPageWallSpans(
   pairs: readonly PdfWallFacePair[],
   exteriorOpenings: readonly PdfExteriorOpening[] = [],
 ): PdfWallCoverageSpan[] {
+  if (contours.rooms.some((room) => room.sourceTopology !== undefined)) return []
   if (!planPageContoursSchema.safeParse(contours).success) return []
   if (exteriorOpenings.length > 32 || (exteriorOpenings.length && !contours.exterior)) {
     throw new Error('Exterior opening review requires a bounded exterior contour.')

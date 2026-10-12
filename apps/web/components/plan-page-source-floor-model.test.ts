@@ -87,18 +87,27 @@ describe('source reference parsing and lossless whole-ring draft copy', () => {
   it('copies already supported native endpoints unchanged into an unconfirmed room draft', () => {
     const source = floor(),
       before = structuredClone(source)
-    const result = sourceFloorDraft(source, polygon, [], page)
+    const result = sourceFloorDraft(source)
     expect(result.kind).toBe('candidate')
     if (result.kind !== 'candidate') throw new Error('Expected eligible source contour')
-    expect(result.draft).toEqual({ roomSourceNumber: 3.1, polygon, closed: true })
-    expect(pageContourRoomsForSave([result.draft], polygon, [])).toEqual([
-      { roomSourceNumber: 3.1, polygon },
-    ])
+    expect(result.draft).toMatchObject({
+      roomSourceNumber: 3.1,
+      polygon,
+      closed: true,
+      sourceTopology: {
+        kind: 'unclassified-source-paint',
+        floorId: source.id,
+        exactPointKeys: source.exactPointKeys,
+      },
+    })
+    expect(pageContourRoomsForSave([result.draft], polygon, [])?.[0]?.sourceTopology).toEqual(
+      result.draft.sourceTopology,
+    )
     expect(result.draft).not.toHaveProperty('measurementsConfirmed')
     expect(result.draft).not.toHaveProperty('geometry')
     expect(source).toEqual(before)
   })
-  it('retains an exact supported stroke crossing rather than moving it to a nearby endpoint', () => {
+  it('retains the whole source snapshot without inventing physical stroke evidence', () => {
     const source = floor()
     const native = polygon.filter((p) => !(p.x === 30 && p.y === 10))
     const segments = [
@@ -117,17 +126,15 @@ describe('source reference parsing and lossless whole-ring draft copy', () => {
         end: { x: 30, y: 30 },
       },
     ]
-    const result = sourceFloorDraft(source, native, segments, page)
+    const result = sourceFloorDraft(source)
     expect(result.kind).toBe('candidate')
     if (result.kind !== 'candidate') throw new Error('Expected exact crossing')
-    expect(result.draft.vertexProofs?.[0]).toMatchObject({
-      vertexIndex: 1,
-      exactPointKey: '30/1:10/1',
-    })
+    expect(result.draft.sourceTopology?.exactPointKeys).toEqual(source.exactPointKeys)
+    expect(result.draft).not.toHaveProperty('vertexProofs')
     expect(pageContourRoomsForSave([result.draft], native, segments)?.[0]?.polygon).toEqual(polygon)
   })
   it.each(['holes', 'rational', 'missing-source', 'nearby-node'])(
-    'holds the entire source contour for %s rather than approximating or dropping parts',
+    'retains %s only as an exact source snapshot rather than approximating or dropping parts',
     (fault) => {
       const source = floor()
       let native = structuredClone(polygon)
@@ -137,11 +144,29 @@ describe('source reference parsing and lossless whole-ring draft copy', () => {
           { x: 20, y: 15 },
           { x: 20, y: 20 },
         ])
+      if (fault === 'holes')
+        source.holeExactPointKeys = source.holes.map((ring) =>
+          ring.map((point) => exactNativePointKey(point) as string),
+        )
       if (fault === 'rational') source.exactPointKeys[0] = '31/3:10/1'
       if (fault === 'missing-source') native = native.slice(1)
       if (fault === 'nearby-node') native[0] = { x: 10.001, y: 10 }
       const before = structuredClone(source)
-      expect(sourceFloorDraft(source, native, [], page).kind).toBe('held')
+      const copied = sourceFloorDraft(source)
+      expect(copied.kind).toBe('candidate')
+      if (copied.kind !== 'candidate') throw new Error('Expected source snapshot')
+      expect(copied.draft.polygon).toEqual(source.polygon)
+      expect(copied.draft.sourceTopology).toMatchObject({
+        kind: 'unclassified-source-paint',
+        floorId: source.id,
+        exactPointKeys: source.exactPointKeys,
+        holes: source.holes,
+        holeExactPointKeys: source.holeExactPointKeys,
+      })
+      expect(copied.draft).not.toHaveProperty('vertexProofs')
+      expect(pageContourRoomsForSave([copied.draft], native, [])?.[0]?.sourceTopology).toEqual(
+        copied.draft.sourceTopology,
+      )
       expect(source).toEqual(before)
     },
   )
@@ -157,6 +182,13 @@ describe('source reference parsing and lossless whole-ring draft copy', () => {
     const path = sourceFloorReferencePath(source)
     expect(path.match(/M /g)).toHaveLength(2)
     expect(path.match(/ Z/g)).toHaveLength(2)
-    expect(sourceFloorDraft(source, polygon, [], page)).toEqual({ kind: 'held', reason: 'holes' })
+    source.holeExactPointKeys = source.holes.map((ring) =>
+      ring.map((point) => exactNativePointKey(point) as string),
+    )
+    const copied = sourceFloorDraft(source)
+    expect(copied.kind).toBe('candidate')
+    if (copied.kind !== 'candidate') throw new Error('Expected source snapshot')
+    expect(copied.draft.sourceTopology?.holes).toEqual(source.holes)
+    expect(copied.draft).not.toHaveProperty('obstacles')
   })
 })

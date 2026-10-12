@@ -10,7 +10,10 @@ import type {
   PlanRoomReading,
 } from '@uyut/db'
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
-import { sourceRoomContourVertices } from '@/lib/projects/plan-page-review'
+import {
+  planPageSourceTopologySchema,
+  sourceRoomContourVertices,
+} from '@/lib/projects/plan-page-review'
 import {
   type NativePageSegment,
   nativeEdgeCrossing,
@@ -27,6 +30,7 @@ export type PageContourDraft = PlanPageRoomIdentity & {
   polygon: PageContourPoint[]
   closed: boolean
   vertexProofs?: PlanPageContours['rooms'][number]['vertexProofs']
+  sourceTopology?: PlanPageContours['rooms'][number]['sourceTopology']
   conditionalEdges?: PlanPageContours['rooms'][number]['conditionalEdges']
   dimensionEdges?: PlanPageContours['rooms'][number]['dimensionEdges']
   openings?: PageOpeningDraft[]
@@ -47,6 +51,7 @@ export function contourDraftsFromSaved(rooms: PlanPageContours['rooms']): PageCo
     ...pdfContourIdentity(room),
     polygon: room.polygon.map((point) => ({ ...point })),
     closed: true,
+    ...(room.sourceTopology ? { sourceTopology: structuredClone(room.sourceTopology) } : {}),
     ...(room.vertexProofs ? { vertexProofs: structuredClone(room.vertexProofs) } : {}),
     ...(room.conditionalEdges ? { conditionalEdges: structuredClone(room.conditionalEdges) } : {}),
     ...(room.dimensionEdges ? { dimensionEdges: structuredClone(room.dimensionEdges) } : {}),
@@ -193,6 +198,36 @@ export function pageContourRoomsForSave(
     )
       return null
     for (const number of numbers) claimed.add(number)
+    if (draft.sourceTopology) {
+      const topology = planPageSourceTopologySchema.safeParse(draft.sourceTopology)
+      if (
+        !draft.closed ||
+        draft.polygon.length < 3 ||
+        draft.polygon.length > 100 ||
+        !draft.polygon.every(finiteContourPoint) ||
+        !topology.success ||
+        draft.roomSourceNumbers !== undefined ||
+        [
+          draft.vertexProofs,
+          draft.openings,
+          draft.obstacles,
+          draft.conditionalEdges,
+          draft.dimensionEdges,
+        ].some((value) => value !== undefined) ||
+        topology.data.exactPointKeys.length !== draft.polygon.length ||
+        topology.data.holes.length !== topology.data.holeExactPointKeys.length ||
+        topology.data.holes.some(
+          (ring, index) => ring.length !== topology.data.holeExactPointKeys[index]?.length,
+        )
+      )
+        return null
+      rooms.push({
+        ...pdfContourIdentity(draft),
+        polygon: structuredClone(draft.polygon),
+        sourceTopology: structuredClone(topology.data),
+      })
+      continue
+    }
     if (
       !draft.closed ||
       draft.polygon.length < 3 ||
@@ -288,6 +323,7 @@ export function groupPageContourDraft(
   )
     return null
   const before = drafts.find((draft) => pdfContourKey(draft) === pdfContourKey(selected))
+  if (before?.sourceTopology) return null
   const grouped: PageContourDraft = {
     roomSourceNumbers: [selectedNumber, otherNumber].sort((a, b) => a - b),
     polygon: before?.polygon.map((point) => ({ ...point })) ?? [],
@@ -305,7 +341,7 @@ export function canAddPageFeature(
   draft: PageContourDraft | undefined,
   kind: 'door' | 'window' | 'balcony' | 'shaft' | 'column' | 'fixed',
 ): boolean {
-  if (!draft?.closed) return false
+  if (!draft?.closed || draft.sourceTopology) return false
   return kind === 'door' || kind === 'window' || kind === 'balcony'
     ? (draft.openings?.length ?? 0) < 32
     : (draft.obstacles?.length ?? 0) < 20

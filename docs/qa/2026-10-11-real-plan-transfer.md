@@ -44,6 +44,30 @@ Provider-reported usage for the single new request: 15,747 tokens and USD 0.1235
 
 ## Gate and next work
 
+### Follow-up: exact selected source topology in persisted working contours
+
+Rooms may carry an explicit unclassified-source-paint snapshot: floor id, exact
+outer keys, retained holes and hole keys. Its display polygon is not a decimal
+physical contour. The save action verifies the entire snapshot against freshly
+rederived saved source selections, with the existing owner/hash/page/revision/CAS
+gates. Grouping, physical feature fields, rounded replacement coordinates and
+missing/changed holes or keys are rejected. Marker removal cannot reclassify a
+source room, including through a shared-zone membership replacement.
+
+Hydration and serialization retain the full snapshot; the existing editor renders
+an even-odd path and locks per-vertex/feature editing, without inferring shafts.
+Exact topology affects the geometry invalidation key. A related confirmed metric
+model is demoted even on the first source review; raw measurements remain intact.
+Physical review, binding, wall supports/coverage, contacts, connectivity, clearance,
+door access and metric adapters explicitly refuse source-only topology. Old successful
+route reports cannot override that gate. Ordinary contour behavior is unchanged.
+
+The unchanged Rebrina original replays eight snapshots, 144 exact outer keys and
+79 nondecimal vertices through JSON plus editor hydrate/serialize roundtrip. Fresh
+source verification passes; physical review returns unclassified-source-topology
+and metric import remains held. This offline fixture creates no account or source
+writes and does not assert physical wall, opening, scale or height correctness.
+
 ### Follow-up: source-space selected-floor bridge in the existing editor
 
 The private plan-page route adds an on-demand source-floor-reference format. It

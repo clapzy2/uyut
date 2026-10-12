@@ -101,6 +101,7 @@ export function inspectPaintedBodyBoundarySpans(
   contours: PlanPageContours,
   spans: readonly PdfWallCoverageSpan[],
 ): PaintedBodyBoundaryAssessment[] {
+  if (contours.rooms.some((room) => room.sourceTopology !== undefined)) return []
   const zones = new Map(contours.rooms.map((room) => [pdfContourKey(room), room.polygon] as const))
   if (contours.exterior) zones.set('exterior', contours.exterior.polygon)
   return spans.map((span) => {

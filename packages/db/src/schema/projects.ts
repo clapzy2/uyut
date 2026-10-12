@@ -416,6 +416,15 @@ export type PlanPageDimensionEdge = {
   labelIndexes: number[]
 }
 
+/** Exact selected PDF paint topology. It has no physical floor/wall authority. */
+export type PlanPageSourceTopology = {
+  kind: 'unclassified-source-paint'
+  floorId: string
+  exactPointKeys: string[]
+  holes: Array<Array<{ x: number; y: number }>>
+  holeExactPointKeys: string[][]
+}
+
 export type PlanPageContours = {
   source: { sha256: string; pdfPage: number; state: 'existing' | 'proposed' }
   coordinateSystem: 'page-0-1000'
@@ -435,6 +444,7 @@ export type PlanPageContours = {
   rooms: Array<
     PlanPageRoomIdentity & {
       polygon: Array<{ x: number; y: number }>
+      sourceTopology?: PlanPageSourceTopology
       vertexProofs?: PlanPageVertexProof[]
       conditionalEdges?: PlanPageConditionalEdge[]
       dimensionEdges?: PlanPageDimensionEdge[]

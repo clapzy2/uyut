@@ -63,6 +63,42 @@ const crossingRoom: PlanPageContours['rooms'][number] = {
 const crossingNodes = crossingSegments.flatMap((segment) => [segment.start, segment.end])
 
 describe('saved bounded source intersections', () => {
+  it('preserves rational source topology and holes on hydrate/save without snapping them into native nodes', () => {
+    const sourceRoom: PlanPageContours['rooms'][number] = {
+      roomSourceNumber: 3.1,
+      polygon: [
+        { x: 10.333333333333334, y: 10 },
+        { x: 30, y: 10 },
+        { x: 30, y: 30 },
+        { x: 10, y: 30 },
+      ],
+      sourceTopology: {
+        kind: 'unclassified-source-paint',
+        floorId: 'source-floor-3.1',
+        exactPointKeys: ['31/3:10/1', '30/1:10/1', '30/1:30/1', '10/1:30/1'],
+        holes: [
+          [
+            { x: 15, y: 15 },
+            { x: 20, y: 15 },
+            { x: 20, y: 20 },
+          ],
+        ],
+        holeExactPointKeys: [['15/1:15/1', '20/1:15/1', '20/1:20/1']],
+      },
+    }
+    const before = structuredClone(sourceRoom)
+    const drafts = contourDraftsFromSaved([sourceRoom])
+    expect(pageContourRoomsForSave(drafts, [], [])).toEqual([sourceRoom])
+    expect(drafts[0]?.sourceTopology).not.toBe(sourceRoom.sourceTopology)
+    expect(canAddPageFeature(drafts[0], 'door')).toBe(false)
+    expect(
+      groupPageContourDraft(drafts, { roomSourceNumber: 3.1 }, 4, [
+        { name: 'Гардероб', sourceNumber: 3.1, kind: 'bedroom' },
+        { name: 'Другая', sourceNumber: 4, kind: 'bedroom' },
+      ]),
+    ).toBeNull()
+    expect(sourceRoom).toEqual(before)
+  })
   it('reloads and resaves a room without losing or sharing its crossing evidence', () => {
     const drafts = contourDraftsFromSaved([crossingRoom])
     expect(pageContourRoomsForSave(drafts, crossingNodes, crossingSegments)).toEqual([crossingRoom])

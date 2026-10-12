@@ -127,6 +127,10 @@ export function planPageMetricDraft(
   )
     return fail('Выберите от одной до двенадцати разных комнат с номерами исходного плана.')
   const { source, linework, contours } = context
+  if (contours.rooms.some((room) => room.sourceTopology !== undefined))
+    return fail(
+      'Сохранены исходные области с точными пересечениями и вырезами, но их физические границы ещё не проверены. Они не переносятся в размеры, 2D или 3D как обычные комнаты.',
+    )
   if (
     source.state !== 'existing' ||
     !planPageContoursSchema.safeParse(contours).success ||
