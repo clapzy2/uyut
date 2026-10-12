@@ -31,6 +31,106 @@ function fixture() {
   }
   return { packet, headers }
 }
+
+describe('readonly renderer pen contacts', () => {
+  function penFixture() {
+    const result = fixture()
+    result.packet.sourceCaptionBindings = {
+      status: 'draft',
+      refusalReason: null,
+      candidates: [
+        {
+          labelId: 'dimension-pen',
+          compactIndex: 0,
+          valueMm: 817,
+          axis: 'aligned',
+          rail: { operationIndex: 7393, subpathIndex: 0 },
+          angleDegrees: 10,
+          textPlacement: 'glyph-ink',
+          inkSourceOperation: 100,
+        },
+      ],
+      unresolved: [],
+    }
+    result.packet.dimensionStrokeContacts = {
+      status: 'diagnostic',
+      refusalReason: null,
+      visibility: 'not-checked',
+      physicalTargetsAccepted: false,
+      mayTransfer2D: false,
+      mayTransfer3D: false,
+      observations: [
+        {
+          labelId: 'dimension-pen',
+          valueMm: 817,
+          rail: { operationIndex: 7393, subpathIndex: 0 },
+          tips: [
+            {
+              endpoint: 0,
+              status: 'ink-overlap',
+              reason: null,
+              sourceRefs: [{ operationIndex: 7389, subpathIndex: 0, segmentIndex: 0 }],
+            },
+            { endpoint: 1, status: 'held', reason: 'source-pen-unavailable', sourceRefs: [] },
+          ],
+        },
+      ],
+    }
+    return result
+  }
+  it('retains diagnostic ink without any visibility or physical authority', async () => {
+    const { packet, headers } = penFixture()
+    expect((await loadFixture(packet, headers)).packet.dimensionStrokeContacts).toEqual(
+      packet.dimensionStrokeContacts,
+    )
+  })
+  it.each([
+    'visibility',
+    '2d',
+    '3d',
+    'physical',
+    'stale-rail',
+    'stale-value',
+    'duplicate-ref',
+    'tip-order',
+    'missing-row',
+    'unknown-key',
+    'self-ref',
+    'empty-overlap',
+    'held-with-ref',
+  ])('refuses malformed pen report %s', async (change) => {
+    const { packet, headers } = penFixture()
+    const report = packet.dimensionStrokeContacts
+    const row = report?.observations[0]
+    const tip = row?.tips[0]
+    const ref = tip?.sourceRefs[0]
+    if (!report || !row || !tip || !ref) throw new Error('Missing pen fixture')
+    if (change === 'visibility') Object.assign(report, { visibility: 'visible' })
+    if (change === '2d') Object.assign(report, { mayTransfer2D: true })
+    if (change === '3d') Object.assign(report, { mayTransfer3D: true })
+    if (change === 'physical') Object.assign(report, { physicalTargetsAccepted: true })
+    if (change === 'stale-rail') row.rail.operationIndex++
+    if (change === 'stale-value') row.valueMm++
+    if (change === 'duplicate-ref') tip.sourceRefs.push({ ...ref })
+    if (change === 'tip-order') row.tips.reverse()
+    if (change === 'missing-row') report.observations = []
+    if (change === 'unknown-key') Object.assign(report, { geometry: {} })
+    if (change === 'self-ref') ref.operationIndex = row.rail.operationIndex
+    if (change === 'empty-overlap') tip.sourceRefs = []
+    if (change === 'held-with-ref') Object.assign(tip, { status: 'held', reason: 'unverified' })
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
+  it('permits bounded refusal, but not partial positive data on refusal', async () => {
+    const { packet, headers } = penFixture()
+    const report = packet.dimensionStrokeContacts
+    if (!report) throw new Error('Missing pen report')
+    report.status = 'unresolved'
+    report.refusalReason = 'source-pen-budget'
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+    report.observations = []
+    expect((await loadFixture(packet, headers)).packet.dimensionStrokeContacts).toEqual(report)
+  })
+})
 const input = () => ({
   projectId: 'private-project',
   page: 1,

@@ -670,6 +670,75 @@ const dimensionTargetMessages = {
   conflict: 'конфликт размеров одной грани пола',
 }
 
+function DimensionStrokeContactsReview({
+  report,
+}: {
+  report: NonNullable<NativeReviewPacket['dimensionStrokeContacts']>
+}) {
+  const overlaps = report.observations
+    .flatMap((row) => row.tips)
+    .filter((tip) => tip.status === 'ink-overlap')
+  return (
+    <section
+      className="space-y-2 border-t border-line pt-3 text-[13px] leading-relaxed"
+      aria-label="Толщина исходных штрихов"
+    >
+      <h4 className="text-[14px] font-medium">Толщина исходных штрихов</h4>
+      <p className="text-ink-2">
+        Проверяем попадание конца размерной линии внутрь штриха с учётом толщины, преобразования и
+        отсечения PDF. Это модель краски по данным PDF.js, а не точный контакт осевых линий.
+        Видимость после наложения текста, изображений и других объектов ещё не проверена. Такие
+        совпадения не выбирают границу пола или косяк и не переносятся в 2D/3D.
+      </p>
+      {report.status === 'unresolved' ? (
+        <p className="break-all text-ink-2">
+          Проверка толщины не завершена: {report.refusalReason}.
+        </p>
+      ) : (
+        <>
+          <p>
+            Концы внутри штрихов: {overlaps.length}; удержанные концы:{' '}
+            {report.observations.length * 2 - overlaps.length}. Наложения не подтверждают физические
+            объекты.
+          </p>
+          {report.observations.length ? (
+            <details className="text-ink-2">
+              <summary className="min-h-11 cursor-pointer py-3">
+                Штрихи у концов размерных линий
+              </summary>
+              <ul className="list-disc space-y-2 pl-5">
+                {report.observations.map((row) => (
+                  <li key={row.labelId} className="break-all">
+                    {row.labelId}: {row.valueMm} мм; линия {row.rail.operationIndex}:
+                    {row.rail.subpathIndex}.
+                    {row.tips.map((tip) => (
+                      <p key={tip.endpoint}>
+                        Конец {tip.endpoint + 1}:{' '}
+                        {tip.status === 'ink-overlap'
+                          ? 'внутри модели штриха; видимость не подтверждена'
+                          : `удержан — ${tip.reason}`}
+                        .
+                        {tip.sourceRefs.length
+                          ? ` Исходные ссылки: ${tip.sourceRefs
+                              .map(
+                                (ref) =>
+                                  `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`,
+                              )
+                              .join(', ')}.`
+                          : ''}
+                      </p>
+                    ))}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </>
+      )}
+    </section>
+  )
+}
+
 function DimensionTargetsReview({
   report,
 }: {
@@ -1620,6 +1689,9 @@ export function NativeReviewResult({
         <SourceCaptionReview report={packet.sourceCaptionBindings} />
       ) : null}
       {packet.dimensionTargets ? <DimensionTargetsReview report={packet.dimensionTargets} /> : null}
+      {packet.dimensionStrokeContacts ? (
+        <DimensionStrokeContactsReview report={packet.dimensionStrokeContacts} />
+      ) : null}
       {packet.scaleEvidence ? <ScaleEvidenceReview report={packet.scaleEvidence} /> : null}
       {packet.doorSymbols || packet.openingFrames ? (
         <div className="space-y-2 text-[13px] leading-relaxed">

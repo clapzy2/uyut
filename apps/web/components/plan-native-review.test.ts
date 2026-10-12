@@ -8,6 +8,54 @@ import {
 import { inspectReviewedPageCoverage } from '@/lib/projects/plan-page-reviewed-coverage'
 import { NativeReviewResult, PlanNativeReview, SavedReviewCoverage } from './plan-native-review'
 
+it('keeps pen overlap, final visibility and physical dimensions distinct without new actions', () => {
+  const packet = nativeReviewPacket({
+    source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },
+    image: { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 },
+  })
+  const baseline = renderToStaticMarkup(
+    createElement(NativeReviewResult, { packet, imageUrl: 'blob:test' }),
+  )
+  packet.dimensionStrokeContacts = {
+    status: 'diagnostic',
+    refusalReason: null,
+    visibility: 'not-checked',
+    physicalTargetsAccepted: false,
+    mayTransfer2D: false,
+    mayTransfer3D: false,
+    observations: [
+      {
+        labelId: '<dimension>',
+        valueMm: 817,
+        rail: { operationIndex: 7393, subpathIndex: 0 },
+        tips: [
+          {
+            endpoint: 0,
+            status: 'ink-overlap',
+            reason: null,
+            sourceRefs: [{ operationIndex: 7389, subpathIndex: 0, segmentIndex: 0 }],
+          },
+          { endpoint: 1, status: 'held', reason: '<missing>', sourceRefs: [] },
+        ],
+      },
+    ],
+  }
+  const before = structuredClone(packet)
+  const html = renderToStaticMarkup(
+    createElement(NativeReviewResult, { packet, imageUrl: 'blob:test' }),
+  )
+  expect(html).toContain('Концы внутри штрихов: 1')
+  expect(html).toContain('удержанные концы: 1')
+  expect(html).toContain('видимость не подтверждена')
+  expect(html).toContain('не переносятся в 2D/3D')
+  expect(html).toContain('&lt;dimension&gt;: 817 мм')
+  expect(html).toContain('&lt;missing&gt;')
+  expect(html).toContain('7389:0:0')
+  expect(html.match(/<button/g)?.length ?? 0).toBe(baseline.match(/<button/g)?.length ?? 0)
+  expect(html.match(/<svg/g)?.length ?? 0).toBe(baseline.match(/<svg/g)?.length ?? 0)
+  expect(packet).toEqual(before)
+})
+
 it('distinguishes saved source-floor selections from an absent 2D contour review', () => {
   const html = renderToStaticMarkup(
     createElement(SavedReviewCoverage, {

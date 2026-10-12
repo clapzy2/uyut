@@ -44,6 +44,10 @@ import {
   nativeRoomNumberScheduleLinks,
 } from './plan-native-room-number-links'
 import { type NativeScaleEvidenceReport, nativeScaleEvidence } from './plan-native-scale-evidence'
+import {
+  type NativeDimensionStrokeContactReport,
+  nativeDimensionStrokeContacts,
+} from './plan-native-stroke-contacts'
 import { nativeVisiblePaintRegions } from './plan-native-visible-paint'
 import {
   inspectReviewedPageCoverage,
@@ -183,6 +187,7 @@ export type NativeReviewPacket = {
   }
   sourceCaptionBindings?: NativeCaptionBindingReport
   dimensionTargets?: NativeDimensionTargetReport
+  dimensionStrokeContacts?: NativeDimensionStrokeContactReport
   scaleEvidence?: NativeScaleEvidenceReport
   heightObservations?: {
     status: 'draft' | 'unresolved'
@@ -455,6 +460,10 @@ export function nativeReviewPacket(input: {
     unresolved: captionBindings.unresolved,
   }
   const dimensionTargets = nativeDimensionTargets({ ...common, source }, captionBindings)
+  packet.dimensionStrokeContacts = nativeDimensionStrokeContacts(
+    { ...common, source },
+    captionBindings,
+  )
   packet.dimensionTargets = {
     status: dimensionTargets.status,
     refusalReason: dimensionTargets.refusalReason,
