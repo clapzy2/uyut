@@ -56,6 +56,23 @@ export function PlanPageSourceFloorControls({
     ambiguous: 'Конкурирующие источники',
     unobserved: 'Связь не найдена',
   }
+  const opening = current?.openingInspection
+  const openingContacts =
+    opening?.targets.filter((target) =>
+      target.contacts.some((contact) => contact.floorId === floor?.id),
+    ) ?? []
+  const openingLabels = {
+    matched: 'Полное совпадение исходных отрезков',
+    partial: 'Частичное совпадение',
+    ambiguous: 'Неоднозначная связь',
+    unobserved: 'Совпадение не найдено',
+    unresolved: 'Связь требует проверки',
+  }
+  const targetLabels = {
+    'frame-side': 'Сторона рамки',
+    'frame-jamb': 'Торец рамки',
+    'panel-end': 'Конец профиля',
+  }
 
   return (
     <div className="space-y-2 border-l-2 border-line pl-3 text-sm">
@@ -182,6 +199,104 @@ export function PlanPageSourceFloorControls({
                   </tbody>
                 </table>
               </div>
+            </details>
+          ) : null}
+          {floor && opening ? (
+            <details className="max-w-2xl border-t border-line pt-2">
+              <summary className="min-h-11 cursor-pointer py-2 font-medium">
+                Связи исходного контура с проёмами и косяками
+              </summary>
+              <p className="mb-3 text-xs leading-relaxed text-ink-2">
+                Проверяем точные отрезки внешнего контура и вырезов, не продолжения линий. Рамки и
+                профили ещё не классифицированы как двери или окна. Совпадение не подтверждает
+                физический косяк, свободный проход или видимость после наложений.
+              </p>
+              {opening.status === 'held' ? (
+                <p role="status" className="text-xs text-ink-2">
+                  Сопоставление удержано: {opening.reason}. Исходный контур не изменён.
+                </p>
+              ) : (
+                <>
+                  <p className="mb-3 text-xs text-ink-2">
+                    Проверено сторон и концов: {opening.targets.length}; с выбранной областью
+                    совпадают: {openingContacts.length}. Неоднозначных концов профилей на листе:{' '}
+                    {
+                      opening.targets.filter((target) => target.sourceEndStatus === 'ambiguous')
+                        .length
+                    }
+                    . Это неполный инвентарь проёмов.
+                  </p>
+                  {openingContacts.length ? (
+                    <div className="max-w-full overflow-x-auto">
+                      <table className="w-full text-left text-xs leading-relaxed">
+                        <caption className="sr-only">
+                          Контакты исходной области с рамками и профилями
+                        </caption>
+                        <thead className="text-ink-2">
+                          <tr className="border-b border-line">
+                            <th scope="col" className="py-2 pr-3 font-medium">
+                              Объект PDF
+                            </th>
+                            <th scope="col" className="py-2 pr-3 font-medium">
+                              Грани области
+                            </th>
+                            <th scope="col" className="py-2 font-medium">
+                              Результат
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {openingContacts.map((target) => (
+                            <tr key={target.id} className="border-b border-line align-top">
+                              <th scope="row" className="py-2 pr-3 font-normal">
+                                {targetLabels[target.kind]}
+                                <p className="font-mono text-[10px] text-ink-2">
+                                  {target.sourceRef.operationIndex}/{target.sourceRef.subpathIndex}/
+                                  {target.sourceRef.segmentIndex}
+                                </p>
+                              </th>
+                              <td className="py-2 pr-3">
+                                {target.contacts
+                                  .filter((contact) => contact.floorId === floor.id)
+                                  .map((contact) => (
+                                    <p key={`${contact.ringIndex}:${contact.edgeIndex}`}>
+                                      {contact.ringIndex === 0
+                                        ? 'Контур'
+                                        : `Вырез ${contact.ringIndex}`}{' '}
+                                      · {contact.edgeIndex + 1}
+                                      {target.kind === 'frame-side'
+                                        ? contact.regionSide === target.frameInteriorSide
+                                          ? ' · со стороны рамки'
+                                          : ' · с другой стороны рамки'
+                                        : null}
+                                    </p>
+                                  ))}
+                              </td>
+                              <td className="py-2 text-ink-2">
+                                {openingLabels[target.status]}
+                                {target.sourceEndStatus ? (
+                                  <p>Конец по источнику: {openingLabels[target.sourceEndStatus]}</p>
+                                ) : null}
+                                {target.omittedInkCount ? (
+                                  <p>Возможных пропусков: {target.omittedInkCount}</p>
+                                ) : null}
+                                {target.laterPaintCount ? (
+                                  <p>Поздних наложений: {target.laterPaintCount}</p>
+                                ) : null}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-ink-2">
+                      Точных совпадений с выбранной областью не найдено. Это не означает, что в
+                      комнате нет проёмов: другие обозначения требуют отдельной проверки.
+                    </p>
+                  )}
+                </>
+              )}
             </details>
           ) : null}
           {draftExists ? (

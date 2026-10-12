@@ -1,13 +1,14 @@
 import type { PlanReading } from '@uyut/db'
 import { exactNativePointKey } from './plan-native-exact-intersections'
-import {
-  nativePaintedFloorBoundarySupports,
-  type SourcePaintBoundarySupport,
-} from './plan-native-painted-floor-boundaries'
+import type { SourcePaintBoundarySupport } from './plan-native-painted-floor-boundaries'
 import type {
   nativePaintedFloorReview,
   ReviewedNativePaintedFloors,
 } from './plan-native-painted-floor-review'
+import {
+  nativeSourceOpeningContacts,
+  type SourceOpeningInspection,
+} from './plan-native-source-opening-contacts'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
 
 export type SourceFloorReference = {
@@ -22,6 +23,7 @@ export type SourceFloorReference = {
   readOnly: true
   physicalBoundariesAccepted: false
   boundaryInspection?: { status: 'checked' | 'held'; reason: string | null }
+  openingInspection?: SourceOpeningInspection
   floors: {
     id: string
     sourceRoomKey: string
@@ -77,9 +79,10 @@ export function planPageSourceFloors(input: {
     if (saved.version !== 1 || Buffer.byteLength(saved.draftJson, 'utf8') > 65536)
       return hold('invalid-saved-painted-floor-review')
     const reviewed = JSON.parse(saved.draftJson) as ReviewedNativePaintedFloors
-    const fresh = nativePaintedFloorBoundarySupports({ ...input.evidence, reviewed })
+    const fresh = nativeSourceOpeningContacts({ ...input.evidence, reviewed })
     if (fresh.refusalReason) return hold(fresh.refusalReason)
     report.status = 'checked'
+    report.openingInspection = fresh.openingInspection
     report.boundaryInspection = {
       status: fresh.boundaryInspection.status,
       reason: fresh.boundaryInspection.reason,

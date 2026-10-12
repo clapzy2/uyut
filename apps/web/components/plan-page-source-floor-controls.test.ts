@@ -67,6 +67,85 @@ function html(input: Parameters<typeof PlanPageSourceFloorControls>[0]) {
 }
 
 describe('source floor controls', () => {
+  it('shows bounded opening contacts and retained uncertain source-end status without accepting a passage', () => {
+    const input = props({
+      reference: {
+        ...reference,
+        openingInspection: {
+          status: 'checked',
+          reason: null,
+          completeOpeningInventory: false,
+          physicalJambAccepted: false,
+          physicalPassageAccepted: false,
+          finalPaintVisibilityProved: false,
+          targets: [
+            {
+              id: 'panel:panel-end:1',
+              objectId: 'panel',
+              kind: 'panel-end',
+              sourceRef: { operationIndex: 20, subpathIndex: 0, segmentIndex: 1 },
+              startKey: '10/1:10/1',
+              endKey: '30/1:10/1',
+              frameInteriorSide: null,
+              independentSourceRefs: [],
+              sourceEndStatus: 'ambiguous',
+              omittedInkCount: 2,
+              laterPaintCount: 3,
+              status: 'ambiguous',
+              coverage: 'complete',
+              contacts: [
+                {
+                  floorId: floor.id,
+                  ringIndex: 0,
+                  edgeIndex: 0,
+                  startKey: '10/1:10/1',
+                  endKey: '30/1:10/1',
+                  regionSide: 'left',
+                },
+              ],
+            },
+          ],
+        },
+      },
+    })
+    const markup = html(input)
+    expect(markup).toContain('Контакты исходной области с рамками и профилями')
+    expect(markup).toContain('Конец профиля')
+    expect(markup).toContain('20/0/1')
+    expect(markup).toContain('Конец по источнику: Неоднозначная связь')
+    expect(markup).toContain('Возможных пропусков: 2')
+    expect(markup).toContain('Поздних наложений: 3')
+    expect(markup).toContain('Совпадение не подтверждает физический косяк')
+    expect(input.onCopy).not.toHaveBeenCalled()
+  })
+
+  it.each(['checked', 'held'] as const)(
+    'explains %s opening inspection without inventing missing doors',
+    (status) => {
+      const input = props({
+        reference: {
+          ...reference,
+          openingInspection: {
+            status,
+            reason: status === 'held' ? 'source-opening-work-limit' : null,
+            completeOpeningInventory: false,
+            physicalJambAccepted: false,
+            physicalPassageAccepted: false,
+            finalPaintVisibilityProved: false,
+            targets: [],
+          },
+        },
+      })
+      const markup = html(input)
+      expect(markup).toContain(
+        status === 'held'
+          ? 'Исходный контур не изменён'
+          : 'Это не означает, что в комнате нет проёмов',
+      )
+      expect(buttons(PlanPageSourceFloorControls(input))[1]?.props.disabled).toBe(false)
+    },
+  )
+
   it('shows source command coverage and paint side without claiming a physical wall or jamb', () => {
     const input = props({
       reference: {

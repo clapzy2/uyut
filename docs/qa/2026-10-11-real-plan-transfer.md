@@ -44,6 +44,37 @@ Provider-reported usage for the single new request: 15,747 tokens and USD 0.1235
 
 ## Gate and next work
 
+### Follow-up: selected source rings to logical frame and profile ends — 13 October
+
+The private source-reference request freshly derives selected rings, logical
+opening frames and independent filled-profile end evidence from the same source.
+Each bounded contact retains floor/ring/edge identity, canonical interval keys,
+source segment reference and selected-region side relative to target direction.
+Hole winding is reversed; endpoint-only, line-extension and off-line contacts
+are not admitted. Frame-side contacts on the strip-interior side are unresolved,
+and uncertain profile ends are not upgraded by a coinciding floor span.
+
+The read-only report retains independent source refs, omitted ink, later paint
+counts and source-end status. Every physical/visibility/completeness flag remains
+false; it is not a connection graph or a metric import. Work/ref/output failures
+hold the new inspection atomically without discarding valid selected source
+snapshots. Client validation checks exact clipped spans, ring side, ownership,
+statuses, duplicate contacts and false authority flags. Existing sourceTopology
+save/consumer gates and account persistence are unchanged.
+
+Fresh Rebrina page-3 replay: eight selected regions, zero logical frames, four
+ends from profiles 2035:0 and 2059:0. One partially overlaps outer edge 32 of
+region 2; its clipped endpoint is rational and survives JSON. Two source ends
+are ambiguous and one unobserved. Profile later-paint counts remain 20 and 22;
+these are possible overlays, not final visibility proof. Original PDF and reading
+are unchanged, with zero account writes and paid calls in this replay. Other
+physical wall gaps are not declared absent merely because this inventory is empty.
+
+Local gate: 7,970 web tests / 328 files with two workers, seven-package typecheck,
+production build, Biome 1,046 files and diffcheck passed. Independent review ran
+154 focused tests and found no blocker. Real-account/browser release checks are
+separate from these local results; no automatic physical transfer is claimed.
+
 ### Follow-up: exact source-boundary coverage and paint-side linkage — 13 October
 
 The source-reference adapter now derives each outer/hole edge from a fresh painted
