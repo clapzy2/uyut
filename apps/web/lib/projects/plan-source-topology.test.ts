@@ -29,6 +29,17 @@ function source() {
 }
 
 describe('experimental source-space tracing', () => {
+  it('retains a printed subroom identifier without accepting metric geometry', () => {
+    const input = source()
+    const room = input.rooms[0]
+    if (!room) throw new Error('Missing synthetic source room')
+    room.sourceNumber = 3.1
+    const result = parseSourcePlanTopology(JSON.stringify(input))
+    expect(result.rooms[0]?.sourceNumber).toBe(3.1)
+    expect(result.status).toBe('draft')
+    room.sourceNumber = 3.1234
+    expect(() => parseSourcePlanTopology(JSON.stringify(input))).toThrow()
+  })
   it('preserves the diagonal and visible openings without inventing metric dimensions', () => {
     const input = { ...source(), status: 'confirmed', widthCm: 800 }
     const result = parseSourcePlanTopology(JSON.stringify(input))

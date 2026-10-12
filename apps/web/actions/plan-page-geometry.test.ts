@@ -394,7 +394,7 @@ describe('create metric draft from reviewed source page', () => {
       [],
       [4, 4],
       [0],
-      [1.5],
+      [1.1234],
       ['4'],
       { rooms: [4], widthCm: 300 },
       Array.from({ length: 13 }, (_, i) => i + 1),

@@ -123,6 +123,43 @@ function expectHeld(input: Input, reason?: string) {
 }
 
 describe('native room schedule documentary evidence', () => {
+  it.each([true, false])('preserves explicit subroom 3.1 in the source table, grid=%s', (grid) => {
+    const input = fixture({ count: 5, grid, legacy: true })
+    labelOf(input, '4').name = '3.1'
+    labelOf(input, '5').name = '4'
+    labelOf(input, 'Спальня', 1).name = 'Гардероб'
+    const before = structuredClone(input)
+    const result = nativeRoomScheduleEvidence(input)
+    expect(result.status).toBe('draft')
+    expect(result.rows.map((row) => row.sourceNumber)).toEqual([1, 2, 3, 3.1, 4])
+    expect(result.rows[3]?.name).toBe('Гардероб')
+    expect(result.rows[3]?.documentaryAreaM2).toBe(15.39)
+    expect(result.roomOwnershipConfirmed).toBe(false)
+    expect(result.closesFloorBoundary).toBe(false)
+    expect(input).toEqual(before)
+  })
+  it.each(['2.1', '3.10', '03.1', '3,1', '3.0001', '3.1e0'])(
+    'holds noncanonical or misplaced child %s',
+    (number) => {
+      const input = fixture({ count: 5 })
+      labelOf(input, '4').name = number
+      labelOf(input, '5').name = '4'
+      expectHeld(input)
+    },
+  )
+  it('holds duplicate children and a missing next integer instead of renumbering', () => {
+    const input = fixture({ count: 5 })
+    labelOf(input, '4').name = '3.1'
+    labelOf(input, '5').name = '3.1'
+    expectHeld(input)
+    labelOf(input, '3.1').name = '5'
+    expectHeld(input)
+  })
+  it('does not broaden the new wardrobe legend guard to arbitrary furniture text', () => {
+    const input = fixture()
+    labelOf(input, 'Спальня').name = 'Гардероб с зеркалом'
+    expectHeld(input)
+  })
   it('reads split offset headers through the exact three-column source grid', () => {
     const input = fixture()
     const before = structuredClone(input)

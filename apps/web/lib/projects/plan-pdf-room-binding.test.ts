@@ -31,6 +31,22 @@ const bedroom = contours.rooms[0]
 if (!bedroom) throw new Error('Missing bedroom contour')
 
 describe('candidate ownership against manually reviewed page contours', () => {
+  it('accepts decimal subroom ownership without aliasing its parent', () => {
+    const subroom = { roomSourceNumber: 3.1, polygon: bedroom.polygon }
+    const reviewed = { ...contours, rooms: [subroom] }
+    expect(pdfContourIssue(work, source, reviewed)).toBeUndefined()
+    expect(pdfContourKey(subroom)).toBe('3.1')
+    expect(pdfRoomAtPoint(work, source, reviewed, point)).toMatchObject({
+      status: 'candidate',
+      roomSourceNumber: 3.1,
+    })
+    expect(
+      pdfContourIssue(work, source, {
+        ...reviewed,
+        rooms: [{ ...subroom, roomSourceNumber: 3.1001 }],
+      }),
+    ).toBe('invalid-room-contours')
+  })
   it('preserves physical group identity without assigning a point to one printed number', () => {
     const group = { roomSourceNumbers: [5, 1], polygon: bedroom.polygon }
     const input = { ...contours, rooms: [group, ...contours.rooms.slice(1)] }

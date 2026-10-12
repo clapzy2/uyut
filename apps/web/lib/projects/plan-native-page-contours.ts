@@ -1,4 +1,5 @@
 import type { PlanPageContours, PlanPageRoomIdentity, PlanReading } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import type { NativeTextAnchors } from './plan-document'
 import type { nativeDimensionEvidence } from './plan-native-dimension-evidence'
 import { nativeFaceCycle, type ReviewedNativeFaces } from './plan-native-face-cycle'
@@ -72,9 +73,7 @@ export function nativePageContourCandidates(input: {
   if (input.floor && !input.exterior) return fail('floor-requires-outer-wall-envelope')
   const sourceNumbers = reading.rooms.map((room) => room.sourceNumber)
   if (
-    sourceNumbers.some(
-      (number) => !Number.isSafeInteger(number) || (number ?? 0) < 1 || (number ?? 0) > 10_000,
-    ) ||
+    sourceNumbers.some((number) => !isPlanRoomSourceNumber(number)) ||
     new Set(sourceNumbers).size !== sourceNumbers.length
   )
     return fail('incomplete-room-identity-inventory')

@@ -8,6 +8,7 @@ import type {
   PlanPageRoomIdentity,
   PlanRoomReading,
 } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { sourceRoomContourVertices } from '@/lib/projects/plan-page-review'
 import {
   type NativePageSegment,
@@ -157,10 +158,7 @@ export function pageContourRoomsForSave(
       numbers.length === 0 ||
       numbers.length > 12 ||
       (draft.roomSourceNumbers !== undefined && numbers.length < 2) ||
-      numbers.some(
-        (number) =>
-          !Number.isInteger(number) || number < 1 || number > 10_000 || claimed.has(number),
-      ) ||
+      numbers.some((number) => !isPlanRoomSourceNumber(number) || claimed.has(number)) ||
       new Set(numbers).size !== numbers.length
     )
       return null
@@ -569,11 +567,7 @@ export function numberedContourRooms(rooms: PlanRoomReading[]): PlanRoomReading[
     }
   }
   return rooms.filter(
-    (room) =>
-      room.sourceNumber !== undefined &&
-      Number.isInteger(room.sourceNumber) &&
-      room.sourceNumber > 0 &&
-      counts.get(room.sourceNumber) === 1,
+    (room) => isPlanRoomSourceNumber(room.sourceNumber) && counts.get(room.sourceNumber) === 1,
   )
 }
 

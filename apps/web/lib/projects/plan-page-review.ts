@@ -1,4 +1,5 @@
 import type { PlanPageContours, PlanPageReview, PlanReading } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { z } from 'zod'
 import { exactNativePolygonsOverlap } from './plan-native-exact-intersections'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
@@ -67,7 +68,7 @@ const conditionalEdgeSchema = z.strictObject({
     .strictObject({ start: endpointProofSchema.optional(), end: endpointProofSchema.optional() })
     .optional(),
 })
-const sourceNumberSchema = z.number().int().min(1).max(10_000)
+const sourceNumberSchema = z.number().refine(isPlanRoomSourceNumber)
 const contourFields = {
   polygon: z.array(pointSchema).min(3).max(100),
   vertexProofs: vertexProofsSchema,

@@ -18,6 +18,18 @@ function sample(polygons: PagePoint[][]) {
   }
 }
 describe('exact-decimal common boundaries, never physical passage proof', () => {
+  it('keeps source 3 and 3.1 distinct without certifying a physical passage', () => {
+    const input = sample([rect(10, 10, 100, 100), rect(100, 30, 150, 70)])
+    const [parent, child] = input.rooms
+    if (!parent || !child) throw new Error('Missing source room fixture')
+    parent.roomSourceNumber = 3
+    child.roomSourceNumber = 3.1
+    const report = nativeRoomContacts(input)
+    expect(report).toMatchObject({ status: 'candidate', total: 1, physicalPassagesAccepted: false })
+    expect(report.spans[0]).toMatchObject({ firstRoomKey: '3', secondRoomKey: '3.1' })
+    child.roomSourceNumber = 3.1001
+    expect(nativeRoomContacts(input).status).toBe('unresolved')
+  })
   it('retains both edge indexes and exact endpoints for a partial reversed shared edge', () => {
     const input = sample([rect(10, 10, 100, 100), rect(100, 30, 150, 70)])
     const before = structuredClone(input)

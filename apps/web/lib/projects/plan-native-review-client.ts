@@ -1,4 +1,8 @@
 import {
+  isPlanRoomSourceNumber,
+  planRoomSourceNumbersInScheduleOrder,
+} from '@uyut/db/source-room-number'
+import {
   nativeDocumentaryHeightCaption,
   nativeHeightCaption,
   nativeHeightMillimetreDeclarationIndex,
@@ -363,7 +367,7 @@ function isBoundedLabel(value: unknown): value is string {
 }
 
 function isSourceNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 && value <= 10000
+  return isPlanRoomSourceNumber(value)
 }
 
 function isNumberCircles(value: unknown): boolean {
@@ -1998,6 +2002,7 @@ function isRoomSchedule(value: unknown, packet: NativeReviewPacket): boolean {
     schedule.refusalReason !== null ||
     schedule.rows.length < 3 ||
     schedule.rows.length > 50 ||
+    !planRoomSourceNumbersInScheduleOrder(schedule.rows.map((row) => row?.sourceNumber)) ||
     !packet.numberCircles
   )
     return false
@@ -2007,7 +2012,7 @@ function isRoomSchedule(value: unknown, packet: NativeReviewPacket): boolean {
   const tableLabelIds = new Set<string>()
   const usedMarkerIds = new Set<string>()
   const tableNumbers = new Set<number>()
-  for (const [index, row] of schedule.rows.entries()) {
+  for (const row of schedule.rows) {
     if (
       !row ||
       typeof row !== 'object' ||
@@ -2021,7 +2026,7 @@ function isRoomSchedule(value: unknown, packet: NativeReviewPacket): boolean {
         'markerStatus',
         'markerLabelIds',
       ]) ||
-      row.sourceNumber !== index + 1 ||
+      !isSourceNumber(row.sourceNumber) ||
       typeof row.name !== 'string' ||
       row.name !== row.name.trim() ||
       row.name.length < 1 ||

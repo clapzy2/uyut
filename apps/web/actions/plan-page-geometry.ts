@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import type { PlanGeometry } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
 import { z } from 'zod'
@@ -21,7 +22,7 @@ import { getSession } from '@/lib/session'
 import { getObject } from '@/lib/storage'
 
 const roomNumbersSchema = z
-  .array(z.number().int().min(1).max(50))
+  .array(z.number().max(50).refine(isPlanRoomSourceNumber))
   .min(1)
   .max(12)
   .refine((numbers) => new Set(numbers).size === numbers.length)

@@ -43,6 +43,27 @@ const input = {
   reviewed,
 }
 describe('reviewed numbered caption provenance', () => {
+  it('preserves manually reviewed subroom 3.1 independently of parent 3', () => {
+    const draft = structuredClone(input)
+    for (const [index, sourceNumber] of [3, 3.1].entries()) {
+      const row = draft.reviewed.rows[index]
+      const marker = draft.reviewed.markers[index]
+      if (!row || !marker) throw new Error('Missing reviewed caption fixture')
+      row.sourceNumber = sourceNumber
+      marker.sourceNumber = sourceNumber
+      for (const label of draft.native.labels) {
+        if (label.id === row.numberLabelId || label.id === marker.labelId)
+          label.name = String(sourceNumber)
+      }
+    }
+    expect(bindReviewedNumberedCaptions(draft).evidence.map((row) => row.sourceNumber)).toEqual([
+      3, 3.1,
+    ])
+    const child = draft.reviewed.rows[1]
+    if (!child) throw new Error('Missing reviewed subroom fixture')
+    child.sourceNumber = 3.1001
+    expect(() => bindReviewedNumberedCaptions(draft)).toThrow()
+  })
   it('maps repeated names through reviewed row and interior IDs, ignoring dimension and sheet numbers', () => {
     const result = bindReviewedNumberedCaptions(input)
     expect(result.assignments).toEqual([

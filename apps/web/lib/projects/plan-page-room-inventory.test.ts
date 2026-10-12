@@ -5,6 +5,42 @@ import { planPageRoomInventory } from './plan-page-room-inventory'
 const item = (text: string, y: number, x = 630) => ({ text, x, y, rotation: 0 })
 
 describe('экспликация помещений из PDF', () => {
+  it('keeps subroom 3.1 separate from its parent without deriving geometry from area', () => {
+    const text = JSON.stringify([
+      item('Экспликация помещений:', 100),
+      item('1 - Прихожая - 9,99 м', 120),
+      item('2 - Кухня - 12,50 м', 140),
+      item('3 - Спальня - 15,39 м', 160),
+      item('3.1 - Гардероб - 2,15 м', 180),
+      item('4 - Ванная - 4,20 м', 200),
+    ])
+    expect(planPageRoomInventory(text)).toEqual([
+      { sourceNumber: 1, name: 'Прихожая' },
+      { sourceNumber: 2, name: 'Кухня' },
+      { sourceNumber: 3, name: 'Спальня' },
+      { sourceNumber: 3.1, name: 'Гардероб' },
+      { sourceNumber: 4, name: 'Ванная' },
+    ])
+  })
+  it.each([
+    '3.1. Гардероб',
+    '3. 1 Гардероб',
+    '3.1 Гардероб',
+    '3.10 - Гардероб',
+    '03.1 - Гардероб',
+    '3,1 - Гардероб',
+    '2.1 - Гардероб',
+  ])('does not misread %s as whole room 3 and name 1', (caption) => {
+    const text = JSON.stringify([
+      item('Экспликация помещений:', 100),
+      item('1 - Прихожая - 9,99 м', 120),
+      item('2 - Кухня - 12,50 м', 140),
+      item('3 - Спальня - 15,39 м', 160),
+      item(`${caption} - 2,15 м`, 180),
+      item('4 - Ванная - 4,20 м', 200),
+    ])
+    expect(planPageRoomInventory(text)).toBeUndefined()
+  })
   it('читает только последовательные подписанные строки одного листа', () => {
     const text = JSON.stringify([
       item('Обмерный план', 62, 870),

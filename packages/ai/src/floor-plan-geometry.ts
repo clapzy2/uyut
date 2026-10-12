@@ -1,4 +1,5 @@
 import type { PlanRoomIdentity, RoomSpaceKind } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 
 /** Точка обмерного плана. Координаты идут от левого верхнего угла, в сантиметрах. */
 export type PlanPoint = { xCm: number; yCm: number }
@@ -70,7 +71,13 @@ export type PlanRoomArea = {
 export function planRoomSourceNumber(raw: unknown): number | undefined {
   if (typeof raw !== 'number' && typeof raw !== 'string') return undefined
   const value = Number(raw)
-  return Number.isInteger(value) && value >= 1 && value <= 50 ? value : undefined
+  if (
+    typeof raw === 'string' &&
+    (raw.includes('.') || !Number.isInteger(value)) &&
+    raw.trim() !== String(value)
+  )
+    return undefined
+  return isPlanRoomSourceNumber(value) && value <= 50 ? value : undefined
 }
 
 export function planShapeSourceNumbers(shape: PlanRoomIdentity): readonly number[] {

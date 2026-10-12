@@ -1,4 +1,5 @@
 import type { PlanGeometry, PlanPageContours } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { type DoorAdjacency, inspectDoorAdjacency } from './plan-door-adjacency'
 import type { PageClearanceRoute } from './plan-page-clearance-route'
 import { planPageGeometryElementId } from './plan-page-metric-draft'
@@ -30,7 +31,7 @@ export type PageDoorAccess = DoorAdjacency & {
 function roomKey(numbers: readonly (number | undefined)[]): string | undefined {
   if (
     numbers.length === 0 ||
-    numbers.some((number) => number === undefined || !Number.isInteger(number) || number <= 0) ||
+    numbers.some((number) => !isPlanRoomSourceNumber(number)) ||
     new Set(numbers).size !== numbers.length
   )
     return undefined

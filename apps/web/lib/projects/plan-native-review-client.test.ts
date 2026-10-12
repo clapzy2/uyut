@@ -958,7 +958,7 @@ describe('bounded native numeric-circle observations', () => {
     'duplicate-id',
     'missing-number',
     'string-number',
-    'fractional-number',
+    'overprecision-number',
     'zero-number',
     'negative-number',
     'number-limit',
@@ -989,7 +989,7 @@ describe('bounded native numeric-circle observations', () => {
     if (change === 'duplicate-id') circles.cues.push({ ...cue })
     if (change === 'missing-number') Object.assign(cue, { sourceNumber: undefined })
     if (change === 'string-number') Object.assign(cue, { sourceNumber: '1' })
-    if (change === 'fractional-number') cue.sourceNumber = 1.5
+    if (change === 'overprecision-number') cue.sourceNumber = 1.5001
     if (change === 'zero-number') cue.sourceNumber = 0
     if (change === 'negative-number') cue.sourceNumber = -1
     if (change === 'number-limit') cue.sourceNumber = 10001
@@ -1034,6 +1034,42 @@ describe('documentary room schedule and complete numeric-marker accounting', () 
     result.packet.roomSchedule = schedule
     return { ...result, schedule, circles }
   }
+  it('retains a printed subroom row and marker without renumbering the next room', async () => {
+    const { packet, headers, schedule, circles } = scheduleFixture()
+    const template = schedule.rows[2]
+    if (!template) throw new Error('Missing source schedule row')
+    schedule.rows.push({
+      ...template,
+      sourceNumber: 3.1,
+      name: 'Гардеробная',
+      numberLabelId: 'table-number-3.1',
+      nameLabelId: 'table-name-3.1',
+      areaLabelId: 'table-area-3.1',
+      markerStatus: 'linked',
+      markerLabelIds: ['circle-3.1'],
+    })
+    circles.cues.push({ labelId: 'circle-3.1', sourceNumber: 3.1 })
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.roomSchedule?.rows.map((row) => row.sourceNumber)).toEqual([1, 2, 3, 3.1])
+    expect(loaded.numberCircles?.cues.at(-1)?.sourceNumber).toBe(3.1)
+    expect(loaded.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
+  it.each([2.1, 3.1001])(
+    'refuses detached or overprecision subroom row %s',
+    async (sourceNumber) => {
+      const { packet, headers, schedule } = scheduleFixture()
+      const template = schedule.rows[2]
+      if (!template) throw new Error('Missing source schedule row')
+      schedule.rows.push({
+        ...template,
+        sourceNumber,
+        numberLabelId: 'extra-number',
+        nameLabelId: 'extra-name',
+        areaLabelId: 'extra-area',
+      })
+      await expect(loadFixture(packet, headers)).rejects.toThrow()
+    },
+  )
   it('preserves printed documentary rows and numeric matches without constructing room ownership', async () => {
     const { packet, headers, schedule } = scheduleFixture()
     const loaded = (await loadFixture(packet, headers)).packet

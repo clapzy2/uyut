@@ -1,3 +1,4 @@
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import type { NativeTextAnchors } from './plan-document'
 import { nativeFillCandidates } from './plan-native-fill-candidates'
 import type { Bounds, PagePoint, PdfCurvePath, PdfLinework } from './plan-pdf-linework'
@@ -235,7 +236,14 @@ export function nativeNumberCircleCandidates(input: {
     for (const label of inside)
       enclosingCircleCounts.set(label.id, (enclosingCircleCounts.get(label.id) ?? 0) + 1)
     const label = inside[0]
-    if (inside.length !== 1 || !label || label.rotation !== 0 || !/^[1-9]\d{0,3}$/.test(label.name))
+    if (
+      inside.length !== 1 ||
+      !label ||
+      label.rotation !== 0 ||
+      !/^[1-9]\d{0,3}(?:\.\d{1,3})?$/u.test(label.name) ||
+      String(Number(label.name)) !== label.name ||
+      !isPlanRoomSourceNumber(Number(label.name))
+    )
       continue
     observations.push({
       labelId: label.id,

@@ -1,4 +1,5 @@
 import type { PlanPageContours } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import {
   exactNativeOrientation,
   exactNativePointKey,
@@ -60,7 +61,7 @@ export function nativeRoomContacts(
           room.roomSourceNumbers.length < 2 ||
           room.roomSourceNumbers.length > 12),
     ) ||
-    numbers.some((number) => !Number.isSafeInteger(number) || number < 1 || number > 10_000) ||
+    numbers.some((number) => !isPlanRoomSourceNumber(number)) ||
     new Set(numbers).size !== numbers.length
   )
     return fail('ambiguous-contact-identities')

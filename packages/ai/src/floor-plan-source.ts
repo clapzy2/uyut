@@ -1,3 +1,4 @@
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { FalError, falQueue, toDataUri } from './fal-queue'
 import { PLAN_READER_ENDPOINT, PLAN_READER_MODEL } from './floor-plan'
 
@@ -29,7 +30,7 @@ export const SOURCE_PLAN_PROMPT = `Ты обводишь архитектуру 
 Если поверх исходника видна фиолетовая координатная сетка с числами 0–1000, используй её для координат, а НЕ размерные подписи чертежа. Сетка — только вспомогательная разметка, не стены и не проёмы.
 Сначала внимательно проследи внешний пол, затем внутренние контуры каждого помещения, затем обойди все стены и перечисли проёмы.
 footprint — замкнутый контур пола квартиры вместе с выступающим балконом; не повторяй первую точку. Сохраняй видимые диагональные рёбра, уступы и соединяющие пороги. Не превращай балкон в прямоугольник. Балконный проём и пол балкона — разные объекты.
-rooms — все подписанные помещения, включая балкон/лоджию отдельным polygon. spaceKind interior, balcony или loggia. sourceNumber — только напечатанный номер, иначе null. polygon проходит по внутренней грани стен, не по мебели, размерным линиям или центру толстых стен.
+rooms — все подписанные помещения, включая балкон/лоджию отдельным polygon. spaceKind interior, balcony или loggia. sourceNumber — только напечатанный номер, иначе null. Сохраняй подномера вроде 3.1 как отдельные номера, не округляй их до 3. polygon проходит по внутренней грани стен, не по мебели, размерным линиям или центру толстых стен.
 openings — ВСЕ видимые архитектурные проёмы, даже без подписанной ширины: door, window или balcony (дверь балконного блока). start/end — концы отрезка проёма на стене, не концы дуги открывания. В комбинированном блоке дверь и соседнее окно — отдельные отрезки; двойную створку одного окна не считай двумя окнами.
 Нельзя пропускать видимый проём только из-за неизвестной ширины в сантиметрах. Здесь нет метрических размеров и привязки к id стен.
 Не добавляй невидимые проёмы и не принимай размерные цепочки, штриховку, радиатор или мебель за них.
@@ -102,13 +103,7 @@ export function parseSourcePlanTopology(output: string): SourcePlanTopology {
     const { spaceKind, sourceNumber } = room
     if (spaceKind !== 'interior' && spaceKind !== 'balcony' && spaceKind !== 'loggia')
       throw new FalError('Неизвестный тип помещения в разметке')
-    if (
-      sourceNumber != null &&
-      (typeof sourceNumber !== 'number' ||
-        !Number.isInteger(sourceNumber) ||
-        sourceNumber < 1 ||
-        sourceNumber > 50)
-    )
+    if (sourceNumber != null && (!isPlanRoomSourceNumber(sourceNumber) || sourceNumber > 50))
       throw new FalError('Некорректный номер помещения в разметке')
     return {
       name: label(room.name, 80),

@@ -1,3 +1,4 @@
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import type { NativeTextAnchors } from './plan-document'
 import { exactNativeSegmentsTouch } from './plan-native-exact-intersections'
 import { nativeStrokeFaceCandidates } from './plan-native-stroke-candidates'
@@ -71,7 +72,9 @@ export function nativeRoomFrameFaceCandidates(input: {
       label.id !== `native-text-${label.nativeIndex}` ||
       !Number.isSafeInteger(label.nativeIndex) ||
       (label.nativeIndex ?? -1) < 0 ||
-      !/^0?[1-9]\d?$/u.test(label.name) ||
+      !/^0?[1-9]\d?(?:\.\d{1,3})?$/u.test(label.name) ||
+      (!/^0?[1-9]\d?$/u.test(label.name) && String(Number(label.name)) !== label.name) ||
+      !isPlanRoomSourceNumber(Number(label.name)) ||
       label.rotation !== 0 ||
       ![box.left, box.top, box.right, box.bottom].every(Number.isFinite) ||
       box.left >= box.right ||

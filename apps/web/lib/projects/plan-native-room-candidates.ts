@@ -1,3 +1,4 @@
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import type { NativeTextAnchors } from './plan-document'
 import { exactNativeOrientation, exactNativeSegmentsTouch } from './plan-native-exact-intersections'
 import { nativeFillCandidates } from './plan-native-fill-candidates'
@@ -242,7 +243,9 @@ export function automaticNativeRoomCandidates(input: {
     return (
       p &&
       label.rotation === 0 &&
-      /^0?[1-9]\d?$/.test(label.name) &&
+      /^0?[1-9]\d?(?:\.\d{1,3})?$/u.test(label.name) &&
+      (/^0?[1-9]\d?$/.test(label.name) || String(Number(label.name)) === label.name) &&
+      isPlanRoomSourceNumber(Number(label.name)) &&
       table.has(Number(label.name)) &&
       !tableIds.has(label.id) &&
       !(

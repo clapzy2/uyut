@@ -1,4 +1,8 @@
 import { planTabularScheduleEvidence } from '@uyut/ai'
+import {
+  isPlanRoomSourceNumber,
+  planRoomSourceNumbersInScheduleOrder,
+} from '@uyut/db/source-room-number'
 import type { NativeTextAnchors } from './plan-document'
 import { nativeFillCandidates } from './plan-native-fill-candidates'
 import type { Bounds, PagePoint, PdfLinework } from './plan-pdf-linework'
@@ -17,7 +21,7 @@ type Label = NativeTextAnchors['labels'][number]
 type Grid = { bounds: Bounds; columns: number[]; rows: number[]; edges: NativePageSegment[] }
 const MAX_WORK = 200_000
 const roomName =
-  /^(?:прихожая|кухня(?:[-–— ]гостиная)?|гостиная|спальня|коридор|ванная|санузел|туалет|комната|жилая комната|детская|кабинет|гардеробная|кладовая|балкон|лоджия)(?:\s+\d{1,2})?$/iu
+  /^(?:прихожая|кухня(?:[-–— ]гостиная)?|гостиная|спальня|коридор|ванная|санузел|туалет|комната|жилая комната|детская|кабинет|гардероб|гардеробная|кладовая|балкон|лоджия)(?:\s+\d{1,2})?$/iu
 const numberHeading = /^№(?:\s*п\/п)?$/u
 const nameHeading = /^наименование$/iu
 const areaHeading = /^площадь(?:,|,?\s+[мm][²2])?$/iu
@@ -416,9 +420,14 @@ export function nativeRoomScheduleEvidence(input: {
       if (
         row[0]?.length !== 1 ||
         !number ||
-        !/^[1-9]\d?$/.test(number.name) ||
+        !/^[1-9]\d?(?:\.\d{1,3})?$/u.test(number.name) ||
+        String(Number(number.name)) !== number.name ||
+        !isPlanRoomSourceNumber(Number(number.name)) ||
         !roomName.test(name.name) ||
-        Number(number.name) !== rows.length + 1
+        !planRoomSourceNumbersInScheduleOrder([
+          ...rows.map((row) => row.sourceNumber),
+          Number(number.name),
+        ])
       )
         return finish('unsupported-or-ambiguous-room-table')
       const documentaryAreaM2 = Number(area.name.replace(/\s*[мm]²$/iu, '').replace(',', '.'))

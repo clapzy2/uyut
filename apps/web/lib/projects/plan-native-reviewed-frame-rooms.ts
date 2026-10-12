@@ -1,4 +1,5 @@
 import type { PlanReading } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import type { NativeTextAnchors } from './plan-document'
 import {
   exactNativePolygonContains,
@@ -95,7 +96,7 @@ export function nativeReviewedFrameRooms(input: {
   const contours = parsed.data
   const numbers = reading.rooms.map((room) => room.sourceNumber)
   if (
-    numbers.some((number) => !Number.isSafeInteger(number) || (number ?? 0) <= 0) ||
+    numbers.some((number) => !isPlanRoomSourceNumber(number)) ||
     new Set(numbers).size !== numbers.length
   )
     return finish('refused', 'incomplete-room-identity-inventory')

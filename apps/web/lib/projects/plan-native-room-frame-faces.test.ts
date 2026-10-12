@@ -27,6 +27,28 @@ function fixture() {
   return { ...input, frames }
 }
 describe('source-bound isolated number-frame graph view, not floor approval', () => {
+  it('retains an explicit decimal caption frame as unclassified source evidence', () => {
+    const input = fixture()
+    const label = input.native.labels.find((label) => label.id === input.frames[2]?.labelId)
+    if (!label) throw new Error('Missing frame label')
+    label.name = '3.1'
+    const before = structuredClone(input)
+    const result = nativeRoomFrameFaceCandidates(input)
+    expect(result.status).toBe('draft')
+    expect(result.exclusions).toHaveLength(3)
+    expect(result.geometry?.semanticStatus).toBe('unclassified')
+    expect(input).toEqual(before)
+  })
+  it.each(['3.10', '03.1', '3,1', '3.0001', '3.1e0'])(
+    'holds noncanonical decimal frame %s',
+    (caption) => {
+      const input = fixture()
+      const label = input.native.labels.find((label) => label.id === input.frames[2]?.labelId)
+      if (!label) throw new Error('Missing frame label')
+      label.name = caption
+      expect(nativeRoomFrameFaceCandidates(input).status).toBe('unresolved')
+    },
+  )
   it('preserves source frames/refs and obtains exact shared-wall candidates without modifying ink', () => {
     const input = fixture()
     const before = structuredClone(input)

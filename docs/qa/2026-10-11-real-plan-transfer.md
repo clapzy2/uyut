@@ -636,6 +636,38 @@ worker replay passed without increasing timeouts or skipping local PDF checks.
 Independent review found a precise-envelope/rounded-wall margin and repeated
 inventory scans; both corrected with near-boundary and access-count controls.
 
+### Distinct printed subroom identities — 12 October
+
+Shared dependency-free source-number validation retains numeric 3.1 separately
+from 3 through source reading, reviewed contour persistence, editor choices,
+metric draft, measurement ownership and vertical-reference snapshots. Printed
+identifiers are not measurements or array/operation indices. Existing metric
+import count/range limits, authentication/CAS and physical readiness are unchanged.
+
+Whole-room table rows retain their ordered 1..N counter; optional distinct
+subrooms immediately follow their printed parent without implying absent children.
+Native circles, boxed captions and complete-grid tables preserve canonical
+decimal markers and literal source slots. Ambiguous comma/trailing-zero or
+overprecise text is held, not normalized or silently dropped. Legacy whole-room
+padding remains only in its previously supported profiles. All three AI table
+profiles were checked; the explicit-heading separated-column profile still
+allows its legacy partial integer inventory, not a claim of completeness.
+
+Synthetic regressions retain 3 and 3.1 in editor/saved source contours and route
+selected 3.1 into a metric draft with anchor 3.1. Unknown heights stay unknown.
+Reviewed vertical floor owners and shared-zone snapshots preserve the distinct
+identifier; replacing it with parent 3 or unsupported precision refuses approval.
+No test status or caption role is promoted to physical source proof.
+
+Fresh original page 3 retains 8 checked selected floors with literal keys
+2, 5, 6, 3, 7, 4, 3.1, 1 and 5 checked height associations. Native full schedule remains
+held (`unsupported-or-ambiguous-room-table`), so this is not complete recognition
+of the original apartment or a confirmed 2D/3D import. No source/account geometry
+was rewritten. Local gate: 7,654 tests / 317 files with 4 workers, seven-package
+typecheck, production build, Biome 1,025 files and diffcheck passed. Independent
+review caught silently skipped separated/combined child rows and an exponential
+numeric-text alias; fixed and regression-covered before release.
+
 ### Earlier offline regression verification
 
 - Full web suite: 6,821 tests / 300 files passed, including local-only original PDF re-extractions when that ignored source exists. Public CI does not require copyrighted PDFs; deterministic unit controls remain present there.

@@ -1,3 +1,7 @@
+import {
+  isPlanRoomSourceNumber,
+  planRoomSourceNumbersInScheduleOrder,
+} from '@uyut/db/source-room-number'
 import type { PlanMeasurementTextItem } from './floor-plan-measurements'
 
 type ScheduleRoom = { name: string; areaM2: number }
@@ -15,27 +19,36 @@ function combinedScheduleRows(
   const aligned = items.filter(
     (item) => item.rotation === 0 && item.y > heading.y && Math.abs(item.x - heading.x) <= 30,
   )
-  const numbered = aligned.filter((item) => /^\s*\d{1,2}\s*[-–—.]/u.test(item.text))
+  const numbered = aligned.filter((item) => /^\s*\d+(?:[.,]\d+)?\s*[-–—.]/u.test(item.text))
   const rows = numbered
     .flatMap((item) => {
       const match =
-        /^\s*(\d{1,2})\s*[-–—.]\s*(.{1,80}?)\s*[-–—]\s*(\d{1,3}[,.]\d{1,2})\s*[мm]/iu.exec(
+        /^\s*(\d{1,2}(?:\.\d{1,3})?)\s*(?:[-–—]|\.(?!\d))\s*(.{1,80}?)\s*[-–—]\s*(\d{1,3}[,.]\d{1,2})\s*[мm]/iu.exec(
           item.text,
         )
-      return match?.[1] && match[2] && match[3]
-        ? [
-            {
-              number: Number(match[1]),
-              name: match[2].trim(),
-              areaM2: Number(match[3].replace(',', '.')),
-              y: item.y,
-            },
-          ]
-        : []
+      if (!match?.[1] || !match[2] || !match[3]) return []
+      const numberText = match[1]
+      const separator = item.text.trimStart().slice(numberText.length).trimStart()
+      if (
+        numberText.includes('.') &&
+        (String(Number(numberText)) !== numberText || separator.startsWith('.'))
+      )
+        return []
+      return [
+        {
+          number: Number(numberText),
+          name: match[2].trim(),
+          areaM2: Number(match[3].replace(',', '.')),
+          y: item.y,
+        },
+      ]
     })
     .sort((left, right) => left.y - right.y)
   if (rows.length < 2 || rows.length !== numbered.length) return undefined
-  if (rows.some((row, index) => row.number !== index + 1 || !row.name || row.areaM2 <= 0))
+  if (
+    !planRoomSourceNumbersInScheduleOrder(rows.map((row) => row.number)) ||
+    rows.some((row) => !row.name || row.areaM2 <= 0)
+  )
     return undefined
   return new Map(rows.map((row) => [row.number, { name: row.name, areaM2: row.areaM2 }]))
 }
@@ -81,15 +94,25 @@ export function planTabularScheduleEvidence(
   )
     return undefined
 
-  const rowNumbers = items
+  const numericRows = items
     .filter(
       (item) =>
         item.rotation === 0 &&
         Math.abs(item.x - numberHeader.x) <= 15 &&
         item.y > numberHeader.y &&
-        /^0?[1-9]\d?$/.test(item.text.trim()),
+        /^\d+(?:[.,]\d+)?$/.test(item.text.trim()),
     )
     .sort((left, right) => left.y - right.y)
+  if (
+    numericRows.some(
+      (item) =>
+        !/^0?[1-9]\d?(?:\.\d{1,3})?$/.test(item.text.trim()) ||
+        !isPlanRoomSourceNumber(Number(item.text)) ||
+        (item.text.includes('.') && String(Number(item.text)) !== item.text.trim()),
+    )
+  )
+    return undefined
+  const rowNumbers = numericRows
   if (rowNumbers.length < 3 || rowNumbers.length > 50) return undefined
 
   const rooms: Array<{ number: number; room: PlanTabularRoomEvidence }> = []
@@ -130,7 +153,7 @@ export function planTabularScheduleEvidence(
       },
     })
   }
-  if (rooms.some((row, index) => row.number !== index + 1)) return undefined
+  if (!planRoomSourceNumbersInScheduleOrder(rooms.map((row) => row.number))) return undefined
   return new Map(rooms.map(({ number, room }) => [number, room]))
 }
 
@@ -243,7 +266,7 @@ export function planRoomSchedule(
   const heading = headings[0]
   if (!heading) return undefined
   const roomName =
-    /^(?:прихожая|кухня(?:[- ]гостиная)?|гостиная|спальня|коридор|ванная|санузел|комната|детская|кабинет|гардеробная|кладовая)(?:\s+\d+)?$/iu
+    /^(?:прихожая|кухня(?:[- ]гостиная)?|гостиная|спальня|коридор|ванная|санузел|комната|детская|кабинет|гардероб|гардеробная|кладовая)(?:\s+\d+)?$/iu
   const rows: Array<{
     number: number
     name: string
@@ -253,7 +276,9 @@ export function planRoomSchedule(
   for (const name of located) {
     if (name.y <= heading.y || !roomName.test(name.text.trim())) continue
     const aligned = located.filter((item) => Math.abs(item.y - name.y) <= 2)
-    const numbers = aligned.filter((item) => item.x < name.x && /^[1-9]\d{0,2}$/.test(item.text))
+    const numbers = aligned.filter(
+      (item) => item.x < name.x && /^\d+(?:[.,]\d+)?$/.test(item.text.trim()),
+    )
     const areas = aligned.filter(
       (item) => item.x > name.x && /^\d{1,3}[.,]\d{1,2}$/.test(item.text),
     )
@@ -261,6 +286,12 @@ export function planRoomSchedule(
     const number = numbers[0]
     const area = areas[0]
     if (!number || !area) continue
+    if (
+      !/^[1-9]\d{0,2}(?:\.\d{1,3})?$/.test(number.text.trim()) ||
+      !isPlanRoomSourceNumber(Number(number.text)) ||
+      String(Number(number.text)) !== number.text.trim()
+    )
+      return undefined
     const areaM2 = Number(area.text.replace(',', '.'))
     if (areaM2 <= 0) continue
     rows.push({
@@ -280,6 +311,13 @@ export function planRoomSchedule(
   )
     return undefined
   if (new Set(rows.map((row) => row.number)).size !== rows.length) return undefined
+  // Whole-room rows in this legacy heading profile may be a partial printed
+  // inventory. A subroom must still follow its literal parent, never a guessed one.
+  for (const [index, row] of rows.entries()) {
+    if (Number.isInteger(row.number)) continue
+    const precedingParent = rows.slice(0, index).findLast((row) => Number.isInteger(row.number))
+    if (precedingParent?.number !== Math.floor(row.number)) return undefined
+  }
   return new Map(rows.map((row) => [row.number, { name: row.name, areaM2: row.areaM2 }]))
 }
 

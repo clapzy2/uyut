@@ -32,6 +32,28 @@ const reading: PlanReading = {
   rooms: [{ name: 'Спальня', kind: 'bedroom', sourceNumber: 4 }],
   pageReview: { version: 1, savedAt: '2026-09-27', contours },
 }
+
+describe('decimal source room identities', () => {
+  it('preserves distinct parent and subroom identities in source review', () => {
+    const rooms = [3, 3.1].map((roomSourceNumber) => ({ ...contours.rooms[0], roomSourceNumber }))
+    expect(
+      planPageContoursSchema
+        .parse({ ...contours, rooms })
+        .rooms.map((room) => ('roomSourceNumber' in room ? room.roomSourceNumber : undefined)),
+    ).toEqual([3, 3.1])
+  })
+  it.each([3.1001, 0.1, -3.1, Number.NaN, Number.POSITIVE_INFINITY, 10000.1])(
+    'rejects invalid source identity %s without rounding it',
+    (roomSourceNumber) => {
+      expect(
+        planPageContoursSchema.safeParse({
+          ...contours,
+          rooms: [{ ...contours.rooms[0], roomSourceNumber }],
+        }).success,
+      ).toBe(false)
+    },
+  )
+})
 const linework: PdfLinework = {
   coordinateSystem: 'page-0-1000',
   pageWidth: 842,

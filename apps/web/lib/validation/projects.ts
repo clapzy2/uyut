@@ -1,3 +1,4 @@
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { z } from 'zod'
 import { mvpRoomKinds, roomConditionOptions } from '@/lib/projects/format'
 
@@ -155,7 +156,7 @@ export const planRoomsSchema = z.object({
         name: z.string().trim().max(40, { error: 'Слишком длинно: хватит 40 знаков' }),
         // Санузел можно сохранить в исходном плане, но не выбрать для генерации интерьера.
         kind: z.enum(['living', 'bedroom', 'kitchen', 'bath', 'kid']),
-        sourceNumber: z.number().int().min(1).max(10_000).optional(),
+        sourceNumber: z.number().refine(isPlanRoomSourceNumber).optional(),
         utility: z.boolean().optional(),
         ceilingCm: spotWidthSchema.optional(),
         widthCm: spotWidthSchema,

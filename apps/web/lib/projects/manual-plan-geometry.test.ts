@@ -10,6 +10,15 @@ import {
 } from './manual-plan-geometry'
 
 describe('manual plan geometry', () => {
+  it('matches source subroom 3.1 independently of parent 3', () => {
+    const parent = { name: 'Спальня', sourceNumber: 3 }
+    const child = { name: 'Гардеробная', sourceNumber: 3.1 }
+    expect(findPlanRoomReading({ name: 'Renamed', sourceNumber: 3.1 }, [parent, child])).toBe(child)
+    expect(findPlanRoomReading(parent, [parent, child])).toBe(parent)
+    expect(
+      findPlanRoomReading({ name: child.name, sourceNumber: 3.1001 }, [parent, child]),
+    ).toBeUndefined()
+  })
   it('finds a renamed numbered room with its original utility classification', () => {
     const corridor = { name: 'Коридор', sourceNumber: 5, kind: 'living', utility: true }
     const readings = [corridor, { name: 'Прихожая', sourceNumber: 1, kind: 'living' }]
