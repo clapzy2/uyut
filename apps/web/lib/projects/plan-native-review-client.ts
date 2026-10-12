@@ -949,6 +949,7 @@ function isSelectedDimensionBoundaries(value: unknown, packet: NativeReviewPacke
           'span',
           'sourceRefs',
           'boundaryInkComplete',
+          ...('boundaryVisibility' in candidate ? ['boundaryVisibility'] : []),
         ])
       )
         return false
@@ -973,20 +974,62 @@ function isSelectedDimensionBoundaries(value: unknown, packet: NativeReviewPacke
       totalRefs += candidate.sourceRefs.length
       if (totalRefs > 20000) return false
       const refs = new Set<string>()
-      return candidate.sourceRefs.every((ref) => {
-        if (
-          !ref ||
+      if (
+        !candidate.sourceRefs.every((ref) => {
+          if (
+            !ref ||
+            !hasOnlyKeys(ref, ['operationIndex', 'subpathIndex', 'segmentIndex']) ||
+            ![ref.operationIndex, ref.subpathIndex, ref.segmentIndex].every(
+              (index) => Number.isSafeInteger(index) && index >= 0 && index < 100000,
+            )
+          )
+            return false
+          const key = `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`
+          if (refs.has(key)) return false
+          refs.add(key)
+          return true
+        })
+      )
+        return false
+      const visibility = candidate.boundaryVisibility
+      if (visibility === undefined) return true
+      if (
+        !visibility ||
+        !hasOnlyKeys(visibility, ['scope', 'status', 'reason', 'sourceRef', 'blockerOperations']) ||
+        visibility.scope !== 'literal-selected-edge-segment' ||
+        !Array.isArray(visibility.blockerOperations) ||
+        visibility.blockerOperations.length > 6000
+      )
+        return false
+      totalRefs += visibility.blockerOperations.length
+      if (totalRefs > 20000) return false
+      if (
+        visibility.status === 'unoccluded'
+          ? visibility.reason !== null ||
+            visibility.sourceRef === null ||
+            visibility.blockerOperations.length !== 0
+          : visibility.status !== 'held' || !isBoundedLabel(visibility.reason)
+      )
+        return false
+      const ref = visibility.sourceRef
+      if (
+        ref !== null &&
+        (!ref ||
           !hasOnlyKeys(ref, ['operationIndex', 'subpathIndex', 'segmentIndex']) ||
           ![ref.operationIndex, ref.subpathIndex, ref.segmentIndex].every(
             (index) => Number.isSafeInteger(index) && index >= 0 && index < 100000,
-          )
-        )
-          return false
-        const key = `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`
-        if (refs.has(key)) return false
-        refs.add(key)
-        return true
-      })
+          ) ||
+          !refs.has(`${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`))
+      )
+        return false
+      if (ref === null && visibility.blockerOperations.length) return false
+      return visibility.blockerOperations.every(
+        (operation, index) =>
+          Number.isSafeInteger(operation) &&
+          operation > (ref?.operationIndex ?? -1) &&
+          operation < 100000 &&
+          (index === 0 || operation > (visibility.blockerOperations[index - 1] as number)),
+      )
     })
   })
 }

@@ -7,6 +7,7 @@ import {
   type PaintedFloorBoundaryRole,
   type ReviewedNativePaintedFloors,
 } from './plan-native-painted-floor-review'
+import { pdfPaintInventoryIsComplete, pdfPaintMayTouchSpan } from './plan-pdf-paint-exclusion'
 
 type Input = Parameters<typeof nativeCaptionBindings>[0] & {
   reviewed: ReviewedNativePaintedFloors
@@ -31,6 +32,13 @@ export type NativeSelectedDimensionBoundaryReport = {
       span: 'whole-translated-source-vector'
       sourceRefs: PlanPageSegmentRef[]
       boundaryInkComplete: boolean
+      boundaryVisibility?: {
+        scope: 'literal-selected-edge-segment'
+        status: 'unoccluded' | 'held'
+        reason: string | null
+        sourceRef: PlanPageSegmentRef | null
+        blockerOperations: number[]
+      }
     }[]
   }[]
 }
@@ -84,6 +92,76 @@ export function nativeSelectedDimensionBoundaries(input: Input, suppliedBindings
   let candidateCount = 0
   let refCount = 0
   const exact = nativeFaceRationalPredicates()
+  const paint = input.work.paintBounds
+  const sourcePaths = new Map(
+    input.work.paths.map((path) => [`${path.operationIndex}:${path.subpathIndex}`, path]),
+  )
+  const paintComplete = pdfPaintInventoryIsComplete(paint)
+  const exhausted = Symbol('selected-dimension-work-limit')
+  const outputLimit = Symbol('selected-dimension-output-limit')
+  type Candidate =
+    NativeSelectedDimensionBoundaryReport['observations'][number]['candidates'][number]
+  const boundaryVisibility = (
+    edgeStart: string,
+    edgeEnd: string,
+    sourceRefs: PlanPageSegmentRef[],
+  ): Candidate['boundaryVisibility'] => {
+    if (!paint) return undefined
+    const result: NonNullable<Candidate['boundaryVisibility']> = {
+      scope: 'literal-selected-edge-segment',
+      status: 'held',
+      reason: 'paint-envelope-inventory-unavailable',
+      sourceRef: null,
+      blockerOperations: [],
+    }
+    if (!paintComplete) return result
+    const literal = sourceRefs.flatMap((ref) => {
+      const path = sourcePaths.get(`${ref.operationIndex}:${ref.subpathIndex}`)
+      const start = path?.points[ref.segmentIndex]
+      const end =
+        path?.points[
+          path.closed ? (ref.segmentIndex + 1) % path.points.length : ref.segmentIndex + 1
+        ]
+      if (!start || !end) return []
+      const first = exactNativePointKey(start),
+        last = exactNativePointKey(end)
+      return (first === edgeStart && last === edgeEnd) || (first === edgeEnd && last === edgeStart)
+        ? [{ ref, start, end }]
+        : []
+    })
+    if (literal.length !== 1) {
+      result.reason = 'selected-segment-source-not-unique'
+      return result
+    }
+    const source = literal[0]
+    if (!source) return result
+    const own = paint.events.find((event) => event.operationIndex === source.ref.operationIndex)
+    if (own?.kind !== 'vector' || own.subpathCount !== 1 || !own.bounds) {
+      result.reason = 'selected-segment-paint-provenance-unavailable'
+      return result
+    }
+    result.sourceRef = {
+      operationIndex: source.ref.operationIndex,
+      subpathIndex: source.ref.subpathIndex,
+      segmentIndex: source.ref.segmentIndex,
+    }
+    // Legacy linework points are rounded to 0.001 normalized page units.
+    // This quantization bound is for exclusion only, never a contact/ownership tolerance.
+    const quantization = 0.0005
+    for (const event of paint.events) {
+      if (--work < 0) throw exhausted
+      if (event.operationIndex <= source.ref.operationIndex) continue
+      if (!pdfPaintMayTouchSpan(event, [source.start, source.end], quantization)) continue
+      result.blockerOperations.push(event.operationIndex)
+      if (++refCount > MAX_REFS) throw outputLimit
+    }
+    result.blockerOperations.sort((a, b) => a - b)
+    result.status = result.blockerOperations.length ? 'held' : 'unoccluded'
+    result.reason = result.blockerOperations.length
+      ? 'later-paint-may-cover-selected-segment'
+      : null
+    return result
+  }
   try {
     for (const binding of bindings.candidates) {
       const row: NativeSelectedDimensionBoundaryReport['observations'][number] = {
@@ -116,6 +194,7 @@ export function nativeSelectedDimensionBoundaries(input: Input, suppliedBindings
           refCount += edge.sourceRefs.length
           if (candidateCount > MAX_CANDIDATES || refCount > MAX_REFS)
             return finish('selected-dimension-output-limit')
+          const visibility = boundaryVisibility(edgeStart, edgeEnd, edge.sourceRefs)
           row.candidates.push({
             floorId: floor.id,
             sourceRoomKey: floor.owner.sourceRoomKey,
@@ -128,6 +207,7 @@ export function nativeSelectedDimensionBoundaries(input: Input, suppliedBindings
               segmentIndex,
             })),
             boundaryInkComplete: floor.boundaryInkComplete,
+            ...(visibility ? { boundaryVisibility: visibility } : {}),
           })
         }
       }
@@ -138,7 +218,9 @@ export function nativeSelectedDimensionBoundaries(input: Input, suppliedBindings
           : 'physical-boundary-proof-missing'
       }
     }
-  } catch {
+  } catch (error) {
+    if (error === exhausted) return finish('selected-dimension-work-limit')
+    if (error === outputLimit) return finish('selected-dimension-output-limit')
     return finish('selected-dimension-source-unavailable')
   }
   return finish(null)

@@ -1,6 +1,13 @@
 type Matrix = [number, number, number, number, number, number]
 export type PagePoint = { x: number; y: number }
 export type Bounds = { left: number; top: number; right: number; bottom: number }
+/** Unclipped raster-pen capsule; never a physical width or accepted source edge. */
+export type PdfStraightStrokeRegion = {
+  start: PagePoint
+  end: PagePoint
+  sourceToPage: Matrix
+  radius: number
+}
 export type PdfPaintBounds = {
   complete: boolean
   refusalReason: string | null
@@ -10,6 +17,7 @@ export type PdfPaintBounds = {
     bounds: Bounds | null
     reason: string | null
     subpathCount?: number
+    straightStrokeRegion?: PdfStraightStrokeRegion
   }[]
 }
 /** Renderer operands and pen state, not original decimal tokens or final visible ink. */
@@ -524,6 +532,68 @@ export function extractPdfLinework(
       y: Math.round(((y ?? Number.NaN) / viewport.height) * 1_000_000) / 1000,
     }
   }
+  const rasterPen = () => {
+    if (!state.supported) return null
+    const pen = state.pen
+    if (pen.refusalReason || (pen.lineWidth === 0 && !paintViewport)) return null
+    const m = state.matrix
+    const origin = unroundedPoint({ x: 0, y: 0 })
+    const x = unroundedPoint({ x: 1, y: 0 })
+    const y = unroundedPoint({ x: 0, y: 1 })
+    // Include square caps and every possible miter. Dash never shrinks a bound.
+    const a = x.x - origin.x,
+      b = x.y - origin.y
+    const c = y.x - origin.x,
+      d = y.y - origin.y
+    let scaleX = 1,
+      scaleY = 1
+    if (paintViewport) {
+      if (
+        ![paintViewport.width, paintViewport.height].every(
+          (value) => Number.isFinite(value) && value > 0,
+        )
+      )
+        return null
+      const da = (a * paintViewport.width) / 1000,
+        db = (b * paintViewport.height) / 1000
+      const dc = (c * paintViewport.width) / 1000,
+        dd = (d * paintViewport.height) / 1000
+      const normX = Math.hypot(da, db),
+        normY = Math.hypot(dc, dd)
+      // Installed PDF.js getScaleForStroking widens thin ink to one device
+      // pixel. Replay that scale for exclusion bounds, not physical pen evidence.
+      if (db === 0 && dc === 0) {
+        if (normX === 0 || normY === 0) return null
+        scaleX = pen.lineWidth === 0 ? 1 / normX : Math.max(1, 1 / (normX * pen.lineWidth))
+        scaleY = pen.lineWidth === 0 ? 1 / normY : Math.max(1, 1 / (normY * pen.lineWidth))
+      } else {
+        const determinant = Math.abs(da * dd - db * dc)
+        if (
+          !Number.isFinite(determinant) ||
+          determinant <= 64 * Number.EPSILON * (Math.abs(da * dd) + Math.abs(db * dc))
+        )
+          return null
+        const area = (pen.lineWidth || 1) * determinant
+        scaleX = pen.lineWidth === 0 ? normY / determinant : Math.max(1, normY / area)
+        scaleY = pen.lineWidth === 0 ? normX / determinant : Math.max(1, normX / area)
+      }
+    }
+    const sourceToPage: Matrix = [
+      a * scaleX,
+      b * scaleX,
+      c * scaleY,
+      d * scaleY,
+      origin.x,
+      origin.y,
+    ]
+    if (
+      !m.every(Number.isFinite) ||
+      !sourceToPage.every(Number.isFinite) ||
+      ![scaleX, scaleY].every((value) => Number.isFinite(value) && value > 0)
+    )
+      return null
+    return { sourceToPage, scaleX, scaleY, radius: (pen.lineWidth || 1) / 2 }
+  }
   const envelope = (points: PagePoint[], stroked: boolean, joined = true): Bounds | null => {
     if (!state.supported || !points.length) return null
     const mapped = points.map(unroundedPoint)
@@ -532,54 +602,13 @@ export function extractPdfLinework(
     let padX = 0
     let padY = 0
     if (stroked) {
-      const pen = state.pen
-      if (pen.refusalReason || (pen.lineWidth === 0 && !paintViewport)) return null
-      const m = state.matrix
-      const origin = unroundedPoint({ x: 0, y: 0 })
-      const x = unroundedPoint({ x: 1, y: 0 })
-      const y = unroundedPoint({ x: 0, y: 1 })
-      // Include square caps and every possible miter. Dash never shrinks a bound.
-      const a = x.x - origin.x,
-        b = x.y - origin.y
-      const c = y.x - origin.x,
-        d = y.y - origin.y
-      let scaleX = 1,
-        scaleY = 1
-      if (paintViewport) {
-        if (
-          ![paintViewport.width, paintViewport.height].every(
-            (value) => Number.isFinite(value) && value > 0,
-          )
-        )
-          return null
-        const da = (a * paintViewport.width) / 1000,
-          db = (b * paintViewport.height) / 1000
-        const dc = (c * paintViewport.width) / 1000,
-          dd = (d * paintViewport.height) / 1000
-        const normX = Math.hypot(da, db),
-          normY = Math.hypot(dc, dd)
-        // Installed PDF.js getScaleForStroking widens thin ink to one device
-        // pixel. Replay that scale for exclusion bounds, not physical pen evidence.
-        if (db === 0 && dc === 0) {
-          if (normX === 0 || normY === 0) return null
-          scaleX = pen.lineWidth === 0 ? 1 / normX : Math.max(1, 1 / (normX * pen.lineWidth))
-          scaleY = pen.lineWidth === 0 ? 1 / normY : Math.max(1, 1 / (normY * pen.lineWidth))
-        } else {
-          const determinant = Math.abs(da * dd - db * dc)
-          if (
-            !Number.isFinite(determinant) ||
-            determinant <= 64 * Number.EPSILON * (Math.abs(da * dd) + Math.abs(db * dc))
-          )
-            return null
-          const area = (pen.lineWidth || 1) * determinant
-          scaleX = pen.lineWidth === 0 ? normY / determinant : Math.max(1, normY / area)
-          scaleY = pen.lineWidth === 0 ? normX / determinant : Math.max(1, normX / area)
-        }
-      }
-      const radius = ((pen.lineWidth || 1) * Math.max(Math.SQRT2, joined ? pen.miterLimit : 0)) / 2
-      padX = radius * Math.hypot(a * scaleX, c * scaleY)
-      padY = radius * Math.hypot(b * scaleX, d * scaleY)
-      if (!m.every(Number.isFinite) || !Number.isFinite(padX + padY)) return null
+      const pen = rasterPen()
+      if (!pen) return null
+      const [a, b, c, d] = pen.sourceToPage
+      const radius = pen.radius * Math.max(Math.SQRT2, joined ? state.pen.miterLimit : 0)
+      padX = radius * Math.hypot(a, c)
+      padY = radius * Math.hypot(b, d)
+      if (!Number.isFinite(padX + padY)) return null
     }
     // This is an outward arithmetic guard, not a contact or installation tolerance.
     const guard =
@@ -778,6 +807,27 @@ export function extractPdfLinework(
       )
       const event = result.paintBounds?.events.at(-1)
       if (event?.operationIndex === operationIndex && rawPaths) event.subpathCount = rawPaths.length
+      const rawStroke = rawPaths?.length === 1 ? rawPaths[0] : undefined
+      if (
+        event?.operationIndex === operationIndex &&
+        bounds &&
+        args[0] === ops.stroke &&
+        rawStroke &&
+        !rawStroke.closed &&
+        !rawStroke.curved &&
+        rawStroke.points.length === 2
+      ) {
+        const pen = rasterPen()
+        const start = rawStroke.points[0],
+          end = rawStroke.points[1]
+        if (pen && start && end)
+          event.straightStrokeRegion = {
+            start: { x: start.x / pen.scaleX, y: start.y / pen.scaleY },
+            end: { x: end.x / pen.scaleX, y: end.y / pen.scaleY },
+            sourceToPage: pen.sourceToPage,
+            radius: pen.radius * (state.pen.lineCap === 2 ? Math.SQRT2 : 1),
+          }
+      }
     }
     if (!rawPaths) {
       result.unsupportedPaths++

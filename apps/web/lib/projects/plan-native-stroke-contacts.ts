@@ -2,6 +2,7 @@ import type { PlanPageSegmentRef } from '@uyut/db'
 import { nativeCaptionBindings } from './plan-native-caption-bindings'
 import { pdfNativeDimensionSourceIssue } from './plan-pdf-dimension-source'
 import type { PagePoint, PdfVectorPath } from './plan-pdf-linework'
+import { pdfPaintInventoryIsComplete, pdfPaintMayTouchSpan } from './plan-pdf-paint-exclusion'
 
 type Input = Parameters<typeof nativeCaptionBindings>[0]
 type Bindings = ReturnType<typeof nativeCaptionBindings>
@@ -211,24 +212,7 @@ export function nativeDimensionStrokeContacts(
   const byRef = new Map(
     witnesses.map((item) => [`${item.path.operationIndex}:${item.path.subpathIndex}`, item.path]),
   )
-  const paintValid =
-    paint?.complete === true &&
-    paint.refusalReason === null &&
-    Array.isArray(paint.events) &&
-    paint.events.length <= 6000 &&
-    new Set(paint.events.map((event) => event.operationIndex)).size === paint.events.length &&
-    paint.events.every(
-      (event) =>
-        Number.isSafeInteger(event.operationIndex) &&
-        event.operationIndex >= 0 &&
-        ['vector', 'text', 'image', 'unknown'].includes(event.kind) &&
-        (event.bounds === null ||
-          ([event.bounds.left, event.bounds.top, event.bounds.right, event.bounds.bottom].every(
-            Number.isFinite,
-          ) &&
-            event.bounds.left <= event.bounds.right &&
-            event.bounds.top <= event.bounds.bottom)),
-    )
+  const paintValid = pdfPaintInventoryIsComplete(paint)
   const paintByOperation = new Map(
     paintValid ? paint?.events.map((event) => [event.operationIndex, event]) : [],
   )
@@ -282,21 +266,7 @@ export function nativeDimensionStrokeContacts(
           event.operationIndex === ref.operationIndex
         )
           continue
-        if (
-          event.bounds === null &&
-          event.kind === 'text' &&
-          event.reason === 'empty-source-text-paint'
-        )
-          continue
-        const bounds = event.bounds
-        if (
-          bounds &&
-          (point.x + error < bounds.left ||
-            point.x - error > bounds.right ||
-            point.y + error < bounds.top ||
-            point.y - error > bounds.bottom)
-        )
-          continue
+        if (!pdfPaintMayTouchSpan(event, [point, point], error)) continue
         held = true
         blockers.add(event.operationIndex)
       }
