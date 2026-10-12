@@ -8,7 +8,7 @@ import type {
   PlanReading,
 } from '@uyut/db'
 import { Button, inputClassName } from '@uyut/ui'
-import { type MouseEvent, useEffect, useRef, useState } from 'react'
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { savePlanPageReview } from '@/actions/plan-page-review'
 import { FormError } from '@/components/form-error'
 import {
@@ -41,6 +41,7 @@ import {
   snapPageOpeningPoint,
   voidDraftsFromSaved,
 } from '@/components/plan-page-contour-editor-model'
+import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
 import type { NativePageSegment } from '@/lib/projects/plan-pdf-opening-endpoint'
 import {
   pdfContourIdentity,
@@ -52,6 +53,12 @@ import { PlanPageEdgeDimensions } from './plan-page-edge-dimensions'
 import { PlanPageFeatureOverlay } from './plan-page-feature-overlay'
 import { type NewPageFeatureKind, PlanPageFeatures } from './plan-page-features'
 import { PlanPagePointControls } from './plan-page-point-controls'
+import { PlanPageSourceFloorControls } from './plan-page-source-floor-controls'
+import {
+  sourceFloorDraft,
+  sourceFloorReferenceFromResponse,
+  sourceFloorReferencePath,
+} from './plan-page-source-floor-model'
 import { snapPageSourceContourPoint } from './plan-page-vertex-candidate'
 
 const MAX_POINTS = 100
@@ -111,6 +118,11 @@ export function PlanPageContourEditor({
   const [checked, setChecked] = useState(false)
   const [state, setState] = useState<'' | 'existing' | 'proposed'>('')
   const [zoom, setZoom] = useState('100')
+  const [sourceFloors, setSourceFloors] = useState<SourceFloorReference>()
+  const [sourceFloorsShown, setSourceFloorsShown] = useState(false)
+  const [sourceFloorsLoading, setSourceFloorsLoading] = useState(false)
+  const [sourceFloorsError, setSourceFloorsError] = useState<string>()
+  const sourceFloorsRequest = useRef<AbortController | undefined>(undefined)
   const draftSource = useRef<PlanPagePreview | undefined>(undefined)
   const initialRevision = useRef(sourceRevision)
   const svgRef = useRef<SVGSVGElement>(null)
@@ -172,11 +184,44 @@ export function PlanPageContourEditor({
     !closed &&
     points.length <
       (!editingBoundary && !selectedVoid && target.kind === 'opening' ? 2 : MAX_POINTS)
+  const currentSourceFloors =
+    sourceFloors?.sourceRevision === sourceRevision &&
+    preview &&
+    samePlanPage(preview, {
+      sha256: sourceFloors.source.sha256,
+      page: sourceFloors.source.pdfPage,
+      pageCount: preview.pageCount,
+      width: sourceFloors.pageWidth,
+      height: sourceFloors.pageHeight,
+    }) &&
+    state === 'existing'
+      ? sourceFloors
+      : undefined
+  const sourceRoomKey =
+    selectedIdentity?.roomSourceNumber === undefined
+      ? undefined
+      : String(selectedIdentity.roomSourceNumber)
+  const selectedSourceFloor =
+    currentSourceFloors?.status === 'checked'
+      ? currentSourceFloors.floors.find((item) => item.sourceRoomKey === sourceRoomKey)
+      : undefined
+  const sourceFloorConversion = useMemo(
+    () =>
+      sourceFloorsShown && preview
+        ? sourceFloorDraft(selectedSourceFloor, nativePoints, nativeSegments, preview)
+        : { kind: 'held' as const, reason: 'missing-selection' as const },
+    [sourceFloorsShown, selectedSourceFloor, nativePoints, nativeSegments, preview],
+  )
 
   useEffect(() => {
     const abort = new AbortController()
     let url: string | undefined
     setLoading(true)
+    sourceFloorsRequest.current?.abort()
+    setSourceFloors(undefined)
+    setSourceFloorsShown(false)
+    setSourceFloorsError(undefined)
+    setSourceFloorsLoading(false)
     setImageReady(false)
     setError(undefined)
     setVoids([])
@@ -273,9 +318,90 @@ export function PlanPageContourEditor({
     void load()
     return () => {
       abort.abort()
+      sourceFloorsRequest.current?.abort()
       if (url) URL.revokeObjectURL(url)
     }
   }, [projectId, pageNumber, sourceRevision])
+
+  async function toggleSourceFloors() {
+    if (locked || sourceFloorsLoading || !preview || state !== 'existing') return
+    if (currentSourceFloors) {
+      setSourceFloorsShown((shown) => !shown)
+      return
+    }
+    const request = new AbortController()
+    sourceFloorsRequest.current?.abort()
+    sourceFloorsRequest.current = request
+    setSourceFloors(undefined)
+    setSourceFloorsShown(false)
+    setSourceFloorsError(undefined)
+    setSourceFloorsLoading(true)
+    try {
+      const query = new URLSearchParams({
+        page: String(pageNumber),
+        revision: sourceRevision,
+        format: 'source-floor-reference',
+      })
+      const response = await fetch(`/api/projects/${projectId}/plan-page?${query}`, {
+        signal: request.signal,
+        cache: 'no-store',
+      })
+      if (request.signal.aborted) return
+      if (response.status === 409) {
+        setStale(true)
+        conflictCallback.current()
+        throw new Error('План изменился. Закройте разметку и загрузите актуальную версию.')
+      }
+      const metadata = previewFromHeaders(response.headers, pageNumber)
+      if (
+        !response.ok ||
+        !response.headers.get('Content-Type')?.startsWith('application/json') ||
+        !metadata ||
+        !samePlanPage(preview, metadata)
+      )
+        throw new Error('Не удалось проверить исходную область. Рабочая разметка не изменена.')
+      const reference = sourceFloorReferenceFromResponse(
+        await response.json(),
+        preview,
+        sourceRevision,
+      )
+      if (request.signal.aborted) return
+      if (!reference) throw new Error('Ответ исходной области не соответствует открытому листу.')
+      setSourceFloors(reference)
+      setSourceFloorsShown(true)
+    } catch (cause) {
+      if (!request.signal.aborted)
+        setSourceFloorsError(
+          cause instanceof Error ? cause.message : 'Не удалось открыть исходную область.',
+        )
+    } finally {
+      if (!request.signal.aborted) setSourceFloorsLoading(false)
+    }
+  }
+
+  function copySourceFloor() {
+    if (
+      locked ||
+      sourceFloorsLoading ||
+      !sourceFloorsShown ||
+      editingBoundary ||
+      selectedVoid ||
+      target.kind !== 'room' ||
+      selectedDraft ||
+      !sourceRoomKey ||
+      sourceFloorConversion.kind !== 'candidate'
+    )
+      return
+    const candidate = structuredClone(sourceFloorConversion.draft)
+    setDrafts((current) =>
+      current.some((draft) =>
+        pdfContourRoomNumbers(draft).includes(candidate.roomSourceNumber as number),
+      )
+        ? current
+        : [...current, candidate],
+    )
+    resetReview()
+  }
 
   function changeSelected(
     polygon: PageContourPoint[],
@@ -886,6 +1012,20 @@ export function PlanPageContourEditor({
       ) : null}
       {imageUrl && preview ? (
         <div className="space-y-2">
+          {state === 'existing' ? (
+            <PlanPageSourceFloorControls
+              reference={currentSourceFloors}
+              selectedKey={sourceRoomKey}
+              shown={sourceFloorsShown}
+              loading={sourceFloorsLoading}
+              locked={locked || Boolean(editingBoundary || selectedVoid || target.kind !== 'room')}
+              draftExists={Boolean(selectedDraft)}
+              conversion={sourceFloorConversion}
+              error={sourceFloorsError}
+              onToggle={toggleSourceFloors}
+              onCopy={copySourceFloor}
+            />
+          ) : null}
           <label className="flex items-center gap-3 text-xs text-ink-2">
             Масштаб просмотра
             <select
@@ -942,6 +1082,24 @@ export function PlanPageContourEditor({
                     )
                   }}
                 />
+                {sourceFloorsShown && selectedSourceFloor ? (
+                  <path
+                    d={sourceFloorReferencePath(selectedSourceFloor)}
+                    fill="#b45309"
+                    fillOpacity={0.08}
+                    fillRule="evenodd"
+                    stroke="#b45309"
+                    strokeWidth={2}
+                    strokeDasharray="5 4"
+                    vectorEffect="non-scaling-stroke"
+                    pointerEvents="none"
+                  >
+                    <title>
+                      Выбранная область исходника № {selectedSourceFloor.sourceRoomKey}; не
+                      подтверждённая граница пола.
+                    </title>
+                  </path>
+                ) : null}
                 {dimensionHighlight?.roomKey === selected &&
                 target.kind === 'room' &&
                 !selectedVoid &&

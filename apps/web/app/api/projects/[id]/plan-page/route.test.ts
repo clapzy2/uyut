@@ -2,6 +2,7 @@ import type { PlanReading } from '@uyut/db'
 import type { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { planEditRevision } from '@/lib/projects/plan-edit-revision'
+import { floorHeightFixture } from '@/lib/projects/plan-native-reviewed-floor-heights.fixture'
 
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
@@ -186,7 +187,7 @@ describe('private PDF page preview', () => {
     expect(await result.text()).toBe('jpeg')
     expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, false)
   })
-  it.each(['native-review', 'native-review-image'])(
+  it.each(['native-review', 'native-review-image', 'source-floor-reference'])(
     'protects %s before loading private source',
     async (format) => {
       mocks.session.mockResolvedValue(null)
@@ -223,6 +224,96 @@ describe('private PDF page preview', () => {
       .mockResolvedValueOnce(project)
       .mockRejectedValueOnce(new AccessError('revoked'))
     expect((await GET(request('6', revision, 'native-review'), context)).status).toBe(404)
+  })
+
+  it('returns an isolated raw source reference without changing the ordinary point response', async () => {
+    const result = await GET(request('6', revision, 'source-floor-reference'), context)
+    expect(result.status).toBe(200)
+    expect(await result.json()).toMatchObject({
+      version: 1,
+      coordinateSystem: 'page-0-1000',
+      status: 'not-saved',
+      floors: [],
+      sourceRevision: revision,
+      readOnly: true,
+      physicalBoundariesAccepted: false,
+      pageWidth: 842,
+      pageHeight: 1191,
+    })
+    expect(result.headers.get('cache-control')).toBe('private, no-store')
+    expect(result.headers.get('x-plan-page-width')).toBe('842')
+    expect(result.headers.get('x-plan-page-height')).toBe('1191')
+    expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, true, true)
+    expect(mocks.access).toHaveBeenCalledTimes(3)
+  })
+  it('freshly rechecks selected source floor coordinates rather than returning saved raster points', async () => {
+    const evidence = floorHeightFixture()
+    const sha256 = createHash('sha256').update('pdf').digest('hex')
+    evidence.native.originalPdfSha256 = sha256
+    evidence.reviewedFloors.source.sha256 = sha256
+    evidence.native.source.sha256 = createHash('sha256').update('jpeg').digest('hex')
+    const selectedReading: PlanReading = {
+      ...reading,
+      sourcePage: 3,
+      paintedFloorReview: {
+        version: 1,
+        savedAt: '2026-10-12',
+        draftJson: JSON.stringify(evidence.reviewedFloors),
+      },
+    }
+    const own = { ...project, planReading: selectedReading }
+    mocks.access.mockResolvedValue(own)
+    mocks.prepare.mockResolvedValue({
+      ...page,
+      pageNumber: 3,
+      image: { ...page.image, width: 1000, height: 1000 },
+      linework: evidence.work,
+      nativeTextAnchors: evidence.native,
+      lineworkRasterSource: evidence.lineworkSource,
+    })
+    const result = await GET(
+      request('3', planEditRevision(own.planUrl, selectedReading), 'source-floor-reference'),
+      context,
+    )
+    expect(result.status).toBe(200)
+    const reference = await result.json()
+    expect(reference.status).toBe('checked')
+    expect(reference.floors[0].polygon).toEqual(evidence.reviewedFloors.floors[0]?.polygon)
+    expect(reference.floors[0].sourceRoomKey).toBe('3.1')
+    expect(reference.physicalBoundariesAccepted).toBe(false)
+    expect(reference).not.toHaveProperty('geometry')
+  })
+
+  it.each(['source', 'revoked'])(
+    'rechecks %s after the fresh raw source reference is prepared',
+    async (fault) => {
+      mocks.access.mockResolvedValueOnce(project).mockResolvedValueOnce(project)
+      if (fault === 'source') mocks.access.mockResolvedValueOnce({ ...project, planUrl: 'new.pdf' })
+      else mocks.access.mockRejectedValueOnce(new AccessError('revoked'))
+      expect((await GET(request('6', revision, 'source-floor-reference'), context)).status).toBe(
+        fault === 'source' ? 409 : 404,
+      )
+    },
+  )
+
+  it('does not promote malformed stored source-floor selection into a reference', async () => {
+    const invalid = {
+      ...project,
+      planReading: {
+        ...reading,
+        paintedFloorReview: { version: 1 as const, savedAt: 'old', draftJson: '{}' },
+      },
+    }
+    mocks.access.mockResolvedValue(invalid)
+    const version = planEditRevision(invalid.planUrl, invalid.planReading)
+    const result = await GET(request('6', version, 'source-floor-reference'), context)
+    expect(result.status).toBe(200)
+    expect(await result.json()).toMatchObject({
+      status: 'held',
+      floors: [],
+      physicalBoundariesAccepted: false,
+    })
+    expect(invalid.planReading.paintedFloorReview.draftJson).toBe('{}')
   })
 
   it('returns only private pixels and source metadata to an authorized collaborator', async () => {
