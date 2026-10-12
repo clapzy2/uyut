@@ -224,6 +224,142 @@ describe('exact native PDF wall-face intervals', () => {
     expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
   })
 
+  it.each(['bounded-native-crossing', 'bounded-native-rational-crossing'] as const)(
+    'keeps wall evidence when the exterior contains a verified %s',
+    (kind) => {
+      const input = syntheticSheet()
+      const baseline = pairPlanPageWallFaces(input.work, source, input.contours)
+      const polygon = rectangle(80, 80, 350, 320)
+      const first = {
+        operationIndex: 500,
+        subpathIndex: 0,
+        segmentIndex: 0,
+        start: { x: 70, y: 80 },
+        end: { x: 90, y: 80 },
+      }
+      const second = {
+        operationIndex: 501,
+        subpathIndex: 0,
+        segmentIndex: 0,
+        start: { x: 80, y: 70 },
+        end: { x: 80, y: 90 },
+      }
+      input.work.paths.push(
+        ...[first, second].map((segment) => ({
+          operationIndex: segment.operationIndex,
+          subpathIndex: 0,
+          paint: 'stroke' as const,
+          closed: false,
+          points: [segment.start, segment.end],
+        })),
+        ...polygon.slice(1).map((point, index) => ({
+          operationIndex: 502 + index,
+          subpathIndex: 0,
+          paint: 'stroke' as const,
+          closed: false,
+          points: [point],
+        })),
+      )
+      const proof =
+        kind === 'bounded-native-rational-crossing'
+          ? {
+              kind,
+              vertexIndex: 0,
+              segments: [structuredClone(first), structuredClone(second)] as [
+                typeof first,
+                typeof second,
+              ],
+              exactPointKey: '80/1:80/1',
+            }
+          : {
+              kind,
+              vertexIndex: 0,
+              segments: [structuredClone(first), structuredClone(second)] as [
+                typeof first,
+                typeof second,
+              ],
+            }
+      input.contours.exterior = { polygon, vertexProofs: [proof] }
+      const before = structuredClone(input)
+      expect(validPlanPageWallSource(input.work, source, input.contours)).toBe(true)
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual(baseline)
+      expect(input).toEqual(before)
+      input.contours.exterior.vertexProofs = []
+      expect(validPlanPageWallSource(input.work, source, input.contours)).toBe(false)
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+      input.contours.exterior.vertexProofs = [proof]
+      proof.segments[0].start.x += 0.001
+      expect(validPlanPageWallSource(input.work, source, input.contours)).toBe(false)
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+    },
+  )
+
+  it.each(['clippedPathBounds', 'skippedCurveBounds'] as const)(
+    'retains an intact diagonal wall when a filled %s omission is remote',
+    (field) => {
+      const input = slantedSheet()
+      const baseline = pairPlanPageWallFaces(input.work, source, input.contours)
+      expect(baseline).toHaveLength(1)
+      if (field === 'clippedPathBounds') input.work.clippedPaths = 1
+      else input.work.skippedCurves = 1
+      const omitted = {
+        operationIndex: 99,
+        paint: 'fill' as const,
+        bounds: { left: 800, right: 810, top: 800, bottom: 810 },
+      }
+      input.work[field] = [omitted]
+      expect(validPlanPageWallSource(input.work, source, input.contours)).toBe(false)
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual(baseline)
+      // Inclusive corner contact and the display quantization allowance remain held.
+      const points = baseline.flatMap((pair) =>
+        pair.faces.flatMap((face) => [face.start, face.end]),
+      )
+      const right = Math.max(...points.map((point) => point.x))
+      const bottom = Math.max(...points.map((point) => point.y))
+      omitted.bounds = { left: right + 0.0004, right: right + 1, top: bottom, bottom: bottom + 1 }
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+      omitted.bounds = { left: 800, right: 810, top: 800, bottom: 810 }
+      omitted.operationIndex = 10
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+    },
+  )
+
+  it.each(['stroke', 'fill-stroke', undefined] as const)(
+    'requires a complete pen envelope before excluding a diagonal %s omission',
+    (paint) => {
+      const input = slantedSheet()
+      const baseline = pairPlanPageWallFaces(input.work, source, input.contours)
+      input.work.clippedPaths = 1
+      input.work.clippedPathBounds = [
+        { operationIndex: 99, paint, bounds: { left: 800, right: 810, top: 800, bottom: 810 } },
+      ]
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+      input.work.paintBounds = {
+        complete: true,
+        refusalReason: null,
+        events: [
+          {
+            operationIndex: 99,
+            kind: 'vector',
+            reason: null,
+            bounds: { left: 799, right: 811, top: 799, bottom: 811 },
+          },
+        ],
+      }
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual(baseline)
+      const event = input.work.paintBounds.events[0]
+      if (!event) throw new Error('Missing paint envelope')
+      // Raw control points are remote but the full stroke reaches the wall body.
+      event.bounds = { left: 250, right: 811, top: 190, bottom: 811 }
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+      event.bounds = null
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+      event.bounds = { left: 799, right: 811, top: 799, bottom: 811 }
+      event.kind = 'unknown'
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+    },
+  )
+
   it.each(['continuous', 'gap', 'shifted', 'reversed', 'duplicate', 'overlong'] as const)(
     'supports separately stroked portions without filling missing evidence: %s',
     (mode) => {

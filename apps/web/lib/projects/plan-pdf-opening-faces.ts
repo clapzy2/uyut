@@ -184,7 +184,8 @@ export function verifyPlanPageOpeningFaces(
       contours.rooms.some(
         (room) => !sourceRoomContourVertices(room, nativePoints, nativeSegments),
       ) ||
-      contours.exterior?.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`))
+      (contours.exterior &&
+        !sourceRoomContourVertices(contours.exterior, nativePoints, nativeSegments))
     )
       sourceIssue = 'non-native-contour-vertex'
   }
