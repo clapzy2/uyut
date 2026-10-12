@@ -3,6 +3,11 @@ import { nativeFaceRationalPredicates } from './plan-native-face-rational'
 import { nativeFilledPanelJambContacts } from './plan-native-filled-panel-jambs'
 import { nativeOpeningFrameCandidates } from './plan-native-opening-frames'
 import { nativePaintedFloorBoundarySupports } from './plan-native-painted-floor-boundaries'
+import {
+  createNativeSourceSpanVisibility,
+  type NativeSourceSpanVisibility,
+  NativeSourceVisibilityLimit,
+} from './plan-native-source-span-visibility'
 import type { NativePageSegment } from './plan-pdf-opening-endpoint'
 
 export type SourceOpeningTarget = {
@@ -19,6 +24,13 @@ export type SourceOpeningTarget = {
   laterPaintCount: number | null
   status: 'matched' | 'partial' | 'ambiguous' | 'unobserved' | 'unresolved'
   coverage: 'complete' | 'partial' | 'unproved'
+  visibility?: NativeSourceSpanVisibility
+  independentVisibility?: {
+    sourceRef: SourceOpeningTarget['sourceRef']
+    startKey: string
+    endKey: string
+    visibility: NativeSourceSpanVisibility
+  }[]
   contacts: {
     floorId: string
     ringIndex: number
@@ -70,6 +82,9 @@ export function nativeSourceOpeningContacts(input: Input) {
   if (frames.refusalReason || panels.refusalReason)
     return finish(frames.refusalReason ?? panels.refusalReason)
   const exact = nativeFaceRationalPredicates()
+  const visibility = input.includeSpanVisibility
+    ? createNativeSourceSpanVisibility(input.work)
+    : undefined
   let workLeft = 300_000
   let contactCount = 0
   const exhausted = Symbol('source-opening-work-limit')
@@ -114,6 +129,21 @@ export function nativeSourceOpeningContacts(input: Input) {
       status: 'unobserved',
       coverage: 'unproved',
       contacts: [],
+    }
+    if (visibility) {
+      target.visibility = visibility(edge, startKey, endKey)
+      target.independentVisibility = independentEdges.map((source) => {
+        const a = exactNativePointKey(source.start),
+          b = exactNativePointKey(source.end)
+        if (!a || !b) throw new Error('Unsupported independent source')
+        const span = exact.sharedSpan(startKey, endKey, a, b)
+        if (!span) throw new Error('Independent end does not touch actual target')
+        return {
+          sourceRef: sourceRef(source),
+          ...span,
+          visibility: visibility(source, span.startKey, span.endKey),
+        }
+      })
     }
     const axis = exact.compareAxis(startKey, endKey, 'x') === 0 ? 'y' : 'x'
     for (const floor of fresh.floors) {
@@ -199,6 +229,12 @@ export function nativeSourceOpeningContacts(input: Input) {
     }
     return finish(null)
   } catch (error) {
-    return finish(error === exhausted ? 'source-opening-work-limit' : 'source-opening-unavailable')
+    return finish(
+      error instanceof NativeSourceVisibilityLimit
+        ? error.message
+        : error === exhausted
+          ? 'source-opening-work-limit'
+          : 'source-opening-unavailable',
+    )
   }
 }

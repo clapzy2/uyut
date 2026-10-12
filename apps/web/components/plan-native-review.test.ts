@@ -162,7 +162,7 @@ it('separates point visibility and selected-vector proposals from accepted physi
   expect(html).toContain('1858:0:2')
   expect(html).toContain('&lt;floor&gt;')
   expect(html).toContain('Физические границы не приняты')
-  expect(html).toContain('но контакт выносных линий не доказан')
+  expect(html).toContain('Контакт выносных линий не доказан')
   expect(html).toContain('Весь буквальный отрезок исходной грани')
   expect(html).toContain(
     'Это не подтверждение видимости всей полосы краски или физической стены/косяка',
@@ -170,6 +170,24 @@ it('separates point visibility and selected-vector proposals from accepted physi
   expect(html.match(/<button/g)?.length ?? 0).toBe(baseline.match(/<button/g)?.length ?? 0)
   expect(html.match(/<svg/g)?.length ?? 0).toBe(baseline.match(/<svg/g)?.length ?? 0)
   expect(packet).toEqual(before)
+  const candidate = packet.selectedDimensionBoundaries.observations[0]?.candidates[0]
+  if (!candidate) throw new Error('Missing selected dimension candidate')
+  for (const [status, wording] of [
+    ['continuous', 'непрерывная по ограниченным исходным штрихам'],
+    ['detached', 'есть разрыв; линия не достраивается'],
+    ['ambiguous', 'неоднозначные исходные штрихи'],
+    ['unresolved', 'не доказана'],
+  ] as const) {
+    candidate.ringIndex = 1
+    candidate.endpointBinding = { status, reason: null, witnesses: [] }
+    const proofMarkup = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:test' }),
+    )
+    expect(proofMarkup).toContain('вырез 1')
+    expect(proofMarkup).toContain(wording)
+    expect(proofMarkup).toContain('Это не подтверждение физических границ, масштаба или высот')
+    expect(proofMarkup.match(/<button/g)?.length ?? 0).toBe(baseline.match(/<button/g)?.length ?? 0)
+  }
 })
 
 it('separates positive source paint from negative-space floor cavities and warns about masks', () => {

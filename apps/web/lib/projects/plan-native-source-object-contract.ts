@@ -1,3 +1,4 @@
+import { nativePagePointKeyIsCanonical } from './plan-native-face-rational'
 import { nativeFinishedFloorHeightReference } from './plan-native-height-datum-caption'
 import type { NativeReviewPacket } from './plan-native-review-packet'
 
@@ -240,6 +241,8 @@ function savedFloors(packet: NativeReviewPacket): boolean {
         'numberLabelId',
         'polygon',
         'holes',
+        ...(floor.exactPointKeys !== undefined ? ['exactPointKeys'] : []),
+        ...(floor.holeExactPointKeys !== undefined ? ['holeExactPointKeys'] : []),
         'unresolvedEdges',
         'omittedStrokeCount',
         'boundaryInkComplete',
@@ -266,6 +269,25 @@ function savedFloors(packet: NativeReviewPacket): boolean {
       (floor.omittedStrokeCount > 0 && floor.boundaryInkComplete)
     )
       return false
+    if (floor.exactPointKeys !== undefined || floor.holeExactPointKeys !== undefined) {
+      const keys = floor.exactPointKeys,
+        holes = floor.holeExactPointKeys
+      if (
+        !packet.sourcePageSize ||
+        !Array.isArray(keys) ||
+        keys.length !== floor.polygon.length ||
+        !keys.every(nativePagePointKeyIsCanonical) ||
+        !Array.isArray(holes) ||
+        holes.length !== floor.holes.length ||
+        holes.some(
+          (ring, index) =>
+            !Array.isArray(ring) ||
+            ring.length !== floor.holes[index]?.length ||
+            !ring.every(nativePagePointKeyIsCanonical),
+        )
+      )
+        return false
+    }
     const region = packet.orderedPaint?.regions.find(
       (region) => region.candidateId === floor.candidateId,
     )

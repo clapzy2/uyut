@@ -44,6 +44,40 @@ Provider-reported usage for the single new request: 15,747 tokens and USD 0.1235
 
 ## Gate and next work
 
+### Follow-up: exact-span paint visibility and selected endpoint witnesses — 13 October
+
+Source-boundary contacts and actual frame/profile ends now inspect the complete
+same-source paint envelope inventory, including ordinary later vectors, text,
+images and unknown paint, not only omitted curves. Independent jamb references
+are clipped to the actual target span before inspection. Canonical rational
+membership/coverage remains separate from conservative display exclusion probes.
+All later operation blockers are retained; a may-cover hold is not proven hiding.
+Own compound/omitted/missing paint provenance and shared work/output caps refuse
+the inspection atomically while preserving valid unclassified source snapshots.
+
+Selected dimension proposals optionally include outer/hole ring identity and two
+bounded source drafting witnesses. Exact repeated intervals remain aliases;
+distinct competing intervals are ambiguous. A short line is detached and never
+extended to a corner. Page-point width/height enter the exact physical dot product,
+so a normalized diagonal cannot acquire a false perpendicular witness on a
+non-square PDF. Whole translated vectors and continuous source strokes still do
+not prove wall material, free floor, an actual jamb or metric scale.
+
+`evidenceVersion=2` opts in to new spans/endpoint metadata and canonical selected
+ring keys; older requests retain their previous shape. Clients validate bounded
+refs, source order, false authority, endpoint statuses, exact ring corners and
+physical-page axis consistency. Existing sourceTopology/save/consumer gates stay
+closed. The existing editor/review tables expose this distinction without new
+storage or confirmation actions.
+
+Fresh original replay: eight regions, all 144 source boundary contacts held for
+possible later paint; all four profile ends and their independent references
+also held. The one 684-mm equal-vector proposal for region 2 / edge 40 is unresolved
+because its source corner offset is not proved perpendicular. The fresh private
+image/packet pair passes the actual client loader. Five saved H associations pass
+their existing source/whole-caption checks but ceiling kind and common zero
+remain unconfirmed. Original, reading and account data unchanged; no paid calls.
+
 ### Follow-up: selected source rings to logical frame and profile ends — 13 October
 
 The private source-reference request freshly derives selected rings, logical

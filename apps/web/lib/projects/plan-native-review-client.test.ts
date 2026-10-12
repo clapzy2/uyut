@@ -322,6 +322,200 @@ describe('readonly renderer pen contacts', () => {
     }
     return { ...result, candidate }
   }
+  function endpointFixture(hole = false) {
+    const result = selectedFixture()
+    const floor = result.packet.savedPaintedFloors?.floors[0]
+    const piece = result.packet.orderedPaint?.regions[0]?.pieces[0]
+    const candidate = result.packet.selectedDimensionBoundaries?.observations[0]?.candidates[0]
+    if (!floor || !piece || !candidate) throw new Error('Missing selected fixture')
+    result.packet.sourcePageSize = { width: 1000, height: 1000 }
+    floor.exactPointKeys = ['100/1:100/1', '300/1:100/1', '300/1:300/1', '100/1:300/1']
+    floor.holeExactPointKeys = []
+    if (hole) {
+      const ring = [
+        { x: 150, y: 150 },
+        { x: 250, y: 150 },
+        { x: 250, y: 250 },
+        { x: 150, y: 250 },
+      ]
+      floor.holes = [ring]
+      piece.holes = [ring]
+      floor.holeExactPointKeys = [['150/1:150/1', '250/1:150/1', '250/1:250/1', '150/1:250/1']]
+    }
+    candidate.ringIndex = hole ? 1 : 0
+    candidate.endpointBinding = {
+      status: 'continuous',
+      reason: null,
+      witnesses: [
+        {
+          status: 'continuous',
+          tipKey: hole ? '150/1:50/1' : '100/1:50/1',
+          cornerKey: hole ? '150/1:150/1' : '100/1:100/1',
+          sourceRefs: [{ operationIndex: 100, subpathIndex: 0, segmentIndex: 0 }],
+        },
+        {
+          status: 'continuous',
+          tipKey: hole ? '250/1:50/1' : '300/1:50/1',
+          cornerKey: hole ? '250/1:150/1' : '300/1:100/1',
+          sourceRefs: [{ operationIndex: 101, subpathIndex: 0, segmentIndex: 0 }],
+        },
+      ],
+    }
+    return { ...result, floor, candidate, binding: candidate.endpointBinding }
+  }
+  it.each([false, true])(
+    'retains exact drafting witnesses for selected hole %s without authority',
+    async (hole) => {
+      const { packet, headers, candidate, binding } = endpointFixture(hole)
+      expect(
+        (await loadFixture(packet, headers)).packet.selectedDimensionBoundaries?.observations[0]
+          ?.candidates[0],
+      ).toEqual(candidate)
+      binding.witnesses.reverse()
+      expect(
+        (await loadFixture(packet, headers)).packet.selectedDimensionBoundaries?.observations[0]
+          ?.candidates[0],
+      ).toEqual(candidate)
+      expect(packet.selectedDimensionBoundaries?.physicalBoundariesAccepted).toBe(false)
+      expect(packet.selectedDimensionBoundaries?.mayTransfer3D).toBe(false)
+    },
+  )
+  it.each(['detached', 'ambiguous', 'unresolved'] as const)(
+    'retains a bounded %s witness aggregate',
+    async (status) => {
+      const { packet, headers, binding } = endpointFixture()
+      const first = binding.witnesses[0]
+      if (!first) throw new Error('Missing witness')
+      first.status = status
+      if (status === 'unresolved') first.sourceRefs = []
+      if (status === 'ambiguous')
+        first.sourceRefs.push({ operationIndex: 102, subpathIndex: 0, segmentIndex: 0 })
+      binding.status = status
+      binding.reason =
+        status === 'detached'
+          ? 'detached-source-extension'
+          : status === 'ambiguous'
+            ? 'competing-bounded-source-witnesses'
+            : 'missing-bounded-source-witness'
+      expect((await loadFixture(packet, headers)).packet.selectedDimensionBoundaries).toEqual(
+        packet.selectedDimensionBoundaries,
+      )
+    },
+  )
+  it('retains a no-offset-proof hold without fabricating endpoint keys', async () => {
+    const { packet, headers, candidate } = endpointFixture()
+    candidate.endpointBinding = {
+      status: 'unresolved',
+      reason: 'source-corner-offset-not-perpendicular',
+      witnesses: [],
+    }
+    expect((await loadFixture(packet, headers)).packet.selectedDimensionBoundaries).toEqual(
+      packet.selectedDimensionBoundaries,
+    )
+  })
+  it('validates drafting offsets against physical PDF axes rather than raster image axes', async () => {
+    const { packet, headers, candidate, binding, floor } = endpointFixture()
+    const piece = packet.orderedPaint?.regions[0]?.pieces[0]
+    const face = packet.faces[0]
+    const first = binding.witnesses[0],
+      second = binding.witnesses[1]
+    if (!piece || !face || !first || !second) throw new Error('Missing fixture geometry')
+    floor.polygon = [
+      { x: 100, y: 300 },
+      { x: 300, y: 500 },
+      { x: 400, y: 500 },
+      { x: 400, y: 300 },
+    ]
+    piece.polygon = floor.polygon
+    face.polygon = floor.polygon
+    floor.exactPointKeys = ['100/1:300/1', '300/1:500/1', '400/1:500/1', '400/1:300/1']
+    first.tipKey = '150/1:100/1'
+    first.cornerKey = '100/1:300/1'
+    second.tipKey = '350/1:300/1'
+    second.cornerKey = '300/1:500/1'
+    packet.sourcePageSize = { width: 1000, height: 500 }
+    expect(
+      (await loadFixture(packet, headers)).packet.selectedDimensionBoundaries?.observations[0]
+        ?.candidates[0],
+    ).toEqual(candidate)
+    packet.sourcePageSize.height = 1000
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
+  it.each([
+    'ring',
+    'null-ring',
+    'edge',
+    'missing-ring',
+    'missing-exact',
+    'missing-page',
+    'invalid-page',
+    'unknown-page-key',
+    'missing-witness',
+    'too-many-witnesses',
+    'status',
+    'reason',
+    'noncanonical-key',
+    'invalid-key',
+    'huge-key',
+    'foreign-corner',
+    'wrong-vector',
+    'nonperpendicular',
+    'zero-offset',
+    'empty-continuous',
+    'duplicate-ref',
+    'bad-ref',
+    'too-many-refs',
+    'unknown-witness-key',
+    'unknown-binding-key',
+    'physical',
+    'hole-role',
+  ])('rejects forged endpoint wire evidence %s', async (change) => {
+    const { packet, headers, candidate, binding, floor } = endpointFixture(true)
+    const witness = binding.witnesses[0]
+    if (!witness) throw new Error('Missing witness')
+    if (change === 'ring') candidate.ringIndex = 2
+    if (change === 'null-ring') Object.assign(candidate, { ringIndex: null })
+    if (change === 'edge') candidate.edgeIndex = 4
+    if (change === 'missing-ring') delete candidate.ringIndex
+    if (change === 'missing-exact') delete floor.holeExactPointKeys
+    if (change === 'missing-page') delete packet.sourcePageSize
+    if (change === 'invalid-page') packet.sourcePageSize = { width: Number.NaN, height: 1000 }
+    if (change === 'unknown-page-key') Object.assign(packet.sourcePageSize ?? {}, { unit: 'mm' })
+    if (change === 'missing-witness') binding.witnesses.pop()
+    if (change === 'too-many-witnesses') binding.witnesses.push(structuredClone(witness))
+    if (change === 'status') binding.status = 'detached'
+    if (change === 'reason') binding.reason = 'physical-wall-confirmed'
+    if (change === 'noncanonical-key') witness.tipKey = '300/2:100/2'
+    if (change === 'invalid-key') witness.tipKey = '150/0:50/1'
+    if (change === 'huge-key') witness.tipKey = `${'1'.repeat(257)}/1:50/1`
+    if (change === 'foreign-corner') witness.cornerKey = '151/1:150/1'
+    if (change === 'wrong-vector') witness.tipKey = '151/1:50/1'
+    if (change === 'nonperpendicular') {
+      witness.tipKey = '140/1:50/1'
+      const second = binding.witnesses[1]
+      if (!second) throw new Error('Missing second witness')
+      second.tipKey = '240/1:50/1'
+    }
+    if (change === 'zero-offset') witness.tipKey = witness.cornerKey
+    if (change === 'empty-continuous') witness.sourceRefs = []
+    if (change === 'duplicate-ref') {
+      const source = witness.sourceRefs[0]
+      if (!source) throw new Error('Missing witness source')
+      witness.sourceRefs.push({ ...source })
+    }
+    if (change === 'bad-ref') Object.assign(witness.sourceRefs[0] ?? {}, { segmentIndex: 1 })
+    if (change === 'too-many-refs')
+      witness.sourceRefs = Array.from({ length: 101 }, (_, index) => ({
+        operationIndex: index + 200,
+        subpathIndex: 0,
+        segmentIndex: 0,
+      }))
+    if (change === 'unknown-witness-key') Object.assign(witness, { visible: true })
+    if (change === 'unknown-binding-key') Object.assign(binding, { finalPaintProved: true })
+    if (change === 'physical') Object.assign(binding, { physicalJambAccepted: true })
+    if (change === 'hole-role') candidate.declaredRole = 'wall-face'
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
   it('retains whole literal-segment exclusion without accepting a whole ink strip or physical wall', async () => {
     const { packet, headers, candidate } = spanVisibilityFixture()
     expect(
@@ -5463,6 +5657,11 @@ describe('atomic private native image/packet loading', () => {
     expect(fetcher).toHaveBeenCalledTimes(2)
     expect(
       fetcher.mock.calls.every(([url]) => url.includes('/api/projects/private-project/plan-page?')),
+    ).toBe(true)
+    expect(
+      fetcher.mock.calls.every(
+        ([url]) => new URL(url, 'https://domitsa.ru').searchParams.get('evidenceVersion') === '2',
+      ),
     ).toBe(true)
   })
   it('preserves bounded optional source curves without changing readiness', async () => {

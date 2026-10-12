@@ -8,6 +8,7 @@ import { nativeCaptionBindings } from './plan-native-caption-bindings'
 import { nativeFaceRationalPredicates } from './plan-native-face-rational'
 import * as floorReview from './plan-native-painted-floor-review'
 import { nativeSelectedDimensionBoundaries } from './plan-native-selected-dimension-boundaries'
+import { selectedDimensionWitnesses } from './plan-native-selected-dimension-witnesses'
 import { nativeVisiblePaintRegions } from './plan-native-visible-paint'
 
 type Input = Parameters<typeof nativeSelectedDimensionBoundaries>[0]
@@ -155,6 +156,230 @@ function fixture(): Input {
 afterEach(() => vi.restoreAllMocks())
 
 describe('selected-floor equal source-vector proposals', () => {
+  function witnessFixture() {
+    const input = fixture()
+    input.includeEndpointWitnesses = true
+    input.work.paths.push(
+      ...[100, 300].map((x, index) => ({
+        operationIndex: 30 + index,
+        subpathIndex: 0,
+        paint: 'stroke' as const,
+        closed: false,
+        points: [
+          { x, y: 160 },
+          { x, y: 300 },
+        ],
+      })),
+    )
+    return input
+  }
+  it('adds fresh bounded rail-to-corner witnesses without accepting physical or metric boundaries', () => {
+    const input = witnessFixture()
+    const before = structuredClone(input)
+    const result = nativeSelectedDimensionBoundaries(input)
+    expect(result.refusalReason).toBeNull()
+    expect(result.observations.length).toBeGreaterThan(0)
+    expect(result).toMatchObject({
+      physicalBoundariesAccepted: false,
+      mayTransfer2D: false,
+      mayTransfer3D: false,
+    })
+    expect(result.observations[0]?.candidates[0]).toMatchObject({
+      ringIndex: 0,
+      endpointBinding: {
+        status: 'continuous',
+        reason: null,
+        witnesses: [
+          {
+            tipKey: '100/1:170/1',
+            cornerKey: '100/1:300/1',
+            sourceRefs: [{ operationIndex: 30, subpathIndex: 0, segmentIndex: 0 }],
+          },
+          {
+            tipKey: '300/1:170/1',
+            cornerKey: '300/1:300/1',
+            sourceRefs: [{ operationIndex: 31, subpathIndex: 0, segmentIndex: 0 }],
+          },
+        ],
+      },
+    })
+    expect(input).toEqual(before)
+  })
+  it.each(['missing', 'detached', 'ambiguous', 'reversed'] as const)(
+    'retains %s literal witnesses separately from equal-vector proposals',
+    (kind) => {
+      const input = witnessFixture()
+      const stroke = required(input.work.paths.find((path) => path.operationIndex === 30))
+      if (kind === 'missing')
+        input.work.paths = input.work.paths.filter((path) => path.operationIndex !== 30)
+      if (kind === 'detached') required(stroke.points[1]).y = 290
+      if (kind === 'ambiguous')
+        input.work.paths.push({
+          ...structuredClone(stroke),
+          operationIndex: 40,
+          points: [
+            { x: 100, y: 160 },
+            { x: 100, y: 280 },
+          ],
+        })
+      if (kind === 'reversed') {
+        stroke.points.reverse()
+        required(input.work.paths[0]).points.reverse()
+      }
+      const row = required(nativeSelectedDimensionBoundaries(input).observations[0])
+      expect(row.status).toBe('candidate')
+      expect(row.candidates[0]?.endpointBinding?.status).toBe(
+        kind === 'missing' ? 'unresolved' : kind === 'reversed' ? 'continuous' : kind,
+      )
+    },
+  )
+  it('includes selected hole edges without calling the hole a physical void', () => {
+    const input = fixture()
+    input.includeEndpointWitnesses = true
+    input.work.paths.push({
+      operationIndex: 20,
+      subpathIndex: 0,
+      paint: 'fill',
+      closed: true,
+      points: [
+        { x: 130, y: 390 },
+        { x: 250, y: 390 },
+        { x: 250, y: 430 },
+        { x: 130, y: 430 },
+      ],
+    })
+    const region = required(
+      nativeVisiblePaintRegions(input).regions.find(
+        (row) => row.candidateId === 'native-fill-10:0',
+      ),
+    )
+    const piece = required(region.pieces[0])
+    Object.assign(required(input.reviewed.floors[0]), {
+      polygon: piece.polygon,
+      holes: piece.holes,
+      boundaryRoles: piece.polygon.map((_, edgeIndex) => ({ edgeIndex, kind: 'unresolved' })),
+    })
+    const bindings = nativeCaptionBindings(input)
+    const binding = required(bindings.candidates[0])
+    binding.valueMm = 120
+    binding.spanEnds = [
+      { x: 130, y: 270 },
+      { x: 250, y: 270 },
+    ]
+    vi.spyOn(captionBindings, 'nativeCaptionBindings').mockReturnValue(bindings)
+    const result = nativeSelectedDimensionBoundaries(input)
+    expect(result.refusalReason).toBeNull()
+    expect(
+      result.observations[0]?.candidates.some(
+        (candidate) => candidate.ringIndex === 1 && candidate.declaredRole === 'unresolved',
+      ),
+    ).toBe(true)
+    expect(result.physicalBoundariesAccepted).toBe(false)
+  })
+  it('compares rational corners rather than rounded displays when seeking bounded witness contact', () => {
+    const input = witnessFixture()
+    const check = selectedDimensionWitnesses(
+      input.work,
+      () => {},
+      () => {},
+    )
+    const result = check(
+      ['100/1:170/1', '300/1:170/1'],
+      ['100/1:900000000001/3000000000', '300/1:900000000001/3000000000'],
+    )
+    expect(result.status).toBe('detached')
+    expect(result.witnesses.map((row) => row.status)).toEqual(['detached', 'detached'])
+  })
+  it('uses physical-page perpendicularity for aligned dimensions on a non-square PDF', () => {
+    const input = fixture()
+    input.work.pageWidth = 2000
+    input.work.pageHeight = 1000
+    input.work.paths = [
+      {
+        operationIndex: 30,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: 100, y: 100 },
+          { x: 90, y: 140 },
+        ],
+      },
+      {
+        operationIndex: 31,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: 200, y: 200 },
+          { x: 190, y: 240 },
+        ],
+      },
+    ]
+    const check = selectedDimensionWitnesses(
+      input.work,
+      () => {},
+      () => {},
+    )
+    expect(check(['100/1:100/1', '200/1:200/1'], ['90/1:140/1', '190/1:240/1']).status).toBe(
+      'continuous',
+    )
+    expect(check(['100/1:100/1', '200/1:200/1'], ['90/1:110/1', '190/1:210/1']).reason).toBe(
+      'source-corner-offset-not-perpendicular',
+    )
+  })
+  it('does not count a ray in the opposite direction or a closed/filled symbol as a witness', () => {
+    const input = witnessFixture()
+    const first = required(input.work.paths.find((path) => path.operationIndex === 30))
+    required(first.points[1]).y = 150
+    const second = required(input.work.paths.find((path) => path.operationIndex === 31))
+    second.paint = 'fill-stroke'
+    const check = selectedDimensionWitnesses(
+      input.work,
+      () => {},
+      () => {},
+    )
+    expect(check(['100/1:170/1', '300/1:170/1'], ['100/1:300/1', '300/1:300/1']).status).toBe(
+      'unresolved',
+    )
+  })
+  it('keeps exact source repaints as one bounded witness without discarding their identities', () => {
+    const input = witnessFixture()
+    const first = required(input.work.paths.find((path) => path.operationIndex === 30))
+    input.work.paths.push({
+      ...structuredClone(first),
+      operationIndex: 40,
+      points: [...first.points].reverse(),
+    })
+    const check = selectedDimensionWitnesses(
+      input.work,
+      () => {},
+      () => {},
+    )
+    const result = check(['100/1:170/1', '300/1:170/1'], ['100/1:300/1', '300/1:300/1'])
+    expect(result.status).toBe('continuous')
+    expect(result.witnesses[0]?.sourceRefs.map((ref) => ref.operationIndex)).toEqual([30, 40])
+  })
+  it('bounds witness enumeration and rejects references outside the wire contract', () => {
+    const input = witnessFixture()
+    expect(() =>
+      selectedDimensionWitnesses(
+        input.work,
+        () => {
+          throw new Error('budget')
+        },
+        () => {},
+      ),
+    ).toThrow('budget')
+    required(input.work.paths[0]).operationIndex = 100_000
+    expect(() =>
+      selectedDimensionWitnesses(
+        input.work,
+        () => {},
+        () => {},
+      ),
+    ).toThrow('Unsupported source witness reference')
+  })
   function wholeSpanFixture() {
     const input = fixture()
     const floorPath = required(input.work.paths.find((path) => path.operationIndex === 10))
@@ -489,7 +714,7 @@ describe('selected-floor equal source-vector proposals', () => {
           },
         ],
       }
-      const input = { ...common, reviewed }
+      const input = { ...common, reviewed, includeEndpointWitnesses: true }
       const before = structuredClone(input)
       const result = nativeSelectedDimensionBoundaries(input)
       const row = required(result.observations.find((row) => row.valueMm === 684))
@@ -508,6 +733,8 @@ describe('selected-floor equal source-vector proposals', () => {
       expect(result.physicalBoundariesAccepted).toBe(false)
       expect(result.mayTransfer2D).toBe(false)
       expect(result.mayTransfer3D).toBe(false)
+      expect(row.candidates[0]?.ringIndex).toBe(0)
+      expect(row.candidates[0]?.endpointBinding?.status).toBe('unresolved')
       expect(input).toEqual(before)
     },
     30_000,

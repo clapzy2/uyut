@@ -46,6 +46,7 @@ export function planPageSourceFloors(input: {
   pageWidth: number
   pageHeight: number
   reading: PlanReading
+  includeSpanVisibility?: boolean
   evidence?: Omit<Parameters<typeof nativePaintedFloorReview>[0], 'reviewed'>
 }): SourceFloorReference {
   const report: SourceFloorReference = {
@@ -79,7 +80,11 @@ export function planPageSourceFloors(input: {
     if (saved.version !== 1 || Buffer.byteLength(saved.draftJson, 'utf8') > 65536)
       return hold('invalid-saved-painted-floor-review')
     const reviewed = JSON.parse(saved.draftJson) as ReviewedNativePaintedFloors
-    const fresh = nativeSourceOpeningContacts({ ...input.evidence, reviewed })
+    const fresh = nativeSourceOpeningContacts({
+      ...input.evidence,
+      reviewed,
+      includeSpanVisibility: input.includeSpanVisibility,
+    })
     if (fresh.refusalReason) return hold(fresh.refusalReason)
     report.status = 'checked'
     report.openingInspection = fresh.openingInspection

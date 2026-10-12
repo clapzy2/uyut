@@ -1,6 +1,11 @@
 import { exactNativePointKey } from './plan-native-exact-intersections'
 import { nativeFaceRationalPredicates } from './plan-native-face-rational'
 import { nativePaintedFloorReview } from './plan-native-painted-floor-review'
+import {
+  createNativeSourceSpanVisibility,
+  type NativeSourceSpanVisibility,
+  NativeSourceVisibilityLimit,
+} from './plan-native-source-span-visibility'
 import type { PagePoint } from './plan-pdf-linework'
 import type { NativePageSegment } from './plan-pdf-opening-endpoint'
 import { pdfPaintInventoryIsComplete, pdfPaintMayTouchSpan } from './plan-pdf-paint-exclusion'
@@ -26,10 +31,11 @@ export type SourcePaintBoundarySupport = {
     startKey: string
     endKey: string
     paintSide: 'selected-region' | 'opposite-region'
+    visibility?: NativeSourceSpanVisibility
   }[]
 }
 
-type Input = Parameters<typeof nativePaintedFloorReview>[0]
+type Input = Parameters<typeof nativePaintedFloorReview>[0] & { includeSpanVisibility?: boolean }
 const refKey = (ref: { operationIndex: number; subpathIndex: number; segmentIndex: number }) =>
   `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`
 const pathKey = (ref: { operationIndex: number; subpathIndex: number }) =>
@@ -49,6 +55,9 @@ export function nativePaintedFloorBoundarySupports(input: Input) {
   })
   if (fresh.refusalReason) return finish(fresh.refusalReason)
   const exact = nativeFaceRationalPredicates()
+  const visibility = input.includeSpanVisibility
+    ? createNativeSourceSpanVisibility(input.work)
+    : undefined
   const paths = new Map(input.work.paths.map((path) => [pathKey(path), path]))
   // These are fill boundaries, not stroked edges admitted by nativePageSegments.
   // Keep their separate source semantics rather than loosening the legacy stroke contract.
@@ -153,6 +162,7 @@ export function nativePaintedFloorBoundarySupports(input: Input) {
               segmentIndex: ref.segmentIndex,
               ...span,
               paintSide: paintSide === regionSide ? 'selected-region' : 'opposite-region',
+              ...(visibility ? { visibility: visibility(ref, span.startKey, span.endKey) } : {}),
             })
             if (++contactCount > 10_000 || row.contacts.length > 100)
               return finish('source-boundary-contact-limit')
@@ -205,7 +215,11 @@ export function nativePaintedFloorBoundarySupports(input: Input) {
     return finish(null)
   } catch (error) {
     return finish(
-      error === exhausted ? 'source-boundary-work-limit' : 'source-boundary-unavailable',
+      error instanceof NativeSourceVisibilityLimit
+        ? error.message
+        : error === exhausted
+          ? 'source-boundary-work-limit'
+          : 'source-boundary-unavailable',
     )
   }
 }

@@ -804,18 +804,36 @@ function SelectedDimensionBoundariesReview({
                 <li key={row.labelId} className="break-all">
                   {row.labelId}: {row.valueMm} мм. Ограничение: {row.reason}.
                   {row.candidates.map((candidate) => (
-                    <p key={`${candidate.floorId}:${candidate.edgeIndex}`}>
-                      Помещение {candidate.sourceRoomKey}; {candidate.floorId}; грань{' '}
+                    <p
+                      key={`${candidate.floorId}:${candidate.ringIndex ?? 0}:${candidate.edgeIndex}`}
+                    >
+                      Помещение {candidate.sourceRoomKey}; {candidate.floorId};{' '}
+                      {candidate.ringIndex ? `вырез ${candidate.ringIndex}, ` : ''}грань{' '}
                       {candidate.edgeIndex}. Вектор целой исходной грани совпадает после
-                      параллельного сдвига на листе, но контакт выносных линий не доказан. Роль в
-                      разметке: {candidate.declaredRole}; штрихи границы{' '}
-                      {candidate.boundaryInkComplete ? 'полны' : 'неполны'}. Исходные ссылки:{' '}
+                      параллельного сдвига на листе. Роль в разметке: {candidate.declaredRole},{' '}
+                      штрихи границы {candidate.boundaryInkComplete ? 'полны' : 'неполны'}. Исходные
+                      ссылки:{' '}
                       {candidate.sourceRefs
                         .map(
                           (ref) => `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`,
                         )
                         .join(', ') || 'нет'}
                       .
+                      {candidate.endpointBinding ? (
+                        <span className="mt-1 block">
+                          Привязка выносных линий к исходным углам:{' '}
+                          {candidate.endpointBinding.status === 'continuous'
+                            ? 'непрерывная по ограниченным исходным штрихам'
+                            : candidate.endpointBinding.status === 'detached'
+                              ? 'есть разрыв; линия не достраивается'
+                              : candidate.endpointBinding.status === 'ambiguous'
+                                ? 'неоднозначные исходные штрихи'
+                                : 'не доказана'}
+                          . Это не подтверждение физических границ, масштаба или высот.
+                        </span>
+                      ) : (
+                        <span> Контакт выносных линий не доказан.</span>
+                      )}
                       {candidate.boundaryVisibility ? (
                         <span className="mt-1 block">
                           Весь буквальный отрезок исходной грани:{' '}

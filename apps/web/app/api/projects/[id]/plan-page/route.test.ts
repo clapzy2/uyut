@@ -246,9 +246,13 @@ describe('private PDF page preview', () => {
     expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, true, true)
     expect(mocks.access).toHaveBeenCalledTimes(3)
   })
-  it.each([false, true])(
-    'freshly rechecks selected source coordinates with backwards-compatible opening inspection, opt-in=%s',
-    async (includeOpenings) => {
+  it.each([
+    [false, false],
+    [true, false],
+    [true, true],
+  ])(
+    'freshly rechecks selected source coordinates with backwards-compatible inspection, openings=%s visibility=%s',
+    async (includeOpenings, includeVisibility) => {
       const evidence = floorHeightFixture()
       const sha256 = createHash('sha256').update('pdf').digest('hex')
       evidence.native.originalPdfSha256 = sha256
@@ -279,6 +283,7 @@ describe('private PDF page preview', () => {
         'source-floor-reference',
       )
       if (includeOpenings) sourceRequest.nextUrl.searchParams.set('openingInspection', '1')
+      if (includeVisibility) sourceRequest.nextUrl.searchParams.set('evidenceVersion', '2')
       const result = await GET(sourceRequest, context)
       expect(result.status).toBe(200)
       const reference = await result.json()
@@ -294,6 +299,13 @@ describe('private PDF page preview', () => {
           physicalPassageAccepted: false,
         })
       } else expect(reference).not.toHaveProperty('openingInspection')
+      const contact = reference.floors[0].boundarySupports[0].contacts[0]
+      if (includeVisibility)
+        expect(contact.visibility).toMatchObject({
+          status: 'held',
+          reason: 'paint-envelope-inventory-unavailable',
+        })
+      else expect(contact).not.toHaveProperty('visibility')
     },
   )
 
