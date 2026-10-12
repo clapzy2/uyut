@@ -44,6 +44,25 @@ Provider-reported usage for the single new request: 15,747 tokens and USD 0.1235
 
 ## Gate and next work
 
+### Follow-up: enclosed source holes with perimeter paint cuts
+
+Mixed masks no longer hold an otherwise supported source selection solely because
+one mask is enclosed and another crosses the source perimeter. The exact graph and
+area partition exclude enclosed rings; a witness inside an enclosed mask therefore
+does not discard its whole surrounding face. Each hole is subsequently assigned
+to exactly one retained face using fresh rational keys, strict vertex containment
+and complete edge non-contact. Overlapping, touching or nested inner masks, including
+contact with perimeter-cut masks, remain held; new ring checks consume the shared
+work budget. Unsupported unions are not approximated.
+
+Controls cover split pieces with separate holes, a non-terminating rational diagonal
+cut, concave edge crossings, hole-boundary omitted ink, source immutability, stale
+hole rejection, caption ownership and action save/reload. Stored source selections
+are rederived from fresh evidence, not trusted as proof JSON. Physical geometry,
+page contours and delivery measurements are unchanged by that save path. All
+physical/metric/2D/3D acceptance flags remain false. This is source paint topology,
+not automatic wall, jamb, shaft or finished-floor recognition.
+
 ### Follow-up: decimal-exact arbitrary-angle source stroke vertices
 
 Reviewed source contours now support a distinct bounded native rational crossing

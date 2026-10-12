@@ -232,6 +232,55 @@ describe('persist explicit source-painted floor review', () => {
     expect(mocks.object).not.toHaveBeenCalled()
     expect(mocks.save).not.toHaveBeenCalled()
   })
+  it('persists and reloads mixed cut/hole geometry without overwriting physical geometry', async () => {
+    const hole = [
+      { x: 200, y: 200 },
+      { x: 230, y: 200 },
+      { x: 230, y: 230 },
+      { x: 200, y: 230 },
+    ]
+    current.common.work.paths.push(
+      { operationIndex: 20, subpathIndex: 0, paint: 'fill', closed: true, points: hole },
+      {
+        operationIndex: 30,
+        subpathIndex: 0,
+        paint: 'fill',
+        closed: true,
+        points: [
+          { x: 251, y: 80 },
+          { x: 310, y: 111 },
+          { x: 270, y: 141 },
+        ],
+      },
+    )
+    const piece = required(
+      nativeVisiblePaintRegions(current.common).regions.find(
+        (region) => region.candidateId === 'native-fill-10:0',
+      )?.pieces[0],
+    )
+    const floor = required(current.reviewed.floors[0])
+    floor.polygon = structuredClone(piece.polygon)
+    floor.holes = structuredClone(piece.holes)
+    floor.boundaryRoles = piece.polygon.map((_, edgeIndex) => ({ edgeIndex, kind: 'unresolved' }))
+    const before = structuredClone(current.reading)
+    const result = await save()
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    const stored = JSON.parse(
+      required(result.data.reading.paintedFloorReview).draftJson,
+    ) as ReviewedNativePaintedFloors
+    const reload = nativePaintedFloorReview({ ...current.common, reviewed: stored })
+    expect(reload.status).toBe('reviewed-draft')
+    expect(reload.floors[0]?.holes).toEqual([hole])
+    expect(reload.floors[0]?.holeExactPointKeys).toHaveLength(1)
+    expect(reload.physicalBoundariesAccepted).toBe(false)
+    expect(reload.readyFor3D).toBe(false)
+    expect(result.data.reading.geometry).toEqual(before.geometry)
+    expect(result.data.reading.pageReview).toEqual(before.pageReview)
+    expect(result.data.reading.deliveryMeasurements).toEqual(before.deliveryMeasurements)
+    required(stored.floors[0]).holes = []
+    expect(nativePaintedFloorReview({ ...current.common, reviewed: stored }).status).toBe('held')
+  })
   it('invalidates prior height associations when the selected source floors are edited', async () => {
     current.reading.heightBindingReview = {
       version: 1,

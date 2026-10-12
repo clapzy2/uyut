@@ -120,8 +120,126 @@ describe('source-decimal positive paint subtraction, not free floor', () => {
         paint(30, rectangle(180, 150, 220, 180)),
       ]),
     )
-    expect(result.refusalReason).toBe('mixed-disconnected-mask-topology')
+    expect(result.refusalReason).toBeNull()
+    expect(result.pieces).toHaveLength(1)
+    expect(result.pieces[0]?.holes).toEqual([rectangle(120, 120, 130, 130)])
+    expect(area(result.pieces[0]?.polygon ?? [])).toBe(9400)
+  })
+  it('retains a hole even when the partition witness lies inside its paint', () => {
+    const hole = rectangle(120, 120, 130, 130)
+    const result = region(
+      fixture([paint(10), paint(20, hole), paint(30, rectangle(190, 90, 210, 210))]),
+    )
+    expect(result.refusalReason).toBeNull()
+    expect(result.pieces).toHaveLength(1)
+    expect(result.pieces[0]?.holes).toEqual([hole])
+    expect(area(result.pieces[0]?.polygon ?? [])).toBe(9000)
+  })
+  it('assigns each hole to its own retained face without bridges or duplicated rings', () => {
+    const leftHole = rectangle(120, 120, 130, 130)
+    const rightHole = rectangle(170, 160, 180, 170)
+    const input = fixture([
+      paint(10),
+      paint(20, leftHole),
+      paint(30, rightHole),
+      paint(40, rectangle(145, 90, 155, 210)),
+    ])
+    const before = structuredClone(input)
+    const result = region(input)
+    expect(result.refusalReason).toBeNull()
+    expect(result.pieces).toHaveLength(2)
+    const left = result.pieces.find((piece) => piece.polygon.every((point) => point.x <= 145))
+    const right = result.pieces.find((piece) => piece.polygon.every((point) => point.x >= 155))
+    expect(left?.holes).toEqual([leftHole])
+    expect(right?.holes).toEqual([rightHole])
+    expect(result.pieces.reduce((sum, piece) => sum + area(piece.polygon), 0)).toBe(9000)
+    expect(input).toEqual(before)
+    expect(nativeVisiblePaintRegions(input)).toMatchObject({
+      physicalFloorConfirmed: false,
+      roomOwnershipConfirmed: false,
+      readyFor2D: false,
+      readyFor3D: false,
+    })
+  })
+  it('keeps a hole beside a non-terminating rational diagonal cut', () => {
+    const hole = rectangle(120, 160, 130, 170)
+    const result = region(
+      fixture([
+        paint(10),
+        paint(20, hole),
+        paint(30, [
+          { x: 151, y: 80 },
+          { x: 210, y: 111 },
+          { x: 170, y: 141 },
+        ]),
+      ]),
+    )
+    expect(result.refusalReason).toBeNull()
+    expect(result.pieces.flatMap((piece) => piece.holes)).toEqual([hole])
+    expect(result.intersections.some((proof) => proof.exactPointKey.includes('/31'))).toBe(true)
+    expect(
+      result.pieces.flatMap((piece) => piece.edges).every((edge) => edge.sourceRefs.length > 0),
+    ).toBe(true)
+  })
+  it.each([
+    [rectangle(170, 120, 190, 140)], // overlaps the cut
+    [rectangle(160, 120, 180, 140)], // touches its edge
+    [rectangle(185, 120, 190, 140)], // nested inside removed paint
+  ])('holds enclosed paint interacting with a boundary mask: %j', (hole) => {
+    const result = region(
+      fixture([paint(10), paint(20, hole), paint(30, rectangle(180, 90, 210, 210))]),
+    )
+    expect(result.refusalReason).toBe('overlapping-or-touching-inner-masks')
     expect(result.pieces).toEqual([])
+    expect(result.intersections).toEqual([])
+  })
+  it('does not treat vertices inside a concave remainder as proof of a contained hole', () => {
+    // All triangle vertices miss the inward rectangular notch, but one edge
+    // crosses it. The complete rings, not just their vertices, must be disjoint.
+    const hole = [
+      { x: 170, y: 140 },
+      { x: 195, y: 140 },
+      { x: 195, y: 190 },
+    ]
+    const result = region(
+      fixture([paint(10), paint(20, hole), paint(30, rectangle(180, 150, 220, 180))]),
+    )
+    expect(result.refusalReason).toBe('overlapping-or-touching-inner-masks')
+    expect(result.pieces).toEqual([])
+  })
+  it('still checks omitted ink on a hole after a perimeter cut', () => {
+    const input = fixture([
+      paint(10),
+      paint(20, rectangle(120, 120, 130, 130)),
+      paint(30, rectangle(180, 150, 220, 180)),
+    ])
+    input.work.clippedPaths = 1
+    input.work.clippedPathBounds = [
+      {
+        operationIndex: 40,
+        paint: 'stroke',
+        bounds: { left: 124, right: 126, top: 117, bottom: 123 },
+      },
+    ]
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 40,
+          kind: 'vector',
+          reason: null,
+          bounds: { left: 124, right: 126, top: 117, bottom: 123 },
+        },
+      ],
+    }
+    expect(region(input)).toMatchObject({
+      status: 'diagnostic',
+      refusalReason: null,
+      omittedStrokeCount: 1,
+      boundaryInkComplete: false,
+    })
+    expect(region(input).pieces[0]?.holes).toHaveLength(1)
   })
   it('holds unsupported compound fill touching a candidate', () => {
     const compound = paint(20, rectangle(180, 150, 220, 180))
