@@ -644,6 +644,7 @@ describe('exact native PDF wall-face intervals', () => {
     input.work.clippedPathBounds = [
       {
         operationIndex: 99,
+        paint: 'fill',
         bounds: { left: 0, top: 120, right: 1000, bottom: 150 },
       },
     ]
@@ -656,6 +657,7 @@ describe('exact native PDF wall-face intervals', () => {
     input.work.clippedPathBounds = [
       {
         operationIndex: 99,
+        paint: 'fill',
         bounds: { left: 0, top: 0, right: 1000, bottom: 1000 },
       },
     ]
@@ -664,6 +666,7 @@ describe('exact native PDF wall-face intervals', () => {
     input.work.clippedPathBounds = [
       {
         operationIndex: firstPair.faces[0].nativeSegment.operationIndex,
+        paint: 'fill',
         bounds: { left: 0, top: 120, right: 1000, bottom: 150 },
       },
     ]
@@ -682,6 +685,7 @@ describe('exact native PDF wall-face intervals', () => {
     input.work.skippedCurveBounds = [
       {
         operationIndex: 99,
+        paint: 'fill',
         bounds: { left: 0, top: 120, right: 1000, bottom: 150 },
       },
     ]
@@ -692,6 +696,208 @@ describe('exact native PDF wall-face intervals', () => {
 
     input.work.skippedCurveBoundsTruncated = true
     expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+  })
+
+  it.each(['vertical', 'horizontal'] as const)(
+    'excludes a remote filled omission across a %s strip, but holds touching paint',
+    (direction) => {
+      const input = syntheticSheet()
+      if (direction === 'horizontal') {
+        for (const point of [
+          ...input.work.paths.flatMap((path) => path.points),
+          ...input.contours.rooms.flatMap((room) => room.polygon),
+        ]) {
+          const x = point.x
+          point.x = point.y
+          point.y = x
+        }
+      }
+      const complete = pairPlanPageWallFaces(input.work, source, input.contours)
+      expect(complete.length).toBeGreaterThan(1)
+      const first = complete[0]
+      if (!first) throw new Error('Expected a source-backed wall strip.')
+      const coordinates = first.faces.flatMap((face) => [face.start, face.end])
+      const strip = {
+        left: Math.min(...coordinates.map((point) => point.x)),
+        top: Math.min(...coordinates.map((point) => point.y)),
+        right: Math.max(...coordinates.map((point) => point.x)),
+        bottom: Math.max(...coordinates.map((point) => point.y)),
+      }
+      const bounds =
+        direction === 'vertical'
+          ? { ...strip, left: strip.right + 1, right: strip.right + 10 }
+          : { ...strip, top: strip.bottom + 1, bottom: strip.bottom + 10 }
+      input.work.clippedPaths = 1
+      input.work.clippedPathBounds = [{ operationIndex: 99, bounds, paint: 'fill' }]
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual(complete)
+      if (direction === 'vertical') bounds.left = strip.right
+      else bounds.top = strip.bottom
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).not.toContainEqual(first)
+      // A zero-area point touching a strip corner is also not disjoint.
+      Object.assign(bounds, {
+        left: strip.right,
+        right: strip.right,
+        top: strip.bottom,
+        bottom: strip.bottom,
+      })
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).not.toContainEqual(first)
+    },
+  )
+
+  it.each(['stroke', 'fill-stroke', undefined] as const)(
+    'uses a complete paint envelope, never raw omission coordinates, for %s',
+    (paint) => {
+      const input = syntheticSheet()
+      const complete = pairPlanPageWallFaces(input.work, source, input.contours)
+      const first = complete[0]
+      if (!first) throw new Error('Expected a source-backed wall strip.')
+      input.work.skippedCurves = 1
+      input.work.skippedCurveBounds = [
+        { operationIndex: 99, paint, bounds: { left: 500, top: 120, right: 510, bottom: 150 } },
+      ]
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+      input.work.paintBounds = {
+        complete: true,
+        refusalReason: null,
+        events: [
+          {
+            operationIndex: 99,
+            kind: 'vector',
+            bounds: { left: 490, top: 110, right: 520, bottom: 160 },
+            reason: null,
+          },
+        ],
+      }
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual(complete)
+      const event = input.work.paintBounds.events[0]
+      if (!event) throw new Error('Expected the omitted paint envelope.')
+      // The pen can reach the strip although its source control hull does not.
+      event.bounds = { left: 199, top: 110, right: 520, bottom: 160 }
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).not.toContainEqual(first)
+      event.bounds = null
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+      event.bounds = { left: 490, top: 110, right: 520, bottom: 160 }
+      event.kind = 'text'
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+      event.kind = 'vector'
+      input.work.paintBounds.complete = false
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+      input.work.paintBounds.complete = true
+      event.operationIndex = 98
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+    },
+  )
+
+  it.each(['clippedPathBounds', 'skippedCurveBounds'] as const)(
+    'holds malformed omission metadata in %s',
+    (field) => {
+      const input = syntheticSheet()
+      if (field === 'clippedPathBounds') input.work.clippedPaths = 1
+      else input.work.skippedCurves = 1
+      const valid = {
+        operationIndex: 99,
+        paint: 'fill' as const,
+        bounds: { left: 500, top: 500, right: 510, bottom: 510 },
+      }
+      const mutations = [
+        { ...valid, operationIndex: -1 },
+        { ...valid, operationIndex: 0.5 },
+        { ...valid, operationIndex: 100_000 },
+        { ...valid, bounds: { ...valid.bounds, left: Number.NaN } },
+        { ...valid, bounds: { ...valid.bounds, right: Number.POSITIVE_INFINITY } },
+        { ...valid, bounds: { ...valid.bounds, left: 511 } },
+        { ...valid, bounds: { ...valid.bounds, top: 511 } },
+      ]
+      for (const mutation of mutations) {
+        input.work[field] = [mutation]
+        expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+      }
+      input.work[field] = []
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+      input.work[field] = [valid, valid]
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+    },
+  )
+
+  it('validates and indexes the paint inventory once for all supported wall pairs', () => {
+    const input = syntheticSheet()
+    const complete = pairPlanPageWallFaces(input.work, source, input.contours)
+    expect(complete.length).toBeGreaterThan(1)
+    input.work.skippedCurves = 1
+    input.work.skippedCurveBounds = [
+      {
+        operationIndex: 99,
+        paint: 'stroke',
+        bounds: { left: 500, top: 120, right: 510, bottom: 150 },
+      },
+    ]
+    const events = [
+      {
+        operationIndex: 99,
+        kind: 'vector' as const,
+        bounds: { left: 490, top: 110, right: 520, bottom: 160 },
+        reason: null,
+      },
+    ]
+    let inventoryReads = 0
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      get events() {
+        inventoryReads++
+        return events
+      },
+    }
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual(complete)
+    // Array validation, limit, iteration and indexing; never one scan per pair.
+    expect(inventoryReads).toBeLessThanOrEqual(4)
+  })
+
+  it.each(['fill', 'stroke'] as const)(
+    'retains %s paint within source-coordinate rounding uncertainty',
+    (paint) => {
+      const input = syntheticSheet()
+      const complete = pairPlanPageWallFaces(input.work, source, input.contours)
+      const first = complete[0]
+      if (!first) throw new Error('Expected a source-backed wall strip.')
+      const bounds = { left: 220.0002, top: 110, right: 230, bottom: 160 }
+      input.work.skippedCurves = 1
+      input.work.skippedCurveBounds = [{ operationIndex: 99, paint, bounds }]
+      input.work.paintBounds = {
+        complete: true,
+        refusalReason: null,
+        events: [{ operationIndex: 99, kind: 'vector', bounds, reason: null }],
+      }
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).not.toContainEqual(first)
+      bounds.left = paint === 'fill' ? 220.0008 : 220.0004
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).not.toContainEqual(first)
+      bounds.left = 220.002
+      expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual(complete)
+    },
+  )
+
+  it('keeps multiple omitted subpaths of one operation and rejects its own witness', () => {
+    const input = syntheticSheet()
+    const complete = pairPlanPageWallFaces(input.work, source, input.contours)
+    input.work.skippedCurves = 2
+    input.work.skippedCurveBounds = [
+      {
+        operationIndex: 99,
+        paint: 'fill',
+        bounds: { left: 500, top: 110, right: 510, bottom: 150 },
+      },
+      {
+        operationIndex: 99,
+        paint: 'fill',
+        bounds: { left: 500, top: 210, right: 510, bottom: 250 },
+      },
+    ]
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual(complete)
+    const first = complete[0]
+    const omission = input.work.skippedCurveBounds[0]
+    if (!first || !omission) throw new Error('Expected source evidence.')
+    omission.operationIndex = first.faces[0].nativeSegment.operationIndex
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).not.toContainEqual(first)
   })
 
   it('does not use a shorter-than-thickness corner sliver as partial wall evidence', () => {
@@ -713,7 +919,11 @@ describe('exact native PDF wall-face intervals', () => {
 
     input.work.skippedCurves = 1
     input.work.skippedCurveBounds = [
-      { operationIndex: 99, bounds: { left: 500, top: 500, right: 510, bottom: 510 } },
+      {
+        operationIndex: 99,
+        paint: 'fill',
+        bounds: { left: 500, top: 500, right: 510, bottom: 510 },
+      },
     ]
     const partial = pairPlanPageWallFaces(input.work, source, input.contours)
     expect(partial.some((pair) => pair.faces.some((face) => face.contourKey === '2'))).toBe(false)

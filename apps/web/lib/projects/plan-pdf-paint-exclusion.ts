@@ -78,6 +78,33 @@ export function pdfPaintMayTouchSpan(
   )
     return false
 
+  // A diagonal span's enclosing box can overlap a distant paint rectangle.
+  // Test the span normal as well; inclusive contact and numerical uncertainty
+  // remain possible paint, not permission to move either geometry.
+  const dx = second.x - first.x
+  const dy = second.y - first.y
+  const length = Math.hypot(dx, dy)
+  if (Number.isFinite(length) && length > 0) {
+    const nx = -dy / length
+    const ny = dx / length
+    const project = (x: number, y: number) => (x - first.x) * nx + (y - first.y) * ny
+    const projections = [
+      project(bounds.left, bounds.top),
+      project(bounds.right, bounds.top),
+      project(bounds.right, bounds.bottom),
+      project(bounds.left, bounds.bottom),
+    ]
+    const queryEnd = project(second.x, second.y)
+    const normalPadding = pagePadding * (Math.abs(nx) + Math.abs(ny))
+    if (
+      projections.every(Number.isFinite) &&
+      Number.isFinite(queryEnd) &&
+      (Math.min(...projections) > Math.max(0, queryEnd) + normalPadding ||
+        Math.max(...projections) < Math.min(0, queryEnd) - normalPadding)
+    )
+      return false
+  }
+
   const region = event.straightStrokeRegion
   if (
     event.kind !== 'vector' ||

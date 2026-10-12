@@ -7,6 +7,7 @@ import {
   nativeEdgeCrossing,
   nativePageSegments,
 } from './plan-pdf-opening-endpoint'
+import { pdfPaintInventoryIsComplete, pdfPaintMayTouchSpan } from './plan-pdf-paint-exclusion'
 import { type PdfPlanSource, pdfPolygonIsValid } from './plan-pdf-room-binding'
 import { bindObservedRegionLabels, type RegionLabelFrame } from './plan-raster-region-labels'
 
@@ -85,9 +86,14 @@ export function nativeFaceCycle(input: {
     work.truncated ||
     work.unsupportedPaths ||
     work.unsupportedContexts ||
-    (work.skippedCurves &&
-      (!work.skippedCurveBounds?.length || work.skippedCurveBoundsTruncated)) ||
-    (work.clippedPaths && (!work.clippedPathBounds?.length || work.clippedPathBoundsTruncated))
+    !Number.isSafeInteger(work.skippedCurves) ||
+    !Number.isSafeInteger(work.clippedPaths) ||
+    work.skippedCurves < 0 ||
+    work.clippedPaths < 0 ||
+    (work.skippedCurveBounds?.length ?? 0) !== work.skippedCurves ||
+    (work.clippedPathBounds?.length ?? 0) !== work.clippedPaths ||
+    work.skippedCurveBoundsTruncated ||
+    work.clippedPathBoundsTruncated
   )
     return fail('incomplete-native-boundary-inventory')
   const dimensionOperations = new Set(dimensions.dimensionOperations)
@@ -196,7 +202,10 @@ export function nativeFaceCycle(input: {
   const omitted = [...(work.skippedCurveBounds ?? []), ...(work.clippedPathBounds ?? [])]
   if (
     omitted.some(
-      ({ bounds }) =>
+      ({ operationIndex, bounds }) =>
+        !Number.isSafeInteger(operationIndex) ||
+        operationIndex < 0 ||
+        operationIndex >= 100_000 ||
         ![bounds.left, bounds.top, bounds.right, bounds.bottom].every(Number.isFinite) ||
         bounds.left > bounds.right ||
         bounds.top > bounds.bottom,
@@ -205,18 +214,40 @@ export function nativeFaceCycle(input: {
     return fail('invalid-omitted-evidence-bounds')
   const marginX = (OMISSION_EXCLUSION_POINTS * 1000) / work.pageWidth
   const marginY = (OMISSION_EXCLUSION_POINTS * 1000) / work.pageHeight
+  const paintEvents = pdfPaintInventoryIsComplete(work.paintBounds)
+    ? new Map(work.paintBounds?.events.map((event) => [event.operationIndex, event]))
+    : null
+  const selectedOperations = new Set(selected.map((face) => face.operationIndex))
   for (let index = 0; index < polygon.length; index++) {
     const a = polygon[index],
       b = polygon[(index + 1) % polygon.length]
     if (!a || !b) return fail('incomplete-native-cycle')
     if (
-      omitted.some(
-        ({ bounds }) =>
-          Math.min(a.x, b.x) <= bounds.right + marginX &&
-          Math.max(a.x, b.x) >= bounds.left - marginX &&
-          Math.min(a.y, b.y) <= bounds.bottom + marginY &&
-          Math.max(a.y, b.y) >= bounds.top - marginY,
-      )
+      omitted.some((item) => {
+        if (selectedOperations.has(item.operationIndex)) return true
+        if (item.paint === 'fill') {
+          // A fill's control hull bounds its paint. A stroke's hull does not
+          // include its pen, caps or joins and cannot provide this exclusion.
+          return pdfPaintMayTouchSpan(
+            {
+              operationIndex: item.operationIndex,
+              kind: 'vector',
+              reason: null,
+              bounds: {
+                left: item.bounds.left - marginX,
+                right: item.bounds.right + marginX,
+                top: item.bounds.top - marginY,
+                bottom: item.bounds.bottom + marginY,
+              },
+            },
+            [a, b],
+            0.0005,
+          )
+        }
+        const event = paintEvents?.get(item.operationIndex)
+        if (event?.kind !== 'vector') return true
+        return pdfPaintMayTouchSpan(event, [a, b], Math.max(marginX, marginY) + 0.0005)
+      })
     )
       return fail('omitted-native-evidence-touches-boundary')
   }
