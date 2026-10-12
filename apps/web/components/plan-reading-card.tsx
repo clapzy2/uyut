@@ -54,6 +54,13 @@ const PlanFloorHeightReviewEditor = dynamic(
   () => import('./plan-floor-height-review').then((module) => module.PlanFloorHeightReviewEditor),
   { loading: () => null },
 )
+const PlanSourceRoomNumberRecovery = dynamic(
+  () =>
+    import('./plan-source-room-number-recovery').then(
+      (module) => module.PlanSourceRoomNumberRecovery,
+    ),
+  { loading: () => null },
+)
 
 /**
  * Подсказка в поле желания. Разная по типам комнат: «побольше света» в санузле и в спальне
@@ -354,22 +361,52 @@ export function PlanReadingCard({
           }}
         />
         {activeReading.paintedFloorReview ? (
-          <PlanFloorHeightReviewEditor
-            key={`floor-height:${baseRevision}:${page}`}
-            projectId={projectId}
-            revision={baseRevision}
-            disabled={reading_ || saving || conflict || reviewEditing}
-            onSaved={(data) => {
-              setActiveReading(data.reading)
-              setBaseRevision(data.revision)
-              toast({ title: 'Привязка исходных высот сохранена как черновик', tone: 'success' })
-              router.refresh()
-            }}
-            onConflict={() => {
-              setConflict(true)
-              router.refresh()
-            }}
-          />
+          <>
+            <PlanSourceRoomNumberRecovery
+              key={`source-number:${baseRevision}:${page}`}
+              projectId={projectId}
+              revision={baseRevision}
+              onPendingChange={setSaving}
+              disabled={
+                reading_ ||
+                saving ||
+                conflict ||
+                reviewEditing ||
+                (rows !== null &&
+                  JSON.stringify(rows) !== JSON.stringify(planRows(activeReading, existing)))
+              }
+              onSaved={(data) => {
+                setActiveReading(data.reading)
+                if (rows !== null) setRows(planRows(data.reading, existing))
+                setBaseRevision(data.revision)
+                toast({
+                  title: 'Недостающие номера восстановлены из сверки исходника',
+                  tone: 'success',
+                })
+                router.refresh()
+              }}
+              onConflict={() => {
+                setConflict(true)
+                router.refresh()
+              }}
+            />
+            <PlanFloorHeightReviewEditor
+              key={`floor-height:${baseRevision}:${page}`}
+              projectId={projectId}
+              revision={baseRevision}
+              disabled={reading_ || saving || conflict || reviewEditing}
+              onSaved={(data) => {
+                setActiveReading(data.reading)
+                setBaseRevision(data.revision)
+                toast({ title: 'Привязка исходных высот сохранена как черновик', tone: 'success' })
+                router.refresh()
+              }}
+              onConflict={() => {
+                setConflict(true)
+                router.refresh()
+              }}
+            />
+          </>
         ) : null}
       </>
     ) : null
