@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import type { NativeTextAnchors } from './plan-document'
 import type { PdfLinework } from './plan-pdf-linework'
 import { bindObservedRegionLabels, type RegionLabelFrame } from './plan-raster-region-labels'
@@ -99,7 +100,13 @@ export function captionFrameComponents(input: {
   let checks = 300_000
   for (const frame of reviewed.frames) {
     const marker = labels.get(frame.markerLabelId)
-    if (!marker || !/^[1-9]\d?$/.test(marker.name) || frame.sides.length !== 4)
+    if (
+      !marker ||
+      !/^[1-9]\d?(?:\.\d{1,3})?$/u.test(marker.name) ||
+      String(Number(marker.name)) !== marker.name ||
+      !isPlanRoomSourceNumber(Number(marker.name)) ||
+      frame.sides.length !== 4
+    )
       throw new Error('Invalid reviewed caption marker')
     const sides = frame.sides.map((ref) => {
       const key = refKey(ref)

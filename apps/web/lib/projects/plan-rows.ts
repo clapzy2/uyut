@@ -1,4 +1,5 @@
 import type { PlanReading, PlanRoomReading, RoomKind } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { mvpRoomKinds } from './format'
 
 /** Строка экрана «мы прочитали так»: то же, что в плане, но в виде, пригодном для полей ввода. */
@@ -77,9 +78,7 @@ export function appendSourcePlanRow(
 ): PlanRow[] | null {
   if (
     rows.length >= 20 ||
-    !Number.isInteger(source.sourceNumber) ||
-    source.sourceNumber < 1 ||
-    source.sourceNumber > 10_000 ||
+    !isPlanRoomSourceNumber(source.sourceNumber) ||
     !source.name.trim() ||
     source.name.trim().length > 40 ||
     rows.some((row) => row.sourceNumber === source.sourceNumber)

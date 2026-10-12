@@ -72,6 +72,27 @@ function pixels(divide = false) {
 }
 const input = { native, work, reviewed, lineworkSource: source, grayscale: pixels() }
 describe('reviewed annotation-frame side components', () => {
+  it('keeps an explicitly reviewed 3.1 marker intact', () => {
+    const child = structuredClone(input)
+    const marker = child.native.labels[0]
+    if (!marker) throw new Error('Missing frame caption')
+    marker.name = '3.1'
+    const before = structuredClone(child)
+    const result = captionFrameComponents(child)
+    expect(result.status).toBe('draft')
+    expect(result.links[0]?.regionId).toBeTruthy()
+    expect(child).toEqual(before)
+  })
+  it.each(['3.10', '03.1', '3,1', '3.0001'])(
+    'refuses a noncanonical reviewed marker %s',
+    (name) => {
+      const child = structuredClone(input)
+      const marker = child.native.labels[0]
+      if (!marker) throw new Error('Missing frame caption')
+      marker.name = name
+      expect(() => captionFrameComponents(child)).toThrow('Invalid reviewed caption marker')
+    },
+  )
   it('links a verified four-side annotation without modifying any source pixels', () => {
     const before = input.grayscale.slice()
     const result = captionFrameComponents(input)

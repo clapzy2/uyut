@@ -1,4 +1,5 @@
 import type { PlanPageContours, PlanPageRoomIdentity } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 
 export type PdfPlanSource = { sha256: string; pdfPage: number; state: 'existing' | 'proposed' }
@@ -152,7 +153,7 @@ export function pdfContourIssue(
     if (
       (room.roomSourceNumbers !== undefined &&
         (Object.hasOwn(room, 'roomSourceNumber') || members.length < 2 || members.length > 12)) ||
-      members.some((number) => !Number.isSafeInteger(number) || number < 1 || number > 10_000) ||
+      members.some((number) => !isPlanRoomSourceNumber(number)) ||
       new Set(members).size !== members.length ||
       members.some((number) => numbers.has(number)) ||
       !pdfPolygonIsValid(room.polygon)

@@ -201,6 +201,30 @@ function realSheet() {
 }
 
 describe('native PDF page to metric draft', () => {
+  it('transfers a source subroom without renumbering it or inventing its height', () => {
+    const { reading, context } = synthetic()
+    const room = reading.rooms[0]
+    if (!room?.measurementEvidence?.width || !room.measurementEvidence.depth)
+      throw new Error('Missing synthetic measurement owner')
+    room.sourceNumber = 3.1
+    room.measurementEvidence.width.sourceNumber = 3.1
+    room.measurementEvidence.depth.sourceNumber = 3.1
+    const contour = context.contours.rooms[0]
+    if (!contour) throw new Error('Missing synthetic source contour')
+    contour.roomSourceNumber = 3.1
+    const result = planPageMetricDraft(
+      reading,
+      { ...context, calibrationRoomNumbers: [3.1] },
+      [3.1],
+    )
+    expect(result.ok, result.ok ? '' : result.error).toBe(true)
+    if (!result.ok) return
+    expect(result.geometry.rooms[0]).toMatchObject({ name: room.name, sourceNumber: 3.1 })
+    expect(result.geometry.rooms[0]).not.toHaveProperty('ceilingCm')
+    expect(result.geometry.pdfCalibration?.anchorRoomNumbers).toEqual([3.1])
+    expect(planPageMetricDraft(reading, context, [3]).ok).toBe(false)
+    expect(planPageMetricDraft(reading, context, [3.1001]).ok).toBe(false)
+  })
   it('retains a reviewed wall strip through metric layout and volume only when omitted paint is disjoint', () => {
     // Entirely synthetic source control: the dimensions are printed chains, and
     // the contours are explicitly reviewed. This does not certify a real plan.

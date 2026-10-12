@@ -28,6 +28,36 @@ const preview = { sha256: 'a'.repeat(64), page: 6, pageCount: 48, width: 842, he
 const rect = { left: 20, top: 40, width: 400, height: 600 }
 
 describe('page contour editor model', () => {
+  it('keeps a parent and subroom separate in options and saved source contours', () => {
+    const rooms: PlanRoomReading[] = [
+      { name: 'Спальня', kind: 'bedroom', sourceNumber: 3 },
+      { name: 'Гардеробная', kind: 'living', sourceNumber: 3.1 },
+    ]
+    expect(pageContourOptions(rooms, []).map(({ key }) => key)).toEqual(['3', '3.1'])
+    const polygon = [
+      { x: 10, y: 10 },
+      { x: 30, y: 10 },
+      { x: 30, y: 30 },
+    ]
+    const drafts = rooms.map((room) => ({
+      roomSourceNumber: room.sourceNumber as number,
+      polygon,
+      closed: true,
+    }))
+    expect(pageContourRoomsForSave(drafts, polygon)?.map((room) => room.roomSourceNumber)).toEqual([
+      3, 3.1,
+    ])
+    expect(
+      numberedContourRooms([
+        ...rooms,
+        {
+          name: 'Invalid',
+          kind: 'living',
+          sourceNumber: 3.1001,
+        },
+      ]),
+    ).toEqual(rooms)
+  })
   it('saves a separate floor only when closed on source nodes; never copies the exterior', () => {
     const polygon = [
       { x: 10, y: 10 },
@@ -199,7 +229,7 @@ describe('page contour editor model', () => {
       { name: 'Другая кухня', kind: 'kitchen', sourceNumber: 2 },
       { name: 'Без номера', kind: 'living' },
       { name: 'Нулевой номер', kind: 'living', sourceNumber: 0 },
-      { name: 'Дробный номер', kind: 'living', sourceNumber: 1.5 },
+      { name: 'Недопустимая точность номера', kind: 'living', sourceNumber: 1.5001 },
     ]
     expect(numberedContourRooms(rooms).map((room) => room.sourceNumber)).toEqual([4, 6])
   })

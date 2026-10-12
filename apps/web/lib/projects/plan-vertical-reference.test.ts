@@ -145,6 +145,39 @@ function accepted() {
 }
 
 describe('explicit common vertical reference', () => {
+  it('retains 3.1 as a separate floor owner across the reviewed level snapshot', () => {
+    const { geometry, request } = fixture()
+    const bath = required(geometry.rooms[1])
+    bath.sourceNumber = 3.1
+    required(request.floors[1]).room = structuredClone(bath)
+    const result = applyPlanVerticalReference(geometry, request, 'owner', verifiedAt)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    const reference = currentPlanVerticalReference(result.geometry)
+    expect(reference?.floors.map((floor) => floor.room.sourceNumber)).toEqual([undefined, 3.1, 3])
+    expect(required(result.geometry.rooms[1]).sourceNumber).toBe(3.1)
+    expect(required(result.geometry.rooms[2]).sourceNumber).toBe(3)
+
+    // The same polygon/name does not authorize moving a level to parent 3.
+    required(request.floors[1]).room.sourceNumber = 3
+    expect(applyPlanVerticalReference(geometry, request, 'owner', verifiedAt).ok).toBe(false)
+  })
+
+  it('retains subroom identity in a reviewed shared zone but rejects unsupported precision', () => {
+    const { geometry, request } = fixture()
+    const zone = required(geometry.rooms[0])
+    zone.sourceNumbers = [1, 3.1]
+    required(request.floors[0]).room = structuredClone(zone)
+    const result = applyPlanVerticalReference(geometry, request, 'owner', verifiedAt)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    expect(currentPlanVerticalReference(result.geometry)?.floors[0]?.room.sourceNumbers).toEqual([
+      1, 3.1,
+    ])
+    required(request.floors[0]).room.sourceNumbers = [1, 3.1234]
+    expect(applyPlanVerticalReference(geometry, request, 'owner', verifiedAt).ok).toBe(false)
+  })
+
   it('accepts exact literal decimal diagonal cuts without a binary collinearity rejection', () => {
     const { geometry, request } = fixture()
     const transform = (point: { xCm: number; yCm: number }) => ({

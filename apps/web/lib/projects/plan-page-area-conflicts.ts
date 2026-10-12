@@ -1,4 +1,5 @@
 import { planMeasurementTextItems, planRoomSchedule } from '@uyut/ai'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import type { PdfLinework } from './plan-pdf-linework'
 import { type PdfPlanSource, type PdfRoomContours, pdfRoomAtPoint } from './plan-pdf-room-binding'
 
@@ -27,7 +28,9 @@ export function planPageAreaConflicts(context: PageAreaContext): PageAreaConflic
     const localAreas: number[] = []
     for (const number of items) {
       if (
-        !/^0?[1-9]\d?$/.test(number.text.trim()) ||
+        !isPlanRoomSourceNumber(Number(number.text)) ||
+        (!/^0?[1-9]\d?$/.test(number.text.trim()) &&
+          Number(number.text).toString() !== number.text.trim()) ||
         Number(number.text) !== sourceNumber ||
         number.x === undefined ||
         number.y === undefined ||

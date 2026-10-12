@@ -164,6 +164,35 @@ function expectNoCue(input: Input, reason?: string) {
 }
 
 describe('native number-circle source cues, not room ownership', () => {
+  it('keeps a canonical decimal number as one source caption, not room 3 plus label 1', () => {
+    const input = fixture()
+    labelOf(input).name = '3.1'
+    const before = structuredClone(input)
+    const result = nativeNumberCircleCandidates(input)
+    expect(result.cues.map((cue) => cue.sourceNumber)).toEqual([3.1])
+    expect(result.roomOwnershipConfirmed).toBe(false)
+    expect(result.closesFloorBoundary).toBe(false)
+    expect(input).toEqual(before)
+  })
+  it.each(['3.10', '03.1', '3,1', '3.0001', '3.1e0'])(
+    'does not normalize ambiguous circle caption %s',
+    (name) => {
+      const input = fixture()
+      labelOf(input).name = name
+      expect(nativeNumberCircleCandidates(input).cues).toEqual([])
+    },
+  )
+  it('does not join separate numeric text observations inside a circle', () => {
+    const input = fixture()
+    labelOf(input).name = '3'
+    input.native.labels.push({
+      ...structuredClone(labelOf(input)),
+      id: 'native-text-8',
+      nativeIndex: 8,
+      name: '1',
+    })
+    expect(nativeNumberCircleCandidates(input).cues).toEqual([])
+  })
   it.each([1, -1])('keeps source commands for direction %i', (direction) => {
     const input = fixture({ direction })
     const before = structuredClone(input)

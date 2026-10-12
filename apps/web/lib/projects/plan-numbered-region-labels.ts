@@ -1,3 +1,4 @@
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import type { NativeTextAnchors } from './plan-document'
 import { bindObservedRegionLabels, type RegionLabelFrame } from './plan-raster-region-labels'
 import type { RasterPointMembership, RasterRegionPoint } from './plan-raster-regions'
@@ -54,10 +55,8 @@ export function bindReviewedNumberedCaptions(input: {
     return label
   }
   const matchesNumber = (text: string, number: number) =>
-    Number.isInteger(number) &&
-    number >= 1 &&
-    number <= 99 &&
-    /^0?[1-9]\d?$/.test(text) &&
+    isPlanRoomSourceNumber(number) &&
+    (/^0?[1-9]\d?$/.test(text) || Number(text).toString() === text) &&
     Number(text) === number
   const rowIds = new Set<string>()
   const rows = new Map<number, { name: string; numberLabelId: string; nameLabelId: string }>()

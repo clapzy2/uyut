@@ -8,6 +8,7 @@ import type {
   PlanReading,
   PlanWallFacePair,
 } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { PDF_AREA_REVIEW_TOLERANCE_M2 } from './plan-geometry-inspection'
 import { planPageEdgeCalibration } from './plan-page-edge-calibration'
 import { verifyPlanPageOpenings } from './plan-page-feature-checks'
@@ -122,7 +123,7 @@ export function planPageMetricDraft(
     roomNumbers.length < 1 ||
     roomNumbers.length > 12 ||
     new Set(roomNumbers).size !== roomNumbers.length ||
-    roomNumbers.some((number) => !Number.isSafeInteger(number) || number < 1 || number > 50)
+    roomNumbers.some((number) => !isPlanRoomSourceNumber(number) || number > 50)
   )
     return fail('Выберите от одной до двенадцати разных комнат с номерами исходного плана.')
   const { source, linework, contours } = context
@@ -178,7 +179,7 @@ export function planPageMetricDraft(
     new Set(anchorNumbers).size !== anchorNumbers.length ||
     anchorNumbers.some(
       (number) =>
-        !Number.isSafeInteger(number) ||
+        !isPlanRoomSourceNumber(number) ||
         !contours.rooms.some((contour) =>
           edgeChains
             ? pdfContourRoomNumbers(contour).includes(number)

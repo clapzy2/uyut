@@ -1,4 +1,5 @@
 import type { PlanPageContours, PlanReading } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import {
   planPageContoursSchema,
   planPageFeaturesIssue,
@@ -99,7 +100,7 @@ export function inspectReviewedPageCoverage(input: {
   if (issue) return refuse(issue)
   const sourceNumbers = reading.rooms.map((room) => room.sourceNumber)
   if (
-    sourceNumbers.some((number) => !Number.isSafeInteger(number) || (number ?? 0) <= 0) ||
+    sourceNumbers.some((number) => !isPlanRoomSourceNumber(number)) ||
     new Set(sourceNumbers).size !== sourceNumbers.length
   )
     return refuse('incomplete-room-identity-inventory')

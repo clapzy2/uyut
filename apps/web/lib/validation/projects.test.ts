@@ -7,6 +7,33 @@ import {
 } from './projects'
 
 describe('project validation', () => {
+  it('persists distinct source parent and subroom rows without coercion', () => {
+    const row = {
+      include: false,
+      roomId: '',
+      name: 'Гардеробная',
+      kind: 'living',
+      widthCm: '',
+      depthCm: '',
+      areaM2: '',
+      wish: '',
+    }
+    const data = {
+      ceilingCm: '',
+      condition: 'bare',
+      rooms: [
+        { ...row, sourceNumber: 3 },
+        { ...row, sourceNumber: 3.1 },
+      ],
+    }
+    expect(planRoomsSchema.parse(data).rooms.map((room) => room.sourceNumber)).toEqual([3, 3.1])
+    expect(
+      planRoomsSchema.safeParse({ ...data, rooms: [{ ...row, sourceNumber: 3.1001 }] }).success,
+    ).toBe(false)
+    expect(
+      planRoomsSchema.safeParse({ ...data, rooms: [{ ...row, sourceNumber: '3.1' }] }).success,
+    ).toBe(false)
+  })
   const baseMeasurements = { widthCm: '300,5', depthCm: '400.2', ceilingCm: '270.5' }
   it('preserves fractional centimetres without silent rounding', () => {
     const result = roomMeasurementsSchema.parse(baseMeasurements)

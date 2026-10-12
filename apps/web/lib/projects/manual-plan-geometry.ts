@@ -1,4 +1,5 @@
 import type { PlanGeometry, PlanRoomReading, PlanRoomShape, RoomSpaceKind } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 
 /** Project balconies need a contour even when they were added after the image was read. */
 export function geometryRoomReadings(
@@ -27,10 +28,7 @@ export function findPlanRoomReading<T extends NamedRoom>(
   room: NamedRoom,
   readings: readonly T[],
 ): T | undefined {
-  if (
-    room.sourceNumber !== undefined &&
-    (!Number.isInteger(room.sourceNumber) || room.sourceNumber < 1)
-  )
+  if (room.sourceNumber !== undefined && !isPlanRoomSourceNumber(room.sourceNumber))
     return undefined
   const matches = readings.filter((reading) =>
     room.sourceNumber === undefined

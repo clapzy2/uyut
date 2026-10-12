@@ -41,6 +41,19 @@ function sample() {
 }
 
 describe('same-source reviewed coverage without promoting an apartment', () => {
+  it('keeps decimal subroom coverage partial rather than refusing or promoting it', () => {
+    const input = sample()
+    const room = input.contours.rooms[0]
+    const reading = input.reading.rooms[0]
+    if (!room || !reading) throw new Error('Missing source coverage fixture')
+    input.contours.rooms[0] = { roomSourceNumber: 3.1, polygon: room.polygon }
+    reading.sourceNumber = 3.1
+    const report = inspectReviewedPageCoverage(input)
+    expect(report.status).toBe('partial')
+    expect(report.refusalReason).toBeUndefined()
+    expect(report.missingSourceNumbers).toEqual([])
+    expect(report.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+  })
   it('keeps conditional room dividers in the review worklist, never as physical walls', () => {
     const input = sample()
     const room = input.contours.rooms[0]

@@ -16,6 +16,21 @@ function strokeFixture() {
   return input
 }
 describe('native table and boxed-number candidate association', () => {
+  it('keeps a matching child caption 2.1 separate from integer 2', () => {
+    const input = connectedNativeRoomFixture()
+    for (const label of input.native.labels) {
+      if (label.name === '3') label.name = '2.1'
+      if (label.name === 'Балкон') label.name = 'Гардероб'
+    }
+    const before = structuredClone(input)
+    const result = automaticNativeRoomCandidates(input)
+    if (result.status !== 'draft') throw new Error(result.reason)
+    expect(result.associations.map((entry) => entry.sourceNumber)).toEqual([1, 2, 2.1])
+    expect(result.associations[2]?.name).toBe('Гардероб')
+    expect(result.unresolvedSourceNumbers).toEqual([])
+    expect(result.geometry.semanticStatus).toBe('unclassified')
+    expect(input).toEqual(before)
+  })
   it('finds both shared-wall candidates while preserving the source number frames', () => {
     const input = connectedNativeRoomFixture()
     const before = structuredClone(input)

@@ -1,4 +1,5 @@
 import type { PlanGeometry, PlanVerticalReference } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { z } from 'zod'
 import { exactSegmentContains } from './plan-exact-geometry'
 import { currentOpeningFacePairs, currentOpeningWidthProofs } from './plan-opening-face-pairs'
@@ -46,8 +47,8 @@ const room = z
     name: z.string().min(1).max(200),
     polygon: z.array(point).min(3).max(200),
     spaceKind: z.enum(['interior', 'balcony', 'loggia']).optional(),
-    sourceNumber: z.number().int().positive().optional(),
-    sourceNumbers: z.array(z.number().int().positive()).min(1).max(200).optional(),
+    sourceNumber: z.number().refine(isPlanRoomSourceNumber).optional(),
+    sourceNumbers: z.array(z.number().refine(isPlanRoomSourceNumber)).min(1).max(200).optional(),
   })
   .strict()
   .refine((value) => !(value.sourceNumber !== undefined && value.sourceNumbers !== undefined))

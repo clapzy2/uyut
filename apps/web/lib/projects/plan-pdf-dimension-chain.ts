@@ -1,4 +1,5 @@
 import type { PlanPageOpening, PlanPageRoomIdentity } from '@uyut/db'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import {
   createNativeCaptionMatcher,
   type NativeCaptionMatch,
@@ -50,7 +51,7 @@ function openingRoomMatches(room: PlanPageRoomIdentity, selector: OpeningRoomSel
     Object.hasOwn(identity, 'roomSourceNumber') ||
     members.length < 2 ||
     members.length > 12 ||
-    members.some((number) => !Number.isSafeInteger(number) || number < 1 || number > 10_000) ||
+    members.some((number) => !isPlanRoomSourceNumber(number)) ||
     new Set(members).size !== members.length
   )
     return false

@@ -14,11 +14,119 @@ import {
   roomKindFromName,
   validatePlanGeometryEdit,
 } from '@uyut/ai'
+import { planRoomSourceNumber } from '@uyut/ai/geometry'
 import { describe, expect, it } from 'vitest'
+import {
+  planRoomSchedule,
+  planTabularScheduleEvidence,
+} from '../../../../packages/ai/src/floor-plan-schedule'
 
 function answer(rooms: unknown[], ceilingMm: number | null = 2700): string {
   return JSON.stringify({ ceilingMm, rooms })
 }
+
+describe('source subroom identity, not a fractional measurement', () => {
+  it('retains 3 and 3.1 separately without supplying missing dimensions', () => {
+    const result = parseFloorPlan(
+      answer(
+        [
+          { name: 'Спальня', sourceNumber: 3, areaM2: 8 },
+          { name: 'Гардероб', sourceNumber: 3.1, areaM2: 2.9 },
+        ],
+        null,
+      ),
+    )
+    expect(result.rooms.map((room) => room.sourceNumber)).toEqual([3, 3.1])
+    expect(
+      result.rooms.every((room) => room.widthCm === undefined && room.depthCm === undefined),
+    ).toBe(true)
+    expect(planRoomSourceNumber('3.1')).toBe(3.1)
+    expect(planRoomSourceNumber('3.10')).toBeUndefined()
+    expect(planRoomSourceNumber('31e-1')).toBeUndefined()
+    expect(planRoomSourceNumber(3.1234)).toBeUndefined()
+    expect(planRoomSourceNumber(51)).toBeUndefined()
+  })
+  const table = (numbers: string[]) => [
+    { text: '№', x: 100, y: 20, rotation: 0 },
+    { text: 'Наименование', x: 140, y: 20, rotation: 0 },
+    { text: 'Площадь', x: 300, y: 20, rotation: 0 },
+    ...numbers.flatMap((number, index) => [
+      { text: number, x: 100, y: 50 + index * 20, rotation: 0 },
+      {
+        text: number === '3.1' ? 'Гардероб' : `Комната ${index + 1}`,
+        x: 140,
+        y: 50 + index * 20,
+        rotation: 0,
+      },
+      { text: '2,90', x: 300, y: 50 + index * 20, rotation: 0 },
+    ]),
+  ]
+  it('preserves a separately printed subroom row and its exact source slots', () => {
+    const items = table(['1', '2', '3', '3.1', '4'])
+    const rows = planTabularScheduleEvidence(items)
+    expect(rows && [...rows.keys()]).toEqual([1, 2, 3, 3.1, 4])
+    expect(rows?.get(3.1)).toEqual({
+      name: 'Гардероб',
+      areaM2: 2.9,
+      numberItemIndex: 12,
+      nameItemIndex: 13,
+      areaItemIndex: 14,
+    })
+    expect(planRoomSchedule(items)?.get(3.1)).toEqual({ name: 'Гардероб', areaM2: 2.9 })
+  })
+  it.each(['3.10', '3.1234', '3,1', '0', '3.1'])(
+    'does not silently drop an unsupported or duplicate row %s',
+    (number) => {
+      const items = table(['1', '2', '3', '3.1', number, '4'])
+      expect(planTabularScheduleEvidence(items)).toBeUndefined()
+    },
+  )
+  it('reads an explicit dashed combined subroom row without splitting 3.1 into 3', () => {
+    const items = [
+      '1 — Прихожая — 4,00 м²',
+      '2 — Кухня — 5,00 м²',
+      '3 — Спальня — 8,00 м²',
+      '3.1 — Гардероб — 2,90 м²',
+    ].map((text, index) => ({ text, x: 100, y: 50 + index * 20, rotation: 0 }))
+    items.unshift({ text: 'Экспликация помещений', x: 100, y: 20, rotation: 0 })
+    expect(planRoomSchedule(items)?.get(3.1)).toEqual({ name: 'Гардероб', areaM2: 2.9 })
+    const child = items[4]
+    if (!child) throw new Error('Missing synthetic child row')
+    child.text = '3.1234 — Гардероб — 2,90 м²'
+    expect(planRoomSchedule(items)).toBeUndefined()
+  })
+  it.each(['3,1', '3.10', '3.1234', '03.1', '999', '3.1.'])(
+    'does not drop combined printed row %s',
+    (number) => {
+      const items = [
+        '1 — Прихожая — 4,00 м²',
+        '2 — Кухня — 5,00 м²',
+        '3 — Спальня — 8,00 м²',
+        `${number} — Гардероб — 2,90 м²`,
+        '4 — Санузел — 2,00 м²',
+      ].map((text, index) => ({ text, x: 100, y: 50 + index * 20, rotation: 0 }))
+      items.unshift({ text: 'Экспликация помещений', x: 100, y: 20, rotation: 0 })
+      expect(planRoomSchedule(items)).toBeUndefined()
+    },
+  )
+  it('keeps a subroom in the separate-column explicit-heading profile', () => {
+    const names = ['Прихожая', 'Кухня', 'Спальня', 'Гардероб', 'Санузел']
+    const items = table(['1', '2', '3', '3.1', '4']).slice(3)
+    for (const [index, name] of names.entries()) {
+      const caption = items[index * 3 + 1]
+      if (!caption) throw new Error('Missing synthetic name')
+      caption.text = name
+    }
+    items.unshift({ text: 'Экспликация помещений', x: 100, y: 20, rotation: 0 })
+    expect(planRoomSchedule(items) && [...(planRoomSchedule(items)?.keys() ?? [])]).toEqual([
+      1, 2, 3, 3.1, 4,
+    ])
+    const child = items[10]
+    if (!child) throw new Error('Missing child identifier')
+    child.text = '3.10'
+    expect(planRoomSchedule(items)).toBeUndefined()
+  })
+})
 
 describe('raster model evidence is not independent measurement verification', () => {
   it('keeps the partial-chain claim visible as unverified, never inventing missing segments', () => {

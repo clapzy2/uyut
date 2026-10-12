@@ -57,6 +57,17 @@ describe('source axis acknowledgments', () => {
 })
 
 describe('adding missing schedule rows', () => {
+  it('retains decimal source identity without assigning the parent measurements', () => {
+    const parent = appendSourcePlanRow([], { name: 'Спальня', sourceNumber: 3 }, 'bedroom')
+    expect(parent).not.toBeNull()
+    if (!parent) throw new Error('Missing parent source row fixture')
+    const rows = appendSourcePlanRow(parent, { name: 'Гардеробная', sourceNumber: 3.1 }, 'utility')
+    expect(rows?.map((row) => row.sourceNumber)).toEqual([3, 3.1])
+    expect(rows?.[1]).toMatchObject({ width: '', depth: '', area: '', ceiling: '', include: false })
+    expect(
+      appendSourcePlanRow([], { name: 'Гардеробная', sourceNumber: 3.1001 }, 'utility'),
+    ).toBeNull()
+  })
   it('adds only a numbered identity and leaves every measurement empty', () => {
     const rows = appendSourcePlanRow([], { name: 'Спальня 6', sourceNumber: 6 }, 'bedroom')
     expect(rows).toEqual([

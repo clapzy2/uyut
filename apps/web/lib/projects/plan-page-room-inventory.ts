@@ -1,4 +1,8 @@
 import { planMeasurementTextItems, planRoomSchedule } from '@uyut/ai'
+import {
+  isPlanRoomSourceNumber,
+  planRoomSourceNumbersInScheduleOrder,
+} from '@uyut/db/source-room-number'
 
 export type SourceRoom = { sourceNumber: number; name: string }
 
@@ -32,18 +36,30 @@ export function planPageRoomInventory(planText: string | undefined): SourceRoom[
       item.y > headingY &&
       item.y <= 1000,
   )
-  const numbered = aligned.filter((item) => /^\s*\d{1,2}\s*[-–—.]/u.test(item.text))
+  const numbered = aligned.filter((item) => /^\s*\d{1,5}(?:[.,]\d+)?\s*[-–—.]/u.test(item.text))
   const rows = numbered
     .flatMap((item) => {
       const match =
-        /^\s*(\d{1,2})\s*[-–—.]\s*(.{1,80}?)\s*[-–—]\s*\d{1,3}[,.]\d{1,2}\s*[мm]/iu.exec(item.text)
-      return match?.[1] && match[2] && item.y !== undefined
+        /^\s*(\d{1,5}(?:\.\d{1,3})?)\s*[-–—]\s*(.{1,80}?)\s*[-–—]\s*\d{1,3}[,.]\d{1,2}\s*[мm]/iu.exec(
+          item.text,
+        ) ??
+        /^\s*(\d{1,5})\s*\.\s*([^\d\s].{0,79}?)\s*[-–—]\s*\d{1,3}[,.]\d{1,2}\s*[мm]/iu.exec(
+          item.text,
+        )
+      return match?.[1] &&
+        match[2] &&
+        item.y !== undefined &&
+        (!match[1].includes('.') || String(Number(match[1])) === match[1])
         ? [{ sourceNumber: Number(match[1]), name: match[2].trim(), y: item.y }]
         : []
     })
     .sort((left, right) => left.y - right.y)
 
   if (rows.length < 3 || rows.length > 50 || rows.length !== numbered.length) return undefined
-  if (rows.some((row, index) => row.sourceNumber !== index + 1 || !row.name)) return undefined
+  if (
+    rows.some((row) => !isPlanRoomSourceNumber(row.sourceNumber) || !row.name) ||
+    !planRoomSourceNumbersInScheduleOrder(rows.map((row) => row.sourceNumber))
+  )
+    return undefined
   return rows.map(({ sourceNumber, name }) => ({ sourceNumber, name }))
 }
