@@ -806,9 +806,9 @@ function SelectedDimensionBoundariesReview({
                   {row.candidates.map((candidate) => (
                     <p key={`${candidate.floorId}:${candidate.edgeIndex}`}>
                       Помещение {candidate.sourceRoomKey}; {candidate.floorId}; грань{' '}
-                      {candidate.edgeIndex}. Вектор целой исходной грани совпадает после переноса,
-                      но контакт выносных линий не доказан. Роль в разметке:{' '}
-                      {candidate.declaredRole}; штрихи границы{' '}
+                      {candidate.edgeIndex}. Вектор целой исходной грани совпадает после
+                      параллельного сдвига на листе, но контакт выносных линий не доказан. Роль в
+                      разметке: {candidate.declaredRole}; штрихи границы{' '}
                       {candidate.boundaryInkComplete ? 'полны' : 'неполны'}. Исходные ссылки:{' '}
                       {candidate.sourceRefs
                         .map(
@@ -816,6 +816,17 @@ function SelectedDimensionBoundariesReview({
                         )
                         .join(', ') || 'нет'}
                       .
+                      {candidate.boundaryVisibility ? (
+                        <span className="mt-1 block">
+                          Весь буквальный отрезок исходной грани:{' '}
+                          {candidate.boundaryVisibility.status === 'unoccluded'
+                            ? 'поздняя краска исключена по всей длине'
+                            : `проверка удержана — ${candidate.boundaryVisibility.reason}`}
+                          . Возможные перекрытия:{' '}
+                          {candidate.boundaryVisibility.blockerOperations.length} операций PDF. Это
+                          не подтверждение видимости всей полосы краски или физической стены/косяка.
+                        </span>
+                      ) : null}
                     </p>
                   ))}
                 </li>

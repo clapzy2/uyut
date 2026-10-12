@@ -344,6 +344,124 @@ function paintInventory(input: Input): PdfPaintBounds {
 }
 
 const coveringBounds = { left: 99, top: 99, right: 101, bottom: 101 }
+describe('straight third-paint region refinement at source contacts', () => {
+  function diagonalEvent(input: Input) {
+    const event: PdfPaintBounds['events'][number] = {
+      operationIndex: 4,
+      kind: 'vector',
+      bounds: coveringBounds,
+      reason: null,
+      subpathCount: 1,
+      straightStrokeRegion: {
+        start: { x: 99, y: 99.5 },
+        end: { x: 101, y: 101.5 },
+        sourceToPage: [...identity],
+        radius: 0.075,
+      },
+    }
+    paintInventory(input).events.push(event)
+    return event
+  }
+
+  it('removes only an AABB false positive without changing source contacts or accepting geometry', () => {
+    const { input } = fixture()
+    const event = diagonalEvent(input)
+    const before = structuredClone(input)
+    expect(first(input).tips[0]).toMatchObject({
+      status: 'ink-overlap',
+      visibility: { status: 'unoccluded', blockerOperations: [] },
+    })
+    expect(input).toEqual(before)
+    delete event.straightStrokeRegion
+    expect(first(input).tips[0].visibility).toMatchObject({
+      status: 'held',
+      blockerOperations: [4],
+    })
+    expect(nativeStrokeContacts(input)).toMatchObject({
+      physicalTargetsAccepted: false,
+      mayTransfer2D: false,
+      mayTransfer3D: false,
+    })
+  })
+
+  it.each(['#888888', '#000000', '#ffffff'])(
+    'keeps an actual later tick of color %s held',
+    (color) => {
+      const { input } = fixture()
+      const event = diagonalEvent(input)
+      event.straightStrokeRegion = {
+        start: { x: 100, y: 99 },
+        end: { x: 100, y: 101 },
+        sourceToPage: [...identity],
+        radius: 0.075,
+      }
+      input.work.paths.push({
+        ...stroke(4, [
+          { x: 100, y: 99 },
+          { x: 100, y: 101 },
+        ]),
+        strokeColor: color,
+      })
+      const before = structuredClone(input)
+      expect(first(input).tips[0].visibility).toMatchObject({
+        status: 'held',
+        blockerOperations: color === '#000000' ? [2, 4] : [4],
+      })
+      expect(input).toEqual(before)
+    },
+  )
+
+  it('does not exclude round-cap coverage beyond the literal third stroke endpoint', () => {
+    const { input } = fixture()
+    const event = diagonalEvent(input)
+    event.straightStrokeRegion = {
+      start: { x: 100.05, y: 100 },
+      end: { x: 101, y: 100 },
+      sourceToPage: [...identity],
+      radius: 0.075,
+    }
+    expect(first(input).tips[0].visibility).toMatchObject({
+      status: 'held',
+      blockerOperations: [4],
+    })
+  })
+
+  it('holds a zero-length round stroke at the contact instead of treating it as absent ink', () => {
+    const { input } = fixture()
+    const event = diagonalEvent(input)
+    event.straightStrokeRegion = {
+      start: { x: 100, y: 100 },
+      end: { x: 100, y: 100 },
+      sourceToPage: [...identity],
+      radius: 0.075,
+    }
+    expect(first(input).tips[0].visibility).toMatchObject({
+      status: 'held',
+      blockerOperations: [4],
+    })
+  })
+
+  it.each(['negative-radius', 'nonfinite-point', 'singular-transform', 'nonfinite-transform'])(
+    'falls back to the conservative bounds for %s region',
+    (kind) => {
+      const { input } = fixture()
+      const event = diagonalEvent(input)
+      const region = event.straightStrokeRegion
+      if (!region) throw new Error('Missing region')
+      if (kind === 'negative-radius') region.radius = -1
+      if (kind === 'nonfinite-point') region.start.x = Number.NaN
+      if (kind === 'singular-transform') region.sourceToPage = [0, 0, 0, 0, 0, 0]
+      if (kind === 'nonfinite-transform') region.sourceToPage[0] = Number.POSITIVE_INFINITY
+      const before = structuredClone(input)
+      expect(first(input).tips[0].visibility).toMatchObject({
+        status: 'held',
+        blockerOperations: [4],
+      })
+      expect(input).toEqual(before)
+    },
+  )
+})
+
 describe('source-order paint visibility at contact points only', () => {
   it('checks both unoccluded pairs without changing input or accepting the whole rail', () => {
     const { input } = fixture()
@@ -515,6 +633,12 @@ describe('source-order paint visibility at contact points only', () => {
         kind: 'vector' as const,
         bounds: { left: 600, right: 610, top: 600, bottom: 610 },
         reason: null,
+        straightStrokeRegion: {
+          start: { x: 600, y: 600 },
+          end: { x: 610, y: 610 },
+          sourceToPage: [...identity] as PdfStrokeInk['sourceToPage'],
+          radius: 0.075,
+        },
       })),
     )
     expect(nativeStrokeContacts(input)).toMatchObject({
@@ -605,8 +729,18 @@ it.skipIf(!existsSync(originalSource))(
     expect(result.visibility).toBe('checked')
     expect(result.observations.flatMap((row) => row.tips)).toHaveLength(10)
     for (const tip of result.observations.flatMap((row) => row.tips)) {
-      expect(['held', 'unoccluded']).toContain(tip.visibility?.status)
+      expect(tip.visibility?.status).toBe('held')
     }
+    for (const valueMm of [1506, 684]) {
+      const observation = result.observations.find((row) => row.valueMm === valueMm)
+      if (!observation) throw new Error(`Missing original ${valueMm} mm caption`)
+      for (const tip of observation.tips) {
+        expect(tip.visibility?.blockerOperations).not.toContain(7251)
+      }
+    }
+    const column = result.observations.find((row) => row.valueMm === 530)
+    if (!column) throw new Error('Missing original 530 mm caption')
+    expect(column.tips[1].visibility?.blockerOperations).not.toContain(13680)
     expect(result.physicalTargetsAccepted).toBe(false)
     expect(result.mayTransfer2D).toBe(false)
     expect(result.mayTransfer3D).toBe(false)

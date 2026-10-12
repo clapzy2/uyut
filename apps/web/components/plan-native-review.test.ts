@@ -138,6 +138,13 @@ it('separates point visibility and selected-vector proposals from accepted physi
             span: 'whole-translated-source-vector',
             sourceRefs: [{ operationIndex: 1858, subpathIndex: 0, segmentIndex: 2 }],
             boundaryInkComplete: false,
+            boundaryVisibility: {
+              scope: 'literal-selected-edge-segment',
+              status: 'held',
+              reason: 'later-paint-may-cover-selected-segment',
+              sourceRef: { operationIndex: 1858, subpathIndex: 0, segmentIndex: 2 },
+              blockerOperations: [1885],
+            },
           },
         ],
       },
@@ -156,6 +163,10 @@ it('separates point visibility and selected-vector proposals from accepted physi
   expect(html).toContain('&lt;floor&gt;')
   expect(html).toContain('Физические границы не приняты')
   expect(html).toContain('но контакт выносных линий не доказан')
+  expect(html).toContain('Весь буквальный отрезок исходной грани')
+  expect(html).toContain(
+    'Это не подтверждение видимости всей полосы краски или физической стены/косяка',
+  )
   expect(html.match(/<button/g)?.length ?? 0).toBe(baseline.match(/<button/g)?.length ?? 0)
   expect(html.match(/<svg/g)?.length ?? 0).toBe(baseline.match(/<svg/g)?.length ?? 0)
   expect(packet).toEqual(before)

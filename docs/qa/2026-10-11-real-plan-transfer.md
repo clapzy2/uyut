@@ -566,6 +566,37 @@ source/visibility reference budget in the wire; separate 20k counters and a
 40k combined-reference regression fixed it. Original replay remains optional
 and local-only; deterministic controls run in CI without the original PDF.
 
+### Straight-stroke spatial exclusion and whole selected segments — 12 October
+
+Single open two-point stroke paints retain a conservative unclipped capsule in
+the effective PDF.js raster-pen frame. Physical pen evidence is unchanged.
+Dashed gaps do not shrink the capsule; round caps include endpoints, square
+caps use an enclosing sqrt2 radius. AABB remains the fallback for unknown,
+compound, curved and unsupported paint. Inverse-frame separating axes prove
+disjointness only; arithmetic/coordinate uncertainty is outward and ambiguous
+boundaries remain possible contact. The same predicate checks points and entire
+segments, including a middle crossing with clear endpoints.
+
+On the unchanged original, four false AABB hits from source7251 and one from
+13680 are excluded. All ten tips still have genuine later gray drafting ticks,
+black round-cap successors or crossing source strokes. There is no same-colour,
+symbolic-tick, nearest-witness or repaint-owner shortcut.
+
+The selected 684-mm proposal now reports whole literal-edge exclusion for
+source1858:0:2. Only complete source endpoints equal to validated rational
+selection keys qualify; equal rounded display values do not qualify. The
+0.0005 normalized-coordinate rounding bound belongs only to exclusion, not
+contacts. The real whole segment remains held by potential late paint. This
+diagnostic concerns the mathematical selected segment, not its whole painted
+strip, physical wall/free-floor side/jamb identity, measurements or 2D/3D.
+The wire checks scope, source-ref subset, late blocker ordering and immutable
+physical readiness. Saved floor and height associations are not modified.
+
+Local gate: 7,524 web tests / 316 files, seven-package typecheck, production
+build, Biome1023files and diff check passed. Independent original/source and
+product-code review found no blocking issue. Original regressions remain
+optional/local; synthetic whole-span and malformed/refusal controls run in CI.
+
 ### Earlier offline regression verification
 
 - Full web suite: 6,821 tests / 300 files passed, including local-only original PDF re-extractions when that ignored source exists. Public CI does not require copyrighted PDFs; deterministic unit controls remain present there.

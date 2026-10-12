@@ -309,6 +309,75 @@ describe('readonly renderer pen contacts', () => {
       packet.selectedDimensionBoundaries,
     )
   })
+  function spanVisibilityFixture() {
+    const result = selectedFixture()
+    const candidate = result.packet.selectedDimensionBoundaries?.observations[0]?.candidates[0]
+    if (!candidate) throw new Error('Missing selected candidate')
+    candidate.boundaryVisibility = {
+      scope: 'literal-selected-edge-segment',
+      status: 'unoccluded',
+      reason: null,
+      sourceRef: { operationIndex: 40, subpathIndex: 0, segmentIndex: 0 },
+      blockerOperations: [],
+    }
+    return { ...result, candidate }
+  }
+  it('retains whole literal-segment exclusion without accepting a whole ink strip or physical wall', async () => {
+    const { packet, headers, candidate } = spanVisibilityFixture()
+    expect(
+      (await loadFixture(packet, headers)).packet.selectedDimensionBoundaries?.observations[0]
+        ?.candidates[0],
+    ).toEqual(candidate)
+    if (!candidate.boundaryVisibility) throw new Error('Missing segment visibility')
+    Object.assign(candidate.boundaryVisibility, {
+      status: 'held',
+      reason: 'later-paint-may-cover-selected-segment',
+      blockerOperations: [50],
+    })
+    expect(
+      (await loadFixture(packet, headers)).packet.selectedDimensionBoundaries?.observations[0]
+        ?.candidates[0],
+    ).toEqual(candidate)
+  })
+  it.each([
+    'scope',
+    'unknown-key',
+    'foreign-source',
+    'string-source',
+    'empty-visible',
+    'visible-blocked',
+    'unordered',
+    'earlier-blocker',
+    'no-source-blocked',
+  ])('rejects malformed whole-span evidence %s', async (change) => {
+    const { packet, headers, candidate } = spanVisibilityFixture()
+    const visibility = candidate.boundaryVisibility
+    if (!visibility) throw new Error('Missing segment visibility')
+    if (change === 'scope') Object.assign(visibility, { scope: 'whole-physical-wall' })
+    if (change === 'unknown-key') Object.assign(visibility, { inkStripVisible: true })
+    if (change === 'foreign-source')
+      visibility.sourceRef = { operationIndex: 999, subpathIndex: 0, segmentIndex: 0 }
+    if (change === 'string-source')
+      Object.assign(visibility.sourceRef ?? {}, { operationIndex: '40' })
+    if (change === 'empty-visible') visibility.sourceRef = null
+    if (change === 'visible-blocked') visibility.blockerOperations = [50]
+    if (change === 'unordered')
+      Object.assign(visibility, {
+        status: 'held',
+        reason: 'late-paint',
+        blockerOperations: [60, 50],
+      })
+    if (change === 'earlier-blocker')
+      Object.assign(visibility, { status: 'held', reason: 'late-paint', blockerOperations: [30] })
+    if (change === 'no-source-blocked')
+      Object.assign(visibility, {
+        status: 'held',
+        reason: 'unknown-source',
+        sourceRef: null,
+        blockerOperations: [50],
+      })
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
   it.each([
     'physical',
     'transfer',

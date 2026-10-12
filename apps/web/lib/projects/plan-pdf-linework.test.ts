@@ -157,6 +157,38 @@ describe('renderer-resolution stroke exclusion envelopes', () => {
       expect(bounds.top).toBeCloseTo(Math.min(...ends.map((point) => point.y)) - padY, 7)
       expect(bounds.bottom).toBeCloseTo(Math.max(...ends.map((point) => point.y)) + padY, 7)
       expect(result.paths).toEqual(extract(operations).paths)
+      const region = result.paintBounds?.events[0]?.straightStrokeRegion
+      if (!region) throw new Error('Missing straight raster stroke region')
+      expect(region.start.x).toBeCloseTo(10 / scaleX, 7)
+      expect(region.start.y).toBeCloseTo(20 / scaleY, 7)
+      expect(region.end.x).toBeCloseTo(20 / scaleX, 7)
+      expect(region.end.y).toBeCloseTo(20 / scaleY, 7)
+      expect(region.radius).toBe((width || 1) / 2)
+      const expectedMatrix = [
+        10 * a * scaleX,
+        -5 * b * scaleX,
+        10 * c * scaleY,
+        -5 * d * scaleY,
+        10 * tx,
+        1000 - 5 * ty,
+      ]
+      region.sourceToPage.forEach((value, index) => {
+        expect(value).toBeCloseTo(expectedMatrix[index] ?? Number.NaN, 7)
+      })
+      for (const [index, end] of [region.start, region.end].entries()) {
+        const mapped = {
+          x:
+            region.sourceToPage[0] * end.x +
+            region.sourceToPage[2] * end.y +
+            region.sourceToPage[4],
+          y:
+            region.sourceToPage[1] * end.x +
+            region.sourceToPage[3] * end.y +
+            region.sourceToPage[5],
+        }
+        expect(mapped.x).toBeCloseTo(ends[index]?.x ?? Number.NaN, 7)
+        expect(mapped.y).toBeCloseTo(ends[index]?.y ?? Number.NaN, 7)
+      }
       if (width === 0) {
         expect(result.paths[0]?.strokeInk?.refusalReason).toBe('device-dependent-source-hairline')
       }
@@ -206,6 +238,83 @@ describe('renderer-resolution stroke exclusion envelopes', () => {
         height: 200,
       }).paintBounds?.events[0]?.bounds,
     ).toBeNull()
+  })
+})
+
+describe('single straight raster stroke exclusion regions', () => {
+  it.each([0, 1, 2])(
+    'uses conservative cap coverage without changing the old bounds for cap %i',
+    (cap) => {
+      const operations: Operation[] = [
+        [ops.setLineWidth, [2]],
+        [ops.setLineCap, [cap]],
+        stroke([0, 10, 20, 1, 20, 20]),
+      ]
+      const result = extract(operations)
+      expect(result.paintBounds?.events[0]?.straightStrokeRegion).toEqual({
+        start: { x: 10, y: 20 },
+        end: { x: 20, y: 20 },
+        sourceToPage: [10, 0, 0, -5, 0, 1000],
+        radius: cap === 2 ? Math.SQRT2 : 1,
+      })
+      expect(result.paintBounds?.events[0]?.bounds).toEqual(
+        extract([[ops.setLineWidth, [2]], stroke([0, 10, 20, 1, 20, 20])]).paintBounds?.events[0]
+          ?.bounds,
+      )
+    },
+  )
+
+  it('never excludes dash gaps from the source paint region', () => {
+    const result = extract([
+      [ops.setLineWidth, [2]],
+      [ops.setDash, [[1, 20], 10]],
+      stroke([0, 10, 20, 1, 20, 20]),
+    ])
+    expect(result.paintBounds?.events[0]?.straightStrokeRegion).toMatchObject({
+      start: { x: 10, y: 20 },
+      end: { x: 20, y: 20 },
+      radius: 1,
+    })
+    expect(result.paths[0]?.strokeInk?.refusalReason).toBe('dashed-source-pen')
+  })
+
+  it.each([
+    { name: 'fill', paint: ops.fill, values: [0, 10, 20, 1, 20, 20] },
+    { name: 'fill-stroke', paint: ops.fillStroke, values: [0, 10, 20, 1, 20, 20] },
+    { name: 'closed stroke', paint: ops.closeStroke, values: [0, 10, 20, 1, 20, 20, 4] },
+    { name: 'joined stroke', paint: ops.stroke, values: [0, 10, 20, 1, 20, 20, 1, 30, 30] },
+    {
+      name: 'multiple subpaths',
+      paint: ops.stroke,
+      values: [0, 10, 20, 1, 20, 20, 0, 30, 30, 1, 40, 40],
+    },
+    { name: 'curved stroke', paint: ops.stroke, values: [0, 10, 20, 2, 15, 5, 20, 30, 30, 10] },
+  ])('does not add a straight region for $name', ({ paint, values }) => {
+    const result = extract([[ops.constructPath, [paint, [new Float32Array(values)], []]]])
+    expect(result.paintBounds?.events[0]).not.toHaveProperty('straightStrokeRegion')
+  })
+
+  it.each([
+    [ops.setLineCap, [7]],
+    [ops.setLineWidth, [-1]],
+    [ops.setGState, [[['LW', 'unknown']]]],
+    [ops.beginGroup, [{}]],
+  ] satisfies Operation[])('holds invalid pen or unsupported context %i', (operation, args) => {
+    const result = extract([[operation, args], stroke([0, 10, 20, 1, 20, 20])])
+    expect(result.paintBounds?.events.at(-1)).not.toHaveProperty('straightStrokeRegion')
+  })
+
+  it('keeps the unclipped stroke as a safe superset when the usable source line is clipped', () => {
+    const result = extract([
+      [ops.clip, null],
+      [ops.constructPath, [ops.endPath, [[0, 10, 10, 1, 20, 10, 1, 20, 20, 1, 10, 20, 4]], []]],
+      stroke([0, 5, 15, 1, 30, 15]),
+    ])
+    expect(result.paths).toEqual([])
+    expect(result.paintBounds?.events[0]?.straightStrokeRegion).toMatchObject({
+      start: { x: 5, y: 15 },
+      end: { x: 30, y: 15 },
+    })
   })
 })
 

@@ -155,6 +155,96 @@ function fixture(): Input {
 afterEach(() => vi.restoreAllMocks())
 
 describe('selected-floor equal source-vector proposals', () => {
+  function wholeSpanFixture() {
+    const input = fixture()
+    const floorPath = required(input.work.paths.find((path) => path.operationIndex === 10))
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 10,
+          kind: 'vector',
+          subpathCount: 1,
+          reason: null,
+          bounds: { left: 99, top: 299, right: 301, bottom: 501 },
+        },
+      ],
+    }
+    const result = nativeSelectedDimensionBoundaries(input)
+    const candidate = required(required(result.observations[0]).candidates[0])
+    return { input, floorPath, candidate }
+  }
+  it('checks the entire literal selected segment without accepting physical boundaries or its ink strip', () => {
+    const { input, candidate } = wholeSpanFixture()
+    const before = structuredClone(input)
+    expect(candidate.boundaryVisibility).toEqual({
+      scope: 'literal-selected-edge-segment',
+      status: 'unoccluded',
+      reason: null,
+      sourceRef: { operationIndex: 10, subpathIndex: 0, segmentIndex: 0 },
+      blockerOperations: [],
+    })
+    expect(nativeSelectedDimensionBoundaries(input).physicalBoundariesAccepted).toBe(false)
+    expect(input).toEqual(before)
+  })
+  it('holds late paint crossing the middle even when both selected endpoints are outside', () => {
+    const { input } = wholeSpanFixture()
+    required(input.work.paintBounds).events.push({
+      operationIndex: 20,
+      kind: 'image',
+      reason: null,
+      bounds: { left: 195, top: 295, right: 205, bottom: 305 },
+    })
+    expect(
+      required(required(nativeSelectedDimensionBoundaries(input).observations[0]).candidates[0])
+        .boundaryVisibility,
+    ).toMatchObject({
+      status: 'held',
+      reason: 'later-paint-may-cover-selected-segment',
+      blockerOperations: [20],
+    })
+  })
+  it('does not use rounded display agreement as a literal source endpoint', () => {
+    const { input } = wholeSpanFixture()
+    const report = floorReview.nativePaintedFloorReview(input)
+    const selected = required(report.floors[0])
+    // Both endpoints shift equally, preserving the vector but not source identity.
+    selected.exactPointKeys[0] = '300000000001/3000000000:300/1'
+    selected.exactPointKeys[1] = '900000000001/3000000000:300/1'
+    vi.spyOn(floorReview, 'nativePaintedFloorReview').mockReturnValue(report)
+    expect(
+      required(required(nativeSelectedDimensionBoundaries(input).observations[0]).candidates[0])
+        .boundaryVisibility,
+    ).toMatchObject({
+      status: 'held',
+      reason: 'selected-segment-source-not-unique',
+      sourceRef: null,
+    })
+  })
+  it.each(['inventory', 'compound', 'missing-paint', 'unknown-later'])(
+    'holds whole selected source span with %s uncertainty',
+    (kind) => {
+      const { input } = wholeSpanFixture(),
+        paint = required(input.work.paintBounds)
+      if (kind === 'inventory') paint.complete = false
+      if (kind === 'compound') required(paint.events[0]).subpathCount = 2
+      if (kind === 'missing-paint') paint.events = []
+      if (kind === 'unknown-later')
+        paint.events.push({
+          operationIndex: 20,
+          kind: 'unknown',
+          bounds: null,
+          reason: 'unbounded-paint',
+        })
+      const result = nativeSelectedDimensionBoundaries(input)
+      expect(
+        required(required(result.observations[0]).candidates[0]).boundaryVisibility?.status,
+      ).toBe('held')
+      expect(result.mayTransfer2D).toBe(false)
+      expect(result.mayTransfer3D).toBe(false)
+    },
+  )
   it('proposes an untouched whole edge without asserting visibility or physical acceptance', () => {
     const input = fixture()
     const before = structuredClone(input)
