@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nativeCaptionBindings } from './plan-native-caption-bindings'
 import { nativeDimensionTargets } from './plan-native-dimension-targets'
@@ -6,6 +10,49 @@ import * as frames from './plan-native-opening-frames'
 import type { PdfVectorPath } from './plan-pdf-linework'
 
 type Input = Parameters<typeof nativeDimensionTargets>[0]
+const originalSource = fileURLToPath(
+  new URL('../../../../output/pdf/source-search-20261003/rebrina-original.pdf', import.meta.url),
+)
+
+it.skipIf(!existsSync(originalSource))(
+  'replays original aligned captions without inventing exact whole-object contacts',
+  async () => {
+    const bytes = await readFile(originalSource)
+    const sha256 = createHash('sha256').update(bytes).digest('hex')
+    expect(sha256).toBe('2e141c135812c81719e1f4783173cb5202e20041ac494d3cc799eb37ad62ad4e')
+    const { preparePlanPage } = await import('./plan-document')
+    const page = await preparePlanPage(bytes, true, 3, true, true)
+    if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+      throw new Error('Missing original native source')
+    const input: Input = {
+      native: page.nativeTextAnchors,
+      work: page.linework,
+      lineworkSource: page.lineworkRasterSource,
+      source: { sha256, pdfPage: 3, state: 'existing' },
+    }
+    const before = structuredClone(input)
+    const bindings = nativeCaptionBindings(input)
+    expect(bindings.refusalReason).toBeNull()
+    expect(bindings.candidates).toHaveLength(5)
+    expect(bindings.candidates.every((row) => row.axis === 'aligned')).toBe(true)
+    const targets = nativeDimensionTargets(input, bindings)
+    expect(targets.refusalReason).toBeNull()
+    expect(targets.observations).toHaveLength(5)
+    expect(
+      targets.observations.every(
+        (row) =>
+          row.status === 'unresolved' &&
+          row.reason === 'no-exact-whole-source-target' &&
+          !row.targets.length,
+      ),
+    ).toBe(true)
+    expect(targets.jambSpans).toEqual([])
+    expect(targets.mayTransfer2D).toBe(false)
+    expect(targets.mayTransfer3D).toBe(false)
+    expect(input).toEqual(before)
+  },
+  30_000,
+)
 function path(
   operationIndex: number,
   points: number[][],
@@ -122,6 +169,32 @@ function first(result: ReturnType<typeof nativeDimensionTargets>) {
   const observation = result.observations[0]
   if (!observation) throw new Error(`Missing observation: ${JSON.stringify(result)}`)
   return observation
+}
+function alignedFixture(pageHeight = 1000) {
+  const input = fixture()
+  input.work.pageHeight = pageHeight
+  const captionSource = input.native.compactCaptionGeometry?.source
+  if (!captionSource) throw new Error('Missing caption source')
+  captionSource.pageHeight = pageHeight
+  const rotate = (point: { x: number; y: number }) => ({
+    x: 500 + (3 * (point.x - 200) + (4 * (point.y - 200) * pageHeight) / 1000) / 5,
+    y: 500 + ((-4 * (point.x - 200) * 1000) / pageHeight + 3 * (point.y - 200)) / 5,
+  })
+  for (const source of input.work.paths) source.points = source.points.map(rotate)
+  const label = input.native.labels[0]
+  const caption = input.native.compactCaptionGeometry?.items[0]
+  if (!label?.pagePoint || !caption) throw new Error('Missing caption')
+  label.rotation = (Math.atan2(4, 3) * 180) / Math.PI
+  label.point = rotate(label.point)
+  label.pagePoint = rotate(label.pagePoint)
+  caption.rotation = label.rotation
+  caption.baselineStart = rotate(caption.baselineStart)
+  caption.baselineEnd = rotate(caption.baselineEnd)
+  caption.origin = {
+    x: Math.round(caption.baselineStart.x),
+    y: Math.round(caption.baselineStart.y),
+  }
+  return { input, rotate }
 }
 function frameFixture() {
   const input = fixture()
@@ -739,8 +812,194 @@ describe('literal source dimensions associated with whole floor/frame targets', 
     expect(first(nativeDimensionTargets(input))).toMatchObject({
       axis: 'aligned',
       status: 'unresolved',
-      reason: 'non-cardinal-source-target-not-supported',
+      reason: 'no-exact-whole-source-target',
       targets: [],
+    })
+  })
+
+  it.each([1000, 500])(
+    'uses literal physical perpendicular witnesses on a %s-point high page',
+    (pageHeight) => {
+      const { input } = alignedFixture(pageHeight)
+      expect(nativeCaptionBindings(input).candidates).toHaveLength(1)
+      const result = nativeDimensionTargets(input)
+      expect(first(result)).toMatchObject({ axis: 'aligned', status: 'continuous', reason: null })
+      expect(first(result).targets[0]?.faces[0]?.endpointWitnesses).toMatchObject([
+        { status: 'continuous', sourceRefs: [{ operationIndex: 4 }], gapPoints: 0 },
+        { status: 'continuous', sourceRefs: [{ operationIndex: 5 }], gapPoints: 0 },
+      ])
+      expect(result).toMatchObject({
+        mayTransfer2D: false,
+        mayTransfer3D: false,
+        roomOwnershipConfirmed: false,
+        jambSpans: [],
+      })
+    },
+  )
+
+  it('retains a real physical detached gap and exact repaint aliases', () => {
+    const { input, rotate } = alignedFixture(500)
+    sourcePath(input, 4).points = [
+      { x: 100, y: 70 },
+      { x: 100, y: 95 },
+    ].map(rotate)
+    input.work.paths.push({ ...structuredClone(sourcePath(input, 4)), operationIndex: 40 })
+    const row = first(nativeDimensionTargets(input))
+    expect(row.status).toBe('detached')
+    expect(row.targets[0]?.faces[0]?.endpointWitnesses[0]).toMatchObject({
+      status: 'detached',
+      sourceRefs: [{ operationIndex: 4 }, { operationIndex: 40 }],
+    })
+    expect(row.targets[0]?.faces[0]?.endpointWitnesses[0].gapPoints).toBeCloseTo(2.5, 12)
+  })
+
+  it.each([
+    [true, false, false],
+    [false, true, false],
+    [false, false, true],
+    [true, true, true],
+  ])(
+    'preserves detached witnesses when extension=%s, face endpoints=%s, face indexes=%s are reversed',
+    (reverseExtension, reverseEndpoints, reverseIndexes) => {
+      const { input, rotate } = alignedFixture(500)
+      sourcePath(input, 4).points = [
+        { x: 100, y: 70 },
+        { x: 100, y: 95 },
+      ].map(rotate)
+      input.work.paths.push({ ...structuredClone(sourcePath(input, 4)), operationIndex: 40 })
+      const report = floors.nativeFloorCavityCandidates(input)
+      const before = first(nativeDimensionTargets(input))
+      const beforeTarget = before.targets[0]
+      const beforeFace = beforeTarget?.faces[0]
+      const originalCell = report.cavities.find(({ id }) => id === beforeTarget?.id)
+      const originalBoundary = originalCell?.boundaries[beforeFace?.edgeIndex ?? -1]
+      if (!beforeFace || !originalBoundary) throw new Error('Missing detached source face')
+      const boundaryKey = (boundary: typeof originalBoundary) =>
+        [boundary.start, boundary.end]
+          .map(({ x, y }) => `${x}:${y}`)
+          .sort()
+          .join('|')
+      const originalKey = boundaryKey(originalBoundary)
+      if (reverseExtension) {
+        sourcePath(input, 4).points.reverse()
+        sourcePath(input, 40).points.reverse()
+      }
+      for (const cell of report.cavities) {
+        if (reverseIndexes) cell.boundaries.reverse()
+        if (reverseEndpoints) {
+          for (const boundary of cell.boundaries) {
+            const start = boundary.start
+            boundary.start = boundary.end
+            boundary.end = start
+          }
+        }
+      }
+      vi.spyOn(floors, 'nativeFloorCavityCandidates').mockReturnValue(report)
+      const after = first(nativeDimensionTargets(input))
+      const afterFace = after.targets[0]?.faces[0]
+      const cell = report.cavities.find(({ id }) => id === after.targets[0]?.id)
+      const boundary = cell?.boundaries[afterFace?.edgeIndex ?? -1]
+      if (!afterFace || !boundary) throw new Error('Missing reversed source face')
+      expect(boundaryKey(boundary)).toBe(originalKey)
+      expect(after).toEqual({
+        ...before,
+        targets: before.targets.map((target) => ({
+          ...target,
+          faces: target.faces.map((face) => ({ ...face, edgeIndex: afterFace.edgeIndex })),
+        })),
+      })
+      expect(afterFace.endpointWitnesses[0].gapPoints).toBeCloseTo(2.5, 12)
+    },
+  )
+
+  it('does not choose a continuous extension over a competing detached branch', () => {
+    const { input, rotate } = alignedFixture()
+    input.work.paths.push(
+      path(
+        40,
+        [
+          { x: 100, y: 70 },
+          { x: 100, y: 95 },
+        ].map((point) => {
+          const p = rotate(point)
+          return [p.x, p.y]
+        }),
+      ),
+    )
+    expect(first(nativeDimensionTargets(input))).toMatchObject({
+      status: 'ambiguous',
+      reason: 'competing-endpoint-witnesses',
+    })
+  })
+
+  it('holds an aligned face with omitted ink and never bridges a literal source gap', () => {
+    const { input, rotate } = alignedFixture()
+    const p = rotate({ x: 100, y: 95 })
+    input.work.clippedPaths = 1
+    input.work.clippedPathBounds = [
+      {
+        operationIndex: 999,
+        bounds: { left: p.x, right: p.x + 1, top: p.y, bottom: p.y + 1 },
+      },
+    ]
+    expect(first(nativeDimensionTargets(input))).toMatchObject({
+      status: 'unresolved',
+      reason: 'omitted-ink-near-source-target',
+    })
+  })
+
+  it('rejects image-perpendicular extensions that are not physical-page perpendicular', () => {
+    const { input } = alignedFixture(500)
+    const bindings = nativeCaptionBindings(input)
+    const candidate = bindings.candidates[0]
+    const report = floors.nativeFloorCavityCandidates(input)
+    const cell = report.cavities[0]
+    const support = cell?.boundaries[0]?.supports[0]
+    if (!candidate || !cell || !support) throw new Error('Missing independent source candidates')
+    // The source rail stays freshly verified. Supply a separately discovered
+    // face at an image-normal offset: this must not pass a physical-page test.
+    const start = { x: candidate.spanEnds[0].x + 8, y: candidate.spanEnds[0].y + 3 }
+    const end = { x: candidate.spanEnds[1].x + 8, y: candidate.spanEnds[1].y + 3 }
+    cell.boundaries = [
+      { start, end, supports: [{ ...support, edge: { ...support.edge, start, end } }] },
+    ]
+    vi.spyOn(floors, 'nativeFloorCavityCandidates').mockReturnValue(report)
+    expect(first(nativeDimensionTargets(input))).toMatchObject({
+      axis: 'aligned',
+      status: 'unresolved',
+      reason: 'no-exact-whole-source-target',
+      targets: [],
+    })
+  })
+
+  it('does not snap a nearly collinear extension to the literal corner', () => {
+    const { input } = alignedFixture()
+    const endpoint = sourcePath(input, 4).points[1]
+    if (!endpoint) throw new Error('Missing source endpoint')
+    endpoint.x += 1e-9
+    const row = first(nativeDimensionTargets(input))
+    expect(row).toMatchObject({
+      axis: 'aligned',
+      status: 'unresolved',
+      reason: 'missing-bounded-endpoint-witness',
+    })
+    expect(row.targets[0]?.faces[0]?.endpointWitnesses[0]).toEqual({
+      status: 'unresolved',
+      sourceRefs: [],
+      gapPoints: null,
+    })
+  })
+
+  it('does not use a detached closed drafting path as an extension witness', () => {
+    const { input, rotate } = alignedFixture()
+    sourcePath(input, 4).points = [
+      { x: 100, y: 70 },
+      { x: 100, y: 95 },
+    ].map(rotate)
+    sourcePath(input, 4).closed = true
+    expect(first(nativeDimensionTargets(input))).toMatchObject({
+      status: 'unresolved',
+      reason: 'missing-bounded-endpoint-witness',
     })
   })
 
