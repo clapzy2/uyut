@@ -8,6 +8,11 @@ const diagonal = ['1/3:1/3', '2/3:2/3', '4/3:4/3', '7/3:7/3'] as const
 const span = (startKey: string, endKey: string) => ({ startKey, endKey })
 
 describe('exact rational boundary span predicates', () => {
+  it('retains an exact interior midpoint between fractions without display rounding', () => {
+    const exact = nativeFaceRationalPredicates()
+    expect(exact.midpointKey('1/3:2/3', '2/3:4/3')).toBe('1/2:1/1')
+    expect(exact.midpointKey('2/3:4/3', '1/3:2/3')).toBe('1/2:1/1')
+  })
   it('checks perpendicular offsets in physical page coordinates without rounding rational points', () => {
     const exact = nativeFaceRationalPredicates()
     expect(exact.physicalDotSign('0/1:0/1', '1/3:1/3', '0/1:1/3', '2/3:0/1', 1, 2)).toBe(-1)

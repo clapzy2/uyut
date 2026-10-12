@@ -326,6 +326,56 @@ describe('мерки по высоте', () => {
     opening.heightCm = 100
     expect(inspectPlanVerticalDimensions(input)).toEqual([])
   })
+  it('не округляет выступающий верх проёма до допустимой высоты стены', () => {
+    const input = structuredClone(geometry)
+    const wall = input.walls[0]
+    const opening = input.openings[0]
+    if (!wall || !opening) throw new Error('Missing aperture fixture')
+    wall.heightCm = 270
+    opening.bottomCm = 60.000000001
+    opening.heightCm = 210
+    const before = structuredClone(input)
+    expect(inspectPlanVerticalDimensions(input)[0]?.id).toBe('opening-height-window')
+    expect(applyPlanVerticalDimensions(geometry, input).ok).toBe(false)
+    expect(input).toEqual(before)
+  })
+  it('не теряет превышение десятичной суммы при переводе общего верха обратно в Number', () => {
+    const input = structuredClone(geometry)
+    const wall = input.walls[0]
+    const opening = input.openings[0]
+    if (!wall || !opening) throw new Error('Missing aperture fixture')
+    wall.heightCm = 600
+    opening.bottomCm = 1e-20
+    opening.heightCm = 600
+    expect(opening.bottomCm + opening.heightCm).toBe(600)
+    expect(inspectPlanVerticalDimensions(input)[0]?.id).toBe('opening-height-window')
+    expect(applyPlanVerticalDimensions(geometry, input).ok).toBe(false)
+  })
+  it.each([
+    [0.1, 0.2, 0.3],
+    [0.14, 599.86, 600],
+  ])(
+    'сравнивает введённый десятичный верх %s + %s с высотой %s без плавающей ошибки',
+    (bottomCm, heightCm, wallHeightCm) => {
+      const input = structuredClone(geometry)
+      const wall = input.walls[0]
+      const opening = input.openings[0]
+      if (!wall || !opening) throw new Error('Missing aperture fixture')
+      wall.heightCm = wallHeightCm
+      opening.bottomCm = bottomCm
+      opening.heightCm = heightCm
+      expect(inspectPlanVerticalDimensions(input)).toEqual([])
+      expect(applyPlanVerticalDimensions(geometry, input).ok).toBe(true)
+    },
+  )
+  it('удерживает огромные высоты без аварии вычисления отметки', () => {
+    const input = structuredClone(geometry)
+    const opening = input.openings[0]
+    if (!opening) throw new Error('Missing aperture fixture')
+    opening.bottomCm = Number.MAX_VALUE
+    opening.heightCm = Number.MAX_VALUE
+    expect(inspectPlanVerticalDimensions(input)[0]?.id).toBe('opening-height-window')
+  })
 
   it('удерживает высоты без стены-хозяина и повторяющиеся идентификаторы', () => {
     const input = structuredClone(geometry)

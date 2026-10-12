@@ -42,6 +42,7 @@ function gapSignature(gap: GapSnapshot) {
     [...gap.dimensionLabelIds].sort(),
     gap.printedWidthMm,
     gap.openingKind,
+    gap.jambInspection,
   ])
 }
 const samePoint = (a: { x: number; y: number }, b: { x: number; y: number }) =>
