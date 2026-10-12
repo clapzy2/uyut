@@ -1,11 +1,12 @@
 import type { PdfNativePageDimensionChain } from './plan-pdf-dimension-chain'
-import type { PdfLinework } from './plan-pdf-linework'
+import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
 
-/** A contour review cannot compensate for an incomplete or foreign native layer. */
+/** Physical transfer stays strict. Source-caption inspection may check bounded omissions locally. */
 export function pdfNativeDimensionSourceIssue(
   source: PdfPlanSource,
   work: PdfLinework,
+  scope: 'complete-layer' | 'bounded-clipped-ink' = 'complete-layer',
 ): string | undefined {
   if (
     !/^[a-f0-9]{64}$/.test(source.sha256) ||
@@ -15,6 +16,23 @@ export function pdfNativeDimensionSourceIssue(
   )
     return 'invalid-native-dimension-source'
   const omitted = work.skippedCurveBounds ?? []
+  const clipped = work.clippedPathBounds ?? []
+  const validOmissions = (items: typeof omitted) =>
+    Array.isArray(items) &&
+    items.length <= 3000 &&
+    items.every(
+      (item) =>
+        item &&
+        Number.isSafeInteger(item.operationIndex) &&
+        item.operationIndex >= 0 &&
+        item.bounds &&
+        [item.bounds.left, item.bounds.top, item.bounds.right, item.bounds.bottom].every(
+          Number.isFinite,
+        ) &&
+        item.bounds.left <= item.bounds.right &&
+        item.bounds.top <= item.bounds.bottom &&
+        (item.paint === undefined || ['stroke', 'fill', 'fill-stroke'].includes(item.paint)),
+    )
   if (
     work.coordinateSystem !== 'page-0-1000' ||
     work.truncated ||
@@ -22,14 +40,12 @@ export function pdfNativeDimensionSourceIssue(
     work.clippedPathBoundsTruncated ||
     !Number.isSafeInteger(work.skippedCurves) ||
     work.skippedCurves !== omitted.length ||
-    omitted.length > 3000 ||
-    omitted.some(
-      ({ bounds }) =>
-        ![bounds.left, bounds.top, bounds.right, bounds.bottom].every(Number.isFinite) ||
-        bounds.left > bounds.right ||
-        bounds.top > bounds.bottom,
-    ) ||
-    work.clippedPaths !== 0 ||
+    !validOmissions(omitted) ||
+    !Number.isSafeInteger(work.clippedPaths) ||
+    work.clippedPaths < 0 ||
+    work.clippedPaths !== clipped.length ||
+    !validOmissions(clipped) ||
+    (scope === 'complete-layer' && work.clippedPaths !== 0) ||
     work.unsupportedPaths !== 0 ||
     work.unsupportedContexts !== 0 ||
     work.paths.length > 3000 ||
@@ -55,17 +71,30 @@ export function pdfNativeDimensionSourceIssue(
 export function pdfNativeDimensionChainIsUnobscured(
   work: PdfLinework,
   chain: Pick<Extract<PdfNativePageDimensionChain, { status: 'candidate' }>, 'segments'>,
-  labels: readonly { index: number; x: number; y: number }[],
+  labels: readonly (PagePoint & {
+    index: number
+    baselineStart?: PagePoint
+    baselineEnd?: PagePoint
+    inkPolygon?: readonly PagePoint[]
+  })[],
 ): boolean {
-  const omitted = work.skippedCurveBounds ?? []
+  const omitted = [...(work.skippedCurveBounds ?? []), ...(work.clippedPathBounds ?? [])]
   const padX = (6 * 1000) / work.pageWidth
   const padY = (6 * 1000) / work.pageHeight
   return chain.segments.every((segment) => {
     const label = labels.find((label) => label.index === segment.labelIndex)
     if (!label) return false
     // An omitted path near the rail, endpoints or label may hide a competing source line.
-    const x = [segment.start.x, segment.end.x, label.x]
-    const y = [segment.start.y, segment.end.y, label.y]
+    const points = [
+      segment.start,
+      segment.end,
+      label,
+      ...(label.baselineStart ? [label.baselineStart] : []),
+      ...(label.baselineEnd ? [label.baselineEnd] : []),
+      ...(label.inkPolygon ?? []),
+    ]
+    const x = points.map((point) => point.x)
+    const y = points.map((point) => point.y)
     return !omitted.some(
       ({ bounds }) =>
         bounds.right >= Math.min(...x) - padX &&

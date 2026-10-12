@@ -913,6 +913,26 @@ describe('literal source dimensions associated with whole floor/frame targets', 
       reason: 'omitted-ink-near-source-target',
     })
   })
+  it('checks clipped ink between a clear caption rail and its whole target face', () => {
+    const input = fixture()
+    input.work.clippedPaths = 1
+    input.work.clippedPathBounds = [
+      {
+        operationIndex: 99,
+        paint: 'stroke',
+        bounds: { left: -20, top: 700, right: -10, bottom: 710 },
+      },
+    ]
+    expect(first(nativeDimensionTargets(input)).status).toBe('continuous')
+    const omission = input.work.clippedPathBounds[0]
+    if (!omission) throw new Error('Missing synthetic clipped path')
+    omission.bounds = { left: 195, top: 95, right: 205, bottom: 99 }
+    expect(nativeCaptionBindings(input).candidates).toHaveLength(1)
+    expect(first(nativeDimensionTargets(input))).toMatchObject({
+      status: 'unresolved',
+      reason: 'omitted-ink-near-source-target',
+    })
+  })
 
   it.each(['value', 'rail', 'span', 'source', 'flags', 'removed-label'])(
     'rejects a supplied %s proof changed since source verification',

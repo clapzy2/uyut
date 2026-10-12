@@ -68,7 +68,7 @@ export function nativeCaptionBindings(input: {
     mayTransfer2D: false as const,
     mayTransfer3D: false as const,
   })
-  const sourceIssue = pdfNativeDimensionSourceIssue(source, work)
+  const sourceIssue = pdfNativeDimensionSourceIssue(source, work, 'bounded-clipped-ink')
   if (sourceIssue) return finish(sourceIssue)
   if (native.vectorInkRefusal !== undefined) return finish('source-vector-ink-unverified')
   if (
@@ -225,7 +225,7 @@ export function nativeCaptionBindings(input: {
       bottom: Math.max(...sourcePoints.map(({ y }) => y)) + padY,
     }
     if (
-      (work.skippedCurveBounds ?? []).some(
+      [...(work.skippedCurveBounds ?? []), ...(work.clippedPathBounds ?? [])].some(
         ({ bounds: omitted }) =>
           omitted.right >= bounds.left &&
           omitted.left <= bounds.right &&

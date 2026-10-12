@@ -81,7 +81,7 @@ export function nativeScaleEvidence(input: Input, suppliedBindings?: Bindings) {
     mayTransfer2D: false as const,
     mayTransfer3D: false as const,
   })
-  const sourceIssue = pdfNativeDimensionSourceIssue(input.source, input.work)
+  const sourceIssue = pdfNativeDimensionSourceIssue(input.source, input.work, 'bounded-clipped-ink')
   if (sourceIssue) return finish(sourceIssue)
   if (
     input.native.labels.length > MAX_OBSERVATIONS ||

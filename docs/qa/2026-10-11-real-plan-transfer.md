@@ -363,6 +363,47 @@ recorded one inspection, one image and zero mutation/paid requests. Screenshot:
 `output/playwright/real-plan-selected-floors-20261012.jpg`. This offline fixture
 is not yet a live-account persistence receipt.
 
+### Cardinal discovery cost and bounded clipped dimension ink — 12 October
+
+The discovery reservation previously counted every two-point stroke on both
+cardinal axes, including rotated walls, and reserved nonexistent arrow spans.
+The per-axis cost now uses the strict verifier's own cardinal rail/arrow
+predicates. Off-axis strokes still participate in competing branch checks;
+the 4,000,000 work cap and 2,000 arrow-span guard are unchanged. The unchanged
+Rebrina original has 2,124 paths, 132 horizontal and 149 vertical eligible
+rails and no arrow candidates. It now yields one original 580 mm chain:
+native-text-120, rail 8058 and ticks 8064/8068. Twenty-two cardinal captions
+remain unconnected and 68 orientations remain unsupported by this legacy
+discovery stage. This is not a scale calibration or source-floor dimension.
+
+Source-caption inspection can now explicitly request bounded clipped-ink
+scope. Counts, bounds, operations, paints and truncation are checked before
+inspection; separate omitted subpaths may share a paint operation, and whole
+omitted-path bounds may legitimately extend outside the page. All omitted
+paints remain competitors. Original-frame checks cover the full caption/rail
+envelope and the rail-to-face witness envelope. Rotated matching maps back
+before checking omissions; projected unrotated omission bounds do not prove
+source visibility. The primary caption caller also rechecks centred witnesses
+for dependent outboard captions. Physical and legacy source guards keep the
+strict default; no omitted source path is erased or promoted to a wall.
+
+Fresh original extraction still holds full caption bindings, targets and
+scale with source-caption-ink-incomplete after the global clip refusal is
+removed. Investigation identifies numeric show identity/Float32 origins,
+character spacing, nonbreaking spaces and orphan numeric fragments inside
+height/date/area captions as the next proof-recovery work. No plain H caption
+was assigned to a ceiling, no neighbouring bathroom height was copied, and
+the finished-floor note still does not establish a common zero. No current
+floor selection, source, saved measurement or accepted geometry was modified.
+
+Verification: 7,147 local web tests across 310 files passed with four workers,
+including original-PDF replays; seven-package typecheck, production build,
+changed-file Biome and independent review passed. The first unrestricted
+parallel run hit the existing 5-second original-PDF test timeout under load;
+its isolated run and complete bounded-worker rerun both passed. No test timeout
+or source/proof gate was relaxed. This verification is local, not a live-account
+or deployment receipt.
+
 ### Earlier offline regression verification
 
 - Full web suite: 6,821 tests / 300 files passed, including local-only original PDF re-extractions when that ignored source exists. Public CI does not require copyrighted PDFs; deterministic unit controls remain present there.
