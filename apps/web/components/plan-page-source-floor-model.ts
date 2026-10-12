@@ -12,6 +12,52 @@ const exactKey = z
   .max(256)
   .regex(/^(0|[1-9]\d*)\/[1-9]\d*:(0|[1-9]\d*)\/[1-9]\d*$/)
 const keys = z.array(exactKey).min(3).max(100)
+const sourceRef = z.strictObject({
+  operationIndex: z.number().int().min(0).max(99999),
+  subpathIndex: z.number().int().min(0).max(3000),
+  segmentIndex: z.number().int().min(0).max(20000),
+})
+const openingInspection = z.strictObject({
+  status: z.enum(['checked', 'held']),
+  reason: z.string().min(1).max(256).nullable(),
+  completeOpeningInventory: z.literal(false),
+  physicalJambAccepted: z.literal(false),
+  physicalPassageAccepted: z.literal(false),
+  finalPaintVisibilityProved: z.literal(false),
+  targets: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1).max(200),
+        objectId: z.string().min(1).max(128),
+        kind: z.enum(['frame-side', 'frame-jamb', 'panel-end']),
+        sourceRef,
+        startKey: exactKey,
+        endKey: exactKey,
+        frameInteriorSide: z.enum(['left', 'right']).nullable(),
+        independentSourceRefs: z.array(sourceRef).max(100),
+        sourceEndStatus: z
+          .enum(['matched', 'partial', 'ambiguous', 'unobserved', 'unresolved'])
+          .nullable(),
+        omittedInkCount: z.number().int().min(0).max(6000),
+        laterPaintCount: z.number().int().min(0).max(20000).nullable(),
+        status: z.enum(['matched', 'partial', 'ambiguous', 'unobserved', 'unresolved']),
+        coverage: z.enum(['complete', 'partial', 'unproved']),
+        contacts: z
+          .array(
+            z.strictObject({
+              floorId: z.string().min(1).max(128),
+              ringIndex: z.number().int().min(0).max(50),
+              edgeIndex: z.number().int().min(0).max(99),
+              startKey: exactKey,
+              endKey: exactKey,
+              regionSide: z.enum(['left', 'right']),
+            }),
+          )
+          .max(100),
+      }),
+    )
+    .max(600),
+})
 const boundarySupport = z.strictObject({
   ringIndex: z.number().int().min(0).max(50),
   edgeIndex: z.number().int().min(0).max(99),
@@ -61,6 +107,7 @@ const referenceSchema = z.strictObject({
       reason: z.string().min(1).max(256).nullable(),
     })
     .optional(),
+  openingInspection: openingInspection.optional(),
   floors: z
     .array(
       z.strictObject({
@@ -216,6 +263,88 @@ export function sourceFloorReferenceFromResponse(
       const coverage = complete ? 'complete' : support.contacts.length ? 'partial' : 'unproved'
       if (support.status !== status || support.reason !== reason || support.coverage !== coverage)
         return null
+    }
+  }
+  const opening = report.openingInspection
+  if (opening) {
+    if (
+      report.status !== 'checked' ||
+      (opening.status === 'held'
+        ? !opening.reason || opening.targets.length !== 0
+        : opening.reason !== null) ||
+      (opening.status === 'checked' && inspection?.status !== 'checked')
+    )
+      return null
+    const targetIds = new Set<string>()
+    let openingContacts = 0
+    for (const target of opening.targets) {
+      if (
+        targetIds.has(target.id) ||
+        target.id !== `${target.objectId}:${target.kind}:${target.sourceRef.segmentIndex}` ||
+        !exact.sharedSpan(target.startKey, target.endKey, target.startKey, target.endKey) ||
+        (target.kind === 'panel-end'
+          ? target.frameInteriorSide !== null ||
+            target.sourceEndStatus === null ||
+            target.laterPaintCount === null
+          : target.frameInteriorSide === null ||
+            target.sourceEndStatus !== null ||
+            target.laterPaintCount !== null) ||
+        (target.kind === 'frame-side' && target.independentSourceRefs.length !== 0)
+      )
+        return null
+      targetIds.add(target.id)
+      const refs = target.independentSourceRefs.map(
+        (ref) => `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`,
+      )
+      if (new Set(refs).size !== refs.length) return null
+      const contacts = new Set<string>()
+      for (const contact of target.contacts) {
+        if (++openingContacts > 10000) return null
+        const floor = report.floors.find((floor) => floor.id === contact.floorId)
+        const ring = floor && [floor.exactPointKeys, ...floor.holeExactPointKeys][contact.ringIndex]
+        const start = ring?.[contact.edgeIndex]
+        const end = ring?.[(contact.edgeIndex + 1) % ring.length]
+        const contactId = `${contact.floorId}:${contact.ringIndex}:${contact.edgeIndex}`
+        if (!ring || !start || !end || contacts.has(contactId)) return null
+        contacts.add(contactId)
+        const span = exact.sharedSpan(target.startKey, target.endKey, start, end)
+        const axis = exact.compareAxis(target.startKey, target.endKey, 'x') === 0 ? 'y' : 'x'
+        const side =
+          exact.winding(ring) *
+          (contact.ringIndex === 0 ? 1 : -1) *
+          exact.compareAxis(start, end, axis) *
+          exact.compareAxis(target.startKey, target.endKey, axis)
+        if (
+          !side ||
+          contact.regionSide !== (side > 0 ? 'left' : 'right') ||
+          span?.startKey !== contact.startKey ||
+          span.endKey !== contact.endKey
+        )
+          return null
+      }
+      const complete = exact.coversSpan(target.startKey, target.endKey, target.contacts)
+      const competing =
+        new Set(target.contacts.map((contact) => contact.floorId)).size > 1 ||
+        new Set(target.contacts.map((contact) => contact.regionSide)).size > 1
+      const sameInterior =
+        target.kind === 'frame-side' &&
+        target.contacts.some((contact) => contact.regionSide === target.frameInteriorSide)
+      const endHeld =
+        target.kind === 'panel-end' &&
+        target.sourceEndStatus !== 'matched' &&
+        target.contacts.length > 0
+      const status =
+        competing || (target.contacts.length > 0 && target.sourceEndStatus === 'ambiguous')
+          ? 'ambiguous'
+          : sameInterior || endHeld
+            ? 'unresolved'
+            : complete
+              ? 'matched'
+              : target.contacts.length
+                ? 'partial'
+                : 'unobserved'
+      const coverage = complete ? 'complete' : target.contacts.length ? 'partial' : 'unproved'
+      if (target.status !== status || target.coverage !== coverage) return null
     }
   }
   return report

@@ -73,6 +73,103 @@ function inspectedReference() {
   return { report, preview }
 }
 describe('source reference parsing and lossless whole-ring draft copy', () => {
+  function openingReference() {
+    const input = inspectedReference()
+    const floor = input.report.floors[0]
+    if (!floor) throw new Error('Missing floor')
+    input.report.openingInspection = {
+      status: 'checked',
+      reason: null,
+      completeOpeningInventory: false,
+      physicalJambAccepted: false,
+      physicalPassageAccepted: false,
+      finalPaintVisibilityProved: false,
+      targets: [
+        {
+          id: 'native-opening-frame-20:0:frame-side:0',
+          objectId: 'native-opening-frame-20:0',
+          kind: 'frame-side',
+          sourceRef: { operationIndex: 20, subpathIndex: 0, segmentIndex: 0 },
+          startKey: '100/1:100/1',
+          endKey: '300/1:100/1',
+          frameInteriorSide: 'right',
+          independentSourceRefs: [],
+          sourceEndStatus: null,
+          omittedInkCount: 1,
+          laterPaintCount: null,
+          status: 'matched',
+          coverage: 'complete',
+          contacts: [
+            {
+              floorId: floor.id,
+              ringIndex: 0,
+              edgeIndex: 0,
+              startKey: '100/1:100/1',
+              endKey: '300/1:100/1',
+              regionSide: 'left',
+            },
+          ],
+        },
+      ],
+    }
+    return input
+  }
+
+  it('validates exact opening contacts but never persists them as physical topology', () => {
+    const { report, preview } = openingReference()
+    expect(
+      sourceFloorReferenceFromResponse(JSON.parse(JSON.stringify(report)), preview, 'b'.repeat(64)),
+    ).toEqual(report)
+    const copy = sourceFloorDraft(report.floors[0])
+    expect(copy).not.toHaveProperty('draft.openingInspection')
+    expect(copy).not.toHaveProperty('draft.sourceTopology.openingInspection')
+  })
+
+  it.each([
+    'floor',
+    'ring',
+    'edge',
+    'span',
+    'direction',
+    'coverage',
+    'status',
+    'same-interior',
+    'duplicate',
+    'held',
+    'physical',
+  ] as const)('rejects invalid source-opening correspondence: %s', (fault) => {
+    const { report, preview } = openingReference()
+    const inspection = report.openingInspection
+    const target = inspection?.targets[0]
+    const contact = target?.contacts[0]
+    if (!inspection || !target || !contact) throw new Error('Missing opening fixture')
+    if (fault === 'floor') contact.floorId = 'missing'
+    if (fault === 'ring') contact.ringIndex = 1
+    if (fault === 'edge') contact.edgeIndex = 3
+    if (fault === 'span') contact.endKey = '400/1:100/1'
+    if (fault === 'direction') contact.regionSide = 'right'
+    if (fault === 'coverage') target.coverage = 'partial'
+    if (fault === 'status') target.status = 'ambiguous'
+    if (fault === 'same-interior') target.frameInteriorSide = 'left'
+    if (fault === 'duplicate') target.contacts.push(structuredClone(contact))
+    if (fault === 'held') {
+      inspection.status = 'held'
+      inspection.reason = 'budget'
+    }
+    if (fault === 'physical') Object.assign(inspection, { physicalPassageAccepted: true })
+    expect(sourceFloorReferenceFromResponse(report, preview, 'b'.repeat(64))).toBeNull()
+  })
+
+  it('accepts an atomically held opening inspection without blocking source copy', () => {
+    const { report, preview } = openingReference()
+    if (!report.openingInspection) throw new Error('Missing inspection')
+    report.openingInspection.status = 'held'
+    report.openingInspection.reason = 'source-opening-work-limit'
+    report.openingInspection.targets = []
+    expect(sourceFloorReferenceFromResponse(report, preview, 'b'.repeat(64))).toEqual(report)
+    expect(sourceFloorDraft(report.floors[0]).kind).toBe('candidate')
+  })
+
   it('accepts fresh exact support rows without copying them into physical or saved topology', () => {
     const { report, preview } = inspectedReference()
     expect(report.boundaryInspection).toEqual({ status: 'checked', reason: null })
@@ -132,6 +229,11 @@ describe('source reference parsing and lossless whole-ring draft copy', () => {
   it('keeps the source reference usable when inspection is held, without stale proof rows', () => {
     const { report, preview } = inspectedReference()
     report.boundaryInspection = { status: 'held', reason: 'source-boundary-work-limit' }
+    if (report.openingInspection) {
+      report.openingInspection.status = 'held'
+      report.openingInspection.reason = 'source-boundary-inspection-unavailable'
+      report.openingInspection.targets = []
+    }
     for (const selected of report.floors) delete selected.boundarySupports
     expect(sourceFloorReferenceFromResponse(report, preview, 'b'.repeat(64))).toEqual(report)
     expect(sourceFloorDraft(report.floors[0]).kind).toBe('candidate')
