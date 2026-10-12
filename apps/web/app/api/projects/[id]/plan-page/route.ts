@@ -131,6 +131,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         const afterReference = await assertOwnerOrCollaborator(session.user.id, id)
         if (revision !== planEditRevision(afterReference.planUrl, afterReference.planReading))
           return failure('План изменился. Загрузите актуальную версию.', 409)
+        // Older open tabs validate their response strictly. Expand this read-only
+        // contract only for clients that explicitly request the new inspection.
+        if (request.nextUrl.searchParams.get('openingInspection') !== '1')
+          delete reference.openingInspection
         return Response.json(reference, {
           headers: {
             ...headers,

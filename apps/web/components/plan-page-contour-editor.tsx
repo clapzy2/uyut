@@ -343,6 +343,7 @@ export function PlanPageContourEditor({
         page: String(pageNumber),
         revision: sourceRevision,
         format: 'source-floor-reference',
+        openingInspection: '1',
       })
       const response = await fetch(`/api/projects/${projectId}/plan-page?${query}`, {
         signal: request.signal,

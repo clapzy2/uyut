@@ -246,43 +246,56 @@ describe('private PDF page preview', () => {
     expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, true, true)
     expect(mocks.access).toHaveBeenCalledTimes(3)
   })
-  it('freshly rechecks selected source floor coordinates rather than returning saved raster points', async () => {
-    const evidence = floorHeightFixture()
-    const sha256 = createHash('sha256').update('pdf').digest('hex')
-    evidence.native.originalPdfSha256 = sha256
-    evidence.reviewedFloors.source.sha256 = sha256
-    evidence.native.source.sha256 = createHash('sha256').update('jpeg').digest('hex')
-    const selectedReading: PlanReading = {
-      ...reading,
-      sourcePage: 3,
-      paintedFloorReview: {
-        version: 1,
-        savedAt: '2026-10-12',
-        draftJson: JSON.stringify(evidence.reviewedFloors),
-      },
-    }
-    const own = { ...project, planReading: selectedReading }
-    mocks.access.mockResolvedValue(own)
-    mocks.prepare.mockResolvedValue({
-      ...page,
-      pageNumber: 3,
-      image: { ...page.image, width: 1000, height: 1000 },
-      linework: evidence.work,
-      nativeTextAnchors: evidence.native,
-      lineworkRasterSource: evidence.lineworkSource,
-    })
-    const result = await GET(
-      request('3', planEditRevision(own.planUrl, selectedReading), 'source-floor-reference'),
-      context,
-    )
-    expect(result.status).toBe(200)
-    const reference = await result.json()
-    expect(reference.status).toBe('checked')
-    expect(reference.floors[0].polygon).toEqual(evidence.reviewedFloors.floors[0]?.polygon)
-    expect(reference.floors[0].sourceRoomKey).toBe('3.1')
-    expect(reference.physicalBoundariesAccepted).toBe(false)
-    expect(reference).not.toHaveProperty('geometry')
-  })
+  it.each([false, true])(
+    'freshly rechecks selected source coordinates with backwards-compatible opening inspection, opt-in=%s',
+    async (includeOpenings) => {
+      const evidence = floorHeightFixture()
+      const sha256 = createHash('sha256').update('pdf').digest('hex')
+      evidence.native.originalPdfSha256 = sha256
+      evidence.reviewedFloors.source.sha256 = sha256
+      evidence.native.source.sha256 = createHash('sha256').update('jpeg').digest('hex')
+      const selectedReading: PlanReading = {
+        ...reading,
+        sourcePage: 3,
+        paintedFloorReview: {
+          version: 1,
+          savedAt: '2026-10-12',
+          draftJson: JSON.stringify(evidence.reviewedFloors),
+        },
+      }
+      const own = { ...project, planReading: selectedReading }
+      mocks.access.mockResolvedValue(own)
+      mocks.prepare.mockResolvedValue({
+        ...page,
+        pageNumber: 3,
+        image: { ...page.image, width: 1000, height: 1000 },
+        linework: evidence.work,
+        nativeTextAnchors: evidence.native,
+        lineworkRasterSource: evidence.lineworkSource,
+      })
+      const sourceRequest = request(
+        '3',
+        planEditRevision(own.planUrl, selectedReading),
+        'source-floor-reference',
+      )
+      if (includeOpenings) sourceRequest.nextUrl.searchParams.set('openingInspection', '1')
+      const result = await GET(sourceRequest, context)
+      expect(result.status).toBe(200)
+      const reference = await result.json()
+      expect(reference.status).toBe('checked')
+      expect(reference.floors[0].polygon).toEqual(evidence.reviewedFloors.floors[0]?.polygon)
+      expect(reference.floors[0].sourceRoomKey).toBe('3.1')
+      expect(reference.physicalBoundariesAccepted).toBe(false)
+      expect(reference).not.toHaveProperty('geometry')
+      if (includeOpenings) {
+        expect(reference.openingInspection).toMatchObject({
+          status: 'checked',
+          physicalJambAccepted: false,
+          physicalPassageAccepted: false,
+        })
+      } else expect(reference).not.toHaveProperty('openingInspection')
+    },
+  )
 
   it.each(['source', 'revoked'])(
     'rechecks %s after the fresh raw source reference is prepared',

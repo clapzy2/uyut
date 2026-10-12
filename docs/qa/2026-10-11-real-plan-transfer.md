@@ -75,6 +75,23 @@ production build, Biome 1,046 files and diffcheck passed. Independent review ran
 154 focused tests and found no blocker. Real-account/browser release checks are
 separate from these local results; no automatic physical transfer is claimed.
 
+Live rolling-update QA found a strict older client receiving the expanded API
+response during overlap of old/new containers. A full reload after deployment
+accepted the fresh response, isolating version overlap rather than saved-data loss.
+Opening inspection is now an explicit query opt-in; pre-existing tabs receive
+their previous source-reference shape. New clients also tolerate an older server's
+response without this optional inspection. Fresh coordinate/access/revision checks
+remain identical in both modes; no parser is loosened to arbitrary extra fields.
+
+PR128 live checks after completed rollout showed region 2's one partial contact
+against source 2035/0/0, boundary 33 (zero-based index 32), with 20 later-paint
+operations retained. Region 3.1 showed no exact contacts and explicit incomplete
+inventory wording. Its five-vertex saved even-odd SVG path remained unchanged;
+vertex/feature editing stayed disabled. Console warnings/errors were empty and
+document width 1265 px stayed within viewport 1280 px. No copy/save/re-read/paid
+action was taken. Compatibility follow-up passed 7,971 tests / 328 files, typecheck,
+production build, Biome/diffcheck and 100 independent focused tests.
+
 ### Follow-up: exact source-boundary coverage and paint-side linkage — 13 October
 
 The source-reference adapter now derives each outer/hole edge from a fresh painted
