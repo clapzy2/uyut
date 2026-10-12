@@ -746,7 +746,7 @@ function isDimensionStrokeContacts(value: unknown, packet: NativeReviewPacket): 
       'mayTransfer2D',
       'mayTransfer3D',
     ]) ||
-    report.visibility !== 'not-checked' ||
+    !['not-checked', 'checked'].includes(report.visibility) ||
     report.physicalTargetsAccepted !== false ||
     report.mayTransfer2D !== false ||
     report.mayTransfer3D !== false ||
@@ -767,6 +767,7 @@ function isDimensionStrokeContacts(value: unknown, packet: NativeReviewPacket): 
   if (report.observations.length !== candidates.size) return false
   const labels = new Set<string>()
   let referenceCount = 0
+  let visibilityReferenceCount = 0
   return report.observations.every((row) => {
     if (!row || !hasOnlyKeys(row, ['labelId', 'valueMm', 'rail', 'tips'])) return false
     const caption = candidates.get(row.labelId)
@@ -786,7 +787,13 @@ function isDimensionStrokeContacts(value: unknown, packet: NativeReviewPacket): 
     return row.tips.every((tip, index) => {
       if (
         !tip ||
-        !hasOnlyKeys(tip, ['endpoint', 'status', 'reason', 'sourceRefs']) ||
+        !hasOnlyKeys(tip, [
+          'endpoint',
+          'status',
+          'reason',
+          'sourceRefs',
+          ...('visibility' in tip ? ['visibility'] : []),
+        ]) ||
         tip.endpoint !== index ||
         !Array.isArray(tip.sourceRefs) ||
         tip.sourceRefs.length > 3000
@@ -801,16 +808,178 @@ function isDimensionStrokeContacts(value: unknown, packet: NativeReviewPacket): 
       referenceCount += tip.sourceRefs.length
       if (referenceCount > 20000) return false
       const refs = new Set<string>()
-      return tip.sourceRefs.every((ref) => {
+      if (
+        !tip.sourceRefs.every((ref) => {
+          if (
+            !ref ||
+            !hasOnlyKeys(ref, ['operationIndex', 'subpathIndex', 'segmentIndex']) ||
+            ![ref.operationIndex, ref.subpathIndex].every(
+              (item) => Number.isSafeInteger(item) && item >= 0,
+            ) ||
+            ref.segmentIndex !== 0 ||
+            (ref.operationIndex === row.rail.operationIndex &&
+              ref.subpathIndex === row.rail.subpathIndex)
+          )
+            return false
+          const key = `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`
+          if (refs.has(key)) return false
+          refs.add(key)
+          return true
+        })
+      )
+        return false
+      const visibility = tip.visibility
+      if (report.visibility === 'not-checked') return visibility === undefined
+      if (
+        !visibility ||
+        !hasOnlyKeys(visibility, [
+          'status',
+          'reason',
+          'unoccludedSourceRefs',
+          'blockerOperations',
+        ]) ||
+        !Array.isArray(visibility.unoccludedSourceRefs) ||
+        !Array.isArray(visibility.blockerOperations) ||
+        visibility.unoccludedSourceRefs.length > 3000 ||
+        visibility.blockerOperations.length > 6000
+      )
+        return false
+      visibilityReferenceCount +=
+        visibility.unoccludedSourceRefs.length + visibility.blockerOperations.length
+      if (visibilityReferenceCount > 20000) return false
+      if (
+        visibility.status === 'unoccluded'
+          ? visibility.reason !== null || !visibility.unoccludedSourceRefs.length
+          : visibility.status !== 'held' ||
+            !isBoundedLabel(visibility.reason) ||
+            visibility.unoccludedSourceRefs.length !== 0
+      )
+        return false
+      const visibleRefs = new Set<string>()
+      if (
+        !visibility.unoccludedSourceRefs.every((ref) => {
+          if (
+            !ref ||
+            !hasOnlyKeys(ref, ['operationIndex', 'subpathIndex', 'segmentIndex']) ||
+            ![ref.operationIndex, ref.subpathIndex].every(
+              (value) => Number.isSafeInteger(value) && value >= 0,
+            ) ||
+            ref.segmentIndex !== 0
+          )
+            return false
+          const key = `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`
+          if (!refs.has(key) || visibleRefs.has(key)) return false
+          visibleRefs.add(key)
+          return true
+        })
+      )
+        return false
+      return visibility.blockerOperations.every(
+        (operation, index) =>
+          Number.isSafeInteger(operation) &&
+          operation >= 0 &&
+          operation < 100000 &&
+          (index === 0 || operation > (visibility.blockerOperations[index - 1] as number)),
+      )
+    })
+  })
+}
+
+function isSelectedDimensionBoundaries(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const report = value as NonNullable<NativeReviewPacket['selectedDimensionBoundaries']>
+  if (
+    !hasOnlyKeys(report, [
+      'status',
+      'refusalReason',
+      'physicalBoundariesAccepted',
+      'mayTransfer2D',
+      'mayTransfer3D',
+      'observations',
+    ]) ||
+    report.physicalBoundariesAccepted !== false ||
+    report.mayTransfer2D !== false ||
+    report.mayTransfer3D !== false ||
+    !Array.isArray(report.observations) ||
+    report.observations.length > 1000
+  )
+    return false
+  if (report.status === 'unresolved')
+    return isBoundedLabel(report.refusalReason) && report.observations.length === 0
+  if (
+    report.status !== 'draft' ||
+    report.refusalReason !== null ||
+    packet.savedPaintedFloors?.status !== 'checked' ||
+    packet.sourceCaptionBindings?.status !== 'draft'
+  )
+    return false
+  const captions = new Map(packet.sourceCaptionBindings.candidates.map((row) => [row.labelId, row]))
+  const floors = new Map(packet.savedPaintedFloors.floors.map((floor) => [floor.id, floor]))
+  if (captions.size !== report.observations.length) return false
+  let totalCandidates = 0,
+    totalRefs = 0
+  return report.observations.every((row) => {
+    if (
+      !row ||
+      !hasOnlyKeys(row, ['labelId', 'valueMm', 'status', 'reason', 'candidates']) ||
+      captions.get(row.labelId)?.valueMm !== row.valueMm ||
+      !captions.delete(row.labelId) ||
+      !Array.isArray(row.candidates)
+    )
+      return false
+    totalCandidates += row.candidates.length
+    if (totalCandidates > 2000) return false
+    const expected =
+      row.candidates.length === 0
+        ? 'unresolved'
+        : row.candidates.length === 1
+          ? 'candidate'
+          : 'ambiguous'
+    if (row.status !== expected || !isBoundedLabel(row.reason)) return false
+    const seen = new Set<string>()
+    return row.candidates.every((candidate) => {
+      if (
+        !candidate ||
+        !hasOnlyKeys(candidate, [
+          'floorId',
+          'sourceRoomKey',
+          'edgeIndex',
+          'declaredRole',
+          'span',
+          'sourceRefs',
+          'boundaryInkComplete',
+        ])
+      )
+        return false
+      const floor = floors.get(candidate.floorId)
+      const key = `${candidate.floorId}:${candidate.edgeIndex}`
+      if (
+        !floor ||
+        seen.has(key) ||
+        candidate.sourceRoomKey !== floor.sourceRoomKey ||
+        candidate.boundaryInkComplete !== floor.boundaryInkComplete ||
+        !Number.isSafeInteger(candidate.edgeIndex) ||
+        candidate.edgeIndex < 0 ||
+        candidate.edgeIndex >= floor.polygon.length ||
+        !['wall-face', 'opening-boundary', 'level-separator', 'unresolved'].includes(
+          candidate.declaredRole,
+        ) ||
+        candidate.span !== 'whole-translated-source-vector' ||
+        !Array.isArray(candidate.sourceRefs)
+      )
+        return false
+      seen.add(key)
+      totalRefs += candidate.sourceRefs.length
+      if (totalRefs > 20000) return false
+      const refs = new Set<string>()
+      return candidate.sourceRefs.every((ref) => {
         if (
           !ref ||
           !hasOnlyKeys(ref, ['operationIndex', 'subpathIndex', 'segmentIndex']) ||
-          ![ref.operationIndex, ref.subpathIndex].every(
-            (item) => Number.isSafeInteger(item) && item >= 0,
-          ) ||
-          ref.segmentIndex !== 0 ||
-          (ref.operationIndex === row.rail.operationIndex &&
-            ref.subpathIndex === row.rail.subpathIndex)
+          ![ref.operationIndex, ref.subpathIndex, ref.segmentIndex].every(
+            (index) => Number.isSafeInteger(index) && index >= 0 && index < 100000,
+          )
         )
           return false
         const key = `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`
@@ -2618,6 +2787,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isHeightObjects(packet.heightObjects, packet) ||
     !isDimensionTargets(packet.dimensionTargets, packet) ||
     !isDimensionStrokeContacts(packet.dimensionStrokeContacts, packet) ||
+    !isSelectedDimensionBoundaries(packet.selectedDimensionBoundaries, packet) ||
     !isFloorOpeningSides(packet.floorOpeningSides, packet) ||
     !isSavedFrameRooms(packet.savedFrameRooms, packet) ||
     !isPaintedRegionContext(packet) ||

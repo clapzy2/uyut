@@ -686,9 +686,13 @@ function DimensionStrokeContactsReview({
       <h4 className="text-[14px] font-medium">Толщина исходных штрихов</h4>
       <p className="text-ink-2">
         Проверяем попадание конца размерной линии внутрь штриха с учётом толщины, преобразования и
-        отсечения PDF. Это модель краски по данным PDF.js, а не точный контакт осевых линий.
-        Видимость после наложения текста, изображений и других объектов ещё не проверена. Такие
+        отсечения PDF. Это модель краски по данным PDF.js, а не точный контакт осевых линий. Такие
         совпадения не выбирают границу пола или косяк и не переносятся в 2D/3D.
+      </p>
+      <p className="text-ink-2">
+        {report.visibility === 'checked'
+          ? 'Проверяем позднюю краску у каждого контакта: штрихи, заливки, текст и изображения. Возможное перекрытие или неизвестная область удерживают связь. Отсутствие перекрытия в точке не доказывает видимость всей линии или физический объект.'
+          : 'Видимость после наложения текста, изображений и других объектов ещё не проверена.'}
       </p>
       {report.status === 'unresolved' ? (
         <p className="break-all text-ink-2">
@@ -701,6 +705,13 @@ function DimensionStrokeContactsReview({
             {report.observations.length * 2 - overlaps.length}. Наложения не подтверждают физические
             объекты.
           </p>
+          {report.visibility === 'checked' ? (
+            <p>
+              Контакты без позднего перекрытия в точке:{' '}
+              {overlaps.filter((tip) => tip.visibility?.status === 'unoccluded').length}; видимость
+              удержана: {overlaps.filter((tip) => tip.visibility?.status !== 'unoccluded').length}.
+            </p>
+          ) : null}
           {report.observations.length ? (
             <details className="text-ink-2">
               <summary className="min-h-11 cursor-pointer py-3">
@@ -726,6 +737,19 @@ function DimensionStrokeContactsReview({
                               )
                               .join(', ')}.`
                           : ''}
+                        {tip.visibility ? (
+                          <span>
+                            {' '}
+                            Проверка видимости:{' '}
+                            {tip.visibility.status === 'unoccluded'
+                              ? 'нет позднего перекрытия в точке'
+                              : `удержана — ${tip.visibility.reason}`}
+                            .
+                            {tip.visibility.blockerOperations.length
+                              ? ` Возможные перекрытия: ${tip.visibility.blockerOperations.length} операций PDF.`
+                              : ''}
+                          </span>
+                        ) : null}
                       </p>
                     ))}
                   </li>
@@ -733,6 +757,71 @@ function DimensionStrokeContactsReview({
               </ul>
             </details>
           ) : null}
+        </>
+      )}
+    </section>
+  )
+}
+
+function SelectedDimensionBoundariesReview({
+  report,
+}: {
+  report: NonNullable<NativeReviewPacket['selectedDimensionBoundaries']>
+}) {
+  return (
+    <section
+      className="space-y-2 border-t border-line pt-3 text-[13px] leading-relaxed"
+      aria-label="Размеры и выбранные грани пола"
+    >
+      <h4 className="text-[14px] font-medium">Размеры и выбранные грани пола</h4>
+      <p className="text-ink-2">
+        Сравниваем целый вектор размерной линии с исходными гранями сохранённых областей пола.
+        Равный вектор — предложение для сверки, не подтверждённая привязка к стене, полу или проёму.
+        Роль грани задана в разметке; физический материал, свободная сторона и косяки ещё требуют
+        доказательств. Часть длинной грани не объявляется целой. Размеры не переносятся в 2D/3D.
+      </p>
+      {report.status === 'unresolved' ? (
+        <p className="break-all text-ink-2">
+          Сверка выбранных граней не завершена: {report.refusalReason}.
+        </p>
+      ) : (
+        <>
+          <p>
+            Предложения: {report.observations.filter((row) => row.status === 'candidate').length}
+            {'; '}
+            неоднозначные: {report.observations.filter((row) => row.status === 'ambiguous').length}
+            {'; '}
+            без соответствия:{' '}
+            {report.observations.filter((row) => row.status === 'unresolved').length}. Физические
+            границы не приняты.
+          </p>
+          <details className="text-ink-2">
+            <summary className="min-h-11 cursor-pointer py-3">
+              Исходные грани и ограничения привязки
+            </summary>
+            <ul className="list-disc space-y-2 pl-5">
+              {report.observations.map((row) => (
+                <li key={row.labelId} className="break-all">
+                  {row.labelId}: {row.valueMm} мм. Ограничение: {row.reason}.
+                  {row.candidates.map((candidate) => (
+                    <p key={`${candidate.floorId}:${candidate.edgeIndex}`}>
+                      Помещение {candidate.sourceRoomKey}; {candidate.floorId}; грань{' '}
+                      {candidate.edgeIndex}. Вектор целой исходной грани совпадает после переноса,
+                      но контакт выносных линий не доказан. Роль в разметке:{' '}
+                      {candidate.declaredRole}; штрихи границы{' '}
+                      {candidate.boundaryInkComplete ? 'полны' : 'неполны'}. Исходные ссылки:{' '}
+                      {candidate.sourceRefs
+                        .map(
+                          (ref) => `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`,
+                        )
+                        .join(', ') || 'нет'}
+                      .
+                    </p>
+                  ))}
+                </li>
+              ))}
+            </ul>
+          </details>
         </>
       )}
     </section>
@@ -1691,6 +1780,9 @@ export function NativeReviewResult({
       {packet.dimensionTargets ? <DimensionTargetsReview report={packet.dimensionTargets} /> : null}
       {packet.dimensionStrokeContacts ? (
         <DimensionStrokeContactsReview report={packet.dimensionStrokeContacts} />
+      ) : null}
+      {packet.selectedDimensionBoundaries ? (
+        <SelectedDimensionBoundariesReview report={packet.selectedDimensionBoundaries} />
       ) : null}
       {packet.scaleEvidence ? <ScaleEvidenceReview report={packet.scaleEvidence} /> : null}
       {packet.doorSymbols || packet.openingFrames ? (

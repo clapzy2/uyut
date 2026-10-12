@@ -92,6 +92,173 @@ function withOperation(operation: Operation): Input {
   ])
 }
 
+describe('optional complete source text paint envelopes', () => {
+  function paintFixture(operations?: Operation[]) {
+    return {
+      ...fixture(operations, []),
+      selectedTextIndexes: [],
+      collectPaintBounds: true,
+    }
+  }
+
+  it('preserves the default result and inventories an unselected nonnumeric show', () => {
+    const input = paintFixture([
+      ['setFont', ['f1', 10]],
+      ['beginText'],
+      ['moveText', [10, 40]],
+      ['showText', [[glyph('A'), glyph('B')]]],
+      ['endText'],
+    ])
+    const legacy = nativeNumericTextInk({ ...input, collectPaintBounds: undefined })
+    expect(legacy).not.toHaveProperty('paintBounds')
+    const result = nativeNumericTextInk(input)
+    expect(result.items).toEqual([])
+    expect(result.paintBounds).toMatchObject({
+      complete: true,
+      entries: [{ operationIndex: 3, reason: null }],
+    })
+    const bounds = result.paintBounds?.entries[0]?.bounds
+    expect(bounds?.left).toBeLessThan(11)
+    expect(bounds?.right).toBeGreaterThan(21)
+    expect(bounds?.top).toBeLessThan(953)
+    expect(bounds?.bottom).toBeGreaterThan(960)
+  })
+
+  it('does not use a glyph advance or a small FontBBox to bound a wide outline', () => {
+    const input = paintFixture()
+    input.getFont = () => ({ ...font, bbox: [0, 0, 1, 1] }) as PdfTextInkFont
+    input.getGlyphPath = () => [0, -3, 0, 1, 4, 0, 1, 4, 2, 1, -3, 2, 4]
+    const bounds = nativeNumericTextInk(input).paintBounds?.entries[0]?.bounds
+    expect(bounds?.left).toBeLessThan(-20)
+    expect(bounds?.right).toBeGreaterThan(60)
+    expect(bounds?.top).toBeLessThan(940)
+  })
+
+  it('mechanically accounts for TJ while keeping legacy numeric acceptance held', () => {
+    const input = fixture(
+      [
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['moveText', [10, 40]],
+        ['showText', [[glyph('5'), -1000, glyph('2'), glyph('5')]]],
+        ['endText'],
+      ],
+      [{ str: '525', fontName: 'f1', width: 25, transform: [10, 0, 0, 10, 10, 40] }],
+    )
+    input.collectPaintBounds = true
+    const result = nativeNumericTextInk(input)
+    expect(result.items).toEqual([])
+    expect(result.paintBounds?.entries[0]?.reason).toBeNull()
+    expect(result.paintBounds?.entries[0]?.bounds?.right).toBeGreaterThan(36)
+  })
+
+  it('retains outside-page source ink without clipping or diagnostic rounding', () => {
+    const input = paintFixture([
+      ['setFont', ['f1', 10]],
+      ['beginText'],
+      ['moveText', [-100, 1200]],
+      ['showText', [[glyph('A')]]],
+      ['endText'],
+    ])
+    const entry = nativeNumericTextInk(input).paintBounds?.entries[0]
+    expect(entry?.reason).toBeNull()
+    expect(entry?.bounds?.left).toBeLessThan(-99)
+    expect(entry?.bounds?.bottom).toBeLessThan(0)
+  })
+
+  it('proves an empty whitespace outline rather than assuming spaces have no ink', () => {
+    const input = paintFixture([
+      ['setFont', ['f1', 10]],
+      ['beginText'],
+      ['showText', [[glyph(' ')]]],
+      ['endText'],
+    ])
+    input.getGlyphPath = () => []
+    expect(nativeNumericTextInk(input).paintBounds?.entries).toEqual([
+      { operationIndex: 2, bounds: null, reason: 'empty-source-text-paint' },
+    ])
+    input.getGlyphPath = () => digitPath
+    expect(nativeNumericTextInk(input).paintBounds?.entries[0]?.reason).toBeNull()
+    input.getGlyphPath = () => undefined
+    expect(nativeNumericTextInk(input).paintBounds?.entries[0]).toMatchObject({
+      bounds: null,
+      reason: 'native-glyph-ink-unavailable',
+    })
+  })
+
+  it.each([
+    'unknown-font',
+    'type3-font',
+    'missing-glyph',
+    'stroked-text',
+    'alpha',
+    'pattern',
+    'hidden',
+  ])('keeps a %s paint as an indexed unknown bound', (mutation) => {
+    const operations: Operation[] = [['setFont', ['f1', 10]], ['beginText'], ['moveText', [10, 40]]]
+    if (mutation === 'stroked-text') operations.push(['setTextRenderingMode', [1]])
+    if (mutation === 'alpha') operations.push(['setGState', [[['ca', 0.5]]]])
+    if (mutation === 'pattern') operations.push(['setFillColorN'])
+    if (mutation === 'hidden') operations.push(['beginMarkedContentProps', ['OC', {}]])
+    const paintIndex = operations.length
+    operations.push(['showText', [[glyph('A')]]])
+    if (mutation === 'hidden') operations.push(['endMarkedContent'])
+    operations.push(['endText'])
+    const input = paintFixture(operations)
+    if (mutation === 'unknown-font') input.getFont = () => undefined
+    if (mutation === 'type3-font') input.getFont = () => ({ ...font, isType3Font: true })
+    if (mutation === 'missing-glyph') input.getGlyphPath = () => undefined
+    if (mutation === 'hidden') input.isOptionalContentVisible = () => false
+    const result = nativeNumericTextInk(input)
+    expect(result.paintBounds?.complete).toBe(true)
+    expect(result.paintBounds?.entries).toHaveLength(1)
+    expect(result.paintBounds?.entries[0]).toMatchObject({
+      operationIndex: paintIndex,
+      bounds: null,
+    })
+    expect(result.paintBounds?.entries[0]?.reason).not.toBeNull()
+  })
+
+  it('records unsupported show variants and holds following placement until a source reset', () => {
+    const input = paintFixture([
+      ['setFont', ['f1', 10]],
+      ['beginText'],
+      ['showSpacedText', [[glyph('A')]]],
+      ['showText', [[glyph('B')]]],
+      ['endText'],
+    ])
+    const result = nativeNumericTextInk(input)
+    expect(result.paintBounds?.complete).toBe(true)
+    expect(
+      result.paintBounds?.entries.map((entry) => [entry.operationIndex, entry.bounds]),
+    ).toEqual([
+      [2, null],
+      [3, null],
+    ])
+  })
+
+  it('drops the entire inventory after a malformed operation or budget failure', () => {
+    const input = paintFixture()
+    input.operatorList.fnArray = [...Array.from(input.operatorList.fnArray), 9999]
+    input.operatorList.argsArray = [...Array.from(input.operatorList.argsArray), null]
+    expect(nativeNumericTextInk(input).paintBounds).toEqual({ complete: false, entries: [] })
+    const oversized = paintFixture()
+    oversized.operatorList.fnArray = new Array(100001).fill(OPS.save)
+    oversized.operatorList.argsArray = new Array(100001).fill(null)
+    expect(nativeNumericTextInk(oversized).paintBounds).toEqual({ complete: false, entries: [] })
+  })
+
+  it('fails atomically on the 1001st text paint rather than omitting later paint', () => {
+    const operations: Operation[] = [['setFont', ['f1', 10]], ['beginText']]
+    for (let index = 0; index < 1001; index++) operations.push(['showText', [[]]])
+    operations.push(['endText'])
+    expect(nativeNumericTextInk(paintFixture(operations)).paintBounds).toEqual({
+      complete: false,
+      entries: [],
+    })
+  })
+})
+
 describe('original empty whitespace glyphs in height captions', () => {
   function blankFixture() {
     const text = 'h пр.-2079мм'
@@ -199,6 +366,58 @@ describe('original empty whitespace glyphs in height captions', () => {
           (row) => row.mayAcceptFor3D === false && row.datum === 'unspecified',
         ),
       ).toBe(true)
+    },
+  )
+})
+
+describe('unclipped source text envelopes under masks', () => {
+  it.each(['rectangle', 'unsupported-mask'])(
+    'keeps the whole unclipped glyph envelope under a %s without changing caption rejection',
+    (mask) => {
+      const input = fixture([
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['moveText', [10, 40]],
+        ['clip'],
+        [
+          'constructPath',
+          [28, [[mask === 'rectangle' ? 0 : 99, 0, 0, 1, 100, 0, 1, 100, 30, 1, 0, 30, 4]]],
+        ],
+        ['showText', [['5', '2', '5'].map((character) => glyph(character))]],
+        ['endText'],
+      ])
+      input.collectPaintBounds = true
+      const result = nativeNumericTextInk(input)
+      expect(result.items).toEqual([])
+      expect(result.paintBounds?.entries[0]?.reason).toBeNull()
+      expect(result.paintBounds?.entries[0]?.bounds?.top).toBeLessThan(953)
+      expect(result.paintBounds?.entries[0]?.bounds?.bottom).toBeGreaterThan(960)
+    },
+  )
+
+  it.each(['alpha', 'pattern', 'unknown-font', 'text-clip-mode'])(
+    'cannot discard %s uncertainty when an unsupported mask overwrites the caption reason',
+    (mutation) => {
+      const operations: Operation[] = [['setFont', ['f1', 10]], ['beginText']]
+      if (mutation === 'alpha') operations.push(['setGState', [[['ca', 0.5]]]])
+      if (mutation === 'pattern') operations.push(['setFillColorN'])
+      if (mutation === 'text-clip-mode') operations.push(['setTextRenderingMode', [4]])
+      operations.push(
+        ['clip'],
+        ['constructPath', [28, [[99]]]],
+        ['showText', [[glyph('A')]]],
+        ['endText'],
+      )
+      const input = {
+        ...fixture(operations, []),
+        selectedTextIndexes: [],
+        collectPaintBounds: true,
+      }
+      if (mutation === 'unknown-font') input.getFont = () => undefined
+      const entry = nativeNumericTextInk(input).paintBounds?.entries[0]
+      expect(entry?.bounds).toBeNull()
+      expect(entry?.reason).not.toBe('empty-source-text-paint')
+      expect(entry?.reason).not.toBeNull()
     },
   )
 })

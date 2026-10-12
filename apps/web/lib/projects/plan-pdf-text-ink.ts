@@ -1,6 +1,6 @@
 import { nativeResetNoteBounds, sourceResetNoteLiteral } from './plan-native-height-group'
 import { nativeDimensionCaptionMillimetres } from './plan-pdf-caption-binding'
-import type { PagePoint } from './plan-pdf-linework'
+import type { Bounds, PagePoint } from './plan-pdf-linework'
 
 type Matrix = [number, number, number, number, number, number]
 type Quad = [PagePoint, PagePoint, PagePoint, PagePoint]
@@ -61,6 +61,11 @@ export type NativeNumericTextInk = {
     }
   }[]
   unresolved: { index: number; reason: string }[]
+  /** All source text paints, independently of caption selection. Null bounds stay unknown. */
+  paintBounds?: {
+    complete: boolean
+    entries: { operationIndex: number; bounds: Bounds | null; reason: string | null }[]
+  }
 }
 
 type TextItem = { str: string; fontName: string; transform: Matrix; width: number }
@@ -87,6 +92,8 @@ type State = {
   }
   clips: Quad[]
   reason?: string
+  /** Non-clipping uncertainty must survive a later clip overwriting the legacy reason. */
+  paintStateReason?: string
 }
 type Run = {
   operationIndex: number
@@ -389,6 +396,7 @@ export function nativeNumericTextInk(input: {
   // Overrides numeric selection. Every source occurrence of a selected literal
   // is replayed, so choosing one item cannot hide a competing text-show run.
   selectedTextIndexes?: readonly number[]
+  collectPaintBounds?: boolean
   viewport: {
     width: number
     height: number
@@ -398,11 +406,13 @@ export function nativeNumericTextInk(input: {
   getGlyphPath(fontName: string, fontChar: string): unknown
   isOptionalContentVisible?(properties: unknown): boolean | undefined
 }): NativeNumericTextInk {
+  const paintEntries: NonNullable<NativeNumericTextInk['paintBounds']>['entries'] = []
   const fail = (refusalReason: string): NativeNumericTextInk => ({
     complete: false,
     refusalReason,
     items: [],
     unresolved: [],
+    ...(input.collectPaintBounds ? { paintBounds: { complete: false, entries: [] } } : {}),
   })
   const { operatorList, operators, textItems, viewport } = input
   if (
@@ -622,6 +632,7 @@ export function nativeNumericTextInk(input: {
       if (stack.length >= 1000) return fail('text-ink-budget-exceeded')
       save()
       state.reason = 'unsupported-text-ink-context'
+      if (input.collectPaintBounds) state.paintStateReason ??= state.reason
       if (name === 'paintFormXObjectBegin' && args[0] !== null && args[0] !== undefined) {
         const m = matrix(args[0])
         if (!m) return fail('invalid-text-ink-transform')
@@ -640,10 +651,15 @@ export function nativeNumericTextInk(input: {
         if ((pair[0] === 'ca' && pair[1] === 1) || (pair[0] === 'BM' && pair[1] === 'source-over'))
           continue
         state.reason = 'unsupported-text-ink-graphics-state'
+        if (input.collectPaintBounds) state.paintStateReason ??= state.reason
       }
-    } else if (name === 'setFillTransparent') state.reason = 'transparent-native-text-ink'
-    else if (name === 'setFillColorN') state.reason = 'unsupported-native-text-ink-pattern'
-    else if (name === 'beginAnnotation' || name === 'endAnnotation')
+    } else if (name === 'setFillTransparent') {
+      state.reason = 'transparent-native-text-ink'
+      if (input.collectPaintBounds) state.paintStateReason ??= state.reason
+    } else if (name === 'setFillColorN') {
+      state.reason = 'unsupported-native-text-ink-pattern'
+      if (input.collectPaintBounds) state.paintStateReason ??= state.reason
+    } else if (name === 'beginAnnotation' || name === 'endAnnotation')
       return fail('unsupported-text-ink-context')
     else if (name === 'beginMarkedContent' || name === 'beginMarkedContentProps') {
       if (markedStack.length >= 1000) return fail('text-ink-budget-exceeded')
@@ -677,18 +693,17 @@ export function nativeNumericTextInk(input: {
       const fontMatrix = font?.fontMatrix ? matrix(font.fontMatrix) : undefined
       let reason = state.reason ?? markedReason
       if (state.textAdvanceUnverified) reason ??= 'unverified-native-text-ink-advance'
-      if (
-        !state.active ||
-        !state.fontName ||
-        !font ||
-        font.missingFile !== false ||
-        font.isType3Font !== false ||
-        font.vertical !== false ||
-        font.disableFontFace !== true ||
-        !fontMatrix ||
-        fontMatrix.some((v, i) => v !== [0.001, 0, 0, 0.001, 0, 0][i])
-      )
-        reason ??= 'unsupported-native-text-ink-font'
+      const supportedFont =
+        state.active &&
+        !!state.fontName &&
+        !!font &&
+        font.missingFile === false &&
+        font.isType3Font === false &&
+        font.vertical === false &&
+        font.disableFontFace === true &&
+        !!fontMatrix &&
+        fontMatrix.every((v, i) => v === [0.001, 0, 0, 0.001, 0, 0][i])
+      if (!supportedFont) reason ??= 'unsupported-native-text-ink-font'
       const advanceKnown =
         font?.isType3Font === false &&
         font.vertical === false &&
@@ -697,6 +712,21 @@ export function nativeNumericTextInk(input: {
         state.hScale > 0
       if (state.fontSize <= 0 || state.hScale <= 0 || state.renderingMode !== 0 || pendingClip)
         reason ??= 'unsupported-native-text-ink-mode'
+      // Paint inventory does not inherit the legacy caption-only rejection of TJ
+      // adjustments. It does inherit uncertain source state and glyph placement.
+      let paintReason = state.paintStateReason ?? markedReason
+      if (state.textAdvanceUnverified) paintReason ??= 'unverified-native-text-ink-advance'
+      if (!supportedFont) paintReason ??= 'unsupported-native-text-ink-font'
+      if (state.fontSize <= 0 || state.hScale <= 0 || state.renderingMode !== 0)
+        paintReason ??= 'unsupported-native-text-ink-mode'
+      // Any clipping mask only subtracts glyph ink. It cannot enlarge this
+      // deliberately unclipped envelope, unlike alpha/pattern/font uncertainty.
+      const paintBounds: Bounds = {
+        left: Infinity,
+        top: Infinity,
+        right: -Infinity,
+        bottom: -Infinity,
+      }
       const trm = multiply(
         state.ctm,
         multiply(state.textMatrix, [
@@ -783,6 +813,76 @@ export function nativeNumericTextInk(input: {
           glyph.isSpace === false &&
           !glyph.accent &&
           /^[ \u00a0\u202f]$/u.test(glyph.unicode)
+        if (input.collectPaintBounds) {
+          if ((!missingWhitespace && glyph.isInFont !== true) || glyph.accent)
+            paintReason ??= 'unsupported-native-text-ink-glyph'
+          if (glyph.isSpace && !/^[ \u00a0\u202f]+$/.test(glyph.unicode))
+            paintReason ??= 'unsupported-native-text-ink-glyph'
+          let outline: number[] | undefined
+          try {
+            outline = state.fontName
+              ? values(input.getGlyphPath(state.fontName, glyph.fontChar), MAX_PATH_VALUES)
+              : undefined
+          } catch {
+            // Missing glyph ink is never replaced with FontBBox or a system font.
+          }
+          if (outline) work += outline.length * 3
+          if (work > MAX_WORK) return fail('text-ink-budget-exceeded')
+          const empty =
+            /^[ \u00a0\u202f]+$/.test(glyph.unicode) &&
+            (outline?.length === 0 || (outline?.length === 1 && outline[0] === 4))
+          if (missingWhitespace && !empty) paintReason ??= 'unsupported-native-text-ink-glyph'
+          if (!empty) {
+            if (!outline || !pdfGlyphInkBounds(outline)) {
+              paintReason ??= 'native-glyph-ink-unavailable'
+            } else {
+              // The complete control-point hull bounds the painted Bezier curves.
+              // Work directly from outlines: FontBBox and glyph advance are not ink.
+              const projected = transformedOutline(outline, translate(trm, advance, 0))
+              if (!projected) paintReason ??= 'invalid-native-text-ink-transform'
+              else {
+                const sourceMagnitude = outline.reduce(
+                  (max, value) => Math.max(max, Math.abs(value)),
+                  0,
+                )
+                const transformMagnitude = trm.reduce((sum, value) => sum + Math.abs(value), 0)
+                for (let index = 0; index < projected.length; ) {
+                  const command = projected[index++]
+                  const count = command === 4 ? 0 : command === 2 ? 6 : command === 3 ? 4 : 2
+                  for (const end = index + count; index < end; index += 2) {
+                    const px = projected[index] as number
+                    const py = projected[index + 1] as number
+                    const [x, y] = viewport.convertToViewportPoint(px, py)
+                    if (x === undefined || y === undefined || ![x, y].every(Number.isFinite)) {
+                      paintReason ??= 'invalid-native-text-ink-transform'
+                      continue
+                    }
+                    const nx = (x / viewport.width) * 1000
+                    const ny = (y / viewport.height) * 1000
+                    // Outward arithmetic guard only; no page clipping or rounded
+                    // diagnostic coordinates may shrink an exclusion envelope.
+                    const guard =
+                      64 *
+                      Number.EPSILON *
+                      (1 +
+                        Math.abs(nx) +
+                        Math.abs(ny) +
+                        transformMagnitude * (1 + Math.abs(advance) + sourceMagnitude)) *
+                      Math.max(1, 1000 / viewport.width, 1000 / viewport.height)
+                    if (!Number.isFinite(guard)) {
+                      paintReason ??= 'invalid-native-text-ink-transform'
+                      continue
+                    }
+                    paintBounds.left = Math.min(paintBounds.left, nx - guard)
+                    paintBounds.right = Math.max(paintBounds.right, nx + guard)
+                    paintBounds.top = Math.min(paintBounds.top, ny - guard)
+                    paintBounds.bottom = Math.max(paintBounds.bottom, ny + guard)
+                  }
+                }
+              }
+            }
+          }
+        }
         if ((!missingWhitespace && glyph.isInFont !== true) || glyph.accent)
           reason ??= 'unsupported-native-text-ink-glyph'
         if (glyph.isSpace && !/^[ \u00a0\u202f]+$/.test(glyph.unicode))
@@ -839,6 +939,21 @@ export function nativeNumericTextInk(input: {
       if (state.packedOrigin)
         state.packedOrigin.textOffset[0] += advance * state.fontSize * state.hScale
       if (!advanceKnown) state.textAdvanceUnverified = true
+      if (input.collectPaintBounds) {
+        if (paintEntries.length >= MAX_ITEMS) return fail('text-ink-budget-exceeded')
+        if (
+          !Number.isFinite(advance) ||
+          !trm.every(Number.isFinite) ||
+          Math.abs(trm[0] * trm[3] - trm[1] * trm[2]) <= Number.EPSILON
+        )
+          paintReason ??= 'invalid-native-text-ink-transform'
+        const empty = paintBounds.left === Infinity
+        paintEntries.push({
+          operationIndex,
+          bounds: paintReason || empty ? null : paintBounds,
+          reason: paintReason ?? (empty ? 'empty-source-text-paint' : null),
+        })
+      }
       if (!selectsFragment(str) && !numericLiteral) continue
       if (str !== str.trim() && !ownerFragment) reason ??= 'unsupported-native-text-ink-text'
       if (
@@ -919,8 +1034,19 @@ export function nativeNumericTextInk(input: {
         'setTextContent',
         'paintXObject',
       ].includes(name ?? '')
-    )
+    ) {
+      if (input.collectPaintBounds && name !== 'setTextContent' && name !== 'paintXObject') {
+        if (paintEntries.length >= MAX_ITEMS) return fail('text-ink-budget-exceeded')
+        paintEntries.push({
+          operationIndex,
+          bounds: null,
+          reason: 'unsupported-native-text-ink-operation',
+        })
+      }
       state.reason = 'unsupported-native-text-ink-operation'
+      if (input.collectPaintBounds) state.paintStateReason ??= state.reason
+      if (input.collectPaintBounds) state.textAdvanceUnverified = true
+    }
   }
   if (stack.length || markedStack.length || pendingClip || state.active)
     return fail('invalid-text-ink-state-stack')
@@ -1309,5 +1435,11 @@ export function nativeNumericTextInk(input: {
     }
     items.push(candidate)
   }
-  return { complete: unresolved.length === 0, refusalReason: null, items, unresolved }
+  return {
+    complete: unresolved.length === 0,
+    refusalReason: null,
+    items,
+    unresolved,
+    ...(input.collectPaintBounds ? { paintBounds: { complete: true, entries: paintEntries } } : {}),
+  }
 }

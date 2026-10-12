@@ -1,6 +1,17 @@
 type Matrix = [number, number, number, number, number, number]
 export type PagePoint = { x: number; y: number }
 export type Bounds = { left: number; top: number; right: number; bottom: number }
+export type PdfPaintBounds = {
+  complete: boolean
+  refusalReason: string | null
+  events: {
+    operationIndex: number
+    kind: 'vector' | 'text' | 'image' | 'unknown'
+    bounds: Bounds | null
+    reason: string | null
+    subpathCount?: number
+  }[]
+}
 /** Renderer operands and pen state, not original decimal tokens or final visible ink. */
 export type PdfStrokeInk = {
   points: PagePoint[]
@@ -43,6 +54,8 @@ export type PdfLinework = {
   pageWidth: number
   pageHeight: number
   paths: PdfVectorPath[]
+  /** Conservative paint envelopes in source order, not visibility/physical proof. */
+  paintBounds?: PdfPaintBounds
   curvePaths?: PdfCurvePath[]
   curvePathsTruncated?: boolean
   skippedCurves: number
@@ -93,6 +106,7 @@ type Subpath = {
 const MAX_OPERATIONS = 100_000
 const MAX_POINTS = 20_000
 const MAX_PATHS = 3000
+const MAX_PAINT_EVENTS = 6000
 
 function updatePen(state: GraphicsState, key: string, value: unknown) {
   const pen = state.pen
@@ -426,6 +440,7 @@ export function extractPdfLinework(
   list: { fnArray: readonly number[]; argsArray: readonly unknown[] },
   ops: Operators,
   viewport: Viewport,
+  paintViewport?: { width: number; height: number },
 ): PdfLinework {
   if (
     !Number.isFinite(viewport.width) ||
@@ -440,6 +455,7 @@ export function extractPdfLinework(
     pageWidth: viewport.width,
     pageHeight: viewport.height,
     paths: [],
+    paintBounds: { complete: true, refusalReason: null, events: [] },
     curvePaths: [],
     curvePathsTruncated: false,
     skippedCurves: 0,
@@ -469,6 +485,23 @@ export function extractPdfLinework(
   let pendingClip = false
   let pointCount = 0
   let curvePointCount = 0
+  const names = new Map(Object.entries(ops).map(([name, id]) => [id, name]))
+  const recordPaint = (
+    operationIndex: number,
+    kind: PdfPaintBounds['events'][number]['kind'],
+    bounds: Bounds | null,
+    reason: string | null,
+  ) => {
+    const inventory = result.paintBounds
+    if (!inventory?.complete) return
+    if (inventory.events.length >= MAX_PAINT_EVENTS) {
+      inventory.complete = false
+      inventory.refusalReason = 'paint-envelope-output-limit'
+      inventory.events = []
+      return
+    }
+    inventory.events.push({ operationIndex, kind, bounds, reason })
+  }
   const unroundedPoint = (raw: PagePoint): PagePoint => {
     const m = state.matrix
     const [x, y] = viewport.convertToViewportPoint(
@@ -491,6 +524,75 @@ export function extractPdfLinework(
       y: Math.round(((y ?? Number.NaN) / viewport.height) * 1_000_000) / 1000,
     }
   }
+  const envelope = (points: PagePoint[], stroked: boolean, joined = true): Bounds | null => {
+    if (!state.supported || !points.length) return null
+    const mapped = points.map(unroundedPoint)
+    if (mapped.some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.y))) return null
+    const box = pointBounds(mapped)
+    let padX = 0
+    let padY = 0
+    if (stroked) {
+      const pen = state.pen
+      if (pen.refusalReason || (pen.lineWidth === 0 && !paintViewport)) return null
+      const m = state.matrix
+      const origin = unroundedPoint({ x: 0, y: 0 })
+      const x = unroundedPoint({ x: 1, y: 0 })
+      const y = unroundedPoint({ x: 0, y: 1 })
+      // Include square caps and every possible miter. Dash never shrinks a bound.
+      const a = x.x - origin.x,
+        b = x.y - origin.y
+      const c = y.x - origin.x,
+        d = y.y - origin.y
+      let scaleX = 1,
+        scaleY = 1
+      if (paintViewport) {
+        if (
+          ![paintViewport.width, paintViewport.height].every(
+            (value) => Number.isFinite(value) && value > 0,
+          )
+        )
+          return null
+        const da = (a * paintViewport.width) / 1000,
+          db = (b * paintViewport.height) / 1000
+        const dc = (c * paintViewport.width) / 1000,
+          dd = (d * paintViewport.height) / 1000
+        const normX = Math.hypot(da, db),
+          normY = Math.hypot(dc, dd)
+        // Installed PDF.js getScaleForStroking widens thin ink to one device
+        // pixel. Replay that scale for exclusion bounds, not physical pen evidence.
+        if (db === 0 && dc === 0) {
+          if (normX === 0 || normY === 0) return null
+          scaleX = pen.lineWidth === 0 ? 1 / normX : Math.max(1, 1 / (normX * pen.lineWidth))
+          scaleY = pen.lineWidth === 0 ? 1 / normY : Math.max(1, 1 / (normY * pen.lineWidth))
+        } else {
+          const determinant = Math.abs(da * dd - db * dc)
+          if (
+            !Number.isFinite(determinant) ||
+            determinant <= 64 * Number.EPSILON * (Math.abs(da * dd) + Math.abs(db * dc))
+          )
+            return null
+          const area = (pen.lineWidth || 1) * determinant
+          scaleX = pen.lineWidth === 0 ? normY / determinant : Math.max(1, normY / area)
+          scaleY = pen.lineWidth === 0 ? normX / determinant : Math.max(1, normX / area)
+        }
+      }
+      const radius = ((pen.lineWidth || 1) * Math.max(Math.SQRT2, joined ? pen.miterLimit : 0)) / 2
+      padX = radius * Math.hypot(a * scaleX, c * scaleY)
+      padY = radius * Math.hypot(b * scaleX, d * scaleY)
+      if (!m.every(Number.isFinite) || !Number.isFinite(padX + padY)) return null
+    }
+    // This is an outward arithmetic guard, not a contact or installation tolerance.
+    const guard =
+      64 *
+      Number.EPSILON *
+      (1 + padX + padY + mapped.reduce((sum, p) => sum + Math.abs(p.x) + Math.abs(p.y), 0))
+    return {
+      left: box.left - padX - guard,
+      right: box.right + padX + guard,
+      top: box.top - padY - guard,
+      bottom: box.bottom + padY + guard,
+    }
+  }
   for (
     let operationIndex = 0;
     operationIndex < Math.min(list.fnArray.length, MAX_OPERATIONS);
@@ -499,6 +601,62 @@ export function extractPdfLinework(
     const fn = list.fnArray[operationIndex]
     const rawArgs = list.argsArray[operationIndex]
     const args = Array.isArray(rawArgs) ? rawArgs : []
+    const name = names.get(fn as number)
+    if (!name && result.paintBounds) {
+      result.paintBounds.complete = false
+      result.paintBounds.refusalReason = 'unknown-paint-envelope-operator'
+      result.paintBounds.events = []
+    }
+    if (
+      name &&
+      ['showText', 'showSpacedText', 'nextLineShowText', 'nextLineSetSpacingShowText'].includes(
+        name,
+      )
+    )
+      recordPaint(operationIndex, 'text', null, 'text-paint-envelope-unavailable')
+    else if (
+      name &&
+      [
+        'paintImageXObject',
+        'paintInlineImageXObject',
+        'paintImageMaskXObject',
+        'paintSolidColorImageMask',
+      ].includes(name)
+    )
+      recordPaint(
+        operationIndex,
+        'image',
+        envelope(
+          [
+            { x: 0, y: 0 },
+            { x: 1, y: 0 },
+            { x: 1, y: 1 },
+            { x: 0, y: 1 },
+          ],
+          false,
+        ),
+        state.supported ? null : 'image-paint-context-unavailable',
+      )
+    else if (
+      name &&
+      (name.startsWith('paint') ||
+        [
+          'shadingFill',
+          'rawFillPath',
+          'endInlineImage',
+          'endGroup',
+          'endAnnotation',
+          'stroke',
+          'closeStroke',
+          'fill',
+          'eoFill',
+          'fillStroke',
+          'eoFillStroke',
+          'closeFillStroke',
+          'closeEOFillStroke',
+        ].includes(name))
+    )
+      recordPaint(operationIndex, 'unknown', null, 'unsupported-paint-envelope-operation')
     if (
       fn === ops.save ||
       fn === ops.paintFormXObjectBegin ||
@@ -587,6 +745,40 @@ export function extractPdfLinework(
     )
       continue
     const rawPaths = Array.isArray(args[1]) ? subpaths(args[1][0]) : undefined
+    if (args[0] !== ops.endPath) {
+      const sourceStroke = [
+        ops.stroke,
+        ops.closeStroke,
+        ops.fillStroke,
+        ops.eoFillStroke,
+        ops.closeFillStroke,
+        ops.closeEOFillStroke,
+      ].includes(args[0] as number)
+      const sourceFill = [
+        ops.fill,
+        ops.eoFill,
+        ops.fillStroke,
+        ops.eoFillStroke,
+        ops.closeFillStroke,
+        ops.closeEOFillStroke,
+      ].includes(args[0] as number)
+      const bounds =
+        rawPaths && (sourceStroke || sourceFill)
+          ? envelope(
+              rawPaths.flatMap((path) => [...path.points, ...path.controlPoints]),
+              sourceStroke,
+              rawPaths.some((path) => path.closed || path.points.length > 2),
+            )
+          : null
+      recordPaint(
+        operationIndex,
+        'vector',
+        bounds,
+        bounds ? null : 'vector-paint-envelope-unavailable',
+      )
+      const event = result.paintBounds?.events.at(-1)
+      if (event?.operationIndex === operationIndex && rawPaths) event.subpathCount = rawPaths.length
+    }
     if (!rawPaths) {
       result.unsupportedPaths++
       if (pendingClip) state.supported = false
@@ -767,6 +959,11 @@ export function extractPdfLinework(
         (first?.x === last?.x && first?.y === last?.y)
       if (result.paths.length >= MAX_PATHS || pointCount + path.points.length > MAX_POINTS) {
         result.truncated = true
+        if (result.paintBounds) {
+          result.paintBounds.complete = false
+          result.paintBounds.refusalReason = 'incomplete-paint-envelope-operators'
+          result.paintBounds.events = []
+        }
         return result
       }
       result.paths.push({
@@ -785,5 +982,10 @@ export function extractPdfLinework(
     }
   }
   if (stack.length > 0 || pendingClip) result.unsupportedContexts++
+  if (result.paintBounds && (result.truncated || list.fnArray.length !== list.argsArray.length)) {
+    result.paintBounds.complete = false
+    result.paintBounds.refusalReason = 'incomplete-paint-envelope-operators'
+    result.paintBounds.events = []
+  }
   return result
 }
