@@ -1,10 +1,17 @@
 import type { PlanPageContours, PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
+import {
+  contourDraftsFromSaved,
+  pageContourRoomsForSave,
+  pageExteriorForSave,
+  pageFloorForSave,
+} from '@/components/plan-page-contour-editor-model'
 import nativeLabels from '../../../../docs/qa/fixtures/apartment-74-77-native-labels.json'
 import archive from '../../../../docs/qa/fixtures/apartment-74-77-page-contours.json'
 import features from '../../../../docs/qa/fixtures/apartment-74-77-page-features.json'
 import { planPageMetricDraft } from './plan-page-metric-draft'
 import type { PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
+import { nativePageSegments } from './plan-pdf-opening-endpoint'
 import { planVolume } from './plan-volume'
 import { roomLayoutInputFromGeometry } from './room-geometry-layout'
 
@@ -396,10 +403,45 @@ describe('native PDF page to metric draft', () => {
     }
     context.linework.paths.push(path(envelope, true), ...sides)
     const before = structuredClone(context)
+    const nodes = context.linework.paths.flatMap((path) => path.points)
+    const segments = nativePageSegments(context.linework)
+    const resavedRooms = pageContourRoomsForSave(
+      contourDraftsFromSaved(context.contours.rooms),
+      nodes,
+      segments,
+    )
+    const resavedFloor = pageFloorForSave(
+      structuredClone(context.contours.floor),
+      true,
+      nodes,
+      segments,
+    )
+    const resavedExterior = pageExteriorForSave(
+      structuredClone(context.contours.exterior),
+      true,
+      nodes,
+      segments,
+    )
+    if (!resavedRooms || !resavedFloor || !resavedExterior)
+      throw new Error('Source review lost during editor round-trip')
+    expect(resavedFloor).toEqual(context.contours.floor)
+    const roundTrip = {
+      ...context,
+      contours: {
+        ...context.contours,
+        rooms: resavedRooms,
+        floor: resavedFloor,
+        exterior: resavedExterior,
+      },
+    }
     const result = planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [4] }, [4])
     expect(result.ok, result.ok ? '' : result.error).toBe(true)
     if (!result.ok) throw new Error(result.error)
     expect(result.geometry.footprint).toEqual(polygon.map(({ x, y }) => ({ xCm: x, yCm: y })))
+    const resaved = planPageMetricDraft(reading, { ...roundTrip, calibrationRoomNumbers: [4] }, [4])
+    expect(resaved).toEqual(result)
+    expect(result.geometry.status).toBe('draft')
+    expect(planVolume(result.geometry)).toBeNull()
     expect(context).toEqual(before)
     delete context.contours.floor.vertexProofs
     expect(planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [4] }, [4]).ok).toBe(

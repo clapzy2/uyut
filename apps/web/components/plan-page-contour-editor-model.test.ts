@@ -1,5 +1,6 @@
 import type { PlanPageContours, PlanRoomReading } from '@uyut/db'
 import { describe, expect, it, vi } from 'vitest'
+import type { NativePageSegment } from '@/lib/projects/plan-pdf-opening-endpoint'
 import {
   canAddPageFeature,
   contourDraftsFromSaved,
@@ -12,6 +13,7 @@ import {
   pageContourOptions,
   pageContourPoint,
   pageContourRoomsForSave,
+  pageContourVertexProofsChanged,
   pageContourVoidsForSave,
   pageExteriorForSave,
   pageFloorForSave,
@@ -26,6 +28,137 @@ import {
 
 const preview = { sha256: 'a'.repeat(64), page: 6, pageCount: 48, width: 842, height: 1191 }
 const rect = { left: 20, top: 40, width: 400, height: 600 }
+
+const crossingSegments: [NativePageSegment, NativePageSegment] = [
+  {
+    operationIndex: 1,
+    subpathIndex: 0,
+    segmentIndex: 0,
+    start: { x: 10, y: 10 },
+    end: { x: 40, y: 10 },
+  },
+  {
+    operationIndex: 2,
+    subpathIndex: 0,
+    segmentIndex: 0,
+    start: { x: 30, y: 0 },
+    end: { x: 30, y: 30 },
+  },
+]
+const crossingRoom: PlanPageContours['rooms'][number] = {
+  roomSourceNumber: 3.1,
+  polygon: [
+    { x: 10, y: 10 },
+    { x: 30, y: 10 },
+    { x: 30, y: 30 },
+  ],
+  vertexProofs: [
+    {
+      vertexIndex: 1,
+      kind: 'bounded-native-crossing',
+      segments: [crossingSegments[0], crossingSegments[1]],
+    },
+  ],
+}
+const crossingNodes = crossingSegments.flatMap((segment) => [segment.start, segment.end])
+
+describe('saved bounded source intersections', () => {
+  it('reloads and resaves a room without losing or sharing its crossing evidence', () => {
+    const drafts = contourDraftsFromSaved([crossingRoom])
+    expect(pageContourRoomsForSave(drafts, crossingNodes, crossingSegments)).toEqual([crossingRoom])
+    expect(drafts[0]?.vertexProofs).not.toBe(crossingRoom.vertexProofs)
+    expect(drafts[0]?.vertexProofs?.[0]?.segments[0].start).not.toBe(crossingSegments[0]?.start)
+    expect(pageContourRoomsForSave(drafts, crossingNodes)).toBeNull()
+  })
+
+  it.each(['floor', 'exterior'] as const)(
+    'resaves %s crossing proofs only against fresh segments',
+    (kind) => {
+      const boundary = {
+        polygon: crossingRoom.polygon,
+        vertexProofs: crossingRoom.vertexProofs,
+        boundaryRole: 'outer-wall-envelope' as const,
+      }
+      const save = kind === 'floor' ? pageFloorForSave : pageExteriorForSave
+      const saved = save(boundary, true, crossingNodes, crossingSegments)
+      expect(saved?.vertexProofs).toEqual(crossingRoom.vertexProofs)
+      expect(saved?.vertexProofs).not.toBe(crossingRoom.vertexProofs)
+      expect(save(boundary, true, crossingNodes)).toBeNull()
+      expect(save(boundary, false, crossingNodes, crossingSegments)).toBeNull()
+      const changed = structuredClone(crossingSegments)
+      changed[0].end.x += 1
+      expect(save(boundary, true, crossingNodes, changed)).toBeNull()
+    },
+  )
+
+  it('keeps evidence on closure, drops it on a changed or removed vertex, and never restores it by undo', () => {
+    expect(
+      pageContourVertexProofsChanged(crossingRoom, structuredClone(crossingRoom.polygon)),
+    ).toEqual(crossingRoom.vertexProofs)
+    const moved = structuredClone(crossingRoom.polygon)
+    const movedPoint = moved[1]
+    if (!movedPoint) throw new Error('Missing crossing vertex')
+    movedPoint.x += 0.000001
+    expect(pageContourVertexProofsChanged(crossingRoom, moved)).toBeUndefined()
+    expect(pageContourVertexProofsChanged({ polygon: moved }, crossingRoom.polygon)).toBeUndefined()
+    expect(
+      pageContourVertexProofsChanged(crossingRoom, crossingRoom.polygon.slice(0, 1)),
+    ).toBeUndefined()
+    const reversed = [...crossingRoom.polygon].reverse()
+    expect(pageContourVertexProofsChanged(crossingRoom, reversed)).toEqual(
+      crossingRoom.vertexProofs,
+    )
+    expect(
+      pageContourVertexProofsChanged(crossingRoom, crossingRoom.polygon.slice(1)),
+    ).toBeUndefined()
+    expect(
+      pageContourVertexProofsChanged(crossingRoom, [...crossingRoom.polygon, { x: 20, y: 20 }]),
+    ).toEqual(crossingRoom.vertexProofs)
+  })
+
+  it.each([
+    'rounded',
+    'changed-snapshot',
+    'duplicate-proof',
+    'duplicate-reference',
+    'extended',
+  ] as const)('holds %s evidence in the reopened room', (change) => {
+    const room = structuredClone(crossingRoom)
+    const segments: NativePageSegment[] = structuredClone(crossingSegments)
+    const proof = room.vertexProofs?.[0]
+    const point = room.polygon[1]
+    const segment = segments[0]
+    if (!proof || !point || !segment) throw new Error('Missing crossing fixture')
+    if (change === 'rounded') point.x += 0.000001
+    if (change === 'changed-snapshot') proof.segments[0].end.x += 1
+    if (change === 'duplicate-proof') room.vertexProofs?.push(structuredClone(proof))
+    if (change === 'duplicate-reference') segments.push(structuredClone(segment))
+    if (change === 'extended') {
+      segment.end.x = 20
+      proof.segments[0].end.x = 20
+    }
+    expect(
+      pageContourRoomsForSave(contourDraftsFromSaved([room]), crossingNodes, segments),
+    ).toBeNull()
+  })
+
+  it('preserves the same reviewed shape when explicitly grouping room identities', () => {
+    const readings: PlanRoomReading[] = [
+      { name: 'Гардероб', kind: 'living', sourceNumber: 3.1 },
+      { name: 'Спальня', kind: 'bedroom', sourceNumber: 3 },
+    ]
+    const grouped = groupPageContourDraft(
+      contourDraftsFromSaved([crossingRoom]),
+      { roomSourceNumber: 3.1 },
+      3,
+      readings,
+    )
+    expect(grouped?.[0]?.vertexProofs).toEqual(crossingRoom.vertexProofs)
+    expect(
+      pageContourRoomsForSave(grouped ?? [], crossingNodes, crossingSegments)?.[0]?.vertexProofs,
+    ).toEqual(crossingRoom.vertexProofs)
+  })
+})
 
 describe('page contour editor model', () => {
   it('keeps a parent and subroom separate in options and saved source contours', () => {

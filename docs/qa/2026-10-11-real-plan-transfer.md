@@ -44,6 +44,29 @@ Provider-reported usage for the single new request: 15,747 tokens and USD 0.1235
 
 ## Gate and next work
 
+### Follow-up: retain source vertex evidence through the contour editor
+
+The existing server accepts bounded native segment crossings in reviewed room,
+exterior and separate-floor vertices. The client previously dropped `vertexProofs`
+when hydrating rooms/exteriors, grouping source identities and serializing every
+boundary type. A saved non-node crossing therefore became unsaveable on reopening.
+Five focused controls reproduced this before the fix.
+
+The editor now clones and retains these exact source snapshots. Exterior/floor
+serialization uses the same fresh source-vertex check as rooms, with current
+segments; absent segments, changed snapshots, rounded corners, duplicate evidence
+and line extensions remain held. Only same-index, exactly unchanged vertices keep
+their evidence during edits. Removed/moved vertices lose it, and coordinate undo
+does not manufacture a new proof. Role/closure/identity grouping does not move
+vertices and therefore preserves their evidence.
+
+A synthetic existing transfer control now includes room/floor/exterior editor
+round-trip before metric import and compares the complete result to the original
+draft. It does not confirm measurements or enable `planVolume`. This is not a new
+real-source recognition or live-account write: painted floor roles, rational paint
+intersections, physical boundaries, common scale and vertical datum are untouched.
+The real-plan physical-to-editor bridge and complete 2D/3D/PDF remain unfinished.
+
 ### Follow-up: positive paint and arbitrary-angle frame correspondence
 
 Fresh source inspection identified a distinction missed by the cavity-only interpretation:
