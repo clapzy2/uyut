@@ -65,6 +65,9 @@ export function nativeFaceRationalPredicates() {
     return result
   }
   return {
+    segmentsTouch(a: string, b: string, c: string, d: string) {
+      return touch(point(a), point(b), point(c), point(d))
+    },
     compareAxis(a: string, b: string, axis: 'x' | 'y') {
       return compare(point(a)[axis], point(b)[axis])
     },

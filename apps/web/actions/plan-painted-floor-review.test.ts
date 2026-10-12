@@ -232,6 +232,19 @@ describe('persist explicit source-painted floor review', () => {
     expect(mocks.object).not.toHaveBeenCalled()
     expect(mocks.save).not.toHaveBeenCalled()
   })
+  it('invalidates prior height associations when the selected source floors are edited', async () => {
+    current.reading.heightBindingReview = {
+      version: 1,
+      savedAt: 'old',
+      draftJson: 'old source association',
+    }
+    current.revision = planEditRevision(current.project.planUrl, current.reading)
+    const result = await save()
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.data.reading).not.toHaveProperty('heightBindingReview')
+    expect(current.reading.heightBindingReview?.draftJson).toBe('old source association')
+  })
 
   it('rejects stale revisions before fetching the source', async () => {
     const result = await savePlanPaintedFloorReview(

@@ -255,8 +255,10 @@ export async function readPlan(
     const {
       deliveryMeasurements: _untrustedDelivery,
       paintedFloorReview: _untrustedPaintedFloorReview,
+      heightBindingReview: _untrustedHeightBindingReview,
       ...sourceReading
-    } = parsed as typeof parsed & Pick<PlanReading, 'deliveryMeasurements' | 'paintedFloorReview'>
+    } = parsed as typeof parsed &
+      Pick<PlanReading, 'deliveryMeasurements' | 'paintedFloorReview' | 'heightBindingReview'>
     const reading: PlanReading = {
       ...sourceReading,
       ...(project.planReading?.deliveryMeasurements
@@ -272,8 +274,11 @@ export async function readPlan(
       project.planReading?.paintedFloorReview &&
       project.planReading.sourcePage === reading.sourcePage &&
       project.planReading.planState === reading.planState
-    )
+    ) {
       reading.paintedFloorReview = project.planReading.paintedFloorReview
+      if (project.planReading.heightBindingReview)
+        reading.heightBindingReview = project.planReading.heightBindingReview
+    }
     await repository.setPlanReading(userId, projectId, reading, project)
     await recordAudit({
       action: 'project.plan_read',
@@ -923,6 +928,9 @@ export async function confirmPlanRooms(
         : {}),
       ...(project.planReading.paintedFloorReview
         ? { paintedFloorReview: project.planReading.paintedFloorReview }
+        : {}),
+      ...(project.planReading.heightBindingReview
+        ? { heightBindingReview: project.planReading.heightBindingReview }
         : {}),
       rooms: rooms.map((room) => {
         const source = findPlanRoomReading(room, beforeReading.rooms)

@@ -155,17 +155,25 @@ describe('plan reading actions', () => {
       savedAt: '2026-10-12T00:00:00Z',
       draftJson: 'owner source review',
     }
-    const before = { ...reading, paintedFloorReview }
+    const heightBindingReview = {
+      version: 1 as const,
+      savedAt: '2026-10-12T00:00:00Z',
+      draftJson: 'owner height review',
+    }
+    const before = { ...reading, paintedFloorReview, heightBindingReview }
     mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: before })
     mocks.read.mockResolvedValue({
       ...reading,
       paintedFloorReview: { ...paintedFloorReview, draftJson: 'reader forgery' },
+      heightBindingReview: { ...heightBindingReview, draftJson: 'reader height forgery' },
     })
     const result = await readPlan(projectId, 6, planEditRevision('plan.pdf', before))
     if (!result.ok) throw new Error(result.error)
     expect(result.data.reading.paintedFloorReview).toEqual(paintedFloorReview)
+    expect(result.data.reading.heightBindingReview).toEqual(heightBindingReview)
     await confirmPlanRooms(projectId, input(), planEditRevision('plan.pdf', before))
     expect(mocks.setReading.mock.calls.at(-1)?.[2].paintedFloorReview).toEqual(paintedFloorReview)
+    expect(mocks.setReading.mock.calls.at(-1)?.[2].heightBindingReview).toEqual(heightBindingReview)
   })
   it('does not carry a floor selection to another page or accept one from the reader', async () => {
     const paintedFloorReview = {
@@ -173,23 +181,35 @@ describe('plan reading actions', () => {
       savedAt: '2026-10-12T00:00:00Z',
       draftJson: 'owner source review',
     }
+    const heightBindingReview = {
+      version: 1 as const,
+      savedAt: '2026-10-12T00:00:00Z',
+      draftJson: 'height review',
+    }
     mocks.owner.mockResolvedValue({
       planUrl: 'plan.pdf',
-      planReading: { ...reading, paintedFloorReview },
+      planReading: { ...reading, paintedFloorReview, heightBindingReview },
     })
-    mocks.read.mockResolvedValue({ ...reading, sourcePage: 7, paintedFloorReview })
+    mocks.read.mockResolvedValue({
+      ...reading,
+      sourcePage: 7,
+      paintedFloorReview,
+      heightBindingReview,
+    })
     const result = await readPlan(
       projectId,
       7,
-      planEditRevision('plan.pdf', { ...reading, paintedFloorReview }),
+      planEditRevision('plan.pdf', { ...reading, paintedFloorReview, heightBindingReview }),
     )
     if (!result.ok) throw new Error(result.error)
     expect(result.data.reading).not.toHaveProperty('paintedFloorReview')
+    expect(result.data.reading).not.toHaveProperty('heightBindingReview')
     mocks.owner.mockResolvedValue({ planUrl: 'plan.pdf', planReading: reading })
-    mocks.read.mockResolvedValue({ ...reading, paintedFloorReview })
+    mocks.read.mockResolvedValue({ ...reading, paintedFloorReview, heightBindingReview })
     const noPrevious = await readPlan(projectId, 6, planEditRevision('plan.pdf', reading))
     if (!noPrevious.ok) throw new Error(noPrevious.error)
     expect(noPrevious.data.reading).not.toHaveProperty('paintedFloorReview')
+    expect(noPrevious.data.reading).not.toHaveProperty('heightBindingReview')
   })
 
   it.each(['plan.PNG', 'plan.pdf', 'plan.PDF'])(

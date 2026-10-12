@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { nativeAnnotationFixture } from '../../scripts/qa-native-annotation-fixture'
 import { nativeReviewPacket } from './plan-native-review-packet'
+import { nativeReviewedFloorHeightBindings } from './plan-native-reviewed-floor-heights'
+import { floorHeightFixture } from './plan-native-reviewed-floor-heights.fixture'
 import { nativeVisiblePaintRegions } from './plan-native-visible-paint'
 import {
   connectedNativeRoomFixture,
@@ -672,3 +674,64 @@ describe('whole-page native inspection, separate from saved geometry', () => {
 })
 
 import type { PlanReading } from '@uyut/db'
+
+it('freshly checks saved source height-to-floor IDs without accepting a ceiling or geometry', () => {
+  const input = floorHeightFixture()
+  const options = nativeReviewedFloorHeightBindings(input)
+  const option = options.options[0]
+  if (!option) throw new Error('Missing synthetic source height')
+  const reviewed = {
+    ...options.review,
+    bindings: [{ floorId: option.floorId, labelId: option.labelId }],
+  }
+  const reading: PlanReading = {
+    rooms: [],
+    readAt: input.floorReviewSavedAt,
+    sourcePage: input.reviewedFloors.source.pdfPage,
+    planState: 'existing',
+    paintedFloorReview: {
+      version: 1,
+      savedAt: input.floorReviewSavedAt,
+      draftJson: JSON.stringify(input.reviewedFloors),
+    },
+    heightBindingReview: {
+      version: 1,
+      savedAt: input.floorReviewSavedAt,
+      draftJson: JSON.stringify(reviewed),
+    },
+  }
+  const packetInput = {
+    ...input,
+    source: input.reviewedFloors.source,
+    image: input.native.source,
+    savedReading: reading,
+  }
+  const packet = nativeReviewPacket(packetInput)
+  expect(packet.savedFloorHeights).toMatchObject({
+    status: 'checked',
+    reason: null,
+    ceilingHeightsConfirmed: false,
+    commonZeroConfirmed: false,
+    readyFor2D: false,
+    readyFor3D: false,
+    bindings: [{ sourceRoomKey: '3.1', valueMm: 2700, quantityKind: 'unclassified-height' }],
+  })
+  expect(packet.readiness.readyFor3D).toBe(false)
+  reading.heightBindingReview = {
+    version: 1,
+    savedAt: input.floorReviewSavedAt,
+    draftJson: JSON.stringify({
+      ...reviewed,
+      bindings: [{ ...reviewed.bindings[0], valueMm: 3500 }],
+    }),
+  }
+  expect(nativeReviewPacket(packetInput).savedFloorHeights).toMatchObject({
+    status: 'refused',
+    bindings: [],
+  })
+  delete reading.paintedFloorReview
+  expect(nativeReviewPacket(packetInput).savedFloorHeights).toMatchObject({
+    status: 'refused',
+    bindings: [],
+  })
+})

@@ -50,6 +50,10 @@ const PlanPaintedFloorReviewEditor = dynamic(
   () => import('./plan-painted-floor-review').then((module) => module.PlanPaintedFloorReviewEditor),
   { loading: () => null },
 )
+const PlanFloorHeightReviewEditor = dynamic(
+  () => import('./plan-floor-height-review').then((module) => module.PlanFloorHeightReviewEditor),
+  { loading: () => null },
+)
 
 /**
  * Подсказка в поле желания. Разная по типам комнат: «побольше света» в санузле и в спальне
@@ -349,6 +353,24 @@ export function PlanReadingCard({
             router.refresh()
           }}
         />
+        {activeReading.paintedFloorReview ? (
+          <PlanFloorHeightReviewEditor
+            key={`floor-height:${baseRevision}:${page}`}
+            projectId={projectId}
+            revision={baseRevision}
+            disabled={reading_ || saving || conflict || reviewEditing}
+            onSaved={(data) => {
+              setActiveReading(data.reading)
+              setBaseRevision(data.revision)
+              toast({ title: 'Привязка исходных высот сохранена как черновик', tone: 'success' })
+              router.refresh()
+            }}
+            onConflict={() => {
+              setConflict(true)
+              router.refresh()
+            }}
+          />
+        ) : null}
       </>
     ) : null
   const reviewedPage = review?.contours.source.pdfPage === Number(page)

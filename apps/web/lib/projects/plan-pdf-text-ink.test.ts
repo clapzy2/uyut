@@ -410,6 +410,13 @@ describe('source-contiguous grouped height shows', () => {
       )
       const { preparePlanPage } = await import('./plan-document')
       const page = await preparePlanPage(body, true, 3, true, true)
+      const numeric = page.nativeTextAnchors?.compactCaptionGeometry
+      expect(numeric?.complete).toBe(true)
+      expect(numeric?.items).toHaveLength(91)
+      expect(
+        numeric?.items.every((item) => item.inkPolygon?.length === 4 && !item.inkRefusal),
+      ).toBe(true)
+      expect(numeric?.items.find((item) => item.text === '1 506')?.inkSourceOperation).toBe(6526)
       const ink = page.nativeTextAnchors?.heightCaptionInk
       expect(ink?.complete).toBe(true)
       expect(ink?.items).toHaveLength(10)
@@ -784,6 +791,181 @@ describe('explicit selected source text ink', () => {
     const show = (glyphInput.operatorList.argsArray as unknown[])[3] as unknown[]
     show[0] = new Array(1001).fill(glyph('н'))
     expect(nativeNumericTextInk(glyphInput).refusalReason).toBe('text-ink-budget-exceeded')
+  })
+})
+
+describe('complete numeric show identity and excluded fragment ownership', () => {
+  function packedNumeric(rawText = '1\u00a0506') {
+    const origin = [1, 0, 0, 1, 100.12345, 40.65432] as Matrix
+    const characters = Array.from(rawText, (character) => ({ ...glyph(character), isSpace: false }))
+    const input = fixture(
+      [
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['setCharSpacing', [0.0135]],
+        ['setTextMatrix', [new Float32Array(origin)]],
+        ['showText', [characters]],
+        ['endText'],
+      ],
+      [
+        {
+          str: rawText.replace(/\u00a0/g, ' '),
+          fontName: 'f1',
+          width: characters.length * 5 + (characters.length - 1) * 0.0135,
+          transform: [10, 0, 0, 10, origin[4], origin[5]],
+        },
+      ],
+    )
+    input.getGlyphPath = (_font, character) =>
+      character === '\u00a0' ? new Float32Array([4]) : digitPath
+    return input
+  }
+
+  it('proves original Float32 operand cells and retains explicit single-show spacing', () => {
+    const input = packedNumeric('585')
+    const result = nativeNumericTextInk(input)
+    expect(result.complete).toBe(true)
+    expect(result.items[0]?.sourceGroup?.shows[0]?.charSpacing).toBe(0.0135)
+    expect(result.items[0]?.sourceGroup?.operationIndexes).toEqual([4])
+    const item = input.textItems[0] as { transform: Matrix; width: number }
+    item.transform[4] += 0.0001
+    expect(nativeNumericTextInk(input).items).toEqual([])
+  })
+
+  it.each(['width', 'spacing', 'matrix', 'cursor'])(
+    'holds altered numeric %s rather than moving its source',
+    (field) => {
+      const input = packedNumeric('585')
+      const item = input.textItems[0] as { transform: Matrix; width: number }
+      if (field === 'width') item.width += 0.001
+      if (field === 'spacing') (input.operatorList.argsArray as unknown[][])[2] = [0.0145]
+      if (field === 'matrix') item.transform[0] += 0.001
+      if (field === 'cursor') item.transform[5] += 0.001
+      expect(nativeNumericTextInk(input).complete).toBe(false)
+    },
+  )
+
+  it('normalizes only a mapped empty source NBSP and keeps its advance', () => {
+    const result = nativeNumericTextInk(packedNumeric())
+    expect(result.complete).toBe(true)
+    expect(result.items[0]?.text).toBe('1 506')
+    expect(result.items[0]?.sourceGroup?.shows[0]?.rawText).toBe('1\u00a0506')
+    expect(result.items[0]?.sourceGroup?.shows[0]?.glyphWidths).toEqual([500, 500, 500, 500, 500])
+  })
+
+  it.each(['outline', 'missing', 'unicode'])('refuses an unproved NBSP %s', (field) => {
+    const input = packedNumeric()
+    if (field === 'outline') input.getGlyphPath = () => digitPath
+    if (field === 'missing') {
+      const glyphs = (input.operatorList.argsArray[4] as unknown[][])[0] as ReturnType<
+        typeof glyph
+      >[]
+      const blank = glyphs[1]
+      if (!blank) throw new Error('Missing blank')
+      blank.isInFont = false
+    }
+    if (field === 'unicode') {
+      const glyphs = (input.operatorList.argsArray[4] as unknown[][])[0] as ReturnType<
+        typeof glyph
+      >[]
+      const blank = glyphs[1]
+      if (!blank) throw new Error('Missing blank')
+      blank.unicode = '\u202f'
+    }
+    expect(nativeNumericTextInk(input).complete).toBe(false)
+  })
+
+  function ownerFixture() {
+    return fixture(
+      [
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['moveText', [10, 40]],
+        ['showText', [[glyph('H'), glyph('=')]]],
+        ['showText', [[glyph('3'), glyph('6'), glyph('0')]]],
+        ['endText'],
+        ['beginText'],
+        ['moveText', [100, 40]],
+        ['showText', [[glyph('5'), glyph('8'), glyph('5')]]],
+        ['endText'],
+      ],
+      [
+        { str: 'H=360', fontName: 'f1', width: 25, transform: [10, 0, 0, 10, 10, 40] },
+        { str: '585', fontName: 'f1', width: 15, transform: [10, 0, 0, 10, 100, 40] },
+      ],
+    )
+  }
+
+  it('excludes only uniquely complete source-owned numeric fragments', () => {
+    const result = nativeNumericTextInk(ownerFixture())
+    expect(result.complete).toBe(true)
+    expect(result.items.map((item) => item.text)).toEqual(['585'])
+  })
+
+  it.each(['width', 'origin', 'duplicate', 'missing', 'invisible', 'separate-text-object'])(
+    'does not hide an orphan under an invalid source owner: %s',
+    (field) => {
+      const input = ownerFixture()
+      const owner = input.textItems[0] as { width: number; transform: Matrix }
+      if (field === 'width') owner.width += 0.1
+      if (field === 'origin') owner.transform[4] += 1
+      if (field === 'duplicate') input.textItems = [...input.textItems, structuredClone(owner)]
+      if (field === 'missing') input.textItems = input.textItems.slice(1)
+      if (field === 'invisible') {
+        input.operatorList.fnArray = [
+          ...Array.from(input.operatorList.fnArray).slice(0, 3),
+          OPS.setTextRenderingMode,
+          ...Array.from(input.operatorList.fnArray).slice(3),
+        ]
+        input.operatorList.argsArray = [
+          ...Array.from(input.operatorList.argsArray).slice(0, 3),
+          [3],
+          ...Array.from(input.operatorList.argsArray).slice(3),
+        ]
+      }
+      if (field === 'separate-text-object') {
+        input.operatorList.fnArray = [
+          ...Array.from(input.operatorList.fnArray).slice(0, 4),
+          OPS.endText,
+          OPS.beginText,
+          ...Array.from(input.operatorList.fnArray).slice(4),
+        ]
+        input.operatorList.argsArray = [
+          ...Array.from(input.operatorList.argsArray).slice(0, 4),
+          null,
+          null,
+          ...Array.from(input.operatorList.argsArray).slice(4),
+        ]
+      }
+      expect(nativeNumericTextInk(input).complete).toBe(false)
+      expect(nativeNumericTextInk(input).items).toEqual([])
+    },
+  )
+
+  it('rejects a TextContent dimension claim on an already-owned height fragment', () => {
+    const input = ownerFixture()
+    input.textItems = [
+      ...input.textItems,
+      { str: '360', fontName: 'f1', width: 15, transform: [10, 0, 0, 10, 20, 40] },
+    ]
+    expect(nativeNumericTextInk(input).refusalReason).toBe('competing-native-text-show-ownership')
+  })
+
+  it('keeps an explicitly selected single H caption on the existing single-show contract', () => {
+    const input = fixture(
+      [
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['setTextMatrix', [new Float32Array([1, 0, 0, 1, 100, 40])]],
+        ['showText', [[glyph('H'), glyph('='), glyph('3'), glyph('6'), glyph('0')]]],
+        ['endText'],
+      ],
+      [{ str: 'H=360', fontName: 'f1', width: 25, transform: [10, 0, 0, 10, 100, 40] }],
+    )
+    input.selectedTextIndexes = [0]
+    const result = nativeNumericTextInk(input)
+    expect(result.complete).toBe(true)
+    expect(result.items[0]?.sourceGroup).toBeUndefined()
   })
 })
 
@@ -1163,13 +1345,11 @@ describe('native numeric source text ink', () => {
   })
 
   it.each([
-    ['setCharSpacing', [1]],
     ['setWordSpacing', [1]],
     ['setTextRenderingMode', [1]],
     ['setTextRenderingMode', [3]],
   ] as Operation[])('holds unsupported typography state %s', (name, args) => {
     const input = withOperation([name, args])
-    if (name === 'setCharSpacing') (input.textItems[0] as { width: number }).width = 17
     const result = nativeNumericTextInk(input)
     expect(result.items).toHaveLength(0)
     expect(result.unresolved).toHaveLength(1)

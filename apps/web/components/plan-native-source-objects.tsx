@@ -22,6 +22,7 @@ export function NativeSourceObjectSummary({
   const floors = packet.savedPaintedFloors
   const datum = packet.heightFloorReferences
   const ends = packet.filledPanelEnds
+  const heights = packet.savedFloorHeights
   return (
     <div className="space-y-4 text-[13px] leading-relaxed">
       {datum && (datum.references.length || datum.refusalReason) ? (
@@ -122,6 +123,37 @@ export function NativeSourceObjectSummary({
                 />
                 Показать выбранные области пола — зелёный контур черновика
               </label>
+            </>
+          )}
+        </section>
+      ) : null}
+      {heights && heights.status !== 'not-saved' ? (
+        <section aria-label="Сохранённые привязки высот" className="space-y-2">
+          <h4 className="text-[14px] font-medium">Сохранённые привязки высот</h4>
+          {heights.status === 'refused' ? (
+            <p className="break-all text-ink-2">
+              Привязки не прошли свежую сверку: {heights.reason}. Прежняя 2D/3D не меняется.
+            </p>
+          ) : (
+            <>
+              <p className="text-ink-2">
+                Подписи и выбранные области перепроверены; назначение высоты помещению задано
+                вручную. Это не подтверждение чистового потолка, общего нуля или натурного обмера.
+              </p>
+              {heights.bindings.length ? (
+                <ul className="list-disc space-y-2 pl-5 text-ink-2">
+                  {heights.bindings.map((row) => (
+                    <li key={row.floorId}>
+                      {row.sourceRoomKey} — {row.name}: {row.originalText}, {row.valueMm} мм.
+                      Подпись {row.labelId}; местный отсчёт от чистового пола.
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-ink-2">
+                  Высоты не выбраны. Высоты соседних помещений не копируются.
+                </p>
+              )}
             </>
           )}
         </section>

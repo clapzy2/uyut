@@ -534,7 +534,12 @@ describe('explicit original-native caption bridge, not metric/room acceptance', 
           linePaths: [{ operationIndex: 1, subpathIndex: 0 }],
         })
         .mockReturnValue({ status: 'unresolved', reason })
-      vi.spyOn(chains, 'createPdfNativePageDimensionChainVerifier').mockReturnValue(verify)
+      vi.spyOn(chains, 'preparePdfNativeWidthCaptionVerifier').mockReturnValue({
+        status: 'checked',
+        workCount: 1,
+        spanCount: 1,
+        verify,
+      })
       expect(nativeCaptionBindings(input)).toMatchObject({
         status: 'unresolved',
         refusalReason: reason,
@@ -550,5 +555,26 @@ describe('explicit original-native caption bridge, not metric/room acceptance', 
     input.work.paths.reverse()
     compact(input).items.reverse()
     expect(nativeCaptionBindings(input)).toEqual(before)
+  })
+
+  it('atomically holds a real overlap search that exhausts the caption budget', () => {
+    const input = fixture()
+    const rail = present(input.work.paths[0])
+    input.work.paths.push(
+      ...Array.from({ length: 650 }, (_, index) => ({
+        ...structuredClone(rail),
+        operationIndex: 100 + index,
+      })),
+    )
+    const before = structuredClone(input)
+    expect(nativeCaptionBindings(input)).toMatchObject({
+      status: 'unresolved',
+      refusalReason: 'caption-binding-budget-exceeded',
+      candidates: [],
+      unresolved: [],
+      mayTransfer2D: false,
+      mayTransfer3D: false,
+    })
+    expect(input).toEqual(before)
   })
 })

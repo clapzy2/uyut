@@ -483,6 +483,12 @@ export type PlanReading = {
     savedAt: string
     draftJson: string
   }
+  /** Reviewed source-caption association; not an accepted ceiling or common elevation. */
+  heightBindingReview?: {
+    version: 1
+    savedAt: string
+    draftJson: string
+  }
   /** Обмеры заноса; отчёт записывает только повторная серверная проверка. */
   deliveryMeasurements?: {
     version: 1

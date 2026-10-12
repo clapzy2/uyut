@@ -550,7 +550,15 @@ export function createPdfNativePageDimensionChainVerifier(
   source: PdfPlanSource,
   captionContext?: NativeDimensionCaptionContext,
 ) {
-  const spans = new Map<DimensionAxis, NativeDimensionSpan[] | undefined>()
+  return nativePageChainVerifier(work, source, captionContext, new Map())
+}
+
+function nativePageChainVerifier(
+  work: PdfLinework,
+  source: PdfPlanSource,
+  captionContext: NativeDimensionCaptionContext | undefined,
+  spans: Map<DimensionAxis, NativeDimensionSpan[] | undefined>,
+) {
   const matchers = new Map<DimensionAxis, (label: NativeLabel) => NativeCaptionMatch>()
   return (labels: readonly NativeLabel[], totalMm: number, axis: DimensionAxis) => {
     if (source.state !== 'existing')
@@ -1058,11 +1066,44 @@ function dimensionIntervalInsideRoom(
   return true
 }
 
+/** Count the same bounded span search used by the verifier, not every possible Cartesian pairing. */
+export function preparePdfNativeWidthCaptionVerifier(
+  work: PdfLinework,
+  source: PdfPlanSource,
+  context: NativeDimensionCaptionContext,
+  limit: number,
+) {
+  const exhausted = Symbol('dimension-span-cost-limit')
+  let workCount = 0
+  if (!Number.isSafeInteger(limit) || limit < 0 || limit > 4_000_000)
+    return { status: 'held' as const, workCount, spanCount: 0, verify: undefined }
+  const spend = (count = 1) => {
+    workCount += count
+    if (workCount > limit) throw exhausted
+  }
+  try {
+    // Source scans, path setup and point arithmetic outside the comparison loops.
+    spend(work.paths.length * 8 + work.paths.reduce((sum, path) => sum + path.points.length * 2, 0))
+    const spans = nativeDimensionSpans(work, 'width', false, spend)
+    if (!spans) return { status: 'held' as const, workCount, spanCount: 0, verify: undefined }
+    return {
+      status: 'checked' as const,
+      workCount,
+      spanCount: spans.length,
+      verify: nativePageChainVerifier(work, source, context, new Map([['width', spans]])),
+    }
+  } catch (error) {
+    if (error !== exhausted) throw error
+    return { status: 'held' as const, workCount, spanCount: 0, verify: undefined }
+  }
+}
+
 /** Shared native dimension-line proof; it does not classify a wall or opening. */
 function nativeDimensionSpans(
   work: PdfLinework,
   axis: DimensionAxis,
   collapseRepeatedNativePaint = false,
+  spend: (count?: number) => void = () => {},
 ): NativeDimensionSpan[] | undefined {
   if (
     work.paths.length > 3000 ||
@@ -1129,8 +1170,14 @@ function nativeDimensionSpans(
     const [a, b] = ordered
     if (!a || !b || along(a) === along(b) || Math.abs((across(a) - across(b)) * acrossScale) > 0.12)
       continue
-    const left = arrows.filter((arrow) => close(a, arrow.base) && along(arrow.tip) < along(a))
-    const right = arrows.filter((arrow) => close(b, arrow.base) && along(arrow.tip) > along(b))
+    const left = arrows.filter((arrow) => {
+      spend()
+      return close(a, arrow.base) && along(arrow.tip) < along(a)
+    })
+    const right = arrows.filter((arrow) => {
+      spend()
+      return close(b, arrow.base) && along(arrow.tip) > along(b)
+    })
     if (collapseRepeatedNativePaint && (left.length > 1 || right.length > 1)) {
       // Competing arrows cannot establish a unique span. Keep a fail-closed representative
       // instead of allocating the Cartesian product of every possible endpoint pairing.
@@ -1150,27 +1197,34 @@ function nativeDimensionSpans(
     arrowPairs += left.length * right.length
     if (arrowPairs > 2000) return undefined
     // Do not select one of two competing arrowheads at an endpoint.
-    const branched = strokes.some((stroke) => {
-      if (
-        stroke.operationIndex === path.operationIndex &&
-        stroke.subpathIndex === path.subpathIndex
-      )
-        return false
-      if (![stroke.start, stroke.end].some((point) => close(point, a) || close(point, b)))
-        return false
-      // A native retrace wholly inside the exact selected rail adds no branch geometry.
-      // Do not exempt near-collinear, off-axis or extending strokes, or change the legacy gate.
-      const containedRetrace =
-        collapseRepeatedNativePaint &&
-        across(a) === across(b) &&
-        [stroke.start, stroke.end].every(
-          (point) =>
-            across(point) === across(a) && along(point) >= along(a) && along(point) <= along(b),
+    // An arrow branch search is relevant only when an arrow span can be emitted.
+    // Tick spans below retain their independent exact endpoint branch check.
+    const branched =
+      left.length > 0 &&
+      right.length > 0 &&
+      strokes.some((stroke) => {
+        spend()
+        if (
+          stroke.operationIndex === path.operationIndex &&
+          stroke.subpathIndex === path.subpathIndex
         )
-      return !containedRetrace
-    })
+          return false
+        if (![stroke.start, stroke.end].some((point) => close(point, a) || close(point, b)))
+          return false
+        // A native retrace wholly inside the exact selected rail adds no branch geometry.
+        // Do not exempt near-collinear, off-axis or extending strokes, or change the legacy gate.
+        const containedRetrace =
+          collapseRepeatedNativePaint &&
+          across(a) === across(b) &&
+          [stroke.start, stroke.end].every(
+            (point) =>
+              across(point) === across(a) && along(point) >= along(a) && along(point) <= along(b),
+          )
+        return !containedRetrace
+      })
     for (const first of left) {
-      for (const last of right)
+      for (const last of right) {
+        spend()
         spans.push({
           start: first.tip,
           end: last.tip,
@@ -1178,17 +1232,21 @@ function nativeDimensionSpans(
           subpathIndex: path.subpathIndex,
           branched,
         })
+      }
     }
     const tickAt = (point: PagePoint) =>
-      ticks.filter(
-        (tick) =>
+      ticks.filter((tick) => {
+        spend()
+        return (
           close(point, tick.center) &&
-          (across(tick.start) - across(point)) * (across(tick.end) - across(point)) < 0,
-      )
+          (across(tick.start) - across(point)) * (across(tick.end) - across(point)) < 0
+        )
+      })
     const firstTicks = tickAt(a)
     const lastTicks = tickAt(b)
     if (firstTicks.length > 0 && lastTicks.length > 0) {
       const offAxisBranch = strokes.some((stroke) => {
+        spend()
         if (
           stroke.operationIndex === path.operationIndex &&
           stroke.subpathIndex === path.subpathIndex
