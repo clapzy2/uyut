@@ -1,6 +1,18 @@
 type Matrix = [number, number, number, number, number, number]
 export type PagePoint = { x: number; y: number }
 export type Bounds = { left: number; top: number; right: number; bottom: number }
+/** Renderer operands and pen state, not original decimal tokens or final visible ink. */
+export type PdfStrokeInk = {
+  points: PagePoint[]
+  sourceToPage: Matrix
+  lineWidth: number
+  lineCap: 0 | 1 | 2
+  lineJoin: 0 | 1 | 2
+  miterLimit: number
+  dashArray: number[]
+  dashPhase: number
+  refusalReason: string | null
+}
 export type PdfVectorPath = {
   operationIndex: number
   subpathIndex: number
@@ -9,6 +21,7 @@ export type PdfVectorPath = {
   strokeColor?: string
   closed: boolean
   points: PagePoint[]
+  strokeInk?: PdfStrokeInk
 }
 export type PdfPathSegment =
   | { kind: 'line'; end: PagePoint }
@@ -62,9 +75,13 @@ type GraphicsState = {
   matrix: Matrix
   clip?: Bounds
   polygonClips?: PagePoint[][]
+  /** Unrounded mask for pen envelopes; old diagnostic polygons stay unchanged. */
+  penClip?: Bounds
+  penClipUnsupported?: boolean
   supported: boolean
   fillColor?: string
   strokeColor?: string
+  pen: Omit<PdfStrokeInk, 'points' | 'sourceToPage'>
 }
 type Subpath = {
   points: PagePoint[]
@@ -76,6 +93,100 @@ type Subpath = {
 const MAX_OPERATIONS = 100_000
 const MAX_POINTS = 20_000
 const MAX_PATHS = 3000
+
+function updatePen(state: GraphicsState, key: string, value: unknown) {
+  const pen = state.pen
+  if (key === 'D') {
+    if (
+      !Array.isArray(value) ||
+      value.length !== 2 ||
+      !Array.isArray(value[0]) ||
+      value[0].length > 100 ||
+      !value[0].every((item) => Number.isFinite(item) && item >= 0) ||
+      !Number.isFinite(value[1])
+    )
+      pen.refusalReason ??= 'invalid-source-pen-state'
+    else {
+      pen.dashArray = [...value[0]]
+      pen.dashPhase = value[1]
+    }
+  } else if (key === 'LC' || key === 'LJ') {
+    if (value !== 0 && value !== 1 && value !== 2) pen.refusalReason ??= 'invalid-source-pen-state'
+    else if (key === 'LC') pen.lineCap = value
+    else pen.lineJoin = value
+  } else if (key === 'LW' || key === 'ML') {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 10000)
+      pen.refusalReason ??= 'invalid-source-pen-state'
+    else if (key === 'LW') pen.lineWidth = value
+    else if (value < 1) pen.refusalReason ??= 'invalid-source-pen-state'
+    else pen.miterLimit = value
+  }
+}
+
+function strokeInk(raw: Subpath, state: GraphicsState, viewport: Viewport): PdfStrokeInk {
+  const m = state.matrix
+  const [ox = Number.NaN, oy = Number.NaN] = viewport.convertToViewportPoint(m[4], m[5])
+  const [xx = Number.NaN, xy = Number.NaN] = viewport.convertToViewportPoint(
+    m[0] + m[4],
+    m[1] + m[5],
+  )
+  const [yx = Number.NaN, yy = Number.NaN] = viewport.convertToViewportPoint(
+    m[2] + m[4],
+    m[3] + m[5],
+  )
+  const sx = 1000 / viewport.width
+  const sy = 1000 / viewport.height
+  const transform: Matrix = [
+    (xx - ox) * sx,
+    (xy - oy) * sy,
+    (yx - ox) * sx,
+    (yy - oy) * sy,
+    ox * sx,
+    oy * sy,
+  ]
+  const result: PdfStrokeInk = {
+    ...state.pen,
+    dashArray: [...state.pen.dashArray],
+    points: raw.points.map((point) => ({ ...point })),
+    sourceToPage: transform,
+  }
+  if (result.refusalReason) return result
+  const [a, b, c, d, e, f] = transform
+  const determinant = a * d - b * c
+  if (
+    !transform.every(Number.isFinite) ||
+    Math.abs(determinant) <= 64 * Number.EPSILON * Math.max(Math.abs(a * d), Math.abs(b * c))
+  )
+    result.refusalReason = 'unstable-source-pen-transform'
+  else if (result.lineWidth === 0) result.refusalReason = 'device-dependent-source-hairline'
+  else if (result.dashArray.length) result.refusalReason = 'dashed-source-pen'
+  else if (raw.curved || raw.closed || raw.points.length !== 2)
+    result.refusalReason = 'unsupported-source-pen-topology'
+  else if (state.penClipUnsupported || state.polygonClips?.length)
+    result.refusalReason = 'unsupported-source-pen-clip'
+  else {
+    // A conservative full envelope includes round/square caps. It never proves
+    // visibility from centreline containment or the clipping epsilon.
+    const radius = result.lineWidth / Math.SQRT2
+    const padX = radius * Math.hypot(a, c)
+    const padY = radius * Math.hypot(b, d)
+    const bounds = pointBounds(
+      raw.points.map((point) => ({
+        x: a * point.x + c * point.y + e,
+        y: b * point.x + d * point.y + f,
+      })),
+    )
+    const clip = state.penClip ?? { left: 0, top: 0, right: 1000, bottom: 1000 }
+    if (
+      bounds.left - padX <= Math.max(0, clip.left) ||
+      bounds.right + padX >= Math.min(1000, clip.right) ||
+      bounds.top - padY <= Math.max(0, clip.top) ||
+      bounds.bottom + padY >= Math.min(1000, clip.bottom)
+    )
+      result.refusalReason = 'source-pen-envelope-clipped'
+  }
+  return result
+}
 
 function matrix(raw: unknown): Matrix | undefined {
   if (!Array.isArray(raw) || raw.length !== 6 || !raw.every(Number.isFinite)) return undefined
@@ -341,11 +452,34 @@ export function extractPdfLinework(
     skippedCurveBoundsTruncated: false,
     truncated: list.fnArray.length > MAX_OPERATIONS,
   }
-  let state: GraphicsState = { matrix: [1, 0, 0, 1, 0, 0], supported: true }
+  let state: GraphicsState = {
+    matrix: [1, 0, 0, 1, 0, 0],
+    supported: true,
+    pen: {
+      lineWidth: 1,
+      lineCap: 0,
+      lineJoin: 0,
+      miterLimit: 10,
+      dashArray: [],
+      dashPhase: 0,
+      refusalReason: null,
+    },
+  }
   const stack: GraphicsState[] = []
   let pendingClip = false
   let pointCount = 0
   let curvePointCount = 0
+  const unroundedPoint = (raw: PagePoint): PagePoint => {
+    const m = state.matrix
+    const [x, y] = viewport.convertToViewportPoint(
+      m[0] * raw.x + m[2] * raw.y + m[4],
+      m[1] * raw.x + m[3] * raw.y + m[5],
+    )
+    return {
+      x: ((x ?? Number.NaN) / viewport.width) * 1000,
+      y: ((y ?? Number.NaN) / viewport.height) * 1000,
+    }
+  }
   const point = (raw: PagePoint): PagePoint => {
     const m = state.matrix
     const [x, y] = viewport.convertToViewportPoint(
@@ -372,7 +506,7 @@ export function extractPdfLinework(
       fn === ops.beginAnnotation
     ) {
       stack.push(state)
-      state = { ...state }
+      state = { ...state, pen: { ...state.pen, dashArray: [...state.pen.dashArray] } }
       if (fn !== ops.save) {
         state.supported = false
         result.unsupportedContexts++
@@ -398,6 +532,33 @@ export function extractPdfLinework(
         state.supported = false
         result.unsupportedContexts++
       } else state.matrix = multiply(state.matrix, transform)
+      continue
+    }
+    const penKey =
+      fn === ops.setLineWidth
+        ? 'LW'
+        : fn === ops.setLineCap
+          ? 'LC'
+          : fn === ops.setLineJoin
+            ? 'LJ'
+            : fn === ops.setMiterLimit
+              ? 'ML'
+              : fn === ops.setDash
+                ? 'D'
+                : null
+    if (penKey) {
+      updatePen(state, penKey, penKey === 'D' ? args : args[0])
+      continue
+    }
+    if (fn === ops.setGState) {
+      if (!Array.isArray(args[0]) || args[0].length > 100)
+        state.pen.refusalReason ??= 'invalid-source-pen-state'
+      else
+        for (const pair of args[0]) {
+          if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== 'string')
+            state.pen.refusalReason ??= 'invalid-source-pen-state'
+          else updatePen(state, pair[0], pair[1])
+        }
       continue
     }
     if (fn === ops.setFillRGBColor || fn === ops.setStrokeRGBColor) {
@@ -461,6 +622,19 @@ export function extractPdfLinework(
       continue
     }
     if (pendingClip) {
+      const rawClip = rawPaths.length === 1 ? rawPaths[0] : undefined
+      const preciseClip =
+        rawClip && !rawClip.curved ? rectangle(rawClip.points.map(unroundedPoint)) : undefined
+      if (!preciseClip) state.penClipUnsupported = true
+      else
+        state.penClip = state.penClip
+          ? {
+              left: Math.max(state.penClip.left, preciseClip.left),
+              top: Math.max(state.penClip.top, preciseClip.top),
+              right: Math.min(state.penClip.right, preciseClip.right),
+              bottom: Math.min(state.penClip.bottom, preciseClip.bottom),
+            }
+          : preciseClip
       const path = transformed[0]
       const box =
         transformed.length === 1 && path && !path.curved ? rectangle(path.points) : undefined
@@ -603,6 +777,9 @@ export function extractPdfLinework(
         ...(stroked && state.strokeColor ? { strokeColor: state.strokeColor } : {}),
         closed,
         points: path.points,
+        ...(stroked
+          ? { strokeInk: strokeInk(rawPaths[subpathIndex] as Subpath, state, viewport) }
+          : {}),
       })
       pointCount += path.points.length
     }

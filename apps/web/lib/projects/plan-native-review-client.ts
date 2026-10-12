@@ -732,6 +732,96 @@ function isScaleEvidence(value: unknown, packet: NativeReviewPacket): boolean {
   )
 }
 
+function isDimensionStrokeContacts(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!value || typeof value !== 'object') return false
+  const report = value as NonNullable<NativeReviewPacket['dimensionStrokeContacts']>
+  if (
+    !hasOnlyKeys(report, [
+      'status',
+      'refusalReason',
+      'observations',
+      'visibility',
+      'physicalTargetsAccepted',
+      'mayTransfer2D',
+      'mayTransfer3D',
+    ]) ||
+    report.visibility !== 'not-checked' ||
+    report.physicalTargetsAccepted !== false ||
+    report.mayTransfer2D !== false ||
+    report.mayTransfer3D !== false ||
+    !Array.isArray(report.observations) ||
+    report.observations.length > 1000
+  )
+    return false
+  if (report.status === 'unresolved')
+    return isBoundedLabel(report.refusalReason) && report.observations.length === 0
+  const captions = packet.sourceCaptionBindings
+  if (
+    report.status !== 'diagnostic' ||
+    report.refusalReason !== null ||
+    captions?.status !== 'draft'
+  )
+    return false
+  const candidates = new Map(captions.candidates.map((item) => [item.labelId, item]))
+  if (report.observations.length !== candidates.size) return false
+  const labels = new Set<string>()
+  let referenceCount = 0
+  return report.observations.every((row) => {
+    if (!row || !hasOnlyKeys(row, ['labelId', 'valueMm', 'rail', 'tips'])) return false
+    const caption = candidates.get(row.labelId)
+    if (
+      !caption ||
+      labels.has(row.labelId) ||
+      row.valueMm !== caption.valueMm ||
+      !row.rail ||
+      !hasOnlyKeys(row.rail, ['operationIndex', 'subpathIndex']) ||
+      row.rail.operationIndex !== caption.rail.operationIndex ||
+      row.rail.subpathIndex !== caption.rail.subpathIndex ||
+      !Array.isArray(row.tips) ||
+      row.tips.length !== 2
+    )
+      return false
+    labels.add(row.labelId)
+    return row.tips.every((tip, index) => {
+      if (
+        !tip ||
+        !hasOnlyKeys(tip, ['endpoint', 'status', 'reason', 'sourceRefs']) ||
+        tip.endpoint !== index ||
+        !Array.isArray(tip.sourceRefs) ||
+        tip.sourceRefs.length > 3000
+      )
+        return false
+      if (
+        tip.status === 'ink-overlap'
+          ? tip.reason !== null || !tip.sourceRefs.length
+          : tip.status !== 'held' || !isBoundedLabel(tip.reason) || tip.sourceRefs.length !== 0
+      )
+        return false
+      referenceCount += tip.sourceRefs.length
+      if (referenceCount > 20000) return false
+      const refs = new Set<string>()
+      return tip.sourceRefs.every((ref) => {
+        if (
+          !ref ||
+          !hasOnlyKeys(ref, ['operationIndex', 'subpathIndex', 'segmentIndex']) ||
+          ![ref.operationIndex, ref.subpathIndex].every(
+            (item) => Number.isSafeInteger(item) && item >= 0,
+          ) ||
+          ref.segmentIndex !== 0 ||
+          (ref.operationIndex === row.rail.operationIndex &&
+            ref.subpathIndex === row.rail.subpathIndex)
+        )
+          return false
+        const key = `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`
+        if (refs.has(key)) return false
+        refs.add(key)
+        return true
+      })
+    })
+  })
+}
+
 function isDimensionTargets(value: unknown, packet: NativeReviewPacket): boolean {
   if (value === undefined) return true
   if (!value || typeof value !== 'object') return false
@@ -2527,6 +2617,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isRoomSchedule(packet.roomSchedule, packet) ||
     !isHeightObjects(packet.heightObjects, packet) ||
     !isDimensionTargets(packet.dimensionTargets, packet) ||
+    !isDimensionStrokeContacts(packet.dimensionStrokeContacts, packet) ||
     !isFloorOpeningSides(packet.floorOpeningSides, packet) ||
     !isSavedFrameRooms(packet.savedFrameRooms, packet) ||
     !isPaintedRegionContext(packet) ||

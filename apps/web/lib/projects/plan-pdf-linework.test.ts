@@ -25,6 +25,12 @@ const ops = {
   endAnnotation: 21,
   setFillRGBColor: 22,
   setStrokeRGBColor: 23,
+  setLineWidth: 24,
+  setLineCap: 25,
+  setLineJoin: 26,
+  setMiterLimit: 27,
+  setDash: 28,
+  setGState: 29,
 }
 const viewport = {
   width: 100,
@@ -46,7 +52,230 @@ const extract = (operations: Operation[]) =>
     viewport,
   )
 
+describe('source stroke pen metadata without changing diagnostic centreline geometry', () => {
+  it('keeps renderer Float32 operands separate from the existing rounded page points', () => {
+    const values = new Float32Array([0, 10.123456, 20.654321, 1, 30.234567, 20.654321])
+    const result = extract([[ops.constructPath, [ops.stroke, [values], []]]])
+    expect(result.paths[0]?.points).toEqual([
+      { x: 101.235, y: 896.728 },
+      { x: 302.346, y: 896.728 },
+    ])
+    expect(result.paths[0]?.strokeInk?.points).toEqual([
+      { x: values[1], y: values[2] },
+      { x: values[4], y: values[5] },
+    ])
+    expect(result.paths[0]?.strokeInk?.points[0]?.x).not.toBe(10.123456)
+    expect(result.paths[0]?.strokeInk?.sourceToPage).toEqual([10, 0, 0, -5, 0, 1000])
+  })
+
+  it('documents the default solid pen rather than guessing a source color', () => {
+    const path = extract([stroke([0, 10, 20, 1, 30, 20])]).paths[0]
+    expect(path?.strokeInk).toEqual({
+      points: [
+        { x: 10, y: 20 },
+        { x: 30, y: 20 },
+      ],
+      sourceToPage: [10, 0, 0, -5, 0, 1000],
+      lineWidth: 1,
+      lineCap: 0,
+      lineJoin: 0,
+      miterLimit: 10,
+      dashArray: [],
+      dashPhase: 0,
+      refusalReason: null,
+    })
+    expect(path?.strokeColor).toBeUndefined()
+  })
+
+  it('composes the viewport affine map and graphics transform on a non-square page', () => {
+    const operations: Operation[] = [
+      [ops.transform, [2, 1, 0.5, 3, 10, 20]],
+      [ops.setLineWidth, [0.15]],
+      stroke([0, 10, 20, 1, 20, 20]),
+    ]
+    const result = extractPdfLinework(
+      {
+        fnArray: operations.map(([fn]) => fn),
+        argsArray: operations.map(([, args]) => args),
+      },
+      ops,
+      {
+        width: 200,
+        height: 100,
+        convertToViewportPoint: (x, y) => [2 * x + 5, 100 - 0.5 * y],
+      },
+    )
+    const path = result.paths[0]
+    expect(path?.points).toEqual([
+      { x: 425, y: 550 },
+      { x: 625, y: 500 },
+    ])
+    expect(path?.strokeInk).toMatchObject({
+      points: [
+        { x: 10, y: 20 },
+        { x: 20, y: 20 },
+      ],
+      sourceToPage: [20, -5, 5, -15, 125, 900],
+      lineWidth: 0.15,
+      refusalReason: null,
+    })
+  })
+
+  it('restores nested pen and dash states without sharing mutable dash arrays', () => {
+    const dash = [3, 2]
+    const result = extract([
+      [ops.setLineWidth, [2]],
+      [ops.save, null],
+      [ops.setDash, [dash, 1]],
+      [ops.setLineCap, [2]],
+      stroke([0, 10, 20, 1, 30, 20]),
+      [ops.save, null],
+      [ops.setLineWidth, ['invalid']],
+      [ops.setDash, [[], 0]],
+      stroke([0, 10, 20, 1, 30, 20]),
+      [ops.restore, null],
+      stroke([0, 10, 20, 1, 30, 20]),
+      [ops.restore, null],
+      stroke([0, 10, 20, 1, 30, 20]),
+    ])
+    dash[0] = 99
+    expect(result.paths.map((path) => path.strokeInk?.refusalReason)).toEqual([
+      'dashed-source-pen',
+      'invalid-source-pen-state',
+      'dashed-source-pen',
+      null,
+    ])
+    expect(result.paths.map((path) => path.strokeInk?.dashArray)).toEqual([[3, 2], [], [3, 2], []])
+    expect(result.paths.map((path) => path.strokeInk?.lineCap)).toEqual([2, 2, 2, 0])
+    expect(result.paths.map((path) => path.strokeInk?.lineWidth)).toEqual([2, 2, 2, 2])
+    expect(result.paths[0]?.strokeInk?.dashArray).not.toBe(result.paths[2]?.strokeInk?.dashArray)
+  })
+
+  it('reads PDF.js graphics-state LW, LC, LJ, ML and D operands', () => {
+    const result = extract([
+      [
+        ops.setGState,
+        [
+          [
+            ['LW', 0.25],
+            ['LC', 1],
+            ['LJ', 2],
+            ['ML', 7],
+            ['D', [[4, 2], 0.5]],
+          ],
+        ],
+      ],
+      stroke([0, 10, 20, 1, 30, 20]),
+      [ops.setDash, [[], 0]],
+      [ops.setLineJoin, [1]],
+      [ops.setMiterLimit, [5]],
+      stroke([0, 10, 20, 1, 30, 20]),
+    ])
+    expect(result.paths[0]?.strokeInk).toMatchObject({
+      lineWidth: 0.25,
+      lineCap: 1,
+      lineJoin: 2,
+      miterLimit: 7,
+      dashArray: [4, 2],
+      dashPhase: 0.5,
+      refusalReason: 'dashed-source-pen',
+    })
+    expect(result.paths[1]?.strokeInk).toMatchObject({
+      lineWidth: 0.25,
+      lineCap: 1,
+      lineJoin: 1,
+      miterLimit: 5,
+      dashArray: [],
+      dashPhase: 0,
+      refusalReason: null,
+    })
+  })
+
+  it.each([
+    [ops.setLineWidth, [0], 'device-dependent-source-hairline'],
+    [ops.setDash, [[1, 2], 0], 'dashed-source-pen'],
+    [ops.setLineWidth, [-1], 'invalid-source-pen-state'],
+    [ops.setLineCap, [3], 'invalid-source-pen-state'],
+    [ops.setLineJoin, [Number.NaN], 'invalid-source-pen-state'],
+    [ops.setMiterLimit, [0.5], 'invalid-source-pen-state'],
+    [ops.setDash, [[1, -2], 0], 'invalid-source-pen-state'],
+    [ops.setGState, [[['LW', 2], ['D']]], 'invalid-source-pen-state'],
+    [ops.setGState, ['invalid'], 'invalid-source-pen-state'],
+  ])(
+    'retains the path but refuses unsupported or malformed pen state (%s, %j)',
+    (fn, args, reason) => {
+      const result = extract([[fn as number, args], stroke([0, 10, 20, 1, 30, 20])])
+      expect(result.paths).toHaveLength(1)
+      expect(result.paths[0]?.strokeInk?.refusalReason).toBe(reason)
+      expect(result.paths[0]?.points).toEqual([
+        { x: 100, y: 900 },
+        { x: 300, y: 900 },
+      ])
+    },
+  )
+
+  it('refuses a singular pen transform without inventing a finite ink envelope', () => {
+    const result = extract([[ops.transform, [1, 0, 2, 0, 10, 20]], stroke([0, 10, 20, 1, 30, 20])])
+    expect(result.paths).toHaveLength(1)
+    expect(result.paths[0]?.strokeInk?.refusalReason).toBe('unstable-source-pen-transform')
+  })
+
+  it.each([
+    [0, 10, 20, 1, 30, 20, 1, 30, 30],
+    [0, 10, 20, 1, 30, 20, 1, 30, 30, 4],
+  ])('keeps multi-edge or closed pen topology held (%j)', (...values) => {
+    const result = extract([stroke(values)])
+    expect(result.paths).toHaveLength(1)
+    expect(result.paths[0]?.strokeInk?.refusalReason).toBe('unsupported-source-pen-topology')
+  })
+
+  it('checks the full pen envelope inside a rectangular clip, not just the centreline', () => {
+    const result = extract([
+      [ops.clip, null],
+      [ops.constructPath, [ops.endPath, [[0, 10, 10, 1, 30, 10, 1, 30, 30, 1, 10, 30, 4]], []]],
+      stroke([0, 10.25, 20, 1, 25, 20]),
+      stroke([0, 15, 20, 1, 25, 20]),
+    ])
+    expect(result.paths).toHaveLength(2)
+    expect(result.clippedPaths).toBe(0)
+    expect(result.paths.map((path) => path.strokeInk?.refusalReason)).toEqual([
+      'source-pen-envelope-clipped',
+      null,
+    ])
+  })
+
+  it('holds polygon clips and page-crop edge overlap and attaches no pen to pure fill', () => {
+    const polygon = extract([
+      [ops.clip, null],
+      [ops.constructPath, [ops.endPath, [[0, 10, 10, 1, 30, 10, 1, 20, 30, 4]], []]],
+      stroke([0, 20, 12, 1, 20, 20]),
+    ])
+    expect(polygon.paths[0]?.strokeInk?.refusalReason).toBe('unsupported-source-pen-clip')
+    const page = extract([
+      stroke([0, 0.25, 20, 1, 30, 20]),
+      [ops.constructPath, [ops.fill, [[0, 10, 20, 1, 20, 20, 1, 20, 30, 4]], []]],
+    ])
+    expect(page.paths[0]?.strokeInk?.refusalReason).toBe('source-pen-envelope-clipped')
+    expect(page.paths[1]?.strokeInk).toBeUndefined()
+  })
+})
+
 describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
+  it('does not accept a thin pen outside an unrounded clip that the diagnostic grid expands', () => {
+    const result = extract([
+      [ops.clip, []],
+      [
+        ops.constructPath,
+        [ops.endPath, [[0, 10.000049, 10, 1, 30, 10, 1, 30, 30, 1, 10.000049, 30, 4]], []],
+      ],
+      [ops.setLineWidth, [0.000005]],
+      stroke([0, 10.00005, 15, 1, 10.00005, 25]),
+    ])
+    expect(result.paths).toHaveLength(1)
+    expect(result.paths[0]?.strokeInk?.refusalReason).toBe('source-pen-envelope-clipped')
+    // The legacy drawing layer is intentionally still quantized independently.
+    expect(result.paths[0]?.points[0]?.x).toBe(100)
+  })
   it.each([
     [ops.stroke, 'stroke'],
     [ops.fill, 'fill'],

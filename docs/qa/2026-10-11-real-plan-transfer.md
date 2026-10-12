@@ -503,6 +503,34 @@ Local gate: 7,236 web tests / 313 files passed with four workers, seven-package
 typecheck, production build, Biome1017files and diff check passed. Independent
 review found no blocking issue and the reversed-endpoint regressions passed.
 
+### PDF.js pen-interior observations — 12 October
+
+The extractor now retains unrounded PDF.js DrawOPS operands, the complete
+affine pen matrix and width/cap/join/miter/dash state, including q/Q and GState.
+These operands are not the original PDF decimal tokens. Existing rounded
+diagnostic polygons and every accepted geometry interface stay unchanged.
+Only open two-point solid strokes have an interior model. Device hairlines,
+dash, unsupported state/topology, singular transforms and boundary-only
+contacts are held. Rectangular clipping uses its separate unrounded bounds
+and a conservative whole-pen envelope, not centreline-only containment.
+Independent review caught a rounded-mask false positive for an extremely
+thin pen; separate precise mask bounds and a regression remove it.
+
+Fresh original Rebrina page3 extraction returns five caption observations with
+ten tips inside neighbouring stroke models. All source alternatives are kept;
+no nearest-witness winner is chosen. No exact whole-face target is recovered.
+Final occlusion by other paint, text and images is explicitly `not-checked`,
+not claimed visible. The UI keeps this distinction next to the dimension
+target report; the wire rejects visibility/physical/2D/3D authority, stale
+caption references, malformed tips, self/duplicate references and partial
+positive output on refusal. Saved source-floor/height selections are not
+mutated. Physical owners, independent scale and reference levels remain
+required before any transfer.
+
+Local gate: 7,310 web tests / 314 files passed with four workers, seven-package
+typecheck, production build, Biome1019files and diff check passed. Original
+PDF re-extraction is local-only; synthetic tests run without private/source files.
+
 ### Earlier offline regression verification
 
 - Full web suite: 6,821 tests / 300 files passed, including local-only original PDF re-extractions when that ignored source exists. Public CI does not require copyrighted PDFs; deterministic unit controls remain present there.
