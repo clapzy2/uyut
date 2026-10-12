@@ -12,15 +12,24 @@ import { PlanReadError, preparePlanPage } from '@/lib/projects/plan-document'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { verifyPlanPageOpenings } from '@/lib/projects/plan-page-feature-checks'
 import { planPageGeometryElementId } from '@/lib/projects/plan-page-metric-draft'
-import { planPageContoursSchema, planPageReviewIssue } from '@/lib/projects/plan-page-review'
+import { planPageContoursSchema } from '@/lib/projects/plan-page-review'
 import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
+import { sourceTopologyDraftIssue } from '@/lib/projects/plan-page-source-topology'
 import { pdfDimensionForEdge } from '@/lib/projects/plan-pdf-edge-dimension'
-import { pdfContourIdentity, pdfContourKey } from '@/lib/projects/plan-pdf-room-binding'
+import {
+  pdfContourIdentity,
+  pdfContourKey,
+  pdfContourRoomNumbers,
+} from '@/lib/projects/plan-pdf-room-binding'
 import { setPlanReading } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { getObject } from '@/lib/storage'
 
 const floorReviewMessages: Record<string, string> = {
+  'source-topology-snapshot-mismatch':
+    'Исходный контур, вырезы или точные ключи изменились. Повторно загрузите выбранную область PDF; округлённая замена не сохраняется.',
+  'source-topology-owner-mismatch':
+    'Исходная область не соответствует выбранному номеру помещения.',
   'floor-requires-outer-wall-envelope':
     'Отдельную границу пола сохраняйте вместе с внешней границей типа «Наружная сторона стен».',
   'invalid-floor-contour': 'Проверьте замкнутый контур пола: его стороны не должны пересекаться.',
@@ -55,6 +64,7 @@ function contourGeometryKey(contours: PlanPageContours): string {
       rooms: sorted(contours.rooms, pdfContourKey).map((room) => ({
         identity: pdfContourKey(room),
         polygon: room.polygon,
+        ...(room.sourceTopology ? { sourceTopology: room.sourceTopology } : {}),
         conditionalEdges: (room.conditionalEdges ?? [])
           .map((edge) => edge.wallEdgeIndex)
           .sort((a, b) => a - b),
@@ -139,7 +149,25 @@ export async function savePlanPageReview(
       state: contours.source.state,
     }
     if (source.sha256 !== contours.source.sha256) throw new PlanEditConflictError()
-    const page = await preparePlanPage(body, true, source.pdfPage, true)
+    const hasSourceTopology = contours.rooms.some((room) => room.sourceTopology !== undefined)
+    for (const previous of before.pageReview?.contours.rooms ?? []) {
+      if (!previous.sourceTopology) continue
+      const previousMembers = new Set(pdfContourRoomNumbers(previous))
+      const reclassified = contours.rooms.some(
+        (room) =>
+          !room.sourceTopology &&
+          pdfContourRoomNumbers(room).some((number) => previousMembers.has(number)),
+      )
+      if (reclassified)
+        return {
+          ok: false,
+          error:
+            'Исходный контур нельзя превратить в физическую комнату удалением его признака. Он остаётся исходным черновиком; переход требует отдельной проверки границ.',
+        }
+    }
+    const page = hasSourceTopology
+      ? await preparePlanPage(body, true, source.pdfPage, true, true)
+      : await preparePlanPage(body, true, source.pdfPage, true)
     const labels = planMeasurementTextItems(page.image.planText)
     if (
       page.pageNumber !== source.pdfPage ||
@@ -151,7 +179,20 @@ export async function savePlanPageReview(
         error:
           'Для сверки нужен PDF с нативными линиями и подписями. Обычное чтение остаётся доступным.',
       }
-    const issue = planPageReviewIssue(contours, before, source, page.linework)
+    const issue = sourceTopologyDraftIssue({
+      contours,
+      reading: before,
+      source,
+      linework: page.linework,
+      evidence:
+        hasSourceTopology && page.nativeTextAnchors && page.lineworkRasterSource
+          ? {
+              native: page.nativeTextAnchors,
+              work: page.linework,
+              lineworkSource: page.lineworkRasterSource,
+            }
+          : undefined,
+    })
     if (issue) {
       return {
         ok: false,
@@ -161,7 +202,12 @@ export async function savePlanPageReview(
       }
     }
     const sourceRooms = planPageRoomInventory(page.image.planText)
-    for (const room of contours.rooms) {
+    // Source-only snapshots have no dimension edges and must not enter physical binding checks.
+    const dimensionContours = {
+      ...contours,
+      rooms: contours.rooms.filter((room) => room.sourceTopology === undefined),
+    }
+    for (const room of dimensionContours.rooms) {
       for (const edge of room.dimensionEdges ?? []) {
         const selected = edge.labelIndexes.flatMap((index) => {
           const label = labels[index]
@@ -172,7 +218,7 @@ export async function savePlanPageReview(
         const binding = pdfDimensionForEdge(
           page.linework,
           source,
-          contours,
+          dimensionContours,
           pdfContourIdentity(room),
           edge,
           selected,
@@ -198,10 +244,9 @@ export async function savePlanPageReview(
     }
     const previousContours = before.pageReview?.contours
     if (
-      previousContours &&
       before.geometry &&
-      geometryUsesReview(before, previousContours) &&
-      contourGeometryKey(previousContours) !== contourGeometryKey(contours)
+      geometryUsesReview(before, previousContours ?? contours) &&
+      (!previousContours || contourGeometryKey(previousContours) !== contourGeometryKey(contours))
     ) {
       const { confirmedAt: _confirmation, ...geometry } = before.geometry
       reading.geometry = {

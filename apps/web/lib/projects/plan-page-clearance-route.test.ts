@@ -44,6 +44,57 @@ function room(): PlanPageContours {
 }
 
 describe('constructive square-clearance route', () => {
+  it.each(['decimal', 'rational'])(
+    'refuses every route when %s source paint topology has not been classified',
+    (precision) => {
+      const input = room()
+      const sourceRoom = input.rooms[0]
+      if (!sourceRoom) throw new Error('Missing source room')
+      const cleanRoom = structuredClone(sourceRoom)
+      cleanRoom.roomSourceNumber = 2
+      cleanRoom.polygon = cleanRoom.polygon.map(({ x, y }) => ({ x: x + 400, y }))
+      cleanRoom.openings = cleanRoom.openings?.map((opening) => ({
+        ...opening,
+        start: { ...opening.start, x: opening.start.x + 400 },
+        end: { ...opening.end, x: opening.end.x + 400 },
+      }))
+      input.rooms.push(cleanRoom)
+      if (precision === 'rational') sourceRoom.polygon[0] = { x: 301 / 3, y: 100 }
+      sourceRoom.sourceTopology = {
+        kind: 'unclassified-source-paint',
+        floorId: 'source-floor',
+        exactPointKeys: [
+          precision === 'rational' ? '301/3:100/1' : '100/1:100/1',
+          '300/1:100/1',
+          '300/1:300/1',
+          '100/1:300/1',
+        ],
+        holes: [
+          [
+            { x: 180, y: 180 },
+            { x: 220, y: 180 },
+            { x: 220, y: 220 },
+            { x: 180, y: 220 },
+          ],
+        ],
+        holeExactPointKeys: [['180/1:180/1', '220/1:180/1', '220/1:220/1', '180/1:220/1']],
+      }
+      const before = structuredClone(input)
+      const reports = inspectPlanPageClearanceRoutes(input, [], page, 1, 70)
+      expect(reports).toHaveLength(2)
+      expect(reports.map((report) => report.contourKey)).toEqual(['1', '2'])
+      for (const report of reports)
+        expect(report).toMatchObject({
+          status: 'unresolved',
+          reason: 'unclassified-source-topology',
+          widthCm: 70,
+          doorIds: ['left', 'right'],
+          reachedDoorIds: [],
+          checkedNodes: 0,
+        })
+      expect(input).toEqual(before)
+    },
+  )
   it('checks the entry footprint in a room with one door', () => {
     const input = room()
     const firstRoom = input.rooms[0]

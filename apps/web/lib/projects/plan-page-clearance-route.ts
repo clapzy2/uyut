@@ -11,6 +11,7 @@ export type PageClearanceRoute = {
   widthCm: number
   status: 'constructive-route' | 'entry-clearance' | 'unresolved' | 'not-applicable'
   reason?:
+    | 'unclassified-source-topology'
     | 'door-off-boundary'
     | 'door-too-narrow'
     | 'entry-footprint'
@@ -83,6 +84,18 @@ export function inspectPlanPageClearanceRoutes(
   widthCm: number,
   gridStepCm = 10,
 ): PageClearanceRoute[] {
+  if (contours.rooms.some((room) => room.sourceTopology !== undefined))
+    return contours.rooms.map((room) => ({
+      contourKey: pdfContourKey(room),
+      widthCm,
+      status: 'unresolved',
+      reason: 'unclassified-source-topology',
+      doorIds: (room.openings ?? [])
+        .filter((opening) => opening.kind === 'door')
+        .map((opening) => opening.id),
+      reachedDoorIds: [],
+      checkedNodes: 0,
+    }))
   if (
     !Number.isFinite(cmPerPoint) ||
     cmPerPoint <= 0 ||

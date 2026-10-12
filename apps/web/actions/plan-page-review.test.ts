@@ -2,7 +2,11 @@ import { createHash } from 'node:crypto'
 import type { PlanGeometry, PlanPageContours, PlanReading } from '@uyut/db'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
+import { floorHeightFixture } from '@/lib/projects/plan-native-reviewed-floor-heights.fixture'
+import { nativeVisiblePaintRegions } from '@/lib/projects/plan-native-visible-paint'
 import { planPageGeometryElementId } from '@/lib/projects/plan-page-metric-draft'
+import { planPageSourceFloors } from '@/lib/projects/plan-page-source-floors'
+import { sourceTopologyDraftIssue } from '@/lib/projects/plan-page-source-topology'
 import { edgeDimensionFixture } from '@/lib/projects/test-fixtures/plan-page-edge-dimensions'
 import features from '../../../docs/qa/fixtures/apartment-74-77-page-features.json'
 
@@ -103,6 +107,252 @@ describe('save source page review action', () => {
     mocks.prepare.mockResolvedValue(page)
     mocks.save.mockResolvedValue(undefined)
   })
+
+  function sourceActionFixture() {
+    const evidence = floorHeightFixture()
+    evidence.native.originalPdfSha256 = contours.source.sha256
+    evidence.reviewedFloors.source.sha256 = contours.source.sha256
+    evidence.work.paths.push(
+      {
+        operationIndex: 20,
+        subpathIndex: 0,
+        paint: 'fill',
+        closed: true,
+        points: [
+          { x: 200, y: 200 },
+          { x: 230, y: 200 },
+          { x: 230, y: 230 },
+          { x: 200, y: 230 },
+        ],
+      },
+      {
+        operationIndex: 30,
+        subpathIndex: 0,
+        paint: 'fill',
+        closed: true,
+        points: [
+          { x: 251, y: 80 },
+          { x: 310, y: 111 },
+          { x: 270, y: 141 },
+        ],
+      },
+    )
+    const piece = nativeVisiblePaintRegions(evidence).regions.find(
+      (region) => region.candidateId === 'native-fill-10:0',
+    )?.pieces[0]
+    const selection = evidence.reviewedFloors.floors[0]
+    if (!piece || !selection) throw new Error('Missing source selection')
+    Object.assign(selection, {
+      polygon: piece.polygon,
+      holes: piece.holes,
+      boundaryRoles: piece.polygon.map((_, edgeIndex) => ({ edgeIndex, kind: 'unresolved' })),
+    })
+    const before: PlanReading = {
+      sourcePage: 3,
+      planState: 'existing',
+      readAt: '2026-10-12',
+      rooms: [{ name: 'Спальня', sourceNumber: 3.1, kind: 'bedroom' }],
+      paintedFloorReview: {
+        version: 1,
+        savedAt: 'old',
+        draftJson: JSON.stringify(evidence.reviewedFloors),
+      },
+    }
+    const source = evidence.reviewedFloors.source
+    const reference = planPageSourceFloors({
+      source,
+      sourceRevision: 'c'.repeat(64),
+      reading: before,
+      evidence,
+      pageWidth: 1000,
+      pageHeight: 1000,
+    })
+    const floor = reference.floors[0]
+    if (!floor) throw new Error('Missing fresh source floor')
+    const selected: PlanPageContours = {
+      source,
+      coordinateSystem: 'page-0-1000',
+      review: 'manual-source-review',
+      pageWidth: 1000,
+      pageHeight: 1000,
+      rooms: [
+        {
+          roomSourceNumber: 3.1,
+          polygon: floor.polygon,
+          sourceTopology: {
+            kind: 'unclassified-source-paint',
+            floorId: floor.id,
+            exactPointKeys: floor.exactPointKeys,
+            holes: floor.holes,
+            holeExactPointKeys: floor.holeExactPointKeys,
+          },
+        },
+      ],
+    }
+    const prepared = {
+      ...page,
+      pageNumber: 3,
+      linework: evidence.work,
+      nativeTextAnchors: evidence.native,
+      lineworkRasterSource: evidence.lineworkSource,
+    }
+    mocks.owner.mockResolvedValue({ ...project, planReading: before })
+    mocks.prepare.mockResolvedValue(prepared)
+    return { before, selected, evidence }
+  }
+
+  it('saves exact source intersections and holes and revalidates their persisted snapshot without metric acceptance', async () => {
+    const input = sourceActionFixture()
+    const before = structuredClone(input.before)
+    const result = await savePlanPageReview(
+      'project',
+      input.selected,
+      planEditRevision('plan.pdf', input.before),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    const saved = result.data.reading.pageReview?.contours
+    expect(saved).toEqual(input.selected)
+    if (!saved) throw new Error('Missing saved source topology')
+    expect(
+      sourceTopologyDraftIssue({
+        contours: JSON.parse(JSON.stringify(saved)),
+        reading: result.data.reading,
+        source: input.selected.source,
+        linework: input.evidence.work,
+        evidence: input.evidence,
+      }),
+    ).toBeUndefined()
+    expect(result.data.reading.geometry).toBeUndefined()
+    expect(result.data.reading.rooms).toEqual(before.rooms)
+    expect(input.before).toEqual(before)
+    expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 3, true, true)
+  })
+
+  it.each(['keys', 'holes', 'owner', 'missing-source', 'revision'])(
+    'rejects %s without saving a partially valid source snapshot',
+    async (fault) => {
+      const input = sourceActionFixture()
+      const room = input.selected.rooms[0]
+      if (!room?.sourceTopology) throw new Error('Missing source snapshot')
+      if (fault === 'keys') room.sourceTopology.exactPointKeys[0] = '1/1:1/1'
+      if (fault === 'holes') {
+        room.sourceTopology.holes = []
+        room.sourceTopology.holeExactPointKeys = []
+      }
+      if (fault === 'owner') room.sourceTopology.floorId = 'other-source-floor'
+      if (fault === 'missing-source')
+        mocks.prepare.mockResolvedValue({ ...page, pageNumber: 3, linework: input.evidence.work })
+      expect(
+        (
+          await savePlanPageReview(
+            'project',
+            input.selected,
+            fault === 'revision' ? 'stale' : planEditRevision('plan.pdf', input.before),
+          )
+        ).ok,
+      ).toBe(false)
+      expect(mocks.save).not.toHaveBeenCalled()
+    },
+  )
+
+  it('preserves legacy edge bindings beside an unclassified source snapshot', async () => {
+    const input = sourceActionFixture()
+    const legacy = edgeDimensionFixture(0)
+    input.before.rooms.push(...legacy.reading.rooms)
+    input.selected.rooms.push(...structuredClone(legacy.contours.rooms))
+    input.evidence.work.paths.push(
+      ...legacy.work.paths.map((path) => ({ ...path, operationIndex: path.operationIndex + 200 })),
+    )
+    mocks.owner.mockResolvedValue({ ...project, planReading: input.before })
+    mocks.prepare.mockResolvedValue({
+      ...page,
+      pageNumber: 3,
+      linework: input.evidence.work,
+      nativeTextAnchors: input.evidence.native,
+      lineworkRasterSource: input.evidence.lineworkSource,
+      image: { ...page.image, planText: legacy.context.planText },
+    })
+    const result = await savePlanPageReview(
+      'project',
+      input.selected,
+      planEditRevision('plan.pdf', input.before),
+    )
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading.pageReview?.contours).toEqual(input.selected)
+    expect(result.data.reading.geometry).toBeUndefined()
+    expect(mocks.save).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['single', 'group'])(
+    'blocks source marker removal through a %s replacement, preserving holes',
+    async (kind) => {
+      const input = sourceActionFixture()
+      input.before.rooms.push({ name: 'Другая комната', sourceNumber: 4, kind: 'bedroom' })
+      input.before.pageReview = {
+        version: 1,
+        savedAt: 'old',
+        contours: structuredClone(input.selected),
+      }
+      const original = input.selected.rooms[0]
+      if (!original) throw new Error('Missing source room')
+      input.selected.rooms = [
+        kind === 'single'
+          ? { roomSourceNumber: 3.1, polygon: original.polygon }
+          : { roomSourceNumbers: [3.1, 4], polygon: original.polygon },
+      ]
+      const result = await savePlanPageReview(
+        'project',
+        input.selected,
+        planEditRevision('plan.pdf', input.before),
+      )
+      expect(result.ok).toBe(false)
+      expect(mocks.prepare).not.toHaveBeenCalled()
+      expect(mocks.save).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['first-review', 'exact-key-change'])(
+    'demotes related confirmed metric geometry on %s without changing measured data',
+    async (kind) => {
+      const input = sourceActionFixture()
+      input.before.geometry = {
+        ...importedGeometry(),
+        pdfCalibration: {
+          sourceSha256: input.selected.source.sha256,
+          pdfPage: 3,
+          cmPerPoint: 1,
+          origin: { x: 0, y: 0 },
+          anchorRoomNumbers: [3.1],
+          labelIndexes: [],
+          derivedOpeningIds: [],
+        },
+      }
+      if (kind === 'exact-key-change') {
+        input.before.pageReview = {
+          version: 1,
+          savedAt: 'old',
+          contours: structuredClone(input.selected),
+        }
+        const old = input.before.pageReview.contours.rooms[0]?.sourceTopology
+        if (!old) throw new Error('Missing prior source snapshot')
+        old.exactPointKeys[0] = '1/1:1/1'
+      }
+      const result = await savePlanPageReview(
+        'project',
+        input.selected,
+        planEditRevision('plan.pdf', input.before),
+      )
+      if (!result.ok) throw new Error(result.error)
+      expect(result.data.reading.geometry).toMatchObject({
+        status: 'draft',
+        requiresSourceReviewReimport: true,
+        walls: input.before.geometry.walls,
+      })
+      expect(result.data.reading.geometry).not.toHaveProperty('confirmedAt')
+      expect(input.before.geometry.status).toBe('confirmed')
+    },
+  )
 
   function separateFloorFixture() {
     const polygon = (start: number, end: number) => [

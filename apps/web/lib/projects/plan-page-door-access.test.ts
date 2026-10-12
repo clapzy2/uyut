@@ -129,6 +129,48 @@ function fixture() {
 }
 
 describe('both sides of source-backed door adjacency', () => {
+  it.each(['decimal', 'rational'])(
+    'retains adjacency but refuses supplied clear routes for %s unclassified source topology',
+    (precision) => {
+      const { geometry, contours, routes } = fixture()
+      const sourceRoom = required(contours.rooms[0])
+      if (precision === 'rational') sourceRoom.polygon[0] = { x: 661 / 3, y: 0 }
+      sourceRoom.sourceTopology = {
+        kind: 'unclassified-source-paint',
+        floorId: 'source-floor',
+        exactPointKeys: [
+          precision === 'rational' ? '661/3:0/1' : '220/1:0/1',
+          '420/1:0/1',
+          '420/1:200/1',
+          '220/1:200/1',
+        ],
+        holes: [
+          [
+            { x: 250, y: 20 },
+            { x: 280, y: 20 },
+            { x: 280, y: 40 },
+            { x: 250, y: 40 },
+          ],
+        ],
+        holeExactPointKeys: [['250/1:20/1', '280/1:20/1', '280/1:40/1', '250/1:40/1']],
+      }
+      const before = structuredClone({ geometry, contours, routes })
+      expect(inspectPlanPageDoorAccess(geometry, contours, routes)).toEqual([
+        {
+          roomIndexes: [0, 1],
+          openingIds: geometry.openings.map((opening) => opening.id),
+          status: 'unresolved',
+          sides: geometry.openings.map((opening, roomIndex) => ({
+            roomIndex,
+            openingId: opening.id,
+            status: 'unresolved',
+            reason: 'unclassified-source-topology',
+          })),
+        },
+      ])
+      expect({ geometry, contours, routes }).toEqual(before)
+    },
+  )
   it('matches reordered contours and compound room identities', () => {
     const { geometry, contours, routes } = fixture()
     expect(inspectPlanPageDoorAccess(geometry, contours, routes)).toEqual([

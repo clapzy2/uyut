@@ -147,7 +147,9 @@ export function PlanPageContourEditor({
         selectedDraft?.conditionalEdges?.length,
     ) || Boolean(selectedDraft?.dimensionEdges?.length)
   const pointsLocked =
-    locked || (!editingBoundary && !selectedVoid && target.kind === 'room' && roomHasFeatures)
+    locked ||
+    (!editingBoundary && !selectedVoid && target.kind === 'room' && roomHasFeatures) ||
+    (!editingBoundary && !selectedVoid && Boolean(selectedDraft?.sourceTopology))
   const selectedOpening =
     target.kind === 'opening'
       ? selectedDraft?.openings?.find((item) => item.id === target.id)
@@ -208,9 +210,9 @@ export function PlanPageContourEditor({
   const sourceFloorConversion = useMemo(
     () =>
       sourceFloorsShown && preview
-        ? sourceFloorDraft(selectedSourceFloor, nativePoints, nativeSegments, preview)
+        ? sourceFloorDraft(selectedSourceFloor)
         : { kind: 'held' as const, reason: 'missing-selection' as const },
-    [sourceFloorsShown, selectedSourceFloor, nativePoints, nativeSegments, preview],
+    [sourceFloorsShown, selectedSourceFloor, preview],
   )
 
   useEffect(() => {
@@ -400,6 +402,7 @@ export function PlanPageContourEditor({
         ? current
         : [...current, candidate],
     )
+    setSourceFloorsShown(false)
     resetReview()
   }
 
@@ -584,7 +587,8 @@ export function PlanPageContourEditor({
   }
 
   function toggleConditionalEdge(wallEdgeIndex: number) {
-    if (locked || !selectedDraft?.closed || target.kind !== 'room') return
+    if (locked || !selectedDraft?.closed || selectedDraft.sourceTopology || target.kind !== 'room')
+      return
     if (selectedDraft.openings?.some((opening) => opening.wallEdgeIndex === wallEdgeIndex)) return
     setDrafts((current) =>
       current.map((draft) => {
@@ -815,7 +819,8 @@ export function PlanPageContourEditor({
       {!editingBoundary &&
       selectedIdentity?.roomSourceNumbers === undefined &&
       selectedIdentity &&
-      groupCandidates.length ? (
+      groupCandidates.length &&
+      !selectedDraft?.sourceTopology ? (
         <label className="block max-w-sm space-y-1 text-sm">
           <span className="block">Общая зона без стены между номерами</span>
           <select
@@ -936,7 +941,11 @@ export function PlanPageContourEditor({
           </Button>
         </div>
       </div>
-      {!editingBoundary && !selectedVoid && selectedDraft?.closed && target.kind === 'room' ? (
+      {!editingBoundary &&
+      !selectedVoid &&
+      selectedDraft?.closed &&
+      !selectedDraft.sourceTopology &&
+      target.kind === 'room' ? (
         <div className="space-y-2 border-l-2 border-accent pl-3 text-sm">
           <p className="font-medium text-ink">Открытая зона без перегородки</p>
           <p className="text-xs leading-relaxed text-ink-2">
@@ -972,6 +981,7 @@ export function PlanPageContourEditor({
       {!editingBoundary &&
       !selectedVoid &&
       selectedDraft?.closed &&
+      !selectedDraft.sourceTopology &&
       target.kind === 'room' &&
       state === 'existing' ? (
         <PlanPageEdgeDimensions
@@ -992,7 +1002,7 @@ export function PlanPageContourEditor({
           }}
         />
       ) : null}
-      {selected && !selectedVoid && !editingBoundary ? (
+      {selected && !selectedVoid && !editingBoundary && !selectedDraft?.sourceTopology ? (
         <PlanPageFeatures
           key={`features-${selected}-${target.kind}-${target.kind === 'room' ? '' : target.id}`}
           draft={selectedDraft}
@@ -1004,6 +1014,19 @@ export function PlanPageContourEditor({
           onChangeEdge={changeEdge}
           sourceCheck={sourceCheck}
         />
+      ) : null}
+      {selectedDraft?.sourceTopology && !editingBoundary && !selectedVoid ? (
+        <div className="space-y-2 border-l-2 border-line pl-3">
+          <p role="status" className="text-sm leading-relaxed text-ink-2">
+            Исходный контур сохранён с точными ключами и {selectedDraft.sourceTopology.holes.length}{' '}
+            вырезами. Это ещё не физическая граница комнаты. Вершины, проёмы и размерные привязки
+            здесь не редактируются; контур можно сохранить, открыть снова или удалить целиком.
+            Перенос в размеры, 2D/3D и маршруты пока заблокирован.
+          </p>
+          <Button size="sm" variant="ghost" disabled={locked} onClick={removeTarget}>
+            Удалить исходный черновик
+          </Button>
+        </div>
       ) : null}
       {loading ? (
         <p role="status" className="text-sm text-ink-2">
@@ -1247,7 +1270,26 @@ export function PlanPageContourEditor({
                       className={isSelected ? 'text-accent' : 'text-ink-2'}
                       pointerEvents="none"
                     >
-                      {valid && draft.closed ? (
+                      {valid && draft.closed && draft.sourceTopology ? (
+                        <path
+                          d={sourceFloorReferencePath({
+                            polygon: draft.polygon,
+                            holes: draft.sourceTopology.holes,
+                          })}
+                          fill="#b45309"
+                          fillOpacity={0.12}
+                          fillRule="evenodd"
+                          stroke="#b45309"
+                          strokeWidth={2}
+                          strokeDasharray="5 4"
+                          vectorEffect="non-scaling-stroke"
+                        >
+                          <title>
+                            Исходный контур № {pdfContourKey(draft)}; физические границы не
+                            подтверждены.
+                          </title>
+                        </path>
+                      ) : valid && draft.closed ? (
                         <polygon
                           points={coordinates}
                           fill="currentColor"
@@ -1456,8 +1498,9 @@ export function PlanPageContourEditor({
             onChange={(event) => setChecked(event.target.checked)}
           />
           <span>
-            Сверил контуры комнат и технических пустот, проёмы, неподвижные объекты, номера комнат,
-            внешнюю границу, отдельный контур пола и состояние квартиры с исходным листом.
+            {drafts.some((draft) => draft.sourceTopology !== undefined)
+              ? 'Сверил исходные снимки и обычную разметку с выбранным листом. Исходные снимки остаются неподтверждёнными физическими границами.'
+              : 'Сверил контуры комнат и технических пустот, проёмы, неподвижные объекты, номера комнат, внешнюю границу, отдельный контур пола и состояние квартиры с исходным листом.'}
           </span>
         </label>
         <Button

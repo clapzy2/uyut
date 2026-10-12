@@ -120,6 +120,8 @@ export function pdfContourIssue(
   source: PdfPlanSource,
   contours: PdfRoomContours,
 ): string | undefined {
+  if (contours.rooms.some((room) => room.sourceTopology !== undefined))
+    return 'unclassified-source-topology'
   if (work.truncated || work.unsupportedContexts > 0 || work.unsupportedPaths > 0)
     return 'incomplete-vector-layer'
   if (

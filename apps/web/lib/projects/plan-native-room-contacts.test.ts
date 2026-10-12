@@ -18,6 +18,47 @@ function sample(polygons: PagePoint[][]) {
   }
 }
 describe('exact-decimal common boundaries, never physical passage proof', () => {
+  it.each(['decimal', 'rational'])(
+    'refuses the whole contact report for unclassified %s source topology with holes',
+    (precision) => {
+      const input = sample([rect(10, 10, 100, 100), rect(100, 30, 150, 70)])
+      const sourceRoom = input.rooms[0]
+      if (!sourceRoom) throw new Error('Missing source room')
+      if (precision === 'rational') sourceRoom.polygon[0] = { x: 31 / 3, y: 10 }
+      const marked = {
+        ...input,
+        rooms: input.rooms.map((room, index) =>
+          index === 0
+            ? {
+                ...room,
+                sourceTopology: {
+                  kind: 'unclassified-source-paint' as const,
+                  floorId: 'source-floor',
+                  exactPointKeys: [
+                    precision === 'rational' ? '31/3:10/1' : '10/1:10/1',
+                    '100/1:10/1',
+                    '100/1:100/1',
+                    '10/1:100/1',
+                  ],
+                  holes: [rect(20, 20, 30, 30)],
+                  holeExactPointKeys: [['20/1:20/1', '30/1:20/1', '30/1:30/1', '20/1:30/1']],
+                },
+              }
+            : room,
+        ),
+      }
+      const before = structuredClone(marked)
+      expect(nativeRoomContacts(marked)).toEqual({
+        status: 'unresolved',
+        reason: 'unclassified-source-topology',
+        total: 0,
+        truncated: false,
+        spans: [],
+        physicalPassagesAccepted: false,
+      })
+      expect(marked).toEqual(before)
+    },
+  )
   it('keeps source 3 and 3.1 distinct without certifying a physical passage', () => {
     const input = sample([rect(10, 10, 100, 100), rect(100, 30, 150, 70)])
     const [parent, child] = input.rooms

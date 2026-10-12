@@ -36,6 +36,8 @@ export function nativeRoomContacts(
     spans: [],
     physicalPassagesAccepted: false,
   })
+  if (contours.rooms.some((room) => room.sourceTopology !== undefined))
+    return fail('unclassified-source-topology')
   if (
     contours.coordinateSystem !== 'page-0-1000' ||
     contours.source.state !== 'existing' ||

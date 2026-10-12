@@ -46,6 +46,7 @@ export function findPlanPageWallBodySupports(
   work: PdfLinework,
   contours: PlanPageContours,
 ): PdfWallBodySupport[] {
+  if (contours.rooms.some((room) => room.sourceTopology !== undefined)) return []
   if (
     work.truncated ||
     work.clippedPaths > 0 ||

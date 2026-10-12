@@ -472,13 +472,65 @@ describe('source-floor bridge in the existing editor', () => {
     expect(hooks.setters.get(slots.drafts)).not.toHaveBeenCalled()
     controls(editor).onCopy()
     expect(updateFor(slots.drafts, [])).toEqual([
-      { roomSourceNumber: 1, polygon: fixture.polygon, closed: true },
+      {
+        roomSourceNumber: 1,
+        polygon: fixture.polygon,
+        closed: true,
+        sourceTopology: {
+          kind: 'unclassified-source-paint',
+          floorId: 'source-floor-1',
+          exactPointKeys: fixture.polygon.map((point) => exactNativePointKey(point) as string),
+          holes: [],
+          holeExactPointKeys: [],
+        },
+      },
     ])
     expect(updateFor(slots.checked, true)).toBe(false)
     expect(hooks.setters.get(2)).not.toHaveBeenCalled()
     expect(savePlanPageReview).not.toHaveBeenCalled()
   })
-  it.each(['existing-draft', 'hidden', 'loading', 'revision', 'holes', 'rational'])(
+  it('keeps rational crossings and holes in a source-only draft, locks vertex editing and allows whole removal', () => {
+    const { fixture, reference } = setup()
+    const floor = reference.floors[0]
+    if (!floor) throw new Error('Missing selected source')
+    floor.exactPointKeys[0] = '31/3:10/1'
+    floor.holes = [
+      [
+        { x: 15, y: 15 },
+        { x: 20, y: 15 },
+        { x: 20, y: 20 },
+      ],
+    ]
+    floor.holeExactPointKeys = [['15/1:15/1', '20/1:15/1', '20/1:20/1']]
+    controls(renderEditor(fixture.reading, revision)).onCopy()
+    const drafts = updateFor(slots.drafts, []) as ReturnType<typeof contourDraftsFromSaved>
+    expect(drafts[0]?.sourceTopology).toMatchObject({
+      exactPointKeys: floor.exactPointKeys,
+      holes: floor.holes,
+      holeExactPointKeys: floor.holeExactPointKeys,
+    })
+    hooks.values.set(slots.drafts, drafts)
+    hooks.cursor = 0
+    const editor = renderEditor(fixture.reading, revision)
+    const points = nestedProps<ComponentProps<typeof PlanPagePointControls>>(
+      editor,
+      PlanPagePointControls,
+    )
+    expect(points?.locked).toBe(true)
+    const findRemoval = (node: unknown): ReactElement<{ onClick: () => void }> | undefined => {
+      if (Array.isArray(node)) return node.map(findRemoval).find(Boolean)
+      if (!node || typeof node !== 'object' || !('props' in node)) return undefined
+      const element = node as ReactElement<{ onClick: () => void; children?: unknown }>
+      if (element.props.children === 'Удалить исходный черновик') return element
+      return findRemoval(element.props.children)
+    }
+    const remove = findRemoval(editor)
+    if (!remove) throw new Error('Whole source removal missing')
+    remove.props.onClick()
+    expect(updateFor(slots.drafts, drafts)).toEqual([])
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
+  it.each(['existing-draft', 'hidden', 'loading', 'revision'])(
     'refuses copy when %s without replacing any working geometry',
     (fault) => {
       const { fixture, reference } = setup()
@@ -489,8 +541,6 @@ describe('source-floor bridge in the existing editor', () => {
       if (fault === 'revision') reference.sourceRevision = 'c'.repeat(64)
       const floor = reference.floors[0]
       if (!floor) throw new Error('Missing reference')
-      if (fault === 'holes') floor.holes.push(structuredClone(fixture.polygon))
-      if (fault === 'rational') floor.exactPointKeys[0] = '31/3:10/1'
       controls(renderEditor(fixture.reading, revision)).onCopy()
       expect(hooks.setters.get(slots.drafts)).not.toHaveBeenCalled()
       expect(savePlanPageReview).not.toHaveBeenCalled()

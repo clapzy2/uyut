@@ -44,6 +44,7 @@ export function inspectPlanPageDoorAccess(
   contours: PlanPageContours,
   clearanceRoutes: readonly PageClearanceRoute[],
 ): PageDoorAccess[] {
+  const hasSourceTopology = contours.rooms.some((room) => room.sourceTopology !== undefined)
   const sourceMatches =
     geometry.pdfCalibration?.sourceSha256 === contours.source.sha256 &&
     geometry.pdfCalibration.pdfPage === contours.source.pdfPage &&
@@ -57,6 +58,7 @@ export function inspectPlanPageDoorAccess(
 
   function inspectSide(roomIndex: number, openingId: string): PageDoorAccessSide {
     const base = { roomIndex, openingId, status: 'unresolved' as const }
+    if (hasSourceTopology) return { ...base, reason: 'unclassified-source-topology' }
     if (!sourceMatches) return { ...base, reason: 'source-mismatch' }
     const key = geometryKeys[roomIndex]
     if (key === undefined || geometryKeys.filter((value) => value === key).length !== 1)

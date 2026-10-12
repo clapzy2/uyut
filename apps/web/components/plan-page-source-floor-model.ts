@@ -2,13 +2,7 @@ import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { z } from 'zod'
 import { exactNativePointKey } from '@/lib/projects/plan-native-exact-intersections'
 import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
-import type { NativePageSegment } from '@/lib/projects/plan-pdf-opening-endpoint'
-import type {
-  PageContourDraft,
-  PageContourPoint,
-  PlanPagePreview,
-} from './plan-page-contour-editor-model'
-import { snapPageSourceContourPoint } from './plan-page-vertex-candidate'
+import type { PageContourDraft, PlanPagePreview } from './plan-page-contour-editor-model'
 
 const point = z.strictObject({ x: z.number().min(0).max(1000), y: z.number().min(0).max(1000) })
 const ring = z.array(point).min(3).max(100)
@@ -120,39 +114,28 @@ export type SourceFloorDraftResult =
 /** Whole-ring copy only. No holes become voids, and no nearby node replaces a source vertex. */
 export function sourceFloorDraft(
   floor: SourceFloorReference['floors'][number] | undefined,
-  nativePoints: PageContourPoint[],
-  segments: readonly NativePageSegment[],
-  page: PlanPagePreview,
 ): SourceFloorDraftResult {
   if (!floor) return { kind: 'held', reason: 'missing-selection' }
-  if (floor.holes.length) return { kind: 'held', reason: 'holes' }
-  if (
-    floor.polygon.some((point, index) => exactNativePointKey(point) !== floor.exactPointKeys[index])
-  )
-    return { kind: 'held', reason: 'rational-precision' }
-  const vertexProofs: NonNullable<PageContourDraft['vertexProofs']> = []
-  for (const [index, point] of floor.polygon.entries()) {
-    const candidate = snapPageSourceContourPoint(point, nativePoints, page, segments, index)
-    if (
-      candidate.kind !== 'candidate' ||
-      candidate.point.x !== point.x ||
-      candidate.point.y !== point.y
-    )
-      return { kind: 'held', reason: 'unproved-vertex' }
-    if (candidate.vertexProof) vertexProofs.push(candidate.vertexProof)
-  }
   return {
     kind: 'candidate',
     draft: {
       roomSourceNumber: Number(floor.sourceRoomKey),
       polygon: structuredClone(floor.polygon),
       closed: true,
-      ...(vertexProofs.length ? { vertexProofs } : {}),
+      sourceTopology: {
+        kind: 'unclassified-source-paint',
+        floorId: floor.id,
+        exactPointKeys: [...floor.exactPointKeys],
+        holes: structuredClone(floor.holes),
+        holeExactPointKeys: structuredClone(floor.holeExactPointKeys),
+      },
     },
   }
 }
 
-export function sourceFloorReferencePath(floor: SourceFloorReference['floors'][number]): string {
+export function sourceFloorReferencePath(
+  floor: Pick<SourceFloorReference['floors'][number], 'polygon' | 'holes'>,
+): string {
   return [floor.polygon, ...floor.holes]
     .map(
       (ring) =>

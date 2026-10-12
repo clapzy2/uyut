@@ -10,6 +10,7 @@ export type DoorFloorConnectivity = {
   freeComponentCount: number
   doors: DoorLocation[]
   status: 'connected-centerline' | 'disconnected' | 'unresolved' | 'not-applicable'
+  reason?: 'unclassified-source-topology'
 }
 
 function onRing(point: PagePoint, ring: number[][]): boolean {
@@ -51,6 +52,16 @@ export function inspectPlanPageDoorFloorConnectivity(
   contours: PlanPageContours,
   paintedBody: MultiPolygon,
 ): DoorFloorConnectivity[] {
+  if (contours.rooms.some((room) => room.sourceTopology !== undefined))
+    return contours.rooms.map((room) => ({
+      contourKey: pdfContourKey(room),
+      freeComponentCount: 0,
+      doors: (room.openings ?? [])
+        .filter((opening) => opening.kind === 'door')
+        .map((opening) => ({ openingId: opening.id, freeComponents: [] })),
+      status: 'unresolved',
+      reason: 'unclassified-source-topology',
+    }))
   return contours.rooms.map((room) => {
     const doors = (room.openings ?? []).filter((opening) => opening.kind === 'door')
     const floor: Polygon = [room.polygon.map((point) => [point.x, point.y])]

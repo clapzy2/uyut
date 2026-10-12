@@ -48,6 +48,22 @@ const render = (value: PlanReading) =>
   )
 
 describe('explicit source page import choice', () => {
+  it('shows an explicit source-only hold instead of inviting metric import', () => {
+    const value = structuredClone(reading)
+    const room = value.pageReview?.contours.rooms[0]
+    if (!room) throw new Error('Missing source room')
+    room.sourceTopology = {
+      kind: 'unclassified-source-paint',
+      floorId: 'source-floor-2',
+      exactPointKeys: ['100/1:100/1', '200/1:100/1', '200/1:200/1'],
+      holes: [],
+      holeExactPointKeys: [],
+    }
+    const html = render(value)
+    expect(html).toContain('физические границы ещё не проверены')
+    expect(html).not.toContain('Создать 2D-черновик из PDF')
+    expect(html).not.toContain('Обновить 2D-черновик из PDF')
+  })
   it('offers a held source reimport only with a separate initially unchecked acknowledgement', () => {
     const value: PlanReading = {
       ...reading,

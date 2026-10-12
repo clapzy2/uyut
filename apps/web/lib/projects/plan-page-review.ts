@@ -84,8 +84,25 @@ const conditionalEdgeSchema = z.strictObject({
     .optional(),
 })
 const sourceNumberSchema = z.number().refine(isPlanRoomSourceNumber)
+const exactPointKeysSchema = z
+  .array(
+    z
+      .string()
+      .max(256)
+      .regex(/^(0|[1-9]\d*)\/[1-9]\d*:(0|[1-9]\d*)\/[1-9]\d*$/),
+  )
+  .min(3)
+  .max(100)
+export const planPageSourceTopologySchema = z.strictObject({
+  kind: z.literal('unclassified-source-paint'),
+  floorId: z.string().min(1).max(128),
+  exactPointKeys: exactPointKeysSchema,
+  holes: z.array(z.array(pointSchema).min(3).max(100)).max(50),
+  holeExactPointKeys: z.array(exactPointKeysSchema).max(50),
+})
 const contourFields = {
   polygon: z.array(pointSchema).min(3).max(100),
+  sourceTopology: planPageSourceTopologySchema.optional(),
   vertexProofs: vertexProofsSchema,
   conditionalEdges: z.array(conditionalEdgeSchema).max(100).optional(),
   dimensionEdges: z
@@ -144,6 +161,28 @@ export const planPageContoursSchema = z
     rooms: z.array(contourSchema).min(1).max(100),
   })
   .superRefine((input, context) => {
+    let sourcePointCount = 0
+    for (const room of input.rooms) {
+      const topology = room.sourceTopology
+      if (!topology) continue
+      sourcePointCount +=
+        room.polygon.length + topology.holes.reduce((count, ring) => count + ring.length, 0)
+      if (
+        input.source.state !== 'existing' ||
+        'roomSourceNumbers' in room ||
+        ['vertexProofs', 'openings', 'obstacles', 'conditionalEdges', 'dimensionEdges'].some(
+          (field) => Object.hasOwn(room, field),
+        ) ||
+        topology.exactPointKeys.length !== room.polygon.length ||
+        topology.holeExactPointKeys.length !== topology.holes.length ||
+        topology.holes.some(
+          (ring, index) => topology.holeExactPointKeys[index]?.length !== ring.length,
+        )
+      )
+        context.addIssue({ code: 'custom', message: 'invalid-source-topology-draft' })
+    }
+    if (sourcePointCount > 10000)
+      context.addIssue({ code: 'custom', message: 'source-topology-work-limit' })
     const dimensions = input.rooms.flatMap((room) => room.dimensionEdges ?? [])
     if (dimensions.length > 12)
       context.addIssue({ code: 'custom', message: 'too-many-edge-dimensions' })
@@ -158,7 +197,12 @@ export const planPageContoursSchema = z
     const numbers = input.rooms.flatMap((room) => [...pdfContourRoomNumbers(room)])
     if (new Set(numbers).size !== numbers.length)
       context.addIssue({ code: 'custom', message: 'duplicate-room-membership' })
-    const issue = planPageFeaturesIssue(input)
+    // Source snapshots are verified against fresh exact paint evidence on save.
+    // Decimal physical predicates must never consume their display coordinates.
+    const issue = planPageFeaturesIssue({
+      ...input,
+      rooms: input.rooms.filter((room) => !room.sourceTopology),
+    })
     if (issue) context.addIssue({ code: 'custom', message: issue })
   })
 
@@ -337,6 +381,8 @@ export function planPageFeaturesIssue(
   input: PlanPageContours,
   options: { checkRoomOverlap?: boolean } = {},
 ): string | undefined {
+  if (input.rooms.some((room) => room.sourceTopology !== undefined))
+    return 'unclassified-source-topology'
   // This validator is source-space only. Unsupported decimal evidence fails closed;
   // generic metric-space callers keep the separate polygonsOverlap implementation.
   const sourceOverlap = (first: readonly PagePoint[], second: readonly PagePoint[]) =>
@@ -498,10 +544,14 @@ export function pageReviewRoomsMatch(
 
 /** Native nodes or fresh bounded crossing proofs only; never guessed page coordinates. */
 export function sourceRoomContourVertices(
-  room: Pick<PlanPageContours['rooms'][number], 'polygon' | 'conditionalEdges' | 'vertexProofs'>,
+  room: Pick<
+    PlanPageContours['rooms'][number],
+    'polygon' | 'conditionalEdges' | 'vertexProofs' | 'sourceTopology'
+  >,
   nativePoints: ReadonlySet<string>,
   segments: readonly NativePageSegment[],
 ): boolean {
+  if (room.sourceTopology !== undefined) return false
   const refKey = (
     ref: NativePageSegment | NonNullable<typeof room.vertexProofs>[number]['segments'][number],
   ) => `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`
@@ -604,6 +654,8 @@ export function planPageReviewIssue(
   source: PdfPlanSource,
   linework: PdfLinework,
 ): string | undefined {
+  if (input.rooms.some((room) => room.sourceTopology !== undefined))
+    return 'unclassified-source-topology'
   if (reading.sourcePage !== source.pdfPage || reading.planState !== source.state)
     return 'different-reading-source'
   if (!pageReviewRoomsMatch(input, reading)) return 'unknown-room-number'
