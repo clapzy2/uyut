@@ -51,6 +51,9 @@ type Input = Omit<Parameters<typeof nativeHeightObservations>[0], 'source'> & {
   floorReviewSavedAt: string
   reviewed?: unknown
 }
+const validPoint = (point: PagePoint | undefined): point is PagePoint =>
+  !!point &&
+  [point.x, point.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000)
 
 /** Whole caption containment uses the unrounded paint topology, including holes. */
 function containsCaption(
@@ -179,8 +182,8 @@ export function nativeReviewedFloorHeightBindings(input: Input) {
       !label?.pagePoint ||
       !height ||
       item.text !== label.name ||
-      !item.baselineStart ||
-      !item.baselineEnd ||
+      !validPoint(item.baselineStart) ||
+      !validPoint(item.baselineEnd) ||
       !Array.isArray(item.quad) ||
       item.quad.length !== 4 ||
       item.quad.some(

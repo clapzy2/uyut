@@ -102,6 +102,15 @@ export function nativeFaceRationalPredicates() {
     return compare(point(startKey)[axis], point(endKey)[axis]) < 0 ? { startKey, endKey } : null
   }
   return {
+    midpointKey(a: string, b: string) {
+      const first = point(a),
+        second = point(b)
+      const midpoint = (left: Fraction, right: Fraction) => {
+        const value = multiply(add(left, right), fraction(1n, 2n))
+        return `${value.n}/${value.d}`
+      }
+      return `${midpoint(first.x, second.x)}:${midpoint(first.y, second.y)}`
+    },
     physicalDotSign(a: string, b: string, c: string, d: string, width: number, height: number) {
       const scale = (value: number) => {
         if (!Number.isFinite(value) || value <= 0) throw new Error('Invalid physical page scale')

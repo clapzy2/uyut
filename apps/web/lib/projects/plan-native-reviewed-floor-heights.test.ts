@@ -100,6 +100,26 @@ describe('reviewed source room-height bindings', () => {
     }
     expect(nativeReviewedFloorHeightBindings({ ...input, reviewed }).refusalReason).toBeNull()
   })
+  it.each(['nan-start', 'infinite-end', 'outside-end'])(
+    'does not bind a whole H caption with invalid %s baseline evidence',
+    (fault) => {
+      const input = floorHeightFixture()
+      const item = input.native.heightCaptionInk?.items[0]
+      if (!item) throw new Error('Missing synthetic height caption')
+      item.baselineStart = { ...item.baselineStart }
+      if (fault === 'nan-start') item.baselineStart.x = Number.NaN
+      if (fault === 'infinite-end') item.baselineEnd.x = Number.POSITIVE_INFINITY
+      if (fault === 'outside-end') item.baselineEnd.x = 1001
+      const before = structuredClone(input)
+      const result = nativeReviewedFloorHeightBindings(input)
+      expect(result.refusalReason).toBe('invalid-height-ink-provenance')
+      expect(result.options).toEqual([])
+      expect(result.bindings).toEqual([])
+      expect(result.commonZeroConfirmed).toBe(false)
+      expect(result.readyFor3D).toBe(false)
+      expect(input).toEqual(before)
+    },
+  )
   it('does not use caption origins when its whole glyph crosses a floor boundary', () => {
     const input = floorHeightFixture(),
       item = input.native.heightCaptionInk?.items[0]

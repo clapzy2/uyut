@@ -5,8 +5,12 @@ import {
 import { nativeResetNoteBounds } from './plan-native-height-group'
 import { nativeHeightObservations } from './plan-native-height-observations'
 import { nativeCaptionInkIssue } from './plan-pdf-caption-binding'
+import type { PagePoint } from './plan-pdf-linework'
 
 type Input = Parameters<typeof nativeHeightObservations>[0]
+const validPoint = (point: PagePoint | undefined): point is PagePoint =>
+  !!point &&
+  [point.x, point.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000)
 export type NativeHeightFloorReferences = {
   status: 'draft' | 'unresolved'
   refusalReason: string | null
@@ -95,7 +99,9 @@ export function nativeHeightFloorReferenceEvidence(input: Input): NativeHeightFl
       !row ||
       item.text !== label.name ||
       !Number.isSafeInteger(item.operationIndex) ||
-      item.operationIndex < 0
+      item.operationIndex < 0 ||
+      !validPoint(item.baselineStart) ||
+      !validPoint(item.baselineEnd)
     )
       return finish('invalid-floor-reference-provenance')
     if (!nativeFinishedFloorHeightReference(label.name)) continue
@@ -114,6 +120,15 @@ export function nativeHeightFloorReferenceEvidence(input: Input): NativeHeightFl
     if (refs.some((ref) => !Number.isSafeInteger(ref) || ref < 0 || operations.has(ref)))
       return finish('invalid-floor-reference-provenance')
     for (const ref of refs) operations.add(ref)
+    // The native note and its glyph baseline must agree in physical PDF axes.
+    // A valid envelope alone must not certify a differently rotated reference.
+    const dx = (item.baselineEnd.x - item.baselineStart.x) * input.work.pageWidth
+    const dy = (item.baselineEnd.y - item.baselineStart.y) * input.work.pageHeight
+    const delta = Math.abs(
+      ((-Math.atan2(dy, dx) * 180) / Math.PI - (label.rotation as number)) % 360,
+    )
+    if (!Number.isFinite(delta) || (dx === 0 && dy === 0) || Math.min(delta, 360 - delta) > 1e-6)
+      return finish('invalid-floor-reference-provenance')
     if (
       nativeCaptionInkIssue(
         {

@@ -85,6 +85,128 @@ function fixture() {
   return { native, work, lineworkSource: frame, reviewed }
 }
 describe('reviewed source wall section gaps, never invented openings', () => {
+  it('does not promote two coincident reviewed wall ends to an unambiguous jamb', () => {
+    const input = fixture()
+    const original = input.work.paths[0]
+    if (!original) throw new Error('Missing wall')
+    const duplicate = { ...structuredClone(original), operationIndex: 3 }
+    input.work.paths.push(duplicate)
+    input.reviewed.walls.push({
+      operationIndex: 3,
+      subpathIndex: 0,
+      polygon: structuredClone(duplicate.points),
+    })
+    const result = nativeWallSectionGaps(input)
+    expect(result.refusalReason).toBeNull()
+    expect(result.gaps[0]).toMatchObject({
+      boundedByReviewedWalls: false,
+      printedWidthMm: null,
+      jambInspection: { status: 'ambiguous', physicalJambAccepted: false },
+    })
+    expect(result.gaps[0]?.startJambs).toHaveLength(2)
+  })
+
+  it('inspects all later paint on both full literal jambs independently of the gap width', () => {
+    const input = fixture()
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: input.work.paths.map((path) => ({
+        operationIndex: path.operationIndex,
+        kind: 'vector',
+        subpathCount: 1,
+        reason: null,
+        bounds: {
+          left: Math.min(...path.points.map(({ x }) => x)),
+          right: Math.max(...path.points.map(({ x }) => x)),
+          top: Math.min(...path.points.map(({ y }) => y)),
+          bottom: Math.max(...path.points.map(({ y }) => y)),
+        },
+      })),
+    }
+    input.work.paintBounds.events.push({
+      operationIndex: 99,
+      kind: 'image',
+      bounds: { left: 199, right: 201, top: 250, bottom: 260 },
+      reason: null,
+    })
+    const result = nativeWallSectionGaps(input)
+    // The image is far from the section cut but still touches the actual jamb.
+    expect(result.gaps[0]?.jambInspection.startVisibility).toEqual([
+      {
+        status: 'held',
+        reason: 'later-paint-may-cover-source-span',
+        sourceRef: { operationIndex: 1, subpathIndex: 0, segmentIndex: 1 },
+        blockerOperations: [10, 11, 99],
+      },
+    ])
+    expect(result.gaps[0]?.jambInspection.endVisibility[0]?.blockerOperations).toEqual([10, 12])
+    expect(result.gaps[0]?.jambInspection.physicalJambAccepted).toBe(false)
+    expect(result.gaps[0]?.printedWidthMm).toBe(1000)
+  })
+
+  it('keeps missing paint inventory explicit rather than accepting visible physical jambs', () => {
+    const result = nativeWallSectionGaps(fixture())
+    expect(result.gaps[0]?.jambInspection.startVisibility[0]).toMatchObject({
+      status: 'held',
+      reason: 'paint-envelope-inventory-unavailable',
+    })
+    expect(result.gaps[0]?.jambInspection.physicalPassageAccepted).toBe(false)
+  })
+
+  it('keeps exact source crossings and side classification when wall winding reverses', () => {
+    const input = fixture()
+    for (let index = 0; index < 2; index++) {
+      const path = input.work.paths[index],
+        wall = input.reviewed.walls[index]
+      if (!path || !wall) throw new Error('Missing wall')
+      path.points.reverse()
+      wall.polygon = structuredClone(path.points)
+    }
+    expect(nativeWallSectionGaps(input).gaps[0]).toMatchObject({
+      from: 200,
+      to: 300,
+      boundedByReviewedWalls: true,
+      jambInspection: { startKey: '200/1:200/1', endKey: '300/1:200/1' },
+    })
+  })
+
+  it('holds the entire inspection at its shared wall and blocker work budget', () => {
+    const input = fixture()
+    const template = input.work.paths[0]
+    if (!template) throw new Error('Missing wall')
+    const walls = Array.from({ length: 100 }, (_, index) => ({
+      ...structuredClone(template),
+      operationIndex: index + 1,
+      points: template.points.map((point) => ({
+        x: point.x === 100 ? 10 + index * 9 : 11 + index * 9,
+        y: point.y,
+      })),
+    }))
+    input.reviewed.from = 10
+    input.reviewed.to = 902
+    input.reviewed.walls = walls.map((wall) => ({
+      operationIndex: wall.operationIndex,
+      subpathIndex: 0,
+      polygon: structuredClone(wall.points),
+    }))
+    input.work.paths = [
+      ...walls,
+      ...Array.from({ length: 2800 }, (_, index) => ({
+        operationIndex: index + 101,
+        subpathIndex: 0,
+        paint: 'stroke' as const,
+        closed: false,
+        points: Array.from({ length: 5 }, (_, vertex) => ({ x: 950 + vertex, y: 950 })),
+      })),
+    ]
+    expect(nativeWallSectionGaps(input)).toMatchObject({
+      refusalReason: 'wall-section-work-limit',
+      gaps: [],
+      sectionCrossings: [],
+    })
+  })
+
   it('does not allow editing returned evidence to mutate native source points', () => {
     const input = fixture(),
       before = structuredClone(input.work)
@@ -135,7 +257,7 @@ describe('reviewed source wall section gaps, never invented openings', () => {
     expect(nativeWallSectionGaps(input).gaps).toHaveLength(1)
     expect(input).toEqual(before)
   })
-  it('refuses an interval without a representable interior sample', () => {
+  it('classifies a subpixel gap by a rational interior without requiring a rounded sample', () => {
     const input = fixture()
     input.reviewed.from = 1
     const edges = [
@@ -157,9 +279,21 @@ describe('reviewed source wall section gaps, never invented openings', () => {
       ]
       wall.polygon = structuredClone(path.points)
     }
-    expect(nativeWallSectionGaps(input)).toMatchObject({
-      refusalReason: 'unrepresentable-section-interval',
-      gaps: [],
+    const result = nativeWallSectionGaps(input)
+    expect(result.refusalReason).toBeNull()
+    expect(result.gaps).toHaveLength(1)
+    expect(result.gaps[0]).toMatchObject({
+      from: 100.00000000000001,
+      to: 100.00000000000003,
+      boundedByReviewedWalls: true,
+      printedWidthMm: null,
+      jambInspection: {
+        status: 'paired',
+        startKey: '10000000000000001/100000000000000:200/1',
+        endKey: '10000000000000003/100000000000000:200/1',
+        physicalJambAccepted: false,
+        physicalPassageAccepted: false,
+      },
     })
   })
   it('finds a bounded gap and exact co-located printed span without closing geometry', () => {
@@ -193,6 +327,33 @@ describe('reviewed source wall section gaps, never invented openings', () => {
     label.point.y += 150
     label.pagePoint = { ...label.point }
     expect(nativeWallSectionGaps(input).gaps[0]?.printedWidthMm).toBeNull()
+  })
+  it('does not bind a decimal dimension endpoint to a rounded rational jamb crossing', () => {
+    const input = fixture()
+    const wall = input.reviewed.walls[0],
+      path = input.work.paths[0],
+      rail = input.work.paths[2],
+      tick = input.work.paths[3]
+    if (!wall || !path || !rail || !tick) throw new Error('Missing fixture')
+    path.points = [
+      { x: 100, y: 100 },
+      { x: 200, y: 100 },
+      { x: 300, y: 400 },
+      { x: 100, y: 400 },
+    ]
+    wall.polygon = structuredClone(path.points)
+    const displayCut = 233.33333333333334
+    rail.points[0] = { x: displayCut, y: 200 }
+    tick.points = [
+      { x: displayCut - 5, y: 205 },
+      { x: displayCut + 5, y: 195 },
+    ]
+    const result = nativeWallSectionGaps(input)
+    expect(result.refusalReason).toBeNull()
+    expect(result.gaps[0]?.jambInspection.startKey).toBe('700/3:200/1')
+    expect(result.gaps[0]?.from).toBe(displayCut)
+    expect(result.gaps[0]?.printedWidthMm).toBeNull()
+    expect(result.gaps[0]?.dimensionLabelIds).toEqual([])
   })
   it('leaves boundary-clipped gaps unbounded and without a printed opening width', () => {
     const input = fixture()

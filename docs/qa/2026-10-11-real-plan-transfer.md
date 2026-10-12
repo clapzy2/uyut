@@ -1,5 +1,41 @@
 # Real-plan recognition and 2D/3D transfer audit
 
+## 13 October: wall/jamb and height-provenance follow-up
+
+The selected-wall-section diagnostic now classifies intervals against exact simple
+source polygons with rational interior probes. It retains exact cut keys for both
+jambs, rejects coincident competing wall ends as ambiguous, and inspects later
+paint over each entire literal jamb edge. Missing paint inventory remains held.
+The shared comparison/output budgets discard the whole inspection, not partial
+positive evidence. None of these source diagnostics accepts a physical passage.
+
+Independent review reproduced a dimension-binding error: the rational crossing
+`700/3:200/1` could match a literal decimal rail endpoint
+`233.33333333333334:200`. Comparing canonical endpoint keys now rejects that
+false match. Reversed literal endpoints and genuinely equal decimal endpoints
+still work; no tiny gap or source coordinate is rounded into coincidence.
+
+Height provenance rejects nonfinite and off-page glyph baseline endpoints.
+The local finished-floor note must agree with its native label rotation in actual
+PDF axes, including non-square pages. A contained glyph envelope alone is not
+enough. Five saved Rebrina H associations survive the original-PDF replay, without
+accepting ceiling ownership or a shared world zero.
+
+The related metric package removes the old `1e-7` allowance above a wall:
+aperture top and paired absolute elevations use decimal integer comparisons.
+Exact entered decimal sums remain acceptable; even a sub-ULP excess is held.
+The existing accepted vertical-reference checks were audited without inventing
+a new datum from the local source note.
+
+Verification: 8,088 web tests / 329 files, seven-package typecheck, production
+build and targeted independent review passed. Two unchanged independent source
+PDFs preserve the seven reviewed section outcomes; five gaps remain bounded
+by distinct literal ends (four source-reviewed windows, one door), with zero
+accepted physical passages. Originals, saved reading, account records and paid
+AI requests were not changed by these offline checks. Physical material/free-floor
+classification, complete jamb ownership, height quantity roles and measured common
+floor/threshold elevations remain required before real-plan 2D/3D acceptance.
+
 ## Acceptance scope
 
 Re-extract original PDF source layers, compare them to the visible survey sheet, run one fresh image-model reading without reviewed contours, and replay the application's post-reader gates. Fix reproducible losses or unsafe promotions. Missing geometry, height ownership or floor datum must remain missing rather than becoming an approximate accepted model.

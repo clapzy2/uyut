@@ -17,8 +17,8 @@ type VerticalGeometry = Pick<PlanGeometry, 'walls' | 'openings'> &
   >
 
 /** Compare entered decimal values without rounding a small physical difference away. */
-function equalElevations(first: [number, number], second: [number, number]): boolean {
-  if ([...first, ...second].some((value) => !Number.isFinite(value))) return false
+function compareElevations(first: [number, number], second: [number, number]): number | null {
+  if ([...first, ...second].some((value) => !Number.isFinite(value))) return null
   const values = [...first, ...second].map((value) => {
     const [mantissa = '', exponent = '0'] = value.toString().split('e')
     const [whole = '', fraction = ''] = mantissa.split('.')
@@ -30,9 +30,9 @@ function equalElevations(first: [number, number], second: [number, number]): boo
   })
   const precision = Math.max(...values.map(({ places }) => places))
   const scaled = values.map(({ integer, places }) => integer * 10n ** BigInt(precision - places))
-  return (
-    (scaled[0] as bigint) + (scaled[1] as bigint) === (scaled[2] as bigint) + (scaled[3] as bigint)
-  )
+  const difference =
+    (scaled[0] as bigint) + (scaled[1] as bigint) - (scaled[2] as bigint) - (scaled[3] as bigint)
+  return difference < 0n ? -1 : difference > 0n ? 1 : 0
 }
 
 const height = z.number().finite().positive().max(600).optional()
@@ -169,16 +169,27 @@ export function inspectPlanVerticalDimensions(geometry: VerticalGeometry): PlanG
     const bottom = opening.bottomCm
     const openingHeight = opening.heightCm
     const wallHeight = geometry.walls.find((wall) => wall.id === opening.wallId)?.heightCm
+    // Compare the entered decimal measurements without inventing an allowance
+    // above the wall or a binary-floating overrun at an exact boundary.
+    const top: [number, number] | undefined =
+      bottom !== undefined &&
+      openingHeight !== undefined &&
+      Number.isFinite(bottom) &&
+      bottom >= 0 &&
+      bottom <= 600 &&
+      Number.isFinite(openingHeight) &&
+      openingHeight > 0 &&
+      openingHeight <= 600
+        ? [bottom, openingHeight]
+        : undefined
     if (
       !height.safeParse(openingHeight).success ||
       (bottom !== undefined && (!Number.isFinite(bottom) || bottom < 0 || bottom > 600)) ||
-      (bottom !== undefined && openingHeight !== undefined && bottom + openingHeight > 600) ||
+      (top !== undefined && compareElevations(top, [600, 0]) === 1) ||
       (wallHeight !== undefined &&
         ((bottom !== undefined && bottom >= wallHeight) ||
           (openingHeight !== undefined && openingHeight > wallHeight) ||
-          (bottom !== undefined &&
-            openingHeight !== undefined &&
-            bottom + openingHeight > wallHeight + 1e-7)))
+          (top !== undefined && compareElevations(top, [wallHeight, 0]) === 1)))
     ) {
       issues.push({
         id: `opening-height-${opening.id}`,
@@ -256,10 +267,10 @@ export function inspectPlanVerticalDimensions(geometry: VerticalGeometry): PlanG
         first.bottomCm !== undefined &&
         second.bottomCm !== undefined &&
         (reference && firstFloor !== undefined && secondFloor !== undefined
-          ? !equalElevations(
+          ? compareElevations(
               [firstFloor.elevationCm, first.bottomCm],
               [secondFloor.elevationCm, second.bottomCm],
-            )
+            ) !== 0
           : first.bottomCm !== second.bottomCm)
       if (conflictingHeight || conflictingBottom) {
         issues.push({

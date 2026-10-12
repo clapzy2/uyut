@@ -82,6 +82,54 @@ describe('local finished-floor height reference, not a common world zero', () =>
       inkSourceOperations: [],
     })
   })
+  it.each(['rotation', 'nan-start', 'infinite-end', 'outside-end', 'zero-baseline'])(
+    'withholds a local reference with invalid %s source geometry',
+    (fault) => {
+      const input = fixture()
+      const item = input.native.heightFloorReferenceInk?.items[0]
+      const label = input.native.labels[0]
+      if (!item || !label) throw new Error('Missing synthetic reference')
+      if (fault === 'rotation') label.rotation = 90
+      if (fault === 'nan-start') item.baselineStart.x = Number.NaN
+      if (fault === 'infinite-end') item.baselineEnd.x = Number.POSITIVE_INFINITY
+      if (fault === 'outside-end') item.baselineEnd.x = 1001
+      if (fault === 'zero-baseline') item.baselineEnd = { ...item.baselineStart }
+      const before = structuredClone(input)
+      const result = nativeHeightFloorReferenceEvidence(input)
+      expect(result.refusalReason).toBe('invalid-floor-reference-provenance')
+      expect(result.references).toEqual([])
+      expect(result.commonWorldZeroConfirmed).toBe(false)
+      expect(result.mayTransfer2D3D).toBe(false)
+      expect(input).toEqual(before)
+    },
+  )
+  it('checks a rotated reference in physical PDF axes rather than square image axes', () => {
+    const input = fixture()
+    const item = input.native.heightFloorReferenceInk?.items[0]
+    const label = input.native.labels[0]
+    if (!item || !label || !input.native.heightFloorReferenceInk)
+      throw new Error('Missing synthetic reference')
+    input.work.pageWidth = input.native.heightFloorReferenceInk.source.pageWidth = 2000
+    label.rotation = 45
+    item.baselineEnd = { x: 20, y: 0 }
+    item.quad = [
+      { x: 5, y: 10 },
+      { x: 15, y: -10 },
+      { x: 20, y: 0 },
+      { x: 10, y: 20 },
+    ]
+    // Keep every source point on the page while preserving the same physical angle.
+    for (const point of item.quad) point.y += 30
+    item.baselineStart.y += 30
+    item.baselineEnd.y += 30
+    label.pagePoint = { ...item.baselineStart }
+    label.point = { ...item.baselineStart }
+    expect(nativeHeightFloorReferenceEvidence(input).references[0]?.status).toBe('verified')
+    label.rotation = (Math.atan2(20, 10) * 180) / Math.PI
+    expect(nativeHeightFloorReferenceEvidence(input).refusalReason).toBe(
+      'invalid-floor-reference-provenance',
+    )
+  })
   it('refuses changed source, duplicate indices and misplaced origin', () => {
     for (const mutate of [
       (input: ReturnType<typeof fixture>) => {

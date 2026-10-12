@@ -1,10 +1,16 @@
 import type { NativeTextAnchors } from './plan-document'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
 import { exactNativeCrossing, exactNativePointKey } from './plan-native-exact-intersections'
+import { nativeFaceRationalPredicates } from './plan-native-face-rational'
 import { nativeFillCandidates } from './plan-native-fill-candidates'
+import {
+  createNativeSourceSpanVisibility,
+  type NativeSourceSpanVisibility,
+  NativeSourceVisibilityLimit,
+} from './plan-native-source-span-visibility'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import type { NativePageSegment } from './plan-pdf-opening-endpoint'
-import { type PdfPlanSource, pdfPointInside, pdfPolygonIsValid } from './plan-pdf-room-binding'
+import type { PdfPlanSource } from './plan-pdf-room-binding'
 import { bindObservedRegionLabels, type RegionLabelFrame } from './plan-raster-region-labels'
 
 export type ReviewedNativeWallSection = {
@@ -29,6 +35,15 @@ type Gap = {
   dimensionLabelIds: string[]
   printedWidthMm: number | null
   openingKind: null
+  jambInspection: {
+    status: 'paired' | 'ambiguous' | 'unbounded'
+    startKey: string
+    endKey: string
+    startVisibility: NativeSourceSpanVisibility[]
+    endVisibility: NativeSourceSpanVisibility[]
+    physicalJambAccepted: false
+    physicalPassageAccepted: false
+  }
 }
 const samePolygon = (a: PagePoint[], b: PagePoint[]) =>
   a.length === b.length &&
@@ -43,6 +58,8 @@ export function nativeWallSectionGaps(input: {
 }) {
   const { native, work, reviewed } = input
   const inventory = nativeFillCandidates(input)
+  const exact = nativeFaceRationalPredicates()
+  const visibility = createNativeSourceSpanVisibility(work)
   const gaps: Gap[] = []
   const sectionCrossings: {
     point: PagePoint
@@ -77,6 +94,12 @@ export function nativeWallSectionGaps(input: {
   })
   if (inventory.refusalReason === 'incomplete-native-layer')
     return finish('incomplete-native-layer')
+  // All later loops share a budget; a limit discards the complete inspection.
+  let workLeft = 1_000_000
+  const spend = (amount = 1) => {
+    workLeft -= amount
+    return workLeft >= 0
+  }
   if (
     !['width', 'depth'].includes(reviewed.axis) ||
     ![reviewed.at, reviewed.from, reviewed.to].every(
@@ -162,14 +185,17 @@ export function nativeWallSectionGaps(input: {
       !path.closed ||
       operations.get(path.operationIndex) !== 1 ||
       omitted.some((item) => item.operationIndex === path.operationIndex) ||
-      !samePolygon(path.points, wall.polygon) ||
-      !pdfPolygonIsValid(polygon)
+      !samePolygon(path.points, wall.polygon)
     )
+      return finish('stale-or-unsupported-reviewed-wall')
+    const polygonKeys = polygon.map(exactNativePointKey)
+    if (polygonKeys.some((key) => key === null) || !exact.simple(polygonKeys as string[]))
       return finish('stale-or-unsupported-reviewed-wall')
     const transverse = path.points.map((point) => point[across])
     if (reviewed.at <= Math.min(...transverse) || reviewed.at >= Math.max(...transverse))
       return finish('section-misses-reviewed-wall')
     for (const [index, start] of path.points.entries()) {
+      if (!spend()) return finish('wall-section-work-limit')
       const end = path.points[(index + 1) % path.points.length]
       if (!end) return finish('incomplete-wall-polygon')
       if (
@@ -217,23 +243,34 @@ export function nativeWallSectionGaps(input: {
       sources.push(sourceEdge)
       jambs.set(position, sources)
     }
-    bodies.push(path)
+    bodies.push({ keys: polygonKeys as string[] })
   }
   const sorted = [...cuts].sort((a, b) => a - b)
   for (let index = 1; index < sorted.length; index++) {
     const from = sorted[index - 1],
       to = sorted[index]
     if (from === undefined || to === undefined || from === to) continue
-    const midpoint = from / 2 + to / 2
-    if (midpoint <= from || midpoint >= to) return finish('unrepresentable-section-interval')
-    if (bodies.some((body) => pdfPointInside(pointAt(midpoint), body.points))) continue
+    const startKey = cutKeys.get(from),
+      endKey = cutKeys.get(to)
+    if (!startKey || !endKey) return finish('unsupported-section-coordinate-precision')
+    const midpoint = exact.midpointKey(startKey, endKey)
+    // Rational interior probes never move a cut or bridge a subpixel gap.
+    const locations = []
+    for (const body of bodies) {
+      if (!spend(body.keys.length)) return finish('wall-section-work-limit')
+      locations.push(exact.location(body.keys, midpoint))
+    }
+    if (locations.includes('boundary')) return finish('section-follows-wall-boundary')
+    if (locations.includes('inside')) continue
     const prior = gaps.at(-1)
     if (prior?.to === from) {
       prior.to = to
       prior.end = pointAt(to)
       prior.endJambs = jambs.get(to) ?? []
+      prior.jambInspection.endKey = endKey
       continue
     }
+    if (gaps.length >= 1000) return finish('wall-section-gap-limit')
     gaps.push({
       from,
       to,
@@ -246,36 +283,65 @@ export function nativeWallSectionGaps(input: {
       dimensionLabelIds: [],
       printedWidthMm: null,
       openingKind: null,
+      jambInspection: {
+        status: 'unbounded',
+        startKey,
+        endKey,
+        startVisibility: [],
+        endVisibility: [],
+        physicalJambAccepted: false,
+        physicalPassageAccepted: false,
+      },
     })
   }
   const selected = new Set(keys)
   const roles = automaticNativeDimensionRoles({ ...input, source: reviewed.source })
   for (const gap of gaps) {
-    gap.boundedByReviewedWalls = gap.startJambs.length > 0 && gap.endJambs.length > 0
-    gap.unknownFillOperations = [
-      ...new Set(
-        work.paths
-          .filter(
-            (path) =>
-              path.paint !== 'stroke' &&
-              !selected.has(`${path.operationIndex}:${path.subpathIndex}`) &&
-              path.points.some((point) => point[across] < reviewed.at) &&
-              path.points.some((point) => point[across] > reviewed.at) &&
-              Math.max(...path.points.map((point) => point[along])) > gap.from &&
-              Math.min(...path.points.map((point) => point[along])) < gap.to,
-          )
-          .map((path) => path.operationIndex),
-      ),
-    ]
+    const uniqueEnds = gap.startJambs.length === 1 && gap.endJambs.length === 1
+    gap.boundedByReviewedWalls = uniqueEnds
+    gap.jambInspection.status = uniqueEnds
+      ? 'paired'
+      : gap.startJambs.length > 1 || gap.endJambs.length > 1
+        ? 'ambiguous'
+        : 'unbounded'
+    try {
+      const inspect = (edges: NativePageSegment[]) =>
+        edges.map((edge) => {
+          const a = exactNativePointKey(edge.start),
+            b = exactNativePointKey(edge.end)
+          if (!a || !b) throw new Error('Unsupported jamb span')
+          return visibility(edge, a, b)
+        })
+      gap.jambInspection.startVisibility = inspect(gap.startJambs)
+      gap.jambInspection.endVisibility = inspect(gap.endJambs)
+    } catch (error) {
+      return finish(
+        error instanceof NativeSourceVisibilityLimit ? error.message : 'source-jamb-unavailable',
+      )
+    }
+    const unknownFills = new Set<number>()
+    for (const path of work.paths) {
+      if (!spend(path.points.length + 1)) return finish('wall-section-work-limit')
+      if (
+        path.paint !== 'stroke' &&
+        !selected.has(`${path.operationIndex}:${path.subpathIndex}`) &&
+        path.points.some((point) => point[across] < reviewed.at) &&
+        path.points.some((point) => point[across] > reviewed.at) &&
+        Math.max(...path.points.map((point) => point[along])) > gap.from &&
+        Math.min(...path.points.map((point) => point[along])) < gap.to
+      )
+        unknownFills.add(path.operationIndex)
+    }
+    gap.unknownFillOperations = [...unknownFills].sort((a, b) => a - b)
     if (!gap.boundedByReviewedWalls || gap.unknownFillOperations.length || roles.refusalReason)
       continue
-    const dimensions = roles.candidates.filter(
-      (candidate) =>
-        candidate.axis === reviewed.axis &&
-        candidate.spanEnds.every((point) => point[across] === reviewed.at) &&
-        Math.min(...candidate.spanEnds.map((point) => point[along])) === gap.from &&
-        Math.max(...candidate.spanEnds.map((point) => point[along])) === gap.to,
-    )
+    const dimensions = roles.candidates.filter((candidate) => {
+      if (candidate.axis !== reviewed.axis) return false
+      const [a, b] = candidate.spanEnds.map(exactNativePointKey)
+      const { startKey, endKey } = gap.jambInspection
+      // A rounded display cut is not the dimension's literal source endpoint.
+      return (a === startKey && b === endKey) || (a === endKey && b === startKey)
+    })
     if (dimensions.length === 1) {
       gap.dimensionLabelIds = [dimensions[0]?.labelId as string]
       gap.printedWidthMm = dimensions[0]?.valueMm ?? null

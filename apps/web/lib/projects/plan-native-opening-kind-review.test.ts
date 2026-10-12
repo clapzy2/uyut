@@ -82,6 +82,25 @@ function fixture(kind: 'door' | 'window' = 'window') {
   return { native, work, lineworkSource: frame, reviewed }
 }
 describe('source-reviewed opening kinds, not certified passages', () => {
+  it('rejects a forged physical or visibility state in the saved jamb inspection', () => {
+    for (const physical of [true, false]) {
+      const input = fixture()
+      const gap = input.reviewed.items[0]?.gap
+      if (!gap) throw new Error('Missing fixture gap')
+      if (physical) gap.jambInspection.physicalJambAccepted = true as false
+      else {
+        const row = gap.jambInspection.startVisibility[0]
+        if (!row) throw new Error('Missing visibility row')
+        row.status = 'unoccluded'
+        row.reason = null
+      }
+      expect(reviewedNativeOpeningKinds(input)).toMatchObject({
+        status: 'unresolved',
+        reason: 'stale-or-unbounded-opening-gap',
+        bindings: [],
+      })
+    }
+  })
   it.each([undefined, NaN])(
     'does not coerce incomplete or invalid nullable width %s into null',
     (value) => {
