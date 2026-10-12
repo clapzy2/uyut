@@ -1,4 +1,4 @@
-import type { PlanPageContours, PlanReading } from '@uyut/db'
+import type { PlanPageContours, PlanPageVertexProof, PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import page from '../../../../docs/qa/fixtures/apartment-74-77-complete-page.json'
 import { planPageContoursSchema } from './plan-page-review'
@@ -163,6 +163,59 @@ function mixedRevealFixture() {
   return input
 }
 
+function exteriorCrossingFixture(kind: PlanPageVertexProof['kind']) {
+  const input = mixedRevealFixture()
+  const segments: PlanPageVertexProof['segments'] = [
+    {
+      operationIndex: 20_000,
+      subpathIndex: 0,
+      segmentIndex: 0,
+      start: kind === 'bounded-native-crossing' ? { x: 5, y: 10 } : { x: 5, y: 5 },
+      end: kind === 'bounded-native-crossing' ? { x: 15, y: 10 } : { x: 15, y: 15 },
+    },
+    {
+      operationIndex: 20_001,
+      subpathIndex: 0,
+      segmentIndex: 0,
+      start: kind === 'bounded-native-crossing' ? { x: 10, y: 5 } : { x: 5, y: 15 },
+      end: kind === 'bounded-native-crossing' ? { x: 10, y: 15 } : { x: 15, y: 5 },
+    },
+  ]
+  const polygon = [
+    { x: 10, y: 10 },
+    { x: 140, y: 10 },
+    { x: 140, y: 260 },
+    { x: 10, y: 260 },
+  ]
+  const proof: PlanPageVertexProof =
+    kind === 'bounded-native-crossing'
+      ? { kind, vertexIndex: 0, segments: structuredClone(segments) }
+      : {
+          kind,
+          vertexIndex: 0,
+          segments: structuredClone(segments),
+          exactPointKey: '10/1:10/1',
+        }
+  input.contours.exterior = { polygon, vertexProofs: [proof] }
+  input.work.paths.push(
+    ...segments.map((segment) => ({
+      operationIndex: segment.operationIndex,
+      subpathIndex: segment.subpathIndex,
+      paint: 'stroke' as const,
+      closed: false,
+      points: [segment.start, segment.end],
+    })),
+    ...polygon.slice(1).map((point, index) => ({
+      operationIndex: 20_002 + index,
+      subpathIndex: 0,
+      paint: 'stroke' as const,
+      closed: false,
+      points: [point],
+    })),
+  )
+  return input
+}
+
 function addThirdRoom(input: ReturnType<typeof fixture>, polygon: PdfVectorPath['points']) {
   input.contours.rooms.push({ roomSourceNumber: 3, polygon })
   input.work.paths.push({
@@ -192,6 +245,55 @@ function swapAxes(input: ReturnType<typeof fixture>) {
 }
 
 describe('physical door face candidates from two native reveals', () => {
+  it.each(['bounded-native-crossing', 'bounded-native-rational-crossing'] as const)(
+    'retains native jamb pairs inside an exterior with a fresh %s proof',
+    (kind) => {
+      const input = exteriorCrossingFixture(kind)
+      const before = structuredClone(input)
+      expect(pairs(input)).toHaveLength(1)
+      expect(input).toEqual(before)
+    },
+  )
+
+  it.each([
+    'missing-proof',
+    'stale-source',
+    'stale-snapshot',
+    'missing-segment',
+    'wrong-exact-key',
+    'noncanonical-exact-key',
+    'duplicate-source-reference',
+  ] as const)('holds jamb candidates when exterior crossing evidence has %s', (mutation) => {
+    const input = exteriorCrossingFixture('bounded-native-rational-crossing')
+    const exterior = input.contours.exterior
+    const proof = exterior?.vertexProofs?.[0]
+    const path = input.work.paths.find((item) => item.operationIndex === 20_000)
+    if (!exterior || !proof || !path) throw new Error('Missing exterior crossing fixture')
+    if (mutation === 'missing-proof') exterior.vertexProofs = undefined
+    else if (mutation === 'stale-source') path.points[0] = { x: 6, y: 5 }
+    else if (mutation === 'stale-snapshot') proof.segments[0].start.x = 6
+    else if (mutation === 'missing-segment')
+      input.work.paths = input.work.paths.filter((item) => item.operationIndex !== 20_000)
+    else if (mutation === 'duplicate-source-reference') input.work.paths.push(structuredClone(path))
+    else if (proof.kind === 'bounded-native-rational-crossing')
+      proof.exactPointKey = mutation === 'wrong-exact-key' ? '11/1:10/1' : '20/2:20/2'
+    expect(verifyPlanPageOpeningFaces(input.work, input.source, input.contours)).toEqual([
+      {
+        roomSourceNumber: 1,
+        openingId: 'door-0',
+        status: 'unresolved',
+        reason: 'non-native-contour-vertex',
+      },
+      {
+        roomSourceNumber: 2,
+        openingId: 'door-1',
+        status: 'unresolved',
+        reason: 'non-native-contour-vertex',
+      },
+    ])
+    expect(pairs(input)).toEqual([])
+  })
+
   it('accepts two native reveals painted with a hairline fill and a backed partial stroke', () => {
     const input = mixedRevealFixture()
     const before = structuredClone(input)

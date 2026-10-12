@@ -44,6 +44,29 @@ Provider-reported usage for the single new request: 15,747 tokens and USD 0.1235
 
 ## Gate and next work
 
+### Follow-up: consistent exterior proofs and local diagonal wall omissions
+
+Wall-source and opening-face checks previously required every exterior corner to
+be a native path endpoint even though pageReview already accepts fresh bounded
+crossing proofs. Both now use the same sourceRoomContourVertices validator as
+rooms/pageReview. Missing/stale/duplicate refs, changed snapshots and noncanonical
+rational keys remain held. This does not relax physical wall or jamb predicates.
+
+The wall-pair adapter also previously discarded all diagonal pairs when any curves
+or clipped paths were recorded on the page. Existing complete strip-envelope
+exclusion now applies to both cardinal and slanted pairs: the entire enclosing
+strip box must miss every possible omitted paint envelope, including uncertainty.
+An unknown pen or an omission from the pair's own source operation withholds the
+pair. The diagonal bbox remains deliberately conservative; no oriented approximation
+or wall-body fitting is added. Short strips are checked against normal thickness.
+
+Synthetic controls retain the same original native jamb/wall pairs through valid
+exterior crossings, reject stale proofs, and distinguish remote full pen envelopes
+from boundary contact. The existing metric/layout/volume control now has a non-node
+proved exterior corner and keeps its independent wall strip; the draft remains
+unconfirmed and has no inferred wall height. This is not a new real-plan model,
+source-paint import or account write.
+
 ### Follow-up: enclosed source holes with perimeter paint cuts
 
 Mixed masks no longer hold an otherwise supported source selection solely because

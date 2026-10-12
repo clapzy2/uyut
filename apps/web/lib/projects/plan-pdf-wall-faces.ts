@@ -487,7 +487,8 @@ function validWallSource(
         return false
     }
   }
-  if (contours.exterior?.polygon.some((p) => !native.has(`${p.x}:${p.y}`))) return false
+  if (contours.exterior && !sourceRoomContourVertices(contours.exterior, native, segments))
+    return false
   if (
     contours.voids?.some((voidArea) =>
       voidArea.polygon.some((point) => !native.has(`${point.x}:${point.y}`)),
@@ -522,6 +523,7 @@ function unaffectedByOmittedPaths(
 ): boolean {
   if (omitted.length === 0) return true
   const first = pair.faces[0]
+  const slanted = first.start.x !== first.end.x && first.start.y !== first.end.y
   const along = first.start.x === first.end.x ? 'y' : 'x'
   const across = along === 'x' ? 'y' : 'x'
   const low = Math.min(first.start[along], first.end[along])
@@ -529,7 +531,19 @@ function unaffectedByOmittedPaths(
   const separation = Math.abs(pair.faces[0].start[across] - pair.faces[1].start[across])
   // A corner sliver shorter than the wall's own thickness is not enough to
   // establish a shared wall when nearby vector content was omitted.
-  if (high - low < separation) return false
+  if (slanted) {
+    const direction = difference(first.end, first.start)
+    const length = Math.hypot(direction.x, direction.y)
+    const normalDistance = (point: PagePoint) => {
+      const offset = difference(point, first.start)
+      return Math.abs(direction.x * offset.y - direction.y * offset.x) / length
+    }
+    const thickness = Math.max(
+      normalDistance(pair.faces[1].start),
+      normalDistance(pair.faces[1].end),
+    )
+    if (!Number.isFinite(thickness) || length < thickness) return false
+  } else if (high - low < separation) return false
   const stripPoints = pair.faces.flatMap((face) => [face.start, face.end])
   const strip = {
     left: Math.min(...stripPoints.map((point) => point.x)),
@@ -774,9 +788,9 @@ export function pairPlanPageWallFaces(
   const paintEvents = pdfPaintInventoryIsComplete(work.paintBounds)
     ? new Map(work.paintBounds?.events.map((event) => [event.operationIndex, event]))
     : undefined
-  const axisAligned = result.filter((pair) => unaffectedByOmittedPaths(pair, omitted, paintEvents))
-  // The cardinal strip omission check above does not apply to diagonal faces.
-  return work.clippedPaths > 0 || work.skippedCurves > 0
-    ? axisAligned
-    : [...axisAligned, ...pairSlantedFaces(work, contours, closedSubpaths)]
+  // The enclosing strip box is conservative for diagonal faces as well. A far
+  // omission can be excluded; paint anywhere in that box still holds the pair.
+  return [...result, ...pairSlantedFaces(work, contours, closedSubpaths)].filter((pair) =>
+    unaffectedByOmittedPaths(pair, omitted, paintEvents),
+  )
 }

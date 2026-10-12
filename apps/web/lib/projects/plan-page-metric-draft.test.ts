@@ -232,7 +232,7 @@ describe('native PDF page to metric draft', () => {
     expect(planPageMetricDraft(reading, context, [3]).ok).toBe(false)
     expect(planPageMetricDraft(reading, context, [3.1001]).ok).toBe(false)
   })
-  it('retains a reviewed wall strip through metric layout and volume only when omitted paint is disjoint', () => {
+  it('retains a reviewed wall strip and proved exterior through metric layout and volume when omitted paint is disjoint', () => {
     // Entirely synthetic source control: the dimensions are printed chains, and
     // the contours are explicitly reviewed. This does not certify a real plan.
     const { reading, context, path } = synthetic()
@@ -243,7 +243,7 @@ describe('native PDF page to metric draft', () => {
       { x: 330, y: 410 },
     ]
     const footprint = [
-      { x: 0, y: 0 },
+      { x: 1, y: 1 },
       { x: 640, y: 0 },
       { x: 640, y: 420 },
       { x: 0, y: 420 },
@@ -258,8 +258,40 @@ describe('native PDF page to metric draft', () => {
       true,
     )
     context.contours.rooms.push({ roomSourceNumber: 5, polygon: adjacentFloor })
-    context.contours.exterior = { boundaryRole: 'floor', polygon: footprint }
-    context.linework.paths.push(path(adjacentFloor, true), path(footprint, true), wallBody)
+    const crossingPaths = [
+      path([
+        { x: 0, y: 1 },
+        { x: 2, y: 1 },
+      ]),
+      path([
+        { x: 1, y: 0 },
+        { x: 1, y: 2 },
+      ]),
+    ]
+    const crossingSegments = nativePageSegments({ ...context.linework, paths: crossingPaths })
+    const first = crossingSegments[0]
+    const second = crossingSegments[1]
+    if (!first || !second) throw new Error('Missing bounded exterior crossing')
+    context.contours.exterior = {
+      boundaryRole: 'floor',
+      polygon: footprint,
+      vertexProofs: [
+        {
+          kind: 'bounded-native-rational-crossing',
+          vertexIndex: 0,
+          segments: [structuredClone(first), structuredClone(second)],
+          exactPointKey: '1/1:1/1',
+        },
+      ],
+    }
+    // The corner is a proved crossing, not a native command endpoint. Keeping
+    // it must not discard independent wall strips farther inside the apartment.
+    context.linework.paths.push(
+      path(adjacentFloor, true),
+      path(footprint.slice(1)),
+      wallBody,
+      ...crossingPaths,
+    )
     reading.rooms.push({ name: 'Смежная спальня', sourceNumber: 5, kind: 'bedroom' })
     const calibratedContext = { ...context, calibrationRoomNumbers: [4] }
     const baseline = planPageMetricDraft(reading, calibratedContext, [4, 5])
