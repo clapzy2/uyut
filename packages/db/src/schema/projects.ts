@@ -367,14 +367,22 @@ export type PlanPageSegmentRef = {
 }
 export type PlanPageEndpointProof = PlanPageSegmentRef & { kind: 'native-edge-crossing' }
 /** Freshly rechecked bounded crossing, not a guessed or snapped polygon vertex. */
-export type PlanPageVertexProof = {
+type PlanPageVertexProofFields = {
   vertexIndex: number
-  kind: 'bounded-native-crossing'
   segments: [
     PlanPageSegmentRef & { start: { x: number; y: number }; end: { x: number; y: number } },
     PlanPageSegmentRef & { start: { x: number; y: number }; end: { x: number; y: number } },
   ]
 }
+export type PlanPageVertexProof = PlanPageVertexProofFields &
+  (
+    | { kind: 'bounded-native-crossing' }
+    | {
+        kind: 'bounded-native-rational-crossing'
+        /** Exact source-decimal intersection; accepted only when display coordinates are exact. */
+        exactPointKey: string
+      }
+  )
 export type PlanPageOpening = {
   id: string
   kind: 'door' | 'window' | 'balcony'
