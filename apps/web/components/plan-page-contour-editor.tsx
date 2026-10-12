@@ -24,6 +24,7 @@ import {
   pageContourOptions,
   pageContourPoint,
   pageContourRoomsForSave,
+  pageContourVertexProofsChanged,
   pageContourVoidsForSave,
   pageExteriorForSave,
   pageFloorForSave,
@@ -246,16 +247,7 @@ export function PlanPageContourEditor({
             setVoids(voidDraftsFromSaved(saved.voids))
             const first = saved.rooms[0]
             if (first) setSelected(pdfContourKey(first))
-            setExterior(
-              saved.exterior
-                ? {
-                    polygon: saved.exterior.polygon.map((point) => ({ ...point })),
-                    ...(saved.exterior.boundaryRole
-                      ? { boundaryRole: saved.exterior.boundaryRole }
-                      : {}),
-                  }
-                : undefined,
-            )
+            setExterior(saved.exterior ? structuredClone(saved.exterior) : undefined)
             setExteriorClosed(Boolean(saved.exterior))
             setFloor(saved.floor ? structuredClone(saved.floor) : undefined)
             setFloorClosed(Boolean(saved.floor))
@@ -286,10 +278,17 @@ export function PlanPageContourEditor({
     if (pointsLocked) return
     if (editingBoundary) {
       if (editingBoundary === 'floor') {
-        setFloor({ polygon })
+        setFloor((current) => ({
+          polygon,
+          vertexProofs: pageContourVertexProofsChanged(current, polygon),
+        }))
         setFloorClosed(closed)
       } else {
-        setExterior((current) => ({ ...current, polygon }))
+        setExterior((current) => ({
+          ...current,
+          polygon,
+          vertexProofs: pageContourVertexProofsChanged(current, polygon),
+        }))
         setExteriorClosed(closed)
       }
       resetReview()
@@ -316,6 +315,7 @@ export function PlanPageContourEditor({
                   ...pdfContourIdentity(selectedIdentity),
                   polygon,
                   closed,
+                  vertexProofs: pageContourVertexProofsChanged(before, polygon),
                   ...(before?.openings ? { openings: before.openings } : {}),
                   ...(before?.conditionalEdges
                     ? { conditionalEdges: before.conditionalEdges }
@@ -537,8 +537,13 @@ export function PlanPageContourEditor({
     }
     const rooms = pageContourRoomsForSave(drafts, nativePoints, nativeSegments)
     const savedVoids = pageContourVoidsForSave(voids, nativePoints)
-    const savedExterior = pageExteriorForSave(exterior, exteriorClosed, nativePoints)
-    const savedFloor = pageFloorForSave(floor, floorClosed, nativePoints)
+    const savedExterior = pageExteriorForSave(
+      exterior,
+      exteriorClosed,
+      nativePoints,
+      nativeSegments,
+    )
+    const savedFloor = pageFloorForSave(floor, floorClosed, nativePoints, nativeSegments)
     if (
       !rooms ||
       !savedVoids ||
@@ -729,6 +734,7 @@ export function PlanPageContourEditor({
         onRole={(boundaryRole) => {
           setExterior((current) => ({
             polygon: current?.polygon ?? [],
+            ...(current?.vertexProofs ? { vertexProofs: current.vertexProofs } : {}),
             ...(boundaryRole ? { boundaryRole } : {}),
           }))
           resetReview()

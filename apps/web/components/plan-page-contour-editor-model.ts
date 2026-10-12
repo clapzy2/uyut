@@ -25,6 +25,7 @@ export type PageContourPoint = { x: number; y: number }
 export type PageContourDraft = PlanPageRoomIdentity & {
   polygon: PageContourPoint[]
   closed: boolean
+  vertexProofs?: PlanPageContours['rooms'][number]['vertexProofs']
   conditionalEdges?: PlanPageContours['rooms'][number]['conditionalEdges']
   dimensionEdges?: PlanPageContours['rooms'][number]['dimensionEdges']
   openings?: PageOpeningDraft[]
@@ -45,6 +46,7 @@ export function contourDraftsFromSaved(rooms: PlanPageContours['rooms']): PageCo
     ...pdfContourIdentity(room),
     polygon: room.polygon.map((point) => ({ ...point })),
     closed: true,
+    ...(room.vertexProofs ? { vertexProofs: structuredClone(room.vertexProofs) } : {}),
     ...(room.conditionalEdges ? { conditionalEdges: structuredClone(room.conditionalEdges) } : {}),
     ...(room.dimensionEdges ? { dimensionEdges: structuredClone(room.dimensionEdges) } : {}),
     openings: room.openings?.map(({ start, end, ...opening }) => ({
@@ -67,11 +69,12 @@ export function voidDraftsFromSaved(voids: PlanPageContours['voids'] = []): Page
   }))
 }
 
-/** Reject an unfinished or unclassified outer boundary instead of saving it silently. */
+/** Reject unfinished boundaries; recheck saved crossings against the current source segments. */
 export function pageExteriorForSave(
   draft: PlanPageContours['exterior'],
   closed: boolean,
   nativePoints: PageContourPoint[],
+  segments: readonly NativePageSegment[] = [],
 ): PlanPageContours['exterior'] | null {
   if (!draft) return undefined
   if (
@@ -79,34 +82,50 @@ export function pageExteriorForSave(
     !draft.boundaryRole ||
     draft.polygon.length < 3 ||
     draft.polygon.length > 100 ||
-    !draft.polygon.every(
-      (point) => finiteContourPoint(point) && nativeContourPoint(point, nativePoints),
-    )
+    !draft.polygon.every(finiteContourPoint) ||
+    !sourceRoomContourVertices(draft, new Set(nativePoints.map((p) => `${p.x}:${p.y}`)), segments)
   )
     return null
   return {
     boundaryRole: draft.boundaryRole,
     polygon: draft.polygon.map((point) => ({ ...point })),
+    ...(draft.vertexProofs?.length ? { vertexProofs: structuredClone(draft.vertexProofs) } : {}),
   }
 }
 
-/** A separate floor outline is reviewed from source nodes, never offset from exterior walls. */
+/** A floor uses source nodes or rechecked crossings, never an offset from exterior walls. */
 export function pageFloorForSave(
   draft: PlanPageContours['floor'],
   closed: boolean,
   nativePoints: PageContourPoint[],
+  segments: readonly NativePageSegment[] = [],
 ): PlanPageContours['floor'] | null {
   if (!draft) return undefined
   if (
     !closed ||
     draft.polygon.length < 3 ||
     draft.polygon.length > 100 ||
-    !draft.polygon.every(
-      (point) => finiteContourPoint(point) && nativeContourPoint(point, nativePoints),
-    )
+    !draft.polygon.every(finiteContourPoint) ||
+    !sourceRoomContourVertices(draft, new Set(nativePoints.map((p) => `${p.x}:${p.y}`)), segments)
   )
     return null
-  return { polygon: draft.polygon.map((point) => ({ ...point })) }
+  return {
+    polygon: draft.polygon.map((point) => ({ ...point })),
+    ...(draft.vertexProofs?.length ? { vertexProofs: structuredClone(draft.vertexProofs) } : {}),
+  }
+}
+
+/** Evidence belongs to one exact vertex at its original index, not to a nearby edited point. */
+export function pageContourVertexProofsChanged(
+  before: Pick<PlanPageContours['rooms'][number], 'polygon' | 'vertexProofs'> | undefined,
+  polygon: PageContourPoint[],
+): PlanPageContours['rooms'][number]['vertexProofs'] {
+  const retained = before?.vertexProofs?.filter(({ vertexIndex }) => {
+    const oldPoint = before.polygon[vertexIndex]
+    const point = polygon[vertexIndex]
+    return oldPoint && point && oldPoint.x === point.x && oldPoint.y === point.y
+  })
+  return retained?.length ? structuredClone(retained) : undefined
 }
 
 /** A started void must be closed and bound to original PDF vertices before saving. */
@@ -198,6 +217,7 @@ export function pageContourRoomsForSave(
     rooms.push({
       ...pdfContourIdentity(draft),
       polygon: draft.polygon.map((point) => ({ ...point })),
+      ...(draft.vertexProofs?.length ? { vertexProofs: structuredClone(draft.vertexProofs) } : {}),
       ...(draft.conditionalEdges?.length
         ? { conditionalEdges: structuredClone(draft.conditionalEdges) }
         : {}),
@@ -261,6 +281,7 @@ export function groupPageContourDraft(
     roomSourceNumbers: [selectedNumber, otherNumber].sort((a, b) => a - b),
     polygon: before?.polygon.map((point) => ({ ...point })) ?? [],
     closed: before?.closed ?? false,
+    ...(before?.vertexProofs ? { vertexProofs: structuredClone(before.vertexProofs) } : {}),
     ...(before?.openings ? { openings: before.openings } : {}),
     ...(before?.conditionalEdges ? { conditionalEdges: before.conditionalEdges } : {}),
     ...(before?.dimensionEdges ? { dimensionEdges: structuredClone(before.dimensionEdges) } : {}),
