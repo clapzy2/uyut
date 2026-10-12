@@ -22,14 +22,18 @@ vi.mock('react', async (importOriginal) => ({
   },
   useRef: (initial: unknown) => ({ current: initial }),
   useEffect: (effect: () => unknown) => hooks.effects.push(effect),
+  useMemo: (compute: () => unknown) => compute(),
 }))
 vi.mock('@/actions/plan-page-review', () => ({ savePlanPageReview: vi.fn() }))
 
 import { savePlanPageReview } from '@/actions/plan-page-review'
+import { exactNativePointKey } from '@/lib/projects/plan-native-exact-intersections'
+import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
 import { PlanPageBoundaryControls } from './plan-page-boundary-controls'
 import { PlanPageContourEditor } from './plan-page-contour-editor'
 import { contourDraftsFromSaved } from './plan-page-contour-editor-model'
 import { PlanPagePointControls } from './plan-page-point-controls'
+import { PlanPageSourceFloorControls } from './plan-page-source-floor-controls'
 
 beforeEach(() => {
   hooks.cursor = 0
@@ -59,6 +63,11 @@ const slots = {
   loading: 19,
   checked: 23,
   state: 24,
+  imageUrl: 11,
+  sourceFloors: 26,
+  sourceFloorsShown: 27,
+  sourceFloorsLoading: 28,
+  sourceFloorsError: 29,
 } as const
 
 function sourceFixture() {
@@ -110,10 +119,10 @@ function sourceFixture() {
   return { polygon, vertexProofs, contours, reading }
 }
 
-function renderEditor(reading: PlanReading) {
+function renderEditor(reading: PlanReading, sourceRevision = 'revision') {
   return PlanPageContourEditor({
     projectId: 'local-project',
-    sourceRevision: 'revision',
+    sourceRevision,
     reading,
     pageNumber: 2,
     onSaved: vi.fn(),
@@ -390,4 +399,142 @@ describe('starting a source boundary', () => {
       expect(startBoundary(savedBoundary)).toBe(savedBoundary)
     },
   )
+})
+
+function nestedProps<T>(node: unknown, component: unknown): T | undefined {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = nestedProps<T>(child, component)
+      if (found) return found
+    }
+  } else if (node && typeof node === 'object' && 'props' in node) {
+    const element = node as ReactElement<{ children?: unknown }>
+    if (element.type === component) return element.props as T
+    return nestedProps<T>(element.props.children, component)
+  }
+  return undefined
+}
+
+describe('source-floor bridge in the existing editor', () => {
+  const revision = 'b'.repeat(64)
+  function setup() {
+    const fixture = sourceFixture()
+    const preview = { sha256: 'a'.repeat(64), page: 2, pageCount: 5, width: 1000, height: 800 }
+    const reference: SourceFloorReference = {
+      version: 1,
+      coordinateSystem: 'page-0-1000',
+      source: fixture.contours.source,
+      sourceRevision: revision,
+      pageWidth: 1000,
+      pageHeight: 800,
+      status: 'checked',
+      reason: null,
+      readOnly: true,
+      physicalBoundariesAccepted: false,
+      floors: [
+        {
+          id: 'source-floor-1',
+          sourceRoomKey: '1',
+          name: 'Прихожая',
+          polygon: structuredClone(fixture.polygon),
+          holes: [],
+          exactPointKeys: fixture.polygon.map((p) => exactNativePointKey(p) as string),
+          holeExactPointKeys: [],
+          nonDecimalVertices: 0,
+          omittedStrokeCount: 0,
+          boundaryInkComplete: true,
+        },
+      ],
+    }
+    hooks.values.set(slots.preview, preview)
+    hooks.values.set(slots.imageUrl, 'blob:test-source')
+    hooks.values.set(slots.imageReady, true)
+    hooks.values.set(slots.nativePoints, fixture.polygon)
+    hooks.values.set(slots.nativeSegments, [])
+    hooks.values.set(slots.loading, false)
+    hooks.values.set(slots.state, 'existing')
+    hooks.values.set(slots.sourceFloors, reference)
+    hooks.values.set(slots.sourceFloorsShown, true)
+    hooks.values.set(slots.checked, true)
+    return { fixture, preview, reference }
+  }
+  function controls(editor: ReactElement) {
+    const result = nestedProps<ComponentProps<typeof PlanPageSourceFloorControls>>(
+      editor,
+      PlanPageSourceFloorControls,
+    )
+    if (!result) throw new Error('Missing source-reference controls')
+    return result
+  }
+  it('copies only after an explicit action and resets review without saving or creating voids', () => {
+    const { fixture } = setup()
+    const editor = renderEditor(fixture.reading, revision)
+    expect(hooks.setters.get(slots.drafts)).not.toHaveBeenCalled()
+    controls(editor).onCopy()
+    expect(updateFor(slots.drafts, [])).toEqual([
+      { roomSourceNumber: 1, polygon: fixture.polygon, closed: true },
+    ])
+    expect(updateFor(slots.checked, true)).toBe(false)
+    expect(hooks.setters.get(2)).not.toHaveBeenCalled()
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
+  it.each(['existing-draft', 'hidden', 'loading', 'revision', 'holes', 'rational'])(
+    'refuses copy when %s without replacing any working geometry',
+    (fault) => {
+      const { fixture, reference } = setup()
+      if (fault === 'existing-draft')
+        hooks.values.set(slots.drafts, contourDraftsFromSaved(fixture.contours.rooms))
+      if (fault === 'hidden') hooks.values.set(slots.sourceFloorsShown, false)
+      if (fault === 'loading') hooks.values.set(slots.sourceFloorsLoading, true)
+      if (fault === 'revision') reference.sourceRevision = 'c'.repeat(64)
+      const floor = reference.floors[0]
+      if (!floor) throw new Error('Missing reference')
+      if (fault === 'holes') floor.holes.push(structuredClone(fixture.polygon))
+      if (fault === 'rational') floor.exactPointKeys[0] = '31/3:10/1'
+      controls(renderEditor(fixture.reading, revision)).onCopy()
+      expect(hooks.setters.get(slots.drafts)).not.toHaveBeenCalled()
+      expect(savePlanPageReview).not.toHaveBeenCalled()
+    },
+  )
+  it('keeps concurrent membership rather than overwriting an existing room in a state updater', () => {
+    const { fixture } = setup()
+    controls(renderEditor(fixture.reading, revision)).onCopy()
+    const concurrent = contourDraftsFromSaved(fixture.contours.rooms)
+    expect(updateFor(slots.drafts, concurrent)).toBe(concurrent)
+  })
+  it('holds a 409 source change without touching the working draft or retaining the old reference', async () => {
+    const { fixture } = setup()
+    hooks.values.set(slots.sourceFloors, undefined)
+    const fetcher = vi.fn().mockResolvedValue(new Response('changed', { status: 409 }))
+    vi.stubGlobal('fetch', fetcher)
+    const editor = renderEditor(fixture.reading, revision)
+    await controls(editor).onToggle()
+    expect(hooks.setters.get(slots.drafts)).not.toHaveBeenCalled()
+    expect(updateFor(slots.sourceFloors, undefined)).toBeUndefined()
+    expect(updateFor(slots.sourceFloorsShown, true)).toBe(false)
+    expect(updateFor(slots.sourceFloorsError, undefined)).toMatch(/План изменился/)
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
+  it('ignores a late reference response after the editor load effect is cleaned up', async () => {
+    const { fixture } = setup()
+    hooks.values.set(slots.sourceFloors, undefined)
+    let resolveReference: (response: Response) => void = () => {
+      throw new Error('Reference not requested')
+    }
+    const deferred = new Promise<Response>((resolve) => {
+      resolveReference = resolve
+    })
+    const fetcher = vi.fn().mockReturnValue(deferred)
+    vi.stubGlobal('fetch', fetcher)
+    const editor = renderEditor(fixture.reading, revision)
+    const pending = controls(editor).onToggle()
+    const cleanup = hooks.effects[0]?.() as (() => void) | undefined
+    cleanup?.()
+    const before = hooks.setters.get(slots.sourceFloors)?.mock.calls.length
+    resolveReference(new Response('{}', { headers: { 'Content-Type': 'application/json' } }))
+    await pending
+    expect(hooks.setters.get(slots.sourceFloors)?.mock.calls.length).toBe(before)
+    expect(hooks.setters.get(slots.drafts)).not.toHaveBeenCalled()
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
 })

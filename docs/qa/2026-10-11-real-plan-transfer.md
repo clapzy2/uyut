@@ -44,6 +44,28 @@ Provider-reported usage for the single new request: 15,747 tokens and USD 0.1235
 
 ## Gate and next work
 
+### Follow-up: source-space selected-floor bridge in the existing editor
+
+The private plan-page route adds an on-demand source-floor-reference format. It
+rederives the saved selection against fresh original/raster evidence and rereads
+access/revision after processing. The narrow raw page-0-1000 DTO retains source
+keys and holes; the editor never divides raster coordinates back into source space.
+Ordinary pixels/points remain independent of optional reference errors.
+
+The existing editor draws a distinct even-odd reference layer, with no pointer
+events. Explicit whole-ring copy is allowed only for holeless decimal-exact rings
+whose every vertex already meets the native endpoint/exact stroke crossing contract.
+Nondecimal intersections, unsupported fill crossings and holes hold the complete
+copy; no approximate corner, partial ring or inferred technical void is added.
+Existing drafts/features and concurrent membership are not replaced. Copy resets
+the manual review checkbox and does not save or confirm physical geometry.
+
+The original Rebrina sheet rederives eight source references and all 79 nondecimal
+vertices. All eight physical draft copies remain held. This audit changes no account
+or source data and makes no paid reader call. Tests cover fresh source/metadata,
+non-square page dimensions, holes, subnumbers, stale access/revisions, guarded copy,
+whole-ring refusal, existing/concurrent drafts and aborted late responses.
+
 ### Follow-up: consistent exterior proofs and local diagonal wall omissions
 
 Wall-source and opening-face checks previously required every exterior corner to

@@ -29,14 +29,21 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     !/^[1-9]\d{0,3}$/.test(pageParam) ||
     !/^[a-f0-9]{64}$/.test(revision ?? '') ||
     (format !== null &&
-      !['points', 'raster', 'native-review', 'native-review-image'].includes(format))
+      ![
+        'points',
+        'raster',
+        'native-review',
+        'native-review-image',
+        'source-floor-reference',
+      ].includes(format))
   )
     return failure('Проверьте выбранный лист и версию плана.', 400)
   const pageNumber = Number(pageParam)
   const raster = format === 'raster'
   const nativeReview = format === 'native-review'
   const nativeReviewImage = format === 'native-review-image'
-  const inspection = nativeReview || nativeReviewImage
+  const sourceFloorReference = format === 'source-floor-reference'
+  const inspection = nativeReview || nativeReviewImage || sourceFloorReference
   const { id } = await params
   try {
     const project = await assertOwnerOrCollaborator(session.user.id, id)
@@ -63,9 +70,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const object = await getObject(project.planUrl)
     const body = Buffer.from(object.body)
     const sha256 = createHash('sha256').update(body).digest('hex')
-    const page = nativeReview
-      ? await preparePlanPage(body, true, pageNumber, true, true)
-      : await preparePlanPage(body, true, pageNumber, inspection ? false : !raster)
+    const page =
+      nativeReview || sourceFloorReference
+        ? await preparePlanPage(body, true, pageNumber, true, true)
+        : await preparePlanPage(body, true, pageNumber, inspection ? false : !raster)
     const labels = planMeasurementTextItems(page.image.planText)
     if (
       page.pageNumber !== pageNumber ||
@@ -101,6 +109,36 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         return new Response(new Uint8Array(page.image.body), {
           headers: { ...headers, 'content-type': 'image/jpeg' },
         })
+      if (sourceFloorReference) {
+        if (!page.linework || !current.planReading)
+          return failure('Не удалось проверить исходные области PDF.', 422)
+        const { planPageSourceFloors } = await import('@/lib/projects/plan-page-source-floors')
+        const reference = planPageSourceFloors({
+          source: { sha256, pdfPage: pageNumber, state: 'existing' },
+          sourceRevision: revision as string,
+          pageWidth: page.linework.pageWidth,
+          pageHeight: page.linework.pageHeight,
+          reading: current.planReading,
+          evidence:
+            page.nativeTextAnchors && page.lineworkRasterSource
+              ? {
+                  native: page.nativeTextAnchors,
+                  work: page.linework,
+                  lineworkSource: page.lineworkRasterSource,
+                }
+              : undefined,
+        })
+        const afterReference = await assertOwnerOrCollaborator(session.user.id, id)
+        if (revision !== planEditRevision(afterReference.planUrl, afterReference.planReading))
+          return failure('План изменился. Загрузите актуальную версию.', 409)
+        return Response.json(reference, {
+          headers: {
+            ...headers,
+            'X-Plan-Page-Width': String(page.linework.pageWidth),
+            'X-Plan-Page-Height': String(page.linework.pageHeight),
+          },
+        })
+      }
       const { nativeReviewPacket } = await import('@/lib/projects/plan-native-review-packet')
       const packet = nativeReviewPacket({
         source: { sha256, pdfPage: pageNumber, state: 'existing' },
