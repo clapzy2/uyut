@@ -45,6 +45,10 @@ import {
 } from './plan-native-room-number-links'
 import { type NativeScaleEvidenceReport, nativeScaleEvidence } from './plan-native-scale-evidence'
 import {
+  type NativeSelectedDimensionBoundaryReport,
+  nativeSelectedDimensionBoundaries,
+} from './plan-native-selected-dimension-boundaries'
+import {
   type NativeDimensionStrokeContactReport,
   nativeDimensionStrokeContacts,
 } from './plan-native-stroke-contacts'
@@ -188,6 +192,7 @@ export type NativeReviewPacket = {
   sourceCaptionBindings?: NativeCaptionBindingReport
   dimensionTargets?: NativeDimensionTargetReport
   dimensionStrokeContacts?: NativeDimensionStrokeContactReport
+  selectedDimensionBoundaries?: NativeSelectedDimensionBoundaryReport
   scaleEvidence?: NativeScaleEvidenceReport
   heightObservations?: {
     status: 'draft' | 'unresolved'
@@ -558,6 +563,10 @@ export function nativeReviewPacket(input: {
           omittedStrokeCount: floor.omittedStrokeCount,
           boundaryInkComplete: floor.boundaryInkComplete,
         }))
+        packet.selectedDimensionBoundaries = nativeSelectedDimensionBoundaries(
+          { ...common, source, reviewed },
+          captionBindings,
+        )
       } catch {
         packet.savedPaintedFloors.status = 'refused'
         packet.savedPaintedFloors.reason = 'invalid-saved-painted-floor-review'

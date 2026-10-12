@@ -65,6 +65,16 @@ export function nativeFaceRationalPredicates() {
     return result
   }
   return {
+    equalSpanVectors(a: string, b: string, c: string, d: string) {
+      const firstStart = point(a)
+      const firstEnd = point(b)
+      const secondStart = point(c)
+      const secondEnd = point(d)
+      return (
+        compare(subtract(firstEnd.x, firstStart.x), subtract(secondEnd.x, secondStart.x)) === 0 &&
+        compare(subtract(firstEnd.y, firstStart.y), subtract(secondEnd.y, secondStart.y)) === 0
+      )
+    },
     segmentsTouch(a: string, b: string, c: string, d: string) {
       return touch(point(a), point(b), point(c), point(d))
     },

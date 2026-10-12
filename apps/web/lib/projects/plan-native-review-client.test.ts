@@ -130,6 +130,222 @@ describe('readonly renderer pen contacts', () => {
     report.observations = []
     expect((await loadFixture(packet, headers)).packet.dimensionStrokeContacts).toEqual(report)
   })
+  function checkedFixture() {
+    const result = penFixture()
+    const report = result.packet.dimensionStrokeContacts
+    const tips = report?.observations[0]?.tips
+    if (!report || !tips) throw new Error('Missing contact fixture')
+    report.visibility = 'checked'
+    tips[0].visibility = {
+      status: 'unoccluded',
+      reason: null,
+      unoccludedSourceRefs: structuredClone(tips[0].sourceRefs),
+      blockerOperations: [7400],
+    }
+    tips[1].visibility = {
+      status: 'held',
+      reason: 'no-source-ink-contact',
+      unoccludedSourceRefs: [],
+      blockerOperations: [],
+    }
+    return { ...result, report, tips }
+  }
+  it('retains checked point exclusions without claiming whole-path or physical visibility', async () => {
+    const { packet, headers, report } = checkedFixture()
+    expect((await loadFixture(packet, headers)).packet.dimensionStrokeContacts).toEqual(report)
+  })
+  it('keeps source and visibility reference budgets independent for valid large reports', async () => {
+    const { packet, headers, report } = checkedFixture()
+    const row = report.observations[0]
+    const caption = packet.sourceCaptionBindings?.candidates[0]
+    if (!row || !caption || !packet.sourceCaptionBindings) throw new Error('Missing budget fixture')
+    report.observations = Array.from({ length: 4 }, (_, index) => {
+      const copy = structuredClone(row)
+      copy.labelId = `dimension-${index}`
+      copy.rail.operationIndex = index + 1
+      const makeTip = (endpoint: 0 | 1): (typeof copy.tips)[number] => {
+        const sourceRefs = Array.from({ length: 2500 }, (_, i) => ({
+          operationIndex: 1000 + i,
+          subpathIndex: 0,
+          segmentIndex: 0,
+        }))
+        return {
+          endpoint,
+          status: 'ink-overlap',
+          reason: null,
+          sourceRefs,
+          visibility: {
+            status: 'unoccluded',
+            reason: null,
+            unoccludedSourceRefs: structuredClone(sourceRefs),
+            blockerOperations: [],
+          },
+        }
+      }
+      copy.tips = [makeTip(0), makeTip(1)]
+      return copy
+    })
+    packet.sourceCaptionBindings.candidates = report.observations.map((row, index) => ({
+      ...caption,
+      labelId: row.labelId,
+      compactIndex: index,
+      rail: row.rail,
+      inkSourceOperation: 100 + index,
+    }))
+    expect((await loadFixture(packet, headers)).packet.dimensionStrokeContacts).toEqual(report)
+  })
+  it.each([
+    'missing',
+    'unchecked-with-details',
+    'foreign-ref',
+    'string-ref',
+    'duplicate-ref',
+    'empty-visible',
+    'held-with-ref',
+    'unordered-blockers',
+    'bad-blocker',
+    'whole-path-proof',
+  ])('rejects visibility authority or malformed detail %s', async (change) => {
+    const { packet, headers, report, tips } = checkedFixture()
+    const detail = tips[0].visibility
+    if (!detail) throw new Error('Missing detail')
+    if (change === 'missing') delete tips[0].visibility
+    if (change === 'unchecked-with-details') report.visibility = 'not-checked'
+    if (change === 'foreign-ref')
+      detail.unoccludedSourceRefs[0] = { operationIndex: 999, subpathIndex: 0, segmentIndex: 0 }
+    if (change === 'string-ref')
+      Object.assign(detail.unoccludedSourceRefs[0] ?? {}, { operationIndex: '7389' })
+    if (change === 'duplicate-ref')
+      detail.unoccludedSourceRefs.push({
+        ...(tips[0].sourceRefs[0] as NonNullable<typeof detail.unoccludedSourceRefs>[number]),
+      })
+    if (change === 'empty-visible') detail.unoccludedSourceRefs = []
+    if (change === 'held-with-ref') Object.assign(detail, { status: 'held', reason: 'unverified' })
+    if (change === 'unordered-blockers') detail.blockerOperations = [7400, 7300]
+    if (change === 'bad-blocker') detail.blockerOperations = [Number.NaN]
+    if (change === 'whole-path-proof') Object.assign(detail, { wholePathVisible: true })
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
+  function selectedFixture() {
+    const result = penFixture()
+    const polygon = [
+      { x: 100, y: 100 },
+      { x: 300, y: 100 },
+      { x: 300, y: 300 },
+      { x: 100, y: 300 },
+    ]
+    result.packet.faces = [
+      { id: 'native-fill-40:0', layer: 'fill', polygon, annotationHint: false },
+    ]
+    result.packet.counts.fillCandidates = 1
+    result.packet.orderedPaint = {
+      status: 'diagnostic',
+      refusalReason: null,
+      regions: [
+        {
+          candidateId: 'native-fill-40:0',
+          status: 'diagnostic',
+          refusalReason: null,
+          maskCount: 0,
+          omittedStrokeCount: 0,
+          boundaryInkComplete: true,
+          pieces: [{ polygon, holes: [] }],
+        },
+      ],
+    }
+    result.packet.savedPaintedFloors = {
+      status: 'checked',
+      reason: null,
+      physicalBoundariesAccepted: false,
+      measurementsConfirmed: false,
+      commonZeroConfirmed: false,
+      floors: [
+        {
+          id: 'native-fill-40:0:piece-0',
+          candidateId: 'native-fill-40:0',
+          sourceRoomKey: '2',
+          name: 'Кухня',
+          nameLabelId: 'native-text-21',
+          numberLabelId: 'native-text-22',
+          polygon,
+          holes: [],
+          unresolvedEdges: 4,
+          omittedStrokeCount: 0,
+          boundaryInkComplete: true,
+        },
+      ],
+    }
+    result.packet.selectedDimensionBoundaries = {
+      status: 'draft',
+      refusalReason: null,
+      physicalBoundariesAccepted: false,
+      mayTransfer2D: false,
+      mayTransfer3D: false,
+      observations: [
+        {
+          labelId: 'dimension-pen',
+          valueMm: 817,
+          status: 'candidate',
+          reason: 'physical-boundary-proof-missing',
+          candidates: [
+            {
+              floorId: 'native-fill-40:0:piece-0',
+              sourceRoomKey: '2',
+              edgeIndex: 0,
+              declaredRole: 'unresolved',
+              span: 'whole-translated-source-vector',
+              sourceRefs: [{ operationIndex: 40, subpathIndex: 0, segmentIndex: 0 }],
+              boundaryInkComplete: true,
+            },
+          ],
+        },
+      ],
+    }
+    return result
+  }
+  it('retains a selected-floor vector proposal without accepting its physical role', async () => {
+    const { packet, headers } = selectedFixture()
+    expect((await loadFixture(packet, headers)).packet.selectedDimensionBoundaries).toEqual(
+      packet.selectedDimensionBoundaries,
+    )
+  })
+  it.each([
+    'physical',
+    'transfer',
+    'floor',
+    'owner',
+    'edge',
+    'duplicate',
+    'empty',
+    'role',
+    'span',
+    'source-ref',
+    'caption',
+    'unknown-key',
+  ])('refuses a forged selected-boundary proposal %s', async (change) => {
+    const { packet, headers } = selectedFixture()
+    const report = packet.selectedDimensionBoundaries,
+      row = report?.observations[0],
+      candidate = row?.candidates[0]
+    if (!report || !row || !candidate) throw new Error('Missing selected fixture')
+    if (change === 'physical') Object.assign(report, { physicalBoundariesAccepted: true })
+    if (change === 'transfer') Object.assign(report, { mayTransfer3D: true })
+    if (change === 'floor') candidate.floorId = 'native-fill-999:0:piece-0'
+    if (change === 'owner') candidate.sourceRoomKey = '3'
+    if (change === 'edge') candidate.edgeIndex = 4
+    if (change === 'duplicate') {
+      row.candidates.push(structuredClone(candidate))
+      row.status = 'ambiguous'
+    }
+    if (change === 'empty') row.candidates = []
+    if (change === 'role') Object.assign(candidate, { declaredRole: 'confirmed-wall' })
+    if (change === 'span') Object.assign(candidate, { span: 'partial-is-whole' })
+    if (change === 'source-ref')
+      candidate.sourceRefs = [{ operationIndex: -1, subpathIndex: 0, segmentIndex: 0 }]
+    if (change === 'caption') row.valueMm++
+    if (change === 'unknown-key') Object.assign(report, { acceptedGeometry: {} })
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
 })
 const input = () => ({
   projectId: 'private-project',

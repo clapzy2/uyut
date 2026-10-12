@@ -68,6 +68,99 @@ it('distinguishes saved source-floor selections from an absent 2D contour review
   expect(html).not.toContain('Ручная разметка этого листа ещё не сохранена')
 })
 
+it('separates point visibility and selected-vector proposals from accepted physical boundaries', () => {
+  const packet = nativeReviewPacket({
+    source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },
+    image: { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 },
+  })
+  const baseline = renderToStaticMarkup(
+    createElement(NativeReviewResult, { packet, imageUrl: 'blob:test' }),
+  )
+  packet.dimensionStrokeContacts = {
+    status: 'diagnostic',
+    refusalReason: null,
+    visibility: 'checked',
+    physicalTargetsAccepted: false,
+    mayTransfer2D: false,
+    mayTransfer3D: false,
+    observations: [
+      {
+        labelId: 'native-text-70',
+        valueMm: 684,
+        rail: { operationIndex: 6480, subpathIndex: 0 },
+        tips: [
+          {
+            endpoint: 0,
+            status: 'ink-overlap',
+            reason: null,
+            sourceRefs: [{ operationIndex: 6476, subpathIndex: 0, segmentIndex: 0 }],
+            visibility: {
+              status: 'held',
+              reason: 'later-paint-may-cover-contact',
+              unoccludedSourceRefs: [],
+              blockerOperations: [6486],
+            },
+          },
+          {
+            endpoint: 1,
+            status: 'ink-overlap',
+            reason: null,
+            sourceRefs: [{ operationIndex: 6500, subpathIndex: 0, segmentIndex: 0 }],
+            visibility: {
+              status: 'unoccluded',
+              reason: null,
+              unoccludedSourceRefs: [{ operationIndex: 6500, subpathIndex: 0, segmentIndex: 0 }],
+              blockerOperations: [],
+            },
+          },
+        ],
+      },
+    ],
+  }
+  packet.selectedDimensionBoundaries = {
+    status: 'draft',
+    refusalReason: null,
+    physicalBoundariesAccepted: false,
+    mayTransfer2D: false,
+    mayTransfer3D: false,
+    observations: [
+      {
+        labelId: 'native-text-70',
+        valueMm: 684,
+        status: 'candidate',
+        reason: 'incomplete-source-boundary',
+        candidates: [
+          {
+            floorId: '<floor>',
+            sourceRoomKey: '2',
+            edgeIndex: 40,
+            declaredRole: 'unresolved',
+            span: 'whole-translated-source-vector',
+            sourceRefs: [{ operationIndex: 1858, subpathIndex: 0, segmentIndex: 2 }],
+            boundaryInkComplete: false,
+          },
+        ],
+      },
+    ],
+  }
+  const before = structuredClone(packet)
+  const html = renderToStaticMarkup(
+    createElement(NativeReviewResult, { packet, imageUrl: 'blob:test' }),
+  )
+  expect(html).toContain('Отсутствие перекрытия в точке не доказывает видимость всей линии')
+  expect(html).toContain('Контакты без позднего перекрытия в точке: 1')
+  expect(html).toContain('видимость удержана: 1')
+  expect(html).toContain('Помещение 2')
+  expect(html).toContain('грань 40')
+  expect(html).toContain('1858:0:2')
+  expect(html).toContain('&lt;floor&gt;')
+  expect(html).toContain('Физические границы не приняты')
+  expect(html).toContain('но контакт выносных линий не доказан')
+  expect(html.match(/<button/g)?.length ?? 0).toBe(baseline.match(/<button/g)?.length ?? 0)
+  expect(html.match(/<svg/g)?.length ?? 0).toBe(baseline.match(/<svg/g)?.length ?? 0)
+  expect(packet).toEqual(before)
+})
+
 it('separates positive source paint from negative-space floor cavities and warns about masks', () => {
   const packet = nativeReviewPacket({
     source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },

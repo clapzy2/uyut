@@ -531,6 +531,41 @@ Local gate: 7,310 web tests / 314 files passed with four workers, seven-package
 typecheck, production build, Biome1019files and diff check passed. Original
 PDF re-extraction is local-only; synthetic tests run without private/source files.
 
+### Ordered paint exclusion and selected dimension spans — 12 October
+
+Every native vector paint is inventoried before path omission or clipping,
+using unrounded control-point envelopes, affine pen width/cap/miter expansion
+and the installed PDF.js minimum-device-pixel stroke rescaling at the actual
+render viewport. Unsupported paint is an indexed unbounded blocker, not absent
+ink. Unit image quads are bounded under the current transform; unsupported image
+repeats, shading and legacy paint stay unknown. Actual glyph outlines are
+collected before PDF.js deletes them during canvas compilation. Unclipped text
+control hulls remain supersets under masks; independent non-clipping state
+refusals preserve opacity/pattern/font/mode uncertainty. FontBBox and advances
+are never substituted for glyph ink.
+
+Contact pairs scan later paint after the earlier member. Only the two proven
+single-subpath source strokes are exempt; a third stroke of the same colour,
+a compound source operation or an unknown envelope holds visibility. The report
+retains all original alternatives, possible blockers and unoccluded point refs.
+This is not visibility of a whole rail or an accepted physical boundary.
+
+Fresh Rebrina page3: 2,966 ordered paints; the only null envelopes are nine
+proven-empty text shows. All ten ink contacts remain held due potential third
+paint, not a missing text inventory. One exact whole-vector proposal links
+684 mm to selected kitchen-living floor edge40/source1858:0:2; four other
+captions remain without a whole selected-edge proposal. Rational endpoints,
+source refs, declared role and incomplete boundary evidence remain separate.
+All eight selected floors have incomplete boundary ink. Physical walls/jambs,
+extension contacts, independent metric scale and datum/levels are not proved.
+Saved floors, heights and accepted geometry are unchanged.
+
+Local gate: 7,434 web tests / 315 files, seven-package typecheck, production
+build, Biome1021files and diff check passed. Independent review found a mixed
+source/visibility reference budget in the wire; separate 20k counters and a
+40k combined-reference regression fixed it. Original replay remains optional
+and local-only; deterministic controls run in CI without the original PDF.
+
 ### Earlier offline regression verification
 
 - Full web suite: 6,821 tests / 300 files passed, including local-only original PDF re-extractions when that ignored source exists. Public CI does not require copyrighted PDFs; deterministic unit controls remain present there.

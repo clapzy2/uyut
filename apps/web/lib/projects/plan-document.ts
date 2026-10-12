@@ -190,6 +190,9 @@ export async function preparePlanPage(
       )
     }
     const page = await document.getPage(pageNumber)
+    const full = page.getViewport({ scale: PDF_DPI / 72 })
+    const budget = Math.min(1, Math.sqrt(PDF_MAX_PIXELS / (full.width * full.height)))
+    const viewport = page.getViewport({ scale: (PDF_DPI / 72) * budget })
     // Ordinary PDF chain checks and reviewed-page checks use the same selected native page.
     let linework: PdfLinework | undefined
     let nativeViewport: ReturnType<typeof page.getViewport> | undefined
@@ -198,16 +201,32 @@ export async function preparePlanPage(
       try {
         nativeViewport = page.getViewport({ scale: 1 })
         nativeOperators = await page.getOperatorList()
-        linework = extractPdfLinework(nativeOperators, pdfjs.OPS, nativeViewport)
+        linework = extractPdfLinework(nativeOperators, pdfjs.OPS, nativeViewport, viewport)
       } catch {
         // The caller must refuse geometry verification; never reinterpret a missing layer as valid.
       }
     }
-    const full = page.getViewport({ scale: PDF_DPI / 72 })
     const textContent = await page.getTextContent().catch(() => undefined)
     const optionalContentConfig =
       includeNativeTextAnchors && typeof document.getOptionalContentConfig === 'function'
         ? await document.getOptionalContentConfig({ intent: 'display' }).catch(() => undefined)
+        : undefined
+    // PDF.js removes raw glyph paths while compiling them for the canvas.
+    // Collect the conservative source ink before rendering, never from FontBBox.
+    const textPaintInventory =
+      includeNativeTextAnchors && nativeOperators && nativeViewport && textContent
+        ? nativeNumericTextInk({
+            operatorList: nativeOperators,
+            operators: pdfjs.OPS,
+            textItems: textContent.items,
+            selectedTextIndexes: [],
+            collectPaintBounds: true,
+            viewport: nativeViewport,
+            getFont: (fontName) => page.commonObjs.get(fontName),
+            getGlyphPath: (fontName, fontChar) =>
+              page.commonObjs.get(`${fontName}_path_${fontChar}`).path,
+            isOptionalContentVisible: (properties) => optionalContentConfig?.isVisible(properties),
+          }).paintBounds
         : undefined
     const glyphInk =
       includeNativeTextAnchors && nativeOperators && nativeViewport && textContent
@@ -395,8 +414,6 @@ export async function preparePlanPage(
       }
     }
     const planText = textItems.length > 0 ? JSON.stringify(textItems) : undefined
-    const budget = Math.min(1, Math.sqrt(PDF_MAX_PIXELS / (full.width * full.height)))
-    const viewport = page.getViewport({ scale: (PDF_DPI / 72) * budget })
     const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height))
     const context = canvas.getContext('2d')
     context.fillStyle = '#ffffff'
@@ -411,6 +428,27 @@ export async function preparePlanPage(
         ? { optionalContentConfigPromise: Promise.resolve(optionalContentConfig) }
         : {}),
     }).promise
+    if (includeNativeTextAnchors && linework?.paintBounds && nativeOperators && nativeViewport) {
+      const textPaint = textPaintInventory
+      const inventory = linework.paintBounds
+      const byOperation = new Map(textPaint?.entries.map((entry) => [entry.operationIndex, entry]))
+      const textEvents = inventory.events.filter((event) => event.kind === 'text')
+      if (
+        !textPaint?.complete ||
+        byOperation.size !== textEvents.length ||
+        textEvents.some((event) => !byOperation.has(event.operationIndex))
+      ) {
+        inventory.complete = false
+        inventory.refusalReason = 'incomplete-text-paint-envelope-inventory'
+        inventory.events = []
+      } else
+        for (const event of textEvents) {
+          const text = byOperation.get(event.operationIndex)
+          if (!text) continue
+          event.bounds = text.bounds
+          event.reason = text.reason
+        }
+    }
     const image = await toJpeg(canvas.toBuffer('image/png'))
     let nativeTextAnchors: NativeTextAnchors | undefined
     if (includeNativeTextAnchors) {

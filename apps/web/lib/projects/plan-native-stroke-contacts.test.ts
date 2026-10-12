@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as captions from './plan-native-caption-bindings'
 import { nativeDimensionStrokeContacts as nativeStrokeContacts } from './plan-native-stroke-contacts'
-import type { PagePoint, PdfStrokeInk, PdfVectorPath } from './plan-pdf-linework'
+import type { PagePoint, PdfPaintBounds, PdfStrokeInk, PdfVectorPath } from './plan-pdf-linework'
 
 type Input = Parameters<typeof nativeStrokeContacts>[0]
 const identity: PdfStrokeInk['sourceToPage'] = [1, 0, 0, 1, 0, 0]
@@ -323,6 +323,259 @@ describe('diagnostic straight PDF.js ink contacts', () => {
   })
 })
 
+function paintInventory(input: Input): PdfPaintBounds {
+  input.work.paintBounds = {
+    complete: true,
+    refusalReason: null,
+    events: input.work.paths.map((path) => ({
+      operationIndex: path.operationIndex,
+      kind: 'vector',
+      subpathCount: 1,
+      bounds: {
+        left: Math.min(...path.points.map((point) => point.x)) - 1,
+        right: Math.max(...path.points.map((point) => point.x)) + 1,
+        top: Math.min(...path.points.map((point) => point.y)) - 1,
+        bottom: Math.max(...path.points.map((point) => point.y)) + 1,
+      },
+      reason: null,
+    })),
+  }
+  return input.work.paintBounds
+}
+
+const coveringBounds = { left: 99, top: 99, right: 101, bottom: 101 }
+describe('source-order paint visibility at contact points only', () => {
+  it('checks both unoccluded pairs without changing input or accepting the whole rail', () => {
+    const { input } = fixture()
+    paintInventory(input)
+    const before = structuredClone(input)
+    const report = nativeStrokeContacts(input)
+    expect(report.visibility).toBe('checked')
+    for (const tip of report.observations[0]?.tips ?? []) {
+      expect(tip.visibility).toEqual({
+        status: 'unoccluded',
+        reason: null,
+        unoccludedSourceRefs: tip.sourceRefs,
+        blockerOperations: [],
+      })
+    }
+    expect(report).toMatchObject({
+      physicalTargetsAccepted: false,
+      mayTransfer2D: false,
+      mayTransfer3D: false,
+    })
+    expect(report).not.toHaveProperty('railVisibility')
+    expect(input).toEqual(before)
+  })
+
+  it.each(['vector', 'text', 'image', 'unknown'] as const)(
+    'holds later %s paint even though source ink contact still exists',
+    (kind) => {
+      const { input } = fixture()
+      paintInventory(input).events.push({
+        operationIndex: 4,
+        kind,
+        bounds: coveringBounds,
+        reason: null,
+      })
+      expect(first(input).tips[0]).toMatchObject({
+        status: 'ink-overlap',
+        visibility: {
+          status: 'held',
+          reason: 'later-paint-may-cover-contact',
+          blockerOperations: [4],
+        },
+      })
+      expect(first(input).tips[1].visibility?.status).toBe('unoccluded')
+    },
+  )
+
+  it.each(['#ffffff', '#000000'])('does not exempt a later stroke of color %s', (color) => {
+    const { input } = fixture()
+    input.work.paths.push({
+      ...stroke(4, [
+        { x: 100, y: 99 },
+        { x: 100, y: 101 },
+      ]),
+      strokeColor: color,
+    })
+    paintInventory(input)
+    expect(first(input).tips[0].visibility).toMatchObject({
+      status: 'held',
+      blockerOperations: color === '#000000' ? [2, 4] : [4],
+    })
+  })
+
+  it.each(['text', 'image', 'vector', 'unknown'] as const)('holds unbounded %s paint', (kind) => {
+    const { input } = fixture()
+    paintInventory(input).events.push({
+      operationIndex: 4,
+      kind,
+      bounds: null,
+      reason: 'unknown-envelope',
+    })
+    expect(first(input).tips.every((tip) => tip.visibility?.status === 'held')).toBe(true)
+  })
+
+  it('ignores paint before both pair members but not paint between them', () => {
+    const { input } = fixture()
+    const inventory = paintInventory(input)
+    inventory.events.unshift({ operationIndex: 0, kind: 'unknown', bounds: null, reason: null })
+    expect(first(input).tips[0].visibility?.status).toBe('unoccluded')
+    const witness = input.work.paths[1]
+    if (!witness) throw new Error('Missing witness')
+    witness.operationIndex = 4
+    const fresh = paintInventory(input)
+    fresh.events.push({ operationIndex: 2, kind: 'vector', bounds: coveringBounds, reason: null })
+    expect(first(input).tips[0].visibility).toMatchObject({
+      status: 'held',
+      blockerOperations: [2],
+    })
+  })
+
+  it.each([1, 2])('does not exempt the other subpaths of source operation %i', (operationIndex) => {
+    const { input } = fixture()
+    const event = paintInventory(input).events.find(
+      (item) => item.operationIndex === operationIndex,
+    )
+    if (!event) throw new Error('Missing source event')
+    event.subpathCount = 2
+    expect(first(input).tips[0].visibility).toMatchObject({
+      status: 'held',
+      reason: 'contact-paint-provenance-unavailable',
+    })
+  })
+
+  it.each(['incomplete', 'duplicate', 'oversize', 'invalid-bounds'])(
+    'holds %s inventory without dropping source contacts',
+    (kind) => {
+      const { input } = fixture()
+      const inventory = paintInventory(input)
+      const event = inventory.events[0]
+      if (!event) throw new Error('Missing source event')
+      if (kind === 'incomplete') inventory.complete = false
+      if (kind === 'duplicate') inventory.events.push(structuredClone(event))
+      if (kind === 'oversize')
+        inventory.events = Array.from({ length: 6001 }, (_, operationIndex) => ({
+          ...event,
+          operationIndex,
+        }))
+      if (kind === 'invalid-bounds') event.bounds = { ...coveringBounds, left: Number.NaN }
+      expect(first(input).tips[0]).toMatchObject({
+        status: 'ink-overlap',
+        visibility: { status: 'held', reason: 'paint-envelope-inventory-unavailable' },
+      })
+    },
+  )
+
+  it('preserves all alternatives and records a blocked early pair alongside an unoccluded later pair', () => {
+    const { input, bindings } = fixture()
+    const rail = input.work.paths[0]
+    const candidate = bindings.candidates[0]
+    if (!rail || !candidate) throw new Error('Missing rail')
+    rail.operationIndex = 5
+    candidate.rail.operationIndex = 5
+    input.work.paths.push(
+      stroke(7, [
+        { x: 100.001, y: 90 },
+        { x: 100.001, y: 110 },
+      ]),
+    )
+    paintInventory(input).events.push({
+      operationIndex: 4,
+      kind: 'vector',
+      bounds: coveringBounds,
+      reason: null,
+    })
+    expect(first(input).tips[0]).toMatchObject({
+      sourceRefs: [
+        { operationIndex: 2, subpathIndex: 0, segmentIndex: 0 },
+        { operationIndex: 7, subpathIndex: 0, segmentIndex: 0 },
+      ],
+      visibility: {
+        status: 'unoccluded',
+        blockerOperations: [4, 7],
+        unoccludedSourceRefs: [{ operationIndex: 7, subpathIndex: 0, segmentIndex: 0 }],
+      },
+    })
+  })
+
+  it('returns no partial report after visibility scans exhaust the work budget', () => {
+    const { input, bindings } = fixture()
+    const candidate = bindings.candidates[0]
+    if (!candidate) throw new Error('Missing candidate')
+    bindings.candidates = Array.from({ length: 1000 }, (_, index) => ({
+      ...candidate,
+      labelId: `native-text-${index}`,
+    }))
+    const inventory = paintInventory(input)
+    inventory.events.push(
+      ...Array.from({ length: 5997 }, (_, index) => ({
+        operationIndex: index + 4,
+        kind: 'vector' as const,
+        bounds: { left: 600, right: 610, top: 600, bottom: 610 },
+        reason: null,
+      })),
+    )
+    expect(nativeStrokeContacts(input)).toMatchObject({
+      status: 'unresolved',
+      refusalReason: 'stroke-contact-work-or-output-limit',
+      observations: [],
+    })
+  })
+
+  it('clears all observations instead of returning a partial over-budget contact reference list', () => {
+    const { input, bindings } = fixture()
+    const rail = input.work.paths[0]
+    const candidate = bindings.candidates[0]
+    if (!rail || !candidate) throw new Error('Missing candidate')
+    bindings.candidates = Array.from({ length: 1000 }, (_, index) => ({
+      ...candidate,
+      labelId: `native-text-${index}`,
+    }))
+    input.work.paths = [
+      rail,
+      ...Array.from({ length: 30 }, (_, index) =>
+        stroke(index + 2, [
+          { x: 100.001, y: 90 },
+          { x: 100.001, y: 110 },
+        ]),
+      ),
+    ]
+    expect(nativeStrokeContacts(input)).toMatchObject({
+      status: 'unresolved',
+      refusalReason: 'stroke-contact-output-limit',
+      observations: [],
+    })
+  })
+
+  it('clears all observations when accumulated visibility blocker references exceed the limit', () => {
+    const { input, bindings } = fixture()
+    const candidate = bindings.candidates[0]
+    if (!candidate) throw new Error('Missing candidate')
+    bindings.candidates = Array.from({ length: 1000 }, (_, index) => ({
+      ...candidate,
+      labelId: `native-text-${index}`,
+    }))
+    const inventory = paintInventory(input)
+    inventory.events.push(
+      ...Array.from({ length: 25 }, (_, index) => ({
+        operationIndex: index + 4,
+        kind: 'vector' as const,
+        bounds: coveringBounds,
+        reason: null,
+      })),
+    )
+    const before = structuredClone(input)
+    expect(nativeStrokeContacts(input)).toMatchObject({
+      status: 'unresolved',
+      refusalReason: 'stroke-contact-work-or-output-limit',
+      observations: [],
+    })
+    expect(input).toEqual(before)
+  })
+})
+
 const originalSource = fileURLToPath(
   new URL('../../../../output/pdf/source-search-20261003/rebrina-original.pdf', import.meta.url),
 )
@@ -349,7 +602,11 @@ it.skipIf(!existsSync(originalSource))(
     expect(
       result.observations.flatMap((row) => row.tips).filter((tip) => tip.status === 'ink-overlap'),
     ).toHaveLength(10)
-    expect(result.visibility).toBe('not-checked')
+    expect(result.visibility).toBe('checked')
+    expect(result.observations.flatMap((row) => row.tips)).toHaveLength(10)
+    for (const tip of result.observations.flatMap((row) => row.tips)) {
+      expect(['held', 'unoccluded']).toContain(tip.visibility?.status)
+    }
     expect(result.physicalTargetsAccepted).toBe(false)
     expect(result.mayTransfer2D).toBe(false)
     expect(result.mayTransfer3D).toBe(false)

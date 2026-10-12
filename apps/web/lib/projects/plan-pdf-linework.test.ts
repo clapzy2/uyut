@@ -1,5 +1,44 @@
+import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { extractPdfLinework, pdfVectorRectangle } from './plan-pdf-linework'
+
+const originalSource = fileURLToPath(
+  new URL('../../../../output/pdf/source-search-20261003/rebrina-original.pdf', import.meta.url),
+)
+it.skipIf(!existsSync(originalSource))(
+  'keeps original hairline paint bounded without upgrading hairlines to physical ink evidence',
+  async () => {
+    const bytes = await readFile(originalSource)
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(
+      '2e141c135812c81719e1f4783173cb5202e20041ac494d3cc799eb37ad62ad4e',
+    )
+    const { preparePlanPage } = await import('./plan-document')
+    const page = await preparePlanPage(bytes, true, 3, true, true)
+    const work = page.linework
+    if (!work?.paintBounds) throw new Error('Missing real source paint inventory')
+    expect(work.paintBounds.complete).toBe(true)
+    expect(work.paintBounds.refusalReason).toBeNull()
+    expect(work.paintBounds.events.length).toBeGreaterThan(0)
+    for (const event of work.paintBounds.events.filter((item) => item.bounds === null)) {
+      expect(event).toMatchObject({ kind: 'text', reason: 'empty-source-text-paint' })
+    }
+    const hairlines = work.paths.filter((path) => path.strokeInk?.lineWidth === 0)
+    expect(hairlines.length).toBeGreaterThan(0)
+    for (const path of hairlines) {
+      expect(path.strokeInk?.refusalReason).toBe('device-dependent-source-hairline')
+      const event = work.paintBounds.events.find(
+        (item) => item.operationIndex === path.operationIndex,
+      )
+      expect(event?.kind).toBe('vector')
+      expect(event?.bounds).not.toBeNull()
+      expect(event?.reason).toBeNull()
+    }
+  },
+  30_000,
+)
 
 const ops = {
   save: 1,
@@ -31,6 +70,10 @@ const ops = {
   setMiterLimit: 27,
   setDash: 28,
   setGState: 29,
+  showText: 30,
+  paintImageXObject: 31,
+  paintImageXObjectRepeat: 32,
+  shadingFill: 33,
 }
 const viewport = {
   width: 100,
@@ -42,7 +85,7 @@ const stroke = (values: number[]): Operation => [
   ops.constructPath,
   [ops.stroke, [new Float32Array(values)], []],
 ]
-const extract = (operations: Operation[]) =>
+const extract = (operations: Operation[], paintViewport?: { width: number; height: number }) =>
   extractPdfLinework(
     {
       fnArray: operations.map(([fn]) => fn),
@@ -50,7 +93,251 @@ const extract = (operations: Operation[]) =>
     },
     ops,
     viewport,
+    paintViewport,
   )
+
+describe('renderer-resolution stroke exclusion envelopes', () => {
+  const matrices = [
+    [1, 0, 0, 1, 0, 0],
+    [2, 0, 0, 2, 0, 0],
+    [2, 0, 0, 0.5, 0, 0],
+    [1, 0.25, 0.5, 1, 0, 0],
+    [-1, 0, 0, 1, 60, 0],
+    [0, 1, -1, 0, 60, 0],
+  ]
+  const cases = matrices.flatMap((matrix) => [0, 0.01, 2].map((width) => ({ matrix, width })))
+
+  it.each(cases)(
+    'encloses installed renderer stroke width $width under $matrix',
+    ({ matrix, width }) => {
+      const [a = 0, b = 0, c = 0, d = 0, tx = 0, ty = 0] = matrix
+      const operations: Operation[] = [
+        [ops.transform, matrix],
+        [ops.setLineWidth, [width]],
+        stroke([0, 10, 20, 1, 20, 20]),
+      ]
+      const result = extract(operations, { width: 200, height: 400 })
+      const bounds = result.paintBounds?.events[0]?.bounds
+      if (!bounds) throw new Error('Missing device-pixel stroke envelope')
+
+      // Independent replay of the installed PDF.js getScaleForStroking branches.
+      // Viewport maps y downward and the output raster doubles each PDF unit.
+      const da = 2 * a
+      const db = -2 * b
+      const dc = 2 * c
+      const dd = -2 * d
+      const normX = Math.hypot(da, db)
+      const normY = Math.hypot(dc, dd)
+      const determinant = Math.abs(da * dd - db * dc)
+      const scaleX =
+        db === 0 && dc === 0
+          ? width === 0
+            ? 1 / normX
+            : Math.max(1, 1 / (normX * width))
+          : width === 0
+            ? normY / determinant
+            : Math.max(1, normY / (width * determinant))
+      const scaleY =
+        db === 0 && dc === 0
+          ? width === 0
+            ? 1 / normY
+            : Math.max(1, 1 / (normY * width))
+          : width === 0
+            ? normX / determinant
+            : Math.max(1, normX / (width * determinant))
+      const radius = ((width || 1) * Math.SQRT2) / 2
+      const padX = radius * Math.hypot(10 * a * scaleX, 10 * c * scaleY)
+      const padY = radius * Math.hypot(-5 * b * scaleX, -5 * d * scaleY)
+      const ends = [10, 20].map((x) => ({
+        x: 10 * (a * x + c * 20 + tx),
+        y: 1000 - 5 * (b * x + d * 20 + ty),
+      }))
+      expect(bounds.left).toBeCloseTo(Math.min(...ends.map((point) => point.x)) - padX, 7)
+      expect(bounds.right).toBeCloseTo(Math.max(...ends.map((point) => point.x)) + padX, 7)
+      expect(bounds.top).toBeCloseTo(Math.min(...ends.map((point) => point.y)) - padY, 7)
+      expect(bounds.bottom).toBeCloseTo(Math.max(...ends.map((point) => point.y)) + padY, 7)
+      expect(result.paths).toEqual(extract(operations).paths)
+      if (width === 0) {
+        expect(result.paths[0]?.strokeInk?.refusalReason).toBe('device-dependent-source-hairline')
+      }
+    },
+  )
+
+  it('widens thin paint but not physical pen evidence or source coordinates', () => {
+    const operations: Operation[] = [[ops.setLineWidth, [0.01]], stroke([0, 10, 20, 1, 20, 20])]
+    const nominal = extract(operations)
+    const device = extract(operations, { width: 100, height: 200 })
+    expect(device.paintBounds?.events[0]?.bounds?.left).toBeLessThan(
+      nominal.paintBounds?.events[0]?.bounds?.left ?? 0,
+    )
+    expect(device.paintBounds?.events[0]?.bounds?.top).toBeLessThan(
+      nominal.paintBounds?.events[0]?.bounds?.top ?? 0,
+    )
+    expect(device.paths).toEqual(nominal.paths)
+    expect(device.paths[0]?.strokeInk?.lineWidth).toBe(0.01)
+  })
+
+  it('keeps a hairline unknown without renderer resolution and bounded with it', () => {
+    const operations: Operation[] = [[ops.setLineWidth, [0]], stroke([0, 10, 20, 1, 20, 20])]
+    expect(extract(operations).paintBounds?.events[0]?.bounds).toBeNull()
+    expect(
+      extract(operations, { width: 100, height: 200 }).paintBounds?.events[0]?.bounds,
+    ).not.toBeNull()
+  })
+
+  it.each([
+    { width: 0, height: 200 },
+    { width: 100, height: -1 },
+    { width: Number.NaN, height: 200 },
+    { width: 100, height: Number.POSITIVE_INFINITY },
+  ])('holds invalid render dimensions $width × $height', (resolution) => {
+    expect(
+      extract([stroke([0, 10, 20, 1, 20, 20])], resolution).paintBounds?.events[0]?.bounds,
+    ).toBeNull()
+  })
+
+  it.each([
+    [0, 0, 0, 1, 0, 0],
+    [1, 1, 1, 1, 0, 0],
+  ])('holds singular renderer transforms %j', (matrix) => {
+    expect(
+      extract([[ops.transform, matrix], stroke([0, 10, 20, 1, 20, 20])], {
+        width: 100,
+        height: 200,
+      }).paintBounds?.events[0]?.bounds,
+    ).toBeNull()
+  })
+})
+
+describe('complete conservative paint envelope inventory', () => {
+  it('retains source order for text, image, fills, and omitted curved geometry', () => {
+    const result = extract([
+      [ops.showText, [[{ unicode: 'A', width: 10 }]]],
+      [ops.paintImageXObject, ['image', 20, 30]],
+      [ops.constructPath, [ops.fill, [[0, 10, 10, 1, 20, 10, 1, 20, 20, 4]], []]],
+      stroke([0, 10, 10, 2, 15, 5, 20, 30, 30, 10]),
+    ])
+    expect(result.paintBounds).toMatchObject({ complete: true, refusalReason: null })
+    expect(result.paintBounds?.events.map((event) => [event.operationIndex, event.kind])).toEqual([
+      [0, 'text'],
+      [1, 'image'],
+      [2, 'vector'],
+      [3, 'vector'],
+    ])
+    expect(result.skippedCurves).toBe(1)
+    expect(result.paintBounds?.events[3]?.bounds).toMatchObject({
+      left: expect.any(Number),
+      top: expect.any(Number),
+    })
+    expect(result.paintBounds?.events[3]?.bounds?.top).toBeLessThan(850)
+    expect(result.paintBounds?.events[3]?.bounds?.bottom).toBeGreaterThan(975)
+  })
+
+  it('does not lose clipped paint when the usable centreline is omitted', () => {
+    const result = extract([
+      [ops.clip, null],
+      [ops.constructPath, [ops.endPath, [[0, 10, 10, 1, 20, 10, 1, 20, 20, 1, 10, 20, 4]], []]],
+      stroke([0, 5, 15, 1, 30, 15]),
+    ])
+    expect(result.paths).toEqual([])
+    expect(result.paintBounds?.events).toHaveLength(1)
+    expect(result.paintBounds?.events[0]).toMatchObject({
+      operationIndex: 2,
+      kind: 'vector',
+      subpathCount: 1,
+    })
+    expect(result.paintBounds?.events[0]?.bounds?.left).toBeLessThan(50)
+    expect(result.paintBounds?.events[0]?.bounds?.right).toBeGreaterThan(300)
+  })
+
+  it('bounds raw operands outward rather than reusing rounded centreline coordinates', () => {
+    const values = new Float32Array([0, 10.123456, 20.654321, 1, 30.234567, 20.654321])
+    const result = extract([[ops.constructPath, [ops.fill, [values], []]]])
+    const bound = result.paintBounds?.events[0]?.bounds
+    expect(bound?.left).toBeLessThan((values[1] ?? 0) * 10)
+    expect(bound?.right).toBeGreaterThan((values[4] ?? 0) * 10)
+    expect(bound?.left).not.toBe(result.paths[0]?.points[0]?.x)
+  })
+
+  it('includes square caps and miter extents, and does not shrink dashed paint envelopes', () => {
+    const operations: Operation[] = [
+      [ops.setLineWidth, [2]],
+      [ops.setLineCap, [2]],
+      [ops.setLineJoin, [0]],
+      [ops.setMiterLimit, [10]],
+      stroke([0, 10, 20, 1, 20, 20, 1, 20, 30]),
+    ]
+    const solid = extract(operations)
+    const dashed = extract([[ops.setDash, [[3, 7], 1]], ...operations])
+    expect(dashed.paintBounds?.events[0]?.bounds).toEqual(solid.paintBounds?.events[0]?.bounds)
+    expect(solid.paintBounds?.events[0]?.bounds?.left).toBeLessThanOrEqual(0)
+    expect(solid.paintBounds?.events[0]?.bounds?.bottom).toBeGreaterThanOrEqual(950)
+  })
+
+  it('uses the transformed unit quadrilateral for image envelopes on an anisotropic page', () => {
+    const result = extract([
+      [ops.transform, [2, 1, 0.5, 3, 10, 20]],
+      [ops.paintImageXObject, ['image', 400, 500]],
+    ])
+    const bound = result.paintBounds?.events[0]?.bounds
+    expect(bound?.left).toBeCloseTo(100, 8)
+    expect(bound?.right).toBeCloseTo(125, 8)
+    expect(bound?.top).toBeCloseTo(880, 8)
+    expect(bound?.bottom).toBeCloseTo(900, 8)
+  })
+
+  it.each([
+    [ops.setLineWidth, [0]],
+    [ops.setLineWidth, [-1]],
+    [ops.setLineCap, [9]],
+  ] as Operation[])('keeps device-dependent or invalid pen %i unbounded', (fn, args) => {
+    expect(
+      extract([[fn, args], stroke([0, 10, 20, 1, 30, 20])]).paintBounds?.events[0],
+    ).toMatchObject({
+      kind: 'vector',
+      bounds: null,
+      reason: 'vector-paint-envelope-unavailable',
+    })
+  })
+
+  it.each([ops.paintImageXObjectRepeat, ops.shadingFill])(
+    'holds unmodelled paint operation %i',
+    (fn) => {
+      expect(extract([[fn, []]]).paintBounds?.events).toEqual([
+        {
+          operationIndex: 0,
+          kind: 'unknown',
+          bounds: null,
+          reason: 'unsupported-paint-envelope-operation',
+        },
+      ])
+    },
+  )
+
+  it('marks unknown operators incomplete and clears all partial envelopes', () => {
+    expect(extract([stroke([0, 10, 20, 1, 30, 20]), [999, []]]).paintBounds).toEqual({
+      complete: false,
+      refusalReason: 'unknown-paint-envelope-operator',
+      events: [],
+    })
+  })
+
+  it('clears the inventory when its output budget is exceeded', () => {
+    const result = extract(Array.from({ length: 6001 }, () => [ops.showText, []] as Operation))
+    expect(result.paintBounds).toEqual({
+      complete: false,
+      refusalReason: 'paint-envelope-output-limit',
+      events: [],
+    })
+  })
+
+  it('records a full compound source operation rather than individual subpath exemptions', () => {
+    const result = extract([stroke([0, 10, 20, 1, 30, 20, 0, 50, 60, 1, 70, 60])])
+    expect(result.paintBounds?.events).toHaveLength(1)
+    expect(result.paintBounds?.events[0]?.subpathCount).toBe(2)
+    expect(result.paintBounds?.events[0]?.bounds?.right).toBeGreaterThan(700)
+  })
+})
 
 describe('source stroke pen metadata without changing diagnostic centreline geometry', () => {
   it('keeps renderer Float32 operands separate from the existing rounded page points', () => {

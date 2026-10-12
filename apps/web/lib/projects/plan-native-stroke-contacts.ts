@@ -11,6 +11,12 @@ type Tip = {
   status: 'ink-overlap' | 'held'
   reason: string | null
   sourceRefs: PlanPageSegmentRef[]
+  visibility?: {
+    status: 'unoccluded' | 'held'
+    reason: string | null
+    unoccludedSourceRefs: PlanPageSegmentRef[]
+    blockerOperations: number[]
+  }
 }
 export type NativeDimensionStrokeContactReport = {
   status: 'diagnostic' | 'unresolved'
@@ -21,7 +27,7 @@ export type NativeDimensionStrokeContactReport = {
     rail: { operationIndex: number; subpathIndex: number }
     tips: [Tip, Tip]
   }[]
-  visibility: 'not-checked'
+  visibility: 'not-checked' | 'checked'
   physicalTargetsAccepted: false
   mayTransfer2D: false
   mayTransfer3D: false
@@ -164,11 +170,12 @@ export function nativeDimensionStrokeContacts(
   suppliedBindings?: Bindings,
 ): NativeDimensionStrokeContactReport {
   const observations: NativeDimensionStrokeContactReport['observations'] = []
+  const paint = input.work.paintBounds
   const finish = (refusalReason: string | null): NativeDimensionStrokeContactReport => ({
     status: refusalReason ? 'unresolved' : 'diagnostic',
     refusalReason,
     observations: refusalReason ? [] : structuredClone(observations),
-    visibility: 'not-checked',
+    visibility: paint ? 'checked' : 'not-checked',
     physicalTargetsAccepted: false,
     mayTransfer2D: false,
     mayTransfer3D: false,
@@ -201,6 +208,110 @@ export function nativeDimensionStrokeContacts(
   const witnesses = input.work.paths
     .filter((path) => path.paint === 'stroke' && !path.closed && path.points.length === 2)
     .map((path) => ({ path, source: sourceInk(path) }))
+  const byRef = new Map(
+    witnesses.map((item) => [`${item.path.operationIndex}:${item.path.subpathIndex}`, item.path]),
+  )
+  const paintValid =
+    paint?.complete === true &&
+    paint.refusalReason === null &&
+    Array.isArray(paint.events) &&
+    paint.events.length <= 6000 &&
+    new Set(paint.events.map((event) => event.operationIndex)).size === paint.events.length &&
+    paint.events.every(
+      (event) =>
+        Number.isSafeInteger(event.operationIndex) &&
+        event.operationIndex >= 0 &&
+        ['vector', 'text', 'image', 'unknown'].includes(event.kind) &&
+        (event.bounds === null ||
+          ([event.bounds.left, event.bounds.top, event.bounds.right, event.bounds.bottom].every(
+            Number.isFinite,
+          ) &&
+            event.bounds.left <= event.bounds.right &&
+            event.bounds.top <= event.bounds.bottom)),
+    )
+  const paintByOperation = new Map(
+    paintValid ? paint?.events.map((event) => [event.operationIndex, event]) : [],
+  )
+  let visibilityRefs = 0
+  const inspectVisibility = (
+    tip: Tip,
+    point: PagePoint | undefined,
+    error: number,
+    rail: PdfVectorPath | undefined,
+  ) => {
+    if (!paint) return true
+    tip.visibility = {
+      status: 'held',
+      reason: 'no-source-ink-contact',
+      unoccludedSourceRefs: [],
+      blockerOperations: [],
+    }
+    if (!tip.sourceRefs.length || !point || !rail) return true
+    if (!paintValid) {
+      tip.visibility.reason = 'paint-envelope-inventory-unavailable'
+      return true
+    }
+    const blockers = new Set<number>()
+    for (const ref of tip.sourceRefs) {
+      const witness = byRef.get(`${ref.operationIndex}:${ref.subpathIndex}`)
+      const own = paintByOperation.get(rail.operationIndex)
+      const other = paintByOperation.get(ref.operationIndex)
+      if (
+        !witness ||
+        !own ||
+        !other ||
+        own.kind !== 'vector' ||
+        other.kind !== 'vector' ||
+        own.subpathCount !== 1 ||
+        other.subpathCount !== 1 ||
+        own.bounds === null ||
+        other.bounds === null ||
+        rail.strokeColor !== witness.strokeColor
+      ) {
+        tip.visibility.reason = 'contact-paint-provenance-unavailable'
+        continue
+      }
+      let held = false
+      for (const event of paint.events) {
+        if (--budget < 0) return false
+        // The pair forms the shared ink contact; no other operation (even of
+        // the same colour or among alternative witnesses) is exempted.
+        if (
+          event.operationIndex <= Math.min(rail.operationIndex, ref.operationIndex) ||
+          event.operationIndex === rail.operationIndex ||
+          event.operationIndex === ref.operationIndex
+        )
+          continue
+        if (
+          event.bounds === null &&
+          event.kind === 'text' &&
+          event.reason === 'empty-source-text-paint'
+        )
+          continue
+        const bounds = event.bounds
+        if (
+          bounds &&
+          (point.x + error < bounds.left ||
+            point.x - error > bounds.right ||
+            point.y + error < bounds.top ||
+            point.y - error > bounds.bottom)
+        )
+          continue
+        held = true
+        blockers.add(event.operationIndex)
+      }
+      if (!held) tip.visibility.unoccludedSourceRefs.push({ ...ref })
+    }
+    tip.visibility.blockerOperations = [...blockers].sort((a, b) => a - b)
+    visibilityRefs +=
+      tip.visibility.blockerOperations.length + tip.visibility.unoccludedSourceRefs.length
+    if (visibilityRefs > MAX_REFS) return false
+    if (tip.visibility.unoccludedSourceRefs.length) {
+      tip.visibility.status = 'unoccluded'
+      tip.visibility.reason = null
+    } else if (blockers.size) tip.visibility.reason = 'later-paint-may-cover-contact'
+    return true
+  }
   for (const candidate of fresh.candidates) {
     const rail = input.work.paths.find(
       (path) =>
@@ -238,7 +349,10 @@ export function nativeDimensionStrokeContacts(
       rail: { ...candidate.rail },
       tips,
     })
-    if (!source?.points || !source.ink || !source.matrix || source.reason || spanMismatch) continue
+    if (!source?.points || !source.ink || !source.matrix || source.reason || spanMismatch) {
+      for (const tip of tips) inspectVisibility(tip, undefined, 0, rail)
+      continue
+    }
     for (const tip of tips) {
       const sourceEndpoint = reverse ? 1 - tip.endpoint : tip.endpoint
       const point = source.points[sourceEndpoint]
@@ -271,6 +385,8 @@ export function nativeDimensionStrokeContacts(
         tip.status = 'ink-overlap'
         tip.reason = null
       }
+      if (!inspectVisibility(tip, point, tipError, rail))
+        return finish('stroke-contact-work-or-output-limit')
     }
   }
   return finish(null)
