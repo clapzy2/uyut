@@ -5,6 +5,8 @@ import archive from '../../../../docs/qa/fixtures/apartment-74-77-page-contours.
 import features from '../../../../docs/qa/fixtures/apartment-74-77-page-features.json'
 import { planPageMetricDraft } from './plan-page-metric-draft'
 import type { PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
+import { planVolume } from './plan-volume'
+import { roomLayoutInputFromGeometry } from './room-geometry-layout'
 
 function synthetic() {
   const source = { sha256: 'a'.repeat(64), pdfPage: 6, state: 'existing' as const }
@@ -199,6 +201,122 @@ function realSheet() {
 }
 
 describe('native PDF page to metric draft', () => {
+  it('retains a reviewed wall strip through metric layout and volume only when omitted paint is disjoint', () => {
+    // Entirely synthetic source control: the dimensions are printed chains, and
+    // the contours are explicitly reviewed. This does not certify a real plan.
+    const { reading, context, path } = synthetic()
+    const adjacentFloor = [
+      { x: 330, y: 10 },
+      { x: 630, y: 10 },
+      { x: 630, y: 410 },
+      { x: 330, y: 410 },
+    ]
+    const footprint = [
+      { x: 0, y: 0 },
+      { x: 640, y: 0 },
+      { x: 640, y: 420 },
+      { x: 0, y: 420 },
+    ]
+    const wallBody = path(
+      [
+        { x: 310, y: 10 },
+        { x: 330, y: 10 },
+        { x: 330, y: 410 },
+        { x: 310, y: 410 },
+      ],
+      true,
+    )
+    context.contours.rooms.push({ roomSourceNumber: 5, polygon: adjacentFloor })
+    context.contours.exterior = { boundaryRole: 'floor', polygon: footprint }
+    context.linework.paths.push(path(adjacentFloor, true), path(footprint, true), wallBody)
+    reading.rooms.push({ name: 'Смежная спальня', sourceNumber: 5, kind: 'bedroom' })
+    const calibratedContext = { ...context, calibrationRoomNumbers: [4] }
+    const baseline = planPageMetricDraft(reading, calibratedContext, [4, 5])
+    expect(baseline.ok, baseline.ok ? '' : baseline.error).toBe(true)
+    if (!baseline.ok) throw new Error(baseline.error)
+    const pairs = baseline.geometry.pdfCalibration?.sourceWallFacePairs
+    expect(pairs).toHaveLength(1)
+    expect(pairs?.[0]?.faces.map(({ start, end }) => [start, end])).toEqual([
+      [
+        { xCm: 310, yCm: 10 },
+        { xCm: 310, yCm: 410 },
+      ],
+      [
+        { xCm: 330, yCm: 10 },
+        { xCm: 330, yCm: 410 },
+      ],
+    ])
+
+    context.linework.skippedCurves = 1
+    context.linework.skippedCurveBounds = [
+      {
+        operationIndex: 99,
+        paint: 'stroke',
+        bounds: { left: 500, top: 100, right: 510, bottom: 150 },
+      },
+    ]
+    const paintEvent = {
+      operationIndex: 99,
+      kind: 'vector' as const,
+      bounds: { left: 490, top: 90, right: 520, bottom: 160 },
+      reason: null,
+    }
+    context.linework.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [paintEvent],
+    }
+    const before = structuredClone({ reading, context })
+    const remote = planPageMetricDraft(reading, calibratedContext, [4, 5])
+    expect(remote).toEqual(baseline)
+    if (!remote.ok) throw new Error(remote.error)
+    expect(remote.geometry.status).toBe('draft')
+    expect(remote.geometry.confirmedAt).toBeUndefined()
+    expect(planVolume(remote.geometry)).toBeNull()
+    expect(roomLayoutInputFromGeometry(remote.geometry, 'Спальня', null)).toBeNull()
+
+    // Adapter control only: confirmation remains a separate owner action.
+    const confirmed = { ...remote.geometry, status: 'confirmed' as const }
+    const layout = roomLayoutInputFromGeometry(confirmed, 'Спальня', null)
+    expect(layout?.floorPolygon).toEqual([
+      { xCm: 0, yCm: 0 },
+      { xCm: 300, yCm: 0 },
+      { xCm: 300, yCm: 400 },
+      { xCm: 0, yCm: 400 },
+    ])
+    expect(layout?.widthCm).toBe(300)
+    expect(layout?.depthCm).toBe(400)
+    const volume = planVolume(confirmed)
+    expect(volume?.wallSource).toBe('pdf-faces')
+    // 3D follows each owning room's edge orientation, without shifting either
+    // source face to an inferred wall centreline.
+    expect(volume?.walls.map(({ start, end }) => [start, end])).toEqual([
+      [
+        { xCm: 310, yCm: 10 },
+        { xCm: 310, yCm: 410 },
+      ],
+      [
+        { xCm: 330, yCm: 410 },
+        { xCm: 330, yCm: 10 },
+      ],
+    ])
+    expect(volume?.walls.every((wall) => wall.topCm === undefined && !wall.solid)).toBe(true)
+    expect({ reading, context }).toEqual(before)
+
+    // The raw curve hull is still remote, but the pen envelope now reaches the
+    // wall strip. Unknown pen coverage must also prevent a 3D wall claim.
+    for (const bounds of [{ left: 329, top: 90, right: 520, bottom: 160 }, null]) {
+      context.linework.paintBounds.events[0] = { ...paintEvent, bounds }
+      const held = planPageMetricDraft(reading, calibratedContext, [4, 5])
+      expect(held.ok, held.ok ? '' : held.error).toBe(true)
+      if (!held.ok) throw new Error(held.error)
+      expect(held.geometry.pdfCalibration?.sourceWallFacePairs).toEqual([])
+      expect(held.geometry.rooms).toEqual(baseline.geometry.rooms)
+      expect(held.geometry.status).toBe('draft')
+      expect(planVolume({ ...held.geometry, status: 'confirmed' })).toBeNull()
+    }
+  })
+
   it('transfers a reviewed floor with fresh bounded-crossing proofs, never guessed corners', () => {
     const at = <T>(items: readonly T[], index = 0): T => {
       const value = items[index]

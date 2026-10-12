@@ -4,8 +4,9 @@ import {
   planPageFeaturesIssue,
   sourceRoomContourVertices,
 } from './plan-page-review'
-import type { PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
+import type { PagePoint, PdfLinework, PdfPaintBounds, PdfVectorPath } from './plan-pdf-linework'
 import { nativePageSegments, sourceOpeningEndpoint } from './plan-pdf-opening-endpoint'
+import { pdfPaintInventoryIsComplete } from './plan-pdf-paint-exclusion'
 import {
   type PdfPlanSource,
   pdfContourIssue,
@@ -429,10 +430,34 @@ function validWallSource(
     (allowRecordedOmissions &&
       !work.skippedCurveBoundsTruncated &&
       work.skippedCurveBounds?.length === work.skippedCurves)
+  const omissionsValid = (count: number, items: PdfLinework['clippedPathBounds']): boolean =>
+    Number.isSafeInteger(count) &&
+    count >= 0 &&
+    count <= 3000 &&
+    (items === undefined
+      ? count === 0
+      : Array.isArray(items) &&
+        items.length === count &&
+        items.every(
+          (item) =>
+            item &&
+            Number.isSafeInteger(item.operationIndex) &&
+            item.operationIndex >= 0 &&
+            item.operationIndex <= 99_999 &&
+            item.bounds &&
+            [item.bounds.left, item.bounds.top, item.bounds.right, item.bounds.bottom].every(
+              Number.isFinite,
+            ) &&
+            item.bounds.left <= item.bounds.right &&
+            item.bounds.top <= item.bounds.bottom &&
+            (item.paint === undefined || ['fill', 'stroke', 'fill-stroke'].includes(item.paint)),
+        ))
   if (
     source.state !== 'existing' ||
     !clipsKnown ||
     !curvesKnown ||
+    !omissionsValid(work.clippedPaths, work.clippedPathBounds) ||
+    !omissionsValid(work.skippedCurves, work.skippedCurveBounds) ||
     work.paths.length > 3000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
     !planPageContoursSchema.safeParse(contours).success ||
@@ -490,8 +515,12 @@ export function validPlanPageWallSourceForLocalAudit(
   return validWallSource(work, source, contours, true)
 }
 
-function unaffectedByOmittedPaths(pair: PdfWallFacePair, work: PdfLinework): boolean {
-  if (work.clippedPaths === 0 && work.skippedCurves === 0) return true
+function unaffectedByOmittedPaths(
+  pair: PdfWallFacePair,
+  omitted: NonNullable<PdfLinework['clippedPathBounds']>,
+  paintEvents: ReadonlyMap<number, PdfPaintBounds['events'][number]> | undefined,
+): boolean {
+  if (omitted.length === 0) return true
   const first = pair.faces[0]
   const along = first.start.x === first.end.x ? 'y' : 'x'
   const across = along === 'x' ? 'y' : 'x'
@@ -501,8 +530,14 @@ function unaffectedByOmittedPaths(pair: PdfWallFacePair, work: PdfLinework): boo
   // A corner sliver shorter than the wall's own thickness is not enough to
   // establish a shared wall when nearby vector content was omitted.
   if (high - low < separation) return false
-  const omitted = [...(work.clippedPathBounds ?? []), ...(work.skippedCurveBounds ?? [])]
-  return !omitted.some(({ operationIndex, bounds }) => {
+  const stripPoints = pair.faces.flatMap((face) => [face.start, face.end])
+  const strip = {
+    left: Math.min(...stripPoints.map((point) => point.x)),
+    top: Math.min(...stripPoints.map((point) => point.y)),
+    right: Math.max(...stripPoints.map((point) => point.x)),
+    bottom: Math.max(...stripPoints.map((point) => point.y)),
+  }
+  return !omitted.some(({ operationIndex, bounds, paint }) => {
     if (
       pair.faces.some(
         (face) =>
@@ -511,9 +546,27 @@ function unaffectedByOmittedPaths(pair: PdfWallFacePair, work: PdfLinework): boo
       )
     )
       return true
-    const clipLow = along === 'x' ? bounds.left : bounds.top
-    const clipHigh = along === 'x' ? bounds.right : bounds.bottom
-    return clipLow < high && clipHigh > low
+    // A control hull excludes a filled path only. A stroked path can reach the
+    // strip with its pen even when its centerline is disjoint, so require the
+    // complete paint inventory's conservative envelope for that operation.
+    const event = paintEvents?.get(operationIndex)
+    const envelope = paint === 'fill' ? bounds : event?.kind === 'vector' ? event.bounds : undefined
+    if (!envelope) return true
+    // Source endpoints are displayed to 0.001 page units. The full paint envelope
+    // is unrounded; a fill's raw source hull is rounded as well. These allowances
+    // only prevent exclusion inside quantization uncertainty, never fit a wall.
+    const magnitude = Math.max(
+      1,
+      ...Object.values(strip).map(Math.abs),
+      ...Object.values(envelope).map(Math.abs),
+    )
+    const padding = (paint === 'fill' ? 0.001 : 0.0005) + 1024 * Number.EPSILON * magnitude
+    return (
+      envelope.left <= strip.right + padding &&
+      envelope.right >= strip.left - padding &&
+      envelope.top <= strip.bottom + padding &&
+      envelope.bottom >= strip.top - padding
+    )
   })
 }
 
@@ -717,8 +770,12 @@ export function pairPlanPageWallFaces(
       if (result.length > 2000) return []
     }
   }
-  const axisAligned = result.filter((pair) => unaffectedByOmittedPaths(pair, work))
-  // The interval-only omission check above does not apply to diagonal faces.
+  const omitted = [...(work.clippedPathBounds ?? []), ...(work.skippedCurveBounds ?? [])]
+  const paintEvents = pdfPaintInventoryIsComplete(work.paintBounds)
+    ? new Map(work.paintBounds?.events.map((event) => [event.operationIndex, event]))
+    : undefined
+  const axisAligned = result.filter((pair) => unaffectedByOmittedPaths(pair, omitted, paintEvents))
+  // The cardinal strip omission check above does not apply to diagonal faces.
   return work.clippedPaths > 0 || work.skippedCurves > 0
     ? axisAligned
     : [...axisAligned, ...pairSlantedFaces(work, contours, closedSubpaths)]

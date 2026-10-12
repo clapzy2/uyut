@@ -189,6 +189,107 @@ describe('source-decimal positive paint subtraction, not free floor', () => {
     expect(region(input).pieces[0]?.holes).toHaveLength(1)
     expect(result.omissionCounts.clippedPaths).toBe(1)
   })
+
+  it('excludes full omitted ink confined to the interior, not from a raw path box', () => {
+    const input = fixture()
+    input.work.clippedPaths = 1
+    input.work.clippedPathBounds = [
+      {
+        operationIndex: 30,
+        paint: 'stroke',
+        bounds: { left: 120, right: 130, top: 120, bottom: 130 },
+      },
+    ]
+    expect(region(input).boundaryInkComplete).toBe(false)
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 30,
+          kind: 'vector',
+          reason: null,
+          bounds: { left: 119, right: 131, top: 119, bottom: 131 },
+        },
+      ],
+    }
+    const result = region(input)
+    expect(result).toMatchObject({ omittedStrokeCount: 0, boundaryInkComplete: true })
+    expect(result.pieces[0]?.polygon).toEqual(rectangle(100, 100, 200, 200))
+    expect(nativeVisiblePaintRegions(input)).toMatchObject({
+      visibilityConfirmed: false,
+      physicalFloorConfirmed: false,
+      readyFor2D: false,
+      readyFor3D: false,
+      omissionCounts: { clippedPaths: 1 },
+    })
+  })
+
+  it('checks hole boundaries even when an omitted stroke misses the original perimeter', () => {
+    const input = fixture([paint(10), paint(20, rectangle(120, 120, 130, 130))])
+    input.work.clippedPaths = 1
+    input.work.clippedPathBounds = [
+      {
+        operationIndex: 30,
+        paint: 'stroke',
+        bounds: { left: 125, right: 125, top: 118, bottom: 122 },
+      },
+    ]
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 30,
+          kind: 'vector',
+          reason: null,
+          bounds: { left: 124, right: 126, top: 117, bottom: 123 },
+        },
+      ],
+    }
+    expect(region(input)).toMatchObject({ omittedStrokeCount: 1, boundaryInkComplete: false })
+  })
+
+  it.each(['stroke', 'fill-stroke', undefined] as const)(
+    'holds unknown pens even when the omitted control box is far away: %s',
+    (paint) => {
+      const input = fixture()
+      input.work.clippedPaths = 1
+      input.work.clippedPathBounds = [
+        {
+          operationIndex: 30,
+          bounds: { left: 800, right: 810, top: 800, bottom: 810 },
+          ...(paint ? { paint } : {}),
+        },
+      ]
+      expect(region(input)).toMatchObject({ omittedStrokeCount: 1, boundaryInkComplete: false })
+    },
+  )
+
+  it('keeps a thick pen touching the boundary despite its disjoint control box', () => {
+    const input = fixture()
+    input.work.clippedPaths = 1
+    input.work.clippedPathBounds = [
+      {
+        operationIndex: 30,
+        paint: 'stroke',
+        bounds: { left: 210, right: 210, top: 120, bottom: 130 },
+      },
+    ]
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 30,
+          kind: 'vector',
+          reason: null,
+          bounds: { left: 199, right: 221, top: 109, bottom: 141 },
+        },
+      ],
+    }
+    expect(region(input)).toMatchObject({ omittedStrokeCount: 1, boundaryInkComplete: false })
+  })
   it('holds overlapping contained holes rather than XOR-ing occupied paint', () => {
     const result = region(
       fixture([
@@ -244,7 +345,7 @@ it.skipIf(!existsSync(original))(
       status: 'diagnostic',
       refusalReason: null,
       boundaryInkComplete: false,
-      omittedStrokeCount: 90,
+      omittedStrokeCount: 71,
     })
     expect(recovered?.pieces).toHaveLength(1)
     expect(recovered?.intersections).toHaveLength(3)

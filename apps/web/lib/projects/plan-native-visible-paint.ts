@@ -9,6 +9,7 @@ import { nativePaintedRegionContext } from './plan-native-painted-region-context
 import { boundedNativeStrokeFaces, type NativeIntersectionProof } from './plan-native-stroke-faces'
 import type { Bounds, PagePoint } from './plan-pdf-linework'
 import type { NativePageSegment } from './plan-pdf-opening-endpoint'
+import { pdfPaintInventoryIsComplete, pdfPaintMayTouchSpan } from './plan-pdf-paint-exclusion'
 import { pdfPolygonIsValid } from './plan-pdf-room-binding'
 
 type Input = Parameters<typeof nativeFillCandidates>[0]
@@ -22,6 +23,7 @@ export type NativeVisiblePaintRegion = {
   masks: SourceRef[]
   pieces: NativeVisiblePaintPiece[]
   intersections: NativeIntersectionProof[]
+  /** Possible omitted strokes at surviving outer/hole boundaries, not interior annotations. */
   omittedStrokeCount: number
   boundaryInkComplete: boolean
   status: 'diagnostic' | 'held'
@@ -176,6 +178,9 @@ export function nativeVisiblePaintRegions(input: Input) {
   const context = nativePaintedRegionContext(input)
   if (context.refusalReason) return finish(context.refusalReason)
   const inventory = nativeFillCandidates(input)
+  const paintEvents = pdfPaintInventoryIsComplete(input.work.paintBounds)
+    ? new Map(input.work.paintBounds?.events.map((event) => [event.operationIndex, event]))
+    : null
   const counts = new Map<number, number>()
   for (const path of input.work.paths)
     counts.set(path.operationIndex, (counts.get(path.operationIndex) ?? 0) + 1)
@@ -387,6 +392,47 @@ export function nativeVisiblePaintRegions(input: Input) {
       continue
     }
     region.intersections = graph.intersections
+  }
+  // Fill partitioning is unchanged. Only now can omission completeness be
+  // checked at the actual surviving boundaries, including newly created holes.
+  // A path control box never substitutes for a complete stroked-ink envelope.
+  const omittedStrokes = [
+    ...(input.work.skippedCurveBounds ?? []),
+    ...(input.work.clippedPathBounds ?? []),
+  ].filter((item) => item.paint !== 'fill')
+  for (const region of regions) {
+    if (region.status !== 'diagnostic' || !region.pieces.length) continue
+    const boundarySpans = region.pieces.flatMap((piece) =>
+      [piece.polygon, ...piece.holes].flatMap((polygon) =>
+        polygon.map((start, index): [PagePoint, PagePoint] => [
+          start,
+          polygon[(index + 1) % polygon.length] as PagePoint,
+        ]),
+      ),
+    )
+    let possible = 0
+    for (const item of omittedStrokes) {
+      const event = paintEvents?.get(item.operationIndex)
+      if (event?.kind !== 'vector') {
+        // Without a full pen envelope even a disjoint centerline/control box
+        // cannot bound a thick stroke, cap or join away from this boundary.
+        possible++
+        continue
+      }
+      let touches = false
+      for (const span of boundarySpans) {
+        if (--budget < 0) return finish('visible-paint-work-limit')
+        // Display vertices are quantized; this margin excludes paint only and
+        // does not assert exact contact, physical ownership or metric accuracy.
+        if (pdfPaintMayTouchSpan(event, span, 0.0005)) {
+          touches = true
+          break
+        }
+      }
+      if (touches) possible++
+    }
+    region.omittedStrokeCount = possible
+    region.boundaryInkComplete = possible === 0
   }
   return finish(null)
 }

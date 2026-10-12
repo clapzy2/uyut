@@ -270,9 +270,95 @@ describe('single reviewed native floor-face cycle', () => {
       ...input.work,
       skippedCurves: 1,
       skippedCurveBounds: [
-        { operationIndex: 10, bounds: { left: 40, top: 19, right: 60, bottom: 19.8 } },
+        {
+          operationIndex: 10,
+          paint: 'fill' as const,
+          bounds: { left: 40, top: 19, right: 60, bottom: 19.8 },
+        },
       ],
     }
     expect(nativeFaceCycle({ ...input, work }).status).toBe('candidate')
+  })
+
+  it('excludes a distant fill box within a diagonal face box without fitting the face', () => {
+    const current = fixture([
+      { x: 20, y: 20 },
+      { x: 80, y: 80 },
+      { x: 20, y: 80 },
+    ])
+    current.work.skippedCurves = 1
+    current.work.skippedCurveBounds = [
+      {
+        operationIndex: 10,
+        paint: 'fill',
+        bounds: { left: 30, right: 31, top: 50, bottom: 51 },
+      },
+    ]
+    expect(nativeFaceCycle(current).status).toBe('candidate')
+    expect(nativeFaceCycle(current).polygon).toEqual([
+      { x: 20, y: 20 },
+      { x: 80, y: 80 },
+      { x: 20, y: 80 },
+    ])
+  })
+
+  it.each(['stroke', 'fill-stroke', undefined] as const)(
+    'never substitutes a disjoint path hull for an unknown pen: %s',
+    (paint) => {
+      const current = fixture(rectangle)
+      current.work.skippedCurves = 1
+      current.work.skippedCurveBounds = [
+        {
+          operationIndex: 10,
+          bounds: { left: 400, right: 410, top: 400, bottom: 410 },
+          ...(paint ? { paint } : {}),
+        },
+      ]
+      expect(nativeFaceCycle(current).status).toBe('unresolved')
+    },
+  )
+
+  it('uses a complete full-ink envelope and still holds thick paint reaching a boundary', () => {
+    const current = fixture(rectangle)
+    current.work.skippedCurves = 1
+    current.work.skippedCurveBounds = [
+      {
+        operationIndex: 10,
+        paint: 'stroke',
+        bounds: { left: 40, right: 60, top: 10, bottom: 10 },
+      },
+    ]
+    current.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 10,
+          kind: 'vector',
+          reason: null,
+          bounds: { left: 39, right: 61, top: 9, bottom: 11 },
+        },
+      ],
+    }
+    expect(nativeFaceCycle(current).status).toBe('candidate')
+    const event = current.work.paintBounds.events[0]
+    if (!event) throw new Error('Missing paint event')
+    event.bounds = { left: 29, right: 71, top: -1, bottom: 21 }
+    expect(nativeFaceCycle(current).status).toBe('unresolved')
+    event.bounds = null
+    expect(nativeFaceCycle(current).status).toBe('unresolved')
+  })
+
+  it('does not exclude an omitted selected operation from its own boundary', () => {
+    const current = fixture(rectangle)
+    current.work.skippedCurves = 1
+    current.work.skippedCurveBounds = [
+      {
+        operationIndex: 1,
+        paint: 'fill',
+        bounds: { left: 400, right: 410, top: 400, bottom: 410 },
+      },
+    ]
+    expect(nativeFaceCycle(current).status).toBe('unresolved')
   })
 })

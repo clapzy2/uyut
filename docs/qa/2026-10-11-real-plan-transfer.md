@@ -597,6 +597,45 @@ build, Biome1023files and diff check passed. Independent original/source and
 product-code review found no blocking issue. Original regressions remain
 optional/local; synthetic whole-span and malformed/refusal controls run in CI.
 
+### Spatial omission checks in the existing wall-to-metric path — 12 October
+
+Cardinal wall pairs now exclude genuinely disjoint omitted paint in both axes
+of their source wall strip. Recorded counts and finite ordered envelopes are
+validated; multiple omitted subpaths from one operation remain valid. Pure fill
+control hulls bound paint, but stroke/fill-stroke/unknown omissions require a
+complete matching vector ink envelope. Unknown pens, null bounds, same-source
+witness operations, corner slivers and genuine contact stay held. Rounded
+strip coordinates retain an outward quantization/arithmetic exclusion margin;
+this is not geometric fitting. Complete paint inventory is indexed once.
+
+Native face cycles use whole-span rectangle/capsule exclusion rather than
+overlapping diagonal AABBs. Positive-paint partitioning itself is unchanged;
+omission completeness is checked after partitioning against every surviving
+outer and hole boundary. Interior annotations can be excluded only from a full
+ink envelope, never from their centerline hull or colour. Missing pen coverage
+now holds instead of authorizing a boundary by a distant raw path box.
+
+Fresh original page3: selected source1527 boundary candidates reduce from90
+to71, excluding19 false spatial blockers. All eight selected source floors
+remain incomplete, ten dimension-tip contacts and the whole684segment remain
+held. The full paint inventory remains2,966, with532 recorded clipped paths.
+Saved source floors/heights, rational keys and physical readiness are unchanged.
+
+One synthetic integration regression uses existing printed3000/4000chains and
+explicitly reviewed adjacent rooms. A remote full-pen envelope preserves the
+source wall pair in the metric draft; drafts cannot feed layout or volume.
+The separate confirmation adapter retains the300×400cm local floor and both
+original wall faces in3D, without invented height/solid authority. Reaching or
+unknown ink drops the pair and blocks volume even with a confirmed-status
+control. This proves the controlled path, not the real apartment's readiness.
+
+Local gate:7,551web tests/316files passed with4workers, seven-package typecheck,
+production build, Biome1,023files and diffcheck passed. Full unconstrained
+parallelism initially hit5s test timeouts under Windows contention; the bounded
+worker replay passed without increasing timeouts or skipping local PDF checks.
+Independent review found a precise-envelope/rounded-wall margin and repeated
+inventory scans; both corrected with near-boundary and access-count controls.
+
 ### Earlier offline regression verification
 
 - Full web suite: 6,821 tests / 300 files passed, including local-only original PDF re-extractions when that ignored source exists. Public CI does not require copyrighted PDFs; deterministic unit controls remain present there.

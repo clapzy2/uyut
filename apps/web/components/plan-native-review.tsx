@@ -1667,12 +1667,17 @@ function OrderedPaintReview({
                   {region.status === 'held'
                     ? `удержано (${region.refusalReason})`
                     : `фрагментов — ${region.pieces.length}, вырезов — ${region.pieces.reduce((sum, piece) => sum + piece.holes.length, 0)}`}
-                  . Поздних заливок — {region.maskCount}; возможных пропущенных штрихов —{' '}
+                  . Поздних заливок — {region.maskCount}; возможных пропущенных штрихов у границ —{' '}
                   {region.omittedStrokeCount}.
                   {!region.boundaryInkComplete ? ' Полнота линий границы не подтверждена.' : ''}
                 </li>
               ))}
             </ul>
+            <p className="mt-2">
+              Проверяются внешние границы фрагментов и края вырезов. Внутренний штрих исключается
+              только по полной оболочке краски; без данных о толщине пера он остаётся возможным
+              препятствием. Это не подтверждение физической стены или окончательной видимости.
+            </p>
           </details>
           {report.regions.some((region) => region.pieces.length > 0) ? (
             <label className="flex min-h-11 items-center gap-2">

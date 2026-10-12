@@ -67,6 +67,18 @@ describe('native wall solid candidates and exact joints', () => {
     input.work.skippedCurveBounds = [
       { operationIndex: 99, bounds: { left: 205, top: 105, right: 215, bottom: 115 } },
     ]
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 99,
+          kind: 'vector',
+          reason: null,
+          bounds: { left: 204, top: 104, right: 216, bottom: 116 },
+        },
+      ],
+    }
 
     const result = inspectPlanPageWallSolids(input.work, source, input.contours)
     expect(result).toMatchObject({ partial: true })
@@ -83,6 +95,18 @@ describe('native wall solid candidates and exact joints', () => {
     input.work.skippedCurveBounds = [
       { operationIndex: 99, bounds: { left: 224, top: 105, right: 225, bottom: 115 } },
     ]
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 99,
+          kind: 'vector',
+          reason: null,
+          bounds: { left: 223, top: 104, right: 226, bottom: 116 },
+        },
+      ],
+    }
 
     const result = inspectPlanPageWallSolids(input.work, source, input.contours)
     expect(result).toMatchObject({ partial: true })
@@ -95,6 +119,18 @@ describe('native wall solid candidates and exact joints', () => {
     input.work.clippedPathBounds = [
       { operationIndex: 99, bounds: { left: 205, top: 105, right: 215, bottom: 115 } },
     ]
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 99,
+          kind: 'vector',
+          reason: null,
+          bounds: { left: 204, top: 104, right: 216, bottom: 116 },
+        },
+      ],
+    }
 
     expect(
       inspectPlanPageWallSolids(input.work, source, input.contours).solids.map(
@@ -103,6 +139,19 @@ describe('native wall solid candidates and exact joints', () => {
     ).toEqual([2])
 
     input.work.clippedPathBoundsTruncated = true
+    expect(inspectPlanPageWallSolids(input.work, source, input.contours).solids).toEqual([])
+  })
+
+  it('does not seed a wall body from a remote omitted control box with unknown pen width', () => {
+    const input = fixture()
+    input.work.skippedCurves = 1
+    input.work.skippedCurveBounds = [
+      {
+        operationIndex: 99,
+        paint: 'stroke',
+        bounds: { left: 800, top: 800, right: 810, bottom: 810 },
+      },
+    ]
     expect(inspectPlanPageWallSolids(input.work, source, input.contours).solids).toEqual([])
   })
 

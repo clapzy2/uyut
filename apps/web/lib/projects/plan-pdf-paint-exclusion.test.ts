@@ -48,6 +48,29 @@ describe('conservative whole-span paint exclusion', () => {
     expect(pdfPaintMayTouchSpan(stroke(), query(2, 8), 0)).toBe(false)
   })
 
+  it('excludes a diagonal span whose box overlaps a disjoint paint rectangle', () => {
+    const event: Event = {
+      operationIndex: 12,
+      kind: 'vector',
+      reason: null,
+      bounds: { left: 1, right: 2, top: 8, bottom: 9 },
+    }
+    expect(pdfPaintMayTouchSpan(event, [point(0, 0), point(10, 10)], 0)).toBe(false)
+    expect(pdfPaintMayTouchSpan(event, [point(10, 10), point(0, 0)], 0)).toBe(false)
+    expect(pdfPaintMayTouchSpan(event, [point(0, 0), point(10, 10)], 4)).toBe(true)
+  })
+
+  it('keeps rectangle corner contact and a crossing through its interior', () => {
+    const event: Event = {
+      operationIndex: 12,
+      kind: 'unknown',
+      reason: 'unsupported-shape-with-known-envelope',
+      bounds: { left: 4, right: 6, top: 6, bottom: 8 },
+    }
+    expect(pdfPaintMayTouchSpan(event, [point(0, 0), point(10, 10)], 0)).toBe(true)
+    expect(pdfPaintMayTouchSpan(event, [point(0, 7), point(10, 7)], 0)).toBe(true)
+  })
+
   it.each([
     { span: query(5, 5) },
     { span: query(-0.5, -0.5) },
