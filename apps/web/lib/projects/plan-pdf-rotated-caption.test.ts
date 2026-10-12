@@ -259,7 +259,7 @@ describe('strict rotated source-caption projection, not model acceptance', () =>
 
   it('caps distinct source frames atomically before preparing a matcher', () => {
     const data = fixture()
-    data.context.items = Array.from({ length: 33 }, (_, index) => {
+    data.context.items = Array.from({ length: 65 }, (_, index) => {
       const other = fixture(index)
       return { ...other.caption, index }
     })
@@ -294,7 +294,7 @@ describe('strict rotated source-caption projection, not model acceptance', () =>
   it('reuses a bounded source frame and detaches cached results from the source', () => {
     const data = fixture(-44)
     const before = structuredClone({ work: data.work, context: data.context })
-    const prepare = vi.spyOn(chains, 'createPdfNativePageDimensionChainVerifier')
+    const prepare = vi.spyOn(chains, 'preparePdfNativeWidthCaptionVerifier')
     const verify = createRotatedNativeCaptionVerifier(data.work, data.source, data.context)
     const first = verify(data.label(), 2000)
     if (first.status !== 'candidate') throw new Error('Missing source candidate')
@@ -312,23 +312,54 @@ describe('strict rotated source-caption projection, not model acceptance', () =>
 
   it('holds non-source endpoints instead of inverse-calculating a point', () => {
     const data = fixture(-44)
-    vi.spyOn(chains, 'createPdfNativePageDimensionChainVerifier').mockReturnValue(() => ({
-      status: 'candidate',
-      totalMm: 2000,
-      axis: 'width',
-      labelIndexes: [4],
-      lineOperations: [10],
-      linePaths: [{ operationIndex: 10, subpathIndex: 0 }],
-      ends: [
-        { x: 1, y: 1 },
-        { x: 2, y: 1 },
-      ],
-      segments: [{ labelIndex: 4, valueMm: 2000, start: { x: 1, y: 1 }, end: { x: 2, y: 1 } }],
-      basis: 'native-page-dimension',
-    }))
+    vi.spyOn(chains, 'preparePdfNativeWidthCaptionVerifier').mockReturnValue({
+      status: 'checked',
+      workCount: 1,
+      spanCount: 1,
+      verify: () => ({
+        status: 'candidate',
+        totalMm: 2000,
+        axis: 'width',
+        labelIndexes: [4],
+        lineOperations: [10],
+        linePaths: [{ operationIndex: 10, subpathIndex: 0 }],
+        ends: [
+          { x: 1, y: 1 },
+          { x: 2, y: 1 },
+        ],
+        segments: [{ labelIndex: 4, valueMm: 2000, start: { x: 1, y: 1 }, end: { x: 2, y: 1 } }],
+        basis: 'native-page-dimension',
+      }),
+    })
     expect(data.verify()).toMatchObject({
       status: 'unresolved',
       reason: 'rotated-caption-non-native-endpoint',
     })
+  })
+
+  it('does not charge an unused 200k matcher allowance for each original angle', () => {
+    const data = fixture()
+    data.context.items = Array.from({ length: 33 }, (_, index) => {
+      const other = fixture(index)
+      return { ...other.caption, index }
+    })
+    const first = data.context.items[0]
+    if (!first) throw new Error('Missing first source run')
+    const before = structuredClone({ work: data.work, context: data.context })
+    const verify = createRotatedNativeCaptionVerifier(data.work, data.source, data.context)
+    expect(
+      verify(
+        { ...first.origin, index: first.index, text: first.text, rotation: first.rotation },
+        2000,
+      ),
+    ).toMatchObject({ status: 'candidate', ends: data.work.paths[0]?.points })
+    expect({ work: data.work, context: data.context }).toEqual(before)
+  })
+
+  it('holds a real span-search exhaustion without exporting partial spans or a verifier', () => {
+    const data = fixture()
+    expect(
+      chains.preparePdfNativeWidthCaptionVerifier(data.work, data.source, data.context, 1),
+    ).toMatchObject({ status: 'held', spanCount: 0, verify: undefined })
   })
 })

@@ -4,8 +4,8 @@ import {
   nativeDimensionCaptionMillimetres,
 } from './plan-pdf-caption-binding'
 import {
-  createPdfNativePageDimensionChainVerifier,
   type PdfNativePageDimensionChain,
+  preparePdfNativeWidthCaptionVerifier,
 } from './plan-pdf-dimension-chain'
 import {
   pdfNativeDimensionChainIsUnobscured,
@@ -19,7 +19,9 @@ type Label = PagePoint & { index: number; text: string; rotation: number }
 type Frame = { rotation: number }
 
 const ANGLE_ARITHMETIC_EPSILON = 1e-6
-const MAX_FRAMES = 32
+// Survey captions can carry more than 32 distinct original baseline angles.
+// Capacity does not enlarge the independently enforced total search budget.
+const MAX_FRAMES = 64
 const MAX_WORK = 4_000_000
 const normalAngle = (angle: number) => ((angle % 360) + 360) % 360
 const angleDistance = (first: number, second: number) => {
@@ -126,50 +128,103 @@ export function createRotatedNativeCaptionVerifier(
   }
   if (frames.length > MAX_FRAMES) return () => fail('rotated-caption-budget-exceeded')
 
-  const pointCount = work.paths.reduce((sum, path) => sum + path.points.length, 0)
-  const strokeSegments = work.paths.reduce(
-    (sum, path) =>
-      sum + (!path.closed && path.paint === 'stroke' ? Math.max(0, path.points.length - 1) : 0),
-    0,
-  )
-  const arrowPaths = work.paths.filter(
-    (path) => path.closed && path.paint !== 'stroke' && path.points.length <= 4,
-  ).length
-  const tickPaths = work.paths.filter((path) => {
-    if (path.closed || path.paint !== 'stroke' || path.points.length !== 2) return false
-    const first = physical(path.points[0] as PagePoint)
-    const last = physical(path.points[1] as PagePoint)
-    const length = Math.hypot(last.x - first.x, last.y - first.y)
-    return length >= 2 && length <= 15
-  }).length
-  let reservedWork = 0
-  for (const frame of frames) {
+  const projectFrame = (frame: Frame) => {
     const angle = (-frame.rotation * Math.PI) / 180
     const cos = Math.cos(angle)
     const sin = Math.sin(angle)
-    let possibleRails = 0
-    for (const path of work.paths) {
-      if (path.closed || path.paint !== 'stroke' || path.points.length !== 2) continue
-      const first = physical(path.points[0] as PagePoint)
-      const last = physical(path.points[1] as PagePoint)
-      const dx = last.x - first.x
-      const dy = last.y - first.y
-      if (Math.abs(-dx * sin + dy * cos) <= 0.12 && dx * cos + dy * sin !== 0) possibleRails++
+    const rotate = (point: PagePoint) => ({
+      x: point.x * cos + point.y * sin,
+      y: -point.x * sin + point.y * cos,
+    })
+    const corners = [
+      { x: 0, y: 0 },
+      { x: work.pageWidth, y: 0 },
+      { x: work.pageWidth, y: work.pageHeight },
+      { x: 0, y: work.pageHeight },
+    ].map(rotate)
+    const left = Math.min(...corners.map((point) => point.x))
+    const top = Math.min(...corners.map((point) => point.y))
+    const width = Math.max(...corners.map((point) => point.x)) - left
+    const height = Math.max(...corners.map((point) => point.y)) - top
+    const project = (point: PagePoint) => {
+      const rotated = rotate(physical(point))
+      return {
+        x: ((rotated.x - left) * 1000) / width,
+        y: ((rotated.y - top) * 1000) / height,
+      }
     }
-    // Reserve each matcher's entire bounded search before any result can escape.
-    reservedWork +=
-      200_000 +
-      work.paths.length * 20 +
-      pointCount +
-      context.items.length * 8 +
-      possibleRails * (2 * arrowPaths + 2 * strokeSegments + 2 * tickPaths)
+    const originals = new Map<PagePoint, PagePoint>()
+    const paths = work.paths.map((path) => ({
+      ...path,
+      points: path.points.map((point) => {
+        const projected = project(point)
+        originals.set(projected, point)
+        return projected
+      }),
+    }))
+    const items = context.items.map((original: Caption): Caption => {
+      let rotation = normalAngle(original.rotation - frame.rotation)
+      const cardinal = [0, 90, 180, 270].find(
+        (angle) => angleDistance(rotation, angle) <= ANGLE_ARITHMETIC_EPSILON,
+      )
+      if (cardinal !== undefined) rotation = cardinal
+      return {
+        ...structuredClone(original),
+        rotation,
+        origin: project(original.origin),
+        baselineStart: project(original.baselineStart),
+        baselineEnd: project(original.baselineEnd),
+        ...(original.inkPolygon ? { inkPolygon: original.inkPolygon.map(project) } : {}),
+      }
+    })
+    return {
+      work: { ...work, pageWidth: width, pageHeight: height, paths },
+      context: {
+        ...context,
+        source: { ...context.source, pageWidth: width, pageHeight: height },
+        items,
+      },
+      originals,
+    }
+  }
+  const projectedFrames = new Map<
+    Frame,
+    ReturnType<typeof projectFrame> & {
+      verify: NonNullable<ReturnType<typeof preparePdfNativeWidthCaptionVerifier>['verify']>
+    }
+  >()
+  let reservedWork = 0
+  for (const frame of frames) {
+    const projected = projectFrame(frame)
+    const search = preparePdfNativeWidthCaptionVerifier(
+      projected.work,
+      source,
+      projected.context,
+      MAX_WORK - reservedWork,
+    )
+    if (search.status !== 'checked') return () => fail('rotated-caption-budget-exceeded')
+    const spans = search.spanCount
+    const queries = context.items.filter(
+      (caption) => frameByIndex.get(caption.index) === frame,
+    ).length
+    const captions = projected.context.items.filter(
+      (caption) => caption.rotation === 0 || caption.rotation === 180,
+    ).length
+    // Prepared spans stay private to this unchanged source-frame verifier.
+    // The matcher has its own 200k comparison cap; unused capacity is not work.
+    const matcherWork = Math.min(
+      200_001,
+      (spans * (spans - 1)) / 2 + spans * captions + queries * spans * (spans + 1),
+    )
+    reservedWork += search.workCount + context.items.length * 8 + spans * 8 + matcherWork
     if (reservedWork > MAX_WORK) return () => fail('rotated-caption-budget-exceeded')
+    projectedFrames.set(frame, { ...projected, verify: search.verify })
   }
 
   const prepared = new Map<
     Frame,
     {
-      verify: ReturnType<typeof createPdfNativePageDimensionChainVerifier>
+      verify: NonNullable<ReturnType<typeof preparePdfNativeWidthCaptionVerifier>['verify']>
       captions: Map<number, Caption>
       originals: Map<PagePoint, PagePoint>
     }
@@ -192,64 +247,12 @@ export function createRotatedNativeCaptionVerifier(
     if (prior) return structuredClone(prior)
     let ready = prepared.get(frame)
     if (!ready) {
-      const angle = (-frame.rotation * Math.PI) / 180
-      const cos = Math.cos(angle)
-      const sin = Math.sin(angle)
-      const rotate = (point: PagePoint) => ({
-        x: point.x * cos + point.y * sin,
-        y: -point.x * sin + point.y * cos,
-      })
-      const corners = [
-        { x: 0, y: 0 },
-        { x: work.pageWidth, y: 0 },
-        { x: work.pageWidth, y: work.pageHeight },
-        { x: 0, y: work.pageHeight },
-      ].map(rotate)
-      const left = Math.min(...corners.map((point) => point.x))
-      const top = Math.min(...corners.map((point) => point.y))
-      const width = Math.max(...corners.map((point) => point.x)) - left
-      const height = Math.max(...corners.map((point) => point.y)) - top
-      const project = (point: PagePoint) => {
-        const rotated = rotate(physical(point))
-        return {
-          x: ((rotated.x - left) * 1000) / width,
-          y: ((rotated.y - top) * 1000) / height,
-        }
-      }
-      const originals = new Map<PagePoint, PagePoint>()
-      const paths = work.paths.map((path) => ({
-        ...path,
-        points: path.points.map((point) => {
-          const projected = project(point)
-          originals.set(projected, point)
-          return projected
-        }),
-      }))
-      const items = context.items.map((original: Caption): Caption => {
-        let rotation = normalAngle(original.rotation - frame.rotation)
-        const cardinal = [0, 90, 180, 270].find(
-          (angle) => angleDistance(rotation, angle) <= ANGLE_ARITHMETIC_EPSILON,
-        )
-        if (cardinal !== undefined) rotation = cardinal
-        return {
-          ...structuredClone(original),
-          rotation,
-          origin: project(original.origin),
-          baselineStart: project(original.baselineStart),
-          baselineEnd: project(original.baselineEnd),
-          ...(original.inkPolygon ? { inkPolygon: original.inkPolygon.map(project) } : {}),
-        }
-      })
-      const projectedWork = { ...work, pageWidth: width, pageHeight: height, paths }
-      const projectedContext = {
-        ...context,
-        source: { ...context.source, pageWidth: width, pageHeight: height },
-        items,
-      }
+      const projected = projectedFrames.get(frame)
+      if (!projected) return fail('rotated-caption-context-invalid')
       ready = {
-        verify: createPdfNativePageDimensionChainVerifier(projectedWork, source, projectedContext),
-        captions: new Map(items.map((item) => [item.index, item])),
-        originals,
+        verify: projected.verify,
+        captions: new Map(projected.context.items.map((item) => [item.index, item])),
+        originals: projected.originals,
       }
       prepared.set(frame, ready)
     }

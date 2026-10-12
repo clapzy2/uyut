@@ -17,6 +17,7 @@ export type AuditAction =
   | 'project.plan_read'
   | 'project.plan_page_reviewed'
   | 'project.plan_painted_floor_reviewed'
+  | 'project.plan_floor_height_reviewed'
   | 'project.plan_geometry_confirmed'
   | 'project.plan_geometry_drafted'
   | 'project.delivery_measurements_saved'

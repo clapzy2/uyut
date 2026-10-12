@@ -155,6 +155,8 @@ export async function savePlanPaintedFloorReview(
         draftJson: JSON.stringify(reviewed),
       },
     }
+    // Any edited source floor selection invalidates its former height associations.
+    delete reading.heightBindingReview
     // Compare both the stored file and complete reading atomically; concurrent edits must not be lost.
     await setPlanReading(session.user.id, projectId, reading, project)
     await recordAudit({

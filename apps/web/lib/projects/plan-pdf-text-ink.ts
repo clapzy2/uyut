@@ -8,6 +8,8 @@ type InkBounds = { left: number; bottom: number; right: number; top: number }
 type SourceShow = {
   operationIndex: number
   text: string
+  /** Original Unicode before the one supported TextContent NBSP normalization. */
+  rawText?: string
   charSpacing: number
   wordSpacing: number
   glyphWidths: number[]
@@ -107,6 +109,7 @@ type Run = {
   quad?: Quad
   reason?: string
   resetCaption?: { generatedSpacesBefore: number[] }
+  sourceOwner?: boolean
 }
 
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0]
@@ -435,7 +438,23 @@ export function nativeNumericTextInk(input: {
       selectedLiterals.add(item.str.trim())
     }
   }
-  const selectedLiteralList = [...selectedLiterals]
+  // Numeric shows inside a date, height or room key still need a complete
+  // source owner. They are replayed for identity, never returned as dimensions.
+  const ownerLiterals = new Set<string>()
+  if (selectedIndexes === undefined) {
+    for (const raw of textItems) {
+      if (raw && typeof raw === 'object' && 'str' in raw && typeof raw.str === 'string') {
+        const literal = raw.str.trim()
+        if (literal.length <= 200 && /\d/.test(literal) && !selectsDimension(literal))
+          ownerLiterals.add(literal)
+      }
+    }
+  }
+  function selectsDimension(literal: string) {
+    return nativeDimensionCaptionMillimetres(literal) !== undefined
+  }
+  const selectedLiteralList = [...selectedLiterals, ...ownerLiterals]
+  const ownerLiteralList = [...ownerLiterals]
   const resetNoteLiterals = selectedLiteralList.filter((literal) =>
     sourceResetNoteLiteral.test(literal),
   )
@@ -447,7 +466,7 @@ export function nativeNumericTextInk(input: {
       : selectedLiterals.has(literal.trim())
   const selectsFragment = (literal: string) =>
     selectsLiteral(literal) ||
-    (selectedIndexes !== undefined &&
+    ((selectedIndexes !== undefined || ownerLiterals.size > 0) &&
       literal.length > 0 &&
       selectedLiteralList.some((selected) => {
         if (work > MAX_WORK) return false
@@ -464,7 +483,11 @@ export function nativeNumericTextInk(input: {
   for (const [index, raw] of textItems.entries()) {
     if (!raw || typeof raw !== 'object' || !('str' in raw) || typeof raw.str !== 'string') continue
     if (raw.str.length > 200) return fail('text-ink-budget-exceeded')
-    if (selectedIndexes === undefined ? !selectsLiteral(raw.str) : !selectedIndexSet.has(index))
+    if (
+      selectedIndexes === undefined
+        ? !selectsLiteral(raw.str) && !ownerLiterals.has(raw.str.trim())
+        : !selectedIndexSet.has(index)
+    )
       continue
     const item = raw as TextItem
     if (
@@ -714,7 +737,13 @@ export function nativeNumericTextInk(input: {
         if (work > MAX_WORK) return fail('text-ink-budget-exceeded')
         literal += glyph.unicode
       }
-      const selected = selectsFragment(literal)
+      const numericLiteral = selectsDimension(literal.replace(/\u00a0/g, ' '))
+      const normalizedLiteral = literal.replace(/\u00a0/g, ' ')
+      const ownerFragment = ownerLiteralList.some((owner) => {
+        work += owner.length + normalizedLiteral.length
+        return work <= MAX_WORK && owner.includes(normalizedLiteral)
+      })
+      const selected = selectsFragment(literal) || numericLiteral || ownerFragment
       const noteFragment = resetNoteLiterals.some(
         (note) => literal.length > 0 && note.includes(literal),
       )
@@ -725,7 +754,7 @@ export function nativeNumericTextInk(input: {
         if (typeof glyph === 'number') {
           if (!Number.isFinite(glyph)) return fail('invalid-native-text-ink-glyph')
           advance -= glyph / 1000
-          if (noteFragment) adjustments.push({ glyphIndex, value: glyph })
+          if (noteFragment || ownerFragment) adjustments.push({ glyphIndex, value: glyph })
           else reason ??= 'unsupported-native-text-ink-adjustment'
           continue
         }
@@ -738,7 +767,10 @@ export function nativeNumericTextInk(input: {
           glyph.width < 0
         )
           return fail('invalid-native-text-ink-glyph')
-        str += glyph.unicode
+        // PDF.js TextContent normalizes NBSP to U+0020. No other Unicode
+        // substitutions are accepted here, and the original advance is retained.
+        str +=
+          numericLiteral || ownerFragment ? glyph.unicode.replace(/\u00a0/g, ' ') : glyph.unicode
         const spacing =
           state.fontSize > 0
             ? (state.charSpacing + (glyph.isSpace ? state.wordSpacing : 0)) / state.fontSize
@@ -767,11 +799,15 @@ export function nativeNumericTextInk(input: {
           const path = values(rawPath, MAX_PATH_VALUES)
           const verifiedEmptyWhitespace =
             (missingWhitespace && path?.length === 0) ||
-            (noteFragment &&
+            ((noteFragment ||
+              ownerFragment ||
+              (numericLiteral && glyph.unicode === '\u00a0' && glyph.isInFont === true)) &&
               /^[ \u00a0\u202f]$/u.test(glyph.unicode) &&
               (path?.length === 0 || (path?.length === 1 && path[0] === 4)))
           if (missingWhitespace && !verifiedEmptyWhitespace)
             reason ??= 'unsupported-native-text-ink-glyph'
+          if (numericLiteral && glyph.unicode === '\u00a0' && !verifiedEmptyWhitespace)
+            reason ??= 'unverified-native-numeric-space-normalization'
           if (path) work += path.length * 3
           if (work > MAX_WORK) return fail('text-ink-budget-exceeded')
           // Bound the actual outline in an orthonormal source-baseline frame.
@@ -803,8 +839,8 @@ export function nativeNumericTextInk(input: {
       if (state.packedOrigin)
         state.packedOrigin.textOffset[0] += advance * state.fontSize * state.hScale
       if (!advanceKnown) state.textAdvanceUnverified = true
-      if (!selectsFragment(str)) continue
-      if (str !== str.trim()) reason ??= 'unsupported-native-text-ink-text'
+      if (!selectsFragment(str) && !numericLiteral) continue
+      if (str !== str.trim() && !ownerFragment) reason ??= 'unsupported-native-text-ink-text'
       if (
         !Number.isFinite(advance) ||
         advance <= 0 ||
@@ -847,13 +883,14 @@ export function nativeNumericTextInk(input: {
           {
             operationIndex,
             text: str,
+            ...(str !== literal ? { rawText: literal } : {}),
             charSpacing: state.charSpacing,
             wordSpacing: state.wordSpacing,
             glyphWidths: glyphs
               .filter((glyph) => typeof glyph !== 'number')
               .map((glyph) => glyph.width as number),
             textMatrix: originalTextMatrix,
-            ...(noteFragment
+            ...(noteFragment || ownerFragment
               ? {
                   adjustments,
                   quad,
@@ -889,8 +926,8 @@ export function nativeNumericTextInk(input: {
     return fail('invalid-text-ink-state-stack')
   // TextContent joins glyph shows on one source text line. Reconstruct only
   // literal consecutive shows, never neighbouring labels or different BTs.
-  const candidates = runs.filter((run) => selectsLiteral(run.text))
-  if (selectedIndexes !== undefined) {
+  const candidates = runs.filter((run) => selectsLiteral(run.text) || ownerLiterals.has(run.text))
+  if (selectedIndexes !== undefined || ownerLiterals.size > 0) {
     for (let start = 0; start < runs.length; start++) {
       if (work > MAX_WORK) return fail('text-ink-budget-exceeded')
       const first = runs[start] as Run
@@ -901,12 +938,28 @@ export function nativeNumericTextInk(input: {
         const run = runs[next] as Run
         if (++work > MAX_WORK) return fail('text-ink-budget-exceeded')
         const previous = runs[next - 1] as Run
-        const resetNote = resetNoteLiterals.some((note) => note.startsWith(group.text))
+        const sourceOwner = ownerLiteralList.some((owner) => {
+          work += owner.length + group.text.length
+          return work <= MAX_WORK && owner.startsWith(group.text)
+        })
+        const contiguous = run.transform.every(
+          (value, index) =>
+            Math.abs(value - (previous.endTransform[index] as number)) <= ARITHMETIC_EPSILON,
+        )
+        const resetNote =
+          (sourceOwner && (!contiguous || !!group.resetCaption)) ||
+          resetNoteLiterals.some((note) => note.startsWith(group.text))
         let continuation = true
         for (let index = previous.operationIndex + 1; index < run.operationIndex; index++) {
           if (++work > MAX_WORK) return fail('text-ink-budget-exceeded')
           const name = names.get(operatorList.fnArray[index] as number)
-          if (name !== 'setCharSpacing' && !(resetNote && name === 'setTextMatrix')) {
+          if (
+            name !== 'setCharSpacing' &&
+            !(
+              (resetNote || sourceOwner) &&
+              (name === 'setTextMatrix' || (sourceOwner && name === 'moveText'))
+            )
+          ) {
             continuation = false
             break
           }
@@ -925,14 +978,13 @@ export function nativeNumericTextInk(input: {
           first.reason ||
           run.reason ||
           !group.quad ||
-          !run.quad
+          (!run.quad && !(sourceOwner && /^ +$/.test(run.text)))
         )
           break
         let separator = ''
         if (resetNote) {
           if (
-            !first.packedOrigin ||
-            !run.packedOrigin ||
+            ((!first.packedOrigin || !run.packedOrigin) && !sourceOwner) ||
             first.hScale !== 1 ||
             first.textRise !== 0 ||
             run.textRise !== 0 ||
@@ -952,7 +1004,9 @@ export function nativeNumericTextInk(input: {
             Math.abs(run.transform[5] - first.transform[5]) / first.ctm[3] > 0.25 * first.fontSize
           )
             break
-          if (gap >= 0.102 * first.fontSize && gap <= 0.6 * first.fontSize) separator = ' '
+          if (gap >= 0.102 * first.fontSize && gap <= 0.6 * first.fontSize)
+            separator =
+              sourceOwner && (group.text.endsWith(' ') || run.text.startsWith(' ')) ? '' : ' '
           else if (gap > 0.102 * first.fontSize) break
         }
         const text = group.text + separator + run.text
@@ -960,7 +1014,7 @@ export function nativeNumericTextInk(input: {
         const scale = Math.hypot(first.transform[0], first.transform[1])
         const ux = first.transform[0] / scale,
           uy = first.transform[1] / scale
-        const corners = [...group.quad, ...run.quad].map((point) => ({
+        const corners = [...group.quad, ...(run.quad ?? [])].map((point) => ({
           x: (point.x - first.transform[4]) * ux + (point.y - first.transform[5]) * uy,
           y: -(point.x - first.transform[4]) * uy + (point.y - first.transform[5]) * ux,
         }))
@@ -979,6 +1033,7 @@ export function nativeNumericTextInk(input: {
           shows: [...group.shows, ...run.shows],
           ...(resetNote
             ? {
+                sourceOwner,
                 resetCaption: {
                   generatedSpacesBefore: [
                     ...(group.resetCaption?.generatedSpacesBefore ?? []),
@@ -997,7 +1052,7 @@ export function nativeNumericTextInk(input: {
             [ux, uy, -uy, ux, first.transform[4], first.transform[5]],
           ),
         }
-        if (selectsLiteral(text)) {
+        if (selectsLiteral(text) || ownerLiterals.has(text)) {
           candidates.push(structuredClone(group))
           if (candidates.length > MAX_ITEMS) return fail('text-ink-budget-exceeded')
         }
@@ -1052,7 +1107,6 @@ export function nativeNumericTextInk(input: {
           (linear[3] as number) * (origin?.textOffset[1] ?? 0),
       ]
       const quantizedGroup =
-        run.sourceOperations.length > 1 &&
         run.textRise === 0 &&
         !!origin &&
         linear.every((value, index) => Math.fround(value) === origin.matrix[index]) &&
@@ -1068,6 +1122,8 @@ export function nativeNumericTextInk(input: {
         Math.hypot(a, b) *
         Math.hypot(linear[0] as number, linear[1] as number)
       if (run.resetCaption) {
+        if (run.sourceOwner && exactTransform && !run.packedOrigin)
+          return Math.abs(run.advance * advanceScale - item.width) <= ARITHMETIC_EPSILON
         const last = run.shows.at(-1)
         const packed = last?.packedOrigin
         if (
@@ -1104,7 +1160,41 @@ export function nativeNumericTextInk(input: {
   const claims = new Map<Run, number>()
   for (const { matches } of identities)
     for (const run of matches) claims.set(run, (claims.get(run) ?? 0) + 1)
-  if (candidates.some((run) => !claims.has(run))) return fail('unmatched-native-numeric-text-show')
+  const uniqueOwners = identities
+    .filter(
+      ({ item, matches }) =>
+        ownerLiterals.has(item.str) &&
+        matches.length === 1 &&
+        claims.get(matches[0] as Run) === 1 &&
+        !matches[0]?.reason,
+    )
+    .map(({ matches }) => matches[0] as Run)
+  const ownershipCounts = new Map<Run, number>()
+  for (const run of candidates) {
+    let count = 0
+    for (const owner of uniqueOwners) {
+      let contains = true
+      for (const operation of run.sourceOperations) {
+        work += owner.sourceOperations.length
+        if (work > MAX_WORK) return fail('text-ink-budget-exceeded')
+        if (!owner.sourceOperations.includes(operation)) {
+          contains = false
+          break
+        }
+      }
+      if (contains) count++
+    }
+    ownershipCounts.set(run, count)
+  }
+  if (
+    identities.some(
+      ({ item, matches }) =>
+        selectsLiteral(item.str) && matches.some((run) => (ownershipCounts.get(run) ?? 0) > 0),
+    )
+  )
+    return fail('competing-native-text-show-ownership')
+  if (candidates.some((run) => !claims.has(run) && ownershipCounts.get(run) !== 1))
+    return fail('unmatched-native-numeric-text-show')
   const normalized = (p: PagePoint): PagePoint | undefined => {
     const [x, y] = viewport.convertToViewportPoint(p.x, p.y)
     if (
@@ -1120,6 +1210,7 @@ export function nativeNumericTextInk(input: {
     return { x: (x / viewport.width) * 1000, y: (y / viewport.height) * 1000 }
   }
   for (const { index, item, matches } of identities) {
+    if (selectedIndexes === undefined && !selectsLiteral(item.str)) continue
     const run = matches[0]
     if (!run || matches.length !== 1 || claims.get(run) !== 1) {
       unresolved.push({
@@ -1131,7 +1222,13 @@ export function nativeNumericTextInk(input: {
       })
       continue
     }
-    if (run.reason || !run.quad || (run.nonzeroSpacing && run.sourceOperations.length === 1)) {
+    if (
+      run.reason ||
+      !run.quad ||
+      (run.sourceOperations.length === 1 &&
+        (run.shows.some((show) => show.wordSpacing !== 0) ||
+          (run.nonzeroSpacing && !selectsDimension(item.str))))
+    ) {
       unresolved.push({
         index,
         reason:
@@ -1170,7 +1267,9 @@ export function nativeNumericTextInk(input: {
             },
           }
         : {}),
-      ...(run.sourceOperations.length > 1 && !run.resetCaption
+      ...((run.sourceOperations.length > 1 ||
+        (selectsDimension(item.str) && (run.nonzeroSpacing || run.packedOrigin))) &&
+      !run.resetCaption
         ? {
             sourceGroup: {
               operationIndexes: [...run.sourceOperations],

@@ -118,6 +118,100 @@ function present<T>(value: T | undefined): T {
   if (value === undefined) throw new Error('Missing contract fixture')
   return value
 }
+function heightBindingPacket() {
+  const packet = fixture()
+  packet.heightObservations = {
+    status: 'draft',
+    refusalReason: null,
+    issues: [],
+    omissionCounts: { skippedCurves: 0, clippedPaths: 0 },
+    observations: [
+      {
+        labelId: 'native-text-152',
+        originalText: 'Н=2700',
+        valueMm: 2700,
+        quantityKind: 'unclassified-height',
+        datum: 'unspecified',
+        issueCodes: ['height-role-unclassified', 'height-datum-unverified'],
+        mayAcceptFor3D: false,
+        unitEvidence: {
+          kind: 'same-page-millimetre-declaration',
+          labelId: 'native-text-237',
+          originalText: 'Размеры указаны в миллиметрах',
+          nativeIndex: 237,
+          inkSourceOperation: 14076,
+          source: packet.source,
+        },
+      },
+    ],
+  }
+  packet.savedFloorHeights = {
+    status: 'checked',
+    reason: null,
+    associationBasis: 'manual-whole-source-caption-in-selected-floor',
+    physicalBoundariesAccepted: false,
+    ceilingHeightsConfirmed: false,
+    commonZeroConfirmed: false,
+    readyFor2D: false,
+    readyFor3D: false,
+    bindings: [
+      {
+        floorId: 'native-fill-40:0:piece-0',
+        sourceRoomKey: '3.1',
+        name: 'Гардероб',
+        labelId: 'native-text-152',
+        originalText: 'Н=2700',
+        valueMm: 2700,
+        quantityKind: 'unclassified-height',
+        localReferenceLabelId: 'native-text-230',
+      },
+    ],
+  }
+  return packet
+}
+
+describe('saved source-height wire associations', () => {
+  it('requires a current floor, literal height and verified local reference without 3D acceptance', () => {
+    expect(nativeSourceObjectReportsValid(heightBindingPacket())).toBe(true)
+  })
+  it.each([
+    'floor',
+    'owner',
+    'value',
+    'label',
+    'reference',
+    'units',
+    'duplicate',
+    'claimed-ceiling',
+    'claimed-zero',
+    'claimed-3d',
+  ])('rejects stale or promoted %s associations', (change) => {
+    const packet = heightBindingPacket(),
+      report = present(packet.savedFloorHeights)
+    const row = present(report.bindings[0])
+    if (change === 'floor') row.floorId = 'native-fill-unknown:piece-0'
+    if (change === 'owner') row.sourceRoomKey = '3'
+    if (change === 'value') row.valueMm = 3800
+    if (change === 'label') row.labelId = 'native-text-165'
+    if (change === 'reference') row.localReferenceLabelId = 'native-text-999'
+    if (change === 'units')
+      present(present(packet.heightObservations).observations[0]).unitEvidence = undefined
+    if (change === 'duplicate') report.bindings.push({ ...row })
+    if (change === 'claimed-ceiling') Object.assign(report, { ceilingHeightsConfirmed: true })
+    if (change === 'claimed-zero') Object.assign(report, { commonZeroConfirmed: true })
+    if (change === 'claimed-3d') Object.assign(row, { heightCm: 270 })
+    expect(nativeSourceObjectReportsValid(packet)).toBe(false)
+  })
+  it('requires empty refused inventories and does not infer local reference from common zero', () => {
+    const packet = heightBindingPacket(),
+      report = present(packet.savedFloorHeights)
+    report.status = 'refused'
+    report.reason = 'stale-room-height-review'
+    expect(nativeSourceObjectReportsValid(packet)).toBe(false)
+    report.bindings = []
+    expect(nativeSourceObjectReportsValid(packet)).toBe(true)
+  })
+})
 describe('source-object wire contract without physical promotion', () => {
   it('accepts literal decimal owner, exact source snapshot and local datum but no transfer', () => {
     const packet = fixture()

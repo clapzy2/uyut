@@ -293,5 +293,94 @@ function savedFloors(packet: NativeReviewPacket): boolean {
 
 /** Optional source-object reports stay separate from accepted geometry in every wire version. */
 export function nativeSourceObjectReportsValid(packet: NativeReviewPacket): boolean {
-  return floorReferences(packet.heightFloorReferences) && panelEnds(packet) && savedFloors(packet)
+  return (
+    floorReferences(packet.heightFloorReferences) &&
+    panelEnds(packet) &&
+    savedFloors(packet) &&
+    savedFloorHeights(packet)
+  )
+}
+
+function savedFloorHeights(packet: NativeReviewPacket): boolean {
+  const report = packet.savedFloorHeights
+  if (report === undefined) return true
+  if (
+    !report ||
+    !only(report, [
+      'status',
+      'reason',
+      'associationBasis',
+      'physicalBoundariesAccepted',
+      'ceilingHeightsConfirmed',
+      'commonZeroConfirmed',
+      'readyFor2D',
+      'readyFor3D',
+      'bindings',
+    ]) ||
+    report.associationBasis !== 'manual-whole-source-caption-in-selected-floor' ||
+    report.physicalBoundariesAccepted !== false ||
+    report.ceilingHeightsConfirmed !== false ||
+    report.commonZeroConfirmed !== false ||
+    report.readyFor2D !== false ||
+    report.readyFor3D !== false ||
+    !Array.isArray(report.bindings) ||
+    report.bindings.length > 50
+  )
+    return false
+  if (report.status === 'not-saved') return report.reason === null && !report.bindings.length
+  if (report.status === 'refused') return bounded(report.reason) && !report.bindings.length
+  if (
+    report.status !== 'checked' ||
+    report.reason !== null ||
+    packet.savedPaintedFloors?.status !== 'checked' ||
+    packet.heightObservations?.status !== 'draft'
+  )
+    return false
+  const floorIds = new Set<string>(),
+    labelIds = new Set<string>()
+  return report.bindings.every((row) => {
+    if (
+      !row ||
+      !only(row, [
+        'floorId',
+        'sourceRoomKey',
+        'name',
+        'labelId',
+        'originalText',
+        'valueMm',
+        'quantityKind',
+        'localReferenceLabelId',
+      ]) ||
+      floorIds.has(row.floorId) ||
+      labelIds.has(row.labelId)
+    )
+      return false
+    const floor = packet.savedPaintedFloors?.floors.find((floor) => floor.id === row.floorId)
+    const height = packet.heightObservations?.observations.find(
+      (height) => height.labelId === row.labelId,
+    )
+    const reference = packet.heightFloorReferences?.references.find(
+      (reference) => reference.labelId === row.localReferenceLabelId,
+    )
+    if (
+      !floor ||
+      !height ||
+      !reference ||
+      floor.sourceRoomKey !== row.sourceRoomKey ||
+      floor.name !== row.name ||
+      height.originalText !== row.originalText ||
+      height.valueMm !== row.valueMm ||
+      height.quantityKind !== row.quantityKind ||
+      !height.unitEvidence ||
+      !/^[hн]\s*=\s*\d{1,4}$/iu.test(row.originalText) ||
+      row.quantityKind !== 'unclassified-height' ||
+      height.unitEvidence.inkSourceOperation === null ||
+      reference.status !== 'verified' ||
+      reference.datum !== 'local-finished-floor'
+    )
+      return false
+    floorIds.add(row.floorId)
+    labelIds.add(row.labelId)
+    return true
+  })
 }

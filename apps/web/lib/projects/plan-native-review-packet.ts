@@ -36,6 +36,7 @@ import {
   type ReviewedNativePaintedFloors,
 } from './plan-native-painted-floor-review'
 import { nativePaintedRegionContext } from './plan-native-painted-region-context'
+import { nativeReviewedFloorHeightBindings } from './plan-native-reviewed-floor-heights'
 import { nativeReviewedFrameRooms } from './plan-native-reviewed-frame-rooms'
 import { automaticNativeRoomCandidates, nativeRoomPolygonKey } from './plan-native-room-candidates'
 import {
@@ -196,6 +197,17 @@ export type NativeReviewPacket = {
   }
   heightObjects?: NativeHeightObjectReport
   heightFloorReferences?: NativeHeightFloorReferences
+  savedFloorHeights?: {
+    status: 'not-saved' | 'refused' | 'checked'
+    reason: string | null
+    associationBasis: 'manual-whole-source-caption-in-selected-floor'
+    physicalBoundariesAccepted: false
+    ceilingHeightsConfirmed: false
+    commonZeroConfirmed: false
+    readyFor2D: false
+    readyFor3D: false
+    bindings: ReturnType<typeof nativeReviewedFloorHeightBindings>['bindings']
+  }
   filledPanelEnds?: {
     status: 'draft' | 'unresolved'
     refusalReason: string | null
@@ -540,6 +552,42 @@ export function nativeReviewPacket(input: {
       } catch {
         packet.savedPaintedFloors.status = 'refused'
         packet.savedPaintedFloors.reason = 'invalid-saved-painted-floor-review'
+      }
+    }
+    packet.savedFloorHeights = {
+      status: 'not-saved',
+      reason: null,
+      associationBasis: 'manual-whole-source-caption-in-selected-floor',
+      physicalBoundariesAccepted: false,
+      ceilingHeightsConfirmed: false,
+      commonZeroConfirmed: false,
+      readyFor2D: false,
+      readyFor3D: false,
+      bindings: [],
+    }
+    const savedHeights = savedReading?.heightBindingReview
+    if (savedHeights) {
+      try {
+        if (
+          !savedFloors ||
+          packet.savedPaintedFloors.status !== 'checked' ||
+          savedHeights.version !== 1 ||
+          typeof savedHeights.draftJson !== 'string' ||
+          new TextEncoder().encode(savedHeights.draftJson).byteLength > 16_384
+        )
+          throw new Error('invalid-saved-room-height-review')
+        const report = nativeReviewedFloorHeightBindings({
+          ...common,
+          reviewedFloors: JSON.parse(savedFloors.draftJson),
+          floorReviewSavedAt: savedFloors.savedAt,
+          reviewed: JSON.parse(savedHeights.draftJson),
+        })
+        packet.savedFloorHeights.status = report.refusalReason ? 'refused' : 'checked'
+        packet.savedFloorHeights.reason = report.refusalReason
+        packet.savedFloorHeights.bindings = report.bindings
+      } catch {
+        packet.savedFloorHeights.status = 'refused'
+        packet.savedFloorHeights.reason = 'invalid-saved-room-height-review'
       }
     }
     packet.filledPanelSymbols = {

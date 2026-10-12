@@ -404,6 +404,65 @@ its isolated run and complete bounded-worker rerun both passed. No test timeout
 or source/proof gate was relaxed. This verification is local, not a live-account
 or deployment receipt.
 
+### Numeric source recovery and saved room-height associations — 12 October
+
+The unchanged original now produces 91/91 numeric TextContent ink items.
+There are 69 actual dimension captions; the other 22 are seven schedule keys,
+seven integer room keys and eight m² superscripts. Dates, H values, room `3.1`
+and other numeric show fragments are excluded only through a uniquely verified
+complete source owner. Single-show origin recovery reuses inverse CTM/cursor
+and original Float32 cells rather than widening coordinate tolerance. Explicit
+character spacing and full glyph advances must reproduce TextContent width.
+The mapped NBSP has its actual empty outline checked; its original spelling,
+advance and spacing are retained. Other Unicode substitutions, nonempty NBSP,
+changed widths/cursors/matrices and competing owners remain refused. The old
+single-H shape is retained: adding a numeric single-show proof must not make
+height consumers require a nonexistent multi-show group.
+
+Rotated matching privately reuses the fresh source span inventory instead of
+reserving 200,000 comparisons for every angle and replaying the same search.
+The overall 4,000,000 cap is unchanged. A separate 64-frame cap accommodates
+the original's 33 distinct baseline angles without clustering or snapping.
+A real 651-overlapping-span control tests atomic budget refusal, not just a
+mock. Five source captions bind to original rails: 68=1506, 70=684, 99=817,
+100=430 and 136=530 mm. All five are aligned, not cardinal. The 64 actual held
+dimensions comprise 27 unresolved rails, 29 omitted-ink cases, seven branches
+and one competing caption. Existing target matching still does not accept
+these aligned dimensions as physical wall/jamb or saved-floor measurements.
+
+New owner-only actions load source-height choices and save explicit label/floor
+IDs with the source snapshot, floor-review revision and full-reading CAS. Values
+are always freshly derived. AI cannot write this field; unchanged page/state
+reading retains it, changed floor selections invalidate it. Whole caption
+containment uses exact paint keys including intersections, holes, touching
+edges and non-convex boundaries; origin containment alone is insufficient.
+Units and local-floor-reference ink must be verified. This is a manual source
+association, not a classified ceiling or a common world-zero acceptance.
+
+Explicit original QA selections: entry 1 / label152 / 3773 mm; kitchen-living
+2 / 153 / 3790; bedroom2 5 / 154 / 3780; study6 / 159 / 3790; bedroom1 3 / 165 /
+3790. No bath or wardrobe height is copied. Eight eligible spatial choices
+also include unclassified beam/rise H captions; the UI does not select them
+automatically and explicitly requires checking object meaning on the sheet.
+The ordinary select UI preserves missing rooms, requires acknowledgement,
+resets acknowledgement after editing, retains choices after an error and
+reloads saved IDs through fresh verification. The source packet rechecks saved
+bindings and its wire contract rejects changed values/owners/reference IDs or
+physical/global/3D promotion. All geometry readiness flags remain false.
+
+Local UI control used the real source-derived options but a clearly labelled
+mock account action boundary. It observed two loads, one deliberately refused
+save and a successful retry with five selected IDs; no actual account mutation
+or paid request. It also checked the unchecked initial state, edit-induced
+acknowledgement reset and three missing-height floors. Console warnings/errors
+were empty and document width1265 stayed inside viewport1280. Screenshot:
+`output/playwright/floor-height-ui-20261012.jpg`. This is not a live-account
+persistence receipt. Independent reviews found and fixed the single-H shape
+regression, checked numeric operation ownership and the source-height actions.
+Final local gate: 7,219 web tests / 313 files passed with four workers,
+seven-package typecheck, production build, Biome1017files and diff check passed.
+No PDF, source coordinate, accepted model or unrelated stored measurement changed.
+
 ### Earlier offline regression verification
 
 - Full web suite: 6,821 tests / 300 files passed, including local-only original PDF re-extractions when that ignored source exists. Public CI does not require copyrighted PDFs; deterministic unit controls remain present there.
