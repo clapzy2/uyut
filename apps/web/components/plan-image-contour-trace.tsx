@@ -282,7 +282,7 @@ export function PlanImageContourTrace({
             disabled={cornersLoading || !imageMatches || Boolean(calibrationIssue)}
             onClick={loadCorners}
           >
-            {cornersLoading ? 'Ищем границы изображения…' : 'Найти подсказки по пикселям'}
+            {cornersLoading ? 'Ищем границы изображения…' : 'Найти углы по пикселям'}
           </Button>
           {corners.length ? (
             <label className="flex min-h-11 items-center gap-2 text-[13px]">
