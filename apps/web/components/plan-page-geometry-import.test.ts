@@ -48,7 +48,7 @@ const render = (value: PlanReading) =>
   )
 
 describe('explicit source page import choice', () => {
-  it('shows an explicit source-only hold instead of inviting metric import', () => {
+  it('offers only the physical room in a mixed review and explains the source-only hold', () => {
     const value = structuredClone(reading)
     const room = value.pageReview?.contours.rooms[0]
     if (!room) throw new Error('Missing source room')
@@ -61,8 +61,26 @@ describe('explicit source page import choice', () => {
     }
     const html = render(value)
     expect(html).toContain('физические границы ещё не проверены')
+    expect(html).toContain('Создать 2D-черновик из PDF')
+    expect(html).toContain('№ 4 · Спальня')
+    expect(html).not.toContain('№ 2 · Кухня')
+    expect(html).not.toContain('нужен контур по исходному листу')
+  })
+  it('does not offer metric import when every reviewed room is source-only', () => {
+    const value = structuredClone(reading)
+    value.pageReview?.contours.rooms.splice(1)
+    const room = value.pageReview?.contours.rooms[0]
+    if (!room) throw new Error('Missing source room')
+    room.sourceTopology = {
+      kind: 'unclassified-source-paint',
+      floorId: 'source-floor-2',
+      exactPointKeys: ['100/1:100/1', '200/1:100/1', '200/1:200/1'],
+      holes: [],
+      holeExactPointKeys: [],
+    }
+    const html = render(value)
+    expect(html).toContain('перенос в метрическую 2D/3D-модель пока недоступен')
     expect(html).not.toContain('Создать 2D-черновик из PDF')
-    expect(html).not.toContain('Обновить 2D-черновик из PDF')
   })
   it('offers a held source reimport only with a separate initially unchecked acknowledgement', () => {
     const value: PlanReading = {

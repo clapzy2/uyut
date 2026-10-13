@@ -208,6 +208,60 @@ function realSheet() {
 }
 
 describe('native PDF page to metric draft', () => {
+  it('imports a proved room beside an unclassified source area without promoting that area or a page-wide floor', () => {
+    const { reading, context } = synthetic()
+    const sourcePolygon = [
+      { x: 400, y: 10 },
+      { x: 500, y: 10 },
+      { x: 500, y: 110 },
+      { x: 400, y: 110 },
+    ]
+    context.contours.rooms.push({
+      roomSourceNumber: 8,
+      polygon: sourcePolygon,
+      sourceTopology: {
+        kind: 'unclassified-source-paint',
+        floorId: 'source-floor-8',
+        exactPointKeys: ['400/1:10/1', '500/1:10/1', '500/1:110/1', '400/1:110/1'],
+        holes: [],
+        holeExactPointKeys: [],
+      },
+    })
+    const envelope = [
+      { x: 0, y: 0 },
+      { x: 520, y: 0 },
+      { x: 520, y: 430 },
+      { x: 0, y: 430 },
+    ]
+    const floor = [
+      { x: 5, y: 5 },
+      { x: 515, y: 5 },
+      { x: 515, y: 425 },
+      { x: 5, y: 425 },
+    ]
+    context.contours.exterior = { boundaryRole: 'outer-wall-envelope', polygon: envelope }
+    context.contours.floor = { polygon: floor }
+    reading.rooms.push({ name: 'Балкон', kind: 'living', sourceNumber: 8 })
+    const result = planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [4] }, [4])
+    expect(result.ok, result.ok ? '' : result.error).toBe(true)
+    if (!result.ok) return
+    expect(result.geometry.rooms.map((room) => room.sourceNumber)).toEqual([4])
+    expect(result.geometry.footprint).toBeUndefined()
+    expect(result.geometry.voids).toBeUndefined()
+    expect(result.geometry.walls.every((wall) => wall.kind !== 'outer')).toBe(true)
+    expect(result.geometry.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('Непроверенных исходных областей: 1')]),
+    )
+    expect(planPageMetricDraft(reading, context, [8]).ok).toBe(false)
+    expect(planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [8] }, [4]).ok).toBe(
+      false,
+    )
+    const sourceOnly = context.contours.rooms[1]
+    if (!sourceOnly?.sourceTopology) throw new Error('Missing source topology')
+    sourceOnly.sourceTopology.exactPointKeys.pop()
+    expect(planPageMetricDraft(reading, context, [4]).ok).toBe(false)
+  })
+
   it('transfers a source subroom without renumbering it or inventing its height', () => {
     const { reading, context } = synthetic()
     const room = reading.rooms[0]

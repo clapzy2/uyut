@@ -126,14 +126,27 @@ export function planPageMetricDraft(
     roomNumbers.some((number) => !isPlanRoomSourceNumber(number) || number > 50)
   )
     return fail('Выберите от одной до двенадцати разных комнат с номерами исходного плана.')
-  const { source, linework, contours } = context
-  if (contours.rooms.some((room) => room.sourceTopology !== undefined))
+  const { source, linework, contours: reviewedContours } = context
+  if (!planPageContoursSchema.safeParse(reviewedContours).success)
+    return fail('Сверьте разметку с исходным обмерным листом: источник или вершины не совпали.')
+  const sourceOnlyRooms = reviewedContours.rooms.filter((room) => room.sourceTopology !== undefined)
+  const transferPageBoundary = sourceOnlyRooms.length === 0
+  const contours = {
+    ...reviewedContours,
+    rooms: reviewedContours.rooms.filter((room) => room.sourceTopology === undefined),
+    ...(transferPageBoundary ? {} : { exterior: undefined, floor: undefined, voids: undefined }),
+  }
+  if (
+    !contours.rooms.length ||
+    [...roomNumbers, ...(context.calibrationRoomNumbers ?? [])].some((number) =>
+      sourceOnlyRooms.some((room) => pdfContourRoomNumbers(room).includes(number)),
+    )
+  )
     return fail(
-      'Сохранены исходные области с точными пересечениями и вырезами, но их физические границы ещё не проверены. Они не переносятся в размеры, 2D или 3D как обычные комнаты.',
+      'Для переноса выберите только комнаты с проверенными физическими границами; исходные области с точными пересечениями пока остаются на листе.',
     )
   if (
     source.state !== 'existing' ||
-    !planPageContoursSchema.safeParse(contours).success ||
     planPageReviewIssue(contours, reading, source, linework) ||
     planPageFeaturesIssue(contours, { checkRoomOverlap: true })
   )
@@ -281,11 +294,15 @@ export function planPageMetricDraft(
       'Длина выбранной грани расходится с общим масштабом листа. Проверьте связь концов размера со стеной.',
     )
 
+  // A source-only room can extend the page-wide envelope or floor. Do not promote
+  // either page-wide contour merely because another room has verified dimensions.
   const points = [
     ...selected.flatMap((contour) => contour.polygon),
-    ...(globalCalibration ? (contours.exterior?.polygon ?? []) : []),
-    ...(globalCalibration ? (contours.floor?.polygon ?? []) : []),
-    ...(globalCalibration ? (contours.voids?.flatMap((item) => item.polygon) ?? []) : []),
+    ...(globalCalibration && transferPageBoundary ? (contours.exterior?.polygon ?? []) : []),
+    ...(globalCalibration && transferPageBoundary ? (contours.floor?.polygon ?? []) : []),
+    ...(globalCalibration && transferPageBoundary
+      ? (contours.voids?.flatMap((item) => item.polygon) ?? [])
+      : []),
   ]
   const origin = {
     x: Math.min(...points.map((point) => point.x)),
@@ -415,7 +432,7 @@ export function planPageMetricDraft(
     }
   }
   if (globalCalibration) {
-    const exterior = contours.exterior?.polygon.map(convert)
+    const exterior = transferPageBoundary ? contours.exterior?.polygon.map(convert) : undefined
     if (exterior) {
       if (contours.floor) {
         geometry.footprint = contours.floor.polygon.map(convert)
@@ -430,7 +447,7 @@ export function planPageMetricDraft(
           geometry.walls.push({ id: id('exterior', 'wall', index), start, end, kind: 'outer' })
       })
     }
-    if (contours.voids?.length) {
+    if (transferPageBoundary && contours.voids?.length) {
       geometry.voids = contours.voids.map((item) => ({
         id: item.id,
         polygon: item.polygon.map(convert),
@@ -439,7 +456,7 @@ export function planPageMetricDraft(
     geometry.pdfCalibration = {
       sourceSha256: source.sha256,
       pdfPage: source.pdfPage,
-      ...(contours.exterior?.boundaryRole
+      ...(transferPageBoundary && contours.exterior?.boundaryRole
         ? { exteriorBoundaryRole: contours.exterior.boundaryRole }
         : {}),
       cmPerPoint: scale,
@@ -566,8 +583,10 @@ export function planPageMetricDraft(
     )
     geometry.warnings = [
       'Координаты черновика перенесены из нативных линий PDF в едином масштабе. Подписанные мерки комнат сохранены отдельно и не заменены габаритами контуров.',
-      ...(contours.exterior ? [] : ['Дополните внешний контур квартиры.']),
-      ...(contours.exterior?.boundaryRole === 'outer-wall-envelope' && !contours.floor
+      ...(transferPageBoundary && contours.exterior ? [] : ['Дополните внешний контур квартиры.']),
+      ...(transferPageBoundary &&
+      contours.exterior?.boundaryRole === 'outer-wall-envelope' &&
+      !contours.floor
         ? [
             'Наружная огибающая проходит по внешней грани стен и не является границей пола. Уточните внутреннюю границу до точной расстановки.',
           ]
@@ -580,10 +599,15 @@ export function planPageMetricDraft(
       'Сверьте все проёмы, неподвижные объекты, открывание дверей и высоты подоконников перед подтверждением. Неразмеченные элементы автоматически не добавляются.',
     ]
   }
+  if (sourceOnlyRooms.length) {
+    geometry.warnings.push(
+      `Непроверенных исходных областей: ${sourceOnlyRooms.length}. Они, общий контур пола, наружная граница и технические пустоты не перенесены в 2D/3D; проверьте их отдельно на исходном листе.`,
+    )
+  }
   geometry.warnings.push(...areaWarnings)
   if (contours.voids?.length) {
     geometry.warnings.push(
-      globalCalibration
+      globalCalibration && transferPageBoundary
         ? 'Технические пустоты перенесены как исходные многоугольники. Сверьте их на обмерном плане перед подтверждением.'
         : 'Технические пустоты сохранены в разметке исходного листа, но для метрического переноса требуется общий масштаб.',
     )
