@@ -91,6 +91,34 @@ function fixture(
   }
   return input
 }
+function segmentedGridFixture(): Input {
+  const input = fixture({ grid: false, legacy: true })
+  const replacements = new Map([
+    ['1', '01'],
+    ['2', '02'],
+    ['3', '03'],
+    ['Прихожая', 'Помещение'],
+    ['Кухня', 'Балкон 01'],
+    ['Спальня', 'Балкон 02'],
+    ['4,21', '40,13'],
+    ['12,35', '4,75'],
+    ['15,39', '3,34'],
+    ['74,77', '48,22 м²'],
+  ])
+  input.native.labels = input.native.labels.filter((label) => label.name !== 'Общая площадь')
+  for (const label of input.native.labels) label.name = replacements.get(label.name) ?? label.name
+  const columns = [100, 140, 300, 350]
+  const rows = [100, 120, 130, 140, 150, 160]
+  for (let row = 0; row < rows.length - 1; row++) {
+    for (const x of columns)
+      addLine(input, { x, y: rows[row] as number }, { x, y: rows[row + 1] as number })
+  }
+  for (const y of rows) {
+    for (let column = 0; column < columns.length - 1; column++)
+      addLine(input, { x: columns[column] as number, y }, { x: columns[column + 1] as number, y })
+  }
+  return input
+}
 function labelOf(input: Input, name: string, occurrence = 0) {
   const label = input.native.labels.filter((label) => label.name === name)[occurrence]
   if (!label) throw new Error(`Missing fixture label: ${name}`)
@@ -187,6 +215,37 @@ describe('native room schedule documentary evidence', () => {
     if (!edge) throw new Error('Missing source proof')
     edge.start.x = 999
     expect(input).toEqual(before)
+  })
+  it('joins exactly touching cell strokes and reads zero-padded balcony rows', () => {
+    const input = segmentedGridFixture()
+    const before = structuredClone(input)
+    const result = nativeRoomScheduleEvidence(input)
+    expect(result.status).toBe('draft')
+    expect(result.layoutBasis).toBe('exact-native-grid')
+    expect(result.rows.map((row) => [row.sourceNumber, row.name, row.documentaryAreaM2])).toEqual([
+      [1, 'Помещение', 40.13],
+      [2, 'Балкон 01', 4.75],
+      [3, 'Балкон 02', 3.34],
+    ])
+    expect(result.tableEdges).toHaveLength(input.work.paths.length)
+    expect(result.roomOwnershipConfirmed).toBe(false)
+    expect(result.closesFloorBoundary).toBe(false)
+    expect(input).toEqual(before)
+  })
+  it('holds a missing cell boundary rather than falling back to text baselines', () => {
+    const input = segmentedGridFixture()
+    input.work.paths.splice(3, 1)
+    expectHeld(input)
+  })
+  it('requires a physical grid for the generic Помещение caption', () => {
+    const input = segmentedGridFixture()
+    input.work.paths = []
+    expectHeld(input)
+  })
+  it('holds an unnamed total that does not equal the printed row areas', () => {
+    const input = segmentedGridFixture()
+    labelOf(input, '48,22 м²').name = '48,23 м²'
+    expectHeld(input)
   })
   it('preserves original strict baseline support without requiring a painted grid', () => {
     const input = fixture({ legacy: true, grid: false })
@@ -299,7 +358,7 @@ describe('native room schedule documentary evidence', () => {
     labelOf(input, '12,35').name = area
     expect(nativeRoomScheduleEvidence(input).rows[1]?.documentaryAreaM2).toBe(12.35)
   })
-  it.each(['1', '4', '0', '02'])('holds skipped or duplicate middle number %s', (number) => {
+  it.each(['1', '4', '0', '04'])('holds skipped or duplicate middle number %s', (number) => {
     const input = fixture()
     labelOf(input, '2').name = number
     expectHeld(input)
