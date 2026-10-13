@@ -1,6 +1,7 @@
 import sharp from 'sharp'
 import { preparePlanPage } from './plan-document'
 import { detectPlanRasterEdges } from './plan-raster-edges'
+import { detectPlanRasterRegions } from './plan-raster-regions'
 
 /** Unclassified pixel evidence only. No metric dimensions, room assignment or gap filling. */
 export async function rasterPlanCandidates(body: Buffer, isPdf: boolean, pageNumber: number) {
@@ -28,6 +29,11 @@ export async function rasterPlanCandidates(body: Buffer, isPdf: boolean, pageNum
     width: gray.info.width,
     height: gray.info.height,
   })
+  const regions = detectPlanRasterRegions({
+    grayscale: gray.data,
+    width: gray.info.width,
+    height: gray.info.height,
+  })
   const point = ({ x, y }: { x: number; y: number }) => ({
     x: (x * width) / gray.info.width,
     y: (y * height) / gray.info.height,
@@ -41,5 +47,12 @@ export async function rasterPlanCandidates(body: Buffer, isPdf: boolean, pageNum
       start: point(segment.start),
       end: point(segment.end),
     })),
+    regions: regions.regions.map((region) => ({
+      id: region.id,
+      polygon: region.polygon.map(point),
+      hasInteriorIslands: region.hasInteriorIslands,
+    })),
+    regionTruncated: regions.truncated,
+    regionUncertain: regions.uncertain,
   }
 }

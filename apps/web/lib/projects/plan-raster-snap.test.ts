@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { rasterCornerResponse, snapRasterCorner } from './plan-raster-snap'
+import {
+  rasterCornerResponse,
+  rasterRegionAt,
+  rasterRegionResponse,
+  snapRasterCorner,
+} from './plan-raster-snap'
 
 describe('optional source pixel corner assistance', () => {
   it('returns a nearby candidate without modifying pointer or candidate arrays', () => {
@@ -36,5 +41,54 @@ describe('optional source pixel corner assistance', () => {
     { ...response, points: [{ x: '110', y: 110 }] },
   ])('rejects stale, incomplete or malformed source candidates', (data) => {
     expect(rasterCornerResponse(data, 820, 970, 1, 'a'.repeat(64))).toBeUndefined()
+  })
+
+  const region = {
+    id: 'region-583',
+    polygon: [
+      { x: 500, y: 700 },
+      { x: 800, y: 700 },
+      { x: 800, y: 830 },
+      { x: 500, y: 830 },
+    ],
+    hasInteriorIslands: true,
+  }
+  const regionResponse = {
+    ...response,
+    regions: [region],
+    regionTruncated: false,
+    regionUncertain: true,
+  }
+  it('selects only an unclassified source-bound region under the user point', () => {
+    const guides = rasterRegionResponse(regionResponse, 820, 970, 1, 'a'.repeat(64))
+    expect(guides).toEqual({ regions: [region], uncertain: true })
+    expect(rasterRegionAt({ x: 650, y: 780 }, guides?.regions ?? [])).toEqual(region)
+    expect(rasterRegionAt({ x: 400, y: 780 }, guides?.regions ?? [])).toBeUndefined()
+    expect(
+      rasterRegionAt({ x: 650, y: 780 }, [region, { ...region, id: 'region-584' }]),
+    ).toBeUndefined()
+  })
+  it.each([
+    { ...regionResponse, regionTruncated: true },
+    { ...regionResponse, source: { ...response.source, page: 2 } },
+    { ...regionResponse, source: { ...response.source, width: 821 } },
+    { ...regionResponse, source: { ...response.source, sha256: 'b'.repeat(64) } },
+    { ...regionResponse, regions: [{ ...region, polygon: region.polygon.slice(0, 2) }] },
+    {
+      ...regionResponse,
+      regions: [{ ...region, polygon: [{ x: 900, y: 700 }, ...region.polygon] }],
+    },
+    { ...regionResponse, regions: [region, region] },
+    {
+      ...regionResponse,
+      regions: [
+        {
+          ...region,
+          polygon: [region.polygon[0], region.polygon[2], region.polygon[1], region.polygon[3]],
+        },
+      ],
+    },
+  ])('rejects stale, truncated or malformed bright-region guides', (data) => {
+    expect(rasterRegionResponse(data, 820, 970, 1, 'a'.repeat(64))).toBeUndefined()
   })
 })

@@ -54,6 +54,19 @@ const candidates = {
   segments: [{ start: { x: 726, y: 823 }, end: { x: 673, y: 876 } }],
   truncated: false,
   uncertain: false,
+  regions: [
+    {
+      id: 'region-1',
+      polygon: [
+        { x: 600, y: 800 },
+        { x: 750, y: 800 },
+        { x: 700, y: 900 },
+      ],
+      hasInteriorIslands: true,
+    },
+  ],
+  regionTruncated: false,
+  regionUncertain: true,
 }
 function request(version: string | null = revision, page?: string) {
   const url = new URL('https://domitsa.ru/api/projects/project/plan-raster-edges')
@@ -88,6 +101,9 @@ describe('private unclassified raster guides', () => {
       segments: candidates.segments,
       truncated: false,
       uncertain: false,
+      regions: candidates.regions,
+      regionTruncated: false,
+      regionUncertain: true,
     })
     expect(mocks.access).toHaveBeenCalledTimes(2)
     expect(mocks.access).toHaveBeenCalledWith('partner', 'project')
