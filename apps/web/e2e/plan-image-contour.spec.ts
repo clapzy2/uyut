@@ -178,6 +178,8 @@ test.describe('обводка растрового контура по двум 
       points: { x: number; y: number }[]
       truncated: boolean
       uncertain: boolean
+      regions: { id: string; polygon: { x: number; y: number }[] }[]
+      regionTruncated: boolean
     }
     expect(guides.source).toEqual({
       sha256: createHash('sha256').update(sourcePng).digest('hex'),
@@ -255,6 +257,27 @@ test.describe('обводка растрового контура по двум 
     expect(await savedGeometry()).toEqual(geometry)
     await expect(dialog.locator('#floor-point-0-xCm')).toHaveValue('40')
     await expect(dialog.locator('[id^="floor-point-"]')).toHaveCount(26)
+
+    expect(guides.regionTruncated).toBe(false)
+    expect(guides.regions.length).toBeGreaterThan(0)
+    await floorTrace
+      .getByRole('button', { name: 'Показать внешний контур области', exact: true })
+      .click()
+    const regionImage = floorTrace.getByRole('img', {
+      name: 'Исходник для обводки: Общая граница пола',
+      exact: true,
+    })
+    await regionImage.scrollIntoViewIfNeeded()
+    const regionBox = await regionImage.boundingBox()
+    assert(regionBox)
+    await page.mouse.click(
+      regionBox.x + (600 * regionBox.width) / 820,
+      regionBox.y + (790 * regionBox.height) / 970,
+    )
+    await expect(floorTrace.locator('svg polygon[stroke-dasharray="7 5"]')).toBeVisible()
+    expect(await savedGeometry()).toEqual(geometry)
+    await floorTrace.getByRole('button', { name: 'Скрыть подсказку', exact: true }).click()
+    await expect(floorTrace.locator('svg polygon[stroke-dasharray="7 5"]')).toHaveCount(0)
 
     const guideRoute = '**/plan-raster-edges?*'
     await page.route(guideRoute, (route) => route.fulfill({ status: 422, body: 'Unavailable' }))
