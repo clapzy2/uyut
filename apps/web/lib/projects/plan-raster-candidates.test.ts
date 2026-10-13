@@ -31,6 +31,22 @@ describe('source pixel candidate preparation', () => {
     const result = await rasterPlanCandidates(image, false, 1)
     expect(result.points).toEqual([])
     expect(result.segments).toEqual([])
+    expect(result.regions).toEqual([])
+  })
+  it('keeps a closed diagonal bright area as an unclassified pixel guide', async () => {
+    const image = await sharp(
+      Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="160"><rect width="200" height="160" fill="white"/><path d="M20 20 H120 V70 L160 130 H20 Z" fill="white" stroke="black" stroke-width="5"/></svg>',
+      ),
+    )
+      .png()
+      .toBuffer()
+    const result = await rasterPlanCandidates(image, false, 1)
+    expect(result.regionTruncated).toBe(false)
+    expect(result.regions.some((region) => region.polygon.some((point) => point.x > 120))).toBe(
+      true,
+    )
+    expect(result.regions.every((region) => region.polygon.length >= 3)).toBe(true)
   })
   it('rejects a broken input before producing pixel evidence', async () => {
     await expect(rasterPlanCandidates(Buffer.from('not an image'), false, 1)).rejects.toThrow()

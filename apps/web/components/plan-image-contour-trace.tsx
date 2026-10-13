@@ -13,7 +13,13 @@ import {
   imageContourFromMetric,
   traceImageContour,
 } from '@/lib/projects/plan-image-contour'
-import { rasterCornerResponse, snapRasterCorner } from '@/lib/projects/plan-raster-snap'
+import {
+  type RasterRegionGuide,
+  rasterCornerResponse,
+  rasterRegionAt,
+  rasterRegionResponse,
+  snapRasterCorner,
+} from '@/lib/projects/plan-raster-snap'
 
 export function PlanImageContourTrace({
   planUrl,
@@ -41,6 +47,10 @@ export function PlanImageContourTrace({
   const [imageMatches, setImageMatches] = useState(false)
   const [error, setError] = useState<string>()
   const [corners, setCorners] = useState<ImageContourPoint[]>([])
+  const [regions, setRegions] = useState<RasterRegionGuide[]>([])
+  const [regionsUncertain, setRegionsUncertain] = useState(false)
+  const [selectedRegion, setSelectedRegion] = useState<RasterRegionGuide>()
+  const [selectingRegion, setSelectingRegion] = useState(false)
   const [cornersLoading, setCornersLoading] = useState(false)
   const [useCorners, setUseCorners] = useState(false)
   const [cornerNotice, setCornerNotice] = useState<string>()
@@ -48,11 +58,21 @@ export function PlanImageContourTrace({
   // biome-ignore lint/correctness/useExhaustiveDependencies: source identity changes must clear cached candidates and abort the old request
   useEffect(() => {
     setCorners([])
+    setRegions([])
+    setRegionsUncertain(false)
+    setSelectedRegion(undefined)
+    setSelectingRegion(false)
     setUseCorners(false)
     setCornerNotice(undefined)
     setCornersLoading(false)
     return () => request.current?.abort()
-  }, [cornerSourceUrl])
+  }, [
+    cornerSourceUrl,
+    calibration.sourceSha256,
+    calibration.pdfPage,
+    calibration.imageWidthPx,
+    calibration.imageHeightPx,
+  ])
 
   async function loadCorners() {
     if (!cornerSourceUrl || cornersLoading) return
@@ -62,6 +82,10 @@ export function PlanImageContourTrace({
     setCornersLoading(true)
     setUseCorners(false)
     setCorners([])
+    setRegions([])
+    setRegionsUncertain(false)
+    setSelectedRegion(undefined)
+    setSelectingRegion(false)
     setCornerNotice(undefined)
     try {
       const response = await fetch(cornerSourceUrl, {
@@ -69,23 +93,31 @@ export function PlanImageContourTrace({
         cache: 'no-store',
       })
       if (!response.ok) throw new Error('Corners unavailable')
+      const payload: unknown = await response.json()
       const candidates = rasterCornerResponse(
-        await response.json(),
+        payload,
+        calibration.imageWidthPx,
+        calibration.imageHeightPx,
+        calibration.pdfPage ?? 1,
+        calibration.sourceSha256,
+      )
+      const regionGuides = rasterRegionResponse(
+        payload,
         calibration.imageWidthPx,
         calibration.imageHeightPx,
         calibration.pdfPage ?? 1,
         calibration.sourceSha256,
       )
       if (controller.signal.aborted) return
-      if (!candidates?.length) {
-        setCornerNotice(
-          'Надёжных подсказок нет или источник изменился. Продолжайте обводку вручную.',
-        )
+      if (!candidates && !regionGuides) {
+        setCornerNotice('Подсказки неполные или источник изменился. Продолжайте обводку вручную.')
         return
       }
-      setCorners(candidates)
+      setCorners(candidates ?? [])
+      setRegions(regionGuides?.regions ?? [])
+      setRegionsUncertain(regionGuides?.uncertain ?? false)
       setCornerNotice(
-        `Найдено кандидатов: ${candidates.length}. Это границы чернил, не подтверждённые углы стен.`,
+        `Найдено углов чернил: ${candidates?.length ?? 0}; светлых областей: ${regionGuides?.regions.length ?? 0}. Это не подтверждённые границы пола.`,
       )
     } catch {
       if (!controller.signal.aborted)
@@ -106,6 +138,7 @@ export function PlanImageContourTrace({
   function start() {
     setVertices([])
     setTracing(true)
+    setSelectingRegion(false)
     setError(undefined)
   }
 
@@ -133,9 +166,16 @@ export function PlanImageContourTrace({
       <div className="relative inline-block max-w-full">
         <button
           type="button"
-          aria-label={`Добавить угол контура: ${label}`}
+          aria-label={
+            selectingRegion
+              ? `Выбрать внешний контур области: ${label}`
+              : `Добавить угол контура: ${label}`
+          }
           disabled={
-            !tracing || !imageMatches || Boolean(calibrationIssue) || vertices.length >= maxPoints
+            (!tracing && !selectingRegion) ||
+            !imageMatches ||
+            Boolean(calibrationIssue) ||
+            (tracing && vertices.length >= maxPoints)
           }
           className="block max-w-full disabled:cursor-default"
           onClick={(event) => {
@@ -147,6 +187,17 @@ export function PlanImageContourTrace({
             const pointer = {
               x: ((event.clientX - rect.left) * image.naturalWidth) / rect.width,
               y: ((event.clientY - rect.top) * image.naturalHeight) / rect.height,
+            }
+            if (selectingRegion) {
+              const region = rasterRegionAt(pointer, regions)
+              setSelectedRegion(region)
+              setSelectingRegion(false)
+              setCornerNotice(
+                region
+                  ? 'Внешний контур области показан пунктиром. Сверьте его и обведите край пола вручную.'
+                  : 'Вокруг этой точки нет однозначного контура. Нажмите приблизительно внутри нужной области.',
+              )
+              return
             }
             const snapped = useCorners ? snapRasterCorner(pointer, corners) : undefined
             const point = snapped ?? pointer
@@ -179,6 +230,16 @@ export function PlanImageContourTrace({
           viewBox={`0 0 ${calibration.imageWidthPx} ${calibration.imageHeightPx}`}
           className="pointer-events-none absolute inset-0 h-full w-full"
         >
+          {selectedRegion ? (
+            <polygon
+              points={selectedRegion.polygon.map((p) => `${p.x},${p.y}`).join(' ')}
+              fill="#00788a"
+              fillOpacity="0.12"
+              stroke="#00788a"
+              strokeDasharray="7 5"
+              strokeWidth="2"
+            />
+          ) : null}
           {useCorners
             ? corners.map((point, index) => (
                 <circle
@@ -233,6 +294,41 @@ export function PlanImageContourTrace({
               />
               Помогать привязкой новых углов к изображению
             </label>
+          ) : null}
+          {regions.length ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={tracing || !imageMatches || Boolean(calibrationIssue)}
+                onClick={() => setSelectingRegion(true)}
+              >
+                {selectingRegion
+                  ? 'Нажмите внутри интересующей области'
+                  : 'Показать внешний контур области'}
+              </Button>
+              {selectedRegion ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setSelectedRegion(undefined)}
+                >
+                  Скрыть подсказку
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {selectedRegion ? (
+            <p role="status" className="text-[12px] text-ink-2">
+              Это светлая область изображения, а не готовый пол. Её граница может включать дугу
+              двери, мебель и подписи. Нажатие внутри внешнего контура не проверяет, попали ли вы на
+              тёмный штрих.
+              {selectedRegion.hasInteriorIslands || regionsUncertain
+                ? ' На исходнике есть внутренние штрихи или неоднозначные области.'
+                : ''}
+            </p>
           ) : null}
           <p className="text-[12px] text-ink-2">
             Подсказки могут относиться к надписям, мебели и размерным линиям. Привязка не меняет уже
