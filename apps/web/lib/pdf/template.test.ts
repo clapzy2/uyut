@@ -531,6 +531,22 @@ describe('project PDF template', () => {
     expect(html).not.toContain('<svg viewBox="0 0 400')
   })
 
+  it('labels a measured room without furniture or a floor contour as measurements, not a 2D drawing', () => {
+    const data = sample('free')
+    const room = data.rooms[0]
+    if (!room) throw new Error('Missing fixture room')
+    room.plan = layoutRoom({ widthCm: 300, depthCm: 400 }, [])
+    const html = renderProjectHtml(data, { fontCss: '' })
+    const planPage = html.split('<section class="page plan-page">')[1]?.split('</section>')[0]
+    expect(planPage).toContain('Мерки · схема не готова')
+    expect(planPage).toContain('Гостиная · сохранённые мерки')
+    expect(planPage).toContain('Сохранённые габариты комнаты: 300 × 400 см')
+    expect(planPage).toContain('Форма пола и расположение проёмов здесь не подтверждены')
+    expect(planPage).not.toContain('2D-схема · выбранные товары')
+    expect(planPage).not.toContain('Вид сверху')
+    expect(planPage).not.toContain('<svg ')
+  })
+
   it('печатает пометку рекламы одним блоком и не теряет erid', () => {
     const html = renderProjectHtml(sample('paid'), { fontCss: '' })
     expect(html).toContain('подобрана по партнёрским программам')
@@ -574,7 +590,8 @@ describe('project PDF template', () => {
       ])
     }
     const html = renderProjectHtml(data, { fontCss: '' })
-    expect(html).toContain('Вид сверху · 300 × 260 см')
+    expect(html).toContain('Сохранённые габариты комнаты: 300 × 260 см')
+    expect(html).not.toContain('Вид сверху · 300 × 260 см')
     expect(html).toContain('не встаёт ни к одной стене')
     // Рисовать нечего, рамку пустой комнаты не печатаем
     expect(html).not.toContain('<svg viewBox="0 0 400')

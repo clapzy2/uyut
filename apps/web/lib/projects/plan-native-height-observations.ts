@@ -1,4 +1,5 @@
 import type { NativeTextAnchors } from './plan-document'
+import { nativeCaptionKnownPaintBlockers } from './plan-native-caption-paint'
 import { nativeFillCandidates } from './plan-native-fill-candidates'
 import {
   type NativeHeightCaption,
@@ -113,6 +114,13 @@ function documentaryUnitEvidence(
       },
       work,
     )
+  )
+    return
+  const operations = item.sourceResetCaption
+    ? item.sourceResetCaption.shows.map((show) => show.operationIndex)
+    : [item.operationIndex]
+  if (
+    nativeCaptionKnownPaintBlockers(work.paintBounds, operations, resetBounds ?? item.quad)?.length
   )
     return
   return {

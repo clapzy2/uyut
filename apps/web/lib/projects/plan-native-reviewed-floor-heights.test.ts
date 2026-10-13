@@ -43,6 +43,80 @@ describe('reviewed source room-height bindings', () => {
     })
     expect(input).toEqual(before)
   })
+  it.each([
+    { covered: 'height', bounds: { left: 149, top: 179, right: 201, bottom: 191 } },
+    { covered: 'unit', bounds: { left: 149, top: 199, right: 201, bottom: 211 } },
+    { covered: 'floor reference', bounds: { left: 149, top: 219, right: 201, bottom: 231 } },
+  ])('withholds a source H association covered by later paint over the $covered', ({ bounds }) => {
+    const input = floorHeightFixture()
+    const before = nativeReviewedFloorHeightBindings(input)
+    const option = before.options[0]
+    if (!option) throw new Error('Missing original height option')
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 10,
+          kind: 'vector',
+          bounds: { left: 100, top: 100, right: 300, bottom: 300 },
+          reason: null,
+        },
+        ...[102, 103, 104].map((operationIndex) => ({
+          operationIndex,
+          kind: 'text' as const,
+          bounds: null,
+          reason: 'text-paint-envelope-unavailable',
+        })),
+        { operationIndex: 200, kind: 'image', bounds, reason: null },
+      ],
+    }
+    expect(nativeReviewedFloorHeightBindings(input).options).toEqual([])
+    const reviewed = {
+      ...before.review,
+      bindings: [{ floorId: option.floorId, labelId: option.labelId }],
+    }
+    expect(nativeReviewedFloorHeightBindings({ ...input, reviewed })).toMatchObject({
+      status: 'held',
+      bindings: [],
+      readyFor2D: false,
+      readyFor3D: false,
+    })
+  })
+  it('keeps a source H association when later bounded paint is spatially disjoint', () => {
+    const input = floorHeightFixture()
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 102,
+          kind: 'text',
+          bounds: null,
+          reason: 'text-paint-envelope-unavailable',
+        },
+        {
+          operationIndex: 103,
+          kind: 'text',
+          bounds: null,
+          reason: 'text-paint-envelope-unavailable',
+        },
+        {
+          operationIndex: 104,
+          kind: 'text',
+          bounds: null,
+          reason: 'text-paint-envelope-unavailable',
+        },
+        {
+          operationIndex: 200,
+          kind: 'image',
+          bounds: { left: 500, top: 500, right: 600, bottom: 600 },
+          reason: null,
+        },
+      ],
+    }
+    expect(nativeReviewedFloorHeightBindings(input).options).toHaveLength(1)
+  })
   it.each(['source', 'rasterSource', 'revision', 'duplicate', 'unknown', 'claimed-height'])(
     'rejects %s input without saved claims',
     (mutation) => {

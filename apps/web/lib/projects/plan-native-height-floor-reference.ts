@@ -1,3 +1,4 @@
+import { nativeCaptionKnownPaintBlockers } from './plan-native-caption-paint'
 import {
   nativeFinishedFloorHeightReference,
   nativeFinishedFloorHeightReferenceTopic,
@@ -151,6 +152,15 @@ export function nativeHeightFloorReferenceEvidence(input: Input): NativeHeightFl
       )
     )
       return finish('invalid-floor-reference-provenance')
+    const blockers = nativeCaptionKnownPaintBlockers(
+      input.work.paintBounds,
+      refs,
+      resetBounds ?? item.quad,
+    )
+    if (blockers?.length) {
+      row.reason = 'later-paint-may-cover-floor-reference'
+      continue
+    }
     row.status = 'verified'
     row.datum = 'local-finished-floor'
     row.reason = null

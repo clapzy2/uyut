@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { nativeCaptionKnownPaintBlockers } from './plan-native-caption-paint'
 import { exactNativePointKey } from './plan-native-exact-intersections'
 import { nativeFaceRationalPredicates } from './plan-native-face-rational'
 import { nativeHeightFloorReferenceEvidence } from './plan-native-height-floor-reference'
@@ -246,6 +247,9 @@ export function nativeReviewedFloorHeightBindings(input: Input) {
       height.unitEvidence.inkSourceOperation === null ||
       !/^[hн]\s*=\s*\d{1,4}$/iu.test(height.originalText)
     )
+      continue
+    const captionOperations = item.sourceGroup?.operationIndexes ?? [item.operationIndex]
+    if (nativeCaptionKnownPaintBlockers(input.work.paintBounds, captionOperations, bounds)?.length)
       continue
     const owners: typeof floors.floors = []
     for (const floor of floors.floors) {

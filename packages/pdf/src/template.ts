@@ -400,7 +400,7 @@ function roomPlan(plan: RoomLayout | null): string {
       : ''
   return `
       <div class="plan">
-        <p class="eyebrow">Вид сверху · ${formatDimensionCm(plan.widthCm)} × ${formatDimensionCm(plan.depthCm)} см</p>
+        ${drawing ? `<p class="eyebrow">Вид сверху · ${formatDimensionCm(plan.widthCm)} × ${formatDimensionCm(plan.depthCm)} см</p>` : ''}
         ${plan.floorLevel ? `<p class="verdict">Пол: отметка ${formatDimensionCm(plan.floorLevel.elevationCm)} см от общего нуля; ${plan.floorLevel.surface === 'finished-floor' ? 'чистовой пол' : 'существующий пол'}. Пустоты не заполнены.</p>` : ''}
         ${plan.measurementNote ? `<p class="verdict status">${esc(plan.measurementNote)}</p>` : ''}
         ${safetyNote}
@@ -648,13 +648,31 @@ function roomPage(room: PdfRoom, index: number, free: boolean): string {
 function roomPlanPage(room: PdfRoom, free: boolean): string {
   const plan = roomPlan(room.plan)
   if (!plan) return ''
+  const hasDrawing = plan.includes('<svg ')
+  let measuredSize = ''
+  if (
+    !hasDrawing &&
+    room.plan &&
+    Number.isFinite(room.plan.widthCm) &&
+    Number.isFinite(room.plan.depthCm) &&
+    room.plan.widthCm > 0 &&
+    room.plan.depthCm > 0
+  ) {
+    measuredSize = `<p class="verdict">Сохранённые габариты комнаты: ${esc(formatDimensionCm(room.plan.widthCm))} × ${esc(formatDimensionCm(room.plan.depthCm))} см. Форма пола и расположение проёмов здесь не подтверждены.</p>`
+  }
+  const heading = hasDrawing
+    ? 'расстановка'
+    : measuredSize
+      ? 'сохранённые мерки'
+      : 'схема не подготовлена'
   // Схема и её статусы печатаются в обычном потоке, а не внутри обрезаемого разворота рендера.
   return `
   <section class="page plan-page">
     ${ribbon(free)}
-    <p class="eyebrow">2D-схема · выбранные товары</p>
-    <h1 style="margin-top:3mm">${esc(room.name)} · расстановка</h1>
+    <p class="eyebrow">${hasDrawing ? '2D-схема · выбранные товары' : 'Мерки · схема не готова'}</p>
+    <h1 style="margin-top:3mm">${esc(room.name)} · ${heading}</h1>
     ${plan}
+    ${measuredSize}
     ${(room.measurementNotes ?? []).map((note) => `<p class="verdict">${esc(note)}</p>`).join('')}
   </section>`
 }
