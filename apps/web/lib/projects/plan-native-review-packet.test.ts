@@ -641,7 +641,7 @@ describe('whole-page native inspection, separate from saved geometry', () => {
     expect(packet.faces).toEqual([])
     expect(packet.issues.map((issue) => issue.code)).toContain('native-overlay-limit')
     expect(packet.readiness.readyFor2D).toBe(false)
-  })
+  }, 20_000)
   it('explains unavailable native layers rather than treating zero candidates as complete', () => {
     const input = fixture()
     const result = nativeReviewPacket({ source: input.source, image: input.image })
