@@ -3,6 +3,7 @@ import {
   rasterCornerResponse,
   rasterRegionAt,
   rasterRegionResponse,
+  rasterRegionStraightEdges,
   snapRasterCorner,
 } from './plan-raster-snap'
 
@@ -67,6 +68,47 @@ describe('optional source pixel corner assistance', () => {
     expect(
       rasterRegionAt({ x: 650, y: 780 }, [region, { ...region, id: 'region-584' }]),
     ).toBeUndefined()
+  })
+  it('highlights long straight pixel stretches without joining short arc segments', () => {
+    const guide = {
+      id: 'region-1',
+      polygon: [
+        { x: 0, y: 0 },
+        { x: 8, y: 4 },
+        { x: 14, y: 11 },
+        { x: 16, y: 20 },
+        { x: 100, y: 20 },
+        { x: 100, y: 100 },
+        { x: 0, y: 100 },
+      ],
+      hasInteriorIslands: false,
+    }
+    expect(rasterRegionStraightEdges(guide, 200, 160)).toEqual([
+      { start: { x: 16, y: 20 }, end: { x: 100, y: 20 } },
+      { start: { x: 100, y: 20 }, end: { x: 100, y: 100 } },
+      { start: { x: 100, y: 100 }, end: { x: 0, y: 100 } },
+      { start: { x: 0, y: 100 }, end: { x: 0, y: 0 } },
+    ])
+    expect(rasterRegionStraightEdges(guide, 0, 160)).toEqual([])
+  })
+  it('omits isolated long edges between short pixel stretches', () => {
+    const guide = {
+      id: 'region-2',
+      polygon: [
+        { x: 0, y: 0 },
+        { x: 60, y: 0 },
+        { x: 62, y: 5 },
+        { x: 64, y: 10 },
+        { x: 70, y: 12 },
+        { x: 70, y: 100 },
+        { x: 0, y: 100 },
+        { x: 0, y: 5 },
+      ],
+      hasInteriorIslands: false,
+    }
+    const edges = rasterRegionStraightEdges(guide, 200, 160)
+    expect(edges).not.toContainEqual({ start: { x: 0, y: 0 }, end: { x: 60, y: 0 } })
+    expect(edges).toHaveLength(3)
   })
   it.each([
     { ...regionResponse, regionTruncated: true },

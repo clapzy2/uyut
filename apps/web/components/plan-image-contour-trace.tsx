@@ -18,6 +18,7 @@ import {
   rasterCornerResponse,
   rasterRegionAt,
   rasterRegionResponse,
+  rasterRegionStraightEdges,
   snapRasterCorner,
 } from '@/lib/projects/plan-raster-snap'
 
@@ -231,14 +232,32 @@ export function PlanImageContourTrace({
           className="pointer-events-none absolute inset-0 h-full w-full"
         >
           {selectedRegion ? (
-            <polygon
-              points={selectedRegion.polygon.map((p) => `${p.x},${p.y}`).join(' ')}
-              fill="#00788a"
-              fillOpacity="0.12"
-              stroke="#00788a"
-              strokeDasharray="7 5"
-              strokeWidth="2"
-            />
+            <>
+              <polygon
+                points={selectedRegion.polygon.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="#00788a"
+                fillOpacity="0.12"
+                stroke="#00788a"
+                strokeDasharray="7 5"
+                strokeWidth="2"
+              />
+              {rasterRegionStraightEdges(
+                selectedRegion,
+                calibration.imageWidthPx,
+                calibration.imageHeightPx,
+              ).map(({ start, end }) => (
+                <line
+                  key={`${start.x}-${start.y}-${end.x}-${end.y}`}
+                  x1={start.x}
+                  y1={start.y}
+                  x2={end.x}
+                  y2={end.y}
+                  stroke="#186c55"
+                  strokeDasharray="3 3"
+                  strokeWidth="3"
+                />
+              ))}
+            </>
           ) : null}
           {useCorners
             ? corners.map((point, index) => (
@@ -324,7 +343,9 @@ export function PlanImageContourTrace({
             <p role="status" className="text-[12px] text-ink-2">
               Это светлая область изображения, а не готовый пол. Её граница может включать дугу
               двери, мебель и подписи. Нажатие внутри внешнего контура не проверяет, попали ли вы на
-              тёмный штрих.
+              тёмный штрих. Зелёным пунктиром отмечены только соседние длинные участки пиксельной
+              границы: это не подтверждение стен или размеров; одиночные стороны могут быть
+              пропущены.
               {selectedRegion.hasInteriorIslands || regionsUncertain
                 ? ' На исходнике есть внутренние штрихи или неоднозначные области.'
                 : ''}
