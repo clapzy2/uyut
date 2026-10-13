@@ -244,15 +244,17 @@ export function PlanImageContourTrace({
                 strokeDasharray="7 5"
                 strokeWidth="2"
               />
-              {candidateEdges.map(({ start, end }) => (
+              {candidateEdges.map(({ start, end, connectedAtBothEnds }, index) => (
                 <line
                   key={`${start.x}-${start.y}-${end.x}-${end.y}`}
+                  data-edge-index={index}
+                  data-seedable={connectedAtBothEnds}
                   x1={start.x}
                   y1={start.y}
                   x2={end.x}
                   y2={end.y}
-                  stroke="#186c55"
-                  strokeDasharray="3 3"
+                  stroke={connectedAtBothEnds ? '#186c55' : '#b87522'}
+                  strokeDasharray={connectedAtBothEnds ? '3 3' : '2 5'}
                   strokeWidth="3"
                 />
               ))}
@@ -343,9 +345,9 @@ export function PlanImageContourTrace({
               <p role="status" className="text-[12px] text-ink-2">
                 Это светлая область изображения, а не готовый пол. Её граница может включать дугу
                 двери, мебель и подписи. Нажатие внутри внешнего контура не проверяет, попали ли вы
-                на тёмный штрих. Зелёным пунктиром отмечены только соседние длинные участки
-                пиксельной границы: это не подтверждение стен или размеров; одиночные стороны могут
-                быть пропущены.
+                на тёмный штрих. Зелёный пунктир — стороны, с которых можно начать обводку; янтарный
+                с редкими штрихами — стороны с сомнительными концами. Это не подтверждение стен или
+                размеров; одиночные стороны могут быть пропущены.
                 {selectedRegion.hasInteriorIslands || regionsUncertain
                   ? ' На исходнике есть внутренние штрихи или неоднозначные области.'
                   : ''}

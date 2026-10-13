@@ -288,7 +288,7 @@ test.describe('обводка растрового контура по двум 
     const seedLabel = await seedButton.innerText()
     const sideIndex = Number(seedLabel.match(/стороны (\d+):/)?.[1]) - 1
     assert(Number.isInteger(sideIndex) && sideIndex >= 0)
-    const firstCandidateEdge = floorTrace.locator('svg line[stroke="#186c55"]').nth(sideIndex)
+    const firstCandidateEdge = floorTrace.locator(`svg line[data-edge-index="${sideIndex}"]`)
     const [startX, startY, endX, endY] = await Promise.all(
       (['x1', 'y1', 'x2', 'y2'] as const).map((attribute) =>
         firstCandidateEdge.getAttribute(attribute),
@@ -318,9 +318,54 @@ test.describe('обводка растрового контура по двум 
     await floorTrace.getByRole('button', { name: 'Отменить обводку', exact: true }).click()
     await floorTrace.getByRole('button', { name: 'Скрыть подсказку', exact: true }).click()
     await expect(floorTrace.locator('svg polygon[stroke-dasharray="7 5"]')).toHaveCount(0)
-    await expect(floorTrace.locator('svg line[stroke="#186c55"]')).toHaveCount(0)
+    await expect(floorTrace.locator('svg line[data-edge-index]')).toHaveCount(0)
 
     const guideRoute = '**/plan-raster-edges?*'
+    const reviewRegion = {
+      id: 'region-1',
+      polygon: [
+        { x: 500, y: 700 },
+        { x: 506, y: 704 },
+        { x: 510, y: 710 },
+        { x: 512, y: 720 },
+        { x: 800, y: 720 },
+        { x: 800, y: 830 },
+        { x: 500, y: 830 },
+      ],
+      hasInteriorIslands: false,
+    }
+    await page.route(guideRoute, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...guides, regions: [reviewRegion] }),
+      }),
+    )
+    await floorTrace.getByRole('button', { name: 'Найти углы по пикселям', exact: true }).click()
+    await floorTrace
+      .getByRole('button', { name: 'Показать внешний контур области', exact: true })
+      .click()
+    const reviewBox = await regionImage.boundingBox()
+    assert(reviewBox)
+    await page.mouse.click(
+      reviewBox.x + (600 * reviewBox.width) / 820,
+      reviewBox.y + (790 * reviewBox.height) / 970,
+    )
+    await expect(floorTrace.locator('svg line[data-seedable="true"]')).toHaveCount(2)
+    await expect(floorTrace.locator('svg line[data-seedable="false"]')).toHaveCount(2)
+    await expect(floorTrace.locator('svg line[stroke="#b87522"]').first()).toHaveAttribute(
+      'stroke-dasharray',
+      '2 5',
+    )
+    await expect(floorTrace.locator('svg line[stroke="#186c55"]').first()).toHaveAttribute(
+      'stroke-dasharray',
+      '3 3',
+    )
+    await expect(floorTrace.getByText(/янтарный с редкими штрихами/)).toBeVisible()
+    await floorTrace.getByRole('button', { name: 'Скрыть подсказку', exact: true }).click()
+    await page.unroute(guideRoute)
+    expect(await savedGeometry()).toEqual(geometry)
+
     await page.route(guideRoute, (route) => route.fulfill({ status: 422, body: 'Unavailable' }))
     await floorTrace.getByRole('button', { name: 'Найти углы по пикселям', exact: true }).click()
     await expect(floorTrace.getByRole('status')).toHaveText(
