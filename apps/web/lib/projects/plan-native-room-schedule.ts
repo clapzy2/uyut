@@ -21,7 +21,7 @@ type Label = NativeTextAnchors['labels'][number]
 type Grid = { bounds: Bounds; columns: number[]; rows: number[]; edges: NativePageSegment[] }
 const MAX_WORK = 200_000
 const roomName =
-  /^(?:прихожая|кухня(?:[-–— ]гостиная)?|гостиная|спальня|коридор|ванная|санузел|туалет|комната|жилая комната|детская|кабинет|гардероб|гардеробная|кладовая|балкон|лоджия)(?:\s+\d{1,2})?$/iu
+  /^(?:помещение|прихожая|кухня(?:[-–— ]гостиная)?|гостиная|спальня|коридор|ванная|санузел|туалет|комната|жилая комната|детская|кабинет|гардероб|гардеробная|кладовая|балкон|лоджия)(?:\s+\d{1,2})?$/iu
 const numberHeading = /^№(?:\s*п\/п)?$/u
 const nameHeading = /^наименование$/iu
 const areaHeading = /^площадь(?:,|,?\s+[мm][²2])?$/iu
@@ -39,6 +39,43 @@ const boundsOf = (points: PagePoint[]): Bounds => ({
   right: Math.max(...points.map((point) => point.x)),
   bottom: Math.max(...points.map((point) => point.y)),
 })
+
+/** PDF tables often paint each cell independently. Join only exactly touching source strokes. */
+function continuousGridLines(segments: NativePageSegment[], vertical: boolean) {
+  const grouped = new Map<number, NativePageSegment[]>()
+  for (const segment of segments) {
+    const fixed = vertical ? segment.start.x : segment.start.y
+    const endFixed = vertical ? segment.end.x : segment.end.y
+    const start = vertical ? segment.start.y : segment.start.x
+    const end = vertical ? segment.end.y : segment.end.x
+    if (fixed !== endFixed || start === end) continue
+    grouped.set(fixed, [...(grouped.get(fixed) ?? []), segment])
+  }
+  const lines: Array<{ fixed: number; start: number; end: number; edges: NativePageSegment[] }> = []
+  for (const [fixed, source] of grouped) {
+    const ordered = source.sort((a, b) => {
+      const aStart = vertical ? Math.min(a.start.y, a.end.y) : Math.min(a.start.x, a.end.x)
+      const bStart = vertical ? Math.min(b.start.y, b.end.y) : Math.min(b.start.x, b.end.x)
+      return aStart - bStart
+    })
+    for (const segment of ordered) {
+      const start = vertical
+        ? Math.min(segment.start.y, segment.end.y)
+        : Math.min(segment.start.x, segment.end.x)
+      const end = vertical
+        ? Math.max(segment.start.y, segment.end.y)
+        : Math.max(segment.start.x, segment.end.x)
+      const previous = lines.at(-1)
+      if (previous?.fixed === fixed && start <= previous.end) {
+        previous.end = Math.max(previous.end, end)
+        previous.edges.push(segment)
+      } else {
+        lines.push({ fixed, start, end, edges: [segment] })
+      }
+    }
+  }
+  return lines
+}
 
 /** Documentary rows only. A source grid is not a room boundary or an area-derived polygon. */
 export function nativeRoomScheduleEvidence(input: {
@@ -206,31 +243,31 @@ export function nativeRoomScheduleEvidence(input: {
     string,
     { top: number; bottom: number; columns: Map<number, NativePageSegment[]> }
   >()
-  for (const segment of eligible) {
-    if (segment.start.x !== segment.end.x || segment.start.y === segment.end.y) continue
-    const top = Math.min(segment.start.y, segment.end.y),
-      bottom = Math.max(segment.start.y, segment.end.y)
-    const key = `${top}:${bottom}`
+  const verticalLines = continuousGridLines(eligible, true)
+  const horizontalLines = continuousGridLines(eligible, false)
+  if ([...verticalLines, ...horizontalLines].some((line) => line.edges.length > 100))
+    return finish('native-table-work-limit')
+  for (const line of verticalLines) {
+    const key = `${line.start}:${line.end}`
     const group = groups.get(key) ?? {
-      top,
-      bottom,
+      top: line.start,
+      bottom: line.end,
       columns: new Map<number, NativePageSegment[]>(),
     }
-    group.columns.set(segment.start.x, [...(group.columns.get(segment.start.x) ?? []), segment])
+    group.columns.set(line.fixed, [...(group.columns.get(line.fixed) ?? []), ...line.edges])
     groups.set(key, group)
   }
   const grids: Grid[] = []
   let structuredGridPresent = false
   try {
     const horizontalGroups = new Map<string, { left: number; right: number; ys: Set<number> }>()
-    for (const segment of eligible) {
+    for (const line of horizontalLines) {
       spend()
-      if (segment.start.y !== segment.end.y || segment.start.x === segment.end.x) continue
-      const left = Math.min(segment.start.x, segment.end.x),
-        right = Math.max(segment.start.x, segment.end.x)
+      const left = line.start,
+        right = line.end
       const key = `${left}:${right}`
       const group = horizontalGroups.get(key) ?? { left, right, ys: new Set<number>() }
-      group.ys.add(segment.start.y)
+      group.ys.add(line.fixed)
       horizontalGroups.set(key, group)
     }
     // Full-width row strokes also retain evidence of a drawn schedule when an outer
@@ -267,19 +304,16 @@ export function nativeRoomScheduleEvidence(input: {
         )
       )
         continue
-      const horizontals = eligible.filter((segment) => {
+      const horizontals = horizontalLines.filter((line) => {
         spend()
         return (
-          segment.start.y === segment.end.y &&
-          segment.start.y >= group.top &&
-          segment.start.y <= group.bottom &&
-          Math.min(segment.start.x, segment.end.x) === left &&
-          Math.max(segment.start.x, segment.end.x) === right
+          line.fixed >= group.top &&
+          line.fixed <= group.bottom &&
+          line.start === left &&
+          line.end === right
         )
       })
-      const rowLines = [...new Set(horizontals.map((segment) => segment.start.y))].sort(
-        (a, b) => a - b,
-      )
+      const rowLines = [...new Set(horizontals.map((line) => line.fixed))].sort((a, b) => a - b)
       // Detect the enclosing drawn schedule before requiring the supported column count.
       // A missing/extra divider must not turn a damaged grid into baseline-only evidence.
       // A page border with only its top/bottom strokes is not a schedule grid.
@@ -318,10 +352,18 @@ export function nativeRoomScheduleEvidence(input: {
         bounds: { left, right, top: group.top, bottom: group.bottom },
         columns,
         rows: rowLines,
-        edges: [...group.columns.values()].flat().concat(horizontals),
+        edges: [...group.columns.values()].flat().concat(horizontals.flatMap((line) => line.edges)),
       })
     }
-    if (grids.length === 0 && table && !structuredGridPresent) return finish(null)
+    // A generic "Помещение" caption is not a room type. Its ownership needs the
+    // complete physical schedule grid, not merely aligned text baselines.
+    if (
+      grids.length === 0 &&
+      table &&
+      !structuredGridPresent &&
+      !rows.some((row) => /^помещение(?:\s+\d{1,2})?$/iu.test(row.name))
+    )
+      return finish(null)
     if (grids.length !== 1) return finish('unsupported-or-ambiguous-room-table')
     const grid = grids[0] as Grid
     if (omissions.some((item) => overlaps(item.bounds, grid.bounds)))
@@ -405,13 +447,19 @@ export function nativeRoomScheduleEvidence(input: {
         area = row[2]?.[0]
       if (
         row.flat().some((label) => label.rotation !== 0) ||
-        row[1]?.length !== 1 ||
         row[2]?.length !== 1 ||
-        !name ||
         !area ||
         !areaValue.test(area.name)
       )
         return finish('unsupported-or-ambiguous-room-table')
+      if (row[0]?.length === 0 && row[1]?.length === 0 && index === cells.length - 1) {
+        const total = Number(area.name.replace(/\s*[мm]²$/iu, '').replace(',', '.'))
+        const sum = rows.reduce((value, item) => value + item.documentaryAreaM2, 0)
+        if (Math.round(total * 100) !== Math.round(sum * 100))
+          return finish('unsupported-or-ambiguous-room-table')
+        continue
+      }
+      if (row[1]?.length !== 1 || !name) return finish('unsupported-or-ambiguous-room-table')
       if (totalName.test(name.name)) {
         if (row[0]?.length !== 0 || index !== cells.length - 1)
           return finish('unsupported-or-ambiguous-room-table')
@@ -420,8 +468,8 @@ export function nativeRoomScheduleEvidence(input: {
       if (
         row[0]?.length !== 1 ||
         !number ||
-        !/^[1-9]\d?(?:\.\d{1,3})?$/u.test(number.name) ||
-        String(Number(number.name)) !== number.name ||
+        !/^0?[1-9]\d?(?:\.\d{1,3})?$/u.test(number.name) ||
+        (number.name.includes('.') && String(Number(number.name)) !== number.name) ||
         !isPlanRoomSourceNumber(Number(number.name)) ||
         !roomName.test(name.name) ||
         !planRoomSourceNumbersInScheduleOrder([
