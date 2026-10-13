@@ -99,6 +99,31 @@ describe('raster reread disagreement, not source verification', () => {
       ),
     ).toBe(true)
   })
+  it('flags a balcony opening without an outdoor room even when two readings agree', () => {
+    const first = reading()
+    if (!first.rooms[0]) throw new Error('Missing room')
+    first.rooms[0].layoutNotes = 'Внизу балконный проём на нижней стене.'
+
+    const result = reconcileRasterReadings(first, structuredClone(first))
+
+    expect(result.rooms).toHaveLength(1)
+    expect(result.rooms[0]?.depthCm).toBe(251.6)
+    expect(result.rooms[0]?.measurementWarnings?.join(' ')).toContain(
+      'отдельная зона балкона или лоджии не найдена',
+    )
+  })
+  it('does not flag a balcony opening when an outdoor room is present', () => {
+    const first = reading()
+    if (!first.rooms[0]) throw new Error('Missing room')
+    first.rooms[0].layoutNotes = 'Внизу балконный проём на нижней стене.'
+    first.rooms.push({ name: 'Балкон', kind: 'living', spaceKind: 'balcony', utility: true })
+
+    const result = reconcileRasterReadings(first, structuredClone(first))
+
+    expect(result.rooms[0]?.measurementWarnings?.join(' ')).not.toContain(
+      'отдельная зона балкона или лоджии не найдена',
+    )
+  })
   it('clears unreadable sides, disputed area and geometry', () => {
     const first = reading(),
       other = reading()

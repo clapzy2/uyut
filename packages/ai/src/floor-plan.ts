@@ -807,6 +807,9 @@ export function createFalPlanReader(apiKey: string): PlanReader {
 /** Agreement is not source verification. Never select a disputed value by area fitting. */
 export function reconcileRasterReadings(first: PlanReading, second?: PlanReading): PlanReading {
   const result = structuredClone(first)
+  const hasOutdoorRoom = result.rooms.some(
+    (room) => room.spaceKind === 'balcony' || room.spaceKind === 'loggia',
+  )
   const key = (room: PlanRoom) =>
     JSON.stringify([
       room.sourceNumber ?? null,
@@ -825,6 +828,16 @@ export function reconcileRasterReadings(first: PlanReading, second?: PlanReading
       ? second?.rooms.find((entry) => key(entry) === key(room))
       : undefined
     const warnings = [...(room.measurementWarnings ?? [])]
+    if (
+      !hasOutdoorRoom &&
+      /балконн[а-яё]*\s+(?:про[её]м|блок)|выход[а-яё\s]{0,16}на\s+балкон/iu.test(
+        room.layoutNotes ?? '',
+      )
+    ) {
+      warnings.push(
+        'Описание упоминает балконный проём, но отдельная зона балкона или лоджии не найдена. Проверьте её контур на исходном плане: проём сам по себе не задаёт пол балкона.',
+      )
+    }
     if (!second)
       warnings.push('Повторное чтение не выполнено. Размеры остаются непроверенными кандидатами.')
     else {
