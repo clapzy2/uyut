@@ -876,6 +876,20 @@ export async function confirmPlanRooms(
       return { ok: false, error: 'Сначала загрузите и прочитайте план квартиры.' }
     }
     const beforeReading = project.planReading
+    if (
+      rooms.some((room) => {
+        const spaceKind =
+          findPlanRoomReading(room, beforeReading.rooms)?.spaceKind ?? room.spaceKind
+        return (
+          (spaceKind === 'balcony' || spaceKind === 'loggia') && (room.include || !room.utility)
+        )
+      })
+    ) {
+      return {
+        ok: false,
+        error: 'Балкон и лоджию сохраняйте как вспомогательные зоны без выбора для интерьера.',
+      }
+    }
     // A model's arithmetic and self-reported chain are not independent source proof.
     // Require a deliberate review of each populated axis, including utility/source-only rows.
     const unreviewed = rooms.find(
@@ -942,7 +956,9 @@ export async function confirmPlanRooms(
             Boolean(project.planReading?.confirmedAt),
           ),
           name: room.name || roomKindLabels[room.kind],
-          ...(source?.spaceKind ? { spaceKind: source.spaceKind } : {}),
+          ...(room.spaceKind || source?.spaceKind
+            ? { spaceKind: source?.spaceKind ?? room.spaceKind }
+            : {}),
           // В форме неподдерживаемый тип имеет технический living, но в исходном плане
           // ванная остаётся ванной, а коридор не становится обставляемой гостиной.
           kind: !room.include && source ? source.kind : room.kind,

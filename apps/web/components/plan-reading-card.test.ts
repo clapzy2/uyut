@@ -71,6 +71,37 @@ describe('plan review form', () => {
     // The room-selection checkbox is checked; neither source-axis acknowledgment is.
     expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(1)
   })
+  it('offers an unmeasured outdoor zone only as a human-checked addition', () => {
+    const html = render(
+      {
+        readAt: '2026-10-13',
+        rooms: [
+          {
+            name: 'Гостиная',
+            kind: 'living',
+            layoutNotes: 'Внизу балконный проём.',
+          },
+        ],
+      },
+      0,
+      [],
+      false,
+    )
+    expect(html).toContain('Если на плане есть балкон или лоджия без подписи')
+    expect(html).toContain('Добавить балкон без размеров')
+    expect(html).toContain('Добавить лоджию без размеров')
+    expect(html).toContain('Одна балконная дверь его не доказывает')
+  })
+  it('lets the reviewer remove an unlabeled outdoor row', () => {
+    const html = render({
+      readAt: '2026-10-13',
+      rooms: [
+        { name: 'Гостиная', kind: 'living' },
+        { name: 'Балкон', kind: 'living', spaceKind: 'balcony', utility: true },
+      ],
+    })
+    expect(html).toContain('Убрать неподписанную зону')
+  })
   it('requires separate unchecked source-axis review for PDF dimensions and links the read sheet', () => {
     const reading: PlanReading = {
       readAt: '2026-10-09',

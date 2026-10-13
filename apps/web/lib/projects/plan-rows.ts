@@ -1,4 +1,4 @@
-import type { PlanReading, PlanRoomReading, RoomKind } from '@uyut/db'
+import type { PlanReading, PlanRoomReading, RoomKind, RoomSpaceKind } from '@uyut/db'
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { mvpRoomKinds } from './format'
 
@@ -7,6 +7,7 @@ export type PlanRow = {
   include: boolean
   name: string
   kind: RoomKind
+  spaceKind?: RoomSpaceKind
   width: string
   depth: string
   /** Explicit source-drawing review, never a confirmation of an on-site measurement. */
@@ -40,7 +41,7 @@ export type PlanRow = {
 
 /** An acknowledgment belongs to this exact value and room, not to a later edit. */
 export function patchPlanRow(row: PlanRow, patch: Partial<PlanRow>): PlanRow {
-  const changedScope = (['name', 'kind', 'sourceNumber', 'roomId'] as const).some(
+  const changedScope = (['name', 'kind', 'spaceKind', 'sourceNumber', 'roomId'] as const).some(
     (key) => Object.hasOwn(patch, key) && patch[key] !== row[key],
   )
   const changedWidth = Object.hasOwn(patch, 'width') && patch.width !== row.width
@@ -86,17 +87,58 @@ export function appendSourcePlanRow(
     return null
   const utility = kind === 'utility'
   const unsupported = utility || !mvpRoomKinds.some((value) => value === kind)
+  const spaceKind = utility
+    ? /лоджи/i.test(source.name)
+      ? 'loggia'
+      : /балкон/i.test(source.name)
+        ? 'balcony'
+        : undefined
+    : undefined
   return [
     ...rows,
     {
       name: source.name.trim(),
       sourceNumber: source.sourceNumber,
+      ...(spaceKind ? { spaceKind } : {}),
       kind: utility ? 'living' : kind,
       include: false,
       unsupported,
       ...(unsupported
         ? { unsupportedReason: utility ? ('utility' as const) : ('kind' as const) }
         : {}),
+      width: '',
+      depth: '',
+      area: '',
+      ceiling: '',
+      wish: '',
+      layoutNotes: '',
+      suspicious: false,
+    },
+  ]
+}
+
+/** A user-observed outdoor zone without a printed label has no inferred area or dimensions. */
+export function appendUnlabeledOutdoorPlanRow(
+  rows: readonly PlanRow[],
+  spaceKind: 'balcony' | 'loggia',
+): PlanRow[] | null {
+  if (rows.length >= 20) return null
+  const baseName = spaceKind === 'balcony' ? 'Балкон' : 'Лоджия'
+  let name = baseName
+  let number = 2
+  while (rows.some((row) => plainName(row.name) === plainName(name))) {
+    name = `${baseName} ${number}`
+    number += 1
+  }
+  return [
+    ...rows,
+    {
+      include: false,
+      name,
+      kind: 'living',
+      spaceKind,
+      unsupported: true,
+      unsupportedReason: 'utility',
       width: '',
       depth: '',
       area: '',
@@ -162,7 +204,8 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
       : { ambiguous: loose.length > 1 }
   }
   return reading.rooms.map((room) => {
-    const unsupported = room.utility === true || !supported.has(room.kind)
+    const outdoor = room.spaceKind === 'balcony' || room.spaceKind === 'loggia'
+    const unsupported = room.utility === true || outdoor || !supported.has(room.kind)
     const paired = unsupported ? { ambiguous: false } : pair(room)
     const match = paired.match
     if (match) {
@@ -171,6 +214,7 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
     return {
       include: !unsupported,
       name: room.name,
+      ...(room.spaceKind ? { spaceKind: room.spaceKind } : {}),
       ...(room.sourceNumber === undefined ? {} : { sourceNumber: room.sourceNumber }),
       ceiling: room.ceilingCm === undefined ? '' : String(room.ceilingCm),
       kind: unsupported ? 'living' : room.kind,
@@ -185,7 +229,7 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
         ? { measurementWarnings: room.measurementWarnings }
         : {}),
       ...(unsupported
-        ? { unsupportedReason: room.utility ? ('utility' as const) : ('kind' as const) }
+        ? { unsupportedReason: room.utility || outdoor ? ('utility' as const) : ('kind' as const) }
         : {}),
       ...(room.rechecked && room.rechecked.length > 0
         ? { rechecked: room.rechecked.length > 1 ? ('both' as const) : room.rechecked[0] }
@@ -214,9 +258,8 @@ const number = (raw: string) => {
 /**
  * Сумма площадей комнат против общей площади квартиры с плана.
  *
- * Единственная проверка, которая ловит потерянную и выдуманную комнату: по одной строке этого
- * не видно, по сумме видно сразу. На обмерном плане без подписей модель сочиняла лишнее
- * помещение в шести прогонах из семи, и поймать это было нечем.
+ * Сверяет сумму подписанных внутренних помещений. Балкон без подписанной площади не должен
+ * скрывать эту проверку, но совпавшая сумма не доказывает, что внешний балкон найден.
  *
  * Считается по строкам, а не по чтению: человек правит площади прямо здесь, и сумма должна
  * ходить за его правками. Пять процентов допуска, потому что площади на планах округлены
@@ -226,20 +269,24 @@ const number = (raw: string) => {
  * Неполная сумма всегда меньше общей, и пугать ею не за что.
  */
 export function totalAreaCheck(
-  rows: ReadonlyArray<Pick<PlanRow, 'area'>>,
+  rows: ReadonlyArray<Pick<PlanRow, 'area' | 'spaceKind'>>,
   totalM2: number | undefined,
 ): { sum: string; total: string; agrees: boolean } | null {
   if (totalM2 === undefined || !(totalM2 > 0) || rows.length === 0) {
     return null
   }
   let sum = 0
+  let counted = 0
   for (const row of rows) {
+    if (row.spaceKind === 'balcony' || row.spaceKind === 'loggia') continue
     const area = number(row.area)
     if (area === null) {
       return null
     }
     sum += area
+    counted += 1
   }
+  if (counted === 0) return null
   const rounded = Math.round(sum * 100) / 100
   return {
     sum: String(rounded).replace('.', ','),

@@ -2,10 +2,12 @@ import type { PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import {
   appendSourcePlanRow,
+  appendUnlabeledOutdoorPlanRow,
   areaCheck,
   clearUnreviewedPlanAxes,
   patchPlanRow,
   planRows,
+  totalAreaCheck,
 } from './plan-rows'
 
 describe('source axis acknowledgments', () => {
@@ -33,6 +35,7 @@ describe('source axis acknowledgments', () => {
     for (const patch of [
       { name: 'Кухня' },
       { kind: 'kitchen' as const },
+      { spaceKind: 'balcony' as const },
       { sourceNumber: 2 },
       { roomId: 'different-room' },
     ]) {
@@ -89,7 +92,12 @@ describe('adding missing schedule rows', () => {
   it('retains utility and bathroom rows without turning them into a living room for furniture', () => {
     expect(
       appendSourcePlanRow([], { name: 'Лоджия', sourceNumber: 9 }, 'utility')?.[0],
-    ).toMatchObject({ include: false, unsupported: true, unsupportedReason: 'utility' })
+    ).toMatchObject({
+      spaceKind: 'loggia',
+      include: false,
+      unsupported: true,
+      unsupportedReason: 'utility',
+    })
     expect(
       appendSourcePlanRow([], { name: 'Санузел', sourceNumber: 3 }, 'bath')?.[0],
     ).toMatchObject({ kind: 'bath', include: false, unsupportedReason: 'kind' })
@@ -110,6 +118,52 @@ describe('adding missing schedule rows', () => {
         'bedroom',
       ),
     ).toBeNull()
+  })
+})
+
+describe('unlabeled outdoor zones', () => {
+  it('adds a separate unmeasured balcony without inventing a source number or area', () => {
+    const rows = appendUnlabeledOutdoorPlanRow([], 'balcony')
+    expect(rows?.[0]).toMatchObject({
+      name: 'Балкон',
+      spaceKind: 'balcony',
+      include: false,
+      unsupportedReason: 'utility',
+      width: '',
+      depth: '',
+      area: '',
+    })
+    expect(rows?.[0]).not.toHaveProperty('sourceNumber')
+    expect(appendUnlabeledOutdoorPlanRow(rows ?? [], 'balcony')?.[1]?.name).toBe('Балкон 2')
+    const first = rows?.[0]
+    if (!first) throw new Error('Missing balcony fixture')
+    expect(
+      appendUnlabeledOutdoorPlanRow(
+        Array.from({ length: 20 }, () => first),
+        'loggia',
+      ),
+    ).toBeNull()
+  })
+
+  it('keeps the interior area check when a balcony has no printed area', () => {
+    expect(
+      totalAreaCheck(
+        [
+          { area: '14,9' },
+          { area: '5,4' },
+          { area: '5,8' },
+          { area: '2,7' },
+          { area: '', spaceKind: 'balcony' },
+        ],
+        28.8,
+      ),
+    ).toMatchObject({ agrees: true, sum: '28,8' })
+  })
+
+  it('reopens a balcony as a utility zone rather than furniture room', () => {
+    expect(
+      planRows(reading([{ name: 'Балкон', kind: 'living', spaceKind: 'balcony' }]))[0],
+    ).toMatchObject({ spaceKind: 'balcony', include: false, unsupportedReason: 'utility' })
   })
 })
 
