@@ -279,7 +279,34 @@ test.describe('обводка растрового контура по двум 
       'stroke-dasharray',
       '3 3',
     )
+    const firstCandidateEdge = floorTrace.locator('svg line[stroke="#186c55"]').first()
+    const [startX, startY, endX, endY] = await Promise.all(
+      (['x1', 'y1', 'x2', 'y2'] as const).map((attribute) =>
+        firstCandidateEdge.getAttribute(attribute),
+      ),
+    )
     expect(await savedGeometry()).toEqual(geometry)
+    await floorTrace.getByRole('button', { name: /Начать со стороны 1:/ }).click()
+    await expect(
+      floorTrace.getByText('Углов: 2 / 200. Замыкание — только при применении.'),
+    ).toBeVisible()
+    await expect(floorTrace.getByLabel('Угол 1 · X, пикс.', { exact: true })).toHaveValue(
+      startX ?? '',
+    )
+    await expect(floorTrace.getByLabel('Угол 1 · Y, пикс.', { exact: true })).toHaveValue(
+      startY ?? '',
+    )
+    await expect(floorTrace.getByLabel('Угол 2 · X, пикс.', { exact: true })).toHaveValue(
+      endX ?? '',
+    )
+    await expect(floorTrace.getByLabel('Угол 2 · Y, пикс.', { exact: true })).toHaveValue(
+      endY ?? '',
+    )
+    await expect(
+      floorTrace.getByRole('button', { name: 'Применить обводку в черновик', exact: true }),
+    ).toBeDisabled()
+    expect(await savedGeometry()).toEqual(geometry)
+    await floorTrace.getByRole('button', { name: 'Отменить обводку', exact: true }).click()
     await floorTrace.getByRole('button', { name: 'Скрыть подсказку', exact: true }).click()
     await expect(floorTrace.locator('svg polygon[stroke-dasharray="7 5"]')).toHaveCount(0)
     await expect(floorTrace.locator('svg line[stroke="#186c55"]')).toHaveCount(0)

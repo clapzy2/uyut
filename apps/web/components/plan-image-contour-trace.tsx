@@ -135,6 +135,9 @@ export function PlanImageContourTrace({
     : calibrationIssue
       ? []
       : imageContourFromMetric(points ?? [], calibration)
+  const candidateEdges = selectedRegion
+    ? rasterRegionStraightEdges(selectedRegion, calibration.imageWidthPx, calibration.imageHeightPx)
+    : []
 
   function start() {
     setVertices([])
@@ -241,11 +244,7 @@ export function PlanImageContourTrace({
                 strokeDasharray="7 5"
                 strokeWidth="2"
               />
-              {rasterRegionStraightEdges(
-                selectedRegion,
-                calibration.imageWidthPx,
-                calibration.imageHeightPx,
-              ).map(({ start, end }) => (
+              {candidateEdges.map(({ start, end }) => (
                 <line
                   key={`${start.x}-${start.y}-${end.x}-${end.y}`}
                   x1={start.x}
@@ -340,16 +339,42 @@ export function PlanImageContourTrace({
             </div>
           ) : null}
           {selectedRegion ? (
-            <p role="status" className="text-[12px] text-ink-2">
-              Это светлая область изображения, а не готовый пол. Её граница может включать дугу
-              двери, мебель и подписи. Нажатие внутри внешнего контура не проверяет, попали ли вы на
-              тёмный штрих. Зелёным пунктиром отмечены только соседние длинные участки пиксельной
-              границы: это не подтверждение стен или размеров; одиночные стороны могут быть
-              пропущены.
-              {selectedRegion.hasInteriorIslands || regionsUncertain
-                ? ' На исходнике есть внутренние штрихи или неоднозначные области.'
-                : ''}
-            </p>
+            <div className="space-y-2">
+              <p role="status" className="text-[12px] text-ink-2">
+                Это светлая область изображения, а не готовый пол. Её граница может включать дугу
+                двери, мебель и подписи. Нажатие внутри внешнего контура не проверяет, попали ли вы
+                на тёмный штрих. Зелёным пунктиром отмечены только соседние длинные участки
+                пиксельной границы: это не подтверждение стен или размеров; одиночные стороны могут
+                быть пропущены.
+                {selectedRegion.hasInteriorIslands || regionsUncertain
+                  ? ' На исходнике есть внутренние штрихи или неоднозначные области.'
+                  : ''}
+              </p>
+              {!tracing && candidateEdges.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {candidateEdges.map(({ start, end }, index) => (
+                    <Button
+                      key={`${start.x}-${start.y}-${end.x}-${end.y}`}
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={!imageMatches || Boolean(calibrationIssue)}
+                      onClick={() => {
+                        setVertices([start, end])
+                        setTracing(true)
+                        setSelectingRegion(false)
+                        setError(undefined)
+                        setCornerNotice(
+                          'Два пиксельных угла добавлены в обводку. Проверьте эту сторону на исходнике, поправьте координаты и дорисуйте остальной пол вручную.',
+                        )
+                      }}
+                    >
+                      Начать со стороны {index + 1}: ({start.x}, {start.y}) → ({end.x}, {end.y})
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           ) : null}
           <p className="text-[12px] text-ink-2">
             Подсказки могут относиться к надписям, мебели и размерным линиям. Привязка не меняет уже
