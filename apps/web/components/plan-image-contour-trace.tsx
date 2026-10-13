@@ -352,13 +352,13 @@ export function PlanImageContourTrace({
               </p>
               {!tracing && candidateEdges.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
-                  {candidateEdges.map(({ start, end }, index) => (
+                  {candidateEdges.map(({ start, end, connectedAtBothEnds }, index) => (
                     <Button
                       key={`${start.x}-${start.y}-${end.x}-${end.y}`}
                       type="button"
                       variant="secondary"
                       size="sm"
-                      disabled={!imageMatches || Boolean(calibrationIssue)}
+                      disabled={!connectedAtBothEnds || !imageMatches || Boolean(calibrationIssue)}
                       onClick={() => {
                         setVertices([start, end])
                         setTracing(true)
@@ -369,10 +369,17 @@ export function PlanImageContourTrace({
                         )
                       }}
                     >
-                      Начать со стороны {index + 1}: ({start.x}, {start.y}) → ({end.x}, {end.y})
+                      {connectedAtBothEnds ? 'Начать со стороны' : 'Проверить конец стороны'}{' '}
+                      {index + 1}: ({start.x}, {start.y}) → ({end.x}, {end.y})
                     </Button>
                   ))}
                 </div>
+              ) : null}
+              {candidateEdges.some((edge) => !edge.connectedAtBothEnds) ? (
+                <p className="text-[12px] text-ink-2">
+                  Сторона с короткими соседними штрихами остаётся подсказкой, но её конец нельзя
+                  взять как готовый угол. Добавьте его вручную после сверки с исходником.
+                </p>
               ) : null}
             </div>
           ) : null}
