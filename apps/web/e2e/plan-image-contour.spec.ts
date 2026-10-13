@@ -279,14 +279,23 @@ test.describe('обводка растрового контура по двум 
       'stroke-dasharray',
       '3 3',
     )
-    const firstCandidateEdge = floorTrace.locator('svg line[stroke="#186c55"]').first()
+    for (const unresolved of await floorTrace
+      .getByRole('button', { name: /Проверить конец стороны \d+:/ })
+      .all()) {
+      await expect(unresolved).toBeDisabled()
+    }
+    const seedButton = floorTrace.getByRole('button', { name: /Начать со стороны \d+:/ }).first()
+    const seedLabel = await seedButton.innerText()
+    const sideIndex = Number(seedLabel.match(/стороны (\d+):/)?.[1]) - 1
+    assert(Number.isInteger(sideIndex) && sideIndex >= 0)
+    const firstCandidateEdge = floorTrace.locator('svg line[stroke="#186c55"]').nth(sideIndex)
     const [startX, startY, endX, endY] = await Promise.all(
       (['x1', 'y1', 'x2', 'y2'] as const).map((attribute) =>
         firstCandidateEdge.getAttribute(attribute),
       ),
     )
     expect(await savedGeometry()).toEqual(geometry)
-    await floorTrace.getByRole('button', { name: /Начать со стороны 1:/ }).click()
+    await seedButton.click()
     await expect(
       floorTrace.getByText('Углов: 2 / 200. Замыкание — только при применении.'),
     ).toBeVisible()

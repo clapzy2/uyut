@@ -84,10 +84,10 @@ describe('optional source pixel corner assistance', () => {
       hasInteriorIslands: false,
     }
     expect(rasterRegionStraightEdges(guide, 200, 160)).toEqual([
-      { start: { x: 16, y: 20 }, end: { x: 100, y: 20 } },
-      { start: { x: 100, y: 20 }, end: { x: 100, y: 100 } },
-      { start: { x: 100, y: 100 }, end: { x: 0, y: 100 } },
-      { start: { x: 0, y: 100 }, end: { x: 0, y: 0 } },
+      { start: { x: 16, y: 20 }, end: { x: 100, y: 20 }, connectedAtBothEnds: false },
+      { start: { x: 100, y: 20 }, end: { x: 100, y: 100 }, connectedAtBothEnds: true },
+      { start: { x: 100, y: 100 }, end: { x: 0, y: 100 }, connectedAtBothEnds: true },
+      { start: { x: 0, y: 100 }, end: { x: 0, y: 0 }, connectedAtBothEnds: false },
     ])
     expect(rasterRegionStraightEdges(guide, 0, 160)).toEqual([])
   })
@@ -107,8 +107,11 @@ describe('optional source pixel corner assistance', () => {
       hasInteriorIslands: false,
     }
     const edges = rasterRegionStraightEdges(guide, 200, 160)
-    expect(edges).not.toContainEqual({ start: { x: 0, y: 0 }, end: { x: 60, y: 0 } })
+    expect(
+      edges.some(({ start, end }) => start.x === 0 && start.y === 0 && end.x === 60 && end.y === 0),
+    ).toBe(false)
     expect(edges).toHaveLength(3)
+    expect(edges.map((edge) => edge.connectedAtBothEnds)).toEqual([false, true, false])
   })
   it.each([
     { ...regionResponse, regionTruncated: true },

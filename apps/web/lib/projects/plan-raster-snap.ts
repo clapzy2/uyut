@@ -154,12 +154,16 @@ export function rasterRegionAt(
   return match
 }
 
-/** Connected long stretches of the pixel boundary, not evidence of a physical wall. */
+/** Long pixel stretches. Connected ends are safer tracing starts, not physical-wall proof. */
 export function rasterRegionStraightEdges(
   region: RasterRegionGuide,
   width: number,
   height: number,
-): { start: ImageContourPoint; end: ImageContourPoint }[] {
+): {
+  start: ImageContourPoint
+  end: ImageContourPoint
+  connectedAtBothEnds: boolean
+}[] {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return []
   const minimumLength = Math.max(20, Math.min(width, height) * 0.06)
   const lengths = region.polygon.map((start, index) => {
@@ -176,6 +180,12 @@ export function rasterRegionStraightEdges(
       (previousLength < minimumLength && nextLength < minimumLength)
     )
       return []
-    return [{ start, end }]
+    return [
+      {
+        start,
+        end,
+        connectedAtBothEnds: previousLength >= minimumLength && nextLength >= minimumLength,
+      },
+    ]
   })
 }
