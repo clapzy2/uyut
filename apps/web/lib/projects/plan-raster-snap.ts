@@ -154,7 +154,7 @@ export function rasterRegionAt(
   return match
 }
 
-/** Long straight stretches of the pixel boundary, not evidence of a physical wall. */
+/** Connected long stretches of the pixel boundary, not evidence of a physical wall. */
 export function rasterRegionStraightEdges(
   region: RasterRegionGuide,
   width: number,
@@ -162,9 +162,20 @@ export function rasterRegionStraightEdges(
 ): { start: ImageContourPoint; end: ImageContourPoint }[] {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return []
   const minimumLength = Math.max(20, Math.min(width, height) * 0.06)
+  const lengths = region.polygon.map((start, index) => {
+    const end = region.polygon[(index + 1) % region.polygon.length]
+    return end ? Math.hypot(end.x - start.x, end.y - start.y) : 0
+  })
   return region.polygon.flatMap((start, index) => {
     const end = region.polygon[(index + 1) % region.polygon.length]
-    if (!end || Math.hypot(end.x - start.x, end.y - start.y) < minimumLength) return []
+    const previousLength = lengths[(index - 1 + lengths.length) % lengths.length] ?? 0
+    const nextLength = lengths[(index + 1) % lengths.length] ?? 0
+    if (
+      !end ||
+      (lengths[index] ?? 0) < minimumLength ||
+      (previousLength < minimumLength && nextLength < minimumLength)
+    )
+      return []
     return [{ start, end }]
   })
 }

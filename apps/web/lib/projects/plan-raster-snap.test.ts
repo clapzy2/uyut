@@ -91,6 +91,25 @@ describe('optional source pixel corner assistance', () => {
     ])
     expect(rasterRegionStraightEdges(guide, 0, 160)).toEqual([])
   })
+  it('omits isolated long edges between short pixel stretches', () => {
+    const guide = {
+      id: 'region-2',
+      polygon: [
+        { x: 0, y: 0 },
+        { x: 60, y: 0 },
+        { x: 62, y: 5 },
+        { x: 64, y: 10 },
+        { x: 70, y: 12 },
+        { x: 70, y: 100 },
+        { x: 0, y: 100 },
+        { x: 0, y: 5 },
+      ],
+      hasInteriorIslands: false,
+    }
+    const edges = rasterRegionStraightEdges(guide, 200, 160)
+    expect(edges).not.toContainEqual({ start: { x: 0, y: 0 }, end: { x: 60, y: 0 } })
+    expect(edges).toHaveLength(3)
+  })
   it.each([
     { ...regionResponse, regionTruncated: true },
     { ...regionResponse, source: { ...response.source, page: 2 } },
