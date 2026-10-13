@@ -28,6 +28,7 @@ import {
 } from '@/lib/projects/format'
 import {
   appendSourcePlanRow,
+  appendUnlabeledOutdoorPlanRow,
   areaCheck,
   clearUnreviewedPlanAxes,
   type ExistingRoom,
@@ -167,6 +168,17 @@ export function PlanReadingCard({
     setError(undefined)
   }
 
+  function addOutdoorRoom(spaceKind: 'balcony' | 'loggia') {
+    if (!rows) return
+    const next = appendUnlabeledOutdoorPlanRow(rows, spaceKind)
+    if (!next) {
+      setError('За один раз сохраняем до 20 помещений.')
+      return
+    }
+    setRows(next)
+    setError(undefined)
+  }
+
   function showFailure(result: { error: string; code?: 'plan-conflict' }) {
     setError(result.error)
     if (result.code === 'plan-conflict') {
@@ -252,6 +264,7 @@ export function PlanReadingCard({
             roomId: row.roomId ?? '',
             name: row.name,
             kind: row.kind,
+            spaceKind: row.spaceKind,
             sourceNumber: row.sourceNumber,
             utility: row.unsupportedReason === 'utility',
             ceilingCm: row.ceiling ?? '',
@@ -786,6 +799,36 @@ export function PlanReadingCard({
           </div>
         </div>
       ) : null}
+      <details className="mt-5 border-l-2 border-accent pl-4">
+        <summary className="cursor-pointer text-sm font-medium text-ink">
+          Если на плане есть балкон или лоджия без подписи
+        </summary>
+        <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-ink-2">
+          Добавляйте только если видите отдельный пол на исходном изображении. Одна балконная дверь
+          его не доказывает. Размеры и площадь останутся пустыми; контур нужно обвести отдельно на
+          2D-схеме.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => addOutdoorRoom('balcony')}
+            disabled={rows.length >= 20 || saving || conflict || reviewEditing}
+          >
+            Добавить балкон без размеров
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => addOutdoorRoom('loggia')}
+            disabled={rows.length >= 20 || saving || conflict || reviewEditing}
+          >
+            Добавить лоджию без размеров
+          </Button>
+        </div>
+      </details>
       <ul className="mt-5 flex flex-col gap-3">
         {rows.map((row, index) => {
           const check = areaCheck(row)
@@ -824,6 +867,20 @@ export function PlanReadingCard({
                   ))}
                   {row.kind === 'bath' ? <option value="bath">Санузел</option> : null}
                 </select>
+                {(row.spaceKind === 'balcony' || row.spaceKind === 'loggia') &&
+                row.sourceNumber === undefined ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      setRows((current) => current?.filter((_, at) => at !== index) ?? null)
+                    }
+                    disabled={rows.length <= 1 || saving || conflict || reviewEditing}
+                  >
+                    Убрать неподписанную зону
+                  </Button>
+                ) : null}
               </div>
 
               <div className="mt-3 flex flex-wrap gap-3 pl-[30px]">
@@ -937,7 +994,7 @@ export function PlanReadingCard({
               {row.unsupported ? (
                 <p className="mt-3 pl-[30px] text-[13px] leading-relaxed text-ink-2">
                   {row.unsupportedReason === 'utility'
-                    ? 'Размеры прихожих, коридоров и кладовых сохраняем в плане. Концепты и подбор мебели в этой версии доступны для гостиных, спален, кухонь и детских.'
+                    ? 'Вспомогательные зоны, включая балконы и лоджии, сохраняем в плане. Концепты и подбор мебели в этой версии доступны для гостиных, спален, кухонь и детских.'
                     : 'Размеры санузла сохраняем в плане. Концепты и подбор мебели в этой версии доступны для гостиных, спален, кухонь и детских.'}
                 </p>
               ) : null}

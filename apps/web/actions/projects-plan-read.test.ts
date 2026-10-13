@@ -88,6 +88,67 @@ describe('plan reading actions', () => {
     mocks.createRooms.mockResolvedValue({ created: 2, updated: 0 })
   })
 
+  it('persists an unlabeled balcony as an unmeasured utility zone', async () => {
+    const data = {
+      ...input(),
+      rooms: [
+        ...input().rooms,
+        {
+          include: false,
+          utility: true,
+          roomId: '',
+          name: 'Балкон',
+          kind: 'living',
+          spaceKind: 'balcony',
+          widthCm: '',
+          depthCm: '',
+          areaM2: '',
+          wish: '',
+        },
+      ],
+    }
+
+    expect(
+      (await confirmPlanRooms(projectId, data, planEditRevision('plan.pdf', reading))).ok,
+    ).toBe(true)
+    const saved = mocks.createRooms.mock.calls[0]?.[2].reading as PlanReading
+    expect(saved.rooms.at(-1)).toMatchObject({
+      name: 'Балкон',
+      spaceKind: 'balcony',
+      utility: true,
+    })
+    expect(saved.rooms.at(-1)).not.toHaveProperty('sourceNumber')
+    expect(saved.rooms.at(-1)).not.toHaveProperty('areaM2')
+    expect(saved.rooms.at(-1)).not.toHaveProperty('depthCm')
+    expect(mocks.createRooms.mock.calls[0]?.[2].rooms).toHaveLength(2)
+  })
+
+  it('rejects treating an outdoor utility zone as a furniture room', async () => {
+    const data = {
+      ...input(),
+      rooms: [
+        ...input().rooms,
+        {
+          include: true,
+          utility: true,
+          roomId: '',
+          name: 'Балкон',
+          kind: 'living',
+          spaceKind: 'balcony',
+          widthCm: '',
+          depthCm: '',
+          areaM2: '',
+          wish: '',
+        },
+      ],
+    }
+
+    expect(
+      await confirmPlanRooms(projectId, data, planEditRevision('plan.pdf', reading)),
+    ).toMatchObject({ ok: false, error: expect.stringContaining('вспомогательные зоны') })
+    expect(mocks.createRooms).not.toHaveBeenCalled()
+  })
+
   it('retains account surveys on room confirmation while the changed scheme revokes the report', async () => {
     const deliveryMeasurements = {
       version: 1 as const,

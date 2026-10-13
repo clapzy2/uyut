@@ -156,6 +156,7 @@ export const planRoomsSchema = z.object({
         name: z.string().trim().max(40, { error: 'Слишком длинно: хватит 40 знаков' }),
         // Санузел можно сохранить в исходном плане, но не выбрать для генерации интерьера.
         kind: z.enum(['living', 'bedroom', 'kitchen', 'bath', 'kid']),
+        spaceKind: z.enum(['interior', 'balcony', 'loggia']).optional(),
         sourceNumber: z.number().refine(isPlanRoomSourceNumber).optional(),
         utility: z.boolean().optional(),
         ceilingCm: spotWidthSchema.optional(),
