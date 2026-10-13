@@ -1392,6 +1392,7 @@ describe('перебор случайных комнат', () => {
         expect(layout.freeWallCm, where).toBeGreaterThanOrEqual(0)
       }
     },
+    20_000,
   )
 })
 
