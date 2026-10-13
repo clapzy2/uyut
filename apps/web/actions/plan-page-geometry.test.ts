@@ -90,6 +90,41 @@ describe('create metric draft from reviewed source page', () => {
     mocks.save.mockResolvedValue(undefined)
   })
 
+  it('imports a physical room beside a held source area but refuses that area as selection or anchor', async () => {
+    const before = structuredClone(reading)
+    before.rooms.push({ name: 'Балкон', kind: 'living', sourceNumber: 8 })
+    before.pageReview?.contours.rooms.push({
+      roomSourceNumber: 8,
+      polygon: [
+        { x: 40, y: 10 },
+        { x: 60, y: 10 },
+        { x: 60, y: 30 },
+      ],
+      sourceTopology: {
+        kind: 'unclassified-source-paint',
+        floorId: 'source-floor-8',
+        exactPointKeys: ['40/1:10/1', '60/1:10/1', '60/1:30/1'],
+        holes: [],
+        holeExactPointKeys: [],
+      },
+    })
+    mocks.owner.mockResolvedValue({ ...project, planReading: before })
+    const currentRevision = planEditRevision('plan.pdf', before)
+    const accepted = await createPlanPageGeometryDraft('project', [4], currentRevision)
+    expect(accepted.ok).toBe(true)
+    expect(mocks.convert).toHaveBeenCalledWith(
+      before,
+      expect.objectContaining({ contours: before.pageReview?.contours }),
+      [4],
+    )
+    mocks.convert.mockClear()
+    mocks.save.mockClear()
+    expect((await createPlanPageGeometryDraft('project', [8], currentRevision)).ok).toBe(false)
+    expect((await createPlanPageGeometryDraft('project', [4], currentRevision, [8])).ok).toBe(false)
+    expect(mocks.convert).not.toHaveBeenCalled()
+    expect(mocks.save).not.toHaveBeenCalled()
+  })
+
   it('explicitly updates an envelope-only held draft with the newly reviewed floor', async () => {
     const before: PlanReading = {
       ...reading,

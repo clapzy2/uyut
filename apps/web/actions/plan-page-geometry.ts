@@ -170,12 +170,19 @@ export async function createPlanPageGeometryDraft(
     const review = planPageContoursSchema.safeParse(before.pageReview?.contours)
     if (!review.success || before.planState !== 'existing')
       return { ok: false, error: 'Сначала сохраните разметку комнат на исходном обмерном листе.' }
+    const physicalRooms = review.data.rooms.filter((room) => room.sourceTopology === undefined)
     if (
       selected.data.some(
-        (number) => !review.data.rooms.some((room) => pdfContourRoomNumbers(room).includes(number)),
+        (number) => !physicalRooms.some((room) => pdfContourRoomNumbers(room).includes(number)),
+      ) ||
+      anchors?.data.some(
+        (number) => !physicalRooms.some((room) => pdfContourRoomNumbers(room).includes(number)),
       )
     )
-      return { ok: false, error: 'Выберите комнаты, размеченные на текущем листе.' }
+      return {
+        ok: false,
+        error: 'Выберите комнаты с проверенными физическими границами на текущем листе.',
+      }
 
     const object = await getObject(project.planUrl)
     const body = Buffer.from(object.body)

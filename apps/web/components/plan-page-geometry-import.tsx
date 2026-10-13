@@ -18,7 +18,14 @@ export function PlanPageGeometryImport({
   reading: PlanReading
 }) {
   const router = useRouter()
-  const options = (reading.pageReview?.contours.rooms ?? []).flatMap((contour) => {
+  const reviewedContours = reading.pageReview?.contours.rooms ?? []
+  const sourceOnlyContours = reviewedContours.filter(
+    (contour) => contour.sourceTopology !== undefined,
+  )
+  const physicalContours = reviewedContours.filter(
+    (contour) => contour.sourceTopology === undefined,
+  )
+  const options = physicalContours.flatMap((contour) => {
     const numbers = [...pdfContourRoomNumbers(contour)]
     const members = numbers.map((number) =>
       reading.rooms.filter((room) => room.sourceNumber === number),
@@ -37,7 +44,9 @@ export function PlanPageGeometryImport({
       : []
   })
   const sourceRooms = reading.pageReview?.sourceRooms ?? []
-  const reviewedNumbers = new Set(options.flatMap((room) => room.numbers))
+  const reviewedNumbers = new Set(
+    reviewedContours.flatMap((room) => [...pdfContourRoomNumbers(room)]),
+  )
   const readingNumbers = new Set(
     reading.rooms.flatMap((room) => (room.sourceNumber === undefined ? [] : [room.sourceNumber])),
   )
@@ -47,9 +56,7 @@ export function PlanPageGeometryImport({
   const anchors = reading.rooms.filter(
     (room) =>
       room.sourceNumber !== undefined &&
-      reading.pageReview?.contours.rooms.some(
-        (contour) => contour.roomSourceNumber === room.sourceNumber,
-      ) &&
+      physicalContours.some((contour) => contour.roomSourceNumber === room.sourceNumber) &&
       room.measurementEvidence?.width &&
       room.measurementEvidence.depth &&
       room.widthCm &&
@@ -60,18 +67,17 @@ export function PlanPageGeometryImport({
   const [selected, setSelected] = useState<number[]>([])
   const [globalScale, setGlobalScale] = useState(false)
   const [edgeScale, setEdgeScale] = useState(false)
-  const edgeCount =
-    reading.pageReview?.contours.rooms.reduce(
-      (sum, room) => sum + (room.dimensionEdges?.length ?? 0),
-      0,
-    ) ?? 0
+  const edgeCount = physicalContours.reduce(
+    (sum, room) => sum + (room.dimensionEdges?.length ?? 0),
+    0,
+  )
   const [anchor, setAnchor] = useState(String(anchors[0]?.sourceNumber ?? ''))
   const [error, setError] = useState<string>()
   const [conflict, setConflict] = useState(false)
   const [saving, startSaving] = useTransition()
   const [replaceAcknowledged, setReplaceAcknowledged] = useState(false)
   const replacing = reading.geometry?.requiresSourceReviewReimport === true
-  if (reading.pageReview?.contours.rooms.some((room) => room.sourceTopology !== undefined))
+  if (sourceOnlyContours.length && !options.length)
     return (
       <p role="status" className="text-sm leading-relaxed text-ink-2">
         Исходные контуры сохранены с точными пересечениями и вырезами. Их физические границы ещё не
@@ -135,6 +141,14 @@ export function PlanPageGeometryImport({
         Это ещё не подтверждённая расстановка. После переноса откройте редактор и сверьте контуры,
         проёмы и мерки по исходному листу или замерам на месте.
       </p>
+      {sourceOnlyContours.length > 0 ? (
+        <p role="status" className="mt-3 max-w-2xl text-[14px] leading-relaxed text-ink-2">
+          Исходные области № {sourceOnlyContours.map((room) => pdfContourKey(room)).join(', ')}{' '}
+          сохранены, но их физические границы ещё не проверены. Они не войдут в 2D/3D; общий контур
+          пола, наружная граница и технические пустоты также останутся на исходном листе до полной
+          проверки.
+        </p>
+      ) : null}
       {replacing ? (
         <label className="mt-4 flex min-h-11 max-w-2xl items-start gap-3 text-sm">
           <input
