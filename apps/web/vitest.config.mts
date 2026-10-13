@@ -8,6 +8,9 @@ export default defineConfig({
     alias: [{ find: /^@\//, replacement: fileURLToPath(new URL('./', import.meta.url)) }],
   },
   test: {
+    // The PDF/geometry fixtures are CPU-heavy; unconstrained file workers can
+    // starve individual tests enough to hit the 5-second timeout on CI.
+    maxWorkers: 4,
     include: ['**/*.test.ts'],
     exclude: ['node_modules/**', '.next/**', 'e2e/**', '**/*.integration.test.ts'],
   },

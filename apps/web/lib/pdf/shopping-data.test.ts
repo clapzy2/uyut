@@ -173,6 +173,24 @@ function addRoom(data: ProjectSnapshot): Room {
 }
 
 describe('данные нового задания для мастера', () => {
+  it('exports saved room dimensions without purchases, a concept or a confirmed floor', async () => {
+    const data = snapshot()
+    const room = addRoom(data)
+    room.measurements = { widthCm: 300, depthCm: 400, ceilingCm: 270 }
+    data.shopping = []
+    data.concepts.clear()
+
+    const { pdf } = await build(data)
+    expect(pdf.rooms).toHaveLength(1)
+    expect(pdf.rooms[0]?.plan?.placed).toEqual([])
+
+    const html = renderProjectHtml(pdf, { fontCss: '' })
+    expect(html).toContain('Гостиная · сохранённые мерки')
+    expect(html).toContain('Сохранённые габариты комнаты: 300 × 400 см')
+    expect(html).toContain('Высота потолка по мерке комнаты: 270 см')
+    expect(html).not.toContain('2D-схема · выбранные товары')
+  })
+
   it('передаёт пожелание перекраски и предупреждение неподтверждённого варианта', () => {
     const data = snapshot()
     addRoom(data)
@@ -420,7 +438,8 @@ describe('selected shopping variant in PDF data without AI or external requests'
       expect(pdf.rooms[0]?.plan?.placed).toHaveLength(0)
       expect(pdf.rooms[0]?.plan?.safetySummary.status).toBe('blocked')
       const html = renderProjectHtml(pdf, { fontCss: '' })
-      expect(html).toContain(`${name} · расстановка`)
+      expect(html).toContain(`${name} · сохранённые мерки`)
+      expect(html).toContain('Сохранённые габариты комнаты: 300 × 300 см')
       expect(html).toContain('Требуется перестановка')
       expect(html).toContain('Кровать')
     })

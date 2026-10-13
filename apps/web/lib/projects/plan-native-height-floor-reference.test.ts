@@ -65,6 +65,39 @@ describe('local finished-floor height reference, not a common world zero', () =>
     })
     expect(result).not.toHaveProperty('floorElevationMm')
   })
+  it('holds the reference when a later image may cover its whole source caption', () => {
+    const input = fixture()
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 100,
+          kind: 'text',
+          bounds: null,
+          reason: 'text-paint-envelope-unavailable',
+        },
+        {
+          operationIndex: 200,
+          kind: 'image',
+          bounds: { left: 50, top: 12, right: 60, bottom: 18 },
+          reason: null,
+        },
+      ],
+    }
+    expect(nativeHeightFloorReferenceEvidence(input).references[0]).toMatchObject({
+      status: 'unresolved',
+      datum: null,
+      reason: 'later-paint-may-cover-floor-reference',
+    })
+    input.work.paintBounds.events[1] = {
+      operationIndex: 200,
+      kind: 'image',
+      bounds: { left: 400, top: 400, right: 500, bottom: 500 },
+      reason: null,
+    }
+    expect(nativeHeightFloorReferenceEvidence(input).references[0]?.status).toBe('verified')
+  })
   it.each([
     'Все отметки высот на замере даны от существующего пола',
     `${literal}, кроме кухни`,
