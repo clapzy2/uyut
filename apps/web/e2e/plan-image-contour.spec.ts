@@ -275,9 +275,14 @@ test.describe('обводка растрового контура по двум 
       regionBox.y + (790 * regionBox.height) / 970,
     )
     await expect(floorTrace.locator('svg polygon[stroke-dasharray="7 5"]')).toBeVisible()
+    await expect(floorTrace.locator('svg line[stroke="#186c55"]').first()).toHaveAttribute(
+      'stroke-dasharray',
+      '3 3',
+    )
     expect(await savedGeometry()).toEqual(geometry)
     await floorTrace.getByRole('button', { name: 'Скрыть подсказку', exact: true }).click()
     await expect(floorTrace.locator('svg polygon[stroke-dasharray="7 5"]')).toHaveCount(0)
+    await expect(floorTrace.locator('svg line[stroke="#186c55"]')).toHaveCount(0)
 
     const guideRoute = '**/plan-raster-edges?*'
     await page.route(guideRoute, (route) => route.fulfill({ status: 422, body: 'Unavailable' }))

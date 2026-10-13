@@ -3,6 +3,7 @@ import {
   rasterCornerResponse,
   rasterRegionAt,
   rasterRegionResponse,
+  rasterRegionStraightEdges,
   snapRasterCorner,
 } from './plan-raster-snap'
 
@@ -67,6 +68,28 @@ describe('optional source pixel corner assistance', () => {
     expect(
       rasterRegionAt({ x: 650, y: 780 }, [region, { ...region, id: 'region-584' }]),
     ).toBeUndefined()
+  })
+  it('highlights long straight pixel stretches without joining short arc segments', () => {
+    const guide = {
+      id: 'region-1',
+      polygon: [
+        { x: 0, y: 0 },
+        { x: 8, y: 4 },
+        { x: 14, y: 11 },
+        { x: 16, y: 20 },
+        { x: 100, y: 20 },
+        { x: 100, y: 100 },
+        { x: 0, y: 100 },
+      ],
+      hasInteriorIslands: false,
+    }
+    expect(rasterRegionStraightEdges(guide, 200, 160)).toEqual([
+      { start: { x: 16, y: 20 }, end: { x: 100, y: 20 } },
+      { start: { x: 100, y: 20 }, end: { x: 100, y: 100 } },
+      { start: { x: 100, y: 100 }, end: { x: 0, y: 100 } },
+      { start: { x: 0, y: 100 }, end: { x: 0, y: 0 } },
+    ])
+    expect(rasterRegionStraightEdges(guide, 0, 160)).toEqual([])
   })
   it.each([
     { ...regionResponse, regionTruncated: true },

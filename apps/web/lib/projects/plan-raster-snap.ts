@@ -153,3 +153,18 @@ export function rasterRegionAt(
   }
   return match
 }
+
+/** Long straight stretches of the pixel boundary, not evidence of a physical wall. */
+export function rasterRegionStraightEdges(
+  region: RasterRegionGuide,
+  width: number,
+  height: number,
+): { start: ImageContourPoint; end: ImageContourPoint }[] {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return []
+  const minimumLength = Math.max(20, Math.min(width, height) * 0.06)
+  return region.polygon.flatMap((start, index) => {
+    const end = region.polygon[(index + 1) % region.polygon.length]
+    if (!end || Math.hypot(end.x - start.x, end.y - start.y) < minimumLength) return []
+    return [{ start, end }]
+  })
+}
