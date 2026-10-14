@@ -242,6 +242,7 @@ describe('source reference parsing and lossless whole-ring draft copy', () => {
     'ring',
     'edge',
     'region-side',
+    'invalid-role',
     'span',
     'sub-double-gap',
     'coverage',
@@ -262,6 +263,7 @@ describe('source reference parsing and lossless whole-ring draft copy', () => {
     if (fault === 'ring') row.ringIndex = 1
     if (fault === 'edge') row.edgeIndex = 99
     if (fault === 'region-side') row.sourceRegionSide = 'right'
+    if (fault === 'invalid-role') Object.assign(row, { declaredRole: 'confirmed-wall' })
     if (fault === 'span') contact.endKey = '400/1:100/1'
     if (fault === 'sub-double-gap') {
       const denominator = 10n ** 40n

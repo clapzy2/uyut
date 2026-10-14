@@ -62,6 +62,16 @@ function buttons(node: ReactNode): ReactElement<{ disabled: boolean; onClick: ()
   return buttons(node.props.children)
 }
 
+function edgeButtons(
+  node: ReactNode,
+): ReactElement<{ 'aria-pressed': boolean; onClick: () => void }>[] {
+  if (Array.isArray(node)) return node.flatMap(edgeButtons)
+  if (!isValidElement<{ children?: ReactNode; 'aria-pressed'?: boolean }>(node)) return []
+  if (node.type === 'button' && node.props['aria-pressed'] !== undefined)
+    return [node as ReactElement<{ 'aria-pressed': boolean; onClick: () => void }>]
+  return edgeButtons(node.props.children)
+}
+
 function html(input: Parameters<typeof PlanPageSourceFloorControls>[0]) {
   return renderToStaticMarkup(createElement(PlanPageSourceFloorControls, input))
 }
@@ -154,7 +164,10 @@ describe('source floor controls', () => {
   )
 
   it('shows source command coverage and paint side without claiming a physical wall or jamb', () => {
+    const onHighlightEdge = vi.fn()
     const input = props({
+      onHighlightEdge,
+      highlightedEdge: { ringIndex: 0, edgeIndex: 0 },
       reference: {
         ...reference,
         boundaryInspection: { status: 'checked', reason: null },
@@ -166,6 +179,7 @@ describe('source floor controls', () => {
                 ringIndex: 0,
                 edgeIndex: 0,
                 sourceRegionSide: 'left',
+                declaredRole: 'wall-face',
                 status: 'linked',
                 coverage: 'complete',
                 reason: null,
@@ -191,9 +205,15 @@ describe('source floor controls', () => {
     expect(markup).toContain('Полное покрытие источником')
     expect(markup).toContain('10/0/2')
     expect(markup).toContain('С другой стороны')
+    expect(markup).toContain('Заявлена грань стены')
+    expect(markup).toContain('Физическая граница и косяк не подтверждены')
     expect(markup).toContain('Возможных пропусков: 2')
-    expect(markup).toContain('ещё не проверка строительных стен, косяков или проходов')
+    expect(markup).toContain('не подтверждают строительную стену, косяк')
     expect(markup).not.toContain('physicalJambAccepted')
+    expect(markup).toContain('aria-pressed="true"')
+    const edge = edgeButtons(PlanPageSourceFloorControls(input))[0]
+    edge?.props.onClick()
+    expect(onHighlightEdge).toHaveBeenCalledWith(undefined)
   })
 
   it('keeps whole-source copy available when boundary inspection exceeds its budget', () => {

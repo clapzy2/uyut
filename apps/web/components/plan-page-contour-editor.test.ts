@@ -68,6 +68,7 @@ const slots = {
   sourceFloorsShown: 27,
   sourceFloorsLoading: 28,
   sourceFloorsError: 29,
+  sourceEdgeHighlight: 30,
 } as const
 
 function sourceFixture() {
@@ -415,6 +416,16 @@ function nestedProps<T>(node: unknown, component: unknown): T | undefined {
   return undefined
 }
 
+function nestedElements(node: unknown, type: string): ReactElement[] {
+  if (Array.isArray(node)) return node.flatMap((child) => nestedElements(child, type))
+  if (!node || typeof node !== 'object' || !('props' in node)) return []
+  const element = node as ReactElement<{ children?: unknown }>
+  return [
+    ...(element.type === type ? [element] : []),
+    ...nestedElements(element.props.children, type),
+  ]
+}
+
 describe('source-floor bridge in the existing editor', () => {
   const revision = 'b'.repeat(64)
   function setup() {
@@ -487,6 +498,34 @@ describe('source-floor bridge in the existing editor', () => {
     ])
     expect(updateFor(slots.checked, true)).toBe(false)
     expect(hooks.setters.get(2)).not.toHaveBeenCalled()
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
+  it('highlights only the selected source edge on the matching page and revision', () => {
+    const { fixture } = setup()
+    const editor = renderEditor(fixture.reading, revision)
+    controls(editor).onHighlightEdge?.({ ringIndex: 0, edgeIndex: 1 })
+    const highlight = updateFor(slots.sourceEdgeHighlight, undefined)
+    expect(highlight).toMatchObject({
+      revision,
+      page: 2,
+      floorId: 'source-floor-1',
+      ringIndex: 0,
+      edgeIndex: 1,
+    })
+    hooks.values.set(slots.sourceEdgeHighlight, highlight)
+    hooks.cursor = 0
+    const matching = renderEditor(fixture.reading, revision)
+    const lines = nestedElements(matching, 'line').filter(
+      (line) => (line.props as { stroke?: string }).stroke === '#7c3aed',
+    )
+    expect(lines).toHaveLength(1)
+    expect(lines[0]?.props).toMatchObject({ x1: 30, y1: 10, x2: 30, y2: 30 })
+    hooks.cursor = 0
+    expect(
+      nestedElements(renderEditor(fixture.reading, 'changed'), 'line').some(
+        (line) => (line.props as { stroke?: string }).stroke === '#7c3aed',
+      ),
+    ).toBe(false)
     expect(savePlanPageReview).not.toHaveBeenCalled()
   })
   it('keeps rational crossings and holes in a source-only draft, locks vertex editing and allows whole removal', () => {

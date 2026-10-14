@@ -122,6 +122,13 @@ export function PlanPageContourEditor({
   const [sourceFloorsShown, setSourceFloorsShown] = useState(false)
   const [sourceFloorsLoading, setSourceFloorsLoading] = useState(false)
   const [sourceFloorsError, setSourceFloorsError] = useState<string>()
+  const [sourceEdgeHighlight, setSourceEdgeHighlight] = useState<{
+    revision: string
+    page: number
+    floorId: string
+    ringIndex: number
+    edgeIndex: number
+  }>()
   const sourceFloorsRequest = useRef<AbortController | undefined>(undefined)
   const draftSource = useRef<PlanPagePreview | undefined>(undefined)
   const initialRevision = useRef(sourceRevision)
@@ -206,6 +213,28 @@ export function PlanPageContourEditor({
   const selectedSourceFloor =
     currentSourceFloors?.status === 'checked'
       ? currentSourceFloors.floors.find((item) => item.sourceRoomKey === sourceRoomKey)
+      : undefined
+  const highlightedSourceEdge =
+    sourceFloorsShown &&
+    selectedSourceFloor &&
+    sourceEdgeHighlight?.revision === sourceRevision &&
+    sourceEdgeHighlight.page === pageNumber &&
+    sourceEdgeHighlight.floorId === selectedSourceFloor.id
+      ? sourceEdgeHighlight
+      : undefined
+  const highlightedSourceRing = highlightedSourceEdge
+    ? [selectedSourceFloor?.polygon, ...(selectedSourceFloor?.holes ?? [])][
+        highlightedSourceEdge.ringIndex
+      ]
+    : undefined
+  const highlightedSourceSegment =
+    highlightedSourceRing && highlightedSourceEdge
+      ? [
+          highlightedSourceRing[highlightedSourceEdge.edgeIndex],
+          highlightedSourceRing[
+            (highlightedSourceEdge.edgeIndex + 1) % highlightedSourceRing.length
+          ],
+        ]
       : undefined
   const sourceFloorConversion = useMemo(
     () =>
@@ -1047,8 +1076,21 @@ export function PlanPageContourEditor({
               draftExists={Boolean(selectedDraft)}
               conversion={sourceFloorConversion}
               error={sourceFloorsError}
+              highlightedEdge={highlightedSourceEdge}
               onToggle={toggleSourceFloors}
               onCopy={copySourceFloor}
+              onHighlightEdge={(edge) =>
+                setSourceEdgeHighlight(
+                  edge && selectedSourceFloor
+                    ? {
+                        revision: sourceRevision,
+                        page: pageNumber,
+                        floorId: selectedSourceFloor.id,
+                        ...edge,
+                      }
+                    : undefined,
+                )
+              }
             />
           ) : null}
           <label className="flex items-center gap-3 text-xs text-ink-2">
@@ -1124,6 +1166,22 @@ export function PlanPageContourEditor({
                       подтверждённая граница пола.
                     </title>
                   </path>
+                ) : null}
+                {highlightedSourceSegment?.[0] && highlightedSourceSegment[1] ? (
+                  <line
+                    x1={highlightedSourceSegment[0].x}
+                    y1={highlightedSourceSegment[0].y}
+                    x2={highlightedSourceSegment[1].x}
+                    y2={highlightedSourceSegment[1].y}
+                    stroke="#7c3aed"
+                    strokeWidth={5}
+                    vectorEffect="non-scaling-stroke"
+                    pointerEvents="none"
+                  >
+                    <title>
+                      Выбранная грань исходной области; её физическая роль не подтверждена.
+                    </title>
+                  </line>
                 ) : null}
                 {dimensionHighlight?.roomKey === selected &&
                 target.kind === 'room' &&

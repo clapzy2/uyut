@@ -118,6 +118,7 @@ const boundarySupport = z.strictObject({
   ringIndex: z.number().int().min(0).max(50),
   edgeIndex: z.number().int().min(0).max(99),
   sourceRegionSide: z.enum(['left', 'right']),
+  declaredRole: z.enum(['wall-face', 'opening-boundary', 'level-separator', 'unresolved']),
   status: z.enum(['linked', 'partial', 'ambiguous', 'unobserved']),
   coverage: z.enum(['complete', 'partial', 'unproved']),
   reason: z
@@ -268,6 +269,7 @@ export function sourceFloorReferenceFromResponse(
         !end ||
         !side ||
         seenEdges.has(edgeId) ||
+        (support.ringIndex > 0 && support.declaredRole !== 'unresolved') ||
         support.sourceRegionSide !== (side > 0 ? 'left' : 'right')
       )
         return null
