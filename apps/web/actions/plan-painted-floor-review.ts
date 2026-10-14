@@ -10,6 +10,7 @@ import { recordAudit } from '@/lib/audit'
 import { AccessError, assertOwner } from '@/lib/projects/access'
 import { PlanReadError, preparePlanPage } from '@/lib/projects/plan-document'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
+import { nativePaintedFloorProposal } from '@/lib/projects/plan-native-painted-floor-proposal'
 import { nativePaintedFloorReview } from '@/lib/projects/plan-native-painted-floor-review'
 import { setPlanReading } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -76,6 +77,67 @@ const reviewedSchema = z
       .max(50),
   })
   .strict()
+
+/** Prepare an unsaved, source-exact draft; the user must still compare it with the PDF. */
+export async function proposePlanPaintedFloorReview(
+  projectId: string,
+  expectedRevision: string,
+): Promise<ActionResult<{ json: string; suggested: number; skipped: number; rooms: string[] }>> {
+  const session = await getSession()
+  if (!session) return { ok: false, error: 'Сессия закончилась. Войдите снова.' }
+  try {
+    const project = await assertOwner(session.user.id, projectId)
+    if (expectedRevision !== planEditRevision(project.planUrl, project.planReading))
+      throw new PlanEditConflictError()
+    const reading = project.planReading
+    if (!project.planUrl?.toLowerCase().endsWith('.pdf') || !reading?.sourcePage)
+      return { ok: false, error: 'Сначала прочитайте выбранный лист PDF-плана.' }
+    if (reading.planState !== 'existing')
+      return { ok: false, error: 'Предложение доступно только для существующего плана.' }
+    const object = await getObject(project.planUrl)
+    const body = Buffer.from(object.body)
+    const originalHash = createHash('sha256').update(body).digest('hex')
+    const page = await preparePlanPage(body, true, reading.sourcePage, true, true)
+    const native = page.nativeTextAnchors
+    if (
+      page.pageNumber !== reading.sourcePage ||
+      !native ||
+      !page.linework ||
+      !page.lineworkRasterSource ||
+      native.originalPdfSha256 !== originalHash ||
+      native.source.page !== page.pageNumber ||
+      native.source.sha256 !== createHash('sha256').update(page.image.body).digest('hex') ||
+      native.source.width !== page.image.width ||
+      native.source.height !== page.image.height
+    )
+      return { ok: false, error: 'Исходный PDF или его нативные контуры сейчас недоступны.' }
+    const result = nativePaintedFloorProposal({
+      native,
+      work: page.linework,
+      lineworkSource: page.lineworkRasterSource,
+    })
+    if (!result.proposal) return { ok: false, error: result.reason ?? 'Нет однозначных областей.' }
+    const json = JSON.stringify(result.proposal, null, 2)
+    if (Buffer.byteLength(json, 'utf8') > MAX_REVIEW_BYTES)
+      return {
+        ok: false,
+        error: 'Предложение слишком велико для сохранения; требуется ручная проверка.',
+      }
+    const labelNames = new Map(native.labels.map((label) => [label.id, label.name]))
+    const rooms = result.proposal.floors.map(
+      (floor) =>
+        `${floor.owner.sourceRoomKey} — ${labelNames.get(floor.owner.nameLabelId) ?? 'без названия'}`,
+    )
+    return { ok: true, data: { json, suggested: result.suggested, skipped: result.skipped, rooms } }
+  } catch (error) {
+    if (error instanceof PlanEditConflictError)
+      return { ok: false, error: error.message, code: 'plan-conflict' }
+    if (error instanceof AccessError || error instanceof PlanReadError)
+      return { ok: false, error: error.message }
+    console.error('painted floor proposal failed', error)
+    return { ok: false, error: 'Не получилось подготовить области пола. Попробуйте ещё раз.' }
+  }
+}
 
 /** Persist explicit source-role declarations only. This never confirms metric or physical geometry. */
 export async function savePlanPaintedFloorReview(
