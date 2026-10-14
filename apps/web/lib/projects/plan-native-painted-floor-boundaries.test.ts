@@ -74,6 +74,9 @@ describe('fresh exact source paint boundary coverage, not physical walls', () =>
   })
   it('links fill-only boundaries without changing the legacy stroked-edge contract', () => {
     const fixture = input()
+    const firstRole = fixture.reviewed.floors[0]?.boundaryRoles[0]
+    if (!firstRole) throw new Error('Missing reviewed edge')
+    firstRole.kind = 'wall-face'
     const before = structuredClone(fixture)
     const result = nativePaintedFloorBoundarySupports(fixture)
     expect(result.boundaryInspection).toMatchObject({ status: 'checked', reason: null })
@@ -88,6 +91,8 @@ describe('fresh exact source paint boundary coverage, not physical walls', () =>
       expect(edge.contacts).toHaveLength(1)
       expect(edge.contacts[0]).toMatchObject({ operationIndex: 10, paintSide: 'selected-region' })
     }
+    expect(result.boundaryInspection.floors[0]?.edges[0]?.declaredRole).toBe('wall-face')
+    expect(result.boundaryInspection.floors[0]?.edges[1]?.declaredRole).toBe('unresolved')
     expect(result).toMatchObject({
       physicalBoundariesAccepted: false,
       readyFor2D: false,
@@ -113,6 +118,11 @@ describe('fresh exact source paint boundary coverage, not physical walls', () =>
     ).toEqual(result.boundaryInspection)
     const floor = result.floors[0]
     const edges = result.boundaryInspection.floors[0]?.edges
+    expect(
+      edges
+        ?.filter((edge) => edge.ringIndex > 0)
+        .every((edge) => edge.declaredRole === 'unresolved'),
+    ).toBe(true)
     if (!floor || !edges) throw new Error('Missing boundary inspection')
     expect(
       floor.polygon.some(

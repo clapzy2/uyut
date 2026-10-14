@@ -1,6 +1,9 @@
 import { exactNativePointKey } from './plan-native-exact-intersections'
 import { nativeFaceRationalPredicates } from './plan-native-face-rational'
-import { nativePaintedFloorReview } from './plan-native-painted-floor-review'
+import {
+  nativePaintedFloorReview,
+  type PaintedFloorBoundaryRole,
+} from './plan-native-painted-floor-review'
 import {
   createNativeSourceSpanVisibility,
   type NativeSourceSpanVisibility,
@@ -15,6 +18,7 @@ export type SourcePaintBoundarySupport = {
   ringIndex: number
   edgeIndex: number
   sourceRegionSide: 'left' | 'right'
+  declaredRole: PaintedFloorBoundaryRole
   status: 'linked' | 'partial' | 'ambiguous' | 'unobserved'
   coverage: 'complete' | 'partial' | 'unproved'
   reason:
@@ -123,6 +127,10 @@ export function nativePaintedFloorBoundarySupports(input: Input) {
             ringIndex,
             edgeIndex,
             sourceRegionSide: regionSide > 0 ? 'left' : 'right',
+            declaredRole:
+              ringIndex === 0
+                ? (floor.edges[edgeIndex]?.declaredRole ?? 'unresolved')
+                : 'unresolved',
             status: 'unobserved',
             coverage: 'unproved',
             reason: 'missing-source-span',

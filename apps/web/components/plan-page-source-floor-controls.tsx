@@ -24,8 +24,10 @@ export function PlanPageSourceFloorControls({
   draftExists,
   conversion,
   error,
+  highlightedEdge,
   onToggle,
   onCopy,
+  onHighlightEdge,
 }: {
   reference?: SourceFloorReference
   selectedKey?: string
@@ -35,8 +37,10 @@ export function PlanPageSourceFloorControls({
   draftExists: boolean
   conversion: SourceFloorDraftResult
   error?: string
+  highlightedEdge?: { ringIndex: number; edgeIndex: number }
   onToggle: () => void
   onCopy: () => void
+  onHighlightEdge?: (edge?: { ringIndex: number; edgeIndex: number }) => void
 }) {
   const current = shown && !loading && !error ? reference : undefined
   const floor =
@@ -61,6 +65,16 @@ export function PlanPageSourceFloorControls({
     opening?.targets.filter((target) =>
       target.contacts.some((contact) => contact.floorId === floor?.id),
     ) ?? []
+  const openingByEdge = new Map<string, typeof openingContacts>()
+  for (const target of openingContacts) {
+    for (const contact of target.contacts) {
+      if (contact.floorId !== floor?.id) continue
+      const key = `${contact.ringIndex}:${contact.edgeIndex}`
+      const matches = openingByEdge.get(key) ?? []
+      matches.push(target)
+      openingByEdge.set(key, matches)
+    }
+  }
   const openingLabels = {
     matched: 'Полное совпадение исходных отрезков',
     partial: 'Частичное совпадение',
@@ -72,6 +86,12 @@ export function PlanPageSourceFloorControls({
     'frame-side': 'Сторона рамки',
     'frame-jamb': 'Торец рамки',
     'panel-end': 'Конец профиля',
+  }
+  const roleLabels = {
+    'wall-face': 'Заявлена грань стены',
+    'opening-boundary': 'Заявлена граница проёма',
+    'level-separator': 'Заявлен перепад уровня',
+    unresolved: 'Назначение не задано',
   }
 
   return (
@@ -132,9 +152,10 @@ export function PlanPageSourceFloorControls({
               <p className="mb-3 text-xs leading-relaxed text-ink-2">
                 Связано с командами PDF:{' '}
                 {floor.boundarySupports.filter((edge) => edge.status === 'linked').length} из{' '}
-                {floor.boundarySupports.length} граней. Покрытие и сторона краски вычислены по
-                точным ключам. Это ещё не проверка строительных стен, косяков или проходов;
-                пропущенные штрихи и физическое назначение требуют отдельной сверки.
+                {floor.boundarySupports.length} граней. Выберите номер грани, чтобы увидеть её
+                поверх исходного листа. Покрытие и сторона краски вычислены по точным ключам;
+                заявленная роль и совпадение с рамкой не подтверждают строительную стену, косяк или
+                проход. Перенос в 2D/3D удержан.
               </p>
               <div className="max-w-full overflow-x-auto">
                 <table className="w-full text-left text-xs leading-relaxed">
@@ -149,22 +170,44 @@ export function PlanPageSourceFloorControls({
                       <th className="py-2 pr-3 font-medium" scope="col">
                         Связь с PDF
                       </th>
+                      <th className="py-2 pr-3 font-medium" scope="col">
+                        Краска и роль
+                      </th>
                       <th className="py-2 font-medium" scope="col">
-                        Краска
+                        Контакт с проёмом
                       </th>
                     </tr>
                   </thead>
                   <tbody>
                     {floor.boundarySupports.map((edge) => {
                       const sides = new Set(edge.contacts.map((contact) => contact.paintSide))
+                      const edgeOpenings =
+                        openingByEdge.get(`${edge.ringIndex}:${edge.edgeIndex}`) ?? []
+                      const selected =
+                        highlightedEdge?.ringIndex === edge.ringIndex &&
+                        highlightedEdge.edgeIndex === edge.edgeIndex
                       return (
                         <tr
                           key={`${edge.ringIndex}:${edge.edgeIndex}`}
                           className="border-b border-line align-top"
                         >
                           <th className="py-2 pr-3 font-normal" scope="row">
-                            {edge.ringIndex === 0 ? 'Контур' : `Вырез ${edge.ringIndex}`} ·{' '}
-                            {edge.edgeIndex + 1}
+                            <button
+                              type="button"
+                              className="min-h-11 text-left underline decoration-line underline-offset-4 disabled:no-underline"
+                              aria-pressed={selected}
+                              disabled={!onHighlightEdge}
+                              onClick={() =>
+                                onHighlightEdge?.(
+                                  selected
+                                    ? undefined
+                                    : { ringIndex: edge.ringIndex, edgeIndex: edge.edgeIndex },
+                                )
+                              }
+                            >
+                              {edge.ringIndex === 0 ? 'Контур' : `Вырез ${edge.ringIndex}`} ·{' '}
+                              {edge.edgeIndex + 1}
+                            </button>
                           </th>
                           <td className="py-2 pr-3">
                             {boundaryLabels[edge.status]}
@@ -198,7 +241,7 @@ export function PlanPageSourceFloorControls({
                               </p>
                             ) : null}
                           </td>
-                          <td className="py-2 text-ink-2">
+                          <td className="py-2 pr-3 text-ink-2">
                             {sides.size > 1
                               ? 'С обеих сторон'
                               : sides.has('opposite-region')
@@ -206,6 +249,20 @@ export function PlanPageSourceFloorControls({
                                 : sides.has('selected-region')
                                   ? 'Со стороны области'
                                   : 'Не определена'}
+                            <p>
+                              {roleLabels[edge.declaredRole]} — только отметка, не доказательство
+                            </p>
+                          </td>
+                          <td className="py-2 text-ink-2">
+                            {opening?.status !== 'checked'
+                              ? 'Сопоставление с проёмами удержано'
+                              : edgeOpenings.length
+                                ? `${edgeOpenings.length} совпадений с рамками или профилями`
+                                : 'Не найден; инвентарь проёмов неполный'}
+                            {edgeOpenings.some((target) => target.status !== 'matched') ? (
+                              <p>Есть неоднозначные или частичные совпадения</p>
+                            ) : null}
+                            <p>Физическая граница и косяк не подтверждены</p>
                           </td>
                         </tr>
                       )
