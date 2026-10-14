@@ -660,6 +660,19 @@ describe('read-only native review presentation', () => {
     expect(html).not.toContain('Подтвердить')
     expect(html).not.toContain('Сохранить')
   })
+  it('explains that schedule prefill changes only the unsaved review form', () => {
+    const html = renderToStaticMarkup(
+      createElement(PlanNativeReview, {
+        projectId: 'project',
+        pageNumber: 1,
+        sourceRevision: 'c'.repeat(64),
+        onConflict: () => {},
+        onDocumentarySchedule: () => {},
+      }),
+    )
+    expect(html).toContain('недостающие балконы и лоджии появятся ниже в черновике')
+    expect(html).toContain('строки не переносятся в проект автоматически')
+  })
   it('explains readiness and unknown roles without accepting rooms or replacing saved geometry', () => {
     const packet = nativeReviewPacket({
       source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },

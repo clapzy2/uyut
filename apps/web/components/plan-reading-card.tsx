@@ -26,9 +26,11 @@ import {
   roomConditionLabels,
   roomKindLabels,
 } from '@/lib/projects/format'
+import type { NativeReviewPacket } from '@/lib/projects/plan-native-review-packet'
 import {
   appendSourcePlanRow,
   appendUnlabeledOutdoorPlanRow,
+  appendVerifiedOutdoorScheduleRows,
   areaCheck,
   clearUnreviewedPlanAxes,
   type ExistingRoom,
@@ -351,6 +353,26 @@ export function PlanReadingCard({
           pageNumber={Number(page)}
           sourceRevision={baseRevision}
           disabled={reading_ || saving || conflict}
+          onDocumentarySchedule={
+            rows && !confirmed
+              ? (packet: NativeReviewPacket) => {
+                  if (
+                    packet.sourceRevision !== baseRevision ||
+                    packet.source.pdfPage !== Number(page) ||
+                    packet.source.state !== 'existing' ||
+                    reading_ ||
+                    saving ||
+                    conflict
+                  )
+                    return
+                  setRows((current) =>
+                    current
+                      ? appendVerifiedOutdoorScheduleRows(current, packet.roomSchedule)
+                      : current,
+                  )
+                }
+              : undefined
+          }
           onConflict={() => {
             setConflict(true)
             router.refresh()
