@@ -31,7 +31,10 @@ vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidate }))
 vi.mock('next/headers', () => ({ headers: async () => new Headers() }))
 
 import { AccessError } from '@/lib/projects/access'
-import { savePlanPaintedFloorReview } from './plan-painted-floor-review'
+import {
+  proposePlanPaintedFloorReview,
+  savePlanPaintedFloorReview,
+} from './plan-painted-floor-review'
 
 const required = <T>(value: T | undefined): T => {
   if (value === undefined) throw new Error('Missing fixture')
@@ -184,6 +187,27 @@ describe('persist explicit source-painted floor review', () => {
   })
   const save = () =>
     savePlanPaintedFloorReview('project', JSON.stringify(current.reviewed), current.revision)
+
+  it('returns an unsaved source-exact draft and leaves the current reading untouched', async () => {
+    const result = await proposePlanPaintedFloorReview('project', current.revision)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.data.suggested).toBe(1)
+    expect(result.data.rooms).toEqual(['3 — Спальня'])
+    expect(JSON.parse(result.data.json)).toEqual(current.reviewed)
+    expect(mocks.save).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
+    expect(current.reading.paintedFloorReview).toBeUndefined()
+  })
+
+  it('does not fetch a source or modify data for a stale proposal request', async () => {
+    expect(await proposePlanPaintedFloorReview('project', 'stale')).toMatchObject({
+      ok: false,
+      code: 'plan-conflict',
+    })
+    expect(mocks.object).not.toHaveBeenCalled()
+    expect(mocks.save).not.toHaveBeenCalled()
+  })
 
   it('checks actual source-floor core and saves only validated declarations without confirming geometry', async () => {
     const proof = nativePaintedFloorReview({ ...current.common, reviewed: current.reviewed })

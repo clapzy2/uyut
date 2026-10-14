@@ -3,7 +3,10 @@
 import type { PlanReading } from '@uyut/db'
 import { Button, inputClassName } from '@uyut/ui'
 import { useState } from 'react'
-import { savePlanPaintedFloorReview } from '@/actions/plan-painted-floor-review'
+import {
+  proposePlanPaintedFloorReview,
+  savePlanPaintedFloorReview,
+} from '@/actions/plan-painted-floor-review'
 
 /** Explicit advanced source selection, never an automatic floor/measurement confirmation. */
 export function PlanPaintedFloorReviewEditor({
@@ -25,6 +28,31 @@ export function PlanPaintedFloorReviewEditor({
   const [acknowledged, setAcknowledged] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string>()
+  const [proposalNote, setProposalNote] = useState<string>()
+  const [proposalRooms, setProposalRooms] = useState<string[]>([])
+  async function propose() {
+    if (pending || disabled || json.trim()) return
+    setPending(true)
+    setError(undefined)
+    try {
+      const result = await proposePlanPaintedFloorReview(projectId, revision)
+      if (!result.ok) {
+        setError(result.error)
+        if (result.code === 'plan-conflict') onConflict()
+        return
+      }
+      setJson(result.data.json)
+      setAcknowledged(false)
+      setProposalNote(
+        `Предложено областей: ${result.data.suggested}. Пропущено фрагментов без надёжной пары подписей: ${result.data.skipped}. Ничего не сохранено.`,
+      )
+      setProposalRooms(result.data.rooms)
+    } catch {
+      setError('Не удалось подготовить черновик по исходному PDF. Повторите попытку.')
+    } finally {
+      setPending(false)
+    }
+  }
   async function save() {
     if (pending || disabled || !acknowledged) return
     setPending(true)
@@ -61,6 +89,26 @@ export function PlanPaintedFloorReviewEditor({
         грани. Неизвестную роль оставляйте unresolved; торец профиля не назначайте косяком. Снимок
         должен содержать исходный PDF и rasterSource выбранного листа. Лимит — 64 КиБ.
       </p>
+      <Button
+        type="button"
+        variant="secondary"
+        className="mt-3"
+        pending={pending}
+        disabled={disabled || pending || Boolean(json.trim())}
+        onClick={propose}
+      >
+        Подготовить черновик по подписям PDF
+      </Button>
+      <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+        Кнопка доступна при пустом поле. Она не сохраняет и не подтверждает контуры: сравните
+        предложенные области и подписи с исходным листом, а пропущенные фрагменты проверьте вручную.
+      </p>
+      {proposalNote ? <p className="mt-2 text-[13px] text-ink-2">{proposalNote}</p> : null}
+      {proposalRooms.length ? (
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+          Предложенные помещения: {proposalRooms.join('; ')}.
+        </p>
+      ) : null}
       <label className="mt-3 block text-[13px]">
         JSON выбора областей пола
         <textarea
@@ -69,6 +117,8 @@ export function PlanPaintedFloorReviewEditor({
           onChange={(event) => {
             setJson(event.target.value)
             setAcknowledged(false)
+            setProposalNote(undefined)
+            setProposalRooms([])
           }}
           disabled={disabled || pending}
           spellCheck={false}

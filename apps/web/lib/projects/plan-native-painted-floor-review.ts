@@ -24,7 +24,7 @@ export type ReviewedNativePaintedFloors = {
     boundaryRoles: { edgeIndex: number; kind: PaintedFloorBoundaryRole }[]
   }[]
 }
-const roomName =
+export const nativePaintedFloorRoomName =
   /^(?:прихожая|кухня(?:[-–— ]гостиная)?|гостиная|спальня|коридор|ванная|санузел|туалет|комната|жилая комната|детская|кабинет|гардероб(?:ная)?|кладовая|балкон|лоджия)(?:\s+\d{1,2})?$/iu
 const roles = new Set<PaintedFloorBoundaryRole>([
   'wall-face',
@@ -41,7 +41,7 @@ const onlyKeys = (value: unknown, keys: readonly string[]): boolean =>
   typeof value === 'object' &&
   !Array.isArray(value) &&
   Object.keys(value).every((key) => keys.includes(key))
-const canonicalRoomKey = (value: string) =>
+export const canonicalNativePaintedFloorRoomKey = (value: string) =>
   typeof value === 'string' &&
   /^[1-9]\d{0,4}(?:\.\d{1,3})?$/.test(value) &&
   Number(value) <= 10_000 &&
@@ -202,10 +202,10 @@ export function nativePaintedFloorReview(
     const scale = native.pageNormalizedScale
     if (
       !owner ||
-      !canonicalRoomKey(owner.sourceRoomKey) ||
+      !canonicalNativePaintedFloorRoomKey(owner.sourceRoomKey) ||
       !name ||
       !number ||
-      !roomName.test(name.name) ||
+      !nativePaintedFloorRoomName.test(name.name) ||
       number.name !== owner.sourceRoomKey ||
       !scale ||
       [name, number].some(
