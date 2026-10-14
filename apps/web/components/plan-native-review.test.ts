@@ -1,12 +1,92 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import type { ReviewedNativePaintedFloors } from '@/lib/projects/plan-native-painted-floor-review'
 import {
   type NativeReviewPacket,
   nativeReviewPacket,
 } from '@/lib/projects/plan-native-review-packet'
 import { inspectReviewedPageCoverage } from '@/lib/projects/plan-page-reviewed-coverage'
 import { NativeReviewResult, PlanNativeReview, SavedReviewCoverage } from './plan-native-review'
+
+it('previews only source-matched proposed floor pieces without accepting them', () => {
+  const revision = 'c'.repeat(64)
+  const packet = nativeReviewPacket({
+    source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },
+    image: { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 },
+  })
+  packet.sourceRevision = revision
+  packet.orderedPaint = {
+    status: 'diagnostic',
+    refusalReason: null,
+    regions: [
+      {
+        candidateId: 'native-fill-1:0',
+        status: 'diagnostic',
+        refusalReason: null,
+        maskCount: 0,
+        omittedStrokeCount: 0,
+        boundaryInkComplete: false,
+        pieces: [
+          {
+            polygon: [
+              { x: 10, y: 10 },
+              { x: 100, y: 10 },
+              { x: 100, y: 100 },
+            ],
+            holes: [],
+          },
+        ],
+      },
+    ],
+  }
+  const proposal: ReviewedNativePaintedFloors = {
+    review: 'manual-native-painted-floor-review',
+    source: { ...packet.source },
+    rasterSource: { ...packet.image },
+    floors: [
+      {
+        candidateId: 'native-fill-1:0',
+        pieceIndex: 0,
+        polygon: [],
+        holes: [],
+        owner: { sourceRoomKey: '3.1', nameLabelId: 'name', numberLabelId: 'number' },
+        boundaryRoles: [],
+      },
+    ],
+  }
+  const render = (selection = proposal, expectedRevision = revision) =>
+    renderToStaticMarkup(
+      createElement(NativeReviewResult, {
+        packet,
+        imageUrl: 'blob:private-test',
+        proposedFloors: selection,
+        expectedRevision,
+      }),
+    )
+  const before = structuredClone(packet)
+  const preview = render()
+  expect(preview).toContain('stroke-dasharray="7 5"')
+  expect(preview).toContain('3.1: предложенный фрагмент')
+  expect(preview).toContain('несохранённый черновик')
+  expect(preview).not.toContain('Подтвердить')
+  expect(packet).toEqual(before)
+
+  expect(
+    render({ ...proposal, rasterSource: { ...proposal.rasterSource, sha256: 'd'.repeat(64) } }),
+  ).not.toContain('stroke-dasharray="7 5"')
+  expect(render(proposal, 'd'.repeat(64))).not.toContain('stroke-dasharray="7 5"')
+  expect(render({ ...proposal, source: { ...proposal.source, pdfPage: 2 } })).not.toContain(
+    'stroke-dasharray="7 5"',
+  )
+  expect(
+    render({ ...proposal, floors: proposal.floors.map((floor) => ({ ...floor, pieceIndex: 1 })) }),
+  ).not.toContain('stroke-dasharray="7 5"')
+  const region = packet.orderedPaint.regions[0]
+  if (!region) throw new Error('Test region missing')
+  region.status = 'held'
+  expect(render()).not.toContain('stroke-dasharray="7 5"')
+})
 
 it('keeps pen overlap, final visibility and physical dimensions distinct without new actions', () => {
   const packet = nativeReviewPacket({

@@ -7,6 +7,7 @@ import {
   proposePlanPaintedFloorReview,
   savePlanPaintedFloorReview,
 } from '@/actions/plan-painted-floor-review'
+import type { ReviewedNativePaintedFloors } from '@/lib/projects/plan-native-painted-floor-review'
 
 /** Explicit advanced source selection, never an automatic floor/measurement confirmation. */
 export function PlanPaintedFloorReviewEditor({
@@ -16,6 +17,7 @@ export function PlanPaintedFloorReviewEditor({
   disabled,
   onSaved,
   onConflict,
+  onProposalChange,
 }: {
   projectId: string
   revision: string
@@ -23,6 +25,7 @@ export function PlanPaintedFloorReviewEditor({
   disabled?: boolean
   onSaved: (result: { reading: PlanReading; revision: string }) => void
   onConflict: () => void
+  onProposalChange?: (proposal: ReviewedNativePaintedFloors | null) => void
 }) {
   const [json, setJson] = useState(savedJson ?? '')
   const [acknowledged, setAcknowledged] = useState(false)
@@ -42,6 +45,7 @@ export function PlanPaintedFloorReviewEditor({
         return
       }
       setJson(result.data.json)
+      onProposalChange?.(JSON.parse(result.data.json) as ReviewedNativePaintedFloors)
       setAcknowledged(false)
       setProposalNote(
         `Предложено областей: ${result.data.suggested}. Пропущено фрагментов без надёжной пары подписей: ${result.data.skipped}. Ничего не сохранено.`,
@@ -104,6 +108,13 @@ export function PlanPaintedFloorReviewEditor({
         предложенные области и подписи с исходным листом, а пропущенные фрагменты проверьте вручную.
       </p>
       {proposalNote ? <p className="mt-2 text-[13px] text-ink-2">{proposalNote}</p> : null}
+      {proposalNote ? (
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+          Откройте «Проверка исходного листа без AI» выше и нажмите «Проверить исходный лист»:
+          предложенные фрагменты будут показаны отдельным пунктирным слоем поверх PDF только при
+          точном совпадении источника. Это не подтверждение контура для 2D/3D.
+        </p>
+      ) : null}
       {proposalRooms.length ? (
         <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
           Предложенные помещения: {proposalRooms.join('; ')}.
@@ -116,6 +127,7 @@ export function PlanPaintedFloorReviewEditor({
           value={json}
           onChange={(event) => {
             setJson(event.target.value)
+            onProposalChange?.(null)
             setAcknowledged(false)
             setProposalNote(undefined)
             setProposalRooms([])
