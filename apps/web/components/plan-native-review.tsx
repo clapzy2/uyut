@@ -2242,12 +2242,14 @@ export function PlanNativeReview({
   sourceRevision,
   disabled,
   onConflict,
+  onDocumentarySchedule,
 }: {
   projectId: string
   pageNumber: number
   sourceRevision: string
   disabled?: boolean
   onConflict: () => void
+  onDocumentarySchedule?: (packet: NativeReviewPacket) => void
 }) {
   const key = `${projectId}:${pageNumber}:${sourceRevision}`
   const [state, setState] = useState<{
@@ -2294,6 +2296,7 @@ export function PlanNativeReview({
       const imageUrl = URL.createObjectURL(image)
       objectUrl.current = { key, url: imageUrl }
       setState({ key, pending: false, packet, imageUrl })
+      onDocumentarySchedule?.(packet)
     } catch (error) {
       if (request.signal.aborted) return
       if (error instanceof NativeReviewRequestError && error.status === 409) onConflict()
@@ -2315,6 +2318,13 @@ export function PlanNativeReview({
         Посмотрим нативные линии, подписи и неизвестные области PDF. Запуск — только по кнопке, без
         платной генерации и без сохранения правок.
       </p>
+      {onDocumentarySchedule ? (
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+          Если экспликация будет проверена, недостающие балконы и лоджии появятся ниже в черновике
+          формы. Площадь берётся только из подписи таблицы; размеры и контуры не достраиваются,
+          строки не переносятся в проект автоматически.
+        </p>
+      ) : null}
       <Button
         type="button"
         variant="secondary"

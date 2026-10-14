@@ -1,10 +1,13 @@
 import type { PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
+import type { NativeRoomScheduleReport } from './plan-native-room-number-links'
 import {
   appendSourcePlanRow,
   appendUnlabeledOutdoorPlanRow,
+  appendVerifiedOutdoorScheduleRows,
   areaCheck,
   clearUnreviewedPlanAxes,
+  type PlanRow,
   patchPlanRow,
   planRows,
   totalAreaCheck,
@@ -118,6 +121,137 @@ describe('adding missing schedule rows', () => {
         'bedroom',
       ),
     ).toBeNull()
+  })
+})
+
+describe('checked native outdoor schedule prefill', () => {
+  const schedule: NativeRoomScheduleReport = {
+    status: 'draft',
+    refusalReason: null,
+    rows: [
+      {
+        sourceNumber: 1,
+        name: 'Помещение',
+        documentaryAreaM2: 40.13,
+        numberLabelId: 'native-text-20',
+        nameLabelId: 'native-text-24',
+        areaLabelId: 'native-text-28',
+        markerStatus: 'unobserved',
+        markerLabelIds: [],
+      },
+      {
+        sourceNumber: 2,
+        name: 'Балкон 01',
+        documentaryAreaM2: 4.75,
+        numberLabelId: 'native-text-21',
+        nameLabelId: 'native-text-25',
+        areaLabelId: 'native-text-29',
+        markerStatus: 'unobserved',
+        markerLabelIds: [],
+      },
+      {
+        sourceNumber: 3,
+        name: 'Балкон 02',
+        documentaryAreaM2: 3.34,
+        numberLabelId: 'native-text-22',
+        nameLabelId: 'native-text-26',
+        areaLabelId: 'native-text-30',
+        markerStatus: 'unobserved',
+        markerLabelIds: [],
+      },
+    ],
+    unlistedMarkerLabelIds: [],
+  }
+
+  it('adds only missing printed balconies as unselected documentary rows', () => {
+    const existing = appendSourcePlanRow([], { name: 'Помещение', sourceNumber: 1 }, 'living') ?? []
+    const result = appendVerifiedOutdoorScheduleRows(existing, schedule)
+    expect(result).toHaveLength(3)
+    expect(result[0]).toBe(existing[0])
+    expect(result.slice(1)).toEqual([
+      expect.objectContaining({
+        sourceNumber: 2,
+        name: 'Балкон 01',
+        spaceKind: 'balcony',
+        area: '4,75',
+        include: false,
+        unsupported: true,
+        width: '',
+        depth: '',
+        ceiling: '',
+      }),
+      expect.objectContaining({
+        sourceNumber: 3,
+        name: 'Балкон 02',
+        spaceKind: 'balcony',
+        area: '3,34',
+        include: false,
+      }),
+    ])
+    expect(appendVerifiedOutdoorScheduleRows(result, schedule)).toBe(result)
+    expect(existing).toHaveLength(1)
+  })
+
+  it('never overwrites a row already in the form or imports an ambiguous table', () => {
+    const existing =
+      appendSourcePlanRow([], { name: 'Моя лоджия', sourceNumber: 2 }, 'utility') ?? []
+    expect(appendVerifiedOutdoorScheduleRows(existing, schedule)[0]).toBe(existing[0])
+    const named = appendSourcePlanRow([], { name: 'Балкон 01', sourceNumber: 6 }, 'utility') ?? []
+    expect(appendVerifiedOutdoorScheduleRows(named, schedule)).toHaveLength(2)
+    expect(appendVerifiedOutdoorScheduleRows(named, schedule)[0]).toBe(named[0])
+    expect(appendVerifiedOutdoorScheduleRows(existing, { ...schedule, status: 'unresolved' })).toBe(
+      existing,
+    )
+    expect(
+      appendVerifiedOutdoorScheduleRows(existing, { ...schedule, refusalReason: 'unverified' }),
+    ).toBe(existing)
+    expect(
+      appendVerifiedOutdoorScheduleRows(existing, {
+        ...schedule,
+        rows: [...schedule.rows, schedule.rows[1] as NativeRoomScheduleReport['rows'][number]],
+      }),
+    ).toBe(existing)
+    const repeatedName = structuredClone(schedule)
+    if (!repeatedName.rows[2]) throw new Error('Missing schedule fixture')
+    repeatedName.rows[2].name = 'Балкон 01'
+    expect(appendVerifiedOutdoorScheduleRows(existing, repeatedName)).toBe(existing)
+    repeatedName.rows[2].name = 'Балкон 1'
+    expect(appendVerifiedOutdoorScheduleRows(existing, repeatedName)).toBe(existing)
+  })
+
+  it('preserves manually added balconies rather than guessing which numbered row they represent', () => {
+    const manual = appendUnlabeledOutdoorPlanRow([], 'balcony')
+    if (!manual) throw new Error('Missing manual balcony fixture')
+    const row = manual[0]
+    if (!row) throw new Error('Missing manual balcony row')
+    manual[0] = { ...row, area: '2,0', wish: 'Сохранить ограждение' }
+    expect(appendVerifiedOutdoorScheduleRows(manual, schedule)).toBe(manual)
+    expect(manual[0]).toMatchObject({ area: '2,0', wish: 'Сохранить ограждение' })
+  })
+
+  it('matches zero-padded balcony labels without replacing user measurements', () => {
+    const existing = appendSourcePlanRow([], { name: 'Балкон 1', sourceNumber: 6 }, 'utility')
+    if (!existing) throw new Error('Missing numbered balcony fixture')
+    const row = existing[0]
+    if (!row) throw new Error('Missing numbered balcony row')
+    existing[0] = { ...row, area: '4,8', wish: 'Сохранить плитку' }
+    const result = appendVerifiedOutdoorScheduleRows(existing, schedule)
+    expect(result).toHaveLength(2)
+    expect(result[0]).toBe(existing[0])
+    expect(result[0]).toMatchObject({ area: '4,8', wish: 'Сохранить плитку' })
+    expect(result[1]).toMatchObject({ name: 'Балкон 02', sourceNumber: 3 })
+  })
+
+  it('holds the entire batch when a printed area is invalid or capacity is exhausted', () => {
+    const empty: PlanRow[] = []
+    const invalid = structuredClone(schedule)
+    if (!invalid.rows[1]) throw new Error('Missing schedule fixture')
+    invalid.rows[1].documentaryAreaM2 = 0
+    expect(appendVerifiedOutdoorScheduleRows(empty, invalid)).toBe(empty)
+    const row = appendSourcePlanRow([], { name: 'Комната', sourceNumber: 4 }, 'living')?.[0]
+    if (!row) throw new Error('Missing row fixture')
+    const existing = Array.from({ length: 19 }, () => row)
+    expect(appendVerifiedOutdoorScheduleRows(existing, schedule)).toBe(existing)
   })
 })
 

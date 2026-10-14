@@ -1,6 +1,7 @@
 import type { PlanReading, PlanRoomReading, RoomKind, RoomSpaceKind } from '@uyut/db'
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { mvpRoomKinds } from './format'
+import type { NativeRoomScheduleReport } from './plan-native-room-number-links'
 
 /** Строка экрана «мы прочитали так»: то же, что в плане, но в виде, пригодном для полей ввода. */
 export type PlanRow = {
@@ -115,6 +116,64 @@ export function appendSourcePlanRow(
       suspicious: false,
     },
   ]
+}
+
+function outdoorLabel(name: string): { spaceKind: 'balcony' | 'loggia'; key: string } | null {
+  const match = /^(балкон|лоджия)(?:\s*[№-]?\s*(\d{1,2}))?$/iu.exec(name.trim())
+  if (!match) return null
+  const spaceKind = match[1]?.toLowerCase() === 'балкон' ? 'balcony' : 'loggia'
+  return { spaceKind, key: `${spaceKind}:${match[2] ? Number(match[2]) : ''}` }
+}
+
+/** Pre-fill only explicitly labelled outdoor rows from a checked native table. */
+export function appendVerifiedOutdoorScheduleRows(
+  rows: PlanRow[],
+  schedule: NativeRoomScheduleReport | undefined,
+): PlanRow[] {
+  if (schedule?.status !== 'draft' || schedule.refusalReason !== null) return rows
+  const numbers = schedule.rows.map((row) => row.sourceNumber)
+  if (new Set(numbers).size !== numbers.length) return rows
+
+  const outdoor = schedule.rows.flatMap((source) => {
+    const label = outdoorLabel(source.name)
+    return label ? [{ source, label }] : []
+  })
+  if (new Set(outdoor.map(({ label }) => label.key)).size !== outdoor.length) return rows
+  const unnumberedKinds = new Set(
+    rows
+      .filter((row) => row.sourceNumber === undefined)
+      .map((row) => row.spaceKind ?? outdoorLabel(row.name)?.spaceKind)
+      .filter((kind): kind is 'balcony' | 'loggia' => kind === 'balcony' || kind === 'loggia'),
+  )
+  const missing = outdoor.filter(
+    ({ source, label }) =>
+      !unnumberedKinds.has(label.spaceKind) &&
+      !rows.some(
+        (existing) =>
+          existing.sourceNumber === source.sourceNumber ||
+          outdoorLabel(existing.name)?.key === label.key,
+      ),
+  )
+  if (rows.length + missing.length > 20) return rows
+
+  let next = rows
+  for (const { source } of missing) {
+    if (
+      !Number.isFinite(source.documentaryAreaM2) ||
+      source.documentaryAreaM2 <= 0 ||
+      source.documentaryAreaM2 > 999.99
+    )
+      return rows
+    const appended = appendSourcePlanRow(next, source, 'utility')
+    if (!appended) return rows
+    const last = appended.at(-1)
+    if (!last) return rows
+    next = [
+      ...appended.slice(0, -1),
+      { ...last, area: String(source.documentaryAreaM2).replace('.', ',') },
+    ]
+  }
+  return next
 }
 
 /** A user-observed outdoor zone without a printed label has no inferred area or dimensions. */
