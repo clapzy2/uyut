@@ -26,6 +26,7 @@ import {
   roomConditionLabels,
   roomKindLabels,
 } from '@/lib/projects/format'
+import type { ReviewedNativePaintedFloors } from '@/lib/projects/plan-native-painted-floor-review'
 import type { NativeReviewPacket } from '@/lib/projects/plan-native-review-packet'
 import {
   appendSourcePlanRow,
@@ -125,6 +126,11 @@ export function PlanReadingCard({
   const [error, setError] = useState<string | undefined>(undefined)
   const [activeReading, setActiveReading] = useState(reading)
   const [baseRevision, setBaseRevision] = useState(sourceRevision)
+  const [floorProposal, setFloorProposal] = useState<{
+    revision: string
+    page: number
+    selection: ReviewedNativePaintedFloors
+  } | null>(null)
   const [conflict, setConflict] = useState(false)
   const [page, setPage] = useState(String(reading?.sourcePage ?? 1))
   // Состояние квартиры решает, войдёт ли в смету ремонт. Спрашиваем один раз на все комнаты:
@@ -352,6 +358,11 @@ export function PlanReadingCard({
           projectId={projectId}
           pageNumber={Number(page)}
           sourceRevision={baseRevision}
+          proposedFloors={
+            floorProposal?.revision === baseRevision && floorProposal.page === Number(page)
+              ? floorProposal.selection
+              : null
+          }
           disabled={reading_ || saving || conflict}
           onDocumentarySchedule={
             rows && !confirmed
@@ -385,6 +396,7 @@ export function PlanReadingCard({
           savedJson={activeReading.paintedFloorReview?.draftJson}
           disabled={reading_ || saving || conflict || reviewEditing}
           onSaved={(data) => {
+            setFloorProposal(null)
             setActiveReading(data.reading)
             setBaseRevision(data.revision)
             toast({ title: 'Выбор областей пола сохранён как черновик', tone: 'success' })
@@ -394,6 +406,11 @@ export function PlanReadingCard({
             setConflict(true)
             router.refresh()
           }}
+          onProposalChange={(selection) =>
+            setFloorProposal(
+              selection ? { revision: baseRevision, page: Number(page), selection } : null,
+            )
+          }
         />
         {activeReading.paintedFloorReview ? (
           <>

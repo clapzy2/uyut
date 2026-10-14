@@ -2,6 +2,7 @@
 
 import { Button } from '@uyut/ui'
 import { useEffect, useRef, useState } from 'react'
+import type { ReviewedNativePaintedFloors } from '@/lib/projects/plan-native-painted-floor-review'
 import {
   loadNativeReview,
   NativeReviewRequestError,
@@ -1724,9 +1725,13 @@ function orderedPaintPath(
 export function NativeReviewResult({
   packet,
   imageUrl,
+  proposedFloors,
+  expectedRevision,
 }: {
   packet: NativeReviewPacket
   imageUrl: string
+  proposedFloors?: ReviewedNativePaintedFloors | null
+  expectedRevision?: string
 }) {
   const [showFills, setShowFills] = useState(false)
   const [showOpeningCandidates, setShowOpeningCandidates] = useState(true)
@@ -1742,12 +1747,43 @@ export function NativeReviewResult({
   const hasOpeningCandidates =
     (packet.doorSymbols?.candidates.length ?? 0) + (packet.openingFrames?.candidates.length ?? 0) >
     0
+  const proposalMatchesSource =
+    proposedFloors?.source.sha256 === packet.source.sha256 &&
+    proposedFloors.source.pdfPage === packet.source.pdfPage &&
+    proposedFloors.source.state === packet.source.state &&
+    proposedFloors.rasterSource.sha256 === packet.image.sha256 &&
+    proposedFloors.rasterSource.page === packet.image.page &&
+    proposedFloors.rasterSource.width === packet.image.width &&
+    proposedFloors.rasterSource.height === packet.image.height &&
+    Boolean(expectedRevision) &&
+    packet.sourceRevision === expectedRevision
+  const proposedPieces =
+    proposalMatchesSource && packet.orderedPaint?.status === 'diagnostic'
+      ? proposedFloors.floors.map((floor) => {
+          const region = packet.orderedPaint?.regions.find(
+            (candidate) => candidate.candidateId === floor.candidateId,
+          )
+          return region?.status === 'diagnostic'
+            ? { floor, piece: region.pieces[floor.pieceIndex] }
+            : { floor, piece: undefined }
+        })
+      : null
+  const canShowProposal = Boolean(
+    proposedPieces?.length && proposedPieces.every((selection) => selection.piece),
+  )
   return (
     <div className="mt-4 min-w-0 max-w-full space-y-4">
       <p className="border-l-2 border-accent pl-3 text-[14px] leading-relaxed text-ink-2">
         Это проверка исходного листа, не готовая схема квартиры. Сохранённые комнаты, мерки и 2D/3D
         не меняются.
       </p>
+      {proposedFloors ? (
+        <p role="status" className="text-[13px] leading-relaxed text-ink-2">
+          {canShowProposal
+            ? `Пунктиром показаны ${proposedPieces?.length} предложенных фрагментов поверх исходного листа. Это несохранённый черновик, не физические границы пола и не готовая 2D/3D.`
+            : 'Предпросмотр предложенных фрагментов недоступен: источник, версия или диагностический слой не совпали. Ничего не наложено и не сохранено.'}
+        </p>
+      ) : null}
       <dl className="grid grid-cols-2 gap-x-5 gap-y-2 text-[13px] sm:grid-cols-4">
         <div>
           <dt className="text-ink-2">Области из заливок</dt>
@@ -2120,6 +2156,25 @@ export function NativeReviewResult({
               ))}
             </g>
           ) : null}
+          {canShowProposal
+            ? proposedPieces?.map(({ floor, piece }) =>
+                piece ? (
+                  <path
+                    key={`${floor.candidateId}:${floor.pieceIndex}`}
+                    d={orderedPaintPath(piece)}
+                    fill="#d97706"
+                    fillOpacity="0.08"
+                    fillRule="evenodd"
+                    stroke="#d97706"
+                    strokeWidth="2.5"
+                    strokeDasharray="7 5"
+                    vectorEffect="non-scaling-stroke"
+                  >
+                    <title>{`${floor.owner.sourceRoomKey}: предложенный фрагмент ${floor.candidateId}, часть ${floor.pieceIndex}. Не сохранён и не подтверждён для 2D/3D.`}</title>
+                  </path>
+                ) : null,
+              )
+            : null}
           {showFloorCavities && packet.floorCavities?.status === 'draft' ? (
             <g fill="none" strokeWidth="2">
               {packet.floorCavities.candidates
@@ -2243,6 +2298,7 @@ export function PlanNativeReview({
   disabled,
   onConflict,
   onDocumentarySchedule,
+  proposedFloors,
 }: {
   projectId: string
   pageNumber: number
@@ -2250,6 +2306,7 @@ export function PlanNativeReview({
   disabled?: boolean
   onConflict: () => void
   onDocumentarySchedule?: (packet: NativeReviewPacket) => void
+  proposedFloors?: ReviewedNativePaintedFloors | null
 }) {
   const key = `${projectId}:${pageNumber}:${sourceRevision}`
   const [state, setState] = useState<{
@@ -2346,7 +2403,12 @@ export function PlanNativeReview({
         </p>
       ) : null}
       {current?.packet && current.imageUrl ? (
-        <NativeReviewResult packet={current.packet} imageUrl={current.imageUrl} />
+        <NativeReviewResult
+          packet={current.packet}
+          imageUrl={current.imageUrl}
+          proposedFloors={proposedFloors}
+          expectedRevision={sourceRevision}
+        />
       ) : null}
     </details>
   )
