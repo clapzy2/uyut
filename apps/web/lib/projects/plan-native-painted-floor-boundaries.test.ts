@@ -118,7 +118,11 @@ describe('fresh exact source paint boundary coverage, not physical walls', () =>
     ).toEqual(result.boundaryInspection)
     const floor = result.floors[0]
     const edges = result.boundaryInspection.floors[0]?.edges
-    expect(edges?.filter((edge) => edge.ringIndex > 0).every((edge) => edge.declaredRole === 'unresolved')).toBe(true)
+    expect(
+      edges
+        ?.filter((edge) => edge.ringIndex > 0)
+        .every((edge) => edge.declaredRole === 'unresolved'),
+    ).toBe(true)
     if (!floor || !edges) throw new Error('Missing boundary inspection')
     expect(
       floor.polygon.some(
