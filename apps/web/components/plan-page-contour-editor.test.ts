@@ -31,7 +31,7 @@ import { exactNativePointKey } from '@/lib/projects/plan-native-exact-intersecti
 import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
 import { PlanPageBoundaryControls } from './plan-page-boundary-controls'
 import { PlanPageContourEditor } from './plan-page-contour-editor'
-import { contourDraftsFromSaved } from './plan-page-contour-editor-model'
+import { contourDraftsFromSaved, pageContourRoomsForSave } from './plan-page-contour-editor-model'
 import { PlanPagePointControls } from './plan-page-point-controls'
 import { PlanPageSourceFloorControls } from './plan-page-source-floor-controls'
 
@@ -69,6 +69,7 @@ const slots = {
   sourceFloorsLoading: 28,
   sourceFloorsError: 29,
   sourceEdgeHighlight: 30,
+  traceReferences: 31,
 } as const
 
 function sourceFixture() {
@@ -426,6 +427,17 @@ function nestedElements(node: unknown, type: string): ReactElement[] {
   ]
 }
 
+function buttonWithText(editor: ReactElement, label: string) {
+  const find = (node: unknown): ReactElement<{ onClick: () => void }> | undefined => {
+    if (Array.isArray(node)) return node.map(find).find(Boolean)
+    if (!node || typeof node !== 'object' || !('props' in node)) return undefined
+    const element = node as ReactElement<{ onClick: () => void; children?: unknown }>
+    if (element.props.children === label) return element
+    return find(element.props.children)
+  }
+  return find(editor)
+}
+
 describe('source-floor bridge in the existing editor', () => {
   const revision = 'b'.repeat(64)
   function setup() {
@@ -568,6 +580,140 @@ describe('source-floor bridge in the existing editor', () => {
     remove.props.onClick()
     expect(updateFor(slots.drafts, drafts)).toEqual([])
     expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
+  it('keeps a source-only outline as a temporary guide while physical tracing starts empty', () => {
+    const { fixture } = setup()
+    const firstRoom = fixture.reading.rooms[0]
+    if (!firstRoom) throw new Error('First room missing')
+    fixture.reading.rooms.push({
+      ...firstRoom,
+      sourceNumber: 2,
+      name: 'Кухня',
+    })
+    controls(renderEditor(fixture.reading, revision)).onCopy()
+    const sourceDrafts = updateFor(slots.drafts, []) as ReturnType<typeof contourDraftsFromSaved>
+    hooks.values.set(slots.drafts, sourceDrafts)
+    hooks.cursor = 0
+
+    const start = buttonWithText(
+      renderEditor(fixture.reading, revision),
+      'Начать физическую обводку',
+    )
+    if (!start) throw new Error('Physical tracing action missing')
+    start.props.onClick()
+
+    const physicalDrafts = updateFor(slots.drafts, sourceDrafts) as typeof sourceDrafts
+    const references = updateFor(slots.traceReferences, {}) as Record<string, unknown>
+    expect(physicalDrafts).toEqual([{ roomSourceNumber: 1, polygon: [], closed: false }])
+    expect(references['1']).toMatchObject({ draft: sourceDrafts[0], revision, page: 2 })
+    expect(pageContourRoomsForSave(physicalDrafts, fixture.polygon)).toBeNull()
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+
+    hooks.values.set(slots.drafts, physicalDrafts)
+    hooks.values.set(slots.traceReferences, references)
+    hooks.cursor = 0
+    const tracing = renderEditor(fixture.reading, revision)
+    expect(
+      nestedElements(tracing, 'option').some(
+        (element) =>
+          (element.props as { children?: unknown }).children === 'Добавить второй номер…',
+      ),
+    ).toBe(false)
+    const points = nestedProps<ComponentProps<typeof PlanPagePointControls>>(
+      tracing,
+      PlanPagePointControls,
+    )
+    expect(points?.locked).toBe(false)
+    hooks.values.set(slots.sourceFloorsShown, false)
+    hooks.cursor = 0
+    const hiddenReference = renderEditor(fixture.reading, revision)
+    expect(
+      nestedElements(hiddenReference, 'path').some(
+        (element) =>
+          (element.props as { stroke?: string; strokeDasharray?: string }).stroke === '#b45309' &&
+          (element.props as { fill?: string; strokeDasharray?: string }).fill === 'none' &&
+          (element.props as { strokeDasharray?: string }).strokeDasharray === '5 4',
+      ),
+    ).toBe(true)
+
+    const restore = buttonWithText(hiddenReference, 'Вернуть исходный черновик')
+    if (!restore) throw new Error('Source-draft restore action missing')
+    restore.props.onClick()
+    expect(updateFor(slots.drafts, physicalDrafts)).toEqual(sourceDrafts)
+    expect(updateFor(slots.traceReferences, references)).toEqual({})
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
+  it('keeps independent temporary references for two source-only rooms', () => {
+    const { fixture } = setup()
+    const firstRoom = fixture.reading.rooms[0]
+    if (!firstRoom) throw new Error('First room missing')
+    fixture.reading.rooms.push({
+      ...firstRoom,
+      sourceNumber: 2,
+      name: 'Кухня',
+    })
+    controls(renderEditor(fixture.reading, revision)).onCopy()
+    const sourceOne = updateFor(slots.drafts, []) as ReturnType<typeof contourDraftsFromSaved>
+    const firstSource = sourceOne[0]
+    if (!firstSource) throw new Error('First source draft missing')
+    const sourceTwo = structuredClone(firstSource)
+    sourceTwo.roomSourceNumber = 2
+    if (!sourceTwo.sourceTopology) throw new Error('Source topology missing')
+    sourceTwo.sourceTopology.floorId = 'source-floor-2'
+    const drafts = [...sourceOne, sourceTwo]
+    hooks.values.set(slots.drafts, drafts)
+    hooks.cursor = 0
+    buttonWithText(
+      renderEditor(fixture.reading, revision),
+      'Начать физическую обводку',
+    )?.props.onClick()
+    const referencesOne = updateFor(slots.traceReferences, {}) as Record<string, unknown>
+    const physicalOne = updateFor(slots.drafts, drafts)
+
+    hooks.values.set(0, '2')
+    hooks.values.set(slots.drafts, physicalOne)
+    hooks.values.set(slots.traceReferences, referencesOne)
+    hooks.cursor = 0
+    buttonWithText(
+      renderEditor(fixture.reading, revision),
+      'Начать физическую обводку',
+    )?.props.onClick()
+    const referencesBoth = updateFor(slots.traceReferences, referencesOne) as Record<
+      string,
+      unknown
+    >
+    expect(Object.keys(referencesBoth).sort()).toEqual(['1', '2'])
+
+    hooks.values.set(0, '1')
+    hooks.values.set(slots.traceReferences, referencesBoth)
+    hooks.cursor = 0
+    expect(
+      buttonWithText(renderEditor(fixture.reading, revision), 'Вернуть исходный черновик'),
+    ).toBeDefined()
+  })
+  it('asks before replacing a physical trace that already has vertices', () => {
+    const { fixture } = setup()
+    controls(renderEditor(fixture.reading, revision)).onCopy()
+    const sourceDrafts = updateFor(slots.drafts, []) as ReturnType<typeof contourDraftsFromSaved>
+    hooks.values.set(slots.drafts, sourceDrafts)
+    hooks.cursor = 0
+    buttonWithText(
+      renderEditor(fixture.reading, revision),
+      'Начать физическую обводку',
+    )?.props.onClick()
+    const references = updateFor(slots.traceReferences, {})
+    const physicalDrafts = [{ roomSourceNumber: 1, polygon: [{ x: 10, y: 10 }], closed: false }]
+    hooks.values.set(slots.drafts, physicalDrafts)
+    hooks.values.set(slots.traceReferences, references)
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('window', { confirm })
+    hooks.cursor = 0
+    buttonWithText(
+      renderEditor(fixture.reading, revision),
+      'Вернуть исходный черновик',
+    )?.props.onClick()
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(hooks.setters.get(slots.drafts)).not.toHaveBeenCalled()
   })
   it.each(['existing-draft', 'hidden', 'loading', 'revision'])(
     'refuses copy when %s without replacing any working geometry',

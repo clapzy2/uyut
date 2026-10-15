@@ -129,6 +129,16 @@ export function PlanPageContourEditor({
     ringIndex: number
     edgeIndex: number
   }>()
+  const [traceReferences, setTraceReferences] = useState<
+    Record<
+      string,
+      {
+        draft: PageContourDraft
+        revision: string
+        page: number
+      }
+    >
+  >({})
   const sourceFloorsRequest = useRef<AbortController | undefined>(undefined)
   const draftSource = useRef<PlanPagePreview | undefined>(undefined)
   const initialRevision = useRef(sourceRevision)
@@ -141,6 +151,11 @@ export function PlanPageContourEditor({
   const options = pageContourOptions(reading.rooms, drafts)
   const selectedIdentity = options.find((option) => option.key === selected)?.identity
   const selectedDraft = drafts.find((draft) => pdfContourKey(draft) === selected)
+  const selectedTrace = traceReferences[selected]
+  const selectedTraceReference =
+    selectedTrace?.revision === sourceRevision && selectedTrace.page === pageNumber
+      ? selectedTrace.draft
+      : undefined
   const selectedVoid = voids.find((draft) => draft.id === selectedVoidId)
   const groupCandidates = eligibleRooms.filter(
     (room) =>
@@ -437,6 +452,51 @@ export function PlanPageContourEditor({
     resetReview()
   }
 
+  function startPhysicalTrace() {
+    if (locked || !selectedDraft?.sourceTopology || editingBoundary || selectedVoid) return
+    setTraceReferences((current) => ({
+      ...current,
+      [selected]: {
+        draft: structuredClone(selectedDraft),
+        revision: sourceRevision,
+        page: pageNumber,
+      },
+    }))
+    setDrafts((current) =>
+      current.map((draft) =>
+        pdfContourKey(draft) === selected && draft.sourceTopology
+          ? { ...pdfContourIdentity(draft), polygon: [], closed: false }
+          : draft,
+      ),
+    )
+    setTarget({ kind: 'room' })
+    setProposal(undefined)
+    resetReview()
+  }
+
+  function restoreSourceTrace() {
+    if (locked || !selectedTraceReference || editingBoundary || selectedVoid) return
+    if (
+      selectedDraft &&
+      (selectedDraft.polygon.length > 0 || roomHasFeatures) &&
+      !window.confirm('Удалить несохранённую физическую обводку и вернуть исходный черновик?')
+    )
+      return
+    setDrafts((current) =>
+      current.map((draft) =>
+        pdfContourKey(draft) === selected ? structuredClone(selectedTraceReference) : draft,
+      ),
+    )
+    setTraceReferences((current) => {
+      const next = { ...current }
+      delete next[selected]
+      return next
+    })
+    setTarget({ kind: 'room' })
+    setProposal(undefined)
+    resetReview()
+  }
+
   function changeSelected(
     polygon: PageContourPoint[],
     closed = false,
@@ -579,6 +639,12 @@ export function PlanPageContourEditor({
 
   function removeTarget() {
     if (locked) return
+    if (target.kind === 'room' && selectedTraceReference)
+      setTraceReferences((current) => {
+        const next = { ...current }
+        delete next[selected]
+        return next
+      })
     setDrafts((current) =>
       current.flatMap((draft) => {
         if (pdfContourKey(draft) !== selected) return [draft]
@@ -851,6 +917,7 @@ export function PlanPageContourEditor({
       selectedIdentity?.roomSourceNumbers === undefined &&
       selectedIdentity &&
       groupCandidates.length &&
+      !selectedTraceReference &&
       !selectedDraft?.sourceTopology ? (
         <label className="block max-w-sm space-y-1 text-sm">
           <span className="block">Общая зона без стены между номерами</span>
@@ -1051,11 +1118,29 @@ export function PlanPageContourEditor({
           <p role="status" className="text-sm leading-relaxed text-ink-2">
             Исходный контур сохранён с точными ключами и {selectedDraft.sourceTopology.holes.length}{' '}
             вырезами. Это ещё не физическая граница комнаты. Вершины, проёмы и размерные привязки
-            здесь не редактируются; контур можно сохранить, открыть снова или удалить целиком.
-            Перенос в размеры, 2D/3D и маршруты пока заблокирован.
+            здесь не редактируются. Можно начать отдельную ручную обводку: исходный контур останется
+            подсказкой до закрытия редактора. Перенос в размеры, 2D/3D и маршруты пока заблокирован.
           </p>
+          <Button size="sm" variant="secondary" disabled={locked} onClick={startPhysicalTrace}>
+            Начать физическую обводку
+          </Button>
           <Button size="sm" variant="ghost" disabled={locked} onClick={removeTarget}>
             Удалить исходный черновик
+          </Button>
+        </div>
+      ) : null}
+      {selectedTraceReference &&
+      !selectedDraft?.sourceTopology &&
+      !editingBoundary &&
+      !selectedVoid ? (
+        <div className="space-y-2 border-l-2 border-amber-600 pl-3">
+          <p role="status" className="text-sm leading-relaxed text-ink-2">
+            Пунктирный исходный контур — только подсказка. Обведите физическую границу по узлам PDF;
+            исходные точки не считаются подтверждёнными автоматически. Пока новая обводка не
+            сохранена, прежний черновик можно вернуть, заменив несохранённую обводку.
+          </p>
+          <Button size="sm" variant="ghost" disabled={locked} onClick={restoreSourceTrace}>
+            Вернуть исходный черновик
           </Button>
         </div>
       ) : null}
@@ -1317,6 +1402,24 @@ export function PlanPageContourEditor({
                     />
                     <circle cx={proposal.point.x} cy={proposal.point.y} r={2} fill="#222" />
                   </g>
+                ) : null}
+                {selectedTraceReference?.sourceTopology &&
+                (!sourceFloorsShown ||
+                  selectedSourceFloor?.id !== selectedTraceReference.sourceTopology.floorId) ? (
+                  <path
+                    d={sourceFloorReferencePath({
+                      polygon: selectedTraceReference.polygon,
+                      holes: selectedTraceReference.sourceTopology.holes,
+                    })}
+                    fill="none"
+                    stroke="#b45309"
+                    strokeWidth={2}
+                    strokeDasharray="5 4"
+                    vectorEffect="non-scaling-stroke"
+                    pointerEvents="none"
+                  >
+                    <title>Исходная область для ручной обводки; не физическая граница.</title>
+                  </path>
                 ) : null}
                 {drafts.map((draft) => {
                   const isSelected = pdfContourKey(draft) === selected
