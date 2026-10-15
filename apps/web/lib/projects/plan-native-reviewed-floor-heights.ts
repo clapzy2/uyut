@@ -249,8 +249,12 @@ export function nativeReviewedFloorHeightBindings(input: Input) {
     )
       continue
     const captionOperations = item.sourceGroup?.operationIndexes ?? [item.operationIndex]
-    if (nativeCaptionKnownPaintBlockers(input.work.paintBounds, captionOperations, bounds)?.length)
-      continue
+    const blockers = nativeCaptionKnownPaintBlockers(
+      input.work.paintBounds,
+      captionOperations,
+      bounds,
+    )
+    if (blockers === null || blockers.length > 0) continue
     const owners: typeof floors.floors = []
     for (const floor of floors.floors) {
       containmentBudget -=

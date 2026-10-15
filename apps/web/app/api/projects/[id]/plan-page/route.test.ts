@@ -254,6 +254,8 @@ describe('private PDF page preview', () => {
     'freshly rechecks selected source coordinates with backwards-compatible inspection, openings=%s visibility=%s',
     async (includeOpenings, includeVisibility) => {
       const evidence = floorHeightFixture()
+      // This route also serves older source packets without a paint inventory.
+      delete evidence.work.paintBounds
       const sha256 = createHash('sha256').update('pdf').digest('hex')
       evidence.native.originalPdfSha256 = sha256
       evidence.reviewedFloors.source.sha256 = sha256

@@ -119,10 +119,12 @@ function documentaryUnitEvidence(
   const operations = item.sourceResetCaption
     ? item.sourceResetCaption.shows.map((show) => show.operationIndex)
     : [item.operationIndex]
-  if (
-    nativeCaptionKnownPaintBlockers(work.paintBounds, operations, resetBounds ?? item.quad)?.length
+  const blockers = nativeCaptionKnownPaintBlockers(
+    work.paintBounds,
+    operations,
+    resetBounds ?? item.quad,
   )
-    return
+  if (blockers === null || blockers.length > 0) return
   return {
     kind: 'same-page-millimetre-declaration',
     labelId: label.id,

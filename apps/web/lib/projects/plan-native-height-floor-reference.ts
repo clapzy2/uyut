@@ -157,7 +157,11 @@ export function nativeHeightFloorReferenceEvidence(input: Input): NativeHeightFl
       refs,
       resetBounds ?? item.quad,
     )
-    if (blockers?.length) {
+    if (blockers === null) {
+      row.reason = 'floor-reference-paint-inventory-unavailable'
+      continue
+    }
+    if (blockers.length) {
       row.reason = 'later-paint-may-cover-floor-reference'
       continue
     }

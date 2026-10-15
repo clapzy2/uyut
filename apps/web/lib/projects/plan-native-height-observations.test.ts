@@ -137,6 +137,18 @@ describe('literal source height observation inventory, never vertical model tran
       ],
       unresolved: [],
     }
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 19,
+          kind: 'text',
+          bounds: null,
+          reason: 'text-paint-envelope-unavailable',
+        },
+      ],
+    }
     return input
   }
   it('retains raw unitless height under exact same-page units ink without inventing role or datum', () => {
@@ -163,6 +175,17 @@ describe('literal source height observation inventory, never vertical model tran
     expect(result.assignsGeometryHeights).toBe(false)
     expect(input).toEqual(before)
   })
+  it.each(['missing', 'incomplete'])(
+    'does not certify a documentary millimetre note with %s paint inventory',
+    (fault) => {
+      const input = documentaryFixture()
+      if (fault === 'missing') delete input.work.paintBounds
+      else if (input.work.paintBounds) input.work.paintBounds.complete = false
+      const result = nativeHeightObservations(input)
+      expect(result.observations).toEqual([])
+      expect(result.mayAcceptFor3D).toBe(false)
+    },
+  )
   it.each([
     'Размеры не указаны в миллиметрах',
     'Размеры указаны в сантиметрах',

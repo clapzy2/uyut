@@ -117,6 +117,19 @@ describe('reviewed source room-height bindings', () => {
     }
     expect(nativeReviewedFloorHeightBindings(input).options).toHaveLength(1)
   })
+  it.each(['missing', 'incomplete'])(
+    'withholds reviewed H options when the paint inventory is %s',
+    (fault) => {
+      const input = floorHeightFixture()
+      if (fault === 'missing') delete input.work.paintBounds
+      else if (input.work.paintBounds) input.work.paintBounds.complete = false
+      const result = nativeReviewedFloorHeightBindings(input)
+      expect(result.options).toEqual([])
+      expect(result.bindings).toEqual([])
+      expect(result.readyFor2D).toBe(false)
+      expect(result.readyFor3D).toBe(false)
+    },
+  )
   it.each(['source', 'rasterSource', 'revision', 'duplicate', 'unknown', 'claimed-height'])(
     'rejects %s input without saved claims',
     (mutation) => {
