@@ -11,6 +11,10 @@ import type { NativeReviewPacket } from '@/lib/projects/plan-native-review-packe
 import { NativeSourceObjectSummary } from './plan-native-source-objects'
 
 const coverageMessages: Record<string, string> = {
+  'source-areas-held':
+    'Неподтверждённые исходные области исключены из проверки физических стен и проёмов. Общий пол и внешний контур также не переносятся в 2D/3D.',
+  'no-physical-room-contours':
+    'На листе ещё нет подтверждённых физических контуров комнат; показывать пары стен и проёмов пока нечего.',
   'native-extraction-incomplete':
     'Не все линии исходника извлечены. Локальные находки не доказывают полноту листа.',
   'room-inventory-partial': 'Не для всех номеров помещений сохранены контуры.',
