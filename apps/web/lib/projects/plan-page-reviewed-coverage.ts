@@ -93,10 +93,22 @@ export function inspectReviewedPageCoverage(input: {
     return refuse('coverage-work-limit')
   if (source.state !== 'existing') return refuse('not-existing-state')
   if (!planPageContoursSchema.safeParse(contours).success) return refuse('invalid-room-contours')
+  const sourceOnlyRooms = contours.rooms.filter((room) => room.sourceTopology !== undefined)
+  // Paint topology is a saved source guide, not a reviewed physical room. Keep
+  // its page-wide boundary out of the local physical diagnostics as well.
+  const physicalContours: PlanPageContours = sourceOnlyRooms.length
+    ? {
+        ...contours,
+        rooms: contours.rooms.filter((room) => room.sourceTopology === undefined),
+        exterior: undefined,
+        floor: undefined,
+        voids: undefined,
+      }
+    : contours
   // Always check overlaps, including legacy polygon-only reviews.
   const issue =
-    planPageFeaturesIssue(contours, { checkRoomOverlap: true }) ??
-    planPageReviewIssue(contours, reading, source, linework)
+    planPageFeaturesIssue(physicalContours, { checkRoomOverlap: true }) ??
+    planPageReviewIssue(physicalContours, reading, source, linework)
   if (issue) return refuse(issue)
   const sourceNumbers = reading.rooms.map((room) => room.sourceNumber)
   if (
@@ -111,27 +123,29 @@ export function inspectReviewedPageCoverage(input: {
     (number): number is number => number !== undefined && !declaredNumbers.has(number),
   )
   report.status = 'partial'
+  if (sourceOnlyRooms.length) report.issues.push('source-areas-held')
+  if (!physicalContours.rooms.length) report.issues.push('no-physical-room-contours')
   report.extractionComplete =
     !linework.truncated &&
     linework.skippedCurves === 0 &&
     linework.clippedPaths === 0 &&
     linework.unsupportedPaths === 0 &&
     linework.unsupportedContexts === 0
-  report.floorBoundary = contours.floor
+  report.floorBoundary = physicalContours.floor
     ? 'reviewed-floor'
-    : contours.exterior?.boundaryRole === 'outer-wall-envelope'
+    : physicalContours.exterior?.boundaryRole === 'outer-wall-envelope'
       ? 'envelope-only'
-      : contours.exterior
-        ? contours.exterior.boundaryRole === 'floor'
+      : physicalContours.exterior
+        ? physicalContours.exterior.boundaryRole === 'floor'
           ? 'reviewed-floor'
           : 'legacy-exterior-floor'
         : 'missing'
   report.wallSource = {
-    strictValid: validPlanPageWallSource(linework, source, contours),
-    localAuditValid: validPlanPageWallSourceForLocalAudit(linework, source, contours),
+    strictValid: validPlanPageWallSource(linework, source, physicalContours),
+    localAuditValid: validPlanPageWallSourceForLocalAudit(linework, source, physicalContours),
   }
-  const pairs = pairPlanPageWallFaces(linework, source, contours)
-  const spans = classifyPlanPageWallSpans(contours, pairs)
+  const pairs = pairPlanPageWallFaces(linework, source, physicalContours)
+  const spans = classifyPlanPageWallSpans(physicalContours, pairs)
   report.wallPairs = pairs.length
   for (const span of spans) report.wallSpans[span.status]++
   const reviewSpans = spans.filter((span) =>
@@ -145,9 +159,9 @@ export function inspectReviewedPageCoverage(input: {
     end: { ...span.end },
   }))
   report.reviewSpansTruncated = reviewSpans.length > report.reviewSpans.length
-  const openings = contours.rooms.flatMap((room) => room.openings ?? [])
-  const checks = verifyPlanPageOpeningFaces(linework, source, contours)
-  const openingPairs = pairPlanPageOpeningFaces(linework, source, contours)
+  const openings = physicalContours.rooms.flatMap((room) => room.openings ?? [])
+  const checks = verifyPlanPageOpeningFaces(linework, source, physicalContours)
+  const openingPairs = pairPlanPageOpeningFaces(linework, source, physicalContours)
   report.openings = {
     declaredDoors: openings.filter((opening) => opening.kind === 'door').length,
     doorPairCandidates: openingPairs.length,
@@ -161,9 +175,9 @@ export function inspectReviewedPageCoverage(input: {
   if (!report.extractionComplete) report.issues.push('native-extraction-incomplete')
   if (!report.wallSource.localAuditValid) report.issues.push('wall-pairing-source-unavailable')
   if (
-    contours.rooms.reduce(
+    physicalContours.rooms.reduce(
       (sum, room) => sum + room.polygon.length,
-      contours.exterior?.polygon.length ?? 0,
+      physicalContours.exterior?.polygon.length ?? 0,
     ) > 200
   )
     report.issues.push('wall-pairing-edge-limit')

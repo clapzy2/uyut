@@ -41,6 +41,77 @@ function sample() {
 }
 
 describe('same-source reviewed coverage without promoting an apartment', () => {
+  it('checks physical rooms beside held source paint without counting a shared floor', () => {
+    const input = sample()
+    const sourcePolygon = [
+      { x: 200, y: 10 },
+      { x: 290, y: 10 },
+      { x: 290, y: 100 },
+      { x: 200, y: 100 },
+    ]
+    input.contours.rooms.push({
+      roomSourceNumber: 2,
+      polygon: sourcePolygon,
+      sourceTopology: {
+        kind: 'unclassified-source-paint',
+        floorId: 'source-floor-2',
+        exactPointKeys: ['200/1:10/1', '290/1:10/1', '290/1:100/1', '200/1:100/1'],
+        holes: [],
+        holeExactPointKeys: [],
+      },
+    })
+    input.reading.rooms.push({ sourceNumber: 2, name: 'Балкон', kind: 'living', utility: true })
+    const envelope = [
+      { x: 0, y: 0 },
+      { x: 300, y: 0 },
+      { x: 300, y: 110 },
+      { x: 0, y: 110 },
+    ]
+    input.contours.exterior = { boundaryRole: 'outer-wall-envelope', polygon: envelope }
+    input.contours.floor = { polygon: envelope }
+    const before = structuredClone(input)
+
+    const report = inspectReviewedPageCoverage(input)
+
+    expect(report.status, report.refusalReason).toBe('partial')
+    expect(report.missingSourceNumbers).toEqual([])
+    expect(report.wallSpans.unmatched).toBe(4)
+    expect(report.floorBoundary).toBe('missing')
+    expect(report.issues).toContain('source-areas-held')
+    expect(report.issues).toContain('floor-boundary-missing')
+    expect(report.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+    expect(input).toEqual(before)
+
+    input.source.sha256 = 'b'.repeat(64)
+    expect(inspectReviewedPageCoverage(input).status).toBe('refused')
+  })
+
+  it('shows no physical evidence when every saved room is only a source-paint guide', () => {
+    const input = sample()
+    const room = input.contours.rooms[0]
+    if (!room) throw new Error('Missing source coverage fixture')
+    room.sourceTopology = {
+      kind: 'unclassified-source-paint',
+      floorId: 'source-floor-1',
+      exactPointKeys: ['10/1:10/1', '100/1:10/1', '100/1:100/1', '10/1:100/1'],
+      holes: [],
+      holeExactPointKeys: [],
+    }
+
+    const report = inspectReviewedPageCoverage(input)
+    expect(report.status, report.refusalReason).toBe('partial')
+    expect(report.wallPairs).toBe(0)
+    expect(report.wallSpans.unmatched).toBe(0)
+    expect(report.floorBoundary).toBe('missing')
+    expect(report.openings.declaredDoors).toBe(0)
+    expect(report.issues).toContain('source-areas-held')
+    expect(report.issues).toContain('no-physical-room-contours')
+    expect(report.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
+
+    room.sourceTopology.exactPointKeys.pop()
+    expect(inspectReviewedPageCoverage(input).status).toBe('refused')
+  })
+
   it('keeps decimal subroom coverage partial rather than refusing or promoting it', () => {
     const input = sample()
     const room = input.contours.rooms[0]
