@@ -42,6 +42,18 @@ function fixture() {
       },
     ],
   }
+  common.work.paintBounds = {
+    complete: true,
+    refusalReason: null,
+    events: [
+      {
+        operationIndex: 100,
+        kind: 'text',
+        bounds: null,
+        reason: 'text-paint-envelope-unavailable',
+      },
+    ],
+  }
   return { ...common, source: common.reviewed.source }
 }
 describe('local finished-floor height reference, not a common world zero', () => {
@@ -98,6 +110,20 @@ describe('local finished-floor height reference, not a common world zero', () =>
     }
     expect(nativeHeightFloorReferenceEvidence(input).references[0]?.status).toBe('verified')
   })
+  it.each(['missing', 'incomplete'])(
+    'does not verify a local datum with %s paint inventory',
+    (fault) => {
+      const input = fixture()
+      if (fault === 'missing') delete input.work.paintBounds
+      else if (input.work.paintBounds) input.work.paintBounds.complete = false
+      expect(nativeHeightFloorReferenceEvidence(input).references[0]).toMatchObject({
+        status: 'unresolved',
+        datum: null,
+        inkSourceOperations: [],
+        reason: 'floor-reference-paint-inventory-unavailable',
+      })
+    },
+  )
   it.each([
     'Все отметки высот на замере даны от существующего пола',
     `${literal}, кроме кухни`,

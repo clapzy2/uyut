@@ -74,6 +74,24 @@ export function floorHeightFixture(): Input {
           points: rectangle(100, 100, 300, 300),
         },
       ],
+      paintBounds: {
+        complete: true,
+        refusalReason: null,
+        events: [
+          {
+            operationIndex: 10,
+            kind: 'vector' as const,
+            bounds: { left: 100, top: 100, right: 300, bottom: 300 },
+            reason: null,
+          },
+          ...Array.from({ length: 5 }, (_, index) => ({
+            operationIndex: 100 + index,
+            kind: 'text' as const,
+            bounds: null,
+            reason: 'text-paint-envelope-unavailable',
+          })),
+        ],
+      },
       skippedCurves: 0,
       clippedPaths: 0,
       unsupportedPaths: 0,
