@@ -81,6 +81,22 @@ describe('whole-page native inspection, separate from saved geometry', () => {
         { x: topRight.x, y: 80 },
       ],
     })
+    input.work.paths = input.work.paths.filter((path) => path.operationIndex !== 2)
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: input.work.paths.map((path) => ({
+        operationIndex: path.operationIndex,
+        kind: 'vector' as const,
+        reason: null,
+        bounds: {
+          left: Math.min(...path.points.map((point) => point.x)),
+          right: Math.max(...path.points.map((point) => point.x)),
+          top: Math.min(...path.points.map((point) => point.y)),
+          bottom: Math.max(...path.points.map((point) => point.y)),
+        },
+      })),
+    }
 
     const packet = nativeReviewPacket(input)
     expect(packet.oneSidedWallSupports).toMatchObject({

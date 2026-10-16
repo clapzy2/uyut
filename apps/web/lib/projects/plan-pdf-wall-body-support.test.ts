@@ -27,6 +27,24 @@ function fixture() {
     unsupportedContexts: 0,
     clippedPaths: 0,
     truncated: false,
+    paintBounds: {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 1,
+          kind: 'vector',
+          bounds: { left: 200, top: 150, right: 220, bottom: 250 },
+          reason: null,
+        },
+        {
+          operationIndex: 2,
+          kind: 'vector',
+          bounds: { left: 200, top: 140, right: 200, bottom: 260 },
+          reason: null,
+        },
+      ],
+    },
     paths: [
       {
         operationIndex: 1,
@@ -55,6 +73,11 @@ function fixture() {
 }
 
 describe('one-sided native wall-body support', () => {
+  it('does not claim visible source support without a complete paint inventory', () => {
+    const { work, contours } = fixture()
+    work.paintBounds = undefined
+    expect(findPlanPageWallBodySupports(work, contours)).toEqual([])
+  })
   it('excludes a distant recorded clip but holds touching, unknown and incomplete omissions', () => {
     const { work, contours } = fixture()
     const bounds = { left: 800, top: 800, right: 900, bottom: 900 }
@@ -129,6 +152,135 @@ describe('one-sided native wall-body support', () => {
     outerStroke.points[1] = { x: 220, y: 260 }
     outerStroke.operationIndex = 0
     expect(findPlanPageWallBodySupports(work, contours)[0]?.oppositeFace).toBeUndefined()
+  })
+
+  it('does not show a face whose independent stroke is covered by later paint', () => {
+    const { work, contours } = fixture()
+    work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 1,
+          kind: 'vector',
+          bounds: { left: 200, top: 150, right: 220, bottom: 250 },
+          reason: null,
+        },
+        {
+          operationIndex: 2,
+          kind: 'vector',
+          bounds: { left: 200, top: 140, right: 200, bottom: 260 },
+          reason: null,
+        },
+        {
+          operationIndex: 3,
+          kind: 'image',
+          bounds: { left: 198, top: 145, right: 222, bottom: 255 },
+          reason: null,
+        },
+      ],
+    }
+    expect(findPlanPageWallBodySupports(work, contours)).toEqual([])
+    const cover = work.paintBounds.events[2]
+    if (!cover) throw new Error('Missing later paint')
+    cover.bounds = { left: 800, top: 800, right: 900, bottom: 900 }
+    expect(findPlanPageWallBodySupports(work, contours)).toHaveLength(1)
+    cover.bounds = null
+    expect(findPlanPageWallBodySupports(work, contours)).toEqual([])
+  })
+
+  it('can use a later independent repaint without reviving the covered stroke', () => {
+    const { work, contours } = fixture()
+    work.paths.push({
+      operationIndex: 4,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 200, y: 140 },
+        { x: 200, y: 260 },
+      ],
+    })
+    work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 1,
+          kind: 'vector',
+          bounds: { left: 200, top: 150, right: 220, bottom: 250 },
+          reason: null,
+        },
+        {
+          operationIndex: 2,
+          kind: 'vector',
+          bounds: { left: 200, top: 140, right: 200, bottom: 260 },
+          reason: null,
+        },
+        {
+          operationIndex: 3,
+          kind: 'image',
+          bounds: { left: 198, top: 145, right: 222, bottom: 255 },
+          reason: null,
+        },
+        {
+          operationIndex: 4,
+          kind: 'vector',
+          bounds: { left: 200, top: 140, right: 200, bottom: 260 },
+          reason: null,
+        },
+      ],
+    }
+    expect(findPlanPageWallBodySupports(work, contours)).toMatchObject([
+      { strokeSegment: { operationIndex: 4 } },
+    ])
+  })
+
+  it('holds only the opposite face when later paint covers its stroke', () => {
+    const { work, contours } = fixture()
+    work.paths.push({
+      operationIndex: 3,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 220, y: 140 },
+        { x: 220, y: 260 },
+      ],
+    })
+    work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 1,
+          kind: 'vector',
+          bounds: { left: 200, top: 150, right: 220, bottom: 250 },
+          reason: null,
+        },
+        {
+          operationIndex: 2,
+          kind: 'vector',
+          bounds: { left: 200, top: 140, right: 200, bottom: 260 },
+          reason: null,
+        },
+        {
+          operationIndex: 3,
+          kind: 'vector',
+          bounds: { left: 220, top: 140, right: 220, bottom: 260 },
+          reason: null,
+        },
+        {
+          operationIndex: 4,
+          kind: 'image',
+          bounds: { left: 219, top: 145, right: 221, bottom: 255 },
+          reason: null,
+        },
+      ],
+    }
+    const support = findPlanPageWallBodySupports(work, contours)
+    expect(support).toHaveLength(1)
+    expect(support[0]?.oppositeFace).toBeUndefined()
   })
 
   it('does not infer an opposite face from a non-parallelogram fill', () => {

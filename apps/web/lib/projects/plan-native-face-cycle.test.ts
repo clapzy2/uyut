@@ -183,6 +183,35 @@ describe('single reviewed native floor-face cycle', () => {
       polygon: null,
     })
   })
+  it('holds a selected source face when later paint may cover its used span', () => {
+    const current = fixture(rectangle)
+    current.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        ...current.work.paths.map((path) => ({
+          operationIndex: path.operationIndex,
+          kind: 'vector' as const,
+          bounds: { left: 0, top: 0, right: 0, bottom: 0 },
+          reason: null,
+        })),
+        {
+          operationIndex: 10,
+          kind: 'image',
+          bounds: { left: 40, top: 19, right: 60, bottom: 21 },
+          reason: null,
+        },
+      ],
+    }
+    expect(nativeFaceCycle(current)).toMatchObject({
+      status: 'unresolved',
+      reason: 'later-paint-may-cover-native-face',
+    })
+    const cover = current.work.paintBounds.events.at(-1)
+    if (!cover) throw new Error('Missing later paint')
+    cover.bounds = { left: 400, top: 400, right: 410, bottom: 410 }
+    expect(nativeFaceCycle(current).status).toBe('candidate')
+  })
   it('does not select one of multiple disconnected cycles', () => {
     const second = fixture(rectangle.map((point) => ({ x: point.x + 100, y: point.y })))
     const paths = [

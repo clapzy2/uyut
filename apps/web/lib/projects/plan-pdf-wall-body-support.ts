@@ -1,6 +1,6 @@
 import type { PlanPageContours, PlanPageSegmentRef } from '@uyut/db'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
-import { pdfPaintInventoryIsComplete } from './plan-pdf-paint-exclusion'
+import { pdfPaintInventoryIsComplete, pdfPaintMayTouchSpan } from './plan-pdf-paint-exclusion'
 import { pdfContourKey, pdfPolygonIsValid } from './plan-pdf-room-binding'
 
 export type PdfWallBodySupport = {
@@ -60,6 +60,7 @@ function oppositeFace(
   strokes: SourceStroke[],
   fillOperationIndex: number,
   fillSubpathIndex: number,
+  laterPaintTouches: (start: PagePoint, end: PagePoint, afterOperation: number) => boolean,
 ): PdfWallBodySupport['oppositeFace'] {
   if (polygon.length !== 4) return
   const a = polygon[segmentIndex]
@@ -80,7 +81,12 @@ function oppositeFace(
     // A stroke underneath the later fill cannot witness the displayed face.
     if (stroke.ref.operationIndex <= fillOperationIndex) return false
     const overlap = contact(faceStart, faceEnd, stroke.start, stroke.end)
-    return overlap && same(overlap.start, faceStart) && same(overlap.end, faceEnd)
+    return (
+      overlap &&
+      same(overlap.start, faceStart) &&
+      same(overlap.end, faceEnd) &&
+      !laterPaintTouches(faceStart, faceEnd, stroke.ref.operationIndex)
+    )
   })
   if (!witness) return
   return {
@@ -106,6 +112,7 @@ export function findPlanPageWallBodySupports(
   if (contours.rooms.some((room) => room.sourceTopology !== undefined)) return []
   if (
     work.truncated ||
+    !pdfPaintInventoryIsComplete(work.paintBounds) ||
     work.paths.length > 3000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
     contours.rooms.length > 100 ||
@@ -145,6 +152,18 @@ export function findPlanPageWallBodySupports(
   strokes.sort((a, b) => compareRef(a.ref, b.ref))
   const result: PdfWallBodySupport[] = []
   let comparisons = 0
+  const paintEvents = work.paintBounds?.events ?? []
+  const laterPaintTouches = (start: PagePoint, end: PagePoint, afterOperation: number) => {
+    for (const event of paintEvents) {
+      if (++comparisons > 1_000_000) return true
+      if (
+        event.operationIndex > afterOperation &&
+        pdfPaintMayTouchSpan(event, [start, end], 0.0005)
+      )
+        return true
+    }
+    return false
+  }
   for (const path of work.paths) {
     if (
       path.paint !== 'fill' ||
@@ -231,7 +250,10 @@ export function findPlanPageWallBodySupports(
               // A stroke below the opaque fill cannot witness its displayed face.
               if (candidate.ref.operationIndex <= path.operationIndex) continue
               const covered = contact(interval.start, interval.end, candidate.start, candidate.end)
-              if (covered)
+              if (
+                covered &&
+                !laterPaintTouches(covered.start, covered.end, candidate.ref.operationIndex)
+              )
                 witnessed.push({ start: covered.start, end: covered.end, stroke: candidate })
             }
             for (const witness of witnessed) {
@@ -243,6 +265,7 @@ export function findPlanPageWallBodySupports(
                 strokes,
                 path.operationIndex,
                 path.subpathIndex,
+                laterPaintTouches,
               )
               result.push({
                 source: { operationIndex: path.operationIndex, subpathIndex: path.subpathIndex },
@@ -264,6 +287,7 @@ export function findPlanPageWallBodySupports(
       }
     }
   }
+  if (comparisons > 1_000_000) return []
   return result.sort(
     (a, b) =>
       compareRef(a.nativeSegment, b.nativeSegment) ||
