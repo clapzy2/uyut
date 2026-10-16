@@ -97,6 +97,16 @@ export function exactNativePointKey(point: PagePoint) {
   if (!x || !y) return null
   return `${fractionKey(x.value, 10n ** BigInt(x.places))}:${fractionKey(y.value, 10n ** BigInt(y.places))}`
 }
+export function exactNativeParallelogramFourthPointKey(
+  first: PagePoint,
+  second: PagePoint,
+  third: PagePoint,
+) {
+  const coordinates = integerPoints([first, second, third])
+  if (!coordinates) return null
+  const [a, b, c] = coordinates.points as [IntegerPoint, IntegerPoint, IntegerPoint]
+  return `${fractionKey(a.x + c.x - b.x, coordinates.scale)}:${fractionKey(a.y + c.y - b.y, coordinates.scale)}`
+}
 export function exactNativeOrientation(a: PagePoint, b: PagePoint, p: PagePoint) {
   const integers = integerPoints([a, b, p])
   if (!integers) return null
