@@ -145,7 +145,7 @@ export function verifyPlanPageOpeningFaces(
 ): PdfOpeningFaceCheck[] {
   // Bound the source and annotation work before geometric validation or pair enumeration.
   if (
-    work.paths.length > 3000 ||
+    work.paths.length > 5000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
     contours.rooms.length > 100 ||
     contours.rooms.reduce(

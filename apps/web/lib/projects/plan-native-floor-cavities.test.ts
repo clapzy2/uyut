@@ -718,7 +718,7 @@ describe('native painted cavities with documented source opening boundaries', ()
 
   it('refuses oversized source paths atomically rather than returning earlier floor cells', () => {
     const input = fixture()
-    input.work.paths = Array.from({ length: 3001 }, (_, index) => ({
+    input.work.paths = Array.from({ length: 5001 }, (_, index) => ({
       ...path(index, [
         [1, 1],
         [2, 2],

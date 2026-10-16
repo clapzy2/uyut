@@ -44,7 +44,7 @@ export function nativeCompositeFrameEvidence(work: PdfLinework, scale: { x: numb
     work.curvePathsTruncated ||
     work.skippedCurveBoundsTruncated ||
     work.clippedPathBoundsTruncated ||
-    work.paths.length > 3000 ||
+    work.paths.length > 5000 ||
     ![scale.x, scale.y].every((n) => Number.isFinite(n) && n > 0)
   )
     return finish('incomplete-composite-source')

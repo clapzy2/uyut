@@ -1024,7 +1024,7 @@ describe('physical door face candidates from two native reveals', () => {
     const input = fixture()
     const path = input.work.paths[0]
     if (!path) throw new Error('Missing native paths')
-    input.work.paths = Array.from({ length: 3001 }, () => path)
+    input.work.paths = Array.from({ length: 5001 }, () => path)
     expect(pairs(input)).toEqual([])
     const annotations = fixture()
     const room = annotations.contours.rooms[0]

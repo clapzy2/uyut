@@ -28,7 +28,7 @@ export function nativeFloorMarkerLeaders(work: PdfLinework, cues: Cue[], cells: 
     issues: refusalReason ? [] : issues,
     refusalReason,
   })
-  if (work.paths.length > 3000 || cues.length > 100 || cells.length > 100)
+  if (work.paths.length > 5000 || cues.length > 100 || cells.length > 100)
     return finish('floor-marker-leader-input-limit')
   const controlBounds = new Map<Cue, Bounds>()
   for (const cue of cues) {

@@ -161,7 +161,7 @@ export function nativeClosedStrokeRuns(input: {
   if (
     !Array.isArray(work.paths) ||
     !Array.isArray(curves) ||
-    work.paths.length + curves.length > 3000 ||
+    work.paths.length + curves.length > 5000 ||
     work.paths.some((path) => !path || !Array.isArray(path.points) || path.points.length < 2) ||
     curves.some((path) => !path || !Array.isArray(path.segments)) ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) +

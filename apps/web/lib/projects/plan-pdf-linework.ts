@@ -113,7 +113,7 @@ type Subpath = {
 }
 const MAX_OPERATIONS = 100_000
 const MAX_POINTS = 20_000
-const MAX_PATHS = 3000
+const MAX_PATHS = 5000
 const MAX_PAINT_EVENTS = 6000
 
 function updatePen(state: GraphicsState, key: string, value: unknown) {

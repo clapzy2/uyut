@@ -525,7 +525,7 @@ describe('literal native closed stroke runs', () => {
     if (change === 'truncated') request.work.truncated = true
     if (change === 'unsupported-path') request.work.unsupportedPaths = 1
     if (change === 'unsupported-context') request.work.unsupportedContexts = 1
-    if (change === 'path-limit') request.work.paths = Array(3001).fill(source)
+    if (change === 'path-limit') request.work.paths = Array(5001).fill(source)
     if (change === 'point-limit') source.points = Array(20001).fill(source.points[0])
     if (change === 'duplicate-ref') request.work.paths.push(structuredClone(source))
     if (change === 'negative-op') source.operationIndex = -1
