@@ -1575,6 +1575,71 @@ describe('native numeric source text ink', () => {
     expect(result.unresolved).toHaveLength(1)
   })
 
+  it('keeps source proof for a selected unspaced word with exact character spacing', () => {
+    const text = 'порога'
+    const input = fixture(
+      [
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['moveText', [10, 40]],
+        ['setCharSpacing', [0.1]],
+        ['showText', [[...text].map((character) => glyph(character))]],
+        ['endText'],
+      ],
+      [{ str: text, fontName: 'f1', width: 30.5, transform: [10, 0, 0, 10, 10, 40] }],
+    )
+    input.selectedTextIndexes = [0]
+    const result = nativeNumericTextInk(input)
+    expect(result.complete).toBe(true)
+    expect(result.items[0]?.sourceGroup?.operationIndexes).toEqual([4])
+    expect(result.items[0]?.sourceGroup?.shows[0]?.charSpacing).toBe(0.1)
+
+    const item = input.textItems[0] as { width: number }
+    item.width += 0.01
+    expect(nativeNumericTextInk(input).items).toEqual([])
+    item.width -= 0.01
+    const args = input.operatorList.argsArray as unknown[][]
+    args[3] = [0.2]
+    expect(nativeNumericTextInk(input).items).toEqual([])
+  })
+
+  it('does not extend the spacing exception to word spacing or embedded blanks', () => {
+    const text = 'порога'
+    const input = fixture(
+      [
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['moveText', [10, 40]],
+        ['setCharSpacing', [0.1]],
+        ['setWordSpacing', [1]],
+        ['showText', [[...text].map((character) => glyph(character))]],
+        ['endText'],
+      ],
+      [{ str: text, fontName: 'f1', width: 30.5, transform: [10, 0, 0, 10, 10, 40] }],
+    )
+    input.selectedTextIndexes = [0]
+    expect(nativeNumericTextInk(input).unresolved[0]?.reason).toBe(
+      'unsupported-native-text-ink-spacing',
+    )
+
+    const spaced = 'по рога'
+    const withBlank = fixture(
+      [
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['moveText', [10, 40]],
+        ['setCharSpacing', [0.1]],
+        ['showText', [[...spaced].map((character) => glyph(character))]],
+        ['endText'],
+      ],
+      [{ str: spaced, fontName: 'f1', width: 35.6, transform: [10, 0, 0, 10, 10, 40] }],
+    )
+    withBlank.selectedTextIndexes = [0]
+    expect(nativeNumericTextInk(withBlank).unresolved[0]?.reason).toBe(
+      'unsupported-native-text-ink-spacing',
+    )
+  })
+
   it('holds native TJ adjustment instead of treating its absence as straight advance', () => {
     const input = fixture(
       [
@@ -1766,9 +1831,10 @@ describe('native numeric source text ink', () => {
         const document = await loading.promise
         const page = await document.getPage(3)
         const text = await page.getTextContent()
+        const operatorList = await page.getOperatorList()
         const optionalContent = await document.getOptionalContentConfig({ intent: 'display' })
         const result = nativeNumericTextInk({
-          operatorList: await page.getOperatorList(),
+          operatorList,
           operators: pdfjs.OPS,
           textItems: text.items,
           selectedTextIndexes: [75],
@@ -1778,10 +1844,31 @@ describe('native numeric source text ink', () => {
           isOptionalContentVisible: (properties) => optionalContent.isVisible(properties),
         })
         expect(result.refusalReason).toBeNull()
-        expect(result.items).toEqual([])
-        expect(result.unresolved).toEqual([
-          { index: 75, reason: 'unsupported-native-text-ink-spacing' },
+        expect(result.unresolved).toEqual([])
+        expect(result.items).toHaveLength(1)
+        expect(result.items[0]?.text).toBe('порога')
+        expect(result.items[0]?.sourceGroup?.operationIndexes).toEqual([
+          result.items[0]?.operationIndex,
         ])
+        expect(result.items[0]?.sourceGroup?.shows[0]?.wordSpacing).toBe(0)
+        for (const [index, expected] of [
+          [74, 'unmatched-native-numeric-text-show'],
+          [76, 'native-text-show-identity-unresolved'],
+        ] as const) {
+          const fragment = nativeNumericTextInk({
+            operatorList,
+            operators: pdfjs.OPS,
+            textItems: text.items,
+            selectedTextIndexes: [index],
+            viewport: page.getViewport({ scale: 1 }),
+            getFont: (name) => page.commonObjs.get(name),
+            getGlyphPath: (name, character) =>
+              page.commonObjs.get(`${name}_path_${character}`).path,
+            isOptionalContentVisible: (properties) => optionalContent.isVisible(properties),
+          })
+          expect(fragment.items).toEqual([])
+          expect(fragment.refusalReason ?? fragment.unresolved[0]?.reason).toBe(expected)
+        }
       } finally {
         await loading.destroy()
       }
