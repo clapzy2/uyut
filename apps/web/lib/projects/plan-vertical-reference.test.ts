@@ -344,12 +344,53 @@ describe('explicit common vertical reference', () => {
   it('declared wall bases alone cannot supply aperture-floor ownership', () => {
     const { geometry, request } = fixture()
     request.thresholds = []
-    required(request.wallBases[0]).floorId = 'floor-1'
     const result = applyPlanVerticalReference(geometry, request, 'owner', verifiedAt)
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(openingOnVerticalFloorBoundary(result.geometry, 'inside', 'floor-1')).toBe(false)
     expect(openingOnVerticalFloorBoundary(result.geometry, 'outside', 'floor-2')).toBe(true)
+  })
+  it('rejects a wall base assigned to an unrelated floor despite matching snapshots', () => {
+    const { geometry, request } = fixture()
+    request.thresholds = []
+    required(request.wallBases[1]).floorId = 'floor-0'
+    expect(applyPlanVerticalReference(geometry, request, 'owner', verifiedAt)).toMatchObject({
+      ok: false,
+    })
+
+    const accepted = fixture()
+    const result = applyPlanVerticalReference(
+      accepted.geometry,
+      accepted.request,
+      'owner',
+      verifiedAt,
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(wallFloorElevation(result.geometry, 'wall-1')).toBe(-2)
+    required(result.geometry.verticalReference?.wallBases[1]).floorId = 'floor-0'
+    expect(inspectPlanVerticalReference(result.geometry)[0]?.message).toContain(
+      'однозначной границе физического пола',
+    )
+    expect(wallFloorElevation(result.geometry, 'wall-1')).toBeUndefined()
+  })
+  it('leaves a wall shared by two physical floor boundaries for explicit owner review', () => {
+    const { geometry, request } = fixture()
+    request.thresholds = []
+    const bath = required(geometry.rooms[1])
+    bath.polygon = bath.polygon.map((point) => ({ ...point, yCm: point.yCm - 50 }))
+    required(request.floors[1]).room = structuredClone(bath)
+    required(geometry.pdfCalibration).wallFaceRoomPolygons = structuredClone(
+      geometry.rooms.map((room) => room.polygon),
+    )
+    const wall = required(geometry.walls[1])
+    wall.start.yCm = 300
+    wall.end.yCm = 300
+    const { id, kind, start, end } = wall
+    required(request.wallBases[1]).wall = structuredClone({ id, kind, start, end })
+    required(request.wallBases[1]).floorId = 'floor-0'
+
+    expect(applyPlanVerticalReference(geometry, request, 'owner', verifiedAt).ok).toBe(true)
   })
   it('uses exact preserved source cuts rather than rounded offsets', () => {
     const { geometry, request } = fixture()
