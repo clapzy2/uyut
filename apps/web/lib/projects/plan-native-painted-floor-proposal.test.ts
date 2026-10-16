@@ -5,7 +5,13 @@ import { describe, expect, it } from 'vitest'
 import { preparePlanPage } from './plan-document'
 import { nativePaintedFloorProposal } from './plan-native-painted-floor-proposal'
 import { nativePaintedFloorReview } from './plan-native-painted-floor-review'
-import type { PdfVectorPath } from './plan-pdf-linework'
+import { nativeRoomNumberScheduleLinks } from './plan-native-room-number-links'
+import { nativeVisiblePaintRegions } from './plan-native-visible-paint'
+import type { PdfCurvePath, PdfVectorPath } from './plan-pdf-linework'
+import {
+  addNativeRoomLabel,
+  numberedNativeRoomFixture,
+} from './test-fixtures/native-numbered-rooms'
 
 function required<T>(value: T | undefined): T {
   if (value === undefined) throw new Error('Missing test fixture')
@@ -68,6 +74,64 @@ function fixture() {
   }
 }
 
+function addCircledMarker(
+  input: ReturnType<typeof numberedNativeRoomFixture>,
+  marker: (typeof input.native.labels)[number],
+) {
+  const center = marker?.pagePoint
+  if (!center) throw new Error('Missing source marker')
+  const radius = 8
+  const k = (4 / 3) * Math.tan(Math.PI / 8)
+  const points = [
+    { x: center.x + radius, y: center.y },
+    { x: center.x, y: center.y + radius },
+    { x: center.x - radius, y: center.y },
+    { x: center.x, y: center.y - radius },
+    { x: center.x + radius, y: center.y },
+  ]
+  const curve: PdfCurvePath = {
+    operationIndex: 1000 + (input.work.curvePaths?.length ?? 0),
+    subpathIndex: 0,
+    operationSubpathCount: 1,
+    paint: 'stroke',
+    closed: true,
+    start: points[0] as { x: number; y: number },
+    segments: points.slice(1).map((end, index) => {
+      const start = points[index] as { x: number; y: number }
+      return {
+        kind: 'cubic' as const,
+        control1: { x: start.x - k * (start.y - center.y), y: start.y + k * (start.x - center.x) },
+        control2: { x: end.x + k * (end.y - center.y), y: end.y - k * (end.x - center.x) },
+        end,
+      }
+    }),
+  }
+  input.work.curvePaths ??= []
+  input.work.curvePaths.push(curve)
+  input.work.skippedCurves = input.work.curvePaths.length
+  input.work.skippedCurveBounds ??= []
+  input.work.skippedCurveBounds.push({
+    operationIndex: curve.operationIndex,
+    paint: 'stroke',
+    bounds: {
+      left: center.x - radius,
+      right: center.x + radius,
+      top: center.y - radius,
+      bottom: center.y + radius,
+    },
+  })
+}
+
+function scheduleFixture() {
+  const input = numberedNativeRoomFixture()
+  const marker = input.native.labels.find(
+    (label) => label.name === '3' && label.pagePoint?.y === 150,
+  )
+  if (!marker) throw new Error('Missing source marker')
+  addCircledMarker(input, marker)
+  return input
+}
+
 describe('source-exact painted-floor proposal', () => {
   it('prepares only a reviewable draft with unresolved physical boundary roles', () => {
     const input = fixture()
@@ -106,6 +170,90 @@ describe('source-exact painted-floor proposal', () => {
     expect(nativePaintedFloorProposal(input).proposal).toBeNull()
   })
 
+  it('proposes a table-linked circled number as an unconfirmed source region', () => {
+    const input = scheduleFixture()
+    expect(nativeRoomNumberScheduleLinks(input).report.rows[2]?.markerStatus).toBe('linked')
+    expect(nativeVisiblePaintRegions(input).regions[2]).toMatchObject({
+      status: 'diagnostic',
+      boundaryInkComplete: false,
+      omittedStrokeCount: 1,
+    })
+    const result = nativePaintedFloorProposal(input)
+    expect(result.proposal, JSON.stringify(result)).not.toBeNull()
+    const floor = result.proposal?.floors[0]
+    expect(floor?.owner).toMatchObject({
+      sourceRoomKey: '3',
+      association: 'schedule-linked-circle',
+    })
+    expect(result.suggested).toBe(1)
+    expect(floor?.boundaryRoles.every((role) => role.kind === 'unresolved')).toBe(true)
+    if (!result.proposal) throw new Error('Missing source proposal')
+    expect(nativePaintedFloorReview({ ...input, reviewed: result.proposal })).toMatchObject({
+      status: 'reviewed-draft',
+      physicalBoundariesAccepted: false,
+      readyFor2D: false,
+      readyFor3D: false,
+    })
+  })
+
+  it('does not use a table row without a circled marker or accept a forged link', () => {
+    const input = scheduleFixture()
+    const proposed = nativePaintedFloorProposal(input).proposal
+    if (!proposed) throw new Error('Missing source proposal')
+    const forged = structuredClone(proposed)
+    const owner = forged.floors[0]?.owner
+    if (!owner) throw new Error('Missing floor owner')
+    owner.nameLabelId = input.native.labels.find((label) => label.name === 'Спальня')?.id ?? ''
+    expect(nativePaintedFloorReview({ ...input, reviewed: forged }).refusalReason).toBe(
+      'invalid-painted-floor-schedule-link',
+    )
+    input.work.curvePaths = []
+    input.work.skippedCurves = 0
+    input.work.skippedCurveBounds = []
+    expect(nativePaintedFloorProposal(input).proposal).toBeNull()
+  })
+
+  it('holds the proposed owner when a second circled number makes the source ambiguous', () => {
+    const input = scheduleFixture()
+    const proposed = nativePaintedFloorProposal(input).proposal
+    if (!proposed) throw new Error('Missing source proposal')
+    const duplicate = addNativeRoomLabel(input.native.labels, '3', 675, 175)
+    addCircledMarker(input, duplicate)
+    expect(nativeRoomNumberScheduleLinks(input).report.rows[2]?.markerStatus).toBe('ambiguous')
+    expect(nativePaintedFloorProposal(input).proposal).toBeNull()
+    expect(nativePaintedFloorReview({ ...input, reviewed: proposed }).refusalReason).toBe(
+      'invalid-painted-floor-schedule-link',
+    )
+  })
+
+  it('does not choose one of two different linked room markers in one painted region', () => {
+    const input = scheduleFixture()
+    const proposed = nativePaintedFloorProposal(input).proposal
+    if (!proposed) throw new Error('Missing source proposal')
+    const secondRoom = addNativeRoomLabel(input.native.labels, '2', 675, 175)
+    addCircledMarker(input, secondRoom)
+    expect(nativeRoomNumberScheduleLinks(input).report.rows[1]?.markerStatus).toBe('linked')
+    expect(nativePaintedFloorProposal(input).proposal).toBeNull()
+    expect(nativePaintedFloorReview({ ...input, reviewed: proposed }).refusalReason).toBe(
+      'ambiguous-painted-floor-schedule-owner',
+    )
+  })
+
+  it('does not ignore an extra circled number absent from the room schedule', () => {
+    const input = scheduleFixture()
+    const proposed = nativePaintedFloorProposal(input).proposal
+    if (!proposed) throw new Error('Missing source proposal')
+    const unlisted = addNativeRoomLabel(input.native.labels, '99', 675, 175)
+    addCircledMarker(input, unlisted)
+    expect(nativeRoomNumberScheduleLinks(input).report.unlistedMarkerLabelIds).toContain(
+      unlisted.id,
+    )
+    expect(nativePaintedFloorProposal(input).proposal).toBeNull()
+    expect(nativePaintedFloorReview({ ...input, reviewed: proposed }).refusalReason).toBe(
+      'ambiguous-painted-floor-schedule-owner',
+    )
+  })
+
   const source = new URL(
     '../../../../output/pdf/source-search-20261003/rebrina-original.pdf',
     import.meta.url,
@@ -134,6 +282,57 @@ describe('source-exact painted-floor proposal', () => {
         '6',
         '7',
       ])
+    },
+    30_000,
+  )
+
+  const muhanova = new URL(
+    '../../../../output/pdf/source-search-20261016/muhanova-original.pdf',
+    import.meta.url,
+  )
+  it.skipIf(!existsSync(muhanova))(
+    'proposes the real loggia marker only as a reviewable painted region',
+    async () => {
+      const body = await readFile(muhanova)
+      expect(createHash('sha256').update(body).digest('hex')).toBe(
+        '510480920eab5103181e959c1d847c4a7f29ff88653bfd8930ead5d149141d12',
+      )
+      const page = await preparePlanPage(body, true, 4, true, true)
+      const input = {
+        native: required(page.nativeTextAnchors),
+        work: required(page.linework),
+        lineworkSource: required(page.lineworkRasterSource),
+      }
+      const result = nativePaintedFloorProposal(input)
+      expect(result.proposal?.floors.map((floor) => floor.owner.sourceRoomKey).sort()).toEqual([
+        '1',
+        '2',
+        '3',
+        '4',
+        '5',
+      ])
+      expect(result.proposal?.floors).toContainEqual(
+        expect.objectContaining({
+          owner: expect.objectContaining({
+            sourceRoomKey: '3',
+            nameLabelId: 'native-text-175',
+            numberLabelId: 'native-text-147',
+            association: 'schedule-linked-circle',
+          }),
+        }),
+      )
+      if (!result.proposal) throw new Error('Missing real-source proposal')
+      const report = nativePaintedFloorReview({ ...input, reviewed: result.proposal })
+      expect(report).toMatchObject({
+        status: 'reviewed-draft',
+        physicalBoundariesAccepted: false,
+        readyFor2D: false,
+        readyFor3D: false,
+      })
+      expect(report.floors.find((floor) => floor.owner.sourceRoomKey === '3')).toMatchObject({
+        omittedStrokeCount: 1,
+        boundaryInkComplete: false,
+      })
     },
     30_000,
   )
