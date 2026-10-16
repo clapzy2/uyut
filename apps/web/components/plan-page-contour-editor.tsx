@@ -155,7 +155,14 @@ export function PlanPageContourEditor({
   const selectedTraceReference =
     selectedTrace?.revision === sourceRevision && selectedTrace.page === pageNumber
       ? selectedTrace.draft
-      : undefined
+      : selectedDraft?.sourceTrace
+        ? {
+            ...pdfContourIdentity(selectedDraft),
+            polygon: selectedDraft.sourceTrace.polygon,
+            closed: true,
+            sourceTopology: selectedDraft.sourceTrace.sourceTopology,
+          }
+        : undefined
   const selectedVoid = voids.find((draft) => draft.id === selectedVoidId)
   const groupCandidates = eligibleRooms.filter(
     (room) =>
@@ -465,7 +472,15 @@ export function PlanPageContourEditor({
     setDrafts((current) =>
       current.map((draft) =>
         pdfContourKey(draft) === selected && draft.sourceTopology
-          ? { ...pdfContourIdentity(draft), polygon: [], closed: false }
+          ? {
+              ...pdfContourIdentity(draft),
+              polygon: [],
+              closed: false,
+              sourceTrace: {
+                polygon: structuredClone(draft.polygon),
+                sourceTopology: structuredClone(draft.sourceTopology),
+              },
+            }
           : draft,
       ),
     )
@@ -479,7 +494,7 @@ export function PlanPageContourEditor({
     if (
       selectedDraft &&
       (selectedDraft.polygon.length > 0 || roomHasFeatures) &&
-      !window.confirm('Удалить несохранённую физическую обводку и вернуть исходный черновик?')
+      !window.confirm('Заменить текущую физическую обводку исходным черновиком?')
     )
       return
     setDrafts((current) =>
@@ -540,13 +555,14 @@ export function PlanPageContourEditor({
         const before = current.find((draft) => pdfContourKey(draft) === selected)
         return [
           ...current.filter((draft) => pdfContourKey(draft) !== selected),
-          ...(polygon.length || selectedIdentity.roomSourceNumbers
+          ...(polygon.length || selectedIdentity.roomSourceNumbers || before?.sourceTrace
             ? [
                 {
                   ...pdfContourIdentity(selectedIdentity),
                   polygon,
                   closed,
                   vertexProofs: pageContourVertexProofsChanged(before, polygon, replacement),
+                  ...(before?.sourceTrace ? { sourceTrace: before.sourceTrace } : {}),
                   ...(before?.openings ? { openings: before.openings } : {}),
                   ...(before?.conditionalEdges
                     ? { conditionalEdges: before.conditionalEdges }
@@ -1136,8 +1152,9 @@ export function PlanPageContourEditor({
         <div className="space-y-2 border-l-2 border-amber-600 pl-3">
           <p role="status" className="text-sm leading-relaxed text-ink-2">
             Пунктирный исходный контур — только подсказка. Обведите физическую границу по узлам PDF;
-            исходные точки не считаются подтверждёнными автоматически. Пока новая обводка не
-            сохранена, прежний черновик можно вернуть, заменив несохранённую обводку.
+            исходные точки не считаются подтверждёнными автоматически. Исходный контур сохранится
+            для сравнения после повторного открытия разметки. Вернуть исходный черновик можно,
+            заменив текущую физическую обводку.
           </p>
           <Button size="sm" variant="ghost" disabled={locked} onClick={restoreSourceTrace}>
             Вернуть исходный черновик

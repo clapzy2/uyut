@@ -604,7 +604,17 @@ describe('source-floor bridge in the existing editor', () => {
 
     const physicalDrafts = updateFor(slots.drafts, sourceDrafts) as typeof sourceDrafts
     const references = updateFor(slots.traceReferences, {}) as Record<string, unknown>
-    expect(physicalDrafts).toEqual([{ roomSourceNumber: 1, polygon: [], closed: false }])
+    expect(physicalDrafts).toEqual([
+      {
+        roomSourceNumber: 1,
+        polygon: [],
+        closed: false,
+        sourceTrace: {
+          polygon: sourceDrafts[0]?.polygon,
+          sourceTopology: sourceDrafts[0]?.sourceTopology,
+        },
+      },
+    ])
     expect(references['1']).toMatchObject({ draft: sourceDrafts[0], revision, page: 2 })
     expect(pageContourRoomsForSave(physicalDrafts, fixture.polygon)).toBeNull()
     expect(savePlanPageReview).not.toHaveBeenCalled()
@@ -642,6 +652,37 @@ describe('source-floor bridge in the existing editor', () => {
     expect(updateFor(slots.drafts, physicalDrafts)).toEqual(sourceDrafts)
     expect(updateFor(slots.traceReferences, references)).toEqual({})
     expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
+  it('shows a saved source guide again after reopening a physical trace', () => {
+    const { fixture } = setup()
+    controls(renderEditor(fixture.reading, revision)).onCopy()
+    const sourceDrafts = updateFor(slots.drafts, []) as ReturnType<typeof contourDraftsFromSaved>
+    const source = sourceDrafts[0]
+    if (!source?.sourceTopology) throw new Error('Source guide is missing')
+    const physicalRoom: PlanPageContours['rooms'][number] = {
+      roomSourceNumber: 1,
+      polygon: structuredClone(fixture.polygon),
+      sourceTrace: {
+        polygon: structuredClone(source.polygon),
+        sourceTopology: structuredClone(source.sourceTopology),
+      },
+    }
+    const reopened = contourDraftsFromSaved([physicalRoom])
+    hooks.values.set(slots.drafts, reopened)
+    hooks.values.set(slots.traceReferences, {})
+    hooks.values.set(slots.sourceFloorsShown, false)
+    hooks.cursor = 0
+
+    const editor = renderEditor(fixture.reading, revision)
+    expect(
+      nestedElements(editor, 'path').some(
+        (element) =>
+          (element.props as { stroke?: string; strokeDasharray?: string }).stroke === '#b45309' &&
+          (element.props as { strokeDasharray?: string }).strokeDasharray === '5 4',
+      ),
+    ).toBe(true)
+    const restore = buttonWithText(editor, 'Вернуть исходный черновик')
+    expect(restore).toBeDefined()
   })
   it('keeps independent temporary references for two source-only rooms', () => {
     const { fixture } = setup()

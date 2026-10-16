@@ -1,6 +1,7 @@
 'use server'
 
 import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { planMeasurementTextItems } from '@uyut/ai'
 import type { PlanPageContours, PlanReading } from '@uyut/db'
 import { revalidatePath } from 'next/cache'
@@ -149,16 +150,25 @@ export async function savePlanPageReview(
       state: contours.source.state,
     }
     if (source.sha256 !== contours.source.sha256) throw new PlanEditConflictError()
-    const hasSourceTopology = contours.rooms.some((room) => room.sourceTopology !== undefined)
+    const hasSourceTopology = contours.rooms.some(
+      (room) => room.sourceTopology !== undefined || room.sourceTrace !== undefined,
+    )
     for (const previous of before.pageReview?.contours.rooms ?? []) {
-      if (!previous.sourceTopology) continue
+      const previousTrace =
+        previous.sourceTrace ??
+        (previous.sourceTopology
+          ? { polygon: previous.polygon, sourceTopology: previous.sourceTopology }
+          : undefined)
+      if (!previousTrace) continue
       const previousMembers = new Set(pdfContourRoomNumbers(previous))
-      const reclassified = contours.rooms.some(
-        (room) =>
-          !room.sourceTopology &&
-          pdfContourRoomNumbers(room).some((number) => previousMembers.has(number)),
+      const replacement = contours.rooms.find((room) =>
+        pdfContourRoomNumbers(room).some((number) => previousMembers.has(number)),
       )
-      if (reclassified)
+      if (
+        replacement &&
+        ((!replacement.sourceTopology && !replacement.sourceTrace) ||
+          (replacement.sourceTrace && !isDeepStrictEqual(replacement.sourceTrace, previousTrace)))
+      )
         return {
           ok: false,
           error:

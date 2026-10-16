@@ -229,6 +229,69 @@ describe('save source page review action', () => {
     expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 3, true, true)
   })
 
+  it('refuses to strip or alter saved source provenance while retaining the physical room', async () => {
+    const input = sourceActionFixture()
+    input.before.pageReview = {
+      version: 1,
+      savedAt: '2026-10-16T00:00:00.000Z',
+      contours: structuredClone(input.selected),
+    }
+    mocks.owner.mockResolvedValue({ ...project, planReading: input.before })
+    const previous = input.selected.rooms[0]
+    if (!previous?.sourceTopology) throw new Error('Missing source topology')
+    const originalTrace = {
+      polygon: structuredClone(previous.polygon),
+      sourceTopology: structuredClone(previous.sourceTopology),
+    }
+    const physical = { roomSourceNumber: 3.1, polygon: structuredClone(previous.polygon) }
+    for (const replacement of [
+      physical,
+      { ...physical, sourceTrace: { ...originalTrace, polygon: originalTrace.polygon.slice(1) } },
+    ]) {
+      const result = await savePlanPageReview(
+        'project',
+        { ...input.selected, rooms: [replacement] },
+        planEditRevision('plan.pdf', input.before),
+      )
+      expect(result.ok).toBe(false)
+    }
+    expect(mocks.save).not.toHaveBeenCalled()
+  })
+
+  it('saves a separately traced physical room with its original area only as a guide', async () => {
+    const input = sourceActionFixture()
+    input.before.pageReview = {
+      version: 1,
+      savedAt: '2026-10-16T00:00:00.000Z',
+      contours: structuredClone(input.selected),
+    }
+    mocks.owner.mockResolvedValue({ ...project, planReading: input.before })
+    const original = input.selected.rooms[0]
+    if (!original?.sourceTopology) throw new Error('Missing source topology')
+    const physical = {
+      roomSourceNumber: 3.1,
+      polygon: [
+        { x: 200, y: 200 },
+        { x: 230, y: 200 },
+        { x: 230, y: 230 },
+        { x: 200, y: 230 },
+      ],
+      sourceTrace: {
+        polygon: structuredClone(original.polygon),
+        sourceTopology: structuredClone(original.sourceTopology),
+      },
+    }
+    const result = await savePlanPageReview(
+      'project',
+      { ...input.selected, rooms: [physical] },
+      planEditRevision('plan.pdf', input.before),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.reading.pageReview?.contours.rooms).toEqual([physical])
+    expect(result.data.reading.geometry).toBeUndefined()
+  })
+
   it.each(['keys', 'holes', 'owner', 'missing-source', 'revision'])(
     'rejects %s without saving a partially valid source snapshot',
     async (fault) => {
