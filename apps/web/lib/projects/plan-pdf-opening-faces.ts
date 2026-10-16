@@ -15,6 +15,7 @@ import {
 } from './plan-page-review'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import { nativePageSegments } from './plan-pdf-opening-endpoint'
+import { pdfPaintInventoryIsComplete, pdfPaintMayTouchSpan } from './plan-pdf-paint-exclusion'
 import {
   type PdfPlanSource,
   pdfContourIdentity,
@@ -310,6 +311,46 @@ export function verifyPlanPageOpeningFaces(
     })
   }
   const jambBetween = (a: PagePoint, b: PagePoint) => segments.get(segmentKey(a, b))
+  const paintEvents = pdfPaintInventoryIsComplete(work.paintBounds)
+    ? work.paintBounds?.events
+    : undefined
+  const strokeSpan = (ref: PlanPageSegmentRef): [PagePoint, PagePoint] | undefined => {
+    const path = work.paths.find(
+      (item) =>
+        item.operationIndex === ref.operationIndex && item.subpathIndex === ref.subpathIndex,
+    )
+    const start = path?.points[ref.segmentIndex]
+    const end = path?.points[(ref.segmentIndex + 1) % path.points.length]
+    return start && end ? [start, end] : undefined
+  }
+  const visibleJamb = (jamb: PdfOpeningJamb): boolean => {
+    if (!paintEvents) return true
+    const nativeRef: PlanPageSegmentRef = {
+      operationIndex: jamb.operationIndex,
+      subpathIndex: jamb.subpathIndex,
+      segmentIndex: jamb.segmentIndex,
+    }
+    const witnesses: Array<{ ref: PlanPageSegmentRef; span: [PagePoint, PagePoint] }> = [
+      { ref: nativeRef, span: [jamb.start, jamb.end] },
+    ]
+    if (jamb.strokeSegment) {
+      const span = strokeSpan(jamb.strokeSegment)
+      if (!span) return false
+      witnesses.push({ ref: jamb.strokeSegment, span })
+    }
+    return witnesses.every(({ ref, span }) =>
+      paintEvents.every((event) => {
+        if (event.operationIndex <= ref.operationIndex) return true
+        // The outline stroke is expected to follow its own filled reveal.
+        if (
+          ref.operationIndex === nativeRef.operationIndex &&
+          event.operationIndex === jamb.strokeSegment?.operationIndex
+        )
+          return true
+        return !pdfPaintMayTouchSpan(event, span, 0.0005)
+      }),
+    )
+  }
   const reservedAreas = [
     ...contours.rooms.map((room) => ({
       polygon: room.polygon,
@@ -404,9 +445,13 @@ export function verifyPlanPageOpeningFaces(
       const low = jambBetween(face.low, other.low)
       const high = jambBetween(face.high, other.high)
       if (low && high) {
-        const issue = stripIssue(face, other)
-        if (issue) corridorIssue = issue
-        else matches.push({ face: other, jambs: [low, high] })
+        if (!visibleJamb(low) || !visibleJamb(high)) {
+          corridorIssue = 'painted-over-native-jamb'
+        } else {
+          const issue = stripIssue(face, other)
+          if (issue) corridorIssue = issue
+          else matches.push({ face: other, jambs: [low, high] })
+        }
       }
     }
     if (matches.length > 1)
