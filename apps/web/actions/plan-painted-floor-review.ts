@@ -124,10 +124,12 @@ export async function proposePlanPaintedFloorReview(
         error: 'Предложение слишком велико для сохранения; требуется ручная проверка.',
       }
     const labelNames = new Map(native.labels.map((label) => [label.id, label.name]))
-    const rooms = result.proposal.floors.map(
-      (floor) =>
-        `${floor.owner.sourceRoomKey} — ${labelNames.get(floor.owner.nameLabelId) ?? 'без названия'}`,
-    )
+    const rooms = result.proposal.floors.map((floor) => {
+      const name = labelNames.get(floor.owner.nameLabelId) ?? 'без названия'
+      const sourceNote =
+        floor.owner.association === 'schedule-linked-circle' ? ' (по экспликации)' : ''
+      return `${floor.owner.sourceRoomKey} — ${name}${sourceNote}`
+    })
     return { ok: true, data: { json, suggested: result.suggested, skipped: result.skipped, rooms } }
   } catch (error) {
     if (error instanceof PlanEditConflictError)

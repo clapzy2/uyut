@@ -48,7 +48,7 @@ export function PlanPaintedFloorReviewEditor({
       onProposalChange?.(JSON.parse(result.data.json) as ReviewedNativePaintedFloors)
       setAcknowledged(false)
       setProposalNote(
-        `Предложено областей: ${result.data.suggested}. Пропущено фрагментов без надёжной пары подписей: ${result.data.skipped}. Ничего не сохранено.`,
+        `Предложено областей: ${result.data.suggested}. Пропущено фрагментов без однозначной связи с подписью или экспликацией: ${result.data.skipped}. Ничего не сохранено.`,
       )
       setProposalRooms(result.data.rooms)
     } catch {
@@ -84,8 +84,10 @@ export function PlanPaintedFloorReviewEditor({
       </summary>
       <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
         Это явный выбор фрагментов PDF и владельцев, не распознавание пола по цвету. Сервер заново
-        проверит источник, точки, вырезы и подписи. Номера вроде «3.1» сохраняются буквально. Стены,
-        косяки, высоты, общий ноль и обмеры этим не подтверждаются; существующая 2D/3D не меняется.
+        проверит источник, точки, вырезы и подписи. Если название есть только в экспликации, связь
+        допустима лишь по единственному круглому номеру внутри области. Номера вроде «3.1»
+        сохраняются буквально. Стены, косяки, высоты, общий ноль и обмеры этим не подтверждаются;
+        существующая 2D/3D не меняется.
       </p>
       <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
         Для каждой выбранной области нужны candidateId, pieceIndex, исходные polygon/holes, owner с

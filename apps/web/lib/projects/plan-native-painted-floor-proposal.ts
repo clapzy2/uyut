@@ -6,6 +6,7 @@ import {
   nativePaintedFloorRoomName,
   type ReviewedNativePaintedFloors,
 } from './plan-native-painted-floor-review'
+import { nativeRoomNumberScheduleLinks } from './plan-native-room-number-links'
 import { nativeVisiblePaintRegions } from './plan-native-visible-paint'
 
 type Input = Parameters<typeof nativeVisiblePaintRegions>[0]
@@ -22,6 +23,7 @@ export function nativePaintedFloorProposal(input: Input) {
   const exact = nativeFaceRationalPredicates()
   const floors: Floor[] = []
   let skipped = 0
+  let schedule: ReturnType<typeof nativeRoomNumberScheduleLinks>['report'] | undefined
 
   for (const region of paint.regions) {
     for (const [pieceIndex, piece] of region.pieces.entries()) {
@@ -70,7 +72,39 @@ export function nativePaintedFloorProposal(input: Input) {
             )
           : []
       const number = adjacentNumbers[0]
-      if (names.length !== 1 || !name || adjacentNumbers.length !== 1 || !number) {
+      let owner: Floor['owner'] | undefined
+      if (names.length === 1 && name && adjacentNumbers.length === 1 && number) {
+        owner = {
+          sourceRoomKey: number.name,
+          nameLabelId: name.id,
+          numberLabelId: number.id,
+        }
+      } else if (names.length === 0) {
+        schedule ??= nativeRoomNumberScheduleLinks(input).report
+        const containedMarkers = [
+          ...schedule.rows.flatMap((row) => row.markerLabelIds),
+          ...schedule.unlistedMarkerLabelIds,
+        ].filter((id) => native.labels.some((label) => label.id === id && contains(label)))
+        const matches = schedule.rows.filter(
+          (row) =>
+            row.markerStatus === 'linked' &&
+            nativePaintedFloorRoomName.test(row.name) &&
+            row.markerLabelIds.length === 1 &&
+            native.labels.some((label) => label.id === row.markerLabelIds[0] && contains(label)),
+        )
+        if (schedule.status === 'draft' && matches.length === 1 && containedMarkers.length === 1) {
+          const row = matches[0]
+          if (row && row.markerLabelIds[0] === containedMarkers[0]) {
+            owner = {
+              sourceRoomKey: String(row.sourceNumber),
+              nameLabelId: row.nameLabelId,
+              numberLabelId: row.markerLabelIds[0] as string,
+              association: 'schedule-linked-circle',
+            }
+          }
+        }
+      }
+      if (!owner) {
         skipped++
         continue
       }
@@ -79,11 +113,7 @@ export function nativePaintedFloorProposal(input: Input) {
         pieceIndex,
         polygon: piece.polygon,
         holes: piece.holes,
-        owner: {
-          sourceRoomKey: number.name,
-          nameLabelId: name.id,
-          numberLabelId: number.id,
-        },
+        owner,
         boundaryRoles: piece.polygon.map((_, edgeIndex) => ({ edgeIndex, kind: 'unresolved' })),
       })
     }

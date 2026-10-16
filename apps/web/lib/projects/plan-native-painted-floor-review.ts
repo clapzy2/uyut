@@ -1,5 +1,6 @@
 import { exactNativePointKey } from './plan-native-exact-intersections'
 import { nativeFaceRationalPredicates } from './plan-native-face-rational'
+import { nativeRoomNumberScheduleLinks } from './plan-native-room-number-links'
 import { nativeVisiblePaintRegions } from './plan-native-visible-paint'
 import type { PagePoint } from './plan-pdf-linework'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
@@ -20,7 +21,12 @@ export type ReviewedNativePaintedFloors = {
     pieceIndex: number
     polygon: PagePoint[]
     holes: PagePoint[][]
-    owner: { sourceRoomKey: string; nameLabelId: string; numberLabelId: string }
+    owner: {
+      sourceRoomKey: string
+      nameLabelId: string
+      numberLabelId: string
+      association?: 'schedule-linked-circle'
+    }
     boundaryRoles: { edgeIndex: number; kind: PaintedFloorBoundaryRole }[]
   }[]
 }
@@ -80,7 +86,9 @@ export function nativePaintedFloorReview(
     rasterSource: { ...native.source },
     floors: refusalReason ? [] : structuredClone(floors),
     basis: 'explicit-source-painted-floor-review' as const,
-    ownerBasis: 'reviewed-literal-caption-origins' as const,
+    ownerBasis: floors.some((floor) => floor.owner.association === 'schedule-linked-circle')
+      ? ('reviewed-schedule-linked-marker-and-caption-origins' as const)
+      : ('reviewed-literal-caption-origins' as const),
     readOnly: true as const,
     physicalBoundariesAccepted: false as const,
     measurementsConfirmed: false as const,
@@ -139,7 +147,7 @@ export function nativePaintedFloorReview(
         'owner',
         'boundaryRoles',
       ]) ||
-      !onlyKeys(floor.owner, ['sourceRoomKey', 'nameLabelId', 'numberLabelId']) ||
+      !onlyKeys(floor.owner, ['sourceRoomKey', 'nameLabelId', 'numberLabelId', 'association']) ||
       typeof floor.candidateId !== 'string' ||
       floor.candidateId.length > 128 ||
       !Number.isSafeInteger(floor.pieceIndex) ||
@@ -182,6 +190,7 @@ export function nativePaintedFloorReview(
   const seenOwners = new Set<string>()
   const seenLabels = new Set<string>()
   const exact = nativeFaceRationalPredicates()
+  let schedule: ReturnType<typeof nativeRoomNumberScheduleLinks>['report'] | undefined
   for (const selection of reviewed.floors) {
     const region = paint.regions.find((region) => region.candidateId === selection.candidateId)
     const piece = region?.pieces[selection.pieceIndex]
@@ -202,6 +211,7 @@ export function nativePaintedFloorReview(
     const scale = native.pageNormalizedScale
     if (
       !owner ||
+      (owner.association !== undefined && owner.association !== 'schedule-linked-circle') ||
       !canonicalNativePaintedFloorRoomKey(owner.sourceRoomKey) ||
       !name ||
       !number ||
@@ -231,6 +241,18 @@ export function nativePaintedFloorReview(
     seenOwners.add(owner.sourceRoomKey)
     seenLabels.add(name.id)
     seenLabels.add(number.id)
+    if (owner.association === 'schedule-linked-circle') {
+      schedule ??= nativeRoomNumberScheduleLinks(input).report
+      const matches = schedule.rows.filter(
+        (row) =>
+          row.markerStatus === 'linked' &&
+          row.sourceNumber === Number(owner.sourceRoomKey) &&
+          row.nameLabelId === name.id &&
+          row.markerLabelIds[0] === number.id,
+      )
+      if (schedule.status !== 'draft' || matches.length !== 1)
+        return finish('invalid-painted-floor-schedule-link')
+    }
     const proofs = new Map(
       region.intersections.map((proof) => [pointKey(proof.point), proof.exactPointKey]),
     )
@@ -245,13 +267,31 @@ export function nativePaintedFloorReview(
       holeKeys.some((hole) => !exact.simple(hole as string[]))
     )
       return finish('unresolved-painted-floor-topology')
-    for (const label of [name, number]) {
+    for (const label of owner.association === 'schedule-linked-circle'
+      ? [number]
+      : [name, number]) {
       const key = exactNativePointKey(label.pagePoint as PagePoint) as string
       if (
         exact.location(keys as string[], key) !== 'inside' ||
         holeKeys.some((hole) => exact.location(hole as string[], key) !== 'outside')
       )
         return finish('painted-floor-owner-outside-piece')
+    }
+    if (owner.association === 'schedule-linked-circle') {
+      const containedMarkers = [
+        ...(schedule?.rows.flatMap((row) => row.markerLabelIds) ?? []),
+        ...(schedule?.unlistedMarkerLabelIds ?? []),
+      ].filter((id) => {
+        const point = labels.get(id)?.pagePoint
+        const key = point && exactNativePointKey(point)
+        return (
+          key &&
+          exact.location(keys as string[], key) === 'inside' &&
+          holeKeys.every((hole) => exact.location(hole as string[], key) === 'outside')
+        )
+      })
+      if (containedMarkers.length !== 1 || containedMarkers[0] !== number.id)
+        return finish('ambiguous-painted-floor-schedule-owner')
     }
     const declared = new Map<number, PaintedFloorBoundaryRole>()
     for (const role of selection.boundaryRoles) {
