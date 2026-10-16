@@ -103,6 +103,12 @@ export const planPageSourceTopologySchema = z.strictObject({
 const contourFields = {
   polygon: z.array(pointSchema).min(3).max(100),
   sourceTopology: planPageSourceTopologySchema.optional(),
+  sourceTrace: z
+    .strictObject({
+      polygon: z.array(pointSchema).min(3).max(100),
+      sourceTopology: planPageSourceTopologySchema,
+    })
+    .optional(),
   vertexProofs: vertexProofsSchema,
   conditionalEdges: z.array(conditionalEdgeSchema).max(100).optional(),
   dimensionEdges: z
@@ -165,6 +171,8 @@ export const planPageContoursSchema = z
     for (const room of input.rooms) {
       const topology = room.sourceTopology
       if (!topology) continue
+      if (room.sourceTrace)
+        context.addIssue({ code: 'custom', message: 'source-trace-cannot-be-source-only' })
       sourcePointCount +=
         room.polygon.length + topology.holes.reduce((count, ring) => count + ring.length, 0)
       if (
@@ -180,6 +188,23 @@ export const planPageContoursSchema = z
         )
       )
         context.addIssue({ code: 'custom', message: 'invalid-source-topology-draft' })
+    }
+    for (const room of input.rooms) {
+      const trace = room.sourceTrace
+      if (!trace) continue
+      sourcePointCount +=
+        trace.polygon.length +
+        trace.sourceTopology.holes.reduce((count, ring) => count + ring.length, 0)
+      if (
+        input.source.state !== 'existing' ||
+        'roomSourceNumbers' in room ||
+        trace.sourceTopology.exactPointKeys.length !== trace.polygon.length ||
+        trace.sourceTopology.holeExactPointKeys.length !== trace.sourceTopology.holes.length ||
+        trace.sourceTopology.holes.some(
+          (ring, index) => trace.sourceTopology.holeExactPointKeys[index]?.length !== ring.length,
+        )
+      )
+        context.addIssue({ code: 'custom', message: 'invalid-source-trace' })
     }
     if (sourcePointCount > 10000)
       context.addIssue({ code: 'custom', message: 'source-topology-work-limit' })

@@ -31,6 +31,7 @@ export type PageContourDraft = PlanPageRoomIdentity & {
   closed: boolean
   vertexProofs?: PlanPageContours['rooms'][number]['vertexProofs']
   sourceTopology?: PlanPageContours['rooms'][number]['sourceTopology']
+  sourceTrace?: PlanPageContours['rooms'][number]['sourceTrace']
   conditionalEdges?: PlanPageContours['rooms'][number]['conditionalEdges']
   dimensionEdges?: PlanPageContours['rooms'][number]['dimensionEdges']
   openings?: PageOpeningDraft[]
@@ -52,6 +53,7 @@ export function contourDraftsFromSaved(rooms: PlanPageContours['rooms']): PageCo
     polygon: room.polygon.map((point) => ({ ...point })),
     closed: true,
     ...(room.sourceTopology ? { sourceTopology: structuredClone(room.sourceTopology) } : {}),
+    ...(room.sourceTrace ? { sourceTrace: structuredClone(room.sourceTrace) } : {}),
     ...(room.vertexProofs ? { vertexProofs: structuredClone(room.vertexProofs) } : {}),
     ...(room.conditionalEdges ? { conditionalEdges: structuredClone(room.conditionalEdges) } : {}),
     ...(room.dimensionEdges ? { dimensionEdges: structuredClone(room.dimensionEdges) } : {}),
@@ -263,6 +265,7 @@ export function pageContourRoomsForSave(
     rooms.push({
       ...pdfContourIdentity(draft),
       polygon: draft.polygon.map((point) => ({ ...point })),
+      ...(draft.sourceTrace ? { sourceTrace: structuredClone(draft.sourceTrace) } : {}),
       ...(draft.vertexProofs?.length ? { vertexProofs: structuredClone(draft.vertexProofs) } : {}),
       ...(draft.conditionalEdges?.length
         ? { conditionalEdges: structuredClone(draft.conditionalEdges) }

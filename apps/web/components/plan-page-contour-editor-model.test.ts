@@ -107,6 +107,28 @@ describe('saved bounded source intersections', () => {
     expect(pageContourRoomsForSave(drafts, crossingNodes)).toBeNull()
   })
 
+  it('round-trips an informational source trace separately from the physical polygon', () => {
+    const traced = structuredClone(crossingRoom)
+    traced.sourceTrace = {
+      polygon: [
+        { x: 10, y: 10 },
+        { x: 20, y: 10 },
+        { x: 20, y: 20 },
+      ],
+      sourceTopology: {
+        kind: 'unclassified-source-paint',
+        floorId: 'original-source',
+        exactPointKeys: ['10/1:10/1', '20/1:10/1', '20/1:20/1'],
+        holes: [],
+        holeExactPointKeys: [],
+      },
+    }
+    const drafts = contourDraftsFromSaved([traced])
+    expect(drafts[0]?.sourceTrace).toEqual(traced.sourceTrace)
+    expect(drafts[0]?.sourceTrace).not.toBe(traced.sourceTrace)
+    expect(pageContourRoomsForSave(drafts, crossingNodes, crossingSegments)).toEqual([traced])
+  })
+
   it.each(['floor', 'exterior'] as const)(
     'resaves %s crossing proofs only against fresh segments',
     (kind) => {

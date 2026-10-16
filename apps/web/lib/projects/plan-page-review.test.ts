@@ -37,6 +37,33 @@ const reading: PlanReading = {
 }
 
 describe('decimal source room identities', () => {
+  it('parses informational source trace only on a physical existing room', () => {
+    const sourceTrace = {
+      polygon: structuredClone(contours.rooms[0]?.polygon),
+      sourceTopology: {
+        kind: 'unclassified-source-paint' as const,
+        floorId: 'floor-4',
+        exactPointKeys: ['10/1:10/1', '30/1:10/1', '30/1:30/1'],
+        holes: [],
+        holeExactPointKeys: [],
+      },
+    }
+    const room = { ...contours.rooms[0], sourceTrace }
+    expect(planPageContoursSchema.parse({ ...contours, rooms: [room] }).rooms[0]).toEqual(room)
+    expect(
+      planPageContoursSchema.safeParse({
+        ...contours,
+        rooms: [{ ...room, sourceTopology: sourceTrace.sourceTopology }],
+      }).success,
+    ).toBe(false)
+    expect(
+      planPageContoursSchema.safeParse({
+        ...contours,
+        source: { ...contours.source, state: 'proposed' },
+        rooms: [room],
+      }).success,
+    ).toBe(false)
+  })
   it('preserves distinct parent and subroom identities in source review', () => {
     const rooms = [3, 3.1].map((roomSourceNumber) => ({ ...contours.rooms[0], roomSourceNumber }))
     expect(

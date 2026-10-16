@@ -445,6 +445,11 @@ export type PlanPageContours = {
     PlanPageRoomIdentity & {
       polygon: Array<{ x: number; y: number }>
       sourceTopology?: PlanPageSourceTopology
+      /** Original painted area retained as an informational guide for a separate physical trace. */
+      sourceTrace?: {
+        polygon: Array<{ x: number; y: number }>
+        sourceTopology: PlanPageSourceTopology
+      }
       vertexProofs?: PlanPageVertexProof[]
       conditionalEdges?: PlanPageConditionalEdge[]
       dimensionEdges?: PlanPageDimensionEdge[]

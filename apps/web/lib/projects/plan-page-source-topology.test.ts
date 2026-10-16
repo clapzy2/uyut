@@ -101,6 +101,27 @@ function selected(input: ReturnType<typeof fixture>) {
 }
 
 describe('source-only topology draft verification', () => {
+  it('keeps a physical trace informational while verifying its original source snapshot', () => {
+    const input = fixture()
+    const room = selected(input)
+    const trace = {
+      polygon: structuredClone(room.polygon),
+      sourceTopology: structuredClone(room.sourceTopology),
+    }
+    input.contours.rooms[0] = {
+      roomSourceNumber: 3.1,
+      sourceTrace: trace,
+      polygon: [
+        { x: 200, y: 200 },
+        { x: 230, y: 200 },
+        { x: 230, y: 230 },
+        { x: 200, y: 230 },
+      ],
+    }
+    expect(sourceTopologyDraftIssue(input)).toBeUndefined()
+    trace.sourceTopology.exactPointKeys[0] = '1/1:1/1'
+    expect(sourceTopologyDraftIssue(input)).toBe('source-topology-snapshot-mismatch')
+  })
   it('preserves fresh rational crossings and holes through JSON roundtrip without mutation', () => {
     const input = fixture()
     const room = selected(input)

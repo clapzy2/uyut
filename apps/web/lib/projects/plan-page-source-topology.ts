@@ -4,6 +4,7 @@ import { pageReviewRoomsMatch, planPageReviewIssue } from './plan-page-review'
 import { planPageSourceFloors } from './plan-page-source-floors'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
+import { pdfContourIdentity } from './plan-pdf-room-binding'
 
 type Input = {
   contours: PlanPageContours
@@ -23,7 +24,16 @@ const sameKeys = (first: readonly string[], second: readonly string[]) =>
 /** Save source-only snapshots without passing their rounded display rings to physical consumers. */
 export function sourceTopologyDraftIssue(input: Input): string | undefined {
   const { contours, reading, source, linework } = input
-  const selected = contours.rooms.filter((room) => room.sourceTopology !== undefined)
+  const selected: PlanPageContours['rooms'] = []
+  for (const room of contours.rooms) {
+    if (room.sourceTopology) selected.push(room)
+    else if (room.sourceTrace)
+      selected.push({
+        ...pdfContourIdentity(room),
+        polygon: room.sourceTrace.polygon,
+        sourceTopology: room.sourceTrace.sourceTopology,
+      })
+  }
   if (!selected.length) return planPageReviewIssue(contours, reading, source, linework)
   if (!pageReviewRoomsMatch(contours, reading)) return 'unknown-room-number'
   const numbers = contours.rooms.flatMap(
@@ -39,7 +49,7 @@ export function sourceTopologyDraftIssue(input: Input): string | undefined {
     linework,
   )
   if (legacyIssue) return legacyIssue
-  for (const room of selected) {
+  for (const room of contours.rooms.filter((room) => room.sourceTopology)) {
     if (
       room.roomSourceNumbers !== undefined ||
       ['vertexProofs', 'conditionalEdges', 'dimensionEdges', 'openings', 'obstacles'].some(
