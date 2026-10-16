@@ -1839,6 +1839,7 @@ function isHeightObservations(value: unknown, packet: NativeReviewPacket): boole
       'refusalReason',
       'observations',
       'issues',
+      ...('splitHints' in heights ? ['splitHints'] : []),
       'omissionCounts',
       ...('locations' in heights ? ['locations'] : []),
     ]) ||
@@ -1846,6 +1847,8 @@ function isHeightObservations(value: unknown, packet: NativeReviewPacket): boole
     heights.observations.length > 100 ||
     !Array.isArray(heights.issues) ||
     heights.issues.length > 100 ||
+    (heights.splitHints !== undefined &&
+      (!Array.isArray(heights.splitHints) || heights.splitHints.length > 100)) ||
     !heights.omissionCounts ||
     typeof heights.omissionCounts !== 'object' ||
     !hasOnlyKeys(heights.omissionCounts, ['skippedCurves', 'clippedPaths']) ||
@@ -1855,11 +1858,63 @@ function isHeightObservations(value: unknown, packet: NativeReviewPacket): boole
     heights.omissionCounts.clippedPaths !== packet.extraction?.clippedPaths
   )
     return false
+  const hintedLabels = new Set<string>()
+  for (const hint of heights.splitHints ?? []) {
+    if (
+      !hint ||
+      typeof hint !== 'object' ||
+      !hasOnlyKeys(hint, ['parts', 'valueMm', 'quantityKind', 'status']) ||
+      hint.quantityKind !== 'threshold-height' ||
+      hint.status !== 'unverified-source-ink' ||
+      !Array.isArray(hint.parts) ||
+      hint.parts.length !== 3 ||
+      !Number.isFinite(hint.valueMm)
+    )
+      return false
+    const indices: number[] = []
+    for (const part of hint.parts) {
+      if (
+        !part ||
+        typeof part !== 'object' ||
+        !hasOnlyKeys(part, ['labelId', 'originalText', 'pagePoint']) ||
+        typeof part.originalText !== 'string' ||
+        part.originalText.length > 200 ||
+        !part.pagePoint ||
+        typeof part.pagePoint !== 'object' ||
+        !hasOnlyKeys(part.pagePoint, ['x', 'y']) ||
+        ![part.pagePoint.x, part.pagePoint.y].every(
+          (value) => Number.isFinite(value) && value >= 0 && value <= 1000,
+        ) ||
+        !/^native-text-(?:0|[1-9]\d{0,2})$/u.test(part.labelId) ||
+        hintedLabels.has(part.labelId)
+      )
+        return false
+      indices.push(Number(part.labelId.slice('native-text-'.length)))
+      hintedLabels.add(part.labelId)
+    }
+    if (indices[1] !== (indices[0] as number) + 1 || indices[2] !== (indices[1] as number) + 1)
+      return false
+    if (
+      !/^[hн]$/iu.test(hint.parts[0]?.originalText ?? '') ||
+      !/^порога$/iu.test(hint.parts[1]?.originalText ?? '') ||
+      !/^=\s*\d{1,4}\s*мм$/iu.test(hint.parts[2]?.originalText ?? '')
+    )
+      return false
+    const caption = nativeHeightCaption(hint.parts.map((part) => part.originalText).join(''))
+    if (
+      caption.status !== 'observed' ||
+      caption.observation.quantityKind !== 'threshold-height' ||
+      caption.observation.issueCodes.includes('height-outside-model-range') ||
+      caption.observation.valueMm !== hint.valueMm
+    )
+      return false
+  }
   if (heights.status === 'unresolved')
     return (
       isBoundedLabel(heights.refusalReason) &&
       heights.observations.length === 0 &&
       heights.issues.length === 0 &&
+      (heights.splitHints?.length ?? 0) === 0 &&
       isHeightLocations(heights, packet)
     )
   if (heights.status !== 'draft' || heights.refusalReason !== null) return false

@@ -29,6 +29,7 @@ import {
 } from './plan-native-height-objects'
 import {
   type NativeHeightObservation,
+  type NativeSplitHeightHint,
   nativeHeightObservations,
 } from './plan-native-height-observations'
 import { nativeOpeningSourceLinks } from './plan-native-opening-links'
@@ -247,6 +248,7 @@ export type NativeReviewPacket = {
     refusalReason: string | null
     observations: Omit<NativeHeightObservation, 'pagePoint'>[]
     issues: { labelId: string; originalText: string; code: string }[]
+    splitHints?: NativeSplitHeightHint[]
     omissionCounts: { skippedCurves: number; clippedPaths: number }
     locations?: Pick<
       ReturnType<typeof nativeHeightSourceLocations>,
@@ -543,6 +545,7 @@ export function nativeReviewPacket(input: {
     refusalReason: heights.refusalReason,
     observations: heights.observations.map(({ pagePoint: _point, ...observation }) => observation),
     issues: heights.issues,
+    splitHints: heights.splitHints,
     omissionCounts: heights.omissionCounts,
   }
   const heightLocations = nativeHeightSourceLocations({ ...common, source })

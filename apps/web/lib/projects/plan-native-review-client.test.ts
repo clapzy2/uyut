@@ -2823,6 +2823,48 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
     return { ...result, heights }
   }
 
+  it('loads only internally consistent, read-only split threshold hints', async () => {
+    const { packet, headers, heights } = heightFixture()
+    heights.splitHints = [
+      {
+        parts: [
+          { labelId: 'native-text-74', originalText: 'Н', pagePoint: { x: 100, y: 100 } },
+          { labelId: 'native-text-75', originalText: 'порога', pagePoint: { x: 111, y: 101 } },
+          { labelId: 'native-text-76', originalText: '=45 мм', pagePoint: { x: 144, y: 100 } },
+        ],
+        valueMm: 45,
+        quantityKind: 'threshold-height',
+        status: 'unverified-source-ink',
+      },
+    ]
+    expect((await loadFixture(packet, headers)).packet.heightObservations?.splitHints).toEqual(
+      heights.splitHints,
+    )
+    for (const change of [
+      'different-value',
+      'missing-part',
+      'claimed-proof',
+      'off-page',
+    ] as const) {
+      const mutated = structuredClone(packet)
+      const hint = mutated.heightObservations?.splitHints?.[0]
+      if (!hint) throw new Error('Missing split hint fixture')
+      if (change === 'different-value') hint.valueMm = 450
+      if (change === 'missing-part') {
+        const lastPart = hint.parts[2]
+        if (!lastPart) throw new Error('Missing third split fragment')
+        lastPart.labelId = 'native-text-78'
+      }
+      if (change === 'claimed-proof') hint.status = 'verified' as typeof hint.status
+      if (change === 'off-page') {
+        const firstPart = hint.parts[0]
+        if (!firstPart) throw new Error('Missing first split fragment')
+        firstPart.pagePoint.x = 1001
+      }
+      await expect(loadFixture(mutated, headers)).rejects.toThrow()
+    }
+  })
+
   function documentaryHeightFixture(inkSourceOperation: number | null = null) {
     const result = heightFixture()
     const row = result.heights.observations[0]
