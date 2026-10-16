@@ -193,7 +193,7 @@ describe('same-source reviewed coverage without promoting an apartment', () => {
       if (change === 'reading-state') input.reading.planState = 'proposed'
       if (change === 'vertex') input.linework.paths = []
       if (change === 'budget')
-        input.linework.paths = Array.from({ length: 3001 }, () => input.linework.paths[0]).filter(
+        input.linework.paths = Array.from({ length: 5001 }, () => input.linework.paths[0]).filter(
           (path): path is PdfVectorPath => path !== undefined,
         )
       const report = inspectReviewedPageCoverage(input)

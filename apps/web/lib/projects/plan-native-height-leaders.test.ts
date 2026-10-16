@@ -207,7 +207,7 @@ describe('exact bounded height callout evidence, never room ownership', () => {
     const work = source()
     required(work.paths[1]).points = Array.from({ length: 20_001 }, () => point(130, 105))
     expectHeld(work)
-    work.paths = Array.from({ length: 3001 }, () => source().paths[0] as PdfVectorPath)
+    work.paths = Array.from({ length: 5001 }, () => source().paths[0] as PdfVectorPath)
     expect(verify(work).reason).toBe('height-leader-source-limit')
   })
   it('rejects an invalid caption container without throwing', () => {

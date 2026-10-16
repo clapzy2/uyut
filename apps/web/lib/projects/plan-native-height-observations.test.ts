@@ -301,6 +301,40 @@ describe('literal source height observation inventory, never vertical model tran
     },
   )
   it.each([
+    ['Н двери = 2300 мм', 'opening-height'],
+    ['Н окна = 1700 мм', 'opening-height'],
+    ['Н порога = 130 мм', 'threshold-height'],
+    ['Нпорога=45 мм', 'threshold-height'],
+    ['Высота порога = 45 мм', 'threshold-height'],
+  ] as const)(
+    'keeps the literal height role without assigning a source object: %s',
+    (text, kind) => {
+      const result = nativeHeightObservations(fixture([text]))
+      expect(result.observations).toMatchObject([
+        {
+          originalText: text,
+          quantityKind: kind,
+          datum: 'unspecified',
+          issueCodes: ['height-datum-unverified'],
+          mayAcceptFor3D: false,
+        },
+      ])
+      expect(result.assignsGeometryHeights).toBe(false)
+    },
+  )
+
+  it.each(['Н порога = 130', 'Н двери = 2300', 'Н окна = 1700'])(
+    'does not invent millimetres for the unitless CHI caption %s',
+    (text) => {
+      const result = nativeHeightObservations(fixture([text]))
+      expect(result.observations).toEqual([])
+      expect(result.issues).toEqual([
+        { labelId: 'native-text-0', originalText: text, code: 'no-literal-unit-qualified-height' },
+      ])
+    },
+  )
+
+  it.each([
     ['Отметка порога = +15 мм от чистого пола', 15, 'finished-floor'],
     ['Уровень порога = -2 см от существующего пола', -20, 'existing-floor'],
     ['Отметка верха порога = −0,015 м от готового пола', -15, 'finished-floor'],

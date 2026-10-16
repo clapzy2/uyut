@@ -896,11 +896,11 @@ describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
 
   it('caps retained curve commands separately and keeps the omission inventory', () => {
     const result = extract(
-      Array.from({ length: 3001 }, () => stroke([0, 10, 10, 2, 12, 10, 20, 12, 20, 20])),
+      Array.from({ length: 5001 }, () => stroke([0, 10, 10, 2, 12, 10, 20, 12, 20, 20])),
     )
-    expect(result.curvePaths).toHaveLength(3000)
+    expect(result.curvePaths).toHaveLength(5000)
     expect(result.curvePathsTruncated).toBe(true)
-    expect(result.skippedCurves).toBe(3001)
+    expect(result.skippedCurves).toBe(5001)
     expect(result.skippedCurveBoundsTruncated).toBe(true)
     expect(result.paths).toEqual([])
   })
@@ -1043,8 +1043,14 @@ describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
   })
 
   it('caps paths and explicitly marks an incomplete vector layer', () => {
-    const result = extract(Array.from({ length: 3001 }, () => stroke([0, 1, 1, 1, 2, 2])))
-    expect(result.paths).toHaveLength(3000)
+    const result = extract(Array.from({ length: 5001 }, () => stroke([0, 1, 1, 1, 2, 2])))
+    expect(result.paths).toHaveLength(5000)
     expect(result.truncated).toBe(true)
+  })
+
+  it('retains a dense but bounded architectural page without marking it incomplete', () => {
+    const result = extract(Array.from({ length: 3515 }, () => stroke([0, 1, 1, 1, 2, 2])))
+    expect(result.paths).toHaveLength(3515)
+    expect(result.truncated).toBe(false)
   })
 })

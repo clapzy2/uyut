@@ -85,7 +85,7 @@ export function inspectReviewedPageCoverage(input: {
     return report
   }
   if (
-    linework.paths.length > 3000 ||
+    linework.paths.length > 5000 ||
     linework.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
     reading.rooms.length > 100 ||
     contours.rooms.length > 100

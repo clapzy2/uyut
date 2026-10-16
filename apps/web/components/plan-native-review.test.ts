@@ -945,7 +945,7 @@ describe('read-only native review presentation', () => {
     expect(html).toContain('Размеры и высоты перед переносом')
     expect(html).toContain('Размерные кандидаты: 72; X: 41, Y: 31. Удержанные подписи: 36')
     expect(html).toContain(
-      'Подписи высот: 16; чистый потолок: 4, проёмы: 1, балки: 0, уровни порогов: 0, вид не определён: 11',
+      'Подписи высот: 16; чистый потолок: 4, проёмы: 1, балки: 0, высоты порогов: 0, уровни порогов: 0, вид не определён: 11',
     )
     expect(html).toContain('Для масштаба нужны независимые размерные опоры по X и Y')
     expect(html).toContain('исходные свидетельства целой стены или косяка')
@@ -968,6 +968,28 @@ describe('read-only native review presentation', () => {
     expect(packet).toEqual(before)
     expect(packet.readiness).toEqual({ readOnly: true, readyFor2D: false, readyFor3D: false })
   })
+  it('shows a threshold height separately from its unknown floor elevation', () => {
+    const packet = nativeDimensionPacket()
+    const heights = packet.heightObservations
+    if (!heights) throw new Error('Height fixture is missing')
+    heights.observations.push({
+      labelId: 'threshold-height',
+      originalText: 'Н порога = 130 мм',
+      valueMm: 130,
+      quantityKind: 'threshold-height',
+      datum: 'unspecified',
+      issueCodes: ['height-datum-unverified'],
+      mayAcceptFor3D: false,
+    })
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('высоты порогов: 1, уровни порогов: 0')
+    expect(html).toContain('высота порога (не отметка пола)')
+    expect(html).toContain('высота порога не равна перепаду полов')
+    expect(packet.readiness.readyFor3D).toBe(false)
+  })
+
   it.each([-120, 0, 35])(
     'shows a signed %s mm threshold level without assigning an opening bottom',
     (valueMm) => {

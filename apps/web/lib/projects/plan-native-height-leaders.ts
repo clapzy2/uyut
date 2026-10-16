@@ -125,10 +125,10 @@ export function createNativeHeightLeaderVerifier(work: PdfLinework) {
   )
     return (_quad: readonly PagePoint[]) => fail('invalid-height-leader-source')
   if (
-    work.paths.length > 3000 ||
-    (work.skippedCurveBounds ?? []).length > 3000 ||
-    (work.clippedPathBounds ?? []).length > 3000 ||
-    (work.curvePaths ?? []).length > 3000
+    work.paths.length > 5000 ||
+    (work.skippedCurveBounds ?? []).length > 5000 ||
+    (work.clippedPathBounds ?? []).length > 5000 ||
+    (work.curvePaths ?? []).length > 5000
   )
     return (_quad: readonly PagePoint[]) => fail('height-leader-source-limit')
   const paths = Array.isArray(work.paths) ? work.paths : []
@@ -143,14 +143,14 @@ export function createNativeHeightLeaderVerifier(work: PdfLinework) {
     work.pageWidth <= 0 ||
     !Number.isFinite(work.pageHeight) ||
     work.pageHeight <= 0 ||
-    paths.length > 3000 ||
+    paths.length > 5000 ||
     work.truncated ||
     work.unsupportedPaths ||
     work.unsupportedContexts ||
     work.skippedCurveBoundsTruncated ||
     work.clippedPathBoundsTruncated ||
     work.curvePathsTruncated ||
-    omissions.length > 3000 ||
+    omissions.length > 5000 ||
     ![work.skippedCurves, work.clippedPaths].every(
       (value) => Number.isSafeInteger(value) && value >= 0,
     ) ||
@@ -221,7 +221,7 @@ export function createNativeHeightLeaderVerifier(work: PdfLinework) {
       refusal = 'invalid-height-leader-omission'
   }
   if (refusal) return (_quad: readonly PagePoint[]) => fail(required(refusal ?? undefined))
-  if ((work.curvePaths ?? []).length + paths.length > 3000) refusal = 'height-leader-source-limit'
+  if ((work.curvePaths ?? []).length + paths.length > 5000) refusal = 'height-leader-source-limit'
   for (const curve of work.curvePaths ?? []) {
     if (refusal) break
     if (

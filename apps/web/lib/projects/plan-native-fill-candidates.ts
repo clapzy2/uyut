@@ -50,7 +50,7 @@ export function nativeFillCandidates(input: {
     work.truncated ||
     work.unsupportedPaths > 0 ||
     work.unsupportedContexts > 0 ||
-    work.paths.length > 3000 ||
+    work.paths.length > 5000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
     (work.skippedCurves > 0 &&
       (!work.skippedCurveBounds?.length || work.skippedCurveBoundsTruncated)) ||

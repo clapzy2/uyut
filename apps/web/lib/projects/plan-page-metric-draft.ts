@@ -72,7 +72,7 @@ const toleranceCm = (scale: number) => Math.min(0.5, 0.24 * scale + 0.05)
 /** Bound the legacy chain verifier before it enumerates compatible arrow pairs. */
 function chainWorkIsBounded(work: PdfLinework): boolean {
   if (
-    work.paths.length > 3000 ||
+    work.paths.length > 5000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000
   )
     return false

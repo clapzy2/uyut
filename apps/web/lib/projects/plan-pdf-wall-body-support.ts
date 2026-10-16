@@ -113,7 +113,7 @@ export function findPlanPageWallBodySupports(
   if (
     work.truncated ||
     !pdfPaintInventoryIsComplete(work.paintBounds) ||
-    work.paths.length > 3000 ||
+    work.paths.length > 5000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
     contours.rooms.length > 100 ||
     contours.rooms.reduce((sum, room) => sum + room.polygon.length, 0) > 2000 ||

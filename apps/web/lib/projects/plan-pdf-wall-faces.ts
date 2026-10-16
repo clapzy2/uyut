@@ -433,7 +433,7 @@ function validWallSource(
   const omissionsValid = (count: number, items: PdfLinework['clippedPathBounds']): boolean =>
     Number.isSafeInteger(count) &&
     count >= 0 &&
-    count <= 3000 &&
+    count <= 5000 &&
     (items === undefined
       ? count === 0
       : Array.isArray(items) &&
@@ -458,7 +458,7 @@ function validWallSource(
     !curvesKnown ||
     !omissionsValid(work.clippedPaths, work.clippedPathBounds) ||
     !omissionsValid(work.skippedCurves, work.skippedCurveBounds) ||
-    work.paths.length > 3000 ||
+    work.paths.length > 5000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
     !planPageContoursSchema.safeParse(contours).success ||
     pdfContourIssue(work, source, contours) ||

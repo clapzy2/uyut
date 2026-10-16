@@ -3884,7 +3884,13 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
     )
   })
 
-  it.each(['finished-ceiling', 'opening-height', 'beam-level', 'unclassified-height'] as const)(
+  it.each([
+    'finished-ceiling',
+    'opening-height',
+    'beam-level',
+    'threshold-height',
+    'unclassified-height',
+  ] as const)(
     'accepts a bounded %s observation only with consistent issue records',
     async (quantityKind) => {
       const { packet, headers, heights } = heightFixture()
@@ -3895,6 +3901,7 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
         'finished-ceiling': 'Чистый потолок 2672 мм',
         'opening-height': 'Высота проёма 2672 мм',
         'beam-level': 'Отметка низа балки 2672 мм',
+        'threshold-height': 'Н порога = 2672 мм',
         'unclassified-height': 'h1 = 2672 мм',
       }[quantityKind]
       for (const issue of heights.issues) issue.originalText = observation.originalText

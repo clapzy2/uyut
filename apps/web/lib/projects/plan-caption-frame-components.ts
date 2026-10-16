@@ -82,7 +82,7 @@ export function captionFrameComponents(input: {
       (!work.clippedPathBounds?.length || work.clippedPathBoundsTruncated)) ||
     reviewed.frames.length > 12 ||
     native.labels.length > 1000 ||
-    work.paths.length > 3000 ||
+    work.paths.length > 5000 ||
     new Set(native.labels.map((label) => label.id)).size !== native.labels.length ||
     new Set(reviewed.frames.map((frame) => frame.markerLabelId)).size !== reviewed.frames.length
   )

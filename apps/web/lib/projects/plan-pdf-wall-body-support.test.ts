@@ -433,7 +433,7 @@ describe('one-sided native wall-body support', () => {
     work.truncated = true
     expect(findPlanPageWallBodySupports(work, contours)).toEqual([])
     work.truncated = false
-    work.paths = Array.from({ length: 3001 }, () => body)
+    work.paths = Array.from({ length: 5001 }, () => body)
     expect(findPlanPageWallBodySupports(work, contours)).toEqual([])
   })
 })

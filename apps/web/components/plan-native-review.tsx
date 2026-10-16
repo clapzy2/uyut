@@ -585,6 +585,7 @@ const heightQuantityMessages = {
   'finished-ceiling': 'чистый потолок',
   'opening-height': 'высота проёма',
   'beam-level': 'уровень балки',
+  'threshold-height': 'высота порога (не отметка пола)',
   'threshold-level': 'уровень порога',
   'unclassified-height': 'вид высоты не определён',
 }
@@ -1123,7 +1124,12 @@ function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
               {heights.observations.filter((item) => item.quantityKind === 'opening-height').length}
               , балки:{' '}
               {heights.observations.filter((item) => item.quantityKind === 'beam-level').length},
-              уровни порогов:{' '}
+              высоты порогов:{' '}
+              {
+                heights.observations.filter((item) => item.quantityKind === 'threshold-height')
+                  .length
+              }
+              , уровни порогов:{' '}
               {
                 heights.observations.filter((item) => item.quantityKind === 'threshold-level')
                   .length
@@ -1139,9 +1145,9 @@ function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
               h1/h2 остаются неизвестными обозначениями. Чистый потолок — не конструктивная высота
               стены или плиты; буквальный уровень отсчёта не определяет комнату. Разные подписи
               потолка не усредняются. Эти наблюдения нельзя принять как высоты 3D. Уровень порога
-              может быть нулевым или отрицательным. Даже буквальная отметка не подтверждает
-              владельца порога и проверенный уровень отсчёта; она не задаёт автоматически нижнюю
-              отметку проёма в 2D/3D.
+              может быть нулевым или отрицательным; высота порога не равна перепаду полов. Даже
+              буквальная отметка не подтверждает владельца порога и проверенный уровень отсчёта; она
+              не задаёт автоматически нижнюю отметку проёма в 2D/3D.
             </p>
           </>
         )

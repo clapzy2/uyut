@@ -603,7 +603,7 @@ function alignedPageDimensionChain(
     labels.length < 1 ||
     labels.length > 20 ||
     ![work.pageWidth, work.pageHeight].every((value) => Number.isFinite(value) && value > 0) ||
-    work.paths.length > 3000 ||
+    work.paths.length > 5000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000
   )
     return fail('invalid-aligned-page')
@@ -1107,7 +1107,7 @@ function nativeDimensionSpans(
   spend: (count?: number) => void = () => {},
 ): NativeDimensionSpan[] | undefined {
   if (
-    work.paths.length > 3000 ||
+    work.paths.length > 5000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000
   )
     return []

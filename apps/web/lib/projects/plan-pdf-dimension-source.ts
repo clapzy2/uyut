@@ -19,7 +19,7 @@ export function pdfNativeDimensionSourceIssue(
   const clipped = work.clippedPathBounds ?? []
   const validOmissions = (items: typeof omitted) =>
     Array.isArray(items) &&
-    items.length <= 3000 &&
+    items.length <= 5000 &&
     items.every(
       (item) =>
         item &&
@@ -48,7 +48,7 @@ export function pdfNativeDimensionSourceIssue(
     (scope === 'complete-layer' && work.clippedPaths !== 0) ||
     work.unsupportedPaths !== 0 ||
     work.unsupportedContexts !== 0 ||
-    work.paths.length > 3000 ||
+    work.paths.length > 5000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
     new Set(work.paths.map((path) => `${path.operationIndex}:${path.subpathIndex}`)).size !==
       work.paths.length ||

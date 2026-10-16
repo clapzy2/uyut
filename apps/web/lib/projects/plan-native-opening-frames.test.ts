@@ -427,7 +427,7 @@ describe('painted native opening frame candidates', () => {
     input.skippedCurves = 1
     expect(run(input).refusalReason).toBe('incomplete-native-layer')
     input.skippedCurves = 0
-    input.paths = Array.from({ length: 3001 }, (_, index) => rectangle(index + 1))
+    input.paths = Array.from({ length: 5001 }, (_, index) => rectangle(index + 1))
     expect(run(input).refusalReason).toBe('incomplete-native-layer')
   })
 

@@ -81,7 +81,7 @@ export function nativeFaceCycle(input: {
     reviewed.faces.length > 100 ||
     work.coordinateSystem !== 'page-0-1000' ||
     ![work.pageWidth, work.pageHeight].every((value) => Number.isFinite(value) && value > 0) ||
-    work.paths.length > 3000 ||
+    work.paths.length > 5000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
     work.truncated ||
     work.unsupportedPaths ||
