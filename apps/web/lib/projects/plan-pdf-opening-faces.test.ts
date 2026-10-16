@@ -245,6 +245,69 @@ function swapAxes(input: ReturnType<typeof fixture>) {
 }
 
 describe('physical door face candidates from two native reveals', () => {
+  it('holds a jamb hidden by later paint without rejecting a distant fill or its own outline', () => {
+    const input = mixedRevealFixture()
+    const sourcePaint = [
+      { operationIndex: 1, left: 50, right: 50.15 },
+      { operationIndex: 2, left: 100, right: 125 },
+      { operationIndex: 10, left: 50.15, right: 50.15 },
+      { operationIndex: 11, left: 100, right: 100 },
+    ]
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: sourcePaint.map(({ operationIndex, left, right }) => ({
+        operationIndex,
+        kind: 'vector' as const,
+        bounds: { left, top: 125, right, bottom: 225 },
+        reason: null,
+      })),
+    }
+    expect(pairs(input)).toHaveLength(1)
+
+    const laterFill: PdfVectorPath = {
+      operationIndex: 200,
+      subpathIndex: 0,
+      paint: 'fill',
+      closed: true,
+      points: [
+        { x: 49, y: 140 },
+        { x: 51, y: 140 },
+        { x: 51, y: 210 },
+        { x: 49, y: 210 },
+      ],
+    }
+    input.work.paths.push(laterFill)
+    input.work.paintBounds.events.push({
+      operationIndex: 200,
+      kind: 'vector',
+      bounds: { left: 49, top: 140, right: 51, bottom: 210 },
+      reason: null,
+    })
+    expect(pairs(input)).toEqual([])
+    expect(verifyPlanPageOpeningFaces(input.work, input.source, input.contours)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'unresolved', reason: 'painted-over-native-jamb' }),
+      ]),
+    )
+
+    laterFill.points = [
+      { x: 500, y: 500 },
+      { x: 510, y: 500 },
+      { x: 510, y: 510 },
+      { x: 500, y: 510 },
+    ]
+    const laterEvent = input.work.paintBounds.events[4]
+    if (!laterEvent) throw new Error('Missing later paint event')
+    laterEvent.bounds = {
+      left: 500,
+      top: 500,
+      right: 510,
+      bottom: 510,
+    }
+    expect(pairs(input)).toHaveLength(1)
+  })
+
   it.each(['bounded-native-crossing', 'bounded-native-rational-crossing'] as const)(
     'retains native jamb pairs inside an exterior with a fresh %s proof',
     (kind) => {
