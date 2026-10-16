@@ -1742,6 +1742,7 @@ export function NativeReviewResult({
   const [showGlazingCandidates, setShowGlazingCandidates] = useState(true)
   const [showFilledPanels, setShowFilledPanels] = useState(false)
   const [showCompositeRectangles, setShowCompositeRectangles] = useState(true)
+  const [showOneSidedWalls, setShowOneSidedWalls] = useState(true)
   const [showSavedFloors, setShowSavedFloors] = useState(false)
   const [showFloorCavities, setShowFloorCavities] = useState(false)
   const [showOrderedPaint, setShowOrderedPaint] = useState(false)
@@ -1925,6 +1926,31 @@ export function NativeReviewResult({
                 onChange={(event) => setShowCompositeRectangles(event.target.checked)}
               />
               Показать составные исходные прямоугольники
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+      {packet.oneSidedWallSupports ? (
+        <div className="space-y-2 text-[13px] leading-relaxed">
+          <p>
+            Участки возможной грани стены:{' '}
+            {packet.oneSidedWallSupports.status === 'draft'
+              ? packet.oneSidedWallSupports.candidates.length
+              : 'проверка не завершена'}
+            .
+          </p>
+          <p className="text-ink-2">
+            Заливка и отдельный штрих совпадают только на показанном участке. Для стены и переноса в
+            2D/3D нужна проверка второй грани, проёмов и полного контура.
+          </p>
+          {packet.oneSidedWallSupports.candidates.length > 0 ? (
+            <label className="flex min-h-11 items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showOneSidedWalls}
+                onChange={(event) => setShowOneSidedWalls(event.target.checked)}
+              />
+              Показать возможные участки стены
             </label>
           ) : null}
         </div>
@@ -2132,6 +2158,25 @@ export function NativeReviewResult({
                     {`Исходный прямоугольник; назначение неизвестно. Штрихи: ${rectangle.sourceRefs.map((ref) => `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`).join(', ')}. Полных линейных контактов: ${rectangle.completeContactCount}; контактов с границей заливки: ${rectangle.filledBoundaryContactCount ?? 'не проверено'}. ${rectangle.jambContacts?.map((contact) => `Торец ${contact.edge.operationIndex}:${contact.edge.subpathIndex}:${contact.edge.segmentIndex}; грани заливки: ${contact.filledBoundarySources.map((ref) => `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`).join(', ') || 'не найдены'}`).join('. ') ?? ''}. Проход не подтверждён.`}
                   </title>
                 </polygon>
+              ))
+            : null}
+          {showOneSidedWalls && packet.oneSidedWallSupports?.status === 'draft'
+            ? packet.oneSidedWallSupports.candidates.map((support) => (
+                <line
+                  key={support.id}
+                  x1={support.start.x}
+                  y1={support.start.y}
+                  x2={support.end.x}
+                  y2={support.end.y}
+                  stroke="#059669"
+                  strokeWidth="3"
+                  strokeDasharray="4 3"
+                  vectorEffect="non-scaling-stroke"
+                >
+                  <title>
+                    {`Одна исходная грань, стена не подтверждена. Заливка ${support.fillEdge.operationIndex}:${support.fillEdge.subpathIndex}:${support.fillEdge.segmentIndex}; независимый штрих ${support.strokeEdge.operationIndex}:${support.strokeEdge.subpathIndex}:${support.strokeEdge.segmentIndex}. Контур ${support.contourKey}, грань ${support.wallEdgeIndex}.`}
+                  </title>
+                </line>
               ))
             : null}
           {showGlazingCandidates && packet.glazingSymbols?.status === 'draft'

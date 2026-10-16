@@ -294,6 +294,59 @@ function isCompositeSourceRectangles(value: unknown, image: NativeReviewPacket['
   })
 }
 
+function isOneSidedWallSupports(value: unknown, image: NativeReviewPacket['image']): boolean {
+  if (value === undefined) return true
+  if (!isCandidateLayer(value)) return false
+  const report = value as NonNullable<NativeReviewPacket['oneSidedWallSupports']>
+  if (
+    !hasOnlyKeys(report, ['status', 'refusalReason', 'physicalWallAccepted', 'candidates']) ||
+    report.physicalWallAccepted !== false
+  )
+    return false
+  const ids = new Set<string>()
+  const validRef = (ref: unknown): boolean =>
+    !!ref &&
+    typeof ref === 'object' &&
+    hasOnlyKeys(ref, ['operationIndex', 'subpathIndex', 'segmentIndex']) &&
+    [
+      (ref as Record<string, unknown>).operationIndex,
+      (ref as Record<string, unknown>).subpathIndex,
+      (ref as Record<string, unknown>).segmentIndex,
+    ].every(
+      (part) =>
+        typeof part === 'number' && Number.isSafeInteger(part) && part >= 0 && part <= 100_000,
+    )
+  return report.candidates.every((candidate) => {
+    if (
+      !candidate ||
+      !hasOnlyKeys(candidate, [
+        'id',
+        'start',
+        'end',
+        'fillEdge',
+        'strokeEdge',
+        'contourKey',
+        'wallEdgeIndex',
+      ]) ||
+      typeof candidate.id !== 'string' ||
+      candidate.id.length > 128 ||
+      ids.has(candidate.id) ||
+      !isSourceSegment({ start: candidate.start, end: candidate.end }, image) ||
+      !validRef(candidate.fillEdge) ||
+      !validRef(candidate.strokeEdge) ||
+      typeof candidate.contourKey !== 'string' ||
+      !candidate.contourKey ||
+      candidate.contourKey.length > 128 ||
+      !Number.isSafeInteger(candidate.wallEdgeIndex) ||
+      candidate.wallEdgeIndex < 0 ||
+      candidate.wallEdgeIndex > 2000
+    )
+      return false
+    ids.add(candidate.id)
+    return true
+  })
+}
+
 function isFilledPanelSymbols(value: unknown, image: NativeReviewPacket['image']): boolean {
   if (value === undefined) return true
   if (!isCandidateLayer(value)) return false
@@ -3061,6 +3114,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isGlazingSymbols(packet.glazingSymbols, packet.image) ||
     !isFilledPanelSymbols(packet.filledPanelSymbols, packet.image) ||
     !isCompositeSourceRectangles(packet.compositeSourceRectangles, packet.image) ||
+    !isOneSidedWallSupports(packet.oneSidedWallSupports, packet.image) ||
     !nativeSourceObjectReportsValid(packet) ||
     !isSourceLinks(packet.sourceLinks, packet) ||
     !isNumberCircles(packet.numberCircles) ||
