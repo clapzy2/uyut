@@ -1404,12 +1404,22 @@ export function nativeNumericTextInk(input: {
       })
       continue
     }
+    const unspacedSelectedFragment =
+      selectedIndexes !== undefined &&
+      run.nonzeroSpacing &&
+      run.sourceOperations.length === 1 &&
+      run.shows.length === 1 &&
+      run.shows[0]?.wordSpacing === 0 &&
+      !/[\s\u00a0\u202f]/u.test(item.str) &&
+      !run.shows[0]?.adjustments?.length
     if (
       run.reason ||
       !run.quad ||
       (run.sourceOperations.length === 1 &&
-        (run.shows.some((show) => show.wordSpacing !== 0) ||
-          (run.nonzeroSpacing && !selectsDimension(item.str))))
+        run.nonzeroSpacing &&
+        !selectsDimension(item.str) &&
+        !unspacedSelectedFragment) ||
+      (run.shows.some((show) => show.wordSpacing !== 0) && !unspacedSelectedFragment)
     ) {
       unresolved.push({
         index,
@@ -1450,6 +1460,7 @@ export function nativeNumericTextInk(input: {
           }
         : {}),
       ...((run.sourceOperations.length > 1 ||
+        unspacedSelectedFragment ||
         (selectsDimension(item.str) && (run.nonzeroSpacing || run.packedOrigin))) &&
       !run.resetCaption
         ? {
