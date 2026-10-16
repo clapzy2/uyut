@@ -294,6 +294,25 @@ describe('unlabeled outdoor zones', () => {
     ).toMatchObject({ agrees: true, sum: '28,8' })
   })
 
+  it('compares the complete documentary inventory when the total includes a loggia', () => {
+    const rows = [
+      { area: '6,15' },
+      { area: '19,44' },
+      { area: '4,17', spaceKind: 'loggia' as const },
+      { area: '14,19' },
+      { area: '4,79' },
+    ]
+    expect(totalAreaCheck(rows, 48.74)).toMatchObject({ agrees: true, sum: '48,74' })
+    expect(totalAreaCheck(rows, 44.57)?.agrees).toBe(true)
+    expect(totalAreaCheck(rows, 60)?.agrees).toBe(false)
+    expect(
+      totalAreaCheck(
+        rows.map((row, index) => (index === 0 ? { ...row, area: '' } : row)),
+        48.74,
+      ),
+    ).toBeNull()
+  })
+
   it('reopens a balcony as a utility zone rather than furniture room', () => {
     expect(
       planRows(reading([{ name: 'Балкон', kind: 'living', spaceKind: 'balcony' }]))[0],

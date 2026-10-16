@@ -317,8 +317,9 @@ const number = (raw: string) => {
 /**
  * Сумма площадей комнат против общей площади квартиры с плана.
  *
- * Сверяет сумму подписанных внутренних помещений. Балкон без подписанной площади не должен
- * скрывать эту проверку, но совпавшая сумма не доказывает, что внешний балкон найден.
+ * Общая площадь на разных листах может включать или исключать балконы и лоджии.
+ * Проверяем оба полных состава без выдуманных коэффициентов. Совпадение суммы
+ * не подтверждает ни юридический вид площади, ни найденный контур пола.
  *
  * Считается по строкам, а не по чтению: человек правит площади прямо здесь, и сумма должна
  * ходить за его правками. Пять процентов допуска, потому что площади на планах округлены
@@ -336,21 +337,30 @@ export function totalAreaCheck(
   }
   let sum = 0
   let counted = 0
+  let outdoorSum = 0
+  let outdoorComplete = true
   for (const row of rows) {
-    if (row.spaceKind === 'balcony' || row.spaceKind === 'loggia') continue
     const area = number(row.area)
+    if (row.spaceKind === 'balcony' || row.spaceKind === 'loggia') {
+      if (area === null) outdoorComplete = false
+      else outdoorSum += area
+      continue
+    }
     if (area === null) {
       return null
     }
     sum += area
     counted += 1
   }
-  if (counted === 0) return null
-  const rounded = Math.round(sum * 100) / 100
+  if (counted === 0 && (!outdoorComplete || outdoorSum === 0)) return null
+  const rounded = Math.round((sum + (outdoorComplete ? outdoorSum : 0)) * 100) / 100
+  const interior = Math.round(sum * 100) / 100
   return {
     sum: String(rounded).replace('.', ','),
     total: String(totalM2).replace('.', ','),
-    agrees: Math.abs(rounded - totalM2) / totalM2 <= 0.05,
+    agrees:
+      Math.abs(rounded - totalM2) / totalM2 <= 0.05 ||
+      (counted > 0 && Math.abs(interior - totalM2) / totalM2 <= 0.05),
   }
 }
 

@@ -9,6 +9,7 @@ import {
   numberCircleSourcePaths,
 } from '../lib/projects/plan-native-number-circles'
 import { automaticNativeRoomCandidates } from '../lib/projects/plan-native-room-candidates'
+import { nativeRoomNumberScheduleLinks } from '../lib/projects/plan-native-room-number-links'
 import { nativeRoomScheduleEvidence } from '../lib/projects/plan-native-room-schedule'
 
 const [path, pageArgument = '1'] = process.argv.slice(2)
@@ -48,6 +49,7 @@ if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource) {
       ...base,
       nativePaths: page.linework.paths.length,
       schedule,
+      numberScheduleLinks: nativeRoomNumberScheduleLinks(input).report,
       circles: {
         ...circles,
         cues: circles.cues.map((cue) => ({

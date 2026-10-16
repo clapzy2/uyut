@@ -1070,7 +1070,7 @@ export function PlanReadingCard({
                   </p>
                 </div>
               ) : null}
-              {row.suspicious && !row.chainMismatch ? (
+              {row.suspicious && check && !row.chainMismatch ? (
                 <p className="mt-3 pl-[30px] text-[13px] leading-relaxed text-danger">
                   Площадь отличается от произведения сторон. Проверьте подписи и форму комнаты.
                 </p>
