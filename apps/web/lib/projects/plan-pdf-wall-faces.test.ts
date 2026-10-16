@@ -175,6 +175,86 @@ function completePageSheet() {
 }
 
 describe('exact native PDF wall-face intervals', () => {
+  it('holds a face hidden by later paint, but keeps a distant later fill', () => {
+    const input = syntheticSheet()
+    const baseline = pairPlanPageWallFaces(input.work, source, input.contours)
+    expect(baseline.length).toBeGreaterThan(0)
+
+    const laterFill: PdfVectorPath = {
+      operationIndex: 200,
+      subpathIndex: 0,
+      paint: 'fill',
+      closed: true,
+      points: rectangle(190, 90, 230, 310),
+    }
+    input.work.paths.push(laterFill)
+    const bounds = { left: 190, top: 90, right: 230, bottom: 310 }
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        { operationIndex: 10, kind: 'vector', bounds, reason: null },
+        { operationIndex: 200, kind: 'vector', bounds, reason: null },
+      ],
+    }
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+
+    laterFill.points = rectangle(500, 500, 540, 540)
+    const laterEvent = input.work.paintBounds.events[1]
+    if (!laterEvent) throw new Error('Missing later paint event')
+    laterEvent.bounds = {
+      left: 500,
+      top: 500,
+      right: 540,
+      bottom: 540,
+    }
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual(baseline)
+  })
+
+  it('does not mistake the independent stroke over a fill face for an occlusion', () => {
+    const input = syntheticSheet()
+    input.wall.paint = 'fill'
+    for (const [operationIndex, x] of [
+      [11, 200],
+      [12, 220],
+    ] as const) {
+      input.work.paths.push({
+        operationIndex,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x, y: 100 },
+          { x, y: 300 },
+        ],
+      })
+    }
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: 10,
+          kind: 'vector',
+          bounds: { left: 200, top: 100, right: 220, bottom: 300 },
+          reason: null,
+        },
+        ...[11, 12].map((operationIndex, index) => ({
+          operationIndex,
+          kind: 'vector' as const,
+          bounds: {
+            left: index === 0 ? 199.9 : 219.9,
+            top: 100,
+            right: index === 0 ? 200.1 : 220.1,
+            bottom: 300,
+          },
+          reason: null,
+        })),
+      ],
+    }
+    expect(pairPlanPageWallFaces(input.work, source, input.contours).length).toBeGreaterThan(0)
+  })
+
   it.each([0, 1, 2])('pairs slanted faces independently of room winding (%s)', (reversed) => {
     const input = slantedSheet()
     const reference = pairPlanPageWallFaces(input.work, source, input.contours)

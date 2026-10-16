@@ -6,7 +6,7 @@ import {
 } from './plan-page-review'
 import type { PagePoint, PdfLinework, PdfPaintBounds, PdfVectorPath } from './plan-pdf-linework'
 import { nativePageSegments, sourceOpeningEndpoint } from './plan-pdf-opening-endpoint'
-import { pdfPaintInventoryIsComplete } from './plan-pdf-paint-exclusion'
+import { pdfPaintInventoryIsComplete, pdfPaintMayTouchSpan } from './plan-pdf-paint-exclusion'
 import {
   type PdfPlanSource,
   pdfContourIssue,
@@ -584,6 +584,32 @@ function unaffectedByOmittedPaths(
   })
 }
 
+/** Later paint may conceal a source face even when its native path is intact. */
+function unaffectedByLaterPaint(
+  pair: PdfWallFacePair,
+  paintEvents: readonly PdfPaintBounds['events'][number][] | undefined,
+): boolean {
+  if (!paintEvents) return true
+  return pair.faces.every((face) => {
+    const witnesses = [face.nativeSegment, face.strokeSegment].filter(
+      (ref): ref is PlanPageSegmentRef => ref !== undefined,
+    )
+    const span: [PagePoint, PagePoint] = [face.start, face.end]
+    return witnesses.every((ref) =>
+      paintEvents.every((event) => {
+        if (event.operationIndex <= ref.operationIndex) return true
+        // The independent stroke is expected to paint over its own fill edge.
+        if (
+          refKey(ref) === refKey(face.nativeSegment) &&
+          event.operationIndex === face.strokeSegment?.operationIndex
+        )
+          return true
+        return !pdfPaintMayTouchSpan(event, span, 0.0005)
+      }),
+    )
+  })
+}
+
 /** Exact partial face relations within one native closed outline; not complete wall topology. */
 export function pairPlanPageWallFaces(
   work: PdfLinework,
@@ -788,9 +814,12 @@ export function pairPlanPageWallFaces(
   const paintEvents = pdfPaintInventoryIsComplete(work.paintBounds)
     ? new Map(work.paintBounds?.events.map((event) => [event.operationIndex, event]))
     : undefined
+  const orderedPaintEvents = paintEvents ? [...paintEvents.values()] : undefined
   // The enclosing strip box is conservative for diagonal faces as well. A far
   // omission can be excluded; paint anywhere in that box still holds the pair.
-  return [...result, ...pairSlantedFaces(work, contours, closedSubpaths)].filter((pair) =>
-    unaffectedByOmittedPaths(pair, omitted, paintEvents),
+  return [...result, ...pairSlantedFaces(work, contours, closedSubpaths)].filter(
+    (pair) =>
+      unaffectedByOmittedPaths(pair, omitted, paintEvents) &&
+      unaffectedByLaterPaint(pair, orderedPaintEvents),
   )
 }
