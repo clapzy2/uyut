@@ -172,7 +172,8 @@ describe('common datum integration without legacy flat transfer', () => {
     const base = geometry.verticalReference?.wallBases[1]
     if (!base) throw new Error('Missing wall base')
     base.floorId = 'room-floor'
-    expect(inspectPlanVerticalDimensions(geometry)[0]?.id).toContain('opening-paired-floor-owner')
+    expect(inspectPlanVerticalDimensions(geometry)[0]?.id).toBe('vertical-reference')
+    expect(planVolume(geometry)).toBeNull()
   })
 
   it.each([null, false, 0, '', {}])('does not flatten malformed stored reference %j', (value) => {

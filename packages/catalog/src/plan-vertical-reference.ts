@@ -164,6 +164,24 @@ function wallSnapshot(value: ReferenceGeometry['walls'][number]) {
   const { id, kind, start, end, thicknessCm } = value
   return { id, kind, start, end, thicknessCm }
 }
+function boundaryContainsWall(
+  polygon: ReferenceGeometry['rooms'][number]['polygon'],
+  candidate: ReferenceGeometry['walls'][number],
+): boolean {
+  return polygon.some((start, index) => {
+    const end = polygon[(index + 1) % polygon.length]
+    if (!end) return false
+    const within = (value: number, first: number, second: number) =>
+      value >= Math.min(first, second) && value <= Math.max(first, second)
+    if (
+      ![candidate.start, candidate.end].every(
+        (point) => within(point.xCm, start.xCm, end.xCm) && within(point.yCm, start.yCm, end.yCm),
+      )
+    )
+      return false
+    return exactSegmentContains(start, end, [candidate.start, candidate.end])
+  })
+}
 function openingSnapshot(value: ReferenceGeometry['openings'][number]) {
   const { id, type, wallId, offsetCm, widthCm } = value
   return { id, type, wallId, offsetCm, widthCm }
@@ -252,6 +270,15 @@ export function inspectPlanVerticalReference(geometry: ReferenceGeometry): PlanG
     )
   )
     return fail('основания всех стен должны быть привязаны к актуальным полам.')
+  for (const base of reference.wallBases) {
+    const wall = geometry.walls.find((value) => value.id === base.wall.id)
+    if (!wall) continue
+    const boundaryOwners = reference.floors.filter((floor) =>
+      boundaryContainsWall(floor.room.polygon, wall),
+    )
+    if (boundaryOwners.length === 1 && boundaryOwners[0]?.id !== base.floorId)
+      return fail('основание стены противоречит однозначной границе физического пола.')
+  }
   const ceilings = reference.ceilings ?? []
   if (
     !unique(ceilings.map((value) => value.id)) ||
