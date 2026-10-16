@@ -92,7 +92,8 @@ export function createRotatedNativeCaptionVerifier(
           caption.inkRefusal.length > 128)
       )
         return true
-      if (caption.inkPolygon === undefined) return caption.inkSourceOperation !== undefined
+      if (caption.inkPolygon === undefined)
+        return caption.inkSourceOperation !== undefined || caption.inkSourceOperations !== undefined
       return (
         !Array.isArray(caption.inkPolygon) ||
         caption.inkPolygon.length !== 4 ||

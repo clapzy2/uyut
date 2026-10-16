@@ -518,6 +518,9 @@ export async function preparePlanPage(
           if (ink && ink.text === caption.text) {
             caption.inkPolygon = structuredClone(ink.quad)
             caption.inkSourceOperation = ink.operationIndex
+            if (ink.sourceGroup) {
+              caption.inkSourceOperations = [...ink.sourceGroup.operationIndexes]
+            }
           } else {
             caption.inkRefusal =
               glyphInk.refusalReason ??

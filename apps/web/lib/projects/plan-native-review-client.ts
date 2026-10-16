@@ -656,6 +656,7 @@ function isSourceCaptionBindings(value: unknown, packet: NativeReviewPacket): bo
         ...('angleDegrees' in candidate ? ['angleDegrees'] : []),
         ...('textPlacement' in candidate ? ['textPlacement'] : []),
         ...('inkSourceOperation' in candidate ? ['inkSourceOperation'] : []),
+        ...('inkSourceOperations' in candidate ? ['inkSourceOperations'] : []),
       ]) ||
       !isBoundedLabel(candidate.labelId) ||
       candidate.labelId !== candidate.labelId.trim() ||
@@ -679,6 +680,15 @@ function isSourceCaptionBindings(value: unknown, packet: NativeReviewPacket): bo
         ? !Number.isSafeInteger(candidate.inkSourceOperation) ||
           (candidate.inkSourceOperation ?? -1) < 0
         : candidate.inkSourceOperation !== undefined) ||
+      (candidate.inkSourceOperations !== undefined &&
+        (!Array.isArray(candidate.inkSourceOperations) ||
+          candidate.inkSourceOperations.length < 1 ||
+          candidate.inkSourceOperations.length > 16 ||
+          candidate.inkSourceOperations[0] !== candidate.inkSourceOperation ||
+          new Set(candidate.inkSourceOperations).size !== candidate.inkSourceOperations.length ||
+          candidate.inkSourceOperations.some(
+            (ref) => !Number.isSafeInteger(ref) || ref < 0 || inkOperations.has(ref),
+          ))) ||
       !candidate.rail ||
       typeof candidate.rail !== 'object' ||
       !hasOnlyKeys(candidate.rail, ['operationIndex', 'subpathIndex']) ||
@@ -699,7 +709,10 @@ function isSourceCaptionBindings(value: unknown, packet: NativeReviewPacket): bo
     labelIds.add(candidate.labelId)
     compactIndices.add(candidate.compactIndex)
     railRefs.add(railRef)
-    if (candidate.inkSourceOperation !== undefined) inkOperations.add(candidate.inkSourceOperation)
+    for (const ref of candidate.inkSourceOperations ??
+      (candidate.inkSourceOperation === undefined ? [] : [candidate.inkSourceOperation])) {
+      inkOperations.add(ref)
+    }
   }
   for (const item of report.unresolved) {
     if (

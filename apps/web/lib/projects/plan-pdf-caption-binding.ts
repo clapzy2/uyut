@@ -15,6 +15,8 @@ export type NativeDimensionCaptionContext = {
     /** Optional actual embedded glyph-run ink, not the font-wide box or estimated text width. */
     inkPolygon?: PagePoint[]
     inkSourceOperation?: number
+    /** Every original text-show operation that painted this numeric run. */
+    inkSourceOperations?: number[]
     inkRefusal?: string
   }>
 }
@@ -52,16 +54,25 @@ export function nativeCaptionInkIssue(
     )
       return 'invalid-native-caption-context'
     if (item.inkPolygon === undefined) {
-      if (item.inkSourceOperation !== undefined) return 'invalid-native-caption-context'
+      if (item.inkSourceOperation !== undefined || item.inkSourceOperations !== undefined)
+        return 'invalid-native-caption-context'
       continue
     }
+    const refs = item.inkSourceOperations ?? [item.inkSourceOperation]
     if (
       !Array.isArray(item.inkPolygon) ||
       item.inkPolygon.length !== 4 ||
       item.inkRefusal !== undefined ||
       !Number.isSafeInteger(item.inkSourceOperation) ||
       (item.inkSourceOperation ?? -1) < 0 ||
-      operations.has(item.inkSourceOperation as number) ||
+      !Array.isArray(refs) ||
+      refs.length < 1 ||
+      refs.length > 16 ||
+      refs[0] !== item.inkSourceOperation ||
+      new Set(refs).size !== refs.length ||
+      refs.some(
+        (ref) => !Number.isSafeInteger(ref) || (ref ?? -1) < 0 || operations.has(ref as number),
+      ) ||
       item.inkPolygon.some(
         (point) =>
           !point ||
@@ -71,7 +82,7 @@ export function nativeCaptionInkIssue(
       )
     )
       return 'invalid-native-caption-context'
-    operations.add(item.inkSourceOperation as number)
+    for (const ref of refs) operations.add(ref as number)
     const physical = (point: PagePoint) => ({
       x: (point.x * work.pageWidth) / 1000,
       y: (point.y * work.pageHeight) / 1000,

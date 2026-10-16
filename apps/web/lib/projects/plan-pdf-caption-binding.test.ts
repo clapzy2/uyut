@@ -110,6 +110,37 @@ describe('native caption-run to rail binding, not room measurement acceptance', 
       createNativeCaptionMatcher(work, source, data.rails, data.context, 'width')(query),
     ).toEqual({ status: 'unresolved', reason: 'caption-ink-context-incomplete' })
   })
+  it('keeps every unique text-show reference for a split numeric caption', () => {
+    const data = fixture()
+    const first = data.context.items[0]
+    if (!first) throw new Error('Missing source run')
+    first.inkPolygon = [
+      { x: 50, y: 94 },
+      { x: 70, y: 94 },
+      { x: 70, y: 90 },
+      { x: 50, y: 90 },
+    ]
+    first.inkSourceOperation = 20
+    first.inkSourceOperations = [20, 21]
+    const query = {
+      index: first.index,
+      text: first.text,
+      rotation: first.rotation,
+      ...first.origin,
+    }
+    expect(
+      createNativeCaptionMatcher(work, source, data.rails, data.context, 'width')(query),
+    ).toMatchObject({
+      status: 'candidate',
+    })
+    first.inkSourceOperations = [20, 20]
+    expect(
+      createNativeCaptionMatcher(work, source, data.rails, data.context, 'width')(query),
+    ).toEqual({
+      status: 'unresolved',
+      reason: 'invalid-native-caption-context',
+    })
+  })
   it('does not silently discard a refused glyph run as a competing caption', () => {
     const data = fixture()
     const first = data.context.items[0]

@@ -2508,6 +2508,22 @@ describe('rotated captions and bounded source dimension targets', () => {
     first.inkSourceOperation = second.inkSourceOperation
     await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
   })
+  it('retains all split glyph references and rejects reused or malformed operations', async () => {
+    const { packet, headers } = targetFixture()
+    const first = packet.sourceCaptionBindings?.candidates[0]
+    const second = packet.sourceCaptionBindings?.candidates[1]
+    if (!first || !second) throw new Error('Missing glyph caption candidates')
+    first.textPlacement = 'glyph-ink'
+    first.inkSourceOperation = 21
+    first.inkSourceOperations = [21, 22]
+    expect((await loadFixture(packet, headers)).packet.sourceCaptionBindings).toEqual(
+      packet.sourceCaptionBindings,
+    )
+    first.inkSourceOperations = [21, second.inkSourceOperation as number]
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+    first.inkSourceOperations = [22, 21]
+    await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+  })
   it('accepts old optional-field absence and an atomic target refusal', async () => {
     const { packet, headers, report } = targetFixture()
     for (const item of packet.sourceCaptionBindings?.candidates ?? []) {

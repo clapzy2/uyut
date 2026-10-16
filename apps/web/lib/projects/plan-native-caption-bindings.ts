@@ -27,6 +27,7 @@ export type NativeCaptionBindingReport = {
     angleDegrees?: number
     textPlacement?: 'glyph-ink' | 'baseline'
     inkSourceOperation?: number
+    inkSourceOperations?: number[]
     rail: { operationIndex: number; subpathIndex: number }
   }[]
   unresolved: { labelId: string; reason: string }[]
@@ -266,6 +267,9 @@ export function nativeCaptionBindings(input: {
       textPlacement: sourceCaption.inkPolygon ? 'glyph-ink' : 'baseline',
       ...(sourceCaption.inkSourceOperation !== undefined
         ? { inkSourceOperation: sourceCaption.inkSourceOperation }
+        : {}),
+      ...(sourceCaption.inkSourceOperations
+        ? { inkSourceOperations: [...sourceCaption.inkSourceOperations] }
         : {}),
       rail: { ...rail },
       spanEnds: structuredClone(chain.ends),
