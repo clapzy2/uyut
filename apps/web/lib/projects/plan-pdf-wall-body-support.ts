@@ -11,6 +11,12 @@ export type PdfWallBodySupport = {
   start: PagePoint
   end: PagePoint
   strokeSegment: PlanPageSegmentRef
+  oppositeFace?: {
+    start: PagePoint
+    end: PagePoint
+    nativeSegment: PlanPageSegmentRef
+    strokeSegment: PlanPageSegmentRef
+  }
 }
 
 const same = (a: PagePoint, b: PagePoint) => a.x === b.x && a.y === b.y
@@ -28,6 +34,12 @@ const compareRef = (a: PlanPageSegmentRef, b: PlanPageSegmentRef) =>
   a.subpathIndex - b.subpathIndex ||
   a.segmentIndex - b.segmentIndex
 
+type SourceStroke = {
+  start: PagePoint
+  end: PagePoint
+  ref: PlanPageSegmentRef
+}
+
 /** Endpoints are selected from native/reviewed edges, never snapped or interpolated. */
 function contact(a: PagePoint, b: PagePoint, c: PagePoint, d: PagePoint) {
   if (same(a, b) || same(c, d) || cross(a, b, c) !== 0 || cross(a, b, d) !== 0) return
@@ -37,6 +49,50 @@ function contact(a: PagePoint, b: PagePoint, c: PagePoint, d: PagePoint) {
   const start = aLow[axis] > bLow[axis] ? aLow : bLow
   const end = aHigh[axis] < bHigh[axis] ? aHigh : bHigh
   return start[axis] < end[axis] ? { start, end, axis } : undefined
+}
+
+/** An opposite source face is useful to review, but cannot supply an unreviewed exterior floor. */
+function oppositeFace(
+  polygon: PagePoint[],
+  segmentIndex: number,
+  start: PagePoint,
+  end: PagePoint,
+  strokes: SourceStroke[],
+  fillOperationIndex: number,
+  fillSubpathIndex: number,
+): PdfWallBodySupport['oppositeFace'] {
+  if (polygon.length !== 4) return
+  const a = polygon[segmentIndex]
+  const b = polygon[(segmentIndex + 1) % 4]
+  const oppositeEnd = polygon[(segmentIndex + 2) % 4]
+  const oppositeStart = polygon[(segmentIndex + 3) % 4]
+  if (!a || !b || !oppositeStart || !oppositeEnd) return
+  const shift = { x: oppositeStart.x - a.x, y: oppositeStart.y - a.y }
+  if (
+    (shift.x === 0 && shift.y === 0) ||
+    b.x + shift.x !== oppositeEnd.x ||
+    b.y + shift.y !== oppositeEnd.y
+  )
+    return
+  const faceStart = { x: start.x + shift.x, y: start.y + shift.y }
+  const faceEnd = { x: end.x + shift.x, y: end.y + shift.y }
+  const witness = strokes.find((stroke) => {
+    // A stroke underneath the later fill cannot witness the displayed face.
+    if (stroke.ref.operationIndex <= fillOperationIndex) return false
+    const overlap = contact(faceStart, faceEnd, stroke.start, stroke.end)
+    return overlap && same(overlap.start, faceStart) && same(overlap.end, faceEnd)
+  })
+  if (!witness) return
+  return {
+    start: faceStart,
+    end: faceEnd,
+    nativeSegment: {
+      operationIndex: fillOperationIndex,
+      subpathIndex: fillSubpathIndex,
+      segmentIndex: (segmentIndex + 2) % 4,
+    },
+    strokeSegment: { ...witness.ref },
+  }
 }
 
 /**
@@ -69,7 +125,7 @@ export function findPlanPageWallBodySupports(
     return []
 
   const closedCount = new Map<number, number>()
-  const strokes: Array<{ start: PagePoint; end: PagePoint; ref: PlanPageSegmentRef }> = []
+  const strokes: SourceStroke[] = []
   for (const path of work.paths) {
     if (path.closed)
       closedCount.set(path.operationIndex, (closedCount.get(path.operationIndex) ?? 0) + 1)
@@ -178,6 +234,15 @@ export function findPlanPageWallBodySupports(
                 witnessed.push({ start: covered.start, end: covered.end, stroke: candidate })
             }
             for (const witness of witnessed) {
+              const opposite = oppositeFace(
+                polygon,
+                segmentIndex,
+                witness.start,
+                witness.end,
+                strokes,
+                path.operationIndex,
+                path.subpathIndex,
+              )
               result.push({
                 source: { operationIndex: path.operationIndex, subpathIndex: path.subpathIndex },
                 nativeSegment: {
@@ -190,6 +255,7 @@ export function findPlanPageWallBodySupports(
                 start: { ...witness.start },
                 end: { ...witness.end },
                 strokeSegment: { ...witness.stroke.ref },
+                ...(opposite ? { oppositeFace: opposite } : {}),
               })
             }
           }

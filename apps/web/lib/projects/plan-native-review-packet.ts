@@ -176,6 +176,12 @@ export type NativeReviewPacket = {
       end: { x: number; y: number }
       fillEdge: { operationIndex: number; subpathIndex: number; segmentIndex: number }
       strokeEdge: { operationIndex: number; subpathIndex: number; segmentIndex: number }
+      oppositeFace?: {
+        start: { x: number; y: number }
+        end: { x: number; y: number }
+        fillEdge: { operationIndex: number; subpathIndex: number; segmentIndex: number }
+        strokeEdge: { operationIndex: number; subpathIndex: number; segmentIndex: number }
+      }
       contourKey: string
       wallEdgeIndex: number
     }[]
@@ -608,6 +614,16 @@ export function nativeReviewPacket(input: {
                 end: raster(support.end),
                 fillEdge: support.nativeSegment,
                 strokeEdge: support.strokeSegment,
+                ...(support.oppositeFace
+                  ? {
+                      oppositeFace: {
+                        start: raster(support.oppositeFace.start),
+                        end: raster(support.oppositeFace.end),
+                        fillEdge: support.oppositeFace.nativeSegment,
+                        strokeEdge: support.oppositeFace.strokeSegment,
+                      },
+                    }
+                  : {}),
                 contourKey: support.contourKey,
                 wallEdgeIndex: support.wallEdgeIndex,
               }))

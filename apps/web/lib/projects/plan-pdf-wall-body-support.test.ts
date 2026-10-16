@@ -102,6 +102,51 @@ describe('one-sided native wall-body support', () => {
     expect(findPlanPageWallBodySupports(input.work, input.contours)).toEqual(result)
   })
 
+  it('shows a separately stroked opposite fill face without accepting a second room', () => {
+    const { work, contours } = fixture()
+    work.paths.push({
+      operationIndex: 3,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 220, y: 140 },
+        { x: 220, y: 260 },
+      ],
+    })
+    expect(findPlanPageWallBodySupports(work, contours)[0]?.oppositeFace).toEqual({
+      start: { x: 220, y: 150 },
+      end: { x: 220, y: 250 },
+      nativeSegment: { operationIndex: 1, subpathIndex: 0, segmentIndex: 1 },
+      strokeSegment: { operationIndex: 3, subpathIndex: 0, segmentIndex: 0 },
+    })
+    const outerStroke = work.paths.at(-1)
+    if (!outerStroke) throw new Error('Missing opposite stroke')
+    outerStroke.points[1] = { x: 220, y: 200 }
+    expect(findPlanPageWallBodySupports(work, contours)[0]?.oppositeFace).toBeUndefined()
+    outerStroke.points[1] = { x: 220.001, y: 260 }
+    expect(findPlanPageWallBodySupports(work, contours)[0]?.oppositeFace).toBeUndefined()
+    outerStroke.points[1] = { x: 220, y: 260 }
+    outerStroke.operationIndex = 0
+    expect(findPlanPageWallBodySupports(work, contours)[0]?.oppositeFace).toBeUndefined()
+  })
+
+  it('does not infer an opposite face from a non-parallelogram fill', () => {
+    const { work, contours, body } = fixture()
+    body.points[2] = { x: 221, y: 250 }
+    work.paths.push({
+      operationIndex: 3,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 220, y: 140 },
+        { x: 221, y: 260 },
+      ],
+    })
+    expect(findPlanPageWallBodySupports(work, contours)[0]?.oppositeFace).toBeUndefined()
+  })
+
   it.each(['missing', 'shifted', 'gapped'] as const)(
     'does not bridge %s stroke evidence',
     (kind) => {
