@@ -538,6 +538,102 @@ describe('literal source height observation inventory, never vertical model tran
         .map((issue) => issue.labelId),
     ).toEqual(['native-text-0', 'native-text-2'])
   })
+  it('offers a nearby three-part threshold caption only as an unverified review hint', () => {
+    const input = fixture(['Н', 'порога', '=45 мм'])
+    const points = [
+      { x: 100, y: 100 },
+      { x: 111, y: 101.1 },
+      { x: 144, y: 100 },
+    ]
+    input.native.labels.forEach((label, index) => {
+      label.pagePoint = { ...(points[index] as (typeof points)[number]) }
+      label.point = { ...(points[index] as (typeof points)[number]) }
+    })
+    const result = nativeHeightObservations(input)
+    expect(result.observations).toEqual([])
+    expect(result.splitHints).toEqual([
+      {
+        parts: [
+          { labelId: 'native-text-0', originalText: 'Н', pagePoint: points[0] },
+          { labelId: 'native-text-1', originalText: 'порога', pagePoint: points[1] },
+          { labelId: 'native-text-2', originalText: '=45 мм', pagePoint: points[2] },
+        ],
+        valueMm: 45,
+        quantityKind: 'threshold-height',
+        status: 'unverified-source-ink',
+      },
+    ])
+    expect(result.mayAcceptFor3D).toBe(false)
+  })
+  it('does not suggest a split threshold across a distant label, different line or missing source item', () => {
+    for (const change of ['distant', 'different-line', 'skipped-index'] as const) {
+      const input = fixture(['Н', 'порога', '=45 мм'])
+      const [first, middle, last] = input.native.labels
+      if (!first || !middle || !last) throw new Error('Missing split threshold labels')
+      middle.pagePoint = { x: 111, y: 101.1 }
+      middle.point = { ...middle.pagePoint }
+      last.pagePoint = { x: 144, y: 100 }
+      last.point = { ...last.pagePoint }
+      if (change === 'distant') {
+        last.pagePoint.x = 300
+        last.point.x = 300
+      }
+      if (change === 'different-line') {
+        middle.pagePoint.y = 120
+        middle.point.y = 120
+      }
+      if (change === 'skipped-index') {
+        last.nativeIndex = 4
+        last.id = 'native-text-4'
+      }
+      expect(nativeHeightObservations(input).splitHints).toEqual([])
+    }
+  })
+  const decoSource = fileURLToPath(
+    new URL('../../../../tmp/pdfs/deco-art-dvushka-source.pdf', import.meta.url),
+  )
+  it.skipIf(!existsSync(decoSource))(
+    'keeps the real DECO ART 45 mm threshold as a review hint',
+    async () => {
+      const body = await readFile(decoSource)
+      const sha256 = createHash('sha256').update(body).digest('hex')
+      expect(sha256).toBe('fee92486f301e8a40886914c74b9a83ce77747c6ee14dd4ee0a666dec4a647fd')
+      const { preparePlanPage } = await import('./plan-document')
+      const page = await preparePlanPage(body, true, 3, true, true)
+      if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+        throw new Error('Missing real source layers')
+      const result = nativeHeightObservations({
+        source: { sha256, pdfPage: 3, state: 'existing' },
+        native: page.nativeTextAnchors,
+        work: page.linework,
+        lineworkSource: page.lineworkRasterSource,
+      })
+      expect(result.status).toBe('draft')
+      expect(result.splitHints).toContainEqual({
+        parts: [
+          {
+            labelId: 'native-text-74',
+            originalText: 'Н',
+            pagePoint: { x: 187.4927400274128, y: 372.02802718239457 },
+          },
+          {
+            labelId: 'native-text-75',
+            originalText: 'порога',
+            pagePoint: { x: 192.34764949909058, y: 373.4082579812488 },
+          },
+          {
+            labelId: 'native-text-76',
+            originalText: '=45 мм',
+            pagePoint: { x: 206.32105330027255, y: 372.02802718239457 },
+          },
+        ],
+        valueMm: 45,
+        quantityKind: 'threshold-height',
+        status: 'unverified-source-ink',
+      })
+      expect(result.observations.some((row) => row.valueMm === 45)).toBe(false)
+    },
+  )
   it.each(['низ балки = 2467мм', 'Отметка балки = 2467мм', 'Высота до балки = 2467мм'])(
     'keeps explicit beam level reference %s as a separate role',
     (text) => {

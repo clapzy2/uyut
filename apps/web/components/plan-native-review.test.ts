@@ -990,6 +990,33 @@ describe('read-only native review presentation', () => {
     expect(packet.readiness.readyFor3D).toBe(false)
   })
 
+  it('shows split threshold fragments without presenting them as measured geometry', () => {
+    const packet = nativeDimensionPacket()
+    if (!packet.heightObservations) throw new Error('Height fixture is missing')
+    packet.heightObservations.splitHints = [
+      {
+        parts: [
+          { labelId: 'native-text-74', originalText: 'Н', pagePoint: { x: 100, y: 100 } },
+          { labelId: 'native-text-75', originalText: 'порога', pagePoint: { x: 111, y: 101 } },
+          { labelId: 'native-text-76', originalText: '=45 мм', pagePoint: { x: 144, y: 100 } },
+        ],
+        valueMm: 45,
+        quantityKind: 'threshold-height',
+        status: 'unverified-source-ink',
+      },
+    ]
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Возможные составные подписи порога: 1')
+    expect(html).toContain('Показать три фрагмента возможной подписи порога на исходнике')
+    expect(html).toContain('native-text-74 «Н» + native-text-75 «порога»')
+    expect(html).toContain('cx="100" cy="100" r="7"')
+    expect(html).toContain('Возможный фрагмент подписи порога')
+    expect(html).toContain('в 2D, 3D и PDF оно не переносится')
+    expect(packet.readiness.readyFor3D).toBe(false)
+  })
+
   it.each([-120, 0, 35])(
     'shows a signed %s mm threshold level without assigning an opening bottom',
     (valueMm) => {

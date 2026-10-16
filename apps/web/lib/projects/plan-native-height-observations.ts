@@ -28,9 +28,75 @@ export type NativeHeightObservation = NativeHeightCaption & {
   }
 }
 
+export type NativeSplitHeightHint = {
+  parts: { labelId: string; originalText: string; pagePoint: PagePoint }[]
+  valueMm: number
+  quantityKind: 'threshold-height'
+  status: 'unverified-source-ink'
+}
+
 const MAX_OBSERVATIONS = 100
 const pointValid = (point: PagePoint) =>
   [point.x, point.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000)
+
+/** A review hint, not a height observation: PDF text order and position do not prove visible ink. */
+function splitThresholdHints(native: NativeTextAnchors, pageWidth: number, pageHeight: number) {
+  const hints: NativeSplitHeightHint[] = []
+  if (![pageWidth, pageHeight].every((value) => Number.isFinite(value) && value > 0)) return hints
+  for (let index = 0; index + 2 < native.labels.length; index++) {
+    const parts = native.labels.slice(index, index + 3)
+    const [prefix, object, quantity] = parts
+    if (
+      !prefix ||
+      !object ||
+      !quantity ||
+      !/^[hн]$/iu.test(prefix.name) ||
+      !/^порога$/iu.test(object.name) ||
+      !/^=\s*\d{1,4}\s*мм$/iu.test(quantity.name) ||
+      object.nativeIndex !== (prefix.nativeIndex as number) + 1 ||
+      quantity.nativeIndex !== (object.nativeIndex as number) + 1 ||
+      parts.some((part) => part.rotation !== 0 || !part.pagePoint)
+    )
+      continue
+
+    const first = prefix.pagePoint as PagePoint
+    const middle = object.pagePoint as PagePoint
+    const last = quantity.pagePoint as PagePoint
+    const firstGap = ((middle.x - first.x) * pageWidth) / 1000
+    const secondGap = ((last.x - middle.x) * pageWidth) / 1000
+    const firstBaseline = Math.abs(((middle.y - first.y) * pageHeight) / 1000)
+    const lastBaseline = Math.abs(((last.y - first.y) * pageHeight) / 1000)
+    if (
+      firstGap <= 0 ||
+      firstGap > 16 ||
+      secondGap <= 0 ||
+      secondGap > 45 ||
+      firstBaseline > 3 ||
+      lastBaseline > 2
+    )
+      continue
+
+    const caption = nativeHeightCaption(parts.map((part) => part.name).join(''))
+    if (
+      caption.status !== 'observed' ||
+      caption.observation.quantityKind !== 'threshold-height' ||
+      caption.observation.issueCodes.includes('height-outside-model-range')
+    )
+      continue
+    hints.push({
+      parts: parts.map((part) => ({
+        labelId: part.id,
+        originalText: part.name,
+        pagePoint: { ...(part.pagePoint as PagePoint) },
+      })),
+      valueMm: caption.observation.valueMm,
+      quantityKind: 'threshold-height',
+      status: 'unverified-source-ink',
+    })
+    if (hints.length >= MAX_OBSERVATIONS) break
+  }
+  return hints
+}
 
 function documentaryUnitEvidence(
   input: Parameters<typeof nativeHeightObservations>[0],
@@ -145,6 +211,7 @@ export function nativeHeightObservations(input: {
   const { native, work, source } = input
   const observations: NativeHeightObservation[] = []
   const issues: { labelId: string; originalText: string; code: string }[] = []
+  let splitHints: NativeSplitHeightHint[] = []
   const finish = (refusalReason: string | null) => ({
     status: refusalReason ? ('unresolved' as const) : ('draft' as const),
     refusalReason,
@@ -153,6 +220,7 @@ export function nativeHeightObservations(input: {
     image: { ...native.source },
     observations: refusalReason ? [] : structuredClone(observations),
     issues: refusalReason ? [] : structuredClone(issues),
+    splitHints: refusalReason ? [] : structuredClone(splitHints),
     omissionCounts: { skippedCurves: work.skippedCurves, clippedPaths: work.clippedPaths },
     mayAcceptFor3D: false as const,
     assignsGeometryHeights: false as const,
@@ -235,6 +303,7 @@ export function nativeHeightObservations(input: {
   }
   try {
     const units = documentaryUnitEvidence(input)
+    splitHints = splitThresholdHints(native, work.pageWidth, work.pageHeight)
     for (const label of native.labels) {
       const text = label.name
       const literal = nativeHeightCaption(text)

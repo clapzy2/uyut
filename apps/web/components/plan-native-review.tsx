@@ -1149,6 +1149,28 @@ function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
               буквальная отметка не подтверждает владельца порога и проверенный уровень отсчёта; она
               не задаёт автоматически нижнюю отметку проёма в 2D/3D.
             </p>
+            {heights.splitHints?.length ? (
+              <details className="text-ink-2">
+                <summary className="min-h-11 cursor-pointer py-3">
+                  Возможные составные подписи порога: {heights.splitHints.length}
+                </summary>
+                <p>
+                  Фрагменты стоят рядом на исходном листе, но видимость всех PDF-глифов и связь с
+                  физическим порогом не доказаны. Число ниже — подсказка для сверки с оригиналом, не
+                  подтверждённый обмер и не уровень пола; в 2D, 3D и PDF оно не переносится.
+                </p>
+                <ul className="mt-3 list-disc space-y-2 pl-5">
+                  {heights.splitHints.map((hint) => (
+                    <li key={hint.parts[0]?.labelId} className="break-all">
+                      {hint.parts
+                        .map((part) => `${part.labelId} «${part.originalText}»`)
+                        .join(' + ')}
+                      : возможно {hint.valueMm} мм, требует проверки по исходнику.
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
           </>
         )
       ) : null}
@@ -1751,6 +1773,7 @@ export function NativeReviewResult({
   const [showOneSidedWalls, setShowOneSidedWalls] = useState(true)
   const [showSavedFloors, setShowSavedFloors] = useState(false)
   const [showFloorCavities, setShowFloorCavities] = useState(false)
+  const [showSplitHeightHints, setShowSplitHeightHints] = useState(true)
   const [showOrderedPaint, setShowOrderedPaint] = useState(false)
   const [fullSize, setFullSize] = useState(false)
   const visible = packet.faces.filter(
@@ -2012,6 +2035,17 @@ export function NativeReviewResult({
         />
         Показать также области из заливок — их назначение не подтверждено
       </label>
+      {packet.heightObservations?.status === 'draft' &&
+      packet.heightObservations.splitHints?.length ? (
+        <label className="flex min-h-11 items-center gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            checked={showSplitHeightHints}
+            onChange={(event) => setShowSplitHeightHints(event.target.checked)}
+          />
+          Показать три фрагмента возможной подписи порога на исходнике — не обмер
+        </label>
+      ) : null}
       <Button
         type="button"
         variant="secondary"
@@ -2334,6 +2368,26 @@ export function NativeReviewResult({
               })}
             </g>
           ) : null}
+          {showSplitHeightHints && packet.heightObservations?.status === 'draft'
+            ? packet.heightObservations.splitHints?.flatMap((hint) =>
+                hint.parts.map((part) => (
+                  <circle
+                    key={`split-height:${part.labelId}`}
+                    cx={(part.pagePoint.x * packet.image.width) / 1000}
+                    cy={(part.pagePoint.y * packet.image.height) / 1000}
+                    r="7"
+                    fill="#fff"
+                    fillOpacity="0.2"
+                    stroke="#be185d"
+                    strokeWidth="2"
+                    strokeDasharray="3 2"
+                    vectorEffect="non-scaling-stroke"
+                  >
+                    <title>{`${part.labelId}: «${part.originalText}». Возможный фрагмент подписи порога; видимость исходных глифов и высота не подтверждены.`}</title>
+                  </circle>
+                )),
+              )
+            : null}
         </svg>
       </section>
       <p className="text-[13px] leading-relaxed text-ink-2">
