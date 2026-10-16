@@ -228,7 +228,8 @@ export function findPlanPageWallBodySupports(
             }> = []
             for (const candidate of strokes) {
               if (++comparisons > 1_000_000) return []
-              if (candidate.ref.operationIndex === path.operationIndex) continue
+              // A stroke below the opaque fill cannot witness its displayed face.
+              if (candidate.ref.operationIndex <= path.operationIndex) continue
               const covered = contact(interval.start, interval.end, candidate.start, candidate.end)
               if (covered)
                 witnessed.push({ start: covered.start, end: covered.end, stroke: candidate })

@@ -147,12 +147,13 @@ describe('one-sided native wall-body support', () => {
     expect(findPlanPageWallBodySupports(work, contours)[0]?.oppositeFace).toBeUndefined()
   })
 
-  it.each(['missing', 'shifted', 'gapped'] as const)(
+  it.each(['missing', 'shifted', 'gapped', 'painted-before-fill'] as const)(
     'does not bridge %s stroke evidence',
     (kind) => {
       const { work, contours, stroke } = fixture()
       if (kind === 'missing') work.paths.pop()
       if (kind === 'shifted') stroke.points = stroke.points.map((p) => ({ ...p, x: p.x + 0.001 }))
+      if (kind === 'painted-before-fill') stroke.operationIndex = 0
       if (kind === 'gapped') {
         stroke.points = [
           { x: 200, y: 140 },

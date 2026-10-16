@@ -64,8 +64,8 @@ describe('whole-page native inspection, separate from saved geometry', () => {
     if (!polygon) throw new Error('Missing saved source contour')
     const [topLeft, topRight] = polygon
     if (!topLeft || !topRight) throw new Error('Missing source edge')
-    input.work.paths.push({
-      operationIndex: 100,
+    input.work.paths.unshift({
+      operationIndex: 0,
       subpathIndex: 0,
       paint: 'fill',
       closed: true,
@@ -88,10 +88,10 @@ describe('whole-page native inspection, separate from saved geometry', () => {
       physicalWallAccepted: false,
       candidates: [
         {
-          fillEdge: { operationIndex: 100, subpathIndex: 0 },
+          fillEdge: { operationIndex: 0, subpathIndex: 0 },
           strokeEdge: { operationIndex: 1, subpathIndex: 0 },
           oppositeFace: {
-            fillEdge: { operationIndex: 100, subpathIndex: 0 },
+            fillEdge: { operationIndex: 0, subpathIndex: 0 },
             strokeEdge: { operationIndex: 101, subpathIndex: 0 },
           },
         },
