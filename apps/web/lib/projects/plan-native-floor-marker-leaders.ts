@@ -1,6 +1,10 @@
 import { exactMonotoneCubicLoopLocation } from './plan-native-cubic-location'
 import { exactNativePointLocation } from './plan-native-exact-intersections'
-import type { nativeNumberCircleCandidates } from './plan-native-number-circles'
+import {
+  type nativeNumberCircleCandidates,
+  numberCircleLoop,
+  numberCircleSourcePaths,
+} from './plan-native-number-circles'
 import type { Bounds, PagePoint, PdfLinework } from './plan-pdf-linework'
 import type { NativePageSegment } from './plan-pdf-opening-endpoint'
 
@@ -29,8 +33,8 @@ export function nativeFloorMarkerLeaders(work: PdfLinework, cues: Cue[], cells: 
   const controlBounds = new Map<Cue, Bounds>()
   for (const cue of cues) {
     const points = [
-      cue.curve.start,
-      ...cue.curve.segments.flatMap((segment) =>
+      numberCircleLoop(cue).start,
+      ...numberCircleLoop(cue).segments.flatMap((segment) =>
         segment.kind === 'cubic'
           ? [segment.control1, segment.control2, segment.end]
           : segment.kind === 'quadratic'
@@ -85,12 +89,17 @@ export function nativeFloorMarkerLeaders(work: PdfLinework, cues: Cue[], cells: 
           path.points.length >= 2,
       )
       .map((path) => ({
+        sourcePath: path,
         start: path.points[0] as PagePoint,
         end: path.points.at(-1) as PagePoint,
       })),
     ...(work.curvePaths ?? [])
       .filter((curve) => !curve.closed && curve.paint !== 'fill' && curve.segments.length)
-      .map((curve) => ({ start: curve.start, end: curve.segments.at(-1)?.end as PagePoint })),
+      .map((curve) => ({
+        sourcePath: curve,
+        start: curve.start,
+        end: curve.segments.at(-1)?.end as PagePoint,
+      })),
   ]
   let remainingWork = MAX_WORK
   const locate = (
@@ -101,7 +110,7 @@ export function nativeFloorMarkerLeaders(work: PdfLinework, cues: Cue[], cells: 
     // BigInt evaluation. Boundary-heavy inputs cannot multiply an uncharged loop.
     remainingWork -= 512
     if (remainingWork < 0) return { location: 'unresolved' as const }
-    return exactMonotoneCubicLoopLocation(cue.curve, point)
+    return exactMonotoneCubicLoopLocation(numberCircleSourcePaths(cue), point)
   }
   for (const cue of cues) {
     const bounds = controlBounds.get(cue) as Bounds
@@ -139,6 +148,16 @@ export function nativeFloorMarkerLeaders(work: PdfLinework, cues: Cue[], cells: 
     )
     for (const endpoints of unsupportedEndpoints) {
       if (--remainingWork < 0) return finish('floor-marker-leader-work-limit')
+      // Open semicircles forming this cue are its boundary, not competing
+      // annotation leaders. Other subpaths, including siblings, still compete.
+      if (
+        numberCircleSourcePaths(cue).some(
+          (path) =>
+            path.operationIndex === endpoints.sourcePath.operationIndex &&
+            path.subpathIndex === endpoints.sourcePath.subpathIndex,
+        )
+      )
+        continue
       for (const endpoint of ['start', 'end'] as const) {
         const point = endpoints[endpoint]
         if (!inCueBounds(point) || locate(cue, point).location === 'outside') continue

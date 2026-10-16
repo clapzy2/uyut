@@ -12,7 +12,7 @@ import {
   type NativeFloorMarkerLeader,
   nativeFloorMarkerLeaders,
 } from './plan-native-floor-marker-leaders'
-import { nativeNumberCircleCandidates } from './plan-native-number-circles'
+import { nativeNumberCircleCandidates, numberCircleLoop } from './plan-native-number-circles'
 import { nativeOpeningFrameCandidates } from './plan-native-opening-frames'
 import type { Bounds, PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import { type NativePageSegment, nativePageSegments } from './plan-pdf-opening-endpoint'
@@ -415,8 +415,8 @@ export function nativeFloorCavityCandidates(input: Input) {
         const markerLabelIds = circles.cues
           .filter((cue) => {
             const points = [
-              cue.curve.start,
-              ...cue.curve.segments.flatMap((segment) =>
+              numberCircleLoop(cue).start,
+              ...numberCircleLoop(cue).segments.flatMap((segment) =>
                 segment.kind === 'cubic'
                   ? [segment.control1, segment.control2, segment.end]
                   : segment.kind === 'quadratic'

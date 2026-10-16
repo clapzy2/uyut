@@ -82,6 +82,37 @@ function fixture() {
 }
 
 describe('actual source leaders to outboard floor markers', () => {
+  it.each(['pair', 'sibling', 'competing'] as const)(
+    'checks source ownership for a %s semicircle leader',
+    (kind) => {
+      const { work, cue, cell } = fixture()
+      const whole = cue.curve
+      const middle = whole.segments[1]?.end
+      if (!middle) throw new Error('Missing semicircle junction')
+      cue.curve = { ...whole, closed: false, segments: whole.segments.slice(0, 2) }
+      cue.companionCurve = {
+        ...whole,
+        operationIndex: 11,
+        closed: false,
+        start: middle,
+        segments: whole.segments.slice(2),
+      }
+      work.curvePaths = [cue.curve, cue.companionCurve]
+      if (kind !== 'pair') {
+        work.curvePaths.push({
+          ...cue.curve,
+          operationIndex: kind === 'sibling' ? cue.curve.operationIndex : 99,
+          subpathIndex: kind === 'sibling' ? 1 : 0,
+        })
+      }
+      const before = structuredClone({ cue, work, cell })
+      const result = nativeFloorMarkerLeaders(work, [cue], [cell])
+      expect(result.bindings).toHaveLength(kind === 'pair' ? 1 : 0)
+      expect(result.issues).toHaveLength(kind === 'pair' ? 0 : 1)
+      expect({ cue, work, cell }).toEqual(before)
+    },
+  )
+
   it('links one original straight stroke without moving its endpoints or floor', () => {
     const { work, cue, cell } = fixture()
     const before = structuredClone({ work, cue, cell })

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { exactMonotoneCubicLoopLocation } from './plan-native-cubic-location'
 import { nativeNumberCircleCandidates } from './plan-native-number-circles'
 import type { Bounds, PagePoint, PdfCurvePath } from './plan-pdf-linework'
 
@@ -71,6 +72,70 @@ function refresh(input: Input) {
     }
   })
 }
+
+function splitCircle(input: Input) {
+  const whole = curveOf(input)
+  const first = { ...whole, closed: false, segments: whole.segments.slice(0, 2) }
+  const second = {
+    ...whole,
+    operationIndex: whole.operationIndex + 1,
+    closed: false,
+    start: segmentOf(input, 1).end,
+    segments: whole.segments.slice(2),
+  }
+  input.work.curvePaths = [first, second]
+  refresh(input)
+  return { first, second }
+}
+
+describe('separate source semicircles', () => {
+  it('retains both original paths and unchanged source coordinates', () => {
+    const input = fixture()
+    const { first, second } = splitCircle(input)
+    const before = structuredClone(input)
+    const result = nativeNumberCircleCandidates(input)
+    expect(result.cues).toHaveLength(1)
+    expect(result.cues[0]?.curve).toEqual(first)
+    expect(result.cues[0]?.companionCurve).toEqual(second)
+    expect(input).toEqual(before)
+    expect(exactMonotoneCubicLoopLocation([first, second], { x: 400, y: 400 }).location).toBe(
+      'inside',
+    )
+    expect(exactMonotoneCubicLoopLocation([first, second], { x: 450, y: 400 }).location).toBe(
+      'outside',
+    )
+    const malformed = { ...second, segments: undefined } as unknown as PdfCurvePath
+    expect(exactMonotoneCubicLoopLocation([first, malformed], { x: 400, y: 400 }).location).toBe(
+      'unresolved',
+    )
+  })
+
+  it.each(['gap', 'missing', 'ellipse', 'duplicate', 'clipped'] as const)(
+    'withholds a %s source pair',
+    (kind) => {
+      const input = fixture()
+      const { second } = splitCircle(input)
+      if (kind === 'gap') second.start = { ...second.start, x: second.start.x + 0.000001 }
+      if (kind === 'missing') input.work.curvePaths?.pop()
+      if (kind === 'ellipse') {
+        const segment = second.segments[0]
+        if (segment?.kind === 'cubic') segment.control1.x += 1
+      }
+      if (kind === 'duplicate') input.work.curvePaths?.push({ ...second, operationIndex: 12 })
+      refresh(input)
+      if (kind === 'clipped') {
+        input.work.clippedPaths = 1
+        input.work.clippedPathBounds = [
+          {
+            operationIndex: second.operationIndex,
+            bounds: { left: 0, top: 0, right: 1000, bottom: 1000 },
+          },
+        ]
+      }
+      expect(nativeNumberCircleCandidates(input).cues).toEqual([])
+    },
+  )
+})
 
 function fixture(options: Parameters<typeof circle>[0] = {}): Input {
   const source = { sha256: 'a'.repeat(64), page: 6, width: 1000, height: 1000 }
