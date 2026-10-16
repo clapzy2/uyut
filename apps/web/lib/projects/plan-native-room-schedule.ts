@@ -287,6 +287,43 @@ export function nativeRoomScheduleEvidence(input: {
       )
         structuredGridPresent = true
     }
+    // A title band may extend only the outer rails above the room rows.
+    // Use the drawn top row to include continuous rails covering the row span.
+    for (const group of groups.values()) {
+      spend()
+      if (group.columns.size < 2) continue
+      const topRows = horizontalLines.filter((line) => {
+        spend()
+        return (
+          line.fixed === group.top &&
+          outerHeadings.every((label) => {
+            const point = label.pagePoint as PagePoint
+            return point.x > line.start && point.x < line.end
+          })
+        )
+      })
+      for (const topRow of topRows) {
+        spend()
+        const rails = verticalLines.filter((line) => {
+          spend()
+          return (
+            line.fixed >= topRow.start &&
+            line.fixed <= topRow.end &&
+            line.start <= group.top &&
+            line.end >= group.bottom
+          )
+        })
+        if (
+          !rails.some((line) => line.fixed === topRow.start) ||
+          !rails.some((line) => line.fixed === topRow.end)
+        )
+          continue
+        for (const rail of rails) {
+          spend()
+          group.columns.set(rail.fixed, rail.edges)
+        }
+      }
+    }
     for (const group of groups.values()) {
       spend()
       if (group.columns.size < 2) continue

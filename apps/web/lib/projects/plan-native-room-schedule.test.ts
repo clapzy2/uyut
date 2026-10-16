@@ -6,7 +6,7 @@ type Input = Parameters<typeof nativeRoomScheduleEvidence>[0]
 type Label = Input['native']['labels'][number]
 
 function addLabel(input: Input, name: string, x: number, y: number): Label {
-  const index = input.native.labels.length
+  const index = Math.max(-1, ...input.native.labels.map((label) => label.nativeIndex ?? -1)) + 1
   const scale = input.native.pageNormalizedScale
   if (!scale) throw new Error('Missing fixture mapping')
   const label = {
@@ -117,6 +117,14 @@ function segmentedGridFixture(): Input {
     for (let column = 0; column < columns.length - 1; column++)
       addLine(input, { x: columns[column] as number, y }, { x: columns[column + 1] as number, y })
   }
+  return input
+}
+function titledScheduleFixture(): Input {
+  const input = segmentedGridFixture()
+  addLine(input, { x: 100, y: 90 }, { x: 100, y: 100 })
+  addLine(input, { x: 350, y: 90 }, { x: 350, y: 100 })
+  addLine(input, { x: 100, y: 90 }, { x: 350, y: 90 })
+  addLabel(input, 'Наименование', 700, 700)
   return input
 }
 function labelOf(input: Input, name: string, occurrence = 0) {
@@ -231,6 +239,35 @@ describe('native room schedule documentary evidence', () => {
     expect(result.roomOwnershipConfirmed).toBe(false)
     expect(result.closesFloorBoundary).toBe(false)
     expect(input).toEqual(before)
+  })
+  it('reads a room grid when outer rails continue through a title band', () => {
+    const input = titledScheduleFixture()
+    const before = structuredClone(input)
+    const result = nativeRoomScheduleEvidence(input)
+    expect(result.status).toBe('draft')
+    expect(result.layoutBasis).toBe('exact-native-grid')
+    expect(result.tableBounds).toEqual({ left: 100, right: 350, top: 100, bottom: 160 })
+    expect(result.rows.map((row) => [row.sourceNumber, row.name])).toEqual([
+      [1, 'Помещение'],
+      [2, 'Балкон 01'],
+      [3, 'Балкон 02'],
+    ])
+    expect(result.roomOwnershipConfirmed).toBe(false)
+    expect(result.closesFloorBoundary).toBe(false)
+    expect(input).toEqual(before)
+  })
+  it('does not let an extended title rail conceal a broken room-grid divider', () => {
+    const input = titledScheduleFixture()
+    input.work.paths = input.work.paths.filter(
+      (path) =>
+        !(
+          path.points[0]?.x === 140 &&
+          path.points[0]?.y === 130 &&
+          path.points[1]?.x === 140 &&
+          path.points[1]?.y === 140
+        ),
+    )
+    expectHeld(input, 'unsupported-or-ambiguous-room-table')
   })
   it('holds a missing cell boundary rather than falling back to text baselines', () => {
     const input = segmentedGridFixture()
