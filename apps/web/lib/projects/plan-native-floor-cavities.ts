@@ -6,6 +6,7 @@ import {
   exactNativeOrientation,
   exactNativePolygonContains,
   exactNativePolygonsOverlap,
+  exactNativeSegmentCrossesPolygonInterior,
   exactNativeSegmentsTouch,
 } from './plan-native-exact-intersections'
 import {
@@ -16,7 +17,7 @@ import { nativeNumberCircleCandidates, numberCircleLoop } from './plan-native-nu
 import { nativeOpeningFrameCandidates } from './plan-native-opening-frames'
 import type { Bounds, PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
 import { type NativePageSegment, nativePageSegments } from './plan-pdf-opening-endpoint'
-import { pdfPointInside, pdfPolygonIsValid } from './plan-pdf-room-binding'
+import { pdfPolygonIsValid } from './plan-pdf-room-binding'
 
 type Input = {
   native: NativeTextAnchors
@@ -449,16 +450,18 @@ export function nativeFloorCavityCandidates(input: Input) {
         const usedSources = new Set(
           boundaries.flatMap((edge) => edge.supports.map((support) => refKey(support.edge))),
         )
+        const box = boundsOf(polygon)
         let unknownInteriorStrokeCount = 0
         for (const edge of sourceSegments) {
-          spend(polygon.length)
           if (
-            !usedSources.has(refKey(edge)) &&
-            (pdfPointInside(edge.start, polygon) || pdfPointInside(edge.end, polygon))
+            usedSources.has(refKey(edge)) ||
+            !boundsOverlap(box, boundsOf([edge.start, edge.end]))
           )
+            continue
+          spend(polygon.length * polygon.length)
+          if (exactNativeSegmentCrossesPolygonInterior(edge, polygon) !== false)
             unknownInteriorStrokeCount++
         }
-        const box = boundsOf(polygon)
         const omittedBoundaryInkCount = omissions.filter((omission) => {
           spend()
           return (
