@@ -133,6 +133,128 @@ describe('exact composite source rectangle evidence', () => {
     expect(result.candidates[0]?.closesFloorBoundary).toBe(false)
   })
 
+  it('finds a four-stroke cycle when every corner first belongs to a dangling stroke', () => {
+    const work = fixture()
+    const corners = work.paths.map((path) => path.points[0] as PagePoint)
+    work.paths.unshift(
+      ...corners.map((corner, index) => ({
+        operationIndex: index,
+        subpathIndex: 0,
+        paint: 'stroke' as const,
+        closed: false,
+        points: [{ x: corner.x - 2, y: corner.y - 2 }, corner],
+      })),
+    )
+
+    const result = nativeCompositeFrameEvidence(work, { x: 1, y: 1 })
+    expect(result.refusalReason).toBeNull()
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0]?.edges.map((edge) => edge.operationIndex).sort()).toEqual([
+      10, 11, 12, 13,
+    ])
+    expect(result.candidates[0]?.wallOwnershipConfirmed).toBe(false)
+  })
+
+  it('keeps source contacts available among many unrelated strokes and fills', () => {
+    const work = fixture()
+    work.paths = []
+    for (let index = 0; index < 45; index++) {
+      const offsetX = (index % 10) * 80
+      const offsetY = Math.floor(index / 10) * 20
+      for (const path of fixture().paths) {
+        work.paths.push({
+          ...path,
+          operationIndex: index * 4 + path.operationIndex,
+          points: path.points.map((point) => ({
+            x: point.x + offsetX,
+            y: point.y + offsetY,
+          })),
+        })
+      }
+    }
+    for (let index = 0; index < 1700; index++) {
+      const y = 400 + index / 10
+      work.paths.push({
+        operationIndex: 1000 + index,
+        subpathIndex: 0,
+        paint: 'stroke',
+        closed: false,
+        points: [
+          { x: 900, y },
+          { x: 905, y },
+        ],
+      })
+    }
+    for (let index = 0; index < 600; index++) {
+      const y = 600 + index / 10
+      work.paths.push({
+        operationIndex: 3000 + index,
+        subpathIndex: 0,
+        paint: 'fill',
+        closed: true,
+        points: [
+          { x: 950, y },
+          { x: 955, y },
+          { x: 955, y: y + 1 },
+          { x: 950, y: y + 1 },
+        ],
+      })
+    }
+    work.paths.push({
+      operationIndex: 4000,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 10, y: 9 },
+        { x: 10, y: 15 },
+      ],
+    })
+
+    const result = nativeCompositeFrameEvidence(work, { x: 1, y: 1 })
+    expect(result.refusalReason).toBeNull()
+    expect(result.candidates).toHaveLength(45)
+    expect(
+      result.candidates[0]?.jambContacts.some((contact) => contact.coverage === 'complete'),
+    ).toBe(true)
+    expect(result.candidates.every((candidate) => !candidate.wallOwnershipConfirmed)).toBe(true)
+  })
+
+  it('still checks exact contacts on tilted frames without axis-aligned indexing', () => {
+    const work = fixture()
+    const corners = [
+      { x: 10, y: 10 },
+      { x: 30, y: 30 },
+      { x: 28, y: 32 },
+      { x: 8, y: 12 },
+    ]
+    work.paths = corners.map((start, index) => ({
+      operationIndex: 10 + index,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [start, corners[(index + 1) % 4] as PagePoint],
+    }))
+    work.paths.push({
+      operationIndex: 100,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 32, y: 28 },
+        { x: 26, y: 34 },
+      ],
+    })
+
+    const result = nativeCompositeFrameEvidence(work, { x: 1, y: 1 })
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0]?.jambContacts.map((contact) => contact.coverage)).toEqual([
+      'complete',
+      'unproved',
+    ])
+    expect(result.candidates[0]?.physicalPassageAccepted).toBe(false)
+  })
+
   it.each(['gap', 'missing', 'zero', 'duplicate-ref'] as const)(
     'holds invalid %s evidence',
     (kind) => {
