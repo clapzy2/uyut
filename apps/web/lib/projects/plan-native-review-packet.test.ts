@@ -58,6 +58,51 @@ describe('whole-page native inspection, separate from saved geometry', () => {
     expect(nativeReviewPacket(fixture()).savedReview).toEqual({ status: 'not-saved' })
     expect(nativeReviewPacket(fixture()).savedFrameRooms).toEqual({ status: 'not-saved' })
   })
+  it('shows exact one-sided wall evidence without accepting a wall', () => {
+    const input = { ...fixture(), savedReading: savedReading() }
+    const polygon = input.savedReading.pageReview?.contours.rooms[0]?.polygon
+    if (!polygon) throw new Error('Missing saved source contour')
+    const [topLeft, topRight] = polygon
+    if (!topLeft || !topRight) throw new Error('Missing source edge')
+    input.work.paths.push({
+      operationIndex: 100,
+      subpathIndex: 0,
+      paint: 'fill',
+      closed: true,
+      points: [{ x: topLeft.x, y: 80 }, { x: topRight.x, y: 80 }, { ...topRight }, { ...topLeft }],
+    })
+
+    const packet = nativeReviewPacket(input)
+    expect(packet.oneSidedWallSupports).toMatchObject({
+      status: 'draft',
+      physicalWallAccepted: false,
+      candidates: [
+        {
+          fillEdge: { operationIndex: 100, subpathIndex: 0 },
+          strokeEdge: { operationIndex: 1, subpathIndex: 0 },
+        },
+      ],
+    })
+    expect(packet.readiness).toEqual({ readyFor2D: false, readyFor3D: false, readOnly: true })
+  })
+  it('does not report zero wall supports as a complete search with missing source ink', () => {
+    const input = { ...fixture(), savedReading: savedReading() }
+    input.work.clippedPaths = 1
+    input.work.clippedPathBounds = [
+      {
+        operationIndex: 101,
+        bounds: { left: 900, top: 900, right: 910, bottom: 910 },
+        paint: 'stroke',
+      },
+    ]
+
+    expect(nativeReviewPacket(input).oneSidedWallSupports).toEqual({
+      status: 'unresolved',
+      refusalReason: 'source-wall-evidence-incomplete',
+      physicalWallAccepted: false,
+      candidates: [],
+    })
+  })
   it('distinguishes saved review with missing native layer from no saved review', () => {
     const input = fixture()
     const packet = nativeReviewPacket({
@@ -85,6 +130,7 @@ describe('whole-page native inspection, separate from saved geometry', () => {
       coverage: { status: 'refused', refusalReason: 'different-plan-source' },
     })
     expect(packet.savedFrameRooms).toEqual({ status: 'refused', reason: 'different-plan-source' })
+    expect(packet.oneSidedWallSupports).toBeUndefined()
   })
   it('aggregates only same-source candidates without creating a confirmed plan', () => {
     const input = fixture(),

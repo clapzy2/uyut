@@ -60,6 +60,8 @@ import {
 } from './plan-page-reviewed-coverage'
 import type { PdfLinework } from './plan-pdf-linework'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
+import { findPlanPageWallBodySupports } from './plan-pdf-wall-body-support'
+import { validPlanPageWallSourceForLocalAudit } from './plan-pdf-wall-faces'
 import { bindObservedRegionLabels, type RegionLabelFrame } from './plan-raster-region-labels'
 
 export type NativeReviewPacket = {
@@ -162,6 +164,20 @@ export type NativeReviewPacket = {
           segmentIndex: number
         }[]
       }[]
+    }[]
+  }
+  oneSidedWallSupports?: {
+    status: 'draft' | 'unresolved'
+    refusalReason: string | null
+    physicalWallAccepted: false
+    candidates: {
+      id: string
+      start: { x: number; y: number }
+      end: { x: number; y: number }
+      fillEdge: { operationIndex: number; subpathIndex: number; segmentIndex: number }
+      strokeEdge: { operationIndex: number; subpathIndex: number; segmentIndex: number }
+      contourKey: string
+      wallEdgeIndex: number
     }[]
   }
   glazingSymbols?: {
@@ -560,6 +576,44 @@ export function nativeReviewPacket(input: {
       x: point.x * scale.x,
       y: point.y * scale.y,
     })
+    if (
+      review?.contours &&
+      review.contours.source.sha256 === source.sha256 &&
+      review.contours.source.pdfPage === source.pdfPage &&
+      validPlanPageWallSourceForLocalAudit(work, source, review.contours)
+    ) {
+      const supports = findPlanPageWallBodySupports(work, review.contours)
+      const limitReached = supports.length > 100
+      const incompleteSource =
+        supports.length === 0 &&
+        (work.truncated ||
+          work.skippedCurves > 0 ||
+          work.clippedPaths > 0 ||
+          work.unsupportedPaths > 0 ||
+          work.unsupportedContexts > 0 ||
+          review.contours.rooms.some((room) => room.sourceTopology !== undefined))
+      packet.oneSidedWallSupports = {
+        status: limitReached || incompleteSource ? 'unresolved' : 'draft',
+        refusalReason: limitReached
+          ? 'source-wall-support-limit'
+          : incompleteSource
+            ? 'source-wall-evidence-incomplete'
+            : null,
+        physicalWallAccepted: false,
+        candidates:
+          !limitReached && !incompleteSource
+            ? supports.map((support, index) => ({
+                id: `one-sided-wall-support-${index}`,
+                start: raster(support.start),
+                end: raster(support.end),
+                fillEdge: support.nativeSegment,
+                strokeEdge: support.strokeSegment,
+                contourKey: support.contourKey,
+                wallEdgeIndex: support.wallEdgeIndex,
+              }))
+            : [],
+      }
+    }
     const rectangles = nativeCompositeFrameEvidence(work, scale)
     const sourceRef = ({
       operationIndex,

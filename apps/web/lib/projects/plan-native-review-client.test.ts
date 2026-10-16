@@ -111,6 +111,36 @@ describe('composite source rectangle review', () => {
   )
 })
 
+describe('one-sided source wall review', () => {
+  it('accepts bounded source evidence without physical wall authority', async () => {
+    const { packet, headers } = fixture()
+    packet.oneSidedWallSupports = {
+      status: 'draft',
+      refusalReason: null,
+      physicalWallAccepted: false,
+      candidates: [
+        {
+          id: 'support-1',
+          start: { x: 10, y: 20 },
+          end: { x: 80, y: 20 },
+          fillEdge: { operationIndex: 1, subpathIndex: 0, segmentIndex: 2 },
+          strokeEdge: { operationIndex: 2, subpathIndex: 0, segmentIndex: 0 },
+          contourKey: 'room-3',
+          wallEdgeIndex: 1,
+        },
+      ],
+    }
+    await expect(loadFixture(packet, headers)).resolves.toBeDefined()
+    packet.oneSidedWallSupports.physicalWallAccepted = true as false
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+    packet.oneSidedWallSupports.physicalWallAccepted = false
+    const candidate = packet.oneSidedWallSupports.candidates[0]
+    if (!candidate) throw new Error('Missing wall support')
+    candidate.end.x = 2000
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
+})
+
 describe('readonly renderer pen contacts', () => {
   function penFixture() {
     const result = fixture()
