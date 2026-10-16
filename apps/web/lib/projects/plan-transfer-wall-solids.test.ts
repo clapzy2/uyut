@@ -1,3 +1,8 @@
+import {
+  currentOpeningFacePairs,
+  currentOpeningWidthProofs,
+  currentWallFacePairs,
+} from '@uyut/catalog/plan-opening-face-pairs'
 import { verticalReferenceReviewKey } from '@uyut/catalog/plan-vertical-floor-geometry'
 import type { PlanGeometry, PlanOpeningFacePair, PlanPoint, PlanWallFacePair } from '@uyut/db'
 import polygonClipping, { type Polygon } from 'polygon-clipping'
@@ -132,6 +137,42 @@ function surveyed(): PlanGeometry {
 }
 
 describe('conservative transfer wall solids', () => {
+  it('invalidates source proofs when duplicate floor snapshots hide a changed room', () => {
+    const geometry = pdfFixture(true)
+    const calibration = required(geometry.pdfCalibration)
+    const pair = required(calibration.openingFacePairs?.[0])
+    calibration.openingWidthProofs = [{ ...structuredClone(pair.bindings[0]), labelIndex: 0 }]
+    const first = required(geometry.rooms[0])
+    calibration.wallFaceRoomPolygons = [
+      structuredClone(first.polygon),
+      structuredClone(first.polygon),
+    ]
+    expect(currentOpeningFacePairs(geometry)).toEqual([])
+    expect(currentOpeningWidthProofs(geometry)).toEqual([])
+    expect(currentWallFacePairs(geometry)).toEqual([])
+    expect(inspectTransferWallSolids(geometry).error).toBeDefined()
+  })
+
+  it('keeps source proofs when distinct floor snapshots are reordered', () => {
+    const geometry = pdfFixture(true)
+    required(geometry.pdfCalibration).wallFaceRoomPolygons?.reverse()
+    expect(currentOpeningFacePairs(geometry)).toHaveLength(1)
+    expect(currentWallFacePairs(geometry)).toHaveLength(2)
+  })
+
+  it('matches repeated floor snapshots one-to-one', () => {
+    const geometry = pdfFixture(true)
+    const first = required(geometry.rooms[0])
+    geometry.rooms[1] = structuredClone(first)
+    required(geometry.pdfCalibration).wallFaceRoomPolygons = geometry.rooms.map(({ polygon }) =>
+      structuredClone(polygon),
+    )
+    expect(currentOpeningFacePairs(geometry)).toHaveLength(1)
+    required(geometry.rooms[1]).polygon[0] = point(-1, -1)
+    expect(currentOpeningFacePairs(geometry)).toEqual([])
+    expect(currentWallFacePairs(geometry)).toEqual([])
+  })
+
   it.each(['snapshot', 'source-cut'] as const)(
     'an explicit raw entry witness cannot hide a stale non-entry %s',
     (mutation) => {

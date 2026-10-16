@@ -152,6 +152,16 @@ export type NativeReviewPacket = {
       sourceRefs: { operationIndex: number; subpathIndex: number; segmentIndex: number }[]
       repaintAliases: { operationIndex: number; subpathIndex: number; segmentIndex: number }[][]
       completeContactCount: number
+      filledBoundaryContactCount?: number
+      jambContacts?: {
+        edge: { operationIndex: number; subpathIndex: number; segmentIndex: number }
+        sources: { operationIndex: number; subpathIndex: number; segmentIndex: number }[]
+        filledBoundarySources: {
+          operationIndex: number
+          subpathIndex: number
+          segmentIndex: number
+        }[]
+      }[]
     }[]
   }
   glazingSymbols?: {
@@ -574,6 +584,14 @@ export function nativeReviewPacket(input: {
         completeContactCount: candidate.jambContacts.filter(
           (contact) => contact.coverage === 'complete',
         ).length,
+        filledBoundaryContactCount: candidate.jambContacts.filter(
+          (contact) => contact.filledBoundaryCoverage === 'complete',
+        ).length,
+        jambContacts: candidate.jambContacts.map((contact) => ({
+          edge: sourceRef(contact.edge),
+          sources: contact.sources.map(sourceRef),
+          filledBoundarySources: contact.filledBoundarySources.map(sourceRef),
+        })),
       })),
     }
     packet.savedPaintedFloors = {

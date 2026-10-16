@@ -11,9 +11,12 @@ type CompositeFrame = {
     edge: NativePageSegment
     sources: NativePageSegment[]
     coverage: 'complete' | 'unproved'
+    filledBoundarySources: NativePageSegment[]
+    filledBoundaryCoverage: 'complete' | 'unproved'
   }[]
   semanticStatus: 'unclassified'
   physicalPassageAccepted: false
+  wallOwnershipConfirmed: false
   closesFloorBoundary: false
 }
 const ref = (edge: NativePageSegment) =>
@@ -35,6 +38,8 @@ export function nativeCompositeFrameEvidence(work: PdfLinework, scale: { x: numb
     work.unsupportedPaths > 0 ||
     work.unsupportedContexts > 0 ||
     work.curvePathsTruncated ||
+    work.skippedCurveBoundsTruncated ||
+    work.clippedPathBoundsTruncated ||
     work.paths.length > 3000 ||
     ![scale.x, scale.y].every((n) => Number.isFinite(n) && n > 0)
   )
@@ -46,6 +51,7 @@ export function nativeCompositeFrameEvidence(work: PdfLinework, scale: { x: numb
   )
   const refs = new Set<string>()
   const segments: NativePageSegment[] = []
+  const filledSegments: NativePageSegment[] = []
   for (const path of work.paths) {
     const pathRef = `${path.operationIndex}:${path.subpathIndex}`
     if (
@@ -56,6 +62,22 @@ export function nativeCompositeFrameEvidence(work: PdfLinework, scale: { x: numb
     )
       return finish('invalid-composite-provenance')
     refs.add(pathRef)
+    if (path.paint !== 'stroke' && path.closed && !excluded.has(path.operationIndex)) {
+      const points = path.points
+      for (let i = 0; i < points.length; i++) {
+        const start = points[i] as PagePoint
+        const end = points[(i + 1) % points.length] as PagePoint
+        if (key(start) === key(end)) continue
+        filledSegments.push({
+          operationIndex: path.operationIndex,
+          subpathIndex: path.subpathIndex,
+          segmentIndex: i,
+          start,
+          end,
+        })
+        if (filledSegments.length > 20_000) return finish('composite-frame-work-limit')
+      }
+    }
     if (path.paint !== 'stroke' || path.points.length !== 2 || excluded.has(path.operationIndex))
       continue
     const start = path.points[0] as PagePoint,
@@ -110,6 +132,7 @@ export function nativeCompositeFrameEvidence(work: PdfLinework, scale: { x: numb
         jambContacts: [],
         semanticStatus: 'unclassified',
         physicalPassageAccepted: false,
+        wallOwnershipConfirmed: false,
         closesFloorBoundary: false,
       })
       return
@@ -163,10 +186,28 @@ export function nativeCompositeFrameEvidence(work: PdfLinework, scale: { x: numb
             Math.max(other.start[axis], other.end[axis]) > high)
         )
       })
+      // A literal filled-path boundary is evidence of paint contact only. Its material,
+      // final visibility and wall ownership still require independent confirmation.
+      const filledBoundarySources = filledSegments.filter((other) => {
+        if (--budget < 0) {
+          exhausted = true
+          return false
+        }
+        return (
+          exactNativeOrientation(start, end, other.start) === 0 &&
+          exactNativeOrientation(start, end, other.end) === 0 &&
+          Math.min(other.start[axis], other.end[axis]) <= low &&
+          Math.max(other.start[axis], other.end[axis]) >= high &&
+          (Math.min(other.start[axis], other.end[axis]) < low ||
+            Math.max(other.start[axis], other.end[axis]) > high)
+        )
+      })
       candidate.jambContacts.push({
         edge,
         sources,
         coverage: sources.length ? 'complete' : 'unproved',
+        filledBoundarySources,
+        filledBoundaryCoverage: filledBoundarySources.length ? 'complete' : 'unproved',
       })
     }
     if (exhausted) return finish('composite-frame-work-limit')

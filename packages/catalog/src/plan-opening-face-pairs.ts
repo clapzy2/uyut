@@ -31,20 +31,20 @@ function sameOpening(opening: PlanOpening | undefined, snapshot: PlanOpening): b
 
 function sameRoomPolygons(geometry: Pick<PlanGeometry, 'rooms' | 'pdfCalibration'>): boolean {
   const polygons = geometry.pdfCalibration?.wallFaceRoomPolygons
-  return (
-    polygons !== undefined &&
-    polygons.length === geometry.rooms.length &&
-    polygons.every((snapshot) =>
-      geometry.rooms.some(
-        ({ polygon }) =>
-          polygon.length === snapshot.length &&
-          snapshot.every(
-            (point, index) =>
-              point.xCm === polygon[index]?.xCm && point.yCm === polygon[index]?.yCm,
-          ),
-      ),
+  if (polygons === undefined || polygons.length !== geometry.rooms.length) return false
+  const remaining = [...geometry.rooms]
+  for (const snapshot of polygons) {
+    const index = remaining.findIndex(
+      ({ polygon }) =>
+        polygon.length === snapshot.length &&
+        snapshot.every(
+          (point, index) => point.xCm === polygon[index]?.xCm && point.yCm === polygon[index]?.yCm,
+        ),
     )
-  )
+    if (index < 0) return false
+    remaining.splice(index, 1)
+  }
+  return true
 }
 
 /** A PDF face relation requires unchanged spans, hosts and room interiors. */
