@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { preparePlanPage } from '../lib/projects/plan-document'
+import { nativeCompositeFrameEvidence } from '../lib/projects/plan-native-composite-frames'
 import { automaticNativeDimensionRoles } from '../lib/projects/plan-native-dimension-roles'
 import { nativeFloorCavityCandidates } from '../lib/projects/plan-native-floor-cavities'
 import {
@@ -48,6 +49,10 @@ if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource) {
     JSON.stringify({
       ...base,
       nativePaths: page.linework.paths.length,
+      compositeRectangles: nativeCompositeFrameEvidence(
+        page.linework,
+        page.nativeTextAnchors.pageNormalizedScale ?? { x: 0, y: 0 },
+      ),
       schedule,
       numberScheduleLinks: nativeRoomNumberScheduleLinks(input).report,
       circles: {

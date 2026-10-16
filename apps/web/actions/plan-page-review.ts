@@ -201,7 +201,7 @@ export async function savePlanPageReview(
           'Проверьте контуры, стороны проёмов и неподвижные объекты внутри комнат на выбранном листе. Разметка не сохранена.',
       }
     }
-    const sourceRooms = planPageRoomInventory(page.image.planText)
+    const sourceRooms = planPageRoomInventory(page.image.planText, page)
     // Source-only snapshots have no dimension edges and must not enter physical binding checks.
     const dimensionContours = {
       ...contours,

@@ -9,6 +9,48 @@ import {
 import { inspectReviewedPageCoverage } from '@/lib/projects/plan-page-reviewed-coverage'
 import { NativeReviewResult, PlanNativeReview, SavedReviewCoverage } from './plan-native-review'
 
+it('shows composite source rectangles as review ink without promoting them to openings', () => {
+  const packet = nativeReviewPacket({
+    source: { sha256: 'b'.repeat(64), pdfPage: 1, state: 'existing' },
+    image: { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 },
+  })
+  packet.compositeSourceRectangles = {
+    status: 'draft',
+    refusalReason: null,
+    semanticStatus: 'unclassified',
+    physicalPassageAccepted: false,
+    closesFloorBoundary: false,
+    candidates: [
+      {
+        id: 'source-rectangle',
+        polygon: [
+          { x: 10, y: 10 },
+          { x: 100, y: 10 },
+          { x: 100, y: 30 },
+          { x: 10, y: 30 },
+        ],
+        sourceRefs: [1, 2, 3, 4].map((operationIndex) => ({
+          operationIndex,
+          subpathIndex: 0,
+          segmentIndex: 0,
+        })),
+        repaintAliases: [],
+        completeContactCount: 2,
+      },
+    ],
+  }
+  const before = structuredClone(packet)
+  const html = renderToStaticMarkup(
+    createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+  )
+  expect(html).toContain('Показать составные исходные прямоугольники')
+  expect(html).toContain('stroke-dasharray="6 4"')
+  expect(html).toContain('1:0:0, 2:0:0, 3:0:0, 4:0:0')
+  expect(html).toContain('назначение неизвестно')
+  expect(html).toContain('не переносятся в 2D/3D')
+  expect(packet).toEqual(before)
+})
+
 it('previews only source-matched proposed floor pieces without accepting them', () => {
   const revision = 'c'.repeat(64)
   const packet = nativeReviewPacket({

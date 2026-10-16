@@ -585,7 +585,7 @@ export async function savePlanGeometry(
           error: 'Не удалось повторно сверить исходный PDF-лист перед подтверждением схемы.',
         }
       }
-      sourceRooms = planPageRoomInventory(page.image.planText) ?? sourceRooms
+      sourceRooms = planPageRoomInventory(page.image.planText, page) ?? sourceRooms
       areaConflicts = planPageAreaConflicts({
         source: review,
         linework: page.linework,

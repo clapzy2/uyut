@@ -184,6 +184,73 @@ function isGlazingSymbols(value: unknown, image: NativeReviewPacket['image']): b
   })
 }
 
+function isCompositeSourceRectangles(value: unknown, image: NativeReviewPacket['image']): boolean {
+  if (value === undefined) return true
+  if (!isCandidateLayer(value)) return false
+  const report = value as NonNullable<NativeReviewPacket['compositeSourceRectangles']>
+  if (
+    !hasOnlyKeys(report, [
+      'status',
+      'refusalReason',
+      'semanticStatus',
+      'physicalPassageAccepted',
+      'closesFloorBoundary',
+      'candidates',
+    ]) ||
+    report.semanticStatus !== 'unclassified' ||
+    report.physicalPassageAccepted !== false ||
+    report.closesFloorBoundary !== false
+  )
+    return false
+  const ids = new Set<string>()
+  const validRefs = (refs: unknown): boolean => {
+    if (!Array.isArray(refs) || refs.length !== 4) return false
+    const seen = new Set<string>()
+    return refs.every((ref) => {
+      if (
+        !ref ||
+        typeof ref !== 'object' ||
+        !hasOnlyKeys(ref, ['operationIndex', 'subpathIndex', 'segmentIndex']) ||
+        ![ref.operationIndex, ref.subpathIndex, ref.segmentIndex].every(
+          (part) => Number.isSafeInteger(part) && part >= 0,
+        )
+      )
+        return false
+      const key = `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+  return report.candidates.every((candidate) => {
+    if (
+      !candidate ||
+      typeof candidate !== 'object' ||
+      !hasOnlyKeys(candidate, [
+        'id',
+        'polygon',
+        'sourceRefs',
+        'repaintAliases',
+        'completeContactCount',
+      ]) ||
+      typeof candidate.id !== 'string' ||
+      !candidate.id ||
+      ids.has(candidate.id) ||
+      !isSourceQuad(candidate.polygon, image) ||
+      !validRefs(candidate.sourceRefs) ||
+      !Array.isArray(candidate.repaintAliases) ||
+      candidate.repaintAliases.length > 100 ||
+      !candidate.repaintAliases.every(validRefs) ||
+      !Number.isSafeInteger(candidate.completeContactCount) ||
+      candidate.completeContactCount < 0 ||
+      candidate.completeContactCount > 4
+    )
+      return false
+    ids.add(candidate.id)
+    return true
+  })
+}
+
 function isFilledPanelSymbols(value: unknown, image: NativeReviewPacket['image']): boolean {
   if (value === undefined) return true
   if (!isCandidateLayer(value)) return false
@@ -2950,6 +3017,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isOpeningFrames(packet.openingFrames, packet.image) ||
     !isGlazingSymbols(packet.glazingSymbols, packet.image) ||
     !isFilledPanelSymbols(packet.filledPanelSymbols, packet.image) ||
+    !isCompositeSourceRectangles(packet.compositeSourceRectangles, packet.image) ||
     !nativeSourceObjectReportsValid(packet) ||
     !isSourceLinks(packet.sourceLinks, packet) ||
     !isNumberCircles(packet.numberCircles) ||

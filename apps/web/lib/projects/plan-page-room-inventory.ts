@@ -3,11 +3,28 @@ import {
   isPlanRoomSourceNumber,
   planRoomSourceNumbersInScheduleOrder,
 } from '@uyut/db/source-room-number'
+import type { preparePlanPage } from './plan-document'
+import { nativeRoomScheduleEvidence } from './plan-native-room-schedule'
 
 export type SourceRoom = { sourceNumber: number; name: string }
 
 /** Numbered room rows from the same PDF page, with no inferred gaps. */
-export function planPageRoomInventory(planText: string | undefined): SourceRoom[] | undefined {
+export function planPageRoomInventory(
+  planText: string | undefined,
+  page?: Pick<
+    Awaited<ReturnType<typeof preparePlanPage>>,
+    'nativeTextAnchors' | 'linework' | 'lineworkRasterSource'
+  >,
+): SourceRoom[] | undefined {
+  if (page?.nativeTextAnchors && page.linework && page.lineworkRasterSource) {
+    const schedule = nativeRoomScheduleEvidence({
+      native: page.nativeTextAnchors,
+      work: page.linework,
+      lineworkSource: page.lineworkRasterSource,
+    })
+    if (schedule.status !== 'draft') return undefined
+    return schedule.rows.map(({ sourceNumber, name }) => ({ sourceNumber, name }))
+  }
   const items = planMeasurementTextItems(planText)
   if (!items) return undefined
   const headings = items.filter(
