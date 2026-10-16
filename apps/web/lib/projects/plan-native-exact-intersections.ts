@@ -135,6 +135,86 @@ export function exactNativePointLocation(polygon: readonly PagePoint[], point: P
   return integerPointLocation(probe, integerEdges(boundary))
 }
 
+/** Positive-length overlap with the interior of a simple polygon, excluding border-only ink. */
+export function exactNativeSegmentCrossesPolygonInterior(
+  segment: Pick<NativePageSegment, 'start' | 'end'>,
+  polygon: readonly PagePoint[],
+): boolean | null {
+  if (polygon.length < 3 || polygon.length > 100) return null
+  const integers = integerPoints([...polygon, segment.start, segment.end])
+  if (!integers) return null
+  const boundary = integers.points.slice(0, polygon.length)
+  const edges = integerEdges(boundary)
+  const start = integers.points[polygon.length]
+  const end = integers.points[polygon.length + 1]
+  if (!start || !end || integerWinding(boundary) === null) return null
+  if (start.x === end.x && start.y === end.y) return false
+
+  type Cut = { numerator: bigint; denominator: bigint }
+  const cuts: Cut[] = [
+    { numerator: 0n, denominator: 1n },
+    { numerator: 1n, denominator: 1n },
+  ]
+  const cross = (a: IntegerPoint, b: IntegerPoint) => a.x * b.y - a.y * b.x
+  const direction = { x: end.x - start.x, y: end.y - start.y }
+  const between = (numerator: bigint, denominator: bigint) =>
+    numerator >= 0n && numerator <= denominator
+  const addCut = (numerator: bigint, denominator: bigint) => {
+    if (denominator < 0n) {
+      numerator = -numerator
+      denominator = -denominator
+    }
+    if (between(numerator, denominator)) cuts.push({ numerator, denominator })
+  }
+
+  for (const edge of edges) {
+    const edgeDirection = {
+      x: edge.end.x - edge.start.x,
+      y: edge.end.y - edge.start.y,
+    }
+    const offset = { x: edge.start.x - start.x, y: edge.start.y - start.y }
+    const denominator = cross(direction, edgeDirection)
+    if (denominator !== 0n) {
+      const numerator = cross(offset, edgeDirection)
+      const edgeNumerator = cross(offset, direction)
+      const sign = denominator < 0n ? -1n : 1n
+      if (
+        between(numerator * sign, denominator * sign) &&
+        between(edgeNumerator * sign, denominator * sign)
+      ) {
+        addCut(numerator, denominator)
+      }
+      continue
+    }
+    if (cross(offset, direction) !== 0n) continue
+    const axis = direction.x !== 0n ? 'x' : 'y'
+    for (const point of [edge.start, edge.end]) {
+      addCut(point[axis] - start[axis], direction[axis])
+    }
+  }
+
+  cuts.sort((a, b) => {
+    const difference = a.numerator * b.denominator - b.numerator * a.denominator
+    return difference < 0n ? -1 : difference > 0n ? 1 : 0
+  })
+  for (let index = 1; index < cuts.length; index++) {
+    const previous = cuts[index - 1]
+    const current = cuts[index]
+    if (!previous || !current) continue
+    if (previous.numerator * current.denominator === current.numerator * previous.denominator)
+      continue
+    const numerator =
+      previous.numerator * current.denominator + current.numerator * previous.denominator
+    const denominator = 2n * previous.denominator * current.denominator
+    const midpoint = {
+      x: start.x * denominator + direction.x * numerator,
+      y: start.y * denominator + direction.y * numerator,
+    }
+    if (integerPointLocation(midpoint, edges, denominator) === 'inside') return true
+  }
+  return false
+}
+
 /** Signed winding of an already validated source polygon in the decimal domain. */
 export function exactNativePolygonWinding(polygon: readonly PagePoint[]) {
   if (polygon.length < 3 || polygon.length > 100) return null

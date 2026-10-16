@@ -3,6 +3,7 @@ import {
   exactNativeDirectionsParallel,
   exactNativeOrientation,
   exactNativePointKey,
+  exactNativeSegmentCrossesPolygonInterior,
 } from './plan-native-exact-intersections'
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
 import { nativeReviewPacket } from './plan-native-review-packet'
@@ -220,6 +221,76 @@ function expectLiteralBoundaryProof(
 }
 
 describe('native painted cavities with documented source opening boundaries', () => {
+  it.each([
+    { name: 'through the middle', start: [50, 200], end: [350, 200], crosses: true },
+    { name: 'through opposite corners', start: [50, 50], end: [350, 350], crosses: true },
+    { name: 'tangent to one corner', start: [50, 150], end: [150, 50], crosses: false },
+    { name: 'coincident with a boundary', start: [50, 100], end: [350, 100], crosses: false },
+    {
+      name: 'one billionth outside',
+      start: [50, 100 - 1e-9],
+      end: [350, 100 - 1e-9],
+      crosses: false,
+    },
+    { name: 'inside despite touching one corner', start: [50, 50], end: [150, 150], crosses: true },
+    { name: 'outside', start: [50, 50], end: [350, 50], crosses: false },
+  ])('distinguishes source ink $name from a real interior crossing', ({ start, end, crosses }) => {
+    const polygon = [
+      { x: 100, y: 100 },
+      { x: 300, y: 100 },
+      { x: 300, y: 300 },
+      { x: 100, y: 300 },
+    ]
+    expect(
+      exactNativeSegmentCrossesPolygonInterior(
+        {
+          start: { x: start[0] as number, y: start[1] as number },
+          end: { x: end[0] as number, y: end[1] as number },
+        },
+        polygon,
+      ),
+    ).toBe(crosses)
+  })
+
+  it('counts a full-width source stroke whose endpoints both lie outside the candidate floor', () => {
+    const input = fixture()
+    const baseline = nativeFloorCavityCandidates(input).cavities[0]?.unknownInteriorStrokeCount
+    const crossing = path(30, [
+      [50, 200],
+      [350, 200],
+    ])
+    crossing.closed = false
+    input.work.paths.push(crossing)
+    const result = nativeFloorCavityCandidates(input)
+    expect(result.cavities[0]?.unknownInteriorStrokeCount).toBe((baseline ?? 0) + 1)
+    expect(result.readyFor2D).toBe(false)
+    expect(result.readyFor3D).toBe(false)
+  })
+
+  it.each([
+    [
+      [50, 150],
+      [150, 50],
+    ],
+    [
+      [50, 100],
+      [350, 100],
+    ],
+    [
+      [50, 50],
+      [350, 50],
+    ],
+  ])('does not report border-only or outside source ink as interior', (start, end) => {
+    const input = fixture()
+    const baseline = nativeFloorCavityCandidates(input).cavities[0]?.unknownInteriorStrokeCount
+    const stroke = path(30, [start, end])
+    stroke.closed = false
+    input.work.paths.push(stroke)
+    expect(nativeFloorCavityCandidates(input).cavities[0]?.unknownInteriorStrokeCount).toBe(
+      baseline,
+    )
+  })
+
   it('proves opposed diagonal profile contacts without changing the source paths', () => {
     const input = fixture()
     for (const path of input.work.paths) {
