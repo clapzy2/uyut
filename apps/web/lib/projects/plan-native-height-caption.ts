@@ -6,6 +6,7 @@ export type NativeHeightCaption = {
     | 'finished-ceiling'
     | 'opening-height'
     | 'beam-level'
+    | 'threshold-height'
     | 'threshold-level'
     | 'unclassified-height'
   datum: 'unspecified' | 'existing-floor' | 'finished-floor'
@@ -49,9 +50,10 @@ export function nativeDocumentaryHeightCaption(text: string): NativeHeightCaptio
 const qualifiedHeight =
   /(?:^|[^\p{L}\d])(?:не|нет|без|отсутств[а-яё]*|не(?:проверен|извест|уточн|определ|замерен|измерен|подтвержд)[а-яё]*|предполага[а-яё]*|будущ[а-яё]*|планиру[а-яё]*)(?=$|[^\p{L}\d])|\?/iu
 const heightTopic =
-  /(?:^\s*[hн](?:[12](?=\s|[-–—=:])|(?=\s|[-–—=:]|пр\.?))|высот|натяжн|подвесн|потолок|балк[аи]|отметк|уровень\s+(?:(?:верха|низа)\s+)?порога)/iu
+  /(?:^\s*[hн](?:[12](?=\s|[-–—=:])|(?=\s|[-–—=:]|пр\.?|порога))|высот|натяжн|подвесн|потолок|балк[аи]|отметк|уровень\s+(?:(?:верха|низа)\s+)?порога)/iu
 const thresholdLevel =
   /(?:^|[^\p{L}\d])(?:уровень|отметка)\s+(?:(?:верха|низа)\s+)?порога(?=$|[^\p{L}\d])/iu
+const thresholdHeight = /(?:^|[^\p{L}\d])(?:[hн]\s*|высота\s+)порога(?=$|[^\p{L}\d])/iu
 const quantity =
   /(?:^|[\s=:+−–—-])((?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d+)?)\s*(мм|см|mm|cm|м|m)(?=$|[\s.,;:)])/giu
 
@@ -64,18 +66,22 @@ function kindOf(text: string): NativeHeightCaption['quantityKind'] {
     )
   const otherObject = /шкаф|светильн|люстр|гарнитур|мебел/iu.test(text)
   const structural = /плит[а-яё]*|перекрыти[а-яё]*|конструктивн[а-яё]*|толщин/iu.test(text)
-  const opening = /(?:[hн]\s*пр\.?|высот[а-яё]*\s+(?:дверного\s+|оконного\s+)?про[её]м)/iu.test(
-    text,
-  )
+  const opening =
+    /(?:[hн]\s*пр\.?|[hн]\s+(?:двери|окна)(?=$|[^\p{L}\d])|высот[а-яё]*\s+(?:(?:дверного|оконного)\s+)?про[её]м)/iu.test(
+      text,
+    )
   const beam =
     /(?:до\s+(?:низа\s+)?балки|низ\s+балки|(?:уровень|отметка)\s+(?:низа\s+)?балки)/iu.test(text)
   const threshold = thresholdLevel.test(text)
+  const thresholdSize = thresholdHeight.test(text)
+  const matchedKinds = [finished, opening, beam, threshold, thresholdSize].filter(Boolean).length
   if (
-    Number(finished) + Number(opening) + Number(beam) + Number(threshold) !== 1 ||
+    matchedKinds !== 1 ||
     (finished && (structural || otherObject)) ||
-    (threshold && (structural || otherObject))
+    ((threshold || thresholdSize) && (structural || otherObject))
   )
     return 'unclassified-height'
+  if (thresholdSize) return 'threshold-height'
   if (threshold) return 'threshold-level'
   return finished ? 'finished-ceiling' : opening ? 'opening-height' : 'beam-level'
 }

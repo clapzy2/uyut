@@ -1897,6 +1897,7 @@ function isHeightObservations(value: unknown, packet: NativeReviewPacket): boole
         'finished-ceiling',
         'opening-height',
         'beam-level',
+        'threshold-height',
         'threshold-level',
         'unclassified-height',
       ].includes(observation.quantityKind) ||
