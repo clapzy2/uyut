@@ -1,6 +1,6 @@
 import type { PlanGeometry, PlanOpening, PlanOpeningMeasurement, PlanWall } from '@uyut/db'
 import { z } from 'zod'
-import { currentOpeningWidthProofs } from './plan-opening-face-pairs'
+import { currentOpeningFacePairs, currentOpeningWidthProofs } from './plan-opening-face-pairs'
 
 const point = z.object({ xCm: z.number().finite(), yCm: z.number().finite() }).strict()
 const openingSnapshotSchema = z
@@ -133,6 +133,23 @@ export function unresolvedOpeningMeasurementIds(geometry: MeasurementGeometry): 
   if (!calibration) return []
   const verified = new Set(currentOpeningMeasurements(geometry).map((item) => item.opening.id))
   return requiredOpeningMeasurementIds(geometry).filter((id) => !verified.has(id))
+}
+
+/** Source-linked jambs and required width measurements must both remain current. */
+export function currentSourceOpeningIds(geometry: MeasurementGeometry): Set<string> {
+  const calibration = geometry.pdfCalibration
+  if (!calibration) return new Set()
+  const sourcePairs = calibration.sourceOpeningFacePairs ?? calibration.openingFacePairs ?? []
+  const currentPairs = currentOpeningFacePairs({
+    ...geometry,
+    pdfCalibration: { ...calibration, openingFacePairs: sourcePairs },
+  })
+  const unresolvedIds = new Set(unresolvedOpeningMeasurementIds(geometry))
+  return new Set(
+    currentPairs
+      .flatMap((pair) => pair.bindings.map(({ opening }) => opening.id))
+      .filter((id) => !unresolvedIds.has(id)),
+  )
 }
 
 /** Only explicit requests produce records; author, date and source binding are server-owned. */
