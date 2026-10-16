@@ -432,6 +432,43 @@ describe('native PDF page to metric draft', () => {
       expect(held.geometry.status).toBe('draft')
       expect(planVolume({ ...held.geometry, status: 'confirmed' })).toBeNull()
     }
+
+    context.linework.skippedCurves = 0
+    context.linework.skippedCurveBounds = undefined
+    const laterFill = path(
+      [
+        { x: 309, y: 100 },
+        { x: 331, y: 100 },
+        { x: 331, y: 300 },
+        { x: 309, y: 300 },
+      ],
+      true,
+      'fill',
+    )
+    context.linework.paths.push(laterFill)
+    context.linework.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        {
+          operationIndex: wallBody.operationIndex,
+          kind: 'vector',
+          bounds: { left: 310, top: 10, right: 330, bottom: 410 },
+          reason: null,
+        },
+        {
+          operationIndex: laterFill.operationIndex,
+          kind: 'vector',
+          bounds: { left: 309, top: 100, right: 331, bottom: 300 },
+          reason: null,
+        },
+      ],
+    }
+    const overpainted = planPageMetricDraft(reading, calibratedContext, [4, 5])
+    expect(overpainted.ok, overpainted.ok ? '' : overpainted.error).toBe(true)
+    if (!overpainted.ok) throw new Error(overpainted.error)
+    expect(overpainted.geometry.pdfCalibration?.sourceWallFacePairs).toEqual([])
+    expect(planVolume({ ...overpainted.geometry, status: 'confirmed' })).toBeNull()
   })
 
   it('transfers a reviewed floor with fresh bounded-crossing proofs, never guessed corners', () => {
