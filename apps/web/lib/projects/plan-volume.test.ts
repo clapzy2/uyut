@@ -1,4 +1,4 @@
-import type { PlanGeometry, PlanWallFacePair } from '@uyut/db'
+import type { PlanGeometry, PlanOpeningFacePair, PlanWallFacePair } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import openApartment from '../../../../jobs/fixtures/open-swiss-apartment-35063-geometry.json'
 import { buildPlanScene } from './plan-scene-geometry'
@@ -386,6 +386,16 @@ describe('planVolume', () => {
       ],
       openings: [structuredClone(firstOpening), structuredClone(secondOpening)],
     }
+    const openingPair: PlanOpeningFacePair = {
+      bindings: [
+        { opening: structuredClone(firstOpening), wall: structuredClone(firstWall) },
+        { opening: structuredClone(secondOpening), wall: structuredClone(secondWall) },
+      ],
+      jambs: [
+        { operationIndex: 2, subpathIndex: 0, segmentIndex: 0 },
+        { operationIndex: 2, subpathIndex: 0, segmentIndex: 1 },
+      ],
+    }
     const pdfGeometry: PlanGeometry = {
       ...geometry,
       walls: [firstWall, secondWall],
@@ -401,9 +411,23 @@ describe('planVolume', () => {
         labelIndexes: [],
         derivedOpeningIds: [],
         sourceWallFacePairs: [pair],
+        openingFacePairs: [openingPair],
         wallFaceRoomPolygons: [room.polygon],
       },
     }
+
+    const unpaired = structuredClone(pdfGeometry)
+    if (!unpaired.pdfCalibration) throw new Error('Missing PDF calibration')
+    unpaired.pdfCalibration.openingFacePairs = []
+    expect(planVolume(unpaired)).toBeNull()
+    const sourceBound = structuredClone(pdfGeometry)
+    if (!sourceBound.pdfCalibration) throw new Error('Missing PDF calibration')
+    sourceBound.pdfCalibration.sourceOpeningFacePairs = [structuredClone(openingPair)]
+    expect(planVolume(sourceBound)?.openings).toHaveLength(2)
+    sourceBound.pdfCalibration.openingFacePairs = []
+    expect(planVolume(sourceBound)?.openings).toHaveLength(2)
+    sourceBound.openings[0] = { ...firstOpening, offsetCm: firstOpening.offsetCm + 1 }
+    expect(planVolume(sourceBound)).toBeNull()
 
     const result = planVolume(pdfGeometry)
     expect(result?.wallSource).toBe('pdf-faces')
@@ -470,8 +494,15 @@ describe('planVolume', () => {
       bottomCm: 0,
       heightCm: 210,
     }))
+    if (!pdfGeometry.pdfCalibration) throw new Error('Missing PDF calibration')
     const vertical = planVolume(pdfGeometry)
     expect(vertical?.openings.every((opening) => opening.cut)).toBe(true)
+    pdfGeometry.pdfCalibration.measurementRequiredOpeningIds = [firstOpening.id]
+    expect(planVolume(pdfGeometry)).toBeNull()
+    pdfGeometry.pdfCalibration.measurementRequiredOpeningIds = []
+    pdfGeometry.pdfCalibration.sourceOpeningFacePairs = []
+    expect(planVolume(pdfGeometry)).toBeNull()
+    delete pdfGeometry.pdfCalibration.sourceOpeningFacePairs
     expect(vertical?.walls.filter((wall) => wall.bottomCm === 210)).toHaveLength(2)
     expect(vertical?.solidFaces).toHaveLength(0)
 

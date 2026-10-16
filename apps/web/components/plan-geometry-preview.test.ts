@@ -143,4 +143,101 @@ describe('предпросмотр 2D-схемы', () => {
     expect(unverifiedPdf).toContain('нужны подтверждённая граница пола')
     expect(unverifiedPdf).not.toContain('Посмотреть объёмную схему')
   })
+
+  it('keeps an unproven PDF opening as a visible proposal without cutting the wall', () => {
+    const wall = {
+      id: 'wall',
+      kind: 'inner' as const,
+      start: { xCm: 0, yCm: 100 },
+      end: { xCm: 300, yCm: 100 },
+    }
+    const first = { id: 'first', type: 'door' as const, wallId: wall.id, offsetCm: 20, widthCm: 60 }
+    const second = {
+      id: 'second',
+      type: 'door' as const,
+      wallId: wall.id,
+      offsetCm: 150,
+      widthCm: 60,
+    }
+    const geometry: PlanGeometry = {
+      version: 1,
+      source: 'manual',
+      status: 'draft',
+      widthCm: 300,
+      heightCm: 200,
+      warnings: [],
+      walls: [wall],
+      openings: [first, second],
+      rooms: [],
+      pdfCalibration: {
+        sourceSha256: 'a'.repeat(64),
+        pdfPage: 1,
+        cmPerPoint: 1,
+        origin: { x: 0, y: 0 },
+        anchorRoomNumbers: [],
+        labelIndexes: [],
+        derivedOpeningIds: [],
+        wallFaceRoomPolygons: [],
+        sourceOpeningFacePairs: [
+          {
+            bindings: [
+              {
+                opening: first,
+                wall,
+                cut: [
+                  { xCm: 20, yCm: 100 },
+                  { xCm: 80, yCm: 100 },
+                ],
+              },
+              {
+                opening: second,
+                wall,
+                cut: [
+                  { xCm: 150, yCm: 100 },
+                  { xCm: 210, yCm: 100 },
+                ],
+              },
+            ],
+            jambs: [
+              { operationIndex: 1, subpathIndex: 0, segmentIndex: 0 },
+              { operationIndex: 2, subpathIndex: 0, segmentIndex: 0 },
+            ],
+          },
+        ],
+      },
+    }
+    const proven = renderToStaticMarkup(createElement(PlanGeometryPreview, { geometry }))
+    expect(proven).toContain('stroke="var(--paper)"')
+    expect(proven).not.toContain('Проём не подтверждён')
+
+    const calibration = geometry.pdfCalibration
+    if (!calibration) throw new Error('The PDF fixture needs source calibration')
+    const unmeasured = renderToStaticMarkup(
+      createElement(PlanGeometryPreview, {
+        geometry: {
+          ...geometry,
+          pdfCalibration: {
+            ...calibration,
+            derivedOpeningIds: [first.id],
+          },
+        },
+      }),
+    )
+    const proposedGroup = unmeasured.match(
+      /<g><title>Проём не подтверждён: сверьте косяки и обязательные мерки<\/title>.*?<\/g>/,
+    )?.[0]
+    expect(proposedGroup).toBeDefined()
+    expect(proposedGroup).not.toContain('stroke="var(--paper)"')
+
+    geometry.openings[1] = { ...second, offsetCm: 151 }
+    const held = renderToStaticMarkup(createElement(PlanGeometryPreview, { geometry }))
+    expect(held).not.toContain('stroke="var(--paper)"')
+    expect(held).toContain('Проём не подтверждён')
+    expect(held).toContain('stroke-dasharray="7 5"')
+
+    const manual = renderToStaticMarkup(
+      createElement(PlanGeometryPreview, { geometry: { ...geometry, pdfCalibration: undefined } }),
+    )
+    expect(manual).toContain('stroke="var(--paper)"')
+  })
 })

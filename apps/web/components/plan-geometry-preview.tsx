@@ -10,7 +10,10 @@ import {
   currentOpeningFacePairs,
   currentWallFacePairs,
 } from '@/lib/projects/plan-opening-face-pairs'
-import { currentOpeningMeasurements } from '@/lib/projects/plan-opening-measurements'
+import {
+  currentOpeningMeasurements,
+  currentSourceOpeningIds,
+} from '@/lib/projects/plan-opening-measurements'
 import { planVolume } from '@/lib/projects/plan-volume'
 import { PlanSourceRoomCoverage } from './plan-source-room-coverage'
 import { PlanVolumeLaunch } from './plan-volume-launch'
@@ -59,6 +62,7 @@ export function PlanGeometryPreview({
 }) {
   const padding = Math.max(20, Math.min(geometry.widthCm, geometry.heightCm) * 0.06)
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
+  const provenOpeningIds = currentSourceOpeningIds(geometry)
   const volume = planVolume(geometry)
   const openingMeasurements = currentOpeningMeasurements(geometry)
   const confirmationIssues =
@@ -256,6 +260,7 @@ export function PlanGeometryPreview({
             ) : null}
 
             {geometry.openings.map((opening) => {
+              if (geometry.pdfCalibration && !provenOpeningIds.has(opening.id)) return null
               const zone = doorClearanceZone(opening, geometry)
               if (!zone) return null
               return (
@@ -279,18 +284,28 @@ export function PlanGeometryPreview({
               if (!wall) return null
               const line = openingLine(opening, wall)
               const colour = opening.type === 'window' ? 'var(--accent)' : 'var(--ink-2)'
+              const proposed = !!geometry.pdfCalibration && !provenOpeningIds.has(opening.id)
               return (
                 <g key={opening.id}>
-                  <line
-                    x1={line.start.xCm}
-                    y1={line.start.yCm}
-                    x2={line.end.xCm}
-                    y2={line.end.yCm}
-                    stroke="var(--paper)"
-                    strokeWidth="11"
-                    strokeLinecap="butt"
-                    vectorEffect="non-scaling-stroke"
-                  />
+                  <title>
+                    {proposed
+                      ? 'Проём не подтверждён: сверьте косяки и обязательные мерки'
+                      : geometry.pdfCalibration
+                        ? 'Исходные косяки связаны с планом; мерки высоты и порога сверьте отдельно'
+                        : 'Проём'}
+                  </title>
+                  {!proposed ? (
+                    <line
+                      x1={line.start.xCm}
+                      y1={line.start.yCm}
+                      x2={line.end.xCm}
+                      y2={line.end.yCm}
+                      stroke="var(--paper)"
+                      strokeWidth="11"
+                      strokeLinecap="butt"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ) : null}
                   <line
                     x1={line.start.xCm}
                     y1={line.start.yCm}
@@ -298,7 +313,7 @@ export function PlanGeometryPreview({
                     y2={line.end.yCm}
                     stroke={colour}
                     strokeWidth={opening.type === 'window' ? 3 : 2}
-                    strokeDasharray={opening.type === 'door' ? '7 5' : undefined}
+                    strokeDasharray={proposed || opening.type === 'door' ? '7 5' : undefined}
                     vectorEffect="non-scaling-stroke"
                   />
                 </g>
@@ -456,8 +471,13 @@ export function PlanGeometryPreview({
             </span>
             <span>
               <i className="mr-2 inline-block w-5 border-t-2 border-dashed border-ink-2 align-middle" />
-              дверь
+              {geometry.pdfCalibration ? 'дверь с проверенными косяками' : 'дверь'}
             </span>
+            {geometry.pdfCalibration ? (
+              <span>
+                Пунктир поверх непрерывной стены — предложенный, но не подтверждённый проём
+              </span>
+            ) : null}
             <span>
               <i className="mr-2 inline-block h-3 w-5 border border-dashed border-danger bg-danger/10 align-middle" />
               зона открывания
@@ -467,8 +487,8 @@ export function PlanGeometryPreview({
           {geometry.status === 'confirmed' && geometry.pdfCalibration && !volume ? (
             <p className="mt-6 border-t border-line pt-5 text-[13px] leading-relaxed text-ink-2">
               Для объёмного просмотра этого PDF нужны подтверждённая граница пола и действующие
-              связи пар граней с исходным листом. Пока линии показывают границы на плане, а не
-              готовые объёмные стены.
+              связи пар граней с исходным листом, а для проёмов — проверенные косяки и обязательные
+              мерки ширины. Пока линии показывают границы на плане, а не готовые объёмные стены.
             </p>
           ) : null}
         </div>

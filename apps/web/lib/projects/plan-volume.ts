@@ -17,6 +17,7 @@ import polygonClipping, { type Polygon } from 'polygon-clipping'
 import { kitchenItemIssues, kitchenItemsSchema, kitchenLabels } from './kitchen-items'
 import type { PlanGeometryIssue } from './plan-geometry-inspection'
 import { currentWallFacePairs } from './plan-opening-face-pairs'
+import { currentSourceOpeningIds } from './plan-opening-measurements'
 import {
   inspectPlanVerticalDimensions,
   planVerticalMeasurementReport,
@@ -233,6 +234,7 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
     // Proof intervals exclude door/window gaps. Preserve each source-bound opening
     // independently of those intervals; do not fill the gap with invented wall faces.
     const provenOpeningIds = new Set(currentPairs.flatMap((pair) => pair.openings.map((o) => o.id)))
+    const pairedJambOpeningIds = currentSourceOpeningIds(geometry)
     for (const opening of projectedOpenings) {
       if (!provenOpeningIds.has(opening.id)) continue
       const wall = geometry.walls.find((candidate) => candidate.id === opening.wallId)
@@ -253,6 +255,9 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
         })
         continue
       }
+      // Source face intervals already stop at the gap. Without current jamb and
+      // width evidence, even an uncut marker would render an authoritative void.
+      if (!pairedJambOpeningIds.has(opening.id)) return null
       openings.push({
         id: `${opening.id}-pdf`,
         type: opening.type,
