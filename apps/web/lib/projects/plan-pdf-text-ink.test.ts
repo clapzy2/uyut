@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { nativeHeightGroupBounds, nativeResetNoteBounds } from './plan-native-height-group'
+import { pdfStandardFontDataUrl } from './plan-pdf-standard-fonts'
 import { nativeNumericTextInk, type PdfTextInkFont, pdfGlyphInkBounds } from './plan-pdf-text-ink'
 
 const OPS = {
@@ -1659,6 +1660,133 @@ describe('native numeric source text ink', () => {
     path[7] = 20
     expect(nativeNumericTextInk(input).unresolved[0]?.reason).toBe('clipped-native-text-ink')
   })
+
+  it('proves ink inside a simple orthogonal clip but not across its recess', () => {
+    const path = [0, 0, 0, 1, 100, 0, 1, 100, 20, 1, 30, 20, 1, 30, 100, 1, 0, 100, 4]
+    const input = fixture([
+      ['clip'],
+      ['constructPath', [28, [path], []]],
+      ['setFont', ['f1', 10]],
+      ['beginText'],
+      ['moveText', [10, 40]],
+      ['showText', [['5', '2', '5'].map((c) => glyph(c))]],
+      ['endText'],
+    ])
+    expect(nativeNumericTextInk(input).items).toHaveLength(1)
+    const text = input.textItems[0] as { transform: Matrix }
+    text.transform[4] = 40
+    const move = input.operatorList.argsArray[4] as number[]
+    move[0] = 40
+    expect(nativeNumericTextInk(input).unresolved[0]?.reason).toBe('clipped-native-text-ink')
+  })
+
+  it('holds a glyph quad whose corners are inside but whose edge crosses a concave recess', () => {
+    const path = [
+      0, 0, 0, 1, 100, 0, 1, 100, 100, 1, 18, 100, 1, 18, 30, 1, 15, 30, 1, 15, 100, 1, 0, 100, 4,
+    ]
+    const input = fixture([
+      ['clip'],
+      ['constructPath', [28, [path], []]],
+      ['setFont', ['f1', 10]],
+      ['beginText'],
+      ['moveText', [10, 40]],
+      ['showText', [['5', '2', '5'].map((c) => glyph(c))]],
+      ['endText'],
+    ])
+    expect(nativeNumericTextInk(input).unresolved[0]?.reason).toBe('clipped-native-text-ink')
+  })
+
+  it('holds boundary-touching ink and respects a translated source clip', () => {
+    const path = [0, 0, 0, 1, 100, 0, 1, 100, 100, 1, 0, 100, 4]
+    const input = fixture(
+      [
+        ['transform', [1, 0, 0, 1, 20, 30]],
+        ['clip'],
+        ['constructPath', [28, [path], []]],
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['moveText', [10, 40]],
+        ['showText', [['5', '2', '5'].map((c) => glyph(c))]],
+        ['endText'],
+      ],
+      [{ str: '525', fontName: 'f1', width: 15, transform: [10, 0, 0, 10, 30, 70] }],
+    )
+    expect(nativeNumericTextInk(input).items).toHaveLength(1)
+    path[1] = 11
+    path[10] = 11
+    expect(nativeNumericTextInk(input).unresolved[0]?.reason).toBe('clipped-native-text-ink')
+  })
+
+  it('holds compound clip paths because their fill rule and holes are not proved', () => {
+    const outer = [0, 0, 0, 1, 100, 0, 1, 100, 100, 1, 0, 100, 4]
+    const hole = [0, 12, 39, 1, 22, 39, 1, 22, 48, 1, 12, 48, 4]
+    const input = fixture([
+      ['clip'],
+      ['constructPath', [28, [outer, hole], []]],
+      ['setFont', ['f1', 10]],
+      ['beginText'],
+      ['moveText', [10, 40]],
+      ['showText', [['5', '2', '5'].map((c) => glyph(c))]],
+      ['endText'],
+    ])
+    expect(nativeNumericTextInk(input).unresolved[0]?.reason).toBe('unsupported-text-ink-clipping')
+  })
+
+  it('holds a self-intersecting orthogonal clip', () => {
+    const path = [0, 0, 0, 1, 100, 0, 1, 100, 100, 1, 50, 100, 1, 50, -10, 1, 0, -10, 4]
+    const input = fixture([
+      ['clip'],
+      ['constructPath', [28, [path], []]],
+      ['setFont', ['f1', 10]],
+      ['beginText'],
+      ['moveText', [10, 40]],
+      ['showText', [['5', '2', '5'].map((c) => glyph(c))]],
+      ['endText'],
+    ])
+    expect(nativeNumericTextInk(input).unresolved[0]?.reason).toBe('unsupported-text-ink-clipping')
+  })
+
+  const decoSource = new URL('../../../../tmp/pdfs/deco-art-dvushka-source.pdf', import.meta.url)
+  it.skipIf(!existsSync(decoSource))(
+    'checks the real DECO clip without accepting its unproved split threshold',
+    async () => {
+      const body = await readFile(decoSource)
+      expect(createHash('sha256').update(body).digest('hex')).toBe(
+        'fee92486f301e8a40886914c74b9a83ce77747c6ee14dd4ee0a666dec4a647fd',
+      )
+      const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+      await import('pdfjs-dist/legacy/build/pdf.worker.mjs')
+      const loading = pdfjs.getDocument({
+        data: new Uint8Array(body),
+        disableFontFace: true,
+        useWorkerFetch: false,
+        standardFontDataUrl: pdfStandardFontDataUrl(import.meta.url),
+      })
+      try {
+        const document = await loading.promise
+        const page = await document.getPage(3)
+        const text = await page.getTextContent()
+        const optionalContent = await document.getOptionalContentConfig({ intent: 'display' })
+        const result = nativeNumericTextInk({
+          operatorList: await page.getOperatorList(),
+          operators: pdfjs.OPS,
+          textItems: text.items,
+          selectedTextIndexes: [75],
+          viewport: page.getViewport({ scale: 1 }),
+          getFont: (name) => page.commonObjs.get(name),
+          getGlyphPath: (name, character) => page.commonObjs.get(`${name}_path_${character}`).path,
+          isOptionalContentVisible: (properties) => optionalContent.isVisible(properties),
+        })
+        expect(result.refusalReason).toBeNull()
+        expect(result.items).toEqual([])
+        expect(result.unresolved).toEqual([
+          { index: 75, reason: 'unsupported-native-text-ink-spacing' },
+        ])
+      } finally {
+        await loading.destroy()
+      }
+    },
+  )
 
   it('holds complex clips, form contexts, alpha and text clipping without unbounded fallback', () => {
     const controls: Operation[][] = [
