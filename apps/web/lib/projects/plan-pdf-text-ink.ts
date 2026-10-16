@@ -90,7 +90,7 @@ type State = {
     lineOffset: [number, number]
     textOffset: [number, number]
   }
-  clips: Quad[]
+  clips: PagePoint[][]
   reason?: string
   /** Non-clipping uncertainty must survive a later clip overwriting the legacy reason. */
   paintStateReason?: string
@@ -348,8 +348,32 @@ export function pdfGlyphInkBounds(raw: unknown): InkBounds | undefined {
     : undefined
 }
 
-function clipQuad(raw: unknown, ctm: Matrix): Quad | undefined {
-  const path = values(raw, 20)
+function segmentsIntersect(a: PagePoint, b: PagePoint, c: PagePoint, d: PagePoint): boolean {
+  const cross = (u: PagePoint, v: PagePoint) => u.x * v.y - u.y * v.x
+  const direction = { x: b.x - a.x, y: b.y - a.y }
+  const other = { x: d.x - c.x, y: d.y - c.y }
+  const offset = { x: c.x - a.x, y: c.y - a.y }
+  const denominator = cross(direction, other)
+  if (Math.abs(denominator) <= ARITHMETIC_EPSILON) {
+    if (Math.abs(cross(offset, direction)) > ARITHMETIC_EPSILON) return false
+    const axis = Math.abs(direction.x) >= Math.abs(direction.y) ? 'x' : 'y'
+    return (
+      Math.max(Math.min(a[axis], b[axis]), Math.min(c[axis], d[axis])) <=
+      Math.min(Math.max(a[axis], b[axis]), Math.max(c[axis], d[axis])) + ARITHMETIC_EPSILON
+    )
+  }
+  const first = cross(offset, other) / denominator
+  const second = cross(offset, direction) / denominator
+  return (
+    first >= -ARITHMETIC_EPSILON &&
+    first <= 1 + ARITHMETIC_EPSILON &&
+    second >= -ARITHMETIC_EPSILON &&
+    second <= 1 + ARITHMETIC_EPSILON
+  )
+}
+
+function clipPolygon(raw: unknown, ctm: Matrix): PagePoint[] | undefined {
+  const path = values(raw, 52)
   if (!path) return
   const points: PagePoint[] = []
   for (let i = 0; i < path.length; ) {
@@ -363,29 +387,61 @@ function clipQuad(raw: unknown, ctm: Matrix): Quad | undefined {
       return
     points.push({ x: path[i++] as number, y: path[i++] as number })
   }
-  if (points.length === 5 && points[0]?.x === points[4]?.x && points[0]?.y === points[4]?.y)
+  if (points.length > 1 && points[0]?.x === points.at(-1)?.x && points[0]?.y === points.at(-1)?.y)
     points.pop()
-  if (points.length !== 4 || new Set(points.map((p) => `${p.x}:${p.y}`)).size !== 4) return
-  const xs = new Set(points.map((p) => p.x)),
-    ys = new Set(points.map((p) => p.y))
-  if (
-    xs.size !== 2 ||
-    ys.size !== 2 ||
-    points.some((p, i) => p.x !== points[(i + 1) % 4]?.x && p.y !== points[(i + 1) % 4]?.y)
-  )
-    return
-  return points.map((p) => point(ctm, p.x, p.y)) as Quad
+  if (points.length < 4 || points.length > 16) return
+  if (new Set(points.map((p) => `${p.x}:${p.y}`)).size !== points.length) return
+  for (let index = 0; index < points.length; index++) {
+    const start = points[index] as PagePoint
+    const end = points[(index + 1) % points.length] as PagePoint
+    if ((start.x === end.x) === (start.y === end.y)) return
+    for (let other = index + 2; other < points.length; other++) {
+      if (index === 0 && other === points.length - 1) continue
+      if (
+        segmentsIntersect(
+          start,
+          end,
+          points[other] as PagePoint,
+          points[(other + 1) % points.length] as PagePoint,
+        )
+      )
+        return
+    }
+  }
+  const transformed = points.map((p) => point(ctm, p.x, p.y))
+  return transformed.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+    ? transformed
+    : undefined
 }
 
-function contains(clip: Quad, p: PagePoint): boolean {
-  const crosses = clip.map((a, i) => {
-    const b = clip[(i + 1) % 4] as PagePoint
-    return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
-  })
-  return (
-    crosses.every((value) => value >= -ARITHMETIC_EPSILON) ||
-    crosses.every((value) => value <= ARITHMETIC_EPSILON)
-  )
+function contains(clip: PagePoint[], quad: Quad): boolean {
+  for (const p of quad) {
+    let inside = false
+    for (let index = 0; index < clip.length; index++) {
+      const a = clip[index] as PagePoint
+      const b = clip[(index + 1) % clip.length] as PagePoint
+      if (segmentsIntersect(a, b, p, p)) return false
+      const crossesRay = a.y > p.y !== b.y > p.y
+      if (crossesRay && p.x < a.x + ((p.y - a.y) * (b.x - a.x)) / (b.y - a.y)) inside = !inside
+    }
+    if (!inside) return false
+  }
+  for (let index = 0; index < quad.length; index++) {
+    const a = quad[index] as PagePoint
+    const b = quad[(index + 1) % quad.length] as PagePoint
+    for (let other = 0; other < clip.length; other++) {
+      if (
+        segmentsIntersect(
+          a,
+          b,
+          clip[other] as PagePoint,
+          clip[(other + 1) % clip.length] as PagePoint,
+        )
+      )
+        return false
+    }
+  }
+  return true
 }
 
 /** A deliberately narrow replay of native text placement. Unsupported drawing state is held. */
@@ -623,7 +679,7 @@ export function nativeNumericTextInk(input: {
     else if (name === 'constructPath' && pendingClip) {
       const paths = args[1]
       const clip =
-        Array.isArray(paths) && paths.length === 1 ? clipQuad(paths[0], state.ctm) : undefined
+        Array.isArray(paths) && paths.length === 1 ? clipPolygon(paths[0], state.ctm) : undefined
       if (state.clips.length >= 32) return fail('text-ink-budget-exceeded')
       if (clip) state.clips.push(clip)
       else state.reason = 'unsupported-text-ink-clipping'
@@ -965,7 +1021,7 @@ export function nativeNumericTextInk(input: {
       const quad = Number.isFinite(ink.left) ? rectangle(ink, sourceFrame) : undefined
       if (quad?.some((p) => ![p.x, p.y].every(Number.isFinite)))
         reason ??= 'invalid-native-text-ink-transform'
-      if (quad && state.clips.some((clip) => quad.some((p) => !contains(clip, p))))
+      if (quad && state.clips.some((clip) => !contains(clip, quad)))
         reason ??= 'clipped-native-text-ink'
       if (runs.length >= MAX_ITEMS) return fail('text-ink-budget-exceeded')
       runs.push({
