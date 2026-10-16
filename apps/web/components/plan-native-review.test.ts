@@ -36,6 +36,14 @@ it('shows composite source rectangles as review ink without promoting them to op
         })),
         repaintAliases: [],
         completeContactCount: 2,
+        filledBoundaryContactCount: 1,
+        jambContacts: [
+          {
+            edge: { operationIndex: 1, subpathIndex: 0, segmentIndex: 0 },
+            sources: [],
+            filledBoundarySources: [{ operationIndex: 2563, subpathIndex: 0, segmentIndex: 3 }],
+          },
+        ],
       },
     ],
   }
@@ -48,6 +56,9 @@ it('shows composite source rectangles as review ink without promoting them to op
   expect(html).toContain('1:0:0, 2:0:0, 3:0:0, 4:0:0')
   expect(html).toContain('назначение неизвестно')
   expect(html).toContain('не переносятся в 2D/3D')
+  expect(html).toContain('Полных линейных контактов: 2; контактов с границей заливки: 1')
+  expect(html).toContain('2563:0:3')
+  expect(html).toContain('Заливка внутри рамки также не доказывает проход')
   expect(packet).toEqual(before)
 })
 

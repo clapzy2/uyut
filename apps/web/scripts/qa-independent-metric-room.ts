@@ -28,6 +28,7 @@ import {
   verifyPlanPageOpeningFaces,
 } from '../lib/projects/plan-pdf-opening-faces'
 import { pdfPointDistance } from '../lib/projects/plan-pdf-room-binding'
+import { findPlanPageWallBodySupports } from '../lib/projects/plan-pdf-wall-body-support'
 import {
   classifyPlanPageWallSpans,
   planPageWallReviewQueue,
@@ -715,6 +716,7 @@ console.log(
     },
     wallFacePairs: result.geometry.pdfCalibration?.wallFacePairs?.length ?? 0,
     wallCoverage,
+    oneSidedSourceWallSupports: findPlanPageWallBodySupports(linework, contours),
     wallReviewQueue,
     exteriorWallReviewQueue,
     wallSolids,

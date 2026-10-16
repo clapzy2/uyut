@@ -203,8 +203,8 @@ function isCompositeSourceRectangles(value: unknown, image: NativeReviewPacket['
   )
     return false
   const ids = new Set<string>()
-  const validRefs = (refs: unknown): boolean => {
-    if (!Array.isArray(refs) || refs.length !== 4) return false
+  const validRefs = (refs: unknown, count = 4): boolean => {
+    if (!Array.isArray(refs) || refs.length !== count || count > 1000) return false
     const seen = new Set<string>()
     return refs.every((ref) => {
       if (
@@ -232,6 +232,10 @@ function isCompositeSourceRectangles(value: unknown, image: NativeReviewPacket['
         'sourceRefs',
         'repaintAliases',
         'completeContactCount',
+        ...(candidate.filledBoundaryContactCount !== undefined
+          ? ['filledBoundaryContactCount']
+          : []),
+        ...(candidate.jambContacts !== undefined ? ['jambContacts'] : []),
       ]) ||
       typeof candidate.id !== 'string' ||
       !candidate.id ||
@@ -240,12 +244,51 @@ function isCompositeSourceRectangles(value: unknown, image: NativeReviewPacket['
       !validRefs(candidate.sourceRefs) ||
       !Array.isArray(candidate.repaintAliases) ||
       candidate.repaintAliases.length > 100 ||
-      !candidate.repaintAliases.every(validRefs) ||
+      !candidate.repaintAliases.every((refs) => validRefs(refs)) ||
       !Number.isSafeInteger(candidate.completeContactCount) ||
       candidate.completeContactCount < 0 ||
       candidate.completeContactCount > 4
     )
       return false
+    if (
+      candidate.jambContacts !== undefined ||
+      candidate.filledBoundaryContactCount !== undefined
+    ) {
+      const contacts = candidate.jambContacts
+      if (
+        !Array.isArray(contacts) ||
+        contacts.length > 4 ||
+        !Number.isSafeInteger(candidate.filledBoundaryContactCount) ||
+        !contacts.every(
+          (contact) =>
+            contact &&
+            typeof contact === 'object' &&
+            hasOnlyKeys(contact, ['edge', 'sources', 'filledBoundarySources']) &&
+            validRefs([contact.edge], 1) &&
+            candidate.sourceRefs.some(
+              (ref) =>
+                ref.operationIndex === contact.edge.operationIndex &&
+                ref.subpathIndex === contact.edge.subpathIndex &&
+                ref.segmentIndex === contact.edge.segmentIndex,
+            ) &&
+            Array.isArray(contact.sources) &&
+            validRefs(contact.sources, contact.sources.length) &&
+            Array.isArray(contact.filledBoundarySources) &&
+            validRefs(contact.filledBoundarySources, contact.filledBoundarySources.length),
+        ) ||
+        candidate.filledBoundaryContactCount !==
+          contacts.filter((contact) => contact.filledBoundarySources.length > 0).length ||
+        candidate.completeContactCount !==
+          contacts.filter((contact) => contact.sources.length > 0).length ||
+        new Set(
+          contacts.map(
+            (contact) =>
+              `${contact.edge.operationIndex}:${contact.edge.subpathIndex}:${contact.edge.segmentIndex}`,
+          ),
+        ).size !== contacts.length
+      )
+        return false
+    }
     ids.add(candidate.id)
     return true
   })

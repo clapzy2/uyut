@@ -66,6 +66,30 @@ describe('composite source rectangle review', () => {
     const { packet, headers } = rectangleFixture()
     await expect(loadFixture(packet, headers)).resolves.toBeDefined()
   })
+  it('loads two linear contacts with only one independently supported fill boundary', async () => {
+    const { packet, headers } = rectangleFixture()
+    const candidate = packet.compositeSourceRectangles?.candidates[0]
+    if (!candidate) throw new Error('Missing rectangle')
+    candidate.filledBoundaryContactCount = 1
+    candidate.jambContacts = [0, 2].map((index) => {
+      const edge = candidate.sourceRefs[index]
+      if (!edge) throw new Error('Missing edge')
+      return {
+        edge,
+        sources: [{ operationIndex: 100 + index, subpathIndex: 0, segmentIndex: 0 }],
+        filledBoundarySources:
+          index === 0 ? [{ operationIndex: 2563, subpathIndex: 0, segmentIndex: 3 }] : [],
+      }
+    })
+    await expect(loadFixture(packet, headers)).resolves.toBeDefined()
+    candidate.filledBoundaryContactCount = 2
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+    candidate.filledBoundaryContactCount = 1
+    const [first, second] = candidate.jambContacts
+    if (!first || !second) throw new Error('Missing contacts')
+    second.edge = first.edge
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+  })
   it.each(['authority', 'missing-ref', 'duplicate-ref', 'outside-image'] as const)(
     'rejects %s',
     async (change) => {

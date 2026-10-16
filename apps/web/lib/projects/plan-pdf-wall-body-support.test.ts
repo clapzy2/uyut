@@ -55,6 +55,33 @@ function fixture() {
 }
 
 describe('one-sided native wall-body support', () => {
+  it('excludes a distant recorded clip but holds touching, unknown and incomplete omissions', () => {
+    const { work, contours } = fixture()
+    const bounds = { left: 800, top: 800, right: 900, bottom: 900 }
+    work.clippedPaths = 1
+    work.clippedPathBounds = [{ operationIndex: 10, bounds, paint: 'stroke' }]
+    work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [{ operationIndex: 10, kind: 'vector', bounds, reason: null }],
+    }
+    expect(findPlanPageWallBodySupports(work, contours)).toHaveLength(1)
+    bounds.left = 220
+    bounds.top = 200
+    expect(findPlanPageWallBodySupports(work, contours)).toEqual([])
+    bounds.left = 800
+    bounds.top = 800
+    const event = work.paintBounds?.events[0]
+    if (!event) throw new Error('Missing omission event')
+    event.bounds = null
+    expect(findPlanPageWallBodySupports(work, contours)).toEqual([])
+    event.bounds = bounds
+    work.clippedPathBoundsTruncated = true
+    expect(findPlanPageWallBodySupports(work, contours)).toEqual([])
+    work.clippedPathBoundsTruncated = false
+    work.clippedPathBounds = []
+    expect(findPlanPageWallBodySupports(work, contours)).toEqual([])
+  })
   it('retains exact one-sided fill and independent stroke provenance without mutation', () => {
     const input = fixture()
     const before = structuredClone(input)
@@ -75,26 +102,43 @@ describe('one-sided native wall-body support', () => {
     expect(findPlanPageWallBodySupports(input.work, input.contours)).toEqual(result)
   })
 
-  it.each(['missing', 'shifted', 'gapped'] as const)('rejects %s stroke evidence', (kind) => {
-    const { work, contours, stroke } = fixture()
-    if (kind === 'missing') work.paths.pop()
-    if (kind === 'shifted') stroke.points = stroke.points.map((p) => ({ ...p, x: p.x + 0.001 }))
-    if (kind === 'gapped') {
-      stroke.points = [
-        { x: 200, y: 140 },
-        { x: 200, y: 199 },
-      ]
-      work.paths.push({
-        ...stroke,
-        operationIndex: 3,
-        points: [
-          { x: 200, y: 201 },
-          { x: 200, y: 260 },
-        ],
-      })
-    }
-    expect(findPlanPageWallBodySupports(work, contours)).toEqual([])
-  })
+  it.each(['missing', 'shifted', 'gapped'] as const)(
+    'does not bridge %s stroke evidence',
+    (kind) => {
+      const { work, contours, stroke } = fixture()
+      if (kind === 'missing') work.paths.pop()
+      if (kind === 'shifted') stroke.points = stroke.points.map((p) => ({ ...p, x: p.x + 0.001 }))
+      if (kind === 'gapped') {
+        stroke.points = [
+          { x: 200, y: 140 },
+          { x: 200, y: 199 },
+        ]
+        work.paths.push({
+          ...stroke,
+          operationIndex: 3,
+          points: [
+            { x: 200, y: 201 },
+            { x: 200, y: 260 },
+          ],
+        })
+      }
+      const result = findPlanPageWallBodySupports(work, contours)
+      if (kind === 'gapped') {
+        expect(
+          result.map(({ start, end, strokeSegment }) => [
+            start.y,
+            end.y,
+            strokeSegment.operationIndex,
+          ]),
+        ).toEqual([
+          [150, 199, 2],
+          [201, 250, 3],
+        ])
+      } else {
+        expect(result).toEqual([])
+      }
+    },
+  )
 
   it('rejects point-only contact', () => {
     const { work, contours, body } = fixture()

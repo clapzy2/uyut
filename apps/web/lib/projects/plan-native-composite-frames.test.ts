@@ -29,6 +29,74 @@ function fixture(): PdfLinework {
 }
 
 describe('exact composite source rectangle evidence', () => {
+  it('retains exact independent filled-boundary refs without claiming a physical jamb', () => {
+    const work = fixture()
+    work.paths.push({
+      operationIndex: 100,
+      subpathIndex: 0,
+      paint: 'fill',
+      closed: true,
+      points: [
+        { x: 10, y: 9 },
+        { x: 10, y: 15 },
+        { x: 0, y: 15 },
+        { x: 0, y: 9 },
+      ],
+    })
+    const candidate = nativeCompositeFrameEvidence(work, { x: 1, y: 1 }).candidates[0]
+    const contact = candidate?.jambContacts.find((item) => item.edge.start.x === 10)
+    expect(contact?.filledBoundaryCoverage).toBe('complete')
+    expect(contact?.filledBoundarySources).toEqual([
+      {
+        operationIndex: 100,
+        subpathIndex: 0,
+        segmentIndex: 0,
+        start: { x: 10, y: 9 },
+        end: { x: 10, y: 15 },
+      },
+    ])
+    expect(contact?.coverage).toBe('unproved')
+    expect(candidate?.wallOwnershipConfirmed).toBe(false)
+    expect(candidate?.physicalPassageAccepted).toBe(false)
+  })
+
+  it.each(['gap', 'partial', 'own-fill', 'open', 'clipped'])(
+    'does not infer a filled boundary contact from %s paint',
+    (kind) => {
+      const work = fixture()
+      const x = kind === 'gap' ? 10.000001 : 10
+      work.paths.push({
+        operationIndex: 100,
+        subpathIndex: 0,
+        paint: 'fill',
+        closed: kind !== 'open',
+        points:
+          kind === 'own-fill'
+            ? [
+                { x: 10, y: 10 },
+                { x: 50, y: 10 },
+                { x: 50, y: 14 },
+                { x: 10, y: 14 },
+              ]
+            : [
+                { x, y: 9 },
+                { x, y: kind === 'partial' ? 12 : 15 },
+                { x: 0, y: 15 },
+              ],
+      })
+      if (kind === 'clipped')
+        work.clippedPathBounds = [
+          { operationIndex: 100, bounds: { left: 0, top: 9, right: 10, bottom: 15 } },
+        ]
+      const result = nativeCompositeFrameEvidence(work, { x: 1, y: 1 })
+      expect(
+        result.candidates[0]?.jambContacts.every(
+          (contact) => contact.filledBoundaryCoverage === 'unproved',
+        ),
+      ).toBe(true)
+    },
+  )
+
   it('preserves all four source refs and actual external jamb contacts without granting authority', () => {
     const work = fixture()
     for (const x of [10, 50])
@@ -101,10 +169,35 @@ describe('exact composite source rectangle evidence', () => {
       closed: false,
       points: [points[from as number] as PagePoint, points[to as number] as PagePoint],
     }))
+    work.paths.push({
+      operationIndex: 2563,
+      subpathIndex: 0,
+      paint: 'fill',
+      fillColor: '#7f7f7f',
+      closed: true,
+      points: [
+        { x: 285.665, y: 607.809 },
+        { x: 285.665, y: 621.614 },
+        { x: 129.237, y: 621.614 },
+        { x: 129.237, y: 607.809 },
+        { x: 285.665, y: 607.809 },
+      ],
+    })
     const result = nativeCompositeFrameEvidence(work, { x: 1.41, y: 1 })
     expect(result.candidates[0]?.polygon).toEqual(points)
     expect(result.candidates[0]?.edges.map((edge) => edge.operationIndex)).toEqual([
       5600, 5635, 5628, 5621,
     ])
+    const contacts = result.candidates[0]?.jambContacts
+    expect(contacts?.map((contact) => contact.filledBoundaryCoverage)).toEqual([
+      'unproved',
+      'complete',
+    ])
+    expect(contacts?.[1]?.filledBoundarySources[0]).toMatchObject({
+      operationIndex: 2563,
+      subpathIndex: 0,
+      segmentIndex: 3,
+    })
+    expect(result.candidates[0]?.wallOwnershipConfirmed).toBe(false)
   })
 })

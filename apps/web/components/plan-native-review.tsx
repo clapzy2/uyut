@@ -1913,7 +1913,9 @@ export function NativeReviewResult({
           </p>
           <p className="text-ink-2">
             Четыре соединённых штриха сохраняются со ссылками на источник. Они сами по себе не
-            подтверждают проём, косяки или границу пола и не переносятся в 2D/3D.
+            подтверждают проём, косяки или границу пола и не переносятся в 2D/3D. Контакт с границей
+            заливки показывает совпадение исходных линий; принадлежность стене проверяется отдельно.
+            Заливка внутри рамки также не доказывает проход.
           </p>
           {packet.compositeSourceRectangles.candidates.length > 0 ? (
             <label className="flex min-h-11 items-center gap-2">
@@ -2127,7 +2129,7 @@ export function NativeReviewResult({
                   vectorEffect="non-scaling-stroke"
                 >
                   <title>
-                    {`Исходный прямоугольник; назначение неизвестно. Штрихи: ${rectangle.sourceRefs.map((ref) => `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`).join(', ')}. Полных линейных контактов: ${rectangle.completeContactCount}; проход не подтверждён.`}
+                    {`Исходный прямоугольник; назначение неизвестно. Штрихи: ${rectangle.sourceRefs.map((ref) => `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`).join(', ')}. Полных линейных контактов: ${rectangle.completeContactCount}; контактов с границей заливки: ${rectangle.filledBoundaryContactCount ?? 'не проверено'}. ${rectangle.jambContacts?.map((contact) => `Торец ${contact.edge.operationIndex}:${contact.edge.subpathIndex}:${contact.edge.segmentIndex}; грани заливки: ${contact.filledBoundarySources.map((ref) => `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`).join(', ') || 'не найдены'}`).join('. ') ?? ''}. Проход не подтверждён.`}
                   </title>
                 </polygon>
               ))

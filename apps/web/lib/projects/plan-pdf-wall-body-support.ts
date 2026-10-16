@@ -1,5 +1,6 @@
 import type { PlanPageContours, PlanPageSegmentRef } from '@uyut/db'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import { pdfPaintInventoryIsComplete } from './plan-pdf-paint-exclusion'
 import { pdfContourKey, pdfPolygonIsValid } from './plan-pdf-room-binding'
 
 export type PdfWallBodySupport = {
@@ -49,12 +50,21 @@ export function findPlanPageWallBodySupports(
   if (contours.rooms.some((room) => room.sourceTopology !== undefined)) return []
   if (
     work.truncated ||
-    work.clippedPaths > 0 ||
     work.paths.length > 3000 ||
     work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
     contours.rooms.length > 100 ||
     contours.rooms.reduce((sum, room) => sum + room.polygon.length, 0) > 2000 ||
     contours.rooms.reduce((sum, room) => sum + (room.openings?.length ?? 0), 0) > 200
+  )
+    return []
+
+  const omissions = [...(work.clippedPathBounds ?? []), ...(work.skippedCurveBounds ?? [])]
+  if (
+    work.clippedPathBoundsTruncated ||
+    work.skippedCurveBoundsTruncated ||
+    (work.clippedPathBounds?.length ?? 0) !== work.clippedPaths ||
+    (work.skippedCurveBounds?.length ?? 0) !== work.skippedCurves ||
+    (omissions.length > 0 && !pdfPaintInventoryIsComplete(work.paintBounds))
   )
     return []
 
@@ -92,6 +102,32 @@ export function findPlanPageWallBodySupports(
     if (!first || !last) continue
     const polygon = same(first, last) ? path.points.slice(0, -1) : path.points
     if (!pdfPolygonIsValid(polygon)) continue
+    // A complete paint envelope can exclude distant omissions. Any unknown or
+    // touching envelope keeps this whole material body out of the local audit.
+    const bounds = {
+      left: Math.min(...polygon.map((point) => point.x)),
+      right: Math.max(...polygon.map((point) => point.x)),
+      top: Math.min(...polygon.map((point) => point.y)),
+      bottom: Math.max(...polygon.map((point) => point.y)),
+    }
+    if (
+      omissions.some((omission) => {
+        const event = work.paintBounds?.events.find(
+          (event) => event.operationIndex === omission.operationIndex,
+        )
+        const envelope = event?.kind === 'vector' ? event.bounds : undefined
+        return (
+          omission.operationIndex === path.operationIndex ||
+          !envelope ||
+          !Object.values(envelope).every(Number.isFinite) ||
+          (envelope.left <= bounds.right + 0.001 &&
+            envelope.right >= bounds.left - 0.001 &&
+            envelope.top <= bounds.bottom + 0.001 &&
+            envelope.bottom >= bounds.top - 0.001)
+        )
+      })
+    )
+      continue
     const bodyWinding = winding(polygon)
     for (const room of contours.rooms) {
       if (!pdfPolygonIsValid(room.polygon)) continue
@@ -129,34 +165,33 @@ export function findPlanPageWallBodySupports(
             })
           }
           for (const interval of intervals) {
-            let stroke: (typeof strokes)[number] | undefined
+            const witnessed: Array<{
+              start: PagePoint
+              end: PagePoint
+              stroke: (typeof strokes)[number]
+            }> = []
             for (const candidate of strokes) {
               if (++comparisons > 1_000_000) return []
               if (candidate.ref.operationIndex === path.operationIndex) continue
               const covered = contact(interval.start, interval.end, candidate.start, candidate.end)
-              if (
-                covered &&
-                same(covered.start, interval.start) &&
-                same(covered.end, interval.end)
-              ) {
-                stroke = candidate
-                break
-              }
+              if (covered)
+                witnessed.push({ start: covered.start, end: covered.end, stroke: candidate })
             }
-            if (!stroke) continue
-            result.push({
-              source: { operationIndex: path.operationIndex, subpathIndex: path.subpathIndex },
-              nativeSegment: {
-                operationIndex: path.operationIndex,
-                subpathIndex: path.subpathIndex,
-                segmentIndex,
-              },
-              contourKey: pdfContourKey(room),
-              wallEdgeIndex,
-              start: { ...interval.start },
-              end: { ...interval.end },
-              strokeSegment: { ...stroke.ref },
-            })
+            for (const witness of witnessed) {
+              result.push({
+                source: { operationIndex: path.operationIndex, subpathIndex: path.subpathIndex },
+                nativeSegment: {
+                  operationIndex: path.operationIndex,
+                  subpathIndex: path.subpathIndex,
+                  segmentIndex,
+                },
+                contourKey: pdfContourKey(room),
+                wallEdgeIndex,
+                start: { ...witness.start },
+                end: { ...witness.end },
+                strokeSegment: { ...witness.stroke.ref },
+              })
+            }
           }
         }
       }
