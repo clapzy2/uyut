@@ -136,6 +136,16 @@ describe('one-sided source wall review', () => {
     packet.oneSidedWallSupports.physicalWallAccepted = false
     const candidate = packet.oneSidedWallSupports.candidates[0]
     if (!candidate) throw new Error('Missing wall support')
+    candidate.oppositeFace = {
+      start: { x: 10, y: 24 },
+      end: { x: 80, y: 24 },
+      fillEdge: { operationIndex: 1, subpathIndex: 0, segmentIndex: 0 },
+      strokeEdge: { operationIndex: 3, subpathIndex: 0, segmentIndex: 0 },
+    }
+    await expect(loadFixture(packet, headers)).resolves.toBeDefined()
+    candidate.oppositeFace.strokeEdge.operationIndex = -1
+    await expect(loadFixture(packet, headers)).rejects.toThrow()
+    delete candidate.oppositeFace
     candidate.end.x = 2000
     await expect(loadFixture(packet, headers)).rejects.toThrow()
   })

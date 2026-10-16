@@ -2162,21 +2162,38 @@ export function NativeReviewResult({
             : null}
           {showOneSidedWalls && packet.oneSidedWallSupports?.status === 'draft'
             ? packet.oneSidedWallSupports.candidates.map((support) => (
-                <line
-                  key={support.id}
-                  x1={support.start.x}
-                  y1={support.start.y}
-                  x2={support.end.x}
-                  y2={support.end.y}
-                  stroke="#059669"
-                  strokeWidth="3"
-                  strokeDasharray="4 3"
-                  vectorEffect="non-scaling-stroke"
-                >
-                  <title>
-                    {`Одна исходная грань, стена не подтверждена. Заливка ${support.fillEdge.operationIndex}:${support.fillEdge.subpathIndex}:${support.fillEdge.segmentIndex}; независимый штрих ${support.strokeEdge.operationIndex}:${support.strokeEdge.subpathIndex}:${support.strokeEdge.segmentIndex}. Контур ${support.contourKey}, грань ${support.wallEdgeIndex}.`}
-                  </title>
-                </line>
+                <g key={support.id}>
+                  <line
+                    x1={support.start.x}
+                    y1={support.start.y}
+                    x2={support.end.x}
+                    y2={support.end.y}
+                    stroke="#059669"
+                    strokeWidth="3"
+                    strokeDasharray="4 3"
+                    vectorEffect="non-scaling-stroke"
+                  >
+                    <title>
+                      {`Исходная грань рядом с контуром ${support.contourKey}, участок ${support.wallEdgeIndex}. Заливка ${support.fillEdge.operationIndex}:${support.fillEdge.subpathIndex}:${support.fillEdge.segmentIndex}; независимый штрих ${support.strokeEdge.operationIndex}:${support.strokeEdge.subpathIndex}:${support.strokeEdge.segmentIndex}. Стена не подтверждена.`}
+                    </title>
+                  </line>
+                  {support.oppositeFace ? (
+                    <line
+                      x1={support.oppositeFace.start.x}
+                      y1={support.oppositeFace.start.y}
+                      x2={support.oppositeFace.end.x}
+                      y2={support.oppositeFace.end.y}
+                      stroke="#0d9488"
+                      strokeWidth="2"
+                      strokeDasharray="2 4"
+                      vectorEffect="non-scaling-stroke"
+                    >
+                      <title>
+                        {`Противоположная грань той же исходной заливки, но без проверенного соседнего контура пола. Заливка ${support.oppositeFace.fillEdge.operationIndex}:${support.oppositeFace.fillEdge.subpathIndex}:${support.oppositeFace.fillEdge.segmentIndex}; независимый штрих ${support.oppositeFace.strokeEdge.operationIndex}:${support.oppositeFace.strokeEdge.subpathIndex}:${support.oppositeFace.strokeEdge.segmentIndex}. В 2D/3D не переносится.`}
+                      </title>
+                    </line>
+                  ) : null}
+                </g>
               ))
             : null}
           {showGlazingCandidates && packet.glazingSymbols?.status === 'draft'

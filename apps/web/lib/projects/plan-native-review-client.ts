@@ -325,6 +325,7 @@ function isOneSidedWallSupports(value: unknown, image: NativeReviewPacket['image
         'end',
         'fillEdge',
         'strokeEdge',
+        ...(candidate.oppositeFace === undefined ? [] : ['oppositeFace']),
         'contourKey',
         'wallEdgeIndex',
       ]) ||
@@ -334,6 +335,11 @@ function isOneSidedWallSupports(value: unknown, image: NativeReviewPacket['image
       !isSourceSegment({ start: candidate.start, end: candidate.end }, image) ||
       !validRef(candidate.fillEdge) ||
       !validRef(candidate.strokeEdge) ||
+      (candidate.oppositeFace !== undefined &&
+        (!hasOnlyKeys(candidate.oppositeFace, ['start', 'end', 'fillEdge', 'strokeEdge']) ||
+          !isSourceSegment(candidate.oppositeFace, image) ||
+          !validRef(candidate.oppositeFace.fillEdge) ||
+          !validRef(candidate.oppositeFace.strokeEdge))) ||
       typeof candidate.contourKey !== 'string' ||
       !candidate.contourKey ||
       candidate.contourKey.length > 128 ||

@@ -71,6 +71,16 @@ describe('whole-page native inspection, separate from saved geometry', () => {
       closed: true,
       points: [{ x: topLeft.x, y: 80 }, { x: topRight.x, y: 80 }, { ...topRight }, { ...topLeft }],
     })
+    input.work.paths.push({
+      operationIndex: 101,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: topLeft.x, y: 80 },
+        { x: topRight.x, y: 80 },
+      ],
+    })
 
     const packet = nativeReviewPacket(input)
     expect(packet.oneSidedWallSupports).toMatchObject({
@@ -80,6 +90,10 @@ describe('whole-page native inspection, separate from saved geometry', () => {
         {
           fillEdge: { operationIndex: 100, subpathIndex: 0 },
           strokeEdge: { operationIndex: 1, subpathIndex: 0 },
+          oppositeFace: {
+            fillEdge: { operationIndex: 100, subpathIndex: 0 },
+            strokeEdge: { operationIndex: 101, subpathIndex: 0 },
+          },
         },
       ],
     })
