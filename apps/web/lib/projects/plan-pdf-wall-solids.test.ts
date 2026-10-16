@@ -217,6 +217,21 @@ describe('native wall solid candidates and exact joints', () => {
         { x: 200, y: 200 },
       ],
     })
+    input.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: input.work.paths.map((path) => ({
+        operationIndex: path.operationIndex,
+        kind: 'vector' as const,
+        reason: null,
+        bounds: {
+          left: Math.min(...path.points.map((point) => point.x)),
+          right: Math.max(...path.points.map((point) => point.x)),
+          top: Math.min(...path.points.map((point) => point.y)),
+          bottom: Math.max(...path.points.map((point) => point.y)),
+        },
+      })),
+    }
     input.contours.rooms = input.contours.rooms.slice(0, 1)
     const result = inspectPlanPageWallSolids(input.work, source, input.contours)
     expect(result.solids).toHaveLength(1)

@@ -214,9 +214,26 @@ export function nativeFaceCycle(input: {
     return fail('invalid-omitted-evidence-bounds')
   const marginX = (OMISSION_EXCLUSION_POINTS * 1000) / work.pageWidth
   const marginY = (OMISSION_EXCLUSION_POINTS * 1000) / work.pageHeight
-  const paintEvents = pdfPaintInventoryIsComplete(work.paintBounds)
-    ? new Map(work.paintBounds?.events.map((event) => [event.operationIndex, event]))
+  const completePaintEvents = pdfPaintInventoryIsComplete(work.paintBounds)
+    ? work.paintBounds?.events
+    : undefined
+  const paintEvents = completePaintEvents
+    ? new Map(completePaintEvents.map((event) => [event.operationIndex, event]))
     : null
+  for (const [index, face] of selected.entries()) {
+    const endpoints = edgeNodes[index]
+    const start = endpoints && nodes.get(endpoints[0])?.point
+    const end = endpoints && nodes.get(endpoints[1])?.point
+    if (!start || !end) return fail('incomplete-native-cycle')
+    if (
+      completePaintEvents?.some(
+        (event) =>
+          event.operationIndex > face.operationIndex &&
+          pdfPaintMayTouchSpan(event, [start, end], 0.0005),
+      )
+    )
+      return fail('later-paint-may-cover-native-face')
+  }
   const selectedOperations = new Set(selected.map((face) => face.operationIndex))
   for (let index = 0; index < polygon.length; index++) {
     const a = polygon[index],
