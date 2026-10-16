@@ -313,6 +313,28 @@ describe('common printed scale for reviewed native contours', () => {
       }),
     ).toMatchObject({ status: 'unresolved', reason: 'missing-or-ambiguous-native-witness' })
   })
+  it('does not use a dimension tick as the physical endpoint witness', () => {
+    const input = fixture()
+    input.work.paths.push({
+      operationIndex: 12,
+      subpathIndex: 0,
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 20, y: 10 },
+        { x: 20, y: 50 },
+      ],
+    })
+    input.dimensions.dimensionOperations.push(12)
+    const anchor = input.reviewed.anchors[0]
+    if (!anchor) throw new Error('Missing calibration anchor')
+    anchor.witnessRefs[0] = ref(12)
+    expect(metricNativeCycles(input)).toMatchObject({
+      status: 'unresolved',
+      reason: 'dimension-operation-is-not-a-calibration-witness',
+      contours: [],
+    })
+  })
   it('does not extend a short witness to reach the dimension tip', () => {
     const input = fixture()
     const work = {

@@ -203,6 +203,8 @@ export function metricNativeCycles(input: {
       return fail('dimension-does-not-span-source-face')
     for (const [index, vertex] of [first, last].entries()) {
       const ref = anchor.witnessRefs[index]
+      if (ref && dimensions.dimensionOperations.includes(ref.operationIndex))
+        return fail('dimension-operation-is-not-a-calibration-witness')
       const candidates = segments.filter((segment) => ref && refKey(segment) === refKey(ref))
       const witness = candidates[0]
       if (candidates.length !== 1 || !witness) return fail('missing-or-ambiguous-native-witness')
