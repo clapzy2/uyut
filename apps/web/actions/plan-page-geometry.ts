@@ -233,7 +233,7 @@ export async function createPlanPageGeometryDraft(
       )
     }
 
-    const sourceRooms = planPageRoomInventory(page.image.planText)
+    const sourceRooms = planPageRoomInventory(page.image.planText, page)
     const reading = {
       ...before,
       pageReview: before.pageReview

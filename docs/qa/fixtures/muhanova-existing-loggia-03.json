@@ -1,0 +1,26 @@
+{
+  "source": {
+    "sha256": "510480920eab5103181e959c1d847c4a7f29ff88653bfd8930ead5d149141d12",
+    "pdfPage": 4,
+    "state": "existing"
+  },
+  "sourceRoomNumbers": [1, 2, 3, 4, 5],
+  "expectedConfirmationIssueIds": ["manual-missing-outer-walls"],
+  "room": {
+    "sourceNumber": 3,
+    "name": "Лоджия",
+    "kind": "living",
+    "utility": true,
+    "areaM2": 4.17,
+    "polygon": [
+      { "x": 131.618, "y": 137.776 },
+      { "x": 313.996, "y": 137.776 },
+      { "x": 313.996, "y": 211.177 },
+      { "x": 131.618, "y": 211.177 }
+    ],
+    "widthMm": 3830,
+    "depthMm": 1090,
+    "width": { "textItemIndexes": [32], "segmentsMm": [3830] },
+    "depth": { "textItemIndexes": [66], "segmentsMm": [1090] }
+  }
+}

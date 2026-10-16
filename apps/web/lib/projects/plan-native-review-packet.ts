@@ -4,6 +4,7 @@ import {
   type NativeCaptionBindingReport,
   nativeCaptionBindings,
 } from './plan-native-caption-bindings'
+import { nativeCompositeFrameEvidence } from './plan-native-composite-frames'
 import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
 import {
   type NativeDimensionTargetReport,
@@ -138,6 +139,20 @@ export type NativeReviewPacket = {
     status: 'draft' | 'unresolved'
     refusalReason: string | null
     candidates: { id: string; polygon: { x: number; y: number }[] }[]
+  }
+  compositeSourceRectangles?: {
+    status: 'draft' | 'unresolved'
+    refusalReason: string | null
+    semanticStatus: 'unclassified'
+    physicalPassageAccepted: false
+    closesFloorBoundary: false
+    candidates: {
+      id: string
+      polygon: { x: number; y: number }[]
+      sourceRefs: { operationIndex: number; subpathIndex: number; segmentIndex: number }[]
+      repaintAliases: { operationIndex: number; subpathIndex: number; segmentIndex: number }[][]
+      completeContactCount: number
+    }[]
   }
   glazingSymbols?: {
     status: 'draft' | 'unresolved'
@@ -535,6 +550,32 @@ export function nativeReviewPacket(input: {
       x: point.x * scale.x,
       y: point.y * scale.y,
     })
+    const rectangles = nativeCompositeFrameEvidence(work, scale)
+    const sourceRef = ({
+      operationIndex,
+      subpathIndex,
+      segmentIndex,
+    }: {
+      operationIndex: number
+      subpathIndex: number
+      segmentIndex: number
+    }) => ({ operationIndex, subpathIndex, segmentIndex })
+    packet.compositeSourceRectangles = {
+      status: rectangles.refusalReason ? 'unresolved' : 'draft',
+      refusalReason: rectangles.refusalReason,
+      semanticStatus: 'unclassified',
+      physicalPassageAccepted: false,
+      closesFloorBoundary: false,
+      candidates: rectangles.candidates.map((candidate, index) => ({
+        id: `composite-source-rectangle-${index}`,
+        polygon: candidate.polygon.map(raster),
+        sourceRefs: candidate.edges.map(sourceRef),
+        repaintAliases: candidate.repaintAliases.map((edges) => edges.map(sourceRef)),
+        completeContactCount: candidate.jambContacts.filter(
+          (contact) => contact.coverage === 'complete',
+        ).length,
+      })),
+    }
     packet.savedPaintedFloors = {
       status: 'not-saved',
       reason: null,

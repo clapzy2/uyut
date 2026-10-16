@@ -36,6 +36,21 @@ function render(
 }
 
 describe('plan review form', () => {
+  it('does not present a stale area-product warning without current side measurements', () => {
+    const reading = parseFloorPlan(
+      JSON.stringify({
+        planState: 'existing',
+        rooms: [{ name: 'Комната', kind: 'living', areaM2: 14.19 }],
+      }),
+    )
+    const room = reading.rooms[0]
+    if (!room) throw new Error('Missing room')
+    room.suspicious = true
+    const html = render({ ...reading, readAt: '2026-10-16' })
+    expect(html).not.toContain('Площадь отличается от произведения сторон')
+    expect(html).toContain('14,19')
+  })
+
   it('shows source total-area ambiguity while retaining individual area input values', () => {
     const reading = parseFloorPlan(
       JSON.stringify({

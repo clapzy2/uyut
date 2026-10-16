@@ -10,6 +10,21 @@ export type NativeNumberCircleCue = {
   pagePoint: PagePoint
   bounds: Bounds
   curve: PdfCurvePath
+  companionCurve?: PdfCurvePath
+}
+
+/** Original source paths in traversal order; neither carries a synthetic PDF reference. */
+export function numberCircleSourcePaths(cue: NativeNumberCircleCue): PdfCurvePath[] {
+  return cue.companionCurve ? [cue.curve, cue.companionCurve] : [cue.curve]
+}
+
+/** Geometry-only loop for shape evaluation. Source references remain on the cue. */
+export function numberCircleLoop(cue: NativeNumberCircleCue) {
+  return {
+    start: cue.curve.start,
+    closed: true,
+    segments: numberCircleSourcePaths(cue).flatMap((path) => path.segments),
+  }
 }
 
 // A symbol fit only: the source commands and label origin are never moved.
@@ -42,7 +57,10 @@ function pointBounds(points: PagePoint[]): Bounds {
   }
 }
 
-function circleFit(curve: PdfCurvePath, scale: { x: number; y: number }): Bounds | null {
+function circleFit(
+  curve: Pick<PdfCurvePath, 'paint' | 'closed' | 'start' | 'segments'>,
+  scale: { x: number; y: number },
+): Bounds | null {
   if (
     curve.paint !== 'stroke' ||
     !curve.closed ||
@@ -203,16 +221,14 @@ export function nativeNumberCircleCandidates(input: {
   let comparisons = 0
   const observations: NativeNumberCircleCue[] = []
   const enclosingCircleCounts = new Map<string, number>()
-  for (const curve of curves) {
-    if (++comparisons > MAX_WORK) return finish('number-circle-work-limit')
+  const eligibleCurves = curves.filter((curve) => {
+    if (++comparisons > MAX_WORK) return false
     if (
       curve.operationSubpathCount !== 1 ||
       operationCounts.get(curve.operationIndex) !== 1 ||
       clipped.has(curve.operationIndex)
     )
-      continue
-    const bounds = circleFit(curve, scale)
-    if (!bounds) continue
+      return false
     const originalBounds = pointBounds(curvePoints(curve))
     const omitted = work.skippedCurveBounds?.filter(
       (item) => item.operationIndex === curve.operationIndex,
@@ -223,7 +239,48 @@ export function nativeNumberCircleCandidates(input: {
         ([key, value]) => omitted[0]?.bounds[key as keyof Bounds] === value,
       )
     )
+      return false
+    return true
+  })
+  if (comparisons > MAX_WORK) return finish('number-circle-work-limit')
+  const candidates: { curve: PdfCurvePath; companionCurve?: PdfCurvePath }[] = []
+  for (let index = 0; index < eligibleCurves.length; index++) {
+    const curve = eligibleCurves[index] as PdfCurvePath
+    if (curve.closed) {
+      candidates.push({ curve })
       continue
+    }
+    if (curve.segments.length !== 2 || curve.segments.some((part) => part.kind !== 'cubic'))
+      continue
+    for (let otherIndex = index + 1; otherIndex < eligibleCurves.length; otherIndex++) {
+      if (++comparisons > MAX_WORK) return finish('number-circle-work-limit')
+      const other = eligibleCurves[otherIndex] as PdfCurvePath
+      if (
+        other.closed ||
+        other.segments.length !== 2 ||
+        other.segments.some((part) => part.kind !== 'cubic')
+      )
+        continue
+      if (
+        samePoint((curve.segments[1] as PdfCurvePath['segments'][number]).end, other.start) &&
+        samePoint((other.segments[1] as PdfCurvePath['segments'][number]).end, curve.start)
+      ) {
+        candidates.push({ curve, companionCurve: other })
+      }
+    }
+  }
+  for (const candidate of candidates) {
+    const { curve, companionCurve } = candidate
+    const loop = companionCurve
+      ? {
+          paint: curve.paint,
+          closed: true,
+          start: curve.start,
+          segments: [...curve.segments, ...companionCurve.segments],
+        }
+      : curve
+    const bounds = circleFit(loop, scale)
+    if (!bounds) continue
     const center = { x: (bounds.left + bounds.right) / 2, y: (bounds.top + bounds.bottom) / 2 }
     const inside = native.labels.filter((label) => {
       if (++comparisons > MAX_WORK) return false
@@ -251,6 +308,7 @@ export function nativeNumberCircleCandidates(input: {
       pagePoint: label.pagePoint as PagePoint,
       bounds,
       curve,
+      ...(companionCurve ? { companionCurve } : {}),
     })
     if (observations.length > MAX_CUES) return finish('number-circle-candidate-limit')
   }

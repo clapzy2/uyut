@@ -5,7 +5,7 @@ import {
   exactNativePolygonContains,
   exactNativeSegmentsTouch,
 } from './plan-native-exact-intersections'
-import { nativeNumberCircleCandidates } from './plan-native-number-circles'
+import { nativeNumberCircleCandidates, numberCircleLoop } from './plan-native-number-circles'
 import { nativeOpeningFrameCandidates } from './plan-native-opening-frames'
 import {
   planPageContoursSchema,
@@ -145,8 +145,8 @@ export function nativeReviewedFrameRooms(input: {
       // Containment uses the complete original control hull, not a fitted circle
       // box: a slightly overshooting control point must not strengthen ownership.
       const points = [
-        cue.curve.start,
-        ...cue.curve.segments.flatMap((segment) =>
+        numberCircleLoop(cue).start,
+        ...numberCircleLoop(cue).segments.flatMap((segment) =>
           segment.kind === 'cubic'
             ? [segment.control1, segment.control2, segment.end]
             : segment.kind === 'quadratic'

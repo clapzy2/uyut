@@ -120,13 +120,49 @@ function evaluate(quarter: ExactPoint[], numerator: bigint, denominator: bigint)
 
 /** Location in the actual four-cubic source loop, never its fitted ellipse or a snapped point. */
 export function exactMonotoneCubicLoopLocation(
-  curve: PdfCurvePath,
+  source: PdfCurvePath | PdfCurvePath[],
   point: PagePoint,
 ): ExactCubicLoopLocation {
   const unresolved = (reason: string): ExactCubicLoopLocation => ({
     location: 'unresolved',
     reason,
   })
+  const paths = Array.isArray(source) ? source : [source]
+  if (paths.length < 1 || paths.length > 2) return unresolved('unsupported-cubic-loop')
+  if (paths.length === 2) {
+    const first = paths[0] as PdfCurvePath
+    const second = paths[1] as PdfCurvePath
+    if (
+      paths.some(
+        (path) =>
+          !path ||
+          path.closed ||
+          path.paint !== 'stroke' ||
+          path.subpathIndex !== 0 ||
+          path.operationSubpathCount !== 1 ||
+          !Number.isSafeInteger(path.operationIndex) ||
+          path.operationIndex < 0 ||
+          !Array.isArray(path.segments) ||
+          path.segments.length !== 2 ||
+          path.segments.some((part) => part.kind !== 'cubic'),
+      ) ||
+      first.operationIndex === second.operationIndex ||
+      first.segments[1]?.end.x !== second.start.x ||
+      first.segments[1]?.end.y !== second.start.y ||
+      second.segments[1]?.end.x !== first.start.x ||
+      second.segments[1]?.end.y !== first.start.y
+    )
+      return unresolved('unsupported-cubic-loop')
+  }
+  // Combine commands for evaluation only; callers retain both original source paths.
+  const curve =
+    paths.length === 1
+      ? (paths[0] as PdfCurvePath)
+      : {
+          ...(paths[0] as PdfCurvePath),
+          closed: true,
+          segments: paths.flatMap((path) => path.segments),
+        }
   if (
     !curve ||
     typeof curve !== 'object' ||

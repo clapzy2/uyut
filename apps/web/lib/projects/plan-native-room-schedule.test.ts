@@ -1,9 +1,33 @@
 import { describe, expect, it } from 'vitest'
 import { nativeRoomScheduleEvidence } from './plan-native-room-schedule'
+import { planPageRoomInventory } from './plan-page-room-inventory'
 import type { Bounds, PagePoint, PdfVectorPath } from './plan-pdf-linework'
 
 type Input = Parameters<typeof nativeRoomScheduleEvidence>[0]
 type Label = Input['native']['labels'][number]
+
+it('uses verified native table inventory when flattened text has no readable rows', () => {
+  const input = fixture()
+  const page = {
+    nativeTextAnchors: input.native,
+    linework: input.work,
+    lineworkRasterSource: input.lineworkSource,
+  }
+  expect(planPageRoomInventory(undefined, page)).toEqual([
+    { sourceNumber: 1, name: 'Прихожая' },
+    { sourceNumber: 2, name: 'Кухня' },
+    { sourceNumber: 3, name: 'Спальня' },
+  ])
+  page.nativeTextAnchors.complete = false
+  const legacyText = JSON.stringify([
+    { text: 'Экспликация помещений', x: 630, y: 100, rotation: 0 },
+    { text: '1 - Прихожая - 4,21 м', x: 630, y: 120, rotation: 0 },
+    { text: '2 - Кухня - 12,35 м', x: 630, y: 140, rotation: 0 },
+    { text: '3 - Спальня - 15,39 м', x: 630, y: 160, rotation: 0 },
+  ])
+  expect(planPageRoomInventory(legacyText)).toHaveLength(3)
+  expect(planPageRoomInventory(legacyText, page)).toBeUndefined()
+})
 
 function addLabel(input: Input, name: string, x: number, y: number): Label {
   const index = Math.max(-1, ...input.native.labels.map((label) => label.nativeIndex ?? -1)) + 1

@@ -120,7 +120,7 @@ const sha256 = createHash('sha256').update(body).digest('hex')
 if (fixture.source.state !== 'existing' || sha256 !== fixture.source.sha256) {
   throw new Error('The PDF does not match the reviewed existing-state fixture.')
 }
-const page = await preparePlanPage(body, true, fixture.source.pdfPage, true)
+const page = await preparePlanPage(body, true, fixture.source.pdfPage, true, true)
 if (!page.linework || !page.image.planText) throw new Error('Native geometry or text is missing.')
 const linework = page.linework
 const textItems = JSON.parse(page.image.planText) as Array<{
@@ -129,7 +129,7 @@ const textItems = JSON.parse(page.image.planText) as Array<{
   y: number
   rotation: number
 }>
-const sourceRooms = planPageRoomInventory(page.image.planText)
+const sourceRooms = planPageRoomInventory(page.image.planText, page)
 if (
   fixture.sourceRoomNumbers &&
   JSON.stringify(sourceRooms?.map((room) => room.sourceNumber)) !==

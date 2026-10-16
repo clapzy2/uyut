@@ -32,6 +32,61 @@ function fixture() {
   return { packet, headers }
 }
 
+describe('composite source rectangle review', () => {
+  function rectangleFixture() {
+    const result = fixture()
+    result.packet.compositeSourceRectangles = {
+      status: 'draft',
+      refusalReason: null,
+      semanticStatus: 'unclassified',
+      physicalPassageAccepted: false,
+      closesFloorBoundary: false,
+      candidates: [
+        {
+          id: 'source-rectangle',
+          polygon: [
+            { x: 10, y: 10 },
+            { x: 100, y: 10 },
+            { x: 100, y: 30 },
+            { x: 10, y: 30 },
+          ],
+          sourceRefs: [1, 2, 3, 4].map((operationIndex) => ({
+            operationIndex,
+            subpathIndex: 0,
+            segmentIndex: 0,
+          })),
+          repaintAliases: [],
+          completeContactCount: 2,
+        },
+      ],
+    }
+    return result
+  }
+  it('loads source-only rectangles without transfer authority', async () => {
+    const { packet, headers } = rectangleFixture()
+    await expect(loadFixture(packet, headers)).resolves.toBeDefined()
+  })
+  it.each(['authority', 'missing-ref', 'duplicate-ref', 'outside-image'] as const)(
+    'rejects %s',
+    async (change) => {
+      const { packet, headers } = rectangleFixture()
+      const report = packet.compositeSourceRectangles
+      if (!report) throw new Error('Missing report')
+      const candidate = report.candidates[0]
+      if (!candidate) throw new Error('Missing rectangle')
+      if (change === 'authority') Object.assign(report, { physicalPassageAccepted: true })
+      if (change === 'missing-ref') candidate.sourceRefs.pop()
+      if (change === 'duplicate-ref') {
+        const first = candidate.sourceRefs[0]
+        if (!first) throw new Error('Missing source reference')
+        candidate.sourceRefs[1] = { ...first }
+      }
+      if (change === 'outside-image') candidate.polygon[0] = { x: -1, y: 10 }
+      await expect(loadFixture(packet, headers)).rejects.toThrow()
+    },
+  )
+})
+
 describe('readonly renderer pen contacts', () => {
   function penFixture() {
     const result = fixture()

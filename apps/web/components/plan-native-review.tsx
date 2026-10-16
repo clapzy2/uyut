@@ -1741,6 +1741,7 @@ export function NativeReviewResult({
   const [showOpeningCandidates, setShowOpeningCandidates] = useState(true)
   const [showGlazingCandidates, setShowGlazingCandidates] = useState(true)
   const [showFilledPanels, setShowFilledPanels] = useState(false)
+  const [showCompositeRectangles, setShowCompositeRectangles] = useState(true)
   const [showSavedFloors, setShowSavedFloors] = useState(false)
   const [showFloorCavities, setShowFloorCavities] = useState(false)
   const [showOrderedPaint, setShowOrderedPaint] = useState(false)
@@ -1897,6 +1898,31 @@ export function NativeReviewResult({
                 onChange={(event) => setShowOpeningCandidates(event.target.checked)}
               />
               Показать исходные дуги, створки и рамки — оранжевые линии
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+      {packet.compositeSourceRectangles ? (
+        <div className="space-y-2 text-[13px] leading-relaxed">
+          <p>
+            Прямоугольники из отдельных исходных штрихов:{' '}
+            {packet.compositeSourceRectangles.status === 'draft'
+              ? packet.compositeSourceRectangles.candidates.length
+              : 'поиск не завершён'}
+            . Назначение не определено: сверьте фиолетовые контуры с исходником.
+          </p>
+          <p className="text-ink-2">
+            Четыре соединённых штриха сохраняются со ссылками на источник. Они сами по себе не
+            подтверждают проём, косяки или границу пола и не переносятся в 2D/3D.
+          </p>
+          {packet.compositeSourceRectangles.candidates.length > 0 ? (
+            <label className="flex min-h-11 items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showCompositeRectangles}
+                onChange={(event) => setShowCompositeRectangles(event.target.checked)}
+              />
+              Показать составные исходные прямоугольники
             </label>
           ) : null}
         </div>
@@ -2085,6 +2111,23 @@ export function NativeReviewResult({
                   <title>
                     Исходная рамка с примыкающими линиями. Вид проёма неизвестен; граница пола и
                     проход не подтверждены.
+                  </title>
+                </polygon>
+              ))
+            : null}
+          {showCompositeRectangles && packet.compositeSourceRectangles?.status === 'draft'
+            ? packet.compositeSourceRectangles.candidates.map((rectangle) => (
+                <polygon
+                  key={rectangle.id}
+                  points={rectangle.polygon.map((point) => `${point.x},${point.y}`).join(' ')}
+                  fill="none"
+                  stroke="#7c3aed"
+                  strokeWidth="2"
+                  strokeDasharray="6 4"
+                  vectorEffect="non-scaling-stroke"
+                >
+                  <title>
+                    {`Исходный прямоугольник; назначение неизвестно. Штрихи: ${rectangle.sourceRefs.map((ref) => `${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`).join(', ')}. Полных линейных контактов: ${rectangle.completeContactCount}; проход не подтверждён.`}
                   </title>
                 </polygon>
               ))
