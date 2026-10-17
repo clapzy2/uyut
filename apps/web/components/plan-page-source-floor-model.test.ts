@@ -80,6 +80,7 @@ function inspectedReference(visibility = false) {
     pageHeight: 1000,
     evidence,
     includeSpanVisibility: visibility,
+    includeBlockerPaint: visibility,
     reading: {
       sourcePage: 3,
       planState: 'existing',
@@ -96,6 +97,33 @@ function inspectedReference(visibility = false) {
   return { report, preview }
 }
 describe('source reference parsing and lossless whole-ring draft copy', () => {
+  it('keeps bounded late-paint envelopes diagnostic and rejects stale or malformed snapshots', () => {
+    const { report, preview } = inspectedReference(true)
+    expect(report.blockerPaint).toMatchObject({
+      status: 'checked',
+      reason: null,
+      events: [{ operationIndex: 1000, kind: 'image' }],
+    })
+    expect(sourceFloorReferenceFromResponse(report, preview, report.sourceRevision)).not.toBeNull()
+    expect(sourceFloorReferenceFromResponse(report, preview, 'changed')).toBeNull()
+    const forged = structuredClone(report)
+    forged.blockerPaint?.events.push({
+      operationIndex: 1000,
+      kind: 'vector',
+      bounds: { left: 0, top: 0, right: 1, bottom: 1 },
+    })
+    expect(sourceFloorReferenceFromResponse(forged, preview, report.sourceRevision)).toBeNull()
+    if (forged.blockerPaint) {
+      forged.blockerPaint.events = [
+        {
+          operationIndex: 1000,
+          kind: 'vector',
+          bounds: { left: 20, top: 20, right: 10, bottom: 30 },
+        },
+      ]
+    }
+    expect(sourceFloorReferenceFromResponse(forged, preview, report.sourceRevision)).toBeNull()
+  })
   function materialReference() {
     const report = reference()
     const selected = report.floors[0]

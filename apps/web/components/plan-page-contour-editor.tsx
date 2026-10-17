@@ -56,6 +56,7 @@ import { type NewPageFeatureKind, PlanPageFeatures } from './plan-page-features'
 import { PlanPagePointControls } from './plan-page-point-controls'
 import { PlanPageSourceFloorControls } from './plan-page-source-floor-controls'
 import {
+  sourceFloorBlockersForEdge,
   sourceFloorDraft,
   sourceFloorReferenceFromResponse,
   sourceFloorReferencePath,
@@ -133,6 +134,10 @@ export function PlanPageContourEditor({
   const [sourceStrokeHighlight, setSourceStrokeHighlight] = useState<{
     edgeKey: string
     sourceRef: string
+  }>()
+  const [sourceBlockerHighlight, setSourceBlockerHighlight] = useState<{
+    edgeKey: string
+    operationIndex: number
   }>()
   const [traceReferences, setTraceReferences] = useState<
     Record<
@@ -295,6 +300,21 @@ export function PlanPageContourEditor({
             sourceStrokeHighlight.sourceRef,
         )?.segment
       : undefined
+  const selectedSourceBlocker =
+    sourceBlockerHighlight &&
+    highlightedEdgeKey &&
+    sourceBlockerHighlight.edgeKey === highlightedEdgeKey &&
+    currentSourceFloors?.blockerPaint?.status === 'checked' &&
+    sourceFloorBlockersForEdge(
+      currentSourceFloors,
+      selectedSourceFloor?.id,
+      highlightedSourceEdge?.ringIndex,
+      highlightedSourceEdge?.edgeIndex,
+    ).includes(sourceBlockerHighlight.operationIndex)
+      ? currentSourceFloors.blockerPaint.events.find(
+          (event) => event.operationIndex === sourceBlockerHighlight.operationIndex,
+        )
+      : undefined
   const sourceFloorConversion = useMemo(
     () =>
       sourceFloorsShown && preview
@@ -432,7 +452,7 @@ export function PlanPageContourEditor({
         revision: sourceRevision,
         format: 'source-floor-reference',
         openingInspection: '1',
-        evidenceVersion: '2',
+        evidenceVersion: '3',
       })
       const response = await fetch(`/api/projects/${projectId}/plan-page?${query}`, {
         signal: request.signal,
@@ -1229,6 +1249,7 @@ export function PlanPageContourEditor({
                   ? sourceStrokeHighlight.sourceRef
                   : undefined
               }
+              highlightedBlockerOperation={selectedSourceBlocker?.operationIndex}
               onToggle={toggleSourceFloors}
               onCopy={copySourceFloor}
               onHighlightEdge={(edge) =>
@@ -1247,6 +1268,13 @@ export function PlanPageContourEditor({
                 setSourceStrokeHighlight(
                   sourceRef && highlightedEdgeKey
                     ? { edgeKey: highlightedEdgeKey, sourceRef }
+                    : undefined,
+                )
+              }
+              onHighlightBlocker={(operationIndex) =>
+                setSourceBlockerHighlight(
+                  operationIndex !== undefined && highlightedEdgeKey
+                    ? { edgeKey: highlightedEdgeKey, operationIndex }
                     : undefined,
                 )
               }
@@ -1341,6 +1369,32 @@ export function PlanPageContourEditor({
                       Выбранная грань исходной области; её физическая роль не подтверждена.
                     </title>
                   </line>
+                ) : null}
+                {selectedSourceBlocker ? (
+                  <rect
+                    x={Math.max(0, selectedSourceBlocker.bounds.left)}
+                    y={Math.max(0, selectedSourceBlocker.bounds.top)}
+                    width={
+                      Math.min(1000, selectedSourceBlocker.bounds.right) -
+                      Math.max(0, selectedSourceBlocker.bounds.left)
+                    }
+                    height={
+                      Math.min(1000, selectedSourceBlocker.bounds.bottom) -
+                      Math.max(0, selectedSourceBlocker.bounds.top)
+                    }
+                    fill="#f59e0b"
+                    fillOpacity={0.2}
+                    stroke="#b45309"
+                    strokeWidth={3}
+                    strokeDasharray="7 4"
+                    vectorEffect="non-scaling-stroke"
+                    pointerEvents="none"
+                  >
+                    <title>
+                      Возможная область поздней операции PDF {selectedSourceBlocker.operationIndex}.
+                      Видимая краска и физическая граница не подтверждены.
+                    </title>
+                  </rect>
                 ) : null}
                 {highlightedMaterialSpans.map((span, index) => (
                   <g key={`material-${index}`} pointerEvents="none">

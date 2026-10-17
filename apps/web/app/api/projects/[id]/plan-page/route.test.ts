@@ -311,6 +311,78 @@ describe('private PDF page preview', () => {
     },
   )
 
+  it('returns bounded late-paint envelopes only for the explicit v3 inspection', async () => {
+    const evidence = floorHeightFixture()
+    const sha256 = createHash('sha256').update('pdf').digest('hex')
+    evidence.native.originalPdfSha256 = sha256
+    evidence.reviewedFloors.source.sha256 = sha256
+    evidence.native.source.sha256 = createHash('sha256').update('jpeg').digest('hex')
+    evidence.work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: [
+        ...evidence.work.paths.map((path) => ({
+          operationIndex: path.operationIndex,
+          kind: 'vector' as const,
+          subpathCount: 1,
+          bounds: {
+            left: Math.min(...path.points.map((point) => point.x)),
+            top: Math.min(...path.points.map((point) => point.y)),
+            right: Math.max(...path.points.map((point) => point.x)),
+            bottom: Math.max(...path.points.map((point) => point.y)),
+          },
+          reason: null,
+        })),
+        {
+          operationIndex: 1000,
+          kind: 'image',
+          bounds: { left: 90, top: 90, right: 310, bottom: 310 },
+          reason: null,
+        },
+      ],
+    }
+    const selectedReading: PlanReading = {
+      ...reading,
+      sourcePage: 3,
+      paintedFloorReview: {
+        version: 1,
+        savedAt: '2026-10-12',
+        draftJson: JSON.stringify(evidence.reviewedFloors),
+      },
+    }
+    const own = { ...project, planReading: selectedReading }
+    mocks.access.mockResolvedValue(own)
+    mocks.prepare.mockResolvedValue({
+      ...page,
+      pageNumber: 3,
+      image: { ...page.image, width: 1000, height: 1000 },
+      linework: evidence.work,
+      nativeTextAnchors: evidence.native,
+      lineworkRasterSource: evidence.lineworkSource,
+    })
+    const sourceRequest = request(
+      '3',
+      planEditRevision(own.planUrl, selectedReading),
+      'source-floor-reference',
+    )
+    sourceRequest.nextUrl.searchParams.set('evidenceVersion', '3')
+    const result = await GET(sourceRequest, context)
+    expect(result.status).toBe(200)
+    const reference = await result.json()
+    expect(reference.blockerPaint).toMatchObject({
+      status: 'checked',
+      reason: null,
+      events: [
+        {
+          operationIndex: 1000,
+          kind: 'image',
+          bounds: { left: 90, top: 90, right: 310, bottom: 310 },
+        },
+      ],
+    })
+    expect(reference.physicalBoundariesAccepted).toBe(false)
+  })
+
   it.each(['source', 'revoked'])(
     'rechecks %s after the fresh raw source reference is prepared',
     async (fault) => {

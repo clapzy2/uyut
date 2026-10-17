@@ -108,6 +108,7 @@ describe('fresh raw source floor reference for the contour editor', () => {
         pageWidth: page.linework.pageWidth,
         pageHeight: page.linework.pageHeight,
         includeSpanVisibility: true,
+        includeBlockerPaint: true,
         reading: {
           sourcePage: 3,
           planState: 'existing',
@@ -142,6 +143,20 @@ describe('fresh raw source floor reference for the contour editor', () => {
         ),
       ).toBe(true)
       expect(result.status).toBe('checked')
+      expect(result.blockerPaint?.status).toBe('checked')
+      expect(result.blockerPaint?.events.length).toBeGreaterThan(0)
+      expect(result.blockerPaint?.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            operationIndex: expect.any(Number),
+            kind: expect.stringMatching(/^(vector|text|image|unknown)$/),
+            bounds: expect.objectContaining({
+              left: expect.any(Number),
+              right: expect.any(Number),
+            }),
+          }),
+        ]),
+      )
       expect(floor?.materialSupports?.spans).toHaveLength(17)
       expect(
         floor?.materialSupports?.spans.filter(
@@ -285,6 +300,57 @@ describe('fresh raw source floor reference for the contour editor', () => {
     expect(result.floors[0]?.boundarySupports?.[1]?.contacts[0]?.visibility?.status).toBe('held')
     expect(result.physicalBoundariesAccepted).toBe(false)
     expect(input).toEqual(before)
+  })
+
+  it('withholds blocker envelopes when the paint inventory exceeds the display cap', () => {
+    const input = materialFixture()
+    input.evidence.work.paintBounds?.events.push(
+      ...Array.from({ length: 401 }, (_, index) => ({
+        operationIndex: 1000 + index,
+        kind: 'image' as const,
+        bounds: { left: 295, top: 140, right: 325, bottom: 260 },
+        reason: null,
+      })),
+    )
+    const result = planPageSourceFloors({
+      ...input,
+      includeSpanVisibility: true,
+      includeBlockerPaint: true,
+    })
+    expect(result.status).toBe('checked')
+    expect(result.blockerPaint).toEqual({
+      status: 'held',
+      reason: 'blocker-paint-display-unavailable',
+      events: [],
+    })
+    expect(result.physicalBoundariesAccepted).toBe(false)
+  })
+
+  it('does not show a partial blocker snapshot when one paint bound is missing', () => {
+    const input = materialFixture()
+    const checked = planPageSourceFloors({
+      ...input,
+      includeSpanVisibility: true,
+      includeBlockerPaint: true,
+    })
+    const blocker = checked.blockerPaint?.events[0]
+    if (!blocker) throw new Error('Expected an overlapping paint event')
+    const event = input.evidence.work.paintBounds?.events.find(
+      (item) => item.operationIndex === blocker.operationIndex,
+    )
+    if (!event) throw new Error('Missing paint event')
+    event.bounds = null
+    const held = planPageSourceFloors({
+      ...input,
+      includeSpanVisibility: true,
+      includeBlockerPaint: true,
+    })
+    expect(held.blockerPaint).toEqual({
+      status: 'held',
+      reason: 'blocker-paint-display-unavailable',
+      events: [],
+    })
+    expect(held.physicalBoundariesAccepted).toBe(false)
   })
 
   it('does not revive an independent stroke covered by later paint', () => {
