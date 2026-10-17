@@ -55,7 +55,7 @@ const thresholdLevel =
   /(?:^|[^\p{L}\d])(?:уровень|отметка)\s+(?:(?:верха|низа)\s+)?порога(?=$|[^\p{L}\d])/iu
 const thresholdHeight = /(?:^|[^\p{L}\d])(?:[hн]\s*|высота\s+)порога(?=$|[^\p{L}\d])/iu
 const quantity =
-  /(?:^|[\s=:+−–—-])((?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d+)?)\s*(мм|см|mm|cm|м|m)(?=$|[\s.,;:)])/giu
+  /(?:^|[\s=:+−–—-])((?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d+)?)\s*(мм|см|mm|cm|м|m)(?=$|[\s.,;:)]|\/(?=\s*(?:про[её]м|подоконник|от)(?=$|[^\p{L}\d])))/giu
 
 function kindOf(text: string): NativeHeightCaption['quantityKind'] {
   if (qualifiedHeight.test(text)) return 'unclassified-height'
@@ -69,7 +69,7 @@ function kindOf(text: string): NativeHeightCaption['quantityKind'] {
   const opening =
     /(?:[hн]\s*пр\.?|[hн]\s+(?:двери|окна)(?=$|[^\p{L}\d])|высот[а-яё]*\s+(?:(?:дверного|оконного)\s+)?про[её]м)/iu.test(
       text,
-    )
+    ) || /^[hн]\s*=\s*\d{1,4}\s*мм\/про[её]м(?=$|[^\p{L}\d])/iu.test(text)
   const beam =
     /(?:до\s+(?:низа\s+)?балки|низ\s+балки|(?:уровень|отметка)\s+(?:низа\s+)?балки)/iu.test(text)
   const threshold = thresholdLevel.test(text)
@@ -106,6 +106,13 @@ export function nativeHeightCaption(
   const unit = (match[2] as string).toLocaleLowerCase('ru')
   const prefix = text.slice(0, match.index ?? 0)
   const suffix = text.slice((match.index ?? 0) + match[0].length)
+  // A slash may introduce a source annotation, never a divisor or a rate unit.
+  // Keep its object wording documentary; it does not establish a height owner.
+  if (
+    /^\s*\//u.test(suffix) &&
+    !/^\s*\/\s*(?:про[её]м|подоконник|от)(?=$|[^\p{L}\d])/iu.test(suffix)
+  )
+    return { status: 'unresolved', code: 'ambiguous-height-unit-separator' }
   const rest = `${prefix}${suffix}`.replace(/(?:^|[^\p{L}\d])[hн][12](?=$|\s|[-–—=:])/giu, '')
   if (/\d/u.test(rest)) return { status: 'unresolved', code: 'ambiguous-numeric-height-caption' }
 

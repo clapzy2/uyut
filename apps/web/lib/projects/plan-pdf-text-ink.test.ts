@@ -1141,6 +1141,87 @@ describe('complete numeric show identity and excluded fragment ownership', () =>
     },
   )
 
+  function selectedDocumentaryHeightFixture() {
+    const input = documentaryOwnerFixture('Н = 700 мм/от ур. стяжки')
+    input.selectedTextIndexes = [0]
+    // A small source Tm reset (not a tolerance change) distinguishes this
+    // fixture from a contiguous show group; its exact advance includes it.
+    for (const index of [18, 29, 40, 51]) {
+      const matrix = (input.operatorList.argsArray[index] as unknown[])[0] as Float32Array
+      matrix[4] = (matrix[4] as number) + 0.125
+    }
+    const item = input.textItems[0] as { width: number }
+    item.width += 0.125
+    return input
+  }
+
+  it('returns a selected documentary height with all exact CAD show references', () => {
+    const input = selectedDocumentaryHeightFixture()
+    const before = structuredClone(input.textItems)
+    const result = nativeNumericTextInk(input)
+    expect(result.refusalReason).toBeNull()
+    expect(result.complete).toBe(true)
+    expect(result.items).toHaveLength(1)
+    const item = result.items[0]
+    if (!item) throw new Error('Missing selected documentary height')
+    expect(item.text).toBe('Н = 700 мм/от ур. стяжки')
+    expect(item.sourceResetCaption?.shows.map((show) => show.operationIndex)).toEqual([
+      8, 19, 30, 41, 52,
+    ])
+    expect(item.sourceResetCaption?.shows.map((show) => show.text).join('')).toBe(item.text)
+    expect(item.sourceGroup).toBeUndefined()
+    expect(
+      nativeResetNoteBounds(
+        item,
+        {
+          name: item.text,
+          pagePoint: item.baselineStart,
+          rotation: 0,
+        },
+        { pageWidth: input.viewport.width, pageHeight: input.viewport.height },
+      ),
+    ).not.toBeNull()
+    expect(input.textItems).toEqual(before)
+  })
+
+  it.each(['width', 'origin', 'duplicate', 'font', 'paint', 'hidden', 'gap', 'clip'])(
+    'withholds a selected CAD height after an invalid %s',
+    (mutation) => {
+      const input = selectedDocumentaryHeightFixture()
+      const item = input.textItems[0] as { width: number; transform: Matrix }
+      if (mutation === 'width') item.width += 0.01
+      if (mutation === 'origin') item.transform[4] += 0.01
+      if (mutation === 'duplicate') {
+        input.textItems = [...input.textItems, structuredClone(item)]
+        input.selectedTextIndexes = [0, 1]
+      }
+      if (mutation === 'font') (input.operatorList.argsArray[27] as unknown[])[0] = 'f2'
+      if (mutation === 'gap') {
+        const matrix = (input.operatorList.argsArray[40] as unknown[])[0] as Float32Array
+        matrix[4] = (matrix[4] as number) + 20
+      }
+      if (mutation === 'clip')
+        input.operatorList.argsArray = Array.from(input.operatorList.argsArray, (args, index) =>
+          index === 36 ? [OPS.endPath, [[0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 4]], []] : args,
+        )
+      if (mutation === 'paint' || mutation === 'hidden') {
+        input.operatorList.fnArray = [
+          ...Array.from(input.operatorList.fnArray).slice(0, 11),
+          mutation === 'paint' ? OPS.constructPath : OPS.setTextRenderingMode,
+          ...Array.from(input.operatorList.fnArray).slice(11),
+        ]
+        input.operatorList.argsArray = [
+          ...Array.from(input.operatorList.argsArray).slice(0, 11),
+          mutation === 'paint' ? [99, [[0, 1, 1, 1, 2, 2]], []] : [3],
+          ...Array.from(input.operatorList.argsArray).slice(11),
+        ]
+      }
+      const result = nativeNumericTextInk(input)
+      expect(result.complete).toBe(false)
+      expect(result.items).toEqual([])
+    },
+  )
+
   it.each(['width', 'origin', 'duplicate', 'missing', 'paint', 'hidden', 'font', 'clip'])(
     'keeps documentary numeric fragments unresolved under an invalid %s',
     (mutation) => {

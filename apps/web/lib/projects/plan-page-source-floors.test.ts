@@ -1,8 +1,13 @@
+import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import type { PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import { floorHeightFixture } from './plan-native-reviewed-floor-heights.fixture'
 import { nativeVisiblePaintRegions } from './plan-native-visible-paint'
 import { planPageSourceFloors } from './plan-page-source-floors'
+import type { PdfLinework } from './plan-pdf-linework'
 
 function sourceFloorFixture() {
   const evidence = floorHeightFixture()
@@ -27,7 +32,232 @@ function sourceFloorFixture() {
   }
 }
 
+function materialFixture() {
+  const input = sourceFloorFixture()
+  const work: PdfLinework = input.evidence.work
+  const rectangle = (left: number, top: number, right: number, bottom: number) => [
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: right, y: bottom },
+    { x: left, y: bottom },
+  ]
+  work.paths.push(
+    {
+      operationIndex: 20,
+      subpathIndex: 0,
+      paint: 'fill',
+      closed: true,
+      points: rectangle(300, 150, 320, 250),
+    },
+    ...[300, 320].map((x, index) => ({
+      operationIndex: 30 + index * 10,
+      subpathIndex: 0,
+      paint: 'stroke' as const,
+      closed: false,
+      points: [
+        { x, y: 140 },
+        { x, y: 260 },
+      ],
+    })),
+  )
+  work.paintBounds = {
+    complete: true,
+    refusalReason: null,
+    events: work.paths.map((path) => ({
+      operationIndex: path.operationIndex,
+      kind: 'vector',
+      subpathCount: 1,
+      bounds: {
+        left: Math.min(...path.points.map((point) => point.x)),
+        right: Math.max(...path.points.map((point) => point.x)),
+        top: Math.min(...path.points.map((point) => point.y)),
+        bottom: Math.max(...path.points.map((point) => point.y)),
+      },
+      reason: null,
+    })),
+  }
+  return input
+}
+
 describe('fresh raw source floor reference for the contour editor', () => {
+  const decoSource = fileURLToPath(
+    new URL('../../../../tmp/pdfs/deco-art-dvushka-source.pdf', import.meta.url),
+  )
+  it.skipIf(!existsSync(decoSource))(
+    'shows independent DECO body spans without reviving the old floor fill',
+    async () => {
+      const body = await readFile(decoSource)
+      const sha256 = createHash('sha256').update(body).digest('hex')
+      expect(sha256).toBe('fee92486f301e8a40886914c74b9a83ce77747c6ee14dd4ee0a666dec4a647fd')
+      const { preparePlanPage } = await import('./plan-document')
+      const { nativePaintedFloorProposal } = await import('./plan-native-painted-floor-proposal')
+      const page = await preparePlanPage(body, true, 3, true, true)
+      if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+        throw new Error('Missing original DECO source layers')
+      const evidence = {
+        native: page.nativeTextAnchors,
+        work: page.linework,
+        lineworkSource: page.lineworkRasterSource,
+      }
+      const reviewed = nativePaintedFloorProposal(evidence).proposal
+      if (!reviewed) throw new Error('Missing DECO source-only proposal')
+      const result = planPageSourceFloors({
+        evidence,
+        source: reviewed.source,
+        sourceRevision: 'c'.repeat(64),
+        pageWidth: page.linework.pageWidth,
+        pageHeight: page.linework.pageHeight,
+        includeSpanVisibility: true,
+        reading: {
+          sourcePage: 3,
+          planState: 'existing',
+          readAt: '2026-10-17',
+          rooms: [],
+          paintedFloorReview: {
+            version: 1,
+            savedAt: '2026-10-17',
+            draftJson: JSON.stringify(reviewed),
+          },
+        },
+      })
+      const floor = result.floors[0]
+      expect(result.status).toBe('checked')
+      expect(floor?.materialSupports?.spans).toHaveLength(17)
+      expect(floor?.materialSupports).toMatchObject({
+        status: 'diagnostic',
+        semanticStatus: 'unclassified',
+        physicalBoundariesAccepted: false,
+        completeInventory: false,
+      })
+      expect(floor?.materialSupports?.spans).toContainEqual(
+        expect.objectContaining({
+          nativeSegment: { operationIndex: 8881, subpathIndex: 0, segmentIndex: 3 },
+          strokeSegment: { operationIndex: 15228, subpathIndex: 0, segmentIndex: 0 },
+        }),
+      )
+      expect(floor?.boundarySupports?.every((edge) => edge.declaredRole === 'unresolved')).toBe(
+        true,
+      )
+      expect(
+        floor?.boundarySupports?.every((edge) =>
+          edge.contacts.every((contact) => contact.visibility?.status === 'held'),
+        ),
+      ).toBe(true)
+      expect(result.physicalBoundariesAccepted).toBe(false)
+      const { sourceFloorReferenceFromResponse } = await import(
+        '../../components/plan-page-source-floor-model'
+      )
+      const preview = {
+        sha256,
+        page: 3,
+        pageCount: page.pageCount,
+        width: result.pageWidth,
+        height: result.pageHeight,
+      }
+      expect(
+        sourceFloorReferenceFromResponse(result, preview, result.sourceRevision),
+      ).not.toBeNull()
+      expect(sourceFloorReferenceFromResponse(result, preview, 'd'.repeat(64))).toBeNull()
+      expect(
+        sourceFloorReferenceFromResponse(
+          result,
+          { ...preview, sha256: 'd'.repeat(64) },
+          result.sourceRevision,
+        ),
+      ).toBeNull()
+    },
+    30_000,
+  )
+
+  it('keeps independent opposite-side bodies separate from old fill visibility and roles', () => {
+    const input = materialFixture()
+    const before = structuredClone(input)
+    const result = planPageSourceFloors({ ...input, includeSpanVisibility: true })
+    expect(result.floors[0]?.materialSupports).toMatchObject({
+      source: input.source,
+      sourceRevision: input.sourceRevision,
+      status: 'diagnostic',
+      spans: [
+        {
+          source: { operationIndex: 20, subpathIndex: 0 },
+          start: { x: 300, y: 150 },
+          end: { x: 300, y: 250 },
+          strokeSegment: { operationIndex: 30, subpathIndex: 0, segmentIndex: 0 },
+          oppositeFace: {
+            start: { x: 320, y: 150 },
+            end: { x: 320, y: 250 },
+            strokeSegment: { operationIndex: 40, subpathIndex: 0, segmentIndex: 0 },
+          },
+        },
+      ],
+    })
+    expect(
+      result.floors[0]?.boundarySupports?.every((edge) => edge.declaredRole === 'unresolved'),
+    ).toBe(true)
+    expect(result.floors[0]?.boundarySupports?.[1]?.contacts[0]?.visibility?.status).toBe('held')
+    expect(result.physicalBoundariesAccepted).toBe(false)
+    expect(input).toEqual(before)
+  })
+
+  it('does not revive an independent stroke covered by later paint', () => {
+    const input = materialFixture()
+    const work: PdfLinework = input.evidence.work
+    work.paintBounds?.events.push({
+      operationIndex: 50,
+      kind: 'image',
+      bounds: { left: 299, top: 140, right: 321, bottom: 260 },
+      reason: null,
+    })
+    expect(planPageSourceFloors(input).floors[0]?.materialSupports?.spans).toEqual([])
+  })
+
+  it('does not use a stroke painted before the material body as an independent witness', () => {
+    const input = materialFixture()
+    const work: PdfLinework = input.evidence.work
+    const stroke = work.paths.find((path) => path.operationIndex === 30)
+    const event = work.paintBounds?.events.find((event) => event.operationIndex === 30)
+    if (!stroke || !event) throw new Error('Missing independent stroke fixture')
+    stroke.operationIndex = 15
+    event.operationIndex = 15
+    expect(planPageSourceFloors(input).floors[0]?.materialSupports?.spans).toEqual([])
+  })
+
+  it('holds non-decimal source topology without changing its source-only floor reference', () => {
+    const input = sourceFloorFixture()
+    input.evidence.work.paths.push({
+      operationIndex: 30,
+      subpathIndex: 0,
+      paint: 'fill',
+      closed: true,
+      points: [
+        { x: 251, y: 80 },
+        { x: 310, y: 111 },
+        { x: 270, y: 141 },
+      ],
+    })
+    const piece = nativeVisiblePaintRegions(input.evidence).regions.find(
+      (region) => region.candidateId === 'native-fill-10:0',
+    )?.pieces[0]
+    const floor = input.evidence.reviewedFloors.floors[0]
+    if (!piece || !floor || !input.reading.paintedFloorReview)
+      throw new Error('Missing rational source fixture')
+    Object.assign(floor, {
+      polygon: piece.polygon,
+      holes: piece.holes,
+      boundaryRoles: piece.polygon.map((_, edgeIndex) => ({ edgeIndex, kind: 'unresolved' })),
+    })
+    input.reading.paintedFloorReview.draftJson = JSON.stringify(input.evidence.reviewedFloors)
+    const result = planPageSourceFloors(input)
+    expect(result.status).toBe('checked')
+    expect(result.floors[0]?.holes).toEqual([])
+    expect(result.floors[0]?.nonDecimalVertices).toBeGreaterThan(0)
+    expect(result.floors[0]?.materialSupports).toMatchObject({
+      status: 'held',
+      reason: 'material-support-rational-topology-not-supported',
+      spans: [],
+    })
+  })
+
   it('preserves source coordinates and subnumbers without changing reading or confirming physical geometry', () => {
     const input = sourceFloorFixture()
     const before = structuredClone(input)
@@ -88,30 +318,42 @@ describe('fresh raw source floor reference for the contour editor', () => {
     expect(result.floors[0]?.holes).toEqual(piece.holes)
     expect(result.floors[0]?.holeExactPointKeys).toHaveLength(1)
     expect(result.floors[0]?.nonDecimalVertices).toBeGreaterThan(0)
+    expect(result.floors[0]?.materialSupports).toMatchObject({
+      status: 'held',
+      reason: 'material-support-holes-not-supported',
+      spans: [],
+    })
     expect(result.physicalBoundariesAccepted).toBe(false)
   })
-  it.each(['hash', 'page', 'state', 'format', 'json', 'stale-point', 'missing-evidence'])(
-    'holds %s evidence without returning an old region',
-    (fault) => {
-      const input = sourceFloorFixture()
-      if (fault === 'hash') input.source = { ...input.source, sha256: 'd'.repeat(64) }
-      if (fault === 'page') input.source = { ...input.source, pdfPage: 4 }
-      if (fault === 'state') input.reading.planState = 'proposed'
-      if (fault === 'format') input.pageHeight = 800
-      if (fault === 'json' && input.reading.paintedFloorReview)
-        input.reading.paintedFloorReview.draftJson = '{}'
-      if (fault === 'stale-point') {
-        const point = input.evidence.work.paths[0]?.points[0]
-        if (!point) throw new Error('Missing source vertex')
-        point.x += 0.001
-      }
-      const result = planPageSourceFloors(
-        fault === 'missing-evidence' ? { ...input, evidence: undefined } : input,
-      )
-      expect(result.status).toBe('held')
-      expect(result.floors).toEqual([])
-    },
-  )
+  it.each([
+    'hash',
+    'page',
+    'state',
+    'format',
+    'json',
+    'stale-point',
+    'missing-evidence',
+    'revision',
+  ])('holds %s evidence without returning an old region', (fault) => {
+    const input = sourceFloorFixture()
+    if (fault === 'hash') input.source = { ...input.source, sha256: 'd'.repeat(64) }
+    if (fault === 'page') input.source = { ...input.source, pdfPage: 4 }
+    if (fault === 'state') input.reading.planState = 'proposed'
+    if (fault === 'format') input.pageHeight = 800
+    if (fault === 'revision') input.sourceRevision = 'not-a-revision'
+    if (fault === 'json' && input.reading.paintedFloorReview)
+      input.reading.paintedFloorReview.draftJson = '{}'
+    if (fault === 'stale-point') {
+      const point = input.evidence.work.paths[0]?.points[0]
+      if (!point) throw new Error('Missing source vertex')
+      point.x += 0.001
+    }
+    const result = planPageSourceFloors(
+      fault === 'missing-evidence' ? { ...input, evidence: undefined } : input,
+    )
+    expect(result.status).toBe('held')
+    expect(result.floors).toEqual([])
+  })
   it('returns not-saved when there is no selected source region, never inferring one', () => {
     const input = sourceFloorFixture()
     delete input.reading.paintedFloorReview

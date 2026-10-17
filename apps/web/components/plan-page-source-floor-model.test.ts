@@ -3,6 +3,8 @@ import { exactNativePointKey } from '@/lib/projects/plan-native-exact-intersecti
 import { floorHeightFixture } from '@/lib/projects/plan-native-reviewed-floor-heights.fixture'
 import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
 import { planPageSourceFloors } from '@/lib/projects/plan-page-source-floors'
+import type { PdfLinework } from '@/lib/projects/plan-pdf-linework'
+import { findPlanPageWallBodySupports } from '@/lib/projects/plan-pdf-wall-body-support'
 import { pageContourRoomsForSave } from './plan-page-contour-editor-model'
 import {
   sourceFloorDraft,
@@ -94,6 +96,256 @@ function inspectedReference(visibility = false) {
   return { report, preview }
 }
 describe('source reference parsing and lossless whole-ring draft copy', () => {
+  function materialReference() {
+    const report = reference()
+    const selected = report.floors[0]
+    if (!selected) throw new Error('Missing material floor')
+    selected.materialSupports = {
+      status: 'diagnostic',
+      semanticStatus: 'unclassified',
+      physicalBoundariesAccepted: false,
+      completeInventory: false,
+      source: structuredClone(report.source),
+      sourceRevision: report.sourceRevision,
+      reason: null,
+      spans: [
+        {
+          source: { operationIndex: 20, subpathIndex: 0 },
+          nativeSegment: { operationIndex: 20, subpathIndex: 0, segmentIndex: 0 },
+          contourKey: selected.sourceRoomKey,
+          wallEdgeIndex: 0,
+          start: { x: 10, y: 10 },
+          end: { x: 30, y: 10 },
+          strokeSegment: { operationIndex: 30, subpathIndex: 0, segmentIndex: 0 },
+          oppositeFace: {
+            start: { x: 10, y: 5 },
+            end: { x: 30, y: 5 },
+            nativeSegment: { operationIndex: 20, subpathIndex: 0, segmentIndex: 2 },
+            strokeSegment: { operationIndex: 31, subpathIndex: 0, segmentIndex: 0 },
+          },
+        },
+      ],
+    }
+    return report
+  }
+
+  it('accepts independently stroked material spans only as an unclassified source diagnostic', () => {
+    const report = materialReference()
+    expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toEqual(report)
+    const copied = sourceFloorDraft(report.floors[0])
+    expect(copied).not.toHaveProperty('draft.materialSupports')
+    expect(copied).not.toHaveProperty('draft.sourceTopology.materialSupports')
+    expect(copied).not.toHaveProperty('draft.openings')
+  })
+
+  it('roundtrips decimal material spans from the server without a floating translation check', () => {
+    const report = materialReference()
+    const floor = report.floors[0]
+    const material = floor?.materialSupports
+    if (!floor || !material) throw new Error('Missing material reference')
+    floor.polygon = [
+      { x: 4.2, y: 20 },
+      { x: 28.2, y: 20 },
+      { x: 28.2, y: 40 },
+      { x: 4.2, y: 40 },
+    ]
+    floor.exactPointKeys = floor.polygon.map((point) => exactNativePointKey(point) as string)
+    const work: PdfLinework = {
+      coordinateSystem: 'page-0-1000',
+      pageWidth: page.width,
+      pageHeight: page.height,
+      skippedCurves: 0,
+      clippedPaths: 0,
+      unsupportedPaths: 0,
+      unsupportedContexts: 0,
+      truncated: false,
+      paths: [
+        {
+          operationIndex: 20,
+          subpathIndex: 0,
+          paint: 'fill',
+          closed: true,
+          points: [
+            { x: 0.2, y: 20 },
+            { x: 30.2, y: 20 },
+            { x: 30.3, y: 10 },
+            { x: 0.3, y: 10 },
+          ],
+        },
+        {
+          operationIndex: 30,
+          subpathIndex: 0,
+          paint: 'stroke',
+          closed: false,
+          points: [
+            { x: 4.2, y: 20 },
+            { x: 28.2, y: 20 },
+          ],
+        },
+        {
+          operationIndex: 40,
+          subpathIndex: 0,
+          paint: 'stroke',
+          closed: false,
+          points: [
+            { x: 0.3, y: 10 },
+            { x: 30.3, y: 10 },
+          ],
+        },
+      ],
+    }
+    work.paintBounds = {
+      complete: true,
+      refusalReason: null,
+      events: work.paths.map((path) => ({
+        operationIndex: path.operationIndex,
+        kind: 'vector',
+        subpathCount: 1,
+        reason: null,
+        bounds: {
+          left: Math.min(...path.points.map((point) => point.x)),
+          right: Math.max(...path.points.map((point) => point.x)),
+          top: Math.min(...path.points.map((point) => point.y)),
+          bottom: Math.max(...path.points.map((point) => point.y)),
+        },
+      })),
+    }
+    material.spans = findPlanPageWallBodySupports(work, {
+      source: report.source,
+      coordinateSystem: 'page-0-1000',
+      pageWidth: page.width,
+      pageHeight: page.height,
+      review: 'manual-source-review',
+      rooms: [{ roomSourceNumber: Number(floor.sourceRoomKey), polygon: floor.polygon }],
+    })
+    expect(material.spans).toHaveLength(1)
+    const span = material.spans[0]
+    const opposite = span?.oppositeFace
+    if (!span || !opposite) throw new Error('Missing server opposite material face')
+    expect(span.end.x + (opposite.start.x - span.start.x)).not.toBe(opposite.end.x)
+    expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toEqual(report)
+    expect(report.physicalBoundariesAccepted).toBe(false)
+
+    opposite.end.x = 28.300000001
+    expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toBeNull()
+  })
+
+  it.each([
+    'hash',
+    'page',
+    'state',
+    'revision',
+    'floor',
+    'edge',
+    'off-edge',
+    'extended-span',
+    'zero-span',
+    'fill-operation',
+    'fill-subpath',
+    'early-stroke',
+    'duplicate',
+    'opposite-operation',
+    'opposite-subpath',
+    'opposite-segment',
+    'opposite-stroke',
+    'opposite-span',
+    'physical-role',
+    'physical-accepted',
+    'complete-inventory',
+    'diagnostic-reason',
+    'held-nonempty',
+    'unknown-property',
+  ] as const)('rejects malformed material source correspondence: %s', (fault) => {
+    const report = materialReference()
+    const material = report.floors[0]?.materialSupports
+    const span = material?.spans[0]
+    const opposite = span?.oppositeFace
+    if (!material || !span || !opposite) throw new Error('Missing material fixture')
+    if (fault === 'hash') material.source.sha256 = 'd'.repeat(64)
+    if (fault === 'page') material.source.pdfPage = 4
+    if (fault === 'state') material.source.state = 'proposed'
+    if (fault === 'revision') material.sourceRevision = 'd'.repeat(64)
+    if (fault === 'floor') span.contourKey = '4'
+    if (fault === 'edge') span.wallEdgeIndex = 3
+    if (fault === 'off-edge') span.start.y = 11
+    if (fault === 'extended-span') span.end.x = 31
+    if (fault === 'zero-span') span.end = { ...span.start }
+    if (fault === 'fill-operation') span.nativeSegment.operationIndex = 21
+    if (fault === 'fill-subpath') span.nativeSegment.subpathIndex = 1
+    if (fault === 'early-stroke') span.strokeSegment.operationIndex = 20
+    if (fault === 'duplicate') material.spans.push(structuredClone(span))
+    if (fault === 'opposite-operation') opposite.nativeSegment.operationIndex = 21
+    if (fault === 'opposite-subpath') opposite.nativeSegment.subpathIndex = 1
+    if (fault === 'opposite-segment') opposite.nativeSegment.segmentIndex = 0
+    if (fault === 'opposite-stroke') opposite.strokeSegment.operationIndex = 19
+    if (fault === 'opposite-span') opposite.end.x = 29
+    if (fault === 'physical-role') Object.assign(material, { semanticStatus: 'wall-face' })
+    if (fault === 'physical-accepted') Object.assign(material, { physicalBoundariesAccepted: true })
+    if (fault === 'complete-inventory') Object.assign(material, { completeInventory: true })
+    if (fault === 'diagnostic-reason') material.reason = 'held'
+    if (fault === 'held-nonempty') {
+      material.status = 'held'
+      material.reason = 'held'
+    }
+    if (fault === 'unknown-property') Object.assign(span, { physicalJambAccepted: true })
+    expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toBeNull()
+  })
+
+  it.each(['holes', 'rational'] as const)(
+    'keeps unsupported %s material diagnostics held and empty',
+    (kind) => {
+      const report = materialReference()
+      const selected = report.floors[0]
+      const material = selected?.materialSupports
+      if (!selected || !material) throw new Error('Missing material fixture')
+      if (kind === 'holes') {
+        selected.holes = [
+          [
+            { x: 15, y: 15 },
+            { x: 20, y: 15 },
+            { x: 20, y: 20 },
+          ],
+        ]
+        selected.holeExactPointKeys = selected.holes.map((ring) =>
+          ring.map((point) => exactNativePointKey(point) as string),
+        )
+      } else {
+        selected.exactPointKeys[0] = '31/3:10/1'
+        selected.nonDecimalVertices = 1
+      }
+      expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toBeNull()
+      material.status = 'held'
+      material.reason =
+        kind === 'holes'
+          ? 'material-support-holes-not-supported'
+          : 'material-support-rational-topology-not-supported'
+      material.spans = []
+      expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toEqual(report)
+      material.reason = null
+      expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toBeNull()
+    },
+  )
+
+  it('bounds material span inventory across all floors rather than just each floor', () => {
+    const report = materialReference()
+    const selected = report.floors[0]
+    const material = selected?.materialSupports
+    const span = material?.spans[0]
+    if (!selected || !material || !span) throw new Error('Missing material fixture')
+    material.spans = Array.from({ length: 1000 }, (_, segmentIndex) => ({
+      ...structuredClone(span),
+      strokeSegment: { ...span.strokeSegment, segmentIndex },
+    }))
+    expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toEqual(report)
+    const extra = structuredClone(selected)
+    extra.id = 'source-floor-4'
+    extra.sourceRoomKey = '4'
+    if (!extra.materialSupports) throw new Error('Missing copied material fixture')
+    extra.materialSupports.spans = [{ ...structuredClone(span), contourKey: '4' }]
+    report.floors.push(extra)
+    expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toBeNull()
+  })
+
   it('accepts fresh later-paint holds without copying visibility proof into saved geometry', () => {
     const { report, preview } = inspectedReference(true)
     expect(

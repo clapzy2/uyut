@@ -266,6 +266,13 @@ export function PlanPageContourEditor({
   const highlightedEdgeKey = highlightedSourceEdge
     ? `${sourceRevision}:${pageNumber}:${highlightedSourceEdge.floorId}:${highlightedSourceEdge.ringIndex}:${highlightedSourceEdge.edgeIndex}`
     : undefined
+  const highlightedMaterialSpans =
+    selectedSourceFloor?.materialSupports?.status === 'diagnostic' &&
+    highlightedSourceEdge?.ringIndex === 0
+      ? selectedSourceFloor.materialSupports.spans.filter(
+          (span) => span.wallEdgeIndex === highlightedSourceEdge.edgeIndex,
+        )
+      : []
   const nearbySourceEdges = useMemo(
     () =>
       highlightedSourceSegment?.[0] && highlightedSourceSegment[1] && preview
@@ -1335,6 +1342,40 @@ export function PlanPageContourEditor({
                     </title>
                   </line>
                 ) : null}
+                {highlightedMaterialSpans.map((span, index) => (
+                  <g key={`material-${index}`} pointerEvents="none">
+                    <line
+                      x1={span.start.x}
+                      y1={span.start.y}
+                      x2={span.end.x}
+                      y2={span.end.y}
+                      stroke="#0f766e"
+                      strokeWidth={4}
+                      vectorEffect="non-scaling-stroke"
+                    >
+                      <title>
+                        Независимо обведённая грань соседнего материала; стена или косяк не
+                        подтверждены.
+                      </title>
+                    </line>
+                    {span.oppositeFace ? (
+                      <line
+                        x1={span.oppositeFace.start.x}
+                        y1={span.oppositeFace.start.y}
+                        x2={span.oppositeFace.end.x}
+                        y2={span.oppositeFace.end.y}
+                        stroke="#0f766e"
+                        strokeWidth={3}
+                        strokeDasharray="6 3"
+                        vectorEffect="non-scaling-stroke"
+                      >
+                        <title>
+                          Противоположная исходная грань, не подтверждённая толщина стены.
+                        </title>
+                      </line>
+                    ) : null}
+                  </g>
+                ))}
                 {selectedSourceStroke ? (
                   <line
                     x1={selectedSourceStroke.start.x}
