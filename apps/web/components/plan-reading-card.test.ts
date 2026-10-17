@@ -212,6 +212,10 @@ describe('plan review form', () => {
       rooms: [{ name: 'Спальня', kind: 'bedroom' }],
     })
     expect(html).toContain('Сверьте данные перед переносом')
+    expect(html).toContain(
+      'Для выбора стиля и создания концептов не нужно доказывать каждый контур пола',
+    )
+    expect(html).toContain('Неизвестные размеры оставьте пустыми')
     expect(html).toContain('Перенести комнаты: 1')
     expect(html).toContain('aria-label="Перенести комнату Спальня"')
     expect(html).toContain('включая несохранённые правки')
