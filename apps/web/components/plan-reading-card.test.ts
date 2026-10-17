@@ -36,6 +36,17 @@ function render(
 }
 
 describe('plan review form', () => {
+  it('requires a separate unchecked architecture review before AI notes reach concepts', () => {
+    const html = render({
+      readAt: '2026-10-17',
+      rooms: [{ name: 'Кухня', kind: 'kitchen', layoutNotes: 'Двери ванной справа.' }],
+    })
+    expect(html).toContain('Сверил окна, двери и форму комнаты')
+    expect(html).toContain('Проёмы соседних помещений сюда не включены')
+    expect(html).toContain('не попадёт в задание для концептов')
+    expect(html).toContain('Это не подтверждение обмеров')
+    expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(1)
+  })
   it('does not present a stale area-product warning without current side measurements', () => {
     const reading = parseFloorPlan(
       JSON.stringify({

@@ -100,4 +100,11 @@ describe('measurement assurance', () => {
     ).toBe(true)
     expect(mergePlanMeasurements(null, null)).toBeNull()
   })
+  it('preserves existing human architecture notes when the plan import omits unreviewed notes', () => {
+    const before = { ...measured, layoutNotes: 'Окно сверху, вход снизу.' }
+    expect(mergePlanMeasurements(before, { ceilingCm: 250 })?.layoutNotes).toBe(before.layoutNotes)
+    expect(mergePlanMeasurements(before, { layoutNotes: 'Окно слева.' })?.layoutNotes).toBe(
+      'Окно слева.',
+    )
+  })
 })

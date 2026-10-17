@@ -157,6 +157,50 @@ describe('private unclassified raster guides', () => {
     ).toBe(200)
   })
 
+  it.each([false, true])(
+    'keeps reviewed PDF image guides bound to their source, changed=%s',
+    async (changed) => {
+      if (!reading.geometry) throw new Error('Missing synthetic geometry')
+      const pdfReading: PlanReading = {
+        ...reading,
+        sourcePage: 3,
+        geometry: {
+          ...reading.geometry,
+          manualPdfUnderlay: {
+            pdfPage: 3,
+            sourceSha256: changed
+              ? 'a'.repeat(64)
+              : createHash('sha256').update('actual source bytes').digest('hex'),
+          },
+        },
+        pageReview: {
+          version: 1,
+          savedAt: '2026-10-17',
+          contours: {
+            source: {
+              sha256: createHash('sha256').update('actual source bytes').digest('hex'),
+              pdfPage: 3,
+              state: 'existing',
+            },
+            coordinateSystem: 'page-0-1000',
+            review: 'manual-source-review',
+            pageWidth: 1000,
+            pageHeight: 1000,
+            rooms: [],
+          },
+        },
+      }
+      const pdfProject = { ...project, planUrl: 'reviewed.pdf', planReading: pdfReading }
+      mocks.access.mockResolvedValue(pdfProject)
+      const response = await GET(
+        request(planEditRevision(pdfProject.planUrl, pdfReading), '3'),
+        context,
+      )
+      expect(response.status).toBe(changed ? 409 : 200)
+      expect(mocks.candidates).toHaveBeenCalledTimes(changed ? 0 : 1)
+    },
+  )
+
   it('refuses native PDF proofs and PDF readings without manual geometry', async () => {
     for (const value of [
       null,

@@ -283,6 +283,7 @@ export function PlanReadingCard({
             areaM2: row.area,
             wish: row.wish,
             layoutNotes: row.layoutNotes,
+            layoutNotesReviewed: row.layoutNotesReviewed === true,
           })),
         },
         baseRevision,
@@ -1000,6 +1001,23 @@ export function PlanReadingCard({
                     value={row.layoutNotes}
                     onChange={(layoutNotes) => patch(index, { layoutNotes })}
                   />
+                  {row.layoutNotes.trim() ? (
+                    <label className="mt-3 flex items-start gap-2 text-[13px] leading-relaxed text-ink-2">
+                      <input
+                        type="checkbox"
+                        checked={row.layoutNotesReviewed === true}
+                        onChange={(event) =>
+                          patch(index, { layoutNotesReviewed: event.currentTarget.checked })
+                        }
+                      />
+                      <span>
+                        Сверил окна, двери и форму комнаты «{row.name || index + 1}» с исходником.
+                        Проёмы соседних помещений сюда не включены. Без этой отметки описание не
+                        заменит заметки комнаты и не попадёт в задание для концептов. Это не
+                        подтверждение обмеров.
+                      </span>
+                    </label>
+                  ) : null}
                 </div>
               ) : null}
 

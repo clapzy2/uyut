@@ -34,7 +34,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (
       (isPdf &&
         (reading?.geometry?.source !== 'manual' ||
-          reading.pageReview ||
+          (reading.pageReview && !reading.geometry.manualPdfUnderlay) ||
           reading.geometry.pdfCalibration ||
           pageNumber !== (reading.sourcePage ?? 1))) ||
       (!isPdf && pageNumber !== 1)
@@ -42,6 +42,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return failure('Выберите исходный лист для ручной растровой обводки.', 400)
     const object = await getObject(project.planUrl)
     const body = Buffer.from(object.body)
+    const sha256 = createHash('sha256').update(body).digest('hex')
+    const manualUnderlay = reading?.geometry?.manualPdfUnderlay
+    if (
+      isPdf &&
+      manualUnderlay &&
+      (manualUnderlay.pdfPage !== pageNumber || manualUnderlay.sourceSha256 !== sha256)
+    )
+      return failure('Исходный PDF изменился. Откройте актуальную версию плана.', 409)
     const candidates = await rasterPlanCandidates(body, isPdf, pageNumber)
     // Access and revision are checked again after potentially slow decoding.
     const current = await assertOwnerOrCollaborator(session.user.id, id)
@@ -50,7 +58,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return Response.json(
       {
         source: {
-          sha256: createHash('sha256').update(body).digest('hex'),
+          sha256,
           page: pageNumber,
           width: candidates.width,
           height: candidates.height,

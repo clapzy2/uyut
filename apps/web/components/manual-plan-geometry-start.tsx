@@ -6,11 +6,18 @@ import { useState, useTransition } from 'react'
 import { startManualPlanGeometry } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
 
-export function ManualPlanGeometryStart({ projectId }: { projectId: string }) {
+export function ManualPlanGeometryStart({
+  projectId,
+  reviewedPdfPage,
+}: {
+  projectId: string
+  reviewedPdfPage?: number
+}) {
   const router = useRouter()
   const [width, setWidth] = useState('')
   const [height, setHeight] = useState('')
   const [error, setError] = useState<string>()
+  const [usePdfImage, setUsePdfImage] = useState(false)
   const [saving, startSaving] = useTransition()
 
   function start() {
@@ -20,6 +27,7 @@ export function ManualPlanGeometryStart({ projectId }: { projectId: string }) {
         const result = await startManualPlanGeometry(projectId, {
           widthCm: Number(width),
           heightCm: Number(height),
+          ...(reviewedPdfPage !== undefined && usePdfImage ? { usePdfImage: true } : {}),
         })
         if (!result.ok) {
           setError(result.error)
@@ -40,6 +48,22 @@ export function ManualPlanGeometryStart({ projectId }: { projectId: string }) {
       <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
         2D-схема · без генерации
       </p>
+      {reviewedPdfPage !== undefined ? (
+        <label className="mt-4 flex min-h-11 max-w-2xl items-start gap-3 text-sm leading-relaxed">
+          <input
+            type="checkbox"
+            className="mt-1 size-4 shrink-0 accent-accent"
+            checked={usePdfImage}
+            disabled={saving}
+            onChange={(event) => setUsePdfImage(event.target.checked)}
+          />
+          <span>
+            Чертить вручную по изображению листа {reviewedPdfPage}. Разметка исходника сохранится
+            отдельно. Для подтверждения схемы потребуется сверить масштаб по размерам в двух
+            направлениях и самостоятельно нанести границы пола, стены и проёмы.
+          </span>
+        </label>
+      ) : null}
       <h2 className="mt-2 font-serif text-3xl text-ink">Начать ручной чертёж</h2>
       <p className="mt-3 max-w-2xl text-[14px] leading-relaxed text-ink-2">
         Введите габариты полотна по своему плану. Мы создадим только пустую координатную сетку —

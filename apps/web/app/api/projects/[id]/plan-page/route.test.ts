@@ -357,6 +357,33 @@ describe('private PDF page preview', () => {
     expect(mocks.access).toHaveBeenCalledWith('partner', 'project')
   })
 
+  it.each([false, true])(
+    'allows explicit manual tracing of a reviewed PDF only for its current source, changed=%s',
+    async (changed) => {
+      const saved = savedProject()
+      saved.planReading.geometry = {
+        version: 1,
+        status: 'draft',
+        source: 'manual',
+        widthCm: 500,
+        heightCm: 400,
+        walls: [],
+        openings: [],
+        rooms: [],
+        warnings: [],
+        manualPdfUnderlay: {
+          pdfPage: 6,
+          sourceSha256: changed ? 'a'.repeat(64) : createHash('sha256').update('pdf').digest('hex'),
+        },
+      }
+      mocks.access.mockResolvedValue(saved)
+      const version = planEditRevision(saved.planUrl, saved.planReading)
+      const result = await GET(request('6', version, 'raster'), context)
+      expect(result.status).toBe(changed ? 409 : 200)
+      if (!changed) expect(await result.text()).toBe('jpeg')
+    },
+  )
+
   it('returns unique exact native vertices with the same private source metadata', async () => {
     const result = await GET(request('6', revision, 'points'), context)
     expect(result.status).toBe(200)
