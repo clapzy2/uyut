@@ -1794,11 +1794,13 @@ export function NativeReviewResult({
   packet,
   imageUrl,
   proposedFloors,
+  proposedFloorEdge,
   expectedRevision,
 }: {
   packet: NativeReviewPacket
   imageUrl: string
   proposedFloors?: ReviewedNativePaintedFloors | null
+  proposedFloorEdge?: { floorIndex: number; edgeIndex: number } | null
   expectedRevision?: string
 }) {
   const [showFills, setShowFills] = useState(false)
@@ -1843,6 +1845,17 @@ export function NativeReviewResult({
   const canShowProposal = Boolean(
     proposedPieces?.length && proposedPieces.every((selection) => selection.piece),
   )
+  const highlightedPiece = canShowProposal
+    ? proposedPieces?.[proposedFloorEdge?.floorIndex ?? -1]?.piece
+    : packet.savedPaintedFloors?.status === 'checked' && packet.sourceRevision === expectedRevision
+      ? packet.savedPaintedFloors.floors[proposedFloorEdge?.floorIndex ?? -1]
+      : undefined
+  const highlightedEdgeStart = highlightedPiece?.polygon[proposedFloorEdge?.edgeIndex ?? -1]
+  const highlightedEdgeEnd = highlightedPiece?.polygon.length
+    ? highlightedPiece.polygon[
+        ((proposedFloorEdge?.edgeIndex ?? -1) + 1) % highlightedPiece.polygon.length
+      ]
+    : undefined
   return (
     <div className="mt-4 min-w-0 max-w-full space-y-4">
       <p className="border-l-2 border-accent pl-3 text-[14px] leading-relaxed text-ink-2">
@@ -2373,6 +2386,20 @@ export function NativeReviewResult({
                 ) : null,
               )
             : null}
+          {highlightedEdgeStart && highlightedEdgeEnd ? (
+            <line
+              x1={highlightedEdgeStart.x}
+              y1={highlightedEdgeStart.y}
+              x2={highlightedEdgeEnd.x}
+              y2={highlightedEdgeEnd.y}
+              stroke="#7c3aed"
+              strokeWidth="5"
+              vectorEffect="non-scaling-stroke"
+              pointerEvents="none"
+            >
+              <title>Выбранная грань исходной области; физическая роль не подтверждена.</title>
+            </line>
+          ) : null}
           {showFloorCavities && packet.floorCavities?.status === 'draft' ? (
             <g fill="none" strokeWidth="2">
               {packet.floorCavities.candidates
@@ -2543,6 +2570,7 @@ export function PlanNativeReview({
   onConflict,
   onDocumentarySchedule,
   proposedFloors,
+  proposedFloorEdge,
 }: {
   projectId: string
   pageNumber: number
@@ -2551,6 +2579,7 @@ export function PlanNativeReview({
   onConflict: () => void
   onDocumentarySchedule?: (packet: NativeReviewPacket) => void
   proposedFloors?: ReviewedNativePaintedFloors | null
+  proposedFloorEdge?: { floorIndex: number; edgeIndex: number } | null
 }) {
   const key = `${projectId}:${pageNumber}:${sourceRevision}`
   const [state, setState] = useState<{
@@ -2651,6 +2680,7 @@ export function PlanNativeReview({
           packet={current.packet}
           imageUrl={current.imageUrl}
           proposedFloors={proposedFloors}
+          proposedFloorEdge={proposedFloorEdge}
           expectedRevision={sourceRevision}
         />
       ) : null}
