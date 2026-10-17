@@ -89,12 +89,6 @@ export function PlanPaintedFloorReviewEditor({
         сохраняются буквально. Стены, косяки, высоты, общий ноль и обмеры этим не подтверждаются;
         существующая 2D/3D не меняется.
       </p>
-      <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-        Для каждой выбранной области нужны candidateId, pieceIndex, исходные polygon/holes, owner с
-        sourceRoomKey и двумя идентификаторами подписей, а также boundaryRoles для каждой внешней
-        грани. Неизвестную роль оставляйте unresolved; торец профиля не назначайте косяком. Снимок
-        должен содержать исходный PDF и rasterSource выбранного листа. Лимит — 64 КиБ.
-      </p>
       <Button
         type="button"
         variant="secondary"
@@ -118,26 +112,42 @@ export function PlanPaintedFloorReviewEditor({
         </p>
       ) : null}
       {proposalRooms.length ? (
-        <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-          Предложенные помещения: {proposalRooms.join('; ')}.
-        </p>
+        <div className="mt-3 text-[13px] leading-relaxed text-ink-2">
+          <p>Предложенные помещения:</p>
+          <ul className="mt-1 list-disc pl-5">
+            {proposalRooms.map((room) => (
+              <li key={room}>{room}</li>
+            ))}
+          </ul>
+        </div>
       ) : null}
-      <label className="mt-3 block text-[13px]">
-        JSON выбора областей пола
-        <textarea
-          className={`${inputClassName} mt-2 min-h-40 w-full font-mono text-[12px]`}
-          value={json}
-          onChange={(event) => {
-            setJson(event.target.value)
-            onProposalChange?.(null)
-            setAcknowledged(false)
-            setProposalNote(undefined)
-            setProposalRooms([])
-          }}
-          disabled={disabled || pending}
-          spellCheck={false}
-        />
-      </label>
+      <details className="mt-3 border-t border-line pt-2">
+        <summary className="min-h-11 cursor-pointer py-2 text-[13px] font-medium">
+          Технические данные и ручная правка
+        </summary>
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+          Для каждой области нужны candidateId, pieceIndex, исходные polygon/holes, owner с
+          sourceRoomKey и двумя идентификаторами подписей, а также boundaryRoles для каждой внешней
+          грани. Неизвестную роль оставляйте unresolved; торец профиля не назначайте косяком. Снимок
+          должен содержать исходный PDF и rasterSource выбранного листа. Лимит — 64 КиБ.
+        </p>
+        <label className="mt-3 block text-[13px]">
+          JSON выбора областей пола
+          <textarea
+            className={`${inputClassName} mt-2 min-h-40 w-full font-mono text-[12px]`}
+            value={json}
+            onChange={(event) => {
+              setJson(event.target.value)
+              onProposalChange?.(null)
+              setAcknowledged(false)
+              setProposalNote(undefined)
+              setProposalRooms([])
+            }}
+            disabled={disabled || pending}
+            spellCheck={false}
+          />
+        </label>
+      </details>
       <label className="mt-3 flex min-h-11 items-start gap-2 text-[13px] leading-relaxed">
         <input
           type="checkbox"

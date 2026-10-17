@@ -1,5 +1,5 @@
 import type { NativeTextAnchors } from '../plan-document'
-import type { PdfLinework, PdfVectorPath } from '../plan-pdf-linework'
+import type { PdfCurvePath, PdfLinework, PdfVectorPath } from '../plan-pdf-linework'
 
 // Synthetic source-space controls, never an apartment survey or source acceptance.
 const source = { sha256: 'a'.repeat(64), page: 1, width: 1000, height: 1000 }
@@ -41,6 +41,54 @@ export function addNativeRoomBox(paths: PdfVectorPath[], base: number, x: number
         corners[(index + 1) % 4] as { x: number; y: number },
       ],
     })
+}
+
+export function addCircledNativeRoomMarker(
+  input: ReturnType<typeof numberedNativeRoomFixture>,
+  marker: (typeof input.native.labels)[number],
+) {
+  const center = marker.pagePoint
+  if (!center) throw new Error('Missing source marker')
+  const radius = 8
+  const k = (4 / 3) * Math.tan(Math.PI / 8)
+  const points = [
+    { x: center.x + radius, y: center.y },
+    { x: center.x, y: center.y + radius },
+    { x: center.x - radius, y: center.y },
+    { x: center.x, y: center.y - radius },
+    { x: center.x + radius, y: center.y },
+  ]
+  const curve: PdfCurvePath = {
+    operationIndex: 1000 + (input.work.curvePaths?.length ?? 0),
+    subpathIndex: 0,
+    operationSubpathCount: 1,
+    paint: 'stroke',
+    closed: true,
+    start: points[0] as { x: number; y: number },
+    segments: points.slice(1).map((end, index) => {
+      const start = points[index] as { x: number; y: number }
+      return {
+        kind: 'cubic' as const,
+        control1: { x: start.x - k * (start.y - center.y), y: start.y + k * (start.x - center.x) },
+        control2: { x: end.x + k * (end.y - center.y), y: end.y - k * (end.x - center.x) },
+        end,
+      }
+    }),
+  }
+  input.work.curvePaths ??= []
+  input.work.curvePaths.push(curve)
+  input.work.skippedCurves = input.work.curvePaths.length
+  input.work.skippedCurveBounds ??= []
+  input.work.skippedCurveBounds.push({
+    operationIndex: curve.operationIndex,
+    paint: 'stroke',
+    bounds: {
+      left: center.x - radius,
+      right: center.x + radius,
+      top: center.y - radius,
+      bottom: center.y + radius,
+    },
+  })
 }
 
 export function numberedNativeRoomFixture() {
