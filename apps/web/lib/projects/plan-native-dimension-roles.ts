@@ -4,7 +4,6 @@ import {
   createPdfNativePageDimensionChainVerifier,
   nativeDimensionMillimetres,
 } from './plan-pdf-dimension-chain'
-import { pdfVectorArrow } from './plan-pdf-leaders'
 import type { PdfLinework } from './plan-pdf-linework'
 import { type NativePageSegment, nativePageSegments } from './plan-pdf-opening-endpoint'
 import { type PdfPlanSource, pdfPointDistance } from './plan-pdf-room-binding'
@@ -124,58 +123,17 @@ export function automaticNativeDimensionRoles(input: {
       Math.abs(dy) / length <= 0.9
     )
   })
-  const railSources = work.paths.filter(
-    (path) => !path.closed && path.paint === 'stroke' && path.points.length === 2,
-  )
-  const arrowSources = work.paths.flatMap((path) => {
-    const arrow = pdfVectorArrow(work, path)
-    return arrow ? [arrow] : []
-  })
-  const strokePieceCount = work.paths.reduce(
-    (sum, path) =>
-      sum + (!path.closed && path.paint === 'stroke' ? Math.max(0, path.points.length - 1) : 0),
-    0,
-  )
-  // Match the strict verifier's cardinal rail/arrow predicates. Off-axis wall
-  // strokes remain in branch checks, but never cause a rail preparation scan.
-  // Reserve the full inventory scans on each axis and its bounded comparisons;
-  // the verifier's independent 2000 arrow-pair guard remains unchanged.
-  const costsFor = (axis: 'width' | 'depth') => {
-    const along = axis === 'width' ? 'x' : 'y'
-    const across = axis === 'width' ? 'y' : 'x'
-    const acrossScale = (axis === 'width' ? work.pageHeight : work.pageWidth) / 1000
-    const railCount = railSources.filter((path) => {
-      const [first, last] = path.points
-      return (
-        first &&
-        last &&
-        first[along] !== last[along] &&
-        Math.abs((first[across] - last[across]) * acrossScale) <= 0.12
-      )
-    }).length
-    const arrowCount = arrowSources.filter(
-      (arrow) => Math.abs((arrow.tip[across] - arrow.base[across]) * acrossScale) <= 0.12,
-    ).length
-    const maximumArrowSpans = Math.min(2000, railCount * arrowCount ** 2)
-    const maximumSpans = maximumArrowSpans + railCount
-    const preparationWork =
-      4 * work.paths.length +
-      segments.length +
-      railCount * (2 * arrowCount + 2 * strokePieceCount + 2 * tickSources.length) +
-      maximumSpans
-    return { preparationWork, maximumSpans }
-  }
-  const axisCosts = { width: costsFor('width'), depth: costsFor('depth') }
   let remainingWork = MAX_DISCOVERY_WORK
   const exhausted = Symbol('dimension-discovery-budget')
   const spend = (count = 1) => {
     remainingWork -= count
     if (remainingWork < 0) throw exhausted
   }
-  const preparedAxes = new Set<'width' | 'depth'>()
   // Without a caption context this preserves the existing strict legacy proof;
   // compact text slots are not reinterpreted as original PDF label identities.
-  const verify = createPdfNativePageDimensionChainVerifier(work, source)
+  // Charge comparisons actually performed by the shared verifier. Unmarked wall
+  // strokes must not consume the cost of a branch search that never runs.
+  const verify = createPdfNativePageDimensionChainVerifier(work, source, undefined, spend)
   try {
     for (const label of labels) {
       spend()
@@ -191,11 +149,6 @@ export function automaticNativeDimensionRoles(input: {
         unresolved.push({ labelId: label.id, reason: 'unsupported-dimension-orientation' })
         continue
       }
-      if (!preparedAxes.has(axis)) {
-        spend(axisCosts[axis].preparationWork)
-        preparedAxes.add(axis)
-      }
-      spend(axisCosts[axis].maximumSpans)
       const evidence = verify(
         [
           {

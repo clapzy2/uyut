@@ -64,6 +64,45 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
   const realSource = fileURLToPath(
     new URL('../../../../output/pdf/source-search-20261003/rebrina-original.pdf', import.meta.url),
   )
+  const decoSource = fileURLToPath(
+    new URL('../../../../tmp/pdfs/deco-art-dvushka-source.pdf', import.meta.url),
+  )
+  it.skipIf(!existsSync(decoSource))(
+    'reads the original DECO rails while retaining competing captions and unconnected table numbers',
+    async () => {
+      const body = await readFile(decoSource)
+      const sha256 = createHash('sha256').update(body).digest('hex')
+      expect(sha256).toBe('fee92486f301e8a40886914c74b9a83ce77747c6ee14dd4ee0a666dec4a647fd')
+      const { preparePlanPage } = await import('./plan-document')
+      const page = await preparePlanPage(body, true, 3, true, true)
+      if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+        throw new Error('Missing original PDF layers')
+      const result = automaticNativeDimensionRoles({
+        native: page.nativeTextAnchors,
+        work: page.linework,
+        lineworkSource: page.lineworkRasterSource,
+        source: { sha256, pdfPage: 3, state: 'existing' },
+      })
+      expect(result.refusalReason).toBeNull()
+      expect(result.candidates).toHaveLength(33)
+      expect(result.candidates).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ labelId: 'native-text-61', valueMm: 440, axis: 'width' }),
+          expect.objectContaining({ labelId: 'native-text-62', valueMm: 790, axis: 'depth' }),
+          expect.objectContaining({ labelId: 'native-text-131', valueMm: 3100, axis: 'width' }),
+        ]),
+      )
+      for (const index of [2, 3, 4, 5, 6])
+        expect(result.unresolved).toContainEqual({
+          labelId: `native-text-${index}`,
+          reason: 'no-connected-dimension-line',
+        })
+      expect(
+        result.unresolved.filter((row) => row.reason === 'competing-dimension-labels'),
+      ).toHaveLength(6)
+      expect(result.mayEraseSourceStrokes).toBe(false)
+    },
+  )
   it.skipIf(!existsSync(realSource))(
     'checks the original Rebrina cardinal rail without exhausting work on rotated wall strokes',
     async () => {
@@ -391,7 +430,7 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
     })
   })
 
-  it('withholds the whole report when actual axis-eligible preparation exhausts discovery work', () => {
+  it('checks both axes among unmarked cardinal strokes without reserving nonexistent branch searches', () => {
     const input = fixture()
     input.native.labels.push({
       id: 'native-text-20',
@@ -446,6 +485,44 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
           { x: 700, y: 10 + index * 0.4 },
         ],
       })
+    const before = structuredClone(input)
+    expect(automaticNativeDimensionRoles(input)).toMatchObject({
+      refusalReason: null,
+      candidates: [
+        { labelId: 'native-text-10', axis: 'width', rail: { operationIndex: 1 } },
+        { labelId: 'native-text-20', axis: 'depth', rail: { operationIndex: 10 } },
+      ],
+      unresolved: [],
+    })
+    expect(input).toEqual(before)
+  })
+
+  it('withholds the whole report when actual rail and tick comparisons exhaust discovery work', () => {
+    const input = fixture()
+    for (let index = 0; index < 1600; index++) {
+      input.work.paths.push(
+        {
+          operationIndex: 100 + index * 2,
+          subpathIndex: 0,
+          paint: 'stroke',
+          closed: false,
+          points: [
+            { x: 500, y: 10 + index * 0.4 },
+            { x: 700, y: 10 + index * 0.4 },
+          ],
+        },
+        {
+          operationIndex: 101 + index * 2,
+          subpathIndex: 0,
+          paint: 'stroke',
+          closed: false,
+          points: [
+            { x: 800, y: 10 + index * 0.4 },
+            { x: 805, y: 15 + index * 0.4 },
+          ],
+        },
+      )
+    }
     const before = structuredClone(input)
     expect(automaticNativeDimensionRoles(input)).toMatchObject({
       refusalReason: 'dimension-discovery-budget',
