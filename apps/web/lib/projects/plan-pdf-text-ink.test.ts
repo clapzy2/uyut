@@ -38,6 +38,8 @@ const OPS = {
   beginGroup: 29,
   endGroup: 30,
   setFillColorN: 31,
+  endPath: 32,
+  setFillRGBColor: 33,
 }
 type Input = Parameters<typeof nativeNumericTextInk>[0]
 type Operation = [keyof typeof OPS, unknown[]?]
@@ -1082,6 +1084,101 @@ describe('explicit selected source text ink', () => {
 })
 
 describe('complete numeric show identity and excluded fragment ownership', () => {
+  function documentaryOwnerFixture(literal = 'S: 9,22 м') {
+    const parts = literal.startsWith('S:')
+      ? ['S:', ' ', '9,22', ' ', 'м']
+      : ['Н ', '=', ' ', '700 ', 'мм/от ур. стяжки']
+    const operations: Operation[] = []
+    let x = 10
+    for (const part of parts) {
+      operations.push(
+        ['save'],
+        ['transform', [1, 0, 0, 1, 0, 0]],
+        ['clip'],
+        ['constructPath', [OPS.endPath, [[0, 0, 0, 1, 500, 0, 1, 500, 100, 1, 0, 100, 4]], []]],
+        ['setFillRGBColor', ['#000000']],
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['setTextMatrix', [new Float32Array([1, 0, 0, 1, x, 40])]],
+        ['showText', [Array.from(part, (character) => glyph(character))]],
+        ['endText'],
+        ['restore'],
+      )
+      x += part.length * 5
+    }
+    const textItems = [
+      {
+        str: literal,
+        fontName: 'f1',
+        width: literal.length * 5,
+        transform: [10, 0, 0, 10, 10, 40],
+      },
+    ]
+    if (literal.startsWith('S:')) {
+      // The same area also occurs as a separate schedule cell. That source
+      // occurrence must not claim the room caption's embedded numeric show.
+      operations.push(
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['moveText', [100, 40]],
+        ['showText', [Array.from('9,22', (character) => glyph(character))]],
+        ['endText'],
+      )
+      textItems.push({ str: '9,22', fontName: 'f1', width: 20, transform: [10, 0, 0, 10, 100, 40] })
+    }
+    const input = fixture(operations, textItems)
+    input.getGlyphPath = (_font, character) => (character === ' ' ? [4] : digitPath)
+    return input
+  }
+
+  it.each(['S: 9,22 м', 'Н = 700 мм/от ур. стяжки'])(
+    'owns excluded numeric fragments across repeated CAD graphics setup: %s',
+    (literal) => {
+      const result = nativeNumericTextInk(documentaryOwnerFixture(literal))
+      expect(result.refusalReason).toBeNull()
+      expect(result.complete).toBe(true)
+      expect(result.items).toEqual([])
+    },
+  )
+
+  it.each(['width', 'origin', 'duplicate', 'missing', 'paint', 'hidden', 'font', 'clip'])(
+    'keeps documentary numeric fragments unresolved under an invalid %s',
+    (mutation) => {
+      const input = documentaryOwnerFixture()
+      const item = input.textItems[0] as { width: number; transform: Matrix }
+      if (mutation === 'width') item.width += 0.01
+      if (mutation === 'origin') item.transform[4] += 0.01
+      if (mutation === 'duplicate') input.textItems = [...input.textItems, structuredClone(item)]
+      if (mutation === 'missing') input.textItems = input.textItems.slice(1)
+      if (mutation === 'paint') {
+        input.operatorList.fnArray = [
+          ...Array.from(input.operatorList.fnArray).slice(0, 11),
+          OPS.constructPath,
+          ...Array.from(input.operatorList.fnArray).slice(11),
+        ]
+        input.operatorList.argsArray = [
+          ...Array.from(input.operatorList.argsArray).slice(0, 11),
+          [99, [[0, 1, 1, 1, 2, 2]], []],
+          ...Array.from(input.operatorList.argsArray).slice(11),
+        ]
+      }
+      if (mutation === 'hidden') {
+        input.operatorList.fnArray = [
+          OPS.setTextRenderingMode,
+          ...Array.from(input.operatorList.fnArray),
+        ]
+        input.operatorList.argsArray = [[3], ...Array.from(input.operatorList.argsArray)]
+      }
+      if (mutation === 'font') (input.operatorList.argsArray[27] as unknown[])[0] = 'f2'
+      if (mutation === 'clip')
+        input.operatorList.argsArray = Array.from(input.operatorList.argsArray, (args, index) =>
+          index === 25 ? [OPS.endPath, [[0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 4]], []] : args,
+        )
+      expect(nativeNumericTextInk(input).complete).toBe(false)
+      expect(nativeNumericTextInk(input).items).toEqual([])
+    },
+  )
+
   const muhanovaSource = new URL(
     '../../../../output/pdf/source-search-20261016/muhanova-original.pdf',
     import.meta.url,
@@ -1966,6 +2063,22 @@ describe('native numeric source text ink', () => {
         const text = await page.getTextContent()
         const operatorList = await page.getOperatorList()
         const optionalContent = await document.getOptionalContentConfig({ intent: 'display' })
+        const numericInventory = nativeNumericTextInk({
+          operatorList,
+          operators: pdfjs.OPS,
+          textItems: text.items,
+          viewport: page.getViewport({ scale: 1 }),
+          getFont: (name) => page.commonObjs.get(name),
+          getGlyphPath: (name, character) => page.commonObjs.get(`${name}_path_${character}`).path,
+          isOptionalContentVisible: (properties) => optionalContent.isVisible(properties),
+        })
+        expect(numericInventory.refusalReason).toBeNull()
+        expect(numericInventory.complete).toBe(true)
+        expect(numericInventory.items).toHaveLength(69)
+        expect(numericInventory.items.some((item) => item.operationIndex === 15761)).toBe(false)
+        expect(numericInventory.items.some((item) => item.operationIndex === 22647)).toBe(false)
+        expect(numericInventory.items.some((item) => item.operationIndex === 16157)).toBe(false)
+        expect(numericInventory.items.some((item) => item.operationIndex === 16263)).toBe(false)
         const result = nativeNumericTextInk({
           operatorList,
           operators: pdfjs.OPS,

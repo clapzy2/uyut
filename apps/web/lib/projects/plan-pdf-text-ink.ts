@@ -525,10 +525,10 @@ export function nativeNumericTextInk(input: {
   }
   const selectedLiteralList = [...selectedLiterals, ...ownerLiterals]
   const ownerLiteralList = [...ownerLiterals]
-  // A selected threshold suffix may be split into separate source text objects.
+  // A selected or excluded threshold suffix may span source text objects.
   // It is an owner only for reconstructing its own exact source literal; it
   // cannot claim or suppress other selected text occurrences.
-  const splitSuffixLiterals = [...selectedLiterals].filter((literal) =>
+  const splitSuffixLiterals = [...selectedLiterals, ...ownerLiterals].filter((literal) =>
     /^=\s*\d{1,4}\s*мм$/iu.test(literal),
   )
   // PDF.js can join one printed number split by a source moveText into a
@@ -1148,6 +1148,18 @@ export function nativeNumericTextInk(input: {
           work += owner.length + group.text.length
           return work <= MAX_WORK && owner.startsWith(group.text)
         })
+        // CAD exports can split one documentary caption between text objects
+        // with repeated graphics setup. These excluded owners never become
+        // dimensions: every show still needs the same font/frame, visible ink
+        // and an exact TextContent origin/advance before owning a number.
+        const documentaryOwner = ownerLiteralList.some((literal) => {
+          work += literal.length + group.text.length
+          return (
+            work <= MAX_WORK &&
+            /^(?:S:\s*\d+(?:[,.]\d+)?\s*м|[НH]\s*=\s*\d+\s*мм\/[^\d]*)$/u.test(literal) &&
+            literal.startsWith(group.text)
+          )
+        })
         const splitSuffixOwner = splitSuffixLiterals.some((literal) =>
           literal.startsWith(group.text),
         )
@@ -1190,13 +1202,32 @@ export function nativeNumericTextInk(input: {
         for (let index = previous.operationIndex + 1; index < run.operationIndex; index++) {
           if (++work > MAX_WORK) return fail('text-ink-budget-exceeded')
           const name = names.get(operatorList.fnArray[index] as number)
+          const interveningArgs = operatorList.argsArray[index]
           if (
             name !== 'setCharSpacing' &&
+            !(
+              documentaryOwner &&
+              [
+                'save',
+                'restore',
+                'transform',
+                'eoClip',
+                'clip',
+                'setFont',
+                'setFillRGBColor',
+              ].includes(name ?? '')
+            ) &&
+            !(
+              documentaryOwner &&
+              name === 'constructPath' &&
+              Array.isArray(interveningArgs) &&
+              interveningArgs[0] === operators.endPath
+            ) &&
             !(
               (resetNote || sourceOwner) &&
               (name === 'setTextMatrix' ||
                 (sourceOwner && name === 'moveText') ||
-                ((splitSuffixOwner || splitNumericOwner) &&
+                ((splitSuffixOwner || splitNumericOwner || documentaryOwner) &&
                   (name === 'endText' || name === 'beginText')))
             )
           ) {

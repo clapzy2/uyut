@@ -937,14 +937,25 @@ export function extractPdfLinework(
         } else {
           result.skippedCurveBoundsTruncated = true
         }
-        // A Bezier stays in the convex hull of its endpoints/control points.
-        // Rectangular visibility can therefore be proved without flattening it.
-        // Non-rectangular masks remain unsupported for this separate symbol layer.
+        // The control box encloses every Bezier segment. Check all its edges:
+        // endpoints alone cannot prove visibility through a concave mask.
         const sourcePoints = [...path.points, ...path.controlPoints]
+        const bounds = pointBounds(sourcePoints)
+        const enclosure = [
+          { x: bounds.left, y: bounds.top },
+          { x: bounds.right, y: bounds.top },
+          { x: bounds.right, y: bounds.bottom },
+          { x: bounds.left, y: bounds.bottom },
+        ]
         const start = path.points[0]
         if (
           start &&
-          !state.polygonClips?.length &&
+          (state.polygonClips ?? []).every((polygon) =>
+            enclosure.every((a, index) => {
+              const b = enclosure[(index + 1) % enclosure.length]
+              return b !== undefined && segmentInsidePolygon(a, b, polygon)
+            }),
+          ) &&
           sourcePoints.every(
             (p) =>
               contains({ left: 0, top: 0, right: 1000, bottom: 1000 }, p) &&
