@@ -129,7 +129,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           pageWidth: page.linework.pageWidth,
           pageHeight: page.linework.pageHeight,
           reading: current.planReading,
-          includeSpanVisibility: request.nextUrl.searchParams.get('evidenceVersion') === '2',
+          includeSpanVisibility: ['2', '3'].includes(
+            request.nextUrl.searchParams.get('evidenceVersion') ?? '',
+          ),
+          includeBlockerPaint: request.nextUrl.searchParams.get('evidenceVersion') === '3',
           evidence:
             page.nativeTextAnchors && page.lineworkRasterSource
               ? {

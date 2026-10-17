@@ -162,6 +162,16 @@ export type SourceFloorReference = {
   physicalBoundariesAccepted: false
   boundaryInspection?: { status: 'checked' | 'held'; reason: string | null }
   openingInspection?: SourceOpeningInspection
+  blockerPaint?: {
+    status: 'checked' | 'held'
+    reason: string | null
+    /** Conservative paint envelopes, not the actual visible ink or a physical boundary. */
+    events: {
+      operationIndex: number
+      kind: 'vector' | 'text' | 'image' | 'unknown'
+      bounds: { left: number; top: number; right: number; bottom: number }
+    }[]
+  }
   floors: {
     id: string
     sourceRoomKey: string
@@ -186,6 +196,7 @@ export function planPageSourceFloors(input: {
   pageHeight: number
   reading: PlanReading
   includeSpanVisibility?: boolean
+  includeBlockerPaint?: boolean
   evidence?: Omit<Parameters<typeof nativePaintedFloorReview>[0], 'reviewed'>
 }): SourceFloorReference {
   const report: SourceFloorReference = {
@@ -223,7 +234,7 @@ export function planPageSourceFloors(input: {
     const fresh = nativeSourceOpeningContacts({
       ...input.evidence,
       reviewed,
-      includeSpanVisibility: input.includeSpanVisibility,
+      includeSpanVisibility: input.includeSpanVisibility || input.includeBlockerPaint,
     })
     if (fresh.refusalReason) return hold(fresh.refusalReason)
     report.status = 'checked'
@@ -291,9 +302,10 @@ export function planPageSourceFloors(input: {
             contactMode: 'exact-joined-endcaps',
           })
         : undefined
-    const visibility = input.includeSpanVisibility
-      ? createNativeSourceSpanVisibility(input.evidence.work)
-      : undefined
+    const visibility =
+      input.includeSpanVisibility || input.includeBlockerPaint
+        ? createNativeSourceSpanVisibility(input.evidence.work)
+        : undefined
     for (const floor of report.floors) {
       const reason = floor.holes.length
         ? 'material-support-holes-not-supported'
@@ -324,6 +336,59 @@ export function planPageSourceFloors(input: {
                   visibility,
                 ),
               })),
+      }
+    }
+    if (input.includeBlockerPaint) {
+      const blockerIds = new Set<number>()
+      for (const floor of report.floors) {
+        for (const edge of floor.boundarySupports ?? []) {
+          for (const contact of edge.contacts) {
+            for (const id of contact.visibility?.blockerOperations ?? []) blockerIds.add(id)
+          }
+        }
+        for (const span of floor.materialSupports?.spans ?? []) {
+          for (const end of span.classification?.endEvidence ?? []) {
+            for (const visibility of end.sourceVisibility ?? []) {
+              for (const id of visibility.blockerOperations) blockerIds.add(id)
+            }
+          }
+        }
+      }
+      for (const target of report.openingInspection?.targets ?? []) {
+        for (const id of target.visibility?.blockerOperations ?? []) blockerIds.add(id)
+        for (const source of target.independentVisibility ?? []) {
+          for (const id of source.visibility.blockerOperations) blockerIds.add(id)
+        }
+      }
+      const paintEvents = new Map(
+        input.evidence.work.paintBounds?.events.map((event) => [event.operationIndex, event]) ?? [],
+      )
+      const events = [...blockerIds].sort((a, b) => a - b).map((id) => paintEvents.get(id))
+      const unavailable =
+        blockerIds.size > 400 ||
+        events.some(
+          (event) =>
+            !event?.bounds ||
+            ![event.bounds.left, event.bounds.top, event.bounds.right, event.bounds.bottom].every(
+              Number.isFinite,
+            ) ||
+            event.bounds.left > event.bounds.right ||
+            event.bounds.top > event.bounds.bottom ||
+            event.bounds.right < 0 ||
+            event.bounds.bottom < 0 ||
+            event.bounds.left > 1000 ||
+            event.bounds.top > 1000,
+        )
+      report.blockerPaint = {
+        status: unavailable ? 'held' : 'checked',
+        reason: unavailable ? 'blocker-paint-display-unavailable' : null,
+        events: unavailable
+          ? []
+          : events.flatMap((event) =>
+              event?.bounds
+                ? [{ operationIndex: event.operationIndex, kind: event.kind, bounds: event.bounds }]
+                : [],
+            ),
       }
     }
     return report

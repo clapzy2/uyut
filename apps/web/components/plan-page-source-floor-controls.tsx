@@ -7,7 +7,10 @@ import type {
 } from '@/lib/projects/plan-page-source-floors'
 import type { PagePoint } from '@/lib/projects/plan-pdf-linework'
 import type { SourceEdgeCandidates } from './plan-page-edge-candidates'
-import type { SourceFloorDraftResult } from './plan-page-source-floor-model'
+import {
+  type SourceFloorDraftResult,
+  sourceFloorBlockersForEdge,
+} from './plan-page-source-floor-model'
 
 const refusalMessages = {
   'missing-selection':
@@ -53,10 +56,12 @@ export function PlanPageSourceFloorControls({
   highlightedEdgePoints,
   nearbySourceEdges,
   highlightedStrokeRef,
+  highlightedBlockerOperation,
   onToggle,
   onCopy,
   onHighlightEdge,
   onHighlightStroke,
+  onHighlightBlocker,
 }: {
   reference?: SourceFloorReference
   selectedKey?: string
@@ -70,10 +75,12 @@ export function PlanPageSourceFloorControls({
   highlightedEdgePoints?: readonly [PagePoint, PagePoint]
   nearbySourceEdges?: SourceEdgeCandidates
   highlightedStrokeRef?: string
+  highlightedBlockerOperation?: number
   onToggle: () => void
   onCopy: () => void
   onHighlightEdge?: (edge?: { ringIndex: number; edgeIndex: number }) => void
   onHighlightStroke?: (sourceRef?: string) => void
+  onHighlightBlocker?: (operationIndex?: number) => void
 }) {
   const current = shown && !loading && !error ? reference : undefined
   const floor =
@@ -132,6 +139,12 @@ export function PlanPageSourceFloorControls({
     material?.status === 'diagnostic' && highlightedEdge?.ringIndex === 0
       ? material.spans.filter((span) => span.wallEdgeIndex === highlightedEdge.edgeIndex)
       : []
+  const blockerOperations = sourceFloorBlockersForEdge(
+    current,
+    floor?.id,
+    highlightedEdge?.ringIndex,
+    highlightedEdge?.edgeIndex,
+  )
 
   return (
     <div className="space-y-2 border-l-2 border-line pl-3 text-sm">
@@ -309,6 +322,47 @@ export function PlanPageSourceFloorControls({
                   </tbody>
                 </table>
               </div>
+              {blockerOperations.length ? (
+                <div className="mt-3 text-xs leading-relaxed text-ink-2">
+                  <p>
+                    Поздняя краска могла перекрыть выбранную грань или соседний торец. Рамка
+                    показывает только возможную область операции PDF, не видимый штрих и не
+                    физическую стену.
+                  </p>
+                  {current.blockerPaint?.status === 'checked' ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {blockerOperations.map((operationIndex) => {
+                        const event = current.blockerPaint?.events.find(
+                          (item) => item.operationIndex === operationIndex,
+                        )
+                        return (
+                          <button
+                            key={operationIndex}
+                            type="button"
+                            className="min-h-11 rounded border border-line px-2 disabled:opacity-50"
+                            disabled={!event || !onHighlightBlocker}
+                            aria-pressed={highlightedBlockerOperation === operationIndex}
+                            onClick={() =>
+                              onHighlightBlocker?.(
+                                highlightedBlockerOperation === operationIndex
+                                  ? undefined
+                                  : operationIndex,
+                              )
+                            }
+                          >
+                            Операция {operationIndex}
+                            {event ? ` · ${event.kind}` : ' · область недоступна'}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p role="status" className="mt-1">
+                      Рамки поздних операций недоступны; видимость грани остаётся неподтверждённой.
+                    </p>
+                  )}
+                </div>
+              ) : null}
             </details>
           ) : null}
           {material ? (

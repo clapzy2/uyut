@@ -70,7 +70,8 @@ const slots = {
   sourceFloorsError: 29,
   sourceEdgeHighlight: 30,
   sourceStrokeHighlight: 31,
-  traceReferences: 32,
+  sourceBlockerHighlight: 32,
+  traceReferences: 33,
 } as const
 
 function sourceFixture() {
@@ -619,6 +620,78 @@ describe('source-floor bridge in the existing editor', () => {
     )
     expect(stroke?.props).toMatchObject({ x1: 30.001, y1: 10, x2: 30.001, y2: 30 })
     expect(hooks.setters.get(slots.drafts)).not.toHaveBeenCalled()
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
+  it('highlights a possible late-paint envelope only for its edge and source revision', () => {
+    const { fixture, reference } = setup()
+    const floor = reference.floors[0]
+    if (!floor) throw new Error('Missing floor')
+    floor.boundarySupports = [
+      {
+        ringIndex: 0,
+        edgeIndex: 0,
+        sourceRegionSide: 'left',
+        declaredRole: 'unresolved',
+        status: 'linked',
+        coverage: 'complete',
+        reason: null,
+        omittedInkCount: 0,
+        contacts: [
+          {
+            operationIndex: 10,
+            subpathIndex: 0,
+            segmentIndex: 0,
+            startKey: '10/1:10/1',
+            endKey: '30/1:10/1',
+            paintSide: 'selected-region',
+            visibility: {
+              status: 'held',
+              reason: 'later-paint-may-cover-source-span',
+              sourceRef: { operationIndex: 10, subpathIndex: 0, segmentIndex: 0 },
+              blockerOperations: [1000],
+            },
+          },
+        ],
+      },
+    ]
+    reference.blockerPaint = {
+      status: 'checked',
+      reason: null,
+      events: [
+        {
+          operationIndex: 1000,
+          kind: 'image',
+          bounds: { left: 5, top: 5, right: 35, bottom: 20 },
+        },
+      ],
+    }
+    controls(renderEditor(fixture.reading, revision)).onHighlightEdge?.({
+      ringIndex: 0,
+      edgeIndex: 0,
+    })
+    hooks.values.set(slots.sourceEdgeHighlight, updateFor(slots.sourceEdgeHighlight, undefined))
+    hooks.cursor = 0
+    controls(renderEditor(fixture.reading, revision)).onHighlightBlocker?.(1000)
+    hooks.values.set(
+      slots.sourceBlockerHighlight,
+      updateFor(slots.sourceBlockerHighlight, undefined),
+    )
+    const envelopes = (currentRevision = revision) => {
+      hooks.cursor = 0
+      return nestedElements(renderEditor(fixture.reading, currentRevision), 'rect').filter(
+        (rect) => (rect.props as { stroke?: string }).stroke === '#b45309',
+      )
+    }
+    expect(envelopes()[0]?.props).toMatchObject({ x: 5, y: 5, width: 30, height: 15 })
+    expect(envelopes('changed')).toEqual([])
+    hooks.values.set(slots.sourceEdgeHighlight, {
+      revision,
+      page: 2,
+      floorId: floor.id,
+      ringIndex: 0,
+      edgeIndex: 1,
+    })
+    expect(envelopes()).toEqual([])
     expect(savePlanPageReview).not.toHaveBeenCalled()
   })
   it('keeps rational crossings and holes in a source-only draft, locks vertex editing and allows whole removal', () => {

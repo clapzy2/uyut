@@ -64,7 +64,7 @@ function buttons(node: ReactNode): ReactElement<{ disabled: boolean; onClick: ()
 
 function edgeButtons(
   node: ReactNode,
-): ReactElement<{ 'aria-pressed': boolean; onClick: () => void }>[] {
+): ReactElement<{ 'aria-pressed': boolean; onClick: () => void; children?: ReactNode }>[] {
   if (Array.isArray(node)) return node.flatMap(edgeButtons)
   if (!isValidElement<{ children?: ReactNode; 'aria-pressed'?: boolean }>(node)) return []
   if (node.type === 'button' && node.props['aria-pressed'] !== undefined)
@@ -77,6 +77,66 @@ function html(input: Parameters<typeof PlanPageSourceFloorControls>[0]) {
 }
 
 describe('source floor controls', () => {
+  it('shows a selected edge blocker as a possible paint envelope without accepting a wall', () => {
+    const value = structuredClone(reference)
+    const selected = value.floors[0]
+    if (!selected) throw new Error('Missing source floor')
+    selected.boundarySupports = [
+      {
+        ringIndex: 0,
+        edgeIndex: 0,
+        sourceRegionSide: 'left',
+        declaredRole: 'unresolved',
+        status: 'linked',
+        coverage: 'complete',
+        reason: null,
+        omittedInkCount: 0,
+        contacts: [
+          {
+            operationIndex: 10,
+            subpathIndex: 0,
+            segmentIndex: 0,
+            startKey: '10/1:10/1',
+            endKey: '30/1:10/1',
+            paintSide: 'selected-region',
+            visibility: {
+              status: 'held',
+              reason: 'later-paint-may-cover-source-span',
+              sourceRef: { operationIndex: 10, subpathIndex: 0, segmentIndex: 0 },
+              blockerOperations: [1000],
+            },
+          },
+        ],
+      },
+    ]
+    value.blockerPaint = {
+      status: 'checked',
+      reason: null,
+      events: [
+        {
+          operationIndex: 1000,
+          kind: 'image',
+          bounds: { left: 5, top: 5, right: 35, bottom: 20 },
+        },
+      ],
+    }
+    const onHighlightBlocker = vi.fn()
+    const input = props({
+      reference: value,
+      highlightedEdge: { ringIndex: 0, edgeIndex: 0 },
+      onHighlightBlocker,
+    })
+    const markup = html(input)
+    expect(markup).toContain('Операция 1000')
+    expect(markup).toContain('возможную область операции PDF')
+    expect(markup).toContain('Физическая граница и косяк не подтверждены')
+    const blockerButton = edgeButtons(PlanPageSourceFloorControls(input)).find((button) =>
+      button.props.children?.toString().includes('Операция'),
+    )
+    blockerButton?.props.onClick()
+    expect(onHighlightBlocker).toHaveBeenCalledWith(1000)
+    expect(html(props({ reference: value }))).not.toContain('Операция 1000')
+  })
   function materialReference(): SourceFloorReference {
     const value = structuredClone(reference)
     const selected = value.floors[0]

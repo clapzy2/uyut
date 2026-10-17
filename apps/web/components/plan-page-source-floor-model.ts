@@ -247,6 +247,26 @@ const referenceSchema = z.strictObject({
     })
     .optional(),
   openingInspection: openingInspection.optional(),
+  blockerPaint: z
+    .strictObject({
+      status: z.enum(['checked', 'held']),
+      reason: z.string().min(1).max(128).nullable(),
+      events: z
+        .array(
+          z.strictObject({
+            operationIndex: z.number().int().min(0).max(99999),
+            kind: z.enum(['vector', 'text', 'image', 'unknown']),
+            bounds: z.strictObject({
+              left: z.number().finite(),
+              top: z.number().finite(),
+              right: z.number().finite(),
+              bottom: z.number().finite(),
+            }),
+          }),
+        )
+        .max(400),
+    })
+    .optional(),
   floors: z
     .array(
       z.strictObject({
@@ -286,6 +306,28 @@ export function sourceFloorReferenceFromResponse(
   )
     return null
   const inspection = report.boundaryInspection
+  const blockerPaint = report.blockerPaint
+  if (
+    blockerPaint &&
+    (report.status !== 'checked' ||
+      (blockerPaint.status === 'held'
+        ? !blockerPaint.reason || blockerPaint.events.length !== 0
+        : blockerPaint.reason !== null) ||
+      blockerPaint.events.some((event, index) => {
+        const { left, top, right, bottom } = event.bounds
+        return (
+          left > right ||
+          top > bottom ||
+          right < 0 ||
+          bottom < 0 ||
+          left > 1000 ||
+          top > 1000 ||
+          (index > 0 &&
+            event.operationIndex <= (blockerPaint.events[index - 1]?.operationIndex ?? -1))
+        )
+      }))
+  )
+    return null
   if (
     inspection &&
     (report.status !== 'checked' ||
@@ -686,4 +728,43 @@ export function sourceFloorReferencePath(
         ' Z',
     )
     .join(' ')
+}
+
+/** Display-only late-paint operations tied to one selected source edge. */
+export function sourceFloorBlockersForEdge(
+  reference: SourceFloorReference | undefined,
+  floorId: string | undefined,
+  ringIndex: number | undefined,
+  edgeIndex: number | undefined,
+): number[] {
+  if (!reference || !floorId || ringIndex === undefined || edgeIndex === undefined) return []
+  const floor = reference.floors.find((item) => item.id === floorId)
+  const edge = floor?.boundarySupports?.find(
+    (item) => item.ringIndex === ringIndex && item.edgeIndex === edgeIndex,
+  )
+  const contacts = edge?.contacts.flatMap((item) => item.visibility?.blockerOperations ?? []) ?? []
+  const panels =
+    ringIndex === 0
+      ? (floor?.materialSupports?.spans ?? [])
+          .filter((span) => span.wallEdgeIndex === edgeIndex)
+          .flatMap((span) =>
+            (span.classification?.endEvidence ?? []).flatMap((end) =>
+              (end.sourceVisibility ?? []).flatMap((item) => item.blockerOperations),
+            ),
+          )
+      : []
+  const openings = (reference.openingInspection?.targets ?? [])
+    .filter((target) =>
+      target.contacts.some(
+        (contact) =>
+          contact.floorId === floorId &&
+          contact.ringIndex === ringIndex &&
+          contact.edgeIndex === edgeIndex,
+      ),
+    )
+    .flatMap((target) => [
+      ...(target.visibility?.blockerOperations ?? []),
+      ...(target.independentVisibility ?? []).flatMap((item) => item.visibility.blockerOperations),
+    ])
+  return [...new Set([...contacts, ...panels, ...openings])].sort((a, b) => a - b)
 }
