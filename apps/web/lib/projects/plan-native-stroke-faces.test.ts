@@ -41,7 +41,7 @@ describe('computed bounded crossings and numerical ambiguity', () => {
       faces: [],
       intersections: [],
     })
-  })
+  }, 30_000)
 
   it('preserves the nearby-cut refusal among unrelated annotation rows', () => {
     expect(

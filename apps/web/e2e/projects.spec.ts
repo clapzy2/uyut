@@ -172,7 +172,15 @@ test.describe
       const source = Buffer.concat([fixture, Buffer.alloc(11 * 1024 * 1024, 0x20)])
       expect(source.length).toBeGreaterThan(10 * 1024 * 1024)
       expect(source.length).toBeLessThan(15 * 1024 * 1024)
-      await page.locator('#plan').setInputFiles({
+      // Follow the real chooser flow: setting the input before hydration can
+      // change its files before React installs the upload handler.
+      const chooserPromise = page.waitForEvent('filechooser')
+      await page
+        .getByRole('button', { name: 'Загрузить план', exact: true })
+        .filter({ hasText: 'Загрузить план' })
+        .click()
+      const chooser = await chooserPromise
+      await chooser.setFiles({
         name: 'large-synthetic-plan.pdf',
         mimeType: 'application/pdf',
         buffer: source,
