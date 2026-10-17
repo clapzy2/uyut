@@ -16,6 +16,48 @@ const segment = (
   end: { x: x2, y: y2 },
 })
 describe('computed bounded crossings and numerical ambiguity', () => {
+  const unrelatedRows = Array.from({ length: 720 }, (_, index) =>
+    segment(index + 100, 0, 200 + index / 2, 1000, 200 + index / 2),
+  )
+
+  it('does not spend the exact contact budget on disjoint annotation rows', () => {
+    const outline = [
+      segment(0, 100, 100, 150, 100),
+      segment(1, 150, 100, 150, 150),
+      segment(2, 150, 150, 100, 150),
+      segment(3, 100, 150, 100, 100),
+    ]
+    const result = boundedNativeStrokeFaces([...outline, ...unrelatedRows])
+    expect(result.refusalReason).toBeNull()
+    expect(result.faces).toHaveLength(1)
+    expect(result.faces[0]?.edges.flatMap((edge) => edge.sourceRefs)).toEqual(outline)
+    expect(result.intersections).toEqual([])
+  })
+
+  it('still holds dense overlapping source boxes at the unchanged contact budget', () => {
+    const input = Array.from({ length: 720 }, (_, index) => segment(index, 0, 200, 1000, 200))
+    expect(boundedNativeStrokeFaces(input)).toMatchObject({
+      refusalReason: 'intersection-budget',
+      faces: [],
+      intersections: [],
+    })
+  })
+
+  it('preserves the nearby-cut refusal among unrelated annotation rows', () => {
+    expect(
+      boundedNativeStrokeFaces([
+        ...unrelatedRows,
+        segment(0, 0, 5, 10, 5),
+        segment(1, 0, 0, 10, 9.9999999999998),
+        segment(2, 5, 5, 5, 10),
+      ]),
+    ).toMatchObject({
+      refusalReason: 'ambiguous-nearby-intersections',
+      faces: [],
+      intersections: [],
+    })
+  })
+
   it('refuses distinct rational vertices that alias to one floating point coordinate', () => {
     expect(
       boundedNativeStrokeFaces([

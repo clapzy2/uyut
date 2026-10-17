@@ -2,8 +2,10 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { preparePlanPage } from '../lib/projects/plan-document'
+import { nativeCaptionBindings } from '../lib/projects/plan-native-caption-bindings'
 import { nativeCompositeFrameEvidence } from '../lib/projects/plan-native-composite-frames'
 import { automaticNativeDimensionRoles } from '../lib/projects/plan-native-dimension-roles'
+import { nativeDoorSymbolCandidates } from '../lib/projects/plan-native-door-symbols'
 import { nativeFloorCavityCandidates } from '../lib/projects/plan-native-floor-cavities'
 import {
   nativeNumberCircleCandidates,
@@ -40,15 +42,41 @@ if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource) {
   const schedule = nativeRoomScheduleEvidence(input)
   const circles = nativeNumberCircleCandidates(input)
   const floors = nativeFloorCavityCandidates(input)
+  const doors = nativeDoorSymbolCandidates(input)
+  const source = { sha256, pdfPage: pageNumber, state: 'existing' as const }
+  const bindings = nativeCaptionBindings({ ...input, source })
   const rooms = automaticNativeRoomCandidates(input)
   const dimensions = automaticNativeDimensionRoles({
     ...input,
-    source: { sha256, pdfPage: pageNumber, state: 'existing' },
+    source,
   })
   console.log(
     JSON.stringify({
       ...base,
       nativePaths: page.linework.paths.length,
+      captionBindings: {
+        status: bindings.status,
+        refusalReason: bindings.refusalReason,
+        candidates: bindings.candidates.length,
+        unresolved: bindings.unresolved.length,
+      },
+      nativeCurves: {
+        retained: page.linework.curvePaths?.length ?? 0,
+        total: page.linework.skippedCurves,
+        truncated: page.linework.curvePathsTruncated,
+      },
+      doors: {
+        status: doors.status,
+        refusalReason: doors.refusalReason,
+        candidates: doors.candidates.map((candidate) => ({
+          id: candidate.id,
+          arc: candidate.arc.operationIndex,
+          leaf: candidate.leaf.operationIndex,
+          physicalPassageAccepted: candidate.physicalPassageAccepted,
+        })),
+        rejected: doors.rejected,
+        completeOpeningInventory: doors.completeOpeningInventory,
+      },
       compositeRectangles: nativeCompositeFrameEvidence(
         page.linework,
         page.nativeTextAnchors.pageNormalizedScale ?? { x: 0, y: 0 },

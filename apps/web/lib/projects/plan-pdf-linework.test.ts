@@ -8,6 +8,40 @@ import { extractPdfLinework, pdfVectorRectangle } from './plan-pdf-linework'
 const originalSource = fileURLToPath(
   new URL('../../../../output/pdf/source-search-20261003/rebrina-original.pdf', import.meta.url),
 )
+const decoSource = fileURLToPath(
+  new URL('../../../../tmp/pdfs/deco-art-dvushka-source.pdf', import.meta.url),
+)
+it.skipIf(!existsSync(decoSource))(
+  'retains the complete DECO curve inventory inside its concave page mask',
+  async () => {
+    const bytes = await readFile(decoSource)
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(
+      'fee92486f301e8a40886914c74b9a83ce77747c6ee14dd4ee0a666dec4a647fd',
+    )
+    const { preparePlanPage } = await import('./plan-document')
+    const page = await preparePlanPage(bytes, true, 3, true, true)
+    expect(page.linework?.skippedCurves).toBe(14)
+    expect(page.linework?.curvePaths).toHaveLength(14)
+    expect(page.linework?.curvePathsTruncated).toBe(false)
+    expect(page.linework?.paths.every((path) => path.points.length > 0)).toBe(true)
+    if (!page.linework || !page.nativeTextAnchors || !page.lineworkRasterSource)
+      throw new Error('Missing DECO source evidence')
+    const { nativeDoorSymbolCandidates } = await import('./plan-native-door-symbols')
+    const doors = nativeDoorSymbolCandidates({
+      native: page.nativeTextAnchors,
+      work: page.linework,
+      lineworkSource: page.lineworkRasterSource,
+    })
+    expect(doors.refusalReason).toBeNull()
+    expect(doors.candidates.map((candidate) => candidate.arc.operationIndex)).toEqual([
+      4981, 8615, 18688,
+    ])
+    expect(doors.candidates.every((candidate) => !candidate.physicalPassageAccepted)).toBe(true)
+    expect(doors.completeOpeningInventory).toBe(false)
+    expect(doors.closesFloorBoundary).toBe(false)
+  },
+  30_000,
+)
 it.skipIf(!existsSync(originalSource))(
   'keeps original hairline paint bounded without upgrading hairlines to physical ink evidence',
   async () => {
@@ -883,11 +917,51 @@ describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
     expect(result.paths).toEqual([])
   })
 
-  it('retains no symbol commands under a polygon clip, without pretending omissions disappeared', () => {
+  it('retains fully visible symbol commands inside a polygon clip without drawing chords', () => {
     const result = extract([
       [ops.clip, []],
       [ops.constructPath, [ops.endPath, [[0, 10, 10, 1, 40, 10, 1, 25, 40, 4]], []]],
       stroke([0, 20, 15, 2, 22, 15, 25, 18, 25, 20]),
+    ])
+    expect(result.curvePaths?.map((path) => path.operationIndex)).toEqual([2])
+    expect(result.paths).toEqual([])
+    expect(result.skippedCurves).toBe(1)
+    expect(result.skippedCurveBounds).toHaveLength(1)
+  })
+
+  it('holds curves whose control box crosses a concave mask despite visible endpoints', () => {
+    const result = extract([
+      [ops.clip, []],
+      [
+        ops.constructPath,
+        [ops.endPath, [[0, 10, 10, 1, 30, 10, 1, 30, 20, 1, 20, 20, 1, 20, 30, 1, 10, 30, 4]], []],
+      ],
+      stroke([0, 15, 28, 2, 15, 25, 25, 15, 28, 15]),
+      stroke([0, 12, 12, 2, 13, 12, 15, 13, 15, 15]),
+    ])
+    expect(result.curvePaths?.map((path) => path.operationIndex)).toEqual([3])
+    expect(result.skippedCurves).toBe(2)
+    expect(result.skippedCurveBounds).toHaveLength(2)
+    expect(result.paths).toEqual([])
+  })
+
+  it('checks enclosure edges when all controls lie inside opposite arms of a concave clip', () => {
+    const result = extract([
+      [ops.clip, []],
+      [
+        ops.constructPath,
+        [
+          ops.endPath,
+          [
+            [
+              0, 10, 10, 1, 40, 10, 1, 40, 40, 1, 30, 40, 1, 30, 20, 1, 20, 20, 1, 20, 40, 1, 10,
+              40, 4,
+            ],
+          ],
+          [],
+        ],
+      ],
+      stroke([0, 15, 15, 2, 15, 35, 35, 35, 35, 15]),
     ])
     expect(result.curvePaths).toEqual([])
     expect(result.skippedCurves).toBe(1)

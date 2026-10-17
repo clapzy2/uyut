@@ -125,7 +125,6 @@ export function boundedNativeStrokeFaces(
       const b = order[second]
       if (!b) return fail('missing-segment')
       if (b.left > a.right) break
-      if (--budget < 0) return fail('intersection-budget')
       const left = a.segment,
         right = b.segment
       if (
@@ -133,6 +132,9 @@ export function boundedNativeStrokeFaces(
         Math.max(right.start.y, right.end.y) < Math.min(left.start.y, left.end.y)
       )
         continue
+      // Disjoint source boxes cannot contribute a cut. Keep the bounded exact
+      // topology budget for possible contacts, not unrelated annotation rows.
+      if (--budget < 0) return fail('intersection-budget')
       const points = [left.start, left.end, right.start, right.end].filter(
         (point) => contains(left, point) && contains(right, point),
       )
