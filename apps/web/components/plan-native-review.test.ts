@@ -108,13 +108,18 @@ it('previews only source-matched proposed floor pieces without accepting them', 
       },
     ],
   }
-  const render = (selection = proposal, expectedRevision = revision) =>
+  const render = (
+    selection = proposal,
+    expectedRevision = revision,
+    proposedFloorEdge?: { floorIndex: number; edgeIndex: number },
+  ) =>
     renderToStaticMarkup(
       createElement(NativeReviewResult, {
         packet,
         imageUrl: 'blob:private-test',
         proposedFloors: selection,
         expectedRevision,
+        proposedFloorEdge,
       }),
     )
   const before = structuredClone(packet)
@@ -125,10 +130,66 @@ it('previews only source-matched proposed floor pieces without accepting them', 
   expect(preview).not.toContain('Подтвердить')
   expect(packet).toEqual(before)
 
+  const selectedEdge = render(proposal, revision, { floorIndex: 0, edgeIndex: 0 })
+  expect(selectedEdge).toContain('stroke="#7c3aed"')
+  expect(selectedEdge).toContain('физическая роль не подтверждена')
+  expect(render(proposal, revision, { floorIndex: 0, edgeIndex: 8 })).not.toContain(
+    'stroke="#7c3aed"',
+  )
+
   expect(
     render({ ...proposal, rasterSource: { ...proposal.rasterSource, sha256: 'd'.repeat(64) } }),
   ).not.toContain('stroke-dasharray="7 5"')
   expect(render(proposal, 'd'.repeat(64))).not.toContain('stroke-dasharray="7 5"')
+  expect(render(proposal, 'd'.repeat(64), { floorIndex: 0, edgeIndex: 0 })).not.toContain(
+    'stroke="#7c3aed"',
+  )
+  packet.savedPaintedFloors = {
+    status: 'checked',
+    reason: null,
+    physicalBoundariesAccepted: false,
+    measurementsConfirmed: false,
+    commonZeroConfirmed: false,
+    floors: [
+      {
+        id: 'native-fill-1:0:piece-0',
+        candidateId: 'native-fill-1:0',
+        sourceRoomKey: '3.1',
+        name: 'Балкон',
+        nameLabelId: 'name',
+        numberLabelId: 'number',
+        polygon: [
+          { x: 10, y: 10 },
+          { x: 100, y: 10 },
+          { x: 100, y: 100 },
+        ],
+        holes: [],
+        unresolvedEdges: 3,
+        omittedStrokeCount: 0,
+        boundaryInkComplete: true,
+      },
+    ],
+  }
+  const savedEdge = renderToStaticMarkup(
+    createElement(NativeReviewResult, {
+      packet,
+      imageUrl: 'blob:private-test',
+      expectedRevision: revision,
+      proposedFloorEdge: { floorIndex: 0, edgeIndex: 0 },
+    }),
+  )
+  expect(savedEdge).toContain('stroke="#7c3aed"')
+  expect(savedEdge).not.toContain('несохранённый черновик')
+  expect(
+    renderToStaticMarkup(
+      createElement(NativeReviewResult, {
+        packet,
+        imageUrl: 'blob:private-test',
+        expectedRevision: 'different-revision',
+        proposedFloorEdge: { floorIndex: 0, edgeIndex: 0 },
+      }),
+    ),
+  ).not.toContain('stroke="#7c3aed"')
   expect(render({ ...proposal, source: { ...proposal.source, pdfPage: 2 } })).not.toContain(
     'stroke-dasharray="7 5"',
   )

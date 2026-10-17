@@ -131,6 +131,12 @@ export function PlanReadingCard({
     page: number
     selection: ReviewedNativePaintedFloors
   } | null>(null)
+  const [floorBoundaryHighlight, setFloorBoundaryHighlight] = useState<{
+    revision: string
+    page: number
+    floorIndex: number
+    edgeIndex: number
+  } | null>(null)
   const [conflict, setConflict] = useState(false)
   const [page, setPage] = useState(String(reading?.sourcePage ?? 1))
   // Состояние квартиры решает, войдёт ли в смету ремонт. Спрашиваем один раз на все комнаты:
@@ -364,6 +370,12 @@ export function PlanReadingCard({
               ? floorProposal.selection
               : null
           }
+          proposedFloorEdge={
+            floorBoundaryHighlight?.revision === baseRevision &&
+            floorBoundaryHighlight.page === Number(page)
+              ? floorBoundaryHighlight
+              : null
+          }
           disabled={reading_ || saving || conflict}
           onDocumentarySchedule={
             rows && !confirmed
@@ -398,6 +410,7 @@ export function PlanReadingCard({
           disabled={reading_ || saving || conflict || reviewEditing}
           onSaved={(data) => {
             setFloorProposal(null)
+            setFloorBoundaryHighlight(null)
             setActiveReading(data.reading)
             setBaseRevision(data.revision)
             toast({ title: 'Выбор областей пола сохранён как черновик', tone: 'success' })
@@ -410,6 +423,17 @@ export function PlanReadingCard({
           onProposalChange={(selection) =>
             setFloorProposal(
               selection ? { revision: baseRevision, page: Number(page), selection } : null,
+            )
+          }
+          highlightedBoundary={
+            floorBoundaryHighlight?.revision === baseRevision &&
+            floorBoundaryHighlight.page === Number(page)
+              ? floorBoundaryHighlight
+              : null
+          }
+          onHighlightBoundary={(edge) =>
+            setFloorBoundaryHighlight(
+              edge ? { ...edge, revision: baseRevision, page: Number(page) } : null,
             )
           }
         />
