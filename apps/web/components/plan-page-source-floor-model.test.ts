@@ -509,6 +509,38 @@ describe('source reference parsing and lossless whole-ring draft copy', () => {
     expect(copy).not.toHaveProperty('draft.sourceTopology.openingInspection')
   })
 
+  it('keeps a painted-over contact unresolved when validating a source response', () => {
+    const { report, preview } = openingReference()
+    const target = report.openingInspection?.targets[0]
+    if (!target) throw new Error('Missing opening fixture')
+    target.visibility = {
+      status: 'held',
+      reason: 'later-paint-may-cover-source-span',
+      sourceRef: { ...target.sourceRef },
+      blockerOperations: [30],
+    }
+    target.independentVisibility = []
+    target.status = 'unresolved'
+    expect(sourceFloorReferenceFromResponse(report, preview, 'b'.repeat(64))).toEqual(report)
+    target.status = 'matched'
+    expect(sourceFloorReferenceFromResponse(report, preview, 'b'.repeat(64))).toBeNull()
+  })
+
+  it('validates joined panel contacts as diagnostics without copying physical topology', () => {
+    const { report, preview } = openingReference()
+    const target = report.openingInspection?.targets[0]
+    if (!target) throw new Error('Missing opening fixture')
+    target.kind = 'joined-panel-end'
+    target.id = `${target.objectId}:${target.kind}:${target.sourceRef.segmentIndex}`
+    target.frameInteriorSide = null
+    target.sourceEndStatus = 'matched'
+    target.laterPaintCount = 0
+    expect(sourceFloorReferenceFromResponse(report, preview, 'b'.repeat(64))).toEqual(report)
+    expect(sourceFloorDraft(report.floors[0]).kind).toBe('candidate')
+    target.frameInteriorSide = 'left'
+    expect(sourceFloorReferenceFromResponse(report, preview, 'b'.repeat(64))).toBeNull()
+  })
+
   it.each([
     'floor',
     'ring',

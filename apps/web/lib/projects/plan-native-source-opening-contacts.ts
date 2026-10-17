@@ -13,7 +13,7 @@ import type { NativePageSegment } from './plan-pdf-opening-endpoint'
 export type SourceOpeningTarget = {
   id: string
   objectId: string
-  kind: 'frame-side' | 'frame-jamb' | 'panel-end'
+  kind: 'frame-side' | 'frame-jamb' | 'panel-end' | 'joined-panel-end'
   sourceRef: { operationIndex: number; subpathIndex: number; segmentIndex: number }
   startKey: string
   endKey: string
@@ -79,8 +79,12 @@ export function nativeSourceOpeningContacts(input: Input) {
     return finish('source-boundary-inspection-unavailable')
   const frames = nativeOpeningFrameCandidates(input)
   const panels = nativeFilledPanelJambContacts(input)
-  if (frames.refusalReason || panels.refusalReason)
-    return finish(frames.refusalReason ?? panels.refusalReason)
+  const joinedPanels = nativeFilledPanelJambContacts({
+    ...input,
+    contactMode: 'exact-joined-endcaps',
+  })
+  if (frames.refusalReason || panels.refusalReason || joinedPanels.refusalReason)
+    return finish(frames.refusalReason ?? panels.refusalReason ?? joinedPanels.refusalReason)
   const exact = nativeFaceRationalPredicates()
   const visibility = input.includeSpanVisibility
     ? createNativeSourceSpanVisibility(input.work)
@@ -180,11 +184,17 @@ export function nativeSourceOpeningContacts(input: Input) {
       target.contacts.some((contact) => contact.regionSide === frameInteriorSide)
     target.coverage = complete ? 'complete' : target.contacts.length ? 'partial' : 'unproved'
     const endHeld =
-      kind === 'panel-end' && sourceEndStatus !== 'matched' && target.contacts.length > 0
+      (kind === 'panel-end' || kind === 'joined-panel-end') &&
+      sourceEndStatus !== 'matched' &&
+      target.contacts.length > 0
+    const visibilityHeld =
+      target.contacts.length > 0 &&
+      (target.visibility?.status === 'held' ||
+        target.independentVisibility?.some((source) => source.visibility.status === 'held'))
     target.status =
       competing || (target.contacts.length > 0 && sourceEndStatus === 'ambiguous')
         ? 'ambiguous'
-        : sameInterior || endHeld
+        : sameInterior || endHeld || visibilityHeld
           ? 'unresolved'
           : complete
             ? 'matched'
@@ -219,6 +229,19 @@ export function nativeSourceOpeningContacts(input: Input) {
         append(
           panel.panelId,
           'panel-end',
+          end.profileEdge,
+          null,
+          end.sourceEdges,
+          end.status,
+          panel.omittedInkCount,
+          panel.laterPaintCount,
+        )
+    }
+    for (const panel of joinedPanels.panels) {
+      for (const end of panel.ends)
+        append(
+          panel.panelId,
+          'joined-panel-end',
           end.profileEdge,
           null,
           end.sourceEdges,

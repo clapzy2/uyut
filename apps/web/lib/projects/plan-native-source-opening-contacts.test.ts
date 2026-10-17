@@ -109,6 +109,57 @@ describe('fresh source rings and logical opening contacts', () => {
     ).toBe(true)
   })
 
+  it('holds a matching frame side when later paint may hide its source stroke', () => {
+    const fixture = input()
+    frame(fixture, 120, 220, 90, 100, 200)
+    for (const path of fixture.work.paths) {
+      if (path.operationIndex === 201 || path.operationIndex === 202) {
+        path.operationIndex -= 3
+      }
+    }
+    const checkedInput = { ...fixture, includeSpanVisibility: true }
+    fixture.work.paintBounds?.events.push(
+      ...fixture.work.paths
+        .filter((path) => path.operationIndex >= 198)
+        .map((path) => ({
+          operationIndex: path.operationIndex,
+          kind: 'vector' as const,
+          subpathCount: 1,
+          bounds: {
+            left: Math.min(...path.points.map((point) => point.x)),
+            top: Math.min(...path.points.map((point) => point.y)),
+            right: Math.max(...path.points.map((point) => point.x)),
+            bottom: Math.max(...path.points.map((point) => point.y)),
+          },
+          reason: null,
+        })),
+    )
+    const visible = selectedSide(nativeSourceOpeningContacts(checkedInput))
+    expect(visible).toMatchObject({
+      status: 'matched',
+      coverage: 'complete',
+      visibility: { status: 'unoccluded' },
+    })
+
+    fixture.work.paintBounds?.events.push({
+      operationIndex: 300,
+      kind: 'text',
+      bounds: { left: 150, top: 98, right: 160, bottom: 102 },
+      reason: null,
+    })
+    const held = nativeSourceOpeningContacts(checkedInput)
+    expect(selectedSide(held)).toMatchObject({
+      status: 'unresolved',
+      coverage: 'complete',
+      visibility: {
+        status: 'held',
+        reason: 'later-paint-may-cover-source-span',
+        blockerOperations: [300],
+      },
+    })
+    expectNoPhysicalAuthority(held)
+  })
+
   it('keeps a rational clipped outer contact partial through JSON roundtrip', () => {
     const fixture = input()
     paint(fixture, 30, [
@@ -226,6 +277,38 @@ describe('fresh source rings and logical opening contacts', () => {
       sourceEndStatus: 'ambiguous',
       status: 'ambiguous',
       coverage: 'complete',
+    })
+    expectNoPhysicalAuthority(result)
+  })
+
+  it('shows exact-joined panel ends separately from overlapping profiles', () => {
+    const fixture = input()
+    paint(fixture, 1, rectangle(300, 200, 400, 210))
+    paint(fixture, 2, rectangle(290, 200, 300, 210))
+    paint(fixture, 3, rectangle(400, 200, 410, 210))
+    fixture.work.paths.push(
+      ...[300, 400].map((x, index) => ({
+        operationIndex: 4 + index,
+        subpathIndex: 0,
+        paint: 'stroke' as const,
+        closed: false,
+        points: [
+          { x, y: 190 },
+          { x, y: 220 },
+        ],
+      })),
+    )
+    expect(nativeFilledPanelJambContacts(fixture).panels).toEqual([])
+    const result = nativeSourceOpeningContacts(fixture)
+    const joined = result.openingInspection.targets.filter(
+      (target) => target.kind === 'joined-panel-end',
+    )
+    expect(joined).toHaveLength(2)
+    expect(joined.find((target) => target.contacts.length > 0)).toMatchObject({
+      sourceEndStatus: 'matched',
+      status: 'matched',
+      coverage: 'complete',
+      independentSourceRefs: [{ operationIndex: 4, subpathIndex: 0, segmentIndex: 0 }],
     })
     expectNoPhysicalAuthority(result)
   })
