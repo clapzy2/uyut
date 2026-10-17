@@ -119,6 +119,7 @@ export function PlanPageSourceFloorControls({
     'frame-side': 'Сторона рамки',
     'frame-jamb': 'Торец рамки',
     'panel-end': 'Конец профиля',
+    'joined-panel-end': 'Торец составной панели',
   }
   const roleLabels = {
     'wall-face': 'Заявлена грань стены',

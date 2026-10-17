@@ -158,7 +158,7 @@ const openingInspection = z.strictObject({
       z.strictObject({
         id: z.string().min(1).max(200),
         objectId: z.string().min(1).max(128),
-        kind: z.enum(['frame-side', 'frame-jamb', 'panel-end']),
+        kind: z.enum(['frame-side', 'frame-jamb', 'panel-end', 'joined-panel-end']),
         sourceRef,
         startKey: exactKey,
         endKey: exactKey,
@@ -551,7 +551,7 @@ export function sourceFloorReferenceFromResponse(
         targetIds.has(target.id) ||
         target.id !== `${target.objectId}:${target.kind}:${target.sourceRef.segmentIndex}` ||
         !exact.sharedSpan(target.startKey, target.endKey, target.startKey, target.endKey) ||
-        (target.kind === 'panel-end'
+        (target.kind === 'panel-end' || target.kind === 'joined-panel-end'
           ? target.frameInteriorSide !== null ||
             target.sourceEndStatus === null ||
             target.laterPaintCount === null
@@ -623,13 +623,17 @@ export function sourceFloorReferenceFromResponse(
         target.kind === 'frame-side' &&
         target.contacts.some((contact) => contact.regionSide === target.frameInteriorSide)
       const endHeld =
-        target.kind === 'panel-end' &&
+        (target.kind === 'panel-end' || target.kind === 'joined-panel-end') &&
         target.sourceEndStatus !== 'matched' &&
         target.contacts.length > 0
+      const visibilityHeld =
+        target.contacts.length > 0 &&
+        (target.visibility?.status === 'held' ||
+          target.independentVisibility?.some((source) => source.visibility.status === 'held'))
       const status =
         competing || (target.contacts.length > 0 && target.sourceEndStatus === 'ambiguous')
           ? 'ambiguous'
-          : sameInterior || endHeld
+          : sameInterior || endHeld || visibilityHeld
             ? 'unresolved'
             : complete
               ? 'matched'

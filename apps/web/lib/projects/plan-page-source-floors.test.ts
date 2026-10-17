@@ -121,6 +121,26 @@ describe('fresh raw source floor reference for the contour editor', () => {
         },
       })
       const floor = result.floors[0]
+      expect(result.openingInspection?.status).toBe('checked')
+      expect(
+        result.openingInspection?.targets.filter((target) => target.kind === 'joined-panel-end'),
+      ).toHaveLength(24)
+      expect(
+        result.openingInspection?.targets
+          .filter((target) => target.objectId === 'native-filled-panel-9379:0')
+          .map((target) => target.independentSourceRefs[0]?.operationIndex),
+      ).toEqual([9436, 9460])
+      expect(
+        result.openingInspection?.targets.every(
+          (target) =>
+            target.contacts.length === 0 ||
+            (target.visibility?.status === 'unoccluded' &&
+              target.independentVisibility?.every(
+                (source) => source.visibility.status === 'unoccluded',
+              )) ||
+            target.status !== 'matched',
+        ),
+      ).toBe(true)
       expect(result.status).toBe('checked')
       expect(floor?.materialSupports?.spans).toHaveLength(17)
       expect(
