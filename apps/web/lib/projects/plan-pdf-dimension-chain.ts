@@ -550,8 +550,9 @@ export function createPdfNativePageDimensionChainVerifier(
   work: PdfLinework,
   source: PdfPlanSource,
   captionContext?: NativeDimensionCaptionContext,
+  spend: (count?: number) => void = () => {},
 ) {
-  return nativePageChainVerifier(work, source, captionContext, new Map())
+  return nativePageChainVerifier(work, source, captionContext, new Map(), spend)
 }
 
 function nativePageChainVerifier(
@@ -559,6 +560,7 @@ function nativePageChainVerifier(
   source: PdfPlanSource,
   captionContext: NativeDimensionCaptionContext | undefined,
   spans: Map<DimensionAxis, NativeDimensionSpan[] | undefined>,
+  spend: (count?: number) => void = () => {},
 ) {
   const matchers = new Map<DimensionAxis, (label: NativeLabel) => NativeCaptionMatch>()
   return (labels: readonly NativeLabel[], totalMm: number, axis: DimensionAxis) => {
@@ -572,7 +574,13 @@ function nativePageChainVerifier(
       totalMm,
       axis,
       () => {
-        if (!spans.has(axis)) spans.set(axis, nativeDimensionSpans(work, axis))
+        if (!spans.has(axis)) {
+          spend(
+            work.paths.length * 8 +
+              work.paths.reduce((sum, path) => sum + path.points.length * 2, 0),
+          )
+          spans.set(axis, nativeDimensionSpans(work, axis, false, spend))
+        }
         return spans.get(axis)
       },
       captionContext
@@ -585,6 +593,7 @@ function nativePageChainVerifier(
             return matcher
           }
         : undefined,
+      spend,
     )
   }
 }
@@ -755,6 +764,7 @@ function nativePageDimensionChain(
   axis: DimensionAxis,
   readSpans = () => nativeDimensionSpans(work, axis),
   readCaptionMatcher?: (spans: NativeDimensionSpan[]) => (label: NativeLabel) => NativeCaptionMatch,
+  spend: (count?: number) => void = () => {},
 ): PdfNativePageDimensionChain<DimensionAxis> {
   const fail = (
     reason: string,
@@ -793,19 +803,22 @@ function nativePageDimensionChain(
   const selected: typeof spans = []
   const sortedLabels = [...labels].sort((a, b) => along(a) - along(b))
   for (const label of sortedLabels) {
+    spend()
     let span: NativeDimensionSpan | undefined
     if (captionMatcher) {
       const match = captionMatcher(label)
       if (match.status !== 'candidate') return fail(match.reason, match.status)
       span = match.span
     } else {
-      const matching = spans.filter(
-        (span) =>
+      const matching = spans.filter((span) => {
+        spend()
+        return (
           along(label) > along(span.start) &&
           along(label) < along(span.end) &&
           (across(span.start) - across(label)) * acrossScale >= 0 &&
-          (across(span.start) - across(label)) * acrossScale <= 4,
-      )
+          (across(span.start) - across(label)) * acrossScale <= 4
+        )
+      })
       if (matching.length !== 1)
         return fail(
           matching.length > 1 ? 'multiple-dimension-lines' : 'no-connected-dimension-line',

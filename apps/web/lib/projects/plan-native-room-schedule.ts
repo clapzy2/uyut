@@ -243,8 +243,16 @@ export function nativeRoomScheduleEvidence(input: {
     string,
     { top: number; bottom: number; columns: Map<number, NativePageSegment[]> }
   >()
-  const verticalLines = continuousGridLines(eligible, true)
-  const horizontalLines = continuousGridLines(eligible, false)
+  // Only strokes spanning the known header can belong to this three-column grid.
+  // Keep all raw segments for the later cell-ambiguity check, but do not let an
+  // unrelated dense wall hatch exhaust the table search or its per-line limit.
+  const outerHeaderBounds = boundsOf(outerHeadings.map((label) => label.pagePoint as PagePoint))
+  const verticalLines = continuousGridLines(eligible, true).filter(
+    (line) => line.start < outerHeaderBounds.top && line.end > outerHeaderBounds.bottom,
+  )
+  const horizontalLines = continuousGridLines(eligible, false).filter(
+    (line) => line.start < outerHeaderBounds.left && line.end > outerHeaderBounds.right,
+  )
   if ([...verticalLines, ...horizontalLines].some((line) => line.edges.length > 100))
     return finish('native-table-work-limit')
   for (const line of verticalLines) {

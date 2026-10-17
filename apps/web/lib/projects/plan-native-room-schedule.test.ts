@@ -264,6 +264,71 @@ describe('native room schedule documentary evidence', () => {
     expect(result.closesFloorBoundary).toBe(false)
     expect(input).toEqual(before)
   })
+  it.each([false, true])(
+    'scopes a segmented five-room table around unrelated dense hatch, broken divider=%s',
+    (brokenDivider) => {
+      const input = fixture({ count: 5, legacy: true, grid: false })
+      const names = ['Прихожая', 'Кухня', 'Детская', 'Жилая комната', 'Балкон']
+      const areas = ['7,99', '4,64', '9,22', '17,86', '2,54']
+      for (let index = 0; index < 5; index++) {
+        const number = labelOf(input, String(index + 1))
+        const row = input.native.labels.filter(
+          (label) => label.pagePoint?.y === number.pagePoint?.y,
+        )
+        const name = row.find((label) => label.pagePoint?.x === 150)
+        const area = row.find((label) => label.pagePoint?.x === 305)
+        if (!name || !area) throw new Error('Missing documentary row')
+        name.name = names[index] as string
+        area.name = areas[index] as string
+      }
+      input.native.labels = input.native.labels.filter((label) => label.name !== 'Общая площадь')
+      labelOf(input, '74,77').name = '42,25 м²'
+      const rows = [100, 120, 130, 140, 150, 160, 170, 180]
+      const columns = [100, 140, 300, 350]
+      for (let row = 0; row < rows.length - 1; row++) {
+        for (const x of columns) {
+          if (brokenDivider && x === 140 && row === 2) continue
+          addLine(input, { x, y: rows[row] as number }, { x, y: rows[row + 1] as number })
+        }
+      }
+      for (const y of rows) {
+        for (let column = 0; column < columns.length - 1; column++)
+          addLine(
+            input,
+            { x: columns[column] as number, y },
+            { x: columns[column + 1] as number, y },
+          )
+      }
+      // Like DECO ART, independently painted hatch outside the schedule contains
+      // more than one hundred exactly connected source strokes on a single line.
+      for (let index = 0; index < 150; index++) {
+        addLine(input, { x: 400 + index, y: 700 }, { x: 401 + index, y: 700 })
+        addLine(input, { x: 700, y: 400 + index }, { x: 700, y: 401 + index })
+      }
+      if (brokenDivider) {
+        expectHeld(input, 'unsupported-or-ambiguous-room-table')
+        return
+      }
+      const before = structuredClone(input)
+      const result = nativeRoomScheduleEvidence(input)
+      expect(result.status).toBe('draft')
+      expect(result.layoutBasis).toBe('exact-native-grid')
+      expect(result.rows.map((row) => [row.sourceNumber, row.name, row.documentaryAreaM2])).toEqual(
+        [
+          [1, 'Прихожая', 7.99],
+          [2, 'Кухня', 4.64],
+          [3, 'Детская', 9.22],
+          [4, 'Жилая комната', 17.86],
+          [5, 'Балкон', 2.54],
+        ],
+      )
+      expect(result.tableEdges).toHaveLength(52)
+      expect(result.tableEdges.every((edge) => edge.start.x < 400 && edge.end.x < 400)).toBe(true)
+      expect(result.roomOwnershipConfirmed).toBe(false)
+      expect(result.closesFloorBoundary).toBe(false)
+      expect(input).toEqual(before)
+    },
+  )
   it('reads a room grid when outer rails continue through a title band', () => {
     const input = titledScheduleFixture()
     const before = structuredClone(input)
@@ -675,5 +740,10 @@ describe('native room schedule documentary evidence', () => {
         addLine(input, { x, y: 50 + index / 1000 }, { x, y: 170 + index / 1000 })
     }
     expectHeld(input, 'native-table-work-limit')
+  })
+  it('keeps the global native path cap even when excessive strokes are outside the table', () => {
+    const input = fixture()
+    while (input.work.paths.length < 5001) addLine(input, { x: 700, y: 700 }, { x: 701, y: 701 })
+    expectHeld(input, 'incomplete-native-layer')
   })
 })
