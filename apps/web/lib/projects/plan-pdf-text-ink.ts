@@ -521,6 +521,13 @@ export function nativeNumericTextInk(input: {
   }
   const selectedLiteralList = [...selectedLiterals, ...ownerLiterals]
   const ownerLiteralList = [...ownerLiterals]
+  // A selected threshold suffix may be split into separate source text objects.
+  // It is an owner only for reconstructing its own exact source literal; it
+  // cannot claim or suppress other selected text occurrences.
+  const splitSuffixLiterals = [...selectedLiterals].filter((literal) =>
+    /^=\s*\d{1,4}\s*мм$/iu.test(literal),
+  )
+  const sourceOwnerLiteralList = [...ownerLiteralList, ...splitSuffixLiterals]
   const resetNoteLiterals = selectedLiteralList.filter((literal) =>
     sourceResetNoteLiteral.test(literal),
   )
@@ -529,7 +536,7 @@ export function nativeNumericTextInk(input: {
   const selectsLiteral = (literal: string) =>
     selectedIndexes === undefined
       ? nativeDimensionCaptionMillimetres(literal.trim()) !== undefined
-      : selectedLiterals.has(literal.trim())
+      : selectedLiterals.has(literal)
   const selectsFragment = (literal: string) =>
     selectsLiteral(literal) ||
     ((selectedIndexes !== undefined || ownerLiterals.size > 0) &&
@@ -825,7 +832,7 @@ export function nativeNumericTextInk(input: {
       }
       const numericLiteral = selectsDimension(literal.replace(/\u00a0/g, ' '))
       const normalizedLiteral = literal.replace(/\u00a0/g, ' ')
-      const ownerFragment = ownerLiteralList.some((owner) => {
+      const ownerFragment = sourceOwnerLiteralList.some((owner) => {
         work += owner.length + normalizedLiteral.length
         return work <= MAX_WORK && owner.includes(normalizedLiteral)
       })
@@ -1120,10 +1127,13 @@ export function nativeNumericTextInk(input: {
         const run = runs[next] as Run
         if (++work > MAX_WORK) return fail('text-ink-budget-exceeded')
         const previous = runs[next - 1] as Run
-        const sourceOwner = ownerLiteralList.some((owner) => {
+        const sourceOwner = sourceOwnerLiteralList.some((owner) => {
           work += owner.length + group.text.length
           return work <= MAX_WORK && owner.startsWith(group.text)
         })
+        const splitSuffixOwner = splitSuffixLiterals.some((literal) =>
+          literal.startsWith(group.text),
+        )
         const contiguous = run.transform.every(
           (value, index) =>
             Math.abs(value - (previous.endTransform[index] as number)) <= ARITHMETIC_EPSILON,
@@ -1139,7 +1149,9 @@ export function nativeNumericTextInk(input: {
             name !== 'setCharSpacing' &&
             !(
               (resetNote || sourceOwner) &&
-              (name === 'setTextMatrix' || (sourceOwner && name === 'moveText'))
+              (name === 'setTextMatrix' ||
+                (sourceOwner && name === 'moveText') ||
+                (splitSuffixOwner && (name === 'endText' || name === 'beginText')))
             )
           ) {
             continuation = false
@@ -1173,9 +1185,15 @@ export function nativeNumericTextInk(input: {
             first.ctm[1] !== 0 ||
             first.ctm[2] !== 0 ||
             first.ctm[0] <= 0 ||
-            first.ctm[3] <= 0 ||
-            first.textMatrix.slice(0, 4).some((value, index) => value !== IDENTITY[index]) ||
-            run.textMatrix.slice(0, 4).some((value, index) => value !== IDENTITY[index])
+            (splitSuffixOwner ? first.ctm[3] === 0 : first.ctm[3] <= 0) ||
+            first.textMatrix
+              .slice(0, 4)
+              .some(
+                (value, index) =>
+                  value !== (splitSuffixOwner ? run.textMatrix[index] : IDENTITY[index]),
+              ) ||
+            (!splitSuffixOwner &&
+              run.textMatrix.slice(0, 4).some((value, index) => value !== IDENTITY[index]))
           )
             break
           const gap =
@@ -1315,7 +1333,7 @@ export function nativeNumericTextInk(input: {
           b !== 0 ||
           c !== 0 ||
           a <= 0 ||
-          d <= 0 ||
+          (splitSuffixLiterals.includes(run.text) ? d === 0 : d <= 0) ||
           run.hScale !== 1 ||
           item.width <= 0
         )
@@ -1446,7 +1464,7 @@ export function nativeNumericTextInk(input: {
       quad: quad as Quad,
       baselineStart,
       baselineEnd,
-      ...(run.resetCaption
+      ...(run.resetCaption && !splitSuffixLiterals.includes(item.str)
         ? {
             sourceResetCaption: {
               shows: structuredClone(run.shows),
@@ -1462,7 +1480,7 @@ export function nativeNumericTextInk(input: {
       ...((run.sourceOperations.length > 1 ||
         unspacedSelectedFragment ||
         (selectsDimension(item.str) && (run.nonzeroSpacing || run.packedOrigin))) &&
-      !run.resetCaption
+      (!run.resetCaption || splitSuffixLiterals.includes(item.str))
         ? {
             sourceGroup: {
               operationIndexes: [...run.sourceOperations],
