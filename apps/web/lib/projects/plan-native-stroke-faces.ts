@@ -9,6 +9,11 @@ import { type NativePageSegment, nativeEdgeCrossing } from './plan-pdf-opening-e
 import { pdfPointInside, pdfPolygonIsValid } from './plan-pdf-room-binding'
 
 const key = (point: PagePoint) => `${point.x}:${point.y}`
+// A power-of-two scale changes only the binary exponent. On the validated
+// page range its cell indexes remain safe integers, without decimal bin rounding.
+const CUT_CELL_SCALE = 2 ** 29
+const cutCell = (point: PagePoint) =>
+  [Math.floor(point.x * CUT_CELL_SCALE), Math.floor(point.y * CUT_CELL_SCALE)] as const
 const cross = (a: PagePoint, b: PagePoint, p: PagePoint) => exactNativeOrientation(a, b, p) ?? NaN
 const contains = (segment: NativePageSegment, point: PagePoint) =>
   cross(segment.start, segment.end, point) === 0 &&
@@ -93,6 +98,19 @@ export function boundedNativeStrokeFaces(
         [key(segment.end), segment.end],
       ]),
   )
+  const cutCells = exact ? null : cuts.map(() => new Map<string, PagePoint[]>())
+  const indexCut = (index: number, point: PagePoint) => {
+    const cells = cutCells?.[index]
+    if (!cells) return
+    const [x, y] = cutCell(point)
+    const cellKey = `${x}:${y}`
+    const points = cells.get(cellKey)
+    if (points) points.push(point)
+    else cells.set(cellKey, [point])
+  }
+  if (cutCells)
+    for (const [index, points] of cuts.entries())
+      for (const point of points.values()) indexCut(index, point)
   const vertexKeys = new Map(
     segments
       .flatMap((segment) => [segment.start, segment.end])
@@ -176,18 +194,28 @@ export function boundedNativeStrokeFaces(
         vertexKeys.set(pointKey, rationalKey)
         // Check exact cuts too, even when they follow a computed intersection.
         // Refuse numerical ambiguity; never snap or silently merge vertices.
-        for (const index of [a.index, b.index])
-          if (!exact && !cuts[index]?.has(pointKey))
-            for (const existing of cuts[index]?.values() ?? []) {
-              if (--budget < 0) return fail('intersection-consistency-budget')
-              if (
-                key(existing) !== pointKey &&
-                Math.hypot(existing.x - point.x, existing.y - point.y) <= 1e-9
-              )
-                return fail('ambiguous-nearby-intersections', [left, right])
-            }
-        cuts[a.index]?.set(pointKey, point)
-        cuts[b.index]?.set(pointKey, point)
+        for (const index of [a.index, b.index]) {
+          if (cuts[index]?.has(pointKey)) continue
+          const cells = cutCells?.[index]
+          if (cells) {
+            const [x, y] = cutCell(point)
+            // Cells are wider than 1e-9. Include two neighbours in every
+            // direction conservatively; only the unchanged distance test can
+            // reject a cut. This index never snaps or merges source points.
+            for (let dx = -2; dx <= 2; dx++)
+              for (let dy = -2; dy <= 2; dy++)
+                for (const existing of cells.get(`${x + dx}:${y + dy}`) ?? []) {
+                  if (--budget < 0) return fail('intersection-consistency-budget')
+                  if (
+                    key(existing) !== pointKey &&
+                    Math.hypot(existing.x - point.x, existing.y - point.y) <= 1e-9
+                  )
+                    return fail('ambiguous-nearby-intersections', [left, right])
+                }
+          }
+          cuts[index]?.set(pointKey, point)
+          indexCut(index, point)
+        }
       }
     }
   }

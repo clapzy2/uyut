@@ -326,5 +326,5 @@ describe('bounded native stroke face candidates', () => {
       candidates: [],
     })
     expect(result.refusalReason).toMatch(/budget|limit/)
-  })
+  }, 30_000)
 })

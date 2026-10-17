@@ -14,6 +14,7 @@ import {
 import { automaticNativeRoomCandidates } from '../lib/projects/plan-native-room-candidates'
 import { nativeRoomNumberScheduleLinks } from '../lib/projects/plan-native-room-number-links'
 import { nativeRoomScheduleEvidence } from '../lib/projects/plan-native-room-schedule'
+import { nativeStrokeFaceCandidates } from '../lib/projects/plan-native-stroke-candidates'
 
 const [path, pageArgument = '1'] = process.argv.slice(2)
 const pageNumber = Number(pageArgument)
@@ -42,6 +43,7 @@ if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource) {
   const schedule = nativeRoomScheduleEvidence(input)
   const circles = nativeNumberCircleCandidates(input)
   const floors = nativeFloorCavityCandidates(input)
+  const strokeFaces = nativeStrokeFaceCandidates(input)
   const doors = nativeDoorSymbolCandidates(input)
   const source = { sha256, pdfPage: pageNumber, state: 'existing' as const }
   const bindings = nativeCaptionBindings({ ...input, source })
@@ -54,6 +56,10 @@ if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource) {
     JSON.stringify({
       ...base,
       nativePaths: page.linework.paths.length,
+      strokeFaces: {
+        refusalReason: strokeFaces.refusalReason,
+        candidates: strokeFaces.candidates.length,
+      },
       captionBindings: {
         status: bindings.status,
         refusalReason: bindings.refusalReason,

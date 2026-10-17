@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { boundedNativeStrokeFaces } from './plan-native-stroke-faces'
 import type { NativePageSegment } from './plan-pdf-opening-endpoint'
@@ -16,6 +20,54 @@ const segment = (
   end: { x: x2, y: y2 },
 })
 describe('computed bounded crossings and numerical ambiguity', () => {
+  const decoSource = fileURLToPath(
+    new URL('../../../../tmp/pdfs/deco-art-dvushka-source.pdf', import.meta.url),
+  )
+  it.skipIf(!existsSync(decoSource))(
+    'partitions the original DECO strokes without accepting physical floors',
+    async () => {
+      const body = await readFile(decoSource)
+      expect(createHash('sha256').update(body).digest('hex')).toBe(
+        'fee92486f301e8a40886914c74b9a83ce77747c6ee14dd4ee0a666dec4a647fd',
+      )
+      const { preparePlanPage } = await import('./plan-document')
+      const { nativeStrokeFaceCandidates } = await import('./plan-native-stroke-candidates')
+      const { nativeFloorCavityCandidates } = await import('./plan-native-floor-cavities')
+      const { nativePageSegments } = await import('./plan-pdf-opening-endpoint')
+      const page = await preparePlanPage(body, true, 3, true, true)
+      if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+        throw new Error('Missing original DECO source layers')
+      const input = {
+        native: page.nativeTextAnchors,
+        work: page.linework,
+        lineworkSource: page.lineworkRasterSource,
+      }
+      const result = nativeStrokeFaceCandidates(input)
+      expect(result.refusalReason).toBeNull()
+      expect(result.candidates).toHaveLength(24)
+      expect(result.semanticStatus).toBe('unclassified')
+      expect(result.intersections).toHaveLength(726)
+      const sources = new Map(
+        nativePageSegments(page.linework).map((edge) => [
+          `${edge.operationIndex}:${edge.subpathIndex}:${edge.segmentIndex}`,
+          edge,
+        ]),
+      )
+      for (const proof of result.intersections ?? [])
+        for (const source of proof.sourceRefs)
+          expect(
+            sources.get(`${source.operationIndex}:${source.subpathIndex}:${source.segmentIndex}`),
+          ).toEqual(source)
+      expect(nativeFloorCavityCandidates(input)).toMatchObject({
+        readyFor2D: false,
+        readyFor3D: false,
+        roomOwnershipConfirmed: false,
+        physicalPassagesAccepted: false,
+      })
+    },
+    30_000,
+  )
+
   const unrelatedRows = Array.from({ length: 720 }, (_, index) =>
     segment(index + 100, 0, 200 + index / 2, 1000, 200 + index / 2),
   )
@@ -56,6 +108,63 @@ describe('computed bounded crossings and numerical ambiguity', () => {
       faces: [],
       intersections: [],
     })
+  })
+
+  it('finds ambiguous cuts on opposite sides of a binary cell boundary', () => {
+    const first = 512 - 4e-10
+    const second = 512 + 4e-10
+    expect(Math.floor(first * 2 ** 29)).not.toBe(Math.floor(second * 2 ** 29))
+    const input = [
+      segment(0, 500, 100, 520, 100),
+      segment(1, first, 99, first, 101),
+      segment(2, second, 99, second, 101),
+    ]
+    for (const edges of [input, [...input].reverse()])
+      expect(boundedNativeStrokeFaces(edges)).toMatchObject({
+        refusalReason: 'ambiguous-nearby-intersections',
+        faces: [],
+        intersections: [],
+      })
+  })
+
+  it('does not reject distinct cuts merely because their cells are neighbours', () => {
+    const first = 512 - 6e-10
+    const second = 512 + 6e-10
+    expect(Math.hypot(second - first, 0)).toBeGreaterThan(1e-9)
+    expect(
+      boundedNativeStrokeFaces([
+        segment(0, 500, 100, 520, 100),
+        segment(1, first, 99, first, 101),
+        segment(2, second, 99, second, 101),
+      ]).refusalReason,
+    ).toBeNull()
+  })
+
+  it('checks many separated cuts without a quadratic scan of older cuts', () => {
+    const input = [
+      segment(0, 0, 100, 1000, 100),
+      ...Array.from({ length: 800 }, (_, index) =>
+        segment(index + 1, index + 100, 99, index + 100, 101),
+      ),
+    ]
+    expect(boundedNativeStrokeFaces(input)).toMatchObject({ refusalReason: null, faces: [] })
+  })
+
+  it('keeps the same simple faces and source supports as unindexed exact topology', () => {
+    const input = [
+      segment(0, 100, 100, 400, 100),
+      segment(1, 400, 100, 400, 400),
+      segment(2, 400, 400, 100, 400),
+      segment(3, 100, 400, 100, 100),
+      segment(4, 100, 250, 400, 250),
+      segment(5, 250, 100, 250, 400),
+    ]
+    const indexed = boundedNativeStrokeFaces(input)
+    const exact = boundedNativeStrokeFaces(input, 0, { topology: 'source-decimal-rational' })
+    expect(indexed.refusalReason).toBeNull()
+    expect(exact.refusalReason).toBeNull()
+    expect(indexed.faces).toEqual(exact.faces.map(({ exactPointKeys: _, ...face }) => face))
+    expect(indexed.faces).toHaveLength(4)
   })
 
   it('refuses distinct rational vertices that alias to one floating point coordinate', () => {
