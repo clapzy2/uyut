@@ -216,6 +216,41 @@ describe('source floor controls', () => {
     expect(onHighlightEdge).toHaveBeenCalledWith(undefined)
   })
 
+  it('shows competing nearby ink as a separate visual choice, never as accepted geometry', () => {
+    const onHighlightStroke = vi.fn()
+    const input = props({
+      highlightedEdge: { ringIndex: 0, edgeIndex: 1 },
+      highlightedEdgePoints: [
+        { x: 131.617, y: 137.776 },
+        { x: 131.617, y: 211.177 },
+      ],
+      onHighlightStroke,
+      nearbySourceEdges: {
+        status: 'checked',
+        candidates: [
+          {
+            segment: {
+              operationIndex: 6685,
+              subpathIndex: 0,
+              segmentIndex: 1,
+              start: { x: 131.617, y: 137.776 },
+              end: { x: 131.617, y: 211.177 },
+            },
+            gapPageUnits: 0.001,
+            overlapPageUnits: 73.401,
+          },
+        ],
+      },
+    })
+    const markup = html(input)
+    expect(markup).toContain('Штрихи рядом с выбранной гранью')
+    expect(markup).toContain('131.617')
+    expect(markup).toContain('Близость не исправляет расхождение')
+    expect(markup).not.toContain('Физическая грань подтверждена')
+    edgeButtons(PlanPageSourceFloorControls(input))[0]?.props.onClick()
+    expect(onHighlightStroke).toHaveBeenCalledWith('6685:0:1')
+  })
+
   it('keeps whole-source copy available when boundary inspection exceeds its budget', () => {
     const input = props({
       reference: {
