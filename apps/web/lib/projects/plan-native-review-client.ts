@@ -2339,6 +2339,126 @@ function isHeightObjects(value: unknown, packet: NativeReviewPacket): boolean {
   return seen.size === observations.size
 }
 
+function isHeightCallouts(value: unknown, packet: NativeReviewPacket): boolean {
+  if (value === undefined) return true
+  if (!isCandidateLayer(value)) return false
+  const report = value as NonNullable<NativeReviewPacket['heightCallouts']>
+  if (
+    !hasOnlyKeys(report, [
+      'status',
+      'refusalReason',
+      'candidates',
+      'textBlockOwnershipConfirmed',
+      'physicalObjectAccepted',
+      'mayTransfer2D3D',
+    ]) ||
+    report.textBlockOwnershipConfirmed !== false ||
+    report.physicalObjectAccepted !== false ||
+    report.mayTransfer2D3D !== false ||
+    report.candidates.length > 50
+  )
+    return false
+  const point = (value: unknown): value is { x: number; y: number } => {
+    if (!value || typeof value !== 'object' || !hasOnlyKeys(value, ['x', 'y'])) return false
+    const candidate = value as { x: number; y: number }
+    return [candidate.x, candidate.y].every(
+      (coordinate) => Number.isFinite(coordinate) && coordinate >= 0 && coordinate <= 1000,
+    )
+  }
+  const ref = (value: unknown, segment: boolean) => {
+    if (!value || typeof value !== 'object') return false
+    if (
+      !hasOnlyKeys(
+        value,
+        segment
+          ? ['operationIndex', 'subpathIndex', 'segmentIndex']
+          : ['operationIndex', 'subpathIndex'],
+      )
+    )
+      return false
+    const candidate = value as {
+      operationIndex: number
+      subpathIndex: number
+      segmentIndex?: number
+    }
+    return [
+      candidate.operationIndex,
+      candidate.subpathIndex,
+      ...(segment ? [candidate.segmentIndex] : []),
+    ].every((number) => Number.isSafeInteger(number) && (number as number) >= 0)
+  }
+  const heightIds = new Set(packet.heightObservations?.observations.map((row) => row.labelId))
+  const ids = new Set<string>()
+  return report.candidates.every((candidate) => {
+    if (
+      !candidate ||
+      !hasOnlyKeys(candidate, [
+        'id',
+        'stem',
+        'horizontal',
+        'dot',
+        'outline',
+        'calloutEnd',
+        'possibleTextLabelIds',
+        'heightCaptions',
+        'textBlockStatus',
+        'objectStatus',
+      ]) ||
+      !/^native-height-callout-\d+:\d+$/.test(candidate.id) ||
+      ids.has(candidate.id) ||
+      candidate.textBlockStatus !== 'unverified' ||
+      candidate.objectStatus !== 'unresolved' ||
+      !point(candidate.calloutEnd) ||
+      !candidate.stem ||
+      !hasOnlyKeys(candidate.stem, ['source', 'start', 'end']) ||
+      !candidate.horizontal ||
+      !hasOnlyKeys(candidate.horizontal, ['source', 'start', 'end']) ||
+      !ref(candidate.stem.source, true) ||
+      !ref(candidate.horizontal.source, true) ||
+      !point(candidate.stem.start) ||
+      !point(candidate.stem.end) ||
+      !point(candidate.horizontal.start) ||
+      !point(candidate.horizontal.end) ||
+      candidate.stem.start.x !== candidate.horizontal.start.x ||
+      candidate.stem.start.y !== candidate.horizontal.start.y ||
+      candidate.calloutEnd.x !== candidate.horizontal.end.x ||
+      candidate.calloutEnd.y !== candidate.horizontal.end.y ||
+      !candidate.dot ||
+      !hasOnlyKeys(candidate.dot, ['source', 'polygon']) ||
+      !ref(candidate.dot.source, false) ||
+      !Array.isArray(candidate.dot.polygon) ||
+      candidate.dot.polygon.length < 8 ||
+      candidate.dot.polygon.length > 32 ||
+      !candidate.dot.polygon.every(point) ||
+      !ref(candidate.outline, false) ||
+      !Array.isArray(candidate.possibleTextLabelIds) ||
+      candidate.possibleTextLabelIds.length > 25 ||
+      new Set(candidate.possibleTextLabelIds).size !== candidate.possibleTextLabelIds.length ||
+      !candidate.possibleTextLabelIds.every((id) => /^native-text-\d+$/.test(id)) ||
+      !Array.isArray(candidate.heightCaptions) ||
+      !candidate.heightCaptions.length ||
+      candidate.heightCaptions.length > 25 ||
+      new Set(candidate.heightCaptions.map((item) => item.labelId)).size !==
+        candidate.heightCaptions.length ||
+      candidate.heightCaptions.some(
+        (item) =>
+          !heightIds.has(item.labelId) ||
+          !candidate.possibleTextLabelIds.includes(item.labelId) ||
+          !Array.isArray(item.sourceOperations) ||
+          !item.sourceOperations.length ||
+          item.sourceOperations.length > 100 ||
+          new Set(item.sourceOperations).size !== item.sourceOperations.length ||
+          item.sourceOperations.some(
+            (operation) => !Number.isSafeInteger(operation) || operation < 0,
+          ),
+      )
+    )
+      return false
+    ids.add(candidate.id)
+    return true
+  })
+}
+
 function isRoomSchedule(value: unknown, packet: NativeReviewPacket): boolean {
   if (value === undefined) return true
   if (!value || typeof value !== 'object') return false
@@ -3200,6 +3320,7 @@ function isPacket(value: unknown, page: number, revision: string): value is Nati
     !isHeightObservations(packet.heightObservations, packet) ||
     !isRoomSchedule(packet.roomSchedule, packet) ||
     !isHeightObjects(packet.heightObjects, packet) ||
+    !isHeightCallouts(packet.heightCallouts, packet) ||
     !isDimensionTargets(packet.dimensionTargets, packet) ||
     !isDimensionStrokeContacts(packet.dimensionStrokeContacts, packet) ||
     !isSelectedDimensionBoundaries(packet.selectedDimensionBoundaries, packet) ||

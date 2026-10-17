@@ -7,6 +7,7 @@ import { nativeCompositeFrameEvidence } from '../lib/projects/plan-native-compos
 import { automaticNativeDimensionRoles } from '../lib/projects/plan-native-dimension-roles'
 import { nativeDoorSymbolCandidates } from '../lib/projects/plan-native-door-symbols'
 import { nativeFloorCavityCandidates } from '../lib/projects/plan-native-floor-cavities'
+import { nativeHeightCalloutCandidates } from '../lib/projects/plan-native-height-callouts'
 import { nativeHeightSourceLocations } from '../lib/projects/plan-native-height-locations'
 import { nativeHeightObservations } from '../lib/projects/plan-native-height-observations'
 import {
@@ -56,6 +57,7 @@ if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource) {
   })
   const heights = nativeHeightObservations({ ...input, source })
   const heightLocations = nativeHeightSourceLocations({ ...input, source })
+  const heightCallouts = nativeHeightCalloutCandidates({ ...input, source })
   console.log(
     JSON.stringify({
       ...base,
@@ -74,6 +76,22 @@ if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource) {
         locationRefusal: heightLocations.refusalReason,
         locations: heightLocations.observations,
         assignsGeometryHeights: heightLocations.assignsGeometryHeights,
+        callouts: {
+          refusalReason: heightCallouts.refusalReason,
+          candidates: heightCallouts.candidates.map((candidate) => ({
+            id: candidate.id,
+            sourceOperations: [
+              candidate.stem.source.operationIndex,
+              candidate.horizontal.source.operationIndex,
+              candidate.dot.source.operationIndex,
+              candidate.outline.operationIndex,
+            ],
+            possibleTextCount: candidate.possibleTextLabelIds.length,
+            verifiedCaptionCount: candidate.heightCaptions.length,
+            objectStatus: candidate.objectStatus,
+          })),
+          mayTransfer2D3D: heightCallouts.mayTransfer2D3D,
+        },
       },
       strokeFaces: {
         refusalReason: strokeFaces.refusalReason,

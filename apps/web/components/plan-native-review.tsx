@@ -1285,6 +1285,39 @@ function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
           </details>
         )
       ) : null}
+      {packet.heightCallouts ? (
+        <details className="text-ink-2">
+          <summary className="min-h-11 cursor-pointer py-3">
+            Исходные выноски высот: {packet.heightCallouts.candidates.length}
+          </summary>
+          {packet.heightCallouts.status === 'unresolved' ? (
+            <p>Проверка выносок удержана: {packet.heightCallouts.refusalReason}.</p>
+          ) : (
+            <>
+              <p>
+                Показаны штрихи и точки выносок из PDF. Подписи рядом с ними остаются подсказками:
+                связь с конкретным проёмом и общий уровень отсчёта не установлены. Числа не
+                переносятся в 2D/3D.
+              </p>
+              <ul className="mt-3 space-y-2">
+                {packet.heightCallouts.candidates.map((candidate) => (
+                  <li key={candidate.id} className="break-words">
+                    {candidate.id}: линия {candidate.stem.source.operationIndex}/
+                    {candidate.stem.source.subpathIndex}/{candidate.stem.source.segmentIndex} +{' '}
+                    {candidate.horizontal.source.operationIndex}/
+                    {candidate.horizontal.source.subpathIndex}/
+                    {candidate.horizontal.source.segmentIndex}; точка{' '}
+                    {candidate.dot.source.operationIndex}/{candidate.dot.source.subpathIndex},
+                    обводка {candidate.outline.operationIndex}/{candidate.outline.subpathIndex}.
+                    Проверенных буквальных подписей поблизости: {candidate.heightCaptions.length}.
+                    принадлежность строк выноске не установлена.
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </details>
+      ) : null}
       {dimensions?.status === 'draft' || heights?.status === 'draft' ? (
         <details className="text-ink-2">
           <summary className="min-h-11 cursor-pointer py-3">
@@ -1774,6 +1807,7 @@ export function NativeReviewResult({
   const [showSavedFloors, setShowSavedFloors] = useState(false)
   const [showFloorCavities, setShowFloorCavities] = useState(false)
   const [showSplitHeightHints, setShowSplitHeightHints] = useState(true)
+  const [showHeightCallouts, setShowHeightCallouts] = useState(true)
   const [showOrderedPaint, setShowOrderedPaint] = useState(false)
   const [fullSize, setFullSize] = useState(false)
   const visible = packet.faces.filter(
@@ -2044,6 +2078,16 @@ export function NativeReviewResult({
             onChange={(event) => setShowSplitHeightHints(event.target.checked)}
           />
           Показать три фрагмента возможной подписи порога на исходнике — не обмер
+        </label>
+      ) : null}
+      {packet.heightCallouts?.status === 'draft' && packet.heightCallouts.candidates.length ? (
+        <label className="flex min-h-11 items-center gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            checked={showHeightCallouts}
+            onChange={(event) => setShowHeightCallouts(event.target.checked)}
+          />
+          Показать исходные линии выносок высот — без назначения проёма
         </label>
       ) : null}
       <Button
@@ -2388,6 +2432,32 @@ export function NativeReviewResult({
                 )),
               )
             : null}
+          {showHeightCallouts && packet.heightCallouts?.status === 'draft' ? (
+            <g fill="none" stroke="#0369a1" strokeWidth="2" vectorEffect="non-scaling-stroke">
+              {packet.heightCallouts.candidates.map((candidate) => (
+                <g key={candidate.id}>
+                  <polyline
+                    points={[candidate.stem.end, candidate.stem.start, candidate.horizontal.end]
+                      .map(
+                        (point) =>
+                          `${(point.x * packet.image.width) / 1000},${(point.y * packet.image.height) / 1000}`,
+                      )
+                      .join(' ')}
+                    strokeDasharray="6 3"
+                  >
+                    <title>{`${candidate.id}: исходная выноска. Связь с проёмом не подтверждена.`}</title>
+                  </polyline>
+                  <circle
+                    cx={(candidate.stem.end.x * packet.image.width) / 1000}
+                    cy={(candidate.stem.end.y * packet.image.height) / 1000}
+                    r="5"
+                    fill="#0369a1"
+                    fillOpacity="0.2"
+                  />
+                </g>
+              ))}
+            </g>
+          ) : null}
         </svg>
       </section>
       <p className="text-[13px] leading-relaxed text-ink-2">

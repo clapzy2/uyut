@@ -19,6 +19,10 @@ import {
   nativeFloorOpeningSides,
 } from './plan-native-floor-opening-sides'
 import {
+  type NativeHeightCalloutCandidate,
+  nativeHeightCalloutCandidates,
+} from './plan-native-height-callouts'
+import {
   type NativeHeightFloorReferences,
   nativeHeightFloorReferenceEvidence,
 } from './plan-native-height-floor-reference'
@@ -256,6 +260,14 @@ export type NativeReviewPacket = {
     >
   }
   heightObjects?: NativeHeightObjectReport
+  heightCallouts?: {
+    status: 'draft' | 'unresolved'
+    refusalReason: string | null
+    candidates: NativeHeightCalloutCandidate[]
+    textBlockOwnershipConfirmed: false
+    physicalObjectAccepted: false
+    mayTransfer2D3D: false
+  }
   heightFloorReferences?: NativeHeightFloorReferences
   savedFloorHeights?: {
     status: 'not-saved' | 'refused' | 'checked'
@@ -561,6 +573,15 @@ export function nativeReviewPacket(input: {
     declarations: heightObjects.declarations,
     unsupportedDeclarations: heightObjects.unsupportedDeclarations,
     bindings: heightObjects.bindings,
+  }
+  const heightCallouts = nativeHeightCalloutCandidates({ ...common, source })
+  packet.heightCallouts = {
+    status: heightCallouts.status,
+    refusalReason: heightCallouts.refusalReason,
+    candidates: heightCallouts.candidates,
+    textBlockOwnershipConfirmed: false,
+    physicalObjectAccepted: false,
+    mayTransfer2D3D: false,
   }
   const connections = nativeOpeningSourceLinks(common)
   const floor = nativeFloorCavityCandidates(common)

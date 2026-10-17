@@ -24,6 +24,15 @@ const sourceRef = z.strictObject({
   subpathIndex: z.number().int().min(0).max(3000),
   segmentIndex: z.number().int().min(0).max(20000),
 })
+type SourceRef = z.infer<typeof sourceRef>
+const compareSourceRef = (first: SourceRef, second: SourceRef) =>
+  first.operationIndex === second.operationIndex &&
+  first.subpathIndex === second.subpathIndex &&
+  first.segmentIndex === second.segmentIndex
+const compareSourceRefOrder = (first: SourceRef, second: SourceRef) =>
+  first.operationIndex - second.operationIndex ||
+  first.subpathIndex - second.subpathIndex ||
+  first.segmentIndex - second.segmentIndex
 const planSource = z.strictObject({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
   pdfPage: z.number().int().positive(),
@@ -47,6 +56,23 @@ const materialSupports = z.strictObject({
         start: point,
         end: point,
         strokeSegment: sourceRef,
+        classification: z
+          .strictObject({
+            status: z.literal('diagnostic'),
+            kind: z.enum(['framed-panel', 'unclassified-body']),
+            reason: z.enum([
+              'exact-joined-filled-panel',
+              'no-exact-joined-filled-panel',
+              'filled-panel-search-unavailable',
+            ]),
+            physicalBoundariesAccepted: z.literal(false),
+            profileId: z
+              .string()
+              .regex(/^native-filled-panel-\d+:\d+$/)
+              .nullable(),
+            sourceRefs: z.array(sourceRef).max(100),
+          })
+          .optional(),
         oppositeFace: z
           .strictObject({
             start: point,
@@ -344,6 +370,43 @@ export function sourceFloorReferenceFromResponse(
             opposite.nativeSegment.subpathIndex !== span.source.subpathIndex ||
             opposite.nativeSegment.segmentIndex === span.nativeSegment.segmentIndex ||
             opposite.strokeSegment.operationIndex <= span.source.operationIndex
+          )
+            return null
+        }
+        const classification = span.classification
+        if (classification) {
+          const framed = classification.kind === 'framed-panel'
+          const refs = classification.sourceRefs
+          const strokeRefs = [span.strokeSegment, ...(opposite ? [opposite.strokeSegment] : [])]
+          const fillRefs = refs.filter(
+            (ref) => !strokeRefs.some((stroke) => compareSourceRef(ref, stroke)),
+          )
+          const fillGroups = new Map<string, number[]>()
+          for (const ref of fillRefs) {
+            const key = `${ref.operationIndex}:${ref.subpathIndex}`
+            fillGroups.set(key, [...(fillGroups.get(key) ?? []), ref.segmentIndex])
+          }
+          const sourceBodyKey = `${span.source.operationIndex}:${span.source.subpathIndex}`
+          const profileBodyKey = classification.profileId?.slice('native-filled-panel-'.length)
+          if (
+            (framed &&
+              (classification.reason !== 'exact-joined-filled-panel' ||
+                !profileBodyKey ||
+                refs.length !== 12 + strokeRefs.length ||
+                !refs.some((ref) => compareSourceRef(ref, span.nativeSegment)) ||
+                strokeRefs.some((stroke) => !refs.some((ref) => compareSourceRef(ref, stroke))) ||
+                fillGroups.size !== 3 ||
+                !fillGroups.has(profileBodyKey) ||
+                !fillGroups.has(sourceBodyKey) ||
+                [...fillGroups.values()].some((segments) => segments.join(',') !== '0,1,2,3'))) ||
+            (!framed &&
+              (classification.reason === 'exact-joined-filled-panel' ||
+                classification.profileId !== null ||
+                refs.length !== 0)) ||
+            refs.some((ref, index) => {
+              const previous = refs[index - 1]
+              return previous !== undefined && compareSourceRefOrder(previous, ref) >= 0
+            })
           )
             return null
         }

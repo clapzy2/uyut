@@ -123,6 +123,30 @@ describe('source floor controls', () => {
     expect(markup).not.toContain('Стена подтверждена')
   })
 
+  it('explains a joined filled panel as a shape hint without accepting a wall or jamb', () => {
+    const value = materialReference()
+    const span = value.floors[0]?.materialSupports?.spans[0]
+    if (!span) throw new Error('Missing material span')
+    span.classification = {
+      status: 'diagnostic',
+      kind: 'framed-panel',
+      reason: 'exact-joined-filled-panel',
+      physicalBoundariesAccepted: false,
+      profileId: 'native-filled-panel-8881:0',
+      sourceRefs: Array.from({ length: 12 }, (_, segmentIndex) => ({
+        operationIndex: 8881,
+        subpathIndex: 0,
+        segmentIndex,
+      })),
+    }
+    const markup = html(
+      props({ reference: value, highlightedEdge: { ringIndex: 0, edgeIndex: 0 } }),
+    )
+    expect(markup).toContain('Составная залитая панель')
+    expect(markup).toContain('материал, физическая стена и косяк требуют проверки')
+    expect(markup).not.toContain('Стена подтверждена')
+  })
+
   it('does not show a material span as support for a different edge or a hole', () => {
     for (const highlightedEdge of [
       { ringIndex: 0, edgeIndex: 1 },

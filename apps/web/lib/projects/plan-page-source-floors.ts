@@ -1,5 +1,6 @@
-import type { PlanPageContours, PlanReading } from '@uyut/db'
+import type { PlanPageContours, PlanPageSegmentRef, PlanReading } from '@uyut/db'
 import { exactNativePointKey } from './plan-native-exact-intersections'
+import { type NativeFilledPanel, nativeFilledPanelCandidates } from './plan-native-filled-panels'
 import type { SourcePaintBoundarySupport } from './plan-native-painted-floor-boundaries'
 import type {
   nativePaintedFloorReview,
@@ -12,6 +13,22 @@ import {
 import type { PdfPlanSource } from './plan-pdf-room-binding'
 import { findPlanPageWallBodySupports, type PdfWallBodySupport } from './plan-pdf-wall-body-support'
 
+export type SourceMaterialClassification = {
+  status: 'diagnostic'
+  kind: 'framed-panel' | 'unclassified-body'
+  reason:
+    | 'exact-joined-filled-panel'
+    | 'no-exact-joined-filled-panel'
+    | 'filled-panel-search-unavailable'
+  physicalBoundariesAccepted: false
+  profileId: string | null
+  sourceRefs: PlanPageSegmentRef[]
+}
+
+export type SourceFloorMaterialSpan = PdfWallBodySupport & {
+  classification?: SourceMaterialClassification
+}
+
 export type SourceFloorMaterialSupports = {
   status: 'diagnostic' | 'held'
   semanticStatus: 'unclassified'
@@ -21,7 +38,56 @@ export type SourceFloorMaterialSupports = {
   reason: string | null
   /** The bounded legacy search does not certify a complete material inventory. */
   completeInventory: false
-  spans: PdfWallBodySupport[]
+  spans: SourceFloorMaterialSpan[]
+}
+
+function materialClassification(
+  span: PdfWallBodySupport,
+  panels: NativeFilledPanel[],
+  unavailable: boolean,
+): SourceMaterialClassification {
+  const matches = panels.filter((panel) =>
+    [panel.body, ...panel.caps].some(
+      (part) =>
+        part.operationIndex === span.source.operationIndex &&
+        part.subpathIndex === span.source.subpathIndex,
+    ),
+  )
+  const profile = matches.length === 1 ? matches[0] : undefined
+  if (!profile || unavailable)
+    return {
+      status: 'diagnostic',
+      kind: 'unclassified-body',
+      reason: unavailable ? 'filled-panel-search-unavailable' : 'no-exact-joined-filled-panel',
+      physicalBoundariesAccepted: false,
+      profileId: null,
+      sourceRefs: [],
+    }
+  const refs = [profile.body, ...profile.caps].flatMap((part) =>
+    Array.from({ length: 4 }, (_, segmentIndex) => ({
+      operationIndex: part.operationIndex,
+      subpathIndex: part.subpathIndex,
+      segmentIndex,
+    })),
+  )
+  refs.push(span.strokeSegment)
+  if (span.oppositeFace) refs.push(span.oppositeFace.strokeSegment)
+  const unique = new Map(
+    refs.map((ref) => [`${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`, ref]),
+  )
+  return {
+    status: 'diagnostic',
+    kind: 'framed-panel',
+    reason: 'exact-joined-filled-panel',
+    physicalBoundariesAccepted: false,
+    profileId: profile.id,
+    sourceRefs: [...unique.values()].sort(
+      (a, b) =>
+        a.operationIndex - b.operationIndex ||
+        a.subpathIndex - b.subpathIndex ||
+        a.segmentIndex - b.segmentIndex,
+    ),
+  }
 }
 
 export type SourceFloorReference = {
@@ -155,6 +221,10 @@ export function planPageSourceFloors(input: {
       ? []
       : findPlanPageWallBodySupports(input.evidence.work, contours)
     const outputLimit = supports.length > 1000
+    const profiles =
+      supports.length && !outputLimit
+        ? nativeFilledPanelCandidates({ ...input.evidence, contactMode: 'exact-joined-endcaps' })
+        : undefined
     for (const floor of report.floors) {
       const reason = floor.holes.length
         ? 'material-support-holes-not-supported'
@@ -173,7 +243,16 @@ export function planPageSourceFloors(input: {
         completeInventory: false,
         spans: reason
           ? []
-          : supports.filter((support) => support.contourKey === floor.sourceRoomKey),
+          : supports
+              .filter((support) => support.contourKey === floor.sourceRoomKey)
+              .map((support) => ({
+                ...support,
+                classification: materialClassification(
+                  support,
+                  profiles?.panels ?? [],
+                  !!profiles?.refusalReason,
+                ),
+              })),
       }
     }
     return report

@@ -59,6 +59,71 @@ const required = <T>(value: T | undefined): T => {
 }
 
 describe('filled convex quad source profiles', () => {
+  const joinedRun = (layer: PdfLinework) =>
+    nativeFilledPanelCandidates({
+      native,
+      work: layer,
+      lineworkSource: source,
+      contactMode: 'exact-joined-endcaps',
+    })
+
+  it('recognizes exact joined endcaps only through the explicit opt-in mode', () => {
+    const input = work([rectangle(1, 100, 200), rectangle(2, 90, 100), rectangle(3, 200, 210)])
+    const before = structuredClone(input)
+    expect(run(input).panels).toEqual([])
+    const result = joinedRun(input)
+    expect(result.basis).toBe('native-filled-quad-and-exact-joined-endcaps')
+    expect(result.panels).toHaveLength(1)
+    expect(result.panels[0]).toMatchObject({
+      body: input.paths[0],
+      caps: [input.paths[2], input.paths[1]],
+      physicalJambAccepted: false,
+      physicalPassageAccepted: false,
+      closesFloorBoundary: false,
+    })
+    expect(input).toEqual(before)
+  })
+
+  it('does not repair a gap, overlap, partial cap edge or same-side cap in joined mode', () => {
+    for (const cap of [
+      rectangle(2, 90, 100 - 1e-9),
+      rectangle(2, 90, 100 + 1e-9),
+      rectangle(2, 90, 100, 101, 110),
+      rectangle(2, 100, 110),
+    ]) {
+      const input = work([rectangle(1, 100, 200), cap, rectangle(3, 200, 210)])
+      expect(joinedRun(input).panels).toEqual([])
+    }
+  })
+
+  it('retains exact sheared joins and reversed source windings without assuming right angles', () => {
+    const input = work([rectangle(1, 100, 200), rectangle(2, 90, 100), rectangle(3, 200, 210)])
+    input.paths = input.paths.map((path) => ({
+      ...path,
+      points: path.points
+        .slice(0, -1)
+        .reverse()
+        .map(({ x, y }) => ({ x: x + y / 8, y })),
+    }))
+    expect(joinedRun(input).panels).toHaveLength(1)
+  })
+
+  it('holds competing exact cap sources instead of selecting one by paint colour', () => {
+    const input = work([
+      rectangle(1, 100, 200),
+      rectangle(2, 90, 100),
+      rectangle(3, 200, 210),
+      rectangle(4, 90, 100),
+    ])
+    required(input.paths[3]).fillColor = '#ffffff'
+    expect(joinedRun(input).panels).toEqual([])
+    expect(joinedRun(input).rejected).toContainEqual({
+      operationIndex: 1,
+      subpathIndex: 0,
+      reason: 'competing-filled-caps',
+    })
+  })
+
   it('retains untouched body, cap and short-edge references without semantic promotion', () => {
     const input = work(),
       result = run(input)
