@@ -342,6 +342,23 @@ export async function startManualPlanGeometry(
     if (project.planReading.geometry) {
       return { ok: false, error: '2D-схема уже создана. Обновите страницу.' }
     }
+    if (
+      input &&
+      typeof input === 'object' &&
+      (input as Record<string, unknown>).usePdfImage === true
+    ) {
+      const review = project.planReading.pageReview?.contours.source
+      if (!project.planUrl.toLowerCase().endsWith('.pdf') || !review) {
+        return { ok: false, error: 'Сначала выберите и сохраните исходный PDF-лист.' }
+      }
+      const object = await getObject(project.planUrl)
+      const sha256 = createHash('sha256').update(Buffer.from(object.body)).digest('hex')
+      if (sha256 !== review.sha256) throw new PlanEditConflictError()
+      geometry.manualPdfUnderlay = { sourceSha256: sha256, pdfPage: review.pdfPage }
+      geometry.warnings.push(
+        'Ручной чертёж по изображению PDF: исходная разметка сохранена отдельно и не подтверждает нанесённые вручную границы.',
+      )
+    }
 
     await repository.setPlanReading(
       userId,
@@ -389,16 +406,19 @@ export async function savePlanGeometry(
     }
     const submitted = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
     const pdf = project.planUrl?.toLowerCase().endsWith('.pdf') ?? false
-    // A scanned PDF is still an image source when its manual scheme has a reviewed
-    // image scale. A source-reviewed vector page must keep its server-owned floor.
+    // A manual image path must be explicitly started by the owner. Native PDF
+    // geometry retains its server-owned boundaries even if calibration is submitted.
     const scannedPdf =
-      pdf && before.source === 'manual' && !before.pdfCalibration && !project.planReading.pageReview
+      pdf &&
+      before.source === 'manual' &&
+      !before.pdfCalibration &&
+      (before.manualPdfUnderlay !== undefined || !project.planReading.pageReview)
     const raster = !before.pdfCalibration && (!pdf || scannedPdf)
     if (
       pdf &&
       before.source === 'manual' &&
       !before.pdfCalibration &&
-      !project.planReading.pageReview &&
+      scannedPdf &&
       !before.footprint &&
       submitted.footprint != null &&
       (submitted.imageCalibration === undefined
@@ -431,7 +451,10 @@ export async function savePlanGeometry(
       imageCalibration = rawCalibration
     }
     if (scannedPdf && imageCalibration) {
-      if (imageCalibration.pdfPage !== (project.planReading.sourcePage ?? 1)) {
+      if (
+        imageCalibration.pdfPage !==
+        (before.manualPdfUnderlay?.pdfPage ?? project.planReading.sourcePage ?? 1)
+      ) {
         return {
           ok: false,
           error: 'Калибровка изображения относится к другому PDF-листу или режиму разметки.',
@@ -439,7 +462,11 @@ export async function savePlanGeometry(
       }
       const object = await getObject(project.planUrl as string)
       const body = Buffer.from(object.body)
-      if (imageCalibration.sourceSha256 !== createHash('sha256').update(body).digest('hex')) {
+      const sha256 = createHash('sha256').update(body).digest('hex')
+      if (
+        imageCalibration.sourceSha256 !== sha256 ||
+        (before.manualPdfUnderlay && before.manualPdfUnderlay.sourceSha256 !== sha256)
+      ) {
         return {
           ok: false,
           error: 'Исходный PDF изменился. Откройте выбранный лист и привяжите масштаб заново.',
@@ -788,6 +815,7 @@ export async function savePlanGeometry(
         : {}),
       ...(manual ? { source: 'manual' as const } : {}),
       ...(imageCalibration ? { imageCalibration } : {}),
+      ...(before.manualPdfUnderlay ? { manualPdfUnderlay: before.manualPdfUnderlay } : {}),
       openings: checked.openings.map((opening) => {
         const submittedOpening = openingClearances.data.find((o) => o.id === opening.id)
         const clearance = submittedOpening?.clearance
@@ -969,7 +997,9 @@ export async function confirmPlanRooms(
           ...(room.widthCm === null ? {} : { widthCm: room.widthCm }),
           ...(room.depthCm === null ? {} : { depthCm: room.depthCm }),
           ...(room.areaM2 === null ? {} : { areaM2: room.areaM2 }),
-          ...(room.layoutNotes === undefined ? {} : { layoutNotes: room.layoutNotes }),
+          ...(room.layoutNotesReviewed === true && room.layoutNotes !== undefined
+            ? { layoutNotes: room.layoutNotes }
+            : {}),
         }
       }),
       readAt: project.planReading?.readAt ?? new Date().toISOString(),
@@ -1005,7 +1035,10 @@ export async function confirmPlanRooms(
               project.planReading?.rooms ?? [],
               Boolean(project.planReading?.confirmedAt),
             ),
-            ...(room.layoutNotes === undefined ? {} : { layoutNotes: room.layoutNotes }),
+            // Unreviewed AI observations must not replace the room's existing human notes.
+            ...(room.layoutNotesReviewed === true && room.layoutNotes !== undefined
+              ? { layoutNotes: room.layoutNotes }
+              : {}),
             ...(room.ceilingCm != null
               ? { ceilingCm: room.ceilingCm }
               : ceilingCm === null

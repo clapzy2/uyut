@@ -47,9 +47,11 @@ vi.mock('@uyut/ui', async (importOriginal) => {
 
 import { ManualPlanGeometryStart } from './manual-plan-geometry-start'
 
-function render() {
+function render(reviewedPdfPage?: number) {
   state.cursor = 0
-  return renderToStaticMarkup(createElement(ManualPlanGeometryStart, { projectId: 'project' }))
+  return renderToStaticMarkup(
+    createElement(ManualPlanGeometryStart, { projectId: 'project', reviewedPdfPage }),
+  )
 }
 
 beforeEach(() => {
@@ -99,5 +101,20 @@ describe('создание ручного черновика при ошибке
     const html = render()
     expect(html).toMatch(/id="manual-plan-width"[^>]*disabled=""/)
     expect(html).toMatch(/id="manual-plan-height"[^>]*disabled=""/)
+  })
+
+  it('предлагает отдельный ручной путь по проверенному PDF и отправляет явный выбор', async () => {
+    state.values[3] = true
+    state.start.mockResolvedValueOnce({ ok: true, data: {} })
+    const html = render(3)
+    expect(html).toContain('изображению листа 3')
+    expect(html).toContain('Разметка исходника сохранится')
+    state.submit?.()
+    await state.task
+    expect(state.start).toHaveBeenCalledExactlyOnceWith('project', {
+      widthCm: 410,
+      heightCm: 520,
+      usePdfImage: true,
+    })
   })
 })

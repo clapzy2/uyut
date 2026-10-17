@@ -62,7 +62,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return failure('Для проверки выберите обмерный лист существующей квартиры.', 400)
     if (
       raster &&
-      (project.planReading.pageReview ||
+      ((project.planReading.pageReview && !project.planReading.geometry?.manualPdfUnderlay) ||
         project.planReading.geometry?.pdfCalibration ||
         project.planReading.geometry?.source !== 'manual')
     )
@@ -70,6 +70,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const object = await getObject(project.planUrl)
     const body = Buffer.from(object.body)
     const sha256 = createHash('sha256').update(body).digest('hex')
+    const manualUnderlay = project.planReading.geometry?.manualPdfUnderlay
+    if (
+      raster &&
+      manualUnderlay &&
+      (manualUnderlay.pdfPage !== pageNumber || manualUnderlay.sourceSha256 !== sha256)
+    )
+      return failure(
+        'Исходный PDF изменился. Откройте актуальный лист и создайте ручной черновик заново.',
+        409,
+      )
     const page =
       nativeReview || sourceFloorReference
         ? await preparePlanPage(body, true, pageNumber, true, true)

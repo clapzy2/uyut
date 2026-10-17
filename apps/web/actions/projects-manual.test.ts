@@ -57,7 +57,7 @@ vi.mock('@/lib/audit', () => ({ recordAudit: mocks.audit }))
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidate }))
 vi.mock('next/headers', () => ({ headers: async () => new Headers() }))
 
-import { savePlanGeometry as saveGeometryAction } from './projects'
+import { savePlanGeometry as saveGeometryAction, startManualPlanGeometry } from './projects'
 
 let source: { planUrl: string; planReading: PlanReading }
 
@@ -137,6 +137,21 @@ const kitchenContour = [
   },
 ]
 
+function reviewedPdfPage(): NonNullable<PlanReading['pageReview']> {
+  return {
+    version: 1,
+    savedAt: '2026-10-17T00:00:00.000Z',
+    contours: {
+      source: { sha256: reviewedPdfImage.sourceSha256, pdfPage: 1, state: 'existing' },
+      coordinateSystem: 'page-0-1000',
+      review: 'manual-source-review',
+      pageWidth: 1000,
+      pageHeight: 800,
+      rooms: [],
+    },
+  }
+}
+
 describe('manual plan draft', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -159,6 +174,77 @@ describe('manual plan draft', () => {
       image: { width: reviewedImage.imageWidthPx, height: reviewedImage.imageHeightPx },
       pageNumber: 1,
     })
+  })
+
+  it('creates an explicit manual image path without changing the native source review', async () => {
+    source.planUrl = 'native-plan.pdf'
+    source.planReading.pageReview = reviewedPdfPage()
+    delete source.planReading.geometry
+    const result = await startManualPlanGeometry(projectId, {
+      widthCm: 500,
+      heightCm: 400,
+      usePdfImage: true,
+    })
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        status: 'draft',
+        source: 'manual',
+        walls: [],
+        rooms: [],
+        manualPdfUnderlay: { pdfPage: 1, sourceSha256: reviewedPdfImage.sourceSha256 },
+      },
+    })
+    const saved = mocks.setPlanReading.mock.calls[0]?.[2]
+    expect(saved.pageReview).toEqual(reviewedPdfPage())
+    expect(saved.geometry.pdfCalibration).toBeUndefined()
+    expect(saved.geometry.footprint).toBeUndefined()
+  })
+
+  it('does not create a manual PDF image path against a replaced source', async () => {
+    source.planUrl = 'native-plan.pdf'
+    source.planReading.pageReview = reviewedPdfPage()
+    source.planReading.pageReview.contours.source.sha256 = 'a'.repeat(64)
+    delete source.planReading.geometry
+    const result = await startManualPlanGeometry(projectId, {
+      widthCm: 500,
+      heightCm: 400,
+      usePdfImage: true,
+    })
+    expect(result.ok).toBe(false)
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+  })
+
+  it('keeps a manually traced native PDF floor and provenance across draft reload', async () => {
+    source.planUrl = 'native-plan.pdf'
+    source.planReading.pageReview = reviewedPdfPage()
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      manualPdfUnderlay: { pdfPage: 1, sourceSha256: reviewedPdfImage.sourceSha256 },
+    }
+    const result = await savePlanGeometry(
+      projectId,
+      {
+        ...emptyManualGeometry,
+        footprint: corners,
+        imageCalibration: reviewedPdfImage,
+        manualPdfUnderlay: { pdfPage: 99, sourceSha256: 'b'.repeat(64) },
+      },
+      'draft',
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.geometry.footprint).toEqual(corners)
+    expect(result.data.geometry.manualPdfUnderlay).toEqual(
+      source.planReading.geometry.manualPdfUnderlay,
+    )
+    expect(mocks.setPlanReading.mock.calls[0]?.[2].pageReview).toEqual(reviewedPdfPage())
+    expect(planVolume(result.data.geometry)).toBeNull()
+    source.planReading = mocks.setPlanReading.mock.calls[0]?.[2]
+    const reload = await savePlanGeometry(projectId, source.planReading.geometry, 'draft')
+    expect(reload.ok).toBe(true)
+    if (!reload.ok) throw new Error(reload.error)
+    expect(reload.data.geometry.footprint).toEqual(corners)
   })
 
   it('cannot clear the server-owned source reimport hold by confirming or saving a draft', async () => {
@@ -1276,54 +1362,96 @@ describe('manual plan draft', () => {
     expect(source.planReading.rooms[0]?.areaM2).toBe(12)
   })
 
-  it('saves and confirms a manually traced diagonal floor from a scanned PDF', async () => {
-    source.planUrl = 'scanned-plan.pdf'
-    source.planReading.rooms = [{ name: 'Кухня', kind: 'kitchen', areaM2: 19.5 }]
-    const floor = [
-      { xCm: 0, yCm: 0 },
-      { xCm: 500, yCm: 0 },
-      { xCm: 500, yCm: 300 },
-      { xCm: 400, yCm: 400 },
-      { xCm: 0, yCm: 400 },
-    ]
-    const walls = floor.map((start, index) => ({
-      id: `manual_${String(index + 10).padStart(24, '0')}`,
-      kind: 'outer' as const,
-      start,
-      end: floor[(index + 1) % floor.length] as typeof start,
-    }))
-    const input = {
-      ...emptyManualGeometry,
-      footprint: floor,
-      walls,
-      rooms: [{ name: 'Кухня', polygon: floor }],
-      imageCalibration: reviewedPdfImage,
-    }
+  it.each([false, true])(
+    'saves and confirms a manually traced diagonal PDF floor, reviewed image path=%s',
+    async (reviewedNative) => {
+      source.planUrl = 'scanned-plan.pdf'
+      source.planReading.rooms = [{ name: 'Кухня', kind: 'kitchen', areaM2: 19.5 }]
+      if (reviewedNative) {
+        source.planReading.pageReview = reviewedPdfPage()
+        source.planReading.geometry = {
+          ...emptyManualGeometry,
+          manualPdfUnderlay: { pdfPage: 1, sourceSha256: reviewedPdfImage.sourceSha256 },
+        }
+        mocks.preparePlanPage.mockResolvedValue({
+          pageNumber: 1,
+          image: { width: reviewedImage.imageWidthPx, height: reviewedImage.imageHeightPx },
+          linework: {
+            coordinateSystem: 'page-0-1000',
+            pageWidth: 1000,
+            pageHeight: 800,
+            paths: [],
+            unsupportedContexts: 0,
+            unsupportedPaths: 0,
+            truncated: false,
+          },
+        })
+      }
+      const floor = [
+        { xCm: 0, yCm: 0 },
+        { xCm: 500, yCm: 0 },
+        { xCm: 500, yCm: 300 },
+        { xCm: 400, yCm: 400 },
+        { xCm: 0, yCm: 400 },
+      ]
+      const walls = floor.map((start, index) => ({
+        id: `manual_${String(index + 10).padStart(24, '0')}`,
+        kind: 'outer' as const,
+        start,
+        end: floor[(index + 1) % floor.length] as typeof start,
+      }))
+      const input = {
+        ...emptyManualGeometry,
+        footprint: floor,
+        walls,
+        rooms: [{ name: 'Кухня', polygon: floor }],
+        imageCalibration: reviewedPdfImage,
+      }
 
-    const singleDirection = await savePlanGeometry(
+      const singleDirection = await savePlanGeometry(
+        projectId,
+        {
+          ...input,
+          imageCalibration: { ...reviewedPdfImage, verificationLines: [] },
+        },
+        'confirm',
+      )
+      expect(singleDirection).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('другом направлении'),
+      })
+
+      const draft = await savePlanGeometry(projectId, input, 'draft')
+      expect(draft.ok).toBe(true)
+      if (!draft.ok) throw new Error(draft.error)
+      expect(draft.data.geometry.footprint).toEqual(floor)
+
+      source.planReading = mocks.setPlanReading.mock.calls[0]?.[2]
+      const confirmed = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
+      expect(confirmed.ok).toBe(true)
+      if (!confirmed.ok) throw new Error(confirmed.error)
+      expect(confirmed.data.geometry.footprint).toEqual(floor)
+      expect(planVolume(confirmed.data.geometry)?.floor).toEqual(floor)
+    },
+  )
+
+  it('cannot opt a reviewed native PDF into image tracing through a submitted geometry field', async () => {
+    source.planUrl = 'native-plan.pdf'
+    source.planReading.pageReview = reviewedPdfPage()
+    const result = await savePlanGeometry(
       projectId,
       {
-        ...input,
-        imageCalibration: { ...reviewedPdfImage, verificationLines: [] },
+        ...emptyManualGeometry,
+        footprint: corners,
+        manualPdfUnderlay: { pdfPage: 1, sourceSha256: reviewedPdfImage.sourceSha256 },
+        imageCalibration: reviewedPdfImage,
       },
-      'confirm',
+      'draft',
     )
-    expect(singleDirection).toMatchObject({
-      ok: false,
-      error: expect.stringContaining('другом направлении'),
-    })
-
-    const draft = await savePlanGeometry(projectId, input, 'draft')
-    expect(draft.ok).toBe(true)
-    if (!draft.ok) throw new Error(draft.error)
-    expect(draft.data.geometry.footprint).toEqual(floor)
-
-    source.planReading = mocks.setPlanReading.mock.calls[0]?.[2]
-    const confirmed = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
-    expect(confirmed.ok).toBe(true)
-    if (!confirmed.ok) throw new Error(confirmed.error)
-    expect(confirmed.data.geometry.footprint).toEqual(floor)
-    expect(planVolume(confirmed.data.geometry)?.floor).toEqual(floor)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.geometry.manualPdfUnderlay).toBeUndefined()
+    expect(result.data.geometry.footprint).toBeUndefined()
   })
 
   it('does not silently discard a scanned PDF floor before image calibration', async () => {

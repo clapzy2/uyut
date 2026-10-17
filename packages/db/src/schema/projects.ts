@@ -311,6 +311,8 @@ export type PlanGeometry = {
   routeStartOpeningId?: string
   /** Только отображение исходной картинки поверх координат; не подтверждает геометрию. */
   imageCalibration?: PlanImageCalibration
+  /** Explicit manual tracing of a PDF page as an image; source review remains independent. */
+  manualPdfUnderlay?: { sourceSha256: string; pdfPage: number }
   /** Server-derived native PDF scale; never trusted from a browser geometry edit. */
   pdfCalibration?: {
     sourceSha256: string

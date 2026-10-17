@@ -367,8 +367,11 @@ export default async function ProjectPage({ params }: { params: Params }) {
                   planIsPdf &&
                   project.planReading.geometry.source === 'manual' &&
                   !project.planReading.geometry.pdfCalibration &&
-                  !project.planReading.pageReview
-                    ? (project.planReading.sourcePage ?? 1)
+                  (project.planReading.geometry.manualPdfUnderlay ||
+                    !project.planReading.pageReview)
+                    ? (project.planReading.geometry.manualPdfUnderlay?.pdfPage ??
+                      project.planReading.sourcePage ??
+                      1)
                     : undefined
                 }
               />
@@ -385,7 +388,12 @@ export default async function ProjectPage({ params }: { params: Params }) {
               reading={planFormReading(project.planReading)}
             />
           ) : null}
-          <ManualPlanGeometryStart projectId={project.id} />
+          <ManualPlanGeometryStart
+            projectId={project.id}
+            reviewedPdfPage={
+              planIsPdf ? project.planReading.pageReview?.contours.source.pdfPage : undefined
+            }
+          />
         </>
       ) : null}
 

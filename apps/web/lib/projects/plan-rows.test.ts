@@ -62,6 +62,35 @@ describe('source axis acknowledgments', () => {
   })
 })
 
+describe('source architecture acknowledgment', () => {
+  const row = planRows({
+    readAt: '2026-10-17',
+    confirmedAt: '2026-10-17',
+    rooms: [{ name: 'Кухня', kind: 'kitchen', layoutNotes: 'Окно сверху, вход снизу.' }],
+  })[0]
+  if (!row) throw new Error('Missing fixture')
+
+  it('never treats AI text or reopening a saved reading as a new deliberate review', () => {
+    expect(row.layoutNotes).toBe('Окно сверху, вход снизу.')
+    expect(row.layoutNotesReviewed).not.toBe(true)
+  })
+
+  it('withdraws the review on text or room changes, not on unrelated wishes or dimensions', () => {
+    const reviewed = { ...row, layoutNotesReviewed: true }
+    for (const patch of [
+      { layoutNotes: 'Окно справа.' },
+      { name: 'Детская' },
+      { kind: 'kid' as const },
+      { sourceNumber: 3 },
+      { roomId: 'different-room' },
+    ]) {
+      expect(patchPlanRow(reviewed, patch).layoutNotesReviewed).toBe(false)
+    }
+    expect(patchPlanRow(reviewed, { wish: 'Стол', width: '230' }).layoutNotesReviewed).toBe(true)
+    expect(patchPlanRow(row, { layoutNotesReviewed: true }).layoutNotesReviewed).toBe(true)
+  })
+})
+
 describe('adding missing schedule rows', () => {
   it('retains decimal source identity without assigning the parent measurements', () => {
     const parent = appendSourcePlanRow([], { name: 'Спальня', sourceNumber: 3 }, 'bedroom')

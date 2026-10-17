@@ -9,6 +9,7 @@ vi.mock('../../../../packages/ai/src/fal-queue', () => ({
 
 import {
   createFalPlanReader,
+  FLOOR_PLAN_PROMPT,
   PLAN_READER_ENDPOINT,
   parseFloorPlan,
   planReaderPrompt,
@@ -80,6 +81,10 @@ describe('indexed native text contract', () => {
 })
 
 describe('free-text measurement isolation', () => {
+  it('asks for openings belonging to this room, not nearby corridor doors', () => {
+    expect(FLOOR_PLAN_PROMPT).toContain('проследи границу именно этой комнаты')
+    expect(FLOOR_PLAN_PROMPT).toContain('близкая подпись другой комнаты такой связи не доказывает')
+  })
   it.each([
     'Высота потолка 2649 мм',
     'Размер 2735×4205 мм',

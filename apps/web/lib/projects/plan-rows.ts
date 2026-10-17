@@ -20,6 +20,8 @@ export type PlanRow = {
   /** Чего человек хочет в этой комнате: уходит в заметки комнаты и оттуда в задание модели */
   wish: string
   layoutNotes: string
+  /** Сверка описания с этой комнатой, не доказательство точности геометрии. */
+  layoutNotesReviewed?: boolean
   suspicious: boolean
   measurementWarnings?: string[]
   /** Сторона или обе, которые пришлось перечитать отдельным вопросом, чтобы площадь сошлась */
@@ -47,11 +49,13 @@ export function patchPlanRow(row: PlanRow, patch: Partial<PlanRow>): PlanRow {
   )
   const changedWidth = Object.hasOwn(patch, 'width') && patch.width !== row.width
   const changedDepth = Object.hasOwn(patch, 'depth') && patch.depth !== row.depth
+  const changedLayout = Object.hasOwn(patch, 'layoutNotes') && patch.layoutNotes !== row.layoutNotes
   return {
     ...row,
     ...patch,
     ...(changedScope || changedWidth ? { widthReviewed: false } : {}),
     ...(changedScope || changedDepth ? { depthReviewed: false } : {}),
+    ...(changedScope || changedLayout ? { layoutNotesReviewed: false } : {}),
   }
 }
 

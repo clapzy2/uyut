@@ -88,6 +88,44 @@ describe('plan reading actions', () => {
     mocks.createRooms.mockResolvedValue({ created: 2, updated: 0 })
   })
 
+  it.each([undefined, false])(
+    'does not transfer unreviewed AI architecture (%s)',
+    async (reviewed) => {
+      const data = {
+        ...input(),
+        rooms: input().rooms.map((room) => ({
+          ...room,
+          layoutNotes: 'Двери ванной и туалета справа, дверь в детскую слева.',
+          ...(reviewed === undefined ? {} : { layoutNotesReviewed: reviewed }),
+        })),
+      }
+      expect(
+        (await confirmPlanRooms(projectId, data, planEditRevision('plan.pdf', reading))).ok,
+      ).toBe(true)
+      const saved = mocks.createRooms.mock.calls[0]?.[2]
+      for (const room of saved.reading.rooms) expect(room).not.toHaveProperty('layoutNotes')
+      for (const room of saved.rooms) expect(room.measurements).not.toHaveProperty('layoutNotes')
+    },
+  )
+
+  it('transfers architecture only after a separate deliberate review', async () => {
+    const layoutNotes = 'Окно сверху, вход снизу.'
+    const data = {
+      ...input(),
+      rooms: input().rooms.map((room) => ({
+        ...room,
+        layoutNotes,
+        layoutNotesReviewed: true,
+      })),
+    }
+    expect(
+      (await confirmPlanRooms(projectId, data, planEditRevision('plan.pdf', reading))).ok,
+    ).toBe(true)
+    const saved = mocks.createRooms.mock.calls[0]?.[2]
+    expect(saved.reading.rooms[0].layoutNotes).toBe(layoutNotes)
+    expect(saved.rooms[0].measurements.layoutNotes).toBe(layoutNotes)
+  })
+
   it('persists an unlabeled balcony as an unmeasured utility zone', async () => {
     const data = {
       ...input(),
