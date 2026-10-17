@@ -132,6 +132,8 @@ export function PlanReadingCard({
     selection: ReviewedNativePaintedFloors
   } | null>(null)
   const [floorBoundaryHighlight, setFloorBoundaryHighlight] = useState<{
+    revision: string
+    page: number
     floorIndex: number
     edgeIndex: number
   } | null>(null)
@@ -368,7 +370,12 @@ export function PlanReadingCard({
               ? floorProposal.selection
               : null
           }
-          proposedFloorEdge={floorBoundaryHighlight}
+          proposedFloorEdge={
+            floorBoundaryHighlight?.revision === baseRevision &&
+            floorBoundaryHighlight.page === Number(page)
+              ? floorBoundaryHighlight
+              : null
+          }
           disabled={reading_ || saving || conflict}
           onDocumentarySchedule={
             rows && !confirmed
@@ -418,8 +425,17 @@ export function PlanReadingCard({
               selection ? { revision: baseRevision, page: Number(page), selection } : null,
             )
           }
-          highlightedBoundary={floorBoundaryHighlight}
-          onHighlightBoundary={setFloorBoundaryHighlight}
+          highlightedBoundary={
+            floorBoundaryHighlight?.revision === baseRevision &&
+            floorBoundaryHighlight.page === Number(page)
+              ? floorBoundaryHighlight
+              : null
+          }
+          onHighlightBoundary={(edge) =>
+            setFloorBoundaryHighlight(
+              edge ? { ...edge, revision: baseRevision, page: Number(page) } : null,
+            )
+          }
         />
         {activeReading.paintedFloorReview ? (
           <>
