@@ -85,7 +85,14 @@ export function nativeFilledPanelJambContacts(input: {
   for (const path of input.work.paths)
     counts.set(path.operationIndex, (counts.get(path.operationIndex) ?? 0) + 1)
   const sources = input.work.paths
-    .filter((path) => counts.get(path.operationIndex) === 1 && !omitted.has(path.operationIndex))
+    .filter(
+      (path) =>
+        counts.get(path.operationIndex) === 1 &&
+        !omitted.has(path.operationIndex) &&
+        (input.contactMode !== 'exact-joined-endcaps' ||
+          path.paint === 'stroke' ||
+          path.paint === 'fill-stroke'),
+    )
     .flatMap((path) => edges(path).map((edge) => ({ edge, paint: path.paint })))
   let checks = 0,
     contactCount = 0
