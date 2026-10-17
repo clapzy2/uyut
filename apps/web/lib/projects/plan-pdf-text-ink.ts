@@ -511,8 +511,12 @@ export function nativeNumericTextInk(input: {
     for (const raw of textItems) {
       if (raw && typeof raw === 'object' && 'str' in raw && typeof raw.str === 'string') {
         const literal = raw.str.trim()
-        if (literal.length <= 200 && /\d/.test(literal) && !selectsDimension(literal))
+        if (literal.length > 200 || !/\d/.test(literal)) continue
+        if (selectsDimension(literal)) {
+          if (/^\d{1,2} \d{3}$/u.test(literal)) selectedLiterals.add(literal)
+        } else {
           ownerLiterals.add(literal)
+        }
       }
     }
   }
@@ -527,7 +531,18 @@ export function nativeNumericTextInk(input: {
   const splitSuffixLiterals = [...selectedLiterals].filter((literal) =>
     /^=\s*\d{1,4}\s*мм$/iu.test(literal),
   )
-  const sourceOwnerLiteralList = [...ownerLiteralList, ...splitSuffixLiterals]
+  // PDF.js can join one printed number split by a source moveText into a
+  // single TextContent item. Reconstruct only that selected literal; the
+  // matching identity below must still prove its source origin and width.
+  const splitNumericLiterals =
+    selectedIndexes === undefined
+      ? [...selectedLiterals].filter((literal) => /\s/u.test(literal))
+      : []
+  const sourceOwnerLiteralList = [
+    ...ownerLiteralList,
+    ...splitSuffixLiterals,
+    ...splitNumericLiterals,
+  ]
   const resetNoteLiterals = selectedLiteralList.filter((literal) =>
     sourceResetNoteLiteral.test(literal),
   )
@@ -539,7 +554,7 @@ export function nativeNumericTextInk(input: {
       : selectedLiterals.has(literal)
   const selectsFragment = (literal: string) =>
     selectsLiteral(literal) ||
-    ((selectedIndexes !== undefined || ownerLiterals.size > 0) &&
+    (selectedLiteralList.length > 0 &&
       literal.length > 0 &&
       selectedLiteralList.some((selected) => {
         if (work > MAX_WORK) return false
@@ -834,7 +849,9 @@ export function nativeNumericTextInk(input: {
       const normalizedLiteral = literal.replace(/\u00a0/g, ' ')
       const ownerFragment = sourceOwnerLiteralList.some((owner) => {
         work += owner.length + normalizedLiteral.length
-        return work <= MAX_WORK && owner.includes(normalizedLiteral)
+        return (
+          work <= MAX_WORK && literal === normalizedLiteral && owner.includes(normalizedLiteral)
+        )
       })
       const selected = selectsFragment(literal) || numericLiteral || ownerFragment
       const noteFragment = resetNoteLiterals.some(
@@ -1116,7 +1133,7 @@ export function nativeNumericTextInk(input: {
   // TextContent joins glyph shows on one source text line. Reconstruct only
   // literal consecutive shows, never neighbouring labels or different BTs.
   const candidates = runs.filter((run) => selectsLiteral(run.text) || ownerLiterals.has(run.text))
-  if (selectedIndexes !== undefined || ownerLiterals.size > 0) {
+  if (selectedLiteralList.length > 0) {
     for (let start = 0; start < runs.length; start++) {
       if (work > MAX_WORK) return fail('text-ink-budget-exceeded')
       const first = runs[start] as Run
@@ -1134,6 +1151,12 @@ export function nativeNumericTextInk(input: {
         const splitSuffixOwner = splitSuffixLiterals.some((literal) =>
           literal.startsWith(group.text),
         )
+        const splitNumericOwner = sourceOwnerLiteralList.some(
+          (literal) =>
+            (/^(?:H\s*)?=\s*\d[\d ]*(?:\s*\(0,000\))?$/u.test(literal) ||
+              /^\(-?0,\d{3}\)$/u.test(literal)) &&
+            literal.startsWith(group.text),
+        )
         const contiguous = run.transform.every(
           (value, index) =>
             Math.abs(value - (previous.endTransform[index] as number)) <= ARITHMETIC_EPSILON,
@@ -1141,6 +1164,28 @@ export function nativeNumericTextInk(input: {
         const resetNote =
           (sourceOwner && (!contiguous || !!group.resetCaption)) ||
           resetNoteLiterals.some((note) => note.startsWith(group.text))
+        const reflectedOwner =
+          sourceOwner &&
+          first.ctm[3] < 0 &&
+          first.textMatrix[0] === 1 &&
+          first.textMatrix[1] === 0 &&
+          first.textMatrix[2] === 0 &&
+          first.textMatrix[3] === -1 &&
+          run.textMatrix[0] === 1 &&
+          run.textMatrix[1] === 0 &&
+          run.textMatrix[2] === 0 &&
+          run.textMatrix[3] === -1
+        const rotatedOwner =
+          sourceOwner &&
+          first.ctm[1] === 0 &&
+          first.ctm[2] === 0 &&
+          first.ctm[0] > 0 &&
+          first.ctm[3] < 0 &&
+          first.textMatrix.slice(0, 4).every((value, index) => value === run.textMatrix[index]) &&
+          Math.abs(first.textMatrix[0]) <= ARITHMETIC_EPSILON &&
+          Math.abs(first.textMatrix[3]) <= ARITHMETIC_EPSILON &&
+          first.textMatrix[1] === -1 &&
+          first.textMatrix[2] === -1
         let continuation = true
         for (let index = previous.operationIndex + 1; index < run.operationIndex; index++) {
           if (++work > MAX_WORK) return fail('text-ink-budget-exceeded')
@@ -1151,7 +1196,8 @@ export function nativeNumericTextInk(input: {
               (resetNote || sourceOwner) &&
               (name === 'setTextMatrix' ||
                 (sourceOwner && name === 'moveText') ||
-                (splitSuffixOwner && (name === 'endText' || name === 'beginText')))
+                ((splitSuffixOwner || splitNumericOwner) &&
+                  (name === 'endText' || name === 'beginText')))
             )
           ) {
             continuation = false
@@ -1185,23 +1231,40 @@ export function nativeNumericTextInk(input: {
             first.ctm[1] !== 0 ||
             first.ctm[2] !== 0 ||
             first.ctm[0] <= 0 ||
-            (splitSuffixOwner ? first.ctm[3] === 0 : first.ctm[3] <= 0) ||
+            (splitSuffixOwner
+              ? first.ctm[3] === 0
+              : first.ctm[3] <= 0 && !reflectedOwner && !rotatedOwner) ||
             first.textMatrix
               .slice(0, 4)
               .some(
                 (value, index) =>
-                  value !== (splitSuffixOwner ? run.textMatrix[index] : IDENTITY[index]),
+                  value !==
+                  (splitSuffixOwner || reflectedOwner || rotatedOwner
+                    ? run.textMatrix[index]
+                    : IDENTITY[index]),
               ) ||
             (!splitSuffixOwner &&
+              !reflectedOwner &&
+              !rotatedOwner &&
               run.textMatrix.slice(0, 4).some((value, index) => value !== IDENTITY[index]))
           )
             break
+          const baselineScale = Math.hypot(first.transform[0], first.transform[1])
+          const baselineX = first.transform[0] / baselineScale
+          const baselineY = first.transform[1] / baselineScale
+          const deltaX = run.transform[4] - previous.transform[4]
+          const deltaY = run.transform[5] - previous.transform[5]
           const gap =
-            (run.transform[4] - previous.transform[4]) / first.ctm[0] -
+            (deltaX * baselineX + deltaY * baselineY) / Math.hypot(first.ctm[0], first.ctm[1]) -
             previous.advance * first.fontSize
           if (
             gap < -0.2 * first.fontSize ||
-            Math.abs(run.transform[5] - first.transform[5]) / first.ctm[3] > 0.25 * first.fontSize
+            Math.abs(
+              (run.transform[4] - first.transform[4]) * -baselineY +
+                (run.transform[5] - first.transform[5]) * baselineX,
+            ) /
+              Math.abs(first.ctm[3]) >
+              0.25 * first.fontSize
           )
             break
           if (gap >= 0.102 * first.fontSize && gap <= 0.6 * first.fontSize)
@@ -1222,10 +1285,16 @@ export function nativeNumericTextInk(input: {
           ...group,
           text,
           advance: resetNote
-            ? (run.transform[4] - first.transform[4]) / scale + run.advance
+            ? ((run.transform[4] - first.transform[4]) * ux +
+                (run.transform[5] - first.transform[5]) * uy) /
+                scale +
+              run.advance
             : group.cursorAdvance + run.advance,
           cursorAdvance: resetNote
-            ? (run.transform[4] - first.transform[4]) / scale + run.cursorAdvance
+            ? ((run.transform[4] - first.transform[4]) * ux +
+                (run.transform[5] - first.transform[5]) * uy) /
+                scale +
+              run.cursorAdvance
             : group.cursorAdvance + run.cursorAdvance,
           endTransform: [...run.endTransform],
           nonzeroSpacing: group.nonzeroSpacing || run.nonzeroSpacing,
@@ -1333,7 +1402,18 @@ export function nativeNumericTextInk(input: {
           b !== 0 ||
           c !== 0 ||
           a <= 0 ||
-          (splitSuffixLiterals.includes(run.text) ? d === 0 : d <= 0) ||
+          (splitSuffixLiterals.includes(run.text)
+            ? d === 0
+            : d <= 0 &&
+              !(
+                run.sourceOwner &&
+                d < 0 &&
+                (run.textMatrix[3] === -1 ||
+                  (Math.abs(run.textMatrix[0]) <= ARITHMETIC_EPSILON &&
+                    run.textMatrix[1] === -1 &&
+                    run.textMatrix[2] === -1 &&
+                    Math.abs(run.textMatrix[3]) <= ARITHMETIC_EPSILON))
+              )) ||
           run.hScale !== 1 ||
           item.width <= 0
         )
@@ -1347,10 +1427,33 @@ export function nativeNumericTextInk(input: {
             ((last.glyphWidths[index] as number) / 1000) * run.fontSize + last.charSpacing
         }
         lastAdvance -= last.charSpacing
-        const recoveredLastOrigin =
-          (item.transform[4] + item.width - lastAdvance * a - run.ctm[4]) / a -
-          packed.cursorOffset[0]
-        return Math.fround(recoveredLastOrigin) === packed.matrix[4]
+        if (d > 0 && run.textMatrix[0] === 1 && run.textMatrix[3] === 1) {
+          const recoveredLastOrigin =
+            (item.transform[4] + item.width - lastAdvance * a - run.ctm[4]) / a -
+            packed.cursorOffset[0]
+          return Math.fround(recoveredLastOrigin) === packed.matrix[4]
+        }
+        const baselineLength = Math.hypot(item.transform[0], item.transform[1])
+        const lastPageX =
+          item.transform[4] +
+          (item.width * item.transform[0]) / baselineLength -
+          lastAdvance * (a * (linear[0] as number) + c * (linear[1] as number))
+        const lastPageY =
+          item.transform[5] +
+          (item.width * item.transform[1]) / baselineLength -
+          lastAdvance * (b * (linear[0] as number) + d * (linear[1] as number))
+        const lastSourceX =
+          (d * (lastPageX - run.ctm[4]) - c * (lastPageY - run.ctm[5])) / determinant -
+          (linear[0] as number) * packed.cursorOffset[0] -
+          (linear[2] as number) * packed.cursorOffset[1]
+        const lastSourceY =
+          (-b * (lastPageX - run.ctm[4]) + a * (lastPageY - run.ctm[5])) / determinant -
+          (linear[1] as number) * packed.cursorOffset[0] -
+          (linear[3] as number) * packed.cursorOffset[1]
+        return (
+          Math.fround(lastSourceX) === packed.matrix[4] &&
+          Math.fround(lastSourceY) === packed.matrix[5]
+        )
       }
       return Math.abs(run.advance * advanceScale - item.width) <= ARITHMETIC_EPSILON
     })
@@ -1386,6 +1489,52 @@ export function nativeNumericTextInk(input: {
     }
     ownershipCounts.set(run, count)
   }
+  // A joined numeric TextContent item can own its exact source shows. The
+  // individual numeric shows are not extra labels, but another TextContent
+  // claim on either show would make the ownership ambiguous.
+  const compositeOwners = identities.flatMap(({ item, matches }) => {
+    const owner = matches[0]
+    return selectsLiteral(item.str) &&
+      matches.length === 1 &&
+      owner &&
+      claims.get(owner) === 1 &&
+      !owner.reason &&
+      owner.sourceOperations.length > 1
+      ? [owner]
+      : []
+  })
+  const compositeCoverage = new Map<Run, number>()
+  for (const run of candidates) {
+    let count = 0
+    for (const owner of compositeOwners) {
+      if (run === owner || run.sourceOperations.length >= owner.sourceOperations.length) continue
+      for (
+        let offset = 0;
+        offset <= owner.sourceOperations.length - run.sourceOperations.length;
+        offset++
+      ) {
+        work += run.sourceOperations.length
+        if (work > MAX_WORK) return fail('text-ink-budget-exceeded')
+        if (
+          run.sourceOperations.every(
+            (operation, index) => operation === owner.sourceOperations[offset + index],
+          )
+        ) {
+          count++
+          break
+        }
+      }
+    }
+    compositeCoverage.set(run, count)
+  }
+  if (
+    candidates.some(
+      (run) =>
+        (compositeCoverage.get(run) ?? 0) > 1 ||
+        (claims.has(run) && (compositeCoverage.get(run) ?? 0) > 0),
+    )
+  )
+    return fail('competing-native-text-show-ownership')
   if (
     identities.some(
       ({ item, matches }) =>
@@ -1393,8 +1542,14 @@ export function nativeNumericTextInk(input: {
     )
   )
     return fail('competing-native-text-show-ownership')
-  if (candidates.some((run) => !claims.has(run) && ownershipCounts.get(run) !== 1))
+  if (
+    candidates.some(
+      (run) =>
+        !claims.has(run) && ownershipCounts.get(run) !== 1 && compositeCoverage.get(run) !== 1,
+    )
+  ) {
     return fail('unmatched-native-numeric-text-show')
+  }
   const normalized = (p: PagePoint): PagePoint | undefined => {
     const [x, y] = viewport.convertToViewportPoint(p.x, p.y)
     if (
@@ -1464,7 +1619,7 @@ export function nativeNumericTextInk(input: {
       quad: quad as Quad,
       baselineStart,
       baselineEnd,
-      ...(run.resetCaption && !splitSuffixLiterals.includes(item.str)
+      ...(run.resetCaption && sourceResetNoteLiteral.test(item.str)
         ? {
             sourceResetCaption: {
               shows: structuredClone(run.shows),
@@ -1480,7 +1635,7 @@ export function nativeNumericTextInk(input: {
       ...((run.sourceOperations.length > 1 ||
         unspacedSelectedFragment ||
         (selectsDimension(item.str) && (run.nonzeroSpacing || run.packedOrigin))) &&
-      (!run.resetCaption || splitSuffixLiterals.includes(item.str))
+      (!run.resetCaption || !sourceResetNoteLiteral.test(item.str))
         ? {
             sourceGroup: {
               operationIndexes: [...run.sourceOperations],

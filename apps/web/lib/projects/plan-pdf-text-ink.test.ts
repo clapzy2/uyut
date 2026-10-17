@@ -1082,6 +1082,72 @@ describe('explicit selected source text ink', () => {
 })
 
 describe('complete numeric show identity and excluded fragment ownership', () => {
+  const muhanovaSource = new URL(
+    '../../../../output/pdf/source-search-20261016/muhanova-original.pdf',
+    import.meta.url,
+  )
+  it.skipIf(!existsSync(muhanovaSource))(
+    'keeps real split and rotated dimensions source-backed without confirming floor geometry',
+    async () => {
+      const body = await readFile(muhanovaSource)
+      expect(createHash('sha256').update(body).digest('hex')).toBe(
+        '510480920eab5103181e959c1d847c4a7f29ff88653bfd8930ead5d149141d12',
+      )
+      const { preparePlanPage } = await import('./plan-document')
+      const page = await preparePlanPage(body, true, 4, true, true)
+      const anchors = page.nativeTextAnchors
+      expect(
+        anchors?.compactCaptionGeometry?.items.find((item) => item.text === '2 515')
+          ?.inkSourceOperations,
+      ).toEqual([7554, 7556])
+      expect(anchors?.compactCaptionGeometry?.items.every((item) => !item.inkRefusal)).toBe(true)
+      if (!anchors || !page.linework || !page.lineworkRasterSource)
+        throw new Error('Missing real PDF source layers')
+      const { nativeCaptionBindings } = await import('./plan-native-caption-bindings')
+      const { nativeFloorCavityCandidates } = await import('./plan-native-floor-cavities')
+      const source = {
+        sha256: createHash('sha256').update(body).digest('hex'),
+        pdfPage: 4,
+        state: 'existing' as const,
+      }
+      const input = {
+        source,
+        native: anchors,
+        work: page.linework,
+        lineworkSource: page.lineworkRasterSource,
+      }
+      const bindings = nativeCaptionBindings(input)
+      expect(bindings.refusalReason).toBeNull()
+      expect(bindings.candidates).toHaveLength(16)
+      expect(nativeFloorCavityCandidates(input).cavities).toHaveLength(0)
+    },
+  )
+
+  it.each([
+    ['horizontal', [1, 0, 0, -1, 100, 100] as Matrix, [10, 0, 0, 10, 100, 900] as Matrix],
+    ['rotated', [0, -1, -1, 0, 100, 100] as Matrix, [0, 10, -10, 0, 100, 900] as Matrix],
+  ])('rejoins only a source-backed %s dimension split by moveText', (_name, matrix, transform) => {
+    const input = fixture(
+      [
+        ['transform', [1, 0, 0, -1, 0, 1000]],
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['setTextMatrix', [new Float32Array(matrix)]],
+        ['showText', [[glyph('2'), glyph(' ')]]],
+        ['moveText', [10.002, 0]],
+        ['showText', [[glyph('6'), glyph('3'), glyph('0')]]],
+        ['endText'],
+      ],
+      [{ str: '2 630', fontName: 'f1', width: 25.002, transform }],
+    )
+    const result = nativeNumericTextInk(input)
+    expect(result.complete).toBe(true)
+    expect(result.items[0]?.sourceGroup?.operationIndexes).toEqual([4, 6])
+
+    ;(input.textItems[0] as { width: number }).width += 0.01
+    expect(nativeNumericTextInk(input).complete).toBe(false)
+  })
+
   function packedNumeric(rawText = '1\u00a0506') {
     const origin = [1, 0, 0, 1, 100.12345, 40.65432] as Matrix
     const characters = Array.from(rawText, (character) => ({ ...glyph(character), isSpace: false }))
