@@ -5,6 +5,10 @@ import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edi
 import type { ReviewedNativePaintedFloors } from '@/lib/projects/plan-native-painted-floor-review'
 import { nativePaintedFloorReview } from '@/lib/projects/plan-native-painted-floor-review'
 import { nativeVisiblePaintRegions } from '@/lib/projects/plan-native-visible-paint'
+import {
+  addCircledNativeRoomMarker,
+  numberedNativeRoomFixture,
+} from '@/lib/projects/test-fixtures/native-numbered-rooms'
 
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
@@ -198,6 +202,46 @@ describe('persist explicit source-painted floor review', () => {
     expect(mocks.save).not.toHaveBeenCalled()
     expect(mocks.audit).not.toHaveBeenCalled()
     expect(current.reading.paintedFloorReview).toBeUndefined()
+  })
+
+  it('saves a proposed table-linked circled room as a draft, without confirming its floor', async () => {
+    const input = numberedNativeRoomFixture()
+    input.native.source = current.common.native.source
+    input.native.originalPdfSha256 = createHash('sha256').update(current.body).digest('hex')
+    input.lineworkSource = current.common.lineworkSource
+    const marker = input.native.labels.find(
+      (label) => label.name === '3' && label.pagePoint?.y === 150,
+    )
+    if (!marker) throw new Error('Missing circled room marker')
+    addCircledNativeRoomMarker(input, marker)
+    mocks.prepare.mockResolvedValue({
+      ...current.page,
+      nativeTextAnchors: input.native,
+      linework: input.work,
+      lineworkRasterSource: input.lineworkSource,
+    })
+
+    const proposal = await proposePlanPaintedFloorReview('project', current.revision)
+    expect(proposal.ok).toBe(true)
+    if (!proposal.ok) return
+    expect(proposal.data.rooms).toEqual(['3 — Балкон (по экспликации)'])
+    expect(JSON.parse(proposal.data.json).floors[0].owner.association).toBe(
+      'schedule-linked-circle',
+    )
+
+    const result = await savePlanPaintedFloorReview('project', proposal.data.json, current.revision)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.data.reading.paintedFloorReview?.draftJson).toContain('schedule-linked-circle')
+    expect(result.data.reading.geometry).toEqual(current.reading.geometry)
+    expect(mocks.save).toHaveBeenCalledTimes(1)
+
+    const forged = JSON.parse(proposal.data.json)
+    forged.floors[0].owner.association = 'guessed-nearest-room'
+    expect(
+      (await savePlanPaintedFloorReview('project', JSON.stringify(forged), current.revision)).ok,
+    ).toBe(false)
+    expect(mocks.save).toHaveBeenCalledTimes(1)
   })
 
   it('does not fetch a source or modify data for a stale proposal request', async () => {

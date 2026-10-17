@@ -52,6 +52,7 @@ const reviewedSchema = z
                 sourceRoomKey: z.string().min(1).max(32),
                 nameLabelId: z.string().min(1).max(128),
                 numberLabelId: z.string().min(1).max(128),
+                association: z.literal('schedule-linked-circle').optional(),
               })
               .strict(),
             boundaryRoles: z

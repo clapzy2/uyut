@@ -7,8 +7,9 @@ import { nativePaintedFloorProposal } from './plan-native-painted-floor-proposal
 import { nativePaintedFloorReview } from './plan-native-painted-floor-review'
 import { nativeRoomNumberScheduleLinks } from './plan-native-room-number-links'
 import { nativeVisiblePaintRegions } from './plan-native-visible-paint'
-import type { PdfCurvePath, PdfVectorPath } from './plan-pdf-linework'
+import type { PdfVectorPath } from './plan-pdf-linework'
 import {
+  addCircledNativeRoomMarker,
   addNativeRoomLabel,
   numberedNativeRoomFixture,
 } from './test-fixtures/native-numbered-rooms'
@@ -74,61 +75,13 @@ function fixture() {
   }
 }
 
-function addCircledMarker(
-  input: ReturnType<typeof numberedNativeRoomFixture>,
-  marker: (typeof input.native.labels)[number],
-) {
-  const center = marker?.pagePoint
-  if (!center) throw new Error('Missing source marker')
-  const radius = 8
-  const k = (4 / 3) * Math.tan(Math.PI / 8)
-  const points = [
-    { x: center.x + radius, y: center.y },
-    { x: center.x, y: center.y + radius },
-    { x: center.x - radius, y: center.y },
-    { x: center.x, y: center.y - radius },
-    { x: center.x + radius, y: center.y },
-  ]
-  const curve: PdfCurvePath = {
-    operationIndex: 1000 + (input.work.curvePaths?.length ?? 0),
-    subpathIndex: 0,
-    operationSubpathCount: 1,
-    paint: 'stroke',
-    closed: true,
-    start: points[0] as { x: number; y: number },
-    segments: points.slice(1).map((end, index) => {
-      const start = points[index] as { x: number; y: number }
-      return {
-        kind: 'cubic' as const,
-        control1: { x: start.x - k * (start.y - center.y), y: start.y + k * (start.x - center.x) },
-        control2: { x: end.x + k * (end.y - center.y), y: end.y - k * (end.x - center.x) },
-        end,
-      }
-    }),
-  }
-  input.work.curvePaths ??= []
-  input.work.curvePaths.push(curve)
-  input.work.skippedCurves = input.work.curvePaths.length
-  input.work.skippedCurveBounds ??= []
-  input.work.skippedCurveBounds.push({
-    operationIndex: curve.operationIndex,
-    paint: 'stroke',
-    bounds: {
-      left: center.x - radius,
-      right: center.x + radius,
-      top: center.y - radius,
-      bottom: center.y + radius,
-    },
-  })
-}
-
 function scheduleFixture() {
   const input = numberedNativeRoomFixture()
   const marker = input.native.labels.find(
     (label) => label.name === '3' && label.pagePoint?.y === 150,
   )
   if (!marker) throw new Error('Missing source marker')
-  addCircledMarker(input, marker)
+  addCircledNativeRoomMarker(input, marker)
   return input
 }
 
@@ -218,7 +171,7 @@ describe('source-exact painted-floor proposal', () => {
     const proposed = nativePaintedFloorProposal(input).proposal
     if (!proposed) throw new Error('Missing source proposal')
     const duplicate = addNativeRoomLabel(input.native.labels, '3', 675, 175)
-    addCircledMarker(input, duplicate)
+    addCircledNativeRoomMarker(input, duplicate)
     expect(nativeRoomNumberScheduleLinks(input).report.rows[2]?.markerStatus).toBe('ambiguous')
     expect(nativePaintedFloorProposal(input).proposal).toBeNull()
     expect(nativePaintedFloorReview({ ...input, reviewed: proposed }).refusalReason).toBe(
@@ -231,7 +184,7 @@ describe('source-exact painted-floor proposal', () => {
     const proposed = nativePaintedFloorProposal(input).proposal
     if (!proposed) throw new Error('Missing source proposal')
     const secondRoom = addNativeRoomLabel(input.native.labels, '2', 675, 175)
-    addCircledMarker(input, secondRoom)
+    addCircledNativeRoomMarker(input, secondRoom)
     expect(nativeRoomNumberScheduleLinks(input).report.rows[1]?.markerStatus).toBe('linked')
     expect(nativePaintedFloorProposal(input).proposal).toBeNull()
     expect(nativePaintedFloorReview({ ...input, reviewed: proposed }).refusalReason).toBe(
@@ -244,7 +197,7 @@ describe('source-exact painted-floor proposal', () => {
     const proposed = nativePaintedFloorProposal(input).proposal
     if (!proposed) throw new Error('Missing source proposal')
     const unlisted = addNativeRoomLabel(input.native.labels, '99', 675, 175)
-    addCircledMarker(input, unlisted)
+    addCircledNativeRoomMarker(input, unlisted)
     expect(nativeRoomNumberScheduleLinks(input).report.unlistedMarkerLabelIds).toContain(
       unlisted.id,
     )
