@@ -493,7 +493,24 @@ describe('selected shopping variant in PDF data without AI or external requests'
       const { pdf } = await build(data)
       expect(pdf.rooms[0]?.plan?.safetySummary.status).toBe('needs-data')
       expect(pdf.rooms[0]?.plan?.floorReservations).toHaveLength(0)
-      expect(renderProjectHtml(pdf, { fontCss: '' })).toContain('прямоугольное превью по меркам')
+      expect(renderProjectHtml(pdf, { fontCss: '' })).toContain('прямоугольные габариты по меркам')
+    })
+
+    it('does not promise a drawing on a measurements-only page with a draft geometry', async () => {
+      const { data } = fixture()
+      data.shopping = []
+      data.project.planReading = {
+        rooms: [],
+        geometry: { ...roomGeometry(name), status: 'draft' },
+        readAt: '2026-10-17T14:00:00Z',
+      }
+      const { pdf } = await build(data)
+      const html = renderProjectHtml(pdf, { fontCss: '' })
+      const planPage = html.match(/<section class="page plan-page">[\s\S]*?<\/section>/)?.[0]
+      expect(planPage).toContain(`${name} · сохранённые мерки`)
+      expect(planPage).toContain('известны только прямоугольные габариты по меркам')
+      expect(planPage).not.toContain('показано прямоугольное превью')
+      expect(planPage).not.toContain('<svg ')
     })
   })
 
