@@ -71,6 +71,17 @@ const materialSupports = z.strictObject({
               .regex(/^native-filled-panel-\d+:\d+$/)
               .nullable(),
             sourceRefs: z.array(sourceRef).max(100),
+            endEvidence: z
+              .array(
+                z.strictObject({
+                  status: z.enum(['matched', 'partial', 'ambiguous', 'unobserved', 'unresolved']),
+                  coverage: z.enum(['complete', 'partial', 'unproved']),
+                  sourceRefs: z.array(sourceRef).max(100),
+                  physicalJambAccepted: z.literal(false),
+                }),
+              )
+              .length(2)
+              .optional(),
           })
           .optional(),
         oppositeFace: z
@@ -388,6 +399,7 @@ export function sourceFloorReferenceFromResponse(
           }
           const sourceBodyKey = `${span.source.operationIndex}:${span.source.subpathIndex}`
           const profileBodyKey = classification.profileId?.slice('native-filled-panel-'.length)
+          const ends = classification.endEvidence
           if (
             (framed &&
               (classification.reason !== 'exact-joined-filled-panel' ||
@@ -402,7 +414,19 @@ export function sourceFloorReferenceFromResponse(
             (!framed &&
               (classification.reason === 'exact-joined-filled-panel' ||
                 classification.profileId !== null ||
-                refs.length !== 0)) ||
+                refs.length !== 0 ||
+                ends !== undefined)) ||
+            ends?.some((end) => {
+              const empty = end.sourceRefs.length === 0
+              return (
+                (end.status === 'matched' && (empty || end.coverage !== 'complete')) ||
+                (end.status === 'partial' && (empty || end.coverage !== 'partial')) ||
+                (end.status === 'unobserved' && (!empty || end.coverage !== 'unproved')) ||
+                end.sourceRefs.some((ref) =>
+                  fillGroups.has(`${ref.operationIndex}:${ref.subpathIndex}`),
+                )
+              )
+            }) ||
             refs.some((ref, index) => {
               const previous = refs[index - 1]
               return previous !== undefined && compareSourceRefOrder(previous, ref) >= 0

@@ -71,12 +71,44 @@ function work(
 }
 const run = (layer = work()) =>
   nativeFilledPanelJambContacts({ native, work: layer, lineworkSource: source })
+const runJoined = (layer: PdfLinework) =>
+  nativeFilledPanelJambContacts({
+    native,
+    work: layer,
+    lineworkSource: source,
+    contactMode: 'exact-joined-endcaps',
+  })
 const required = <T>(value: T | undefined): T => {
   if (value === undefined) throw new Error('Missing fixture')
   return value
 }
 
 describe('filled profile ends and independent source paint edges', () => {
+  it('checks literal joined endcaps without changing the legacy overlap mode', () => {
+    const input = work([
+      rectangle(1, 100, 200),
+      rectangle(2, 90, 100),
+      rectangle(3, 200, 210),
+      line(4, 100),
+      line(5, 200),
+    ])
+    expect(run(input).panels).toEqual([])
+    const joined = runJoined(input)
+    expect(joined.panels).toHaveLength(1)
+    expect(joined.panels[0]?.status).toBe('paired')
+    expect(joined.panels[0]?.ends.map((end) => end.coverage)).toEqual(['complete', 'complete'])
+    expect(joined.physicalJambAccepted).toBe(false)
+    expect(joined.finalPaintVisibilityProved).toBe(false)
+    expect(joined.readyFor2D).toBe(false)
+    expect(joined.readyFor3D).toBe(false)
+
+    required(input.paths[4]).points[0] = { x: 200 + 1e-9, y: 90 }
+    required(input.paths[4]).points[1] = { x: 200 + 1e-9, y: 120 }
+    expect(runJoined(input).panels[0]?.status).toBe('partial')
+    input.paths.push(line(6, 100))
+    expect(runJoined(input).panels[0]?.ends[1]?.status).toBe('ambiguous')
+  })
+
   it('binds literal independent ends while refusing physical wall/jamb ownership', () => {
     const input = work(),
       before = structuredClone(input)

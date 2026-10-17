@@ -159,9 +159,34 @@ describe('source reference parsing and lossless whole-ring draft copy', () => {
         span.strokeSegment,
         span.oppositeFace.strokeSegment,
       ],
+      endEvidence: [
+        {
+          status: 'matched',
+          coverage: 'complete',
+          sourceRefs: [{ operationIndex: 50, subpathIndex: 0, segmentIndex: 0 }],
+          physicalJambAccepted: false,
+        },
+        {
+          status: 'unobserved',
+          coverage: 'unproved',
+          sourceRefs: [],
+          physicalJambAccepted: false,
+        },
+      ],
     }
     expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toEqual(report)
     expect(sourceFloorDraft(report.floors[0])).not.toHaveProperty('draft.materialSupports')
+
+    const firstEnd = span.classification.endEvidence?.[0]
+    const secondEnd = span.classification.endEvidence?.[1]
+    const fillRef = span.classification.sourceRefs[0]
+    if (!firstEnd || !secondEnd || !fillRef) throw new Error('Missing panel end evidence')
+    Object.assign(firstEnd, { physicalJambAccepted: true })
+    expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toBeNull()
+    Object.assign(firstEnd, { physicalJambAccepted: false })
+    secondEnd.sourceRefs.push(fillRef)
+    expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toBeNull()
+    secondEnd.sourceRefs.pop()
 
     span.classification.sourceRefs = span.classification.sourceRefs.filter(
       (ref) => ref.operationIndex !== span.strokeSegment.operationIndex,

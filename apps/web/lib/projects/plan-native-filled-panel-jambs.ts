@@ -54,6 +54,8 @@ export function nativeFilledPanelJambContacts(input: {
   native: NativeTextAnchors
   work: PdfLinework
   lineworkSource: RegionLabelFrame
+  /** Joined panels are source-only diagnostics, not accepted opening geometry. */
+  contactMode?: 'overlapping-endcaps' | 'exact-joined-endcaps'
 }) {
   // Always derive profiles afresh from the complete same-source inventory, not caller-selected refs.
   const profiles = nativeFilledPanelCandidates(input)

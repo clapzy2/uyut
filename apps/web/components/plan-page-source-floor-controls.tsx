@@ -1,7 +1,10 @@
 'use client'
 
 import { Button } from '@uyut/ui'
-import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
+import type {
+  SourceFloorReference,
+  SourceMaterialClassification,
+} from '@/lib/projects/plan-page-source-floors'
 import type { PagePoint } from '@/lib/projects/plan-pdf-linework'
 import type { SourceEdgeCandidates } from './plan-page-edge-candidates'
 import type { SourceFloorDraftResult } from './plan-page-source-floor-model'
@@ -16,6 +19,23 @@ const refusalMessages = {
   'unproved-vertex':
     'Не все вершины связаны с проверенными узлами или пересечениями линий PDF. Область не копируется частично.',
 } satisfies Record<Extract<SourceFloorDraftResult, { kind: 'held' }>['reason'], string>
+
+const materialEndLabels = {
+  matched: 'полный штрих',
+  partial: 'частичный штрих',
+  ambiguous: 'несколько штрихов',
+  unobserved: 'штрих не найден',
+  unresolved: 'проверка удержана',
+} as const
+
+function describeMaterialEnd(
+  end: NonNullable<SourceMaterialClassification['endEvidence']>[number],
+) {
+  const refs = end.sourceRefs
+    .map((ref) => `${ref.operationIndex}/${ref.subpathIndex}/${ref.segmentIndex}`)
+    .join(', ')
+  return `${materialEndLabels[end.status]} (${refs || 'нет'})`
+}
 
 export function PlanPageSourceFloorControls({
   reference,
@@ -331,6 +351,18 @@ export function PlanPageSourceFloorControls({
                             ) : span.classification?.reason ===
                               'filled-panel-search-unavailable' ? (
                               <p>Проверка формы соседнего тела удержана.</p>
+                            ) : null}
+                            {span.classification?.endEvidence ? (
+                              <p>
+                                Независимые штрихи у двух торцов:{' '}
+                                {span.classification.endEvidence
+                                  .map(describeMaterialEnd)
+                                  .join('; ')}
+                                . Видимость после поздней краски и физические косяки не
+                                подтверждены.
+                              </p>
+                            ) : span.classification?.reason === 'exact-joined-filled-panel' ? (
+                              <p>Независимые штрихи у торцов не удалось проверить.</p>
                             ) : null}
                           </li>
                         ))}

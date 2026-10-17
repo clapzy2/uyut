@@ -133,6 +133,28 @@ describe('fresh raw source floor reference for the contour editor', () => {
           (span) => span.classification?.kind === 'unclassified-body',
         ),
       ).toHaveLength(7)
+      const framed = floor?.materialSupports?.spans.filter(
+        (span) => span.classification?.kind === 'framed-panel',
+      )
+      expect(new Set(framed?.map((span) => span.classification?.profileId)).size).toBe(5)
+      expect(
+        framed?.every(
+          (span) =>
+            span.classification?.endEvidence?.length === 2 &&
+            span.classification.endEvidence.every(
+              (end) =>
+                end.status === 'matched' &&
+                end.coverage === 'complete' &&
+                end.sourceRefs.length === 1 &&
+                end.physicalJambAccepted === false,
+            ),
+        ),
+      ).toBe(true)
+      expect(
+        framed
+          ?.find((span) => span.classification?.profileId === 'native-filled-panel-9379:0')
+          ?.classification?.endEvidence?.map((end) => end.sourceRefs[0]?.operationIndex),
+      ).toEqual([9436, 9460])
       const paths = new Map(
         page.linework.paths.map((path) => [`${path.operationIndex}:${path.subpathIndex}`, path]),
       )
