@@ -1297,6 +1297,7 @@ describe('read-only native review presentation', () => {
           calloutEnd: { x: 500, y: 100 },
           possibleTextLabelIds: ['native-text-153'],
           heightCaptions: [{ labelId: 'native-text-153', sourceOperations: [22438] }],
+          sharedHeightCaptionIds: [],
           textBlockStatus: 'unverified',
           objectStatus: 'unresolved',
         },

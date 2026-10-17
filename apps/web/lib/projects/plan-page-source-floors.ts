@@ -1,5 +1,6 @@
 import type { PlanPageContours, PlanPageSegmentRef, PlanReading } from '@uyut/db'
 import { exactNativePointKey } from './plan-native-exact-intersections'
+import { nativeFaceRationalPredicates } from './plan-native-face-rational'
 import { nativeFilledPanelJambContacts } from './plan-native-filled-panel-jambs'
 import { type NativeFilledPanel, nativeFilledPanelCandidates } from './plan-native-filled-panels'
 import type { SourcePaintBoundarySupport } from './plan-native-painted-floor-boundaries'
@@ -11,6 +12,10 @@ import {
   nativeSourceOpeningContacts,
   type SourceOpeningInspection,
 } from './plan-native-source-opening-contacts'
+import {
+  createNativeSourceSpanVisibility,
+  NativeSourceVisibilityLimit,
+} from './plan-native-source-span-visibility'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
 import { findPlanPageWallBodySupports, type PdfWallBodySupport } from './plan-pdf-wall-body-support'
 
@@ -28,6 +33,11 @@ export type SourceMaterialClassification = {
     status: 'matched' | 'partial' | 'ambiguous' | 'unobserved' | 'unresolved'
     coverage: 'complete' | 'partial' | 'unproved'
     sourceRefs: PlanPageSegmentRef[]
+    sourceVisibility?: {
+      status: 'unoccluded' | 'held'
+      reason: string | null
+      blockerOperations: number[]
+    }[]
     physicalJambAccepted: false
   }[]
 }
@@ -53,6 +63,7 @@ function materialClassification(
   panels: NativeFilledPanel[],
   jambs: ReturnType<typeof nativeFilledPanelJambContacts>['panels'],
   unavailable: boolean,
+  visibility?: ReturnType<typeof createNativeSourceSpanVisibility>,
 ): SourceMaterialClassification {
   const matches = panels.filter((panel) =>
     [panel.body, ...panel.caps].some(
@@ -87,6 +98,7 @@ function materialClassification(
     (pair) =>
       pair.panelId === profile.id && pair.ends.every((end) => end.sourceEdges.length <= 100),
   )
+  const exact = nativeFaceRationalPredicates()
   return {
     status: 'diagnostic',
     kind: 'framed-panel',
@@ -109,6 +121,27 @@ function materialClassification(
               subpathIndex,
               segmentIndex,
             })),
+            ...(visibility
+              ? {
+                  sourceVisibility: end.sourceEdges.map((edge) => {
+                    const start = exactNativePointKey(end.profileEdge.start)
+                    const finish = exactNativePointKey(end.profileEdge.end)
+                    const sourceStart = exactNativePointKey(edge.start)
+                    const sourceEnd = exactNativePointKey(edge.end)
+                    const span =
+                      start && finish && sourceStart && sourceEnd
+                        ? exact.sharedSpan(start, finish, sourceStart, sourceEnd)
+                        : null
+                    if (!span) throw new Error('Missing literal panel-end contact')
+                    const checked = visibility(edge, span.startKey, span.endKey)
+                    return {
+                      status: checked.status,
+                      reason: checked.reason,
+                      blockerOperations: checked.blockerOperations,
+                    }
+                  }),
+                }
+              : {}),
             physicalJambAccepted: false as const,
           })),
         }
@@ -258,6 +291,9 @@ export function planPageSourceFloors(input: {
             contactMode: 'exact-joined-endcaps',
           })
         : undefined
+    const visibility = input.includeSpanVisibility
+      ? createNativeSourceSpanVisibility(input.evidence.work)
+      : undefined
     for (const floor of report.floors) {
       const reason = floor.holes.length
         ? 'material-support-holes-not-supported'
@@ -285,12 +321,17 @@ export function planPageSourceFloors(input: {
                   profiles?.panels ?? [],
                   jambs?.panels ?? [],
                   !!profiles?.refusalReason,
+                  visibility,
                 ),
               })),
       }
     }
     return report
-  } catch {
-    return hold('invalid-saved-painted-floor-review')
+  } catch (error) {
+    return hold(
+      error instanceof NativeSourceVisibilityLimit
+        ? error.message
+        : 'invalid-saved-painted-floor-review',
+    )
   }
 }

@@ -136,6 +136,18 @@ describe('fresh raw source floor reference for the contour editor', () => {
       const framed = floor?.materialSupports?.spans.filter(
         (span) => span.classification?.kind === 'framed-panel',
       )
+      expect(
+        framed
+          ?.find((span) => span.classification?.profileId === 'native-filled-panel-9379:0')
+          ?.classification?.endEvidence?.map((end) => end.sourceVisibility?.[0]?.status),
+      ).toEqual(['held', 'held'])
+      expect(
+        framed
+          ?.find((span) => span.classification?.profileId === 'native-filled-panel-9379:0')
+          ?.classification?.endEvidence?.every(
+            (end) => end.sourceVisibility?.[0]?.blockerOperations.length,
+          ),
+      ).toBe(true)
       expect(new Set(framed?.map((span) => span.classification?.profileId)).size).toBe(5)
       expect(
         framed?.every(
@@ -146,6 +158,8 @@ describe('fresh raw source floor reference for the contour editor', () => {
                 end.status === 'matched' &&
                 end.coverage === 'complete' &&
                 end.sourceRefs.length === 1 &&
+                end.sourceVisibility?.length === 1 &&
+                ['unoccluded', 'held'].includes(end.sourceVisibility[0]?.status ?? '') &&
                 end.physicalJambAccepted === false,
             ),
         ),

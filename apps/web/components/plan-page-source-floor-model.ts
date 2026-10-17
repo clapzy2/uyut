@@ -77,6 +77,16 @@ const materialSupports = z.strictObject({
                   status: z.enum(['matched', 'partial', 'ambiguous', 'unobserved', 'unresolved']),
                   coverage: z.enum(['complete', 'partial', 'unproved']),
                   sourceRefs: z.array(sourceRef).max(100),
+                  sourceVisibility: z
+                    .array(
+                      z.strictObject({
+                        status: z.enum(['unoccluded', 'held']),
+                        reason: z.string().min(1).max(128).nullable(),
+                        blockerOperations: z.array(z.number().int().min(0).max(100000)).max(6000),
+                      }),
+                    )
+                    .max(100)
+                    .optional(),
                   physicalJambAccepted: z.literal(false),
                 }),
               )
@@ -424,7 +434,15 @@ export function sourceFloorReferenceFromResponse(
                 (end.status === 'unobserved' && (!empty || end.coverage !== 'unproved')) ||
                 end.sourceRefs.some((ref) =>
                   fillGroups.has(`${ref.operationIndex}:${ref.subpathIndex}`),
-                )
+                ) ||
+                (end.sourceVisibility !== undefined &&
+                  (end.sourceVisibility.length !== end.sourceRefs.length ||
+                    end.sourceVisibility.some(
+                      (item) =>
+                        (item.status === 'unoccluded' &&
+                          (item.reason !== null || item.blockerOperations.length !== 0)) ||
+                        (item.status === 'held' && item.reason === null),
+                    )))
               )
             }) ||
             refs.some((ref, index) => {

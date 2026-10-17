@@ -17,6 +17,7 @@ export type NativeHeightCalloutCandidate = {
   calloutEnd: PagePoint
   possibleTextLabelIds: string[]
   heightCaptions: { labelId: string; sourceOperations: number[] }[]
+  sharedHeightCaptionIds: string[]
   textBlockStatus: 'unverified'
   objectStatus: 'unresolved'
 }
@@ -253,10 +254,22 @@ export function nativeHeightCalloutCandidates(input: Input) {
       calloutEnd: { ...end },
       possibleTextLabelIds: possibleLabels.map((label) => label.id),
       heightCaptions: captions,
+      sharedHeightCaptionIds: [],
       textBlockStatus: 'unverified',
       objectStatus: 'unresolved',
     })
     if (candidates.length > 50) return finish('height-callout-candidate-limit')
+  }
+  const captionCounts = new Map<string, number>()
+  for (const candidate of candidates) {
+    for (const caption of candidate.heightCaptions) {
+      captionCounts.set(caption.labelId, (captionCounts.get(caption.labelId) ?? 0) + 1)
+    }
+  }
+  for (const candidate of candidates) {
+    candidate.sharedHeightCaptionIds = candidate.heightCaptions
+      .filter((caption) => (captionCounts.get(caption.labelId) ?? 0) > 1)
+      .map((caption) => caption.labelId)
   }
   return finish(null)
 }

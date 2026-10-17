@@ -164,12 +164,20 @@ describe('source reference parsing and lossless whole-ring draft copy', () => {
           status: 'matched',
           coverage: 'complete',
           sourceRefs: [{ operationIndex: 50, subpathIndex: 0, segmentIndex: 0 }],
+          sourceVisibility: [
+            {
+              status: 'held',
+              reason: 'later-paint-may-cover-source-span',
+              blockerOperations: [60],
+            },
+          ],
           physicalJambAccepted: false,
         },
         {
           status: 'unobserved',
           coverage: 'unproved',
           sourceRefs: [],
+          sourceVisibility: [],
           physicalJambAccepted: false,
         },
       ],
@@ -184,6 +192,13 @@ describe('source reference parsing and lossless whole-ring draft copy', () => {
     Object.assign(firstEnd, { physicalJambAccepted: true })
     expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toBeNull()
     Object.assign(firstEnd, { physicalJambAccepted: false })
+    firstEnd.sourceVisibility?.push({ status: 'unoccluded', reason: null, blockerOperations: [] })
+    expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toBeNull()
+    firstEnd.sourceVisibility?.pop()
+    if (!firstEnd.sourceVisibility?.[0]) throw new Error('Missing visibility')
+    firstEnd.sourceVisibility[0].status = 'unoccluded'
+    expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toBeNull()
+    firstEnd.sourceVisibility[0].status = 'held'
     secondEnd.sourceRefs.push(fillRef)
     expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toBeNull()
     secondEnd.sourceRefs.pop()

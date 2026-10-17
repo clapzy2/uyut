@@ -2388,6 +2388,14 @@ function isHeightCallouts(value: unknown, packet: NativeReviewPacket): boolean {
     ].every((number) => Number.isSafeInteger(number) && (number as number) >= 0)
   }
   const heightIds = new Set(packet.heightObservations?.observations.map((row) => row.labelId))
+  const captionCounts = new Map<string, number>()
+  for (const candidate of report.candidates) {
+    if (!Array.isArray(candidate?.heightCaptions)) return false
+    for (const caption of candidate.heightCaptions) {
+      if (typeof caption?.labelId !== 'string') return false
+      captionCounts.set(caption.labelId, (captionCounts.get(caption.labelId) ?? 0) + 1)
+    }
+  }
   const ids = new Set<string>()
   return report.candidates.every((candidate) => {
     if (
@@ -2401,6 +2409,7 @@ function isHeightCallouts(value: unknown, packet: NativeReviewPacket): boolean {
         'calloutEnd',
         'possibleTextLabelIds',
         'heightCaptions',
+        'sharedHeightCaptionIds',
         'textBlockStatus',
         'objectStatus',
       ]) ||
@@ -2451,6 +2460,17 @@ function isHeightCallouts(value: unknown, packet: NativeReviewPacket): boolean {
           item.sourceOperations.some(
             (operation) => !Number.isSafeInteger(operation) || operation < 0,
           ),
+      ) ||
+      !Array.isArray(candidate.sharedHeightCaptionIds) ||
+      candidate.sharedHeightCaptionIds.length > candidate.heightCaptions.length ||
+      new Set(candidate.sharedHeightCaptionIds).size !== candidate.sharedHeightCaptionIds.length ||
+      candidate.sharedHeightCaptionIds.some(
+        (id) => !candidate.heightCaptions.some((caption) => caption.labelId === id),
+      ) ||
+      candidate.heightCaptions.some(
+        (caption) =>
+          candidate.sharedHeightCaptionIds.includes(caption.labelId) !==
+          (captionCounts.get(caption.labelId) ?? 0) > 1,
       )
     )
       return false
