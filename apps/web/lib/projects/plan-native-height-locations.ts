@@ -1,10 +1,11 @@
+import { nativeCaptionKnownPaintBlockers } from './plan-native-caption-paint'
 import {
   exactNativePolygonContains,
   exactNativePolygonsOverlap,
   exactNativeSegmentsTouch,
 } from './plan-native-exact-intersections'
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
-import { nativeHeightGroupBounds } from './plan-native-height-group'
+import { nativeHeightGroupBounds, nativeResetNoteBounds } from './plan-native-height-group'
 import { createNativeHeightLeaderVerifier } from './plan-native-height-leaders'
 import { nativeHeightObservations } from './plan-native-height-observations'
 import { nativeCaptionInkIssue } from './plan-pdf-caption-binding'
@@ -100,8 +101,12 @@ export function nativeHeightSourceLocations(input: Input) {
     return finish('invalid-height-ink-inventory')
   for (const item of ink.items) {
     const label = labels.get(item.index)
-    if (item.sourceGroup) {
-      const bounds = label ? nativeHeightGroupBounds(item, label, input.work) : null
+    if (item.sourceGroup || item.sourceResetCaption) {
+      const bounds = label
+        ? item.sourceResetCaption
+          ? nativeResetNoteBounds(item, label, input.work)
+          : nativeHeightGroupBounds(item, label, input.work)
+        : null
       if (!bounds) return finish('invalid-height-ink-provenance')
       groupBounds.set(item.index, bounds)
     }
@@ -128,6 +133,10 @@ export function nativeHeightSourceLocations(input: Input) {
     for (const operation of item.sourceGroup?.operationIndexes.slice(1) ?? []) {
       if (operations.has(operation)) return finish('invalid-height-ink-provenance')
       operations.add(operation)
+    }
+    for (const show of item.sourceResetCaption?.shows.slice(1) ?? []) {
+      if (operations.has(show.operationIndex)) return finish('invalid-height-ink-provenance')
+      operations.add(show.operationIndex)
     }
     const dx = (item.baselineEnd.x - item.baselineStart.x) * input.work.pageWidth
     const dy = (item.baselineEnd.y - item.baselineStart.y) * input.work.pageHeight
@@ -217,6 +226,20 @@ export function nativeHeightSourceLocations(input: Input) {
       observations.push(row)
       if (!item) continue
       const captionBounds = groupBounds.get(item.index) ?? item.quad
+      if (item.sourceResetCaption) {
+        const blockers = nativeCaptionKnownPaintBlockers(
+          input.work.paintBounds,
+          item.sourceResetCaption.shows.map((show) => show.operationIndex),
+          captionBounds,
+        )
+        if (blockers === null || blockers.length > 0) {
+          row.reason =
+            blockers === null
+              ? 'height-caption-paint-unverified'
+              : 'height-caption-covered-by-paint'
+          continue
+        }
+      }
       const location = locatePolygon(captionBounds)
       row.cavityIds = location.cavityIds
       if (row.cavityIds.length > 1) {

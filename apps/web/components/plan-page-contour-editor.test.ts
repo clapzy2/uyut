@@ -490,6 +490,58 @@ describe('source-floor bridge in the existing editor', () => {
     if (!result) throw new Error('Missing source-reference controls')
     return result
   }
+  it('shows independent material spans only for the selected fresh outer edge', () => {
+    const { fixture, reference } = setup()
+    const floor = reference.floors[0]
+    if (!floor) throw new Error('Missing floor')
+    floor.materialSupports = {
+      status: 'diagnostic',
+      semanticStatus: 'unclassified',
+      physicalBoundariesAccepted: false,
+      completeInventory: false,
+      source: reference.source,
+      sourceRevision: revision,
+      reason: null,
+      spans: [
+        {
+          source: { operationIndex: 10, subpathIndex: 0 },
+          nativeSegment: { operationIndex: 10, subpathIndex: 0, segmentIndex: 0 },
+          contourKey: '1',
+          wallEdgeIndex: 0,
+          start: { x: 10, y: 10 },
+          end: { x: 30, y: 10 },
+          strokeSegment: { operationIndex: 20, subpathIndex: 0, segmentIndex: 0 },
+          oppositeFace: {
+            start: { x: 10, y: 8 },
+            end: { x: 30, y: 8 },
+            nativeSegment: { operationIndex: 10, subpathIndex: 0, segmentIndex: 2 },
+            strokeSegment: { operationIndex: 21, subpathIndex: 0, segmentIndex: 0 },
+          },
+        },
+      ],
+    }
+    hooks.values.set(slots.sourceEdgeHighlight, {
+      revision,
+      page: 2,
+      floorId: floor.id,
+      ringIndex: 0,
+      edgeIndex: 0,
+    })
+    const lines = (currentRevision = revision) => {
+      hooks.cursor = 0
+      return nestedElements(renderEditor(fixture.reading, currentRevision), 'line').filter(
+        (line) => (line.props as { stroke?: string }).stroke === '#0f766e',
+      )
+    }
+    expect(lines().map((line) => line.props)).toMatchObject([
+      { x1: 10, y1: 10, x2: 30, y2: 10 },
+      { x1: 10, y1: 8, x2: 30, y2: 8, strokeDasharray: '6 3' },
+    ])
+    expect(lines('changed')).toEqual([])
+    hooks.values.set(slots.sourceFloorsShown, false)
+    expect(lines()).toEqual([])
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
   it('copies only after an explicit action and resets review without saving or creating voids', () => {
     const { fixture } = setup()
     const editor = renderEditor(fixture.reading, revision)

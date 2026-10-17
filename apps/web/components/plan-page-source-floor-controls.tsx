@@ -103,6 +103,11 @@ export function PlanPageSourceFloorControls({
     'level-separator': 'Заявлен перепад уровня',
     unresolved: 'Назначение не задано',
   }
+  const material = floor?.materialSupports
+  const materialSpans =
+    material?.status === 'diagnostic' && highlightedEdge?.ringIndex === 0
+      ? material.spans.filter((span) => span.wallEdgeIndex === highlightedEdge.edgeIndex)
+      : []
 
   return (
     <div className="space-y-2 border-l-2 border-line pl-3 text-sm">
@@ -281,6 +286,51 @@ export function PlanPageSourceFloorControls({
                 </table>
               </div>
             </details>
+          ) : null}
+          {material ? (
+            <section className="max-w-2xl border-t border-line pt-3 text-xs leading-relaxed">
+              <h5 className="font-medium text-ink">Независимые грани соседнего материала</h5>
+              <p className="mt-1 text-ink-2">
+                Поздние штрихи проверяются отдельно от старой заливки пола. Это участки соседнего
+                тела, которое может быть стеной, остеклением или другим элементом. Они не снимают
+                ограничение видимости старой заливки и не подтверждают косяк или проход.
+              </p>
+              {material.status === 'held' ? (
+                <p role="status" className="mt-2 text-ink-2">
+                  Независимые опоры не показаны: {material.reason}.
+                </p>
+              ) : (
+                <>
+                  <p className="mt-2 text-ink-2">
+                    Найдено участков: {material.spans.length}. Выберите грань контура выше:
+                    совпадающие участки будут показаны бирюзовым, противоположные грани — пунктиром.
+                    Полнота границы и её физическая роль не подтверждены.
+                  </p>
+                  {highlightedEdge ? (
+                    materialSpans.length ? (
+                      <ul className="mt-2 space-y-2 text-ink-2">
+                        {materialSpans.map((span) => (
+                          <li
+                            key={`${span.nativeSegment.operationIndex}:${span.nativeSegment.subpathIndex}:${span.nativeSegment.segmentIndex}:${span.strokeSegment.operationIndex}`}
+                            className="break-words"
+                          >
+                            Тело {span.nativeSegment.operationIndex}/
+                            {span.nativeSegment.subpathIndex}/{span.nativeSegment.segmentIndex}.{' '}
+                            Отдельный штрих {span.strokeSegment.operationIndex}/
+                            {span.strokeSegment.subpathIndex}/{span.strokeSegment.segmentIndex}.
+                            {span.oppositeFace
+                              ? ` Противоположная грань: ${span.oppositeFace.nativeSegment.operationIndex}/${span.oppositeFace.nativeSegment.subpathIndex}/${span.oppositeFace.nativeSegment.segmentIndex}; штрих ${span.oppositeFace.strokeSegment.operationIndex}/${span.oppositeFace.strokeSegment.subpathIndex}/${span.oppositeFace.strokeSegment.segmentIndex}.`
+                              : ' Противоположная грань не наблюдалась.'}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-ink-2">Для выбранной грани независимых опор нет.</p>
+                    )
+                  ) : null}
+                </>
+              )}
+            </section>
           ) : null}
           {floor && highlightedEdge ? (
             <section className="max-w-2xl border-t border-line pt-3 text-xs leading-relaxed">

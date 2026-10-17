@@ -77,6 +77,76 @@ function html(input: Parameters<typeof PlanPageSourceFloorControls>[0]) {
 }
 
 describe('source floor controls', () => {
+  function materialReference(): SourceFloorReference {
+    const value = structuredClone(reference)
+    const selected = value.floors[0]
+    if (!selected) throw new Error('Missing floor')
+    selected.materialSupports = {
+      status: 'diagnostic',
+      semanticStatus: 'unclassified',
+      physicalBoundariesAccepted: false,
+      completeInventory: false,
+      source: value.source,
+      sourceRevision: value.sourceRevision,
+      reason: null,
+      spans: [
+        {
+          source: { operationIndex: 8881, subpathIndex: 0 },
+          nativeSegment: { operationIndex: 8881, subpathIndex: 0, segmentIndex: 3 },
+          contourKey: '3.1',
+          wallEdgeIndex: 0,
+          start: { x: 10, y: 10 },
+          end: { x: 30, y: 10 },
+          strokeSegment: { operationIndex: 15228, subpathIndex: 0, segmentIndex: 0 },
+          oppositeFace: {
+            start: { x: 10, y: 8 },
+            end: { x: 30, y: 8 },
+            nativeSegment: { operationIndex: 8881, subpathIndex: 0, segmentIndex: 1 },
+            strokeSegment: { operationIndex: 9039, subpathIndex: 0, segmentIndex: 0 },
+          },
+        },
+      ],
+    }
+    return value
+  }
+
+  it('shows separate material witnesses without upgrading the old fill or physical role', () => {
+    const markup = html(
+      props({ reference: materialReference(), highlightedEdge: { ringIndex: 0, edgeIndex: 0 } }),
+    )
+    expect(markup).toContain('Независимые грани соседнего материала')
+    expect(markup).toContain('8881/0/3')
+    expect(markup).toContain('15228/0/0')
+    expect(markup).toContain('9039/0/0')
+    expect(markup).toContain('стеной, остеклением или другим элементом')
+    expect(markup).toContain('не снимают ограничение видимости старой заливки')
+    expect(markup).not.toContain('Стена подтверждена')
+  })
+
+  it('does not show a material span as support for a different edge or a hole', () => {
+    for (const highlightedEdge of [
+      { ringIndex: 0, edgeIndex: 1 },
+      { ringIndex: 1, edgeIndex: 0 },
+    ]) {
+      const markup = html(props({ reference: materialReference(), highlightedEdge }))
+      expect(markup).toContain('Для выбранной грани независимых опор нет')
+      expect(markup).not.toContain('15228/0/0')
+    }
+  })
+
+  it('does not display held or stale material witnesses', () => {
+    const value = materialReference()
+    const material = value.floors[0]?.materialSupports
+    if (!material) throw new Error('Missing material fixture')
+    material.status = 'held'
+    material.reason = 'material-support-output-limit'
+    material.spans = []
+    expect(html(props({ reference: value }))).toContain('Независимые опоры не показаны')
+    expect(html(props({ reference: value, shown: false }))).not.toContain(
+      'Независимые грани соседнего материала',
+    )
+  })
+
   it('shows bounded opening contacts and retained uncertain source-end status without accepting a passage', () => {
     const input = props({
       reference: {

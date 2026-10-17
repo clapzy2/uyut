@@ -1,4 +1,8 @@
-import { nativeResetNoteBounds, sourceResetNoteLiteral } from './plan-native-height-group'
+import {
+  nativeResetNoteBounds,
+  sourceResetHeightLiteral,
+  sourceResetNoteLiteral,
+} from './plan-native-height-group'
 import { nativeDimensionCaptionMillimetres } from './plan-pdf-caption-binding'
 import type { Bounds, PagePoint } from './plan-pdf-linework'
 
@@ -525,6 +529,13 @@ export function nativeNumericTextInk(input: {
   }
   const selectedLiteralList = [...selectedLiterals, ...ownerLiterals]
   const ownerLiteralList = [...ownerLiterals]
+  // Explicit height selection needs the same CAD show replay as excluded
+  // documentary owners. These literals stay selected, so their own source
+  // groups are returned and cannot suppress a competing selected caption.
+  const selectedHeightOwnerLiterals = [...selectedLiterals].filter((literal) =>
+    sourceResetHeightLiteral.test(literal),
+  )
+  const documentaryOwnerLiterals = [...ownerLiteralList, ...selectedHeightOwnerLiterals]
   // A selected or excluded threshold suffix may span source text objects.
   // It is an owner only for reconstructing its own exact source literal; it
   // cannot claim or suppress other selected text occurrences.
@@ -540,6 +551,7 @@ export function nativeNumericTextInk(input: {
       : []
   const sourceOwnerLiteralList = [
     ...ownerLiteralList,
+    ...selectedHeightOwnerLiterals,
     ...splitSuffixLiterals,
     ...splitNumericLiterals,
   ]
@@ -1152,7 +1164,7 @@ export function nativeNumericTextInk(input: {
         // with repeated graphics setup. These excluded owners never become
         // dimensions: every show still needs the same font/frame, visible ink
         // and an exact TextContent origin/advance before owning a number.
-        const documentaryOwner = ownerLiteralList.some((literal) => {
+        const documentaryOwner = documentaryOwnerLiterals.some((literal) => {
           work += literal.length + group.text.length
           return (
             work <= MAX_WORK &&
@@ -1650,7 +1662,8 @@ export function nativeNumericTextInk(input: {
       quad: quad as Quad,
       baselineStart,
       baselineEnd,
-      ...(run.resetCaption && sourceResetNoteLiteral.test(item.str)
+      ...(run.resetCaption &&
+      (sourceResetNoteLiteral.test(item.str) || selectedHeightOwnerLiterals.includes(item.str))
         ? {
             sourceResetCaption: {
               shows: structuredClone(run.shows),
@@ -1666,7 +1679,8 @@ export function nativeNumericTextInk(input: {
       ...((run.sourceOperations.length > 1 ||
         unspacedSelectedFragment ||
         (selectsDimension(item.str) && (run.nonzeroSpacing || run.packedOrigin))) &&
-      (!run.resetCaption || !sourceResetNoteLiteral.test(item.str))
+      (!run.resetCaption ||
+        !(sourceResetNoteLiteral.test(item.str) || selectedHeightOwnerLiterals.includes(item.str)))
         ? {
             sourceGroup: {
               operationIndexes: [...run.sourceOperations],

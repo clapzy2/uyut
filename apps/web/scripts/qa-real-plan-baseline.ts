@@ -7,6 +7,8 @@ import { nativeCompositeFrameEvidence } from '../lib/projects/plan-native-compos
 import { automaticNativeDimensionRoles } from '../lib/projects/plan-native-dimension-roles'
 import { nativeDoorSymbolCandidates } from '../lib/projects/plan-native-door-symbols'
 import { nativeFloorCavityCandidates } from '../lib/projects/plan-native-floor-cavities'
+import { nativeHeightSourceLocations } from '../lib/projects/plan-native-height-locations'
+import { nativeHeightObservations } from '../lib/projects/plan-native-height-observations'
 import {
   nativeNumberCircleCandidates,
   numberCircleSourcePaths,
@@ -52,10 +54,27 @@ if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource) {
     ...input,
     source,
   })
+  const heights = nativeHeightObservations({ ...input, source })
+  const heightLocations = nativeHeightSourceLocations({ ...input, source })
   console.log(
     JSON.stringify({
       ...base,
       nativePaths: page.linework.paths.length,
+      heights: {
+        refusalReason: heights.refusalReason,
+        observations: heights.observations.map((row) => ({
+          labelId: row.labelId,
+          originalText: row.originalText,
+          valueMm: row.valueMm,
+          quantityKind: row.quantityKind,
+          mayAcceptFor3D: row.mayAcceptFor3D,
+        })),
+        inkItems: page.nativeTextAnchors.heightCaptionInk?.items.length ?? 0,
+        unresolvedInk: page.nativeTextAnchors.heightCaptionInk?.unresolved.length ?? 0,
+        locationRefusal: heightLocations.refusalReason,
+        locations: heightLocations.observations,
+        assignsGeometryHeights: heightLocations.assignsGeometryHeights,
+      },
       strokeFaces: {
         refusalReason: strokeFaces.refusalReason,
         candidates: strokeFaces.candidates.length,

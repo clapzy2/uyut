@@ -1,6 +1,9 @@
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { z } from 'zod'
-import { exactNativePointKey } from '@/lib/projects/plan-native-exact-intersections'
+import {
+  exactNativeParallelogramFourthPointKey,
+  exactNativePointKey,
+} from '@/lib/projects/plan-native-exact-intersections'
 import {
   nativeFaceRationalPredicates,
   nativePagePointKeyIsCanonical,
@@ -20,6 +23,41 @@ const sourceRef = z.strictObject({
   operationIndex: z.number().int().min(0).max(99999),
   subpathIndex: z.number().int().min(0).max(3000),
   segmentIndex: z.number().int().min(0).max(20000),
+})
+const planSource = z.strictObject({
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  pdfPage: z.number().int().positive(),
+  state: z.literal('existing'),
+})
+const materialSupports = z.strictObject({
+  status: z.enum(['diagnostic', 'held']),
+  semanticStatus: z.literal('unclassified'),
+  physicalBoundariesAccepted: z.literal(false),
+  completeInventory: z.literal(false),
+  source: planSource,
+  sourceRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  reason: z.string().min(1).max(256).nullable(),
+  spans: z
+    .array(
+      z.strictObject({
+        source: sourceRef.omit({ segmentIndex: true }),
+        nativeSegment: sourceRef,
+        contourKey: z.string().min(1).max(32),
+        wallEdgeIndex: z.number().int().min(0).max(99),
+        start: point,
+        end: point,
+        strokeSegment: sourceRef,
+        oppositeFace: z
+          .strictObject({
+            start: point,
+            end: point,
+            nativeSegment: sourceRef,
+            strokeSegment: sourceRef,
+          })
+          .optional(),
+      }),
+    )
+    .max(1000),
 })
 const spanVisibility = z.strictObject({
   status: z.enum(['unoccluded', 'held']),
@@ -147,11 +185,7 @@ const boundarySupport = z.strictObject({
 const referenceSchema = z.strictObject({
   version: z.literal(1),
   coordinateSystem: z.literal('page-0-1000'),
-  source: z.strictObject({
-    sha256: z.string().regex(/^[a-f0-9]{64}$/),
-    pdfPage: z.number().int().positive(),
-    state: z.literal('existing'),
-  }),
+  source: planSource,
   sourceRevision: z.string().regex(/^[a-f0-9]{64}$/),
   pageWidth: z.number().positive().max(100000),
   pageHeight: z.number().positive().max(100000),
@@ -180,6 +214,7 @@ const referenceSchema = z.strictObject({
         omittedStrokeCount: z.number().int().min(0).max(6000),
         boundaryInkComplete: z.boolean(),
         boundarySupports: z.array(boundarySupport).max(5100).optional(),
+        materialSupports: materialSupports.optional(),
       }),
     )
     .max(50),
@@ -214,6 +249,7 @@ export function sourceFloorReferenceFromResponse(
   let contactCount = 0
   let workLeft = 300_000
   let visibilityReferences = 0
+  let materialSpanCount = 0
   const exact = nativeFaceRationalPredicates()
   const owners = new Set<string>()
   const ids = new Set<string>()
@@ -248,6 +284,71 @@ export function sourceFloorReferenceFromResponse(
       floor.boundaryInkComplete !== (floor.omittedStrokeCount === 0)
     )
       return null
+    const material = floor.materialSupports
+    if (material) {
+      materialSpanCount += material.spans.length
+      if (
+        materialSpanCount > 1000 ||
+        material.source.sha256 !== report.source.sha256 ||
+        material.source.pdfPage !== report.source.pdfPage ||
+        material.source.state !== report.source.state ||
+        material.sourceRevision !== report.sourceRevision ||
+        (material.status === 'held'
+          ? !material.reason || material.spans.length !== 0
+          : material.reason !== null || floor.holes.length > 0 || nonDecimal > 0)
+      )
+        return null
+      const seenSpans = new Set<string>()
+      for (const span of material.spans) {
+        const start = floor.exactPointKeys[span.wallEdgeIndex]
+        const end = floor.exactPointKeys[(span.wallEdgeIndex + 1) % floor.exactPointKeys.length]
+        const startKey = exactNativePointKey(span.start)
+        const endKey = exactNativePointKey(span.end)
+        if (!start || !end || !startKey || !endKey) return null
+        const overlap = exact.sharedSpan(start, end, startKey, endKey)
+        const identity = JSON.stringify([
+          span.source,
+          span.nativeSegment,
+          span.strokeSegment,
+          span.wallEdgeIndex,
+          startKey,
+          endKey,
+        ])
+        if (
+          span.contourKey !== floor.sourceRoomKey ||
+          span.nativeSegment.operationIndex !== span.source.operationIndex ||
+          span.nativeSegment.subpathIndex !== span.source.subpathIndex ||
+          span.strokeSegment.operationIndex <= span.source.operationIndex ||
+          overlap?.startKey !== startKey ||
+          overlap.endKey !== endKey ||
+          seenSpans.has(identity)
+        )
+          return null
+        seenSpans.add(identity)
+        const opposite = span.oppositeFace
+        if (opposite) {
+          const oppositeStartKey = exactNativePointKey(opposite.start)
+          const oppositeEndKey = exactNativePointKey(opposite.end)
+          const translatedEndKey = exactNativeParallelogramFourthPointKey(
+            span.end,
+            span.start,
+            opposite.start,
+          )
+          if (
+            !oppositeStartKey ||
+            !oppositeEndKey ||
+            !translatedEndKey ||
+            oppositeStartKey === startKey ||
+            translatedEndKey !== oppositeEndKey ||
+            opposite.nativeSegment.operationIndex !== span.source.operationIndex ||
+            opposite.nativeSegment.subpathIndex !== span.source.subpathIndex ||
+            opposite.nativeSegment.segmentIndex === span.nativeSegment.segmentIndex ||
+            opposite.strokeSegment.operationIndex <= span.source.operationIndex
+          )
+            return null
+        }
+      }
+    }
     const supports = floor.boundarySupports
     if (inspection?.status !== 'checked') {
       if (supports !== undefined) return null

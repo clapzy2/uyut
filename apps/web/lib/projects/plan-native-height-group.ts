@@ -4,6 +4,8 @@ import type { NativeNumericTextInk } from './plan-pdf-text-ink'
 type Item = NativeNumericTextInk['items'][number]
 export const sourceResetNoteLiteral =
   /^(?:[1-9]\d?\. )?(?:Размеры указаны в миллиметрах|Все отметки высот на замере даны от чистового пола)$/iu
+export const sourceResetHeightLiteral =
+  /^[НH]\s*=\s*\d{1,4}\s*мм\/(?:про[её]м|подоконник|от)(?=$|[^\p{L}\d])[^\d]*$/iu
 const near = (left: number, right: number) => Math.abs(left - right) <= 1e-7
 const matrix = (value: unknown): value is [number, number, number, number, number, number] =>
   Array.isArray(value) && value.length === 6 && value.every(Number.isFinite)
@@ -36,10 +38,44 @@ export function nativeResetNoteBounds(
   frame: { pageWidth: number; pageHeight: number },
 ): PagePoint[] | null {
   const caption = item.sourceResetCaption
+  // CAD can reflect both the page Y frame and the text Y axis. Cancel the
+  // two reflections algebraically before the same exact reset replay below.
+  // This changes neither page points nor Float32 operand cells/tolerances.
+  if (
+    caption &&
+    sourceResetHeightLiteral.test(item.text) &&
+    matrix(caption.sourceCtm) &&
+    caption.sourceCtm[3] < 0 &&
+    Array.isArray(caption.shows) &&
+    caption.shows.length > 0 &&
+    caption.shows.every(
+      (show) =>
+        matrix(show.textMatrix) &&
+        show.textMatrix[3] === -1 &&
+        show.packedOrigin &&
+        matrix(show.packedOrigin.matrix) &&
+        show.packedOrigin.matrix[3] === -1 &&
+        Array.isArray(show.packedOrigin.cursorOffset) &&
+        show.packedOrigin.cursorOffset.length === 2,
+    )
+  ) {
+    const normalized = structuredClone(item)
+    const reset = normalized.sourceResetCaption as NonNullable<Item['sourceResetCaption']>
+    reset.sourceCtm[3] *= -1
+    for (const show of reset.shows) {
+      show.textMatrix[3] *= -1
+      show.textMatrix[5] *= -1
+      const origin = show.packedOrigin as NonNullable<typeof show.packedOrigin>
+      origin.matrix[3] *= -1
+      origin.matrix[5] *= -1
+      origin.cursorOffset[1] *= -1
+    }
+    return nativeResetNoteBounds(normalized, label, frame)
+  }
   if (
     !caption ||
     item.sourceGroup ||
-    !sourceResetNoteLiteral.test(item.text) ||
+    !(sourceResetNoteLiteral.test(item.text) || sourceResetHeightLiteral.test(item.text)) ||
     item.text !== label.name ||
     !label.pagePoint ||
     label.rotation !== 0 ||
@@ -93,6 +129,11 @@ export function nativeResetNoteBounds(
     conservative: PagePoint[] = []
   for (const [index, show] of caption.shows.entries()) {
     const packed = show?.packedOrigin
+    const sourceWhitespace =
+      sourceResetHeightLiteral.test(item.text) &&
+      typeof show?.text === 'string' &&
+      /^ +$/u.test(show.text) &&
+      show.quad === undefined
     if (
       !show ||
       !packed ||
@@ -120,13 +161,14 @@ export function nativeResetNoteBounds(
       show.wordSpacing !== 0 ||
       !Array.isArray(show.adjustments) ||
       show.adjustments.length > 1000 ||
-      !Array.isArray(show.quad) ||
-      show.quad.length !== 4 ||
-      !show.quad.every(pointValid) ||
-      !near((show.quad[0] as PagePoint).x, (show.quad[3] as PagePoint).x) ||
-      !near((show.quad[1] as PagePoint).x, (show.quad[2] as PagePoint).x) ||
-      !near((show.quad[0] as PagePoint).y, (show.quad[1] as PagePoint).y) ||
-      !near((show.quad[2] as PagePoint).y, (show.quad[3] as PagePoint).y)
+      (!sourceWhitespace &&
+        (!Array.isArray(show.quad) ||
+          show.quad.length !== 4 ||
+          !show.quad.every(pointValid) ||
+          !near((show.quad[0] as PagePoint).x, (show.quad[3] as PagePoint).x) ||
+          !near((show.quad[1] as PagePoint).x, (show.quad[2] as PagePoint).x) ||
+          !near((show.quad[0] as PagePoint).y, (show.quad[1] as PagePoint).y) ||
+          !near((show.quad[2] as PagePoint).y, (show.quad[3] as PagePoint).y)))
     )
       return null
     const xCell = floatCell(packed.matrix[4]),
@@ -200,7 +242,7 @@ export function nativeResetNoteBounds(
       maxX: origin.maxX + a * (advance + advanceError),
     }
     previousEnd = { minX: lastEnd.minX, maxX: lastEnd.maxX }
-    for (const point of show.quad) {
+    for (const point of show.quad ?? []) {
       quads.push(point)
       const localX = (point.x - e) / a - packed.matrix[4]
       const localY = (point.y - f) / d - packed.matrix[5]

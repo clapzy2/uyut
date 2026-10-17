@@ -62,6 +62,116 @@ function expectHeld(input: Input, reason: string) {
 }
 
 describe('literal source height observation inventory, never vertical model transfer', () => {
+  const decoSlashSource = fileURLToPath(
+    new URL('../../../../tmp/pdfs/deco-art-dvushka-source.pdf', import.meta.url),
+  )
+  it.skipIf(!existsSync(decoSlashSource))(
+    'retains the real DECO slash captions and their source labels without assigning ceilings or openings',
+    async () => {
+      const body = await readFile(decoSlashSource)
+      const sha256 = createHash('sha256').update(body).digest('hex')
+      expect(sha256).toBe('fee92486f301e8a40886914c74b9a83ce77747c6ee14dd4ee0a666dec4a647fd')
+      const { preparePlanPage } = await import('./plan-document')
+      const page = await preparePlanPage(body, true, 3, true, true)
+      if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+        throw new Error('Missing real DECO native source layers')
+      const input: Input = {
+        source: { sha256, pdfPage: 3, state: 'existing' },
+        native: page.nativeTextAnchors,
+        work: page.linework,
+        lineworkSource: page.lineworkRasterSource,
+      }
+      const result = nativeHeightObservations(input)
+      expect(result.observations.map((row) => [row.labelId, row.valueMm])).toEqual([
+        ['native-text-153', 1580],
+        ['native-text-156', 670],
+        ['native-text-158', 40],
+        ['native-text-159', 210],
+        ['native-text-162', 1560],
+        ['native-text-165', 700],
+        ['native-text-167', 40],
+        ['native-text-168', 210],
+        ['native-text-171', 1560],
+        ['native-text-172', 700],
+        ['native-text-173', 40],
+        ['native-text-174', 210],
+      ])
+      for (const row of result.observations) {
+        const label = input.native.labels.find((candidate) => candidate.id === row.labelId)
+        expect(row.originalText).toBe(label?.name)
+        expect(row.pagePoint).toEqual(label?.pagePoint)
+        expect(row.quantityKind).toBe(
+          [153, 162, 171].includes(Number(row.labelId.slice('native-text-'.length)))
+            ? 'opening-height'
+            : 'unclassified-height',
+        )
+        expect(row.datum).toBe('unspecified')
+        expect(row.mayAcceptFor3D).toBe(false)
+        expect(row).not.toHaveProperty('openingId')
+        expect(row).not.toHaveProperty('roomId')
+      }
+      // The split ceiling captions and the 2485–2500 range remain unassigned.
+      expect(result.observations.some((row) => [2485, 2500, 2535].includes(row.valueMm))).toBe(
+        false,
+      )
+      expect(result.splitHints[0]?.valueMm).toBe(45)
+      expect(result.assignsGeometryHeights).toBe(false)
+      const heightInk = input.native.heightCaptionInk
+      expect(heightInk?.complete).toBe(true)
+      expect(heightInk?.items).toHaveLength(12)
+      expect(heightInk?.unresolved).toEqual([])
+      for (const item of heightInk?.items ?? []) {
+        expect(item.sourceResetCaption?.shows[0]?.operationIndex).toBe(item.operationIndex)
+        expect(item.sourceResetCaption?.shows.map((show) => show.text).join('')).toBe(item.text)
+      }
+      const { nativeHeightSourceLocations } = await import('./plan-native-height-locations')
+      const locations = nativeHeightSourceLocations(input)
+      expect(locations.refusalReason).toBeNull()
+      expect(locations.observations).toHaveLength(12)
+      expect(locations.observations.every((row) => row.inkSourceOperation !== null)).toBe(true)
+      expect(locations.mayTransfer3D).toBe(false)
+      const firstInk = heightInk?.items[0]
+      const firstLabel = input.native.labels.find((label) => label.nativeIndex === firstInk?.index)
+      if (!firstInk?.sourceResetCaption || !firstLabel || !input.work.paintBounds)
+        throw new Error('Missing DECO reset and paint regression source')
+      const { nativeResetNoteBounds } = await import('./plan-native-height-group')
+      for (const mutation of [
+        'origin',
+        'width',
+        'missing-show',
+        'missing-visible-ink',
+        'axis',
+      ] as const) {
+        const changed = structuredClone(firstInk)
+        const reset = changed.sourceResetCaption as typeof firstInk.sourceResetCaption
+        const show = reset.shows[0]
+        if (!show) throw new Error('Missing DECO first source show')
+        if (mutation === 'origin') show.textMatrix[4] += 0.01
+        if (mutation === 'width') reset.textContentWidth += 0.01
+        if (mutation === 'missing-show') reset.shows.splice(1, 1)
+        if (mutation === 'missing-visible-ink') delete show.quad
+        if (mutation === 'axis') show.textMatrix[3] = 1
+        expect(nativeResetNoteBounds(changed, firstLabel, input.work)).toBeNull()
+      }
+      const covered = structuredClone(input)
+      if (!covered.work.paintBounds) throw new Error('Missing DECO paint inventory')
+      covered.work.paintBounds.events.push({
+        operationIndex: 99_999,
+        kind: 'vector',
+        bounds: { left: 540, top: 35, right: 620, bottom: 55 },
+        reason: null,
+      })
+      const coveredLocation = nativeHeightSourceLocations(covered).observations.find(
+        (row) => row.labelId === 'native-text-153',
+      )
+      expect(coveredLocation?.status).toBe('unresolved')
+      expect(coveredLocation?.reason).toBe('height-caption-covered-by-paint')
+      const { nativeHeightObjectEvidence } = await import('./plan-native-height-objects')
+      const objects = nativeHeightObjectEvidence(input)
+      expect(objects.bindings.every((row) => row.objectStatus === 'unresolved')).toBe(true)
+      expect(objects.mayTransfer2D3D).toBe(false)
+    },
+  )
   const realSource = fileURLToPath(
     new URL('../../../../output/pdf/source-search-20261003/rebrina-original.pdf', import.meta.url),
   )
@@ -494,6 +604,53 @@ describe('literal source height observation inventory, never vertical model tran
   ] as const)('converts the literal quantity %s only', (text, value) => {
     expect(nativeHeightObservations(fixture([text])).observations[0]?.valueMm).toBe(value)
   })
+  it.each([
+    ['Н = 1580 мм/проем', 1580],
+    ['Н = 1560 мм/проем от', 1560],
+    ['Н = 670 мм/от ур. стяжки', 670],
+    ['Н = 700 мм/от ур. стяжки до подокон.', 700],
+    ['H = 40 мм/подоконник', 40],
+    ['Н = 210 мм/от верхн.уровня проема до', 210],
+  ] as const)(
+    'retains the documentary slash separator in %s without inventing ownership',
+    (text, valueMm) => {
+      const input = fixture([text])
+      const before = structuredClone(input)
+      const result = nativeHeightObservations(input)
+      expect(result.observations).toEqual([
+        {
+          valueMm,
+          quantityKind: text.includes('/проем') ? 'opening-height' : 'unclassified-height',
+          datum: 'unspecified',
+          issueCodes: text.includes('/проем')
+            ? ['height-datum-unverified']
+            : ['height-role-unclassified', 'height-datum-unverified'],
+          labelId: 'native-text-0',
+          originalText: text,
+          pagePoint: input.native.labels[0]?.pagePoint,
+          mayAcceptFor3D: false,
+        },
+      ])
+      expect(result.assignsGeometryHeights).toBe(false)
+      expect(input).toEqual(before)
+    },
+  )
+  it.each([
+    'Н = 1580 мм/2',
+    'Н = 1580 мм/с',
+    'Н = 1580 мм / с',
+    'Н = 1580 мм / 2',
+    'Н = 1580 мм/мм',
+    'Н = 1580 мм/проем 1400',
+    'Н = 1580 мм/проем 1400мм',
+    'Н = 1580 мм/проемы',
+    'Н = 1580 мм/',
+  ])(
+    'does not reinterpret a fraction, rate or competing quantity as documentary slash %s',
+    (text) => {
+      expect(nativeHeightObservations(fixture([text])).observations).toEqual([])
+    },
+  )
   it.each([
     'натяжной-2649мм',
     'Высота подвесного потолка = 270 см',
