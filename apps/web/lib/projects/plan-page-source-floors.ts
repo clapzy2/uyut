@@ -1,5 +1,6 @@
 import type { PlanPageContours, PlanPageSegmentRef, PlanReading } from '@uyut/db'
 import { exactNativePointKey } from './plan-native-exact-intersections'
+import { nativeFilledPanelJambContacts } from './plan-native-filled-panel-jambs'
 import { type NativeFilledPanel, nativeFilledPanelCandidates } from './plan-native-filled-panels'
 import type { SourcePaintBoundarySupport } from './plan-native-painted-floor-boundaries'
 import type {
@@ -23,6 +24,12 @@ export type SourceMaterialClassification = {
   physicalBoundariesAccepted: false
   profileId: string | null
   sourceRefs: PlanPageSegmentRef[]
+  endEvidence?: {
+    status: 'matched' | 'partial' | 'ambiguous' | 'unobserved' | 'unresolved'
+    coverage: 'complete' | 'partial' | 'unproved'
+    sourceRefs: PlanPageSegmentRef[]
+    physicalJambAccepted: false
+  }[]
 }
 
 export type SourceFloorMaterialSpan = PdfWallBodySupport & {
@@ -44,6 +51,7 @@ export type SourceFloorMaterialSupports = {
 function materialClassification(
   span: PdfWallBodySupport,
   panels: NativeFilledPanel[],
+  jambs: ReturnType<typeof nativeFilledPanelJambContacts>['panels'],
   unavailable: boolean,
 ): SourceMaterialClassification {
   const matches = panels.filter((panel) =>
@@ -75,6 +83,10 @@ function materialClassification(
   const unique = new Map(
     refs.map((ref) => [`${ref.operationIndex}:${ref.subpathIndex}:${ref.segmentIndex}`, ref]),
   )
+  const jamb = jambs.find(
+    (pair) =>
+      pair.panelId === profile.id && pair.ends.every((end) => end.sourceEdges.length <= 100),
+  )
   return {
     status: 'diagnostic',
     kind: 'framed-panel',
@@ -87,6 +99,20 @@ function materialClassification(
         a.subpathIndex - b.subpathIndex ||
         a.segmentIndex - b.segmentIndex,
     ),
+    ...(jamb
+      ? {
+          endEvidence: jamb.ends.map((end) => ({
+            status: end.status,
+            coverage: end.coverage,
+            sourceRefs: end.sourceEdges.map(({ operationIndex, subpathIndex, segmentIndex }) => ({
+              operationIndex,
+              subpathIndex,
+              segmentIndex,
+            })),
+            physicalJambAccepted: false as const,
+          })),
+        }
+      : {}),
   }
 }
 
@@ -225,6 +251,13 @@ export function planPageSourceFloors(input: {
       supports.length && !outputLimit
         ? nativeFilledPanelCandidates({ ...input.evidence, contactMode: 'exact-joined-endcaps' })
         : undefined
+    const jambs =
+      profiles && !profiles.refusalReason && profiles.panels.length
+        ? nativeFilledPanelJambContacts({
+            ...input.evidence,
+            contactMode: 'exact-joined-endcaps',
+          })
+        : undefined
     for (const floor of report.floors) {
       const reason = floor.holes.length
         ? 'material-support-holes-not-supported'
@@ -250,6 +283,7 @@ export function planPageSourceFloors(input: {
                 classification: materialClassification(
                   support,
                   profiles?.panels ?? [],
+                  jambs?.panels ?? [],
                   !!profiles?.refusalReason,
                 ),
               })),

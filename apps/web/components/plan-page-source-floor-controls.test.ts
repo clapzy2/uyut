@@ -138,12 +138,29 @@ describe('source floor controls', () => {
         subpathIndex: 0,
         segmentIndex,
       })),
+      endEvidence: [
+        {
+          status: 'matched',
+          coverage: 'complete',
+          sourceRefs: [{ operationIndex: 9436, subpathIndex: 0, segmentIndex: 0 }],
+          physicalJambAccepted: false,
+        },
+        {
+          status: 'unobserved',
+          coverage: 'unproved',
+          sourceRefs: [],
+          physicalJambAccepted: false,
+        },
+      ],
     }
     const markup = html(
       props({ reference: value, highlightedEdge: { ringIndex: 0, edgeIndex: 0 } }),
     )
     expect(markup).toContain('Составная залитая панель')
     expect(markup).toContain('материал, физическая стена и косяк требуют проверки')
+    expect(markup).toContain('полный штрих (9436/0/0)')
+    expect(markup).toContain('штрих не найден (нет)')
+    expect(markup).toContain('физические косяки не подтверждены')
     expect(markup).not.toContain('Стена подтверждена')
   })
 
