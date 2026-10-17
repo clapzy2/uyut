@@ -899,6 +899,73 @@ describe('explicit selected source text ink', () => {
     })
   })
 
+  it('does not treat a longer source show with a trailing space as the selected literal', () => {
+    const input = fixture(
+      [
+        ['setFont', ['f1', 10]],
+        ['beginText'],
+        ['moveText', [10, 40]],
+        ['showText', [[glyph('Н')]]],
+        ['moveText', [20, 0]],
+        ['showText', [[glyph('Н'), glyph(' ')]]],
+        ['endText'],
+      ],
+      [{ str: 'Н', fontName: 'f1', width: 5, transform: [10, 0, 0, 10, 10, 40] }],
+    )
+    input.selectedTextIndexes = [0]
+    const result = nativeNumericTextInk(input)
+    expect(result.refusalReason).toBeNull()
+    expect(result.items).toMatchObject([{ index: 0, text: 'Н', operationIndex: 3 }])
+  })
+
+  it('proves a selected threshold suffix across source text objects without inventing the blank', () => {
+    const operations: Operation[] = [
+      ['transform', [1, 0, 0, -1, 0, 1000]],
+      ['setFont', ['f1', 10]],
+      ['beginText'],
+      ['setTextMatrix', [[1, 0, 0, -1, 10, 40]]],
+      ['showText', [[glyph('=')]]],
+      ['endText'],
+      ['beginText'],
+      ['setTextMatrix', [[1, 0, 0, -1, 15, 40]]],
+      ['showText', [[glyph('4'), glyph('5')]]],
+      ['endText'],
+      ['beginText'],
+      ['setTextMatrix', [[1, 0, 0, -1, 25, 40]]],
+      ['showText', [[{ ...glyph(' '), isSpace: false }]]],
+      ['moveText', [5, 0]],
+      ['showText', [[glyph('м'), glyph('м')]]],
+      ['endText'],
+    ]
+    const selected = [
+      { str: '=45 мм', fontName: 'f1', width: 30, transform: [10, 0, 0, 10, 10, 960] },
+    ]
+    const input = fixture(operations, selected)
+    input.selectedTextIndexes = [0]
+    input.getGlyphPath = (_font, character) => (character === ' ' ? [4] : digitPath)
+    const result = nativeNumericTextInk(input)
+    expect(result.refusalReason).toBeNull()
+    expect(result.unresolved).toEqual([])
+    expect(result.items[0]?.sourceGroup?.operationIndexes).toEqual([4, 8, 12, 14])
+
+    const changedPosition = structuredClone(operations)
+    changedPosition[13] = ['moveText', [12, 0]]
+    expect(
+      nativeNumericTextInk({ ...input, operatorList: fixture(changedPosition).operatorList }).items,
+    ).toEqual([])
+    const interposedPaint: Operation[] = [
+      ...operations.slice(0, 6),
+      ['setFillColorN', [0]],
+      ...operations.slice(6),
+    ]
+    expect(
+      nativeNumericTextInk({ ...input, operatorList: fixture(interposedPaint).operatorList }).items,
+    ).toEqual([])
+    const changedWidth = [{ ...(selected[0] as (typeof selected)[number]), width: 31 }]
+    expect(nativeNumericTextInk({ ...input, textItems: changedWidth }).items).toEqual([])
+    expect(nativeNumericTextInk({ ...input, getGlyphPath: () => undefined }).items).toEqual([])
+  })
+
   it('keeps duplicate selected text identities ambiguous rather than choosing one', () => {
     const input = selectedHeightFixture()
     input.textItems = [...input.textItems, structuredClone(input.textItems[0])]
@@ -1851,10 +1918,7 @@ describe('native numeric source text ink', () => {
           result.items[0]?.operationIndex,
         ])
         expect(result.items[0]?.sourceGroup?.shows[0]?.wordSpacing).toBe(0)
-        for (const [index, expected] of [
-          [74, 'unmatched-native-numeric-text-show'],
-          [76, 'native-text-show-identity-unresolved'],
-        ] as const) {
+        for (const index of [74, 76] as const) {
           const fragment = nativeNumericTextInk({
             operatorList,
             operators: pdfjs.OPS,
@@ -1866,8 +1930,17 @@ describe('native numeric source text ink', () => {
               page.commonObjs.get(`${name}_path_${character}`).path,
             isOptionalContentVisible: (properties) => optionalContent.isVisible(properties),
           })
-          expect(fragment.items).toEqual([])
-          expect(fragment.refusalReason ?? fragment.unresolved[0]?.reason).toBe(expected)
+          if (index === 74) {
+            expect(fragment.items).toEqual([])
+            expect(fragment.refusalReason).toBe('unmatched-native-numeric-text-show')
+          } else {
+            expect(fragment.refusalReason).toBeNull()
+            expect(fragment.unresolved).toEqual([])
+            expect(fragment.items[0]?.text).toBe('=45 мм')
+            expect(fragment.items[0]?.sourceGroup?.operationIndexes).toEqual([
+              15756, 15761, 15766, 15768,
+            ])
+          }
         }
       } finally {
         await loading.destroy()
