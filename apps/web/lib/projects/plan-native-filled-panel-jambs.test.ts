@@ -109,6 +109,22 @@ describe('filled profile ends and independent source paint edges', () => {
     expect(runJoined(input).panels[0]?.ends[1]?.status).toBe('ambiguous')
   })
 
+  it('does not call a fill-only boundary an independent end stroke for joined panels', () => {
+    const input = work([
+      rectangle(1, 100, 200),
+      rectangle(2, 90, 100),
+      rectangle(3, 200, 210),
+      rectangle(4, 90, 100, 90, 120),
+      line(5, 200),
+    ])
+    expect(runJoined(input).panels[0]?.status).toBe('partial')
+    expect(runJoined(input).panels[0]?.ends[1]?.status).toBe('unobserved')
+
+    input.paths[3] = { ...required(input.paths[3]), paint: 'fill-stroke' }
+    expect(runJoined(input).panels[0]?.status).toBe('paired')
+    expect(runJoined(input).panels[0]?.ends[1]?.sourcePaints[0]?.paint).toBe('fill-stroke')
+  })
+
   it('binds literal independent ends while refusing physical wall/jamb ownership', () => {
     const input = work(),
       before = structuredClone(input)
