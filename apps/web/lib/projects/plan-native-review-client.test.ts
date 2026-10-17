@@ -2823,6 +2823,58 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
     return { ...result, heights }
   }
 
+  it('loads source L-callouts only as unresolved annotations and refuses changed ownership', async () => {
+    const { packet, headers } = heightFixture()
+    packet.heightCallouts = {
+      status: 'draft',
+      refusalReason: null,
+      textBlockOwnershipConfirmed: false,
+      physicalObjectAccepted: false,
+      mayTransfer2D3D: false,
+      candidates: [
+        {
+          id: 'native-height-callout-10:0',
+          stem: {
+            source: { operationIndex: 10, subpathIndex: 0, segmentIndex: 0 },
+            start: { x: 100, y: 100 },
+            end: { x: 100, y: 200 },
+          },
+          horizontal: {
+            source: { operationIndex: 11, subpathIndex: 0, segmentIndex: 0 },
+            start: { x: 100, y: 100 },
+            end: { x: 150, y: 100 },
+          },
+          dot: {
+            source: { operationIndex: 12, subpathIndex: 0 },
+            polygon: Array.from({ length: 8 }, (_, index) => ({
+              x: 99 + Math.cos((index * Math.PI) / 4),
+              y: 200 + Math.sin((index * Math.PI) / 4),
+            })),
+          },
+          outline: { operationIndex: 13, subpathIndex: 0 },
+          calloutEnd: { x: 150, y: 100 },
+          possibleTextLabelIds: ['native-text-20'],
+          heightCaptions: [{ labelId: 'native-text-20', sourceOperations: [20] }],
+          textBlockStatus: 'unverified',
+          objectStatus: 'unresolved',
+        },
+      ],
+    }
+    expect((await loadFixture(packet, headers)).packet.heightCallouts).toEqual(
+      packet.heightCallouts,
+    )
+    const claimed = structuredClone(packet)
+    if (!claimed.heightCallouts) throw new Error('Missing callout')
+    claimed.heightCallouts.physicalObjectAccepted = true as false
+    await expect(loadFixture(claimed, headers)).rejects.toThrow()
+    const foreign = structuredClone(packet)
+    if (!foreign.heightCallouts) throw new Error('Missing callout')
+    const caption = foreign.heightCallouts.candidates[0]?.heightCaptions[0]
+    if (!caption) throw new Error('Missing callout caption')
+    caption.labelId = 'native-text-99'
+    await expect(loadFixture(foreign, headers)).rejects.toThrow()
+  })
+
   it('loads only internally consistent, read-only split threshold hints', async () => {
     const { packet, headers, heights } = heightFixture()
     heights.splitHints = [

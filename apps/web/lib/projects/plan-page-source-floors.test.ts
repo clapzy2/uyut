@@ -123,6 +123,30 @@ describe('fresh raw source floor reference for the contour editor', () => {
       const floor = result.floors[0]
       expect(result.status).toBe('checked')
       expect(floor?.materialSupports?.spans).toHaveLength(17)
+      expect(
+        floor?.materialSupports?.spans.filter(
+          (span) => span.classification?.kind === 'framed-panel',
+        ),
+      ).toHaveLength(10)
+      expect(
+        floor?.materialSupports?.spans.filter(
+          (span) => span.classification?.kind === 'unclassified-body',
+        ),
+      ).toHaveLength(7)
+      const paths = new Map(
+        page.linework.paths.map((path) => [`${path.operationIndex}:${path.subpathIndex}`, path]),
+      )
+      for (const span of floor?.materialSupports?.spans ?? []) {
+        const classification = span.classification
+        expect(classification?.physicalBoundariesAccepted).toBe(false)
+        for (const ref of classification?.sourceRefs ?? []) {
+          const path = paths.get(`${ref.operationIndex}:${ref.subpathIndex}`)
+          expect(path).toBeDefined()
+          expect(path?.points[ref.segmentIndex]).toBeDefined()
+        }
+        if (classification?.kind === 'framed-panel')
+          expect(classification.sourceRefs).toContainEqual(span.strokeSegment)
+      }
       expect(floor?.materialSupports).toMatchObject({
         status: 'diagnostic',
         semanticStatus: 'unclassified',
@@ -188,6 +212,14 @@ describe('fresh raw source floor reference for the contour editor', () => {
             end: { x: 320, y: 250 },
             strokeSegment: { operationIndex: 40, subpathIndex: 0, segmentIndex: 0 },
           },
+          classification: {
+            status: 'diagnostic',
+            kind: 'unclassified-body',
+            reason: 'no-exact-joined-filled-panel',
+            physicalBoundariesAccepted: false,
+            profileId: null,
+            sourceRefs: [],
+          },
         },
       ],
     })
@@ -209,6 +241,56 @@ describe('fresh raw source floor reference for the contour editor', () => {
       reason: null,
     })
     expect(planPageSourceFloors(input).floors[0]?.materialSupports?.spans).toEqual([])
+  })
+
+  it('classifies joined source panels without declaring a wall, glazing or physical jamb', () => {
+    const input = materialFixture()
+    const work: PdfLinework = input.evidence.work
+    for (const [operationIndex, top, bottom] of [
+      [21, 130, 150],
+      [22, 250, 270],
+    ] as const) {
+      work.paths.push({
+        operationIndex,
+        subpathIndex: 0,
+        paint: 'fill',
+        closed: true,
+        points: [
+          { x: 300, y: top },
+          { x: 320, y: top },
+          { x: 320, y: bottom },
+          { x: 300, y: bottom },
+        ],
+      })
+      work.paintBounds?.events.push({
+        operationIndex,
+        kind: 'vector',
+        subpathCount: 1,
+        bounds: { left: 300, right: 320, top, bottom },
+        reason: null,
+      })
+    }
+    const result = planPageSourceFloors(input)
+    const span = result.floors[0]?.materialSupports?.spans.find(
+      (support) => support.source.operationIndex === 20,
+    )
+    expect(span?.classification).toMatchObject({
+      status: 'diagnostic',
+      kind: 'framed-panel',
+      reason: 'exact-joined-filled-panel',
+      physicalBoundariesAccepted: false,
+      profileId: 'native-filled-panel-20:0',
+    })
+    expect(span?.classification?.sourceRefs).toHaveLength(14)
+    for (const operationIndex of [20, 21, 22])
+      expect(
+        span?.classification?.sourceRefs.filter((ref) => ref.operationIndex === operationIndex),
+      ).toHaveLength(4)
+    expect(result.physicalBoundariesAccepted).toBe(false)
+    expect(result).not.toHaveProperty('geometry')
+    expect(
+      result.floors[0]?.boundarySupports?.every((edge) => edge.declaredRole === 'unresolved'),
+    ).toBe(true)
   })
 
   it('does not use a stroke painted before the material body as an independent witness', () => {

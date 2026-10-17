@@ -1265,6 +1265,55 @@ describe('read-only native review presentation', () => {
     expect(html.match(/<button\b/g)?.length).toEqual(baseline.match(/<button\b/g)?.length)
   })
 
+  it('shows exact source height callouts over the PDF without assigning an opening', () => {
+    const packet = nativeDimensionPacket()
+    packet.heightCallouts = {
+      status: 'draft',
+      refusalReason: null,
+      textBlockOwnershipConfirmed: false,
+      physicalObjectAccepted: false,
+      mayTransfer2D3D: false,
+      candidates: [
+        {
+          id: 'native-height-callout-22561:0',
+          stem: {
+            source: { operationIndex: 22561, subpathIndex: 0, segmentIndex: 0 },
+            start: { x: 400, y: 100 },
+            end: { x: 400, y: 200 },
+          },
+          horizontal: {
+            source: { operationIndex: 22582, subpathIndex: 0, segmentIndex: 0 },
+            start: { x: 400, y: 100 },
+            end: { x: 500, y: 100 },
+          },
+          dot: {
+            source: { operationIndex: 22566, subpathIndex: 0 },
+            polygon: Array.from({ length: 8 }, (_, index) => ({
+              x: 400 + Math.cos((index * Math.PI) / 4),
+              y: 200 + Math.sin((index * Math.PI) / 4),
+            })),
+          },
+          outline: { operationIndex: 22575, subpathIndex: 0 },
+          calloutEnd: { x: 500, y: 100 },
+          possibleTextLabelIds: ['native-text-153'],
+          heightCaptions: [{ labelId: 'native-text-153', sourceOperations: [22438] }],
+          textBlockStatus: 'unverified',
+          objectStatus: 'unresolved',
+        },
+      ],
+    }
+    const markup = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(markup).toContain('Исходные выноски высот: 1')
+    expect(markup).toContain('22561/0/0')
+    expect(markup).toContain('22566/0')
+    expect(markup).toContain('Показать исходные линии выносок высот')
+    expect(markup).toContain('stroke-dasharray="6 3"')
+    expect(markup).toContain('связь с конкретным проёмом и общий уровень отсчёта не установлены')
+    expect(markup).not.toContain('Высота проёма подтверждена')
+  })
+
   it('discloses unsupported competing ceiling notes without treating them as a floor datum', () => {
     const packet = nativeDimensionPacket()
     packet.heightObjects = {

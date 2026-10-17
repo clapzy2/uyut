@@ -85,11 +85,46 @@ function straddles(edge: NativePageSegment, points: PagePoint[]): boolean {
   return turns.every((turn) => turn === 1) || turns.every((turn) => turn === -1)
 }
 
+/** Full literal edge contact, with convex interiors on opposite sides; no join tolerance. */
+function joinsEnd(edge: NativePageSegment, cap: Quad, body: Quad): boolean {
+  const same = (a: PagePoint, b: PagePoint) => a.x === b.x && a.y === b.y
+  if (
+    !cap.edges.some(
+      (side) =>
+        (same(side.start, edge.start) && same(side.end, edge.end)) ||
+        (same(side.end, edge.start) && same(side.start, edge.end)),
+    )
+  )
+    return false
+  const sides = (points: PagePoint[]) =>
+    new Set(
+      points
+        .map((point) => exactNativeOrientation(edge.start, edge.end, point))
+        .filter((side) => side !== 0),
+    )
+  const bodySides = sides(body.points)
+  const capSides = sides(cap.points)
+  return (
+    bodySides.size === 1 &&
+    capSides.size === 1 &&
+    ((bodySides.has(1) && capSides.has(-1)) || (bodySides.has(-1) && capSides.has(1)))
+  )
+}
+
+type PanelContactMode = 'overlapping-endcaps' | 'exact-joined-endcaps'
+type PanelContactBasis<Mode extends PanelContactMode> = Mode extends 'exact-joined-endcaps'
+  ? 'native-filled-quad-and-exact-joined-endcaps'
+  : 'native-filled-quad-and-opposed-cap-overlap'
+
 /** Source paint contacts only. A filled profile is not a window, jamb or free passage. */
-export function nativeFilledPanelCandidates(input: {
+export function nativeFilledPanelCandidates<
+  Mode extends PanelContactMode = 'overlapping-endcaps',
+>(input: {
   native: NativeTextAnchors
   work: PdfLinework
   lineworkSource: RegionLabelFrame
+  /** Opt-in diagnostic joined profiles; legacy passage consumers keep overlap-only evidence. */
+  contactMode?: Mode
 }) {
   const { native, work } = input
   const frame = nativeFillCandidates(input)
@@ -108,7 +143,9 @@ export function nativeFilledPanelCandidates(input: {
   }
   const finish = (refusalReason: string | null) => ({
     status: refusalReason ? ('unresolved' as const) : ('draft' as const),
-    basis: 'native-filled-quad-and-opposed-cap-overlap' as const,
+    basis: (input.contactMode === 'exact-joined-endcaps'
+      ? 'native-filled-quad-and-exact-joined-endcaps'
+      : 'native-filled-quad-and-opposed-cap-overlap') as PanelContactBasis<Mode>,
     source: native.source,
     originalPdfSha256: native.originalPdfSha256,
     panels: refusalReason ? [] : structuredClone(panels),
@@ -225,8 +262,11 @@ export function nativeFilledPanelCandidates(input: {
       if (!spend()) return finish('filled-panel-search-budget')
       if (cap === body || !boundsOverlap(body.bounds, cap.bounds)) continue
       if (Math.min(...cap.lengths) < depth / 2 || Math.max(...cap.lengths) > depth * 2) continue
-      if (exactNativePolygonsOverlap(body.points, cap.points) !== true) continue
-      const ends = shortEdges.map((edge) => straddles(edge, cap.points))
+      const joined = input.contactMode === 'exact-joined-endcaps'
+      if (!joined && exactNativePolygonsOverlap(body.points, cap.points) !== true) continue
+      const ends = shortEdges.map((edge) =>
+        joined ? joinsEnd(edge, cap, body) : straddles(edge, cap.points),
+      )
       if (ends[0] === ends[1]) continue
       const end = ends[0] ? 0 : 1
       caps[end].push(cap)
@@ -241,7 +281,9 @@ export function nativeFilledPanelCandidates(input: {
         body.path,
         caps.some((items) => items.length > 1)
           ? 'competing-filled-caps'
-          : 'no-two-opposed-overlapping-caps',
+          : input.contactMode === 'exact-joined-endcaps'
+            ? 'no-two-exact-joined-endcaps'
+            : 'no-two-opposed-overlapping-caps',
       )
       continue
     }

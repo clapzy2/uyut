@@ -321,6 +321,17 @@ export function PlanPageSourceFloorControls({
                             {span.oppositeFace
                               ? ` Противоположная грань: ${span.oppositeFace.nativeSegment.operationIndex}/${span.oppositeFace.nativeSegment.subpathIndex}/${span.oppositeFace.nativeSegment.segmentIndex}; штрих ${span.oppositeFace.strokeSegment.operationIndex}/${span.oppositeFace.strokeSegment.subpathIndex}/${span.oppositeFace.strokeSegment.segmentIndex}.`
                               : ' Противоположная грань не наблюдалась.'}
+                            {span.classification?.kind === 'framed-panel' ? (
+                              <p>
+                                Составная залитая панель: тело и два торца соединены по исходным
+                                граням. Исходные отрезки: {span.classification.sourceRefs.length}.
+                                Это подсказка о форме элемента; материал, физическая стена и косяк
+                                требуют проверки.
+                              </p>
+                            ) : span.classification?.reason ===
+                              'filled-panel-search-unavailable' ? (
+                              <p>Проверка формы соседнего тела удержана.</p>
+                            ) : null}
                           </li>
                         ))}
                       </ul>

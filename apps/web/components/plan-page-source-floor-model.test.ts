@@ -138,6 +138,46 @@ describe('source reference parsing and lossless whole-ring draft copy', () => {
     expect(copied).not.toHaveProperty('draft.openings')
   })
 
+  it('keeps a framed-panel hint diagnostic and rejects changed source refs or physical claims', () => {
+    const report = materialReference()
+    const span = report.floors[0]?.materialSupports?.spans[0]
+    if (!span?.oppositeFace) throw new Error('Missing material span or opposite face')
+    span.classification = {
+      status: 'diagnostic',
+      kind: 'framed-panel',
+      reason: 'exact-joined-filled-panel',
+      physicalBoundariesAccepted: false,
+      profileId: 'native-filled-panel-20:0',
+      sourceRefs: [
+        ...[20, 21, 22].flatMap((operationIndex) =>
+          Array.from({ length: 4 }, (_, segmentIndex) => ({
+            operationIndex,
+            subpathIndex: 0,
+            segmentIndex,
+          })),
+        ),
+        span.strokeSegment,
+        span.oppositeFace.strokeSegment,
+      ],
+    }
+    expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toEqual(report)
+    expect(sourceFloorDraft(report.floors[0])).not.toHaveProperty('draft.materialSupports')
+
+    span.classification.sourceRefs = span.classification.sourceRefs.filter(
+      (ref) => ref.operationIndex !== span.strokeSegment.operationIndex,
+    )
+    expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toBeNull()
+    span.classification.sourceRefs.push(span.strokeSegment)
+    span.classification.sourceRefs.sort(
+      (left, right) =>
+        left.operationIndex - right.operationIndex ||
+        left.subpathIndex - right.subpathIndex ||
+        left.segmentIndex - right.segmentIndex,
+    )
+    Object.assign(span.classification, { physicalBoundariesAccepted: true })
+    expect(sourceFloorReferenceFromResponse(report, page, report.sourceRevision)).toBeNull()
+  })
+
   it('roundtrips decimal material spans from the server without a floating translation check', () => {
     const report = materialReference()
     const floor = report.floors[0]
