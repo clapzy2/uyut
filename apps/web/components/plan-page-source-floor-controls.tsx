@@ -2,6 +2,8 @@
 
 import { Button } from '@uyut/ui'
 import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
+import type { PagePoint } from '@/lib/projects/plan-pdf-linework'
+import type { SourceEdgeCandidates } from './plan-page-edge-candidates'
 import type { SourceFloorDraftResult } from './plan-page-source-floor-model'
 
 const refusalMessages = {
@@ -25,9 +27,13 @@ export function PlanPageSourceFloorControls({
   conversion,
   error,
   highlightedEdge,
+  highlightedEdgePoints,
+  nearbySourceEdges,
+  highlightedStrokeRef,
   onToggle,
   onCopy,
   onHighlightEdge,
+  onHighlightStroke,
 }: {
   reference?: SourceFloorReference
   selectedKey?: string
@@ -38,9 +44,13 @@ export function PlanPageSourceFloorControls({
   conversion: SourceFloorDraftResult
   error?: string
   highlightedEdge?: { ringIndex: number; edgeIndex: number }
+  highlightedEdgePoints?: readonly [PagePoint, PagePoint]
+  nearbySourceEdges?: SourceEdgeCandidates
+  highlightedStrokeRef?: string
   onToggle: () => void
   onCopy: () => void
   onHighlightEdge?: (edge?: { ringIndex: number; edgeIndex: number }) => void
+  onHighlightStroke?: (sourceRef?: string) => void
 }) {
   const current = shown && !loading && !error ? reference : undefined
   const floor =
@@ -271,6 +281,60 @@ export function PlanPageSourceFloorControls({
                 </table>
               </div>
             </details>
+          ) : null}
+          {floor && highlightedEdge ? (
+            <section className="max-w-2xl border-t border-line pt-3 text-xs leading-relaxed">
+              <h5 className="font-medium text-ink">Штрихи рядом с выбранной гранью</h5>
+              {highlightedEdgePoints ? (
+                <p className="mt-1 break-words font-mono text-[10px] text-ink-2">
+                  Грань области: ({highlightedEdgePoints[0].x}; {highlightedEdgePoints[0].y}) → ({' '}
+                  {highlightedEdgePoints[1].x}; {highlightedEdgePoints[1].y})
+                </p>
+              ) : null}
+              <p className="mt-1 text-ink-2">
+                Это варианты исходных линий в пределах 3 единиц листа PDF, а не подтверждённые
+                стены. Покажите каждый штрих поверх листа и сравните его точные координаты с гранью.
+                Штрих мог быть перекрыт поздней краской. Близость не исправляет расхождение и не
+                переносится в 2D/3D.
+              </p>
+              {nearbySourceEdges?.status === 'held' ? (
+                <p role="status" className="mt-2 text-ink-2">
+                  Сравнение удержано:{' '}
+                  {nearbySourceEdges.reason === 'candidate-limit'
+                    ? 'слишком много конкурирующих исходных штрихов.'
+                    : 'координаты грани или источника некорректны.'}
+                </p>
+              ) : nearbySourceEdges?.status === 'checked' && nearbySourceEdges.candidates.length ? (
+                <ul className="mt-2 space-y-2">
+                  {nearbySourceEdges.candidates.map(({ segment, gapPageUnits }) => {
+                    const sourceRef = `${segment.operationIndex}:${segment.subpathIndex}:${segment.segmentIndex}`
+                    const selected = sourceRef === highlightedStrokeRef
+                    const endpoints = `(${segment.start.x}; ${segment.start.y}) → (${segment.end.x}; ${segment.end.y})`
+                    return (
+                      <li key={sourceRef}>
+                        <button
+                          type="button"
+                          className="min-h-11 text-left underline decoration-line underline-offset-4"
+                          aria-pressed={selected}
+                          disabled={!onHighlightStroke}
+                          onClick={() => onHighlightStroke?.(selected ? undefined : sourceRef)}
+                        >
+                          Штрих {sourceRef}; отклонение до {gapPageUnits.toFixed(3)} ед. листа.
+                        </button>
+                        <p className="break-words font-mono text-[10px] text-ink-2">
+                          {endpoints} в координатах листа 0–1000
+                        </p>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : (
+                <p role="status" className="mt-2 text-ink-2">
+                  Параллельных штрихов рядом не найдено. Это не доказывает отсутствие стены или
+                  косяка.
+                </p>
+              )}
+            </section>
           ) : null}
           {floor && opening ? (
             <details className="max-w-2xl border-t border-line pt-2">

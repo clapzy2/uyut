@@ -49,6 +49,7 @@ import {
   pdfContourRoomNumbers,
 } from '@/lib/projects/plan-pdf-room-binding'
 import { type PageBoundaryKind, PlanPageBoundaryControls } from './plan-page-boundary-controls'
+import { sourceEdgeCandidates } from './plan-page-edge-candidates'
 import { PlanPageEdgeDimensions } from './plan-page-edge-dimensions'
 import { PlanPageFeatureOverlay } from './plan-page-feature-overlay'
 import { type NewPageFeatureKind, PlanPageFeatures } from './plan-page-features'
@@ -128,6 +129,10 @@ export function PlanPageContourEditor({
     floorId: string
     ringIndex: number
     edgeIndex: number
+  }>()
+  const [sourceStrokeHighlight, setSourceStrokeHighlight] = useState<{
+    edgeKey: string
+    sourceRef: string
   }>()
   const [traceReferences, setTraceReferences] = useState<
     Record<
@@ -257,6 +262,31 @@ export function PlanPageContourEditor({
             (highlightedSourceEdge.edgeIndex + 1) % highlightedSourceRing.length
           ],
         ]
+      : undefined
+  const highlightedEdgeKey = highlightedSourceEdge
+    ? `${sourceRevision}:${pageNumber}:${highlightedSourceEdge.floorId}:${highlightedSourceEdge.ringIndex}:${highlightedSourceEdge.edgeIndex}`
+    : undefined
+  const nearbySourceEdges = useMemo(
+    () =>
+      highlightedSourceSegment?.[0] && highlightedSourceSegment[1] && preview
+        ? sourceEdgeCandidates(
+            [highlightedSourceSegment[0], highlightedSourceSegment[1]],
+            nativeSegments,
+            preview,
+          )
+        : undefined,
+    [highlightedSourceSegment?.[0], highlightedSourceSegment?.[1], nativeSegments, preview],
+  )
+  const selectedSourceStroke =
+    sourceStrokeHighlight &&
+    highlightedEdgeKey &&
+    sourceStrokeHighlight.edgeKey === highlightedEdgeKey &&
+    nearbySourceEdges?.status === 'checked'
+      ? nearbySourceEdges.candidates.find(
+          ({ segment }) =>
+            `${segment.operationIndex}:${segment.subpathIndex}:${segment.segmentIndex}` ===
+            sourceStrokeHighlight.sourceRef,
+        )?.segment
       : undefined
   const sourceFloorConversion = useMemo(
     () =>
@@ -1179,6 +1209,19 @@ export function PlanPageContourEditor({
               conversion={sourceFloorConversion}
               error={sourceFloorsError}
               highlightedEdge={highlightedSourceEdge}
+              highlightedEdgePoints={
+                highlightedSourceSegment?.[0] && highlightedSourceSegment[1]
+                  ? [highlightedSourceSegment[0], highlightedSourceSegment[1]]
+                  : undefined
+              }
+              nearbySourceEdges={nearbySourceEdges}
+              highlightedStrokeRef={
+                sourceStrokeHighlight &&
+                highlightedEdgeKey &&
+                sourceStrokeHighlight.edgeKey === highlightedEdgeKey
+                  ? sourceStrokeHighlight.sourceRef
+                  : undefined
+              }
               onToggle={toggleSourceFloors}
               onCopy={copySourceFloor}
               onHighlightEdge={(edge) =>
@@ -1190,6 +1233,13 @@ export function PlanPageContourEditor({
                         floorId: selectedSourceFloor.id,
                         ...edge,
                       }
+                    : undefined,
+                )
+              }
+              onHighlightStroke={(sourceRef) =>
+                setSourceStrokeHighlight(
+                  sourceRef && highlightedEdgeKey
+                    ? { edgeKey: highlightedEdgeKey, sourceRef }
                     : undefined,
                 )
               }
@@ -1282,6 +1332,24 @@ export function PlanPageContourEditor({
                   >
                     <title>
                       Выбранная грань исходной области; её физическая роль не подтверждена.
+                    </title>
+                  </line>
+                ) : null}
+                {selectedSourceStroke ? (
+                  <line
+                    x1={selectedSourceStroke.start.x}
+                    y1={selectedSourceStroke.start.y}
+                    x2={selectedSourceStroke.end.x}
+                    y2={selectedSourceStroke.end.y}
+                    stroke="#0284c7"
+                    strokeWidth={3}
+                    strokeDasharray="6 3"
+                    vectorEffect="non-scaling-stroke"
+                    pointerEvents="none"
+                  >
+                    <title>
+                      Отдельный исходный штрих рядом с гранью. Его физическое назначение не
+                      подтверждено.
                     </title>
                   </line>
                 ) : null}

@@ -69,7 +69,8 @@ const slots = {
   sourceFloorsLoading: 28,
   sourceFloorsError: 29,
   sourceEdgeHighlight: 30,
-  traceReferences: 31,
+  sourceStrokeHighlight: 31,
+  traceReferences: 32,
 } as const
 
 function sourceFixture() {
@@ -538,6 +539,34 @@ describe('source-floor bridge in the existing editor', () => {
         (line) => (line.props as { stroke?: string }).stroke === '#7c3aed',
       ),
     ).toBe(false)
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
+  it('highlights a nearby source stroke only for the chosen edge without editing the draft', () => {
+    const { fixture } = setup()
+    hooks.values.set(slots.nativeSegments, [
+      {
+        operationIndex: 6685,
+        subpathIndex: 0,
+        segmentIndex: 1,
+        start: { x: 30.001, y: 10 },
+        end: { x: 30.001, y: 30 },
+      },
+    ])
+    const first = renderEditor(fixture.reading, revision)
+    controls(first).onHighlightEdge?.({ ringIndex: 0, edgeIndex: 1 })
+    hooks.values.set(slots.sourceEdgeHighlight, updateFor(slots.sourceEdgeHighlight, undefined))
+    hooks.cursor = 0
+    const second = renderEditor(fixture.reading, revision)
+    expect(controls(second).nearbySourceEdges?.status).toBe('checked')
+    controls(second).onHighlightStroke?.('6685:0:1')
+    hooks.values.set(slots.sourceStrokeHighlight, updateFor(slots.sourceStrokeHighlight, undefined))
+    hooks.cursor = 0
+    const third = renderEditor(fixture.reading, revision)
+    const stroke = nestedElements(third, 'line').find(
+      (line) => (line.props as { stroke?: string }).stroke === '#0284c7',
+    )
+    expect(stroke?.props).toMatchObject({ x1: 30.001, y1: 10, x2: 30.001, y2: 30 })
+    expect(hooks.setters.get(slots.drafts)).not.toHaveBeenCalled()
     expect(savePlanPageReview).not.toHaveBeenCalled()
   })
   it('keeps rational crossings and holes in a source-only draft, locks vertex editing and allows whole removal', () => {
