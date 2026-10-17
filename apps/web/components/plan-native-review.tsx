@@ -1309,8 +1309,11 @@ function NativeDimensionsReview({ packet }: { packet: NativeReviewPacket }) {
                     {candidate.horizontal.source.segmentIndex}; точка{' '}
                     {candidate.dot.source.operationIndex}/{candidate.dot.source.subpathIndex},
                     обводка {candidate.outline.operationIndex}/{candidate.outline.subpathIndex}.
-                    Проверенных буквальных подписей поблизости: {candidate.heightCaptions.length}.
-                    принадлежность строк выноске не установлена.
+                    Проверенных буквальных подписей поблизости: {candidate.heightCaptions.length};{' '}
+                    {candidate.sharedHeightCaptionIds.length
+                      ? `из них ${candidate.sharedHeightCaptionIds.length} также находятся возле другой выноски. `
+                      : ''}
+                    Принадлежность строк выноске не установлена.
                   </li>
                 ))}
               </ul>

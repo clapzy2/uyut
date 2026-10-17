@@ -2855,6 +2855,7 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
           calloutEnd: { x: 150, y: 100 },
           possibleTextLabelIds: ['native-text-20'],
           heightCaptions: [{ labelId: 'native-text-20', sourceOperations: [20] }],
+          sharedHeightCaptionIds: [],
           textBlockStatus: 'unverified',
           objectStatus: 'unresolved',
         },
@@ -2873,6 +2874,9 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
     if (!caption) throw new Error('Missing callout caption')
     caption.labelId = 'native-text-99'
     await expect(loadFixture(foreign, headers)).rejects.toThrow()
+    const falseCompetition = structuredClone(packet)
+    falseCompetition.heightCallouts?.candidates[0]?.sharedHeightCaptionIds.push('native-text-20')
+    await expect(loadFixture(falseCompetition, headers)).rejects.toThrow()
   })
 
   it('loads only internally consistent, read-only split threshold hints', async () => {

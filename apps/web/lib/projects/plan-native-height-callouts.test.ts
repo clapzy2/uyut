@@ -166,6 +166,7 @@ describe('unverified L/dot height source callout suggestions', () => {
       outline: { operationIndex: 13, subpathIndex: 0 },
       possibleTextLabelIds: ['native-text-0'],
       heightCaptions: [{ labelId: 'native-text-0', sourceOperations: [5] }],
+      sharedHeightCaptionIds: [],
       textBlockStatus: 'unverified',
       objectStatus: 'unresolved',
     })
@@ -174,6 +175,49 @@ describe('unverified L/dot height source callout suggestions', () => {
     expect(result.mayTransfer2D3D).toBe(false)
     expect(result.candidates[0]).not.toHaveProperty('openingId')
     expect(input).toEqual(before)
+  })
+
+  it('marks a source caption visible near two callouts as shared, not owned by either', () => {
+    const input = fixture()
+    const translate = (point: PagePoint) => ({ x: point.x, y: point.y + 30 })
+    input.work.paths.push(
+      ...input.work.paths.map((original) => ({
+        ...structuredClone(original),
+        operationIndex: original.operationIndex + 10,
+        points: original.points.map(translate),
+      })),
+    )
+    const outline = input.work.curvePaths?.[0]
+    if (!outline) throw new Error('Missing outline')
+    input.work.curvePaths?.push({
+      ...structuredClone(outline),
+      operationIndex: 23,
+      start: translate(outline.start),
+      segments: outline.segments.map((segment) =>
+        segment.kind === 'cubic'
+          ? {
+              ...segment,
+              control1: translate(segment.control1),
+              control2: translate(segment.control2),
+              end: translate(segment.end),
+            }
+          : segment,
+      ),
+    })
+    input.work.skippedCurves = 2
+    input.work.skippedCurveBounds?.push({
+      operationIndex: 23,
+      bounds: { left: 99, right: 101, top: 149, bottom: 151 },
+    })
+
+    const result = nativeHeightCalloutCandidates(input)
+    expect(result.candidates).toHaveLength(2)
+    expect(result.candidates.map((candidate) => candidate.sharedHeightCaptionIds)).toEqual([
+      ['native-text-0'],
+      ['native-text-0'],
+    ])
+    expect(result.textBlockOwnershipConfirmed).toBe(false)
+    expect(result.mayTransfer2D3D).toBe(false)
   })
 
   it.each([
@@ -289,6 +333,7 @@ describe('unverified L/dot height source callout suggestions', () => {
       ])
       expect(result.candidates.map((row) => row.possibleTextLabelIds.length)).toEqual([9, 9, 5])
       expect(result.candidates.map((row) => row.heightCaptions.length)).toEqual([4, 4, 4])
+      expect(result.candidates.map((row) => row.sharedHeightCaptionIds)).toEqual([[], [], []])
       expect(
         result.candidates.every(
           (row) => row.textBlockStatus === 'unverified' && row.objectStatus === 'unresolved',

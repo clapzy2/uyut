@@ -34,7 +34,10 @@ function describeMaterialEnd(
   const refs = end.sourceRefs
     .map((ref) => `${ref.operationIndex}/${ref.subpathIndex}/${ref.segmentIndex}`)
     .join(', ')
-  return `${materialEndLabels[end.status]} (${refs || 'нет'})`
+  const visibility = end.sourceVisibility
+    ? `; поздняя краска исключена для ${end.sourceVisibility.filter((item) => item.status === 'unoccluded').length} из ${end.sourceVisibility.length} штрихов`
+    : '; видимость после поздней краски не проверена'
+  return `${materialEndLabels[end.status]} (${refs || 'нет'})${visibility}`
 }
 
 export function PlanPageSourceFloorControls({
@@ -358,8 +361,7 @@ export function PlanPageSourceFloorControls({
                                 {span.classification.endEvidence
                                   .map(describeMaterialEnd)
                                   .join('; ')}
-                                . Видимость после поздней краски и физические косяки не
-                                подтверждены.
+                                . Видимость удержанных штрихов и физические косяки не подтверждены.
                               </p>
                             ) : span.classification?.reason === 'exact-joined-filled-panel' ? (
                               <p>Независимые штрихи у торцов не удалось проверить.</p>
