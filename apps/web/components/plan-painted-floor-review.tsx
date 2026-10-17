@@ -19,7 +19,7 @@ const boundaryRoles = {
 type BoundaryRole = keyof typeof boundaryRoles
 
 function editableFloorReview(json: string): ReviewedNativePaintedFloors | null {
-  if (json.length > 64 * 1024) return null
+  if (new TextEncoder().encode(json).byteLength > 65_536) return null
   try {
     const review: unknown = JSON.parse(json)
     if (
@@ -96,7 +96,7 @@ export function changePaintedFloorBoundaryRole(
   const edge = review.floors[floorIndex]?.boundaryRoles[edgeIndex]
   if (!edge) return null
   edge.kind = role
-  return JSON.stringify(review, null, 2)
+  return JSON.stringify(review)
 }
 
 /** Explicit advanced source selection, never an automatic floor/measurement confirmation. */
