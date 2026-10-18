@@ -378,7 +378,9 @@ export default async function ProjectPage({ params }: { params: Params }) {
             ) : null
           }
         />
-      ) : isOwner && planUrl && project.planReading?.confirmedAt ? (
+      ) : null}
+
+      {isOwner && planUrl && project.planReading?.confirmedAt ? (
         <>
           {planIsPdf ? (
             <PlanPageGeometryImport
@@ -388,12 +390,14 @@ export default async function ProjectPage({ params }: { params: Params }) {
               reading={planFormReading(project.planReading)}
             />
           ) : null}
-          <ManualPlanGeometryStart
-            projectId={project.id}
-            reviewedPdfPage={
-              planIsPdf ? project.planReading.pageReview?.contours.source.pdfPage : undefined
-            }
-          />
+          {!project.planReading.geometry ? (
+            <ManualPlanGeometryStart
+              projectId={project.id}
+              reviewedPdfPage={
+                planIsPdf ? project.planReading.pageReview?.contours.source.pdfPage : undefined
+              }
+            />
+          ) : null}
         </>
       ) : null}
 
