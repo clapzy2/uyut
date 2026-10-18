@@ -354,6 +354,17 @@ function reading(rooms: PlanReading['rooms']): PlanReading {
 }
 
 describe('planRows', () => {
+  it('показывает подпись без размеров, но не переносит её в комнаты автоматически', () => {
+    const [row] = planRows(reading([{ name: 'Спальня', kind: 'bedroom', nameOnlyCandidate: true }]))
+    expect(row).toMatchObject({
+      include: false,
+      unsupported: false,
+      width: '',
+      depth: '',
+      area: '',
+    })
+  })
+
   it('передаёт архитектуру в редактируемое поле, старый план оставляет его пустым', () => {
     const [row, legacy] = planRows(
       reading([

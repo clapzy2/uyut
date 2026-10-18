@@ -696,15 +696,51 @@ describe('parseFloorPlan', () => {
     expect(reading.rooms[0]?.areaM2).toBe(12)
   })
 
-  it('сохраняет лоджию без выдуманной площади, а пустую внутреннюю комнату не добавляет', () => {
-    expect(parseFloorPlan(answer([{ name: 'Лоджия' }, { name: 'Спальня' }])).rooms).toEqual([
+  it('сохраняет лоджию и неподтверждённую подпись спальни без выдуманной площади', () => {
+    expect(parseFloorPlan(answer([{ name: 'Спальня' }])).rooms).toEqual([])
+    expect(
+      parseFloorPlan(answer([{ name: 'Лоджия' }, { name: 'Спальня' }]), {
+        keepNameOnlyCandidates: true,
+      }).rooms,
+    ).toEqual([
       expect.objectContaining({
         name: 'Лоджия',
         spaceKind: 'loggia',
         utility: true,
         areaM2: undefined,
       }),
+      expect.objectContaining({
+        name: 'Спальня',
+        nameOnlyCandidate: true,
+        areaM2: undefined,
+        widthCm: undefined,
+        depthCm: undefined,
+      }),
     ])
+  })
+
+  it('не принимает подписи помещений с зарубежного плана за измеренную геометрию', () => {
+    const reading = parseFloorPlan(
+      answer([
+        { name: 'SALA' },
+        { name: 'COCINA' },
+        { name: 'RECÁMARA 2' },
+        { name: 'BAÑO' },
+        { name: 'CUARTO DE LAVAR' },
+        { name: 'BALCÓN', spaceKind: 'balcony' },
+      ]),
+      { keepNameOnlyCandidates: true },
+    )
+    expect(reading.rooms.map(({ kind, utility }) => [kind, utility ?? false])).toEqual([
+      ['living', false],
+      ['kitchen', false],
+      ['bedroom', false],
+      ['bath', false],
+      ['living', true],
+      ['living', true],
+    ])
+    expect(reading.rooms.slice(0, 5).every((room) => room.nameOnlyCandidate === true)).toBe(true)
+    expect(reading.rooms.every((room) => room.areaM2 === undefined)).toBe(true)
   })
 
   it('не добавляет площадь балкона к проверке суммы внутренних помещений', () => {

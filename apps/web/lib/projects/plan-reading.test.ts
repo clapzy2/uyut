@@ -331,6 +331,18 @@ describe('single-page plan reader budget', () => {
     expect(mocks.prepare.mock.calls[0]?.[3]).toBe(true)
     expect(mocks.read).toHaveBeenCalledTimes(1)
   })
+  it('keeps label-only suggestions for a scanned PDF with no usable vector outline', async () => {
+    mocks.prepare.mockResolvedValue({
+      ...reviewedPage(),
+      linework: { ...linework, paths: linework.paths.slice(0, 2) },
+    })
+    mocks.read.mockResolvedValue(structuredClone(reviewedReading))
+    await readPlanFromStorage('plan.pdf', 6)
+    expect(mocks.read).toHaveBeenCalledWith(
+      expect.objectContaining({ keepNameOnlyCandidates: true }),
+    )
+    expect(mocks.read).toHaveBeenCalledTimes(1)
+  })
   it('does not fall back to baseline-origin matches when prepared caption geometry is incomplete', async () => {
     mocks.prepare.mockResolvedValue({
       ...reviewedPage(),

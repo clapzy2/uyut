@@ -860,6 +860,86 @@ describe('source-floor bridge in the existing editor', () => {
     expect(updateFor(slots.traceReferences, references)).toEqual({})
     expect(savePlanPageReview).not.toHaveBeenCalled()
   })
+  it('offers source vertices one by one without copying them into the physical contour', () => {
+    const { fixture } = setup()
+    controls(renderEditor(fixture.reading, revision)).onCopy()
+    const sourceDrafts = updateFor(slots.drafts, []) as ReturnType<typeof contourDraftsFromSaved>
+    hooks.values.set(slots.drafts, sourceDrafts)
+    hooks.cursor = 0
+    buttonWithText(
+      renderEditor(fixture.reading, revision),
+      'Начать физическую обводку',
+    )?.props.onClick()
+    let physicalDrafts = updateFor(slots.drafts, sourceDrafts) as typeof sourceDrafts
+    hooks.values.set(slots.drafts, physicalDrafts)
+    hooks.values.set(slots.traceReferences, updateFor(slots.traceReferences, {}))
+
+    for (const [index, sourcePoint] of fixture.polygon.entries()) {
+      hooks.cursor = 0
+      const suggestion = buttonWithText(
+        renderEditor(fixture.reading, revision),
+        `Предложить исходную вершину ${index + 1}`,
+      )
+      expect(suggestion).toBeDefined()
+      expect(suggestion?.props.disabled).not.toBe(true)
+      suggestion?.props.onClick()
+      const proposal = updateFor(slots.proposal, undefined)
+      expect(proposal).toMatchObject({ point: sourcePoint })
+      expect(hooks.values.get(slots.drafts)).toEqual(physicalDrafts)
+
+      hooks.values.set(slots.proposal, proposal)
+      hooks.cursor = 0
+      buttonWithText(renderEditor(fixture.reading, revision), 'Принять узел PDF')?.props.onClick()
+      physicalDrafts = updateFor(slots.drafts, physicalDrafts) as typeof sourceDrafts
+      expect(physicalDrafts[0]).toMatchObject({
+        polygon: fixture.polygon.slice(0, index + 1),
+        closed: false,
+        sourceTrace: {
+          polygon: sourceDrafts[0]?.polygon,
+          sourceTopology: sourceDrafts[0]?.sourceTopology,
+        },
+      })
+      hooks.values.set(slots.drafts, physicalDrafts)
+      hooks.values.set(slots.proposal, undefined)
+      expect(savePlanPageReview).not.toHaveBeenCalled()
+    }
+
+    hooks.cursor = 0
+    expect(
+      buttonWithText(renderEditor(fixture.reading, revision), 'Предложить исходную вершину 5'),
+    ).toBeUndefined()
+    expect(pageContourRoomsForSave(physicalDrafts, fixture.polygon)).toBeNull()
+  })
+  it('does not suggest an unverified source point or continue after a changed physical vertex', () => {
+    const { fixture } = setup()
+    controls(renderEditor(fixture.reading, revision)).onCopy()
+    const sourceDrafts = updateFor(slots.drafts, []) as ReturnType<typeof contourDraftsFromSaved>
+    hooks.values.set(slots.drafts, sourceDrafts)
+    hooks.cursor = 0
+    buttonWithText(
+      renderEditor(fixture.reading, revision),
+      'Начать физическую обводку',
+    )?.props.onClick()
+    const physicalDrafts = updateFor(slots.drafts, sourceDrafts) as typeof sourceDrafts
+    hooks.values.set(slots.drafts, physicalDrafts)
+    hooks.values.set(slots.traceReferences, updateFor(slots.traceReferences, {}))
+    hooks.values.set(slots.nativePoints, fixture.polygon.slice(1))
+
+    hooks.cursor = 0
+    buttonWithText(
+      renderEditor(fixture.reading, revision),
+      'Предложить исходную вершину 1',
+    )?.props.onClick()
+    expect(updateFor(slots.proposal, undefined)).toBeUndefined()
+    expect(hooks.values.get(slots.drafts)).toEqual(physicalDrafts)
+
+    hooks.values.set(slots.drafts, [{ ...physicalDrafts[0], polygon: [{ x: 12, y: 12 }] }])
+    hooks.cursor = 0
+    expect(
+      buttonWithText(renderEditor(fixture.reading, revision), 'Предложить исходную вершину 2'),
+    ).toBeUndefined()
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
   it('shows a saved source guide again after reopening a physical trace', () => {
     const { fixture } = setup()
     controls(renderEditor(fixture.reading, revision)).onCopy()

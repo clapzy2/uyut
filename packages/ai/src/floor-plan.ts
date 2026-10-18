@@ -101,6 +101,8 @@ export const FLOOR_PLAN_PROMPT = `Ты читаешь план квартиры 
 /** Одна комната с плана, в сантиметрах: в них же меряет всё остальное приложение. */
 export type PlanRoom = {
   name: string
+  /** Название предложено моделью без проверяемых размеров или площади. */
+  nameOnlyCandidate?: boolean
   spaceKind?: RoomSpaceKind
   /** Номер помещения, напечатанный на исходном листе, не позиция ответа. */
   sourceNumber?: number
@@ -203,15 +205,15 @@ const RECHECK_TOLERANCE = 0.02
  * диван и ковёр в коридоре шириной метр двадцать.
  */
 const UTILITY_WORDS =
-  /прихож|коридор|холл|тамбур|гардероб|кладов|постироч|котельн|лестнич|шахт|балкон|лоджи/i
+  /прихож|коридор|холл|тамбур|гардероб|кладов|постироч|котельн|лестнич|шахт|балкон|лоджи|cuarto de lavar|walk-in closet/i
 
 const KIND_WORDS: ReadonlyArray<[RegExp, RoomKind]> = [
-  [/санузел|ванн|туалет|с\/у|душев/i, 'bath'],
+  [/санузел|ванн|туалет|с\/у|душев|baño/i, 'bath'],
   [/детск|ребён|ребен/i, 'kid'],
   [/кухня-гостиная|кухня-столовая/i, 'kitchen'],
-  [/кухн/i, 'kitchen'],
-  [/спальн/i, 'bedroom'],
-  [/гостин|зал|столов|прихож|коридор|холл|кабинет|гардероб/i, 'living'],
+  [/кухн|cocina/i, 'kitchen'],
+  [/спальн|recámara/i, 'bedroom'],
+  [/гостин|зал|столов|прихож|коридор|холл|кабинет|гардероб|sala/i, 'living'],
 ]
 
 /**
@@ -293,13 +295,14 @@ function planRoomName(raw: unknown): string {
   return typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim() : ''
 }
 
-/**
- * Разбор ответа модели. Строки без единого числа выбрасываем: комната, о которой не известно
- * ничего, кроме названия, в списке только мешает — человеку всё равно вводить всё руками.
- */
+/** Разбор ответа модели с сохранением неподтверждённых подписей помещений. */
 export function parseFloorPlan(
   raw: string,
-  options: { requireMeasurementEvidence?: boolean; planText?: string } = {},
+  options: {
+    requireMeasurementEvidence?: boolean
+    planText?: string
+    keepNameOnlyCandidates?: boolean
+  } = {},
 ): PlanReading {
   const start = raw.indexOf('{')
   const end = raw.lastIndexOf('}')
@@ -448,8 +451,21 @@ export function parseFloorPlan(
         : source.spaceKind === 'balcony' || source.spaceKind === 'loggia'
           ? source.spaceKind
           : undefined
+    const acceptedArea = scheduleConflict || areaConflict ? undefined : readArea
+    const nameOnlyCandidate =
+      options.keepNameOnlyCandidates === true &&
+      !spaceKind &&
+      widthCm === undefined &&
+      depthCm === undefined &&
+      acceptedArea === undefined
+    if (nameOnlyCandidate) {
+      measurementWarnings.push(
+        'Модель прочитала название помещения, но не нашла проверяемых размеров или площади. Сверьте подпись с исходником; контур пола и положение комнаты этим не подтверждены.',
+      )
+    }
     const asRead = {
       name,
+      ...(nameOnlyCandidate ? { nameOnlyCandidate: true } : {}),
       ...(spaceKind ? { spaceKind } : {}),
       ...(number === undefined ? {} : { sourceNumber: number }),
       ...(roomCeiling === undefined ? {} : { ceilingCm: roomCeiling }),
@@ -461,7 +477,7 @@ export function parseFloorPlan(
       ...(aspect === undefined ? {} : { aspect }),
       widthCm,
       depthCm,
-      areaM2: scheduleConflict || areaConflict ? undefined : readArea,
+      areaM2: acceptedArea,
     }
     if (
       asRead.widthCm === undefined &&
@@ -768,6 +784,7 @@ export type PlanReader = (image: {
   body: Buffer
   contentType: string
   planText?: string
+  keepNameOnlyCandidates?: boolean
 }) => Promise<PlanReading>
 
 export function planReaderPrompt(planText?: string): string {
@@ -801,7 +818,11 @@ export function createFalPlanReader(apiKey: string): PlanReader {
     if (output.trim() === '') {
       throw new FalError('план не прочитан: пустой ответ')
     }
-    return parseFloorPlan(output, { requireMeasurementEvidence: true, planText: image.planText })
+    return parseFloorPlan(output, {
+      requireMeasurementEvidence: true,
+      planText: image.planText,
+      keepNameOnlyCandidates: image.keepNameOnlyCandidates,
+    })
   }
 }
 
@@ -898,10 +919,10 @@ export function reconcileRasterReadings(first: PlanReading, second?: PlanReading
 /** At most two reader invocations; no automatic correction, geometry promotion or third attempt. */
 export function createRasterPlanReader(read: PlanReader): PlanReader {
   return async (image) => {
-    const first = await read(image)
+    const first = await read({ ...image, keepNameOnlyCandidates: true })
     let second: PlanReading | undefined
     try {
-      second = await read(image)
+      second = await read({ ...image, keepNameOnlyCandidates: true })
     } catch {
       /* A failed reread is not agreement. */
     }

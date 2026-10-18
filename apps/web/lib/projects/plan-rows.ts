@@ -275,7 +275,7 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
       taken.add(match.id)
     }
     return {
-      include: !unsupported,
+      include: !unsupported && room.nameOnlyCandidate !== true,
       name: room.name,
       ...(room.spaceKind ? { spaceKind: room.spaceKind } : {}),
       ...(room.sourceNumber === undefined ? {} : { sourceNumber: room.sourceNumber }),

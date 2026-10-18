@@ -134,6 +134,7 @@ for (let run = 1; run <= 2; run++) {
   const reading = parseFloorPlan(result.output, {
     requireMeasurementEvidence: true,
     planText: prepared.image.planText,
+    keepNameOnlyCandidates: true,
   })
   await writeFile(join(output, `reading-${run}.json`), JSON.stringify(reading, null, 2))
   readings.push(reading)
