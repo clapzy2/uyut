@@ -32,7 +32,9 @@ export function PlanVolumeLaunch({ model, projectId }: { model: PlanVolume; proj
           : model.wallSource === 'room-layout'
             ? 'Посмотреть мебель в объёме'
             : model.wallSource === 'pdf-faces'
-              ? 'Посмотреть проверенные грани в объёме'
+              ? model.walls.length === 0
+                ? 'Посмотреть подтверждённый пол в объёме'
+                : 'Посмотреть проверенные грани в объёме'
               : 'Посмотреть объёмную схему'}
       </button>
       {open ? (

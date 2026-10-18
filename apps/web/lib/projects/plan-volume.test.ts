@@ -2,6 +2,7 @@ import type { PlanGeometry, PlanOpeningFacePair, PlanWallFacePair } from '@uyut/
 import { describe, expect, it } from 'vitest'
 import openApartment from '../../../../jobs/fixtures/open-swiss-apartment-35063-geometry.json'
 import { buildPlanScene } from './plan-scene-geometry'
+import { applyPlanVerticalReference } from './plan-vertical-reference'
 import { planVolume } from './plan-volume'
 
 const geometry: PlanGeometry = {
@@ -43,6 +44,82 @@ const geometry: PlanGeometry = {
 }
 
 describe('planVolume', () => {
+  it('shows a reviewed PDF floor without inventing walls or openings', () => {
+    const room = {
+      name: 'Балкон',
+      polygon: [
+        { xCm: 0, yCm: 0 },
+        { xCm: 100, yCm: 0 },
+        { xCm: 100, yCm: 100 },
+        { xCm: 0, yCm: 100 },
+      ],
+    }
+    const source: PlanGeometry = {
+      ...geometry,
+      walls: [],
+      openings: [],
+      rooms: [room],
+      pdfCalibration: {
+        sourceSha256: 'a'.repeat(64),
+        pdfPage: 1,
+        exteriorBoundaryRole: 'floor',
+        cmPerPoint: 1,
+        origin: { x: 0, y: 0 },
+        anchorRoomNumbers: [],
+        labelIndexes: [],
+        derivedOpeningIds: [],
+        sourceWallFacePairs: [],
+        openingFacePairs: [],
+        wallFaceRoomPolygons: [],
+      },
+    }
+    expect(planVolume(source)).toBeNull()
+
+    const reviewed = applyPlanVerticalReference(
+      source,
+      {
+        version: 1,
+        id: 'reviewed-datum',
+        kind: 'finished-floor',
+        zeroFloorId: 'balcony-floor',
+        acknowledged: true,
+        floors: [
+          {
+            id: 'balcony-floor',
+            room,
+            surface: 'finished-floor',
+            elevationCm: 0,
+          },
+        ],
+        wallBases: [],
+        thresholds: [],
+        source: { kind: 'site-measurement', reference: 'Synthetic test floor' },
+      },
+      'qa-owner',
+      '2026-10-18T00:00:00.000Z',
+    )
+    if (!reviewed.ok) throw new Error(reviewed.error)
+    const model = planVolume(reviewed.geometry)
+    expect(model?.wallSource).toBe('pdf-faces')
+    expect(model?.floorSurfaces).toHaveLength(1)
+    expect(model?.floorSurfaces?.[0]?.floor).toEqual(room.polygon)
+    expect(model?.walls).toEqual([])
+    expect(model?.openings).toEqual([])
+    expect(model?.issues).toContainEqual(
+      expect.objectContaining({ id: 'volume-pdf-wall-faces-unverified' }),
+    )
+    if (!model) throw new Error('Missing reviewed floor preview')
+    const scene = buildPlanScene(model)
+    try {
+      expect(scene.surfaces.some((surface) => surface.kind === 'floor')).toBe(true)
+      expect(scene.surfaces.some((surface) => surface.kind === 'wall')).toBe(false)
+    } finally {
+      for (const item of [...scene.surfaces, ...scene.lines]) item.geometry.dispose()
+    }
+    reviewed.geometry.requiresSourceReviewReimport = true
+    expect(planVolume(reviewed.geometry)).toBeNull()
+  })
+
   it('refuses a source-review hold even if a stale artifact says confirmed', () => {
     expect(planVolume({ ...geometry, requiresSourceReviewReimport: true })).toBeNull()
     expect(planVolume(geometry)).not.toBeNull()

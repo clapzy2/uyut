@@ -184,11 +184,18 @@ describe('common datum integration without legacy flat transfer', () => {
     expect(inspectPdfClearanceRoutes(geometry).result).toBeUndefined()
   })
 
-  it('does not use a fresh datum to bypass missing wall or route evidence', () => {
+  it('shows only the reviewed floor when wall and route evidence is missing', () => {
     const geometry = reviewedFixture()
     expect(referenceTransferIssue(geometry)).toBeUndefined()
-    expect(planVolume(geometry)).toBeNull()
-    expect(apartmentVolume(geometry, []).model).toBeNull()
+    const volume = planVolume(geometry)
+    expect(volume?.floorSurfaces).toHaveLength(2)
+    expect(volume?.walls).toEqual([])
+    expect(volume?.openings).toEqual([])
+    expect(volume?.issues).toContainEqual(
+      expect.objectContaining({ id: 'volume-pdf-wall-faces-unverified' }),
+    )
+    expect(apartmentVolume(geometry, []).model?.walls).toEqual([])
+    expect(apartmentVolume(geometry, []).model?.openings).toEqual([])
     expect(inspectMetricClearanceRoutes(geometry).result).toBeUndefined()
     expect(inspectMetricClearanceRoutes(geometry).missing).toContain('ширину прохода')
     expect(inspectPdfClearanceRoutes(geometry).result).toBeUndefined()
