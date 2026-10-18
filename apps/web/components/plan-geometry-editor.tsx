@@ -725,6 +725,7 @@ export function PlanGeometryEditor({
   )
   const [error, setError] = useState<string>()
   const [newRoomName, setNewRoomName] = useState(roomNames[0] ?? '')
+  const [pendingRasterRoomName, setPendingRasterRoomName] = useState<string>()
   const [baseRevision, setBaseRevision] = useState(sourceRevision)
   const [verifiedEdit, setVerifiedEdit] = useState<string>()
   const [conflict, setConflict] = useState(false)
@@ -1175,6 +1176,11 @@ export function PlanGeometryEditor({
   function addRoom() {
     const name = availableRoomNames.includes(newRoomName) ? newRoomName : availableRoomNames[0]
     if (!name) return
+    if (isRaster) {
+      setPendingRasterRoomName(name)
+      setError(undefined)
+      return
+    }
     const readingMatches = roomReadings.filter((room) => room.name === name)
     const sourceNumber = readingMatches.length === 1 ? readingMatches[0]?.sourceNumber : undefined
     const width = Math.min(geometry.widthCm, Math.max(75, Math.min(300, geometry.widthCm * 0.4)))
@@ -1453,8 +1459,14 @@ export function PlanGeometryEditor({
                     </option>
                   ))}
                 </select>
-                <Button type="button" variant="secondary" size="sm" onClick={addRoom}>
-                  Контур комнаты
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={isRaster && (!imageSourceUrl || !currentImageCalibration)}
+                  onClick={addRoom}
+                >
+                  {isRaster ? 'Обвести комнату на исходнике' : 'Контур комнаты'}
                 </Button>
               </>
             ) : null}
@@ -2065,6 +2077,57 @@ export function PlanGeometryEditor({
                       ) : null}
                     </div>
                   )}
+                </div>
+              ) : null}
+
+              {pendingRasterRoomName && imageSourceUrl && currentImageCalibration ? (
+                <div className="border border-line bg-muted p-4">
+                  <p className="font-serif text-xl text-ink">{pendingRasterRoomName}</p>
+                  <p className="mt-2 text-[13px] text-ink-2">
+                    Комната пока не добавлена в схему. Обведите её физическую границу на исходнике;
+                    подпись и светлая область сами по себе не подтверждают пол.
+                  </p>
+                  <PlanImageContourTrace
+                    key={`new-room:${pendingRasterRoomName}:${JSON.stringify(imageCalibration)}:${imageSourceUrl}`}
+                    planUrl={imageSourceUrl}
+                    calibration={currentImageCalibration}
+                    points={[]}
+                    widthCm={canvasWidthCm}
+                    heightCm={canvasHeightCm}
+                    maxPoints={MAX_ROOM_CONTOUR_POINTS}
+                    label={pendingRasterRoomName}
+                    labelAnchor={
+                      roomReadings.find((room) => room.name === pendingRasterRoomName)?.labelAnchor
+                    }
+                    onChange={(polygon) => {
+                      const name = pendingRasterRoomName
+                      const readings = roomReadings.filter((room) => room.name === name)
+                      const reading = readings.length === 1 ? readings[0] : undefined
+                      setRooms((current) => [
+                        ...current,
+                        {
+                          name,
+                          ...(reading?.spaceKind ? { spaceKind: reading.spaceKind } : {}),
+                          ...(reading?.sourceNumber === undefined
+                            ? {}
+                            : { sourceNumber: reading.sourceNumber }),
+                          polygon,
+                        },
+                      ])
+                      setSelection(`room:${rooms.length}`)
+                      setPendingRasterRoomName(undefined)
+                      setVerifiedEdit(undefined)
+                    }}
+                    cornerSourceUrl={`/api/projects/${projectId}/plan-raster-edges?revision=${baseRevision}&page=${rasterPdfPage ?? 1}`}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setPendingRasterRoomName(undefined)}
+                  >
+                    Отменить обводку
+                  </Button>
                 </div>
               ) : null}
 

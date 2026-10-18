@@ -255,5 +255,30 @@ test.describe('обводка сканированного PDF', () => {
       expect(Math.abs(point.xCm - target.xCm)).toBeLessThan(0.3)
       expect(Math.abs(point.yCm - target.yCm)).toBeLessThan(0.3)
     }
+
+    // A newly discovered raster room must not acquire a centred placeholder polygon.
+    await dialog.getByLabel('Элемент схемы', { exact: true }).selectOption('room:4')
+    await dialog.getByRole('button', { name: 'Удалить этот контур комнаты' }).click()
+    await dialog.getByRole('button', { name: 'Обвести комнату на исходнике' }).click()
+    await expect(
+      dialog.getByText('Комната пока не добавлена в схему.', { exact: false }),
+    ).toBeVisible()
+    await expect(dialog.locator('option[value="room:4"]')).toHaveCount(0)
+    const newTrace = dialog.locator('details').filter({
+      has: page.locator('summary', { hasText: 'Обвести на исходнике · Балкон' }),
+    })
+    await newTrace.locator('summary').click()
+    await newTrace.getByRole('button', { name: 'Начать новую обводку' }).click()
+    for (const [index, vertex] of vertices.entries()) {
+      assert(vertex[0] !== undefined && vertex[1] !== undefined)
+      await addVertex(newTrace, index + 1, x(index === 3 ? 650 : vertex[0]), y(vertex[1]))
+    }
+    await expect(dialog.locator('option[value="room:4"]')).toHaveCount(0)
+    await newTrace.getByRole('button', { name: 'Применить обводку в черновик' }).click()
+    await expect(dialog.locator('option[value="room:4"]')).toHaveCount(1)
+    await dialog.getByRole('button', { name: 'Сохранить черновик' }).click()
+    await expect
+      .poll(async () => (await savedProject()).planReading?.geometry?.rooms[4]?.polygon[3]?.xCm)
+      .toBeLessThan(saved.rooms[4].polygon[3]?.xCm ?? 0)
   })
 })
