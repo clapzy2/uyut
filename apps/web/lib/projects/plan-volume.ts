@@ -213,7 +213,10 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
     if (!reference && geometry.pdfCalibration.exteriorBoundaryRole !== 'floor') return null
     const sourcePairs = geometry.pdfCalibration.sourceWallFacePairs ?? []
     const currentPairs = currentWallFacePairs(geometry)
-    if (sourcePairs.length === 0 || currentPairs.length !== sourcePairs.length) return null
+    // A reviewed finished-floor surface can be viewed on its own. Do not draw
+    // walls from the footprint when the PDF has no proven wall-face pairs.
+    if (sourcePairs.length === 0 && (!reference || signed?.surfaces.length === 0)) return null
+    if (currentPairs.length !== sourcePairs.length) return null
 
     for (const pair of currentPairs) {
       for (const face of pair.faces) {
@@ -397,6 +400,14 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
   const thresholdReport = reference ? inspectPlanThresholdSurfaces(geometry) : undefined
   const thresholds = thresholdReport?.surfaces
   levelIssues.push(...(thresholdReport?.issues ?? []))
+  if (geometry.pdfCalibration && walls.length === 0) {
+    levelIssues.push({
+      id: 'volume-pdf-wall-faces-unverified',
+      severity: 'warning',
+      message:
+        'Показан только подтверждённый пол. Физические грани стен и проёмы пока не доказаны.',
+    })
+  }
   return {
     floor: geometry.footprint,
     voids: (geometry.voids ?? []).map((item) => item.polygon),

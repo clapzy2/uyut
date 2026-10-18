@@ -44,6 +44,17 @@ const model: PlanVolume = {
 }
 
 describe('3D-просмотр', () => {
+  it('не обещает восстановленные стены и проёмы в частичной PDF-сцене', () => {
+    const html = renderToStaticMarkup(
+      createElement(PlanSceneViewer, {
+        model: { ...model, wallSource: 'pdf-faces' },
+        onFallback: () => {},
+      }),
+    )
+    expect(html).toContain('только подтверждённые поверхности пола')
+    expect(html).not.toContain('Пол, проёмы и габариты мебели перенесены')
+  })
+
   it('объясняет общий отсчёт пола и отдельную отметку верха порога', () => {
     const html = renderToStaticMarkup(
       createElement(PlanSceneViewer, {

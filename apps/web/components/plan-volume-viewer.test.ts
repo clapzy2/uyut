@@ -50,6 +50,19 @@ function render(source: PlanGeometry) {
 }
 
 describe('объёмный просмотр с мерками', () => {
+  it('называет PDF без проверенных стен частичным просмотром пола', () => {
+    const model = planVolume(geometry)
+    if (!model) throw new Error('Missing volume')
+    const html = renderToStaticMarkup(
+      createElement(PlanVolumeViewer, {
+        model: { ...model, wallSource: 'pdf-faces', walls: [], openings: [], solidFaces: [] },
+      }),
+    )
+    expect(html).toContain('Показан только подтверждённый пол из PDF')
+    expect(html).not.toContain('Показаны стены подтверждённой 2D-схемы')
+    expect(html).not.toContain('Высота стен показана условно')
+  })
+
   it('разрешает отрицательную отметку среза от общего нуля, не называя её высотой от пола', () => {
     const html = renderToStaticMarkup(
       createElement(PlanVolumeControls, {
