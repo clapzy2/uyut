@@ -57,6 +57,7 @@ export function PlanImageContourTrace({
   const [regionsUncertain, setRegionsUncertain] = useState(false)
   const [selectedRegion, setSelectedRegion] = useState<RasterRegionGuide>()
   const [selectingRegion, setSelectingRegion] = useState(false)
+  const [selectingFocus, setSelectingFocus] = useState(false)
   const [cornersLoading, setCornersLoading] = useState(false)
   const [useCorners, setUseCorners] = useState(false)
   const [cornerNotice, setCornerNotice] = useState<string>()
@@ -69,6 +70,7 @@ export function PlanImageContourTrace({
     setRegionsUncertain(false)
     setSelectedRegion(undefined)
     setSelectingRegion(false)
+    setSelectingFocus(false)
     setUseCorners(false)
     setCornerNotice(undefined)
     setCandidateSourceSha256(undefined)
@@ -82,7 +84,7 @@ export function PlanImageContourTrace({
     calibration.imageHeightPx,
   ])
 
-  async function loadCorners() {
+  async function loadCorners(focus?: ImageContourPoint) {
     if (!cornerSourceUrl || cornersLoading) return
     request.current?.abort()
     const controller = new AbortController()
@@ -90,14 +92,22 @@ export function PlanImageContourTrace({
     setCornersLoading(true)
     setUseCorners(false)
     setCorners([])
-    setRegions([])
-    setRegionsUncertain(false)
-    setSelectedRegion(undefined)
-    setSelectingRegion(false)
+    if (!focus) {
+      setRegions([])
+      setRegionsUncertain(false)
+      setSelectedRegion(undefined)
+      setSelectingRegion(false)
+    }
+    setSelectingFocus(false)
     setCornerNotice(undefined)
     setCandidateSourceSha256(undefined)
     try {
-      const response = await fetch(cornerSourceUrl, {
+      const url = new URL(cornerSourceUrl, window.location.href)
+      if (focus) {
+        url.searchParams.set('focusX', String(Math.floor(focus.x)))
+        url.searchParams.set('focusY', String(Math.floor(focus.y)))
+      }
+      const response = await fetch(url, {
         signal: controller.signal,
         cache: 'no-store',
       })
@@ -132,12 +142,16 @@ export function PlanImageContourTrace({
         ),
       )
       setCorners(candidates ?? [])
-      setRegions(regionGuides?.regions ?? [])
-      setRegionsUncertain(regionGuides?.uncertain ?? false)
+      if (!focus) {
+        setRegions(regionGuides?.regions ?? [])
+        setRegionsUncertain(regionGuides?.uncertain ?? false)
+      }
       const partial =
         payload && typeof payload === 'object' && 'truncated' in payload && payload.truncated
       setCornerNotice(
-        `Найдено углов чернил: ${candidates?.length ?? 0}; светлых областей: ${regionGuides?.regions.length ?? 0}. ${partial ? 'Подсказки неполные из-за плотного чертежа; отсутствие точки ничего не доказывает. ' : ''}Это не подтверждённые границы пола.`,
+        focus
+          ? `Рядом с выбранной точкой найдено углов чернил: ${candidates?.length ?? 0}. Это неполный локальный поиск, а не подтверждённая граница пола. Сверьте каждый угол с исходником.`
+          : `Найдено углов чернил: ${candidates?.length ?? 0}; светлых областей: ${regionGuides?.regions.length ?? 0}. ${partial ? 'Подсказки неполные из-за плотного чертежа; отсутствие точки ничего не доказывает. ' : ''}Это не подтверждённые границы пола.`,
       )
     } catch {
       if (!controller.signal.aborted)
@@ -170,6 +184,7 @@ export function PlanImageContourTrace({
     setVertices([])
     setTracing(true)
     setSelectingRegion(false)
+    setSelectingFocus(false)
     setError(undefined)
   }
 
@@ -203,10 +218,12 @@ export function PlanImageContourTrace({
           aria-label={
             selectingRegion
               ? `Выбрать внешний контур области: ${label}`
-              : `Добавить угол контура: ${label}`
+              : selectingFocus
+                ? `Выбрать место для поиска углов: ${label}`
+                : `Добавить угол контура: ${label}`
           }
           disabled={
-            (!tracing && !selectingRegion) ||
+            (!tracing && !selectingRegion && !selectingFocus) ||
             !imageMatches ||
             Boolean(calibrationIssue) ||
             (tracing && vertices.length >= maxPoints)
@@ -231,6 +248,10 @@ export function PlanImageContourTrace({
                   ? 'Внешний контур области показан пунктиром. Сверьте его и обведите край пола вручную.'
                   : 'Вокруг этой точки нет однозначного контура. Нажмите приблизительно внутри нужной области.',
               )
+              return
+            }
+            if (selectingFocus) {
+              void loadCorners(pointer)
               return
             }
             const snapped = useCorners ? snapRasterCorner(pointer, corners) : undefined
@@ -340,9 +361,21 @@ export function PlanImageContourTrace({
             variant="secondary"
             size="sm"
             disabled={cornersLoading || !imageMatches || Boolean(calibrationIssue)}
-            onClick={loadCorners}
+            onClick={() => void loadCorners()}
           >
             {cornersLoading ? 'Ищем границы изображения…' : 'Найти углы по пикселям'}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={cornersLoading || !imageMatches || Boolean(calibrationIssue)}
+            onClick={() => {
+              setSelectingRegion(false)
+              setSelectingFocus(true)
+            }}
+          >
+            {selectingFocus ? 'Нажмите рядом с нужным углом' : 'Искать углы на участке плана'}
           </Button>
           {corners.length ? (
             <label className="flex min-h-11 items-center gap-2 text-[13px]">

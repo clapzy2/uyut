@@ -54,6 +54,7 @@ const candidates = {
   segments: [{ start: { x: 726, y: 823 }, end: { x: 673, y: 876 } }],
   truncated: false,
   uncertain: false,
+  focused: false,
   regions: [
     {
       id: 'region-1',
@@ -68,10 +69,16 @@ const candidates = {
   regionTruncated: false,
   regionUncertain: true,
 }
-function request(version: string | null = revision, page?: string) {
+function request(
+  version: string | null = revision,
+  page?: string,
+  focus?: { x?: string; y?: string },
+) {
   const url = new URL('https://domitsa.ru/api/projects/project/plan-raster-edges')
   if (version !== null) url.searchParams.set('revision', version)
   if (page !== undefined) url.searchParams.set('page', page)
+  if (focus?.x !== undefined) url.searchParams.set('focusX', focus.x)
+  if (focus?.y !== undefined) url.searchParams.set('focusY', focus.y)
   return { nextUrl: url } as NextRequest
 }
 
@@ -101,6 +108,7 @@ describe('private unclassified raster guides', () => {
       segments: candidates.segments,
       truncated: false,
       uncertain: false,
+      focused: false,
       partialClosedContours: false,
       regions: candidates.regions,
       regionTruncated: false,
@@ -108,7 +116,12 @@ describe('private unclassified raster guides', () => {
     })
     expect(mocks.access).toHaveBeenCalledTimes(2)
     expect(mocks.access).toHaveBeenCalledWith('partner', 'project')
-    expect(mocks.candidates).toHaveBeenCalledWith(Buffer.from('actual source bytes'), false, 1)
+    expect(mocks.candidates).toHaveBeenCalledWith(
+      Buffer.from('actual source bytes'),
+      false,
+      1,
+      undefined,
+    )
   })
 
   it('keeps uncertainty and truncation explicit rather than treating partial guides as geometry', async () => {
@@ -118,6 +131,22 @@ describe('private unclassified raster guides', () => {
       truncated: true,
       uncertain: true,
       partialClosedContours: false,
+    })
+  })
+
+  it('requests a bounded local pixel hint without changing project geometry', async () => {
+    mocks.candidates.mockResolvedValue({
+      ...candidates,
+      focused: true,
+      uncertain: true,
+      regions: [],
+    })
+    const result = await GET(request(revision, '1', { x: '245', y: '600' }), context)
+    expect(result.status).toBe(200)
+    expect(await result.json()).toMatchObject({ focused: true, uncertain: true, regions: [] })
+    expect(mocks.candidates).toHaveBeenCalledWith(Buffer.from('actual source bytes'), false, 1, {
+      x: 245,
+      y: 600,
     })
   })
 
@@ -145,6 +174,8 @@ describe('private unclassified raster guides', () => {
       expect((await GET(request(version), context)).status).toBe(400)
     for (const page of ['', '0', '-1', '1.5', '01', '10000'])
       expect((await GET(request(revision, page), context)).status).toBe(400)
+    for (const focus of [{ x: '10' }, { y: '10' }, { x: '-1', y: '2' }, { x: '01', y: '2' }])
+      expect((await GET(request(revision, '1', focus), context)).status).toBe(400)
     expect((await GET(request('b'.repeat(64)), context)).status).toBe(409)
     expect(mocks.object).not.toHaveBeenCalled()
     expect(mocks.candidates).not.toHaveBeenCalled()
@@ -166,7 +197,12 @@ describe('private unclassified raster guides', () => {
     const result = await GET(request(version, '6'), context)
     expect(result.status).toBe(200)
     expect(await result.json()).toMatchObject({ source: { page: 6 } })
-    expect(mocks.candidates).toHaveBeenCalledWith(Buffer.from('actual source bytes'), true, 6)
+    expect(mocks.candidates).toHaveBeenCalledWith(
+      Buffer.from('actual source bytes'),
+      true,
+      6,
+      undefined,
+    )
     mocks.access.mockResolvedValue({ ...pdfProject, planReading: reading })
     expect(
       (await GET(request(planEditRevision(pdfProject.planUrl, reading)), context)).status,

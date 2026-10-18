@@ -64,6 +64,13 @@ describe('optional source pixel corner assistance', () => {
       ),
     ).toBeUndefined()
   })
+  it('accepts a bounded local guide while retaining its incomplete-page warning', () => {
+    const focused = { ...response, focused: true, uncertain: true }
+    expect(rasterCornerResponse(focused, 820, 970, 1, 'a'.repeat(64))).toEqual(response.points)
+    expect(
+      rasterCornerResponse({ ...focused, truncated: true }, 820, 970, 1, 'a'.repeat(64)),
+    ).toBeUndefined()
+  })
   it.each([
     { ...response, truncated: true },
     { ...response, uncertain: true },

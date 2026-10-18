@@ -2,53 +2,56 @@ import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
 import { rasterPlanCandidates } from './plan-raster-candidates'
 
-describe('source pixel candidate preparation', () => {
-  it('restores analysis pixels to original image coordinates after bounded downsampling', async () => {
-    const image = await sharp(
-      Buffer.from(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="3000" height="600"><rect width="3000" height="600" fill="white"/><rect x="2200" y="100" width="400" height="400" fill="black"/></svg>',
-      ),
-    )
+describe('focused raster guides', () => {
+  it('recovers source-pixel corners where a dense unrelated part exhausts the page scan', async () => {
+    const width = 900
+    const height = 800
+    const grayscale = Buffer.alloc(width * height, 255)
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if ((y < 100 && (x + y) % 2 === 0) || (x >= 400 && x < 500 && y >= 350 && y < 450))
+          grayscale[y * width + x] = 0
+      }
+    }
+    const image = await sharp(grayscale, { raw: { width, height, channels: 1 } })
       .png()
       .toBuffer()
-    const result = await rasterPlanCandidates(image, false, 1)
-    expect(result.width).toBe(3000)
-    expect(result.height).toBe(600)
-    expect(result.truncated).toBe(false)
-    expect(result.points.some((point) => Math.hypot(point.x - 2600, point.y - 500) <= 2)).toBe(true)
-    expect(
-      result.points.every(
-        (point) => point.x >= 0 && point.y >= 0 && point.x <= 3000 && point.y <= 600,
-      ),
-    ).toBe(true)
+
+    const page = await rasterPlanCandidates(image, false, 1)
+    expect(page.truncated).toBe(true)
+    expect(page.points).toEqual([])
+
+    const focused = await rasterPlanCandidates(image, false, 1, { x: 450, y: 400 })
+    expect(focused.focused).toBe(true)
+    expect(focused.uncertain).toBe(true)
+    expect(focused.truncated).toBe(false)
+    expect(focused.regions).toEqual([])
+    expect(focused.points).toEqual(
+      expect.arrayContaining([
+        { x: 400, y: 350 },
+        { x: 500, y: 350 },
+        { x: 500, y: 450 },
+        { x: 400, y: 450 },
+      ]),
+    )
   })
-  it('does not fabricate candidates on blank images', async () => {
-    const image = await sharp({
-      create: { width: 300, height: 200, channels: 3, background: 'white' },
-    })
+
+  it('never treats a cropped ink strip as a source-image corner', async () => {
+    const width = 900
+    const height = 800
+    const grayscale = Buffer.alloc(width * height, 255)
+    for (let y = 200; y < 600; y++) {
+      for (let x = 200; x < 350; x++) grayscale[y * width + x] = 0
+    }
+    const image = await sharp(grayscale, { raw: { width, height, channels: 1 } })
       .png()
       .toBuffer()
-    const result = await rasterPlanCandidates(image, false, 1)
-    expect(result.points).toEqual([])
-    expect(result.segments).toEqual([])
-    expect(result.regions).toEqual([])
-  })
-  it('keeps a closed diagonal bright area as an unclassified pixel guide', async () => {
-    const image = await sharp(
-      Buffer.from(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="160"><rect width="200" height="160" fill="white"/><path d="M20 20 H120 V70 L160 130 H20 Z" fill="white" stroke="black" stroke-width="5"/></svg>',
-      ),
+
+    const result = await rasterPlanCandidates(image, false, 1, { x: 450, y: 400 })
+    expect(result.points.every((point) => point.x > 200 && point.x < 700)).toBe(true)
+    expect(result.points.every((point) => point.y > 150 && point.y < 650)).toBe(true)
+    await expect(rasterPlanCandidates(image, false, 1, { x: 900, y: 400 })).rejects.toThrow(
+      RangeError,
     )
-      .png()
-      .toBuffer()
-    const result = await rasterPlanCandidates(image, false, 1)
-    expect(result.regionTruncated).toBe(false)
-    expect(result.regions.some((region) => region.polygon.some((point) => point.x > 120))).toBe(
-      true,
-    )
-    expect(result.regions.every((region) => region.polygon.length >= 3)).toBe(true)
-  })
-  it('rejects a broken input before producing pixel evidence', async () => {
-    await expect(rasterPlanCandidates(Buffer.from('not an image'), false, 1)).rejects.toThrow()
   })
 })

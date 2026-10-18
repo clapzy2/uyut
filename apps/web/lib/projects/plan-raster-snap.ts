@@ -100,9 +100,14 @@ export function rasterCornerResponse(
   const data = matchingRasterSource(value, width, height, page, sha256)
   if (!data) return undefined
   const complete = data.truncated === false && data.uncertain === false
+  const focused = data.focused === true && data.truncated === false && data.uncertain === true
   const safePartial =
     data.truncated === true && data.uncertain === true && data.partialClosedContours === true
-  if ((!complete && !safePartial) || !Array.isArray(data.points) || data.points.length > 4000)
+  if (
+    (!complete && !focused && !safePartial) ||
+    !Array.isArray(data.points) ||
+    data.points.length > 4000
+  )
     return undefined
   const points: ImageContourPoint[] = []
   for (const entry of data.points) {

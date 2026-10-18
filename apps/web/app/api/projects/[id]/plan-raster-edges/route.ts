@@ -20,8 +20,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!session) return failure('Сессия закончилась. Войдите снова.', 401)
   const revision = request.nextUrl.searchParams.get('revision')
   const pageParam = request.nextUrl.searchParams.get('page') ?? '1'
+  const focusX = request.nextUrl.searchParams.get('focusX')
+  const focusY = request.nextUrl.searchParams.get('focusY')
   if (!/^[a-f0-9]{64}$/.test(revision ?? '') || !/^[1-9]\d{0,3}$/.test(pageParam))
     return failure('Проверьте выбранный лист и версию плана.', 400)
+  if (
+    (focusX === null) !== (focusY === null) ||
+    (focusX !== null &&
+      (!/^(0|[1-9]\d{0,4})$/.test(focusX) || !/^(0|[1-9]\d{0,4})$/.test(focusY ?? '')))
+  )
+    return failure('Проверьте точку на исходном изображении.', 400)
+  const focus = focusX === null ? undefined : { x: Number(focusX), y: Number(focusY) }
   const pageNumber = Number(pageParam)
   const { id } = await params
   try {
@@ -50,7 +59,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       (manualUnderlay.pdfPage !== pageNumber || manualUnderlay.sourceSha256 !== sha256)
     )
       return failure('Исходный PDF изменился. Откройте актуальную версию плана.', 409)
-    const candidates = await rasterPlanCandidates(body, isPdf, pageNumber)
+    const candidates = await rasterPlanCandidates(body, isPdf, pageNumber, focus)
     // Access and revision are checked again after potentially slow decoding.
     const current = await assertOwnerOrCollaborator(session.user.id, id)
     if (revision !== planEditRevision(current.planUrl, current.planReading))
@@ -67,6 +76,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         segments: candidates.segments,
         truncated: candidates.truncated,
         uncertain: candidates.uncertain,
+        focused: candidates.focused,
         partialClosedContours: candidates.partialClosedContours === true,
         regions: candidates.regions,
         regionTruncated: candidates.regionTruncated,
