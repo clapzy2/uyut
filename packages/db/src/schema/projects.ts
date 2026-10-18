@@ -67,6 +67,8 @@ export type PlanRoomReading = {
   spaceKind?: RoomSpaceKind
   /** Название предложено моделью без проверяемых размеров или площади. */
   nameOnlyCandidate?: boolean
+  /** Неподтверждённая точка подписи на исходном растре, не положение и не контур пола. */
+  labelAnchor?: { x: number; y: number; sourceSha256?: string; page?: number }
   dimensionSources?: RoomMeasurements['dimensionSources']
   name: string
   sourceNumber?: number

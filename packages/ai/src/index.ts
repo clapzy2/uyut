@@ -111,6 +111,7 @@ export {
   type PlanSide,
   parseFloorPlan,
   parseSideRecheck,
+  RASTER_FLOOR_PLAN_PROMPT,
   reconcileRasterReadings,
   roomKindFromName,
   SIDE_RECHECK_PROMPT,

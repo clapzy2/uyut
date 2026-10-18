@@ -88,6 +88,70 @@ describe('plan reading actions', () => {
     mocks.createRooms.mockResolvedValue({ created: 2, updated: 0 })
   })
 
+  it('keeps a source-bound raster label hint through room review without promoting geometry', async () => {
+    const rasterReading = structuredClone(reading)
+    const firstRoom = rasterReading.rooms[0]
+    if (!firstRoom) throw new Error('Missing room')
+    rasterReading.rooms[0] = {
+      ...firstRoom,
+      labelAnchor: { x: 400, y: 600, sourceSha256: 'a'.repeat(64), page: 1 },
+    }
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.jpg', planReading: rasterReading })
+
+    expect(
+      (await confirmPlanRooms(projectId, input(), planEditRevision('plan.jpg', rasterReading))).ok,
+    ).toBe(true)
+
+    const saved = mocks.createRooms.mock.calls[0]?.[2].reading as PlanReading
+    expect(saved.rooms[0]?.labelAnchor).toEqual(rasterReading.rooms[0]?.labelAnchor)
+    expect(saved.rooms[1]?.labelAnchor).toBeUndefined()
+    expect(saved.geometry).toBeUndefined()
+  })
+
+  it('retains the warning for an unchecked second-only outdoor candidate', async () => {
+    const rasterReading = structuredClone(reading)
+    rasterReading.rooms.push({
+      name: 'Балкон 2',
+      kind: 'living',
+      spaceKind: 'balcony',
+      utility: true,
+      nameOnlyCandidate: true,
+      measurementWarnings: ['Сверьте отдельный контур на исходнике.'],
+    })
+    mocks.owner.mockResolvedValue({ planUrl: 'plan.jpg', planReading: rasterReading })
+    const data = {
+      ...input(),
+      rooms: [
+        ...input().rooms,
+        {
+          include: false,
+          utility: true,
+          roomId: '',
+          name: 'Балкон 2',
+          kind: 'living' as const,
+          sourceNumber: undefined,
+          ceilingCm: '',
+          widthCm: '',
+          depthCm: '',
+          areaM2: '',
+          wish: '',
+        },
+      ],
+    }
+
+    expect(
+      (await confirmPlanRooms(projectId, data, planEditRevision('plan.jpg', rasterReading))).ok,
+    ).toBe(true)
+
+    const saved = mocks.createRooms.mock.calls[0]?.[2].reading as PlanReading
+    expect(saved.rooms[2]).toMatchObject({
+      name: 'Балкон 2',
+      nameOnlyCandidate: true,
+      measurementWarnings: ['Сверьте отдельный контур на исходнике.'],
+    })
+    expect(saved.rooms[2]?.areaM2).toBeUndefined()
+  })
+
   it.each([undefined, false])(
     'does not transfer unreviewed AI architecture (%s)',
     async (reviewed) => {

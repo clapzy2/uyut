@@ -72,6 +72,40 @@ beforeEach(() => {
 })
 
 describe('raster region editing', () => {
+  it('offers only an explicit visual region hint under a source-matched room label', () => {
+    const onChange = vi.fn()
+    hooks.values.set(2, true)
+    hooks.values.set(5, [region])
+    hooks.values.set(12, 'a'.repeat(64))
+    const props = {
+      planUrl: '/source.jpg',
+      calibration,
+      points: undefined,
+      widthCm: 1000,
+      heightCm: 800,
+      maxPoints: 30,
+      label: 'Балкон',
+      labelAnchor: { x: 400, y: 500, sourceSha256: 'a'.repeat(64), page: 1 },
+      onChange,
+      cornerSourceUrl: '/raster-candidates',
+    }
+    const action = findAction(PlanImageContourTrace(props), 'Показать область у подписи для сверки')
+    expect(action?.props.disabled).toBe(false)
+    action?.props.onClick?.()
+    expect(hooks.updates.get(7)).toEqual(region)
+    expect(onChange).not.toHaveBeenCalled()
+
+    hooks.cursor = 0
+    expect(
+      findAction(
+        PlanImageContourTrace({
+          ...props,
+          labelAnchor: { ...props.labelAnchor, sourceSha256: 'b'.repeat(64) },
+        }),
+        'Показать область у подписи для сверки',
+      ),
+    ).toBeUndefined()
+  })
   it('copies only to the editable tracing state, not the saved metric contour', () => {
     const onChange = vi.fn()
     hooks.values.set(2, true) // source image loaded at the calibrated dimensions

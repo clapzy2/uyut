@@ -719,6 +719,20 @@ describe('parseFloorPlan', () => {
     ])
   })
 
+  it('сохраняет только допустимое положение подписи на растровом плане, не геометрию', () => {
+    const read = (labelAnchor: unknown, keepNameOnlyCandidates: boolean) =>
+      parseFloorPlan(answer([{ name: 'Балкон', spaceKind: 'balcony', labelAnchor }]), {
+        keepNameOnlyCandidates,
+      }).rooms[0]
+
+    expect(read({ x: 420, y: 850 }, true)?.labelAnchor).toEqual({ x: 420, y: 850 })
+    expect(read({ x: 420, y: 850 }, false)?.labelAnchor).toBeUndefined()
+    expect(read({ x: 1001, y: 850 }, true)?.labelAnchor).toBeUndefined()
+    expect(read({ x: '420', y: 850 }, true)?.labelAnchor).toBeUndefined()
+    expect(read({ x: Number.NaN, y: 850 }, true)?.labelAnchor).toBeUndefined()
+    expect(read({ x: 420, y: 850 }, true)?.areaM2).toBeUndefined()
+  })
+
   it('не принимает подписи помещений с зарубежного плана за измеренную геометрию', () => {
     const reading = parseFloorPlan(
       answer([

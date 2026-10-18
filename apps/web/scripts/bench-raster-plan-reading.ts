@@ -4,10 +4,10 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import {
-  FLOOR_PLAN_PROMPT,
   PLAN_READER_ENDPOINT,
   PLAN_READER_MODEL,
   parseFloorPlan,
+  RASTER_FLOOR_PLAN_PROMPT,
   reconcileRasterReadings,
 } from '@uyut/ai'
 import { z } from 'zod'
@@ -84,7 +84,7 @@ await writeFile(
       sourceSha256: createHash('sha256').update(body).digest('hex'),
       model: PLAN_READER_MODEL,
       endpoint: PLAN_READER_ENDPOINT,
-      promptSha256: createHash('sha256').update(FLOOR_PLAN_PROMPT).digest('hex'),
+      promptSha256: createHash('sha256').update(RASTER_FLOOR_PLAN_PROMPT).digest('hex'),
       width: prepared.image.width,
       height: prepared.image.height,
       calls: flag === '--run-paid' ? 2 : 0,
@@ -121,7 +121,7 @@ for (let run = 1; run <= 2; run++) {
           PLAN_READER_ENDPOINT,
           {
             model: PLAN_READER_MODEL,
-            system_prompt: FLOOR_PLAN_PROMPT,
+            system_prompt: RASTER_FLOOR_PLAN_PROMPT,
             prompt: planReaderPrompt(prepared.image.planText),
             image_urls: [toDataUri(prepared.image)],
             temperature: 0,

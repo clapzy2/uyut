@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  rasterCandidateSourceSha256,
   rasterCornerResponse,
+  rasterLabelPoint,
   rasterRegionAt,
   rasterRegionResponse,
   rasterRegionStraightEdges,
@@ -9,6 +11,15 @@ import {
 } from './plan-raster-snap'
 
 describe('optional source pixel corner assistance', () => {
+  it('shows a model label only on the identical source and page', () => {
+    const anchor = { x: 400, y: 500, sourceSha256: 'a'.repeat(64), page: 1 }
+    const source = { width: 1000, height: 800, sha256: 'a'.repeat(64), page: 1 }
+    expect(rasterLabelPoint(anchor, source)).toEqual({ x: 400, y: 400 })
+    expect(rasterLabelPoint(anchor, { ...source, sha256: 'b'.repeat(64) })).toBeUndefined()
+    expect(rasterLabelPoint(anchor, { ...source, page: 2 })).toBeUndefined()
+    expect(rasterLabelPoint({ ...anchor, y: -1 }, source)).toBeUndefined()
+    expect(rasterLabelPoint({ ...anchor, x: Number.NaN }, source)).toBeUndefined()
+  })
   it('returns a nearby candidate without modifying pointer or candidate arrays', () => {
     const point = { x: 103, y: 104 },
       candidates = [{ x: 100, y: 100 }]
@@ -32,6 +43,8 @@ describe('optional source pixel corner assistance', () => {
   }
   it('accepts only matching complete source evidence', () => {
     expect(rasterCornerResponse(response, 820, 970, 1, 'a'.repeat(64))).toEqual(response.points)
+    expect(rasterCandidateSourceSha256(response, 820, 970, 1)).toBe('a'.repeat(64))
+    expect(rasterCandidateSourceSha256(response, 820, 970, 2)).toBeUndefined()
   })
   it('allows explicitly closed source contours when the inventory is incomplete', () => {
     const partial = {

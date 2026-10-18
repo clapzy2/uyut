@@ -12,6 +12,31 @@ export type RasterRegionGuides = {
   uncertain: boolean
 }
 
+/** A model-read label can guide the eye only on the exact image it came from. */
+export function rasterLabelPoint(
+  anchor: { x: number; y: number; sourceSha256?: string; page?: number } | undefined,
+  source: { width: number; height: number; sha256?: string; page: number },
+): ImageContourPoint | undefined {
+  if (
+    !anchor ||
+    !source.sha256 ||
+    anchor.sourceSha256 !== source.sha256 ||
+    anchor.page !== source.page ||
+    !Number.isFinite(source.width) ||
+    !Number.isFinite(source.height) ||
+    source.width <= 0 ||
+    source.height <= 0 ||
+    !Number.isFinite(anchor.x) ||
+    !Number.isFinite(anchor.y) ||
+    anchor.x < 0 ||
+    anchor.x > 1000 ||
+    anchor.y < 0 ||
+    anchor.y > 1000
+  )
+    return undefined
+  return { x: (anchor.x * source.width) / 1000, y: (anchor.y * source.height) / 1000 }
+}
+
 /** Explicit optional assistance. Ambiguous or distant candidates leave the pointer unchanged. */
 export function snapRasterCorner(
   point: ImageContourPoint,
@@ -52,6 +77,17 @@ function matchingRasterSource(
   )
     return undefined
   return data
+}
+
+export function rasterCandidateSourceSha256(
+  value: unknown,
+  width: number,
+  height: number,
+  page: number,
+  sha256?: string,
+): string | undefined {
+  const data = matchingRasterSource(value, width, height, page, sha256)
+  return (data?.source as { sha256: string } | undefined)?.sha256
 }
 
 export function rasterCornerResponse(

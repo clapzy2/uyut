@@ -365,6 +365,27 @@ describe('planRows', () => {
     })
   })
 
+  it('не переносит спорный второй балкон из растрового чтения', () => {
+    const [row] = planRows(
+      reading([
+        {
+          name: 'Балкон 2',
+          kind: 'living',
+          spaceKind: 'balcony',
+          utility: true,
+          nameOnlyCandidate: true,
+        },
+      ]),
+    )
+    expect(row).toMatchObject({
+      include: false,
+      spaceKind: 'balcony',
+      area: '',
+      width: '',
+      depth: '',
+    })
+  })
+
   it('передаёт архитектуру в редактируемое поле, старый план оставляет его пустым', () => {
     const [row, legacy] = planRows(
       reading([

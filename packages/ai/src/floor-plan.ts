@@ -31,6 +31,11 @@ import {
 export const PLAN_READER_MODEL = 'anthropic/claude-sonnet-4.5'
 export const PLAN_READER_ENDPOINT = 'openrouter/router/vision'
 
+const RASTER_LABEL_PROMPT = `Для каждой комнаты добавь labelAnchor: {"x": число, "y": число} или null.
+x/y — центр видимой подписи этой комнаты на изображении, в шкале 0–1000 от левого верхнего угла.
+Подпись только в экспликации, легенде или списке не годится: верни null. Если подпись комнаты на самом плане не видна или неоднозначна, верни null.
+Эта точка — лишь подсказка для поиска на исходнике, не доказательство контура пола, стен или принадлежности соседней светлой области.`
+
 /**
  * Задание зрячей модели. Просим именно миллиметры: русские планы подписывают в них,
  * и перевод на стороне модели — лишний повод ошибиться на порядок.
@@ -98,11 +103,14 @@ export const FLOOR_PLAN_PROMPT = `Ты читаешь план квартиры 
 - В каждом элементе geometry.rooms добавь sourceNumber — тот же напечатанный номер, что у rooms. Не назначай номер по порядку ответа и не различай две спальни только порядком контуров. Нет уверенной привязки — null.
 - geometry верни null, если на плане нельзя восстановить общий масштаб и связное положение хотя бы трёх стен. Не подменяй точную схему приблизительным рисунком.`
 
+export const RASTER_FLOOR_PLAN_PROMPT = `${FLOOR_PLAN_PROMPT}\n\n${RASTER_LABEL_PROMPT}`
+
 /** Одна комната с плана, в сантиметрах: в них же меряет всё остальное приложение. */
 export type PlanRoom = {
   name: string
   /** Название предложено моделью без проверяемых размеров или площади. */
   nameOnlyCandidate?: boolean
+  labelAnchor?: { x: number; y: number; sourceSha256?: string; page?: number }
   spaceKind?: RoomSpaceKind
   /** Номер помещения, напечатанный на исходном листе, не позиция ответа. */
   sourceNumber?: number
@@ -295,6 +303,23 @@ function planRoomName(raw: unknown): string {
   return typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim() : ''
 }
 
+function planLabelAnchor(raw: unknown): { x: number; y: number } | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const { x, y } = raw as Record<string, unknown>
+  if (
+    typeof x !== 'number' ||
+    typeof y !== 'number' ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    x < 0 ||
+    x > 1000 ||
+    y < 0 ||
+    y > 1000
+  )
+    return undefined
+  return { x, y }
+}
+
 /** Разбор ответа модели с сохранением неподтверждённых подписей помещений. */
 export function parseFloorPlan(
   raw: string,
@@ -458,6 +483,9 @@ export function parseFloorPlan(
       widthCm === undefined &&
       depthCm === undefined &&
       acceptedArea === undefined
+    const labelAnchor = options.keepNameOnlyCandidates
+      ? planLabelAnchor(source.labelAnchor)
+      : undefined
     if (nameOnlyCandidate) {
       measurementWarnings.push(
         'Модель прочитала название помещения, но не нашла проверяемых размеров или площади. Сверьте подпись с исходником; контур пола и положение комнаты этим не подтверждены.',
@@ -466,6 +494,7 @@ export function parseFloorPlan(
     const asRead = {
       name,
       ...(nameOnlyCandidate ? { nameOnlyCandidate: true } : {}),
+      ...(labelAnchor ? { labelAnchor } : {}),
       ...(spaceKind ? { spaceKind } : {}),
       ...(number === undefined ? {} : { sourceNumber: number }),
       ...(roomCeiling === undefined ? {} : { ceilingCm: roomCeiling }),
@@ -804,7 +833,7 @@ export function createFalPlanReader(apiKey: string): PlanReader {
       PLAN_READER_ENDPOINT,
       {
         model: PLAN_READER_MODEL,
-        system_prompt: FLOOR_PLAN_PROMPT,
+        system_prompt: image.keepNameOnlyCandidates ? RASTER_FLOOR_PLAN_PROMPT : FLOOR_PLAN_PROMPT,
         prompt: planReaderPrompt(image.planText),
         image_urls: [toDataUri(image)],
         temperature: 0,
@@ -851,6 +880,21 @@ export function reconcileRasterReadings(first: PlanReading, second?: PlanReading
       : undefined
     const warnings = [...(room.measurementWarnings ?? [])]
     if (
+      !other?.labelAnchor ||
+      !room.labelAnchor ||
+      Math.hypot(
+        room.labelAnchor.x - other.labelAnchor.x,
+        room.labelAnchor.y - other.labelAnchor.y,
+      ) > 20
+    ) {
+      delete room.labelAnchor
+    } else {
+      room.labelAnchor = {
+        x: (room.labelAnchor.x + other.labelAnchor.x) / 2,
+        y: (room.labelAnchor.y + other.labelAnchor.y) / 2,
+      }
+    }
+    if (
       !hasOutdoorRoom &&
       /балконн[а-яё]*\s+(?:про[её]м|блок)|выход[а-яё\s]{0,16}на\s+балкон/iu.test(
         room.layoutNotes ?? '',
@@ -888,6 +932,32 @@ export function reconcileRasterReadings(first: PlanReading, second?: PlanReading
     }
     delete room.rechecked
     room.measurementWarnings = warnings
+  }
+  if (second && new Set(second.rooms.map(key)).size === second.rooms.length) {
+    const firstKeys = new Set(first.rooms.map(key))
+    let addedOutdoorCandidates = 0
+    for (const room of second.rooms) {
+      if (addedOutdoorCandidates >= 4) break
+      if (
+        (room.spaceKind !== 'balcony' && room.spaceKind !== 'loggia') ||
+        firstKeys.has(key(room)) ||
+        result.rooms.some(
+          (existing) => existing.name.toLocaleLowerCase('ru') === room.name.toLocaleLowerCase('ru'),
+        )
+      )
+        continue
+      result.rooms.push({
+        name: room.name,
+        kind: room.kind,
+        spaceKind: room.spaceKind,
+        utility: true,
+        nameOnlyCandidate: true,
+        measurementWarnings: [
+          'Эту наружную зону увидело только второе чтение. Сверьте её существование и отдельный контур на исходнике; предложение не содержит размеров или подтверждённого пола.',
+        ],
+      })
+      addedOutdoorCandidates += 1
+    }
   }
   if (
     !second ||

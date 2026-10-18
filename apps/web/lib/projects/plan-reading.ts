@@ -31,7 +31,7 @@ export async function readPlanFromStorage(
     const object = await getObject(key)
     const body = Buffer.from(object.body)
     const isPdf = key.toLowerCase().endsWith('.pdf')
-    const sha256 = isPdf ? createHash('sha256').update(body).digest('hex') : undefined
+    const sha256 = createHash('sha256').update(body).digest('hex')
     if (
       reviewedContours &&
       (!isPdf ||
@@ -80,7 +80,21 @@ export async function readPlanFromStorage(
     }
     // Не перечитываем автоматически каждую сторону и не заменяем числа расчётом из площади.
     // Даже правильная площадь непрямоугольного помещения не доказывает его габариты.
-    const result = { ...reading, sourcePage: page.pageNumber, pageCount: page.pageCount }
+    const result = {
+      ...reading,
+      rooms: isPdf
+        ? reading.rooms
+        : reading.rooms.map((room) =>
+            room.labelAnchor
+              ? {
+                  ...room,
+                  labelAnchor: { ...room.labelAnchor, sourceSha256: sha256, page: 1 },
+                }
+              : room,
+          ),
+      sourcePage: page.pageNumber,
+      pageCount: page.pageCount,
+    }
     // Native PDF floor provenance is established by the reviewed-page import, not
     // by a metric ring returned by the image model.
     if (isPdf && result.geometry?.footprint) {

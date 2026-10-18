@@ -15,7 +15,9 @@ import {
 } from '@/lib/projects/plan-image-contour'
 import {
   type RasterRegionGuide,
+  rasterCandidateSourceSha256,
   rasterCornerResponse,
+  rasterLabelPoint,
   rasterRegionAt,
   rasterRegionResponse,
   rasterRegionStraightEdges,
@@ -33,6 +35,7 @@ export function PlanImageContourTrace({
   label,
   onChange,
   cornerSourceUrl,
+  labelAnchor,
 }: {
   planUrl: string
   calibration: PlanImageCalibration
@@ -43,6 +46,7 @@ export function PlanImageContourTrace({
   label: string
   onChange: (points: PlanPoint[]) => void
   cornerSourceUrl?: string
+  labelAnchor?: { x: number; y: number; sourceSha256?: string; page?: number }
 }) {
   const [tracing, setTracing] = useState(false)
   const [vertices, setVertices] = useState<ImageContourPoint[]>([])
@@ -56,6 +60,7 @@ export function PlanImageContourTrace({
   const [cornersLoading, setCornersLoading] = useState(false)
   const [useCorners, setUseCorners] = useState(false)
   const [cornerNotice, setCornerNotice] = useState<string>()
+  const [candidateSourceSha256, setCandidateSourceSha256] = useState<string>()
   const request = useRef<AbortController | null>(null)
   // biome-ignore lint/correctness/useExhaustiveDependencies: source identity changes must clear cached candidates and abort the old request
   useEffect(() => {
@@ -66,6 +71,7 @@ export function PlanImageContourTrace({
     setSelectingRegion(false)
     setUseCorners(false)
     setCornerNotice(undefined)
+    setCandidateSourceSha256(undefined)
     setCornersLoading(false)
     return () => request.current?.abort()
   }, [
@@ -89,6 +95,7 @@ export function PlanImageContourTrace({
     setSelectedRegion(undefined)
     setSelectingRegion(false)
     setCornerNotice(undefined)
+    setCandidateSourceSha256(undefined)
     try {
       const response = await fetch(cornerSourceUrl, {
         signal: controller.signal,
@@ -115,6 +122,15 @@ export function PlanImageContourTrace({
         setCornerNotice('Подсказки неполные или источник изменился. Продолжайте обводку вручную.')
         return
       }
+      setCandidateSourceSha256(
+        rasterCandidateSourceSha256(
+          payload,
+          calibration.imageWidthPx,
+          calibration.imageHeightPx,
+          calibration.pdfPage ?? 1,
+          calibration.sourceSha256,
+        ),
+      )
       setCorners(candidates ?? [])
       setRegions(regionGuides?.regions ?? [])
       setRegionsUncertain(regionGuides?.uncertain ?? false)
@@ -142,6 +158,13 @@ export function PlanImageContourTrace({
     ? rasterRegionStraightEdges(selectedRegion, calibration.imageWidthPx, calibration.imageHeightPx)
     : []
   const regionDraft = selectedRegion ? rasterRegionTraceDraft(selectedRegion, maxPoints) : undefined
+  const labelPoint = rasterLabelPoint(labelAnchor, {
+    width: calibration.imageWidthPx,
+    height: calibration.imageHeightPx,
+    sha256: calibration.sourceSha256 ?? candidateSourceSha256,
+    page: calibration.pdfPage ?? 1,
+  })
+  const labelRegion = labelPoint ? rasterRegionAt(labelPoint, regions) : undefined
 
   function start() {
     setVertices([])
@@ -264,6 +287,16 @@ export function PlanImageContourTrace({
               ))}
             </>
           ) : null}
+          {imageMatches && labelRegion && labelPoint ? (
+            <circle
+              cx={labelPoint.x}
+              cy={labelPoint.y}
+              r="9"
+              fill="none"
+              stroke="#a62e70"
+              strokeWidth="3"
+            />
+          ) : null}
           {useCorners
             ? corners.map((point, index) => (
                 <circle
@@ -340,6 +373,26 @@ export function PlanImageContourTrace({
                   onClick={() => setSelectedRegion(undefined)}
                 >
                   Скрыть подсказку
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {labelRegion ? (
+            <div className="space-y-2 text-[12px] text-ink-2">
+              <p>
+                Розовый круг — примерная точка, которую модель дважды связала с комнатой «{label}».
+                Она может быть не на самой подписи. Сверьте, что выбранная светлая область относится
+                именно к этой комнате: два совпавших ответа модели этого не доказывают.
+              </p>
+              {!selectedRegion ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={!imageMatches || Boolean(calibrationIssue) || tracing}
+                  onClick={() => setSelectedRegion(labelRegion)}
+                >
+                  Показать область у подписи для сверки
                 </Button>
               ) : null}
             </div>
