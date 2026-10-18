@@ -247,6 +247,9 @@ test.describe('обводка сканированного PDF', () => {
     expect(saved?.imageCalibration?.sourceSha256).toBe(sourceSha256)
     expect(saved?.imageCalibration?.pdfPage).toBe(1)
     expect(saved?.imageCalibration?.verificationLines).toHaveLength(1)
+    expect(saved?.rooms[4]?.imageTrace?.sourceSha256).toBe(sourceSha256)
+    expect(saved?.rooms[4]?.imageTrace?.page).toBe(1)
+    expect(saved?.rooms[4]?.imageTrace?.pointsPx).toHaveLength(5)
     const expected = realisticBalconyApartment.geometry.rooms[4]?.polygon
     assert(expected && saved?.rooms[4])
     for (const [index, point] of saved.rooms[4].polygon.entries()) {
@@ -280,5 +283,8 @@ test.describe('обводка сканированного PDF', () => {
     await expect
       .poll(async () => (await savedProject()).planReading?.geometry?.rooms[4]?.polygon[3]?.xCm)
       .toBeLessThan(saved.rooms[4].polygon[3]?.xCm ?? 0)
+    expect(
+      (await savedProject()).planReading?.geometry?.rooms[4]?.imageTrace?.pointsPx,
+    ).toHaveLength(5)
   })
 })

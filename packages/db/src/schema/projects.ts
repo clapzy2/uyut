@@ -133,6 +133,16 @@ export type PlanRoomShape = {
   name: string
   polygon: PlanPoint[]
   spaceKind?: RoomSpaceKind
+  /** Pixel trace checked against the current source and calibration on confirmation. */
+  imageTrace?: {
+    pointsPx: { x: number; y: number }[]
+    sourceSha256?: string
+    page?: number
+    imageWidthPx?: number
+    imageHeightPx?: number
+  }
+  /** Server-owned flag for a room added to a raster draft without a verified source trace. */
+  requiresImageTrace?: true
 } & PlanRoomIdentity
 export type PlanVoid = { id: string; polygon: PlanPoint[] }
 export type PlanUtilityPoint = {
