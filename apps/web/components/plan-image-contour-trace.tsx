@@ -19,6 +19,7 @@ import {
   rasterRegionAt,
   rasterRegionResponse,
   rasterRegionStraightEdges,
+  rasterRegionTraceDraft,
   snapRasterCorner,
 } from '@/lib/projects/plan-raster-snap'
 
@@ -140,6 +141,7 @@ export function PlanImageContourTrace({
   const candidateEdges = selectedRegion
     ? rasterRegionStraightEdges(selectedRegion, calibration.imageWidthPx, calibration.imageHeightPx)
     : []
+  const regionDraft = selectedRegion ? rasterRegionTraceDraft(selectedRegion, maxPoints) : undefined
 
   function start() {
     setVertices([])
@@ -354,6 +356,31 @@ export function PlanImageContourTrace({
                   ? ' На исходнике есть внутренние штрихи или неоднозначные области.'
                   : ''}
               </p>
+              {!tracing && regionDraft ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={!imageMatches || Boolean(calibrationIssue)}
+                  onClick={() => {
+                    setVertices(regionDraft.map((point) => ({ ...point })))
+                    setTracing(true)
+                    setSelectingRegion(false)
+                    setError(undefined)
+                    setCornerNotice(
+                      'Пиксельный контур скопирован только в редактируемую обводку. Сверьте каждую грань с исходником и поправьте ошибки перед отдельным применением в черновик.',
+                    )
+                  }}
+                >
+                  Взять контур области для правки ({regionDraft.length} углов)
+                </Button>
+              ) : null}
+              {!tracing && !regionDraft ? (
+                <p className="text-[12px] text-ink-2">
+                  Контур слишком подробный для обводки без потери формы. Начните с проверенной
+                  стороны и добавьте нужные углы вручную.
+                </p>
+              ) : null}
               {!tracing && candidateEdges.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {candidateEdges.map(({ start, end, connectedAtBothEnds }, index) => (
