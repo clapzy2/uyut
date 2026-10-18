@@ -143,6 +143,10 @@ describe('raster reread disagreement, not source verification', () => {
       contentType: 'image/jpeg',
     })
     expect(read).toHaveBeenCalledTimes(2)
+    expect(read).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ keepNameOnlyCandidates: true }),
+    )
     expect(
       result.rooms[0]?.measurementWarnings?.some((value) => value.includes('не выполнено')),
     ).toBe(true)

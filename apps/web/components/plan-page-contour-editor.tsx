@@ -231,6 +231,16 @@ export function PlanPageContourEditor({
     !closed &&
     points.length <
       (!editingBoundary && !selectedVoid && target.kind === 'opening' ? 2 : MAX_POINTS)
+  const nextSourceTracePoint =
+    target.kind === 'room' &&
+    !editingBoundary &&
+    !selectedVoid &&
+    points.every((point, index) => {
+      const sourcePoint = selectedTraceReference?.polygon[index]
+      return sourcePoint?.x === point.x && sourcePoint.y === point.y
+    })
+      ? selectedTraceReference?.polygon[points.length]
+      : undefined
   const currentSourceFloors =
     sourceFloors?.sourceRevision === sourceRevision &&
     preview &&
@@ -1286,6 +1296,16 @@ export function PlanPageContourEditor({
             для сравнения после повторного открытия разметки. Вернуть исходный черновик можно,
             заменив текущую физическую обводку.
           </p>
+          {nextSourceTracePoint ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!canDraw}
+              onClick={() => proposePoint(nextSourceTracePoint)}
+            >
+              {`Предложить исходную вершину ${points.length + 1}`}
+            </Button>
+          ) : null}
           <Button size="sm" variant="ghost" disabled={locked} onClick={restoreSourceTrace}>
             Вернуть исходный черновик
           </Button>

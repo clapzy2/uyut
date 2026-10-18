@@ -66,7 +66,13 @@ export async function readPlanFromStorage(
         )
     }
     const reader = createFalPlanReader(apiKey)
-    const reading = await (isPdf ? reader : createRasterPlanReader(reader))(page.image)
+    // A scanned PDF can contain a few decorative vector strokes but no usable
+    // floor outline. Keep its unread-sized labels as unchecked suggestions.
+    const image =
+      isPdf && !reviewedContours && (page.linework?.paths.length ?? 0) < 3
+        ? { ...page.image, keepNameOnlyCandidates: true }
+        : page.image
+    const reading = await (isPdf ? reader : createRasterPlanReader(reader))(image)
     if (reading.rooms.length === 0) {
       throw new PlanReadError(
         'Не удалось уверенно прочитать помещения на выбранном листе. Проверьте номер страницы или впишите данные вручную.',
