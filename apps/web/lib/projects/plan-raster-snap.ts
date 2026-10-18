@@ -152,6 +152,76 @@ export function rasterRegionAt(
   return match
 }
 
+function distanceToSegmentSquared(
+  point: ImageContourPoint,
+  start: ImageContourPoint,
+  end: ImageContourPoint,
+): number {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const lengthSquared = dx * dx + dy * dy
+  const position =
+    lengthSquared === 0
+      ? 0
+      : Math.max(
+          0,
+          Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared),
+        )
+  return (point.x - start.x - position * dx) ** 2 + (point.y - start.y - position * dy) ** 2
+}
+
+/** A visual tracing draft only. Never turns a bright region into proven floor geometry. */
+export function rasterRegionTraceDraft(
+  region: RasterRegionGuide,
+  maxPoints: number,
+): ImageContourPoint[] | undefined {
+  if (!Number.isInteger(maxPoints) || maxPoints < 3 || !validRasterRegionPolygon(region.polygon))
+    return undefined
+
+  const original = region.polygon
+  const keptIndexes = original.map((_, index) => index)
+  const maximumDeviationSquared = 2 ** 2
+  while (keptIndexes.length > maxPoints) {
+    let bestIndex = -1
+    let bestDeviation = Number.POSITIVE_INFINITY
+    for (let index = 0; index < keptIndexes.length; index++) {
+      const previous =
+        original[keptIndexes[(index - 1 + keptIndexes.length) % keptIndexes.length] ?? -1]
+      const point = original[keptIndexes[index] ?? -1]
+      const next = original[keptIndexes[(index + 1) % keptIndexes.length] ?? -1]
+      if (!previous || !point || !next) return undefined
+      const deviation = distanceToSegmentSquared(point, previous, next)
+      if (deviation < bestDeviation) {
+        bestDeviation = deviation
+        bestIndex = index
+      }
+    }
+    if (bestIndex < 0 || bestDeviation > maximumDeviationSquared) return undefined
+    keptIndexes.splice(bestIndex, 1)
+  }
+
+  const draft = keptIndexes.map((index) => original[index]).filter((point) => point !== undefined)
+  if (!validRasterRegionPolygon(draft)) return undefined
+  for (let index = 0; index < keptIndexes.length; index++) {
+    const startIndex = keptIndexes[index]
+    const endIndex = keptIndexes[(index + 1) % keptIndexes.length]
+    if (startIndex === undefined || endIndex === undefined) return undefined
+    const start = original[startIndex]
+    const end = original[endIndex]
+    if (!start || !end) return undefined
+    for (
+      let at = (startIndex + 1) % original.length;
+      at !== endIndex;
+      at = (at + 1) % original.length
+    ) {
+      const point = original[at]
+      if (!point || distanceToSegmentSquared(point, start, end) > maximumDeviationSquared)
+        return undefined
+    }
+  }
+  return draft.map((point) => ({ ...point }))
+}
+
 /** Long pixel stretches. Connected ends are safer tracing starts, not physical-wall proof. */
 export function rasterRegionStraightEdges(
   region: RasterRegionGuide,

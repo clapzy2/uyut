@@ -4,6 +4,7 @@ import {
   rasterRegionAt,
   rasterRegionResponse,
   rasterRegionStraightEdges,
+  rasterRegionTraceDraft,
   snapRasterCorner,
 } from './plan-raster-snap'
 
@@ -86,6 +87,62 @@ describe('optional source pixel corner assistance', () => {
     expect(
       rasterRegionAt({ x: 650, y: 780 }, [region, { ...region, id: 'region-584' }]),
     ).toBeUndefined()
+  })
+  it('offers an editable Wedge balcony outline without erasing its diagonal', () => {
+    const polygon = [
+      [234, 1776],
+      [510, 1776],
+      [512, 1792],
+      [643, 1792],
+      [645, 1776],
+      [688, 1776],
+      [688, 1789],
+      [690, 1792],
+      [726, 1793],
+      [595, 1967],
+      [590, 1963],
+      [550, 1947],
+      [550, 1945],
+      [541, 1943],
+      [526, 1934],
+      [516, 1932],
+      [481, 1914],
+      [474, 1913],
+      [447, 1899],
+      [443, 1899],
+      [428, 1890],
+      [423, 1890],
+      [394, 1875],
+      [390, 1875],
+      [384, 1870],
+      [374, 1868],
+      [345, 1853],
+      [331, 1849],
+      [296, 1831],
+      [292, 1831],
+      [209, 1793],
+      [233, 1792],
+    ].map(([x, y]) => ({ x: x ?? 0, y: y ?? 0 }))
+    const guide = { id: 'region-63', polygon, hasInteriorIslands: true }
+    const draft = rasterRegionTraceDraft(guide, 30)
+    expect(draft).toHaveLength(30)
+    expect(draft).toContainEqual({ x: 726, y: 1793 })
+    expect(draft).toContainEqual({ x: 595, y: 1967 })
+    expect(guide.polygon).toHaveLength(32)
+    expect(rasterRegionTraceDraft(guide, 3)).toBeUndefined()
+  })
+  it('does not cut a detailed polygon down beyond two source pixels', () => {
+    const guide = {
+      id: 'region-1',
+      polygon: Array.from({ length: 32 }, (_, index) => ({
+        x: 100 + 80 * Math.cos((index * 2 * Math.PI) / 32),
+        y: 100 + 80 * Math.sin((index * 2 * Math.PI) / 32),
+      })),
+      hasInteriorIslands: false,
+    }
+    expect(rasterRegionTraceDraft(guide, 4)).toBeUndefined()
+    expect(rasterRegionTraceDraft(guide, 32)).toHaveLength(32)
+    expect(rasterRegionTraceDraft(guide, 2)).toBeUndefined()
   })
   it('highlights long straight pixel stretches without joining short arc segments', () => {
     const guide = {
