@@ -23,6 +23,8 @@ export type PdfEdgeDimension =
         sourceEdge: [PagePoint, PagePoint]
         wallRef: PlanPageSegmentRef
         endpointRefs: [PlanPageSegmentRef, PlanPageSegmentRef]
+        /** Other source strokes with exactly the same endpoints as a chosen connection. */
+        equivalentEndpointRefs?: [PlanPageSegmentRef[], PlanPageSegmentRef[]]
       })
   | { status: 'unresolved' | 'ambiguous'; reason: string }
 
@@ -170,6 +172,7 @@ export function pdfDimensionForEdge(
   // A real perpendicular wall stroke can connect a dimension tip to the corner too.
   // These refs prove bounded geometric connections, not the drafting role of each stroke.
   const connections: NativePageSegment[] = []
+  const equivalentConnections: [PlanPageSegmentRef[], PlanPageSegmentRef[]] = [[], []]
   for (const [index, point] of ordered.entries()) {
     const wall = project(point)
     const tip = project(chain.ends[index] as PagePoint)
@@ -203,14 +206,34 @@ export function pdfDimensionForEdge(
         )
       )
     })
-    if (matching.length !== 1 || !matching[0])
+    // A PDF may paint the same physical connector twice in opposite directions.
+    // Only identical native endpoints are interchangeable; overlapping or nearby
+    // strokes must still leave the measurement ambiguous.
+    const connectionGroups = new Map<string, NativePageSegment[]>()
+    for (const segment of matching) {
+      const ends = [segment.start, segment.end].map((end) => `${end.x}:${end.y}`).sort()
+      const key = ends.join('|')
+      const group = connectionGroups.get(key) ?? []
+      group.push(segment)
+      connectionGroups.set(key, group)
+    }
+    if (connectionGroups.size !== 1)
       return fail(
-        matching.length > 1
+        connectionGroups.size > 1
           ? 'multiple-endpoint-connections'
           : 'missing-bounded-endpoint-connection',
-        matching.length > 1 ? 'ambiguous' : 'unresolved',
+        connectionGroups.size > 1 ? 'ambiguous' : 'unresolved',
       )
-    connections.push(matching[0])
+    const group = [...connectionGroups.values()][0]
+    if (!group?.[0]) return fail('missing-bounded-endpoint-connection')
+    group.sort(
+      (left, right) =>
+        left.operationIndex - right.operationIndex ||
+        left.subpathIndex - right.subpathIndex ||
+        left.segmentIndex - right.segmentIndex,
+    )
+    connections.push(group[0])
+    equivalentConnections[index] = group.slice(1).map(ref)
   }
   const strip = [chain.ends[0], chain.ends[1], ordered[1], ordered[0]]
   for (const other of contours.rooms) {
@@ -252,5 +275,8 @@ export function pdfDimensionForEdge(
     sourceEdge: [a, b],
     wallRef: ref(wallSegments[0]),
     endpointRefs: [ref(firstConnection), ref(lastConnection)],
+    ...(equivalentConnections.some((group) => group.length > 0)
+      ? { equivalentEndpointRefs: equivalentConnections }
+      : {}),
   }
 }

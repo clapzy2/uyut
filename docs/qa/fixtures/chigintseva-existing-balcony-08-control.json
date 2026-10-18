@@ -1,0 +1,31 @@
+{
+  "source": {
+    "sha256": "d0ab7f756492e4c2bc11a7870bfcb6815a96daf04127095ba73bcdc6f5a6e058",
+    "pdfPage": 3,
+    "state": "existing"
+  },
+  "anchors": [
+    {
+      "roomSourceNumber": 8,
+      "wallEdgeIndex": 0,
+      "labelIndexes": [137, 138],
+      "totalMm": 1390,
+      "wallOperation": 2755,
+      "lineOperations": [15295, 15323],
+      "endpointOperations": [2748, 2762]
+    },
+    {
+      "roomSourceNumber": 8,
+      "wallEdgeIndex": 1,
+      "labelIndexes": [139],
+      "totalMm": 4070,
+      "wallOperation": 2762,
+      "lineOperations": [15401],
+      "endpointOperations": [2727, 2755]
+    }
+  ],
+  "expectedRooms": [8],
+  "expectedOpenings": 0,
+  "expectedCompletenessIssues": ["manual-missing-outer-walls"],
+  "expectedMissingRooms": [1, 2, 3, 4, 5, 6, 7]
+}

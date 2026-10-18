@@ -52,7 +52,10 @@ export function planPageEdgeCalibration(
         `Сторона ${edge.wallEdgeIndex + 1}, комната № ${pdfContourRoomNumbers(room).join(' + ')}: проверьте подписи, всю грань и связь обоих концов размера с её углами на PDF. Однозначная связь пока не подтверждена.`,
       )
     const wallKey = JSON.stringify(binding.wallRef)
-    const connectionKeys = binding.endpointRefs.map((item) => JSON.stringify(item))
+    const connectionKeys = [
+      ...binding.endpointRefs,
+      ...(binding.equivalentEndpointRefs?.flat() ?? []),
+    ].map((item) => JSON.stringify(item))
     if (
       binding.labelIndexes.some((index) => usedLabels.has(index)) ||
       binding.lineOperations.some((index) => usedLines.has(index)) ||

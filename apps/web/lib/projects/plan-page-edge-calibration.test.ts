@@ -186,10 +186,36 @@ describe('привязка наклонных размеров и метриче
     })
   })
 
-  it('не выбирает одну из двух выносных или двух одинаковых стен', () => {
+  it('сохраняет оба исходных штриха, если соединение точно повторено в обратном направлении', () => {
     const f = fixture()
     const extension = required(f.work.paths[7])
-    f.work.paths.push({ ...extension, operationIndex: 100 })
+    f.work.paths.push({
+      ...extension,
+      operationIndex: 100,
+      points: [...extension.points].reverse(),
+    })
+    expect(f.binding()).toMatchObject({
+      status: 'candidate',
+      endpointRefs: [{ operationIndex: 7 }, { operationIndex: 8 }],
+      equivalentEndpointRefs: [[{ operationIndex: 100 }], []],
+    })
+    const result = planPageMetricDraft(f.reading, f.context, [1])
+    expect(result.ok).toBe(true)
+    if (result.ok)
+      expect(result.geometry.pdfCalibration?.edgeDimensions?.[0]?.equivalentEndpointRefs).toEqual([
+        [{ operationIndex: 100, subpathIndex: 0, segmentIndex: 0 }],
+        [],
+      ])
+  })
+
+  it('не объединяет близкие, но разные соединения или две одинаковые стены', () => {
+    const f = fixture()
+    const extension = required(f.work.paths[7])
+    f.work.paths.push({
+      ...extension,
+      operationIndex: 100,
+      points: [required(extension.points[0]), f.point(0, -31)],
+    })
     expect(f.binding()).toMatchObject({
       status: 'ambiguous',
       reason: 'multiple-endpoint-connections',
