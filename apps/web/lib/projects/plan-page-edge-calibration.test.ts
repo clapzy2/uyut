@@ -19,7 +19,10 @@ describe('привязка наклонных размеров и метриче
     'переносит непрямоугольный контур %i° одним масштабом без изменения исходника',
     (angle) => {
       const f = fixture(angle)
-      const before = structuredClone({ reading: f.reading, context: f.context })
+      const before = structuredClone({
+        reading: f.reading,
+        context: f.context,
+      })
       const bound = f.binding()
       expect(bound).toMatchObject({
         status: 'candidate',
@@ -63,7 +66,10 @@ describe('привязка наклонных размеров и метриче
     const saved = pageContourRoomsForSave(opened, nodes)
     expect(saved).toEqual(f.contours.rooms)
     expect(saved?.[0]?.dimensionEdges).not.toBe(opened[0]?.dimensionEdges)
-    const reopened = planPageContoursSchema.parse({ ...f.contours, rooms: saved })
+    const reopened = planPageContoursSchema.parse({
+      ...f.contours,
+      rooms: saved,
+    })
     const result = planPageMetricDraft(f.reading, { ...f.context, contours: reopened }, [1])
     expect(result.ok).toBe(true)
   })
@@ -75,7 +81,10 @@ describe('привязка наклонных размеров и метриче
     )
     expect(
       planPageMetricDraft(f.reading, { ...f.context, calibrationRoomNumbers: [1] }, [1]),
-    ).toMatchObject({ ok: false, error: expect.stringContaining('один способ') })
+    ).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('один способ'),
+    })
   })
 
   it.each([7, 8])('отклоняет отсутствующую выносную линию %i', (operation) => {
@@ -171,7 +180,10 @@ describe('привязка наклонных размеров и метриче
       roomSourceNumber: 2,
       polygon: [f.point(0, -40), f.point(300, -40), f.point(300, -60), f.point(0, -60)],
     })
-    expect(f.binding()).toMatchObject({ status: 'ambiguous', reason: 'competing-dimension-edge' })
+    expect(f.binding()).toMatchObject({
+      status: 'ambiguous',
+      reason: 'competing-dimension-edge',
+    })
   })
 
   it('не выбирает одну из двух выносных или двух одинаковых стен', () => {
@@ -184,7 +196,10 @@ describe('привязка наклонных размеров и метриче
     })
     const g = fixture()
     g.work.paths.push({ ...required(g.work.paths[0]), operationIndex: 100 })
-    expect(g.binding()).toMatchObject({ status: 'ambiguous', reason: 'multiple-native-wall-edges' })
+    expect(g.binding()).toMatchObject({
+      status: 'ambiguous',
+      reason: 'multiple-native-wall-edges',
+    })
   })
 
   it('не выдаёт условную границу или сторону с проёмом за непрерывную стену', () => {
@@ -195,7 +210,13 @@ describe('привязка наклонных размеров и метриче
     })
     const g = fixture()
     g.room.openings = [
-      { id: 'door', kind: 'door', wallEdgeIndex: 0, start: g.point(100, 0), end: g.point(180, 0) },
+      {
+        id: 'door',
+        kind: 'door',
+        wallEdgeIndex: 0,
+        start: g.point(100, 0),
+        end: g.point(180, 0),
+      },
     ]
     expect(g.binding().status).toBe('unresolved')
     expect(planPageMetricDraft(g.reading, g.context, [1]).ok).toBe(false)
@@ -216,13 +237,44 @@ describe('привязка наклонных размеров и метриче
         [f.labels[0]],
       ).status,
     ).toBe('candidate')
-    expect(f.binding()).toMatchObject({ status: 'unresolved', reason: 'no-annotated-room' })
+    expect(f.binding()).toMatchObject({
+      status: 'unresolved',
+      reason: 'no-annotated-room',
+    })
   })
 
   it('отклоняет отсечённые линии, смену PDF и проектное состояние', () => {
     const f = fixture()
     f.work.clippedPaths = 1
-    expect(f.binding()).toMatchObject({ status: 'unresolved', reason: 'clipped-edge-evidence' })
+    expect(f.binding()).toMatchObject({
+      status: 'unresolved',
+      reason: 'clipped-edge-evidence',
+    })
+    f.work.clippedPathBounds = [
+      {
+        operationIndex: 100,
+        bounds: { left: 900, top: 900, right: 910, bottom: 910 },
+      },
+    ]
+    expect(f.binding().status).toBe('candidate')
+    f.work.clippedPathBounds[0] = {
+      operationIndex: 100,
+      bounds: {
+        left: f.point(150, -20).x,
+        top: f.point(150, -20).y,
+        right: f.point(150, -20).x,
+        bottom: f.point(150, -20).y,
+      },
+    }
+    expect(f.binding()).toMatchObject({
+      status: 'unresolved',
+      reason: 'clipped-edge-evidence',
+    })
+    f.work.clippedPathBoundsTruncated = true
+    expect(f.binding()).toMatchObject({
+      status: 'unresolved',
+      reason: 'clipped-edge-evidence',
+    })
     const g = fixture()
     g.context.source = { ...g.context.source, sha256: 'b'.repeat(64) }
     expect(planPageMetricDraft(g.reading, g.context, [1]).ok).toBe(false)
@@ -243,7 +295,10 @@ describe('привязка наклонных размеров и метриче
     g.room.dimensionEdges = [{ wallEdgeIndex: 0, labelIndexes: [0] }]
     expect(planPageMetricDraft(g.reading, g.context, [1]).ok).toBe(false)
     const h = fixture()
-    required(h.room.dimensionEdges)[1] = { wallEdgeIndex: 0, labelIndexes: [0] }
+    required(h.room.dimensionEdges)[1] = {
+      wallEdgeIndex: 0,
+      labelIndexes: [0],
+    }
     expect(planPageMetricDraft(h.reading, h.context, [1]).ok).toBe(false)
   })
 
