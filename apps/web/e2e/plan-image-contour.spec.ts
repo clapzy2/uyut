@@ -195,6 +195,34 @@ test.describe('обводка растрового контура по двум 
     })
     await expect(assistance).not.toBeChecked()
     await expect(floorTrace.getByLabel('Угол 1 · X, пикс.', { exact: true })).toHaveValue('110')
+    await floorTrace.getByRole('button', { name: 'Искать углы на участке плана' }).click()
+    const localResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/projects/${projectId}/plan-raster-edges`) &&
+        response.url().includes('focusX='),
+    )
+    const focusImage = floorTrace.getByRole('img', {
+      name: 'Исходник для обводки: Общая граница пола',
+      exact: true,
+    })
+    const focusBox = await focusImage.boundingBox()
+    assert(focusBox)
+    await page.mouse.click(
+      focusBox.x + (600 * focusBox.width) / 820,
+      focusBox.y + (790 * focusBox.height) / 970,
+    )
+    const localGuides = (await (await localResponse).json()) as {
+      focused: boolean
+      uncertain: boolean
+      points: { x: number; y: number }[]
+    }
+    expect(localGuides.focused).toBe(true)
+    expect(localGuides.uncertain).toBe(true)
+    expect(localGuides.points.length).toBeGreaterThan(0)
+    await expect(floorTrace.getByText(/неполный локальный поиск/)).toBeVisible()
+    await expect(floorTrace.getByLabel('Угол 1 · X, пикс.', { exact: true })).toHaveValue('110')
+    expect(await savedGeometry()).toEqual(geometry)
+    await floorTrace.getByRole('button', { name: 'Найти углы по пикселям', exact: true }).click()
     await assistance.check()
     for (const viewport of [
       { width: 390, height: 844 },

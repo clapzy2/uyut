@@ -72,11 +72,33 @@ beforeEach(() => {
 })
 
 describe('raster region editing', () => {
+  it('offers a local corner search without applying a floor contour', () => {
+    hooks.values.set(2, true)
+    const onChange = vi.fn()
+    const editor = PlanImageContourTrace({
+      planUrl: '/source.jpg',
+      calibration,
+      points: undefined,
+      widthCm: 1000,
+      heightCm: 800,
+      maxPoints: 30,
+      label: 'Балкон',
+      onChange,
+      cornerSourceUrl: '/raster-candidates',
+    })
+    const action = findAction(editor, 'Искать углы на участке плана')
+    expect(action?.props.disabled).toBe(false)
+    action?.props.onClick?.()
+    expect(hooks.updates.get(8)).toBe(false)
+    expect(hooks.updates.get(9)).toBe(true)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
   it('offers only an explicit visual region hint under a source-matched room label', () => {
     const onChange = vi.fn()
     hooks.values.set(2, true)
     hooks.values.set(5, [region])
-    hooks.values.set(12, 'a'.repeat(64))
+    hooks.values.set(13, 'a'.repeat(64))
     const props = {
       planUrl: '/source.jpg',
       calibration,
