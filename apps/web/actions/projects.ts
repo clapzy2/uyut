@@ -588,12 +588,29 @@ export async function savePlanGeometry(
       : false
     if (raster) {
       geometry.rooms = geometry.rooms.map((room) => {
-        const previous = before.rooms.find((candidate) => candidate.name === room.name)
+        const matches = before.rooms.filter((candidate) => {
+          if (room.sourceNumber !== undefined) return candidate.sourceNumber === room.sourceNumber
+          if (room.sourceNumbers) {
+            return (
+              candidate.sourceNumbers?.length === room.sourceNumbers.length &&
+              candidate.sourceNumbers.every(
+                (number, index) => number === room.sourceNumbers?.[index],
+              )
+            )
+          }
+          return (
+            candidate.sourceNumber === undefined &&
+            !candidate.sourceNumbers &&
+            candidate.name === room.name
+          )
+        })
+        const previous = matches.length === 1 ? matches[0] : undefined
         const candidate = findPlanRoomReading(room, roomReadings)
         const needsTrace =
-          previous?.requiresImageTrace ||
-          candidate?.nameOnlyCandidate ||
-          (before.rooms.length > 0 && !previous)
+          !previous ||
+          previous.requiresImageTrace ||
+          Boolean(previous.imageTrace) ||
+          candidate?.nameOnlyCandidate
         return needsTrace ? { ...room, requiresImageTrace: true } : room
       })
     }

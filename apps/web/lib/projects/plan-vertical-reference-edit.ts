@@ -1,4 +1,5 @@
 import { type PlanRoomArea, reconcilePlanGeometryRooms } from '@uyut/ai/geometry'
+import { planVerticalRoomSnapshot } from '@uyut/catalog/plan-vertical-reference'
 import type {
   PlanGeometry,
   PlanOpening,
@@ -85,7 +86,7 @@ function sorted(values: unknown[]) {
 /** A review is bound to exact owners/source, not to local aperture or wall height edits. */
 export function verticalReferenceDraftSnapshot(geometry: PlanGeometry): string {
   return canonical({
-    rooms: sorted(geometry.rooms),
+    rooms: sorted(geometry.rooms.map(planVerticalRoomSnapshot)),
     walls: sorted(geometry.walls.map(wallSnapshot)),
     openings: sorted(geometry.openings.map(openingSnapshot)),
     footprint: geometry.footprint,
@@ -138,11 +139,13 @@ export function createVerticalReferenceDraft(
 ): VerticalReferenceDraft {
   const reference = currentPlanVerticalReference(geometry)
   const floors = geometry.rooms.map((room) => {
-    const saved = reference?.floors.find((floor) => canonical(floor.room) === canonical(room))
+    const saved = reference?.floors.find(
+      (floor) => canonical(floor.room) === canonical(planVerticalRoomSnapshot(room)),
+    )
     const ceiling = reference?.ceilings?.find((value) => value.floorId === saved?.id)
     return {
       id: saved?.id ?? idFactory(),
-      room: structuredClone(room),
+      room: structuredClone(planVerticalRoomSnapshot(room)),
       surface: saved?.surface ?? ('' as const),
       elevation: saved ? String(saved.elevationCm) : '',
       ceiling: ceiling ? String(ceiling.elevationCm) : '',
@@ -226,7 +229,7 @@ export function buildVerticalReferenceRequest(
   if (
     !sameInventory(
       draft.floors.map((floor) => floor.room),
-      geometry.rooms,
+      geometry.rooms.map(planVerticalRoomSnapshot),
     ) ||
     !sameInventory(
       draft.wallBases.map((base) => base.wall),

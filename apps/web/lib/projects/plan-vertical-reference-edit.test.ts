@@ -170,6 +170,38 @@ describe('explicit vertical reference draft', () => {
     expect(geometry).not.toHaveProperty('verticalReference')
   })
 
+  it('binds levels to physical room geometry, not its image-review metadata', () => {
+    const { geometry, draft } = ready()
+    const room = required(geometry.rooms[0])
+    room.requiresImageTrace = true
+    room.imageTrace = {
+      pointsPx: room.polygon.map(({ xCm, yCm }) => ({ x: xCm + 10, y: yCm + 10 })),
+      sourceSha256: 'a'.repeat(64),
+      page: 1,
+      imageWidthPx: 1000,
+      imageHeightPx: 1000,
+    }
+    expect(verticalReferenceDraftSnapshot(geometry)).toBe(draft.geometrySnapshot)
+
+    const built = buildVerticalReferenceRequest(geometry, draft)
+    expect(built.ok).toBe(true)
+    if (!built.ok) throw new Error(built.error)
+    expect(built.request.floors[0]?.room).not.toHaveProperty('imageTrace')
+    expect(built.request.floors[0]?.room).not.toHaveProperty('requiresImageTrace')
+
+    const applied = applyPlanVerticalReference(
+      geometry,
+      built.request,
+      'owner',
+      '2026-10-18T00:00:00.000Z',
+    )
+    expect(applied.ok).toBe(true)
+    if (!applied.ok) throw new Error(applied.error)
+    expect(currentPlanVerticalReference(applied.geometry)).toBeDefined()
+    required(applied.geometry.rooms[0]).polygon[1] = { xCm: 399.9, yCm: 0 }
+    expect(currentPlanVerticalReference(applied.geometry)).toBeUndefined()
+  })
+
   it.each(['', ' ', 'NaN', 'Infinity', '0x10', '1e2', '2,2.2', '--2', '601', '-601', '2 cm'])(
     'rejects non-explicit floor number %j',
     (value) => {

@@ -1,4 +1,4 @@
-import type { PlanGeometry, PlanVerticalReference } from '@uyut/db'
+import type { PlanGeometry, PlanRoomShape, PlanVerticalReference } from '@uyut/db'
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { z } from 'zod'
 import { exactSegmentContains } from './plan-exact-geometry'
@@ -149,6 +149,17 @@ function canonical(value: unknown): string {
 function same(a: unknown, b: unknown) {
   return canonical(a) === canonical(b)
 }
+
+/** Source tracing is review metadata, not part of a floor's physical identity. */
+export function planVerticalRoomSnapshot(value: PlanRoomShape): PlanRoomShape {
+  const { name, polygon, spaceKind, sourceNumber, sourceNumbers } = value
+  const source = sourceNumbers
+    ? { sourceNumbers }
+    : sourceNumber !== undefined
+      ? { sourceNumber }
+      : {}
+  return { name, polygon, ...(spaceKind ? { spaceKind } : {}), ...source }
+}
 function sameContour(
   a: ReferenceGeometry['rooms'][number]['polygon'],
   b: ReferenceGeometry['rooms'][number]['polygon'],
@@ -248,10 +259,16 @@ export function inspectPlanVerticalReference(geometry: ReferenceGeometry): PlanG
     !unique(reference.floors.map((value) => value.id)) ||
     reference.floors.length !== geometry.rooms.length ||
     reference.floors.some(
-      (floor) => geometry.rooms.filter((value) => same(value, floor.room)).length !== 1,
+      (floor) =>
+        geometry.rooms.filter((value) =>
+          same(planVerticalRoomSnapshot(value), planVerticalRoomSnapshot(floor.room)),
+        ).length !== 1,
     ) ||
     geometry.rooms.some(
-      (value) => reference.floors.filter((floor) => same(value, floor.room)).length !== 1,
+      (value) =>
+        reference.floors.filter((floor) =>
+          same(planVerticalRoomSnapshot(value), planVerticalRoomSnapshot(floor.room)),
+        ).length !== 1,
     )
   )
     return fail('каждый физический контур пола должен иметь одну актуальную привязку.')

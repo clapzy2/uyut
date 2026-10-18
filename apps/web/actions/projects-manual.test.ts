@@ -1271,6 +1271,10 @@ describe('manual plan draft', () => {
 
   it('revalidates a saved draft before giving it a new confirmation', async () => {
     source.planReading.rooms = [{ name: 'Кухня', kind: 'kitchen', areaM2: 20 }]
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      rooms: [{ name: 'Кухня', polygon: corners }],
+    }
     const result = await savePlanGeometry(
       projectId,
       {
@@ -1289,6 +1293,89 @@ describe('manual plan draft', () => {
       expect(result.data.geometry.confirmedAt).toMatch(/^2026-/)
       expect(result.data.geometry.confirmedAt).not.toBe('forged-old-confirmation')
     }
+  })
+
+  it('does not confirm the first room added to an empty raster drawing without a source trace', async () => {
+    source.planReading.rooms = [{ name: 'Кухня', kind: 'kitchen', areaM2: 20 }]
+    const input = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      rooms: [{ name: 'Кухня', polygon: corners }],
+      footprint: corners,
+      imageCalibration: reviewedImage,
+    }
+    const draft = await savePlanGeometry(projectId, input, 'draft')
+    expect(draft.ok).toBe(true)
+    if (!draft.ok) throw new Error(draft.error)
+    expect(draft.data.geometry.rooms[0]?.requiresImageTrace).toBe(true)
+
+    source.planReading = mocks.setPlanReading.mock.calls[0]?.[2]
+    expect(await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')).toMatchObject(
+      {
+        ok: false,
+        error: expect.stringContaining('Обведите её границу'),
+      },
+    )
+  })
+
+  it('requires a fresh image trace after metric points of a traced room are edited', async () => {
+    source.planReading.rooms = [{ name: 'Кухня', kind: 'kitchen', areaM2: 20 }]
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      rooms: [
+        {
+          name: 'Кухня',
+          polygon: corners,
+          imageTrace: {
+            pointsPx: corners.map(({ xCm, yCm }) => ({ x: xCm + 100, y: yCm + 100 })),
+            sourceSha256: 'a'.repeat(64),
+            page: 1,
+            imageWidthPx: 1000,
+            imageHeightPx: 800,
+          },
+        },
+      ],
+    }
+    const editedRoom = {
+      name: 'Кухня',
+      polygon: corners.map((point, index) => (index === 1 ? { ...point, xCm: 499.9 } : point)),
+    }
+    const input = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      rooms: [editedRoom],
+      footprint: corners,
+      imageCalibration: reviewedImage,
+    }
+    const draft = await savePlanGeometry(projectId, input, 'draft')
+    expect(draft.ok).toBe(true)
+    if (!draft.ok) throw new Error(draft.error)
+    expect(draft.data.geometry.rooms[0]?.requiresImageTrace).toBe(true)
+
+    source.planReading = mocks.setPlanReading.mock.calls[0]?.[2]
+    expect(await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')).toMatchObject(
+      {
+        ok: false,
+        error: expect.stringContaining('Обведите её границу'),
+      },
+    )
+  })
+
+  it('does not reuse a namesake room with a different printed room number', async () => {
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      rooms: [{ name: 'Спальня', sourceNumber: 1, polygon: corners }],
+    }
+    const draft = await savePlanGeometry(
+      projectId,
+      {
+        ...emptyManualGeometry,
+        rooms: [{ name: 'Спальня', sourceNumber: 2, polygon: corners }],
+      },
+      'draft',
+    )
+    expect(draft.ok).toBe(false)
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
   })
 
   it('keeps a name-only raster room unconfirmed across draft saves without a source trace', async () => {
@@ -1316,6 +1403,7 @@ describe('manual plan draft', () => {
   })
 
   it('saves, reopens and confirms a projecting balcony added after the raster was read', async () => {
+    source.planUrl = 'scanned-plan.pdf'
     const floor = [
       { xCm: 0, yCm: 0 },
       { xCm: 400, yCm: 0 },
@@ -1369,14 +1457,23 @@ describe('manual plan draft', () => {
         },
         { name: 'Балкон', polygon: balcony },
       ],
-      imageCalibration: reviewedImage,
+      imageCalibration: reviewedPdfImage,
     }
     const draft = await savePlanGeometry(projectId, input, 'draft')
     expect(draft.ok).toBe(true)
     if (!draft.ok) throw new Error(draft.error)
     expect(planVolume(draft.data.geometry)).toBeNull()
     source.planReading = mocks.setPlanReading.mock.calls[0]?.[2]
-    const confirmed = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
+    const traced = {
+      ...source.planReading.geometry,
+      rooms: source.planReading.geometry?.rooms.map((room) => ({
+        ...room,
+        imageTrace: {
+          pointsPx: room.polygon.map(({ xCm, yCm }) => ({ x: xCm + 100, y: yCm + 100 })),
+        },
+      })),
+    }
+    const confirmed = await savePlanGeometry(projectId, traced, 'confirm')
     expect(confirmed.ok).toBe(true)
     if (!confirmed.ok) throw new Error(confirmed.error)
     expect(confirmed.data.geometry.footprint).toEqual(floor)
@@ -1428,7 +1525,15 @@ describe('manual plan draft', () => {
         ...emptyManualGeometry,
         footprint: floor,
         walls,
-        rooms: [{ name: 'Кухня', polygon: floor }],
+        rooms: [
+          {
+            name: 'Кухня',
+            polygon: floor,
+            imageTrace: {
+              pointsPx: floor.map(({ xCm, yCm }) => ({ x: xCm + 100, y: yCm + 100 })),
+            },
+          },
+        ],
         imageCalibration: reviewedPdfImage,
       }
 
