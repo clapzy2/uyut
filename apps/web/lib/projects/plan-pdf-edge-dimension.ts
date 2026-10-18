@@ -22,6 +22,8 @@ export type PdfEdgeDimension =
         wallEdgeIndex: number
         sourceEdge: [PagePoint, PagePoint]
         wallRef: PlanPageSegmentRef
+        /** Other source strokes with exactly the same endpoints as the reviewed wall. */
+        equivalentWallRefs?: PlanPageSegmentRef[]
         endpointRefs: [PlanPageSegmentRef, PlanPageSegmentRef]
         /** Other source strokes with exactly the same endpoints as a chosen connection. */
         equivalentEndpointRefs?: [PlanPageSegmentRef[], PlanPageSegmentRef[]]
@@ -164,11 +166,42 @@ export function pdfDimensionForEdge(
       (pdfPointDistance(work, segment.start, b) <= 0.12 &&
         pdfPointDistance(work, segment.end, a) <= 0.12),
   )
-  if (wallSegments.length !== 1 || !wallSegments[0])
+  const wallGroups = new Map<string, NativePageSegment[]>()
+  for (const segment of wallSegments) {
+    const ends = [segment.start, segment.end].map((point) => `${point.x}:${point.y}`).sort()
+    const key = ends.join('|')
+    const group = wallGroups.get(key) ?? []
+    group.push(segment)
+    wallGroups.set(key, group)
+  }
+  if (wallGroups.size !== 1)
     return fail(
-      wallSegments.length > 1 ? 'multiple-native-wall-edges' : 'no-continuous-native-wall-edge',
-      wallSegments.length > 1 ? 'ambiguous' : 'unresolved',
+      wallGroups.size > 1 ? 'multiple-native-wall-edges' : 'no-continuous-native-wall-edge',
+      wallGroups.size > 1 ? 'ambiguous' : 'unresolved',
     )
+  const wallGroup = [...wallGroups.values()][0]
+  if (!wallGroup?.length) return fail('no-continuous-native-wall-edge')
+  // A review may encounter a thin construction line painted again as a wall.
+  // Prefer the strongest intact solid stroke as the primary provenance, while
+  // retaining every exact duplicate. Pen weight alone never proves wall role.
+  const penWidth = (segment: NativePageSegment) => {
+    const path = work.paths.find(
+      (item) =>
+        item.operationIndex === segment.operationIndex &&
+        item.subpathIndex === segment.subpathIndex,
+    )
+    const ink = path?.strokeInk
+    return ink && !ink.refusalReason && ink.dashArray.length === 0 && ink.lineWidth > 0
+      ? ink.lineWidth
+      : 0
+  }
+  wallGroup.sort(
+    (left, right) =>
+      penWidth(right) - penWidth(left) ||
+      left.operationIndex - right.operationIndex ||
+      left.subpathIndex - right.subpathIndex ||
+      left.segmentIndex - right.segmentIndex,
+  )
   // A real perpendicular wall stroke can connect a dimension tip to the corner too.
   // These refs prove bounded geometric connections, not the drafting role of each stroke.
   const connections: NativePageSegment[] = []
@@ -267,13 +300,16 @@ export function pdfDimensionForEdge(
   }
   const firstConnection = connections[0]
   const lastConnection = connections[1]
-  if (!firstConnection || !lastConnection) return fail('missing-bounded-endpoint-connection')
+  const firstWall = wallGroup[0]
+  if (!firstConnection || !lastConnection || !firstWall)
+    return fail('missing-bounded-endpoint-connection')
   return {
     ...chain,
     ...pdfContourIdentity(room),
     wallEdgeIndex: annotation.wallEdgeIndex,
     sourceEdge: [a, b],
-    wallRef: ref(wallSegments[0]),
+    wallRef: ref(firstWall),
+    ...(wallGroup.length > 1 ? { equivalentWallRefs: wallGroup.slice(1).map(ref) } : {}),
     endpointRefs: [ref(firstConnection), ref(lastConnection)],
     ...(equivalentConnections.some((group) => group.length > 0)
       ? { equivalentEndpointRefs: equivalentConnections }

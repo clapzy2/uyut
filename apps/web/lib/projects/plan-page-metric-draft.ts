@@ -472,6 +472,9 @@ export function planPageMetricDraft(
               lineOperations: [...chain.lineOperations],
               sourceEdge: structuredClone(chain.sourceEdge),
               wallRef: { ...chain.wallRef },
+              ...(chain.equivalentWallRefs
+                ? { equivalentWallRefs: structuredClone(chain.equivalentWallRefs) }
+                : {}),
               endpointRefs: structuredClone(chain.endpointRefs),
               ...(chain.equivalentEndpointRefs
                 ? { equivalentEndpointRefs: structuredClone(chain.equivalentEndpointRefs) }

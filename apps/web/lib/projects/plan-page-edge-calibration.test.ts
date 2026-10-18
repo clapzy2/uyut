@@ -208,7 +208,41 @@ describe('привязка наклонных размеров и метриче
       ])
   })
 
-  it('не объединяет близкие, но разные соединения или две одинаковые стены', () => {
+  it('сохраняет оба исходных штриха точно повторённой стены', () => {
+    const f = fixture()
+    const wall = required(f.work.paths[0])
+    const pen = {
+      points: [...wall.points],
+      sourceToPage: [1, 0, 0, 1, 0, 0] as [number, number, number, number, number, number],
+      lineWidth: 0.05,
+      lineCap: 0 as const,
+      lineJoin: 0 as const,
+      miterLimit: 10,
+      dashArray: [],
+      dashPhase: 0,
+      refusalReason: null,
+    }
+    wall.strokeInk = pen
+    f.work.paths.push({
+      ...wall,
+      operationIndex: 100,
+      points: [...wall.points].reverse(),
+      strokeInk: { ...pen, lineWidth: 0.3 },
+    })
+    expect(f.binding()).toMatchObject({
+      status: 'candidate',
+      wallRef: { operationIndex: 100 },
+      equivalentWallRefs: [{ operationIndex: 0 }],
+    })
+    const result = planPageMetricDraft(f.reading, f.context, [1])
+    expect(result.ok).toBe(true)
+    if (result.ok)
+      expect(result.geometry.pdfCalibration?.edgeDimensions?.[0]?.equivalentWallRefs).toEqual([
+        { operationIndex: 0, subpathIndex: 0, segmentIndex: 0 },
+      ])
+  })
+
+  it('не объединяет близкие, но разные соединения или стены', () => {
     const f = fixture()
     const extension = required(f.work.paths[7])
     f.work.paths.push({
@@ -221,7 +255,12 @@ describe('привязка наклонных размеров и метриче
       reason: 'multiple-endpoint-connections',
     })
     const g = fixture()
-    g.work.paths.push({ ...required(g.work.paths[0]), operationIndex: 100 })
+    const wall = required(g.work.paths[0])
+    g.work.paths.push({
+      ...wall,
+      operationIndex: 100,
+      points: [required(wall.points[0]), g.point(299.9, 0)],
+    })
     expect(g.binding()).toMatchObject({
       status: 'ambiguous',
       reason: 'multiple-native-wall-edges',

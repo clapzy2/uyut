@@ -51,7 +51,9 @@ export function planPageEdgeCalibration(
       return fail(
         `Сторона ${edge.wallEdgeIndex + 1}, комната № ${pdfContourRoomNumbers(room).join(' + ')}: проверьте подписи, всю грань и связь обоих концов размера с её углами на PDF. Однозначная связь пока не подтверждена.`,
       )
-    const wallKey = JSON.stringify(binding.wallRef)
+    const wallKeys = [binding.wallRef, ...(binding.equivalentWallRefs ?? [])].map((item) =>
+      JSON.stringify(item),
+    )
     const connectionKeys = [
       ...binding.endpointRefs,
       ...(binding.equivalentEndpointRefs?.flat() ?? []),
@@ -60,13 +62,13 @@ export function planPageEdgeCalibration(
       binding.labelIndexes.some((index) => usedLabels.has(index)) ||
       binding.lineOperations.some((index) => usedLines.has(index)) ||
       connectionKeys.some((key) => usedConnections.has(key)) ||
-      usedEdges.has(wallKey)
+      wallKeys.some((key) => usedEdges.has(key))
     )
       return fail('Для проверки масштаба нужны независимые стороны, подписи и размерные линии.')
     for (const index of binding.labelIndexes) usedLabels.add(index)
     for (const index of binding.lineOperations) usedLines.add(index)
     for (const key of connectionKeys) usedConnections.add(key)
-    usedEdges.add(wallKey)
+    for (const key of wallKeys) usedEdges.add(key)
     chains.push(binding)
   }
   const direction = (edge: Edge) => {
