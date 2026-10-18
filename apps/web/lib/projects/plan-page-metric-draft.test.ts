@@ -208,13 +208,13 @@ function realSheet() {
 }
 
 describe('native PDF page to metric draft', () => {
-  it('imports a proved room beside an unclassified source area without promoting that area or a page-wide floor', () => {
+  it('holds a page-wide floor when an unclassified source area extends beyond it', () => {
     const { reading, context } = synthetic()
     const sourcePolygon = [
-      { x: 400, y: 10 },
-      { x: 500, y: 10 },
-      { x: 500, y: 110 },
-      { x: 400, y: 110 },
+      { x: 516, y: 10 },
+      { x: 519, y: 10 },
+      { x: 519, y: 110 },
+      { x: 516, y: 110 },
     ]
     context.contours.rooms.push({
       roomSourceNumber: 8,
@@ -222,7 +222,7 @@ describe('native PDF page to metric draft', () => {
       sourceTopology: {
         kind: 'unclassified-source-paint',
         floorId: 'source-floor-8',
-        exactPointKeys: ['400/1:10/1', '500/1:10/1', '500/1:110/1', '400/1:110/1'],
+        exactPointKeys: ['516/1:10/1', '519/1:10/1', '519/1:110/1', '516/1:110/1'],
         holes: [],
         holeExactPointKeys: [],
       },
@@ -260,6 +260,53 @@ describe('native PDF page to metric draft', () => {
     if (!sourceOnly?.sourceTopology) throw new Error('Missing source topology')
     sourceOnly.sourceTopology.exactPointKeys.pop()
     expect(planPageMetricDraft(reading, context, [4]).ok).toBe(false)
+  })
+
+  it('keeps an independently proved floor in a partial draft without promoting the source-only room', () => {
+    const { reading, context, path } = synthetic()
+    const sourcePolygon = [
+      { x: 400, y: 10 },
+      { x: 500, y: 10 },
+      { x: 500, y: 110 },
+      { x: 400, y: 110 },
+    ]
+    context.contours.rooms.push({
+      roomSourceNumber: 8,
+      polygon: sourcePolygon,
+      sourceTopology: {
+        kind: 'unclassified-source-paint',
+        floorId: 'source-floor-8',
+        exactPointKeys: ['400/1:10/1', '500/1:10/1', '500/1:110/1', '400/1:110/1'],
+        holes: [],
+        holeExactPointKeys: [],
+      },
+    })
+    const envelope = [
+      { x: 0, y: 0 },
+      { x: 520, y: 0 },
+      { x: 520, y: 430 },
+      { x: 0, y: 430 },
+    ]
+    const floor = [
+      { x: 5, y: 5 },
+      { x: 515, y: 5 },
+      { x: 515, y: 425 },
+      { x: 5, y: 425 },
+    ]
+    context.linework.paths.push(path(envelope, true), path(floor, true))
+    context.contours.exterior = { boundaryRole: 'outer-wall-envelope', polygon: envelope }
+    context.contours.floor = { polygon: floor }
+    reading.rooms.push({ name: 'Балкон', kind: 'living', sourceNumber: 8 })
+
+    const result = planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [4] }, [4])
+    expect(result.ok, result.ok ? '' : result.error).toBe(true)
+    if (!result.ok) return
+    expect(result.geometry.footprint).toEqual(floor.map(({ x, y }) => ({ xCm: x, yCm: y })))
+    expect(result.geometry.rooms.map((room) => room.sourceNumber)).toEqual([4])
+    expect(result.geometry.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('Непроверенных исходных областей: 1')]),
+    )
+    expect(planVolume(result.geometry)).toBeNull()
   })
 
   it('transfers a source subroom without renumbering it or inventing its height', () => {

@@ -1386,6 +1386,14 @@ export function PlanGeometryEditor({
               линии и AI здесь не используются.
             </p>
           ) : null}
+          {geometry.pdfCalibration ? (
+            <p className="mb-3 border-l-2 border-accent pl-3 text-[13px] leading-relaxed text-ink-2">
+              Граница пола нативного PDF сверяется на исходном листе вместе с наружным контуром и
+              комнатами. Здесь она только показывается: закройте 2D-редактор, откройте «Комнаты и
+              объекты на исходном плане», завершите обводку и обновите размерный черновик. Правка
+              координат в этой форме не подтверждает исходную границу.
+            </p>
+          ) : null}
           {rasterPdfPage !== undefined && !pdfRaster && !pdfRasterError ? (
             <p role="status" className="mb-3 text-[13px]">
               Готовим изображение выбранного листа…
