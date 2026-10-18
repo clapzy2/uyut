@@ -331,6 +331,8 @@ export type PlanGeometry = {
         lineOperations: number[]
         sourceEdge: [{ x: number; y: number }, { x: number; y: number }]
         wallRef: PlanPageSegmentRef
+        /** Exact duplicate wall strokes retained alongside the primary source ref. */
+        equivalentWallRefs?: PlanPageSegmentRef[]
         /** Bounded perpendicular strokes; may be wall edges, not separate extension lines. */
         endpointRefs: [PlanPageSegmentRef, PlanPageSegmentRef]
         /** Duplicate native strokes with exactly the same physical endpoints. */
