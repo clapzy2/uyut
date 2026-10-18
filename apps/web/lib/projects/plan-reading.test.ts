@@ -118,6 +118,31 @@ describe('single-page plan reader budget', () => {
     expect(reading.rooms[0]?.areaM2).toBe(12.35)
   })
 
+  it('binds an agreed raster label hint to the exact uploaded image', async () => {
+    mocks.object.mockResolvedValue({ body: Buffer.from('raster-image') })
+    mocks.prepare.mockResolvedValue({
+      image: { body: Buffer.from('prepared-image'), contentType: 'image/jpeg' },
+      pageNumber: 1,
+      pageCount: 1,
+    })
+    mocks.read.mockResolvedValue({
+      rooms: [
+        { name: 'Балкон', kind: 'living', spaceKind: 'balcony', labelAnchor: { x: 400, y: 800 } },
+      ],
+    })
+
+    const reading = await readPlanFromStorage('plan.jpg')
+
+    expect(mocks.read).toHaveBeenCalledTimes(2)
+    expect(reading.rooms[0]?.labelAnchor).toEqual({
+      x: 400,
+      y: 800,
+      sourceSha256: createHash('sha256').update('raster-image').digest('hex'),
+      page: 1,
+    })
+    expect(reading.geometry?.footprint).toBeUndefined()
+  })
+
   it('keeps withheld native total and source warning through the storage reader path', async () => {
     mocks.prepare.mockResolvedValue({
       image: {

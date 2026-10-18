@@ -359,6 +359,8 @@ export default async function ProjectPage({ params }: { params: Params }) {
                   sourceNumber: room.sourceNumber,
                   areaM2: room.areaM2,
                   spaceKind: room.spaceKind,
+                  labelAnchor: room.labelAnchor,
+                  nameOnlyCandidate: room.nameOnlyCandidate,
                 }))}
                 sourceRooms={project.planReading.pageReview?.sourceRooms}
                 planUrl={planUrl}

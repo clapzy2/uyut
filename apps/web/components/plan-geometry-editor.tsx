@@ -674,6 +674,8 @@ export function PlanGeometryEditor({
     sourceNumber?: number
     areaM2?: number
     spaceKind?: RoomSpaceKind
+    labelAnchor?: { x: number; y: number; sourceSha256?: string; page?: number }
+    nameOnlyCandidate?: boolean
   }[]
   sourceRooms?: { name: string; sourceNumber: number }[]
   planUrl: string | null
@@ -2069,6 +2071,12 @@ export function PlanGeometryEditor({
               {selectedRoom ? (
                 <div className="border border-line bg-muted p-4">
                   <p className="font-serif text-xl text-ink">{selectedRoom.name}</p>
+                  {findPlanRoomReading(selectedRoom, roomReadings)?.nameOnlyCandidate ? (
+                    <p className="mt-2 border-l-2 border-accent pl-3 text-[13px] text-ink-2">
+                      Это неподтверждённое предложение чтения. Сначала убедитесь, что отдельная зона
+                      есть на исходнике; название не доказывает её пол.
+                    </p>
+                  ) : null}
                   {isRaster && imageSourceUrl && currentImageCalibration ? (
                     <PlanImageContourTrace
                       key={`room:${JSON.stringify(imageCalibration)}:${JSON.stringify(selectedRoom)}:${imageSourceUrl}`}
@@ -2079,6 +2087,7 @@ export function PlanGeometryEditor({
                       heightCm={canvasHeightCm}
                       maxPoints={MAX_ROOM_CONTOUR_POINTS}
                       label={selectedRoom.name}
+                      labelAnchor={findPlanRoomReading(selectedRoom, roomReadings)?.labelAnchor}
                       onChange={(polygon) =>
                         setRooms((current) =>
                           current.map((room) =>

@@ -89,6 +89,46 @@ describe('raster reread disagreement, not source verification', () => {
       reconcileRasterReadings(reading([2516]), reading([1000, 1516])).rooms[0]?.depthCm,
     ).toBeUndefined()
   })
+  it('keeps only two agreeing label hints for the same unique room identity', () => {
+    const first = reading()
+    const second = reading()
+    if (!first.rooms[0] || !second.rooms[0]) throw new Error('Missing room')
+    first.rooms[0].labelAnchor = { x: 400, y: 500 }
+    second.rooms[0].labelAnchor = { x: 410, y: 500 }
+    expect(reconcileRasterReadings(first, second).rooms[0]?.labelAnchor).toEqual({
+      x: 405,
+      y: 500,
+    })
+    second.rooms[0].labelAnchor = { x: 450, y: 500 }
+    expect(reconcileRasterReadings(first, second).rooms[0]?.labelAnchor).toBeUndefined()
+    second.rooms[0].labelAnchor = { x: 400, y: 500 }
+    second.rooms[0].name = 'Балкон'
+    expect(reconcileRasterReadings(first, second).rooms[0]?.labelAnchor).toBeUndefined()
+    expect(reconcileRasterReadings(first).rooms[0]?.labelAnchor).toBeUndefined()
+  })
+  it('withholds all image positions when a real balcony inventory is disputed', () => {
+    const first = reading()
+    const second = reading()
+    if (!first.rooms[0] || !second.rooms[0]) throw new Error('Missing room')
+    first.rooms[0].labelAnchor = { x: 260, y: 220 }
+    second.rooms[0].labelAnchor = { x: 265, y: 220 }
+    second.rooms.push({ name: 'Балкон 2', kind: 'living', spaceKind: 'balcony' })
+
+    const result = reconcileRasterReadings(first, second)
+    expect(result.rooms[0]?.labelAnchor).toBeUndefined()
+    expect(result.rooms[1]).toMatchObject({
+      name: 'Балкон 2',
+      spaceKind: 'balcony',
+      nameOnlyCandidate: true,
+    })
+    expect(result.rooms[1]?.measurementWarnings).toContainEqual(
+      expect.stringContaining('только второе чтение'),
+    )
+    expect(result.rooms[1]?.labelAnchor).toBeUndefined()
+    expect(result.rooms[1]?.areaM2).toBeUndefined()
+    expect(result.rooms[1]?.widthCm).toBeUndefined()
+    expect(result.rooms[1]?.depthCm).toBeUndefined()
+  })
   it('keeps agreeing values warned, never rechecked', () => {
     const result = reconcileRasterReadings(reading(), reading())
     expect(result.rooms[0]?.depthCm).toBe(251.6)

@@ -987,6 +987,15 @@ export async function confirmPlanRooms(
           ...(room.spaceKind || source?.spaceKind
             ? { spaceKind: source?.spaceKind ?? room.spaceKind }
             : {}),
+          ...(source?.labelAnchor ? { labelAnchor: source.labelAnchor } : {}),
+          ...(source?.nameOnlyCandidate && !room.include
+            ? {
+                nameOnlyCandidate: true,
+                ...(source.measurementWarnings?.length
+                  ? { measurementWarnings: source.measurementWarnings }
+                  : {}),
+              }
+            : {}),
           // В форме неподдерживаемый тип имеет технический living, но в исходном плане
           // ванная остаётся ванной, а коридор не становится обставляемой гостиной.
           kind: !room.include && source ? source.kind : room.kind,
