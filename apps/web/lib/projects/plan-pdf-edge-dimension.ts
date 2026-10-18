@@ -30,7 +30,11 @@ const ref = ({
   operationIndex,
   subpathIndex,
   segmentIndex,
-}: NativePageSegment): PlanPageSegmentRef => ({ operationIndex, subpathIndex, segmentIndex })
+}: NativePageSegment): PlanPageSegmentRef => ({
+  operationIndex,
+  subpathIndex,
+  segmentIndex,
+})
 
 /** Строгая связь всей физической грани с цепью: без продления и подгонки координат. */
 export function pdfDimensionForEdge(
@@ -49,7 +53,20 @@ export function pdfDimensionForEdge(
     pdfContourIssue(work, source, contours) ??
     planPageFeaturesIssue(contours, { checkRoomOverlap: true })
   if (issue) return fail(issue)
-  if (work.clippedPaths > 0) return fail('clipped-edge-evidence')
+  if (
+    work.clippedPathBoundsTruncated ||
+    (work.clippedPathBounds?.length ?? 0) !== work.clippedPaths ||
+    work.clippedPathBounds?.some(
+      ({ operationIndex, bounds }) =>
+        !Number.isSafeInteger(operationIndex) ||
+        operationIndex < 0 ||
+        !bounds ||
+        ![bounds.left, bounds.top, bounds.right, bounds.bottom].every(Number.isFinite) ||
+        bounds.left > bounds.right ||
+        bounds.top > bounds.bottom,
+    )
+  )
+    return fail('clipped-edge-evidence')
   const room = contours.rooms.find((item) => pdfContourKey(item) === pdfContourKey(identity))
   if (!room) return fail('no-annotated-room')
   if (!Number.isSafeInteger(annotation.wallEdgeIndex) || annotation.wallEdgeIndex < 0)
@@ -76,6 +93,27 @@ export function pdfDimensionForEdge(
   )
   const chain = pdfNativePageDimensionChain(work, source, labels, totalMm, 'aligned')
   if (chain.status !== 'candidate') return chain
+  // Only omissions near this wall, its dimension rail or its two endpoint connections
+  // can change the proof. A clipped symbol elsewhere on the sheet cannot.
+  const evidencePoints = [a, b, ...chain.ends, ...labels]
+  const evidenceBounds = {
+    left: Math.min(...evidencePoints.map((point) => point.x)),
+    right: Math.max(...evidencePoints.map((point) => point.x)),
+    top: Math.min(...evidencePoints.map((point) => point.y)),
+    bottom: Math.max(...evidencePoints.map((point) => point.y)),
+  }
+  const marginX = (6 * 1000) / work.pageWidth
+  const marginY = (6 * 1000) / work.pageHeight
+  if (
+    work.clippedPathBounds?.some(
+      ({ bounds }) =>
+        bounds.left <= evidenceBounds.right + marginX &&
+        bounds.right >= evidenceBounds.left - marginX &&
+        bounds.top <= evidenceBounds.bottom + marginY &&
+        bounds.bottom >= evidenceBounds.top - marginY,
+    )
+  )
+    return fail('clipped-edge-evidence')
   const physical = (p: PagePoint) => ({
     x: (p.x * work.pageWidth) / 1000,
     y: (p.y * work.pageHeight) / 1000,
@@ -84,7 +122,10 @@ export function pdfDimensionForEdge(
   const end = physical(chain.ends[1])
   const length = Math.hypot(end.x - start.x, end.y - start.y)
   if (length === 0) return fail('invalid-dimension-edge')
-  const direction = { x: (end.x - start.x) / length, y: (end.y - start.y) / length }
+  const direction = {
+    x: (end.x - start.x) / length,
+    y: (end.y - start.y) / length,
+  }
   const project = (p: PagePoint) => {
     const point = physical(p)
     const dx = point.x - start.x
