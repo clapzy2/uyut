@@ -294,6 +294,7 @@ function PlanGeometryCanvas({
           roomIndex === drag.roomIndex
             ? {
                 ...room,
+                imageTrace: undefined,
                 polygon: room.polygon.map((vertex, pointIndex) =>
                   pointIndex === drag.pointIndex ? point : vertex,
                 ),
@@ -1122,6 +1123,7 @@ export function PlanGeometryEditor({
         index === roomIndex
           ? {
               ...room,
+              imageTrace: undefined,
               polygon: room.polygon.map((point, index) =>
                 index === pointIndex ? { ...point, ...patch } : point,
               ),
@@ -1136,7 +1138,9 @@ export function PlanGeometryEditor({
     const roomIndex = Number(selectionId)
     setRooms((current) =>
       current.map((room, index) =>
-        index === roomIndex ? { ...room, polygon: addRoomContourPoint(room.polygon) } : room,
+        index === roomIndex
+          ? { ...room, imageTrace: undefined, polygon: addRoomContourPoint(room.polygon) }
+          : room,
       ),
     )
   }
@@ -1147,7 +1151,11 @@ export function PlanGeometryEditor({
     setRooms((current) =>
       current.map((room, index) =>
         index === roomIndex
-          ? { ...room, polygon: removeRoomContourPoint(room.polygon, pointIndex) }
+          ? {
+              ...room,
+              imageTrace: undefined,
+              polygon: removeRoomContourPoint(room.polygon, pointIndex),
+            }
           : room,
       ),
     )
@@ -2099,7 +2107,7 @@ export function PlanGeometryEditor({
                     labelAnchor={
                       roomReadings.find((room) => room.name === pendingRasterRoomName)?.labelAnchor
                     }
-                    onChange={(polygon) => {
+                    onChange={(polygon, pointsPx) => {
                       const name = pendingRasterRoomName
                       const readings = roomReadings.filter((room) => room.name === name)
                       const reading = readings.length === 1 ? readings[0] : undefined
@@ -2112,6 +2120,7 @@ export function PlanGeometryEditor({
                             ? {}
                             : { sourceNumber: reading.sourceNumber }),
                           polygon,
+                          imageTrace: { pointsPx },
                         },
                       ])
                       setSelection(`room:${rooms.length}`)
@@ -2134,7 +2143,8 @@ export function PlanGeometryEditor({
               {selectedRoom ? (
                 <div className="border border-line bg-muted p-4">
                   <p className="font-serif text-xl text-ink">{selectedRoom.name}</p>
-                  {findPlanRoomReading(selectedRoom, roomReadings)?.nameOnlyCandidate ? (
+                  {selectedRoom.requiresImageTrace ||
+                  findPlanRoomReading(selectedRoom, roomReadings)?.nameOnlyCandidate ? (
                     <p className="mt-2 border-l-2 border-accent pl-3 text-[13px] text-ink-2">
                       Это неподтверждённое предложение чтения. Сначала убедитесь, что отдельная зона
                       есть на исходнике; название не доказывает её пол.
@@ -2151,10 +2161,12 @@ export function PlanGeometryEditor({
                       maxPoints={MAX_ROOM_CONTOUR_POINTS}
                       label={selectedRoom.name}
                       labelAnchor={findPlanRoomReading(selectedRoom, roomReadings)?.labelAnchor}
-                      onChange={(polygon) =>
+                      onChange={(polygon, pointsPx) =>
                         setRooms((current) =>
                           current.map((room) =>
-                            room === selectedRoom ? { ...room, polygon } : room,
+                            room === selectedRoom
+                              ? { ...room, polygon, imageTrace: { pointsPx } }
+                              : room,
                           ),
                         )
                       }

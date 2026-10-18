@@ -44,7 +44,7 @@ export function PlanImageContourTrace({
   heightCm: number
   maxPoints: number
   label: string
-  onChange: (points: PlanPoint[]) => void
+  onChange: (points: PlanPoint[], sourcePixels: ImageContourPoint[]) => void
   cornerSourceUrl?: string
   labelAnchor?: { x: number; y: number; sourceSha256?: string; page?: number }
 }) {
@@ -181,7 +181,10 @@ export function PlanImageContourTrace({
       )
       return
     }
-    onChange(result)
+    onChange(
+      result,
+      vertices.map((point) => ({ ...point })),
+    )
     setTracing(false)
     setError(undefined)
   }

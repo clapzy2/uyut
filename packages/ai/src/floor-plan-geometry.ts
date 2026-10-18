@@ -25,6 +25,14 @@ export type PlanRoomShape = {
   name: string
   polygon: PlanPoint[]
   spaceKind?: RoomSpaceKind
+  imageTrace?: {
+    pointsPx: { x: number; y: number }[]
+    sourceSha256?: string
+    page?: number
+    imageWidthPx?: number
+    imageHeightPx?: number
+  }
+  requiresImageTrace?: true
 } & PlanRoomIdentity
 
 export type PlanObstacle = {

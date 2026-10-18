@@ -1291,6 +1291,30 @@ describe('manual plan draft', () => {
     }
   })
 
+  it('keeps a name-only raster room unconfirmed across draft saves without a source trace', async () => {
+    source.planReading.rooms = [
+      { name: 'Кухня', kind: 'kitchen', areaM2: 20, nameOnlyCandidate: true },
+    ]
+    const input = {
+      ...emptyManualGeometry,
+      walls: closedWalls,
+      rooms: [{ name: 'Кухня', polygon: corners }],
+      footprint: corners,
+      imageCalibration: reviewedImage,
+    }
+    const draft = await savePlanGeometry(projectId, input, 'draft')
+    expect(draft.ok).toBe(true)
+    if (!draft.ok) throw new Error(draft.error)
+    expect(draft.data.geometry.rooms[0]?.requiresImageTrace).toBe(true)
+
+    source.planReading = mocks.setPlanReading.mock.calls[0]?.[2]
+    const confirmed = await savePlanGeometry(projectId, source.planReading.geometry, 'confirm')
+    expect(confirmed).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('Новая комната ещё не сверена'),
+    })
+  })
+
   it('saves, reopens and confirms a projecting balcony added after the raster was read', async () => {
     const floor = [
       { xCm: 0, yCm: 0 },

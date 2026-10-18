@@ -9,6 +9,7 @@ import {
 import type { PlanGeometry, PlanImageCalibration, PlanReading, RoomMeasurements } from '@uyut/db'
 import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
+import sharp from 'sharp'
 import { recordAudit } from '@/lib/audit'
 import { canCreateProject, PROJECT_LIMIT } from '@/lib/billing/repository'
 import { preparePlan, UploadError } from '@/lib/files/uploads'
@@ -51,6 +52,7 @@ import { planPageAreaConflicts } from '@/lib/projects/plan-page-area-conflicts'
 import { retainedPlanPageReview } from '@/lib/projects/plan-page-review'
 import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
 import { PlanReadError, readPlanFromStorage } from '@/lib/projects/plan-reading'
+import { verifiedRoomImageTrace } from '@/lib/projects/plan-room-image-trace'
 import { applyPlanVerticalDimensions } from '@/lib/projects/plan-vertical-dimensions'
 import {
   applyPlanVerticalReference,
@@ -444,6 +446,9 @@ export async function savePlanGeometry(
         ? before.imageCalibration
         : submitted.imageCalibration
     let imageCalibration: PlanImageCalibration | undefined
+    let checkedRasterFrame:
+      | { sha256: string; page: number; widthPx: number; heightPx: number }
+      | undefined
     if (rawCalibration !== null && rawCalibration !== undefined) {
       if (!validPlanImageCalibration(rawCalibration, canvasWidthCm, canvasHeightCm)) {
         return { ok: false, error: 'Проверьте две точки и известный размер для подложки плана.' }
@@ -481,6 +486,12 @@ export async function savePlanGeometry(
           ok: false,
           error: 'Размеры подложки не совпадают с выбранным PDF-листом. Привяжите масштаб заново.',
         }
+      }
+      checkedRasterFrame = {
+        sha256,
+        page: imageCalibration.pdfPage ?? 1,
+        widthPx: page.image.width,
+        heightPx: page.image.height,
       }
     }
     const openingClearances = openingClearancesSchema.safeParse(submitted.openings ?? [])
@@ -569,6 +580,52 @@ export async function savePlanGeometry(
         ok: false,
         error: 'Один из элементов имеет неверный размер или выходит за границы схемы.',
       }
+    }
+    const submittedRoomTraces = Array.isArray(submitted.rooms)
+      ? submitted.rooms.some(
+          (room) => room && typeof room === 'object' && 'imageTrace' in room && room.imageTrace,
+        )
+      : false
+    if (raster) {
+      geometry.rooms = geometry.rooms.map((room) => {
+        const previous = before.rooms.find((candidate) => candidate.name === room.name)
+        const candidate = findPlanRoomReading(room, roomReadings)
+        const needsTrace =
+          previous?.requiresImageTrace ||
+          candidate?.nameOnlyCandidate ||
+          (before.rooms.length > 0 && !previous)
+        return needsTrace ? { ...room, requiresImageTrace: true } : room
+      })
+    }
+    if (raster && imageCalibration && submittedRoomTraces) {
+      if (!project.planUrl)
+        return { ok: false, error: 'Исходный план не найден. Загрузите его заново.' }
+      if (!checkedRasterFrame) {
+        const source = Buffer.from((await getObject(project.planUrl)).body)
+        const metadata = await sharp(source).metadata()
+        if (!metadata.width || !metadata.height) {
+          return { ok: false, error: 'Не удалось проверить размеры исходного изображения.' }
+        }
+        checkedRasterFrame = {
+          sha256: createHash('sha256').update(source).digest('hex'),
+          page: 1,
+          widthPx: metadata.width,
+          heightPx: metadata.height,
+        }
+      }
+      const frame = checkedRasterFrame
+      if (!frame) return { ok: false, error: 'Не удалось сверить исходное изображение.' }
+      const sourceRooms = Array.isArray(submitted.rooms) ? submitted.rooms : []
+      geometry.rooms = geometry.rooms.map((room, index) => {
+        const imageTrace = verifiedRoomImageTrace(
+          sourceRooms[index],
+          room,
+          imageCalibration,
+          frame,
+          { widthCm: canvasWidthCm, heightCm: canvasHeightCm },
+        )
+        return imageTrace ? { ...room, imageTrace, requiresImageTrace: undefined } : room
+      })
     }
     // Новые элементы принимаем только с отдельным форматом ручного ID. Это не позволяет
     // подменить распознанный элемент и оставляет происхождение геометрии различимым.
@@ -803,6 +860,13 @@ export async function savePlanGeometry(
         }
       const issue = planImageConfirmationIssue(imageCalibration)
       if (issue) return { ok: false, error: issue }
+      if (checked.rooms.some((room) => room.requiresImageTrace)) {
+        return {
+          ok: false,
+          error:
+            'Новая комната ещё не сверена с исходником. Обведите её границу на изображении; без этого можно сохранить только черновик.',
+        }
+      }
     }
     const saved: NonNullable<PlanReading['geometry']> = {
       ...checked,
