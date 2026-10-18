@@ -32,6 +32,24 @@ describe('optional source pixel corner assistance', () => {
   it('accepts only matching complete source evidence', () => {
     expect(rasterCornerResponse(response, 820, 970, 1, 'a'.repeat(64))).toEqual(response.points)
   })
+  it('allows explicitly closed source contours when the inventory is incomplete', () => {
+    const partial = {
+      ...response,
+      truncated: true,
+      uncertain: true,
+      partialClosedContours: true,
+    }
+    expect(rasterCornerResponse(partial, 820, 970, 1, 'a'.repeat(64))).toEqual(response.points)
+    expect(
+      rasterCornerResponse(
+        { ...partial, partialClosedContours: false },
+        820,
+        970,
+        1,
+        'a'.repeat(64),
+      ),
+    ).toBeUndefined()
+  })
   it.each([
     { ...response, truncated: true },
     { ...response, uncertain: true },

@@ -101,6 +101,7 @@ describe('private unclassified raster guides', () => {
       segments: candidates.segments,
       truncated: false,
       uncertain: false,
+      partialClosedContours: false,
       regions: candidates.regions,
       regionTruncated: false,
       regionUncertain: true,
@@ -113,7 +114,22 @@ describe('private unclassified raster guides', () => {
   it('keeps uncertainty and truncation explicit rather than treating partial guides as geometry', async () => {
     mocks.candidates.mockResolvedValue({ ...candidates, truncated: true, uncertain: true })
     const result = await GET(request(), context)
-    expect(await result.json()).toMatchObject({ truncated: true, uncertain: true })
+    expect(await result.json()).toMatchObject({
+      truncated: true,
+      uncertain: true,
+      partialClosedContours: false,
+    })
+  })
+
+  it('marks only a completed partial contour inventory as safe for corner assistance', async () => {
+    mocks.candidates.mockResolvedValue({
+      ...candidates,
+      truncated: true,
+      uncertain: true,
+      partialClosedContours: true,
+    })
+    const result = await GET(request(), context)
+    expect(await result.json()).toMatchObject({ partialClosedContours: true })
   })
 
   it('denies unauthenticated and inaccessible sources without fetching bytes', async () => {

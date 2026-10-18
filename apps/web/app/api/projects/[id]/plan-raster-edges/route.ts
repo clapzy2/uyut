@@ -67,6 +67,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         segments: candidates.segments,
         truncated: candidates.truncated,
         uncertain: candidates.uncertain,
+        partialClosedContours: candidates.partialClosedContours === true,
         regions: candidates.regions,
         regionTruncated: candidates.regionTruncated,
         regionUncertain: candidates.regionUncertain,
