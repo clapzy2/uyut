@@ -8,48 +8,125 @@ vi.mock('@/actions/plan-page-geometry', () => ({ createPlanPageGeometryDraft: vi
 
 import { PlanPageGeometryImport } from './plan-page-geometry-import'
 
+const source = { sha256: 'a'.repeat(64), pdfPage: 3, state: 'existing' as const }
 const reading: PlanReading = {
-  readAt: '2026-09-27',
-  confirmedAt: '2026-09-27',
-  sourcePage: 6,
+  sourcePage: 3,
   planState: 'existing',
-  rooms: [
-    { name: 'Кухня', kind: 'kitchen', sourceNumber: 2 },
-    { name: 'Спальня', kind: 'bedroom', sourceNumber: 4 },
-    { name: 'Детская', kind: 'kid', sourceNumber: 6 },
-  ],
+  readAt: '2026-10-18',
+  confirmedAt: '2026-10-18',
+  rooms: [{ sourceNumber: 1, name: 'Прихожая', kind: 'living' }],
   pageReview: {
     version: 1,
-    savedAt: '2026-09-27',
+    savedAt: '2026-10-18',
     contours: {
-      source: { sha256: 'a'.repeat(64), pdfPage: 6, state: 'existing' },
+      source,
       coordinateSystem: 'page-0-1000',
       review: 'manual-source-review',
       pageWidth: 842,
       pageHeight: 1191,
-      rooms: [2, 4].map((roomSourceNumber) => ({
-        roomSourceNumber,
-        polygon: [
-          { x: 100, y: 100 },
-          { x: 200, y: 100 },
-          { x: 200, y: 200 },
-        ],
-      })),
+      rooms: [
+        {
+          roomSourceNumber: 1,
+          polygon: [
+            { x: 10, y: 10 },
+            { x: 30, y: 10 },
+            { x: 30, y: 30 },
+          ],
+          dimensionEdges: [
+            { wallEdgeIndex: 0, labelIndexes: [1] },
+            { wallEdgeIndex: 1, labelIndexes: [2] },
+          ],
+        },
+      ],
     },
   },
 }
-const render = (value: PlanReading) =>
-  renderToStaticMarkup(
+const geometry: NonNullable<PlanReading['geometry']> = {
+  version: 1,
+  source: 'manual',
+  status: 'draft',
+  widthCm: 300,
+  heightCm: 300,
+  walls: [],
+  openings: [],
+  rooms: [],
+  warnings: [],
+  pdfCalibration: {
+    sourceSha256: source.sha256,
+    pdfPage: source.pdfPage,
+    cmPerPoint: 1,
+    origin: { x: 0, y: 0 },
+    anchorRoomNumbers: [1],
+    labelIndexes: [1, 2],
+    derivedOpeningIds: [],
+  },
+}
+function render(current: PlanReading) {
+  return renderToStaticMarkup(
     createElement(PlanPageGeometryImport, {
       projectId: 'project',
       sourceRevision: 'revision',
-      reading: value,
+      reading: current,
     }),
   )
+}
+
+describe('обновление 2D-черновика из того же PDF', () => {
+  it('показывает перенос и отдельное согласие при сохранённом черновике', () => {
+    const html = render({ ...reading, geometry })
+    expect(html).toContain('Обновить 2D-черновик из PDF')
+    expect(html).toContain('по новой разметке того же PDF')
+    expect(html).toContain('Проверить масштаб по выбранным сторонам (2)')
+  })
+
+  it('не предлагает заменить подтверждённую или чужую схему', () => {
+    const calibration = geometry.pdfCalibration
+    if (!calibration) throw new Error('Missing test calibration')
+    expect(render({ ...reading, geometry: { ...geometry, status: 'confirmed' } })).toBe('')
+    expect(
+      render({
+        ...reading,
+        geometry: {
+          ...geometry,
+          pdfCalibration: { ...calibration, sourceSha256: 'b'.repeat(64) },
+        },
+      }),
+    ).toBe('')
+    expect(render({ ...reading, geometry: { ...geometry, pdfCalibration: undefined } })).toBe('')
+  })
+})
 
 describe('explicit source page import choice', () => {
+  const sourceContours = reading.pageReview?.contours
+  if (!sourceContours) throw new Error('Missing test contours')
+  const base: PlanReading = {
+    ...reading,
+    sourcePage: 6,
+    rooms: [
+      { name: 'Кухня', kind: 'kitchen', sourceNumber: 2 },
+      { name: 'Спальня', kind: 'bedroom', sourceNumber: 4 },
+      { name: 'Детская', kind: 'kid', sourceNumber: 6 },
+    ],
+    pageReview: {
+      version: 1,
+      savedAt: '2026-10-18',
+      contours: {
+        ...sourceContours,
+        source: { ...source, pdfPage: 6 },
+        rooms: [2, 4].map((roomSourceNumber) => ({
+          roomSourceNumber,
+          polygon: [
+            { x: 100, y: 100 },
+            { x: 200, y: 100 },
+            { x: 200, y: 200 },
+          ],
+        })),
+      },
+    },
+  }
+
   it('offers only the physical room in a mixed review and explains the source-only hold', () => {
-    const value = structuredClone(reading)
+    const value = structuredClone(base)
     const room = value.pageReview?.contours.rooms[0]
     if (!room) throw new Error('Missing source room')
     room.sourceTopology = {
@@ -66,8 +143,9 @@ describe('explicit source page import choice', () => {
     expect(html).not.toContain('№ 2 · Кухня')
     expect(html).not.toContain('нужен контур по исходному листу')
   })
+
   it('does not offer metric import when every reviewed room is source-only', () => {
-    const value = structuredClone(reading)
+    const value = structuredClone(base)
     value.pageReview?.contours.rooms.splice(1)
     const room = value.pageReview?.contours.rooms[0]
     if (!room) throw new Error('Missing source room')
@@ -82,9 +160,10 @@ describe('explicit source page import choice', () => {
     expect(html).toContain('перенос в метрическую 2D/3D-модель пока недоступен')
     expect(html).not.toContain('Создать 2D-черновик из PDF')
   })
+
   it('offers a held source reimport only with a separate initially unchecked acknowledgement', () => {
     const value: PlanReading = {
-      ...reading,
+      ...base,
       geometry: {
         version: 1,
         status: 'draft',
@@ -98,15 +177,16 @@ describe('explicit source page import choice', () => {
       },
     }
     const html = render(value)
-    expect(html).toContain('Подтверждаю замену горизонтального черновика')
+    expect(html).toContain('Подтверждаю обновление горизонтального черновика')
     expect(html).toContain('Обновить 2D-черновик из PDF')
     expect(html).toContain('иначе замена будет отклонена без потери данных')
     expect(html).not.toContain('checked=')
     expect(html).toContain('disabled=')
     expect(html).not.toContain('Существующий 2D-чертёж эта кнопка не заменяет')
   })
+
   it('offers a shared physical zone only once with both printed identities', () => {
-    const value = structuredClone(reading)
+    const value = structuredClone(base)
     value.rooms.push(
       { name: 'Прихожая', kind: 'living', sourceNumber: 1 },
       { name: 'Коридор', kind: 'living', sourceNumber: 5 },
@@ -124,8 +204,9 @@ describe('explicit source page import choice', () => {
     expect(html).not.toContain('№ 1 · Прихожая')
     expect(html).not.toContain('№ 5 · Коридор')
   })
+
   it('offers only annotated unique rooms and starts with no implicit selection', () => {
-    const html = render(reading)
+    const html = render(base)
     expect(html).toContain('№ 2 · Кухня')
     expect(html).toContain('№ 4 · Спальня')
     expect(html).not.toContain('Детская')
@@ -142,7 +223,7 @@ describe('explicit source page import choice', () => {
   })
 
   it('keeps advanced scale checks optional and distinct from measurement confirmation', () => {
-    const value = structuredClone(reading)
+    const value = structuredClone(base)
     const contour = value.pageReview?.contours.rooms[0]
     if (!contour) throw new Error('Missing test contour')
     contour.dimensionEdges = [
@@ -157,11 +238,11 @@ describe('explicit source page import choice', () => {
   })
 
   it.each([
-    { ...reading, planState: 'proposed' as const },
-    { ...reading, confirmedAt: undefined },
-    { ...reading, pageReview: undefined },
+    { ...base, planState: 'proposed' as const },
+    { ...base, confirmedAt: undefined },
+    { ...base, pageReview: undefined },
     {
-      ...reading,
+      ...base,
       geometry: {
         version: 1 as const,
         status: 'draft' as const,
@@ -179,8 +260,8 @@ describe('explicit source page import choice', () => {
 
   it('excludes duplicated printed room identities', () => {
     const html = render({
-      ...reading,
-      rooms: [...reading.rooms, { name: 'Другая спальня', kind: 'bedroom', sourceNumber: 4 }],
+      ...base,
+      rooms: [...base.rooms, { name: 'Другая спальня', kind: 'bedroom', sourceNumber: 4 }],
     })
     expect(html).not.toContain('№ 4')
     expect(html).toContain('№ 2')
