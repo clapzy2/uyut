@@ -127,7 +127,7 @@ function preserveReimportMeasurements(
   return undefined
 }
 
-/** New draft or explicitly acknowledged held-source reimport; never confirms measurements. */
+/** New draft or explicitly acknowledged same-source PDF draft update; never confirms measurements. */
 export async function createPlanPageGeometryDraft(
   projectId: string,
   roomNumbers: unknown,
@@ -156,7 +156,17 @@ export async function createPlanPageGeometryDraft(
       throw new PlanEditConflictError()
     if (!before?.confirmedAt || !project.planUrl?.toLowerCase().endsWith('.pdf'))
       return { ok: false, error: 'Сначала подтвердите список комнат исходного PDF-плана.' }
-    if (before.geometry && (!replaceSourceDraft || !before.geometry.requiresSourceReviewReimport))
+    const existingPdfDraft =
+      before.geometry?.status === 'draft' &&
+      before.geometry.source === 'manual' &&
+      before.geometry.pdfCalibration !== undefined &&
+      before.pageReview !== undefined &&
+      before.geometry.pdfCalibration.sourceSha256 === before.pageReview.contours.source.sha256 &&
+      before.geometry.pdfCalibration.pdfPage === before.pageReview.contours.source.pdfPage
+    if (
+      before.geometry &&
+      (!replaceSourceDraft || (!before.geometry.requiresSourceReviewReimport && !existingPdfDraft))
+    )
       return {
         ok: false,
         error: '2D-схема уже существует. Её правки сохранены; откройте редактор схемы.',

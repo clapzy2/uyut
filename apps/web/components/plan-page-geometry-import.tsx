@@ -76,7 +76,14 @@ export function PlanPageGeometryImport({
   const [conflict, setConflict] = useState(false)
   const [saving, startSaving] = useTransition()
   const [replaceAcknowledged, setReplaceAcknowledged] = useState(false)
-  const replacing = reading.geometry?.requiresSourceReviewReimport === true
+  const existingPdfDraft =
+    reading.geometry?.status === 'draft' &&
+    reading.geometry.source === 'manual' &&
+    reading.geometry.pdfCalibration !== undefined &&
+    reading.pageReview !== undefined &&
+    reading.geometry.pdfCalibration.sourceSha256 === reading.pageReview.contours.source.sha256 &&
+    reading.geometry.pdfCalibration.pdfPage === reading.pageReview.contours.source.pdfPage
+  const replacing = reading.geometry?.requiresSourceReviewReimport === true || existingPdfDraft
   if (sourceOnlyContours.length && !options.length)
     return (
       <p role="status" className="text-sm leading-relaxed text-ink-2">
@@ -109,7 +116,12 @@ export function PlanPageGeometryImport({
           if (result.code === 'plan-conflict') setConflict(true)
           return
         }
-        toast({ title: '2D-черновик создан по разметке PDF', tone: 'success' })
+        toast({
+          title: replacing
+            ? '2D-черновик обновлён по разметке PDF'
+            : '2D-черновик создан по разметке PDF',
+          tone: 'success',
+        })
         router.refresh()
       } catch {
         setError(
@@ -159,7 +171,7 @@ export function PlanPageGeometryImport({
             onChange={(event) => setReplaceAcknowledged(event.target.checked)}
           />
           <span>
-            Подтверждаю замену горизонтального черновика по новой разметке исходного PDF. Обмеры
+            Подтверждаю обновление горизонтального черновика по новой разметке того же PDF. Обмеры
             сохранятся только при однозначной прежней привязке; иначе замена будет отклонена без
             потери данных. Подтверждение схемы и маршрут заноса нужно проверить заново.
           </span>
@@ -314,7 +326,7 @@ export function PlanPageGeometryImport({
         В редакторе нужно дополнить внешний контур, остальные комнаты и проёмы, открывание дверей и
         высоты подоконников, затем сверить схему.{' '}
         {replacing
-          ? 'Обновление заменяет только явно выбранный устаревший черновик после вашего согласия.'
+          ? 'Обновление заменяет выбранный черновик того же PDF после вашего согласия.'
           : 'Существующий 2D-чертёж эта кнопка не заменяет.'}
       </p>
     </section>

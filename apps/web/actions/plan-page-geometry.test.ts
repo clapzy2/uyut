@@ -187,6 +187,78 @@ describe('create metric draft from reviewed source page', () => {
     expect(mocks.save).not.toHaveBeenCalled()
   })
 
+  it('updates an acknowledged draft from the same PDF without confirming the apartment', async () => {
+    const before: PlanReading = {
+      ...reading,
+      geometry: {
+        ...geometry,
+        pdfCalibration: {
+          sourceSha256: source.sha256,
+          pdfPage: source.pdfPage,
+          cmPerPoint: 1,
+          origin: { x: 0, y: 0 },
+          anchorRoomNumbers: [4],
+          labelIndexes: [],
+          derivedOpeningIds: [],
+        },
+      },
+    }
+    mocks.owner.mockResolvedValue({ ...project, planReading: before })
+    const expectedRevision = planEditRevision('plan.pdf', before)
+    expect(
+      (await createPlanPageGeometryDraft('project', [4], expectedRevision, undefined, true)).ok,
+    ).toBe(false)
+    expect(mocks.save).not.toHaveBeenCalled()
+
+    const result = await createPlanPageGeometryDraft(
+      'project',
+      [4],
+      expectedRevision,
+      undefined,
+      true,
+      true,
+    )
+    if (!result.ok) throw new Error(result.error)
+    expect(result.data.geometry.status).toBe('draft')
+    expect(result.data.geometry.confirmedAt).toBeUndefined()
+    expect(result.data.geometry.warnings).toContainEqual(
+      expect.stringContaining('Заново сверьте схему'),
+    )
+    expect(mocks.save).toHaveBeenCalledTimes(1)
+    expect(before.geometry?.pdfCalibration?.sourceSha256).toBe(source.sha256)
+  })
+
+  it('does not replace a confirmed drawing from the same PDF', async () => {
+    const before: PlanReading = {
+      ...reading,
+      geometry: {
+        ...geometry,
+        status: 'confirmed',
+        pdfCalibration: {
+          sourceSha256: source.sha256,
+          pdfPage: source.pdfPage,
+          cmPerPoint: 1,
+          origin: { x: 0, y: 0 },
+          anchorRoomNumbers: [4],
+          labelIndexes: [],
+          derivedOpeningIds: [],
+        },
+      },
+    }
+    mocks.owner.mockResolvedValue({ ...project, planReading: before })
+    const result = await createPlanPageGeometryDraft(
+      'project',
+      [4],
+      planEditRevision('plan.pdf', before),
+      undefined,
+      true,
+      true,
+    )
+    expect(result.ok).toBe(false)
+    expect(mocks.convert).not.toHaveBeenCalled()
+    expect(mocks.save).not.toHaveBeenCalled()
+  })
+
   it('does not replace a held native draft bound to a different PDF page', async () => {
     const before = {
       ...reading,

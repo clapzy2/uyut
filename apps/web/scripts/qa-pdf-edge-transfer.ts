@@ -18,6 +18,7 @@ import {
 import { planPageContoursSchema, planPageReviewIssue } from '../lib/projects/plan-page-review'
 import { planPageRoomInventory } from '../lib/projects/plan-page-room-inventory'
 import { pdfDimensionForEdge } from '../lib/projects/plan-pdf-edge-dimension'
+import { planVolume } from '../lib/projects/plan-volume'
 
 type ReviewedRoom = {
   sourceNumber: number
@@ -188,6 +189,8 @@ if (control) {
     geometry.confirmedAt !== undefined
   )
     throw new Error('Room inventory, opening count or draft status changed')
+  if (planVolume(geometry) !== null)
+    throw new Error('Incomplete source geometry unexpectedly produced a 3D volume')
   // Independent coordinate formula: inspect every vertex, not just a bounding rectangle.
   for (const room of savedContours.rooms) {
     const metric = geometry.rooms.find((item) => item.sourceNumber === room.roomSourceNumber)
@@ -252,22 +255,27 @@ if (control) {
   if (JSON.stringify(JSON.parse(JSON.stringify(geometry))) !== JSON.stringify(geometry))
     throw new Error('Geometry proof changed during JSON round trip')
   const original = JSON.stringify({ reading, context })
-  const changedLabels = labels.map((label, index) =>
-    index === control.anchors[1]?.labelIndexes[0]
-      ? { ...label, text: String((control.anchors[1]?.totalMm ?? 0) + 100) }
-      : label,
-  )
-  const missingWall = {
-    ...work,
-    paths: work.paths.filter((path) => path.operationIndex !== control.anchors[0]?.wallOperation),
-  }
-  for (const [name, changed] of [
-    ['scale-conflict', { ...context, planText: JSON.stringify(changedLabels) }],
-    ['missing-wall', { ...context, linework: missingWall }],
-  ] as const) {
-    const result = planPageMetricDraft(reading, changed, selectedNumbers)
-    if (result.ok) throw new Error(`Negative source control unexpectedly accepted: ${name}`)
-    negativeChecks.push({ name, error: result.error })
+  for (const anchor of control.anchors) {
+    const name = `room-${anchor.roomSourceNumber}-edge-${anchor.wallEdgeIndex}`
+    const labelIndex = anchor.labelIndexes[0]
+    if (labelIndex === undefined || !labels[labelIndex])
+      throw new Error(`${name}: source label is missing`)
+    const changedLabels = labels.map((label, index) =>
+      index === labelIndex ? { ...label, text: String(anchor.totalMm + 100) } : label,
+    )
+    const missingWall = {
+      ...work,
+      paths: work.paths.filter((path) => path.operationIndex !== anchor.wallOperation),
+    }
+    for (const [variant, changed] of [
+      ['scale-conflict', { ...context, planText: JSON.stringify(changedLabels) }],
+      ['missing-wall', { ...context, linework: missingWall }],
+    ] as const) {
+      const result = planPageMetricDraft(reading, changed, selectedNumbers)
+      if (result.ok)
+        throw new Error(`Negative source control unexpectedly accepted: ${name}-${variant}`)
+      negativeChecks.push({ name: `${name}-${variant}`, error: result.error })
+    }
   }
   if (JSON.stringify({ reading, context }) !== original)
     throw new Error('Negative controls mutated the source')
