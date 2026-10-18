@@ -430,15 +430,68 @@ function nestedElements(node: unknown, type: string): ReactElement[] {
 }
 
 function buttonWithText(editor: ReactElement, label: string) {
-  const find = (node: unknown): ReactElement<{ onClick: () => void }> | undefined => {
+  const find = (
+    node: unknown,
+  ): ReactElement<{ onClick: () => void; disabled?: boolean }> | undefined => {
     if (Array.isArray(node)) return node.map(find).find(Boolean)
     if (!node || typeof node !== 'object' || !('props' in node)) return undefined
-    const element = node as ReactElement<{ onClick: () => void; children?: unknown }>
+    const element = node as ReactElement<{
+      onClick: () => void
+      disabled?: boolean
+      children?: unknown
+    }>
     if (element.props.children === label) return element
     return find(element.props.children)
   }
   return find(editor)
 }
+
+describe('whole-plan completion controls', () => {
+  it('does not start a separate floor before the exterior is classified as outer walls', () => {
+    const fixture = sourceFixture()
+    hooks.values.set(slots.exterior, undefined)
+    hooks.values.set(slots.preview, { width: 1000, height: 800 })
+    hooks.values.set(slots.nativePoints, fixture.polygon)
+    hooks.values.set(slots.imageReady, true)
+    hooks.values.set(slots.loading, false)
+
+    const editor = renderEditor(fixture.reading)
+    expect(buttonWithText(editor, 'Отдельная граница пола')?.props.disabled).toBe(true)
+  })
+
+  it('lists missing schedule rooms and opens the separately sourced floor trace', () => {
+    const fixture = sourceFixture()
+    if (!fixture.reading.pageReview) throw new Error('Missing source review')
+    fixture.reading.pageReview.sourceRooms = [
+      { sourceNumber: 1, name: 'Прихожая' },
+      { sourceNumber: 2, name: 'Балкон' },
+    ]
+    hooks.values.set(slots.drafts, contourDraftsFromSaved(fixture.contours.rooms))
+    hooks.values.set(slots.exterior, fixture.contours.exterior)
+    hooks.values.set(slots.preview, { width: 1000, height: 800 })
+    hooks.values.set(slots.nativePoints, fixture.polygon)
+    hooks.values.set(slots.imageReady, true)
+    hooks.values.set(slots.loading, false)
+
+    const editor = renderEditor(fixture.reading)
+    const list = nestedElements(editor, 'li')
+    const descriptions = list.map((item) =>
+      JSON.stringify((item.props as { children?: unknown }).children),
+    )
+    expect(descriptions.some((description) => description.includes('Балкон'))).toBe(true)
+    expect(descriptions.some((description) => description.includes('сначала добавьте номер'))).toBe(
+      true,
+    )
+
+    const floor = buttonWithText(editor, 'Отдельная граница пола')
+    expect(floor).toBeDefined()
+    expect(floor?.props.disabled).toBe(false)
+    floor?.props.onClick()
+    expect(updateFor(slots.floor, undefined)).toEqual({ polygon: [] })
+    expect(updateFor(slots.boundary, undefined)).toBe('floor')
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
+})
 
 describe('source-floor bridge in the existing editor', () => {
   const revision = 'b'.repeat(64)

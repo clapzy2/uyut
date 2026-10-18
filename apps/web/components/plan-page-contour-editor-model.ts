@@ -303,6 +303,39 @@ export function pageContourOptions(rooms: PlanRoomReading[], drafts: PageContour
   })
 }
 
+/** One schedule row stays visible even when it is not yet in the editable room list. */
+export function pageContourProgress(
+  sourceRooms: readonly { sourceNumber: number; name: string }[],
+  rooms: readonly PlanRoomReading[],
+  drafts: readonly PageContourDraft[],
+) {
+  return sourceRooms.map((sourceRoom) => {
+    const readings = rooms.filter((room) => room.sourceNumber === sourceRoom.sourceNumber)
+    const contours = drafts.filter((draft) =>
+      pdfContourRoomNumbers(draft).includes(sourceRoom.sourceNumber),
+    )
+    const contour = contours.length === 1 ? contours[0] : undefined
+    const status =
+      readings.length !== 1
+        ? 'missing-reading'
+        : contours.length > 1
+          ? 'ambiguous'
+          : !contour
+            ? 'missing-contour'
+            : !contour.closed
+              ? 'incomplete'
+              : contour.sourceTopology
+                ? 'source-only'
+                : 'physical'
+    return {
+      ...sourceRoom,
+      status,
+      contourKey: contour ? pdfContourKey(contour) : String(sourceRoom.sourceNumber),
+      selectable: readings.length === 1 && contours.length <= 1,
+    }
+  })
+}
+
 /** Group only explicitly selected source numbers; never merge two drawn physical shapes. */
 export function groupPageContourDraft(
   drafts: PageContourDraft[],

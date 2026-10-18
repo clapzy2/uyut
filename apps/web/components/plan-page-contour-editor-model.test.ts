@@ -12,6 +12,7 @@ import {
   numberedContourRooms,
   pageContourOptions,
   pageContourPoint,
+  pageContourProgress,
   pageContourRoomsForSave,
   pageContourVertexProofsChanged,
   pageContourVoidsForSave,
@@ -61,6 +62,56 @@ const crossingRoom: PlanPageContours['rooms'][number] = {
   ],
 }
 const crossingNodes = crossingSegments.flatMap((segment) => [segment.start, segment.end])
+
+describe('whole-page contour progress', () => {
+  const sourceRooms = [
+    { sourceNumber: 1, name: 'Прихожая' },
+    { sourceNumber: 2, name: 'Спальня' },
+    { sourceNumber: 3, name: 'Балкон' },
+  ]
+  const readings: PlanRoomReading[] = [
+    { name: 'Прихожая', sourceNumber: 1, kind: 'living' },
+    { name: 'Спальня', sourceNumber: 2, kind: 'bedroom' },
+  ]
+
+  it('does not count a source-only area or a table row as physical floor', () => {
+    const progress = pageContourProgress(sourceRooms, readings, [
+      { roomSourceNumber: 1, polygon: crossingRoom.polygon, closed: true },
+      {
+        roomSourceNumber: 2,
+        polygon: crossingRoom.polygon,
+        closed: true,
+        sourceTopology: {
+          kind: 'unclassified-source-paint',
+          floorId: 'source-floor-2',
+          exactPointKeys: [],
+          holes: [],
+          holeExactPointKeys: [],
+        },
+      },
+    ])
+    expect(progress.map((room) => room.status)).toEqual([
+      'physical',
+      'source-only',
+      'missing-reading',
+    ])
+    expect(progress[2]?.selectable).toBe(false)
+  })
+
+  it('shows unfinished and ambiguous source numbers without promoting either', () => {
+    const progress = pageContourProgress(sourceRooms, readings, [
+      { roomSourceNumber: 1, polygon: [], closed: false },
+      { roomSourceNumber: 2, polygon: crossingRoom.polygon, closed: true },
+      { roomSourceNumber: 2, polygon: crossingRoom.polygon, closed: true },
+    ])
+    expect(progress.map((room) => room.status)).toEqual([
+      'incomplete',
+      'ambiguous',
+      'missing-reading',
+    ])
+    expect(progress[1]?.selectable).toBe(false)
+  })
+})
 
 describe('saved bounded source intersections', () => {
   it('preserves rational source topology and holes on hydrate/save without snapping them into native nodes', () => {

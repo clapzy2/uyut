@@ -9,6 +9,7 @@ import type {
   PlanWallFacePair,
 } from '@uyut/db'
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
+import polygonClipping, { type Polygon } from 'polygon-clipping'
 import { PDF_AREA_REVIEW_TOLERANCE_M2 } from './plan-geometry-inspection'
 import { planPageEdgeCalibration } from './plan-page-edge-calibration'
 import { verifyPlanPageOpenings } from './plan-page-feature-checks'
@@ -130,7 +131,26 @@ export function planPageMetricDraft(
   if (!planPageContoursSchema.safeParse(reviewedContours).success)
     return fail('Сверьте разметку с исходным обмерным листом: источник или вершины не совпали.')
   const sourceOnlyRooms = reviewedContours.rooms.filter((room) => room.sourceTopology !== undefined)
-  const transferPageBoundary = sourceOnlyRooms.length === 0
+  // A separately reviewed floor may be retained in a partial draft when every
+  // unclassified source area is wholly inside it. A candidate crossing its edge
+  // can still extend the apartment, so neither floor nor envelope is transferred.
+  const floor = reviewedContours.floor?.polygon
+  const floorPolygon: Polygon | undefined = floor
+    ? [[...floor.map((point) => [point.x, point.y] as [number, number])]]
+    : undefined
+  const sourceAreasInsideFloor =
+    floorPolygon !== undefined &&
+    sourceOnlyRooms.every((room) => {
+      const polygon: Polygon = [
+        [...room.polygon.map((point) => [point.x, point.y] as [number, number])],
+      ]
+      try {
+        return polygonClipping.difference(polygon, floorPolygon).length === 0
+      } catch {
+        return false
+      }
+    })
+  const transferPageBoundary = sourceOnlyRooms.length === 0 || sourceAreasInsideFloor
   const contours = {
     ...reviewedContours,
     rooms: reviewedContours.rooms.filter((room) => room.sourceTopology === undefined),

@@ -28,6 +28,7 @@ import {
   type PlanPagePreview,
   pageContourOptions,
   pageContourPoint,
+  pageContourProgress,
   pageContourRoomsForSave,
   pageContourVertexProofsChanged,
   pageContourVoidsForSave,
@@ -159,6 +160,11 @@ export function PlanPageContourEditor({
   const locked =
     disabled || saving || loading || stale || !preview || !imageReady || nativePoints.length === 0
   const options = pageContourOptions(reading.rooms, drafts)
+  const sourceRooms =
+    reading.pageReview?.sourceRooms ??
+    eligibleRooms.map((room) => ({ sourceNumber: room.sourceNumber as number, name: room.name }))
+  const progress = pageContourProgress(sourceRooms, reading.rooms, drafts)
+  const physicalRoomCount = progress.filter((room) => room.status === 'physical').length
   const selectedIdentity = options.find((option) => option.key === selected)?.identity
   const selectedDraft = drafts.find((draft) => pdfContourKey(draft) === selected)
   const selectedTrace = traceReferences[selected]
@@ -941,6 +947,73 @@ export function PlanPageContourEditor({
         исходного PDF. Номер комнаты должен совпадать с подписью на листе. Эта разметка связывает
         размерные линии с комнатой; масштаб в сантиметрах и 2D-расстановка проверяются отдельно.
       </p>
+      {progress.length > 0 ? (
+        <section aria-label="Готовность исходного плана" className="border border-line p-4">
+          <p className="text-sm font-medium text-ink">
+            Физические контуры: {physicalRoomCount} из {progress.length}. Граница пола:{' '}
+            {floorClosed ? 'обведена' : 'не завершена'}. Наружный контур:{' '}
+            {exteriorClosed ? 'обведён' : 'не завершён'}.
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-ink-2">
+            Исходная область и строка таблицы ещё не доказывают физический пол. Недостающие места
+            можно сохранить как черновик, но полную квартиру нельзя подтвердить до сверки.
+          </p>
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+            {progress.map((room) => (
+              <li key={room.sourceNumber} className="border-t border-line pt-2 text-sm">
+                <button
+                  type="button"
+                  disabled={locked || !room.selectable}
+                  onClick={() => {
+                    setSelected(room.contourKey)
+                    selectTarget({ kind: 'room' })
+                  }}
+                  className="min-h-11 text-left text-accent underline underline-offset-4 disabled:cursor-default disabled:text-ink-2 disabled:no-underline"
+                >
+                  № {room.sourceNumber} · {room.name}
+                </button>
+                <span className="ml-2 text-xs text-ink-2">
+                  {room.status === 'physical'
+                    ? 'физический контур обведён'
+                    : room.status === 'source-only'
+                      ? 'исходная область — нужна физическая обводка'
+                      : room.status === 'incomplete'
+                        ? 'обводка не завершена'
+                        : room.status === 'missing-reading'
+                          ? 'сначала добавьте номер в список комнат'
+                          : room.status === 'ambiguous'
+                            ? 'номер относится к нескольким контурам'
+                            : 'контур не нанесён'}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(['floor', 'exterior'] as const).map((kind) => (
+              <Button
+                key={kind}
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={
+                  locked ||
+                  (kind === 'floor' && exterior?.boundaryRole !== 'outer-wall-envelope' && !floor)
+                }
+                onClick={() => {
+                  if (kind === 'floor') setFloor((current) => current ?? { polygon: [] })
+                  else setExterior((current) => current ?? { polygon: [] })
+                  setEditingBoundary(kind)
+                  setSelectedVoidId(undefined)
+                  setTarget({ kind: 'room' })
+                  resetReview()
+                }}
+              >
+                {kind === 'floor' ? 'Отдельная граница пола' : 'Наружный контур'}
+              </Button>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {eligibleRooms.length !== reading.rooms.length ? (
         <p className="border-l-2 border-accent pl-3 text-sm leading-relaxed text-ink-2">
           Комнаты без номера на листе и с повторяющимся номером не доступны для разметки. Сначала

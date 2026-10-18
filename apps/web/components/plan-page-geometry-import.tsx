@@ -76,6 +76,7 @@ export function PlanPageGeometryImport({
   const [conflict, setConflict] = useState(false)
   const [saving, startSaving] = useTransition()
   const [replaceAcknowledged, setReplaceAcknowledged] = useState(false)
+  const allPhysicalNumbers = options.flatMap((room) => room.numbers)
   const existingPdfDraft =
     reading.geometry?.status === 'draft' &&
     reading.geometry.source === 'manual' &&
@@ -156,9 +157,9 @@ export function PlanPageGeometryImport({
       {sourceOnlyContours.length > 0 ? (
         <p role="status" className="mt-3 max-w-2xl text-[14px] leading-relaxed text-ink-2">
           Исходные области № {sourceOnlyContours.map((room) => pdfContourKey(room)).join(', ')}{' '}
-          сохранены, но их физические границы ещё не проверены. Они не войдут в 2D/3D; общий контур
-          пола, наружная граница и технические пустоты также останутся на исходном листе до полной
-          проверки.
+          сохранены, но их физические границы ещё не проверены. Они не войдут в 2D/3D. Отдельно
+          обведённый пол и наружная граница перейдут в черновик только если эти области полностью
+          внутри пола; иначе общая граница останется на исходном листе до сверки.
         </p>
       ) : null}
       {replacing ? (
@@ -202,8 +203,25 @@ export function PlanPageGeometryImport({
           ) : null}
         </div>
       ) : null}
+      <p className="mt-3 max-w-2xl text-[13px] leading-relaxed text-ink-2">
+        Общая граница пола:{' '}
+        {reading.pageReview?.contours.floor ? 'обведена на исходном листе' : 'ещё не обведена'}.
+        Наружный контур: {reading.pageReview?.contours.exterior ? 'обведён' : 'ещё не обведён'}. Без
+        отдельной физической границы пола полный 3D не строится; вернитесь к «Контурам и проёмам на
+        исходном листе» для её сверки.
+      </p>
       <fieldset disabled={saving || conflict} className="mt-4 space-y-2">
         <legend className="mb-2 text-sm">Какие комнаты перенести</legend>
+        {allPhysicalNumbers.length > 1 && allPhysicalNumbers.length <= 12 ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => setSelected([...allPhysicalNumbers])}
+          >
+            Выбрать все физически обведённые комнаты ({allPhysicalNumbers.length})
+          </Button>
+        ) : null}
         {options.map((room) => (
           <label key={room.key} className="flex min-h-11 items-center gap-3 text-sm">
             <input
