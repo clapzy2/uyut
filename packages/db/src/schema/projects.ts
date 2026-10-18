@@ -333,6 +333,8 @@ export type PlanGeometry = {
         wallRef: PlanPageSegmentRef
         /** Bounded perpendicular strokes; may be wall edges, not separate extension lines. */
         endpointRefs: [PlanPageSegmentRef, PlanPageSegmentRef]
+        /** Duplicate native strokes with exactly the same physical endpoints. */
+        equivalentEndpointRefs?: [PlanPageSegmentRef[], PlanPageSegmentRef[]]
       }
     >
     labelIndexes: number[]
