@@ -82,7 +82,47 @@ describe('unclassified raster boundary candidates', () => {
 
   it('fails safely on excessive checkerboard boundaries', () => {
     const result = detectPlanRasterEdges(raster(400, 400, (x, y) => (x + y) % 2 === 0))
-    expect(result).toEqual({ segments: [], points: [], truncated: true, uncertain: true })
+    expect(result).toEqual({
+      segments: [],
+      points: [],
+      truncated: true,
+      uncertain: true,
+      partialClosedContours: true,
+    })
+  })
+
+  it('retains completed ink contours before the boundary budget is exhausted', () => {
+    const result = detectPlanRasterEdges(
+      raster(
+        400,
+        400,
+        (x, y) => (x >= 40 && x < 180 && y >= 20 && y < 80) || (y >= 100 && (x + y) % 2 === 0),
+      ),
+    )
+    expect(result.truncated).toBe(true)
+    expect(result.uncertain).toBe(true)
+    expect(result.partialClosedContours).toBe(true)
+    expect(result.points).toEqual(
+      expect.arrayContaining([
+        { x: 40, y: 20 },
+        { x: 180, y: 80 },
+      ]),
+    )
+  })
+
+  it('does not close an ink strip that crosses the boundary budget cut-off', () => {
+    const result = detectPlanRasterEdges(
+      raster(
+        400,
+        400,
+        (x, y) =>
+          (x >= 340 && x < 380 && y >= 40 && y < 320) || (y >= 100 && x < 300 && (x + y) % 2 === 0),
+      ),
+    )
+    expect(result.truncated).toBe(true)
+    expect(result.partialClosedContours).toBe(true)
+    expect(result.segments).toEqual([])
+    expect(result.points).toEqual([])
   })
 
   it('bounds output when many large disconnected objects resemble edges', () => {

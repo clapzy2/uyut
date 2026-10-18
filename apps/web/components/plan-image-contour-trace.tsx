@@ -117,8 +117,10 @@ export function PlanImageContourTrace({
       setCorners(candidates ?? [])
       setRegions(regionGuides?.regions ?? [])
       setRegionsUncertain(regionGuides?.uncertain ?? false)
+      const partial =
+        payload && typeof payload === 'object' && 'truncated' in payload && payload.truncated
       setCornerNotice(
-        `Найдено углов чернил: ${candidates?.length ?? 0}; светлых областей: ${regionGuides?.regions.length ?? 0}. Это не подтверждённые границы пола.`,
+        `Найдено углов чернил: ${candidates?.length ?? 0}; светлых областей: ${regionGuides?.regions.length ?? 0}. ${partial ? 'Подсказки неполные из-за плотного чертежа; отсутствие точки ничего не доказывает. ' : ''}Это не подтверждённые границы пола.`,
       )
     } catch {
       if (!controller.signal.aborted)

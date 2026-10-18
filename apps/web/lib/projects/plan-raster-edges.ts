@@ -5,6 +5,8 @@ export type RasterEdgeCandidates = {
   points: RasterEdgePoint[]
   truncated: boolean
   uncertain: boolean
+  /** Only set for a boundary-budget cut-off after all retained contours were traced. */
+  partialClosedContours?: true
 }
 
 const DARK_THRESHOLD = 100
@@ -114,7 +116,9 @@ export function detectPlanRasterEdges(input: {
     x < width &&
     y < height &&
     (grayscale[y * width + x] ?? 255) <= DARK_THRESHOLD
-  for (let y = 0; y < height; y++) {
+  // Preserve completed source-ink contours above the work limit. An unfinished
+  // contour at the cut-off is discarded below; no closing edge is invented.
+  scan: for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (!dark(x, y)) continue
       const topLeft = y * stride + x
@@ -122,12 +126,14 @@ export function detectPlanRasterEdges(input: {
       if (!dark(x + 1, y)) add(topLeft + 1, topLeft + stride + 1, 1)
       if (!dark(x, y + 1)) add(topLeft + stride + 1, topLeft + stride, 2)
       if (!dark(x - 1, y)) add(topLeft + stride, topLeft, 3)
-      if (boundaryOverflow) return { ...empty(), truncated: true, uncertain: true }
+      if (boundaryOverflow) break scan
     }
   }
   const visited = new Uint8Array(starts.length)
   const budget = { remaining: MAX_DISTANCE_CHECKS }
   const result = empty()
+  result.truncated = boundaryOverflow
+  result.uncertain = boundaryOverflow
   const uniquePoints = new Map<string, RasterEdgePoint>()
   const pointAt = (vertex: number): RasterEdgePoint => ({
     x: vertex % stride,
@@ -206,5 +212,6 @@ export function detectPlanRasterEdges(input: {
     }
   }
   result.points = [...uniquePoints.values()]
+  if (boundaryOverflow) result.partialClosedContours = true
   return result
 }
