@@ -268,6 +268,38 @@ describe('reviewed-page geometry gate after the native-text parser', () => {
     expect(checked.rooms[0]?.measurementWarnings?.join()).toContain('Ширина')
     expect(input.rooms[0]?.widthCm).toBe(298.5)
   })
+  it('keeps reviewed dimensions away from clipped ink but rejects the touched side', () => {
+    const clipped = {
+      operationIndex: 999_998,
+      paint: 'stroke' as const,
+      bounds: { left: 900, top: 900, right: 910, bottom: 910 },
+    }
+    const remote = {
+      ...context.linework,
+      clippedPaths: 1,
+      clippedPathBounds: [clipped],
+    }
+    const input = read([data(4)])
+    expect(gate(input, { linework: remote }).rooms[0]).toMatchObject({
+      widthCm: 298.5,
+      depthCm: 515.6,
+    })
+
+    const label = textItems[data(4).measurementEvidence.width.textItemIndexes[0] ?? -1]
+    if (!label) throw new Error('Missing source width label')
+    const near = {
+      ...remote,
+      clippedPathBounds: [
+        {
+          ...clipped,
+          bounds: { left: label.x, top: label.y, right: label.x + 1, bottom: label.y + 1 },
+        },
+      ],
+    }
+    const checked = gate(input, { linework: near }).rooms[0]
+    expect(checked?.widthCm).toBeUndefined()
+    expect(checked?.depthCm).toBe(515.6)
+  })
   it.each(['unknown', 'proposed', undefined] as const)(
     'rejects reading state %s for existing contours',
     (planState) => {

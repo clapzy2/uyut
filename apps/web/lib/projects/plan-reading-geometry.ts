@@ -37,7 +37,11 @@ export function verifyPlanReadingGeometry(
 ): PlanReading {
   const { source, linework, contours } = context
   const sourceIssue = pdfContourIssue(linework, source, contours)
-  const dimensionSourceIssue = pdfNativeDimensionSourceIssue(source, linework)
+  const dimensionSourceIssue = pdfNativeDimensionSourceIssue(
+    source,
+    linework,
+    'bounded-clipped-ink',
+  )
   const sameState = reading.planState === source.state
   const samePage = reading.sourcePage === undefined || reading.sourcePage === source.pdfPage
   const textItems = planMeasurementTextItems(context.planText)

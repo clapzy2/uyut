@@ -33,7 +33,7 @@ export function verifyPlanReadingNativeChains(
     reading.planState === source.state &&
     (reading.sourcePage === undefined || reading.sourcePage === source.pdfPage) &&
     work &&
-    !pdfNativeDimensionSourceIssue(source, work)
+    !pdfNativeDimensionSourceIssue(source, work, 'bounded-clipped-ink')
   const verify = usable
     ? createPdfNativePageDimensionChainVerifier(work, source, context.nativeCaptionGeometry)
     : undefined

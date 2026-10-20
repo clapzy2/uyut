@@ -233,6 +233,56 @@ describe('ordinary PDF native-chain containment, not room ownership acceptance',
       }).rooms[0]?.widthCm,
     ).toBeUndefined()
   })
+  it('keeps a chain away from clipped ink but rejects one touched by it', () => {
+    const clipped = {
+      operationIndex: 999_998,
+      paint: 'stroke' as const,
+      bounds: { left: 900, top: 900, right: 910, bottom: 910 },
+    }
+    const remote = {
+      ...linework,
+      clippedPaths: 1,
+      clippedPathBounds: [clipped],
+    }
+    expect(
+      verifyPlanReadingNativeChains(reading(), { ...context, linework: remote }).rooms[0]?.widthCm,
+    ).toBe(298.5)
+
+    const label = items[expected.widthLabels[0] ?? -1]
+    if (!label) throw new Error('Missing source label')
+    const near = {
+      ...remote,
+      clippedPathBounds: [
+        {
+          ...clipped,
+          bounds: { left: label.x, top: label.y, right: label.x + 1, bottom: label.y + 1 },
+        },
+      ],
+    }
+    expect(
+      verifyPlanReadingNativeChains(reading(), { ...context, linework: near }).rooms[0]?.widthCm,
+    ).toBeUndefined()
+    expect(
+      verifyPlanReadingNativeChains(reading(), {
+        ...context,
+        linework: { ...remote, clippedPathBoundsTruncated: true },
+      }).rooms[0]?.widthCm,
+    ).toBeUndefined()
+
+    const wrongNumber = reading()
+    if (!wrongNumber.rooms[0]) throw new Error('Missing control room')
+    wrongNumber.rooms[0].widthCm = 298.6
+    expect(
+      verifyPlanReadingNativeChains(wrongNumber, { ...context, linework: remote }).rooms[0]
+        ?.widthCm,
+    ).toBeUndefined()
+    expect(
+      verifyPlanReadingNativeChains(reading(), {
+        ...context,
+        linework: { ...remote, paths: remote.paths.filter((path) => path.operationIndex !== 2310) },
+      }).rooms[0]?.widthCm,
+    ).toBeUndefined()
+  })
   it('bounds the number of source-chain checks without marking the remainder verified', () => {
     const input = reading()
     const room = input.rooms[0]
