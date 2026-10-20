@@ -192,6 +192,21 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           inventory,
           schedule: nativeRoomScheduleEvidence(evidence),
         })
+        // Оболочка застройки по краске листа: предложение для сверки человеком.
+        const { nativeOuterEnvelope } = await import('@/lib/projects/plan-native-outer-envelope')
+        const envelopeRooms =
+          numbered.status === 'diagnostic'
+            ? numbered.rows.flatMap((row) => {
+                const only = row.fillIds.length === 1 ? row.fillIds[0] : undefined
+                const fill = inventory.candidates.find((candidate) => candidate.id === only)
+                return fill ? [{ sourceNumber: row.sourceNumber, polygon: fill.polygon }] : []
+              })
+            : []
+        const envelope = nativeOuterEnvelope({
+          inventory,
+          work: page.linework,
+          rooms: envelopeRooms,
+        })
         const labels = page.nativeTextAnchors.labels
         const displayCandidates = inventory.candidates.filter(
           (candidate) => candidate.polygon.length <= 100,
@@ -205,6 +220,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             refusalReason: inventory.refusalReason,
             truncated:
               inventory.truncated || displayCandidates.length !== inventory.candidates.length,
+            outerEnvelope:
+              envelope.status === 'diagnostic'
+                ? {
+                    polygon: envelope.polygon,
+                    holes: envelope.holes,
+                    roomsOutside: envelope.roomsOutside,
+                  }
+                : { polygon: null, reason: envelope.reason },
             roomHints:
               numbered.status === 'diagnostic'
                 ? numbered.rows.map((row) => ({

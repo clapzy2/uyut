@@ -16,6 +16,7 @@ import {
   contourDraftFromFillHint,
   contourDraftsFromSaved,
   dimensionLabelsFromResponse,
+  exteriorDraftFromEnvelope,
   fillHintsFromResponse,
   finiteContourPoint,
   groupPageContourDraft,
@@ -807,6 +808,27 @@ export function PlanPageContourEditor({
     resetReview()
   }
 
+  /**
+   * Берёт предложенную оболочку застройки как начальную наружную границу. Ничего не
+   * подтверждает: человек сверяет вершины с исходником, правит и сохраняет сам.
+   */
+  function takeOuterEnvelope(polygon: PageContourPoint[]) {
+    if (locked) return
+    const draft = exteriorDraftFromEnvelope(polygon, nativePoints, exterior)
+    if (!draft) {
+      setFillHintsError(
+        'Оболочку нельзя взять: у наружной границы уже есть проверенные вершины или в предложении есть точка вне исходных узлов PDF.',
+      )
+      return
+    }
+    setFillHintsError(undefined)
+    setExterior(draft)
+    setExteriorClosed(true)
+    setSelectedVoidId(undefined)
+    setEditingBoundary('exterior')
+    resetReview()
+  }
+
   function addFeature(kind: NewPageFeatureKind) {
     if (locked || !canAddPageFeature(selectedDraft, kind)) return
     const id = crypto.randomUUID()
@@ -1444,6 +1466,49 @@ export function PlanPageContourEditor({
                   </p>
                   {currentFillHints.status === 'held' ? (
                     <p>Нативный слой неполон: подсказки для этого листа не показаны.</p>
+                  ) : null}
+                  {currentFillHints.outerEnvelope?.polygon ? (
+                    <div className="border-t border-line pt-3">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={locked}
+                        onClick={() =>
+                          takeOuterEnvelope(
+                            currentFillHints.outerEnvelope?.polygon as PageContourPoint[],
+                          )
+                        }
+                      >
+                        Взять наружную оболочку ({currentFillHints.outerEnvelope.polygon.length}{' '}
+                        углов)
+                        {currentFillHints.outerEnvelope.roomsOutside?.length
+                          ? ' · требует правки'
+                          : ''}
+                      </Button>
+                      {currentFillHints.outerEnvelope.roomsOutside?.length ? (
+                        <p role="alert" className="mt-1 max-w-2xl text-xs leading-relaxed text-ink">
+                          Предложение в этом виде не пройдёт проверку схемы: за кольцо выходят
+                          комнаты № {currentFillHints.outerEnvelope.roomsOutside.join(', № ')}. Так
+                          бывает, когда краска не доходит до угла. Поправьте эти углы по исходным
+                          узлам: взять оболочку можно, подтверждать её как есть нельзя.
+                        </p>
+                      ) : null}
+                      <p className="mt-1 max-w-2xl text-xs leading-relaxed text-ink-2">
+                        Собрана из закрашенных областей листа и включает тела стен, поэтому её роль
+                        — наружная сторона стен. Границей чистого пола она не является и её не
+                        заменяет. Сверьте углы с исходником.
+                        {currentFillHints.outerEnvelope.holes
+                          ? ` Внутри оболочки есть незакрашенные области: ${currentFillHints.outerEnvelope.holes}. Сверьте их отдельно.`
+                          : ''}
+                      </p>
+                    </div>
+                  ) : currentFillHints.outerEnvelope?.reason ? (
+                    <p className="border-t border-line pt-3 text-xs leading-relaxed text-ink-2">
+                      Наружная оболочка по этому листу не предлагается:{' '}
+                      {currentFillHints.outerEnvelope.reason}. Обведите наружную границу вручную по
+                      исходным узлам.
+                    </p>
                   ) : null}
                   {currentFillHints.roomHints.length ? (
                     <div className="space-y-1">

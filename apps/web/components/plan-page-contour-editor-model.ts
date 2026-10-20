@@ -163,6 +163,34 @@ export function contourDraftFromFillHint(
   }
 }
 
+/**
+ * Переносит предложенную оболочку застройки в черновик наружной границы.
+ *
+ * Оболочка собрана из нарисованной краски листа и включает тела стен, поэтому её роль —
+ * всегда «наружная сторона стен». Границей чистого пола она не является и её не заменяет.
+ * Это черновик для сверки: вершины человек проверяет и правит, сохранение отдельное.
+ */
+export function exteriorDraftFromEnvelope(
+  polygon: readonly PageContourPoint[],
+  nativePoints: PageContourPoint[],
+  before?: PlanPageContours['exterior'],
+): PlanPageContours['exterior'] | null {
+  // Готовую проверенную границу не затираем: у неё могут быть свои доказательства вершин.
+  if (before?.vertexProofs?.length) return null
+  if (
+    polygon.length < 3 ||
+    polygon.length > 100 ||
+    !polygon.every(finiteContourPoint) ||
+    !polygon.every((point) => nativeContourPoint(point, nativePoints)) ||
+    new Set(polygon.map((point) => `${point.x}:${point.y}`)).size !== polygon.length
+  )
+    return null
+  return {
+    boundaryRole: 'outer-wall-envelope',
+    polygon: polygon.map((point) => ({ x: point.x, y: point.y })),
+  }
+}
+
 /** Evidence belongs to one exact vertex at its original index, not to a nearby edited point. */
 export function pageContourVertexProofsChanged(
   before: Pick<PlanPageContours['rooms'][number], 'polygon' | 'vertexProofs'> | undefined,
@@ -492,6 +520,14 @@ export type PlanFillHints = {
     fillIds: string[]
     otherSameNumberLabels: number
   }[]
+  /** Оболочка застройки по краске листа: предложение, а не подтверждённая граница. */
+  outerEnvelope?: {
+    polygon: PageContourPoint[] | null
+    holes?: number
+    reason?: string
+    /** Комнаты, выходящие за предложенное кольцо: подсказку нужно поправить вручную. */
+    roomsOutside?: number[]
+  }
 }
 
 /** Display-only PDF paint hints; never turn this response into saved room geometry. */
@@ -596,6 +632,52 @@ export function fillHintsFromResponse(
       roomHints.push(hint as PlanFillHints['roomHints'][number])
     }
   }
+  // Оболочка приходит как предложение: её вершины ещё предстоит сверить и принять.
+  let outerEnvelope: PlanFillHints['outerEnvelope']
+  if (response.outerEnvelope !== undefined) {
+    if (!response.outerEnvelope || typeof response.outerEnvelope !== 'object') return null
+    const envelope = response.outerEnvelope as Record<string, unknown>
+    if (envelope.polygon === null || envelope.polygon === undefined) {
+      if (envelope.reason !== undefined && typeof envelope.reason !== 'string') return null
+      outerEnvelope = { polygon: null, ...(envelope.reason ? { reason: envelope.reason } : {}) }
+    } else {
+      if (
+        !Array.isArray(envelope.polygon) ||
+        envelope.polygon.length < 3 ||
+        envelope.polygon.length > 100 ||
+        !envelope.polygon.every(
+          (point: unknown) =>
+            point !== null &&
+            typeof point === 'object' &&
+            finiteContourPoint(point as PageContourPoint),
+        ) ||
+        !(
+          envelope.holes === undefined ||
+          (Number.isSafeInteger(envelope.holes) && (envelope.holes as number) >= 0)
+        )
+      )
+        return null
+      if (
+        envelope.roomsOutside !== undefined &&
+        (!Array.isArray(envelope.roomsOutside) ||
+          envelope.roomsOutside.length > 50 ||
+          !envelope.roomsOutside.every(
+            (value: unknown) => Number.isSafeInteger(value) && (value as number) > 0,
+          ))
+      )
+        return null
+      outerEnvelope = {
+        polygon: (envelope.polygon as PageContourPoint[]).map((point) => ({
+          x: point.x,
+          y: point.y,
+        })),
+        ...(envelope.holes === undefined ? {} : { holes: envelope.holes as number }),
+        ...(envelope.roomsOutside === undefined
+          ? {}
+          : { roomsOutside: [...(envelope.roomsOutside as number[])] }),
+      }
+    }
+  }
   return {
     sourceRevision: revision,
     sourceSha256: preview.sha256,
@@ -605,6 +687,7 @@ export function fillHintsFromResponse(
     truncated: response.truncated as boolean,
     candidates,
     roomHints,
+    ...(outerEnvelope ? { outerEnvelope } : {}),
   }
 }
 

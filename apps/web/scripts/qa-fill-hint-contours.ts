@@ -13,6 +13,7 @@ import { readFile } from 'node:fs/promises'
 import { preparePlanPage } from '../lib/projects/plan-document'
 import { nativeFillCandidates } from '../lib/projects/plan-native-fill-candidates'
 import { nativeNumberedFillHints } from '../lib/projects/plan-native-numbered-fill-hints'
+import { nativeOuterEnvelope } from '../lib/projects/plan-native-outer-envelope'
 import { nativeRoomScheduleEvidence } from '../lib/projects/plan-native-room-schedule'
 import { planPageMetricDraft } from '../lib/projects/plan-page-metric-draft'
 import { planPageFeaturesIssue } from '../lib/projects/plan-page-review'
@@ -81,6 +82,27 @@ console.log(
     (unambiguous.length
       ? `; лист целиком: ${check(unambiguous) ?? 'проверка принимает'}`
       : '; собрать лист целиком нельзя'),
+)
+// Наружная оболочка по краске листа: предложение для сверки, не подтверждённая граница.
+const envelope = nativeOuterEnvelope({
+  inventory,
+  work: linework,
+  rooms: unambiguous.map((room) => ({
+    sourceNumber: room.roomSourceNumber,
+    polygon: room.polygon,
+  })),
+})
+console.log(
+  `наружная оболочка: ${
+    envelope.polygon
+      ? `${envelope.polygon.length} углов, незакрашенных областей внутри ${envelope.holes}` +
+        (
+          envelope.roomsOutside.length
+            ? `; требует правки — за кольцо выходят комнаты № ${envelope.roomsOutside.join(', № ')}`
+            : '; все взятые комнаты внутри'
+        )
+      : `не предлагается — ${envelope.reason}`
+  }`,
 )
 if (!unambiguous.length) process.exit(0)
 
