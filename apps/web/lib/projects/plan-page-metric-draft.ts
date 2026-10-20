@@ -10,7 +10,10 @@ import type {
 } from '@uyut/db'
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import polygonClipping, { type Polygon } from 'polygon-clipping'
+import type { NativeTextAnchors } from './plan-document'
 import { PDF_AREA_REVIEW_TOLERANCE_M2 } from './plan-geometry-inspection'
+import { automaticNativeDimensionRoles } from './plan-native-dimension-roles'
+import { printedDimensionScale } from './plan-native-numbered-fill-hints'
 import { planPageEdgeCalibration } from './plan-page-edge-calibration'
 import { verifyPlanPageOpenings } from './plan-page-feature-checks'
 import {
@@ -30,6 +33,7 @@ import {
   pdfPointDistance,
 } from './plan-pdf-room-binding'
 import { pairPlanPageWallFaces } from './plan-pdf-wall-faces'
+import type { RegionLabelFrame } from './plan-raster-region-labels'
 
 type Context = {
   source: PdfPlanSource
@@ -40,6 +44,15 @@ type Context = {
   calibrationRoomNumbers?: number[]
   /** Длины отдельных граней вместо назначения наклонной длины шириной комнаты. */
   useEdgeDimensions?: boolean
+  /**
+   * Масштаб всего листа по печатным размерным цепям. Он описывает чертёж, а не комнату:
+   * размер конкретного помещения им не доказывается, поэтому перенос остаётся расчётным
+   * и человек подтверждает его отдельно, видя сходимость осей и площади помещений.
+   */
+  usePageScale?: boolean
+  /** Нужны только для режима масштаба листа: цепи считаются на сервере, не приходят от клиента. */
+  nativeAnchors?: NativeTextAnchors
+  lineworkSource?: RegionLabelFrame
 }
 type Result = { ok: true; geometry: PlanGeometry } | { ok: false; error: string }
 type Candidate = Extract<PdfDimensionChain, { status: 'candidate' }>
@@ -114,6 +127,45 @@ function chainWorkIsBounded(work: PdfLinework): boolean {
 }
 
 /** A draft from two perpendicular printed chains, not a bounding-box/area estimate. */
+/**
+ * Масштаб всего листа по печатным размерным цепям. Это свойство чертежа, а не обмер:
+ * он не доказывает ни границу комнаты, ни её размер, поэтому перенос по нему остаётся
+ * расчётным. Обе оси считаются отдельно и обязаны сойтись — расхождение значило бы,
+ * что лист растянут и единого масштаба у него нет.
+ */
+function pageScaleEvidence(
+  source: PdfPlanSource,
+  work: PdfLinework,
+  native: NativeTextAnchors | undefined,
+  lineworkSource: RegionLabelFrame | undefined,
+) {
+  if (!native || !lineworkSource) return undefined
+  const roles = automaticNativeDimensionRoles({ native, work, lineworkSource, source })
+  if (roles.refusalReason) return undefined
+  const usable = roles.candidates.filter(
+    (candidate): candidate is typeof candidate & { spanEnds: [PagePoint, PagePoint] } =>
+      candidate.spanEnds !== undefined,
+  )
+  const scale = printedDimensionScale(usable, work.pageWidth, work.pageHeight)
+  if (!scale) return undefined
+  const perPoint = {
+    x: (scale.xMmPerUnit * 1000) / work.pageWidth,
+    y: (scale.yMmPerUnit * 1000) / work.pageHeight,
+  }
+  const cmPerPoint = (perPoint.x + perPoint.y) / 20
+  if (!Number.isFinite(cmPerPoint) || cmPerPoint <= 0) return undefined
+  const chainCounts = { x: 0, y: 0 }
+  for (const candidate of usable) {
+    const [first, second] = candidate.spanEnds
+    chainCounts[Math.abs(second.x - first.x) > Math.abs(second.y - first.y) ? 'x' : 'y'] += 1
+  }
+  return {
+    cmPerPoint,
+    chainCounts,
+    axisGapRatio: Math.abs(perPoint.x - perPoint.y) / Math.min(perPoint.x, perPoint.y),
+  }
+}
+
 export function planPageMetricDraft(
   reading: PlanReading,
   context: Context,
@@ -198,31 +250,53 @@ export function planPageMetricDraft(
   )
     return fail('Каждая выбранная комната должна иметь один номер, уникальное название и контур.')
 
-  if (context.useEdgeDimensions && context.calibrationRoomNumbers !== undefined)
-    return fail('Выберите один способ проверки масштаба: размеры комнат или отдельные стороны.')
+  if (
+    [
+      context.useEdgeDimensions === true,
+      context.calibrationRoomNumbers !== undefined,
+      context.usePageScale === true,
+    ].filter(Boolean).length > 1
+  )
+    return fail(
+      'Выберите один способ проверки масштаба: размеры комнат, отдельные стороны или масштаб листа.',
+    )
+  // Масштаб листа считается здесь же, из исходного PDF: клиент не передаёт число.
+  const pageScale = context.usePageScale
+    ? pageScaleEvidence(source, linework, context.nativeAnchors, context.lineworkSource)
+    : undefined
+  if (context.usePageScale && !pageScale)
+    return fail(
+      'Масштаб листа не подтверждён: нужны минимум две согласованные размерные цепи по каждой оси и совпадение осей.',
+    )
   const globalCalibration =
-    context.calibrationRoomNumbers !== undefined || context.useEdgeDimensions === true
+    context.calibrationRoomNumbers !== undefined ||
+    context.useEdgeDimensions === true ||
+    pageScale !== undefined
   const edgeCalibration = context.useEdgeDimensions
     ? planPageEdgeCalibration(source, linework, contours, context.planText)
     : undefined
   if (edgeCalibration && !edgeCalibration.ok) return edgeCalibration
   const edgeChains = edgeCalibration?.ok ? edgeCalibration.chains : undefined
-  const anchorNumbers = edgeCalibration?.ok
-    ? edgeCalibration.anchorNumbers
-    : (context.calibrationRoomNumbers ?? roomNumbers)
+  // У масштаба листа нет опорной комнаты: он описывает весь чертёж.
+  const anchorNumbers = pageScale
+    ? []
+    : edgeCalibration?.ok
+      ? edgeCalibration.anchorNumbers
+      : (context.calibrationRoomNumbers ?? roomNumbers)
   if (
-    anchorNumbers.length < 1 ||
-    anchorNumbers.length > 12 ||
-    new Set(anchorNumbers).size !== anchorNumbers.length ||
-    anchorNumbers.some(
-      (number) =>
-        !isPlanRoomSourceNumber(number) ||
-        !contours.rooms.some((contour) =>
-          edgeChains
-            ? pdfContourRoomNumbers(contour).includes(number)
-            : contour.roomSourceNumber === number,
-        ),
-    )
+    !pageScale &&
+    (anchorNumbers.length < 1 ||
+      anchorNumbers.length > 12 ||
+      new Set(anchorNumbers).size !== anchorNumbers.length ||
+      anchorNumbers.some(
+        (number) =>
+          !isPlanRoomSourceNumber(number) ||
+          !contours.rooms.some((contour) =>
+            edgeChains
+              ? pdfContourRoomNumbers(contour).includes(number)
+              : contour.roomSourceNumber === number,
+          ),
+      ))
   )
     return fail('Для общего масштаба выберите отдельную комнату с двумя подписанными цепочками.')
 
@@ -234,7 +308,7 @@ export function planPageMetricDraft(
     )
   const chains: Candidate[] = []
   const usedLabels = new Set<number>()
-  for (const number of edgeChains ? [] : anchorNumbers) {
+  for (const number of pageScale || edgeChains ? [] : anchorNumbers) {
     const room = reading.rooms.find((room) => room.sourceNumber === number)
     if (!room) return fail('Комната отсутствует в прочитанном плане.')
     for (const side of ['width', 'depth'] as const) {
@@ -288,8 +362,12 @@ export function planPageMetricDraft(
     for (const index of chain.labelIndexes) usedLabels.add(index)
   }
   const reference = verifiedChains[0]
-  if (!reference) return fail('Нет проверенной горизонтальной цепочки для масштаба.')
-  const scale = reference.totalMm / 10 / pdfPointDistance(linework, ...reference.ends)
+  if (!reference && !pageScale) return fail('Нет проверенной горизонтальной цепочки для масштаба.')
+  const scale = pageScale
+    ? pageScale.cmPerPoint
+    : reference
+      ? reference.totalMm / 10 / pdfPointDistance(linework, ...reference.ends)
+      : Number.NaN
   if (!Number.isFinite(scale) || scale <= 0)
     return fail('Не удалось установить конечный масштаб исходного листа.')
   const agrees = (lengthPt: number, lengthCm: number) =>
@@ -482,6 +560,14 @@ export function planPageMetricDraft(
       cmPerPoint: scale,
       origin,
       anchorRoomNumbers: [...anchorNumbers],
+      ...(pageScale
+        ? {
+            pageScale: {
+              chainCounts: { ...pageScale.chainCounts },
+              axisGapRatio: pageScale.axisGapRatio,
+            },
+          }
+        : {}),
       ...(edgeChains
         ? {
             edgeDimensions: edgeChains.map((chain) => ({
