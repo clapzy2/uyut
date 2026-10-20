@@ -187,7 +187,7 @@ describe('private PDF page preview', () => {
     expect(await result.text()).toBe('jpeg')
     expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, false)
   })
-  it.each(['native-review', 'native-review-image', 'source-floor-reference'])(
+  it.each(['native-review', 'native-review-image', 'source-floor-reference', 'fill-hints'])(
     'protects %s before loading private source',
     async (format) => {
       mocks.session.mockResolvedValue(null)
@@ -245,6 +245,56 @@ describe('private PDF page preview', () => {
     expect(result.headers.get('x-plan-page-height')).toBe('1191')
     expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, true, true)
     expect(mocks.access).toHaveBeenCalledTimes(3)
+  })
+  it('returns bounded paint outlines as private hints without claiming room ownership', async () => {
+    const imageSource = {
+      sha256: createHash('sha256').update('jpeg').digest('hex'),
+      page: 6,
+      width: 1414,
+      height: 2000,
+    }
+    mocks.prepare.mockResolvedValue({
+      ...page,
+      nativeTextAnchors: {
+        source: imageSource,
+        originalPdfSha256: createHash('sha256').update('pdf').digest('hex'),
+        complete: true,
+        pageNormalizedScale: { x: imageSource.width / 1000, y: imageSource.height / 1000 },
+        labels: [{ id: 'room-name', name: 'Кухня', pagePoint: { x: 150, y: 150 } }],
+      },
+      lineworkRasterSource: imageSource,
+      linework: {
+        ...page.linework,
+        paths: [
+          ...page.linework.paths,
+          {
+            operationIndex: 10,
+            subpathIndex: 0,
+            paint: 'fill',
+            closed: true,
+            fillColor: '#ffffff',
+            points: [
+              { x: 100, y: 100 },
+              { x: 200, y: 100 },
+              { x: 200, y: 200 },
+              { x: 100, y: 200 },
+            ],
+          },
+        ],
+      },
+    })
+    const result = await GET(request('6', revision, 'fill-hints'), context)
+    expect(result.status).toBe(200)
+    const hints = await result.json()
+    expect(hints).toMatchObject({
+      sourceRevision: revision,
+      status: 'diagnostic',
+      candidates: [{ id: 'native-fill-10:0', nearbyText: ['Кухня'] }],
+    })
+    expect(hints).not.toHaveProperty('geometry')
+    expect(hints).not.toHaveProperty('roomSourceNumber')
+    expect(result.headers.get('cache-control')).toBe('private, no-store')
+    expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, true, true)
   })
   it.each([
     [false, false],

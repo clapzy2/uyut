@@ -4,6 +4,7 @@ import type { NativePageSegment } from '@/lib/projects/plan-pdf-opening-endpoint
 import {
   canAddPageFeature,
   contourDraftsFromSaved,
+  fillHintsFromResponse,
   finiteContourPoint,
   groupPageContourDraft,
   nativeContourPoint,
@@ -28,6 +29,60 @@ import {
 } from './plan-page-contour-editor-model'
 
 const preview = { sha256: 'a'.repeat(64), page: 6, pageCount: 48, width: 842, height: 1191 }
+
+describe('display-only PDF fill hints', () => {
+  const valid = () => ({
+    sourceRevision: 'b'.repeat(64),
+    source: { sha256: preview.sha256, pdfPage: preview.page, state: 'existing' },
+    status: 'diagnostic',
+    refusalReason: null,
+    truncated: false,
+    candidates: [
+      {
+        id: 'native-fill-10:0',
+        polygon: [
+          { x: 10, y: 10 },
+          { x: 20, y: 10 },
+          { x: 20, y: 20 },
+        ],
+        nearbyText: ['Кухня'],
+      },
+    ],
+  })
+
+  it('accepts bounded same-source hints without adding a room or metric claim', () => {
+    const result = fillHintsFromResponse(valid(), preview, 'b'.repeat(64))
+    expect(result).toEqual({
+      sourceRevision: 'b'.repeat(64),
+      sourceSha256: preview.sha256,
+      page: preview.page,
+      status: 'diagnostic',
+      refusalReason: null,
+      truncated: false,
+      candidates: valid().candidates,
+    })
+    expect(result).not.toHaveProperty('roomSourceNumber')
+    expect(result).not.toHaveProperty('readyFor2D')
+  })
+
+  it('rejects changed sources, duplicate hints and invalid coordinates', () => {
+    const changed = valid()
+    changed.source.sha256 = 'c'.repeat(64)
+    expect(fillHintsFromResponse(changed, preview, 'b'.repeat(64))).toBeNull()
+
+    const duplicate = valid()
+    const first = duplicate.candidates[0]
+    if (!first) throw new Error('Missing test candidate')
+    duplicate.candidates.push(structuredClone(first))
+    expect(fillHintsFromResponse(duplicate, preview, 'b'.repeat(64))).toBeNull()
+
+    const invalid = valid()
+    const invalidPoint = invalid.candidates[0]?.polygon[0]
+    if (!invalidPoint) throw new Error('Missing test point')
+    invalidPoint.x = -1
+    expect(fillHintsFromResponse(invalid, preview, 'b'.repeat(64))).toBeNull()
+  })
+})
 const rect = { left: 20, top: 40, width: 400, height: 600 }
 
 const crossingSegments: [NativePageSegment, NativePageSegment] = [

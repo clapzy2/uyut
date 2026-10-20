@@ -15,6 +15,7 @@ import {
   canAddPageFeature,
   contourDraftsFromSaved,
   dimensionLabelsFromResponse,
+  fillHintsFromResponse,
   finiteContourPoint,
   groupPageContourDraft,
   nativePointsFromResponse,
@@ -25,6 +26,7 @@ import {
   type PageContourTarget,
   type PageDimensionLabel,
   type PageVoidDraft,
+  type PlanFillHints,
   type PlanPagePreview,
   pageContourOptions,
   pageContourPoint,
@@ -150,7 +152,13 @@ export function PlanPageContourEditor({
       }
     >
   >({})
+  const [fillHints, setFillHints] = useState<PlanFillHints>()
+  const [fillHintsShown, setFillHintsShown] = useState(false)
+  const [fillHintsLoading, setFillHintsLoading] = useState(false)
+  const [fillHintsError, setFillHintsError] = useState<string>()
+  const [selectedFillHint, setSelectedFillHint] = useState('')
   const sourceFloorsRequest = useRef<AbortController | undefined>(undefined)
+  const fillHintsRequest = useRef<AbortController | undefined>(undefined)
   const draftSource = useRef<PlanPagePreview | undefined>(undefined)
   const initialRevision = useRef(sourceRevision)
   const svgRef = useRef<SVGSVGElement>(null)
@@ -262,6 +270,15 @@ export function PlanPageContourEditor({
     currentSourceFloors?.status === 'checked'
       ? currentSourceFloors.floors.find((item) => item.sourceRoomKey === sourceRoomKey)
       : undefined
+  const currentFillHints =
+    fillHints?.sourceRevision === sourceRevision &&
+    fillHints.sourceSha256 === preview?.sha256 &&
+    fillHints.page === pageNumber
+      ? fillHints
+      : undefined
+  const selectedPaintHint = fillHintsShown
+    ? currentFillHints?.candidates.find((candidate) => candidate.id === selectedFillHint)
+    : undefined
   const highlightedSourceEdge =
     sourceFloorsShown &&
     selectedSourceFloor &&
@@ -344,7 +361,13 @@ export function PlanPageContourEditor({
     let url: string | undefined
     setLoading(true)
     sourceFloorsRequest.current?.abort()
+    fillHintsRequest.current?.abort()
     setSourceFloors(undefined)
+    setFillHints(undefined)
+    setFillHintsShown(false)
+    setFillHintsLoading(false)
+    setFillHintsError(undefined)
+    setSelectedFillHint('')
     setSourceFloorsShown(false)
     setSourceFloorsError(undefined)
     setSourceFloorsLoading(false)
@@ -445,9 +468,58 @@ export function PlanPageContourEditor({
     return () => {
       abort.abort()
       sourceFloorsRequest.current?.abort()
+      fillHintsRequest.current?.abort()
       if (url) URL.revokeObjectURL(url)
     }
   }, [projectId, pageNumber, sourceRevision])
+
+  async function toggleFillHints() {
+    if (locked || fillHintsLoading || !preview || state !== 'existing') return
+    if (currentFillHints) {
+      setFillHintsShown((shown) => !shown)
+      return
+    }
+    const request = new AbortController()
+    fillHintsRequest.current?.abort()
+    fillHintsRequest.current = request
+    setFillHintsLoading(true)
+    setFillHintsError(undefined)
+    try {
+      const query = new URLSearchParams({
+        page: String(pageNumber),
+        revision: sourceRevision,
+        format: 'fill-hints',
+      })
+      const response = await fetch(`/api/projects/${projectId}/plan-page?${query}`, {
+        signal: request.signal,
+        cache: 'no-store',
+      })
+      if (request.signal.aborted) return
+      if (response.status === 409) {
+        setStale(true)
+        conflictCallback.current()
+        throw new Error('План изменился. Откройте актуальную версию листа.')
+      }
+      const metadata = previewFromHeaders(response.headers, pageNumber)
+      if (
+        !response.ok ||
+        !metadata ||
+        !samePlanPage(preview, metadata) ||
+        !response.headers.get('Content-Type')?.startsWith('application/json')
+      )
+        throw new Error('Не удалось открыть подсказки заливок этого листа.')
+      const hints = fillHintsFromResponse(await response.json(), preview, sourceRevision)
+      if (request.signal.aborted) return
+      if (!hints) throw new Error('Подсказки не совпадают с открытым исходным листом.')
+      setFillHints(hints)
+      setFillHintsShown(true)
+    } catch (cause) {
+      if (!request.signal.aborted)
+        setFillHintsError(cause instanceof Error ? cause.message : 'Не удалось открыть подсказки.')
+    } finally {
+      if (!request.signal.aborted) setFillHintsLoading(false)
+    }
+  }
 
   async function toggleSourceFloors() {
     if (locked || sourceFloorsLoading || !preview || state !== 'existing') return
@@ -1319,6 +1391,54 @@ export function PlanPageContourEditor({
       {imageUrl && preview ? (
         <div className="space-y-2">
           {state === 'existing' ? (
+            <div className="space-y-2 border-l-2 border-line pl-3 text-xs text-ink-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={locked || fillHintsLoading}
+                pending={fillHintsLoading}
+                onClick={toggleFillHints}
+              >
+                {fillHintsShown ? 'Скрыть заливки PDF' : 'Показать заливки PDF как ориентир'}
+              </Button>
+              {fillHintsError ? <p role="alert">{fillHintsError}</p> : null}
+              {fillHintsShown && currentFillHints ? (
+                <>
+                  <p role="status">
+                    Найдено областей: {currentFillHints.candidates.length}. Заливка не доказывает
+                    границу пола и не привязана к выбранной комнате. Выберите её только для
+                    сравнения с исходником, затем обведите физический контур обычными инструментами.
+                    {currentFillHints.truncated ? ' Набор неполный.' : ''}
+                  </p>
+                  {currentFillHints.status === 'held' ? (
+                    <p>Нативный слой неполон: подсказки для этого листа не показаны.</p>
+                  ) : null}
+                  {currentFillHints.candidates.length ? (
+                    <label className="block max-w-md space-y-1">
+                      <span>Область для подсветки</span>
+                      <select
+                        className={inputClassName}
+                        value={selectedFillHint}
+                        onChange={(event) => setSelectedFillHint(event.target.value)}
+                      >
+                        <option value="">Не выбрана</option>
+                        {currentFillHints.candidates.map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.id}
+                            {candidate.nearbyText.length
+                              ? ` · рядом текст: ${candidate.nearbyText.join(', ')}`
+                              : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          {state === 'existing' ? (
             <PlanPageSourceFloorControls
               reference={currentSourceFloors}
               selectedKey={sourceRoomKey}
@@ -1429,6 +1549,20 @@ export function PlanPageContourEditor({
                     )
                   }}
                 />
+                {selectedPaintHint ? (
+                  <path
+                    d={sourceFloorReferencePath({ polygon: selectedPaintHint.polygon, holes: [] })}
+                    fill="#2563eb"
+                    fillOpacity={0.08}
+                    stroke="#2563eb"
+                    strokeWidth={2}
+                    strokeDasharray="6 5"
+                    vectorEffect="non-scaling-stroke"
+                    pointerEvents="none"
+                  >
+                    <title>Нативная заливка PDF; физический контур пола не подтверждён.</title>
+                  </path>
+                ) : null}
                 {sourceFloorsShown && selectedSourceFloor ? (
                   <path
                     d={sourceFloorReferencePath(selectedSourceFloor)}
