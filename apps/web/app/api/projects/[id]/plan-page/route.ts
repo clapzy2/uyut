@@ -171,7 +171,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                     .map((label) => label.name.slice(0, 40)),
                 })),
           },
-          { headers },
+          {
+            headers: {
+              ...headers,
+              'X-Plan-Page-Width': String(page.linework.pageWidth),
+              'X-Plan-Page-Height': String(page.linework.pageHeight),
+            },
+          },
         )
       }
       if (sourceFloorReference) {

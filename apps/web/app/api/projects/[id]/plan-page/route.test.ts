@@ -1,6 +1,7 @@
 import type { PlanReading } from '@uyut/db'
 import type { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { previewFromHeaders } from '@/components/plan-page-contour-editor-model'
 import { planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { floorHeightFixture } from '@/lib/projects/plan-native-reviewed-floor-heights.fixture'
 
@@ -243,6 +244,11 @@ describe('private PDF page preview', () => {
     expect(result.headers.get('cache-control')).toBe('private, no-store')
     expect(result.headers.get('x-plan-page-width')).toBe('842')
     expect(result.headers.get('x-plan-page-height')).toBe('1191')
+    expect(previewFromHeaders(result.headers, 6)).toMatchObject({
+      page: 6,
+      width: 842,
+      height: 1191,
+    })
     expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, true, true)
     expect(mocks.access).toHaveBeenCalledTimes(3)
   })
@@ -294,6 +300,8 @@ describe('private PDF page preview', () => {
     expect(hints).not.toHaveProperty('geometry')
     expect(hints).not.toHaveProperty('roomSourceNumber')
     expect(result.headers.get('cache-control')).toBe('private, no-store')
+    expect(result.headers.get('x-plan-page-width')).toBe('842')
+    expect(result.headers.get('x-plan-page-height')).toBe('1191')
     expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, true, true)
   })
   it.each([
