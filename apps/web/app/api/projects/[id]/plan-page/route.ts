@@ -138,15 +138,41 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         )
           return failure('Исходные заливки не совпадают с открытым листом.', 409)
         const { nativeFillCandidates } = await import('@/lib/projects/plan-native-fill-candidates')
-        const inventory = nativeFillCandidates({
+        const { automaticNativeDimensionRoles } = await import(
+          '@/lib/projects/plan-native-dimension-roles'
+        )
+        const { calibratedFillAreaM2, nativeNumberedFillHints, printedDimensionScale } =
+          await import('@/lib/projects/plan-native-numbered-fill-hints')
+        const { nativeRoomScheduleEvidence } = await import(
+          '@/lib/projects/plan-native-room-schedule'
+        )
+        const evidence = {
           native: page.nativeTextAnchors,
           work: page.linework,
           lineworkSource: page.lineworkRasterSource,
+        }
+        const inventory = nativeFillCandidates(evidence)
+        const dimensionRoles = automaticNativeDimensionRoles({
+          ...evidence,
+          source: { sha256, pdfPage: pageNumber, state: 'existing' },
+        })
+        const metricScale = dimensionRoles.refusalReason
+          ? null
+          : printedDimensionScale(
+              dimensionRoles.candidates,
+              page.linework.pageWidth,
+              page.linework.pageHeight,
+            )
+        const numbered = nativeNumberedFillHints({
+          native: page.nativeTextAnchors,
+          inventory,
+          schedule: nativeRoomScheduleEvidence(evidence),
         })
         const labels = page.nativeTextAnchors.labels
         const displayCandidates = inventory.candidates.filter(
           (candidate) => candidate.polygon.length <= 100,
         )
+        const displayedIds = new Set(displayCandidates.map((candidate) => candidate.id))
         return Response.json(
           {
             sourceRevision: revision,
@@ -155,21 +181,37 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             refusalReason: inventory.refusalReason,
             truncated:
               inventory.truncated || displayCandidates.length !== inventory.candidates.length,
+            roomHints:
+              numbered.status === 'diagnostic'
+                ? numbered.rows.map((row) => ({
+                    ...row,
+                    fillIds: row.fillIds.filter((id) => displayedIds.has(id)),
+                  }))
+                : [],
             candidates: inventory.refusalReason
               ? []
-              : displayCandidates.map((candidate) => ({
-                  id: candidate.id,
-                  polygon: candidate.polygon,
-                  nearbyText: labels
-                    .filter(
-                      (label) =>
-                        label.pagePoint &&
-                        /^\p{Lu}[\p{L}\s–—-]{3,39}$/u.test(label.name.trim()) &&
-                        pdfPointInside(label.pagePoint, candidate.polygon),
-                    )
-                    .slice(0, 4)
-                    .map((label) => label.name.slice(0, 40)),
-                })),
+              : displayCandidates.map((candidate) => {
+                  const area = metricScale
+                    ? calibratedFillAreaM2(candidate.polygon, metricScale)
+                    : null
+                  return {
+                    id: candidate.id,
+                    polygon: candidate.polygon,
+                    areaM2:
+                      area !== null && area >= 0.001 && area <= 10_000
+                        ? Number(area.toFixed(3))
+                        : null,
+                    nearbyText: labels
+                      .filter(
+                        (label) =>
+                          label.pagePoint &&
+                          /^\p{Lu}[\p{L}\s–—-]{3,39}$/u.test(label.name.trim()) &&
+                          pdfPointInside(label.pagePoint, candidate.polygon),
+                      )
+                      .slice(0, 4)
+                      .map((label) => label.name.slice(0, 40)),
+                  }
+                }),
           },
           {
             headers: {

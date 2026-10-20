@@ -45,6 +45,7 @@ describe('display-only PDF fill hints', () => {
           { x: 20, y: 10 },
           { x: 20, y: 20 },
         ],
+        areaM2: 5.512,
         nearbyText: ['Кухня'],
       },
     ],
@@ -60,9 +61,32 @@ describe('display-only PDF fill hints', () => {
       refusalReason: null,
       truncated: false,
       candidates: valid().candidates,
+      roomHints: [],
     })
     expect(result).not.toHaveProperty('roomSourceNumber')
     expect(result).not.toHaveProperty('readyFor2D')
+  })
+
+  it('keeps numbered alternatives display-only and tied to returned fill IDs', () => {
+    const response = {
+      ...valid(),
+      roomHints: [
+        {
+          sourceNumber: 2,
+          name: 'Кухня',
+          markerLabelIds: ['native-text-4'],
+          fillIds: ['native-fill-10:0'],
+          otherSameNumberLabels: 0,
+        },
+      ],
+    }
+    expect(fillHintsFromResponse(response, preview, 'b'.repeat(64))?.roomHints).toEqual(
+      response.roomHints,
+    )
+    const hint = response.roomHints[0]
+    if (!hint) throw new Error('Missing test room hint')
+    hint.fillIds = ['native-fill-99:0']
+    expect(fillHintsFromResponse(response, preview, 'b'.repeat(64))).toBeNull()
   })
 
   it('rejects changed sources, duplicate hints and invalid coordinates', () => {

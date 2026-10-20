@@ -295,7 +295,8 @@ describe('private PDF page preview', () => {
     expect(hints).toMatchObject({
       sourceRevision: revision,
       status: 'diagnostic',
-      candidates: [{ id: 'native-fill-10:0', nearbyText: ['Кухня'] }],
+      candidates: [{ id: 'native-fill-10:0', areaM2: null, nearbyText: ['Кухня'] }],
+      roomHints: [],
     })
     expect(hints).not.toHaveProperty('geometry')
     expect(hints).not.toHaveProperty('roomSourceNumber')

@@ -556,7 +556,23 @@ describe('source-floor bridge in the existing editor', () => {
       status: 'diagnostic',
       refusalReason: null,
       truncated: false,
-      candidates: [{ id: 'native-fill-10:0', polygon: fixture.polygon, nearbyText: ['Прихожая'] }],
+      candidates: [
+        {
+          id: 'native-fill-10:0',
+          polygon: fixture.polygon,
+          areaM2: null,
+          nearbyText: ['Прихожая'],
+        },
+      ],
+      roomHints: [
+        {
+          sourceNumber: 1,
+          name: 'Прихожая',
+          markerLabelIds: ['native-text-4'],
+          fillIds: ['native-fill-10:0'],
+          otherSameNumberLabels: 0,
+        },
+      ],
     })
     hooks.values.set(slots.fillHintsShown, true)
     hooks.values.set(slots.selectedFillHint, 'native-fill-10:0')
@@ -566,6 +582,7 @@ describe('source-floor bridge in the existing editor', () => {
       (element) => (element.props as { stroke?: string }).stroke === '#2563eb',
     )
     expect(hint?.props).toMatchObject({ strokeDasharray: '6 5', pointerEvents: 'none' })
+    expect(nestedElements(editor, 'details')).toHaveLength(1)
     expect(hooks.setters.get(slots.drafts)).not.toHaveBeenCalled()
     expect(savePlanPageReview).not.toHaveBeenCalled()
 
