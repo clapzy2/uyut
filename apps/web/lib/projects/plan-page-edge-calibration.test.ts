@@ -367,6 +367,99 @@ describe('привязка наклонных размеров и метриче
     expect(planPageMetricDraft(h.reading, h.context, [1]).ok).toBe(false)
   })
 
+  describe('пропуски исходного слоя рядом с гранью', () => {
+    // Рамка пропуска — это область возможной краски. Подменить доказательство она
+    // может только тогда, когда вмещает его целиком: стену, размерную линию,
+    // звено цепи, выносную линию или подпись.
+    const box = (points: PagePoint[], pad = 0) => ({
+      operationIndex: 100,
+      bounds: {
+        left: Math.min(...points.map((point) => point.x)) - pad,
+        right: Math.max(...points.map((point) => point.x)) + pad,
+        top: Math.min(...points.map((point) => point.y)) - pad,
+        bottom: Math.max(...points.map((point) => point.y)) + pad,
+      },
+    })
+    const withOmission = (bounds: ReturnType<typeof box>) => {
+      const f = fixture()
+      f.work.clippedPaths = 1
+      f.work.clippedPathBounds = [bounds]
+      return f
+    }
+
+    it('не удерживает грань из-за мелкого обрезка на середине стены', () => {
+      const f = fixture()
+      const middle = f.point(150, 0)
+      expect(withOmission(box([middle])).binding().status).toBe('candidate')
+      // Та же рамка попадает в общий прямоугольник вокруг стены, цепи и подписи,
+      // но не может оказаться ни другой такой же стеной, ни другой цепью.
+      expect(withOmission(box([f.point(220, -10)])).binding().status).toBe('candidate')
+    })
+
+    it('не удерживает грань из-за обрезка у чужой стены', () => {
+      const f = fixture()
+      expect(withOmission(box([f.point(150, 200)])).binding().status).toBe('candidate')
+      expect(withOmission(box([f.point(900, 900)])).binding().status).toBe('candidate')
+    })
+
+    it('удерживает грань, когда обрезок вмещает всю стену', () => {
+      const f = fixture()
+      expect(withOmission(box([f.point(0, 0), f.point(300, 0)])).binding()).toMatchObject({
+        status: 'unresolved',
+        reason: 'clipped-edge-evidence',
+      })
+    })
+
+    it('удерживает грань, когда обрезок вмещает всю размерную линию', () => {
+      const f = fixture()
+      expect(withOmission(box([f.point(0, -20), f.point(300, -20)])).binding()).toMatchObject({
+        status: 'unresolved',
+        reason: 'clipped-edge-evidence',
+      })
+    })
+
+    it('удерживает грань, когда обрезок вмещает выносную линию', () => {
+      const f = fixture()
+      expect(withOmission(box([f.point(0, 0), f.point(0, -20)])).binding()).toMatchObject({
+        status: 'unresolved',
+        reason: 'clipped-edge-evidence',
+      })
+    })
+
+    it('удерживает грань, когда обрезок накрывает подпись размера', () => {
+      const f = fixture()
+      expect(withOmission(box([f.point(150, -22)])).binding()).toMatchObject({
+        status: 'unresolved',
+        reason: 'clipped-edge-evidence',
+      })
+    })
+
+    it('удерживает грань при неполном или испорченном перечне пропусков', () => {
+      const f = fixture()
+      f.work.clippedPaths = 2
+      f.work.clippedPathBounds = [box([f.point(900, 900)])]
+      expect(f.binding()).toMatchObject({
+        status: 'unresolved',
+        reason: 'clipped-edge-evidence',
+      })
+      f.work.clippedPaths = 1
+      expect(f.binding().status).toBe('candidate')
+      f.work.clippedPathBoundsTruncated = true
+      expect(f.binding()).toMatchObject({
+        status: 'unresolved',
+        reason: 'clipped-edge-evidence',
+      })
+      const broken = withOmission({
+        operationIndex: -1,
+        bounds: { left: 0, top: 0, right: 1, bottom: 1 },
+      })
+      expect(broken.binding()).toMatchObject({
+        status: 'unresolved',
+        reason: 'clipped-edge-evidence',
+      })
+    })
+  })
+
   it('требует исходную полную длину, а не середину стены', () => {
     const f = fixture()
     const chain = required(f.work.paths[4])
