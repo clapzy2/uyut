@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { NativePageSegment } from '@/lib/projects/plan-pdf-opening-endpoint'
 import {
   canAddPageFeature,
+  contourDraftFromFillHint,
   contourDraftsFromSaved,
   fillHintsFromResponse,
   finiteContourPoint,
@@ -11,6 +12,7 @@ import {
   nativePointsFromResponse,
   nativeSegmentsFromResponse,
   numberedContourRooms,
+  type PageContourPoint,
   pageContourOptions,
   pageContourPoint,
   pageContourProgress,
@@ -946,5 +948,89 @@ describe('room feature drafts', () => {
     ).toBeUndefined()
     const scalar = contourDraftsFromSaved([{ ...room, roomSourceNumber: 1 }])[0]
     expect(savedPageOpeningCheck(review, scalar, opening, preview)).toBeUndefined()
+  })
+})
+
+describe('contourDraftFromFillHint', () => {
+  // Балкон № 8 листа CHI DESIGN: шесть исходных вершин PDF с уступом внизу.
+  const balcony = [
+    { x: 878.7, y: 392.1 },
+    { x: 952.2, y: 392.1 },
+    { x: 952.2, y: 696.6 },
+    { x: 898.4, y: 696.6 },
+    { x: 898.4, y: 676.4 },
+    { x: 878.7, y: 676.4 },
+  ]
+  const nativePoints = [...balcony, { x: 10, y: 10 }]
+
+  it('переносит заливку в черновик комнаты', () => {
+    const draft = contourDraftFromFillHint({ roomSourceNumber: 8 }, balcony, nativePoints)
+    expect(draft).toEqual({ roomSourceNumber: 8, polygon: balcony, closed: true })
+    // Это черновик, а не доказанная геометрия: подтверждений в нём нет.
+    expect(draft?.vertexProofs).toBeUndefined()
+    expect(draft?.sourceTopology).toBeUndefined()
+  })
+
+  it('отдаёт контур, который проходит обычную проверку сохранения', () => {
+    const draft = contourDraftFromFillHint({ roomSourceNumber: 8 }, balcony, nativePoints)
+    if (!draft) throw new Error('Черновик не создан')
+    expect(pageContourRoomsForSave([draft], nativePoints)).toEqual([
+      { roomSourceNumber: 8, polygon: balcony },
+    ])
+  })
+
+  it('не берёт заливку с вершиной вне исходных узлов PDF', () => {
+    const moved = balcony.map((point, index) => (index === 2 ? { ...point, x: 952.3 } : point))
+    expect(contourDraftFromFillHint({ roomSourceNumber: 8 }, moved, nativePoints)).toBeNull()
+  })
+
+  it('не затирает комнату с проёмами и препятствиями', () => {
+    const before = {
+      roomSourceNumber: 8,
+      polygon: balcony,
+      closed: true,
+      openings: [{ id: 'a', kind: 'window' as const, wallEdgeIndex: 0, points: [] }],
+    }
+    expect(
+      contourDraftFromFillHint({ roomSourceNumber: 8 }, balcony, nativePoints, before),
+    ).toBeNull()
+    expect(
+      contourDraftFromFillHint({ roomSourceNumber: 8 }, balcony, nativePoints, {
+        roomSourceNumber: 8,
+        polygon: balcony,
+        closed: true,
+        obstacles: [{ id: 'b', kind: 'column' as const, polygon: [], closed: false }],
+      }),
+    ).toBeNull()
+  })
+
+  it('заменяет незаконченный черновик той же комнаты', () => {
+    const before = { roomSourceNumber: 8, polygon: [balcony[0] as PageContourPoint], closed: false }
+    expect(
+      contourDraftFromFillHint({ roomSourceNumber: 8 }, balcony, nativePoints, before),
+    ).toEqual({ roomSourceNumber: 8, polygon: balcony, closed: true })
+  })
+
+  it('не берёт заливку для общей зоны из нескольких номеров', () => {
+    expect(
+      contourDraftFromFillHint({ roomSourceNumbers: [1, 2] }, balcony, nativePoints),
+    ).toBeNull()
+  })
+
+  it('отказывает на вырожденном и слишком подробном контуре', () => {
+    expect(
+      contourDraftFromFillHint({ roomSourceNumber: 8 }, balcony.slice(0, 2), nativePoints),
+    ).toBeNull()
+    const many = Array.from({ length: 101 }, (_, index) => ({ x: index, y: index }))
+    expect(contourDraftFromFillHint({ roomSourceNumber: 8 }, many, many)).toBeNull()
+    const repeated = [...balcony, balcony[0] as PageContourPoint]
+    expect(contourDraftFromFillHint({ roomSourceNumber: 8 }, repeated, nativePoints)).toBeNull()
+    expect(
+      contourDraftFromFillHint(
+        { roomSourceNumber: 8 },
+        [{ x: Number.NaN, y: 0 }, ...balcony.slice(1)],
+        nativePoints,
+      ),
+    ).toBeNull()
   })
 })

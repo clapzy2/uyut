@@ -123,6 +123,46 @@ export function pageFloorForSave(
   }
 }
 
+/**
+ * Переносит подсказку-заливку PDF в черновик обводки комнаты: человеку остаётся сверить
+ * и поправить готовый контур вместо расстановки каждой вершины вручную.
+ *
+ * Заливка не доказывает границу пола. Поэтому результат — именно черновик: он не
+ * подтверждает геометрию, не задаёт размеры и проходит обычную проверку при сохранении.
+ * Каждая вершина заливки обязана быть исходным узлом PDF; иначе подсказка не берётся.
+ */
+export function contourDraftFromFillHint(
+  identity: PlanPageRoomIdentity,
+  polygon: readonly PageContourPoint[],
+  nativePoints: PageContourPoint[],
+  before?: PageContourDraft,
+): PageContourDraft | null {
+  // Готовую работу не затираем: проёмы, препятствия и рёбра привязаны к индексам вершин.
+  if (
+    before?.sourceTopology ||
+    before?.openings?.length ||
+    before?.obstacles?.length ||
+    before?.conditionalEdges?.length ||
+    before?.dimensionEdges?.length
+  )
+    return null
+  // Общую зону из нескольких номеров человек собирает сам: одна заливка её не описывает.
+  if (identity.roomSourceNumbers !== undefined) return null
+  if (
+    polygon.length < 3 ||
+    polygon.length > 100 ||
+    !polygon.every(finiteContourPoint) ||
+    !polygon.every((point) => nativeContourPoint(point, nativePoints)) ||
+    new Set(polygon.map((point) => `${point.x}:${point.y}`)).size !== polygon.length
+  )
+    return null
+  return {
+    ...pdfContourIdentity(identity),
+    polygon: polygon.map((point) => ({ x: point.x, y: point.y })),
+    closed: true,
+  }
+}
+
 /** Evidence belongs to one exact vertex at its original index, not to a nearby edited point. */
 export function pageContourVertexProofsChanged(
   before: Pick<PlanPageContours['rooms'][number], 'polygon' | 'vertexProofs'> | undefined,

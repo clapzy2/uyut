@@ -593,6 +593,72 @@ describe('source-floor bridge in the existing editor', () => {
       ),
     ).toBe(false)
   })
+  function withFillHint(
+    polygon: { x: number; y: number }[],
+    preview: { sha256: string; page: number },
+  ) {
+    hooks.values.set(slots.fillHints, {
+      sourceRevision: revision,
+      sourceSha256: preview.sha256,
+      page: preview.page,
+      status: 'diagnostic',
+      refusalReason: null,
+      truncated: false,
+      candidates: [{ id: 'native-fill-10:0', polygon, areaM2: null, nearbyText: ['Прихожая'] }],
+      roomHints: [
+        {
+          sourceNumber: 1,
+          name: 'Прихожая',
+          markerLabelIds: ['native-text-4'],
+          fillIds: ['native-fill-10:0'],
+          otherSameNumberLabels: 0,
+        },
+      ],
+    })
+    hooks.values.set(slots.fillHintsShown, true)
+  }
+
+  it('takes a fill hint into the room draft without confirming it', () => {
+    const { fixture, preview } = setup()
+    withFillHint(fixture.polygon, preview)
+    hooks.values.set(slots.nativePoints, fixture.polygon)
+    hooks.values.set(slots.drafts, [])
+
+    const editor = renderEditor(fixture.reading, revision)
+    const take = buttonWithText(editor, 'Взять в обводку')
+    if (!take) throw new Error('Missing take-hint button')
+    take.props.onClick()
+
+    const update = hooks.setters.get(slots.drafts)?.mock.calls.at(-1)?.[0] as (
+      current: unknown[],
+    ) => unknown[]
+    expect(update([])).toEqual([{ roomSourceNumber: 1, polygon: fixture.polygon, closed: true }])
+    // Взятый контур — черновик: сохранение остаётся отдельным действием человека.
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+  })
+
+  it('refuses to overwrite a room that already carries openings', () => {
+    const { fixture, preview } = setup()
+    withFillHint(fixture.polygon, preview)
+    hooks.values.set(slots.nativePoints, fixture.polygon)
+    hooks.values.set(slots.drafts, [
+      {
+        roomSourceNumber: 1,
+        polygon: fixture.polygon,
+        closed: true,
+        openings: [{ id: 'a', kind: 'door', wallEdgeIndex: 0, points: [] }],
+      },
+    ])
+
+    const editor = renderEditor(fixture.reading, revision)
+    const take = buttonWithText(editor, 'Взять в обводку')
+    if (!take) throw new Error('Missing take-hint button')
+    take.props.onClick()
+
+    expect(hooks.setters.get(slots.drafts)).not.toHaveBeenCalled()
+    expect(stateUpdates).toHaveBeenCalledWith(expect.stringContaining('нельзя взять в обводку'))
+  })
+
   it('shows independent material spans only for the selected fresh outer edge', () => {
     const { fixture, reference } = setup()
     const floor = reference.floors[0]
