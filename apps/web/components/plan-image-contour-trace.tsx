@@ -144,11 +144,13 @@ export function PlanImageContourTrace({
       setCorners(candidates ?? [])
       setRegions(regionGuides?.regions ?? [])
       setRegionsUncertain(regionGuides?.uncertain ?? false)
+      const focusedRegion = focus ? rasterRegionAt(focus, regionGuides?.regions ?? []) : undefined
+      setSelectedRegion(focusedRegion)
       const partial =
         payload && typeof payload === 'object' && 'truncated' in payload && payload.truncated
       setCornerNotice(
         focus
-          ? `На участке найдено углов чернил: ${candidates?.length ?? 0}; замкнутых светлых областей: ${regionGuides?.regions.length ?? 0}. Области, обрезанные краем участка, отброшены. Это неполные подсказки, а не подтверждённый пол. Сверьте контур с исходником.`
+          ? `На участке найдено углов чернил: ${candidates?.length ?? 0}; замкнутых светлых областей: ${regionGuides?.regions.length ?? 0}. ${focusedRegion ? 'Область под нажатием показана для сверки. ' : ''}Области, обрезанные краем участка, отброшены. Это неполные подсказки, а не подтверждённый пол. Сверьте контур с исходником.`
           : `Найдено углов чернил: ${candidates?.length ?? 0}; светлых областей: ${regionGuides?.regions.length ?? 0}. ${partial ? 'Подсказки неполные из-за плотного чертежа; отсутствие точки ничего не доказывает. ' : ''}Это не подтверждённые границы пола.`,
       )
     } catch {
