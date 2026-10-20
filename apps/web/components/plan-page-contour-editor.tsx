@@ -13,6 +13,7 @@ import { savePlanPageReview } from '@/actions/plan-page-review'
 import { FormError } from '@/components/form-error'
 import {
   canAddPageFeature,
+  contourDraftFromFillHint,
   contourDraftsFromSaved,
   dimensionLabelsFromResponse,
   fillHintsFromResponse,
@@ -776,6 +777,36 @@ export function PlanPageContourEditor({
     resetReview()
   }
 
+  /**
+   * Берёт подсвеченную заливку PDF как начальный контур комнаты. Это экономит ручную
+   * расстановку вершин, но ничего не подтверждает: контур открывается в обычном
+   * редакторе, человек сверяет его с линиями плана и сохраняет сам.
+   */
+  function takeFillHint(sourceNumber: number, polygon: PageContourPoint[]) {
+    if (locked) return
+    const key = pdfContourKey({ roomSourceNumber: sourceNumber })
+    const option = options.find((item) => item.key === key)
+    if (!option) {
+      setFillHintsError('Эта комната недоступна для обводки на выбранном листе.')
+      return
+    }
+    const before = drafts.find((draft) => pdfContourKey(draft) === key)
+    const draft = contourDraftFromFillHint(option.identity, polygon, nativePoints, before)
+    if (!draft) {
+      setFillHintsError(
+        'Заливку нельзя взять в обводку: у комнаты уже есть проёмы или вершины вне исходных узлов PDF. Обведите контур вручную.',
+      )
+      return
+    }
+    setFillHintsError(undefined)
+    setDrafts((current) => [...current.filter((item) => pdfContourKey(item) !== key), draft])
+    setEditingBoundary(undefined)
+    setSelectedVoidId(undefined)
+    setSelected(key)
+    setTarget({ kind: 'room' })
+    resetReview()
+  }
+
   function addFeature(kind: NewPageFeatureKind) {
     if (locked || !canAddPageFeature(selectedDraft, kind)) return
     const id = crypto.randomUUID()
@@ -1430,25 +1461,43 @@ export function PlanPageContourEditor({
                           <p className="mt-1">
                             Положение номера — только подсказка. Физическую границу пола нужно
                             сверить с линиями исходного плана. Площадь, если показана, рассчитана по
-                            печатным размерным цепям и не является обмером.
+                            печатным размерным цепям и не является обмером. «Взять в обводку»
+                            переносит вершины заливки в черновик этой комнаты, чтобы не ставить их
+                            вручную; контур остаётся неподтверждённым, пока вы не сверите его с
+                            планом и не сохраните.
                           </p>
                           {room.fillIds.map((fillId) => {
                             const fill = currentFillHints.candidates.find(
                               (candidate) => candidate.id === fillId,
                             )
                             return (
-                              <Button
-                                key={fillId}
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setSelectedFillHint(fillId)}
-                              >
-                                Показать {fillId}
-                                {fill?.areaM2 !== null && fill?.areaM2 !== undefined
-                                  ? ` · ≈${fill.areaM2.toFixed(2).replace('.', ',')} м²`
-                                  : ''}
-                              </Button>
+                              <span key={fillId} className="mr-2 inline-flex gap-1">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setSelectedFillHint(fillId)}
+                                >
+                                  Показать {fillId}
+                                  {fill?.areaM2 !== null && fill?.areaM2 !== undefined
+                                    ? ` · ≈${fill.areaM2.toFixed(2).replace('.', ',')} м²`
+                                    : ''}
+                                </Button>
+                                {fill ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={locked}
+                                    onClick={() => {
+                                      setSelectedFillHint(fillId)
+                                      takeFillHint(room.sourceNumber, fill.polygon)
+                                    }}
+                                  >
+                                    Взять в обводку
+                                  </Button>
+                                ) : null}
+                              </span>
                             )
                           })}
                         </details>
