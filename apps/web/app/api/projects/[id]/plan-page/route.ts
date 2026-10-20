@@ -206,6 +206,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           inventory,
           work: page.linework,
           rooms: envelopeRooms,
+          ...(metricScale
+            ? { cmPerPoint: (metricScale.xMmPerUnit * 100) / page.linework.pageWidth }
+            : {}),
         })
         const labels = page.nativeTextAnchors.labels
         const displayCandidates = inventory.candidates.filter(
@@ -226,6 +229,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                     polygon: envelope.polygon,
                     holes: envelope.holes,
                     roomsOutside: envelope.roomsOutside,
+                    shortEdges: envelope.shortEdges,
+                    ...(envelope.vertexProofs.length
+                      ? { vertexProofs: envelope.vertexProofs }
+                      : {}),
                   }
                 : { polygon: null, reason: envelope.reason },
             roomHints:

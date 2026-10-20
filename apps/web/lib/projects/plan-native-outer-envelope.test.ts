@@ -73,13 +73,44 @@ describe('наружная оболочка по нарисованной кра
     })
   })
 
-  it('держит оболочку, если угол кольца не исходный узел PDF', () => {
-    // Пересечение двух полос создаёт вершину, которой на чертеже нет.
+  it('принимает угол кольца с доказательством пересечения двух штрихов', () => {
+    // Пересечение двух полос создаёт вершину, которой на чертеже нет отдельным узлом.
+    const { work, inventory } = fixture([square(10, 20, 90, 30), square(20, 10, 30, 90)])
+    // Полосы обведены: пересечение их штрихов и даёт недостающий угол.
+    const stroke = (index: number, a: { x: number; y: number }, b: { x: number; y: number }) =>
+      ({
+        operationIndex: index,
+        subpathIndex: 0,
+        closed: false,
+        paint: 'stroke',
+        points: [a, b],
+      }) as never
+    work.paths.push(
+      stroke(50, { x: 10, y: 20 }, { x: 90, y: 20 }),
+      stroke(51, { x: 10, y: 30 }, { x: 90, y: 30 }),
+      stroke(52, { x: 20, y: 10 }, { x: 20, y: 90 }),
+      stroke(53, { x: 30, y: 10 }, { x: 30, y: 90 }),
+    )
+    const result = nativeOuterEnvelope({ inventory, work })
+    expect(result.status).toBe('diagnostic')
+    expect(result.vertexProofs.map((proof) => proof.kind)).toContain('bounded-native-crossing')
+    expect(result.polygon).not.toBeNull()
+  })
+
+  it('держит оболочку, если угол нельзя доказать пересечением', () => {
     const { work, inventory } = fixture([square(10, 20, 90, 30), square(20, 10, 30, 90)])
     expect(nativeOuterEnvelope({ inventory, work })).toMatchObject({
       status: 'held',
       reason: 'outer-envelope-vertex-not-native',
     })
+  })
+
+  it('называет рёбра короче сантиметра', () => {
+    const { work, inventory } = fixture([square(10, 10, 50, 40), square(10, 40, 50, 50)])
+    // Масштаб такой, что сторона в одну единицу равна одному сантиметру.
+    expect(nativeOuterEnvelope({ inventory, work, cmPerPoint: 1 }).shortEdges).toBe(0)
+    // А при мелком масштабе те же рёбра оказываются короче сантиметра.
+    expect(nativeOuterEnvelope({ inventory, work, cmPerPoint: 0.01 }).shortEdges).toBe(4)
   })
 
   it('держит оболочку при неполном или отказавшем перечне заливок', () => {

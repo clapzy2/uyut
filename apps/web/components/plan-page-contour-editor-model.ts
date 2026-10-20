@@ -174,6 +174,7 @@ export function exteriorDraftFromEnvelope(
   polygon: readonly PageContourPoint[],
   nativePoints: PageContourPoint[],
   before?: PlanPageContours['exterior'],
+  vertexProofs?: NonNullable<PlanPageContours['exterior']>['vertexProofs'],
 ): PlanPageContours['exterior'] | null {
   // Готовую проверенную границу не затираем: у неё могут быть свои доказательства вершин.
   if (before?.vertexProofs?.length) return null
@@ -181,13 +182,20 @@ export function exteriorDraftFromEnvelope(
     polygon.length < 3 ||
     polygon.length > 100 ||
     !polygon.every(finiteContourPoint) ||
-    !polygon.every((point) => nativeContourPoint(point, nativePoints)) ||
+    // Вершина без исходного узла принимается только со своим доказательством.
+    !polygon.every(
+      (point, index) =>
+        nativeContourPoint(point, nativePoints) ||
+        vertexProofs?.some((proof) => proof.vertexIndex === index),
+    ) ||
+    vertexProofs?.some((proof) => proof.vertexIndex >= polygon.length) ||
     new Set(polygon.map((point) => `${point.x}:${point.y}`)).size !== polygon.length
   )
     return null
   return {
     boundaryRole: 'outer-wall-envelope',
     polygon: polygon.map((point) => ({ x: point.x, y: point.y })),
+    ...(vertexProofs?.length ? { vertexProofs: structuredClone(vertexProofs) } : {}),
   }
 }
 
@@ -527,6 +535,14 @@ export type PlanFillHints = {
     reason?: string
     /** Комнаты, выходящие за предложенное кольцо: подсказку нужно поправить вручную. */
     roomsOutside?: number[]
+    /** Рёбра короче сантиметра: 2D округлит их в ноль, уступ убирает человек. */
+    shortEdges?: number
+    /** Доказательства вершин, которых нет среди исходных узлов PDF. */
+    vertexProofs?: PlanPageContours['exterior'] extends infer E
+      ? NonNullable<E> extends { vertexProofs?: infer V }
+        ? V
+        : never
+      : never
   }
 }
 
@@ -658,6 +674,29 @@ export function fillHintsFromResponse(
       )
         return null
       if (
+        envelope.shortEdges !== undefined &&
+        !(Number.isSafeInteger(envelope.shortEdges) && (envelope.shortEdges as number) >= 0)
+      )
+        return null
+      if (
+        envelope.vertexProofs !== undefined &&
+        (!Array.isArray(envelope.vertexProofs) ||
+          envelope.vertexProofs.length > 100 ||
+          !envelope.vertexProofs.every((proof: unknown) => {
+            const item = proof as Record<string, unknown>
+            return (
+              item !== null &&
+              typeof item === 'object' &&
+              Number.isSafeInteger(item.vertexIndex) &&
+              (item.vertexIndex as number) >= 0 &&
+              item.kind === 'bounded-native-crossing' &&
+              Array.isArray(item.segments) &&
+              item.segments.length === 2
+            )
+          }))
+      )
+        return null
+      if (
         envelope.roomsOutside !== undefined &&
         (!Array.isArray(envelope.roomsOutside) ||
           envelope.roomsOutside.length > 50 ||
@@ -675,6 +714,10 @@ export function fillHintsFromResponse(
         ...(envelope.roomsOutside === undefined
           ? {}
           : { roomsOutside: [...(envelope.roomsOutside as number[])] }),
+        ...(envelope.shortEdges === undefined ? {} : { shortEdges: envelope.shortEdges as number }),
+        ...(envelope.vertexProofs === undefined
+          ? {}
+          : { vertexProofs: structuredClone(envelope.vertexProofs) as never }),
       }
     }
   }

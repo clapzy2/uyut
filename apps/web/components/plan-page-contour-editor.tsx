@@ -812,9 +812,12 @@ export function PlanPageContourEditor({
    * Берёт предложенную оболочку застройки как начальную наружную границу. Ничего не
    * подтверждает: человек сверяет вершины с исходником, правит и сохраняет сам.
    */
-  function takeOuterEnvelope(polygon: PageContourPoint[]) {
+  function takeOuterEnvelope(
+    polygon: PageContourPoint[],
+    vertexProofs?: NonNullable<PlanFillHints['outerEnvelope']>['vertexProofs'],
+  ) {
     if (locked) return
-    const draft = exteriorDraftFromEnvelope(polygon, nativePoints, exterior)
+    const draft = exteriorDraftFromEnvelope(polygon, nativePoints, exterior, vertexProofs)
     if (!draft) {
       setFillHintsError(
         'Оболочку нельзя взять: у наружной границы уже есть проверенные вершины или в предложении есть точка вне исходных узлов PDF.',
@@ -1477,12 +1480,14 @@ export function PlanPageContourEditor({
                         onClick={() =>
                           takeOuterEnvelope(
                             currentFillHints.outerEnvelope?.polygon as PageContourPoint[],
+                            currentFillHints.outerEnvelope?.vertexProofs,
                           )
                         }
                       >
                         Взять наружную оболочку ({currentFillHints.outerEnvelope.polygon.length}{' '}
                         углов)
-                        {currentFillHints.outerEnvelope.roomsOutside?.length
+                        {currentFillHints.outerEnvelope.roomsOutside?.length ||
+                        currentFillHints.outerEnvelope.shortEdges
                           ? ' · требует правки'
                           : ''}
                       </Button>

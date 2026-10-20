@@ -1,9 +1,25 @@
+import type { PlanPageSegmentRef, PlanPageVertexProof } from '@uyut/db'
 import polygonClipping, { type Polygon } from 'polygon-clipping'
 import type { nativeFillCandidates } from './plan-native-fill-candidates'
 import { polygonWithin } from './plan-page-review'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import {
+  type NativePageSegment,
+  nativeEdgeCrossing,
+  nativePageSegments,
+} from './plan-pdf-opening-endpoint'
 
 type FillInventory = ReturnType<typeof nativeFillCandidates>
+
+const ref = ({
+  operationIndex,
+  subpathIndex,
+  segmentIndex,
+}: NativePageSegment): PlanPageSegmentRef => ({
+  operationIndex,
+  subpathIndex,
+  segmentIndex,
+})
 
 /**
  * Наружная граница застройки по нарисованной краске листа.
@@ -22,6 +38,8 @@ export function nativeOuterEnvelope(input: {
   work: PdfLinework
   /** Контуры комнат, которые человек уже взял: по ним видно, где оболочку надо поправить. */
   rooms?: readonly { sourceNumber: number; polygon: readonly PagePoint[] }[]
+  /** Масштаб листа: по нему видно рёбра короче сантиметра, которые 2D округлит в ноль. */
+  cmPerPoint?: number
 }) {
   const { inventory, work } = input
   const held = (reason: string) => ({
@@ -30,6 +48,8 @@ export function nativeOuterEnvelope(input: {
     polygon: null,
     holes: 0,
     roomsOutside: [] as number[],
+    vertexProofs: [] as PlanPageVertexProof[],
+    shortEdges: 0,
   })
   if (inventory.refusalReason) return held(inventory.refusalReason)
   if (inventory.truncated) return held('incomplete-fill-inventory')
@@ -54,11 +74,65 @@ export function nativeOuterEnvelope(input: {
   if (polygon.length < 3 || polygon.length > 100) return held('outer-envelope-vertex-limit')
   const nodes = new Set<string>()
   for (const path of work.paths) for (const point of path.points) nodes.add(`${point.x}:${point.y}`)
-  if (polygon.some((point) => !nodes.has(`${point.x}:${point.y}`)))
-    return held('outer-envelope-vertex-not-native')
+  // Булева операция может поставить вершину в точке пересечения двух штрихов. Такая
+  // точка на чертеже есть, просто её не рисовали отдельным узлом: принимаем её только
+  // с доказательством - два исходных отрезка, которые пересекаются ровно здесь. Если
+  // отрезок не единственный или пересечение не совпадает, оболочку не предлагаем.
+  const vertexProofs: PlanPageVertexProof[] = []
+  const segments = nativePageSegments(work)
+  const refCount = new Map<string, number>()
+  for (const segment of segments) {
+    const key = `${segment.operationIndex}:${segment.subpathIndex}:${segment.segmentIndex}`
+    refCount.set(key, (refCount.get(key) ?? 0) + 1)
+  }
+  const unique = (segment: NativePageSegment) =>
+    refCount.get(`${segment.operationIndex}:${segment.subpathIndex}:${segment.segmentIndex}`) === 1
+  for (const [vertexIndex, point] of polygon.entries()) {
+    if (nodes.has(`${point.x}:${point.y}`)) continue
+    const through = segments.filter(
+      (segment) =>
+        unique(segment) &&
+        Math.min(segment.start.x, segment.end.x) <= point.x &&
+        Math.max(segment.start.x, segment.end.x) >= point.x &&
+        Math.min(segment.start.y, segment.end.y) <= point.y &&
+        Math.max(segment.start.y, segment.end.y) >= point.y,
+    )
+    const crossings = through.flatMap((first) =>
+      through.flatMap((second) => {
+        if (first === second) return []
+        const crossing = nativeEdgeCrossing([first.start, first.end], second)
+        return crossing && crossing.x === point.x && crossing.y === point.y
+          ? [[first, second] as const]
+          : []
+      }),
+    )
+    const pair = crossings[0]
+    if (!pair) return held('outer-envelope-vertex-not-native')
+    vertexProofs.push({
+      vertexIndex,
+      kind: 'bounded-native-crossing',
+      segments: [
+        { ...ref(pair[0]), start: { ...pair[0].start }, end: { ...pair[0].end } },
+        { ...ref(pair[1]), start: { ...pair[1].start }, end: { ...pair[1].end } },
+      ],
+    })
+  }
   // Краска не всегда доходит до угла: тогда комната выходит за кольцо, и схема такую
   // границу не примет. Это не повод прятать предложение — человеку нужно показать,
   // что именно поправить, а не выдавать подсказку за проверенный контур.
+  // Уступ в краске длиной в несколько миллиметров 2D округлит в нулевую стену и
+  // отбросит её, а с ней и весь черновик. Такой уступ человек убирает сам: сливать
+  // две вершины за него значило бы менять чертёж.
+  const cmPerPoint = input.cmPerPoint
+  const shortEdges =
+    cmPerPoint && cmPerPoint > 0
+      ? polygon.filter((point, index) => {
+          const next = polygon[(index + 1) % polygon.length] as PagePoint
+          const dx = ((next.x - point.x) * work.pageWidth) / 1000
+          const dy = ((next.y - point.y) * work.pageHeight) / 1000
+          return Math.hypot(dx, dy) * cmPerPoint < 1
+        }).length
+      : 0
   const roomsOutside = (input.rooms ?? [])
     .filter((room) => !polygonWithin(room.polygon, polygon))
     .map((room) => room.sourceNumber)
@@ -70,5 +144,9 @@ export function nativeOuterEnvelope(input: {
     holes: (component?.length ?? 1) - 1,
     /** Комнаты, выходящие за предложенное кольцо: подсказку нужно поправить. */
     roomsOutside,
+    /** Доказательства вершин, которых нет среди исходных узлов. */
+    vertexProofs,
+    /** Рёбра короче сантиметра: 2D округлит их в ноль, человек убирает такой уступ сам. */
+    shortEdges,
   }
 }
