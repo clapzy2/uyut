@@ -429,6 +429,75 @@ export type PlanPagePreview = {
   height: number
 }
 
+export type PlanFillHints = {
+  sourceRevision: string
+  sourceSha256: string
+  page: number
+  status: 'diagnostic' | 'held'
+  refusalReason: string | null
+  truncated: boolean
+  candidates: { id: string; polygon: PageContourPoint[]; nearbyText: string[] }[]
+}
+
+/** Display-only PDF paint hints; never turn this response into saved room geometry. */
+export function fillHintsFromResponse(
+  value: unknown,
+  preview: PlanPagePreview,
+  revision: string,
+): PlanFillHints | null {
+  if (!value || typeof value !== 'object') return null
+  const response = value as Record<string, unknown>
+  const source = response.source as Record<string, unknown> | undefined
+  if (
+    response.sourceRevision !== revision ||
+    source?.sha256 !== preview.sha256 ||
+    source.pdfPage !== preview.page ||
+    source.state !== 'existing' ||
+    !['diagnostic', 'held'].includes(String(response.status)) ||
+    !(response.refusalReason === null || typeof response.refusalReason === 'string') ||
+    typeof response.truncated !== 'boolean' ||
+    !Array.isArray(response.candidates) ||
+    response.candidates.length > 50 ||
+    (response.status === 'held' && response.candidates.length !== 0)
+  )
+    return null
+  const candidates: PlanFillHints['candidates'] = []
+  const ids = new Set<string>()
+  for (const item of response.candidates) {
+    if (!item || typeof item !== 'object') return null
+    const candidate = item as Record<string, unknown>
+    if (
+      typeof candidate.id !== 'string' ||
+      !/^native-fill-\d+:\d+$/.test(candidate.id) ||
+      ids.has(candidate.id) ||
+      !Array.isArray(candidate.polygon) ||
+      candidate.polygon.length < 3 ||
+      candidate.polygon.length > 100 ||
+      !candidate.polygon.every(
+        (point: unknown) =>
+          point !== null &&
+          typeof point === 'object' &&
+          finiteContourPoint(point as PageContourPoint),
+      ) ||
+      !Array.isArray(candidate.nearbyText) ||
+      candidate.nearbyText.length > 4 ||
+      !candidate.nearbyText.every((text: unknown) => typeof text === 'string' && text.length <= 40)
+    )
+      return null
+    ids.add(candidate.id)
+    candidates.push(candidate as PlanFillHints['candidates'][number])
+  }
+  return {
+    sourceRevision: revision,
+    sourceSha256: preview.sha256,
+    page: preview.page,
+    status: response.status as PlanFillHints['status'],
+    refusalReason: response.refusalReason as string | null,
+    truncated: response.truncated as boolean,
+    candidates,
+  }
+}
+
 export type NativePointCandidate =
   | { kind: 'candidate'; point: PageContourPoint; distance: number; proof?: PlanPageEndpointProof }
   | { kind: 'ambiguous' }

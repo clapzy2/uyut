@@ -72,6 +72,9 @@ const slots = {
   sourceStrokeHighlight: 31,
   sourceBlockerHighlight: 32,
   traceReferences: 33,
+  fillHints: 34,
+  fillHintsShown: 35,
+  selectedFillHint: 38,
 } as const
 
 function sourceFixture() {
@@ -544,6 +547,35 @@ describe('source-floor bridge in the existing editor', () => {
     if (!result) throw new Error('Missing source-reference controls')
     return result
   }
+  it('shows a selected raw fill as a visual guide without changing the room draft', () => {
+    const { fixture, preview } = setup()
+    hooks.values.set(slots.fillHints, {
+      sourceRevision: revision,
+      sourceSha256: preview.sha256,
+      page: preview.page,
+      status: 'diagnostic',
+      refusalReason: null,
+      truncated: false,
+      candidates: [{ id: 'native-fill-10:0', polygon: fixture.polygon, nearbyText: ['Прихожая'] }],
+    })
+    hooks.values.set(slots.fillHintsShown, true)
+    hooks.values.set(slots.selectedFillHint, 'native-fill-10:0')
+
+    const editor = renderEditor(fixture.reading, revision)
+    const hint = nestedElements(editor, 'path').find(
+      (element) => (element.props as { stroke?: string }).stroke === '#2563eb',
+    )
+    expect(hint?.props).toMatchObject({ strokeDasharray: '6 5', pointerEvents: 'none' })
+    expect(hooks.setters.get(slots.drafts)).not.toHaveBeenCalled()
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+
+    hooks.cursor = 0
+    expect(
+      nestedElements(renderEditor(fixture.reading, 'changed'), 'path').some(
+        (element) => (element.props as { stroke?: string }).stroke === '#2563eb',
+      ),
+    ).toBe(false)
+  })
   it('shows independent material spans only for the selected fresh outer edge', () => {
     const { fixture, reference } = setup()
     const floor = reference.floors[0]

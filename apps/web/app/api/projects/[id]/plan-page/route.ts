@@ -6,6 +6,7 @@ import { PlanReadError, preparePlanPage } from '@/lib/projects/plan-document'
 import { planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { nativeDimensionMillimetres } from '@/lib/projects/plan-pdf-dimension-chain'
 import { nativePageSegments } from '@/lib/projects/plan-pdf-opening-endpoint'
+import { pdfPointInside } from '@/lib/projects/plan-pdf-room-binding'
 import { getSession } from '@/lib/session'
 import { getObject } from '@/lib/storage'
 
@@ -35,6 +36,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         'native-review',
         'native-review-image',
         'source-floor-reference',
+        'fill-hints',
       ].includes(format))
   )
     return failure('Проверьте выбранный лист и версию плана.', 400)
@@ -43,7 +45,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const nativeReview = format === 'native-review'
   const nativeReviewImage = format === 'native-review-image'
   const sourceFloorReference = format === 'source-floor-reference'
-  const inspection = nativeReview || nativeReviewImage || sourceFloorReference
+  const fillHints = format === 'fill-hints'
+  const inspection = nativeReview || nativeReviewImage || sourceFloorReference || fillHints
   const { id } = await params
   try {
     const project = await assertOwnerOrCollaborator(session.user.id, id)
@@ -81,7 +84,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         409,
       )
     const page =
-      nativeReview || sourceFloorReference
+      nativeReview || sourceFloorReference || fillHints
         ? await preparePlanPage(body, true, pageNumber, true, true)
         : await preparePlanPage(body, true, pageNumber, inspection ? false : !raster)
     const labels = planMeasurementTextItems(page.image.planText)
@@ -119,6 +122,58 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         return new Response(new Uint8Array(page.image.body), {
           headers: { ...headers, 'content-type': 'image/jpeg' },
         })
+      if (fillHints) {
+        if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+          return failure('Нативные заливки этого листа недоступны.', 422)
+        if (
+          page.nativeTextAnchors.originalPdfSha256 !== sha256 ||
+          page.nativeTextAnchors.source.sha256 !== imageSha256 ||
+          page.nativeTextAnchors.source.page !== pageNumber ||
+          page.nativeTextAnchors.source.width !== page.image.width ||
+          page.nativeTextAnchors.source.height !== page.image.height ||
+          page.lineworkRasterSource.sha256 !== imageSha256 ||
+          page.lineworkRasterSource.page !== pageNumber ||
+          page.lineworkRasterSource.width !== page.image.width ||
+          page.lineworkRasterSource.height !== page.image.height
+        )
+          return failure('Исходные заливки не совпадают с открытым листом.', 409)
+        const { nativeFillCandidates } = await import('@/lib/projects/plan-native-fill-candidates')
+        const inventory = nativeFillCandidates({
+          native: page.nativeTextAnchors,
+          work: page.linework,
+          lineworkSource: page.lineworkRasterSource,
+        })
+        const labels = page.nativeTextAnchors.labels
+        const displayCandidates = inventory.candidates.filter(
+          (candidate) => candidate.polygon.length <= 100,
+        )
+        return Response.json(
+          {
+            sourceRevision: revision,
+            source: { sha256, pdfPage: pageNumber, state: 'existing' },
+            status: inventory.refusalReason ? 'held' : 'diagnostic',
+            refusalReason: inventory.refusalReason,
+            truncated:
+              inventory.truncated || displayCandidates.length !== inventory.candidates.length,
+            candidates: inventory.refusalReason
+              ? []
+              : displayCandidates.map((candidate) => ({
+                  id: candidate.id,
+                  polygon: candidate.polygon,
+                  nearbyText: labels
+                    .filter(
+                      (label) =>
+                        label.pagePoint &&
+                        /^\p{Lu}[\p{L}\s–—-]{3,39}$/u.test(label.name.trim()) &&
+                        pdfPointInside(label.pagePoint, candidate.polygon),
+                    )
+                    .slice(0, 4)
+                    .map((label) => label.name.slice(0, 40)),
+                })),
+          },
+          { headers },
+        )
+      }
       if (sourceFloorReference) {
         if (!page.linework || !current.planReading)
           return failure('Не удалось проверить исходные области PDF.', 422)
