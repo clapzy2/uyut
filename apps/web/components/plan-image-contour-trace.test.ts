@@ -1,6 +1,7 @@
 import type { PlanImageCalibration } from '@uyut/db'
 import type { ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { rasterSourceStrokeGuide } from '@/lib/projects/plan-raster-source-strokes'
 
 const hooks = vi.hoisted(() => ({
   cursor: 0,
@@ -65,6 +66,19 @@ function findAction(
   return findAction(element.props.children, label)
 }
 
+function findSourceStroke(
+  node: unknown,
+): ReactElement<{ children?: unknown; 'data-source-stroke-ref'?: string }> | undefined {
+  if (Array.isArray(node)) return node.map(findSourceStroke).find(Boolean)
+  if (!node || typeof node !== 'object' || !('props' in node)) return undefined
+  const element = node as ReactElement<{
+    children?: unknown
+    'data-source-stroke-ref'?: string
+  }>
+  if (element.props['data-source-stroke-ref']) return element
+  return findSourceStroke(element.props.children)
+}
+
 beforeEach(() => {
   hooks.cursor = 0
   hooks.values.clear()
@@ -89,8 +103,7 @@ describe('raster region editing', () => {
     const action = findAction(editor, 'Искать углы и области на участке плана')
     expect(action?.props.disabled).toBe(false)
     action?.props.onClick?.()
-    expect(hooks.updates.get(8)).toBe(false)
-    expect(hooks.updates.get(9)).toBe(true)
+    expect([...hooks.updates.values()]).toEqual([false, true])
     expect(onChange).not.toHaveBeenCalled()
   })
 
@@ -98,7 +111,7 @@ describe('raster region editing', () => {
     const onChange = vi.fn()
     hooks.values.set(2, true)
     hooks.values.set(5, [region])
-    hooks.values.set(13, 'a'.repeat(64))
+    hooks.values.set(14, 'a'.repeat(64))
     const props = {
       planUrl: '/source.jpg',
       calibration,
@@ -148,6 +161,41 @@ describe('raster region editing', () => {
     action?.props.onClick?.()
     expect(hooks.updates.get(1)).toEqual(region.polygon)
     expect(hooks.updates.get(0)).toBe(true)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('overlays a source-referenced PDF stroke without applying the region', () => {
+    const onChange = vi.fn()
+    const guide = rasterSourceStrokeGuide(
+      region,
+      { width: 1000, height: 800 },
+      { width: 1000, height: 1000 },
+      [
+        {
+          operationIndex: 42,
+          subpathIndex: 1,
+          segmentIndex: 0,
+          start: { x: 300, y: 375 },
+          end: { x: 500, y: 375 },
+        },
+      ],
+    )
+    expect(guide).toBeDefined()
+    hooks.values.set(2, true)
+    hooks.values.set(7, region)
+    hooks.values.set(8, guide)
+    const editor = PlanImageContourTrace({
+      planUrl: '/source.jpg',
+      calibration,
+      points: undefined,
+      widthCm: 1000,
+      heightCm: 800,
+      maxPoints: 30,
+      label: 'Балкон',
+      onChange,
+      cornerSourceUrl: '/raster-candidates',
+    })
+    expect(findSourceStroke(editor)?.props['data-source-stroke-ref']).toBe('42:1:0')
     expect(onChange).not.toHaveBeenCalled()
   })
 

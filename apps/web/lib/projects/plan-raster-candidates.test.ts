@@ -72,6 +72,7 @@ describe('focused raster guides', () => {
     expect(focused.focused).toBe(true)
     expect(focused.regionUncertain).toBe(true)
     expect(focused.regionTruncated).toBe(false)
+    expect(focused.sourceStrokeGuide).toBeUndefined()
     expect(focused.regions).toEqual([
       expect.objectContaining({
         polygon: [
