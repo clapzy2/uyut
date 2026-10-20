@@ -1,7 +1,9 @@
 import sharp from 'sharp'
 import { preparePlanPage } from './plan-document'
+import { nativePageSegments } from './plan-pdf-opening-endpoint'
 import { detectPlanRasterEdges } from './plan-raster-edges'
 import { detectPlanRasterRegions } from './plan-raster-regions'
+import { rasterSourceStrokeGuide } from './plan-raster-source-strokes'
 
 /** Unclassified pixel evidence only. No metric dimensions, room assignment or gap filling. */
 export async function rasterPlanCandidates(
@@ -10,7 +12,8 @@ export async function rasterPlanCandidates(
   pageNumber: number,
   focus?: { x: number; y: number },
 ) {
-  const image = isPdf ? (await preparePlanPage(body, true, pageNumber)).image.body : body
+  const page = isPdf ? await preparePlanPage(body, true, pageNumber, Boolean(focus)) : undefined
+  const image = page?.image.body ?? body
   const decoder = sharp(image, { limitInputPixels: 16_000_000 })
   const metadata = await decoder.metadata()
   const width = metadata.width
@@ -95,6 +98,27 @@ export async function rasterPlanCandidates(
     x: (x * (crop?.width ?? width)) / gray.info.width + (crop?.left ?? 0),
     y: (y * (crop?.height ?? height)) / gray.info.height + (crop?.top ?? 0),
   })
+  const regionGuides = regions.regions.map((region) => ({
+    id: region.id,
+    polygon: region.polygon.map(point),
+    hasInteriorIslands: region.hasInteriorIslands,
+  }))
+  const focusedRegionId = scan.probe ? regions.pointMembership?.[0]?.regionId : undefined
+  const focusedRegion = regionGuides.find((region) => region.id === focusedRegionId)
+  const linework = page?.linework
+  const sourceStrokeGuide =
+    focusedRegion &&
+    linework &&
+    !linework.truncated &&
+    !linework.unsupportedContexts &&
+    !linework.unsupportedPaths
+      ? rasterSourceStrokeGuide(
+          focusedRegion,
+          { width, height },
+          { width: linework.pageWidth, height: linework.pageHeight },
+          nativePageSegments(linework),
+        )
+      : undefined
   return {
     ...detected,
     width,
@@ -107,12 +131,9 @@ export async function rasterPlanCandidates(
       start: point(segment.start),
       end: point(segment.end),
     })),
-    regions: regions.regions.map((region) => ({
-      id: region.id,
-      polygon: region.polygon.map(point),
-      hasInteriorIslands: region.hasInteriorIslands,
-    })),
+    regions: regionGuides,
     regionTruncated: regions.truncated,
     regionUncertain: regions.uncertain || Boolean(focus),
+    sourceStrokeGuide,
   }
 }

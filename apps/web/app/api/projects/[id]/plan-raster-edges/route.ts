@@ -81,6 +81,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         regions: candidates.regions,
         regionTruncated: candidates.regionTruncated,
         regionUncertain: candidates.regionUncertain,
+        sourceStrokeGuide: candidates.sourceStrokeGuide,
       },
       { headers: privateHeaders },
     )

@@ -12,6 +12,21 @@ export type RasterRegionGuides = {
   uncertain: boolean
 }
 
+export type RasterSourceStrokeGuide = {
+  regionId: string
+  edges: Array<{
+    index: number
+    status: 'nearby' | 'none' | 'held'
+    strokes: Array<{
+      operationIndex: number
+      subpathIndex: number
+      segmentIndex: number
+      start: ImageContourPoint
+      end: ImageContourPoint
+    }>
+  }>
+}
+
 /** A model-read label can guide the eye only on the exact image it came from. */
 export function rasterLabelPoint(
   anchor: { x: number; y: number; sourceSha256?: string; page?: number } | undefined,
@@ -167,6 +182,77 @@ export function rasterRegionResponse(
     regions.push({ id: region.id, polygon, hasInteriorIslands: region.hasInteriorIslands })
   }
   return { regions, uncertain: data.regionUncertain }
+}
+
+/** Bounded same-source PDF ink proximity for one focused region; not a floor proof. */
+export function rasterSourceStrokeResponse(
+  value: unknown,
+  width: number,
+  height: number,
+  page: number,
+  regions: readonly RasterRegionGuide[],
+  sha256?: string,
+): RasterSourceStrokeGuide | undefined {
+  const data = matchingRasterSource(value, width, height, page, sha256)
+  const guide = data?.sourceStrokeGuide
+  if (!guide || typeof guide !== 'object' || Array.isArray(guide)) return undefined
+  const entry = guide as Record<string, unknown>
+  const region = regions.find((candidate) => candidate.id === entry.regionId)
+  if (!region || !Array.isArray(entry.edges)) return undefined
+  const expectedEdges = rasterRegionStraightEdges(region, width, height)
+  if (entry.edges.length !== expectedEdges.length || entry.edges.length > 40) return undefined
+  const edges: RasterSourceStrokeGuide['edges'] = []
+  for (const [index, rawEdge] of entry.edges.entries()) {
+    if (!rawEdge || typeof rawEdge !== 'object' || Array.isArray(rawEdge)) return undefined
+    const edge = rawEdge as Record<string, unknown>
+    if (
+      edge.index !== index ||
+      (edge.status !== 'nearby' && edge.status !== 'none' && edge.status !== 'held') ||
+      !Array.isArray(edge.strokes) ||
+      edge.strokes.length > 20 ||
+      (edge.status === 'nearby') !== edge.strokes.length > 0
+    )
+      return undefined
+    const expected = expectedEdges[index]
+    if (!expected) return undefined
+    const strokes: RasterSourceStrokeGuide['edges'][number]['strokes'] = []
+    const refs = new Set<string>()
+    for (const rawStroke of edge.strokes) {
+      if (!rawStroke || typeof rawStroke !== 'object' || Array.isArray(rawStroke)) return undefined
+      const stroke = rawStroke as Record<string, unknown>
+      const start = stroke.start as ImageContourPoint | undefined
+      const end = stroke.end as ImageContourPoint | undefined
+      const ref = `${stroke.operationIndex}:${stroke.subpathIndex}:${stroke.segmentIndex}`
+      if (
+        ![stroke.operationIndex, stroke.subpathIndex, stroke.segmentIndex].every(
+          (part) => Number.isSafeInteger(part) && Number(part) >= 0,
+        ) ||
+        refs.has(ref) ||
+        !start ||
+        !end ||
+        ![start.x, start.y, end.x, end.y].every(Number.isFinite) ||
+        [start, end].some(
+          (point) =>
+            point.x < 0 ||
+            point.y < 0 ||
+            point.x > width ||
+            point.y > height ||
+            distanceToSegmentSquared(point, expected.start, expected.end) > 0.01,
+        )
+      )
+        return undefined
+      refs.add(ref)
+      strokes.push({
+        operationIndex: Number(stroke.operationIndex),
+        subpathIndex: Number(stroke.subpathIndex),
+        segmentIndex: Number(stroke.segmentIndex),
+        start: { x: start.x, y: start.y },
+        end: { x: end.x, y: end.y },
+      })
+    }
+    edges.push({ index, status: edge.status, strokes })
+  }
+  return { regionId: region.id, edges }
 }
 
 /** A click only selects one unclassified component; it does not change the tracing draft. */

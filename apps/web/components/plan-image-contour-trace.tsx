@@ -15,6 +15,7 @@ import {
 } from '@/lib/projects/plan-image-contour'
 import {
   type RasterRegionGuide,
+  type RasterSourceStrokeGuide,
   rasterCandidateSourceSha256,
   rasterCornerResponse,
   rasterLabelPoint,
@@ -22,6 +23,7 @@ import {
   rasterRegionResponse,
   rasterRegionStraightEdges,
   rasterRegionTraceDraft,
+  rasterSourceStrokeResponse,
   snapRasterCorner,
 } from '@/lib/projects/plan-raster-snap'
 
@@ -56,6 +58,7 @@ export function PlanImageContourTrace({
   const [regions, setRegions] = useState<RasterRegionGuide[]>([])
   const [regionsUncertain, setRegionsUncertain] = useState(false)
   const [selectedRegion, setSelectedRegion] = useState<RasterRegionGuide>()
+  const [sourceStrokeGuide, setSourceStrokeGuide] = useState<RasterSourceStrokeGuide>()
   const [selectingRegion, setSelectingRegion] = useState(false)
   const [selectingFocus, setSelectingFocus] = useState(false)
   const [cornersLoading, setCornersLoading] = useState(false)
@@ -69,6 +72,7 @@ export function PlanImageContourTrace({
     setRegions([])
     setRegionsUncertain(false)
     setSelectedRegion(undefined)
+    setSourceStrokeGuide(undefined)
     setSelectingRegion(false)
     setSelectingFocus(false)
     setUseCorners(false)
@@ -97,6 +101,7 @@ export function PlanImageContourTrace({
     setRegions([])
     setRegionsUncertain(false)
     setSelectedRegion(undefined)
+    setSourceStrokeGuide(undefined)
     setSelectingRegion(false)
     setSelectingFocus(false)
     setCornerNotice(undefined)
@@ -127,6 +132,14 @@ export function PlanImageContourTrace({
         calibration.pdfPage ?? 1,
         calibration.sourceSha256,
       )
+      const sourceStrokes = rasterSourceStrokeResponse(
+        payload,
+        calibration.imageWidthPx,
+        calibration.imageHeightPx,
+        calibration.pdfPage ?? 1,
+        regionGuides?.regions ?? [],
+        calibration.sourceSha256,
+      )
       if (controller.signal.aborted) return
       if (!candidates && !regionGuides) {
         setCornerNotice('Подсказки неполные или источник изменился. Продолжайте обводку вручную.')
@@ -146,6 +159,7 @@ export function PlanImageContourTrace({
       setRegionsUncertain(regionGuides?.uncertain ?? false)
       const focusedRegion = focus ? rasterRegionAt(focus, regionGuides?.regions ?? []) : undefined
       setSelectedRegion(focusedRegion)
+      setSourceStrokeGuide(sourceStrokes)
       const partial =
         payload && typeof payload === 'object' && 'truncated' in payload && payload.truncated
       setCornerNotice(
@@ -171,6 +185,8 @@ export function PlanImageContourTrace({
   const candidateEdges = selectedRegion
     ? rasterRegionStraightEdges(selectedRegion, calibration.imageWidthPx, calibration.imageHeightPx)
     : []
+  const selectedSourceStrokes =
+    selectedRegion?.id === sourceStrokeGuide?.regionId ? sourceStrokeGuide : undefined
   const regionDraft = selectedRegion ? rasterRegionTraceDraft(selectedRegion, maxPoints) : undefined
   const labelPoint = rasterLabelPoint(labelAnchor, {
     width: calibration.imageWidthPx,
@@ -309,6 +325,37 @@ export function PlanImageContourTrace({
                   strokeWidth="3"
                 />
               ))}
+              {selectedSourceStrokes?.edges.flatMap((edge) => {
+                const candidate = candidateEdges[edge.index]
+                if (!candidate || edge.status === 'nearby') return []
+                return [
+                  <line
+                    key={`source-gap-${edge.index}`}
+                    data-source-stroke-status={edge.status}
+                    x1={candidate.start.x}
+                    y1={candidate.start.y}
+                    x2={candidate.end.x}
+                    y2={candidate.end.y}
+                    stroke={edge.status === 'none' ? '#b65c31' : '#777777'}
+                    strokeDasharray="5 4"
+                    strokeWidth="3"
+                  />,
+                ]
+              })}
+              {selectedSourceStrokes?.edges.flatMap((edge) =>
+                edge.strokes.map((stroke) => (
+                  <line
+                    key={`${edge.index}-${stroke.operationIndex}-${stroke.subpathIndex}-${stroke.segmentIndex}`}
+                    data-source-stroke-ref={`${stroke.operationIndex}:${stroke.subpathIndex}:${stroke.segmentIndex}`}
+                    x1={stroke.start.x}
+                    y1={stroke.start.y}
+                    x2={stroke.end.x}
+                    y2={stroke.end.y}
+                    stroke="#315ed0"
+                    strokeWidth="3"
+                  />
+                )),
+              )}
             </>
           ) : null}
           {imageMatches && labelRegion && labelPoint ? (
@@ -447,6 +494,21 @@ export function PlanImageContourTrace({
                   ? ' На исходнике есть внутренние штрихи или неоднозначные области.'
                   : ''}
               </p>
+              {selectedSourceStrokes ? (
+                <div className="space-y-1 text-[12px] text-ink-2">
+                  <p>
+                    Синие отрезки — близкие исходные штрихи PDF. Они могут быть размерными линиями,
+                    мебелью или скрытой краской графикой; совпадение не доказывает границу пола.
+                    Оранжевая сторона — рядом не найден прямой исходный штрих; серая — сравнение
+                    неоднозначно. Отсутствие совпадения не доказывает отсутствие стены.
+                  </p>
+                  <p>
+                    {selectedSourceStrokes.edges.filter((edge) => edge.status === 'nearby').length}{' '}
+                    из {selectedSourceStrokes.edges.length} длинных сторон имеют штрихи рядом.
+                    Остальные требуют отдельной сверки на исходнике.
+                  </p>
+                </div>
+              ) : null}
               {!tracing && regionDraft ? (
                 <Button
                   type="button"
