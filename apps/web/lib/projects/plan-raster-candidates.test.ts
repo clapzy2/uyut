@@ -54,4 +54,51 @@ describe('focused raster guides', () => {
       RangeError,
     )
   })
+
+  it('offers a fully enclosed local light area in original image coordinates', async () => {
+    const width = 900
+    const height = 800
+    const grayscale = Buffer.alloc(width * height, 255)
+    for (let y = 350; y < 450; y++) {
+      for (let x = 400; x < 500; x++) {
+        if (x < 404 || x >= 496 || y < 354 || y >= 446) grayscale[y * width + x] = 0
+      }
+    }
+    const image = await sharp(grayscale, { raw: { width, height, channels: 1 } })
+      .png()
+      .toBuffer()
+
+    const focused = await rasterPlanCandidates(image, false, 1, { x: 450, y: 400 })
+    expect(focused.focused).toBe(true)
+    expect(focused.regionUncertain).toBe(true)
+    expect(focused.regionTruncated).toBe(false)
+    expect(focused.regions).toEqual([
+      expect.objectContaining({
+        polygon: [
+          { x: 404, y: 354 },
+          { x: 496, y: 354 },
+          { x: 496, y: 446 },
+          { x: 404, y: 446 },
+        ],
+      }),
+    ])
+  })
+
+  it('does not close a light area that continues beyond the focused crop', async () => {
+    const width = 900
+    const height = 800
+    const grayscale = Buffer.alloc(width * height, 255)
+    for (let y = 250; y < 550; y++) {
+      for (let x = 180; x < 350; x++) {
+        if (x < 184 || x >= 346 || y < 254 || y >= 546) grayscale[y * width + x] = 0
+      }
+    }
+    const image = await sharp(grayscale, { raw: { width, height, channels: 1 } })
+      .png()
+      .toBuffer()
+
+    const focused = await rasterPlanCandidates(image, false, 1, { x: 450, y: 400 })
+    expect(focused.regions).toEqual([])
+    expect(focused.regionUncertain).toBe(true)
+  })
 })

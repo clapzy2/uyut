@@ -55,13 +55,14 @@ export async function rasterPlanCandidates(
     width: gray.info.width,
     height: gray.info.height,
   })
-  const regions = focus
-    ? undefined
-    : detectPlanRasterRegions({
-        grayscale: gray.data,
-        width: gray.info.width,
-        height: gray.info.height,
-      })
+  // A local scan can recover fully enclosed bright components lost when the
+  // whole drawing hits its region limit. The detector excludes components
+  // touching the crop frame, so the crop cannot invent a closing boundary.
+  const regions = detectPlanRasterRegions({
+    grayscale: gray.data,
+    width: gray.info.width,
+    height: gray.info.height,
+  })
   const point = ({ x, y }: { x: number; y: number }) => ({
     x: (x * (crop?.width ?? width)) / gray.info.width + (crop?.left ?? 0),
     y: (y * (crop?.height ?? height)) / gray.info.height + (crop?.top ?? 0),
@@ -78,12 +79,12 @@ export async function rasterPlanCandidates(
       start: point(segment.start),
       end: point(segment.end),
     })),
-    regions: (regions?.regions ?? []).map((region) => ({
+    regions: regions.regions.map((region) => ({
       id: region.id,
       polygon: region.polygon.map(point),
       hasInteriorIslands: region.hasInteriorIslands,
     })),
-    regionTruncated: regions?.truncated ?? false,
-    regionUncertain: regions?.uncertain ?? Boolean(focus),
+    regionTruncated: regions.truncated,
+    regionUncertain: regions.uncertain || Boolean(focus),
   }
 }
