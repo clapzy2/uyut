@@ -192,6 +192,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           inventory,
           schedule: nativeRoomScheduleEvidence(evidence),
         })
+        // Оболочка застройки по краске листа: предложение для сверки человеком.
+        const { nativeOuterEnvelope } = await import('@/lib/projects/plan-native-outer-envelope')
+        const envelope = nativeOuterEnvelope({ inventory, work: page.linework })
         const labels = page.nativeTextAnchors.labels
         const displayCandidates = inventory.candidates.filter(
           (candidate) => candidate.polygon.length <= 100,
@@ -205,6 +208,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             refusalReason: inventory.refusalReason,
             truncated:
               inventory.truncated || displayCandidates.length !== inventory.candidates.length,
+            outerEnvelope:
+              envelope.status === 'diagnostic'
+                ? { polygon: envelope.polygon, holes: envelope.holes }
+                : { polygon: null, reason: envelope.reason },
             roomHints:
               numbered.status === 'diagnostic'
                 ? numbered.rows.map((row) => ({
