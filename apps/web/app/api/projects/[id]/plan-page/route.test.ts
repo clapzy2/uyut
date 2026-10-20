@@ -266,7 +266,13 @@ describe('private PDF page preview', () => {
         originalPdfSha256: createHash('sha256').update('pdf').digest('hex'),
         complete: true,
         pageNormalizedScale: { x: imageSource.width / 1000, y: imageSource.height / 1000 },
-        labels: [{ id: 'room-name', name: 'Кухня', pagePoint: { x: 150, y: 150 } }],
+        labels: [
+          { id: 'room-name', name: 'Кухня', pagePoint: { x: 150, y: 150 } },
+          // Подпись площади внутри заливки; надстрочная «²» лежит отдельной меткой.
+          { id: 'room-area', name: 'S: 4,64 м', pagePoint: { x: 140, y: 160 } },
+          { id: 'room-area-sup', name: '2', pagePoint: { x: 170, y: 158 } },
+          { id: 'outside-area', name: 'S: 99,00 м', pagePoint: { x: 500, y: 500 } },
+        ],
       },
       lineworkRasterSource: imageSource,
       linework: {
@@ -295,7 +301,15 @@ describe('private PDF page preview', () => {
     expect(hints).toMatchObject({
       sourceRevision: revision,
       status: 'diagnostic',
-      candidates: [{ id: 'native-fill-10:0', areaM2: null, nearbyText: ['Кухня'] }],
+      candidates: [
+        {
+          id: 'native-fill-10:0',
+          areaM2: null,
+          nearbyText: ['Кухня'],
+          // Подпись площади чертежа показывается рядом с расчётом и не выбирает контур.
+          printedAreas: ['S: 4,64 м²'],
+        },
+      ],
       roomHints: [],
     })
     expect(hints).not.toHaveProperty('geometry')

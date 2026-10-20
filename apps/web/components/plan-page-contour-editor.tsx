@@ -1482,6 +1482,9 @@ export function PlanPageContourEditor({
                                   {fill?.areaM2 !== null && fill?.areaM2 !== undefined
                                     ? ` · ≈${fill.areaM2.toFixed(2).replace('.', ',')} м²`
                                     : ''}
+                                  {fill?.printedAreas?.length
+                                    ? ` · на чертеже ${fill.printedAreas.join(', ')}`
+                                    : ''}
                                 </Button>
                                 {fill ? (
                                   <Button
