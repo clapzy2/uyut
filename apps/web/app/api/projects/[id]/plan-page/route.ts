@@ -18,6 +18,30 @@ function failure(message: string, status: number) {
   return new Response(message, { status, headers: privateHeaders })
 }
 
+type SourceLabel = { name: string; pagePoint?: { x: number; y: number } }
+
+/**
+ * Подпись площади так, как она напечатана. Надстрочная «²» в PDF лежит отдельной
+ * меткой рядом с «м»; возвращаем её обратно, ничего не додумывая сверх этого.
+ */
+function printedAreaText(label: SourceLabel, labels: readonly SourceLabel[]) {
+  const text = label.name.trim()
+  const point = label.pagePoint
+  if (!point || !/(м|m)$/iu.test(text)) return text
+  const superscript = labels.some((other) => {
+    const candidate = other.pagePoint
+    return (
+      other !== label &&
+      candidate !== undefined &&
+      other.name.trim() === '2' &&
+      Math.abs(candidate.y - point.y) <= 5 &&
+      candidate.x > point.x &&
+      candidate.x - point.x < 45
+    )
+  })
+  return superscript ? `${text}²` : text
+}
+
 /** Private source pixels and coordinate metadata, without a paid reader invocation. */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession()
@@ -210,6 +234,18 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                       )
                       .slice(0, 4)
                       .map((label) => label.name.slice(0, 40)),
+                    // Подпись площади, напечатанная внутри самой заливки: человеку
+                    // нужно сравнить её с расчётом. Выбор контура она не определяет
+                    // и в геометрию не попадает.
+                    printedAreas: labels
+                      .filter(
+                        (label) =>
+                          label.pagePoint &&
+                          /\d[\d\s.,]*\s*(м|m)\s*2?\s*$/iu.test(label.name.trim()) &&
+                          pdfPointInside(label.pagePoint, candidate.polygon),
+                      )
+                      .slice(0, 2)
+                      .map((label) => printedAreaText(label, labels).slice(0, 40)),
                   }
                 }),
           },

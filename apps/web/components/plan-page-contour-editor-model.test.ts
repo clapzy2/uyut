@@ -69,6 +69,23 @@ describe('display-only PDF fill hints', () => {
     expect(result).not.toHaveProperty('readyFor2D')
   })
 
+  it('переносит напечатанную подпись площади и отвергает подделанную', () => {
+    const response = valid()
+    const candidate = response.candidates[0] as unknown as Record<string, unknown>
+    if (!candidate) throw new Error('Нет кандидата заливки')
+    candidate.printedAreas = ['S: 2,46 м²']
+    expect(
+      fillHintsFromResponse(response, preview, 'b'.repeat(64))?.candidates[0]?.printedAreas,
+    ).toEqual(['S: 2,46 м²'])
+    // Подпись только показывается рядом с расчётом: выбор контура она не задаёт.
+    candidate.printedAreas = ['один', 'два', 'три']
+    expect(fillHintsFromResponse(response, preview, 'b'.repeat(64))).toBeNull()
+    candidate.printedAreas = ['x'.repeat(41)]
+    expect(fillHintsFromResponse(response, preview, 'b'.repeat(64))).toBeNull()
+    candidate.printedAreas = [2.46]
+    expect(fillHintsFromResponse(response, preview, 'b'.repeat(64))).toBeNull()
+  })
+
   it('keeps numbered alternatives display-only and tied to returned fill IDs', () => {
     const response = {
       ...valid(),

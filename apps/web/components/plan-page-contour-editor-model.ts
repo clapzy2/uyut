@@ -481,6 +481,9 @@ export type PlanFillHints = {
     polygon: PageContourPoint[]
     areaM2: number | null
     nearbyText: string[]
+    /** Подписи площади, напечатанные внутри этой заливки. Их показывают человеку
+     * для сравнения с расчётом; выбор контура они не определяют. */
+    printedAreas?: string[]
   }[]
   roomHints: {
     sourceNumber: number
@@ -541,7 +544,17 @@ export function fillHintsFromResponse(
       ) ||
       !Array.isArray(candidate.nearbyText) ||
       candidate.nearbyText.length > 4 ||
-      !candidate.nearbyText.every((text: unknown) => typeof text === 'string' && text.length <= 40)
+      !candidate.nearbyText.every(
+        (text: unknown) => typeof text === 'string' && text.length <= 40,
+      ) ||
+      !(
+        candidate.printedAreas === undefined ||
+        (Array.isArray(candidate.printedAreas) &&
+          candidate.printedAreas.length <= 2 &&
+          candidate.printedAreas.every(
+            (text: unknown) => typeof text === 'string' && text.length <= 40,
+          ))
+      )
     )
       return null
     ids.add(candidate.id)
