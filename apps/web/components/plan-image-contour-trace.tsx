@@ -92,12 +92,12 @@ export function PlanImageContourTrace({
     setCornersLoading(true)
     setUseCorners(false)
     setCorners([])
-    if (!focus) {
-      setRegions([])
-      setRegionsUncertain(false)
-      setSelectedRegion(undefined)
-      setSelectingRegion(false)
-    }
+    // Global and focused region IDs are local to their own scan. Never mix
+    // their guides or leave an old selection over a different source window.
+    setRegions([])
+    setRegionsUncertain(false)
+    setSelectedRegion(undefined)
+    setSelectingRegion(false)
     setSelectingFocus(false)
     setCornerNotice(undefined)
     setCandidateSourceSha256(undefined)
@@ -142,15 +142,13 @@ export function PlanImageContourTrace({
         ),
       )
       setCorners(candidates ?? [])
-      if (!focus) {
-        setRegions(regionGuides?.regions ?? [])
-        setRegionsUncertain(regionGuides?.uncertain ?? false)
-      }
+      setRegions(regionGuides?.regions ?? [])
+      setRegionsUncertain(regionGuides?.uncertain ?? false)
       const partial =
         payload && typeof payload === 'object' && 'truncated' in payload && payload.truncated
       setCornerNotice(
         focus
-          ? `Рядом с выбранной точкой найдено углов чернил: ${candidates?.length ?? 0}. Это неполный локальный поиск, а не подтверждённая граница пола. Сверьте каждый угол с исходником.`
+          ? `На участке найдено углов чернил: ${candidates?.length ?? 0}; замкнутых светлых областей: ${regionGuides?.regions.length ?? 0}. Области, обрезанные краем участка, отброшены. Это неполные подсказки, а не подтверждённый пол. Сверьте контур с исходником.`
           : `Найдено углов чернил: ${candidates?.length ?? 0}; светлых областей: ${regionGuides?.regions.length ?? 0}. ${partial ? 'Подсказки неполные из-за плотного чертежа; отсутствие точки ничего не доказывает. ' : ''}Это не подтверждённые границы пола.`,
       )
     } catch {
@@ -375,7 +373,9 @@ export function PlanImageContourTrace({
               setSelectingFocus(true)
             }}
           >
-            {selectingFocus ? 'Нажмите рядом с нужным углом' : 'Искать углы на участке плана'}
+            {selectingFocus
+              ? 'Нажмите внутри нужного участка'
+              : 'Искать углы и области на участке плана'}
           </Button>
           {corners.length ? (
             <label className="flex min-h-11 items-center gap-2 text-[13px]">

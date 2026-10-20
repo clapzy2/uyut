@@ -86,7 +86,7 @@ describe('raster region editing', () => {
       onChange,
       cornerSourceUrl: '/raster-candidates',
     })
-    const action = findAction(editor, 'Искать углы на участке плана')
+    const action = findAction(editor, 'Искать углы и области на участке плана')
     expect(action?.props.disabled).toBe(false)
     action?.props.onClick?.()
     expect(hooks.updates.get(8)).toBe(false)

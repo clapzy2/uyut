@@ -195,7 +195,7 @@ test.describe('обводка растрового контура по двум 
     })
     await expect(assistance).not.toBeChecked()
     await expect(floorTrace.getByLabel('Угол 1 · X, пикс.', { exact: true })).toHaveValue('110')
-    await floorTrace.getByRole('button', { name: 'Искать углы на участке плана' }).click()
+    await floorTrace.getByRole('button', { name: 'Искать углы и области на участке плана' }).click()
     const localResponse = page.waitForResponse(
       (response) =>
         response.url().includes(`/api/projects/${projectId}/plan-raster-edges`) &&
@@ -219,7 +219,7 @@ test.describe('обводка растрового контура по двум 
     expect(localGuides.focused).toBe(true)
     expect(localGuides.uncertain).toBe(true)
     expect(localGuides.points.length).toBeGreaterThan(0)
-    await expect(floorTrace.getByText(/неполный локальный поиск/)).toBeVisible()
+    await expect(floorTrace.getByText(/неполные подсказки, а не подтверждённый пол/)).toBeVisible()
     await expect(floorTrace.getByLabel('Угол 1 · X, пикс.', { exact: true })).toHaveValue('110')
     expect(await savedGeometry()).toEqual(geometry)
     await floorTrace.getByRole('button', { name: 'Найти углы по пикселям', exact: true }).click()
