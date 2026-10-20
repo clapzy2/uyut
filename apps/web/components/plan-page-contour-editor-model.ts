@@ -436,7 +436,19 @@ export type PlanFillHints = {
   status: 'diagnostic' | 'held'
   refusalReason: string | null
   truncated: boolean
-  candidates: { id: string; polygon: PageContourPoint[]; nearbyText: string[] }[]
+  candidates: {
+    id: string
+    polygon: PageContourPoint[]
+    areaM2: number | null
+    nearbyText: string[]
+  }[]
+  roomHints: {
+    sourceNumber: number
+    name: string
+    markerLabelIds: string[]
+    fillIds: string[]
+    otherSameNumberLabels: number
+  }[]
 }
 
 /** Display-only PDF paint hints; never turn this response into saved room geometry. */
@@ -479,13 +491,57 @@ export function fillHintsFromResponse(
           typeof point === 'object' &&
           finiteContourPoint(point as PageContourPoint),
       ) ||
+      !(
+        candidate.areaM2 === undefined ||
+        candidate.areaM2 === null ||
+        (typeof candidate.areaM2 === 'number' &&
+          Number.isFinite(candidate.areaM2) &&
+          candidate.areaM2 > 0 &&
+          candidate.areaM2 <= 10_000)
+      ) ||
       !Array.isArray(candidate.nearbyText) ||
       candidate.nearbyText.length > 4 ||
       !candidate.nearbyText.every((text: unknown) => typeof text === 'string' && text.length <= 40)
     )
       return null
     ids.add(candidate.id)
-    candidates.push(candidate as PlanFillHints['candidates'][number])
+    candidates.push({
+      ...(candidate as PlanFillHints['candidates'][number]),
+      areaM2: typeof candidate.areaM2 === 'number' ? candidate.areaM2 : null,
+    })
+  }
+  const roomHints: PlanFillHints['roomHints'] = []
+  const roomNumbers = new Set<number>()
+  if (response.roomHints !== undefined) {
+    if (!Array.isArray(response.roomHints) || response.roomHints.length > 50) return null
+    if (response.status === 'held' && response.roomHints.length > 0) return null
+    for (const item of response.roomHints) {
+      if (!item || typeof item !== 'object') return null
+      const hint = item as Record<string, unknown>
+      if (
+        !Number.isSafeInteger(hint.sourceNumber) ||
+        (hint.sourceNumber as number) < 1 ||
+        (hint.sourceNumber as number) > 99 ||
+        roomNumbers.has(hint.sourceNumber as number) ||
+        typeof hint.name !== 'string' ||
+        hint.name.length < 1 ||
+        hint.name.length > 100 ||
+        !Array.isArray(hint.markerLabelIds) ||
+        hint.markerLabelIds.length > 50 ||
+        !hint.markerLabelIds.every(
+          (id: unknown) => typeof id === 'string' && /^native-text-\d+$/.test(id),
+        ) ||
+        !Array.isArray(hint.fillIds) ||
+        hint.fillIds.length > 50 ||
+        !hint.fillIds.every((id: unknown) => typeof id === 'string' && ids.has(id)) ||
+        !Number.isSafeInteger(hint.otherSameNumberLabels) ||
+        (hint.otherSameNumberLabels as number) < 0 ||
+        (hint.otherSameNumberLabels as number) > 1000
+      )
+        return null
+      roomNumbers.add(hint.sourceNumber as number)
+      roomHints.push(hint as PlanFillHints['roomHints'][number])
+    }
   }
   return {
     sourceRevision: revision,
@@ -495,6 +551,7 @@ export function fillHintsFromResponse(
     refusalReason: response.refusalReason as string | null,
     truncated: response.truncated as boolean,
     candidates,
+    roomHints,
   }
 }
 

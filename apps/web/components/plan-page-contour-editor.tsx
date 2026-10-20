@@ -1414,6 +1414,47 @@ export function PlanPageContourEditor({
                   {currentFillHints.status === 'held' ? (
                     <p>Нативный слой неполон: подсказки для этого листа не показаны.</p>
                   ) : null}
+                  {currentFillHints.roomHints.length ? (
+                    <div className="space-y-1">
+                      <p>Области под печатными номерами комнат:</p>
+                      {currentFillHints.roomHints.map((room) => (
+                        <details key={room.sourceNumber} className="border border-line px-2 py-1">
+                          <summary className="cursor-pointer">
+                            № {room.sourceNumber} {room.name} ·{' '}
+                            {room.fillIds.length
+                              ? `${room.fillIds.length} ${room.fillIds.length === 1 ? 'заливка' : 'заливки'}`
+                              : 'заливка не найдена'}
+                            {room.markerLabelIds.length > 1 ? ' · несколько меток номера' : ''}
+                            {room.otherSameNumberLabels ? ' · есть другие такие цифры' : ''}
+                          </summary>
+                          <p className="mt-1">
+                            Положение номера — только подсказка. Физическую границу пола нужно
+                            сверить с линиями исходного плана. Площадь, если показана, рассчитана по
+                            печатным размерным цепям и не является обмером.
+                          </p>
+                          {room.fillIds.map((fillId) => {
+                            const fill = currentFillHints.candidates.find(
+                              (candidate) => candidate.id === fillId,
+                            )
+                            return (
+                              <Button
+                                key={fillId}
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setSelectedFillHint(fillId)}
+                              >
+                                Показать {fillId}
+                                {fill?.areaM2 !== null && fill?.areaM2 !== undefined
+                                  ? ` · ≈${fill.areaM2.toFixed(2).replace('.', ',')} м²`
+                                  : ''}
+                              </Button>
+                            )
+                          })}
+                        </details>
+                      ))}
+                    </div>
+                  ) : null}
                   {currentFillHints.candidates.length ? (
                     <label className="block max-w-md space-y-1">
                       <span>Область для подсветки</span>
