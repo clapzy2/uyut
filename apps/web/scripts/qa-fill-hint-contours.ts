@@ -84,11 +84,23 @@ console.log(
       : '; собрать лист целиком нельзя'),
 )
 // Наружная оболочка по краске листа: предложение для сверки, не подтверждённая граница.
-const envelope = nativeOuterEnvelope({ inventory, work: linework })
+const envelope = nativeOuterEnvelope({
+  inventory,
+  work: linework,
+  rooms: unambiguous.map((room) => ({
+    sourceNumber: room.roomSourceNumber,
+    polygon: room.polygon,
+  })),
+})
 console.log(
   `наружная оболочка: ${
     envelope.polygon
-      ? `${envelope.polygon.length} углов, незакрашенных областей внутри ${envelope.holes}`
+      ? `${envelope.polygon.length} углов, незакрашенных областей внутри ${envelope.holes}` +
+        (
+          envelope.roomsOutside.length
+            ? `; требует правки — за кольцо выходят комнаты № ${envelope.roomsOutside.join(', № ')}`
+            : '; все взятые комнаты внутри'
+        )
       : `не предлагается — ${envelope.reason}`
   }`,
 )

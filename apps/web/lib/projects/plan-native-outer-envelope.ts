@@ -1,5 +1,6 @@
 import polygonClipping, { type Polygon } from 'polygon-clipping'
 import type { nativeFillCandidates } from './plan-native-fill-candidates'
+import { polygonWithin } from './plan-page-review'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
 
 type FillInventory = ReturnType<typeof nativeFillCandidates>
@@ -16,9 +17,20 @@ type FillInventory = ReturnType<typeof nativeFillCandidates>
  * Любая вершина кольца обязана быть исходным узлом PDF: булева операция может
  * создать точку пересечения, которой на чертеже нет, и такую границу мы не предлагаем.
  */
-export function nativeOuterEnvelope(input: { inventory: FillInventory; work: PdfLinework }) {
+export function nativeOuterEnvelope(input: {
+  inventory: FillInventory
+  work: PdfLinework
+  /** Контуры комнат, которые человек уже взял: по ним видно, где оболочку надо поправить. */
+  rooms?: readonly { sourceNumber: number; polygon: readonly PagePoint[] }[]
+}) {
   const { inventory, work } = input
-  const held = (reason: string) => ({ status: 'held' as const, reason, polygon: null, holes: 0 })
+  const held = (reason: string) => ({
+    status: 'held' as const,
+    reason,
+    polygon: null,
+    holes: 0,
+    roomsOutside: [] as number[],
+  })
   if (inventory.refusalReason) return held(inventory.refusalReason)
   if (inventory.truncated) return held('incomplete-fill-inventory')
   if (!inventory.candidates.length) return held('no-source-paint')
@@ -44,11 +56,19 @@ export function nativeOuterEnvelope(input: { inventory: FillInventory; work: Pdf
   for (const path of work.paths) for (const point of path.points) nodes.add(`${point.x}:${point.y}`)
   if (polygon.some((point) => !nodes.has(`${point.x}:${point.y}`)))
     return held('outer-envelope-vertex-not-native')
+  // Краска не всегда доходит до угла: тогда комната выходит за кольцо, и схема такую
+  // границу не примет. Это не повод прятать предложение — человеку нужно показать,
+  // что именно поправить, а не выдавать подсказку за проверенный контур.
+  const roomsOutside = (input.rooms ?? [])
+    .filter((room) => !polygonWithin(room.polygon, polygon))
+    .map((room) => room.sourceNumber)
   return {
     status: 'diagnostic' as const,
     reason: null,
     polygon: polygon as PagePoint[],
     /** Незакрашенные области внутри оболочки: шахты и проёмы. Отдельная сверка. */
     holes: (component?.length ?? 1) - 1,
+    /** Комнаты, выходящие за предложенное кольцо: подсказку нужно поправить. */
+    roomsOutside,
   }
 }

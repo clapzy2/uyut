@@ -1482,12 +1482,22 @@ export function PlanPageContourEditor({
                       >
                         Взять наружную оболочку ({currentFillHints.outerEnvelope.polygon.length}{' '}
                         углов)
+                        {currentFillHints.outerEnvelope.roomsOutside?.length
+                          ? ' · требует правки'
+                          : ''}
                       </Button>
+                      {currentFillHints.outerEnvelope.roomsOutside?.length ? (
+                        <p role="alert" className="mt-1 max-w-2xl text-xs leading-relaxed text-ink">
+                          Предложение в этом виде не пройдёт проверку схемы: за кольцо выходят
+                          комнаты № {currentFillHints.outerEnvelope.roomsOutside.join(', № ')}. Так
+                          бывает, когда краска не доходит до угла. Поправьте эти углы по исходным
+                          узлам: взять оболочку можно, подтверждать её как есть нельзя.
+                        </p>
+                      ) : null}
                       <p className="mt-1 max-w-2xl text-xs leading-relaxed text-ink-2">
                         Собрана из закрашенных областей листа и включает тела стен, поэтому её роль
                         — наружная сторона стен. Границей чистого пола она не является и её не
-                        заменяет. Сверьте углы с исходником и поправьте там, где краска не доходит
-                        до угла.
+                        заменяет. Сверьте углы с исходником.
                         {currentFillHints.outerEnvelope.holes
                           ? ` Внутри оболочки есть незакрашенные области: ${currentFillHints.outerEnvelope.holes}. Сверьте их отдельно.`
                           : ''}

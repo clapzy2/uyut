@@ -45,6 +45,25 @@ describe('наружная оболочка по нарисованной кра
     expect(result.holes).toBe(0)
   })
 
+  it('называет комнаты, выходящие за кольцо, вместо вида готового контура', () => {
+    // Краска стены не доходит до низа комнаты: кольцо есть, но принимать его нельзя.
+    const { work, inventory } = fixture([square(10, 10, 50, 40), square(10, 40, 40, 50)])
+    const inside = nativeOuterEnvelope({
+      inventory,
+      work,
+      rooms: [{ sourceNumber: 1, polygon: square(10, 10, 50, 40) }],
+    })
+    expect(inside.status).toBe('diagnostic')
+    expect(inside.roomsOutside).toEqual([])
+    const outside = nativeOuterEnvelope({
+      inventory,
+      work,
+      rooms: [{ sourceNumber: 2, polygon: square(10, 40, 50, 50) }],
+    })
+    expect(outside.polygon).not.toBeNull()
+    expect(outside.roomsOutside).toEqual([2])
+  })
+
   it('держит оболочку при несвязных пятнах краски', () => {
     const { work, inventory } = fixture([square(10, 10, 20, 20), square(80, 80, 90, 90)])
     expect(nativeOuterEnvelope({ inventory, work })).toMatchObject({

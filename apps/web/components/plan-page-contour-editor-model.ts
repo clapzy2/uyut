@@ -521,7 +521,13 @@ export type PlanFillHints = {
     otherSameNumberLabels: number
   }[]
   /** Оболочка застройки по краске листа: предложение, а не подтверждённая граница. */
-  outerEnvelope?: { polygon: PageContourPoint[] | null; holes?: number; reason?: string }
+  outerEnvelope?: {
+    polygon: PageContourPoint[] | null
+    holes?: number
+    reason?: string
+    /** Комнаты, выходящие за предложенное кольцо: подсказку нужно поправить вручную. */
+    roomsOutside?: number[]
+  }
 }
 
 /** Display-only PDF paint hints; never turn this response into saved room geometry. */
@@ -651,12 +657,24 @@ export function fillHintsFromResponse(
         )
       )
         return null
+      if (
+        envelope.roomsOutside !== undefined &&
+        (!Array.isArray(envelope.roomsOutside) ||
+          envelope.roomsOutside.length > 50 ||
+          !envelope.roomsOutside.every(
+            (value: unknown) => Number.isSafeInteger(value) && (value as number) > 0,
+          ))
+      )
+        return null
       outerEnvelope = {
         polygon: (envelope.polygon as PageContourPoint[]).map((point) => ({
           x: point.x,
           y: point.y,
         })),
         ...(envelope.holes === undefined ? {} : { holes: envelope.holes as number }),
+        ...(envelope.roomsOutside === undefined
+          ? {}
+          : { roomsOutside: [...(envelope.roomsOutside as number[])] }),
       }
     }
   }
