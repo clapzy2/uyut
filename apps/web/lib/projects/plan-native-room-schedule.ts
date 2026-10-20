@@ -400,6 +400,114 @@ export function nativeRoomScheduleEvidence(input: {
         edges: [...group.columns.values()].flat().concat(horizontals.flatMap((line) => line.edges)),
       })
     }
+    // Экспликацию часто расчерчивают только горизонтальными линейками, без вертикальных
+    // разделителей колонок. Границу столбца тогда берём не «на глаз по выравниванию», а
+    // по настоящему пустому промежутку между подписями: если между заголовками нет ни
+    // одного разрыва, колонку не выдумываем и таблицу не читаем. Все построчные проверки
+    // ниже остаются прежними, и строки остаются документальными - ни контура, ни обмера.
+    if (grids.length === 0) {
+      for (const group of horizontalGroups.values()) {
+        spend()
+        if (group.ys.size < 4 || group.ys.size > 53) continue
+        const allRows = [...group.ys].sort((a, b) => a - b)
+        // У такой таблицы строки подчёркнуты снизу, а верхней линейки у шапки нет.
+        // Берём самый длинный хвост линеек с одинаковым шагом и достраиваем шапку ровно
+        // на один шаг вверх. Шаг обязан быть ровным: иначе высоту мы бы выдумывали.
+        let start = allRows.length - 1
+        const pitch = (allRows.at(-1) as number) - (allRows.at(-2) as number)
+        if (!(pitch > 0)) continue
+        while (
+          start > 0 &&
+          Math.abs((allRows[start] as number) - (allRows[start - 1] as number) - pitch) <= 0.05
+        )
+          start -= 1
+        const run = allRows.slice(start)
+        if (run.length < 3) continue
+        const headerTop = (run[0] as number) - pitch
+        // Линейка внутри достроенной шапки означала бы другую строку таблицы.
+        if (allRows.some((value) => value > headerTop && value < (run[0] as number))) continue
+        const rowLines = [headerTop, ...run]
+        const bounds = {
+          left: group.left,
+          right: group.right,
+          top: rowLines[0] as number,
+          bottom: rowLines.at(-1) as number,
+        }
+        if (!outerHeadings.every((label) => inside(label.pagePoint as PagePoint, bounds))) continue
+        // Вертикальная рейка внутри означает обычную сетку: её разбирает путь выше.
+        if (
+          verticalLines.some(
+            (line) =>
+              line.fixed > bounds.left &&
+              line.fixed < bounds.right &&
+              line.start <= bounds.bottom &&
+              line.end >= bounds.top,
+          )
+        )
+          continue
+        const headerBottom = rowLines[1] as number
+        const nameLabels = names.filter((label) =>
+          inside(label.pagePoint as PagePoint, { ...bounds, bottom: headerBottom }),
+        )
+        if (nameLabels.length !== 1) continue
+        const heading = [numbers[0], nameLabels[0], areas[0]] as Label[]
+        if (
+          !heading.every((label) =>
+            inside(label.pagePoint as PagePoint, { ...bounds, bottom: headerBottom }),
+          )
+        )
+          continue
+        // Колонки считаем по самим строкам, а не по заголовкам: заголовок часто стоит
+        // по центру столбца, а данные прижаты влево, и по нему границу не провести.
+        const xs = [
+          ...new Set(
+            native.labels
+              .filter(
+                (label) =>
+                  label.pagePoint &&
+                  inside(label.pagePoint, { ...bounds, top: headerBottom }) &&
+                  label.pagePoint.y > headerBottom,
+              )
+              .map((label) => (label.pagePoint as PagePoint).x),
+          ),
+        ].sort((a, b) => a - b)
+        if (xs.length < 3) continue
+        const gaps = xs
+          .slice(1)
+          .map((value, index) => ({
+            gap: value - (xs[index] as number),
+            at: (value + (xs[index] as number)) / 2,
+          }))
+          .filter((item) => item.gap > 0)
+          .sort((left, right) => right.gap - left.gap)
+        const [wide, next] = gaps
+        if (!wide || !next) continue
+        // Два самых широких разрыва должны быть именно разрывами, а не случайным
+        // дрожанием: иначе столбцы мы бы выдумывали.
+        const third = gaps[2]
+        if (third && third.gap >= next.gap) continue
+        const splits = [wide.at, next.at].sort((left, right) => left - right)
+        const columns = [bounds.left, splits[0] as number, splits[1] as number, bounds.right]
+        if (columns.some((value, index) => index > 0 && value <= (columns[index - 1] as number)))
+          continue
+        // Каждый заголовок обязан попасть в свой столбец и в правильном порядке.
+        const columnOf = (x: number) =>
+          columns.findIndex((edge, index) => index > 0 && x < edge) - 1
+        if (heading.some((label, index) => columnOf((label.pagePoint as PagePoint).x) !== index))
+          continue
+        grids.push({
+          bounds,
+          columns,
+          rows: rowLines,
+          edges: horizontalLines
+            .filter(
+              (line) =>
+                line.start === bounds.left && line.end === bounds.right && group.ys.has(line.fixed),
+            )
+            .flatMap((line) => line.edges),
+        })
+      }
+    }
     // A generic "Помещение" caption is not a room type. Its ownership needs the
     // complete physical schedule grid, not merely aligned text baselines.
     if (

@@ -73,7 +73,8 @@ describe('native overall-area ambiguity, not summed or inferred apartment area',
     [5, { text: 'Площадь квартиры без балкона 47,4 кв.м.' }],
     [5, { text: 'Например, квартира 47,4 кв.м.' }],
     [5, { text: 'Квартира 47,4 кв.м., площадь без балкона' }],
-    [13, { text: '04' }],
+    // Пропуск номера экспликацию больше не ломает, а нулевой номер - по-прежнему да.
+    [13, { text: '0' }],
   ] as const)(
     'does not qualify incomplete, displaced or differently scoped label %s %j',
     (index, patch) => {
