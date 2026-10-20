@@ -118,7 +118,7 @@ export function PlanReadingCard({
   const router = useRouter()
   // Saved rows reopen explicitly; editing the room list never requires another AI request.
   const [rows, setRows] = useState<PlanRow[] | null>(
-    reading && !reading.confirmedAt ? planRows(reading, existing) : null,
+    reading && !reading.confirmedAt ? planRows(reading, existing, planIsPdf) : null,
   )
   const [ceiling, setCeiling] = useState(
     reading?.ceilingCm && !reading.confirmedAt ? String(reading.ceilingCm) : '',
@@ -158,7 +158,7 @@ export function PlanReadingCard({
   function editSavedReading() {
     if (!reading) return
     setActiveReading(reading)
-    setRows(planRows(reading, existing))
+    setRows(planRows(reading, existing, planIsPdf))
     setCeiling(reading.ceilingCm === undefined ? '' : String(reading.ceilingCm))
     setPage(String(reading.sourcePage ?? 1))
     setBaseRevision(sourceRevision)
@@ -203,7 +203,7 @@ export function PlanReadingCard({
 
   function loadSaved() {
     setActiveReading(reading)
-    setRows(reading && !reading.confirmedAt ? planRows(reading, existing) : null)
+    setRows(reading && !reading.confirmedAt ? planRows(reading, existing, planIsPdf) : null)
     setCeiling(reading?.ceilingCm ? String(reading.ceilingCm) : '')
     setPage(String(reading?.sourcePage ?? 1))
     setBaseRevision(sourceRevision)
@@ -226,7 +226,7 @@ export function PlanReadingCard({
           showFailure(result)
           return
         }
-        setRows(planRows(result.data.reading, existing))
+        setRows(planRows(result.data.reading, existing, planIsPdf))
         setActiveReading(result.data.reading)
         setBaseRevision(result.data.revision)
         setCeiling(result.data.reading.ceilingCm ? String(result.data.reading.ceilingCm) : '')
@@ -450,11 +450,12 @@ export function PlanReadingCard({
                 conflict ||
                 reviewEditing ||
                 (rows !== null &&
-                  JSON.stringify(rows) !== JSON.stringify(planRows(activeReading, existing)))
+                  JSON.stringify(rows) !==
+                    JSON.stringify(planRows(activeReading, existing, planIsPdf)))
               }
               onSaved={(data) => {
                 setActiveReading(data.reading)
-                if (rows !== null) setRows(planRows(data.reading, existing))
+                if (rows !== null) setRows(planRows(data.reading, existing, planIsPdf))
                 setBaseRevision(data.revision)
                 toast({
                   title: 'Недостающие номера восстановлены из сверки исходника',
@@ -570,7 +571,7 @@ export function PlanReadingCard({
 
   if (!rows) {
     const transferredRow = reading
-      ? planRows(reading, existing).find((row) => row.roomId && !row.unsupported)
+      ? planRows(reading, existing, planIsPdf).find((row) => row.roomId && !row.unsupported)
       : undefined
     const nextRoom = existing.find((room) => room.id === transferredRow?.roomId) ?? existing[0]
     let summary =
@@ -985,6 +986,32 @@ export function PlanReadingCard({
                     className={`${numberFieldClassName} mt-1 w-24`}
                   />
                 </label>
+                {planIsPdf && (row.widthCandidate || row.depthCandidate) ? (
+                  <div className="w-full space-y-2 text-[13px] leading-relaxed text-ink-2">
+                    <p>
+                      При чтении PDF найдены числа, но не доказано, что их размерные цепочки
+                      охватывают именно помещение «{row.name}». Поэтому они не подставлены
+                      автоматически. Сверьте числа и границы на исходном листе, прежде чем
+                      переносить их в комнату.
+                    </p>
+                    {(['width', 'depth'] as const).map((axis) => {
+                      const candidate = row[`${axis}Candidate`]
+                      if (!candidate) return null
+                      return (
+                        <button
+                          key={axis}
+                          type="button"
+                          className="block min-h-11 text-left text-accent underline underline-offset-4"
+                          disabled={saving || conflict || reviewEditing}
+                          onClick={() => patch(index, { [axis]: candidate })}
+                        >
+                          Подставить после сверки: {axis === 'width' ? 'ширина' : 'глубина'}{' '}
+                          {candidate} см
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : null}
                 <div className="w-full space-y-2 text-[13px] text-ink-2">
                   {(['width', 'depth'] as const).map((axis) => (
                     <label key={axis} className="flex min-h-11 items-start gap-2 py-2">

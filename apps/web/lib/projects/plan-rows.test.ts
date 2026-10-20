@@ -62,6 +62,41 @@ describe('source axis acknowledgments', () => {
   })
 })
 
+describe('unowned PDF dimension candidates', () => {
+  const reading: PlanReading = {
+    readAt: '2026-10-20',
+    rooms: [{ name: 'Прихожая', kind: 'living', sourceNumber: 1, widthCm: 310 }],
+  }
+
+  it('keeps a candidate visible without filling or acknowledging a room measurement', () => {
+    const [row] = planRows(reading, [], true)
+    expect(row).toMatchObject({ width: '', widthCandidate: '310', depth: '' })
+    expect(row?.widthReviewed).not.toBe(true)
+    expect(planRows(reading)[0]?.width).toBe('310')
+  })
+
+  it('withdraws a candidate when the reviewer changes its room identity', () => {
+    const [row] = planRows(reading, [], true)
+    if (!row) throw new Error('Missing candidate')
+    expect(patchPlanRow(row, { sourceNumber: 4 })).toMatchObject({
+      width: '',
+      widthCandidate: undefined,
+      widthReviewed: false,
+    })
+    expect(patchPlanRow(row, { width: '310' })).toMatchObject({
+      width: '310',
+      widthReviewed: false,
+    })
+    expect(
+      patchPlanRow(patchPlanRow(row, { width: '310' }), { name: 'Жилая комната' }),
+    ).toMatchObject({
+      width: '',
+      widthCandidate: undefined,
+      widthReviewed: false,
+    })
+  })
+})
+
 describe('source architecture acknowledgment', () => {
   const row = planRows({
     readAt: '2026-10-17',

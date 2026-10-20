@@ -11,6 +11,9 @@ export type PlanRow = {
   spaceKind?: RoomSpaceKind
   width: string
   depth: string
+  /** A PDF number whose room ownership still needs a person's check. */
+  widthCandidate?: string
+  depthCandidate?: string
   /** Explicit source-drawing review, never a confirmation of an on-site measurement. */
   widthReviewed?: boolean
   depthReviewed?: boolean
@@ -53,6 +56,14 @@ export function patchPlanRow(row: PlanRow, patch: Partial<PlanRow>): PlanRow {
   return {
     ...row,
     ...patch,
+    ...(changedScope
+      ? {
+          widthCandidate: undefined,
+          depthCandidate: undefined,
+          ...(row.widthCandidate === row.width ? { width: '' } : {}),
+          ...(row.depthCandidate === row.depth ? { depth: '' } : {}),
+        }
+      : {}),
     ...(changedScope || changedWidth ? { widthReviewed: false } : {}),
     ...(changedScope || changedDepth ? { depthReviewed: false } : {}),
     ...(changedScope || changedLayout ? { layoutNotesReviewed: false } : {}),
@@ -239,7 +250,11 @@ const supported = new Set<RoomKind>(mvpRoomKinds)
  * заводило вторую «Гостиную» рядом с первой. Промеренное рулеткой при этом не теряется —
  * участки стен план не знает и не трогает.
  */
-export function planRows(reading: PlanReading, existing: readonly ExistingRoom[] = []): PlanRow[] {
+export function planRows(
+  reading: PlanReading,
+  existing: readonly ExistingRoom[] = [],
+  holdPdfDimensions = false,
+): PlanRow[] {
   const taken = new Set<string>()
   // Сначала точные совпадения названий, и только потом — без номера. Иначе «Спальня 2» с плана
   // забирала бы себе «Спальня 1» просто потому, что идёт первой, и мерки мастер-спальни
@@ -281,8 +296,10 @@ export function planRows(reading: PlanReading, existing: readonly ExistingRoom[]
       ...(room.sourceNumber === undefined ? {} : { sourceNumber: room.sourceNumber }),
       ceiling: room.ceilingCm === undefined ? '' : String(room.ceilingCm),
       kind: unsupported ? 'living' : room.kind,
-      width: room.widthCm ? String(room.widthCm) : '',
-      depth: room.depthCm ? String(room.depthCm) : '',
+      width: !holdPdfDimensions && room.widthCm ? String(room.widthCm) : '',
+      depth: !holdPdfDimensions && room.depthCm ? String(room.depthCm) : '',
+      ...(holdPdfDimensions && room.widthCm ? { widthCandidate: String(room.widthCm) } : {}),
+      ...(holdPdfDimensions && room.depthCm ? { depthCandidate: String(room.depthCm) } : {}),
       // В полях площади человек пишет через запятую, и прочитанное должно выглядеть так же
       area: room.areaM2 ? String(room.areaM2).replace('.', ',') : '',
       wish: match?.notes ?? '',

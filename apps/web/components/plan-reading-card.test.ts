@@ -142,6 +142,11 @@ describe('plan review form', () => {
     expect(html).toContain('href="/source-plan.pdf?signature=synthetic#page=6"')
     expect(html).toContain('Открыть исходный лист PDF для сверки · страница 6')
     expect(html).toContain('не обнаруживает перестановку осей')
+    expect(html).toContain('Подставить после сверки: ширина 600 см')
+    expect(html).toContain('Подставить после сверки: глубина 320 см')
+    expect(html).toContain('Поэтому они не подставлены автоматически')
+    expect(html).not.toContain('value="600"')
+    expect(html).not.toContain('value="320"')
     expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(1)
   })
   it('reopens saved dimension candidates without carrying source-axis acknowledgments', () => {
@@ -315,7 +320,7 @@ describe('plan review form', () => {
     expect(html).not.toContain('первые три страницы')
   })
 
-  it('shows individual ceilings, source room numbers and precise dimensions', () => {
+  it('shows individual ceilings and source numbers while keeping PDF dimensions as suggestions', () => {
     const html = render({
       sourcePage: 6,
       pageCount: 48,
@@ -334,7 +339,9 @@ describe('plan review form', () => {
       ],
     })
     expect(html).toContain('Помещение №4')
-    expect(html).toContain('value="298.5"')
+    expect(html).toContain('Подставить после сверки: ширина 298.5 см')
+    expect(html).toContain('Подставить после сверки: глубина 515.6 см')
+    expect(html).not.toContain('value="298.5"')
     expect(html).toContain('value="266.3"')
     expect(html).toContain('существующее состояние')
     expect(html).toContain('max="48"')
@@ -347,7 +354,7 @@ describe('plan review form', () => {
       rooms: [{ name: 'Кухня', kind: 'kitchen', widthCm: 300, depthCm: 500, areaM2: 10 }],
     })
     expect(html).toContain('Проектное состояние — вариант после изменений, не исходный обмер')
-    expect(html).toContain('Длину стены берём с чертежа или из замера, не из площади')
+    expect(html).toContain('Сверьте числа и границы на исходном листе')
     expect(html).not.toContain('Ширина 200 см')
     expect(html).not.toContain('Глубина 333 см')
   })
