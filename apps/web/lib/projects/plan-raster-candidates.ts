@@ -34,31 +34,59 @@ export async function rasterPlanCandidates(
   )
     throw new RangeError('Focus must be inside the source image')
 
-  // Inspect a small source-pixel neighborhood when a dense drawing exhausts
-  // the global budget. Crop-frame edges are rejected by detectPlanRasterEdges.
-  const crop = focus
-    ? {
-        left: Math.max(0, Math.min(width - Math.min(width, 500), focus.x - 250)),
-        top: Math.max(0, Math.min(height - Math.min(height, 500), focus.y - 250)),
-        width: Math.min(width, 500),
-        height: Math.min(height, 500),
-      }
-    : undefined
-  const gray = await (crop ? decoder.extract(crop) : decoder)
-    .flatten({ background: '#ffffff' })
-    .resize({ width: 2000, height: 2000, fit: 'inside', withoutEnlargement: true })
-    .greyscale()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-  const detected = detectPlanRasterEdges({
-    grayscale: gray.data,
-    width: gray.info.width,
-    height: gray.info.height,
+  const cropAround = (size: number) => ({
+    left: Math.max(0, Math.min(width - Math.min(width, size), (focus?.x ?? 0) - size / 2)),
+    top: Math.max(0, Math.min(height - Math.min(height, size), (focus?.y ?? 0) - size / 2)),
+    width: Math.min(width, size),
+    height: Math.min(height, size),
   })
-  // A local scan can recover fully enclosed bright components lost when the
-  // whole drawing hits its region limit. The detector excludes components
-  // touching the crop frame, so the crop cannot invent a closing boundary.
-  const regions = detectPlanRasterRegions({
+  const read = async (crop?: ReturnType<typeof cropAround>) => {
+    const gray = await (crop ? sharp(image).extract(crop) : decoder)
+      .flatten({ background: '#ffffff' })
+      .resize({ width: 2000, height: 2000, fit: 'inside', withoutEnlargement: true })
+      .greyscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    const probe =
+      crop && focus
+        ? {
+            id: 'focus',
+            point: {
+              x: Math.floor(((focus.x - crop.left) * gray.info.width) / crop.width),
+              y: Math.floor(((focus.y - crop.top) * gray.info.height) / crop.height),
+            },
+          }
+        : undefined
+    const regions = detectPlanRasterRegions({
+      grayscale: gray.data,
+      width: gray.info.width,
+      height: gray.info.height,
+      probes: probe ? [probe] : undefined,
+    })
+    return { gray, regions, probe }
+  }
+  let crop = focus ? cropAround(500) : undefined
+  let scan = await read(crop)
+  if (focus && crop && scan.probe) {
+    const { gray, probe } = scan
+    const center = gray.data[probe.point.y * gray.info.width + probe.point.x] ?? 0
+    // A larger room can cross the first crop frame. Expand only when the
+    // clicked bright component was excluded; a dark stroke cannot be its seed.
+    if (center >= 180 && !scan.regions.pointMembership?.[0]?.regionId) {
+      for (const size of [750, 1000]) {
+        if (crop.width === width && crop.height === height) break
+        const expandedCrop = cropAround(size)
+        const expanded = await read(expandedCrop)
+        if (expanded.regions.pointMembership?.[0]?.regionId) {
+          crop = expandedCrop
+          scan = expanded
+          break
+        }
+      }
+    }
+  }
+  const { gray, regions } = scan
+  const detected = detectPlanRasterEdges({
     grayscale: gray.data,
     width: gray.info.width,
     height: gray.info.height,

@@ -220,6 +220,8 @@ test.describe('обводка растрового контура по двум 
     expect(localGuides.uncertain).toBe(true)
     expect(localGuides.points.length).toBeGreaterThan(0)
     await expect(floorTrace.getByText(/неполные подсказки, а не подтверждённый пол/)).toBeVisible()
+    await expect(floorTrace.getByText('Область под нажатием показана для сверки.')).toBeVisible()
+    await expect(floorTrace.locator('svg polygon[stroke-dasharray="7 5"]')).toBeVisible()
     await expect(floorTrace.getByLabel('Угол 1 · X, пикс.', { exact: true })).toHaveValue('110')
     expect(await savedGeometry()).toEqual(geometry)
     await floorTrace.getByRole('button', { name: 'Найти углы по пикселям', exact: true }).click()

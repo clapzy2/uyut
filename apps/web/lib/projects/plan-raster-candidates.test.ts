@@ -101,4 +101,51 @@ describe('focused raster guides', () => {
     expect(focused.regions).toEqual([])
     expect(focused.regionUncertain).toBe(true)
   })
+
+  it('expands the search when the clicked room is wider than the first crop', async () => {
+    const width = 1100
+    const height = 1000
+    const grayscale = Buffer.alloc(width * height, 255)
+    for (let y = 150; y < 850; y++) {
+      for (let x = 200; x < 900; x++) {
+        if (x < 204 || x >= 896 || y < 154 || y >= 846) grayscale[y * width + x] = 0
+      }
+    }
+    const image = await sharp(grayscale, { raw: { width, height, channels: 1 } })
+      .png()
+      .toBuffer()
+
+    const focused = await rasterPlanCandidates(image, false, 1, { x: 550, y: 500 })
+    expect(focused.focused).toBe(true)
+    expect(focused.regionUncertain).toBe(true)
+    expect(focused.regions).toEqual([
+      expect.objectContaining({
+        polygon: [
+          { x: 204, y: 154 },
+          { x: 896, y: 154 },
+          { x: 896, y: 846 },
+          { x: 204, y: 846 },
+        ],
+      }),
+    ])
+  })
+
+  it('does not invent closure when a larger border has an opening', async () => {
+    const width = 1100
+    const height = 1000
+    const grayscale = Buffer.alloc(width * height, 255)
+    for (let y = 150; y < 850; y++) {
+      for (let x = 200; x < 900; x++) {
+        const gap = y >= 450 && y < 550 && x >= 896
+        if (!gap && (x < 204 || x >= 896 || y < 154 || y >= 846)) grayscale[y * width + x] = 0
+      }
+    }
+    const image = await sharp(grayscale, { raw: { width, height, channels: 1 } })
+      .png()
+      .toBuffer()
+
+    const focused = await rasterPlanCandidates(image, false, 1, { x: 550, y: 500 })
+    expect(focused.regions).toEqual([])
+    expect(focused.regionUncertain).toBe(true)
+  })
 })
