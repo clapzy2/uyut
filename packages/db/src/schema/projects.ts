@@ -336,6 +336,15 @@ export type PlanGeometry = {
     cmPerPoint: number
     origin: { x: number; y: number }
     anchorRoomNumbers: number[]
+    /**
+     * Масштаб взят у всего листа, а не у конкретной грани: это расчёт по чертежу,
+     * а не обмер. Числа сохраняются, чтобы человек видел, на чём он основан.
+     */
+    pageScale?: {
+      chainCounts: { x: number; y: number }
+      /** Относительное расхождение масштаба по двум осям листа. */
+      axisGapRatio: number
+    }
     /** Проверенные длины конкретных граней, не ширина/глубина комнаты. */
     edgeDimensions?: Array<
       PlanPageRoomIdentity & {

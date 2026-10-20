@@ -421,7 +421,8 @@ describe('create metric draft from reviewed source page', () => {
   it('uses fresh PDF evidence and atomically creates an unconfirmed draft', async () => {
     const result = await createPlanPageGeometryDraft('project', [4], revision)
     if (!result.ok) throw new Error(result.error)
-    expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, true)
+    // Полный нативный слой читается только для масштаба листа; здесь он не запрошен.
+    expect(mocks.prepare).toHaveBeenCalledWith(Buffer.from('pdf'), true, 6, true, false)
     expect(mocks.convert).toHaveBeenCalledWith(
       reading,
       {

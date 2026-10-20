@@ -135,10 +135,15 @@ export async function createPlanPageGeometryDraft(
   calibrationRoomNumbers?: unknown,
   useEdgeDimensions = false,
   replaceSourceDraft = false,
+  usePageScale = false,
 ): Promise<ActionResult<{ geometry: PlanGeometry; revision: string }>> {
   const session = await getSession()
   if (!session) return { ok: false, error: 'Сессия закончилась. Войдите снова.' }
-  if (typeof useEdgeDimensions !== 'boolean' || typeof replaceSourceDraft !== 'boolean')
+  if (
+    typeof useEdgeDimensions !== 'boolean' ||
+    typeof replaceSourceDraft !== 'boolean' ||
+    typeof usePageScale !== 'boolean'
+  )
     return { ok: false, error: 'Выберите способ проверки масштаба.' }
   const selected = roomNumbersSchema.safeParse(roomNumbers)
   if (!selected.success) return { ok: false, error: 'Выберите от одной до двенадцати комнат.' }
@@ -171,7 +176,12 @@ export async function createPlanPageGeometryDraft(
         ok: false,
         error: '2D-схема уже существует. Её правки сохранены; откройте редактор схемы.',
       }
-    if (before.geometry && !useEdgeDimensions && calibrationRoomNumbers === undefined)
+    if (
+      before.geometry &&
+      !useEdgeDimensions &&
+      !usePageScale &&
+      calibrationRoomNumbers === undefined
+    )
       return {
         ok: false,
         error:
@@ -212,9 +222,15 @@ export async function createPlanPageGeometryDraft(
         error:
           'Прежняя схема относится к другому исходному PDF-листу. Автоматическая замена запрещена.',
       }
-    const page = await preparePlanPage(body, true, source.pdfPage, true)
+    // Масштаб листа считается из цепей, поэтому для него нужен ещё и текстовый слой-якорь.
+    const page = await preparePlanPage(body, true, source.pdfPage, true, usePageScale)
     if (page.pageNumber !== source.pdfPage || !page.linework)
       return { ok: false, error: 'Для переноса нужны нативные линии выбранного PDF-листа.' }
+    if (usePageScale && (!page.nativeTextAnchors || !page.lineworkRasterSource))
+      return {
+        ok: false,
+        error: 'Для масштаба листа нужен полный нативный слой выбранного PDF-листа.',
+      }
     const result = planPageMetricDraft(
       before,
       {
@@ -224,6 +240,13 @@ export async function createPlanPageGeometryDraft(
         contours: review.data,
         ...(anchors?.success ? { calibrationRoomNumbers: anchors.data } : {}),
         ...(useEdgeDimensions ? { useEdgeDimensions: true } : {}),
+        ...(usePageScale
+          ? {
+              usePageScale: true,
+              nativeAnchors: page.nativeTextAnchors,
+              lineworkSource: page.lineworkRasterSource,
+            }
+          : {}),
       },
       selected.data,
     )

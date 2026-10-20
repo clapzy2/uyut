@@ -460,6 +460,47 @@ describe('привязка наклонных размеров и метриче
     })
   })
 
+  describe('масштаб всего листа', () => {
+    it('не принимает масштаб без полного нативного слоя: клиент его не передаёт', () => {
+      const f = fixture()
+      const result = planPageMetricDraft(
+        f.reading,
+        { ...f.context, useEdgeDimensions: false, usePageScale: true },
+        [1],
+      )
+      expect(result).toEqual({
+        ok: false,
+        error:
+          'Масштаб листа не подтверждён: нужны минимум две согласованные размерные цепи по каждой оси и совпадение осей.',
+      })
+    })
+
+    it('не даёт выбрать два способа проверки масштаба сразу', () => {
+      const f = fixture()
+      const both = planPageMetricDraft(
+        f.reading,
+        { ...f.context, useEdgeDimensions: true, usePageScale: true },
+        [1],
+      )
+      expect(both).toMatchObject({ ok: false })
+      if (both.ok) throw new Error('Ожидался отказ')
+      expect(both.error).toContain('один способ проверки масштаба')
+      const withAnchor = planPageMetricDraft(
+        f.reading,
+        {
+          ...f.context,
+          useEdgeDimensions: false,
+          usePageScale: true,
+          calibrationRoomNumbers: [1],
+        },
+        [1],
+      )
+      expect(withAnchor).toMatchObject({ ok: false })
+      if (withAnchor.ok) throw new Error('Ожидался отказ')
+      expect(withAnchor.error).toContain('один способ проверки масштаба')
+    })
+  })
+
   it('требует исходную полную длину, а не середину стены', () => {
     const f = fixture()
     const chain = required(f.work.paths[4])
