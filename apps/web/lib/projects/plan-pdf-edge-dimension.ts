@@ -5,7 +5,7 @@ import {
   type PdfNativePageDimensionChain,
   pdfNativePageDimensionChain,
 } from './plan-pdf-dimension-chain'
-import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import type { Bounds, PagePoint, PdfLinework } from './plan-pdf-linework'
 import { type NativePageSegment, nativePageSegments } from './plan-pdf-opening-endpoint'
 import {
   type PdfPlanSource,
@@ -57,10 +57,9 @@ export function pdfDimensionForEdge(
     pdfContourIssue(work, source, contours) ??
     planPageFeaturesIssue(contours, { checkRoomOverlap: true })
   if (issue) return fail(issue)
-  if (
-    work.clippedPathBoundsTruncated ||
-    (work.clippedPathBounds?.length ?? 0) !== work.clippedPaths ||
-    work.clippedPathBounds?.some(
+  // Пропуски учитываются по рамкам, поэтому их перечень должен быть полным и исправным.
+  const brokenOmissions = (items: typeof work.clippedPathBounds) =>
+    items?.some(
       ({ operationIndex, bounds }) =>
         !Number.isSafeInteger(operationIndex) ||
         operationIndex < 0 ||
@@ -69,6 +68,10 @@ export function pdfDimensionForEdge(
         bounds.left > bounds.right ||
         bounds.top > bounds.bottom,
     )
+  if (
+    work.clippedPathBoundsTruncated ||
+    (work.clippedPathBounds?.length ?? 0) !== work.clippedPaths ||
+    brokenOmissions(work.clippedPathBounds)
   )
     return fail('clipped-edge-evidence')
   const room = contours.rooms.find((item) => pdfContourKey(item) === pdfContourKey(identity))
@@ -99,22 +102,34 @@ export function pdfDimensionForEdge(
   if (chain.status !== 'candidate') return chain
   // Only omissions near this wall, its dimension rail or its two endpoint connections
   // can change the proof. A clipped symbol elsewhere on the sheet cannot.
-  const evidencePoints = [a, b, ...chain.ends, ...labels]
-  const evidenceBounds = {
-    left: Math.min(...evidencePoints.map((point) => point.x)),
-    right: Math.max(...evidencePoints.map((point) => point.x)),
-    top: Math.min(...evidencePoints.map((point) => point.y)),
-    bottom: Math.max(...evidencePoints.map((point) => point.y)),
-  }
+  //
+  // Пропущенный штрих способен подменить доказательство лишь тогда, когда он может
+  // вместить его целиком: конкурирующая стена, размерная линия, звено цепи или
+  // выносная линия существует только вместе с обоими своими концами. Рамка, которая
+  // накрывает лишь часть грани, не может оказаться такой же гранью, поэтому общий
+  // прямоугольник вокруг всего доказательства удерживал грани без причины: на листе
+  // Мухановой мелкие обрезанные символы внутри комнаты блокировали все стороны.
+  // Подпись — точка, для неё близости по-прежнему достаточно.
   const marginX = (6 * 1000) / work.pageWidth
   const marginY = (6 * 1000) / work.pageHeight
+  const covered = (bounds: Bounds, points: readonly PagePoint[]) =>
+    points.every(
+      (point) =>
+        point.x >= bounds.left - marginX &&
+        point.x <= bounds.right + marginX &&
+        point.y >= bounds.top - marginY &&
+        point.y <= bounds.bottom + marginY,
+    )
+  const impersonations: PagePoint[][] = [
+    [a, b],
+    [...chain.ends],
+    ...chain.segments.map((segment) => [segment.start, segment.end]),
+    ...[a, b].flatMap((wallEnd) => chain.ends.map((railEnd) => [wallEnd, railEnd])),
+    ...labels.map((label) => [{ x: label.x, y: label.y }]),
+  ]
   if (
-    work.clippedPathBounds?.some(
-      ({ bounds }) =>
-        bounds.left <= evidenceBounds.right + marginX &&
-        bounds.right >= evidenceBounds.left - marginX &&
-        bounds.top <= evidenceBounds.bottom + marginY &&
-        bounds.bottom >= evidenceBounds.top - marginY,
+    work.clippedPathBounds?.some(({ bounds }) =>
+      impersonations.some((points) => covered(bounds, points)),
     )
   )
     return fail('clipped-edge-evidence')
