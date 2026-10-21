@@ -459,27 +459,33 @@ export function nativeRoomScheduleEvidence(input: {
           continue
         // Колонки считаем по самим строкам, а не по заголовкам: заголовок часто стоит
         // по центру столбца, а данные прижаты влево, и по нему границу не провести.
-        const xs = [
-          ...new Set(
-            native.labels
-              .filter(
-                (label) =>
-                  label.pagePoint &&
-                  inside(label.pagePoint, { ...bounds, top: headerBottom }) &&
-                  label.pagePoint.y > headerBottom,
-              )
-              .map((label) => (label.pagePoint as PagePoint).x),
-          ),
-        ].sort((a, b) => a - b)
-        if (xs.length < 3) continue
-        const gaps = xs
-          .slice(1)
-          .map((value, index) => ({
-            gap: value - (xs[index] as number),
-            at: (value + (xs[index] as number)) / 2,
-          }))
-          .filter((item) => item.gap > 0)
-          .sort((left, right) => right.gap - left.gap)
+        // Берём настоящие границы текста, а не только его начало: длинное название
+        // может заходить в колонку площади, и по одной начальной координате этого не
+        // видно. Подпись без известного конца оставляет таблицу неоднозначной.
+        const rowLabels = native.labels.filter(
+          (label) =>
+            label.pagePoint &&
+            inside(label.pagePoint, { ...bounds, top: headerBottom }) &&
+            label.pagePoint.y > headerBottom,
+        )
+        if (rowLabels.some((label) => !label.pageEnd || label.rotation !== 0)) continue
+        const spans = rowLabels
+          .map((label) => {
+            const start = label.pagePoint as PagePoint
+            const end = label.pageEnd as PagePoint
+            return { from: Math.min(start.x, end.x), to: Math.max(start.x, end.x) }
+          })
+          .sort((left, right) => left.from - right.from)
+        if (spans.length < 3) continue
+        // Зазор считаем от правого края одной подписи до левого края следующей.
+        const gaps: { gap: number; at: number }[] = []
+        let reach = spans[0]?.to as number
+        for (const span of spans.slice(1)) {
+          spend()
+          if (span.from > reach) gaps.push({ gap: span.from - reach, at: (reach + span.from) / 2 })
+          reach = Math.max(reach, span.to)
+        }
+        gaps.sort((left, right) => right.gap - left.gap)
         const [wide, next] = gaps
         if (!wide || !next) continue
         // Два самых широких разрыва должны быть именно разрывами, а не случайным
@@ -489,6 +495,9 @@ export function nativeRoomScheduleEvidence(input: {
         const splits = [wide.at, next.at].sort((left, right) => left - right)
         const columns = [bounds.left, splits[0] as number, splits[1] as number, bounds.right]
         if (columns.some((value, index) => index > 0 && value <= (columns[index - 1] as number)))
+          continue
+        // Ни одна подпись строки не должна пересекать границу столбца.
+        if (spans.some((span) => splits.some((edge) => span.from < edge && span.to > edge)))
           continue
         // Каждый заголовок обязан попасть в свой столбец и в правильном порядке.
         const columnOf = (x: number) =>
