@@ -105,12 +105,18 @@ describe('наружная оболочка по нарисованной кра
     })
   })
 
-  it('называет рёбра короче сантиметра', () => {
+  it('называет короткие рёбра поимённо, с координатами и длиной', () => {
     const { work, inventory } = fixture([square(10, 10, 50, 40), square(10, 40, 50, 50)])
-    // Масштаб такой, что сторона в одну единицу равна одному сантиметру.
-    expect(nativeOuterEnvelope({ inventory, work, cmPerPoint: 1 }).shortEdges).toBe(0)
-    // А при мелком масштабе те же рёбра оказываются короче сантиметра.
-    expect(nativeOuterEnvelope({ inventory, work, cmPerPoint: 0.01 }).shortEdges).toBe(4)
+    expect(nativeOuterEnvelope({ inventory, work, cmPerPoint: 1 }).shortEdges).toEqual([])
+    // Метрическая схема отбрасывает стену короче сантиметра и отказывается целиком.
+    const short = nativeOuterEnvelope({ inventory, work, cmPerPoint: 0.01 }).shortEdges
+    expect(short).toHaveLength(4)
+    expect(short[0]).toEqual({
+      index: 0,
+      start: { x: 10, y: 10 },
+      end: { x: 50, y: 10 },
+      lengthCm: 0.4,
+    })
   })
 
   it('держит оболочку при неполном или отказавшем перечне заливок', () => {

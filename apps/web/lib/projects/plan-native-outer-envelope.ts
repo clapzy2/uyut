@@ -9,6 +9,9 @@ import {
   nativePageSegments,
 } from './plan-pdf-opening-endpoint'
 
+/** Минимальная длина стены в метрической схеме: короче - стена отбрасывается. */
+const MIN_METRIC_WALL_CM = 1
+
 type FillInventory = ReturnType<typeof nativeFillCandidates>
 
 const ref = ({
@@ -38,7 +41,7 @@ export function nativeOuterEnvelope(input: {
   work: PdfLinework
   /** Контуры комнат, которые человек уже взял: по ним видно, где оболочку надо поправить. */
   rooms?: readonly { sourceNumber: number; polygon: readonly PagePoint[] }[]
-  /** Масштаб листа: по нему видно рёбра короче сантиметра, которые 2D округлит в ноль. */
+  /** Масштаб листа: по нему видно рёбра короче минимальной стены метрической схемы. */
   cmPerPoint?: number
 }) {
   const { inventory, work } = input
@@ -49,7 +52,7 @@ export function nativeOuterEnvelope(input: {
     holes: 0,
     roomsOutside: [] as number[],
     vertexProofs: [] as PlanPageVertexProof[],
-    shortEdges: 0,
+    shortEdges: [] as { index: number; start: PagePoint; end: PagePoint; lengthCm: number }[],
   })
   if (inventory.refusalReason) return held(inventory.refusalReason)
   if (inventory.truncated) return held('incomplete-fill-inventory')
@@ -120,19 +123,31 @@ export function nativeOuterEnvelope(input: {
   // Краска не всегда доходит до угла: тогда комната выходит за кольцо, и схема такую
   // границу не примет. Это не повод прятать предложение — человеку нужно показать,
   // что именно поправить, а не выдавать подсказку за проверенный контур.
-  // Уступ в краске длиной в несколько миллиметров 2D округлит в нулевую стену и
-  // отбросит её, а с ней и весь черновик. Такой уступ человек убирает сам: сливать
-  // две вершины за него значило бы менять чертёж.
+  // Метрическая схема отбрасывает стену короче сантиметра (MIN_WALL_CM в
+  // floor-plan-geometry.ts), а перенос отказывается целиком, если хоть одна стена
+  // отброшена. Поэтому уступ в краске длиной в несколько миллиметров блокирует весь
+  // черновик. Называем такие рёбра поимённо: сливать две вершины за человека значило
+  // бы менять чертёж.
   const cmPerPoint = input.cmPerPoint
   const shortEdges =
     cmPerPoint && cmPerPoint > 0
-      ? polygon.filter((point, index) => {
+      ? polygon.flatMap((point, index) => {
           const next = polygon[(index + 1) % polygon.length] as PagePoint
           const dx = ((next.x - point.x) * work.pageWidth) / 1000
           const dy = ((next.y - point.y) * work.pageHeight) / 1000
-          return Math.hypot(dx, dy) * cmPerPoint < 1
-        }).length
-      : 0
+          const lengthCm = Math.hypot(dx, dy) * cmPerPoint
+          return lengthCm < MIN_METRIC_WALL_CM
+            ? [
+                {
+                  index,
+                  start: { x: point.x, y: point.y },
+                  end: { x: next.x, y: next.y },
+                  lengthCm: Math.round(lengthCm * 100) / 100,
+                },
+              ]
+            : []
+        })
+      : []
   const roomsOutside = (input.rooms ?? [])
     .filter((room) => !polygonWithin(room.polygon, polygon))
     .map((room) => room.sourceNumber)
@@ -146,7 +161,7 @@ export function nativeOuterEnvelope(input: {
     roomsOutside,
     /** Доказательства вершин, которых нет среди исходных узлов. */
     vertexProofs,
-    /** Рёбра короче сантиметра: 2D округлит их в ноль, человек убирает такой уступ сам. */
+    /** Рёбра короче минимальной стены: перенос в 2D отказывается из-за такого уступа. */
     shortEdges,
   }
 }

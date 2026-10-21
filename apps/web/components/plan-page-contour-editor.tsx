@@ -1487,7 +1487,7 @@ export function PlanPageContourEditor({
                         Взять наружную оболочку ({currentFillHints.outerEnvelope.polygon.length}{' '}
                         углов)
                         {currentFillHints.outerEnvelope.roomsOutside?.length ||
-                        currentFillHints.outerEnvelope.shortEdges
+                        currentFillHints.outerEnvelope.shortEdges?.length
                           ? ' · требует правки'
                           : ''}
                       </Button>
@@ -1498,6 +1498,26 @@ export function PlanPageContourEditor({
                           бывает, когда краска не доходит до угла. Поправьте эти углы по исходным
                           узлам: взять оболочку можно, подтверждать её как есть нельзя.
                         </p>
+                      ) : null}
+                      {currentFillHints.outerEnvelope.shortEdges?.length ? (
+                        <div
+                          role="alert"
+                          className="mt-1 max-w-2xl text-xs leading-relaxed text-ink"
+                        >
+                          <p>
+                            Перенос в 2D отбросит стену короче сантиметра и откажется целиком.
+                            Уберите эти уступы, прежде чем подтверждать границу:
+                          </p>
+                          <ul className="mt-1 list-disc pl-5">
+                            {currentFillHints.outerEnvelope.shortEdges.map((edge) => (
+                              <li key={edge.index}>
+                                угол {edge.index + 1}: {edge.lengthCm.toFixed(2).replace('.', ',')}{' '}
+                                см, от {edge.start.x.toFixed(2)}, {edge.start.y.toFixed(2)} до{' '}
+                                {edge.end.x.toFixed(2)}, {edge.end.y.toFixed(2)}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       ) : null}
                       <p className="mt-1 max-w-2xl text-xs leading-relaxed text-ink-2">
                         Собрана из закрашенных областей листа и включает тела стен, поэтому её роль
@@ -1712,6 +1732,26 @@ export function PlanPageContourEditor({
                     )
                   }}
                 />
+                {fillHintsShown
+                  ? (currentFillHints?.outerEnvelope?.shortEdges ?? []).map((edge) => (
+                      <line
+                        key={`envelope-short-${edge.index}`}
+                        x1={edge.start.x}
+                        y1={edge.start.y}
+                        x2={edge.end.x}
+                        y2={edge.end.y}
+                        stroke="#b91c1c"
+                        strokeWidth={6}
+                        strokeLinecap="round"
+                        vectorEffect="non-scaling-stroke"
+                        pointerEvents="none"
+                      >
+                        <title>
+                          Уступ оболочки {edge.lengthCm.toFixed(2)} см: короче минимальной стены
+                        </title>
+                      </line>
+                    ))
+                  : null}
                 {selectedPaintHint ? (
                   <path
                     d={sourceFloorReferencePath({ polygon: selectedPaintHint.polygon, holes: [] })}

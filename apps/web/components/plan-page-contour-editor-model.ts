@@ -535,8 +535,13 @@ export type PlanFillHints = {
     reason?: string
     /** Комнаты, выходящие за предложенное кольцо: подсказку нужно поправить вручную. */
     roomsOutside?: number[]
-    /** Рёбра короче сантиметра: 2D округлит их в ноль, уступ убирает человек. */
-    shortEdges?: number
+    /** Рёбра короче минимальной стены: перенос в 2D из-за них отказывается. */
+    shortEdges?: {
+      index: number
+      start: PageContourPoint
+      end: PageContourPoint
+      lengthCm: number
+    }[]
     /** Доказательства вершин, которых нет среди исходных узлов PDF. */
     vertexProofs?: PlanPageContours['exterior'] extends infer E
       ? NonNullable<E> extends { vertexProofs?: infer V }
@@ -675,7 +680,22 @@ export function fillHintsFromResponse(
         return null
       if (
         envelope.shortEdges !== undefined &&
-        !(Number.isSafeInteger(envelope.shortEdges) && (envelope.shortEdges as number) >= 0)
+        (!Array.isArray(envelope.shortEdges) ||
+          envelope.shortEdges.length > 20 ||
+          !envelope.shortEdges.every((edge: unknown) => {
+            const item = edge as Record<string, unknown>
+            return (
+              item !== null &&
+              typeof item === 'object' &&
+              Number.isSafeInteger(item.index) &&
+              (item.index as number) >= 0 &&
+              typeof item.lengthCm === 'number' &&
+              Number.isFinite(item.lengthCm) &&
+              item.lengthCm >= 0 &&
+              finiteContourPoint(item.start as PageContourPoint) &&
+              finiteContourPoint(item.end as PageContourPoint)
+            )
+          }))
       )
         return null
       if (
@@ -714,7 +734,9 @@ export function fillHintsFromResponse(
         ...(envelope.roomsOutside === undefined
           ? {}
           : { roomsOutside: [...(envelope.roomsOutside as number[])] }),
-        ...(envelope.shortEdges === undefined ? {} : { shortEdges: envelope.shortEdges as number }),
+        ...(envelope.shortEdges === undefined
+          ? {}
+          : { shortEdges: structuredClone(envelope.shortEdges) as never }),
         ...(envelope.vertexProofs === undefined
           ? {}
           : { vertexProofs: structuredClone(envelope.vertexProofs) as never }),
