@@ -116,7 +116,37 @@ describe('наружная оболочка по нарисованной кра
       start: { x: 10, y: 10 },
       end: { x: 50, y: 10 },
       lengthCm: 0.4,
+      collapses: [],
     })
+  })
+
+  it('предлагает снять уступ исходным узлом и называет комнату, которую тогда править', () => {
+    // Краска комнаты на полсантиметра выше краски соседней стены: в кольце ступенька.
+    const { work, inventory } = fixture([square(10, 10, 30, 50), square(30, 10.5, 60, 50)])
+    const room = { sourceNumber: 2, polygon: square(10, 10, 30, 50) }
+    const without = nativeOuterEnvelope({ inventory, work, cmPerPoint: 1, rooms: [room] })
+    expect(without.shortEdges).toHaveLength(1)
+    expect(without.shortEdges[0]?.lengthCm).toBe(0.5)
+    // Узла, которым уступ снимается, на чертеже нет: остаётся ручная правка.
+    expect(without.shortEdges[0]?.collapses).toEqual([])
+    // Толстый штрих стены сходится в узле (10, 10.5): этот угол на чертеже есть.
+    work.paths.push({
+      operationIndex: 90,
+      subpathIndex: 0,
+      closed: false,
+      paint: 'stroke',
+      points: [
+        { x: 10, y: 50 },
+        { x: 10, y: 10.5 },
+        { x: 30, y: 10.5 },
+      ],
+    } as never)
+    const withNode = nativeOuterEnvelope({ inventory, work, cmPerPoint: 1, rooms: [room] })
+    expect(withNode.shortEdges[0]?.collapses).toEqual([
+      expect.objectContaining({ corner: { x: 10, y: 10.5 }, roomsOutside: [2] }),
+    ])
+    // Само предложение не правится: комната по-прежнему внутри исходного кольца.
+    expect(withNode.roomsOutside).toEqual([])
   })
 
   it('держит оболочку при неполном или отказавшем перечне заливок', () => {

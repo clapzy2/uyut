@@ -1,5 +1,10 @@
 import type { PlanPageSegmentRef, PlanPageVertexProof } from '@uyut/db'
 import polygonClipping, { type Polygon } from 'polygon-clipping'
+import {
+  collapseEnvelopeStep,
+  type EnvelopeStepCollapse,
+  envelopeStepCollapses,
+} from './plan-envelope-step'
 import type { nativeFillCandidates } from './plan-native-fill-candidates'
 import { polygonWithin } from './plan-page-review'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
@@ -52,7 +57,13 @@ export function nativeOuterEnvelope(input: {
     holes: 0,
     roomsOutside: [] as number[],
     vertexProofs: [] as PlanPageVertexProof[],
-    shortEdges: [] as { index: number; start: PagePoint; end: PagePoint; lengthCm: number }[],
+    shortEdges: [] as {
+      index: number
+      start: PagePoint
+      end: PagePoint
+      lengthCm: number
+      collapses: (EnvelopeStepCollapse & { roomsOutside: number[] })[]
+    }[],
   })
   if (inventory.refusalReason) return held(inventory.refusalReason)
   if (inventory.truncated) return held('incomplete-fill-inventory')
@@ -126,8 +137,9 @@ export function nativeOuterEnvelope(input: {
   // Метрическая схема отбрасывает стену короче сантиметра (MIN_WALL_CM в
   // floor-plan-geometry.ts), а перенос отказывается целиком, если хоть одна стена
   // отброшена. Поэтому уступ в краске длиной в несколько миллиметров блокирует весь
-  // черновик. Называем такие рёбра поимённо: сливать две вершины за человека значило
-  // бы менять чертёж.
+  // черновик. Называем такие рёбра поимённо и к каждому прикладываем способ снять
+  // ступеньку исходным узлом, если он есть. Применяет его человек: сливать вершины
+  // молча значило бы менять чертёж.
   const cmPerPoint = input.cmPerPoint
   const shortEdges =
     cmPerPoint && cmPerPoint > 0
@@ -143,6 +155,20 @@ export function nativeOuterEnvelope(input: {
                   start: { x: point.x, y: point.y },
                   end: { x: next.x, y: next.y },
                   lengthCm: Math.round(lengthCm * 100) / 100,
+                  collapses: envelopeStepCollapses(polygon, vertexProofs, index, nodes).map(
+                    (collapse) => ({
+                      ...collapse,
+                      roomsOutside: (input.rooms ?? [])
+                        .filter(
+                          (room) =>
+                            !polygonWithin(
+                              room.polygon,
+                              collapseEnvelopeStep(polygon, vertexProofs, collapse).polygon,
+                            ),
+                        )
+                        .map((room) => room.sourceNumber),
+                    }),
+                  ),
                 },
               ]
             : []

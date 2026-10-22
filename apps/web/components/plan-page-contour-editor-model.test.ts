@@ -125,6 +125,51 @@ describe('display-only PDF fill hints', () => {
     invalidPoint.x = -1
     expect(fillHintsFromResponse(invalid, preview, 'b'.repeat(64))).toBeNull()
   })
+
+  it('переносит способ снять уступ оболочки и отвергает испорченный', () => {
+    const collapse = { corner: { x: 10, y: 10.5 }, replaces: [0, 1, 2], roomsOutside: [2] }
+    const response = () => ({
+      ...valid(),
+      outerEnvelope: {
+        polygon: [
+          { x: 10, y: 10 },
+          { x: 30, y: 10 },
+          { x: 30, y: 10.5 },
+          { x: 60, y: 10.5 },
+          { x: 60, y: 50 },
+          { x: 10, y: 50 },
+        ],
+        shortEdges: [
+          {
+            index: 1,
+            start: { x: 30, y: 10 },
+            end: { x: 30, y: 10.5 },
+            lengthCm: 0.5,
+            collapses: [structuredClone(collapse)] as unknown[],
+          },
+        ],
+      },
+    })
+    expect(
+      fillHintsFromResponse(response(), preview, 'b'.repeat(64))?.outerEnvelope?.shortEdges?.[0]
+        ?.collapses,
+    ).toEqual([collapse])
+    for (const broken of [
+      { ...collapse, corner: null },
+      { ...collapse, corner: { x: 10, y: -1 } },
+      { ...collapse, replaces: [0, 1] },
+      { ...collapse, replaces: [4, 5, 6] },
+      { ...collapse, replaces: [0, 1.5, 2] },
+      { ...collapse, roomsOutside: ['2'] },
+      null,
+    ]) {
+      const changed = response()
+      const edge = changed.outerEnvelope.shortEdges[0]
+      if (!edge) throw new Error('Нет короткого ребра')
+      edge.collapses = [broken]
+      expect(fillHintsFromResponse(changed, preview, 'b'.repeat(64))).toBeNull()
+    }
+  })
 })
 const rect = { left: 20, top: 40, width: 400, height: 600 }
 

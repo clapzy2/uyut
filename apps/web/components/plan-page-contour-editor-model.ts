@@ -10,6 +10,7 @@ import type {
   PlanRoomReading,
 } from '@uyut/db'
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
+import type { EnvelopeStepCollapse } from '@/lib/projects/plan-envelope-step'
 import {
   planPageSourceTopologySchema,
   sourceRoomContourVertices,
@@ -541,6 +542,11 @@ export type PlanFillHints = {
       start: PageContourPoint
       end: PageContourPoint
       lengthCm: number
+      /**
+       * Способы снять ступеньку, у которых новый угол - исходный узел PDF. Пусто, если
+       * такого угла нет: тогда уступ остаётся ручной правкой.
+       */
+      collapses?: (EnvelopeStepCollapse & { roomsOutside: number[] })[]
     }[]
     /** Доказательства вершин, которых нет среди исходных узлов PDF. */
     vertexProofs?: PlanPageContours['exterior'] extends infer E
@@ -693,7 +699,32 @@ export function fillHintsFromResponse(
               Number.isFinite(item.lengthCm) &&
               item.lengthCm >= 0 &&
               finiteContourPoint(item.start as PageContourPoint) &&
-              finiteContourPoint(item.end as PageContourPoint)
+              finiteContourPoint(item.end as PageContourPoint) &&
+              (item.collapses === undefined ||
+                (Array.isArray(item.collapses) &&
+                  item.collapses.length <= 2 &&
+                  item.collapses.every((option: unknown) => {
+                    const collapse = option as Record<string, unknown>
+                    return (
+                      collapse !== null &&
+                      typeof collapse === 'object' &&
+                      collapse.corner !== null &&
+                      typeof collapse.corner === 'object' &&
+                      finiteContourPoint(collapse.corner as PageContourPoint) &&
+                      Array.isArray(collapse.replaces) &&
+                      collapse.replaces.length === 3 &&
+                      collapse.replaces.every(
+                        (value: unknown) =>
+                          Number.isSafeInteger(value) &&
+                          (value as number) >= 0 &&
+                          (value as number) < (envelope.polygon as unknown[]).length,
+                      ) &&
+                      Array.isArray(collapse.roomsOutside) &&
+                      collapse.roomsOutside.every(
+                        (value: unknown) => Number.isSafeInteger(value) && (value as number) > 0,
+                      )
+                    )
+                  })))
             )
           }))
       )
