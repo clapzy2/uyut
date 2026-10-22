@@ -59,6 +59,8 @@ export type NativeTextAnchors = {
     nativeIndex?: number
     compactIndex?: number
     pagePoint?: { x: number; y: number }
+    /** Конец базовой линии подписи: настоящая правая граница текста, а не его начало. */
+    pageEnd?: { x: number; y: number }
     rotation?: number
   }[]
 }
@@ -365,6 +367,8 @@ export async function preparePlanPage(
       y: number
       dx: number
       dy: number
+      /** Ширина строки в текстовом пространстве PDF: по ней считается конец базовой линии. */
+      width: number
     }> = []
     let nativeTextComplete = textContent !== undefined
     let textSize = 2
@@ -410,6 +414,7 @@ export async function preparePlanPage(
           y: item.transform[5],
           dx: item.transform[0],
           dy: item.transform[1],
+          width: 'width' in item && Number.isFinite(item.width) ? item.width : Number.NaN,
         })
       }
     }
@@ -476,6 +481,18 @@ export async function preparePlanPage(
           nativeTextComplete = false
           continue
         }
+        const advance = Math.hypot(origin.dx, origin.dy)
+        const end =
+          Number.isFinite(origin.width) && origin.width > 0 && advance > 0
+            ? viewport.convertToViewportPoint(
+                origin.x + (origin.width * origin.dx) / advance,
+                origin.y + (origin.width * origin.dy) / advance,
+              )
+            : undefined
+        const pageEnd =
+          end && Number.isFinite(end[0]) && Number.isFinite(end[1])
+            ? { x: (end[0] / viewport.width) * 1000, y: (end[1] / viewport.height) * 1000 }
+            : undefined
         labels.push({
           id: `native-text-${origin.index}`,
           name: origin.name,
@@ -486,6 +503,7 @@ export async function preparePlanPage(
             x: (renderX / viewport.width) * 1000,
             y: (renderY / viewport.height) * 1000,
           },
+          ...(pageEnd ? { pageEnd } : {}),
           rotation,
         })
       }

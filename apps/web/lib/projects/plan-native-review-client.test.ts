@@ -1457,7 +1457,8 @@ describe('documentary room schedule and complete numeric-marker accounting', () 
     'short-rows',
     'row-limit',
     'null-row',
-    'noncontiguous-number',
+    // Пропуск номера теперь допустим: отказ даёт только движение назад.
+    'backwards-number',
     'string-number',
     'row-order',
     'missing-name',
@@ -1532,7 +1533,7 @@ describe('documentary room schedule and complete numeric-marker accounting', () 
     if (change === 'short-rows') schedule.rows.pop()
     if (change === 'row-limit') schedule.rows = Array(51).fill(first)
     if (change === 'null-row') Object.assign(schedule.rows, { 0: null })
-    if (change === 'noncontiguous-number') third.sourceNumber = 4
+    if (change === 'backwards-number') third.sourceNumber = 2
     if (change === 'string-number') Object.assign(first, { sourceNumber: '1' })
     if (change === 'row-order') schedule.rows = [second, first, third]
     if (change === 'missing-name') Object.assign(first, { name: undefined })

@@ -29,7 +29,7 @@ it('uses verified native table inventory when flattened text has no readable row
   expect(planPageRoomInventory(legacyText, page)).toBeUndefined()
 })
 
-function addLabel(input: Input, name: string, x: number, y: number): Label {
+function addLabel(input: Input, name: string, x: number, y: number, widthUnits?: number): Label {
   const index = Math.max(-1, ...input.native.labels.map((label) => label.nativeIndex ?? -1)) + 1
   const scale = input.native.pageNormalizedScale
   if (!scale) throw new Error('Missing fixture mapping')
@@ -39,6 +39,8 @@ function addLabel(input: Input, name: string, x: number, y: number): Label {
     name,
     rotation: 0,
     pagePoint: { x, y },
+    // Конец базовой линии: настоящая правая граница текста.
+    pageEnd: { x: x + (widthUnits ?? name.length * 1.2), y },
     point: { x: x * scale.x, y: y * scale.y },
   }
   input.native.labels.push(label)
@@ -745,5 +747,88 @@ describe('native room schedule documentary evidence', () => {
     const input = fixture()
     while (input.work.paths.length < 5001) addLine(input, { x: 700, y: 700 }, { x: 701, y: 701 })
     expectHeld(input, 'incomplete-native-layer')
+  })
+})
+
+describe('экспликация, расчерченная только горизонтальными линейками', () => {
+  // Такую таблицу подчёркивают построчно: верхней линейки у шапки нет, вертикальных
+  // разделителей колонок тоже. Заголовок стоит по центру столбца, данные - слева.
+  function rowsOnlyFixture(options: { numbers?: number[]; title?: boolean } = {}): Input {
+    const input = fixture({ grid: false, legacy: true })
+    input.native.labels = input.native.labels.filter((label) => label.name !== 'Общая площадь')
+    const numbers = options.numbers ?? [1, 2, 3]
+    const names = ['Коридор', 'Санузел', 'Спальня']
+    const areas = ['6,96', '6,44', '19,09']
+    input.native.labels = []
+    if (options.title !== false) addLabel(input, 'Экспликация помещений', 160, 92)
+    addLabel(input, '№', 105, 105)
+    addLabel(input, 'Наименование', 200, 105)
+    addLabel(input, 'Площадь', 305, 105)
+    numbers.forEach((number, index) => {
+      addLabel(input, String(number), 108, 125 + index * 20)
+      addLabel(input, names[index] as string, 150, 125 + index * 20)
+      addLabel(input, areas[index] as string, 320, 125 + index * 20)
+    })
+    addLabel(input, '32,49 м²', 318, 125 + numbers.length * 20)
+    for (let index = 0; index <= numbers.length; index++)
+      addLine(input, { x: 100, y: 115 + index * 20 }, { x: 350, y: 115 + index * 20 })
+    // Линейка соседней таблицы выше: так лист выглядит на самом деле.
+    addLine(input, { x: 100, y: 60 }, { x: 350, y: 60 })
+    return input
+  }
+
+  it('читает строки и допускает пропуски в нумерации после перепланировки', () => {
+    const result = nativeRoomScheduleEvidence(rowsOnlyFixture({ numbers: [1, 2, 4] }))
+    expect(result.reason).toBeNull()
+    expect(result.rows.map((row) => [row.sourceNumber, row.name, row.documentaryAreaM2])).toEqual([
+      [1, 'Коридор', 6.96],
+      [2, 'Санузел', 6.44],
+      [4, 'Спальня', 19.09],
+    ])
+    // Строки остаются документальными: ни контура, ни обмера они не создают.
+    expect(result).not.toHaveProperty('geometry')
+    expect(result.roomOwnershipConfirmed).toBe(false)
+  })
+
+  it('оставляет таблицу неоднозначной, когда длинное название заходит в колонку площади', () => {
+    const input = rowsOnlyFixture()
+    const long = input.native.labels.find((label) => label.name === 'Кухня-гостиная')
+    const wide = input.native.labels.find((label) => label.name === 'Санузел')
+    const target = long ?? wide
+    if (!target?.pageEnd) throw new Error('Нет подписи названия')
+    // Текст дотягивается до чисел площади: граница столбца становится неразличимой.
+    target.pageEnd.x = 330
+    expect(nativeRoomScheduleEvidence(input).rows).toHaveLength(0)
+  })
+
+  it('оставляет таблицу неоднозначной без известных границ текста', () => {
+    const input = rowsOnlyFixture()
+    for (const label of input.native.labels) label.pageEnd = undefined
+    expect(nativeRoomScheduleEvidence(input).rows).toHaveLength(0)
+  })
+
+  it('не читает таблицу, если между колонками нет разрывов', () => {
+    const input = rowsOnlyFixture()
+    // Сдвигаем площади вплотную к названиям: второго разрыва больше нет.
+    for (const label of input.native.labels)
+      if (/^\d{1,2},\d{2}/.test(label.name) && label.pagePoint)
+        label.pagePoint.x = (label.pagePoint.x as number) - 168
+    expect(nativeRoomScheduleEvidence(input).rows).toHaveLength(0)
+  })
+
+  it('не принимает соседнюю таблицу с теми же краями за экспликацию', () => {
+    const input = rowsOnlyFixture()
+    addLabel(input, 'Условные обозначения', 150, 50)
+    expect(nativeRoomScheduleEvidence(input).rows).toHaveLength(3)
+  })
+
+  it('не читает таблицу без заголовков столбцов', () => {
+    const input = rowsOnlyFixture()
+    input.native.labels = input.native.labels.filter((label) => label.name !== 'Наименование')
+    expect(nativeRoomScheduleEvidence(input).rows).toHaveLength(0)
+  })
+
+  it('отказывает, когда номера идут вразнобой', () => {
+    expect(nativeRoomScheduleEvidence(rowsOnlyFixture({ numbers: [1, 4, 2] })).rows).toHaveLength(0)
   })
 })
