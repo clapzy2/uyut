@@ -17,6 +17,7 @@ import {
 } from './plan-native-height-datum-caption'
 import type { NativeReviewPacket } from './plan-native-review-packet'
 import { nativeSourceObjectReportsValid } from './plan-native-source-object-contract'
+import { pdfPolygonIsValid } from './plan-pdf-room-binding'
 
 export class NativeReviewRequestError extends Error {
   constructor(
@@ -1776,6 +1777,7 @@ function isHeightLocations(
         'cavityIds',
         'inkSourceOperation',
         'reason',
+        ...('captionPolygon' in row ? ['captionPolygon'] : []),
         ...('leader' in row ? ['leader'] : []),
       ]) ||
       !isBoundedLabel(row.labelId) ||
@@ -1788,6 +1790,26 @@ function isHeightLocations(
     )
       return false
     seenIds.add(row.labelId)
+    if (
+      'captionPolygon' in row &&
+      (row.inkSourceOperation === null ||
+        !Array.isArray(row.captionPolygon) ||
+        row.captionPolygon.length !== 4 ||
+        !row.captionPolygon.every(
+          (point) =>
+            point &&
+            typeof point === 'object' &&
+            hasOnlyKeys(point, ['x', 'y']) &&
+            Number.isFinite(point.x) &&
+            Number.isFinite(point.y) &&
+            point.x >= 0 &&
+            point.x <= 1000 &&
+            point.y >= 0 &&
+            point.y <= 1000,
+        ) ||
+        !pdfPolygonIsValid(row.captionPolygon))
+    )
+      return false
     if (
       'leader' in row &&
       (row.inkSourceOperation === null || !row.leader || !leaderValid(row.leader))
