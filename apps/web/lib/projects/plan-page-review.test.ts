@@ -379,8 +379,15 @@ describe('versioned source page review', () => {
       polygon: structuredClone(room.polygon),
       vertexProofs: structuredClone(room.vertexProofs),
     }
+    work.paths.push({
+      ...at(linework.paths),
+      operationIndex: 4,
+      points: structuredClone(room.polygon),
+      closed: true,
+    })
     expect(planPageReviewIssue(input, reading, input.source, work)).toBeUndefined()
     delete input.floor.vertexProofs
+    work.paths.pop()
     expect(planPageReviewIssue(input, reading, input.source, work)).toBe('non-native-floor-vertex')
   })
 
@@ -407,12 +414,47 @@ describe('versioned source page review', () => {
       ...linework,
       paths: [
         ...linework.paths,
-        { ...at(linework.paths), points: exterior.polygon },
-        { ...at(linework.paths), points: floor.polygon },
+        { ...at(linework.paths), operationIndex: 18, points: exterior.polygon },
+        { ...at(linework.paths), operationIndex: 19, points: floor.polygon, closed: true },
       ],
     }
     expect(planPageContoursSchema.safeParse(input).success).toBe(true)
     expect(planPageReviewIssue(input, reading, input.source, nativeWork)).toBeUndefined()
+    const paintedOnly = structuredClone(nativeWork)
+    const paintedFloor = at(paintedOnly.paths, paintedOnly.paths.length - 1)
+    paintedFloor.paint = 'fill'
+    expect(planPageReviewIssue(input, reading, input.source, paintedOnly)).toBe(
+      'non-native-floor-edge',
+    )
+    const dashed = structuredClone(nativeWork)
+    const dashedFloor = at(dashed.paths, dashed.paths.length - 1)
+    dashedFloor.strokeInk = {
+      points: floor.polygon,
+      sourceToPage: [1, 0, 0, 1, 0, 0],
+      lineWidth: 1,
+      lineCap: 0,
+      lineJoin: 0,
+      miterLimit: 10,
+      dashArray: [2, 2],
+      dashPhase: 0,
+      refusalReason: 'dashed-source-pen',
+    }
+    expect(planPageReviewIssue(input, reading, input.source, dashed)).toBe('non-native-floor-edge')
+    const disconnectedFloor = {
+      ...nativeWork,
+      paths: [
+        ...nativeWork.paths.slice(0, -1),
+        {
+          ...at(linework.paths),
+          operationIndex: 20,
+          points: floor.polygon,
+          closed: false,
+        },
+      ],
+    }
+    expect(planPageReviewIssue(input, reading, input.source, disconnectedFloor)).toBe(
+      'non-native-floor-edge',
+    )
     expect(
       planPageReviewIssue(input, reading, input.source, {
         ...nativeWork,

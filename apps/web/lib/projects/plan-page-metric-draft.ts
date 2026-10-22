@@ -217,9 +217,14 @@ export function planPageMetricDraft(
     return fail(
       'Для переноса выберите только комнаты с проверенными физическими границами; исходные области с точными пересечениями пока остаются на листе.',
     )
+  const sourceReviewIssue = planPageReviewIssue(contours, reading, source, linework)
+  if (sourceReviewIssue === 'non-native-floor-edge')
+    return fail(
+      'Граница пола проходит вне сплошных штрихов исходного PDF. Проверьте каждый участок контура.',
+    )
   if (
     source.state !== 'existing' ||
-    planPageReviewIssue(contours, reading, source, linework) ||
+    sourceReviewIssue ||
     planPageFeaturesIssue(contours, { checkRoomOverlap: true })
   )
     return fail('Сверьте разметку с исходным обмерным листом: источник или вершины не совпали.')

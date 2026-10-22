@@ -673,6 +673,62 @@ export function sourceRoomContourVertices(
   })
 }
 
+/** A reviewed floor edge needs continuous source stroke, not merely two PDF vertices. */
+function sourceFloorEdges(
+  polygon: readonly PagePoint[],
+  segments: readonly NativePageSegment[],
+  linework: PdfLinework,
+): boolean {
+  const tolerance = 1e-7
+  const usablePaths = new Set(
+    linework.paths
+      .filter(
+        (path) =>
+          (path.paint === 'stroke' || path.paint === 'fill-stroke') &&
+          !path.strokeInk?.refusalReason &&
+          !path.strokeInk?.dashArray.length &&
+          path.strokeColor?.toLowerCase() !== '#ffffff',
+      )
+      .map((path) => `${path.operationIndex}:${path.subpathIndex}`),
+  )
+  for (const [index, start] of polygon.entries()) {
+    const end = polygon[(index + 1) % polygon.length]
+    if (!end) return false
+    const dx = end.x - start.x
+    const dy = end.y - start.y
+    const lengthSquared = dx * dx + dy * dy
+    if (lengthSquared === 0) return false
+    const intervals: Array<[number, number]> = []
+    for (const segment of segments) {
+      if (!usablePaths.has(`${segment.operationIndex}:${segment.subpathIndex}`)) continue
+      const points = [segment.start, segment.end]
+      if (
+        points.some(
+          (point) =>
+            Math.abs((point.x - start.x) * dy - (point.y - start.y) * dx) >
+            tolerance * Math.sqrt(lengthSquared),
+        )
+      )
+        continue
+      const projections = points.map(
+        (point) => ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared,
+      )
+      const from = Math.max(0, Math.min(...projections))
+      const to = Math.min(1, Math.max(...projections))
+      if (to > from) intervals.push([from, to])
+    }
+    intervals.sort((left, right) => left[0] - right[0])
+    let covered = 0
+    for (const [from, to] of intervals) {
+      if (from > covered + tolerance) break
+      covered = Math.max(covered, to)
+      if (covered >= 1 - tolerance) break
+    }
+    if (covered < 1 - tolerance) return false
+  }
+  return true
+}
+
 export function planPageReviewIssue(
   input: PlanPageContours,
   reading: Pick<PlanReading, 'rooms' | 'sourcePage' | 'planState'>,
@@ -730,8 +786,11 @@ export function planPageReviewIssue(
   }
   if (input.exterior && !sourceRoomContourVertices(input.exterior, nativePoints, segments))
     return 'non-native-contour-vertex'
-  if (input.floor && !sourceRoomContourVertices(input.floor, nativePoints, segments))
-    return 'non-native-floor-vertex'
+  if (input.floor) {
+    if (!sourceRoomContourVertices(input.floor, nativePoints, segments))
+      return 'non-native-floor-vertex'
+    if (!sourceFloorEdges(input.floor.polygon, segments, linework)) return 'non-native-floor-edge'
+  }
   if (
     input.voids?.some((voidArea) =>
       voidArea.polygon.some((point) => !nativePoints.has(`${point.x}:${point.y}`)),
