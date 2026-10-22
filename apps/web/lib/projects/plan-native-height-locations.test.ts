@@ -166,6 +166,9 @@ describe('whole source height caption locations, not semantic owners', () => {
     })
     expect(result.observations[0]?.leader?.source).not.toHaveProperty('tip')
     expect(result.observations[0]?.leader?.source).not.toHaveProperty('arrowPolygon')
+    expect(result.observations[0]?.captionPolygon).toEqual(
+      input.native.heightCaptionInk?.items[0]?.quad,
+    )
     expect(input).toEqual(before)
   })
 

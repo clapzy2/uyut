@@ -33,7 +33,7 @@ it.skipIf(!existsSync(remplannerSource))(
     const sha256 = createHash('sha256').update(body).digest('hex')
     const { preparePlanPage } = await import('./plan-document')
     const page = await preparePlanPage(body, true, 4, true, true)
-    if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+    if (!page.nativeTextAnchors?.heightCaptionInk || !page.linework || !page.lineworkRasterSource)
       throw new Error('Missing Remplanner native layers')
     expect(page.nativeTextAnchors?.heightCaptionInk?.items.map((item) => item.text)).toEqual([
       'H=3080',
@@ -61,6 +61,14 @@ it.skipIf(!existsSync(remplannerSource))(
     expect(locations.refusalReason).toBeNull()
     expect(locations.observations).toHaveLength(4)
     expect(locations.observations.every((item) => item.status === 'unresolved')).toBe(true)
+    expect(locations.observations.map((item) => item.captionPolygon)).toEqual(
+      page.nativeTextAnchors.heightCaptionInk.items.map((item) => item.quad),
+    )
+    expect(
+      locations.observations.every(
+        (item) => item.leader?.reason === 'height-leader-box-unresolved',
+      ),
+    ).toBe(true)
     expect(locations.mayTransfer3D).toBe(false)
   },
 )

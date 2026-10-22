@@ -1141,6 +1141,39 @@ describe('read-only native review presentation', () => {
       expect(packet.readiness.readyFor3D).toBe(false)
     },
   )
+  it('outlines source height glyphs without assigning a room', () => {
+    const packet = nativeDimensionPacket()
+    const heights = packet.heightObservations
+    if (!heights) throw new Error('Missing height control')
+    heights.locations = {
+      status: 'draft',
+      refusalReason: null,
+      observations: [
+        {
+          labelId: 'height-0',
+          status: 'unresolved',
+          cavityIds: [],
+          inkSourceOperation: 42,
+          reason: 'outboard-height-caption-leader-unverified',
+          captionPolygon: [
+            { x: 250, y: 400 },
+            { x: 270, y: 400 },
+            { x: 270, y: 410 },
+            { x: 250, y: 410 },
+          ],
+        },
+      ],
+    }
+    const before = structuredClone(packet)
+    const html = renderToStaticMarkup(
+      createElement(NativeReviewResult, { packet, imageUrl: 'blob:private-test' }),
+    )
+    expect(html).toContain('Показать исходные глифы подписей высоты — без назначения комнат')
+    expect(html).toContain('height-0: исходные глифы подписи высоты')
+    expect(html).toContain('Комната, вид высоты и уровень отсчёта не подтверждены')
+    expect(html).not.toContain('Высота комнаты 1')
+    expect(packet).toEqual(before)
+  })
   it('shows whole-caption cavity locations without calling them height owners or adding geometry actions', () => {
     const packet = nativeDimensionPacket()
     const heights = packet.heightObservations

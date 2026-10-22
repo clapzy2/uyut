@@ -287,6 +287,18 @@ describe('exact bounded height callout evidence, never room ownership', () => {
     ]
     expect(verify(work).status).toBe('candidate')
   })
+  it('permits an off-page omission only when its complete bounds are distant', () => {
+    const work = source()
+    work.clippedPaths = 1
+    work.clippedPathBounds = [
+      { operationIndex: 99, bounds: { left: 900, right: 910, top: 990, bottom: 1000.284 } },
+    ]
+    expect(verify(work).status).toBe('candidate')
+    work.clippedPathBounds = [
+      { operationIndex: 99, bounds: { left: 129, right: 131, top: 104, bottom: 1000.284 } },
+    ]
+    expect(verify(work).reason).toBe('height-leader-omitted-ink')
+  })
   it('bounds chain length rather than using a nearest triangle', () => {
     const work = source()
     required(work.paths[1]).points = Array.from({ length: 10 }, (_, index) =>

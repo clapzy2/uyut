@@ -212,9 +212,7 @@ export function createNativeHeightLeaderVerifier(work: PdfLinework) {
       !Number.isSafeInteger(omitted?.operationIndex) ||
       omitted.operationIndex < 0 ||
       !b ||
-      ![b.left, b.top, b.right, b.bottom].every(
-        (value) => Number.isFinite(value) && value >= 0 && value <= 1000,
-      ) ||
+      ![b.left, b.top, b.right, b.bottom].every(Number.isFinite) ||
       b.left > b.right ||
       b.top > b.bottom
     )
@@ -261,9 +259,19 @@ export function createNativeHeightLeaderVerifier(work: PdfLinework) {
       if (!charge(4)) return true
       const b = row.bounds
       if (
+        Math.max(start.x, end.x) < b.left ||
+        Math.min(start.x, end.x) > b.right ||
+        Math.max(start.y, end.y) < b.top ||
+        Math.min(start.y, end.y) > b.bottom
+      )
+        continue
+      if (
         [start, end].some((p) => p.x >= b.left && p.x <= b.right && p.y >= b.top && p.y <= b.bottom)
       )
         return true
+      // Omitted ink may extend beyond the page. If its envelope reaches this
+      // segment, unsupported off-page coordinates must remain a blocker.
+      if ([b.left, b.top, b.right, b.bottom].some((value) => value < 0 || value > 1000)) return true
       const polygon = boundsPolygon(b)
       if (
         polygon.some(

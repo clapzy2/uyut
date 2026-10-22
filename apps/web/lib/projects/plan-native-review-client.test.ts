@@ -3849,6 +3849,21 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
     },
   )
 
+  it('retains a source height-caption outline without accepting a room height', async () => {
+    const { packet, headers, locations } = heightLocationsFixture()
+    const row = locations.observations[0]
+    if (!row) throw new Error('Height location fixture is missing')
+    row.captionPolygon = [
+      { x: 150, y: 150 },
+      { x: 170, y: 150 },
+      { x: 170, y: 160 },
+      { x: 150, y: 160 },
+    ]
+    const loaded = (await loadFixture(packet, headers)).packet
+    expect(loaded.heightObservations?.locations).toEqual(locations)
+    expect(loaded.readiness.readyFor3D).toBe(false)
+  })
+
   it.each(['draft-parent', 'held-parent'] as const)(
     'accepts atomic held height locations with %s',
     async (state) => {
@@ -3898,6 +3913,10 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
     'unresolved-no-reason',
     'extra-row-owner',
     'extra-row-point',
+    'null-operation-polygon',
+    'invalid-polygon',
+    'outside-polygon',
+    'polygon-extra-key',
     'floor-held',
     'parent-held',
   ] as const)('rejects forged or incomplete height-caption locations: %s', async (change) => {
@@ -3958,6 +3977,31 @@ describe('optional literal height diagnostics, never a 3D acceptance gate', () =
       })
     if (change === 'extra-row-owner') Object.assign(row, { roomId: 'accepted-room' })
     if (change === 'extra-row-point') Object.assign(row, { pagePoint: { x: 150, y: 150 } })
+    if (change === 'null-operation-polygon') {
+      row.inkSourceOperation = null
+      row.captionPolygon = [
+        { x: 150, y: 150 },
+        { x: 170, y: 150 },
+        { x: 170, y: 160 },
+        { x: 150, y: 160 },
+      ]
+    }
+    if (change === 'invalid-polygon')
+      row.captionPolygon = Array.from({ length: 4 }, () => ({ x: 150, y: 150 }))
+    if (change === 'outside-polygon')
+      row.captionPolygon = [
+        { x: -1, y: 150 },
+        { x: 170, y: 150 },
+        { x: 170, y: 160 },
+        { x: 150, y: 160 },
+      ]
+    if (change === 'polygon-extra-key')
+      row.captionPolygon = [
+        { x: 150, y: 150, roomId: 'forged' } as { x: number; y: number },
+        { x: 170, y: 150 },
+        { x: 170, y: 160 },
+        { x: 150, y: 160 },
+      ]
     if (change === 'floor-held') delete packet.floorCavities
     if (change === 'parent-held')
       Object.assign(heights, {

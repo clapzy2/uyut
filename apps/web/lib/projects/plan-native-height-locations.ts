@@ -25,6 +25,8 @@ type Row = {
   cavityIds: string[]
   inkSourceOperation: number | null
   reason: string | null
+  /** Whole source glyph outline for visual review, not a room or height assignment. */
+  captionPolygon?: PagePoint[]
   leader?: {
     status: 'linked' | 'ambiguous' | 'unresolved'
     cavityIds: string[]
@@ -229,6 +231,7 @@ export function nativeHeightSourceLocations(input: Input) {
       }
       observations.push(row)
       if (!item) continue
+      row.captionPolygon = item.quad.map((point) => ({ ...point }))
       const captionBounds = groupBounds.get(item.index) ?? item.quad
       if (item.sourceResetCaption) {
         const blockers = nativeCaptionKnownPaintBlockers(

@@ -1811,6 +1811,7 @@ export function NativeReviewResult({
   const [showOneSidedWalls, setShowOneSidedWalls] = useState(true)
   const [showSavedFloors, setShowSavedFloors] = useState(false)
   const [showFloorCavities, setShowFloorCavities] = useState(false)
+  const [showHeightCaptionInk, setShowHeightCaptionInk] = useState(true)
   const [showSplitHeightHints, setShowSplitHeightHints] = useState(true)
   const [showHeightCallouts, setShowHeightCallouts] = useState(true)
   const [showOrderedPaint, setShowOrderedPaint] = useState(false)
@@ -2085,6 +2086,17 @@ export function NativeReviewResult({
         />
         Показать также области из заливок — их назначение не подтверждено
       </label>
+      {packet.heightObservations?.locations?.status === 'draft' &&
+      packet.heightObservations.locations.observations.some((item) => item.captionPolygon) ? (
+        <label className="flex min-h-11 items-center gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            checked={showHeightCaptionInk}
+            onChange={(event) => setShowHeightCaptionInk(event.target.checked)}
+          />
+          Показать исходные глифы подписей высоты — без назначения комнат
+        </label>
+      ) : null}
       {packet.heightObservations?.status === 'draft' &&
       packet.heightObservations.splitHints?.length ? (
         <label className="flex min-h-11 items-center gap-2 text-[13px]">
@@ -2460,6 +2472,31 @@ export function NativeReviewResult({
                     <title>{`${part.labelId}: «${part.originalText}». Возможный фрагмент подписи порога; видимость исходных глифов и высота не подтверждены.`}</title>
                   </circle>
                 )),
+              )
+            : null}
+          {showHeightCaptionInk && packet.heightObservations?.locations?.status === 'draft'
+            ? packet.heightObservations.locations.observations.flatMap((item) =>
+                item.captionPolygon
+                  ? [
+                      <polygon
+                        key={`height-caption-ink:${item.labelId}`}
+                        points={item.captionPolygon
+                          .map(
+                            (point) =>
+                              `${(point.x * packet.image.width) / 1000},${(point.y * packet.image.height) / 1000}`,
+                          )
+                          .join(' ')}
+                        fill="none"
+                        stroke="#0f766e"
+                        strokeWidth="2"
+                        strokeDasharray="3 2"
+                        vectorEffect="non-scaling-stroke"
+                        pointerEvents="none"
+                      >
+                        <title>{`${item.labelId}: исходные глифы подписи высоты. Комната, вид высоты и уровень отсчёта не подтверждены.`}</title>
+                      </polygon>,
+                    ]
+                  : [],
               )
             : null}
           {showHeightCallouts && packet.heightCallouts?.status === 'draft' ? (
