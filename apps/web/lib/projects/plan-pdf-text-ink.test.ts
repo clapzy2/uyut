@@ -443,6 +443,41 @@ function selectedHeightFixture(): Input {
 }
 
 describe('source-contiguous grouped height shows', () => {
+  it.each([0, 0.01])(
+    'checks reflected unitless height resets against source advance (delta %s)',
+    (delta) => {
+      const input = fixture(
+        [
+          ['transform', [1, 0, 0, -1, 0, 1000]],
+          ['setFont', ['f1', 10]],
+          ['beginText'],
+          ['setTextMatrix', [new Float32Array([1, 0, 0, -1, 100, 200])]],
+          ['showText', [[glyph('H')]]],
+          ['setTextMatrix', [new Float32Array([1, 0, 0, -1, 105.1, 200])]],
+          ['showText', [[glyph('=')]]],
+          ['setTextMatrix', [new Float32Array([1, 0, 0, -1, 110.2, 200])]],
+          ['showText', [Array.from('3080', (character) => glyph(character))]],
+          ['endText'],
+        ],
+        [
+          {
+            str: 'H=3080',
+            fontName: 'f1',
+            width: 30.2 + delta,
+            transform: [10, 0, 0, 10, 100, 800],
+          },
+        ],
+      )
+      input.selectedTextIndexes = [0]
+      const result = nativeNumericTextInk(input)
+      if (delta === 0) {
+        expect(result.items).toHaveLength(1)
+        expect(
+          result.items[0]?.sourceResetCaption?.shows.map((show) => show.operationIndex),
+        ).toEqual([4, 6, 8])
+      } else expect(result.items).toEqual([])
+    },
+  )
   function groupedFixture(extra: Operation[] = []) {
     const sourceMatrix: Matrix = [1, 0, 0, 1, 251.6095, 292.8608]
     const operations: Operation[] = [

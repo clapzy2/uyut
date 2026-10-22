@@ -94,7 +94,12 @@ export function nativeNumberedFillHints(input: {
 
   const tableIds = new Set([
     ...schedule.headerLabelIds,
-    ...schedule.rows.flatMap((row) => [row.numberLabelId, row.nameLabelId, row.areaLabelId]),
+    ...schedule.rows.flatMap((row) => [
+      row.numberLabelId,
+      row.nameLabelId,
+      row.areaLabelId,
+      ...(row.areaUnitLabelId ? [row.areaUnitLabelId] : []),
+    ]),
   ])
   const table = schedule.tableBounds
   const labels = native.labels.filter((label) => label.pagePoint)

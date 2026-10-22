@@ -7,9 +7,56 @@ import {
   nativeDocumentaryHeightCaption,
   nativeHeightMillimetreDeclarationIndex,
 } from './plan-native-height-caption'
+import { sourceResetHeightLiteral } from './plan-native-height-group'
 import { nativeHeightObservations } from './plan-native-height-observations'
 
 type Input = Parameters<typeof nativeHeightObservations>[0]
+
+it('allows exact unitless height captions through the source reset replay without accepting qualified text', () => {
+  expect(sourceResetHeightLiteral.test('H=3080')).toBe(true)
+  expect(sourceResetHeightLiteral.test('Н=3075')).toBe(true)
+  for (const text of ['H=3080?', 'H=3080 или 3075', 'не H=3080', 'H=3080 см']) {
+    expect(sourceResetHeightLiteral.test(text)).toBe(false)
+  }
+})
+
+const remplannerSource = fileURLToPath(
+  new URL('../../../../tmp/pdfs/remplanner-interior-source.pdf', import.meta.url),
+)
+it.skipIf(!existsSync(remplannerSource))(
+  'recovers four reflected Remplanner height show groups while withholding geometry ownership',
+  async () => {
+    const body = await readFile(remplannerSource)
+    const { preparePlanPage } = await import('./plan-document')
+    const page = await preparePlanPage(body, true, 4, true, true)
+    expect(page.nativeTextAnchors?.heightCaptionInk?.items.map((item) => item.text)).toEqual([
+      'H=3080',
+      'H=3080',
+      'H=3075',
+      'H=3080',
+    ])
+    expect(page.nativeTextAnchors?.heightCaptionInk?.unresolved).toEqual([])
+    expect(page.nativeTextAnchors?.vectorInkRefusal).toBe('unverified-native-vector-paint-alpha')
+  },
+)
+
+it('reads the Remplanner all-dimensions note without accepting qualified or conflicting units', () => {
+  expect(
+    nativeHeightMillimetreDeclarationIndex(['H=3080', '1. Все размеры указаны в миллиметрах.']),
+  ).toBe(1)
+  for (const note of [
+    '1. Все размеры указаны в миллиметрах кроме высот.',
+    '1. Не все размеры указаны в миллиметрах.',
+    '1. Все размеры указаны в миллиметрах?',
+  ])
+    expect(nativeHeightMillimetreDeclarationIndex([note])).toBeNull()
+  expect(
+    nativeHeightMillimetreDeclarationIndex([
+      '1. Все размеры указаны в миллиметрах.',
+      'Высоты указаны в метрах.',
+    ]),
+  ).toBeNull()
+})
 
 function fixture(texts: string[] = ['натяжной-2684мм']): Input {
   const image = { sha256: 'a'.repeat(64), page: 6, width: 1000, height: 1000 }
