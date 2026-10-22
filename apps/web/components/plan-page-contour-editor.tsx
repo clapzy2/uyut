@@ -55,6 +55,7 @@ import {
   pdfContourRoomNumbers,
 } from '@/lib/projects/plan-pdf-room-binding'
 import { type PageBoundaryKind, PlanPageBoundaryControls } from './plan-page-boundary-controls'
+import { PlanPageDraftPreview } from './plan-page-draft-preview'
 import { sourceEdgeCandidates } from './plan-page-edge-candidates'
 import { PlanPageEdgeDimensions } from './plan-page-edge-dimensions'
 import { PlanPageFeatureOverlay } from './plan-page-feature-overlay'
@@ -1656,6 +1657,7 @@ export function PlanPageContourEditor({
                       </select>
                     </label>
                   ) : null}
+                  <PlanPageDraftPreview hints={currentFillHints} />
                 </>
               ) : null}
             </div>
