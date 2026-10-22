@@ -645,6 +645,7 @@ describe('native PDF page to metric draft', () => {
     ]
     context.linework.paths.push(
       path(envelope, true),
+      path(polygon, true),
       path([
         { x: 5, y: 5 },
         { x: 5, y: 420 },
