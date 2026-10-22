@@ -8,7 +8,10 @@ import {
   nativeHeightMillimetreDeclarationIndex,
 } from './plan-native-height-caption'
 import { sourceResetHeightLiteral } from './plan-native-height-group'
-import { nativeHeightObservations } from './plan-native-height-observations'
+import {
+  nativeHeightCaptionPaintIssue,
+  nativeHeightObservations,
+} from './plan-native-height-observations'
 
 type Input = Parameters<typeof nativeHeightObservations>[0]
 
@@ -27,8 +30,11 @@ it.skipIf(!existsSync(remplannerSource))(
   'recovers four reflected Remplanner height show groups while withholding geometry ownership',
   async () => {
     const body = await readFile(remplannerSource)
+    const sha256 = createHash('sha256').update(body).digest('hex')
     const { preparePlanPage } = await import('./plan-document')
     const page = await preparePlanPage(body, true, 4, true, true)
+    if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource)
+      throw new Error('Missing Remplanner native layers')
     expect(page.nativeTextAnchors?.heightCaptionInk?.items.map((item) => item.text)).toEqual([
       'H=3080',
       'H=3080',
@@ -37,6 +43,25 @@ it.skipIf(!existsSync(remplannerSource))(
     ])
     expect(page.nativeTextAnchors?.heightCaptionInk?.unresolved).toEqual([])
     expect(page.nativeTextAnchors?.vectorInkRefusal).toBe('unverified-native-vector-paint-alpha')
+    expect(page.nativeTextAnchors.heightCaptionPaintRefusal).toBeNull()
+    const input: Input = {
+      source: { sha256, pdfPage: 4, state: 'existing' },
+      native: page.nativeTextAnchors,
+      work: page.linework,
+      lineworkSource: page.lineworkRasterSource,
+    }
+    const heights = nativeHeightObservations(input)
+    expect(heights.observations.map((item) => item.valueMm)).toEqual([3080, 3080, 3075, 3080])
+    expect(heights.observations.every((item) => item.mayAcceptFor3D === false)).toBe(true)
+    expect(
+      heights.observations.every((item) => item.issueCodes.includes('height-unit-ink-unverified')),
+    ).toBe(true)
+    const { nativeHeightSourceLocations } = await import('./plan-native-height-locations')
+    const locations = nativeHeightSourceLocations(input)
+    expect(locations.refusalReason).toBeNull()
+    expect(locations.observations).toHaveLength(4)
+    expect(locations.observations.every((item) => item.status === 'unresolved')).toBe(true)
+    expect(locations.mayTransfer3D).toBe(false)
   },
 )
 
@@ -308,6 +333,43 @@ describe('literal source height observation inventory, never vertical model tran
     }
     return input
   }
+  it('uses local alpha clearance only for complete same-source height ink', () => {
+    const input = documentaryFixture()
+    input.native.vectorInkRefusal = 'unverified-native-vector-paint-alpha'
+    input.native.heightCaptionPaintRefusal = null
+    input.native.heightCaptionInk = {
+      source: {
+        sha256: input.source.sha256,
+        pdfPage: input.source.pdfPage,
+        pageWidth: input.work.pageWidth,
+        pageHeight: input.work.pageHeight,
+      },
+      complete: true,
+      refusalReason: null,
+      unresolved: [],
+      items: [
+        {
+          index: 0,
+          text: 'Н=3790',
+          fontName: 'synthetic-test-font',
+          operationIndex: 18,
+          baselineStart: { x: 100, y: 100 },
+          baselineEnd: { x: 120, y: 100 },
+          quad: [
+            { x: 100, y: 98 },
+            { x: 120, y: 98 },
+            { x: 120, y: 101 },
+            { x: 100, y: 101 },
+          ],
+        },
+      ],
+    }
+    expect(nativeHeightCaptionPaintIssue(input.native)).toBeUndefined()
+    expect(nativeHeightObservations(input).observations).toHaveLength(1)
+    input.native.heightCaptionInk.source.sha256 = 'c'.repeat(64)
+    expect(nativeHeightCaptionPaintIssue(input.native)).toBe('unverified-native-vector-paint-alpha')
+    expect(nativeHeightObservations(input).observations).toEqual([])
+  })
   it('retains raw unitless height under exact same-page units ink without inventing role or datum', () => {
     const input = documentaryFixture()
     const before = structuredClone(input)

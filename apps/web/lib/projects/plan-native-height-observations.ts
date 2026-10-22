@@ -39,6 +39,23 @@ const MAX_OBSERVATIONS = 100
 const pointValid = (point: PagePoint) =>
   [point.x, point.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000)
 
+/** A local alpha check is usable only for these source glyphs, never for geometry transfer. */
+export function nativeHeightCaptionPaintIssue(native: NativeTextAnchors): string | undefined {
+  const ink = native.heightCaptionInk
+  if (
+    native.vectorInkRefusal === 'unverified-native-vector-paint-alpha' &&
+    native.heightCaptionPaintRefusal === null &&
+    ink?.complete === true &&
+    ink.refusalReason === null &&
+    ink.unresolved.length === 0 &&
+    ink.items.length > 0 &&
+    ink.source.sha256 === native.originalPdfSha256 &&
+    ink.source.pdfPage === native.source.page
+  )
+    return undefined
+  return native.vectorInkRefusal
+}
+
 /** A review hint, not a height observation: PDF text order and position do not prove visible ink. */
 function splitThresholdHints(native: NativeTextAnchors, pageWidth: number, pageHeight: number) {
   const hints: NativeSplitHeightHint[] = []
@@ -103,7 +120,7 @@ function documentaryUnitEvidence(
 ): NativeHeightObservation['unitEvidence'] | undefined {
   const { native, work, source } = input
   const position = nativeHeightMillimetreDeclarationIndex(native.labels.map((label) => label.name))
-  if (position === null || native.vectorInkRefusal) return
+  if (position === null || nativeHeightCaptionPaintIssue(native)) return
   const label = native.labels[position]
   const ink = native.heightUnitInk
   if (
