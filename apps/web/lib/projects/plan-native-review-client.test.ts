@@ -1347,6 +1347,19 @@ describe('documentary room schedule and complete numeric-marker accounting', () 
     result.packet.roomSchedule = schedule
     return { ...result, schedule, circles }
   }
+  it('preserves a separate area unit source and rejects reused or invalid unit IDs', async () => {
+    const { packet, headers, schedule } = scheduleFixture()
+    const row = schedule.rows[0]
+    if (!row) throw new Error('Missing schedule row')
+    row.areaUnitLabelId = 'table-unit-1'
+    expect((await loadFixture(packet, headers)).packet.roomSchedule?.rows[0]?.areaUnitLabelId).toBe(
+      'table-unit-1',
+    )
+    for (const id of ['', 'table-name-1', 'table-area-2', 'circle-1']) {
+      row.areaUnitLabelId = id
+      await expect(loadFixture(packet, headers)).rejects.toMatchObject({ status: 422 })
+    }
+  })
   it('retains a printed subroom row and marker without renumbering the next room', async () => {
     const { packet, headers, schedule, circles } = scheduleFixture()
     const template = schedule.rows[2]

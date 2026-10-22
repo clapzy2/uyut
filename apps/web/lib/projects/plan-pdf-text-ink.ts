@@ -1158,6 +1158,15 @@ export function nativeNumericTextInk(input: {
         const previous = runs[next - 1] as Run
         const sourceOwner = sourceOwnerLiteralList.some((owner) => {
           work += owner.length + group.text.length
+          // Unitless selected heights use reset replay only for the paired
+          // page/text Y reflection seen in CAD exports. Other source resets
+          // retain the existing independent-show rejection.
+          if (
+            selectedLiterals.has(owner) &&
+            /^[НH]\s*=\s*\d{1,4}$/iu.test(owner) &&
+            first.ctm[3] >= 0
+          )
+            return false
           return work <= MAX_WORK && owner.startsWith(group.text)
         })
         // CAD exports can split one documentary caption between text objects

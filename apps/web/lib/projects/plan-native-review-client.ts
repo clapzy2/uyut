@@ -2522,6 +2522,7 @@ function isRoomSchedule(value: unknown, packet: NativeReviewPacket): boolean {
         'numberLabelId',
         'nameLabelId',
         'areaLabelId',
+        ...('areaUnitLabelId' in row ? ['areaUnitLabelId'] : []),
         'markerStatus',
         'markerLabelIds',
       ]) ||
@@ -2539,7 +2540,12 @@ function isRoomSchedule(value: unknown, packet: NativeReviewPacket): boolean {
     )
       return false
     tableNumbers.add(row.sourceNumber)
-    for (const id of [row.numberLabelId, row.nameLabelId, row.areaLabelId]) {
+    for (const id of [
+      row.numberLabelId,
+      row.nameLabelId,
+      row.areaLabelId,
+      ...('areaUnitLabelId' in row ? [row.areaUnitLabelId] : []),
+    ]) {
       if (!isBoundedLabel(id) || tableLabelIds.has(id) || circleNumbers.has(id)) return false
       tableLabelIds.add(id)
     }

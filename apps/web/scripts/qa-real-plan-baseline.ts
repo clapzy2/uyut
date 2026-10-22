@@ -73,6 +73,7 @@ if (!page.nativeTextAnchors || !page.linework || !page.lineworkRasterSource) {
         })),
         inkItems: page.nativeTextAnchors.heightCaptionInk?.items.length ?? 0,
         unresolvedInk: page.nativeTextAnchors.heightCaptionInk?.unresolved.length ?? 0,
+        inkFailures: page.nativeTextAnchors.heightCaptionInk?.unresolved ?? [],
         locationRefusal: heightLocations.refusalReason,
         locations: heightLocations.observations,
         assignsGeometryHeights: heightLocations.assignsGeometryHeights,

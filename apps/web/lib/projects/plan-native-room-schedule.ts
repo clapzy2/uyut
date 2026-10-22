@@ -16,17 +16,37 @@ export type NativeRoomScheduleRow = {
   numberLabelId: string
   nameLabelId: string
   areaLabelId: string
+  areaUnitLabelId?: string
 }
 type Label = NativeTextAnchors['labels'][number]
 type Grid = { bounds: Bounds; columns: number[]; rows: number[]; edges: NativePageSegment[] }
 const MAX_WORK = 200_000
 const roomName =
-  /^(?:помещение|прихожая|кухня(?:[-–— ]гостиная)?|гостиная|спальня|коридор|ванная|санузел|туалет|комната|жилая комната|детская|кабинет|гардероб|гардеробная|кладовая|балкон|лоджия)(?:\s+\d{1,2})?$/iu
+  /^(?:помещение|прихожая(?:,\s*коридор)?|кухня(?:[-–— ]гостиная)?|гостиная|(?:главная )?спальня|коридор|ванная(?: комната)?|санузел|туалет|комната|жилая комната|детская|кабинет|гардероб|гардеробная|кладовая|балкон|лоджия)(?:\s+(?:#|№)?\s*\d{1,2})?$/iu
 const numberHeading = /^№(?:\s*п\/п)?$/u
-const nameHeading = /^наименование$/iu
+const nameHeading = /^(?:наименование|помещение)$/iu
 const areaHeading = /^площадь(?:,|,?\s+[мm][²2])?$/iu
 const areaValue = /^\d{1,3}[,.]\d{1,2}(?:\s*[мm]²)?$/iu
-const totalName = /^(?:общая площадь|итого|всего)$/iu
+const totalName = /^(?:общая площадь|итого|всего):?$/iu
+const horizontalLabel = (label: Label) => Math.abs(label.rotation ?? Infinity) < 1e-7
+function areaParts(labels: Label[]) {
+  const first = labels[0]
+  if (labels.length === 1 && first && areaValue.test(first.name)) return { area: first }
+  if (labels.length !== 2) return undefined
+  const area = labels.find((label) => /^\d{1,3}[,.]\d{1,2}\s+[мm]$/iu.test(label.name))
+  const unit = labels.find((label) => label.name === '2' || label.name === '²')
+  if (!area?.pageEnd || !area.pagePoint || !unit?.pagePoint || !unit.pageEnd) return undefined
+  const width = unit.pageEnd.x - unit.pagePoint.x
+  const rise = area.pagePoint.y - unit.pagePoint.y
+  if (
+    width <= 0 ||
+    Math.abs(unit.pagePoint.x - area.pageEnd.x) > 0.05 ||
+    rise <= 0 ||
+    rise > width * 2
+  )
+    return undefined
+  return { area, unit }
+}
 const pointValid = (point: PagePoint) =>
   [point.x, point.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000)
 const overlaps = (a: Bounds, b: Bounds) =>
@@ -423,7 +443,14 @@ export function nativeRoomScheduleEvidence(input: {
           start -= 1
         const run = allRows.slice(start)
         if (run.length < 3) continue
-        const headerTop = (run[0] as number) - pitch
+        // Prefer a drawn top edge above the regular row run. Header height can
+        // differ from the data rows, as on the Remplanner survey sheet.
+        const inferredHeaderTop = (run[0] as number) - pitch
+        const precedingLine = allRows[start - 1]
+        const headerTop =
+          precedingLine !== undefined && precedingLine > inferredHeaderTop
+            ? precedingLine
+            : inferredHeaderTop
         // Линейка внутри достроенной шапки означала бы другую строку таблицы.
         if (allRows.some((value) => value > headerTop && value < (run[0] as number))) continue
         const rowLines = [headerTop, ...run]
@@ -468,7 +495,7 @@ export function nativeRoomScheduleEvidence(input: {
             inside(label.pagePoint, { ...bounds, top: headerBottom }) &&
             label.pagePoint.y > headerBottom,
         )
-        if (rowLabels.some((label) => !label.pageEnd || label.rotation !== 0)) continue
+        if (rowLabels.some((label) => !label.pageEnd || !horizontalLabel(label))) continue
         const spans = rowLabels
           .map((label) => {
             const start = label.pagePoint as PagePoint
@@ -573,7 +600,24 @@ export function nativeRoomScheduleEvidence(input: {
         continue
       const onRail = segment.start.x === segment.end.x && grid.columns.includes(segment.start.x)
       const onRow = segment.start.y === segment.end.y && grid.rows.includes(segment.start.y)
-      if (!onRail && !onRow) return finish('ambiguous-native-table-grid')
+      const totalCell = cells.at(-1)
+      const totalArea = totalCell && areaParts(totalCell[2] ?? [])
+      const totalCaption = totalCell?.[1]?.[0]
+      const underline =
+        totalCaption &&
+        totalName.test(totalCaption.name) &&
+        totalArea &&
+        [totalArea.area, totalArea.unit].some(
+          (label) =>
+            label?.pagePoint &&
+            label.pageEnd &&
+            segment.start.y === segment.end.y &&
+            box.left >= label.pagePoint.x - 0.05 &&
+            box.right <= label.pageEnd.x + 0.05 &&
+            box.top > label.pagePoint.y &&
+            box.top - label.pagePoint.y < 2,
+        )
+      if (!onRail && !onRow && !underline) return finish('ambiguous-native-table-grid')
     }
     const header = cells[0] as Label[][]
     const headerAllowed = [
@@ -604,18 +648,14 @@ export function nativeRoomScheduleEvidence(input: {
     rows = []
     for (let index = 1; index < cells.length; index++) {
       const row = cells[index] as Label[][]
+      const parsedArea = areaParts(row[2] ?? [])
       const number = row[0]?.[0],
         name = row[1]?.[0],
-        area = row[2]?.[0]
-      if (
-        row.flat().some((label) => label.rotation !== 0) ||
-        row[2]?.length !== 1 ||
-        !area ||
-        !areaValue.test(area.name)
-      )
+        area = parsedArea?.area
+      if (row.flat().some((label) => !horizontalLabel(label)) || !area)
         return finish('unsupported-or-ambiguous-room-table')
       if (row[0]?.length === 0 && row[1]?.length === 0 && index === cells.length - 1) {
-        const total = Number(area.name.replace(/\s*[мm]²$/iu, '').replace(',', '.'))
+        const total = Number(area.name.replace(/\s*[мm]²?$/iu, '').replace(',', '.'))
         const sum = rows.reduce((value, item) => value + item.documentaryAreaM2, 0)
         if (Math.round(total * 100) !== Math.round(sum * 100))
           return finish('unsupported-or-ambiguous-room-table')
@@ -623,7 +663,13 @@ export function nativeRoomScheduleEvidence(input: {
       }
       if (row[1]?.length !== 1 || !name) return finish('unsupported-or-ambiguous-room-table')
       if (totalName.test(name.name)) {
-        if (row[0]?.length !== 0 || index !== cells.length - 1)
+        const total = Number(area.name.replace(/\s*[мm]²?$/iu, '').replace(',', '.'))
+        if (
+          !Number.isFinite(total) ||
+          total <= 0 ||
+          row[0]?.length !== 0 ||
+          index !== cells.length - 1
+        )
           return finish('unsupported-or-ambiguous-room-table')
         continue
       }
@@ -640,7 +686,7 @@ export function nativeRoomScheduleEvidence(input: {
         ])
       )
         return finish('unsupported-or-ambiguous-room-table')
-      const documentaryAreaM2 = Number(area.name.replace(/\s*[мm]²$/iu, '').replace(',', '.'))
+      const documentaryAreaM2 = Number(area.name.replace(/\s*[мm]²?$/iu, '').replace(',', '.'))
       if (!Number.isFinite(documentaryAreaM2) || documentaryAreaM2 <= 0)
         return finish('unsupported-or-ambiguous-room-table')
       rows.push({
@@ -650,6 +696,7 @@ export function nativeRoomScheduleEvidence(input: {
         numberLabelId: number.id,
         nameLabelId: name.id,
         areaLabelId: area.id,
+        ...(parsedArea?.unit ? { areaUnitLabelId: parsedArea.unit.id } : {}),
       })
     }
     if (rows.length < 3 || rows.length > 50) return finish('unsupported-or-ambiguous-room-table')

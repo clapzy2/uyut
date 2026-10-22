@@ -29,7 +29,9 @@ export function nativeHeightMillimetreDeclarationIndex(texts: string[]): number 
   const text = texts[index] as string
   if (/[^\p{L}\d. \t\r\n\u00a0\u202f]/u.test(text)) return null
   const normalized = text.replace(/[ \t\r\n\u00a0\u202f]+/gu, ' ').trim()
-  return /^(?:[1-9]\d?\. )?Размеры указаны в миллиметрах\.?$/iu.test(normalized) ? index : null
+  return /^(?:[1-9]\d?\. )?(?:Все )?Размеры указаны в миллиметрах\.?$/iu.test(normalized)
+    ? index
+    : null
 }
 
 /** Retains a unitless H caption only under documentary mm evidence. No role or datum inference. */

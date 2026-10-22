@@ -5,7 +5,7 @@ type Item = NativeNumericTextInk['items'][number]
 export const sourceResetNoteLiteral =
   /^(?:[1-9]\d?\. )?(?:Размеры указаны в миллиметрах|Все отметки высот на замере даны от чистового пола)$/iu
 export const sourceResetHeightLiteral =
-  /^[НH]\s*=\s*\d{1,4}\s*мм\/(?:про[её]м|подоконник|от)(?=$|[^\p{L}\d])[^\d]*$/iu
+  /^[НH]\s*=\s*\d{1,4}(?:\s*мм\/(?:про[её]м|подоконник|от)(?=$|[^\p{L}\d])[^\d]*)?$/iu
 const near = (left: number, right: number) => Math.abs(left - right) <= 1e-7
 const matrix = (value: unknown): value is [number, number, number, number, number, number] =>
   Array.isArray(value) && value.length === 6 && value.every(Number.isFinite)

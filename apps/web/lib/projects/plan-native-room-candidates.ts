@@ -235,7 +235,12 @@ export function automaticNativeRoomCandidates(input: {
   const table = new Map(rows.map((row) => [row.sourceNumber, row]))
   const tableIds = new Set([
     ...schedule.headerLabelIds,
-    ...rows.flatMap((row) => [row.numberLabelId, row.nameLabelId, row.areaLabelId]),
+    ...rows.flatMap((row) => [
+      row.numberLabelId,
+      row.nameLabelId,
+      row.areaLabelId,
+      ...(row.areaUnitLabelId ? [row.areaUnitLabelId] : []),
+    ]),
   ])
   const tableBounds = schedule.tableBounds
   const numeric = native.labels.filter((label) => {

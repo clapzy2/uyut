@@ -13,6 +13,7 @@ export type NativeRoomScheduleReport = {
     numberLabelId: string
     nameLabelId: string
     areaLabelId: string
+    areaUnitLabelId?: string
     markerStatus: 'linked' | 'ambiguous' | 'unobserved' | 'unavailable'
     markerLabelIds: string[]
   }[]
@@ -56,6 +57,7 @@ export function nativeRoomNumberScheduleLinks(input: {
         numberLabelId: row.numberLabelId,
         nameLabelId: row.nameLabelId,
         areaLabelId: row.areaLabelId,
+        ...(row.areaUnitLabelId ? { areaUnitLabelId: row.areaUnitLabelId } : {}),
         markerStatus,
         markerLabelIds,
       }

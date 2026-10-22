@@ -6,6 +6,68 @@ import type { Bounds, PagePoint, PdfVectorPath } from './plan-pdf-linework'
 type Input = Parameters<typeof nativeRoomScheduleEvidence>[0]
 type Label = Input['native']['labels'][number]
 
+it('keeps both source labels of a raised square-metre unit inside its table cell', () => {
+  const input = fixture()
+  const area = labelOf(input, '4,21')
+  if (!area.pageEnd || !area.pagePoint) throw new Error('Missing area coordinates')
+  area.name = '4,21 м'
+  area.rotation = 2.4e-11
+  const unit = addLabel(input, '2', area.pageEnd.x, area.pagePoint.y - 1, 1)
+  expect(nativeRoomScheduleEvidence(input).rows[0]).toMatchObject({
+    documentaryAreaM2: 4.21,
+    areaLabelId: area.id,
+    areaUnitLabelId: unit.id,
+  })
+  if (!unit.pagePoint) throw new Error('Missing unit coordinates')
+  unit.pagePoint.y = area.pagePoint.y + 1
+  unit.point.y = unit.pagePoint.y
+  expect(nativeRoomScheduleEvidence(input).rows).toEqual([])
+})
+
+it('rejects detached or duplicate raised area units', () => {
+  for (const duplicate of [false, true]) {
+    const input = fixture()
+    const area = labelOf(input, '4,21')
+    if (!area.pageEnd || !area.pagePoint) throw new Error('Missing area coordinates')
+    area.name = '4,21 м'
+    addLabel(input, '2', area.pageEnd.x + (duplicate ? 0 : 2), area.pagePoint.y - 1, 1)
+    if (duplicate) addLabel(input, '2', area.pageEnd.x, area.pagePoint.y - 1, 1)
+    expect(nativeRoomScheduleEvidence(input).rows).toEqual([])
+  }
+})
+
+it('allows only a short underline under the final total text', () => {
+  const input = fixture()
+  const total = labelOf(input, '74,77')
+  if (!total.pageEnd || !total.pagePoint) throw new Error('Missing total coordinates')
+  const line = addLine(
+    input,
+    { x: total.pagePoint.x, y: total.pagePoint.y + 1 },
+    { x: total.pageEnd.x, y: total.pagePoint.y + 1 },
+  )
+  expect(nativeRoomScheduleEvidence(input).rows).toHaveLength(3)
+  const end = line.points[1]
+  if (!end) throw new Error('Missing underline end')
+  end.x += 10
+  expect(nativeRoomScheduleEvidence(input).reason).toBe('ambiguous-native-table-grid')
+})
+
+it('reads the Remplanner heading and room vocabulary only inside a verified table', () => {
+  const input = fixture({ count: 4, total: false })
+  const names = ['Прихожая, коридор', 'Жилая комната #1', 'Главная спальня', 'Ванная комната']
+  const heading = labelOf(input, 'Наименование')
+  heading.name = 'Помещение'
+  const roomLabels = input.native.labels.filter((label) => label.pagePoint?.x === 150)
+  roomLabels.forEach((label, index) => {
+    const name = names[index]
+    if (!name) throw new Error('Missing room name')
+    label.name = name
+  })
+  expect(nativeRoomScheduleEvidence(input).rows.map((row) => row.name)).toEqual(names)
+  labelOf(input, 'Прихожая, коридор').name = 'Прихожая, кабель'
+  expect(nativeRoomScheduleEvidence(input).rows).toEqual([])
+})
+
 it('uses verified native table inventory when flattened text has no readable rows', () => {
   const input = fixture()
   const page = {
@@ -788,6 +850,14 @@ describe('экспликация, расчерченная только гори
     // Строки остаются документальными: ни контура, ни обмера они не создают.
     expect(result).not.toHaveProperty('geometry')
     expect(result.roomOwnershipConfirmed).toBe(false)
+  })
+
+  it('uses a drawn header top when the header is shorter than regular data rows', () => {
+    const input = rowsOnlyFixture()
+    addLine(input, { x: 100, y: 100 }, { x: 350, y: 100 })
+    const result = nativeRoomScheduleEvidence(input)
+    expect(result.rows).toHaveLength(3)
+    expect(result.tableBounds?.top).toBe(100)
   })
 
   it('оставляет таблицу неоднозначной, когда длинное название заходит в колонку площади', () => {
