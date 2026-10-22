@@ -14,7 +14,10 @@ import {
   nativeDimensionCaptionMillimetres,
 } from './plan-pdf-caption-binding'
 import { extractPdfLinework, type PdfLinework } from './plan-pdf-linework'
-import { pdfNativePaintVisibilityIssue } from './plan-pdf-paint-visibility'
+import {
+  pdfNativeCaptionPaintVisibilityIssue,
+  pdfNativePaintVisibilityIssue,
+} from './plan-pdf-paint-visibility'
 import { pdfStandardFontDataUrl } from './plan-pdf-standard-fonts'
 import { type NativeNumericTextInk, nativeNumericTextInk } from './plan-pdf-text-ink'
 
@@ -38,6 +41,8 @@ export type NativeTextAnchors = {
   compactCaptionGeometry?: NativeDimensionCaptionContext
   // A hidden/composited vector must not become strict visible dimension evidence.
   vectorInkRefusal?: string
+  /** Read-only visibility check for the selected height glyphs; never accepts a room height. */
+  heightCaptionPaintRefusal?: string | null
   // Separate from the numeric rail inventory: full height-caption glyph outlines.
   heightCaptionInk?: NativeNumericTextInk & {
     source: { sha256: string; pdfPage: number; pageWidth: number; pageHeight: number }
@@ -342,6 +347,21 @@ export async function preparePlanPage(
             isOptionalContentVisible: (properties) => optionalContentConfig?.isVisible(properties),
           })
         : undefined
+    const heightCaptionPaintRefusal =
+      vectorInkRefusal === 'unverified-native-vector-paint-alpha' &&
+      nativeOperators &&
+      heightInk?.complete === true &&
+      heightInk.refusalReason === null &&
+      heightInk.unresolved.length === 0 &&
+      heightInk.items.length > 0
+        ? (pdfNativeCaptionPaintVisibilityIssue({
+            operatorList: nativeOperators,
+            operators: pdfjs.OPS,
+            paintBounds: linework?.paintBounds,
+            captionPolygons: heightInk.items.map((item) => item.quad),
+            isOptionalContentVisible: (properties) => optionalContentConfig?.isVisible(properties),
+          }) ?? null)
+        : undefined
     const nativeCaptionGeometry: NativeDimensionCaptionContext | undefined = nativeViewport
       ? {
           source: {
@@ -548,6 +568,8 @@ export async function preparePlanPage(
         }
       }
       if (vectorInkRefusal) nativeTextAnchors.vectorInkRefusal = vectorInkRefusal
+      if (heightCaptionPaintRefusal !== undefined)
+        nativeTextAnchors.heightCaptionPaintRefusal = heightCaptionPaintRefusal
       if (heightInk && nativeViewport)
         nativeTextAnchors.heightCaptionInk = {
           ...heightInk,

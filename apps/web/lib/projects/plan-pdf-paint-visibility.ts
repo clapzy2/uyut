@@ -1,3 +1,6 @@
+import type { PagePoint, PdfPaintBounds } from './plan-pdf-linework'
+import { pdfPaintInventoryIsComplete } from './plan-pdf-paint-exclusion'
+
 type Operators = Readonly<Record<string, number>>
 type State = {
   fillTransparent: boolean
@@ -51,11 +54,16 @@ const strokeColors = new Set([
  * Explicit path clips remain the responsibility of extractPdfLinework and its
  * source-completeness guard; this supplements them with paint-state evidence.
  */
-export function pdfNativePaintVisibilityIssue(input: {
+type PaintVisibilityInput = {
   operatorList: { fnArray: readonly number[]; argsArray: readonly unknown[] }
   operators: Operators
   isOptionalContentVisible?(properties: unknown): boolean | undefined
-}): string | undefined {
+}
+
+function scanPaintVisibility(
+  input: PaintVisibilityInput,
+  alphaPaintIsDistant?: (operationIndex: number) => boolean,
+): string | undefined {
   const { operatorList, operators } = input
   if (
     !Array.isArray(operatorList.fnArray) ||
@@ -105,7 +113,7 @@ export function pdfNativePaintVisibilityIssue(input: {
     }
     state = previous.state
   }
-  const paintIssue = (name: string): string | undefined => {
+  const paintIssue = (name: string, operationIndex: number): string | undefined => {
     sawPaint = true
     if (malformed) return malformed
     if (markedReason) return markedReason
@@ -118,7 +126,10 @@ export function pdfNativePaintVisibilityIssue(input: {
       return 'unverified-native-vector-pattern-paint'
     if ((fill && state.fillTransparent) || (stroke && state.strokeTransparent))
       return 'transparent-native-vector-paint'
-    if ((fill && state.fillAlpha !== 1) || (stroke && state.strokeAlpha !== 1))
+    if (
+      ((fill && state.fillAlpha !== 1) || (stroke && state.strokeAlpha !== 1)) &&
+      !alphaPaintIsDistant?.(operationIndex)
+    )
       return 'unverified-native-vector-paint-alpha'
     return undefined
   }
@@ -218,14 +229,66 @@ export function pdfNativePaintVisibilityIssue(input: {
       if (paint === 'endPath') continue
       if (!paint || (!fillPaint.has(paint) && !strokePaint.has(paint)))
         return 'unknown-native-vector-paint'
-      const issue = paintIssue(paint)
+      const issue = paintIssue(paint, index)
       if (issue) return issue
     } else if (fillPaint.has(name) || strokePaint.has(name)) {
-      const issue = paintIssue(name)
+      const issue = paintIssue(name, index)
       if (issue) return issue
     }
   }
   if (sawPaint && (states.length || marked.length || malformed))
     return malformed ?? 'invalid-native-vector-state-stack'
   return undefined
+}
+
+export function pdfNativePaintVisibilityIssue(input: PaintVisibilityInput): string | undefined {
+  return scanPaintVisibility(input)
+}
+
+/** Narrow source-caption diagnostic. The strict page-wide result is never changed. */
+export function pdfNativeCaptionPaintVisibilityIssue(
+  input: PaintVisibilityInput & {
+    paintBounds: PdfPaintBounds | undefined
+    captionPolygons: readonly (readonly PagePoint[])[]
+  },
+): string | undefined {
+  const strictIssue = scanPaintVisibility(input)
+  if (strictIssue !== 'unverified-native-vector-paint-alpha') return strictIssue
+  const paintBounds = input.paintBounds
+  if (
+    !paintBounds ||
+    !pdfPaintInventoryIsComplete(paintBounds) ||
+    input.captionPolygons.length === 0 ||
+    input.captionPolygons.length > 100 ||
+    input.captionPolygons.some(
+      (polygon) =>
+        polygon.length < 3 ||
+        polygon.length > 100 ||
+        polygon.some(
+          ({ x, y }) =>
+            ![x, y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000),
+        ),
+    )
+  )
+    return strictIssue
+
+  const events = new Map(paintBounds.events.map((event) => [event.operationIndex, event]))
+  return scanPaintVisibility(input, (operationIndex) => {
+    const event = events.get(operationIndex)
+    if (event?.kind !== 'vector' || !event.bounds || event.reason) return false
+    const bounds = event.bounds
+    const padding = 0.001
+    return input.captionPolygons.every((polygon) => {
+      const left = Math.min(...polygon.map((point) => point.x))
+      const right = Math.max(...polygon.map((point) => point.x))
+      const top = Math.min(...polygon.map((point) => point.y))
+      const bottom = Math.max(...polygon.map((point) => point.y))
+      return (
+        bounds.right + padding < left ||
+        bounds.left - padding > right ||
+        bounds.bottom + padding < top ||
+        bounds.top - padding > bottom
+      )
+    })
+  })
 }

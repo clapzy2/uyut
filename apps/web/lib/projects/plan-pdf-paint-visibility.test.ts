@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { pdfNativePaintVisibilityIssue } from './plan-pdf-paint-visibility'
+import {
+  pdfNativeCaptionPaintVisibilityIssue,
+  pdfNativePaintVisibilityIssue,
+} from './plan-pdf-paint-visibility'
 
 const names = [
   'save',
@@ -55,7 +58,122 @@ function inspect(operations: Operation[], visible?: (props: unknown) => boolean 
   })
 }
 
+function inspectCaption(
+  bounds: { left: number; top: number; right: number; bottom: number } | null,
+) {
+  const operations: Operation[] = [['setGState', [['ca', 0.5]]], paint('fill')]
+  const operatorList = {
+    fnArray: operations.map(([name]) => operators[name] as number),
+    argsArray: operations.map(([, ...args]) => args),
+  }
+  return pdfNativeCaptionPaintVisibilityIssue({
+    operatorList,
+    operators,
+    paintBounds: {
+      complete: true,
+      refusalReason: null,
+      events: [{ operationIndex: 1, kind: 'vector', bounds, reason: bounds ? null : 'unknown' }],
+    },
+    captionPolygons: [
+      [
+        { x: 100, y: 100 },
+        { x: 120, y: 100 },
+        { x: 120, y: 120 },
+        { x: 100, y: 120 },
+      ],
+    ],
+  })
+}
+
 describe('strict native vector paint visibility', () => {
+  it('keeps the page-wide refusal while allowing distant alpha only for a caption', () => {
+    expect(inspect([['setGState', [['ca', 0.5]]], paint('fill')])).toBe(
+      'unverified-native-vector-paint-alpha',
+    )
+    expect(inspectCaption({ left: 300, top: 300, right: 400, bottom: 400 })).toBeUndefined()
+  })
+
+  it('refuses alpha touching a caption or lacking a bounded paint event', () => {
+    expect(inspectCaption({ left: 120, top: 110, right: 150, bottom: 140 })).toBe(
+      'unverified-native-vector-paint-alpha',
+    )
+    expect(inspectCaption(null)).toBe('unverified-native-vector-paint-alpha')
+  })
+
+  it('refuses an incomplete alpha-paint inventory even when the known event is distant', () => {
+    const operations: Operation[] = [['setGState', [['ca', 0.5]]], paint('fill')]
+    expect(
+      pdfNativeCaptionPaintVisibilityIssue({
+        operatorList: {
+          fnArray: operations.map(([name]) => operators[name] as number),
+          argsArray: operations.map(([, ...args]) => args),
+        },
+        operators,
+        paintBounds: {
+          complete: false,
+          refusalReason: 'incomplete-paint-envelope-operators',
+          events: [
+            {
+              operationIndex: 1,
+              kind: 'vector',
+              bounds: { left: 300, top: 300, right: 400, bottom: 400 },
+              reason: null,
+            },
+          ],
+        },
+        captionPolygons: [
+          [
+            { x: 100, y: 100 },
+            { x: 120, y: 100 },
+            { x: 120, y: 120 },
+          ],
+        ],
+      }),
+    ).toBe('unverified-native-vector-paint-alpha')
+  })
+
+  it('does not hide a later visibility error behind distant alpha', () => {
+    const operations: Operation[] = [
+      ['setGState', [['ca', 0.5]]],
+      paint('fill'),
+      ['setStrokeTransparent'],
+      paint('stroke'),
+    ]
+    expect(
+      pdfNativeCaptionPaintVisibilityIssue({
+        operatorList: {
+          fnArray: operations.map(([name]) => operators[name] as number),
+          argsArray: operations.map(([, ...args]) => args),
+        },
+        operators,
+        paintBounds: {
+          complete: true,
+          refusalReason: null,
+          events: [
+            {
+              operationIndex: 1,
+              kind: 'vector',
+              bounds: { left: 300, top: 300, right: 400, bottom: 400 },
+              reason: null,
+            },
+            {
+              operationIndex: 3,
+              kind: 'vector',
+              bounds: { left: 300, top: 300, right: 400, bottom: 400 },
+              reason: null,
+            },
+          ],
+        },
+        captionPolygons: [
+          [
+            { x: 100, y: 100 },
+            { x: 120, y: 100 },
+            { x: 120, y: 120 },
+          ],
+        ],
+      }),
+    ).toBe('transparent-native-vector-paint')
+  })
   it.each([
     'stroke',
     'closeStroke',

@@ -7,7 +7,10 @@ import {
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
 import { nativeHeightGroupBounds, nativeResetNoteBounds } from './plan-native-height-group'
 import { createNativeHeightLeaderVerifier } from './plan-native-height-leaders'
-import { nativeHeightObservations } from './plan-native-height-observations'
+import {
+  nativeHeightCaptionPaintIssue,
+  nativeHeightObservations,
+} from './plan-native-height-observations'
 import { nativeCaptionInkIssue } from './plan-pdf-caption-binding'
 import type { PagePoint } from './plan-pdf-linework'
 import { pdfPolygonIsValid } from './plan-pdf-room-binding'
@@ -53,7 +56,8 @@ export function nativeHeightSourceLocations(input: Input) {
   })
   const heights = nativeHeightObservations(input)
   if (heights.refusalReason) return finish(heights.refusalReason)
-  if (input.native.vectorInkRefusal) return finish(input.native.vectorInkRefusal)
+  const paintIssue = nativeHeightCaptionPaintIssue(input.native)
+  if (paintIssue) return finish(paintIssue)
   const ink = input.native.heightCaptionInk
   if (!ink) return finish('height-caption-ink-unavailable')
   if (!ink.source || typeof ink.source !== 'object') return finish('invalid-height-ink-inventory')
