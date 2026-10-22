@@ -46,6 +46,7 @@ import {
   snapPageOpeningPoint,
   voidDraftsFromSaved,
 } from '@/components/plan-page-contour-editor-model'
+import { collapseEnvelopeStep } from '@/lib/projects/plan-envelope-step'
 import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
 import type { NativePageSegment } from '@/lib/projects/plan-pdf-opening-endpoint'
 import {
@@ -812,9 +813,12 @@ export function PlanPageContourEditor({
    * Берёт предложенную оболочку застройки как начальную наружную границу. Ничего не
    * подтверждает: человек сверяет вершины с исходником, правит и сохраняет сам.
    */
-  function takeOuterEnvelope(polygon: PageContourPoint[]) {
+  function takeOuterEnvelope(
+    polygon: PageContourPoint[],
+    vertexProofs?: NonNullable<PlanFillHints['outerEnvelope']>['vertexProofs'],
+  ) {
     if (locked) return
-    const draft = exteriorDraftFromEnvelope(polygon, nativePoints, exterior)
+    const draft = exteriorDraftFromEnvelope(polygon, nativePoints, exterior, vertexProofs)
     if (!draft) {
       setFillHintsError(
         'Оболочку нельзя взять: у наружной границы уже есть проверенные вершины или в предложении есть точка вне исходных узлов PDF.',
@@ -1477,12 +1481,14 @@ export function PlanPageContourEditor({
                         onClick={() =>
                           takeOuterEnvelope(
                             currentFillHints.outerEnvelope?.polygon as PageContourPoint[],
+                            currentFillHints.outerEnvelope?.vertexProofs,
                           )
                         }
                       >
                         Взять наружную оболочку ({currentFillHints.outerEnvelope.polygon.length}{' '}
                         углов)
-                        {currentFillHints.outerEnvelope.roomsOutside?.length
+                        {currentFillHints.outerEnvelope.roomsOutside?.length ||
+                        currentFillHints.outerEnvelope.shortEdges?.length
                           ? ' · требует правки'
                           : ''}
                       </Button>
@@ -1493,6 +1499,64 @@ export function PlanPageContourEditor({
                           бывает, когда краска не доходит до угла. Поправьте эти углы по исходным
                           узлам: взять оболочку можно, подтверждать её как есть нельзя.
                         </p>
+                      ) : null}
+                      {currentFillHints.outerEnvelope.shortEdges?.length ? (
+                        <div
+                          role="alert"
+                          className="mt-1 max-w-2xl text-xs leading-relaxed text-ink"
+                        >
+                          <p>
+                            Перенос в 2D отбросит стену короче сантиметра и откажется целиком.
+                            Уберите эти уступы, прежде чем подтверждать границу:
+                          </p>
+                          <ul className="mt-1 list-disc pl-5">
+                            {currentFillHints.outerEnvelope.shortEdges.map((edge) => (
+                              <li key={edge.index}>
+                                угол {edge.index + 1}: {edge.lengthCm.toFixed(2).replace('.', ',')}{' '}
+                                см, от {edge.start.x.toFixed(2)}, {edge.start.y.toFixed(2)} до{' '}
+                                {edge.end.x.toFixed(2)}, {edge.end.y.toFixed(2)}
+                                {edge.collapses?.length ? (
+                                  edge.collapses.map((collapse) => (
+                                    <div
+                                      key={`${collapse.corner.x}:${collapse.corner.y}`}
+                                      className="mt-1"
+                                    >
+                                      Уступ снимается исходным узлом {collapse.corner.x.toFixed(2)},{' '}
+                                      {collapse.corner.y.toFixed(2)} вместо углов{' '}
+                                      {collapse.replaces.map((index) => index + 1).join(', ')}.
+                                      {collapse.roomsOutside.length
+                                        ? ` После этого за кольцо выйдут комнаты № ${collapse.roomsOutside.join(', № ')}: их край нужно перенести на ту же линию по исходным узлам.`
+                                        : ''}{' '}
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={locked}
+                                        onClick={() => {
+                                          const envelope = currentFillHints.outerEnvelope
+                                          if (!envelope?.polygon) return
+                                          const next = collapseEnvelopeStep(
+                                            envelope.polygon,
+                                            envelope.vertexProofs ?? [],
+                                            collapse,
+                                          )
+                                          takeOuterEnvelope(next.polygon, next.vertexProofs)
+                                        }}
+                                      >
+                                        Взять оболочку без этого уступа
+                                      </Button>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="mt-1">
+                                    Исходного узла, которым можно снять уступ, нет: поправьте угол
+                                    вручную по чертежу.
+                                  </div>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       ) : null}
                       <p className="mt-1 max-w-2xl text-xs leading-relaxed text-ink-2">
                         Собрана из закрашенных областей листа и включает тела стен, поэтому её роль
@@ -1707,6 +1771,26 @@ export function PlanPageContourEditor({
                     )
                   }}
                 />
+                {fillHintsShown
+                  ? (currentFillHints?.outerEnvelope?.shortEdges ?? []).map((edge) => (
+                      <line
+                        key={`envelope-short-${edge.index}`}
+                        x1={edge.start.x}
+                        y1={edge.start.y}
+                        x2={edge.end.x}
+                        y2={edge.end.y}
+                        stroke="#b91c1c"
+                        strokeWidth={6}
+                        strokeLinecap="round"
+                        vectorEffect="non-scaling-stroke"
+                        pointerEvents="none"
+                      >
+                        <title>
+                          Уступ оболочки {edge.lengthCm.toFixed(2)} см: короче минимальной стены
+                        </title>
+                      </line>
+                    ))
+                  : null}
                 {selectedPaintHint ? (
                   <path
                     d={sourceFloorReferencePath({ polygon: selectedPaintHint.polygon, holes: [] })}

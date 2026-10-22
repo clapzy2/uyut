@@ -10,6 +10,7 @@ import type {
   PlanRoomReading,
 } from '@uyut/db'
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
+import type { EnvelopeStepCollapse } from '@/lib/projects/plan-envelope-step'
 import {
   planPageSourceTopologySchema,
   sourceRoomContourVertices,
@@ -174,6 +175,7 @@ export function exteriorDraftFromEnvelope(
   polygon: readonly PageContourPoint[],
   nativePoints: PageContourPoint[],
   before?: PlanPageContours['exterior'],
+  vertexProofs?: NonNullable<PlanPageContours['exterior']>['vertexProofs'],
 ): PlanPageContours['exterior'] | null {
   // Готовую проверенную границу не затираем: у неё могут быть свои доказательства вершин.
   if (before?.vertexProofs?.length) return null
@@ -181,13 +183,20 @@ export function exteriorDraftFromEnvelope(
     polygon.length < 3 ||
     polygon.length > 100 ||
     !polygon.every(finiteContourPoint) ||
-    !polygon.every((point) => nativeContourPoint(point, nativePoints)) ||
+    // Вершина без исходного узла принимается только со своим доказательством.
+    !polygon.every(
+      (point, index) =>
+        nativeContourPoint(point, nativePoints) ||
+        vertexProofs?.some((proof) => proof.vertexIndex === index),
+    ) ||
+    vertexProofs?.some((proof) => proof.vertexIndex >= polygon.length) ||
     new Set(polygon.map((point) => `${point.x}:${point.y}`)).size !== polygon.length
   )
     return null
   return {
     boundaryRole: 'outer-wall-envelope',
     polygon: polygon.map((point) => ({ x: point.x, y: point.y })),
+    ...(vertexProofs?.length ? { vertexProofs: structuredClone(vertexProofs) } : {}),
   }
 }
 
@@ -527,6 +536,24 @@ export type PlanFillHints = {
     reason?: string
     /** Комнаты, выходящие за предложенное кольцо: подсказку нужно поправить вручную. */
     roomsOutside?: number[]
+    /** Рёбра короче минимальной стены: перенос в 2D из-за них отказывается. */
+    shortEdges?: {
+      index: number
+      start: PageContourPoint
+      end: PageContourPoint
+      lengthCm: number
+      /**
+       * Способы снять ступеньку, у которых новый угол - исходный узел PDF. Пусто, если
+       * такого угла нет: тогда уступ остаётся ручной правкой.
+       */
+      collapses?: (EnvelopeStepCollapse & { roomsOutside: number[] })[]
+    }[]
+    /** Доказательства вершин, которых нет среди исходных узлов PDF. */
+    vertexProofs?: PlanPageContours['exterior'] extends infer E
+      ? NonNullable<E> extends { vertexProofs?: infer V }
+        ? V
+        : never
+      : never
   }
 }
 
@@ -658,6 +685,69 @@ export function fillHintsFromResponse(
       )
         return null
       if (
+        envelope.shortEdges !== undefined &&
+        (!Array.isArray(envelope.shortEdges) ||
+          envelope.shortEdges.length > 20 ||
+          !envelope.shortEdges.every((edge: unknown) => {
+            const item = edge as Record<string, unknown>
+            return (
+              item !== null &&
+              typeof item === 'object' &&
+              Number.isSafeInteger(item.index) &&
+              (item.index as number) >= 0 &&
+              typeof item.lengthCm === 'number' &&
+              Number.isFinite(item.lengthCm) &&
+              item.lengthCm >= 0 &&
+              finiteContourPoint(item.start as PageContourPoint) &&
+              finiteContourPoint(item.end as PageContourPoint) &&
+              (item.collapses === undefined ||
+                (Array.isArray(item.collapses) &&
+                  item.collapses.length <= 2 &&
+                  item.collapses.every((option: unknown) => {
+                    const collapse = option as Record<string, unknown>
+                    return (
+                      collapse !== null &&
+                      typeof collapse === 'object' &&
+                      collapse.corner !== null &&
+                      typeof collapse.corner === 'object' &&
+                      finiteContourPoint(collapse.corner as PageContourPoint) &&
+                      Array.isArray(collapse.replaces) &&
+                      collapse.replaces.length === 3 &&
+                      collapse.replaces.every(
+                        (value: unknown) =>
+                          Number.isSafeInteger(value) &&
+                          (value as number) >= 0 &&
+                          (value as number) < (envelope.polygon as unknown[]).length,
+                      ) &&
+                      Array.isArray(collapse.roomsOutside) &&
+                      collapse.roomsOutside.every(
+                        (value: unknown) => Number.isSafeInteger(value) && (value as number) > 0,
+                      )
+                    )
+                  })))
+            )
+          }))
+      )
+        return null
+      if (
+        envelope.vertexProofs !== undefined &&
+        (!Array.isArray(envelope.vertexProofs) ||
+          envelope.vertexProofs.length > 100 ||
+          !envelope.vertexProofs.every((proof: unknown) => {
+            const item = proof as Record<string, unknown>
+            return (
+              item !== null &&
+              typeof item === 'object' &&
+              Number.isSafeInteger(item.vertexIndex) &&
+              (item.vertexIndex as number) >= 0 &&
+              item.kind === 'bounded-native-crossing' &&
+              Array.isArray(item.segments) &&
+              item.segments.length === 2
+            )
+          }))
+      )
+        return null
+      if (
         envelope.roomsOutside !== undefined &&
         (!Array.isArray(envelope.roomsOutside) ||
           envelope.roomsOutside.length > 50 ||
@@ -675,6 +765,12 @@ export function fillHintsFromResponse(
         ...(envelope.roomsOutside === undefined
           ? {}
           : { roomsOutside: [...(envelope.roomsOutside as number[])] }),
+        ...(envelope.shortEdges === undefined
+          ? {}
+          : { shortEdges: structuredClone(envelope.shortEdges) as never }),
+        ...(envelope.vertexProofs === undefined
+          ? {}
+          : { vertexProofs: structuredClone(envelope.vertexProofs) as never }),
       }
     }
   }
