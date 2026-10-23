@@ -876,8 +876,8 @@ export function floorEdgeGaps(
 export function floorEdgeGapMessage(
   input: Pick<PlanPageContours, 'floor' | 'exterior' | 'rooms'>,
   linework: PdfLinework,
+  gaps: readonly FloorEdgeGap[] = floorEdgeGaps(input, linework),
 ): string {
-  const gaps = floorEdgeGaps(input, linework)
   const corners = reviewedFloorPolygon(input).length
   const point = (value: PagePoint) => `${value.x.toFixed(2)}, ${value.y.toFixed(2)}`
   const parts = gaps

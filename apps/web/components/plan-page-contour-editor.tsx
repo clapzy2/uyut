@@ -47,6 +47,7 @@ import {
   voidDraftsFromSaved,
 } from '@/components/plan-page-contour-editor-model'
 import { collapseEnvelopeStep } from '@/lib/projects/plan-envelope-step'
+import type { FloorEdgeGap } from '@/lib/projects/plan-page-review'
 import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
 import type { NativePageSegment } from '@/lib/projects/plan-pdf-opening-endpoint'
 import {
@@ -161,6 +162,7 @@ export function PlanPageContourEditor({
   const [fillHintsLoading, setFillHintsLoading] = useState(false)
   const [fillHintsError, setFillHintsError] = useState<string>()
   const [selectedFillHint, setSelectedFillHint] = useState('')
+  const [floorGaps, setFloorGaps] = useState<FloorEdgeGap[]>([])
   const sourceFloorsRequest = useRef<AbortController | undefined>(undefined)
   const fillHintsRequest = useRef<AbortController | undefined>(undefined)
   const draftSource = useRef<PlanPagePreview | undefined>(undefined)
@@ -377,6 +379,7 @@ export function PlanPageContourEditor({
     setSourceFloorsLoading(false)
     setImageReady(false)
     setError(undefined)
+    setFloorGaps([])
     setVoids([])
     setSelectedVoidId(undefined)
     setExterior(undefined)
@@ -751,6 +754,7 @@ export function PlanPageContourEditor({
     setProposal(undefined)
     setNodeFeedback(undefined)
     setError(undefined)
+    setFloorGaps([])
   }
 
   function selectTarget(next: PageContourTarget) {
@@ -1033,6 +1037,7 @@ export function PlanPageContourEditor({
     }
     setSaving(true)
     setError(undefined)
+    setFloorGaps([])
     try {
       const result = await savePlanPageReview(
         projectId,
@@ -1051,6 +1056,7 @@ export function PlanPageContourEditor({
       )
       if (!result.ok) {
         setError(result.error)
+        if ('floorGaps' in result) setFloorGaps(result.floorGaps)
         if (result.code === 'plan-conflict') {
           setStale(true)
           onConflict()
@@ -2229,6 +2235,26 @@ export function PlanPageContourEditor({
                 {!selectedVoid && !editingBoundary ? (
                   <PlanPageFeatureOverlay drafts={drafts} roomKey={selected} target={target} />
                 ) : null}
+                {floorGaps.map((gap, index) => (
+                  <line
+                    key={`${gap.edgeIndex}-${index}`}
+                    x1={gap.start.x}
+                    y1={gap.start.y}
+                    x2={gap.end.x}
+                    y2={gap.end.y}
+                    stroke={gap.unpairedDoorway ? '#d97706' : '#dc2626'}
+                    strokeWidth={6}
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                    pointerEvents="none"
+                  >
+                    <title>
+                      {gap.unpairedDoorway
+                        ? 'Отмеченный проём не подтверждён парными косяками и второй гранью стены.'
+                        : 'Этот участок границы пола не подтверждён штрихами исходного PDF.'}
+                    </title>
+                  </line>
+                ))}
               </svg>
             </button>
           </div>
@@ -2297,6 +2323,13 @@ export function PlanPageContourEditor({
         <FormError message="Лист или версия плана изменились. Черновик не отправлен. Закройте разметку и откройте актуальный лист, чтобы начать новую сверку." />
       ) : null}
       <FormError message={error} />
+      {floorGaps.length ? (
+        <p className="text-xs leading-relaxed text-ink-2">
+          Неподтверждённые участки пола показаны на листе красным. Оранжевым отмечен проём, которому
+          не хватает проверяемых косяков. Исправьте разметку по исходнику и сохраните снова;
+          подсветка не подтверждает эти границы.
+        </p>
+      ) : null}
       <div className="space-y-3 border-t border-line pt-4">
         <p className="text-xs text-ink-2">
           Размечено зон: {drafts.filter((draft) => draft.closed).length}; технических пустот:{' '}

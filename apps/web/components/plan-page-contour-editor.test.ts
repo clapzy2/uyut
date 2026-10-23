@@ -75,6 +75,7 @@ const slots = {
   fillHints: 34,
   fillHintsShown: 35,
   selectedFillHint: 38,
+  floorGaps: 39,
 } as const
 
 function sourceFixture() {
@@ -351,10 +352,24 @@ describe('editor crossing proof wiring', () => {
       fixture.polygon.filter((_, index) => index !== 1),
     )
     hooks.values.set(slots.imageReady, true)
+    hooks.values.set(slots.imageUrl, '/test-plan-page.png')
     hooks.values.set(slots.loading, false)
     hooks.values.set(slots.checked, true)
     hooks.values.set(slots.state, 'existing')
-    vi.mocked(savePlanPageReview).mockResolvedValue({ ok: false, error: 'Test server refusal' })
+    const gaps = [
+      { edgeIndex: 0, start: { x: 10, y: 10 }, end: { x: 20, y: 10 } },
+      {
+        edgeIndex: 1,
+        start: { x: 30, y: 10 },
+        end: { x: 30, y: 20 },
+        unpairedDoorway: true as const,
+      },
+    ]
+    vi.mocked(savePlanPageReview).mockResolvedValue({
+      ok: false,
+      error: 'Floor strokes are not confirmed',
+      floorGaps: gaps,
+    })
     const editor = renderEditor(fixture.reading)
     const sections = (editor.props.children as ReactElement<{ children: ReactElement[] }>[]).filter(
       (child) => child?.type === 'div',
@@ -375,6 +390,29 @@ describe('editor crossing proof wiring', () => {
       'revision',
     )
     expect(fixture.reading.geometry).toBeUndefined()
+    expect(updateFor(slots.floorGaps, [])).toEqual(gaps)
+
+    hooks.values.set(slots.floorGaps, gaps)
+    hooks.cursor = 0
+    const highlighted = renderEditor(fixture.reading)
+    expect(
+      nestedElements(highlighted, 'line')
+        .map(
+          (line) =>
+            line.props as { stroke?: string; x1: number; y1: number; x2: number; y2: number },
+        )
+        .filter((line) => line.stroke === '#dc2626' || line.stroke === '#d97706')
+        .map((line) => [line.x1, line.y1, line.x2, line.y2]),
+    ).toEqual([
+      [10, 10, 20, 10],
+      [30, 10, 30, 20],
+    ])
+
+    childProps<ComponentProps<typeof PlanPagePointControls>>(
+      highlighted,
+      PlanPagePointControls,
+    ).onChange(structuredClone(fixture.polygon), true)
+    expect(updateFor(slots.floorGaps, gaps)).toEqual([])
   })
 })
 
