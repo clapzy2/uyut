@@ -250,7 +250,12 @@ describe('native PDF page to metric draft', () => {
     expect(result.geometry.voids).toBeUndefined()
     expect(result.geometry.walls.every((wall) => wall.kind !== 'outer')).toBe(true)
     expect(result.geometry.warnings).toEqual(
-      expect.arrayContaining([expect.stringContaining('Непроверенных исходных областей: 1')]),
+      expect.arrayContaining([
+        expect.stringContaining('Непроверенных исходных областей: 1'),
+        expect.stringContaining(
+          'общий контур пола, наружная граница и технические пустоты не перенесены',
+        ),
+      ]),
     )
     expect(planPageMetricDraft(reading, context, [8]).ok).toBe(false)
     expect(planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [8] }, [4]).ok).toBe(
@@ -305,7 +310,13 @@ describe('native PDF page to metric draft', () => {
     expect(result.geometry.walls.filter((wall) => wall.kind === 'outer')).toHaveLength(4)
     expect(result.geometry.rooms.map((room) => room.sourceNumber)).toEqual([4])
     expect(result.geometry.warnings).toEqual(
-      expect.arrayContaining([expect.stringContaining('Непроверенных исходных областей: 1')]),
+      expect.arrayContaining([
+        expect.stringContaining('Непроверенных исходных областей: 1'),
+        expect.stringContaining('проверенные границы и технические пустоты сохранены'),
+      ]),
+    )
+    expect(result.geometry.warnings.join(' ')).not.toContain(
+      'общий контур пола, наружная граница и технические пустоты не перенесены',
     )
     expect(planVolume(result.geometry)).toBeNull()
   })
@@ -386,11 +397,15 @@ describe('native PDF page to metric draft', () => {
         },
       ],
     }
-    // The corner is a proved crossing, not a native command endpoint. Keeping
-    // it must not discard independent wall strips farther inside the apartment.
+    const [floorStart, floorNext, , floorLast] = footprint
+    if (!floorStart || !floorNext || !floorLast) throw new Error('Missing floor edge')
+    // The corner keeps its crossing proof, while the floor also needs complete
+    // source strokes along both edges meeting there.
     context.linework.paths.push(
       path(adjacentFloor, true),
       path(footprint.slice(1)),
+      path([floorLast, floorStart]),
+      path([floorStart, floorNext]),
       wallBody,
       ...crossingPaths,
     )

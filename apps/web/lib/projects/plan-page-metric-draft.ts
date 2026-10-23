@@ -724,7 +724,9 @@ export function planPageMetricDraft(
   }
   if (sourceOnlyRooms.length) {
     geometry.warnings.push(
-      `Непроверенных исходных областей: ${sourceOnlyRooms.length}. Они, общий контур пола, наружная граница и технические пустоты не перенесены в 2D/3D; проверьте их отдельно на исходном листе.`,
+      globalCalibration && transferPageBoundary
+        ? `Непроверенных исходных областей: ${sourceOnlyRooms.length}. Сами области не перенесены в 2D/3D; проверенные границы и технические пустоты сохранены в черновике. Сверьте области отдельно на исходном листе.`
+        : `Непроверенных исходных областей: ${sourceOnlyRooms.length}. Они, общий контур пола, наружная граница и технические пустоты не перенесены в 2D/3D; проверьте их отдельно на исходном листе.`,
     )
   }
   geometry.warnings.push(...areaWarnings)
