@@ -698,6 +698,26 @@ describe('versioned source page review', () => {
     ).toBeUndefined()
     expect(floorEdgeGaps(withOpening('balcony'), strokeOnlyWall)).toEqual([])
     expect(floorEdgeGaps(withOpening('window'), strokeOnlyWall)).toHaveLength(1)
+    const windowPaintOverJamb: PdfLinework = {
+      ...strokeOnlyWall,
+      paths: [
+        ...strokeOnlyWall.paths,
+        {
+          ...at(linework.paths),
+          operationIndex: 32,
+          paint: 'fill',
+          fillColor: '#ffffff',
+          closed: true,
+          points: [
+            { x: 20, y: 5 },
+            { x: 20, y: 0 },
+            { x: 22, y: 0 },
+            { x: 22, y: 5 },
+          ],
+        },
+      ],
+    }
+    expect(floorEdgeGaps(withOpening('balcony'), windowPaintOverJamb)).toHaveLength(1)
     expect(
       floorEdgeGaps(withOpening('door'), {
         ...strokeOnlyWall,
