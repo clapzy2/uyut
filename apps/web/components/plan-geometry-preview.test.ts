@@ -1,4 +1,4 @@
-import type { PlanGeometry } from '@uyut/db'
+import type { PlanGeometry, PlanWallFacePair } from '@uyut/db'
 import { Children, createElement, isValidElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -6,6 +6,82 @@ import { PlanGeometryPreview } from './plan-geometry-preview'
 import { PlanVolumeLaunch } from './plan-volume-launch'
 
 describe('предпросмотр 2D-схемы', () => {
+  it('отмечает наружные PDF-участки без сохранённой пары граней отдельно от пола', () => {
+    const paired = {
+      id: 'paired-outer',
+      kind: 'outer' as const,
+      start: { xCm: 0, yCm: 0 },
+      end: { xCm: 100, yCm: 0 },
+    }
+    const unpaired = {
+      id: 'unpaired-outer',
+      kind: 'outer' as const,
+      start: { xCm: 100, yCm: 0 },
+      end: { xCm: 100, yCm: 100 },
+    }
+    const inner = {
+      id: 'inner-face',
+      kind: 'inner' as const,
+      start: { xCm: 0, yCm: 10 },
+      end: { xCm: 100, yCm: 10 },
+    }
+    const sourcePair: PlanWallFacePair = {
+      faces: [
+        {
+          wall: paired,
+          start: paired.start,
+          end: paired.end,
+          nativeSegment: { operationIndex: 1, subpathIndex: 0, segmentIndex: 0 },
+        },
+        {
+          wall: inner,
+          start: inner.start,
+          end: inner.end,
+          nativeSegment: { operationIndex: 1, subpathIndex: 0, segmentIndex: 1 },
+        },
+      ],
+      openings: [],
+    }
+    const geometry: PlanGeometry = {
+      version: 1,
+      source: 'manual',
+      status: 'draft',
+      widthCm: 100,
+      heightCm: 100,
+      warnings: [],
+      walls: [paired, unpaired, inner],
+      openings: [],
+      rooms: [],
+      pdfCalibration: {
+        sourceSha256: 'a'.repeat(64),
+        pdfPage: 1,
+        cmPerPoint: 1,
+        origin: { x: 0, y: 0 },
+        anchorRoomNumbers: [],
+        labelIndexes: [],
+        derivedOpeningIds: [],
+        wallFaceRoomPolygons: [],
+        sourceWallFacePairs: [sourcePair],
+      },
+    }
+
+    const html = renderToStaticMarkup(createElement(PlanGeometryPreview, { geometry }))
+    expect(html).toContain('Красный пунктир показывает 1 наружный участок')
+    expect(html).toContain('Граница пола их не заменяет')
+    expect(html.match(/У этого наружного участка нет сохранённой исходной пары/g)).toHaveLength(1)
+    expect(html).toContain('stroke-dasharray="8 5"')
+
+    const afterEdit = renderToStaticMarkup(
+      createElement(PlanGeometryPreview, {
+        geometry: {
+          ...geometry,
+          walls: [{ ...paired, end: { xCm: 90, yCm: 0 } }, unpaired, inner],
+        },
+      }),
+    )
+    expect(afterEdit).toContain('Красный пунктир показывает 2 наружных участка')
+  })
+
   it('не выдаёт внутреннюю согласованность AI-черновика за точное чтение исходника', () => {
     const geometry: PlanGeometry = {
       version: 1,
