@@ -1,4 +1,4 @@
-import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall, PlanWallFacePair } from '@uyut/db'
+import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall } from '@uyut/db'
 import type { ReactNode } from 'react'
 import { doorClearanceZone } from '@/lib/projects/clearance-zones'
 import {
@@ -14,6 +14,7 @@ import {
   currentOpeningMeasurements,
   currentSourceOpeningIds,
 } from '@/lib/projects/plan-opening-measurements'
+import { sourceBackedOuterSpans, unpairedOuterSpans } from '@/lib/projects/plan-pdf-outer-wall-gaps'
 import { planVolume, planVolumeBlocker } from '@/lib/projects/plan-volume'
 import { PlanSourceRoomCoverage } from './plan-source-room-coverage'
 import { PlanVolumeLaunch } from './plan-volume-launch'
@@ -32,47 +33,6 @@ function openingLine(opening: PlanOpening, wall: PlanWall): { start: PlanPoint; 
     start: along(wall, opening.offsetCm),
     end: along(wall, opening.offsetCm + opening.widthCm),
   }
-}
-
-function sourceBackedOuterSpans(
-  wall: PlanWall,
-  pairs: PlanWallFacePair[],
-): Array<[number, number]> {
-  const dx = wall.end.xCm - wall.start.xCm
-  const dy = wall.end.yCm - wall.start.yCm
-  const lengthSquared = dx * dx + dy * dy
-  if (lengthSquared === 0) return []
-
-  const spans = pairs.flatMap((pair) =>
-    pair.faces.flatMap((face): Array<[number, number]> => {
-      if (face.wall.id !== wall.id || face.wall.kind !== 'outer') return []
-      const fraction = (point: PlanPoint) =>
-        ((point.xCm - wall.start.xCm) * dx + (point.yCm - wall.start.yCm) * dy) / lengthSquared
-      const start = fraction(face.start)
-      const end = fraction(face.end)
-      return [[Math.max(0, Math.min(start, end)), Math.min(1, Math.max(start, end))]]
-    }),
-  )
-  spans.sort((a, b) => a[0] - b[0])
-
-  const merged: Array<[number, number]> = []
-  for (const [start, end] of spans) {
-    const previous = merged.at(-1)
-    if (previous && start <= previous[1]) previous[1] = Math.max(previous[1], end)
-    else if (start < end) merged.push([start, end])
-  }
-  return merged
-}
-
-function unpairedOuterSpans(spans: Array<[number, number]>): Array<[number, number]> {
-  const gaps: Array<[number, number]> = []
-  let position = 0
-  for (const [start, end] of spans) {
-    if (start > position) gaps.push([position, start])
-    position = end
-  }
-  if (position < 1) gaps.push([position, 1])
-  return gaps
 }
 
 function centre(points: PlanPoint[]): PlanPoint {
@@ -467,7 +427,11 @@ export function PlanGeometryPreview({
               с отрезками без сохранённой пары граней из PDF. Чёрная часть такого участка имеет
               исходную пару, красная требует сверки. Это не доказательство отсутствия стены: сверьте
               её с исходным листом и поправьте наружную обводку там, где она неточна. Граница пола
-              их не заменяет.
+              их не заменяет. Откройте{' '}
+              <a href="#project-plan" className="text-accent underline underline-offset-4">
+                разметку исходного листа
+              </a>
+              : там эти участки подсвечены для сверки.
             </p>
           ) : null}
           {confirmationIssues.length > 0 ? (

@@ -9,11 +9,13 @@ import { preparePlanPage } from '@/lib/projects/plan-document'
 import { planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { nativeFillCandidates } from '@/lib/projects/plan-native-fill-candidates'
 import { nativeRoomScheduleEvidence } from '@/lib/projects/plan-native-room-schedule'
+import { currentWallFacePairs } from '@/lib/projects/plan-opening-face-pairs'
 import {
   openingMeasurementSnapshot,
   openingMeasurementWallSnapshot,
 } from '@/lib/projects/plan-opening-measurements'
 import type { PagePoint } from '@/lib/projects/plan-pdf-linework'
+import { sourceOuterWallGaps } from '@/lib/projects/plan-pdf-outer-wall-gaps'
 import { planVolume, planVolumeBlocker } from '@/lib/projects/plan-volume'
 import {
   createProject,
@@ -303,6 +305,13 @@ describe.skipIf(!enabled)('Remplanner sheet 4 through actions and PostgreSQL', (
         pair.faces.every((face) => face.wall.kind !== 'outer'),
       ),
     ).toBe(true)
+    const sourceGaps = sourceOuterWallGaps(geometry, contours, currentWallFacePairs(geometry))
+    expect(sourceGaps).toHaveLength(exterior.length)
+    expect(sourceGaps[0]).toMatchObject({
+      edgeIndex: 0,
+      start: { x: exterior[0]?.[0], y: exterior[0]?.[1] },
+      end: { x: exterior[1]?.[0], y: exterior[1]?.[1] },
+    })
     expect((await getProject(owner, id)).planReading?.geometry).toEqual(geometry)
 
     // Both widths are printed on the sheet (1060 and 900 mm). A person checks the
