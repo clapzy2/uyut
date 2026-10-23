@@ -681,7 +681,7 @@ export type FloorEdgeGap = { edgeIndex: number; start: PagePoint; end: PagePoint
  * Two PDF nodes at the ends are not enough: the whole edge must be drawn. The one
  * exception is a doorway, which a wall draws as a gap; the floor crosses it along the
  * wall face. A gap is closed only by a door or balcony opening that a person marked on
- * a room, with both ends exactly on this edge and already checked against source jambs.
+ * a room, with paired source wall-face terminals and painted jambs at its endpoints.
  * Windows, door symbols, labels and fills never close a gap.
  */
 export function floorEdgeGaps(
@@ -707,6 +707,41 @@ export function floorEdgeGaps(
       )
       .map((path) => `${path.operationIndex}:${path.subpathIndex}`),
   )
+  const pointKey = (point: PagePoint) => `${point.x}:${point.y}`
+  const touching = new Map<string, NativePageSegment[]>()
+  const addTouching = (segment: NativePageSegment) => {
+    for (const point of [segment.start, segment.end]) {
+      const key = pointKey(point)
+      const matches = touching.get(key) ?? []
+      matches.push(segment)
+      touching.set(key, matches)
+    }
+  }
+  for (const segment of segments) {
+    if (usablePaths.has(`${segment.operationIndex}:${segment.subpathIndex}`)) addTouching(segment)
+  }
+  const filledEdges = new Map<string, Array<readonly [PagePoint, PagePoint]>>()
+  for (const path of linework.paths) {
+    if (path.paint !== 'fill' && path.paint !== 'fill-stroke') continue
+    if (path.fillColor?.toLowerCase() === '#ffffff') continue
+    const count = path.closed ? path.points.length : path.points.length - 1
+    for (let index = 0; index < count; index++) {
+      const start = path.points[index]
+      const end = path.points[(index + 1) % path.points.length]
+      if (!start || !end) continue
+      for (const point of [start, end]) {
+        const key = pointKey(point)
+        const matches = filledEdges.get(key) ?? []
+        matches.push([start, end])
+        filledEdges.set(key, matches)
+      }
+    }
+  }
+  let twiceArea = 0
+  for (const [index, point] of polygon.entries()) {
+    const next = polygon[(index + 1) % polygon.length]
+    if (next) twiceArea += point.x * next.y - next.x * point.y
+  }
   const gaps: FloorEdgeGap[] = []
   for (const [index, start] of polygon.entries()) {
     const end = polygon[(index + 1) % polygon.length]
@@ -723,6 +758,53 @@ export function floorEdgeGaps(
       tolerance * Math.sqrt(lengthSquared)
     const along = (point: PagePoint) =>
       ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared
+    const doorwayJambDepths = (point: PagePoint, faceDirection: -1 | 1) => {
+      const strokes = touching.get(pointKey(point)) ?? []
+      if (
+        !strokes.some((segment) => {
+          if (!onLine(segment.start) || !onLine(segment.end)) return false
+          const other =
+            segment.start.x === point.x && segment.start.y === point.y ? segment.end : segment.start
+          return faceDirection * (along(other) - along(point)) > tolerance
+        })
+      )
+        return []
+      const depths: number[] = []
+      for (const segment of strokes) {
+        const other =
+          segment.start.x === point.x && segment.start.y === point.y ? segment.end : segment.start
+        const jx = other.x - point.x
+        const jy = other.y - point.y
+        const jambLength = Math.hypot(jx, jy)
+        if (
+          jambLength <= tolerance ||
+          Math.abs(dx * jx + dy * jy) > tolerance * Math.sqrt(lengthSquared) * jambLength
+        )
+          continue
+        const depth = (dx * jy - dy * jx) / Math.sqrt(lengthSquared)
+        if (depth * Math.sign(twiceArea) >= -tolerance) continue
+        const paintedWallEdge = (filledEdges.get(pointKey(point)) ?? []).some(([a, b]) => {
+          const fillOther = a.x === point.x && a.y === point.y ? b : a
+          const fx = fillOther.x - point.x
+          const fy = fillOther.y - point.y
+          return (
+            fx * jx + fy * jy > tolerance &&
+            Math.abs(fx * jy - fy * jx) <= tolerance * jambLength * Math.hypot(fx, fy)
+          )
+        })
+        if (paintedWallEdge) depths.push(depth)
+      }
+      return depths
+    }
+    const hasPairedJambs = (doorway: readonly [PagePoint, PagePoint]) => {
+      const [low, high] = [...doorway].sort((a, b) => along(a) - along(b))
+      if (!low || !high) return false
+      const lowDepths = doorwayJambDepths(low, -1)
+      const highDepths = doorwayJambDepths(high, 1)
+      return lowDepths.some((depth) =>
+        highDepths.some((other) => Math.abs(depth - other) <= tolerance),
+      )
+    }
     const intervals: Array<[number, number]> = []
     for (const segment of segments) {
       if (!usablePaths.has(`${segment.operationIndex}:${segment.subpathIndex}`)) continue
@@ -737,6 +819,7 @@ export function floorEdgeGaps(
       const projections = doorway.map(along)
       // The opening must lie on this edge, not on its extension past a corner.
       if (projections.some((value) => value < -tolerance || value > 1 + tolerance)) continue
+      if (!hasPairedJambs(doorway)) continue
       const from = Math.max(0, Math.min(...projections))
       const to = Math.min(1, Math.max(...projections))
       if (to > from) intervals.push([from, to])
@@ -814,7 +897,7 @@ export function planPageReviewIssue(
   if (input.floor) {
     if (!sourceRoomContourVertices(input.floor, nativePoints, segments))
       return 'non-native-floor-vertex'
-    // Room openings were checked against source jambs above.
+    // The opening endpoints and paired source wall/jamb strokes are checked above.
     if (floorEdgeGaps(input, linework, segments).length) return 'non-native-floor-edge'
   }
   if (
