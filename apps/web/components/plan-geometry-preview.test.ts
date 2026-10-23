@@ -68,6 +68,7 @@ describe('предпросмотр 2D-схемы', () => {
     const html = renderToStaticMarkup(createElement(PlanGeometryPreview, { geometry }))
     expect(html).toContain('Красный пунктир показывает 1 наружный участок')
     expect(html).toContain('Граница пола их не заменяет')
+    expect(html).toContain('href="#project-plan"')
     expect(html.match(/У этого наружного участка есть часть без исходной пары/g)).toHaveLength(1)
     expect(html).toContain('stroke-dasharray="8 5"')
 

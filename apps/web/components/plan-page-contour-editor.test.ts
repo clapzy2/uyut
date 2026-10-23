@@ -1,4 +1,4 @@
-import type { PlanPageContours, PlanReading } from '@uyut/db'
+import type { PlanGeometry, PlanPageContours, PlanReading } from '@uyut/db'
 import type { ComponentProps, ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -76,6 +76,7 @@ const slots = {
   fillHintsShown: 35,
   selectedFillHint: 38,
   floorGaps: 39,
+  selectedOuterGapIndex: 40,
 } as const
 
 function sourceFixture() {
@@ -577,6 +578,73 @@ describe('source-floor bridge in the existing editor', () => {
     hooks.values.set(slots.checked, true)
     return { fixture, preview, reference }
   }
+  it('shows saved unpaired outer spans on the matching PDF without confirming them', () => {
+    const { fixture } = setup()
+    const walls = fixture.polygon.map((start, index) => {
+      const end = fixture.polygon[(index + 1) % fixture.polygon.length] as typeof start
+      return {
+        id: `outer-${index}`,
+        kind: 'outer' as const,
+        start: { xCm: start.x, yCm: start.y * 0.8 },
+        end: { xCm: end.x, yCm: end.y * 0.8 },
+      }
+    })
+    fixture.reading.geometry = {
+      version: 1,
+      source: 'manual',
+      status: 'draft',
+      widthCm: 40,
+      heightCm: 40,
+      warnings: [],
+      rooms: [],
+      walls,
+      openings: [],
+      pdfCalibration: {
+        sourceSha256: fixture.contours.source.sha256,
+        pdfPage: 2,
+        cmPerPoint: 1,
+        origin: { x: 0, y: 0 },
+        anchorRoomNumbers: [],
+        labelIndexes: [],
+        derivedOpeningIds: [],
+      },
+    } satisfies PlanGeometry
+    hooks.values.set(slots.exterior, fixture.contours.exterior)
+    hooks.values.set(slots.exteriorClosed, true)
+
+    const editor = renderEditor(fixture.reading, revision)
+    const hints = nestedElements(editor, 'section').find(
+      (section) =>
+        (section.props as { 'aria-label'?: string })['aria-label'] ===
+        'Неподтверждённые наружные участки',
+    )
+    expect(hints).toBeDefined()
+    expect(
+      nestedElements(editor, 'line').filter(
+        (line) => (line.props as { stroke?: string }).stroke === '#be123c',
+      ),
+    ).toHaveLength(4)
+    const buttons = nestedElements(hints, 'button')
+    expect(buttons).toHaveLength(4)
+    const firstButton = buttons[0]
+    if (!firstButton) throw new Error('Missing outer gap button')
+    const click = (firstButton.props as { onClick: () => void }).onClick
+    click()
+    expect(updateFor(slots.boundary, undefined)).toBe('exterior')
+    expect(updateFor(slots.selectedOuterGapIndex, undefined)).toBe(0)
+    expect(savePlanPageReview).not.toHaveBeenCalled()
+
+    hooks.values.set(slots.exterior, {
+      ...fixture.contours.exterior,
+      polygon: fixture.polygon.slice(1),
+    })
+    hooks.cursor = 0
+    expect(
+      nestedElements(renderEditor(fixture.reading, revision), 'line').filter(
+        (line) => (line.props as { stroke?: string }).stroke === '#be123c',
+      ),
+    ).toEqual([])
+  })
   function controls(editor: ReactElement) {
     const result = nestedProps<ComponentProps<typeof PlanPageSourceFloorControls>>(
       editor,

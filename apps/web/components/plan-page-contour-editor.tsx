@@ -47,9 +47,11 @@ import {
   voidDraftsFromSaved,
 } from '@/components/plan-page-contour-editor-model'
 import { collapseEnvelopeStep } from '@/lib/projects/plan-envelope-step'
+import { currentWallFacePairs } from '@/lib/projects/plan-opening-face-pairs'
 import type { FloorEdgeGap } from '@/lib/projects/plan-page-review'
 import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
 import type { NativePageSegment } from '@/lib/projects/plan-pdf-opening-endpoint'
+import { sourceOuterWallGaps } from '@/lib/projects/plan-pdf-outer-wall-gaps'
 import {
   pdfContourIdentity,
   pdfContourKey,
@@ -163,6 +165,7 @@ export function PlanPageContourEditor({
   const [fillHintsError, setFillHintsError] = useState<string>()
   const [selectedFillHint, setSelectedFillHint] = useState('')
   const [floorGaps, setFloorGaps] = useState<FloorEdgeGap[]>([])
+  const [selectedOuterGapIndex, setSelectedOuterGapIndex] = useState<number>()
   const sourceFloorsRequest = useRef<AbortController | undefined>(undefined)
   const fillHintsRequest = useRef<AbortController | undefined>(undefined)
   const draftSource = useRef<PlanPagePreview | undefined>(undefined)
@@ -173,6 +176,24 @@ export function PlanPageContourEditor({
   conflictCallback.current = onConflict
   const locked =
     disabled || saving || loading || stale || !preview || !imageReady || nativePoints.length === 0
+  const savedExterior = reading.pageReview?.contours.exterior
+  const sourceWallGaps = useMemo(
+    () =>
+      sourceOuterWallGaps(
+        reading.geometry,
+        reading.pageReview?.contours,
+        reading.geometry ? currentWallFacePairs(reading.geometry) : [],
+      ),
+    [reading],
+  )
+  const visibleWallGaps =
+    !stale &&
+    preview &&
+    savedExterior &&
+    exteriorClosed &&
+    JSON.stringify(exterior) === JSON.stringify(savedExterior)
+      ? sourceWallGaps
+      : []
   const options = pageContourOptions(reading.rooms, drafts)
   const sourceRooms =
     reading.pageReview?.sourceRooms ??
@@ -1156,6 +1177,39 @@ export function PlanPageContourEditor({
               >
                 {kind === 'floor' ? 'Отдельная граница пола' : 'Наружный контур'}
               </Button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {visibleWallGaps.length > 0 ? (
+        <section aria-label="Неподтверждённые наружные участки" className="border border-line p-4">
+          <p className="text-sm font-medium text-ink">
+            Наружная обводка: {visibleWallGaps.length} участков для сверки
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-ink-2">
+            Красный пунктир указывает места без сохранённой пары граней стены. Это подсказка по
+            сохранённому 2D-черновику, не доказательство стены и не новый обмер. Выберите участок,
+            проверьте обводку по исходным узлам PDF и сохраните правку; система снова проверит пары.
+            Координаты ниже приблизительны и нужны только для поиска места на листе.
+          </p>
+          <div className="mt-3 max-h-40 space-y-1 overflow-auto">
+            {visibleWallGaps.map((gap, index) => (
+              <button
+                key={`${gap.edgeIndex}:${index}`}
+                type="button"
+                disabled={locked}
+                aria-pressed={selectedOuterGapIndex === index}
+                onClick={() => {
+                  setSelectedOuterGapIndex(index)
+                  setEditingBoundary('exterior')
+                  setSelectedVoidId(undefined)
+                  setTarget({ kind: 'room' })
+                }}
+                className="block min-h-11 text-left text-sm text-accent underline underline-offset-4 disabled:text-ink-2"
+              >
+                Ребро {gap.edgeIndex + 1}: X {gap.start.x.toFixed(1)}–{gap.end.x.toFixed(1)}, Y{' '}
+                {gap.start.y.toFixed(1)}–{gap.end.y.toFixed(1)}
+              </button>
             ))}
           </div>
         </section>
@@ -2252,6 +2306,25 @@ export function PlanPageContourEditor({
                       {gap.unpairedDoorway
                         ? 'Отмеченный проём не подтверждён парными косяками и второй гранью стены.'
                         : 'Этот участок границы пола не подтверждён штрихами исходного PDF.'}
+                    </title>
+                  </line>
+                ))}
+                {visibleWallGaps.map((gap, index) => (
+                  <line
+                    key={`outer-gap:${gap.edgeIndex}:${index}`}
+                    x1={gap.start.x}
+                    y1={gap.start.y}
+                    x2={gap.end.x}
+                    y2={gap.end.y}
+                    stroke="#be123c"
+                    strokeWidth={selectedOuterGapIndex === index ? 8 : 4}
+                    strokeDasharray="8 5"
+                    vectorEffect="non-scaling-stroke"
+                    pointerEvents="none"
+                  >
+                    <title>
+                      Наружное ребро {gap.edgeIndex + 1} без сохранённой пары граней. Сверьте по
+                      исходнику; подсветка не подтверждает стену.
                     </title>
                   </line>
                 ))}
