@@ -22,13 +22,17 @@ type Label = NativeTextAnchors['labels'][number]
 type Grid = { bounds: Bounds; columns: number[]; rows: number[]; edges: NativePageSegment[] }
 const MAX_WORK = 200_000
 const roomName =
-  /^(?:помещение|прихожая(?:,\s*коридор)?|кухня(?:[-–— ]гостиная)?|гостиная|(?:главная )?спальня|коридор|ванная(?: комната)?|санузел|туалет|комната|жилая комната|детская|кабинет|гардероб|гардеробная|кладовая|балкон|лоджия)(?:\s+(?:#|№)?\s*\d{1,2})?$/iu
+  /^(?:помещение|прихожая(?:[-,]\s*коридор)?|кухня(?:[-–— ]гостиная)?|гостиная|(?:главная )?спальня|коридор|ванна|ванная(?: комната)?|[сc]анузел|туалет|комната|жилая комната|детская|кабинет|гардероб|гардеробная|кладовая|балкон|лоджия)(?:\s+(?:#|№)?\s*\d{1,2})?$/iu
 const numberHeading = /^№(?:\s*п\/п)?$/u
 const nameHeading = /^(?:наименование|помещение)$/iu
 const areaHeading = /^площадь(?:,|,?\s+[мm][²2])?$/iu
 const areaValue = /^\d{1,3}[,.]\d{1,2}(?:\s*[мm]²)?$/iu
 const totalName = /^(?:общая площадь|итого|всего):?$/iu
 const horizontalLabel = (label: Label) => Math.abs(label.rotation ?? Infinity) < 1e-7
+const locatedLabel = (
+  label: Label,
+): label is Label & { pagePoint: PagePoint; pageEnd: PagePoint } =>
+  Boolean(label.pagePoint && label.pageEnd)
 function areaParts(labels: Label[]) {
   const first = labels[0]
   if (labels.length === 1 && first && areaValue.test(first.name)) return { area: first }
@@ -46,6 +50,28 @@ function areaParts(labels: Label[]) {
   )
     return undefined
   return { area, unit }
+}
+function raisedMetricArea(area: Label | undefined, unit: Label | undefined): number | undefined {
+  const value = /^(\d{1,3}(?:[,.]\d{1,2})?)\s*[мm]$/iu.exec(area?.name ?? '')
+  if (
+    !value?.[1] ||
+    unit?.name !== '2' ||
+    !area?.pagePoint ||
+    !area.pageEnd ||
+    !unit.pagePoint ||
+    !unit.pageEnd
+  )
+    return undefined
+  const unitWidth = unit.pageEnd.x - unit.pagePoint.x
+  const rise = area.pagePoint.y - unit.pagePoint.y
+  if (
+    Math.abs(area.pageEnd.x - unit.pagePoint.x) > 0.5 ||
+    unitWidth <= 0 ||
+    rise <= 0 ||
+    rise > unitWidth * 2
+  )
+    return undefined
+  return Number(value[1].replace(',', '.'))
 }
 const pointValid = (point: PagePoint) =>
   [point.x, point.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1000)
@@ -97,6 +123,166 @@ function continuousGridLines(segments: NativePageSegment[], vertical: boolean) {
   return lines
 }
 
+/** A title, uniformly ruled rows and a checked total can identify a schedule without column headings. */
+function titleAndRuledRoomRows(
+  native: NativeTextAnchors,
+  work: PdfLinework,
+  operationCounts: Map<number, number>,
+) {
+  const titles = native.labels.filter((label) => label.name === 'Экспликация помещений')
+  if (titles.length !== 1 || !titles[0]?.pagePoint) return
+  const paths = new Map(
+    work.paths.map((path) => [`${path.operationIndex}:${path.subpathIndex}`, path]),
+  )
+  const groups = new Map<string, NativePageSegment[]>()
+  for (const segment of nativePageSegments(work)) {
+    const path = paths.get(`${segment.operationIndex}:${segment.subpathIndex}`)
+    const width = Math.abs(segment.end.x - segment.start.x)
+    if (
+      segment.start.y !== segment.end.y ||
+      width < 100 ||
+      path?.paint !== 'stroke' ||
+      path.strokeColor?.toLowerCase() === '#ffffff' ||
+      path.strokeInk?.refusalReason ||
+      path.strokeInk?.dashArray.length ||
+      operationCounts.get(segment.operationIndex) !== 1
+    )
+      continue
+    const left = Math.min(segment.start.x, segment.end.x)
+    const right = Math.max(segment.start.x, segment.end.x)
+    const key = `${left}:${right}`
+    groups.set(key, [...(groups.get(key) ?? []), segment])
+  }
+  const candidates: {
+    rows: NativeRoomScheduleRow[]
+    bounds: Bounds
+    edges: NativePageSegment[]
+    titleId: string
+  }[] = []
+  for (const edges of groups.values()) {
+    if (edges.length < 4 || edges.length > 31) continue
+    const ordered = [...edges].sort((a, b) => a.start.y - b.start.y)
+    const first = ordered[0]
+    const second = ordered[1]
+    const last = ordered.at(-1)
+    if (!first || !second || !last) continue
+    const pitch = second.start.y - first.start.y
+    if (pitch <= 0) continue
+    if (
+      ordered.some(
+        (edge, index) =>
+          index > 0 &&
+          Math.abs(edge.start.y - (ordered[index - 1] as NativePageSegment).start.y - pitch) > 0.05,
+      )
+    )
+      continue
+    const left = Math.min(first.start.x, first.end.x)
+    const right = Math.max(first.start.x, first.end.x)
+    const title = titles[0]
+    const titlePoint = title?.pagePoint
+    const titleEnd = title?.pageEnd
+    if (
+      !titlePoint ||
+      !titleEnd ||
+      !horizontalLabel(title) ||
+      titlePoint.x <= left ||
+      titleEnd.x >= right ||
+      titlePoint.y >= first.start.y ||
+      first.start.y - titlePoint.y > pitch
+    )
+      continue
+    const rows: NativeRoomScheduleRow[] = []
+    let valid = true
+    for (let index = 1; index < ordered.length; index++) {
+      const upperEdge = ordered[index - 1]
+      const lowerEdge = ordered[index]
+      if (!upperEdge || !lowerEdge) {
+        valid = false
+        break
+      }
+      const top = upperEdge.start.y
+      const bottom = lowerEdge.start.y
+      const labels = native.labels.filter(
+        (label) =>
+          label.pagePoint &&
+          label.pagePoint.x > left &&
+          label.pagePoint.x < right &&
+          label.pagePoint.y > top &&
+          label.pagePoint.y < bottom,
+      )
+      if (
+        labels.length !== 4 ||
+        labels.some((label) => !horizontalLabel(label) || !locatedLabel(label))
+      ) {
+        valid = false
+        break
+      }
+      const located = labels.filter(locatedLabel)
+      const [number, name, area, unit] = located.sort((a, b) => a.pagePoint.x - b.pagePoint.x)
+      if (!number || !name || !area || !unit) {
+        valid = false
+        break
+      }
+      const areaM2 = raisedMetricArea(area, unit)
+      if (
+        !/^\d{1,2}$/u.test(number.name) ||
+        !roomName.test(name.name) ||
+        areaM2 === undefined ||
+        !planRoomSourceNumbersInScheduleOrder([
+          ...rows.map((row) => row.sourceNumber),
+          Number(number.name),
+        ]) ||
+        number.pageEnd.x >= name.pagePoint.x ||
+        name.pageEnd.x >= area.pagePoint.x ||
+        Math.abs(number.pagePoint.y - name.pagePoint.y) > pitch * 0.12 ||
+        Math.abs(area.pagePoint.y - name.pagePoint.y) > pitch * 0.12
+      ) {
+        valid = false
+        break
+      }
+      rows.push({
+        sourceNumber: Number(number.name),
+        name: name.name,
+        documentaryAreaM2: areaM2,
+        numberLabelId: number.id,
+        nameLabelId: name.id,
+        areaLabelId: area.id,
+        areaUnitLabelId: unit.id,
+      })
+    }
+    if (!valid || rows.length < 3) continue
+    const totalLabels = native.labels.filter(
+      (label) =>
+        label.pagePoint &&
+        label.pagePoint.x > left &&
+        label.pagePoint.x < right &&
+        label.pagePoint.y > last.start.y &&
+        label.pagePoint.y < last.start.y + pitch,
+    )
+    if (totalLabels.length !== 2) continue
+    const [total, totalUnit] = totalLabels.sort(
+      (a, b) => (a.pagePoint as PagePoint).x - (b.pagePoint as PagePoint).x,
+    )
+    const totalM2 = raisedMetricArea(total, totalUnit)
+    if (!total?.pagePoint) continue
+    if (
+      totalM2 === undefined ||
+      Math.abs(
+        Math.round(totalM2 * 100) -
+          Math.round(rows.reduce((sum, row) => sum + row.documentaryAreaM2, 0) * 100),
+      ) > 0
+    )
+      continue
+    candidates.push({
+      rows,
+      bounds: { left, right, top: titlePoint.y, bottom: total.pagePoint.y },
+      edges: ordered,
+      titleId: title.id,
+    })
+  }
+  return candidates.length === 1 ? candidates[0] : undefined
+}
+
 /** Documentary rows only. A source grid is not a room boundary or an area-derived polygon. */
 export function nativeRoomScheduleEvidence(input: {
   native: NativeTextAnchors
@@ -108,7 +294,8 @@ export function nativeRoomScheduleEvidence(input: {
   let tableBounds: Bounds | null = null
   let headerLabelIds: string[] = []
   let tableEdges: NativePageSegment[] = []
-  let layoutBasis: 'strict-native-baselines' | 'exact-native-grid' | null = null
+  let layoutBasis: 'strict-native-baselines' | 'exact-native-grid' | 'titled-ruled-rows' | null =
+    null
   const finish = (reason: string | null) => ({
     status: reason ? ('unresolved' as const) : ('draft' as const),
     reason,
@@ -187,6 +374,17 @@ export function nativeRoomScheduleEvidence(input: {
       return finish('invalid-native-provenance')
     refs.add(ref)
     operationCounts.set(path.operationIndex, (operationCounts.get(path.operationIndex) ?? 0) + 1)
+  }
+  const titledRows = titleAndRuledRoomRows(native, work, operationCounts)
+  if (titledRows) {
+    if (omissions.some((item) => overlaps(item.bounds, titledRows.bounds)))
+      return finish('table-native-geometry-incomplete')
+    rows = titledRows.rows
+    tableBounds = titledRows.bounds
+    tableEdges = titledRows.edges
+    headerLabelIds = [titledRows.titleId]
+    layoutBasis = 'titled-ruled-rows'
+    return finish(null)
   }
   const numbers = native.labels.filter((label) => numberHeading.test(label.name))
   const names = native.labels.filter((label) => nameHeading.test(label.name))

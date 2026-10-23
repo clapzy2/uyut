@@ -91,6 +91,74 @@ it('uses verified native table inventory when flattened text has no readable row
   expect(planPageRoomInventory(legacyText, page)).toBeUndefined()
 })
 
+it('reads a titled, uniformly ruled room schedule without column headings', () => {
+  const input = ruledScheduleFixture()
+  const result = nativeRoomScheduleEvidence(input)
+  expect(result).toMatchObject({
+    status: 'draft',
+    layoutBasis: 'titled-ruled-rows',
+    roomOwnershipConfirmed: false,
+    closesFloorBoundary: false,
+  })
+  expect(
+    result.rows.map(({ sourceNumber, name, documentaryAreaM2 }) => ({
+      sourceNumber,
+      name,
+      documentaryAreaM2,
+    })),
+  ).toEqual([
+    { sourceNumber: 1, name: 'Прихожая-коридор', documentaryAreaM2: 4.2 },
+    { sourceNumber: 2, name: 'Комната 1', documentaryAreaM2: 10.4 },
+    { sourceNumber: 3, name: 'Cанузел', documentaryAreaM2: 0.8 },
+    { sourceNumber: 4, name: 'Лоджия', documentaryAreaM2: 5.5 },
+  ])
+  expect(result.tableEdges).toHaveLength(5)
+  expect(
+    planPageRoomInventory(undefined, {
+      nativeTextAnchors: input.native,
+      linework: input.work,
+      lineworkRasterSource: input.lineworkSource,
+    }),
+  ).toHaveLength(4)
+})
+
+it('holds a headingless schedule when source rows or the printed total conflict', () => {
+  for (const mutation of [
+    (input: Input) => {
+      input.work.paths.pop()
+    },
+    (input: Input) => {
+      input.work.clippedPaths = 1
+      input.work.clippedPathBounds = [
+        {
+          operationIndex: 999,
+          bounds: { left: 110, top: 100, right: 340, bottom: 125 },
+        },
+      ]
+    },
+    (input: Input) => {
+      labelOf(input, '20,9м').name = '21,9м'
+    },
+    (input: Input) => {
+      labelOf(input, '10,4м').name = '16,4м'
+    },
+    (input: Input) => {
+      addLabel(input, '2', 320, 130)
+    },
+    (input: Input) => {
+      const unit = input.native.labels.find(
+        (label) => label.name === '2' && label.pagePoint?.x === 323.7,
+      )
+      if (!unit?.pagePoint) throw new Error('Missing raised unit')
+      moveLabel(input, unit, { x: unit.pagePoint.x + 2, y: unit.pagePoint.y })
+    },
+  ]) {
+    const input = ruledScheduleFixture()
+    mutation(input)
+    expect(nativeRoomScheduleEvidence(input).rows).toEqual([])
+  }
+})
+
 function addLabel(input: Input, name: string, x: number, y: number, widthUnits?: number): Label {
   const index = Math.max(-1, ...input.native.labels.map((label) => label.nativeIndex ?? -1)) + 1
   const scale = input.native.pageNormalizedScale
@@ -176,6 +244,30 @@ function fixture(
       ...Array.from({ length: count + (total ? 1 : 0) }, (_, i) => 130 + i * 10),
     ])
       addLine(input, { x: 100, y }, { x: 350, y })
+  }
+  return input
+}
+function ruledScheduleFixture(): Input {
+  const input = fixture({ grid: false })
+  input.native.labels = []
+  const rows = [
+    ['Прихожая-коридор', '4,2м'],
+    ['Комната 1', '10,4м'],
+    ['Cанузел', '0,8м'],
+    ['Лоджия', '5,5м'],
+  ] as const
+  addLabel(input, 'Экспликация помещений', 160, 90, 120)
+  for (const [index, [name, area]] of rows.entries()) {
+    const baseline = 115 + index * 25
+    addLabel(input, `${index + 1}`, 112, baseline, 5)
+    addLabel(input, name, 140, baseline + 1, 70)
+    const value = addLabel(input, area, 300, baseline + 1, 24)
+    addLabel(input, '2', (value.pageEnd?.x ?? 0) - 0.3, baseline - 4, 3)
+  }
+  const total = addLabel(input, '20,9м', 300, 212, 24)
+  addLabel(input, '2', (total.pageEnd?.x ?? 0) - 0.3, 207, 3)
+  for (const y of [100, 125, 150, 175, 200]) {
+    addLine(input, { x: 100, y }, { x: 350, y })
   }
   return input
 }
