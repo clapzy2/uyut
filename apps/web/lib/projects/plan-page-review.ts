@@ -673,13 +673,29 @@ export function sourceRoomContourVertices(
   })
 }
 
-/** A reviewed floor edge needs continuous source stroke, not merely two PDF vertices. */
-function sourceFloorEdges(
-  polygon: readonly PagePoint[],
-  segments: readonly NativePageSegment[],
+export type FloorEdgeGap = { edgeIndex: number; start: PagePoint; end: PagePoint }
+
+/**
+ * Parts of a reviewed floor edge that no continuous source stroke covers.
+ *
+ * Two PDF nodes at the ends are not enough: the whole edge must be drawn. The one
+ * exception is a doorway, which a wall draws as a gap; the floor crosses it along the
+ * wall face. A gap is closed only by a door or balcony opening that a person marked on
+ * a room, with both ends exactly on this edge and already checked against source jambs.
+ * Windows, door symbols, labels and fills never close a gap.
+ */
+export function floorEdgeGaps(
+  input: Pick<PlanPageContours, 'floor' | 'rooms'>,
   linework: PdfLinework,
-): boolean {
+  segments: readonly NativePageSegment[] = nativePageSegments(linework),
+): FloorEdgeGap[] {
+  const polygon = input.floor?.polygon ?? []
   const tolerance = 1e-7
+  const doorways = input.rooms.flatMap((room) =>
+    (room.openings ?? [])
+      .filter((opening) => opening.kind === 'door' || opening.kind === 'balcony')
+      .map((opening) => [opening.start, opening.end] as const),
+  )
   const usablePaths = new Set(
     linework.paths
       .filter(
@@ -691,42 +707,51 @@ function sourceFloorEdges(
       )
       .map((path) => `${path.operationIndex}:${path.subpathIndex}`),
   )
+  const gaps: FloorEdgeGap[] = []
   for (const [index, start] of polygon.entries()) {
     const end = polygon[(index + 1) % polygon.length]
-    if (!end) return false
+    if (!end) continue
     const dx = end.x - start.x
     const dy = end.y - start.y
     const lengthSquared = dx * dx + dy * dy
-    if (lengthSquared === 0) return false
+    if (lengthSquared === 0) {
+      gaps.push({ edgeIndex: index, start: { ...start }, end: { ...end } })
+      continue
+    }
+    const onLine = (point: PagePoint) =>
+      Math.abs((point.x - start.x) * dy - (point.y - start.y) * dx) <=
+      tolerance * Math.sqrt(lengthSquared)
+    const along = (point: PagePoint) =>
+      ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared
     const intervals: Array<[number, number]> = []
     for (const segment of segments) {
       if (!usablePaths.has(`${segment.operationIndex}:${segment.subpathIndex}`)) continue
-      const points = [segment.start, segment.end]
-      if (
-        points.some(
-          (point) =>
-            Math.abs((point.x - start.x) * dy - (point.y - start.y) * dx) >
-            tolerance * Math.sqrt(lengthSquared),
-        )
-      )
-        continue
-      const projections = points.map(
-        (point) => ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared,
-      )
+      if (!onLine(segment.start) || !onLine(segment.end)) continue
+      const projections = [along(segment.start), along(segment.end)]
+      const from = Math.max(0, Math.min(...projections))
+      const to = Math.min(1, Math.max(...projections))
+      if (to > from) intervals.push([from, to])
+    }
+    for (const doorway of doorways) {
+      if (!doorway.every(onLine)) continue
+      const projections = doorway.map(along)
+      // The opening must lie on this edge, not on its extension past a corner.
+      if (projections.some((value) => value < -tolerance || value > 1 + tolerance)) continue
       const from = Math.max(0, Math.min(...projections))
       const to = Math.min(1, Math.max(...projections))
       if (to > from) intervals.push([from, to])
     }
     intervals.sort((left, right) => left[0] - right[0])
+    const at = (ratio: number) => ({ x: start.x + dx * ratio, y: start.y + dy * ratio })
     let covered = 0
     for (const [from, to] of intervals) {
-      if (from > covered + tolerance) break
+      if (from > covered + tolerance)
+        gaps.push({ edgeIndex: index, start: at(covered), end: at(from) })
       covered = Math.max(covered, to)
-      if (covered >= 1 - tolerance) break
     }
-    if (covered < 1 - tolerance) return false
+    if (covered < 1 - tolerance) gaps.push({ edgeIndex: index, start: at(covered), end: at(1) })
   }
-  return true
+  return gaps
 }
 
 export function planPageReviewIssue(
@@ -789,7 +814,8 @@ export function planPageReviewIssue(
   if (input.floor) {
     if (!sourceRoomContourVertices(input.floor, nativePoints, segments))
       return 'non-native-floor-vertex'
-    if (!sourceFloorEdges(input.floor.polygon, segments, linework)) return 'non-native-floor-edge'
+    // Room openings were checked against source jambs above.
+    if (floorEdgeGaps(input, linework, segments).length) return 'non-native-floor-edge'
   }
   if (
     input.voids?.some((voidArea) =>
