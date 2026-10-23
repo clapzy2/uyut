@@ -617,6 +617,10 @@ export function pairPlanPageWallFaces(
   contours: PlanPageContours,
 ): PdfWallFacePair[] {
   if (!validWallSource(work, source, contours, true)) return []
+  // An explicitly supplied but incomplete paint inventory cannot prove that
+  // later drawing operations left a source face visible.
+  const paintInventoryIsComplete = pdfPaintInventoryIsComplete(work.paintBounds)
+  if (work.paintBounds && !paintInventoryIsComplete) return []
   const faces = facesFromContours(contours)
   if (faces.length > 200) return []
   // Multiple closed subpaths can represent a hole or a compound outline. Their winding
@@ -811,7 +815,7 @@ export function pairPlanPageWallFaces(
     }
   }
   const omitted = [...(work.clippedPathBounds ?? []), ...(work.skippedCurveBounds ?? [])]
-  const paintEvents = pdfPaintInventoryIsComplete(work.paintBounds)
+  const paintEvents = paintInventoryIsComplete
     ? new Map(work.paintBounds?.events.map((event) => [event.operationIndex, event]))
     : undefined
   const orderedPaintEvents = paintEvents ? [...paintEvents.values()] : undefined

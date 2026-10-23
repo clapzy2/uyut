@@ -174,8 +174,10 @@ export function verifyPlanPageOpeningFaces(
       ? 'not-existing-state'
       : work.clippedPaths > 0
         ? 'incomplete-vector-layer'
-        : (pdfContourIssue(work, source, contours) ??
-          planPageFeaturesIssue(contours, { checkRoomOverlap: true }))
+        : work.paintBounds && !pdfPaintInventoryIsComplete(work.paintBounds)
+          ? 'incomplete-native-paint-layer'
+          : (pdfContourIssue(work, source, contours) ??
+            planPageFeaturesIssue(contours, { checkRoomOverlap: true }))
   if (!sourceIssue) {
     const nativePoints = new Set(
       work.paths.flatMap((path) => path.points.map((point) => `${point.x}:${point.y}`)),
