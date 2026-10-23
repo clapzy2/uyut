@@ -736,9 +736,10 @@ export function floorEdgeGaps(
     if (usablePaths.has(`${segment.operationIndex}:${segment.subpathIndex}`)) addTouching(segment)
   }
   const filledEdges = new Map<string, Array<readonly [PagePoint, PagePoint]>>()
+  const whiteFilledEdges = new Map<string, Array<readonly [PagePoint, PagePoint]>>()
   for (const path of linework.paths) {
     if (path.paint !== 'fill' && path.paint !== 'fill-stroke') continue
-    if (path.fillColor?.toLowerCase() === '#ffffff') continue
+    const edgeMap = path.fillColor?.toLowerCase() === '#ffffff' ? whiteFilledEdges : filledEdges
     const count = path.closed ? path.points.length : path.points.length - 1
     for (let index = 0; index < count; index++) {
       const start = path.points[index]
@@ -746,9 +747,9 @@ export function floorEdgeGaps(
       if (!start || !end) continue
       for (const point of [start, end]) {
         const key = pointKey(point)
-        const matches = filledEdges.get(key) ?? []
+        const matches = edgeMap.get(key) ?? []
         matches.push([start, end])
-        filledEdges.set(key, matches)
+        edgeMap.set(key, matches)
       }
     }
   }
@@ -773,6 +774,19 @@ export function floorEdgeGaps(
       tolerance * Math.sqrt(lengthSquared)
     const along = (point: PagePoint) =>
       ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared
+    const followsWhiteFill = (point: PagePoint, endPoint: PagePoint) => {
+      const vx = endPoint.x - point.x
+      const vy = endPoint.y - point.y
+      return (whiteFilledEdges.get(pointKey(point)) ?? []).some(([a, b]) => {
+        const other = a.x === point.x && a.y === point.y ? b : a
+        const wx = other.x - point.x
+        const wy = other.y - point.y
+        return (
+          wx * vx + wy * vy > tolerance &&
+          Math.abs(wx * vy - wy * vx) <= tolerance * Math.hypot(wx, wy) * Math.hypot(vx, vy)
+        )
+      })
+    }
     const doorwayJambDepths = (point: PagePoint, faceDirection: -1 | 1) => {
       const strokes = touching.get(pointKey(point)) ?? []
       if (
@@ -798,6 +812,8 @@ export function floorEdgeGaps(
           continue
         const depth = (dx * jy - dy * jx) / Math.sqrt(lengthSquared)
         if (depth * Math.sign(twiceArea) >= -tolerance) continue
+        // A stroke along a white window fill does not prove a wall jamb.
+        if (followsWhiteFill(point, other)) continue
         const paintedWallEdge = (filledEdges.get(pointKey(point)) ?? []).some(([a, b]) => {
           const fillOther = a.x === point.x && a.y === point.y ? b : a
           const fx = fillOther.x - point.x
@@ -813,6 +829,7 @@ export function floorEdgeGaps(
           const fx = faceEnd.x - other.x
           const fy = faceEnd.y - other.y
           return (
+            !followsWhiteFill(other, faceEnd) &&
             Math.abs(fx * dy - fy * dx) <= tolerance * Math.sqrt(lengthSquared) &&
             faceDirection * (along(faceEnd) - along(other)) > tolerance &&
             Math.hypot(fx, fy) >= jambLength - tolerance
