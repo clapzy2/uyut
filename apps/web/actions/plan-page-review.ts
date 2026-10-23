@@ -13,7 +13,12 @@ import { PlanReadError, preparePlanPage } from '@/lib/projects/plan-document'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { verifyPlanPageOpenings } from '@/lib/projects/plan-page-feature-checks'
 import { planPageGeometryElementId } from '@/lib/projects/plan-page-metric-draft'
-import { floorEdgeGapMessage, planPageContoursSchema } from '@/lib/projects/plan-page-review'
+import {
+  type FloorEdgeGap,
+  floorEdgeGapMessage,
+  floorEdgeGaps,
+  planPageContoursSchema,
+} from '@/lib/projects/plan-page-review'
 import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
 import { sourceTopologyDraftIssue } from '@/lib/projects/plan-page-source-topology'
 import { pdfDimensionForEdge } from '@/lib/projects/plan-pdf-edge-dimension'
@@ -119,7 +124,10 @@ export async function savePlanPageReview(
   projectId: string,
   input: unknown,
   expectedRevision: string,
-): Promise<ActionResult<{ reading: PlanReading; revision: string }>> {
+): Promise<
+  | ActionResult<{ reading: PlanReading; revision: string }>
+  | { ok: false; error: string; code?: 'plan-conflict'; floorGaps: FloorEdgeGap[] }
+> {
   const session = await getSession()
   if (!session) return { ok: false, error: 'Сессия закончилась. Войдите снова.' }
   const parsed = planPageContoursSchema.safeParse(input)
@@ -203,8 +211,14 @@ export async function savePlanPageReview(
             }
           : undefined,
     })
-    if (issue === 'non-native-floor-edge')
-      return { ok: false, error: floorEdgeGapMessage(contours, page.linework) }
+    if (issue === 'non-native-floor-edge') {
+      const floorGaps = floorEdgeGaps(contours, page.linework)
+      return {
+        ok: false,
+        error: floorEdgeGapMessage(contours, page.linework, floorGaps),
+        floorGaps,
+      }
+    }
     if (issue) {
       return {
         ok: false,
