@@ -1,4 +1,4 @@
-import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall } from '@uyut/db'
+import type { PlanGeometry, PlanOpening, PlanPoint, PlanWall, PlanWallFacePair } from '@uyut/db'
 import type { ReactNode } from 'react'
 import { doorClearanceZone } from '@/lib/projects/clearance-zones'
 import {
@@ -34,6 +34,47 @@ function openingLine(opening: PlanOpening, wall: PlanWall): { start: PlanPoint; 
   }
 }
 
+function sourceBackedOuterSpans(
+  wall: PlanWall,
+  pairs: PlanWallFacePair[],
+): Array<[number, number]> {
+  const dx = wall.end.xCm - wall.start.xCm
+  const dy = wall.end.yCm - wall.start.yCm
+  const lengthSquared = dx * dx + dy * dy
+  if (lengthSquared === 0) return []
+
+  const spans = pairs.flatMap((pair) =>
+    pair.faces.flatMap((face): Array<[number, number]> => {
+      if (face.wall.id !== wall.id || face.wall.kind !== 'outer') return []
+      const fraction = (point: PlanPoint) =>
+        ((point.xCm - wall.start.xCm) * dx + (point.yCm - wall.start.yCm) * dy) / lengthSquared
+      const start = fraction(face.start)
+      const end = fraction(face.end)
+      return [[Math.max(0, Math.min(start, end)), Math.min(1, Math.max(start, end))]]
+    }),
+  )
+  spans.sort((a, b) => a[0] - b[0])
+
+  const merged: Array<[number, number]> = []
+  for (const [start, end] of spans) {
+    const previous = merged.at(-1)
+    if (previous && start <= previous[1]) previous[1] = Math.max(previous[1], end)
+    else if (start < end) merged.push([start, end])
+  }
+  return merged
+}
+
+function unpairedOuterSpans(spans: Array<[number, number]>): Array<[number, number]> {
+  const gaps: Array<[number, number]> = []
+  let position = 0
+  for (const [start, end] of spans) {
+    if (start > position) gaps.push([position, start])
+    position = end
+  }
+  if (position < 1) gaps.push([position, 1])
+  return gaps
+}
+
 function centre(points: PlanPoint[]): PlanPoint {
   const sum = points.reduce(
     (result, point) => ({ xCm: result.xCm + point.xCm, yCm: result.yCm + point.yCm }),
@@ -64,15 +105,18 @@ export function PlanGeometryPreview({
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
   const provenOpeningIds = currentSourceOpeningIds(geometry)
   const wallFacePairs = currentWallFacePairs(geometry)
-  const pairedOuterWallIds = new Set(
-    wallFacePairs.flatMap((pair) =>
-      pair.faces.filter((face) => face.wall.kind === 'outer').map((face) => face.wall.id),
-    ),
+  const outerSpans = new Map(
+    geometry.walls
+      .filter((wall) => wall.kind === 'outer')
+      .map((wall) => [wall.id, sourceBackedOuterSpans(wall, wallFacePairs)] as const),
+  )
+  const outerGaps = new Map(
+    [...outerSpans].map(([wallId, spans]) => [wallId, unpairedOuterSpans(spans)] as const),
   )
   const unpairedOuterWallIds = new Set(
     geometry.pdfCalibration
       ? geometry.walls
-          .filter((wall) => wall.kind === 'outer' && !pairedOuterWallIds.has(wall.id))
+          .filter((wall) => wall.kind === 'outer' && (outerGaps.get(wall.id)?.length ?? 0) > 0)
           .map((wall) => wall.id)
       : [],
   )
@@ -246,26 +290,75 @@ export function PlanGeometryPreview({
               </polygon>
             ))}
 
-            {geometry.walls.map((wall) => (
-              <line
-                key={wall.id}
-                x1={wall.start.xCm}
-                y1={wall.start.yCm}
-                x2={wall.end.xCm}
-                y2={wall.end.yCm}
-                stroke={unpairedOuterWallIds.has(wall.id) ? 'var(--danger)' : 'var(--ink)'}
-                strokeWidth={wall.kind === 'outer' ? 7 : 4}
-                strokeDasharray={unpairedOuterWallIds.has(wall.id) ? '8 5' : undefined}
-                strokeLinecap="square"
-                vectorEffect="non-scaling-stroke"
-              >
-                {unpairedOuterWallIds.has(wall.id) ? (
-                  <title>
-                    У этого наружного участка нет сохранённой исходной пары граней стены.
-                  </title>
-                ) : null}
-              </line>
-            ))}
+            {geometry.walls.map((wall) => {
+              const incomplete = unpairedOuterWallIds.has(wall.id)
+              const length = Math.hypot(
+                wall.end.xCm - wall.start.xCm,
+                wall.end.yCm - wall.start.yCm,
+              )
+              return (
+                <g key={wall.id}>
+                  {incomplete ? (
+                    <>
+                      {(outerGaps.get(wall.id) ?? []).map(([start, end]) => {
+                        const from = along(wall, start * length)
+                        const to = along(wall, end * length)
+                        return (
+                          <line
+                            key={`gap:${start}:${end}`}
+                            x1={from.xCm}
+                            y1={from.yCm}
+                            x2={to.xCm}
+                            y2={to.yCm}
+                            stroke="var(--danger)"
+                            strokeWidth="7"
+                            strokeDasharray="8 5"
+                            strokeLinecap="square"
+                            vectorEffect="non-scaling-stroke"
+                          >
+                            <title>
+                              У этого наружного участка есть часть без исходной пары граней стены.
+                            </title>
+                          </line>
+                        )
+                      })}
+                      {(outerSpans.get(wall.id) ?? []).map(([start, end]) => {
+                        const from = along(wall, start * length)
+                        const to = along(wall, end * length)
+                        return (
+                          <line
+                            key={`source:${start}:${end}`}
+                            x1={from.xCm}
+                            y1={from.yCm}
+                            x2={to.xCm}
+                            y2={to.yCm}
+                            stroke="var(--ink)"
+                            strokeWidth="7"
+                            strokeLinecap="butt"
+                            vectorEffect="non-scaling-stroke"
+                          >
+                            <title>
+                              Этот отрезок имеет сохранённую исходную пару граней стены.
+                            </title>
+                          </line>
+                        )
+                      })}
+                    </>
+                  ) : (
+                    <line
+                      x1={wall.start.xCm}
+                      y1={wall.start.yCm}
+                      x2={wall.end.xCm}
+                      y2={wall.end.yCm}
+                      stroke="var(--ink)"
+                      strokeWidth={wall.kind === 'outer' ? 7 : 4}
+                      strokeLinecap="square"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  )}
+                </g>
+              )
+            })}
 
             {geometry.footprint ? (
               <polygon
@@ -371,9 +464,10 @@ export function PlanGeometryPreview({
                 'наружных участка',
                 'наружных участков',
               )}{' '}
-              без сохранённой пары граней из PDF. Это не доказательство отсутствия стены: сверьте
-              эти участки с исходным листом и поправьте наружную обводку там, где она неточна.
-              Граница пола их не заменяет.
+              с отрезками без сохранённой пары граней из PDF. Чёрная часть такого участка имеет
+              исходную пару, красная требует сверки. Это не доказательство отсутствия стены: сверьте
+              её с исходным листом и поправьте наружную обводку там, где она неточна. Граница пола
+              их не заменяет.
             </p>
           ) : null}
           {confirmationIssues.length > 0 ? (
