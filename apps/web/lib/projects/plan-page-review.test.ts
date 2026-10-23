@@ -565,25 +565,107 @@ describe('versioned source page review', () => {
     expect(floorEdgeGaps(bare, work)).toEqual([
       { edgeIndex: 0, start: { x: 12, y: 5 }, end: { x: 20, y: 5 } },
     ])
-    expect(planPageReviewIssue(withOpening('door'), reading, bare.source, work)).toBeUndefined()
-    expect(planPageReviewIssue(withOpening('balcony'), reading, bare.source, work)).toBeUndefined()
-    // A window, or an opening that covers only part of the gap, leaves the floor unproven.
-    expect(planPageReviewIssue(withOpening('window'), reading, bare.source, work)).toBe(
+    // A manually named door at two native points is not yet source jamb evidence.
+    expect(planPageReviewIssue(withOpening('door'), reading, bare.source, work)).toBe(
       'non-native-floor-edge',
     )
+    const jambWork: PdfLinework = {
+      ...work,
+      paths: [
+        ...work.paths,
+        ...[12, 20].flatMap((x, index) => [
+          {
+            ...at(linework.paths),
+            operationIndex: 21 + index * 2,
+            paint: 'fill' as const,
+            closed: true,
+            points: [
+              { x, y: 5 },
+              { x, y: 0 },
+              { x: x + (x === 12 ? -2 : 2), y: 0 },
+              { x: x + (x === 12 ? -2 : 2), y: 5 },
+            ],
+          },
+          {
+            ...at(linework.paths),
+            operationIndex: 22 + index * 2,
+            paint: 'stroke' as const,
+            closed: false,
+            points: [
+              { x, y: 5 },
+              { x, y: 0 },
+            ],
+          },
+        ]),
+      ],
+    }
+    expect(planPageReviewIssue(withOpening('door'), reading, bare.source, jambWork)).toBeUndefined()
+    expect(
+      planPageReviewIssue(withOpening('balcony'), reading, bare.source, jambWork),
+    ).toBeUndefined()
+    const reversedFloor = withOpening('door')
+    expect(
+      floorEdgeGaps(
+        { ...reversedFloor, floor: { polygon: [...reversedFloor.floor.polygon].reverse() } },
+        jambWork,
+      ),
+    ).toEqual([])
+    const withoutOneJamb = {
+      ...jambWork,
+      paths: jambWork.paths.filter((path) => path.operationIndex !== 24),
+    }
+    expect(floorEdgeGaps(withOpening('door'), withoutOneJamb)).toHaveLength(1)
+    const withoutWallFill = {
+      ...jambWork,
+      paths: jambWork.paths.filter((path) => path.operationIndex !== 23),
+    }
+    expect(floorEdgeGaps(withOpening('door'), withoutWallFill)).toHaveLength(1)
+    const whiteWallFill = {
+      ...jambWork,
+      paths: jambWork.paths.map((path) =>
+        path.operationIndex === 23 ? { ...path, fillColor: '#ffffff' } : path,
+      ),
+    }
+    expect(floorEdgeGaps(withOpening('door'), whiteWallFill)).toHaveLength(1)
+    const whiteJamb = {
+      ...jambWork,
+      paths: jambWork.paths.map((path) =>
+        path.operationIndex === 24 ? { ...path, strokeColor: '#ffffff' } : path,
+      ),
+    }
+    expect(floorEdgeGaps(withOpening('door'), whiteJamb)).toHaveLength(1)
+    const unevenJambs = {
+      ...jambWork,
+      paths: jambWork.paths.map((path) =>
+        path.operationIndex === 24
+          ? {
+              ...path,
+              points: [
+                { x: 20, y: 5 },
+                { x: 20, y: 1 },
+              ],
+            }
+          : path,
+      ),
+    }
+    expect(floorEdgeGaps(withOpening('door'), unevenJambs)).toHaveLength(1)
+    // A window, or an opening that covers only part of the gap, leaves the floor unproven.
+    expect(floorEdgeGaps(withOpening('window'), jambWork)).toHaveLength(1)
     const partial = withOpening('door', { x: 16, y: 5 })
-    expect(planPageReviewIssue(partial, reading, bare.source, work)).toBe('non-native-floor-edge')
-    expect(floorEdgeGaps(partial, work)).toEqual([
-      { edgeIndex: 0, start: { x: 16, y: 5 }, end: { x: 20, y: 5 } },
+    expect(planPageReviewIssue(partial, reading, bare.source, jambWork)).toBe(
+      'non-native-floor-edge',
+    )
+    expect(floorEdgeGaps(partial, jambWork)).toEqual([
+      { edgeIndex: 0, start: { x: 12, y: 5 }, end: { x: 20, y: 5 } },
     ])
     // An opening off the edge line, or running past its corner, closes nothing.
     const shifted = withOpening('door')
     const shiftedOpening = at(at(shifted.rooms).openings)
     shiftedOpening.start = { x: 12, y: 5.000001 }
-    expect(floorEdgeGaps(shifted, work)).toHaveLength(1)
+    expect(floorEdgeGaps(shifted, jambWork)).toHaveLength(1)
     const pastCorner = withOpening('door')
     at(at(pastCorner.rooms).openings).start = { x: 2, y: 5 }
-    expect(floorEdgeGaps(pastCorner, work)).toHaveLength(1)
+    expect(floorEdgeGaps(pastCorner, jambWork)).toHaveLength(1)
   })
 
   it('checks all floor, room and void edges across concave boundary gaps', () => {
