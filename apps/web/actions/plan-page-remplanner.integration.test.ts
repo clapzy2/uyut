@@ -297,6 +297,12 @@ describe.skipIf(!enabled)('Remplanner sheet 4 through actions and PostgreSQL', (
     expect(geometry.pdfCalibration?.exteriorBoundaryRole).toBe('outer-wall-envelope')
     expect(geometry.pdfCalibration?.pageScale).toBeDefined()
     expect(geometry.rooms).toHaveLength(8)
+    expect(geometry.pdfCalibration?.sourceWallFacePairs).toHaveLength(8)
+    expect(
+      geometry.pdfCalibration?.sourceWallFacePairs?.every((pair) =>
+        pair.faces.every((face) => face.wall.kind !== 'outer'),
+      ),
+    ).toBe(true)
     expect((await getProject(owner, id)).planReading?.geometry).toEqual(geometry)
 
     // Both widths are printed on the sheet (1060 and 900 mm). A person checks the

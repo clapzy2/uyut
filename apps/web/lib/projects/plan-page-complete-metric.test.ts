@@ -432,11 +432,21 @@ describe('complete existing PDF page in one native metric scale', () => {
     expect(currentOpeningWidthProofs(geometry)).toEqual([])
   })
 
-  it('stores source interval relations without claiming construction thickness or completing topology', () => {
+  it('connects an idealized source topology through verified face pairs without inventing thickness', () => {
     const geometry = draft()
     expect(currentWallFacePairs(geometry)).toHaveLength(52)
     expect(geometry.walls.every((wall) => wall.thicknessCm === undefined)).toBe(true)
-    expect(inspectManualPlanCompleteness(geometry)).toEqual(
+    expect(
+      inspectManualPlanCompleteness(geometry).some(
+        (issue) => issue.id === 'manual-disconnected-walls',
+      ),
+    ).toBe(false)
+    if (!geometry.pdfCalibration) throw new Error('Missing PDF calibration')
+    const withoutPairs = {
+      ...geometry,
+      pdfCalibration: { ...geometry.pdfCalibration, sourceWallFacePairs: [], wallFacePairs: [] },
+    }
+    expect(inspectManualPlanCompleteness(withoutPairs)).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'manual-disconnected-walls' })]),
     )
     for (const pair of geometry.pdfCalibration?.wallFacePairs ?? []) {
@@ -508,14 +518,11 @@ describe('complete existing PDF page in one native metric scale', () => {
       labelIndexes: [55, 56, 57, 62],
     })
     expect(geometry.pdfCalibration?.cmPerPoint).toBeCloseTo(1.7638869966, 8)
-    expect(inspectManualPlanCompleteness(geometry)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: 'manual-disconnected-walls',
-          message: expect.stringContaining('не соединяйте грани произвольными линиями'),
-        }),
-      ]),
-    )
+    expect(
+      inspectManualPlanCompleteness(geometry).some(
+        (issue) => issue.id === 'manual-disconnected-walls',
+      ),
+    ).toBe(false)
     expect(fixture).toEqual(before)
     expect(fixture.reading.rooms.find((room) => room.sourceNumber === 2)).not.toHaveProperty(
       'widthCm',
