@@ -63,6 +63,19 @@ export function PlanGeometryPreview({
   const padding = Math.max(20, Math.min(geometry.widthCm, geometry.heightCm) * 0.06)
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
   const provenOpeningIds = currentSourceOpeningIds(geometry)
+  const wallFacePairs = currentWallFacePairs(geometry)
+  const pairedOuterWallIds = new Set(
+    wallFacePairs.flatMap((pair) =>
+      pair.faces.filter((face) => face.wall.kind === 'outer').map((face) => face.wall.id),
+    ),
+  )
+  const unpairedOuterWallIds = new Set(
+    geometry.pdfCalibration
+      ? geometry.walls
+          .filter((wall) => wall.kind === 'outer' && !pairedOuterWallIds.has(wall.id))
+          .map((wall) => wall.id)
+      : [],
+  )
   const volume = planVolume(geometry)
   const volumeBlocker = volume ? undefined : planVolumeBlocker(geometry)
   const openingMeasurements = currentOpeningMeasurements(geometry)
@@ -240,11 +253,18 @@ export function PlanGeometryPreview({
                 y1={wall.start.yCm}
                 x2={wall.end.xCm}
                 y2={wall.end.yCm}
-                stroke="var(--ink)"
+                stroke={unpairedOuterWallIds.has(wall.id) ? 'var(--danger)' : 'var(--ink)'}
                 strokeWidth={wall.kind === 'outer' ? 7 : 4}
+                strokeDasharray={unpairedOuterWallIds.has(wall.id) ? '8 5' : undefined}
                 strokeLinecap="square"
                 vectorEffect="non-scaling-stroke"
-              />
+              >
+                {unpairedOuterWallIds.has(wall.id) ? (
+                  <title>
+                    У этого наружного участка нет сохранённой исходной пары граней стены.
+                  </title>
+                ) : null}
+              </line>
             ))}
 
             {geometry.footprint ? (
@@ -342,6 +362,20 @@ export function PlanGeometryPreview({
 
         <div className="border border-line bg-paper p-5 sm:p-6">
           <p className="text-[15px] leading-relaxed text-ink">{description}</p>
+          {unpairedOuterWallIds.size > 0 ? (
+            <p className="mt-4 border-l-2 border-danger/60 pl-3 text-[13px] leading-relaxed text-ink-2">
+              Красный пунктир показывает{' '}
+              {countLabel(
+                unpairedOuterWallIds.size,
+                'наружный участок',
+                'наружных участка',
+                'наружных участков',
+              )}{' '}
+              без сохранённой пары граней из PDF. Это не доказательство отсутствия стены: сверьте
+              эти участки с исходным листом и поправьте наружную обводку там, где она неточна.
+              Граница пола их не заменяет.
+            </p>
+          ) : null}
           {confirmationIssues.length > 0 ? (
             <div className="mt-5 border-l-2 border-danger/60 pl-3 text-[13px] leading-relaxed text-ink-2">
               <p className="font-medium text-ink">
@@ -377,7 +411,7 @@ export function PlanGeometryPreview({
             {geometry.pdfCalibration?.wallFacePairs ? (
               <div className="flex justify-between gap-4">
                 <dt className="text-ink-2">Сопоставленные участки границ</dt>
-                <dd className="font-mono text-ink">{currentWallFacePairs(geometry).length}</dd>
+                <dd className="font-mono text-ink">{wallFacePairs.length}</dd>
               </div>
             ) : null}
             <div className="flex justify-between gap-4">
