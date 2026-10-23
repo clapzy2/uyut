@@ -302,6 +302,7 @@ describe('native PDF page to metric draft', () => {
     expect(result.ok, result.ok ? '' : result.error).toBe(true)
     if (!result.ok) return
     expect(result.geometry.footprint).toEqual(floor.map(({ x, y }) => ({ xCm: x, yCm: y })))
+    expect(result.geometry.walls.filter((wall) => wall.kind === 'outer')).toHaveLength(4)
     expect(result.geometry.rooms.map((room) => room.sourceNumber)).toEqual([4])
     expect(result.geometry.warnings).toEqual(
       expect.arrayContaining([expect.stringContaining('Непроверенных исходных областей: 1')]),
@@ -398,6 +399,11 @@ describe('native PDF page to metric draft', () => {
     const baseline = planPageMetricDraft(reading, calibratedContext, [4, 5])
     expect(baseline.ok, baseline.ok ? '' : baseline.error).toBe(true)
     if (!baseline.ok) throw new Error(baseline.error)
+    expect(baseline.geometry.footprint).toEqual(footprint.map(({ x, y }) => ({ xCm: x, yCm: y })))
+    expect(baseline.geometry.walls.filter((wall) => wall.kind === 'outer')).toEqual([])
+    expect(baseline.geometry.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('не подтверждает наружные стены')]),
+    )
     const pairs = baseline.geometry.pdfCalibration?.sourceWallFacePairs
     expect(pairs).toHaveLength(1)
     expect(pairs?.[0]?.faces.map(({ start, end }) => [start, end])).toEqual([
@@ -752,22 +758,28 @@ describe('native PDF page to metric draft', () => {
     expect(refused.error).toContain('и ещё 1')
   })
 
-  it.each([undefined, 'floor'] as const)('preserves the legacy exterior floor role %s', (role) => {
-    const { reading, context, path } = synthetic()
-    const polygon = [
-      { x: 0, y: 0 },
-      { x: 330, y: 0 },
-      { x: 330, y: 430 },
-      { x: 0, y: 430 },
-    ]
-    context.contours.exterior = { polygon, ...(role ? { boundaryRole: role } : {}) }
-    context.linework.paths.push(path(polygon, true))
-    const result = planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [4] }, [4])
-    expect(result.ok, result.ok ? '' : result.error).toBe(true)
-    if (!result.ok) return
-    expect(result.geometry.footprint).toEqual(polygon.map(({ x, y }) => ({ xCm: x, yCm: y })))
-    expect(result.geometry.walls).toHaveLength(8)
-  })
+  it.each([undefined, 'floor'] as const)(
+    'keeps the exterior role %s without changing legacy contours or inventing explicit floor walls',
+    (role) => {
+      const { reading, context, path } = synthetic()
+      const polygon = [
+        { x: 0, y: 0 },
+        { x: 330, y: 0 },
+        { x: 330, y: 430 },
+        { x: 0, y: 430 },
+      ]
+      context.contours.exterior = { polygon, ...(role ? { boundaryRole: role } : {}) }
+      context.linework.paths.push(path(polygon, true))
+      const result = planPageMetricDraft(reading, { ...context, calibrationRoomNumbers: [4] }, [4])
+      expect(result.ok, result.ok ? '' : result.error).toBe(true)
+      if (!result.ok) return
+      expect(result.geometry.footprint).toEqual(polygon.map(({ x, y }) => ({ xCm: x, yCm: y })))
+      expect(result.geometry.walls).toHaveLength(role === 'floor' ? 4 : 8)
+      if (role === 'floor') {
+        expect(result.geometry.walls.every((wall) => wall.kind === 'inner')).toBe(true)
+      }
+    },
+  )
 
   it('refuses a non-native floor and proposed-sheet transfer without assigning a substitute', () => {
     const { reading, context, path } = synthetic()

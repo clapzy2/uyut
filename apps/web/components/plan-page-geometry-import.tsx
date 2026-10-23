@@ -53,6 +53,10 @@ export function PlanPageGeometryImport({
   const unreviewedSourceRooms = sourceRooms.filter(
     (room) => !reviewedNumbers.has(room.sourceNumber) || !readingNumbers.has(room.sourceNumber),
   )
+  const exteriorBoundary = reading.pageReview?.contours.exterior
+  const hasFloorBoundary =
+    Boolean(reading.pageReview?.contours.floor) || exteriorBoundary?.boundaryRole === 'floor'
+  const hasOuterWallEnvelope = exteriorBoundary?.boundaryRole === 'outer-wall-envelope'
   const anchors = reading.rooms.filter(
     (room) =>
       room.sourceNumber !== undefined &&
@@ -207,10 +211,15 @@ export function PlanPageGeometryImport({
       ) : null}
       <p className="mt-3 max-w-2xl text-[13px] leading-relaxed text-ink-2">
         Общая граница пола:{' '}
-        {reading.pageReview?.contours.floor ? 'обведена на исходном листе' : 'ещё не обведена'}.
-        Наружный контур: {reading.pageReview?.contours.exterior ? 'обведён' : 'ещё не обведён'}. Без
-        отдельной физической границы пола полный 3D не строится; вернитесь к «Контурам и проёмам на
-        исходном листе» для её сверки.
+        {hasFloorBoundary
+          ? 'обведена на исходном листе'
+          : exteriorBoundary && !exteriorBoundary.boundaryRole
+            ? 'у старого контура не указана роль, нужна сверка'
+            : 'ещё не обведена'}
+        . Наружная сторона стен: {hasOuterWallEnvelope ? 'обведена' : 'не подтверждена'}.{' '}
+        {hasFloorBoundary
+          ? 'Граница пола сама по себе не доказывает наружные стены и уровни для 3D.'
+          : 'Без отдельно проверенной границы пола полный 3D не строится; вернитесь к «Контурам и проёмам на исходном листе» для её сверки.'}
       </p>
       <fieldset disabled={saving || conflict} className="mt-4 space-y-2">
         <legend className="mb-2 text-sm">Какие комнаты перенести</legend>

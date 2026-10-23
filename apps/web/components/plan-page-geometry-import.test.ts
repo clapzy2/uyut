@@ -94,6 +94,29 @@ describe('обновление 2D-черновика из того же PDF', ()
     ).toBe('')
     expect(render({ ...reading, geometry: { ...geometry, pdfCalibration: undefined } })).toBe('')
   })
+
+  it('distinguishes a reviewed floor boundary from the outer side of walls', () => {
+    const floorOnly = structuredClone(reading)
+    if (!floorOnly.pageReview) throw new Error('Missing page review')
+    floorOnly.pageReview.contours.exterior = {
+      boundaryRole: 'floor',
+      polygon: [
+        { x: 5, y: 5 },
+        { x: 35, y: 5 },
+        { x: 35, y: 35 },
+        { x: 5, y: 35 },
+      ],
+    }
+    const floorHtml = render(floorOnly)
+    expect(floorHtml).toContain('Общая граница пола: обведена на исходном листе')
+    expect(floorHtml).toContain('Наружная сторона стен: не подтверждена')
+    expect(floorHtml).toContain('Граница пола сама по себе не доказывает наружные стены')
+
+    floorOnly.pageReview.contours.exterior.boundaryRole = 'outer-wall-envelope'
+    const envelopeHtml = render(floorOnly)
+    expect(envelopeHtml).toContain('Общая граница пола: ещё не обведена')
+    expect(envelopeHtml).toContain('Наружная сторона стен: обведена')
+  })
 })
 
 describe('explicit source page import choice', () => {
