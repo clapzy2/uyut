@@ -68,8 +68,66 @@ describe('предпросмотр 2D-схемы', () => {
     const html = renderToStaticMarkup(createElement(PlanGeometryPreview, { geometry }))
     expect(html).toContain('Красный пунктир показывает 1 наружный участок')
     expect(html).toContain('Граница пола их не заменяет')
-    expect(html.match(/У этого наружного участка нет сохранённой исходной пары/g)).toHaveLength(1)
+    expect(html.match(/У этого наружного участка есть часть без исходной пары/g)).toHaveLength(1)
     expect(html).toContain('stroke-dasharray="8 5"')
+
+    const calibration = geometry.pdfCalibration
+    if (!calibration) throw new Error('Expected PDF calibration')
+    const partial = renderToStaticMarkup(
+      createElement(PlanGeometryPreview, {
+        geometry: {
+          ...geometry,
+          pdfCalibration: {
+            ...calibration,
+            sourceWallFacePairs: [
+              {
+                ...sourcePair,
+                faces: [
+                  { ...sourcePair.faces[0], end: { xCm: 40, yCm: 0 } },
+                  { ...sourcePair.faces[1], end: { xCm: 40, yCm: 10 } },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    )
+    expect(partial).toContain('Красный пунктир показывает 2 наружных участка')
+    expect(partial).toMatch(/x1="40" y1="0" x2="100" y2="0" stroke="var\(--danger\)"/)
+    expect(partial).toMatch(/x1="0" y1="0" x2="40" y2="0" stroke="var\(--ink\)"/)
+    expect(partial).toContain('Чёрная часть такого участка имеет исходную пару')
+
+    const secondPair: PlanWallFacePair = {
+      ...sourcePair,
+      faces: [
+        { ...sourcePair.faces[0], start: { xCm: 60, yCm: 0 } },
+        { ...sourcePair.faces[1], start: { xCm: 60, yCm: 10 } },
+      ],
+    }
+    const split = renderToStaticMarkup(
+      createElement(PlanGeometryPreview, {
+        geometry: {
+          ...geometry,
+          pdfCalibration: {
+            ...calibration,
+            sourceWallFacePairs: [
+              {
+                ...sourcePair,
+                faces: [
+                  { ...sourcePair.faces[0], end: { xCm: 40, yCm: 0 } },
+                  { ...sourcePair.faces[1], end: { xCm: 40, yCm: 10 } },
+                ],
+              },
+              secondPair,
+            ],
+          },
+        },
+      }),
+    )
+    expect(split).toMatch(/x1="0" y1="0" x2="40" y2="0" stroke="var\(--ink\)"/)
+    expect(split).toMatch(/x1="40" y1="0" x2="60" y2="0" stroke="var\(--danger\)"/)
+    expect(split).toMatch(/x1="60" y1="0" x2="100" y2="0" stroke="var\(--ink\)"/)
+    expect(split).toContain('Красный пунктир показывает 2 наружных участка')
 
     const afterEdit = renderToStaticMarkup(
       createElement(PlanGeometryPreview, {
