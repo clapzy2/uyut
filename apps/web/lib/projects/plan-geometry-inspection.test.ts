@@ -47,6 +47,69 @@ const geometry: PlanGeometry = {
 }
 
 describe('проверка правок 2D-схемы', () => {
+  it('соединяет разнесённые PDF-грани только сохранённой исходной парой', () => {
+    const outer = {
+      id: 'outer-face',
+      kind: 'outer' as const,
+      start: { xCm: 0, yCm: 0 },
+      end: { xCm: 100, yCm: 0 },
+    }
+    const inner = {
+      id: 'inner-face',
+      kind: 'inner' as const,
+      start: { xCm: 0, yCm: 10 },
+      end: { xCm: 100, yCm: 10 },
+    }
+    const face = (wall: typeof outer | typeof inner, operationIndex: number) => ({
+      wall,
+      start: wall.start,
+      end: wall.end,
+      nativeSegment: { operationIndex, subpathIndex: 0, segmentIndex: 0 },
+    })
+    const sourcePair: PlanWallFacePair = {
+      faces: [face(outer, 1), face(inner, 2)],
+      openings: [],
+    }
+    const calibration: NonNullable<PlanGeometry['pdfCalibration']> = {
+      sourceSha256: 'a'.repeat(64),
+      pdfPage: 1,
+      cmPerPoint: 1,
+      origin: { x: 0, y: 0 },
+      anchorRoomNumbers: [],
+      labelIndexes: [],
+      derivedOpeningIds: [],
+      sourceWallFacePairs: [sourcePair],
+      wallFaceRoomPolygons: [],
+    }
+    const plan: PlanGeometry = {
+      ...geometry,
+      walls: [outer, inner],
+      openings: [],
+      rooms: [],
+      pdfCalibration: calibration,
+    }
+    const disconnected = (input: PlanGeometry) =>
+      inspectManualPlanCompleteness(input).some((issue) => issue.id === 'manual-disconnected-walls')
+
+    expect(
+      disconnected({ ...plan, pdfCalibration: { ...calibration, sourceWallFacePairs: [] } }),
+    ).toBe(true)
+    expect(disconnected(plan)).toBe(false)
+    const moved: PlanGeometry = {
+      ...plan,
+      walls: [outer, { ...inner, end: { xCm: 90, yCm: 10 } }],
+    }
+    expect(disconnected(moved)).toBe(true)
+    expect(inspectManualPlanCompleteness(moved)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'manual-pdf-wall-proof-lost' })]),
+    )
+    const cut: PlanGeometry = {
+      ...plan,
+      openings: [{ id: 'new-cut', type: 'door', wallId: outer.id, offsetCm: 20, widthCm: 10 }],
+    }
+    expect(disconnected(cut)).toBe(true)
+  })
+
   it('не теряет исходное доказательство связи граней после сохранения черновика', () => {
     const top = geometry.walls[0]
     const bottom = geometry.walls[2]

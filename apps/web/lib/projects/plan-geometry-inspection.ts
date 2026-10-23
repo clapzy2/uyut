@@ -451,6 +451,20 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
   }
   if (walls.length === 0) return issues
 
+  // Offset PDF faces meet through a source-proven wall body, not a guessed thickness.
+  const provenNeighbours = new Map<string, Set<string>>()
+  for (const pair of currentPairs) {
+    const [first, second] = pair.faces
+    if (first.wall.id === second.wall.id) continue
+    for (const [wallId, neighbourId] of [
+      [first.wall.id, second.wall.id],
+      [second.wall.id, first.wall.id],
+    ] as const) {
+      const neighbours = provenNeighbours.get(wallId) ?? new Set<string>()
+      neighbours.add(neighbourId)
+      provenNeighbours.set(wallId, neighbours)
+    }
+  }
   const visited = new Set<string>()
   const groups: string[][] = []
   for (const wall of walls) {
@@ -464,6 +478,11 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
       group.push(current.id)
       for (const other of walls) {
         if (visited.has(other.id)) continue
+        if (provenNeighbours.get(current.id)?.has(other.id)) {
+          visited.add(other.id)
+          pending.push(other)
+          continue
+        }
         const currentThicknessCm = physicalAxisThickness(current, geometry)
         const otherThicknessCm = physicalAxisThickness(other, geometry)
         const touches =
