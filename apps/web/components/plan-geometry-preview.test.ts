@@ -140,7 +140,9 @@ describe('предпросмотр 2D-схемы', () => {
         },
       }),
     )
-    expect(unverifiedPdf).toContain('нужны подтверждённая граница пола')
+    // The exact missing piece is named; no conditional zero is offered instead.
+    expect(unverifiedPdf).toContain('Нужен общий отсчёт высот')
+    expect(unverifiedPdf).toContain('условный ноль не подставляется')
     expect(unverifiedPdf).not.toContain('Посмотреть объёмную схему')
   })
 

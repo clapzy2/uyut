@@ -503,7 +503,8 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
       id: 'manual-disconnected-walls',
       severity: 'error',
       message: geometry.pdfCalibration
-        ? 'Внутренние и наружные грани перенесены отдельно. Перед подтверждением сопоставьте их с физическими стенами; не соединяйте грани произвольными линиями.'
+        ? // Face links come only from the source sheet; there is no manual pairing step to suggest.
+          `Внутренние и наружные грани не связаны исходными парами одного тела стены; отрезков вне общей связи: ${rankedGroups.slice(1).reduce((total, group) => total + group.ids.length, 0)}. Связь берётся только из PDF: не соединяйте грани произвольными линиями. Пока её нет, схему можно сохранить черновиком, но не подтвердить.`
         : 'Часть стен не соединена с остальной схемой. Сведите их концы или уберите лишние линии.',
       wallIds: rankedGroups
         .slice(1)

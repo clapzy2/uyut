@@ -459,6 +459,39 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
   }
 }
 
+/**
+ * Why a plan has no 3D view, in the order planVolume checks it. A missing level is
+ * named as missing: no conditional zero, height or threshold is offered instead.
+ */
+export function planVolumeBlocker(geometry: PlanGeometry): string | undefined {
+  if (planVolume(geometry)) return undefined
+  if (geometry.requiresSourceReviewReimport)
+    return 'Разметка исходного PDF изменилась после переноса. Обновите 2D-схему.'
+  const signed = signedPlanFloors(geometry)
+  if (signed && !signed.ok) return signed.error
+  if (geometry.status !== 'confirmed') return 'Объём строится только по подтверждённой 2D-схеме.'
+  if (!geometry.footprint || geometry.footprint.length < 3)
+    return geometry.pdfCalibration?.exteriorBoundaryRole === 'outer-wall-envelope'
+      ? 'Нет сверенной границы чистого пола. Наружная сторона стен её не заменяет: обведите пол по внутренней грани стен на исходном листе.'
+      : 'Нет сверенной границы квартиры.'
+  const vertical = inspectPlanVerticalDimensions(geometry)[0]
+  if (vertical) return vertical.message
+  if (!kitchenItemsSchema.safeParse(geometry.kitchenItems ?? []).success)
+    return 'Кухонные предметы схемы не прошли проверку.'
+  const calibration = geometry.pdfCalibration
+  if (calibration) {
+    const reference = signed?.ok ? signed.reference : undefined
+    if (!reference && calibration.exteriorBoundaryRole !== 'floor')
+      return 'Нужен общий отсчёт высот: отметки полов из обмера или размерного чертежа. Подписи высоты потолка их не заменяют, а условный ноль не подставляется.'
+    const sourcePairs = calibration.sourceWallFacePairs ?? []
+    if (sourcePairs.length === 0 && (!reference || signed?.surfaces.length === 0))
+      return 'Грани стен не связаны парами с исходным листом, а подтверждённого чистового пола нет.'
+    if (currentWallFacePairs(geometry).length !== sourcePairs.length)
+      return 'Стены или проёмы изменились после переноса: связи граней с исходным листом больше не действуют.'
+  }
+  return 'Стены, проёмы или косяки схемы не прошли проверку объёма.'
+}
+
 function surfacePolygon(surface: VolumeFloorSurface): Polygon {
   return [surface.floor, ...surface.voids].map((ring) =>
     ring.map(({ xCm, yCm }) => [xCm, yCm] as [number, number]),

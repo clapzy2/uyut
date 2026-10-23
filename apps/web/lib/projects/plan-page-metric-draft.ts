@@ -17,7 +17,7 @@ import { printedDimensionScale } from './plan-native-numbered-fill-hints'
 import { planPageEdgeCalibration } from './plan-page-edge-calibration'
 import { verifyPlanPageOpenings } from './plan-page-feature-checks'
 import {
-  floorEdgeGaps,
+  floorEdgeGapMessage,
   planPageContoursSchema,
   planPageFeaturesIssue,
   planPageReviewIssue,
@@ -219,22 +219,8 @@ export function planPageMetricDraft(
       'Для переноса выберите только комнаты с проверенными физическими границами; исходные области с точными пересечениями пока остаются на листе.',
     )
   const sourceReviewIssue = planPageReviewIssue(contours, reading, source, linework)
-  if (sourceReviewIssue === 'non-native-floor-edge') {
-    // Name the exact parts so a person can fix one corner instead of retracing the floor.
-    const point = (value: PagePoint) => `${value.x.toFixed(2)}, ${value.y.toFixed(2)}`
-    const gaps = floorEdgeGaps(contours, linework)
-    const corners = contours.floor?.polygon.length ?? 0
-    const parts = gaps
-      .slice(0, 3)
-      .map(
-        (gap) =>
-          `между ${gap.edgeIndex + 1}-м и ${((gap.edgeIndex + 1) % corners) + 1}-м углами, от ${point(gap.start)} до ${point(gap.end)}`,
-      )
-    const more = gaps.length > 3 ? ` и ещё ${gaps.length - 3}` : ''
-    return fail(
-      `Граница пола проходит вне сплошных штрихов исходного PDF. Углы считаются в том порядке, в каком их ставили: ${parts.join('; ')}${more}. Если это дверной проём, отметьте его на комнате по исходным косякам; иначе ведите границу по штриху.`,
-    )
-  }
+  if (sourceReviewIssue === 'non-native-floor-edge')
+    return fail(floorEdgeGapMessage(contours, linework))
   if (
     source.state !== 'existing' ||
     sourceReviewIssue ||

@@ -14,7 +14,7 @@ import {
   currentOpeningMeasurements,
   currentSourceOpeningIds,
 } from '@/lib/projects/plan-opening-measurements'
-import { planVolume } from '@/lib/projects/plan-volume'
+import { planVolume, planVolumeBlocker } from '@/lib/projects/plan-volume'
 import { PlanSourceRoomCoverage } from './plan-source-room-coverage'
 import { PlanVolumeLaunch } from './plan-volume-launch'
 
@@ -64,6 +64,7 @@ export function PlanGeometryPreview({
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
   const provenOpeningIds = currentSourceOpeningIds(geometry)
   const volume = planVolume(geometry)
+  const volumeBlocker = volume ? undefined : planVolumeBlocker(geometry)
   const openingMeasurements = currentOpeningMeasurements(geometry)
   const confirmationIssues =
     geometry.status === 'draft'
@@ -484,11 +485,9 @@ export function PlanGeometryPreview({
             </span>
           </div>
           {action ? <div className="mt-6">{action}</div> : null}
-          {geometry.status === 'confirmed' && geometry.pdfCalibration && !volume ? (
+          {volumeBlocker && geometry.status === 'confirmed' ? (
             <p className="mt-6 border-t border-line pt-5 text-[13px] leading-relaxed text-ink-2">
-              Для объёмного просмотра этого PDF нужны подтверждённая граница пола и действующие
-              связи пар граней с исходным листом, а для проёмов — проверенные косяки и обязательные
-              мерки ширины. Пока линии показывают границы на плане, а не готовые объёмные стены.
+              Объёмный просмотр пока недоступен. {volumeBlocker}
             </p>
           ) : null}
         </div>
