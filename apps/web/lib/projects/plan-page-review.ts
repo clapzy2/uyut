@@ -681,21 +681,30 @@ export type FloorEdgeGap = {
   unpairedDoorway?: true
 }
 
+function reviewedFloorPolygon(
+  input: Pick<PlanPageContours, 'floor' | 'exterior'>,
+): PlanPageContours['rooms'][number]['polygon'] {
+  return (
+    input.floor?.polygon ?? (input.exterior?.boundaryRole === 'floor' ? input.exterior.polygon : [])
+  )
+}
+
 /**
  * Parts of a reviewed floor edge that no continuous source stroke covers.
  *
  * Two PDF nodes at the ends are not enough: the whole edge must be drawn. The one
  * exception is a doorway, which a wall draws as a gap; the floor crosses it along the
  * wall face. A gap is closed only by a door or balcony opening that a person marked on
- * a room, with paired source wall-face terminals and painted jambs at its endpoints.
+ * a room, with paired source wall-face terminals and jambs at its endpoints. A stroked
+ * wall without fill must also have the opposite face continuing beyond both jambs.
  * Windows, door symbols, labels and fills never close a gap.
  */
 export function floorEdgeGaps(
-  input: Pick<PlanPageContours, 'floor' | 'rooms'>,
+  input: Pick<PlanPageContours, 'floor' | 'exterior' | 'rooms'>,
   linework: PdfLinework,
   segments: readonly NativePageSegment[] = nativePageSegments(linework),
 ): FloorEdgeGap[] {
-  const polygon = input.floor?.polygon ?? []
+  const polygon = reviewedFloorPolygon(input)
   const tolerance = 1e-7
   const doorways = input.rooms.flatMap((room) =>
     (room.openings ?? [])
@@ -798,7 +807,18 @@ export function floorEdgeGaps(
             Math.abs(fx * jy - fy * jx) <= tolerance * jambLength * Math.hypot(fx, fy)
           )
         })
-        if (paintedWallEdge) depths.push(depth)
+        const oppositeFace = (touching.get(pointKey(other)) ?? []).some((face) => {
+          const faceEnd =
+            face.start.x === other.x && face.start.y === other.y ? face.end : face.start
+          const fx = faceEnd.x - other.x
+          const fy = faceEnd.y - other.y
+          return (
+            Math.abs(fx * dy - fy * dx) <= tolerance * Math.sqrt(lengthSquared) &&
+            faceDirection * (along(faceEnd) - along(other)) > tolerance &&
+            Math.hypot(fx, fy) >= jambLength - tolerance
+          )
+        })
+        if (paintedWallEdge || oppositeFace) depths.push(depth)
       }
       return depths
     }
@@ -854,11 +874,11 @@ export function floorEdgeGaps(
 
 /** Names each unproven floor part so a person can fix one corner, not retrace the floor. */
 export function floorEdgeGapMessage(
-  input: Pick<PlanPageContours, 'floor' | 'rooms'>,
+  input: Pick<PlanPageContours, 'floor' | 'exterior' | 'rooms'>,
   linework: PdfLinework,
 ): string {
   const gaps = floorEdgeGaps(input, linework)
-  const corners = input.floor?.polygon.length ?? 0
+  const corners = reviewedFloorPolygon(input).length
   const point = (value: PagePoint) => `${value.x.toFixed(2)}, ${value.y.toFixed(2)}`
   const parts = gaps
     .slice(0, 3)
@@ -867,7 +887,7 @@ export function floorEdgeGapMessage(
         `между ${gap.edgeIndex + 1}-м и ${((gap.edgeIndex + 1) % corners) + 1}-м углами, от ${point(gap.start)} до ${point(gap.end)}${gap.unpairedDoorway ? ' (проём отмечен, но парных косяков в теле стены по его краям нет)' : ''}`,
     )
   const more = gaps.length > 3 ? ` и ещё ${gaps.length - 3}` : ''
-  return `Граница пола проходит вне сплошных штрихов исходного PDF. Углы считаются в том порядке, в каком их ставили: ${parts.join('; ')}${more}. Дверной разрыв закрывается отмеченным проёмом двери или балкона, только если по обе его стороны нарисованы парные косяки одинаковой глубины в теле стены. Иначе этот участок границы пола по листу не доказывается.`
+  return `Граница пола проходит вне сплошных штрихов исходного PDF. Углы считаются в том порядке, в каком их ставили: ${parts.join('; ')}${more}. Дверной разрыв закрывается отмеченным проёмом двери или балкона, только если по обе его стороны нарисованы парные косяки одинаковой глубины и подтверждена вторая грань стены штрихом или заливкой. Иначе этот участок границы пола по листу не доказывается.`
 }
 
 export function planPageReviewIssue(
@@ -927,8 +947,8 @@ export function planPageReviewIssue(
   }
   if (input.exterior && !sourceRoomContourVertices(input.exterior, nativePoints, segments))
     return 'non-native-contour-vertex'
-  if (input.floor) {
-    if (!sourceRoomContourVertices(input.floor, nativePoints, segments))
+  if (input.floor || input.exterior?.boundaryRole === 'floor') {
+    if (input.floor && !sourceRoomContourVertices(input.floor, nativePoints, segments))
       return 'non-native-floor-vertex'
     // The opening endpoints and paired source wall/jamb strokes are checked above.
     if (floorEdgeGaps(input, linework, segments).length) return 'non-native-floor-edge'

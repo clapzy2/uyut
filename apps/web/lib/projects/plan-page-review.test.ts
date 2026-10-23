@@ -498,6 +498,47 @@ describe('versioned source page review', () => {
     ).toBe(false)
   })
 
+  it('checks source strokes when the exterior contour itself is marked as floor', () => {
+    const polygon = [
+      { x: 5, y: 5 },
+      { x: 35, y: 5 },
+      { x: 35, y: 35 },
+      { x: 5, y: 35 },
+    ]
+    const input: PlanPageContours = {
+      ...contours,
+      exterior: { polygon, boundaryRole: 'floor' },
+    }
+    const floorStroke = {
+      ...at(linework.paths),
+      operationIndex: 18,
+      points: polygon,
+      closed: true,
+    }
+    const complete = { ...linework, paths: [...linework.paths, floorStroke] }
+    expect(planPageContoursSchema.safeParse(input).success).toBe(true)
+    expect(planPageReviewIssue(input, reading, input.source, complete)).toBeUndefined()
+
+    const missingEdge = {
+      ...linework,
+      paths: [...linework.paths, { ...floorStroke, closed: false }],
+    }
+    expect(planPageReviewIssue(input, reading, input.source, missingEdge)).toBe(
+      'non-native-floor-edge',
+    )
+    expect(floorEdgeGaps(input, missingEdge)).toEqual([
+      { edgeIndex: 3, start: { x: 5, y: 35 }, end: { x: 5, y: 5 } },
+    ])
+    expect(floorEdgeGapMessage(input, missingEdge)).toContain('между 4-м и 1-м углами')
+    const fillOnly = {
+      ...linework,
+      paths: [...linework.paths, { ...floorStroke, paint: 'fill' as const }],
+    }
+    expect(planPageReviewIssue(input, reading, input.source, fillOnly)).toBe(
+      'non-native-floor-edge',
+    )
+  })
+
   it('crosses a doorway gap in the floor edge only along a marked door or balcony opening', () => {
     const exterior = {
       boundaryRole: 'outer-wall-envelope' as const,
@@ -604,6 +645,12 @@ describe('versioned source page review', () => {
     expect(
       planPageReviewIssue(withOpening('balcony'), reading, bare.source, jambWork),
     ).toBeUndefined()
+    const exteriorFloor: PlanPageContours = {
+      ...withOpening('door'),
+      exterior: { polygon: floor.polygon, boundaryRole: 'floor' },
+      floor: undefined,
+    }
+    expect(planPageReviewIssue(exteriorFloor, reading, bare.source, jambWork)).toBeUndefined()
     const reversedFloor = withOpening('door')
     expect(
       floorEdgeGaps(
@@ -616,11 +663,94 @@ describe('versioned source page review', () => {
       paths: jambWork.paths.filter((path) => path.operationIndex !== 24),
     }
     expect(floorEdgeGaps(withOpening('door'), withoutOneJamb)).toHaveLength(1)
+    expect(planPageReviewIssue(exteriorFloor, reading, bare.source, withoutOneJamb)).toBe(
+      'non-native-floor-edge',
+    )
     const withoutWallFill = {
       ...jambWork,
       paths: jambWork.paths.filter((path) => path.operationIndex !== 23),
     }
     expect(floorEdgeGaps(withOpening('door'), withoutWallFill)).toHaveLength(1)
+    const strokeOnlyWall: PdfLinework = {
+      ...jambWork,
+      paths: [
+        ...jambWork.paths.filter((path) => path.paint !== 'fill'),
+        {
+          ...at(linework.paths),
+          operationIndex: 30,
+          points: [
+            { x: 5, y: 0 },
+            { x: 12, y: 0 },
+          ],
+        },
+        {
+          ...at(linework.paths),
+          operationIndex: 31,
+          points: [
+            { x: 20, y: 0 },
+            { x: 27, y: 0 },
+          ],
+        },
+      ],
+    }
+    expect(
+      planPageReviewIssue(withOpening('door'), reading, bare.source, strokeOnlyWall),
+    ).toBeUndefined()
+    expect(floorEdgeGaps(withOpening('balcony'), strokeOnlyWall)).toEqual([])
+    expect(floorEdgeGaps(withOpening('window'), strokeOnlyWall)).toHaveLength(1)
+    expect(
+      floorEdgeGaps(withOpening('door'), {
+        ...strokeOnlyWall,
+        paths: strokeOnlyWall.paths.map((path) =>
+          path.operationIndex === 31
+            ? {
+                ...path,
+                points: [
+                  { x: 20, y: 0 },
+                  { x: 22, y: 0 },
+                ],
+              }
+            : path,
+        ),
+      }),
+    ).toHaveLength(1)
+    expect(
+      floorEdgeGaps(withOpening('door'), {
+        ...strokeOnlyWall,
+        paths: strokeOnlyWall.paths.filter((path) => path.operationIndex !== 31),
+      }),
+    ).toHaveLength(1)
+    expect(
+      floorEdgeGaps(withOpening('door'), {
+        ...strokeOnlyWall,
+        paths: strokeOnlyWall.paths.map((path) =>
+          path.operationIndex === 31 ? { ...path, strokeColor: '#ffffff' } : path,
+        ),
+      }),
+    ).toHaveLength(1)
+    expect(
+      floorEdgeGaps(withOpening('door'), {
+        ...strokeOnlyWall,
+        paths: strokeOnlyWall.paths.map((path) =>
+          path.operationIndex === 31
+            ? {
+                ...path,
+                strokeInk: {
+                  points: path.points,
+                  sourceToPage: [1, 0, 0, 1, 0, 0],
+                  lineWidth: 1,
+                  lineCap: 0,
+                  lineJoin: 0,
+                  miterLimit: 10,
+                  dashArray: [2, 2],
+                  dashPhase: 0,
+                  refusalReason: 'dashed-source-pen' as const,
+                },
+              }
+            : path,
+        ),
+      }),
+    ).toHaveLength(1)
     const whiteWallFill = {
       ...jambWork,
       paths: jambWork.paths.map((path) =>
