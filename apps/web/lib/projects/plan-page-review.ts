@@ -673,7 +673,13 @@ export function sourceRoomContourVertices(
   })
 }
 
-export type FloorEdgeGap = { edgeIndex: number; start: PagePoint; end: PagePoint }
+export type FloorEdgeGap = {
+  edgeIndex: number
+  start: PagePoint
+  end: PagePoint
+  /** A marked door or balcony lies over this gap, but its source jambs are not paired. */
+  unpairedDoorway?: true
+}
 
 /**
  * Parts of a reviewed floor edge that no continuous source stroke covers.
@@ -806,6 +812,7 @@ export function floorEdgeGaps(
       )
     }
     const intervals: Array<[number, number]> = []
+    const unpaired: Array<[number, number]> = []
     for (const segment of segments) {
       if (!usablePaths.has(`${segment.operationIndex}:${segment.subpathIndex}`)) continue
       if (!onLine(segment.start) || !onLine(segment.end)) continue
@@ -819,22 +826,48 @@ export function floorEdgeGaps(
       const projections = doorway.map(along)
       // The opening must lie on this edge, not on its extension past a corner.
       if (projections.some((value) => value < -tolerance || value > 1 + tolerance)) continue
-      if (!hasPairedJambs(doorway)) continue
       const from = Math.max(0, Math.min(...projections))
       const to = Math.min(1, Math.max(...projections))
-      if (to > from) intervals.push([from, to])
+      if (to <= from) continue
+      if (hasPairedJambs(doorway)) intervals.push([from, to])
+      else unpaired.push([from, to])
     }
     intervals.sort((left, right) => left[0] - right[0])
     const at = (ratio: number) => ({ x: start.x + dx * ratio, y: start.y + dy * ratio })
+    const gap = (from: number, to: number): FloorEdgeGap => ({
+      edgeIndex: index,
+      start: at(from),
+      end: at(to),
+      ...(unpaired.some(([low, high]) => low < to - tolerance && high > from + tolerance)
+        ? { unpairedDoorway: true as const }
+        : {}),
+    })
     let covered = 0
     for (const [from, to] of intervals) {
-      if (from > covered + tolerance)
-        gaps.push({ edgeIndex: index, start: at(covered), end: at(from) })
+      if (from > covered + tolerance) gaps.push(gap(covered, from))
       covered = Math.max(covered, to)
     }
-    if (covered < 1 - tolerance) gaps.push({ edgeIndex: index, start: at(covered), end: at(1) })
+    if (covered < 1 - tolerance) gaps.push(gap(covered, 1))
   }
   return gaps
+}
+
+/** Names each unproven floor part so a person can fix one corner, not retrace the floor. */
+export function floorEdgeGapMessage(
+  input: Pick<PlanPageContours, 'floor' | 'rooms'>,
+  linework: PdfLinework,
+): string {
+  const gaps = floorEdgeGaps(input, linework)
+  const corners = input.floor?.polygon.length ?? 0
+  const point = (value: PagePoint) => `${value.x.toFixed(2)}, ${value.y.toFixed(2)}`
+  const parts = gaps
+    .slice(0, 3)
+    .map(
+      (gap) =>
+        `между ${gap.edgeIndex + 1}-м и ${((gap.edgeIndex + 1) % corners) + 1}-м углами, от ${point(gap.start)} до ${point(gap.end)}${gap.unpairedDoorway ? ' (проём отмечен, но парных косяков в теле стены по его краям нет)' : ''}`,
+    )
+  const more = gaps.length > 3 ? ` и ещё ${gaps.length - 3}` : ''
+  return `Граница пола проходит вне сплошных штрихов исходного PDF. Углы считаются в том порядке, в каком их ставили: ${parts.join('; ')}${more}. Дверной разрыв закрывается отмеченным проёмом двери или балкона, только если по обе его стороны нарисованы парные косяки одинаковой глубины в теле стены. Иначе этот участок границы пола по листу не доказывается.`
 }
 
 export function planPageReviewIssue(

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import openApartment from '../../../../jobs/fixtures/open-swiss-apartment-35063-geometry.json'
 import { buildPlanScene } from './plan-scene-geometry'
 import { applyPlanVerticalReference } from './plan-vertical-reference'
-import { planVolume } from './plan-volume'
+import { planVolume, planVolumeBlocker } from './plan-volume'
 
 const geometry: PlanGeometry = {
   version: 1,
@@ -402,6 +402,43 @@ describe('planVolume', () => {
         >,
       }),
     ).toBeNull()
+  })
+
+  it('names the exact missing piece instead of offering a conditional level', () => {
+    expect(planVolumeBlocker(geometry)).toBeUndefined()
+    expect(planVolumeBlocker({ ...geometry, status: 'draft' })).toContain('подтверждённой 2D-схеме')
+    expect(planVolumeBlocker({ ...geometry, requiresSourceReviewReimport: true })).toContain(
+      'Разметка исходного PDF изменилась',
+    )
+    const calibration: NonNullable<PlanGeometry['pdfCalibration']> = {
+      sourceSha256: 'a'.repeat(64),
+      pdfPage: 4,
+      exteriorBoundaryRole: 'outer-wall-envelope',
+      cmPerPoint: 1.7426,
+      origin: { x: 0, y: 0 },
+      anchorRoomNumbers: [],
+      labelIndexes: [],
+      derivedOpeningIds: [],
+      sourceWallFacePairs: [],
+      openingFacePairs: [],
+      wallFaceRoomPolygons: [],
+    }
+    // The outer side of walls never stands in for the clean floor.
+    const envelopeOnly = { ...geometry, footprint: undefined, pdfCalibration: calibration }
+    expect(planVolume(envelopeOnly)).toBeNull()
+    expect(planVolumeBlocker(envelopeOnly)).toContain('Нет сверенной границы чистого пола')
+    // A confirmed floor without a reviewed level datum still has no 3D, and no zero is assumed.
+    const withFloor = { ...geometry, pdfCalibration: calibration }
+    expect(planVolume(withFloor)).toBeNull()
+    expect(planVolumeBlocker(withFloor)).toContain('Нужен общий отсчёт высот')
+    expect(planVolumeBlocker({ ...withFloor, status: 'draft' })).toContain('подтверждённой')
+    // Without proven wall-face pairs a legacy floor role does not get invented walls either.
+    expect(
+      planVolumeBlocker({
+        ...withFloor,
+        pdfCalibration: { ...calibration, exteriorBoundaryRole: 'floor' },
+      }),
+    ).toContain('Грани стен не связаны парами')
   })
 
   it('строит оконный вырез с подоконной частью и перемычкой только при всех мерках', () => {

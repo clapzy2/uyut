@@ -5,6 +5,7 @@ import { signedPlanFloors, verticalReferenceReviewKey } from './plan-vertical-fl
 import {
   type PlanVolume,
   planVolume,
+  planVolumeBlocker,
   type VolumeFloorZone,
   type VolumeFurniture,
   type VolumeRoom,
@@ -55,7 +56,7 @@ export function apartmentVolume(
     return {
       model: null,
       notes: [
-        'Для общего просмотра нужен подтверждённый контур квартиры с согласованными мерками.',
+        `Общий объём пока недоступен. ${planVolumeBlocker(geometry) ?? 'Проверьте подтверждённую схему.'}`,
       ],
     }
   }

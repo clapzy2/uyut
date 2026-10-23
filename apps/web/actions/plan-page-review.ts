@@ -13,7 +13,7 @@ import { PlanReadError, preparePlanPage } from '@/lib/projects/plan-document'
 import { PlanEditConflictError, planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { verifyPlanPageOpenings } from '@/lib/projects/plan-page-feature-checks'
 import { planPageGeometryElementId } from '@/lib/projects/plan-page-metric-draft'
-import { planPageContoursSchema } from '@/lib/projects/plan-page-review'
+import { floorEdgeGapMessage, planPageContoursSchema } from '@/lib/projects/plan-page-review'
 import { planPageRoomInventory } from '@/lib/projects/plan-page-room-inventory'
 import { sourceTopologyDraftIssue } from '@/lib/projects/plan-page-source-topology'
 import { pdfDimensionForEdge } from '@/lib/projects/plan-pdf-edge-dimension'
@@ -203,6 +203,8 @@ export async function savePlanPageReview(
             }
           : undefined,
     })
+    if (issue === 'non-native-floor-edge')
+      return { ok: false, error: floorEdgeGapMessage(contours, page.linework) }
     if (issue) {
       return {
         ok: false,

@@ -2,6 +2,7 @@ import type { PlanPageContours, PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import { exactNativeCrossing } from './plan-native-exact-intersections'
 import {
+  floorEdgeGapMessage,
   floorEdgeGaps,
   planPageContoursSchema,
   planPageFeaturesIssue,
@@ -656,8 +657,13 @@ describe('versioned source page review', () => {
       'non-native-floor-edge',
     )
     expect(floorEdgeGaps(partial, jambWork)).toEqual([
-      { edgeIndex: 0, start: { x: 12, y: 5 }, end: { x: 20, y: 5 } },
+      { edgeIndex: 0, start: { x: 12, y: 5 }, end: { x: 20, y: 5 }, unpairedDoorway: true },
     ])
+    // The refusal says the opening was marked but its jambs did not prove it.
+    expect(floorEdgeGapMessage(partial, jambWork)).toContain(
+      'между 1-м и 2-м углами, от 12.00, 5.00 до 20.00, 5.00 (проём отмечен, но парных косяков',
+    )
+    expect(floorEdgeGapMessage(bare, work)).not.toContain('проём отмечен')
     // An opening off the edge line, or running past its corner, closes nothing.
     const shifted = withOpening('door')
     const shiftedOpening = at(at(shifted.rooms).openings)
