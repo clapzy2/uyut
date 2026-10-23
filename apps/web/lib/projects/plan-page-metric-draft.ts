@@ -541,13 +541,15 @@ export function planPageMetricDraft(
       } else if (contours.exterior?.boundaryRole !== 'outer-wall-envelope') {
         geometry.footprint = exterior
       }
-      // Keep the native face references used by wall-strip proofs. They are not
-      // construction centre-lines or a substitute for a reviewed floor boundary.
-      exterior.forEach((start, index) => {
-        const end = exterior[(index + 1) % exterior.length]
-        if (end)
-          geometry.walls.push({ id: id('exterior', 'wall', index), start, end, kind: 'outer' })
-      })
+      // An explicitly reviewed floor edge is not a wall face. Untagged legacy
+      // contours keep their old wall representation until their role is reviewed.
+      if (contours.exterior?.boundaryRole !== 'floor') {
+        exterior.forEach((start, index) => {
+          const end = exterior[(index + 1) % exterior.length]
+          if (end)
+            geometry.walls.push({ id: id('exterior', 'wall', index), start, end, kind: 'outer' })
+        })
+      }
     }
     if (transferPageBoundary && contours.voids?.length) {
       geometry.voids = contours.voids.map((item) => ({
@@ -700,6 +702,11 @@ export function planPageMetricDraft(
     geometry.warnings = [
       'Координаты черновика перенесены из нативных линий PDF в едином масштабе. Подписанные мерки комнат сохранены отдельно и не заменены габаритами контуров.',
       ...(transferPageBoundary && contours.exterior ? [] : ['Дополните внешний контур квартиры.']),
+      ...(transferPageBoundary && contours.exterior?.boundaryRole === 'floor'
+        ? [
+            'Граница чистого пола не подтверждает наружные стены; обведите их отдельно по исходному листу.',
+          ]
+        : []),
       ...(transferPageBoundary &&
       contours.exterior?.boundaryRole === 'outer-wall-envelope' &&
       !contours.floor
