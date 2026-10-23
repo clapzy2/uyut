@@ -2,6 +2,7 @@ import type { PlanPageContours, PlanReading } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import { exactNativeCrossing } from './plan-native-exact-intersections'
 import {
+  floorEdgeGaps,
   planPageContoursSchema,
   planPageFeaturesIssue,
   planPageReviewIssue,
@@ -494,6 +495,95 @@ describe('versioned source page review', () => {
         floor: { polygon: Array.from({ length: 101 }, () => ({ x: 5, y: 5 })) },
       }).success,
     ).toBe(false)
+  })
+
+  it('crosses a doorway gap in the floor edge only along a marked door or balcony opening', () => {
+    const exterior = {
+      boundaryRole: 'outer-wall-envelope' as const,
+      polygon: [
+        { x: 0, y: 0 },
+        { x: 40, y: 0 },
+        { x: 40, y: 40 },
+        { x: 0, y: 40 },
+      ],
+    }
+    const floor = {
+      polygon: [
+        { x: 5, y: 5 },
+        { x: 35, y: 5 },
+        { x: 35, y: 35 },
+        { x: 5, y: 35 },
+      ],
+    }
+    // The wall face is drawn on both sides of a doorway between x=12 and x=20.
+    const work: PdfLinework = {
+      ...linework,
+      paths: [
+        { ...at(linework.paths), operationIndex: 18, points: exterior.polygon, closed: true },
+        {
+          ...at(linework.paths),
+          operationIndex: 19,
+          points: [
+            { x: 20, y: 5 },
+            { x: 35, y: 5 },
+            { x: 35, y: 35 },
+            { x: 5, y: 35 },
+            { x: 5, y: 5 },
+            { x: 12, y: 5 },
+          ],
+        },
+        // A short tick only supplies a node at x=16; it does not draw the wall face.
+        {
+          ...at(linework.paths),
+          operationIndex: 20,
+          points: [
+            { x: 16, y: 5 },
+            { x: 16, y: 8 },
+          ],
+        },
+      ],
+    }
+    const withOpening = (kind: 'door' | 'balcony' | 'window', to = { x: 20, y: 5 }) => ({
+      ...contours,
+      exterior,
+      floor,
+      rooms: [
+        {
+          roomSourceNumber: 4,
+          polygon: structuredClone(floor.polygon),
+          openings: [{ id: 'entry', kind, wallEdgeIndex: 0, start: { x: 12, y: 5 }, end: to }],
+        },
+      ],
+    })
+    const bare: PlanPageContours = {
+      ...contours,
+      exterior,
+      floor,
+      rooms: [{ roomSourceNumber: 4, polygon: structuredClone(floor.polygon) }],
+    }
+    expect(planPageReviewIssue(bare, reading, bare.source, work)).toBe('non-native-floor-edge')
+    expect(floorEdgeGaps(bare, work)).toEqual([
+      { edgeIndex: 0, start: { x: 12, y: 5 }, end: { x: 20, y: 5 } },
+    ])
+    expect(planPageReviewIssue(withOpening('door'), reading, bare.source, work)).toBeUndefined()
+    expect(planPageReviewIssue(withOpening('balcony'), reading, bare.source, work)).toBeUndefined()
+    // A window, or an opening that covers only part of the gap, leaves the floor unproven.
+    expect(planPageReviewIssue(withOpening('window'), reading, bare.source, work)).toBe(
+      'non-native-floor-edge',
+    )
+    const partial = withOpening('door', { x: 16, y: 5 })
+    expect(planPageReviewIssue(partial, reading, bare.source, work)).toBe('non-native-floor-edge')
+    expect(floorEdgeGaps(partial, work)).toEqual([
+      { edgeIndex: 0, start: { x: 16, y: 5 }, end: { x: 20, y: 5 } },
+    ])
+    // An opening off the edge line, or running past its corner, closes nothing.
+    const shifted = withOpening('door')
+    const shiftedOpening = at(at(shifted.rooms).openings)
+    shiftedOpening.start = { x: 12, y: 5.000001 }
+    expect(floorEdgeGaps(shifted, work)).toHaveLength(1)
+    const pastCorner = withOpening('door')
+    at(at(pastCorner.rooms).openings).start = { x: 2, y: 5 }
+    expect(floorEdgeGaps(pastCorner, work)).toHaveLength(1)
   })
 
   it('checks all floor, room and void edges across concave boundary gaps', () => {

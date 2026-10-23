@@ -738,6 +738,18 @@ describe('native PDF page to metric draft', () => {
       result.geometry.warnings.some((warning) => warning.includes('не является границей пола')),
     ).toBe(false)
     expect(context).toEqual(before)
+
+    // A painted floor keeps its nodes but draws no stroke: the refusal names the bare edges.
+    const paths = structuredClone(context.linework.paths)
+    const painted = paths.at(-1)
+    if (!painted) throw new Error('Missing floor path')
+    painted.paint = 'fill'
+    const unstroked = { ...globalContext, linework: { ...context.linework, paths } }
+    const refused = planPageMetricDraft(reading, unstroked, [4])
+    expect(refused.ok).toBe(false)
+    if (refused.ok) return
+    expect(refused.error).toContain('между 1-м и 2-м углами, от 5.00, 5.00 до 320.00, 5.00')
+    expect(refused.error).toContain('и ещё 1')
   })
 
   it.each([undefined, 'floor'] as const)('preserves the legacy exterior floor role %s', (role) => {
