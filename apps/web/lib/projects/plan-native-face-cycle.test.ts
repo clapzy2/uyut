@@ -212,6 +212,21 @@ describe('single reviewed native floor-face cycle', () => {
     cover.bounds = { left: 400, top: 400, right: 410, bottom: 410 }
     expect(nativeFaceCycle(current).status).toBe('candidate')
   })
+  it('does not accept a reviewed cycle when its supplied paint inventory is incomplete', () => {
+    const current = fixture(rectangle)
+    expect(nativeFaceCycle(current).status).toBe('candidate')
+    current.work.paintBounds = {
+      complete: false,
+      refusalReason: 'incomplete-native-paint-layer',
+      events: [],
+    }
+
+    expect(nativeFaceCycle(current)).toEqual({
+      status: 'unresolved',
+      reason: 'incomplete-native-paint-layer',
+      polygon: null,
+    })
+  })
   it('does not select one of multiple disconnected cycles', () => {
     const second = fixture(rectangle.map((point) => ({ x: point.x + 100, y: point.y })))
     const paths = [

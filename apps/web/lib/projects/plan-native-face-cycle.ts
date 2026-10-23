@@ -96,6 +96,8 @@ export function nativeFaceCycle(input: {
     work.clippedPathBoundsTruncated
   )
     return fail('incomplete-native-boundary-inventory')
+  if (work.paintBounds && !pdfPaintInventoryIsComplete(work.paintBounds))
+    return fail('incomplete-native-paint-layer')
   const dimensionOperations = new Set(dimensions.dimensionOperations)
   const segments = nativePageSegments(work)
   const selected: (NativePageSegment & { kind: ReviewedNativeFaces['faces'][number]['kind'] })[] =

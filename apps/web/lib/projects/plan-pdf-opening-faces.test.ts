@@ -308,6 +308,23 @@ describe('physical door face candidates from two native reveals', () => {
     expect(pairs(input)).toHaveLength(1)
   })
 
+  it('does not accept a jamb when its supplied paint inventory is incomplete', () => {
+    const input = mixedRevealFixture()
+    expect(pairs(input)).toHaveLength(1)
+    input.work.paintBounds = {
+      complete: false,
+      refusalReason: 'incomplete-native-paint-layer',
+      events: [],
+    }
+
+    expect(pairs(input)).toEqual([])
+    expect(verifyPlanPageOpeningFaces(input.work, input.source, input.contours)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'unresolved', reason: 'incomplete-native-paint-layer' }),
+      ]),
+    )
+  })
+
   it.each(['bounded-native-crossing', 'bounded-native-rational-crossing'] as const)(
     'retains native jamb pairs inside an exterior with a fresh %s proof',
     (kind) => {

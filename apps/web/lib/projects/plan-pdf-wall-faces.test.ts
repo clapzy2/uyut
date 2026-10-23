@@ -211,6 +211,36 @@ describe('exact native PDF wall-face intervals', () => {
     expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual(baseline)
   })
 
+  it('does not accept a hidden face when the supplied paint inventory is incomplete', () => {
+    const input = syntheticSheet()
+    expect(pairPlanPageWallFaces(input.work, source, input.contours).length).toBeGreaterThan(0)
+
+    const bounds = { left: 190, top: 90, right: 230, bottom: 310 }
+    input.work.paths.push({
+      operationIndex: 200,
+      subpathIndex: 0,
+      paint: 'fill',
+      closed: true,
+      points: rectangle(bounds.left, bounds.top, bounds.right, bounds.bottom),
+    })
+    input.work.paintBounds = {
+      complete: false,
+      refusalReason: 'incomplete-native-paint-layer',
+      events: [{ operationIndex: 200, kind: 'vector', bounds, reason: null }],
+    }
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+
+    input.work.paintBounds.complete = true
+    input.work.paintBounds.refusalReason = null
+    input.work.paintBounds.events.push({
+      operationIndex: 200,
+      kind: 'vector',
+      bounds,
+      reason: null,
+    })
+    expect(pairPlanPageWallFaces(input.work, source, input.contours)).toEqual([])
+  })
+
   it('does not mistake the independent stroke over a fill face for an occlusion', () => {
     const input = syntheticSheet()
     input.wall.paint = 'fill'
