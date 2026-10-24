@@ -34,6 +34,7 @@ import { PlanPageContourEditor } from './plan-page-contour-editor'
 import { contourDraftsFromSaved, pageContourRoomsForSave } from './plan-page-contour-editor-model'
 import { PlanPagePointControls } from './plan-page-point-controls'
 import { PlanPageSourceFloorControls } from './plan-page-source-floor-controls'
+import { PlanPageWallReview } from './plan-page-wall-review'
 
 beforeEach(() => {
   hooks.cursor = 0
@@ -634,13 +635,27 @@ describe('source-floor bridge in the existing editor', () => {
     expect(updateFor(slots.selectedOuterGapIndex, undefined)).toBe(0)
     expect(savePlanPageReview).not.toHaveBeenCalled()
 
+    hooks.values.set(slots.drafts, contourDraftsFromSaved(fixture.contours.rooms))
+    hooks.values.set(slots.floor, fixture.contours.floor)
+    hooks.cursor = 0
+    const savedEditor = renderEditor(fixture.reading, revision)
+    expect(
+      childProps<ComponentProps<typeof PlanPageWallReview>>(savedEditor, PlanPageWallReview)
+        .disabled,
+    ).toBe(false)
+
     hooks.values.set(slots.exterior, {
       ...fixture.contours.exterior,
       polygon: fixture.polygon.slice(1),
     })
     hooks.cursor = 0
+    const editedEditor = renderEditor(fixture.reading, revision)
     expect(
-      nestedElements(renderEditor(fixture.reading, revision), 'line').filter(
+      childProps<ComponentProps<typeof PlanPageWallReview>>(editedEditor, PlanPageWallReview)
+        .disabled,
+    ).toBe(true)
+    expect(
+      nestedElements(editedEditor, 'line').filter(
         (line) => (line.props as { stroke?: string }).stroke === '#be123c',
       ),
     ).toEqual([])

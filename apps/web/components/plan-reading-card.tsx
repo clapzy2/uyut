@@ -517,7 +517,7 @@ export function PlanReadingCard({
               setActiveReading(data.reading)
               setBaseRevision(data.revision)
               setReviewEditing(false)
-              toast({ title: 'Контуры сохранены для этого листа', tone: 'success' })
+              toast({ title: 'Разметка и сверка обновлены', tone: 'success' })
               router.refresh()
             }}
             onConflict={() => {

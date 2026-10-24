@@ -26,6 +26,10 @@ export type PdfWallFaceInterval = {
   strokeSegment?: PlanPageSegmentRef
 }
 export type PdfWallFacePair = { faces: [PdfWallFaceInterval, PdfWallFaceInterval] }
+export type PdfWallFaceReviewCandidate = {
+  pair: PdfWallFacePair
+  visibilityIssues: Array<'omitted-path-near-wall' | 'later-paint-near-face'>
+}
 
 type Face = {
   contourKey: string
@@ -611,11 +615,11 @@ function unaffectedByLaterPaint(
 }
 
 /** Exact partial face relations within one native closed outline; not complete wall topology. */
-export function pairPlanPageWallFaces(
+function wallFaceReviewCandidates(
   work: PdfLinework,
   source: PdfPlanSource,
   contours: PlanPageContours,
-): PdfWallFacePair[] {
+): PdfWallFaceReviewCandidate[] {
   if (!validWallSource(work, source, contours, true)) return []
   // An explicitly supplied but incomplete paint inventory cannot prove that
   // later drawing operations left a source face visible.
@@ -821,9 +825,35 @@ export function pairPlanPageWallFaces(
   const orderedPaintEvents = paintEvents ? [...paintEvents.values()] : undefined
   // The enclosing strip box is conservative for diagonal faces as well. A far
   // omission can be excluded; paint anywhere in that box still holds the pair.
-  return [...result, ...pairSlantedFaces(work, contours, closedSubpaths)].filter(
-    (pair) =>
-      unaffectedByOmittedPaths(pair, omitted, paintEvents) &&
-      unaffectedByLaterPaint(pair, orderedPaintEvents),
+  return [...result, ...pairSlantedFaces(work, contours, closedSubpaths)].map((pair) => ({
+    pair,
+    visibilityIssues: [
+      ...(unaffectedByOmittedPaths(pair, omitted, paintEvents)
+        ? []
+        : ['omitted-path-near-wall' as const]),
+      ...(unaffectedByLaterPaint(pair, orderedPaintEvents)
+        ? []
+        : ['later-paint-near-face' as const]),
+    ],
+  }))
+}
+
+/** Automatic evidence retains all source visibility checks. */
+export function pairPlanPageWallFaces(
+  work: PdfLinework,
+  source: PdfPlanSource,
+  contours: PlanPageContours,
+): PdfWallFacePair[] {
+  return wallFaceReviewCandidates(work, source, contours).flatMap((candidate) =>
+    candidate.visibilityIssues.length === 0 ? [candidate.pair] : [],
   )
+}
+
+/** Exact source candidates for explicit visual review; no automatic wall authority. */
+export function inspectPlanPageWallFaceCandidates(
+  work: PdfLinework,
+  source: PdfPlanSource,
+  contours: PlanPageContours,
+): PdfWallFaceReviewCandidate[] {
+  return wallFaceReviewCandidates(work, source, contours)
 }

@@ -8,6 +8,7 @@ import {
 } from '@uyut/catalog'
 import { effectiveSize, effectiveSizeReading, itemSizeSourceLabel } from '@uyut/catalog/item-size'
 import { inspectStoredPlanDelivery } from '@uyut/catalog/plan-delivery-record'
+import { currentWallFacePairs } from '@uyut/catalog/plan-opening-face-pairs'
 import { inspectPlanThresholdSurfaces } from '@uyut/catalog/plan-threshold-geometry'
 import { signedPlanFloors } from '@uyut/catalog/plan-vertical-floor-geometry'
 import { layoutWithMeasurements } from '@uyut/catalog/reviewed-layout-with-measurements'
@@ -394,6 +395,20 @@ export async function buildPdfData(input: {
   const { snapshot, kind, options, rates } = input
   const { project } = snapshot
   const geometry = project.planReading?.geometry
+  const humanReviewedPairs =
+    geometry && !geometry.requiresSourceReviewReimport
+      ? currentWallFacePairs(geometry).filter(
+          (pair) => pair.verification?.kind === 'human-source-review',
+        ).length
+      : 0
+  const wallFaceReview =
+    humanReviewedPairs > 0 && geometry?.pdfCalibration
+      ? {
+          sourceSha256: geometry.pdfCalibration.sourceSha256,
+          pdfPage: geometry.pdfCalibration.pdfPage,
+          humanReviewedPairs,
+        }
+      : undefined
   const deliveryPlan = inspectStoredPlanDelivery(
     geometry,
     project.planReading?.deliveryMeasurements,
@@ -627,6 +642,7 @@ export async function buildPdfData(input: {
     estimate,
     rates,
     brief: input.brief,
+    ...(wallFaceReview ? { wallFaceReview } : {}),
     ...(verticalPlan ? { verticalPlan } : {}),
     ...(deliveryPlan ? { deliveryPlan } : {}),
   }

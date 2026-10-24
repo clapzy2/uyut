@@ -65,6 +65,9 @@ export function PlanGeometryPreview({
   const wallById = new Map(geometry.walls.map((wall) => [wall.id, wall]))
   const provenOpeningIds = currentSourceOpeningIds(geometry)
   const wallFacePairs = currentWallFacePairs(geometry)
+  const humanReviewedPairCount = wallFacePairs.filter(
+    (pair) => pair.verification?.kind === 'human-source-review',
+  ).length
   const outerSpans = new Map(
     geometry.walls
       .filter((wall) => wall.kind === 'outer')
@@ -415,6 +418,12 @@ export function PlanGeometryPreview({
 
         <div className="border border-line bg-paper p-5 sm:p-6">
           <p className="text-[15px] leading-relaxed text-ink">{description}</p>
+          {humanReviewedPairCount > 0 ? (
+            <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
+              Отметка «Сверено человеком» означает, что владелец сопоставил две стороны стены на
+              исходном PDF. Она сохраняет происхождение этой связи при просмотре схемы.
+            </p>
+          ) : null}
           {unpairedOuterWallIds.size > 0 ? (
             <p className="mt-4 border-l-2 border-danger/60 pl-3 text-[13px] leading-relaxed text-ink-2">
               Красный пунктир показывает{' '}
@@ -470,6 +479,14 @@ export function PlanGeometryPreview({
               <div className="flex justify-between gap-4">
                 <dt className="text-ink-2">Сопоставленные участки границ</dt>
                 <dd className="font-mono text-ink">{wallFacePairs.length}</dd>
+              </div>
+            ) : null}
+            {humanReviewedPairCount > 0 ? (
+              <div className="flex justify-between gap-4">
+                <dt className="text-ink-2">Сверено человеком</dt>
+                <dd className="font-mono text-ink">
+                  {countLabel(humanReviewedPairCount, 'пара граней', 'пары граней', 'пар граней')}
+                </dd>
               </div>
             ) : null}
             <div className="flex justify-between gap-4">
@@ -584,7 +601,9 @@ export function PlanGeometryPreview({
           ) : null}
         </div>
       </div>
-      {volume ? <PlanVolumeLaunch model={volume} /> : null}
+      {volume ? (
+        <PlanVolumeLaunch model={volume} humanReviewedPairCount={humanReviewedPairCount} />
+      ) : null}
     </section>
   )
 }
