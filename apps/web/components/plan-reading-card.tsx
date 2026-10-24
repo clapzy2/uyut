@@ -126,6 +126,10 @@ export function PlanReadingCard({
   const [error, setError] = useState<string | undefined>(undefined)
   const [activeReading, setActiveReading] = useState(reading)
   const [baseRevision, setBaseRevision] = useState(sourceRevision)
+  const [serverUpdate, setServerUpdate] = useState({
+    revision: sourceRevision,
+    baseRevision: sourceRevision,
+  })
   const [floorProposal, setFloorProposal] = useState<{
     revision: string
     page: number
@@ -149,7 +153,51 @@ export function PlanReadingCard({
   const [newSourceNumber, setNewSourceNumber] = useState('')
   const [newSourceKind, setNewSourceKind] = useState<RoomKind | 'utility' | ''>('')
 
+  // A sibling can save a new 2D draft while this form stays mounted. Remember that
+  // refresh, but adopt its data only when opening the editor, never over local edits.
+  if (serverUpdate.revision !== sourceRevision) {
+    setServerUpdate({
+      revision: sourceRevision,
+      baseRevision,
+    })
+  }
+
   const confirmed = Boolean(reading?.confirmedAt)
+
+  function openPageReview() {
+    if (serverUpdate.baseRevision === baseRevision && sourceRevision !== baseRevision) {
+      const changedRows =
+        rows !== null &&
+        (JSON.stringify(rows) !==
+          JSON.stringify(activeReading ? planRows(activeReading, existing, planIsPdf) : []) ||
+          ceiling !==
+            (activeReading?.ceilingCm === undefined ? '' : String(activeReading.ceilingCm)))
+      if (changedRows || floorProposal) {
+        setError(
+          'Сохранённый план обновился. Ваши правки остались в форме. Загрузите актуальные данные плана перед новой разметкой.',
+        )
+        setConflict(true)
+        return
+      }
+      setActiveReading(reading)
+      setBaseRevision(sourceRevision)
+      setServerUpdate({ revision: sourceRevision, baseRevision: sourceRevision })
+      setPage(String(reading?.sourcePage ?? 1))
+      if (rows !== null) {
+        setRows(reading ? planRows(reading, existing, planIsPdf) : null)
+        setCeiling(reading?.ceilingCm === undefined ? '' : String(reading.ceilingCm))
+      }
+      setReviewEditing(
+        Boolean(
+          reading &&
+            (reading.planState === 'existing' || reading.planState === 'proposed') &&
+            reading.rooms.some((room) => room.sourceNumber !== undefined),
+        ),
+      )
+      return
+    }
+    setReviewEditing(true)
+  }
 
   function patch(index: number, next: Partial<PlanRow>) {
     setRows((list) => (list ?? []).map((row, at) => (at === index ? patchPlanRow(row, next) : row)))
@@ -530,7 +578,7 @@ export function PlanReadingCard({
             <Button
               type="button"
               variant="secondary"
-              onClick={() => setReviewEditing(true)}
+              onClick={openPageReview}
               disabled={reading_ || saving || conflict}
             >
               {reviewedPage ? 'Изменить разметку листа' : 'Разметить комнаты и объекты'}

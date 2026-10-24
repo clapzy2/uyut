@@ -1,8 +1,15 @@
 import { parseFloorPlan } from '@uyut/ai'
 import type { PlanReading } from '@uyut/db'
-import { createElement } from 'react'
+import {
+  createElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+  useState,
+  useTransition,
+} from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import nativeAreas from '../../../docs/qa/fixtures/basis-native-total-area.json'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
@@ -11,9 +18,168 @@ vi.mock('@/actions/projects', () => ({
   forgetPlanReading: vi.fn(),
   readPlan: vi.fn(),
 }))
+vi.mock('react', async (original) => {
+  const actual = await original<typeof import('react')>()
+  return {
+    ...actual,
+    useState: vi.fn(actual.useState),
+    useTransition: vi.fn(actual.useTransition),
+  }
+})
 
 import { type ExistingRoom, planRows } from '@/lib/projects/plan-rows'
 import { PlanReadingCard } from './plan-reading-card'
+
+type CardNodeProps = {
+  children?: ReactNode
+  onClick?: () => void
+  onChange?: (event: { currentTarget: { value: string } }) => void
+  onSaved?: (data: { reading: PlanReading; revision: string }) => void
+  onClose?: () => void
+  reading?: PlanReading
+  sourceRevision?: string
+  pageNumber?: number
+  value?: string
+  message?: string
+  'aria-label'?: string
+}
+
+function cardNodes(node: ReactNode): ReactElement<CardNodeProps>[] {
+  if (Array.isArray(node)) return node.flatMap(cardNodes)
+  if (!isValidElement<CardNodeProps>(node)) return []
+  return [node, ...cardNodes(node.props.children)]
+}
+
+function cardHarness(initial: PlanReading, revision = 'r1') {
+  const state: unknown[] = []
+  let cursor = 0
+  let changed = false
+  vi.mocked(useState).mockImplementation((initial?: unknown): ReturnType<typeof useState> => {
+    const index = cursor++
+    if (!(index in state)) state[index] = typeof initial === 'function' ? initial() : initial
+    return [
+      state[index],
+      (next: unknown) => {
+        state[index] = typeof next === 'function' ? next(state[index]) : next
+        changed = true
+      },
+    ]
+  })
+  vi.mocked(useTransition).mockReturnValue([false, vi.fn()])
+  let props = {
+    projectId: 'project',
+    sourceRevision: revision,
+    reading: initial,
+    hasPlan: true,
+    planIsPdf: true,
+    roomCount: 0,
+    existing: [],
+  }
+  return (reading = props.reading, sourceRevision = props.sourceRevision) => {
+    props = { ...props, reading, sourceRevision }
+    let tree: ReactNode
+    do {
+      changed = false
+      cursor = 0
+      tree = PlanReadingCard(props)
+    } while (changed)
+    return cardNodes(tree)
+  }
+}
+
+describe('source refresh while the reading card stays mounted', () => {
+  afterEach(async () => {
+    const actual = await vi.importActual<typeof import('react')>('react')
+    vi.mocked(useState).mockImplementation(actual.useState)
+    vi.mocked(useTransition).mockImplementation(actual.useTransition)
+  })
+
+  const reading: PlanReading = {
+    readAt: '2026-10-24',
+    confirmedAt: '2026-10-24',
+    sourcePage: 1,
+    planState: 'existing',
+    rooms: [{ sourceNumber: 5, name: 'Спальня', kind: 'bedroom' }],
+  }
+  const withDraft: PlanReading = {
+    ...reading,
+    geometry: {
+      version: 1,
+      source: 'manual',
+      status: 'draft',
+      widthCm: 400,
+      heightCm: 300,
+      walls: [],
+      openings: [],
+      rooms: [],
+      warnings: [],
+    },
+  }
+
+  function open(nodes: ReactElement<CardNodeProps>[]) {
+    const button = nodes.find((node) => node.props.children === 'Разметить комнаты и объекты')
+    expect(button?.props.onClick).toBeTypeOf('function')
+    button?.props.onClick?.()
+  }
+
+  function editor(nodes: ReactElement<CardNodeProps>[]) {
+    return nodes.find((node) => node.props.pageNumber === 1 && node.props.onClose)
+  }
+
+  it('opens the latest saved geometry and revision after the sibling 2D importer refreshes', () => {
+    const render = cardHarness(reading)
+    render()
+    open(render(withDraft, 'r2'))
+    const mounted = editor(render())
+    expect(mounted?.props.sourceRevision).toBe('r2')
+    expect(mounted?.props.reading).toBe(withDraft)
+  })
+
+  it('preserves edited room rows and asks for explicit reload instead of discarding them', () => {
+    const render = cardHarness({ ...reading, confirmedAt: undefined })
+    const name = render().find((node) => node.props['aria-label'] === 'Название комнаты 1')
+    name?.props.onChange?.({ currentTarget: { value: 'Моя спальня' } })
+    render()
+    open(render(withDraft, 'r2'))
+    const nodes = render()
+    expect(editor(nodes)).toBeUndefined()
+    expect(
+      nodes.find((node) => node.props['aria-label'] === 'Название комнаты 1')?.props.value,
+    ).toBe('Моя спальня')
+    expect(nodes.some((node) => node.props.message?.includes('Ваши правки остались в форме'))).toBe(
+      true,
+    )
+  })
+
+  it('does not replace an already open contour editor when new server props arrive', () => {
+    const render = cardHarness(reading)
+    open(render())
+    const mounted = editor(render(withDraft, 'r2'))
+    expect(mounted?.props.sourceRevision).toBe('r1')
+    expect(mounted?.props.reading).toBe(reading)
+  })
+
+  it('opens the current source sheet rather than retaining the previous page selector', () => {
+    const render = cardHarness(reading)
+    render()
+    const newer = { ...withDraft, sourcePage: 2 }
+    open(render(newer, 'r2'))
+    const mounted = render().find((node) => node.props.onClose)
+    expect(mounted?.props.pageNumber).toBe(2)
+    expect(mounted?.props.sourceRevision).toBe('r2')
+    expect(mounted?.props.reading).toBe(newer)
+  })
+
+  it('keeps a successful local save while its router refresh has not returned yet', () => {
+    const render = cardHarness(reading)
+    open(render())
+    editor(render())?.props.onSaved?.({ reading: withDraft, revision: 'r2' })
+    open(render())
+    const mounted = editor(render())
+    expect(mounted?.props.sourceRevision).toBe('r2')
+    expect(mounted?.props.reading).toBe(withDraft)
+  })
+})
 
 function render(
   reading: PlanReading | null,
