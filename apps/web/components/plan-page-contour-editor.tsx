@@ -47,6 +47,7 @@ import {
   voidDraftsFromSaved,
 } from '@/components/plan-page-contour-editor-model'
 import { collapseEnvelopeStep } from '@/lib/projects/plan-envelope-step'
+import type { HumanWallReviewOption } from '@/lib/projects/plan-human-wall-review'
 import { currentWallFacePairs } from '@/lib/projects/plan-opening-face-pairs'
 import type { FloorEdgeGap } from '@/lib/projects/plan-page-review'
 import type { SourceFloorReference } from '@/lib/projects/plan-page-source-floors'
@@ -72,6 +73,7 @@ import {
   sourceFloorReferencePath,
 } from './plan-page-source-floor-model'
 import { snapPageSourceContourPoint } from './plan-page-vertex-candidate'
+import { PlanPageWallReview } from './plan-page-wall-review'
 
 const MAX_POINTS = 100
 
@@ -166,6 +168,7 @@ export function PlanPageContourEditor({
   const [selectedFillHint, setSelectedFillHint] = useState('')
   const [floorGaps, setFloorGaps] = useState<FloorEdgeGap[]>([])
   const [selectedOuterGapIndex, setSelectedOuterGapIndex] = useState<number>()
+  const [wallReviewHighlight, setWallReviewHighlight] = useState<HumanWallReviewOption>()
   const sourceFloorsRequest = useRef<AbortController | undefined>(undefined)
   const fillHintsRequest = useRef<AbortController | undefined>(undefined)
   const draftSource = useRef<PlanPagePreview | undefined>(undefined)
@@ -194,6 +197,19 @@ export function PlanPageContourEditor({
     JSON.stringify(exterior) === JSON.stringify(savedExterior)
       ? sourceWallGaps
       : []
+  const savedContours = reading.pageReview?.contours
+  const wallReviewCurrent = Boolean(
+    !stale &&
+      state === 'existing' &&
+      preview &&
+      savedContours &&
+      preview.sha256 === savedContours.source.sha256 &&
+      preview.page === savedContours.source.pdfPage &&
+      JSON.stringify(exterior) === JSON.stringify(savedContours.exterior) &&
+      JSON.stringify(floor) === JSON.stringify(savedContours.floor) &&
+      JSON.stringify(drafts) === JSON.stringify(contourDraftsFromSaved(savedContours.rooms)) &&
+      JSON.stringify(voids) === JSON.stringify(voidDraftsFromSaved(savedContours.voids)),
+  )
   const options = pageContourOptions(reading.rooms, drafts)
   const sourceRooms =
     reading.pageReview?.sourceRooms ??
@@ -1213,6 +1229,16 @@ export function PlanPageContourEditor({
             ))}
           </div>
         </section>
+      ) : null}
+      {reading.geometry?.pdfCalibration ? (
+        <PlanPageWallReview
+          projectId={projectId}
+          sourceRevision={sourceRevision}
+          disabled={locked || !wallReviewCurrent}
+          onHighlight={setWallReviewHighlight}
+          onSaved={onSaved}
+          onConflict={onConflict}
+        />
       ) : null}
       {eligibleRooms.length !== reading.rooms.length ? (
         <p className="border-l-2 border-accent pl-3 text-sm leading-relaxed text-ink-2">
@@ -2328,6 +2354,24 @@ export function PlanPageContourEditor({
                     </title>
                   </line>
                 ))}
+                {wallReviewCurrent
+                  ? wallReviewHighlight?.pair.faces.map((face, index) => (
+                      <line
+                        key={`wall-review:${index}`}
+                        x1={face.start.x}
+                        y1={face.start.y}
+                        x2={face.end.x}
+                        y2={face.end.y}
+                        stroke="#2563eb"
+                        strokeWidth={6}
+                        strokeOpacity={0.65}
+                        vectorEffect="non-scaling-stroke"
+                        pointerEvents="none"
+                      >
+                        <title>Выбранная грань {index + 1} для ручной сверки пары.</title>
+                      </line>
+                    ))
+                  : null}
               </svg>
             </button>
           </div>

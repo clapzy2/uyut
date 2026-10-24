@@ -218,6 +218,8 @@ export type PlanOpeningWidthProof = PlanOpeningBinding & {
 }
 /** Source-outline interval relations, not centreline walls or construction thickness. */
 export type PlanWallFacePair = {
+  /** Explicit owner review of the source image, distinct from automatic visibility proof. */
+  verification?: { kind: 'human-source-review'; reviewedAt: string }
   faces: [
     {
       wall: PlanWall

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { type PlanPageContours, type PlanReading, users } from '@uyut/db'
 import { renderProjectHtml } from '@uyut/pdf'
 import { eq } from 'drizzle-orm'
@@ -26,6 +26,11 @@ import {
 import { buildPdfData, loadSnapshot } from '../../../jobs/src/lib/pdf-data'
 import { createPlanPageGeometryDraft } from './plan-page-geometry'
 import { savePlanPageReview } from './plan-page-review'
+import {
+  getPlanWallReviewCandidates,
+  revokePlanWallReview,
+  savePlanWallReview,
+} from './plan-wall-review'
 import { savePlanGeometry } from './projects'
 
 const local = vi.hoisted(() => ({ owner: '', body: Buffer.alloc(0) }))
@@ -387,5 +392,118 @@ describe.skipIf(!enabled)('Remplanner sheet 4 through actions and PostgreSQL', (
     const html = renderProjectHtml(pdf, { fontCss: '' })
     expect(html).not.toContain('data-project-floor=')
     expect(html).not.toContain('data-signed-room-floor=')
+  })
+
+  it('saves an explicit human wall review and carries its provenance through 2D and PDF', async () => {
+    const { id, revision } = await freshProject('Remplanner human wall review')
+    const saved = await savePlanPageReview(id, reviewed, revision)
+    if (!saved.ok) throw new Error(saved.error)
+    const draft = await createPlanPageGeometryDraft(
+      id,
+      [1, 2, 3, 4, 5, 6, 7, 8],
+      saved.data.revision,
+      undefined,
+      false,
+      false,
+      true,
+    )
+    if (!draft.ok) throw new Error(draft.error)
+    const offered = await getPlanWallReviewCandidates(id, draft.data.revision)
+    if (!offered.ok) throw new Error(offered.error)
+    const candidate = offered.data.candidates.find(
+      (candidate) =>
+        candidate.pair.faces.some((face) => face.contourKey === '5') &&
+        candidate.pair.faces.some((face) => face.contourKey === 'exterior'),
+    )
+    if (!candidate) throw new Error('No source-backed room/exterior pair was offered for review')
+    expect(candidate.visibilityIssues.length).toBeGreaterThan(0)
+    const accepted = await savePlanWallReview(
+      id,
+      { candidateId: candidate.id, acknowledged: true },
+      draft.data.revision,
+    )
+    if (!accepted.ok) throw new Error(accepted.error)
+    const reopened = await getProject(owner, id)
+    const geometry = reopened.planReading?.geometry
+    if (!geometry) throw new Error('Missing saved geometry')
+    expect(geometry).toEqual(accepted.data.reading.geometry)
+    const human = currentWallFacePairs(geometry).filter(
+      (pair) => pair.verification?.kind === 'human-source-review',
+    )
+    expect(human).toHaveLength(1)
+    expect(human[0]?.faces.map((face) => face.nativeSegment.operationIndex)).toEqual(
+      candidate.pair.faces.map((face) => face.nativeSegment.operationIndex),
+    )
+    expect(geometry.verticalReference).toBeUndefined()
+    const requests = geometry.openings.map((opening) => {
+      const wall = geometry.walls.find((wall) => wall.id === opening.wallId)
+      if (!wall) throw new Error('Missing opening wall')
+      return {
+        action: 'verify' as const,
+        opening: openingMeasurementSnapshot(opening),
+        wall: openingMeasurementWallSnapshot(wall),
+        source: {
+          kind: 'dimensioned-drawing' as const,
+          reference: 'Remplanner, лист 4: напечатанные 1060 и 900 мм',
+        },
+        acknowledged: true as const,
+      }
+    })
+    const checked = await savePlanGeometry(
+      id,
+      { ...geometry, openingMeasurementRequests: requests },
+      'draft',
+      accepted.data.revision,
+    )
+    if (!checked.ok) throw new Error(checked.error)
+    const confirmed = await savePlanGeometry(
+      id,
+      checked.data.geometry,
+      'confirm',
+      checked.data.revision,
+    )
+    expect(confirmed.ok).toBe(false)
+    if (!confirmed.ok) expect(confirmed.error).toContain('отрезков вне общей связи: 34')
+    expect(
+      currentWallFacePairs(checked.data.geometry).some(
+        (pair) => pair.verification?.kind === 'human-source-review',
+      ),
+    ).toBe(true)
+    expect(planVolume(checked.data.geometry)).toBeNull()
+    expect(planVolumeBlocker({ ...checked.data.geometry, status: 'confirmed' })).toContain(
+      'Нужен общий отсчёт высот',
+    )
+    const snapshot = await loadSnapshot(id)
+    if (!snapshot) throw new Error('Missing PDF snapshot')
+    const pdf = await buildPdfData({
+      snapshot,
+      kind: 'free',
+      options: {},
+      rates: { roughRubPerM2: 15_000, finishRubPerM2: 5_000 },
+      brief: null,
+      summary: null,
+    })
+    expect(pdf.wallFaceReview?.humanReviewedPairs).toBe(1)
+    expect(renderProjectHtml(pdf, { fontCss: '' })).toContain('сверено человеком')
+    if (process.env.QA_HUMAN_WALL_PDF) {
+      const { printPdf } = await import('../../../jobs/src/lib/print-pdf')
+      await writeFile(
+        process.env.QA_HUMAN_WALL_PDF,
+        await printPdf(renderProjectHtml(pdf, { fontCss: '' }), pdf.project.title),
+      )
+    }
+    const offeredAgain = await getPlanWallReviewCandidates(id, checked.data.revision)
+    if (!offeredAgain.ok) throw new Error(offeredAgain.error)
+    expect(offeredAgain.data.candidates.some((option) => option.id === candidate.id)).toBe(false)
+    const reviewId = offeredAgain.data.reviews?.[0]?.id
+    if (!reviewId) throw new Error('Missing saved human review')
+    const revoked = await revokePlanWallReview(id, { reviewId }, checked.data.revision)
+    if (!revoked.ok) throw new Error(revoked.error)
+    const afterRevoke = (await getProject(owner, id)).planReading?.geometry
+    if (!afterRevoke) throw new Error('Missing revoked geometry')
+    expect(currentWallFacePairs(afterRevoke).filter((pair) => pair.verification)).toEqual([])
+    expect(afterRevoke.pdfCalibration?.sourceWallFacePairs).toHaveLength(8)
+    expect(afterRevoke.walls).toEqual(checked.data.geometry.walls)
+    expect(afterRevoke.verticalReference).toBeUndefined()
   })
 })

@@ -13,13 +13,27 @@ const PlanSceneViewer = dynamic(() => import('./plan-scene-viewer'), {
   loading: () => <p className="mt-4 text-sm text-ink-2">Загружаем 3D-просмотр…</p>,
 })
 
-export function PlanVolumeLaunch({ model, projectId }: { model: PlanVolume; projectId?: string }) {
+export function PlanVolumeLaunch({
+  model,
+  projectId,
+  humanReviewedPairCount = 0,
+}: {
+  model: PlanVolume
+  projectId?: string
+  humanReviewedPairCount?: number
+}) {
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<'scheme' | 'scene'>('scheme')
   const viewerId = useId()
 
   return (
     <section aria-label="Объёмный просмотр" className="mt-6 border-t border-line pt-5">
+      {humanReviewedPairCount > 0 ? (
+        <p className="mb-3 text-sm leading-relaxed text-ink-2">
+          Связи граней стен в этой модели сверены человеком: {humanReviewedPairCount}. Владелец
+          сопоставил две стороны каждой такой стены на исходном PDF.
+        </p>
+      ) : null}
       <button
         type="button"
         aria-expanded={open}

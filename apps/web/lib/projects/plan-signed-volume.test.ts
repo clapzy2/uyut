@@ -204,6 +204,22 @@ function dispose(scene: PlanScene) {
 }
 
 describe('accepted signed survey → volume → scene', () => {
+  it('carries a human-reviewed pair into 3D without adding or changing measurements', () => {
+    const geometry = fixture()
+    const before = planVolume(geometry)
+    expect(before).not.toBeNull()
+    const reviewed = structuredClone(geometry)
+    for (const pair of reviewed.pdfCalibration?.sourceWallFacePairs ?? []) {
+      pair.verification = { kind: 'human-source-review', reviewedAt: '2026-10-24T00:00:00.000Z' }
+    }
+    const volume = required(planVolume(reviewed))
+    expect(volume).toEqual(before)
+    expect(reviewed.verticalReference).toEqual(geometry.verticalReference)
+    expect(reviewed.walls).toEqual(geometry.walls)
+    const scene = buildPlanScene(volume)
+    expect(scene.surfaces.length).toBeGreaterThan(0)
+    dispose(scene)
+  })
   it('omits a threshold surface that intersects an independently proven wall strip', () => {
     const geometry = fixture()
     const calibration = required(geometry.pdfCalibration)

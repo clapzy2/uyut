@@ -366,7 +366,7 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
       id: 'manual-pdf-wall-proof-lost',
       severity: 'error',
       message:
-        'Часть стен или контуров изменена после переноса из PDF: исходная связь граней больше не подтверждена. Сверьте эти участки с обмерным листом; черновик можно сохранить.',
+        'Часть стен, проёмов или контуров изменена после сверки PDF: связь граней больше не подтверждена. Повторно сверьте эти участки с исходным листом; черновик можно сохранить.',
       wallIds: [...new Set(lostPairs.flatMap((pair) => pair.faces.map(({ wall }) => wall.id)))],
     })
   }
@@ -522,8 +522,7 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
       id: 'manual-disconnected-walls',
       severity: 'error',
       message: geometry.pdfCalibration
-        ? // Face links come only from the source sheet; there is no manual pairing step to suggest.
-          `Внутренние и наружные грани не связаны исходными парами одного тела стены; отрезков вне общей связи: ${rankedGroups.slice(1).reduce((total, group) => total + group.ids.length, 0)}. Связь берётся только из PDF: не соединяйте грани произвольными линиями. Пока её нет, схему можно сохранить черновиком, но не подтвердить.`
+        ? `Внутренние и наружные грани не связаны исходными парами одного тела стены; отрезков вне общей связи: ${rankedGroups.slice(1).reduce((total, group) => total + group.ids.length, 0)}. Откройте разметку PDF и сверьте предложенную пару граней вручную либо исправьте обводку. Пока связи нет, схему можно сохранить черновиком, но не подтвердить.`
         : 'Часть стен не соединена с остальной схемой. Сведите их концы или уберите лишние линии.',
       wallIds: rankedGroups
         .slice(1)

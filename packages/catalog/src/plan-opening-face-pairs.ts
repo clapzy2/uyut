@@ -63,8 +63,12 @@ export function currentOpeningFacePairs(
 
 /** Source strips require unchanged hosts, cuts and the free-floor contours they avoid. */
 export function currentWallFacePairs(
-  geometry: Pick<PlanGeometry, 'walls' | 'openings' | 'rooms' | 'pdfCalibration'>,
+  geometry: Pick<
+    PlanGeometry,
+    'walls' | 'openings' | 'rooms' | 'pdfCalibration' | 'requiresSourceReviewReimport'
+  >,
 ): PlanWallFacePair[] {
+  if (geometry.requiresSourceReviewReimport) return []
   if (!sameRoomPolygons(geometry)) return []
   const sourcePairs =
     geometry.pdfCalibration?.sourceWallFacePairs ?? geometry.pdfCalibration?.wallFacePairs ?? []

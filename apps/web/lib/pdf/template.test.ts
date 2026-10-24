@@ -84,6 +84,14 @@ function sample(kind: PdfData['kind']): PdfData {
 }
 
 describe('project PDF template', () => {
+  it('prints human wall review provenance on the project and room plan pages', () => {
+    const data = sample('free')
+    data.wallFaceReview = { sourceSha256: 'a'.repeat(64), pdfPage: 4, humanReviewedPairs: 2 }
+    const html = renderProjectHtml(data, { fontCss: '' })
+    const label = 'Пар граней стен со статусом «сверено человеком»: 2. Исходный PDF, страница 4.'
+    expect(html.split(label)).toHaveLength(3)
+  })
+
   it('prints signed floors and threshold top separately, escapes source metadata, and retains void paths', () => {
     const data = sample('free')
     const polygon = [

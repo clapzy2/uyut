@@ -94,6 +94,8 @@ export type PdfData = {
   /** For geometry-only reports with no price inputs; never display zero as a quote. */
   estimateStatus?: 'not-calculated'
   brief: ContractorBrief | null
+  /** Current source pairs explicitly reviewed by a person; independent of floor levels. */
+  wallFaceReview?: { sourceSha256: string; pdfPage: number; humanReviewedPairs: number }
   /** Explicitly reviewed signed surfaces; never inferred from the render or a flat zero mesh. */
   verticalPlan?: PdfVerticalPlan
   /** Stored, current measured route; held reports carry no successful path. */

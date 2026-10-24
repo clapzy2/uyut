@@ -1,5 +1,5 @@
 import type { PlanGeometry, PlanWallFacePair } from '@uyut/db'
-import { Children, createElement, isValidElement } from 'react'
+import { Children, type ComponentProps, createElement, isValidElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { PlanGeometryPreview } from './plan-geometry-preview'
@@ -74,6 +74,43 @@ describe('предпросмотр 2D-схемы', () => {
 
     const calibration = geometry.pdfCalibration
     if (!calibration) throw new Error('Expected PDF calibration')
+    const humanReviewed: PlanGeometry = {
+      ...geometry,
+      pdfCalibration: {
+        ...calibration,
+        sourceWallFacePairs: [
+          {
+            ...sourcePair,
+            verification: {
+              kind: 'human-source-review',
+              reviewedAt: '2026-10-24T00:00:00.000Z',
+            },
+          },
+        ],
+      },
+    }
+    const reviewedHtml = renderToStaticMarkup(
+      createElement(PlanGeometryPreview, { geometry: humanReviewed }),
+    )
+    expect(reviewedHtml).toContain('Сверено человеком')
+    expect(reviewedHtml).toContain('1 пара граней')
+    expect(reviewedHtml).toContain('владелец сопоставил две стороны стены')
+    const editedReview = renderToStaticMarkup(
+      createElement(PlanGeometryPreview, {
+        geometry: {
+          ...humanReviewed,
+          walls: [{ ...paired, end: { xCm: 90, yCm: 0 } }, unpaired, inner],
+        },
+      }),
+    )
+    expect(editedReview).not.toContain('Сверено человеком')
+    const replacedSource = renderToStaticMarkup(
+      createElement(PlanGeometryPreview, {
+        geometry: { ...humanReviewed, requiresSourceReviewReimport: true },
+      }),
+    )
+    expect(replacedSource).not.toContain('Сверено человеком')
+
     const partial = renderToStaticMarkup(
       createElement(PlanGeometryPreview, {
         geometry: {
@@ -257,6 +294,16 @@ describe('предпросмотр 2D-схемы', () => {
     const sections = Children.toArray(preview.props.children)
     const volumeSection = sections.at(-1)
     expect(isValidElement(volumeSection) && volumeSection.type).toBe(PlanVolumeLaunch)
+    if (!isValidElement<ComponentProps<typeof PlanVolumeLaunch>>(volumeSection))
+      throw new Error('Expected volume launch')
+    const reviewedVolume = renderToStaticMarkup(
+      createElement(PlanVolumeLaunch, {
+        ...volumeSection.props,
+        humanReviewedPairCount: 2,
+      }),
+    )
+    expect(reviewedVolume).toContain('Связи граней стен в этой модели сверены человеком: 2')
+    expect(reviewedVolume).toContain('aria-expanded="false"')
 
     const unverifiedPdf = renderToStaticMarkup(
       createElement(PlanGeometryPreview, {
