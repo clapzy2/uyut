@@ -188,5 +188,29 @@ test.describe('синтетическая расстановка мебели, �
     await expect(
       plan.locator('#room-checks').getByText('Дополните данные для проверки'),
     ).toBeVisible()
+    const operations = plan
+      .locator('details')
+      .filter({ hasText: 'Рабочие зоны мебели · уточнить точность' })
+    await operations.locator('summary').click()
+    const operationInput = operations.getByLabel(`Запас перед предметом, см: ${title}`, {
+      exact: true,
+    })
+    await operationInput.fill('60,5')
+    await operations.getByRole('button', { name: 'Обновить', exact: true }).click()
+    await expect.poll(async () => (await savedItem()).operationClearanceCm).toEqual({ front: 60.5 })
+    await page.reload()
+    await operations.locator('summary').click()
+    await expect(operationInput).toHaveValue('60.5')
+    await operations.getByRole('button', { name: 'Убрать запас', exact: true }).click()
+    await expect.poll(async () => (await savedItem()).operationClearanceCm).toBeNull()
+    await page.reload()
+    await operations.locator('summary').click()
+    await expect(operationInput).toHaveValue('')
+    await expect(operations.getByRole('button', { name: 'Убрать запас', exact: true })).toHaveCount(
+      0,
+    )
+    const afterReset = await savedItem()
+    expect(afterReset.dimensionsCm).toEqual({ width: 52, depth: 42, height: 82 })
+    expect(afterReset.placementCm).toMatchObject({ xCm: 0, yCm: 200 })
   })
 })

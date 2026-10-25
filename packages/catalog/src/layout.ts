@@ -327,9 +327,25 @@ type RoomFunctionRule = {
 }
 
 function roomFunctionRules(kind: FunctionalRoomKind | undefined): RoomFunctionRule[] {
-  const sleeping = (item: LayoutItem) =>
-    item.category === 'bed' ||
-    (item.category === 'sofa' && /диван.?кроват|расклад|спальн/i.test(item.title))
+  const sleeping = (item: LayoutItem) => {
+    if (item.category === 'bed') return true
+    if (item.category !== 'sofa') return false
+    const deniesSleeping =
+      /не[\s-]*раскладн|не\s+раскладыва/i.test(item.title) ||
+      /без\s+(?:спальн[а-яё]*\s+мест[а-яё]*|механизм[а-яё]*\s+(?:трансформаци[а-яё]*|раскладывани[а-яё]*))/i.test(
+        item.title,
+      ) ||
+      /спальн[а-яё]*\s+мест[а-яё]*\s*[:—-]?\s*(?:нет|отсутствует|не\s+предусмотрено)/i.test(
+        item.title,
+      ) ||
+      /не\s+(?:предназначен[а-яё]*\s+)?для\s+сна/i.test(item.title)
+    return (
+      !deniesSleeping &&
+      /диван[\s-]*кроват|раскладн|раскладыва|(?:со|с)\s+спальн[а-яё]*\s+мест[а-яё]*|спальное\s+место/i.test(
+        item.title,
+      )
+    )
+  }
   const seating = (item: LayoutItem) =>
     item.category === 'sofa' || (item.category === 'chair' && item.subcategory === 'armchair')
   const storage = (item: LayoutItem) => item.category === 'storage' && !kitchenRole(item)
@@ -851,7 +867,7 @@ function operationRequirement(
 function roomRuleApplies(roomKind: LayoutRoomKind | undefined, item: LayoutItem): boolean {
   if (!roomKind || roomKind === 'bath') return false
   if (item.category === 'storage') return true
-  if (roomKind === 'bedroom') return item.category === 'bed'
+  if (roomKind === 'bedroom') return item.category === 'bed' || item.category === 'sofa'
   if (roomKind === 'living') return item.category === 'sofa' || item.category === 'table'
   if (roomKind === 'kid')
     return (
@@ -1810,6 +1826,14 @@ function layoutRoomCandidate(
       keepClearZones.some((zone) => rectOverlapsPolygon(rect, zone.polygon))
     ) {
       reject(item.id, 'architecture')
+      return false
+    }
+    if (
+      zone &&
+      (clearanceRects.some((clearance) => overlaps(zone, clearance)) ||
+        keepClearZones.some((keepClear) => rectOverlapsPolygon(zone, keepClear.polygon)))
+    ) {
+      reject(item.id, 'operation-zone')
       return false
     }
     placed.push({
