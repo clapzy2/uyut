@@ -1066,10 +1066,14 @@ export function PlanPageContourEditor({
       !savedVoids ||
       savedExterior === null ||
       savedFloor === null ||
-      (savedFloor && savedExterior?.boundaryRole !== 'outer-wall-envelope')
+      (savedFloor &&
+        !(state === 'proposed' && !savedExterior) &&
+        savedExterior?.boundaryRole !== 'outer-wall-envelope')
     ) {
       setError(
-        'Замкните начатые контуры и привяжите их вершины к узлам PDF. Отдельную границу пола сохраняйте вместе с наружной стороной стен; проверьте её назначение и положение комнат внутри пола.',
+        state === 'proposed'
+          ? 'Замкните начатые контуры и привяжите их вершины к узлам PDF. Проверьте назначение внешней границы, если она нанесена, и положение комнат внутри пола.'
+          : 'Замкните начатые контуры и привяжите их вершины к узлам PDF. Отдельную границу пола сохраняйте вместе с наружной стороной стен; проверьте её назначение и положение комнат внутри пола.',
       )
       return
     }
