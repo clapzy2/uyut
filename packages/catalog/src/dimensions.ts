@@ -18,6 +18,11 @@ const TRIPLE =
   /(?<!\d)(?<!\d[.,])(\d{2,4}(?:[.,]\d+)?)\s*[х×x*]\s*(\d{2,4}(?:[.,]\d+)?)\s*[х×x*]\s*(\d{2,4}(?:[.,]\d+)?)(?!\d)\s*(мм|см|mm|cm)?/gi
 const PAIR =
   /(?<!\d)(?<!\d[.,])(\d{2,4}(?:[.,]\d+)?)\s*[х×x*]\s*(\d{2,4}(?:[.,]\d+)?)\s*(мм|см|mm|cm)/gi
+const NAMED_AXIS =
+  /(?<![\p{L}\p{N}_])(ширина|глубина|высота)\s*\((мм|см|mm|cm)\)\s*:\s*(\d{2,4}(?:[.,]\d+)?)(?!\d|[.,]\d)/giu
+const DIMENSION_SECTION =
+  /(?:размеры|габариты)\s+(?:изделия|товара|дивана|кровати|предмета|упаковки|коробки|матраса|спального места|ниши)|упаковка|матрас|спальное место|спальная поверхность|внутренние (?:размеры|габариты)/giu
+const BODY_SECTION = /^(?:размеры|габариты)\s+(?:изделия|товара|дивана|кровати|предмета)$/iu
 
 /**
  * Размеры, которые описывают не сам предмет. «Диван, спальное место 1100×1920» — это
@@ -28,14 +33,11 @@ const NOT_THE_OBJECT =
   /(спальное место|спальная поверхность|матрас|упаковк|в упаковке|короб|ниша|ниши|внутренн)[^.;]{0,30}$/i
 
 /**
- * То же самое для кровати. У неё спальное место и есть габарит: рама шире сантиметров
- * на пять, и это ближе к правде, чем пустое поле. У дивана наоборот — там спальное место
- * меряется в разложенном виде и к месту у стены отношения не имеет.
- *
- * Замер на боевом каталоге: из 301 кровати размеры были у 127. Остальные подписаны
- * «спальное место 1600×2000 мм», и мы их выбрасывали.
+ * У товара, который сам является матрасом, его размеры описывают предмет.
+ * У кровати размер матраса или спального места не доказывает наружный размер рамы.
  */
-const NOT_THE_BED = /(упаковк|в упаковке|короб|ниша|ниши|внутренн)[^.;]{0,30}$/i
+const NOT_THE_MATTRESS =
+  /(спальное место|спальная поверхность|упаковк|в упаковке|короб|ниша|ниши|внутренн)[^.;]{0,30}$/i
 
 /** Первое совпадение, перед которым не стоит оговорки вроде «спальное место». */
 function firstAboutTheObject(
@@ -81,12 +83,41 @@ function sane(value: number, divisor: number): number | undefined {
  * можно не полагаться, а неверному числу веришь.
  */
 export type ParseOptions = {
-  /** Спальное место считать габаритом: верно для кровати и матраса, неверно для дивана */
+  /** @deprecated Sleeping sizes never prove an outer bed-frame footprint. */
   sleepingIsFootprint?: boolean
 }
 
-export function parseDimensionsCm(text: string, options: ParseOptions = {}): DimensionsCm {
-  const skip = options.sleepingIsFootprint ? NOT_THE_BED : NOT_THE_OBJECT
+export function parseDimensionsCm(text: string, _options: ParseOptions = {}): DimensionsCm {
+  const skip = /^матрас(?:\s|$)/iu.test(text.trim()) ? NOT_THE_MATTRESS : NOT_THE_OBJECT
+  const named: DimensionsCm = {}
+  const conflictingAxes = new Set<keyof DimensionsCm>()
+  let hasNamedAxes = false
+  let excludedSection = false
+  let scannedUntil = 0
+  let sectionStart = 0
+  for (const match of text.matchAll(NAMED_AXIS)) {
+    hasNamedAxes = true
+    const preceding = text.slice(scannedUntil, match.index)
+    for (const section of preceding.matchAll(DIMENSION_SECTION)) {
+      excludedSection = !BODY_SECTION.test(section[0])
+      sectionStart = scannedUntil + section.index + section[0].length
+    }
+    scannedUntil = match.index
+    if (excludedSection || skip.test(text.slice(sectionStart, match.index))) continue
+    const label = match[1]?.toLowerCase()
+    const axis = label === 'ширина' ? 'width' : label === 'глубина' ? 'depth' : 'height'
+    if (conflictingAxes.has(axis)) continue
+    const value = Number(match[3]?.replace(',', '.'))
+    const centimetres = sane(value, unitDivisor(match[2], [value]))
+    if (centimetres === undefined || (named[axis] !== undefined && named[axis] !== centimetres)) {
+      conflictingAxes.add(axis)
+      delete named[axis]
+      continue
+    }
+    named[axis] = centimetres
+  }
+  // An explicit but conflicting/excluded axis must never fall back to an unrelated tuple.
+  if (hasNamedAxes) return named
   const triple = firstAboutTheObject(text, TRIPLE, skip)
   if (triple) {
     const values = [triple[1], triple[2], triple[3]].map((value) =>

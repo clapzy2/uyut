@@ -622,12 +622,12 @@ export function PlanReadingCard({
     const transferredRow = reading
       ? planRows(reading, existing, planIsPdf).find((row) => row.roomId && !row.unsupported)
       : undefined
-    const nextRoom = existing.find((room) => room.id === transferredRow?.roomId) ?? existing[0]
+    const nextRoom = existing.find((room) => room.id === transferredRow?.roomId)
     let summary =
       'Попробуем прочитать названия комнат и подписанные мерки. Затем вы сверите результат с исходным листом и выберете, какие комнаты перенести.'
     if (confirmed && roomCount > 0) {
       summary =
-        'Данные с плана уже перенесены в комнаты. Следующий шаг — открыть комнату и уточнить её мерки перед проверкой мебели. Перенос не подтверждает обмер и не создаёт точную 2D-схему.'
+        'Чтение плана сохранено. Проверьте, какие помещения перенесены в комнаты для интерьера: совпадение названия со старой комнатой само по себе не подтверждает перенос новых данных. Откройте список с чертежа, чтобы сверить выбор. Перенос не подтверждает обмер и не создаёт точную 2D-схему.'
     } else if (confirmed) {
       summary =
         'Чтение плана сохранено, но комнат проекта сейчас нет. Добавьте комнаты для интерьера или прочитайте план заново, чтобы выбрать их из списка. Сохранённая 2D-схема показана ниже отдельно.'
@@ -637,11 +637,13 @@ export function PlanReadingCard({
       <div className="mt-6 border-t border-line pt-6">
         <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
           {confirmed && roomCount > 0
-            ? 'Комнаты перенесены · мерки требуют сверки'
+            ? 'Чтение сохранено · проверьте перенос комнат'
             : 'План → сверка → комнаты'}
         </p>
         <h3 className="mt-2 font-serif text-2xl text-ink">
-          {confirmed && roomCount > 0 ? 'Продолжите в мерках комнаты' : 'Прочитайте нужный лист'}
+          {confirmed && roomCount > 0
+            ? 'Проверьте комнаты для интерьера'
+            : 'Прочитайте нужный лист'}
         </h3>
         <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-ink-2">{summary}</p>
         {reading ? (
@@ -672,7 +674,7 @@ export function PlanReadingCard({
               onClick={editSavedReading}
               disabled={reading_ || saving || conflict || reviewEditing}
             >
-              Изменить данные с чертежа
+              {confirmed ? 'Проверить комнаты с чертежа' : 'Изменить данные с чертежа'}
             </Button>
           ) : null}
           {!reading ? (
@@ -1148,9 +1150,32 @@ export function PlanReadingCard({
                 </p>
               ) : null}
               {row.roomId ? (
-                <p className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
-                  Обновим данные комнаты «{row.roomName}», которая уже есть в проекте. Проверьте
-                  новые числа перед переносом.
+                <div className="mt-2 pl-[30px] text-[13px] leading-relaxed text-ink-2">
+                  <p>
+                    Обновим данные комнаты «{row.roomName}», которая уже есть в проекте. Проверьте
+                    новые числа перед переносом.
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      const previous = existing.find((room) => room.id === row.roomId)
+                      patch(index, {
+                        roomId: undefined,
+                        roomName: undefined,
+                        ambiguous: false,
+                        ...(row.wish === (previous?.notes ?? '') ? { wish: '' } : {}),
+                      })
+                    }}
+                  >
+                    Создать новую комнату вместо обновления
+                  </Button>
+                </div>
+              ) : null}
+              {row.include && !row.roomId && !row.unsupported && !row.ambiguous ? (
+                <p className="mt-2 pl-[30px] text-[13px] text-ink-2">
+                  Создадим новую комнату. Существующие комнаты не изменятся.
                 </p>
               ) : null}
               {row.unsupported ? (

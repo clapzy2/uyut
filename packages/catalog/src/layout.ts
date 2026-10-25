@@ -1,6 +1,10 @@
 import type { CatalogCategory } from '@uyut/db'
 import type { DimensionsCm } from './dimensions'
-import { parseWallReservations, type WallReservation, type WallReservationKind } from './openings'
+import {
+  parseWallReservationDescription,
+  type WallReservation,
+  type WallReservationKind,
+} from './openings'
 import type { CatalogSubcategory } from './subcategories'
 
 /**
@@ -1442,10 +1446,13 @@ function layoutRoomCandidate(
   const explicitFloorReservations = room.floorReservations
   const hasGeometryReservations =
     explicitReservations !== undefined || explicitFloorReservations !== undefined
+  const description = hasGeometryReservations
+    ? { reservations: [], missingSafetyData: [] }
+    : parseWallReservationDescription(room.layoutNotes, { widthCm, depthCm })
   const reservations =
     explicitReservations !== undefined
       ? explicitReservations.map((reservation) => ({ ...reservation }))
-      : parseWallReservations(room.layoutNotes, { widthCm, depthCm })
+      : description.reservations
   const reservationSource = hasGeometryReservations
     ? 'geometry'
     : reservations.length > 0
@@ -1471,7 +1478,9 @@ function layoutRoomCandidate(
   const routeBlockedPolygons = keepClearZones
     .filter((zone) => zone.kind === 'obstacle' || zone.kind === 'radiator')
     .map((zone) => zone.polygon)
-  const missingSafetyData = [...new Set(room.missingSafetyData ?? [])]
+  const missingSafetyData = [
+    ...new Set([...(room.missingSafetyData ?? []), ...description.missingSafetyData]),
+  ]
   const wallFloorReservations = reservations.map((reservation) =>
     wallReservationToFloorReservation(reservation, widthCm, depthCm),
   )
@@ -2179,16 +2188,21 @@ function layoutRoomCandidate(
 
   const safetyChecks: RoomLayout['safetyChecks'] = []
   if (room.roomKind && (placed.length > 0 || walkwayCm < WALKWAY_CM)) {
+    const routePrerequisitesKnown =
+      reservationSource === 'geometry' && missingSafetyData.length === 0
     safetyChecks.push({
       id: 'continuous-route',
       label: 'Непрерывный проход по комнате',
       detail:
         walkwayCm >= WALKWAY_CM
-          ? `Самое узкое место маршрута — ${walkwayCm} см.`
+          ? routePrerequisitesKnown
+            ? `Самое узкое место маршрута — ${walkwayCm} см.`
+            : `На предварительной схеме проход ${walkwayCm} см. Уточните контур, проёмы и свободные зоны, прежде чем считать маршрут проверенным.`
           : placed.length > 0
             ? `Самое узкое место — ${walkwayCm} см, требуется перестановка мебели.`
             : `Самое узкое место с учётом проёмов и препятствий — ${walkwayCm} см, это меньше принятого прохода ${WALKWAY_CM} см.`,
-      status: walkwayCm >= WALKWAY_CM ? 'checked' : 'blocked',
+      status:
+        walkwayCm < WALKWAY_CM ? 'blocked' : routePrerequisitesKnown ? 'checked' : 'preliminary',
     })
   }
   if (functionalZones.length > 0) {

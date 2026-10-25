@@ -520,16 +520,17 @@ describe('planRows', () => {
     expect(rows[0]?.wish).toBe('телевизор и батарею оставить')
   })
 
-  it('две спальни с плана не достаются одной и той же комнате', () => {
+  it('не выбирает первую из двух исходных спален для единственной комнаты проекта', () => {
     const rows = planRows(
       reading([
-        { name: 'Спальня', kind: 'bedroom', widthCm: 290 },
-        { name: 'Спальня', kind: 'bedroom', widthCm: 310 },
+        { name: 'Спальня', kind: 'bedroom', sourceNumber: 3, widthCm: 290 },
+        { name: 'Спальня', kind: 'bedroom', sourceNumber: 6, widthCm: 310 },
       ]),
       [{ id: 'r1', name: 'Спальня', kind: 'bedroom', notes: null }],
     )
-    expect(rows[0]?.roomId).toBe('r1')
-    expect(rows[1]?.roomId).toBeUndefined()
+    expect(rows.every((row) => row.roomId === undefined && row.ambiguous === true)).toBe(true)
+    expect(rows.map((row) => row.sourceNumber)).toEqual([3, 6])
+    expect(rows.map((row) => row.width)).toEqual(['290', '310'])
   })
 })
 
@@ -563,6 +564,41 @@ describe('комнаты с номерами', () => {
     name,
     kind: 'bedroom' as const,
     notes: null,
+  })
+
+  it('не выбирает первую комнату проекта при нескольких точных совпадениях', () => {
+    const rows = planRows(reading([{ name: 'Спальня', kind: 'bedroom', sourceNumber: 6 }]), [
+      { ...bedroom('r1', 'Спальня'), notes: 'Заметки первой' },
+      { ...bedroom('r2', ' спальня '), notes: 'Заметки второй' },
+    ])
+    expect(rows[0]?.roomId).toBeUndefined()
+    expect(rows[0]?.ambiguous).toBe(true)
+    expect(rows[0]?.wish).toBe('')
+  })
+
+  it('не распределяет две исходные спальни по порядку после удаления номера', () => {
+    const rows = planRows(
+      reading([
+        { name: 'Спальня 1', kind: 'bedroom', sourceNumber: 3 },
+        { name: 'Спальня 2', kind: 'bedroom', sourceNumber: 6 },
+      ]),
+      [bedroom('r1', 'Спальня')],
+    )
+    expect(rows.every((row) => row.roomId === undefined && row.ambiguous === true)).toBe(true)
+  })
+
+  it('неточное совпадение не забирает комнату у следующей точной строки', () => {
+    const rows = planRows(
+      reading([
+        { name: 'Спальня', kind: 'bedroom', sourceNumber: 3 },
+        { name: 'Спальня 2', kind: 'bedroom', sourceNumber: 6 },
+      ]),
+      [bedroom('r2', 'Спальня 2')],
+    )
+    expect(rows[0]?.roomId).toBeUndefined()
+    expect(rows[0]?.ambiguous).toBe(true)
+    expect(rows[1]?.roomId).toBe('r2')
+    expect(rows[1]?.ambiguous).toBeUndefined()
   })
 
   it('«Спальня 2» с плана достаётся «Спальне 2», а не первой попавшейся', () => {

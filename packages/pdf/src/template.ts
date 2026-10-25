@@ -372,7 +372,7 @@ function roomPlan(plan: RoomLayout | null): string {
       : plan.reservationSource === 'geometry'
         ? `<p class="verdict status">На схеме: проход посередине ${plan.walkwayCm} см, суммарно свободных участков стен ${plan.freeWallCm} см. Проёмы учтены по подтверждённой 2D-схеме.</p>`
         : plan.reservationSource === 'description'
-          ? `<p class="verdict status">На схеме: проход посередине ${plan.walkwayCm} см, суммарно свободных участков стен ${plan.freeWallCm} см. Проёмы учтены по описанию комнаты; уточните их на плане.</p>`
+          ? `<p class="verdict status">На схеме: проход посередине ${plan.walkwayCm} см, суммарно свободных участков стен ${plan.freeWallCm} см. Из описания учтены только участки с указанными размерами и положением. Недостающие сведения и предварительные запасы открывания требуют сверки.</p>`
           : `<p class="verdict status">На схеме: проход посередине ${plan.walkwayCm} см, суммарно свободных участков стен ${plan.freeWallCm} см. Для проверки доступа укажите двери и окна на плане.</p>`
   const missingOperations = plan.operationInputs.filter((item) => item.valueCm === undefined)
   const operationNote =

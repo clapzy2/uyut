@@ -50,7 +50,7 @@ function cardNodes(node: ReactNode): ReactElement<CardNodeProps>[] {
   return [node, ...cardNodes(node.props.children)]
 }
 
-function cardHarness(initial: PlanReading, revision = 'r1') {
+function cardHarness(initial: PlanReading, revision = 'r1', existing: ExistingRoom[] = []) {
   const state: unknown[] = []
   let cursor = 0
   let changed = false
@@ -73,7 +73,7 @@ function cardHarness(initial: PlanReading, revision = 'r1') {
     hasPlan: true,
     planIsPdf: true,
     roomCount: 0,
-    existing: [],
+    existing,
   }
   return (reading = props.reading, sourceRevision = props.sourceRevision) => {
     props = { ...props, reading, sourceRevision }
@@ -115,6 +115,28 @@ describe('source refresh while the reading card stays mounted', () => {
       warnings: [],
     },
   }
+
+  it('lets the user create a separate source room instead of overwriting a matching older room', () => {
+    const rerender = cardHarness({ ...reading, confirmedAt: undefined }, 'r1', [
+      { id: 'older', name: 'Спальня', kind: 'bedroom', notes: 'Старые заметки' },
+    ])
+    const createNew = rerender().find(
+      (node) => node.props.children === 'Создать новую комнату вместо обновления',
+    )
+    expect(createNew?.props.onClick).toBeTypeOf('function')
+    createNew?.props.onClick?.()
+    const nodes = rerender()
+    expect(
+      nodes.some((node) => node.props.children === 'Создать новую комнату вместо обновления'),
+    ).toBe(false)
+    expect(
+      nodes.some(
+        (node) =>
+          node.props.children === 'Создадим новую комнату. Существующие комнаты не изменятся.',
+      ),
+    ).toBe(true)
+    expect(nodes.some((node) => node.props.value === 'Старые заметки')).toBe(false)
+  })
 
   function open(nodes: ReactElement<CardNodeProps>[]) {
     const button = nodes.find((node) => node.props.children === 'Разметить комнаты и объекты')
@@ -436,7 +458,7 @@ describe('plan review form', () => {
       confirmedAt: '2026-10-03',
       rooms: [{ name: 'Спальня', sourceNumber: 4, kind: 'bedroom' }],
     })
-    expect(html).toContain('Изменить данные с чертежа')
+    expect(html).toContain('Проверить комнаты с чертежа')
   })
 
   it('offers missing schedule identities separately with no preselected purpose or dimensions', () => {
@@ -486,7 +508,8 @@ describe('plan review form', () => {
     expect(render(reading)).toContain('комнат проекта сейчас нет')
     expect(render(reading)).not.toContain('Комнаты перенесены')
     expect(render(reading)).not.toContain('Данные с плана уже перенесены в комнаты')
-    expect(render(reading, 1)).toContain('Данные с плана уже перенесены в комнаты')
+    expect(render(reading, 1)).toContain('Проверьте, какие помещения перенесены')
+    expect(render(reading, 1)).not.toContain('Данные с плана уже перенесены в комнаты')
   })
 
   it('shows a PDF page selector instead of promising to read the first three pages', () => {

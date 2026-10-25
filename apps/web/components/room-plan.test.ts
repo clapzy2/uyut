@@ -8,6 +8,23 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 vi.mock('@/components/plan-volume-launch', () => ({ PlanVolumeLaunch: () => null }))
 
 describe('подписи дробных мерок на схеме комнаты', () => {
+  it('does not claim compared furniture arrangements when no item has known dimensions', () => {
+    const layout = layoutRoom({ widthCm: 320, depthCm: 600 }, [
+      {
+        id: 'unknown-sofa',
+        title: 'Диван без габаритов',
+        category: 'sofa',
+        quantity: 1,
+        dimensions: {},
+      },
+    ])
+    const html = renderToStaticMarkup(createElement(RoomPlan, { layout, projectId: 'project' }))
+    expect(layout.placed).toEqual([])
+    expect(html).toContain('Предметы пока не размещены')
+    expect(html).not.toContain('Проверено вариантов расстановки')
+    expect(html).not.toContain('Сервис сравнил')
+  })
+
   it('оставляет редактирование своих габаритов доступным после размещения и без плана комнаты', () => {
     const html = renderToStaticMarkup(
       createElement(RoomItemSizes, {
