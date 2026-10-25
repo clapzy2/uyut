@@ -469,7 +469,7 @@ export function planVolumeBlocker(geometry: PlanGeometry): string | undefined {
   if (geometry.pdfCalibration?.floorScope?.kind === 'partial')
     return `Пол проверен частично: ${geometry.pdfCalibration.floorScope.note} Полный объём не строится.`
   if (geometry.pdfCalibration?.sourceState === 'proposed')
-    return 'Проектный 2D-черновик описывает будущие изменения. Его перенос в 3D ещё не поддерживается; существующий обмер им не заменяется.'
+    return 'Проектный 2D-черновик описывает будущие изменения. Полный подтверждённый 3D по нему не строится; отдельный проектный просмотр уровней не заменяет существующий обмер.'
   if (planVolume(geometry)) return undefined
   if (geometry.requiresSourceReviewReimport)
     return 'Разметка исходного PDF изменилась после переноса. Обновите 2D-схему.'

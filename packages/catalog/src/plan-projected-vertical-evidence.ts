@@ -35,6 +35,11 @@ export function parsePrintedProjectValue(token: unknown, unit: unknown): number 
   return Number.isFinite(value) ? (value === 0 ? 0 : value) : undefined
 }
 
+/** A signed printed level zero, not a room number or an unsigned dimension. */
+export function isPrintedProjectZero(text: string): boolean {
+  return /^[±+−-]0(?:[.,]0+)?$/.test(text.trim())
+}
+
 const id = z.string().trim().min(1).max(100)
 const coordinate = z.number().finite().min(-10000).max(10000)
 const point = z.object({ xCm: coordinate, yCm: coordinate }).strict()
@@ -110,9 +115,23 @@ export const projectedVerticalEvidenceSchema = z
     reviewNote: z.string().trim().min(1).max(1000).optional(),
     reviewedAt: z.string().datetime(),
     reviewedBy: id,
+    floorContourReview: z
+      .object({
+        zeroCaptionIndex: z.number().int().min(0),
+        zeroCaptionText: z.string().max(1000).refine(isPrintedProjectZero),
+        reviewedAt: z.string().datetime(),
+        reviewedBy: id,
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .refine((value) => {
+    if (
+      value.floorContourReview &&
+      (value.quantity !== 'floor-level' || value.target.kind !== 'room')
+    )
+      return false
     if (parsePrintedProjectValue(value.printedValue, value.unit) !== value.valueCm) return false
     if (value.source.sha256 !== value.geometrySource.sha256) return false
     if (value.source.captionIndexes.length !== value.source.captionTexts.length) return false

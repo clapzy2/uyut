@@ -1,5 +1,6 @@
 import type { LayoutProblem, RoomLayout } from '@uyut/catalog'
 import { WALKWAY_CM } from '@uyut/catalog'
+import { projectFloorPreviewPoint } from '@uyut/catalog/plan-projected-floor-preview'
 import { signedElevationSum } from '@uyut/catalog/plan-vertical-floor-geometry'
 import { roomVolume } from '@uyut/catalog/room-volume'
 import {
@@ -222,6 +223,7 @@ function wallFaceReviewNote(review: PdfData['wallFaceReview']): string {
 function about(data: PdfData, free: boolean): string {
   const contents = [
     data.verticalPlan ? 'Полы и пороги' : null,
+    data.projectedPlan?.floorPreview ? 'Проектные уровни пола' : null,
     data.projectedPlan ? 'Проектные отметки' : null,
     data.deliveryPlan ? 'Маршрут заноса' : null,
     ...data.rooms.map((room) => room.name),
@@ -492,11 +494,101 @@ function projectedDrawingPage(data: PdfData, free: boolean): string {
   </section>`
 }
 
+function projectedFloorPage(data: PdfData, free: boolean): string {
+  const model = data.projectedPlan?.floorPreview
+  if (!model?.floors.length) return ''
+  const view = { azimuthDeg: -30, elevationDeg: 35, verticalScale: 1 as const }
+  const project = (point: { xCm: number; yCm: number }, level: number) =>
+    projectFloorPreviewPoint(point, level, view)
+  let floors: Array<{
+    floor: (typeof model.floors)[number]
+    points: Array<{ x: number; y: number; depth: number }>
+  }>
+  let held: Array<{
+    room: (typeof model.heldRooms)[number]
+    points: Array<{ x: number; y: number; depth: number }>
+  }>
+  let zeroPoints: Array<{ x: number; y: number; depth: number }>
+  try {
+    floors = model.floors.map((floor) => ({
+      floor,
+      points: floor.polygon.map((point) => project(point, floor.elevationCm)),
+    }))
+    held = model.heldRooms.map((room) => ({
+      room,
+      points: room.polygon.map((point) => project(point, 0)),
+    }))
+    zeroPoints = model.floors.flatMap((floor) => floor.polygon.map((point) => project(point, 0)))
+  } catch {
+    return ''
+  }
+  const points = [
+    ...floors.flatMap((item) => item.points),
+    ...held.flatMap((item) => item.points),
+    ...zeroPoints,
+  ]
+  if (!points.length) return ''
+  const left = Math.min(...points.map((point) => point.x))
+  const top = Math.min(...points.map((point) => point.y))
+  const width = Math.max(...points.map((point) => point.x)) - left
+  const height = Math.max(...points.map((point) => point.y)) - top
+  if (width <= 0 || height <= 0) return ''
+  const padding = Math.max(width, height) * 0.08
+  const polygon = (ring: Array<{ x: number; y: number }>) =>
+    ring.map((point) => `${point.x},${point.y}`).join(' ')
+  const colors = ['#c6a777', '#8eae9a', '#91a8c5', '#c795a2', '#ad98bf', '#c7b364', '#82b6b9']
+  const contextual = held
+    .map(
+      ({ room, points }) =>
+        `<polygon points="${polygon(points)}" fill="none" stroke="#77716a" stroke-width="1" stroke-dasharray="5 5" vector-effect="non-scaling-stroke"><title>${esc(room.name)}: проекция контура, уровень не задан</title></polygon>`,
+    )
+    .join('')
+  const surfaces = floors
+    .sort(
+      (a, b) =>
+        b.points.reduce((sum, point) => sum + point.depth, 0) / b.points.length -
+        a.points.reduce((sum, point) => sum + point.depth, 0) / a.points.length,
+    )
+    .map(
+      ({ floor, points }) =>
+        `<polygon points="${polygon(points)}" fill="${colors[floor.roomIndex % colors.length]}" fill-opacity="0.85" stroke="#51483a" stroke-width="1.5" vector-effect="non-scaling-stroke"><title>${esc(floor.name)}: ${formatDimensionCm(floor.elevationCm)} см</title></polygon>`,
+    )
+    .join('')
+  const scales = model.floors
+    .filter((floor) => floor.elevationCm !== 0)
+    .map((floor) => {
+      const point = floor.polygon[0]
+      if (!point) return ''
+      const start = project(point, 0)
+      const end = project(point, floor.elevationCm)
+      return `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" stroke="#0369a1" stroke-width="2" stroke-dasharray="3 2" vector-effect="non-scaling-stroke"/>`
+    })
+    .join('')
+  const legend = model.floors
+    .map(
+      (floor) =>
+        `<p class="small" style="margin-top:1.5mm;break-inside:avoid"><span style="display:inline-block;width:3mm;height:3mm;background:${colors[floor.roomIndex % colors.length]};border:0.2mm solid #6d6258;margin-right:2mm"></span>${esc(floor.name)}: <strong>${floor.elevationCm > 0 ? '+' : ''}${formatDimensionCm(floor.elevationCm)} см</strong></p>`,
+    )
+    .join('')
+  return `<section class="page projected-floor-preview">
+    ${ribbon(free)}<p class="eyebrow">Будущая планировка · отдельно сверенные уровни</p><h1 style="margin-top:3mm">Проектные уровни пола</h1>
+    <p class="small" style="margin-top:3mm">Это проектный просмотр, не подтверждённый натурный обмер. Контуры: PDF, страница ${model.sourcePage}. Общий проектный ноль: «${esc(model.datum.captionText)}», PDF, страница ${model.datum.pdfPage}, индекс подписи ${model.datum.captionIndex}.</p>
+    ${model.floorScopeNote ? `<p class="small" style="margin-top:3mm">Пол проверен частично: ${esc(model.floorScopeNote)}</p>` : ''}
+    <svg style="display:block;width:100%;height:110mm;margin-top:3mm" viewBox="${left - padding} ${top - padding} ${width + padding * 2} ${height + padding * 2}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Проектные уровни пола без неподтверждённых поверхностей">${contextual}${surfaces}${scales}</svg>
+    <p class="small" style="margin-top:2mm">Вертикальный масштаб 1×, без увеличения. Заливка обозначает только отдельно сверенный уровень всего контура. Пунктир без заливки - проекции неизвестных контуров, не пол на нуле. Синие линии к нулю - графическая шкала, не стены.</p>
+    ${legend}
+    ${model.heldRooms.map((room) => `<p class="small" style="margin-top:2mm;break-inside:avoid">${esc(room.name)}: ${esc(room.reason)}</p>`).join('')}
+    <p class="small" style="margin-top:3mm">Неизвестные стены, потолки, толщина пола и пороги не построены. Проход мебели и маршрут заноса этим просмотром не проверяются.</p>
+  </section>`
+}
+
 function projectedPlanPages(data: PdfData, free: boolean): string {
   const report = data.projectedPlan
   if (!report) return ''
   const drawing = projectedDrawingPage(data, free)
-  if (drawing && !report.rows.length && !report.staleCount) return drawing
+  const floorPreview = projectedFloorPage(data, free)
+  if ((drawing || floorPreview) && !report.rows.length && !report.staleCount)
+    return drawing + floorPreview
   const pages: (typeof report.rows)[] = [[]]
   const lines = (text: string) => Math.ceil(text.length / 80)
   let used = 12 + lines(report.floorScopeNote ?? '')
@@ -512,6 +604,7 @@ function projectedPlanPages(data: PdfData, free: boolean): string {
   }
   return (
     drawing +
+    floorPreview +
     pages
       .map(
         (rows, index) => `<section class="page projected-plan-page">

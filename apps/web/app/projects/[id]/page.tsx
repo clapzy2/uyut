@@ -1,4 +1,5 @@
 import { estimateProject } from '@uyut/catalog'
+import { projectedFloorPreview } from '@uyut/catalog/plan-projected-floor-preview'
 import type { PlanReading } from '@uyut/db'
 import type { Metadata } from 'next'
 import Link from 'next/link'
@@ -17,6 +18,8 @@ import { PlanGeometryEditor } from '@/components/plan-geometry-editor'
 import { PlanGeometryPreview } from '@/components/plan-geometry-preview'
 import { PlanPageGeometryImport } from '@/components/plan-page-geometry-import'
 import { PlanProjectedEvidence } from '@/components/plan-projected-evidence'
+import { PlanProjectedFloorPreview } from '@/components/plan-projected-floor-preview'
+import { PlanProjectedFloorReview } from '@/components/plan-projected-floor-review'
 import { PlanReadingCard } from '@/components/plan-reading-card'
 import { ProjectGuide } from '@/components/project-guide'
 import { ProjectSettingsDialog } from '@/components/project-settings-dialog'
@@ -106,6 +109,9 @@ export default async function ProjectPage({ params }: { params: Params }) {
   const planUrl = project.planUrl ? await presignedObjectUrl(project.planUrl) : null
   const planIsPdf = project.planUrl?.toLowerCase().endsWith('.pdf') ?? false
   const sourceRevision = planEditRevision(project.planUrl, project.planReading)
+  const projectedFloors = project.planReading?.geometry
+    ? projectedFloorPreview(project.planReading.geometry)
+    : undefined
   const geometryReadings = project.planReading
     ? geometryRoomReadings(
         project.planReading.rooms,
@@ -383,6 +389,15 @@ export default async function ProjectPage({ params }: { params: Params }) {
         />
       ) : null}
 
+      {projectedFloors ? <PlanProjectedFloorPreview model={projectedFloors} /> : null}
+      {isOwner && project.planReading?.geometry ? (
+        <PlanProjectedFloorReview
+          key={sourceRevision}
+          projectId={project.id}
+          geometry={project.planReading.geometry}
+          sourceRevision={sourceRevision}
+        />
+      ) : null}
       {project.planReading?.geometry ? (
         <PlanProjectedEvidence
           projectId={project.id}

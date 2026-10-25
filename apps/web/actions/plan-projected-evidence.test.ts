@@ -29,6 +29,7 @@ vi.mock('next/headers', () => ({ headers: async () => new Headers() }))
 import {
   getProjectedCaptionSource,
   removeProjectedVerticalEvidence,
+  reviewProjectedFloorContour,
   saveProjectedVerticalEvidence,
 } from './plan-projected-evidence'
 
@@ -90,6 +91,7 @@ function prepared(pdfPage: number) {
       source: { page: pdfPage },
       labels: [
         { nativeIndex: 243, name: '-0.050', pagePoint: { x: 500, y: 550 } },
+        { nativeIndex: 239, name: '±0.000', pagePoint: { x: 400, y: 400 } },
         { nativeIndex: 97, name: '2 680', pagePoint: { x: 200, y: 300 } },
         { nativeIndex: 71, name: '700х2360', pagePoint: { x: 800, y: 400 } },
         {
@@ -272,5 +274,158 @@ describe('documentary proposed values through owner actions', () => {
     const saved = mocks.save.mock.calls[0]?.[2] as PlanReading
     expect(saved.geometry?.projectedVerticalEvidence).toEqual([])
     expect(saved.geometry?.rooms).toEqual(geometry.rooms)
+  })
+
+  async function savedFloor() {
+    await saveProjectedVerticalEvidence('project', request(), revision())
+    reading = mocks.save.mock.calls[0]?.[2] as PlanReading
+    project.planReading = reading
+    mocks.save.mockClear()
+    const entry = reading.geometry?.projectedVerticalEvidence?.[0]
+    if (!entry) throw new Error('Missing floor statement')
+    return entry
+  }
+
+  it('stores an explicitly reviewed whole-room scope and exact printed zero without changing physical geometry', async () => {
+    const entry = await savedFloor()
+    const result = await reviewProjectedFloorContour(
+      'project',
+      {
+        mode: 'apply',
+        evidenceId: entry.id,
+        zeroCaptionIndex: 239,
+        roomContourAcknowledged: true,
+        commonZeroAcknowledged: true,
+      },
+      revision(),
+    )
+    expect(result.ok).toBe(true)
+    const saved = mocks.save.mock.calls[0]?.[2] as PlanReading
+    expect(saved.geometry?.projectedVerticalEvidence?.[0]?.floorContourReview).toMatchObject({
+      zeroCaptionIndex: 239,
+      zeroCaptionText: '±0.000',
+      reviewedBy: 'owner',
+    })
+    expect(saved.geometry?.rooms).toEqual(geometry.rooms)
+    expect(saved.geometry?.walls).toEqual(geometry.walls)
+    expect(saved.geometry?.footprint).toBeUndefined()
+    expect(saved.geometry?.verticalReference).toBeUndefined()
+  })
+
+  it.each([
+    'no-scope',
+    'no-datum',
+    'unsigned-zero',
+    'dimension-zero',
+    'wrong-zero',
+    'changed-caption',
+    'changed-room',
+    'stale-revision',
+    'conflicting-shower',
+  ])('refuses %s without assigning a floor surface', async (kind) => {
+    const entry = await savedFloor()
+    const input = {
+      mode: 'apply',
+      evidenceId: entry.id,
+      zeroCaptionIndex: 239,
+      roomContourAcknowledged: true,
+      commonZeroAcknowledged: true,
+    }
+    if (kind === 'no-scope') input.roomContourAcknowledged = false
+    if (kind === 'no-datum') input.commonZeroAcknowledged = false
+    if (kind === 'wrong-zero') input.zeroCaptionIndex = 243
+    if (kind === 'unsigned-zero' || kind === 'dimension-zero' || kind === 'changed-caption') {
+      const page = prepared(3)
+      const zero = page.nativeTextAnchors.labels.find(
+        (item) => item.nativeIndex === (kind === 'changed-caption' ? 243 : 239),
+      )
+      if (!zero) throw new Error('Missing mock caption')
+      zero.name = kind === 'unsigned-zero' ? '0.000' : kind === 'dimension-zero' ? '1000' : '-0.060'
+      mocks.prepare.mockResolvedValue(page)
+    }
+    const stored = reading.geometry
+    if (!stored) throw new Error('Missing geometry')
+    if (kind === 'changed-room') {
+      const first = geometry.rooms[0]
+      if (!first) throw new Error('Missing room')
+      stored.rooms[0] = { ...first, name: 'Другая комната' }
+    }
+    if (kind === 'conflicting-shower')
+      stored.projectedVerticalEvidence?.push({
+        ...structuredClone(entry),
+        id: 'shower',
+        printedValue: '+0.150',
+        valueCm: 15,
+        scopeLabel: 'Душевой участок',
+        source: { ...entry.source, captionIndexes: [246], captionTexts: ['+0.150'] },
+      })
+    expect(
+      (
+        await reviewProjectedFloorContour(
+          'project',
+          input,
+          kind === 'stale-revision' ? 'stale' : revision(),
+        )
+      ).ok,
+    ).toBe(false)
+    expect(mocks.save).not.toHaveBeenCalled()
+  })
+
+  it('removes only design surface authority and retains the documentary value', async () => {
+    const entry = await savedFloor()
+    entry.floorContourReview = {
+      zeroCaptionIndex: 239,
+      zeroCaptionText: '±0.000',
+      reviewedAt: '2026-10-25T00:00:00.000Z',
+      reviewedBy: 'owner',
+    }
+    expect(
+      (
+        await reviewProjectedFloorContour(
+          'project',
+          { mode: 'remove', evidenceId: entry.id },
+          revision(),
+        )
+      ).ok,
+    ).toBe(true)
+    const saved = mocks.save.mock.calls[0]?.[2] as PlanReading
+    expect(saved.geometry?.projectedVerticalEvidence?.[0]).toEqual({
+      ...entry,
+      floorContourReview: undefined,
+    })
+    expect(saved.geometry?.projectedVerticalEvidence?.[0]).not.toHaveProperty('floorContourReview')
+  })
+
+  it('does not mix two different printed zeros even when both captions contain the same number', async () => {
+    const entry = await savedFloor()
+    const other = structuredClone(entry)
+    other.id = 'other-reviewed-floor'
+    other.floorContourReview = {
+      zeroCaptionIndex: 239,
+      zeroCaptionText: '±0.000',
+      reviewedAt: '2026-10-25T00:00:00.000Z',
+      reviewedBy: 'owner',
+    }
+    reading.geometry?.projectedVerticalEvidence?.push(other)
+    const page = prepared(3)
+    page.nativeTextAnchors.labels.push({
+      nativeIndex: 241,
+      name: '±0.000',
+      pagePoint: { x: 800, y: 800 },
+    })
+    mocks.prepare.mockResolvedValue(page)
+    const result = await reviewProjectedFloorContour(
+      'project',
+      {
+        mode: 'apply',
+        evidenceId: entry.id,
+        zeroCaptionIndex: 241,
+        roomContourAcknowledged: true,
+        commonZeroAcknowledged: true,
+      },
+      revision(),
+    )
+    expect(result.ok).toBe(false)
+    expect(mocks.save).not.toHaveBeenCalled()
   })
 })
