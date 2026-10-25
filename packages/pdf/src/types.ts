@@ -1,5 +1,6 @@
 import type { Estimate, RoomLayout, WorksRates } from '@uyut/catalog'
 import type { PlanDeliveryPresentation } from '@uyut/catalog/plan-delivery-record'
+import type { ProjectedFloorPreview } from '@uyut/catalog/plan-projected-floor-preview'
 import type { VolumeFloorSurface, VolumeThreshold } from '@uyut/catalog/plan-volume-types'
 import type { ContractorBrief, ExportKind } from '@uyut/db'
 
@@ -103,6 +104,7 @@ export type PdfData = {
     rows: Array<{ target: string; value: string; source: string; note?: string }>
     staleCount: number
     floorScopeNote?: string
+    floorPreview?: ProjectedFloorPreview
     drawing?: {
       sourcePage: number
       rooms: Array<{

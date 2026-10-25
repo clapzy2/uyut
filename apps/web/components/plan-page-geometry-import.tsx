@@ -160,8 +160,8 @@ export function PlanPageGeometryImport({
       {reading.planState === 'proposed' ? (
         <p role="status" className="mt-3 max-w-2xl text-[14px] leading-relaxed text-ink">
           Проектный черновик описывает будущую планировку, а не существующий обмер. Эту пометку
-          сохраним вместе со схемой и укажем в PDF. Подтверждение как обмера и перенос в 3D пока
-          недоступны.
+          сохраним вместе со схемой и укажем в PDF. Подтверждение как обмера и перенос в полный
+          подтверждённый 3D пока недоступны.
         </p>
       ) : null}
       <p className="mt-3 max-w-2xl text-[14px] leading-relaxed text-ink">

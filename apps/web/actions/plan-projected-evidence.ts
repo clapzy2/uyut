@@ -1,7 +1,10 @@
 'use server'
 
 import { createHash, randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import {
+  currentProjectedVerticalEvidence,
+  isPrintedProjectZero,
   parsePrintedProjectValue,
   projectedVerticalEvidenceSchema,
 } from '@uyut/catalog/plan-projected-vertical-evidence'
@@ -275,6 +278,116 @@ export async function removeProjectedVerticalEvidence(
       },
     }
     await setPlanReading(ctx.session.user.id, projectId, reading, ctx.project)
+    revalidatePath(`/projects/${projectId}`)
+    revalidatePath(`/projects/${projectId}/summary`)
+    return { ok: true, data: { revision: planEditRevision(ctx.project.planUrl, reading) } }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+const floorReviewRequest = z.discriminatedUnion('mode', [
+  z
+    .object({
+      mode: z.literal('apply'),
+      evidenceId: z.string().min(1).max(100),
+      zeroCaptionIndex: z.number().int().min(0),
+      roomContourAcknowledged: z.literal(true),
+      commonZeroAcknowledged: z.literal(true),
+    })
+    .strict(),
+  z.object({ mode: z.literal('remove'), evidenceId: z.string().min(1).max(100) }).strict(),
+])
+
+/** A design-only surface scope, independent of as-built confirmation or physical 3D. */
+export async function reviewProjectedFloorContour(
+  projectId: string,
+  input: unknown,
+  revision: string,
+): Promise<ActionResult<{ revision: string }>> {
+  try {
+    const parsed = floorReviewRequest.safeParse(input)
+    if (!parsed.success)
+      throw new AccessError('Сверьте весь контур и общий проектный ноль на листе.')
+    const request = parsed.data
+    const ctx = await context(projectId, revision)
+    const records = ctx.geometry.projectedVerticalEvidence ?? []
+    const entry = records.find((record) => record.id === request.evidenceId)
+    if (entry?.quantity !== 'floor-level' || entry.target.kind !== 'room')
+      throw new AccessError('Выберите сохранённую отметку пола комнаты.')
+    let review: PlanProjectedVerticalEvidence['floorContourReview']
+    if (request.mode === 'apply') {
+      const current = currentProjectedVerticalEvidence(ctx.geometry)
+      if (!current.some((record) => record.id === entry.id)) throw new PlanEditConflictError()
+      if (
+        current.some(
+          (record) =>
+            record.quantity === 'floor-level' &&
+            isDeepStrictEqual(record.target, entry.target) &&
+            record.valueCm !== entry.valueCm,
+        )
+      )
+        throw new AccessError(
+          'В этом контуре отмечено несколько уровней пола. Сначала выделите отдельные поверхности; один плоский пол не подставлен.',
+        )
+      const source = await captionSource(ctx, entry.source.pdfPage)
+      if (
+        entry.source.captionIndexes.some(
+          (index, at) =>
+            source.captions.find((caption) => caption.index === index)?.text !==
+            entry.source.captionTexts[at],
+        )
+      )
+        throw new PlanEditConflictError()
+      const zero = source.captions.find((caption) => caption.index === request.zeroCaptionIndex)
+      if (!zero || !isPrintedProjectZero(zero.text))
+        throw new AccessError(
+          'Выберите отдельную подписанную нулевую отметку, например ±0.000. Номер комнаты или обычный размер не подходят.',
+        )
+      if (
+        current.some(
+          (record) =>
+            record.id !== entry.id &&
+            record.floorContourReview &&
+            (record.source.pdfPage !== entry.source.pdfPage ||
+              record.source.sha256 !== entry.source.sha256 ||
+              record.floorContourReview.zeroCaptionIndex !== zero.index ||
+              record.floorContourReview.zeroCaptionText !== zero.text),
+        )
+      )
+        throw new AccessError(
+          'Другие полы сверены по другой нулевой подписи. Выберите ту же исходную отметку либо сначала отмените прежнюю привязку.',
+        )
+      review = {
+        zeroCaptionIndex: zero.index,
+        zeroCaptionText: zero.text,
+        reviewedAt: new Date().toISOString(),
+        reviewedBy: ctx.session.user.id,
+      }
+    }
+    const updated = { ...entry }
+    if (review) updated.floorContourReview = review
+    else delete updated.floorContourReview
+    if (!projectedVerticalEvidenceSchema.safeParse(updated).success)
+      throw new PlanEditConflictError()
+    const reading: PlanReading = {
+      ...ctx.reading,
+      geometry: {
+        ...ctx.geometry,
+        projectedVerticalEvidence: records.map((record) =>
+          record.id === entry.id ? updated : record,
+        ),
+      },
+    }
+    await setPlanReading(ctx.session.user.id, projectId, reading, ctx.project)
+    await recordAudit({
+      action: 'project.plan_geometry_drafted',
+      actorId: ctx.session.user.id,
+      targetType: 'project',
+      targetId: projectId,
+      headers: await headers(),
+      metadata: { projectedFloorReviewId: entry.id, mode: request.mode },
+    })
     revalidatePath(`/projects/${projectId}`)
     revalidatePath(`/projects/${projectId}/summary`)
     return { ok: true, data: { revision: planEditRevision(ctx.project.planUrl, reading) } }

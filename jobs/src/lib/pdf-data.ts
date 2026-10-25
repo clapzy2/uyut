@@ -9,6 +9,7 @@ import {
 import { effectiveSize, effectiveSizeReading, itemSizeSourceLabel } from '@uyut/catalog/item-size'
 import { inspectStoredPlanDelivery } from '@uyut/catalog/plan-delivery-record'
 import { currentWallFacePairs } from '@uyut/catalog/plan-opening-face-pairs'
+import { projectedFloorPreview } from '@uyut/catalog/plan-projected-floor-preview'
 import {
   currentProjectedVerticalEvidence,
   PROJECTED_VERTICAL_LABELS,
@@ -452,11 +453,13 @@ export async function buildPdfData(input: {
   const geometry = project.planReading?.geometry
   const projectedEvidence = geometry ? currentProjectedVerticalEvidence(geometry) : []
   const projectedDrawing = projectedPlanDrawing(geometry)
+  const projectedFloors = geometry ? projectedFloorPreview(geometry) : undefined
   const projectedPlan =
     geometry?.pdfCalibration?.sourceState === 'proposed' &&
     (geometry.projectedVerticalEvidence?.length ||
       geometry.pdfCalibration.floorScope ||
-      projectedDrawing)
+      projectedDrawing ||
+      projectedFloors)
       ? {
           rows: projectedEvidence.map((entry) => ({
             target: `${entry.target.kind === 'room' ? entry.target.room.name : entry.target.kind === 'opening' ? `Проём ${entry.target.opening.widthCm} см` : 'Вся квартира'}${entry.scopeLabel ? ` · ${entry.scopeLabel}` : ''}`,
@@ -466,6 +469,7 @@ export async function buildPdfData(input: {
           })),
           staleCount: (geometry.projectedVerticalEvidence?.length ?? 0) - projectedEvidence.length,
           ...(projectedDrawing ? { drawing: projectedDrawing } : {}),
+          ...(projectedFloors ? { floorPreview: projectedFloors } : {}),
           ...(geometry.pdfCalibration.floorScope
             ? { floorScopeNote: geometry.pdfCalibration.floorScope.note }
             : {}),

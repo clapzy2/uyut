@@ -338,6 +338,13 @@ export type PlanProjectedVerticalEvidence = {
   reviewNote?: string
   reviewedAt: string
   reviewedBy: string
+  /** Explicit design-preview scope and common printed zero, never as-built authority. */
+  floorContourReview?: {
+    zeroCaptionIndex: number
+    zeroCaptionText: string
+    reviewedAt: string
+    reviewedBy: string
+  }
 }
 
 export type PlanFloorScope = {

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { projectedFloorPreview } from '@uyut/catalog/plan-projected-floor-preview'
 import { currentProjectedVerticalEvidence } from '@uyut/catalog/plan-projected-vertical-evidence'
 import { type PlanPageContours, type PlanReading, type RoomKind, roomKinds, users } from '@uyut/db'
 import { fontFaceCss, renderProjectHtml } from '@uyut/pdf'
@@ -22,7 +23,10 @@ import fixture from '../../../docs/qa/fixtures/remplanner-proposed-rooms-levels.
 import { buildPdfData, loadSnapshot } from '../../../jobs/src/lib/pdf-data'
 import { createPlanPageGeometryDraft } from './plan-page-geometry'
 import { savePlanPageReview } from './plan-page-review'
-import { saveProjectedVerticalEvidence } from './plan-projected-evidence'
+import {
+  reviewProjectedFloorContour,
+  saveProjectedVerticalEvidence,
+} from './plan-projected-evidence'
 import { savePlanGeometry } from './projects'
 
 const local = vi.hoisted(() => ({ owner: '', body: Buffer.alloc(0) }))
@@ -183,9 +187,65 @@ describe.skipIf(!process.env.QA_REMPLANNER_PROPOSED_PDF)(
         if (!saved.ok) throw new Error(saved.error)
         project = await getProject(local.owner, created.id)
       }
+      expect(
+        project.planReading?.geometry && projectedFloorPreview(project.planReading.geometry),
+      ).toBeUndefined()
+      const wholeFloors = fixture.projectedEvidence.filter(
+        (entry) => entry.quantity === 'floor-level' && entry.roomNumber !== 8,
+      )
+      for (const source of wholeFloors) {
+        const record = project.planReading?.geometry?.projectedVerticalEvidence?.find(
+          (entry) =>
+            entry.quantity === 'floor-level' &&
+            entry.source.captionIndexes[0] === source.captionIndex,
+        )
+        if (!record) throw new Error('Missing floor record')
+        const reviewed = await reviewProjectedFloorContour(
+          created.id,
+          {
+            mode: 'apply',
+            evidenceId: record.id,
+            zeroCaptionIndex: 239,
+            roomContourAcknowledged: true,
+            commonZeroAcknowledged: true,
+          },
+          planEditRevision(project.planUrl, project.planReading),
+        )
+        if (!reviewed.ok) throw new Error(reviewed.error)
+        project = await getProject(local.owner, created.id)
+      }
       const stored = project.planReading?.geometry
       if (!stored) throw new Error('Missing stored proposed geometry')
       expect(currentProjectedVerticalEvidence(stored)).toHaveLength(requests.length)
+      const preview = projectedFloorPreview(stored)
+      expect(preview?.floors).toHaveLength(6)
+      expect(preview?.floors.map((floor) => floor.elevationCm).sort((a, b) => a - b)).toEqual([
+        -5, 0, 0, 0, 0, 0,
+      ])
+      expect(preview?.heldRooms.map((room) => room.name)).toEqual(['Санузел'])
+      const wcFloor = stored.projectedVerticalEvidence?.find(
+        (entry) =>
+          entry.quantity === 'floor-level' &&
+          entry.valueCm === -5 &&
+          entry.target.kind === 'room' &&
+          entry.target.room.sourceNumber === 8,
+      )
+      if (!wcFloor) throw new Error('Missing conflicting WC floor')
+      expect(
+        (
+          await reviewProjectedFloorContour(
+            created.id,
+            {
+              mode: 'apply',
+              evidenceId: wcFloor.id,
+              zeroCaptionIndex: 239,
+              roomContourAcknowledged: true,
+              commonZeroAcknowledged: true,
+            },
+            planEditRevision(project.planUrl, project.planReading),
+          )
+        ).ok,
+      ).toBe(false)
       expect(stored.rooms).toEqual(geometry.rooms)
       expect(stored.verticalReference).toBeUndefined()
       expect(stored.walls.some((wall) => wall.heightCm !== undefined)).toBe(false)
@@ -198,11 +258,23 @@ describe.skipIf(!process.env.QA_REMPLANNER_PROPOSED_PDF)(
       )
       if (!saved.ok) throw new Error(saved.error)
       expect(currentProjectedVerticalEvidence(saved.data.geometry)).toHaveLength(requests.length)
+      expect(projectedFloorPreview(saved.data.geometry)).toEqual(preview)
       expect(planVolume({ ...saved.data.geometry, status: 'confirmed' })).toBeNull()
       expect(
         (await savePlanGeometry(created.id, saved.data.geometry, 'confirm', saved.data.revision))
           .ok,
       ).toBe(false)
+      const reimported = await createPlanPageGeometryDraft(
+        created.id,
+        [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        saved.data.revision,
+        undefined,
+        false,
+        true,
+        true,
+      )
+      if (!reimported.ok) throw new Error(reimported.error)
+      expect(projectedFloorPreview(reimported.data.geometry)).toEqual(preview)
       const snapshot = await loadSnapshot(created.id)
       if (!snapshot) throw new Error('Missing PDF snapshot')
       const pdf = await buildPdfData({
@@ -216,6 +288,7 @@ describe.skipIf(!process.env.QA_REMPLANNER_PROPOSED_PDF)(
       expect(pdf.projectedPlan?.rows).toHaveLength(requests.length)
       expect(pdf.projectedPlan?.drawing?.rooms).toHaveLength(7)
       expect(pdf.projectedPlan?.drawing?.floor).toHaveLength(94)
+      expect(pdf.projectedPlan?.floorPreview?.floors).toHaveLength(6)
       expect(pdf.projectedPlan?.drawing?.rooms.flatMap((room) => room.sourceNumbers)).toHaveLength(
         9,
       )
@@ -244,6 +317,7 @@ describe.skipIf(!process.env.QA_REMPLANNER_PROPOSED_PDF)(
       })
       expect(heldPdf.projectedPlan?.rows).toEqual([])
       expect(heldPdf.projectedPlan?.drawing).toBeUndefined()
+      expect(heldPdf.projectedPlan?.floorPreview).toBeUndefined()
       expect(heldPdf.projectedPlan?.staleCount).toBe(requests.length)
     }, 120000)
   },

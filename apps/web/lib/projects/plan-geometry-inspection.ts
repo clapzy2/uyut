@@ -361,7 +361,7 @@ export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanG
       id: 'proposed-source-draft',
       severity: 'error',
       message:
-        'Это проектный черновик будущей планировки. Его можно сохранить; подтверждение как обмера и перенос в 3D пока недоступны.',
+        'Это проектный черновик будущей планировки. Его можно сохранить; подтверждение как обмера и перенос в полный подтверждённый 3D пока недоступны.',
     })
   }
   const sourcePairs =

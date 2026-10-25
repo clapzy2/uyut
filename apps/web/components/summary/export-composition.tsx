@@ -1,6 +1,7 @@
 import type { RoomLayout } from '@uyut/catalog'
 import { inspectStoredPlanDelivery } from '@uyut/catalog/plan-delivery-record'
 import { currentWallFacePairs } from '@uyut/catalog/plan-opening-face-pairs'
+import { projectedFloorPreview } from '@uyut/catalog/plan-projected-floor-preview'
 import { currentProjectedVerticalEvidence } from '@uyut/catalog/plan-projected-vertical-evidence'
 import { inspectPlanThresholdSurfaces } from '@uyut/catalog/plan-threshold-geometry'
 import { signedPlanFloors } from '@uyut/catalog/plan-vertical-floor-geometry'
@@ -77,6 +78,7 @@ export function ExportComposition({
 }) {
   const delivery = inspectStoredPlanDelivery(geometry, deliveryMeasurements)
   const projected = geometry ? currentProjectedVerticalEvidence(geometry) : []
+  const projectedFloors = geometry ? projectedFloorPreview(geometry) : undefined
   const signed = geometry ? signedPlanFloors(geometry) : undefined
   const thresholds = signed?.ok && geometry ? inspectPlanThresholdSurfaces(geometry) : undefined
   const humanReviewedPairs = geometry
@@ -116,6 +118,13 @@ export function ExportComposition({
           В схеме квартиры сверено человеком пар граней стен: {humanReviewedPairs}. Исходный PDF,
           страница {geometry.pdfCalibration.pdfPage}. Общая отметка войдёт в сведения о квартире;
           она не подтверждает все стены, комнаты или обмеры.
+        </p>
+      ) : null}
+      {projectedFloors ? (
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
+          Проектные уровни пола: {projectedFloors.floors.length} сверенных поверхностей. В PDF
+          войдёт статическая проекция с истинными отметками и общим печатным нулём. Областей без
+          определённой поверхности: {projectedFloors.heldRooms.length}; они не заполнены на нуле.
         </p>
       ) : null}
       {projected.length || geometry?.pdfCalibration?.floorScope ? (
@@ -224,8 +233,8 @@ export function ExportComposition({
         подготовка не удалась. Изображение, которое не удалось загрузить, будет пропущено.
       </p>
       <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
-        3D-просмотр, инженерные чертежи и стоимость отделочных материалов в документ не входят.
-        Неполные комнаты можно дополнить позже и собрать PDF заново.
+        Интерактивный 3D-просмотр, инженерные чертежи и стоимость отделочных материалов в документ
+        не входят. Неполные комнаты можно дополнить позже и собрать PDF заново.
       </p>
     </section>
   )
