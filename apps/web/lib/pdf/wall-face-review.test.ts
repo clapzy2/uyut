@@ -1,6 +1,10 @@
+import { layoutRoom } from '@uyut/catalog'
 import type { PlanGeometry, PlanWallFacePair } from '@uyut/db'
 import { renderProjectHtml } from '@uyut/pdf'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ExportComposition } from '@/components/summary/export-composition'
 import { buildPdfData, type ProjectSnapshot } from '../../../../jobs/src/lib/pdf-data'
 
 const first = {
@@ -94,6 +98,12 @@ async function build(plan: PlanGeometry) {
 
 afterEach(() => vi.unstubAllEnvs())
 
+function exportPreview(geometry: PlanGeometry) {
+  return renderToStaticMarkup(
+    createElement(ExportComposition, { projectId: 'project', rooms: [], items: [], geometry }),
+  ).replace(/<!--.*?-->/g, '')
+}
+
 describe('human wall review provenance in PDF', () => {
   it('keeps current human review visible even while floor levels and volume are unavailable', async () => {
     const data = await build(geometry())
@@ -105,6 +115,35 @@ describe('human wall review provenance in PDF', () => {
     expect(data.verticalPlan).toBeUndefined()
     expect(renderProjectHtml(data, { fontCss: '' })).toContain('со статусом «сверено человеком»: 1')
     expect(renderProjectHtml(data, { fontCss: '' })).toContain('Исходный PDF, страница 4')
+    expect(exportPreview(geometry())).toContain(
+      'В схеме квартиры сверено человеком пар граней стен: 1',
+    )
+    expect(exportPreview(geometry())).toContain('она не подтверждает все стены, комнаты или обмеры')
+  })
+
+  it('does not attach an apartment-wide review to an old measurement-only room', async () => {
+    const data = await build(geometry())
+    data.rooms.push({
+      id: 'old-kitchen',
+      name: 'Кухня из прежнего QA',
+      areaM2: 4.6,
+      conditionLabel: 'Черновая отделка',
+      hasConcept: false,
+      render: null,
+      before: null,
+      alternates: [],
+      note: null,
+      objects: [],
+      plan: layoutRoom({ widthCm: 230, depthCm: 202 }, []),
+      measurementNotes: ['Сохранённая высота потолка: 250 см.'],
+    })
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html.match(/class="small wall-face-review"/g)).toHaveLength(1)
+    const roomPage = html.match(/<section class="page plan-page">[\s\S]*?<\/section>/)?.[0]
+    expect(roomPage).toContain('Кухня из прежнего QA')
+    expect(roomPage).toContain('230 × 202 см')
+    expect(roomPage).toContain('Сохранённая высота потолка: 250 см.')
+    expect(roomPage).not.toContain('сверено человеком')
   })
 
   it.each([
@@ -133,5 +172,6 @@ describe('human wall review provenance in PDF', () => {
     const data = await build(plan)
     expect(data.wallFaceReview).toBeUndefined()
     expect(renderProjectHtml(data, { fontCss: '' })).not.toContain('сверено человеком')
+    expect(exportPreview(plan)).not.toContain('сверено человеком')
   })
 })

@@ -1,5 +1,6 @@
 import type { RoomLayout } from '@uyut/catalog'
 import { inspectStoredPlanDelivery } from '@uyut/catalog/plan-delivery-record'
+import { currentWallFacePairs } from '@uyut/catalog/plan-opening-face-pairs'
 import { inspectPlanThresholdSurfaces } from '@uyut/catalog/plan-threshold-geometry'
 import { signedPlanFloors } from '@uyut/catalog/plan-vertical-floor-geometry'
 import type { Concept, PlanGeometry, PlanReading, Room } from '@uyut/db'
@@ -72,6 +73,11 @@ export function ExportComposition({
   const delivery = inspectStoredPlanDelivery(geometry, deliveryMeasurements)
   const signed = geometry ? signedPlanFloors(geometry) : undefined
   const thresholds = signed?.ok && geometry ? inspectPlanThresholdSurfaces(geometry) : undefined
+  const humanReviewedPairs = geometry
+    ? currentWallFacePairs(geometry).filter(
+        (pair) => pair.verification?.kind === 'human-source-review',
+      ).length
+    : 0
   const variants = items.filter((item) => item.variant).length
   const notices = items.filter((item) => item.catalogNotice).length
   const missingSizes = items.filter(
@@ -91,6 +97,13 @@ export function ExportComposition({
       <p className="mt-3 text-[14px] leading-relaxed text-ink">
         Обложка и сведения о квартире, список покупок и ориентировочная смета.
       </p>
+      {humanReviewedPairs > 0 && geometry?.pdfCalibration ? (
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
+          В схеме квартиры сверено человеком пар граней стен: {humanReviewedPairs}. Исходный PDF,
+          страница {geometry.pdfCalibration.pdfPage}. Общая отметка войдёт в сведения о квартире;
+          она не подтверждает все стены, комнаты или обмеры.
+        </p>
+      ) : null}
       {signed ? (
         <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
           {signed.ok

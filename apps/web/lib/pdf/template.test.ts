@@ -84,12 +84,19 @@ function sample(kind: PdfData['kind']): PdfData {
 }
 
 describe('project PDF template', () => {
-  it('prints human wall review provenance on the project and room plan pages', () => {
+  it('keeps apartment-wide wall review provenance out of unrelated room pages', () => {
     const data = sample('free')
     data.wallFaceReview = { sourceSha256: 'a'.repeat(64), pdfPage: 4, humanReviewedPairs: 2 }
     const html = renderProjectHtml(data, { fontCss: '' })
-    const label = 'Пар граней стен со статусом «сверено человеком»: 2. Исходный PDF, страница 4.'
-    expect(html.split(label)).toHaveLength(3)
+    const label = 'В схеме квартиры пар граней стен со статусом «сверено человеком»: 2.'
+    expect(html.split(label)).toHaveLength(2)
+    expect(html).toContain(
+      'Это отметка отдельных связей, а не подтверждение всех стен, комнат или обмеров.',
+    )
+    const roomPages = html.match(/<section class="page plan-page">[\s\S]*?<\/section>/g)
+    expect(roomPages).toHaveLength(1)
+    expect(roomPages?.[0]).not.toContain('wall-face-review')
+    expect(html.indexOf(label)).toBeLessThan(html.indexOf('<section class="page plan-page">'))
   })
 
   it('prints signed floors and threshold top separately, escapes source metadata, and retains void paths', () => {
