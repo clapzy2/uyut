@@ -8,6 +8,7 @@ import {
 import { nativeFloorCavityCandidates } from './plan-native-floor-cavities'
 import { nativeReviewPacket } from './plan-native-review-packet'
 import type { Bounds, PagePoint, PdfCurvePath, PdfVectorPath } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS } from './plan-pdf-linework'
 
 type Input = Parameters<typeof nativeFloorCavityCandidates>[0]
 
@@ -718,7 +719,7 @@ describe('native painted cavities with documented source opening boundaries', ()
 
   it('refuses oversized source paths atomically rather than returning earlier floor cells', () => {
     const input = fixture()
-    input.work.paths = Array.from({ length: 5001 }, (_, index) => ({
+    input.work.paths = Array.from({ length: PDF_NATIVE_MAX_PATHS + 1 }, (_, index) => ({
       ...path(index, [
         [1, 1],
         [2, 2],

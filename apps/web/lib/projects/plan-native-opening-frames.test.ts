@@ -5,6 +5,7 @@ import {
   nativeOpeningFrameCandidates,
 } from './plan-native-opening-frames'
 import type { PagePoint, PdfLinework, PdfVectorPath } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS } from './plan-pdf-linework'
 
 const raster = { sha256: 'b'.repeat(64), page: 1, width: 1000, height: 1000 }
 const native: NativeTextAnchors = {
@@ -427,7 +428,9 @@ describe('painted native opening frame candidates', () => {
     input.skippedCurves = 1
     expect(run(input).refusalReason).toBe('incomplete-native-layer')
     input.skippedCurves = 0
-    input.paths = Array.from({ length: 5001 }, (_, index) => rectangle(index + 1))
+    input.paths = Array.from({ length: PDF_NATIVE_MAX_PATHS + 1 }, (_, index) =>
+      rectangle(index + 1),
+    )
     expect(run(input).refusalReason).toBe('incomplete-native-layer')
   })
 

@@ -503,7 +503,7 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
     expect(input).toEqual(before)
   })
 
-  it('withholds the whole report when actual rail and tick comparisons exhaust discovery work', () => {
+  it('keeps a valid rail when thousands of unrelated ticks are spatially distant', () => {
     const input = fixture()
     for (let index = 0; index < 1600; index++) {
       input.work.paths.push(
@@ -525,6 +525,41 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
           points: [
             { x: 800, y: 10 + index * 0.4 },
             { x: 805, y: 15 + index * 0.4 },
+          ],
+        },
+      )
+    }
+    const before = structuredClone(input)
+    expect(automaticNativeDimensionRoles(input)).toMatchObject({
+      refusalReason: null,
+      candidates: [{ labelId: 'native-text-10', rail: { operationIndex: 1 } }],
+      unresolved: [],
+    })
+    expect(input).toEqual(before)
+  })
+
+  it('still withholds the whole report when nearby competing ticks exhaust discovery work', () => {
+    const input = fixture()
+    for (let index = 0; index < 1600; index++) {
+      input.work.paths.push(
+        {
+          operationIndex: 100 + index * 2,
+          subpathIndex: 0,
+          paint: 'stroke',
+          closed: false,
+          points: [
+            { x: 500, y: 170 },
+            { x: 700, y: 170 },
+          ],
+        },
+        {
+          operationIndex: 101 + index * 2,
+          subpathIndex: 0,
+          paint: 'stroke',
+          closed: false,
+          points: [
+            { x: 495, y: 175 },
+            { x: 505, y: 165 },
           ],
         },
       )

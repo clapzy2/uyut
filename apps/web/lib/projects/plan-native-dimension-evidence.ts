@@ -1,6 +1,7 @@
 import type { NativeTextAnchors } from './plan-document'
 import { nativeDimensionMillimetres, pdfNativePageDimensionChain } from './plan-pdf-dimension-chain'
 import type { PdfLinework } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS, PDF_NATIVE_MAX_POINTS } from './plan-pdf-linework'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
 import { bindObservedRegionLabels, type RegionLabelFrame } from './plan-raster-region-labels'
 
@@ -38,8 +39,8 @@ export function nativeDimensionEvidence(input: {
     reviewed.chains.length > 8 ||
     native.labels.length > 1000 ||
     ![work.pageWidth, work.pageHeight].every((value) => Number.isFinite(value) && value > 0) ||
-    work.paths.length > 5000 ||
-    work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
+    work.paths.length > PDF_NATIVE_MAX_PATHS ||
+    work.paths.reduce((sum, path) => sum + path.points.length, 0) > PDF_NATIVE_MAX_POINTS ||
     work.paths.some((path) =>
       path.points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y)),
     ) ||

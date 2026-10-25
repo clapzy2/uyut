@@ -25,6 +25,7 @@ import {
 import { type PdfDimensionChain, pdfDepthChain, pdfWidthChain } from './plan-pdf-dimension-chain'
 import { pdfVectorArrow } from './plan-pdf-leaders'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS, PDF_NATIVE_MAX_POINTS } from './plan-pdf-linework'
 import { pairPlanPageOpeningFaces } from './plan-pdf-opening-faces'
 import {
   type PdfPlanSource,
@@ -87,8 +88,8 @@ const toleranceCm = (scale: number) => Math.min(0.5, 0.24 * scale + 0.05)
 /** Bound the legacy chain verifier before it enumerates compatible arrow pairs. */
 function chainWorkIsBounded(work: PdfLinework): boolean {
   if (
-    work.paths.length > 5000 ||
-    work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000
+    work.paths.length > PDF_NATIVE_MAX_PATHS ||
+    work.paths.reduce((sum, path) => sum + path.points.length, 0) > PDF_NATIVE_MAX_POINTS
   )
     return false
   const arrows = work.paths.flatMap((path) => {

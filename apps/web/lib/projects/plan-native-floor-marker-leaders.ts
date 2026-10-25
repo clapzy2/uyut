@@ -6,6 +6,7 @@ import {
   numberCircleSourcePaths,
 } from './plan-native-number-circles'
 import type { Bounds, PagePoint, PdfLinework } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS } from './plan-pdf-linework'
 import type { NativePageSegment } from './plan-pdf-opening-endpoint'
 
 type Cue = ReturnType<typeof nativeNumberCircleCandidates>['cues'][number]
@@ -28,7 +29,7 @@ export function nativeFloorMarkerLeaders(work: PdfLinework, cues: Cue[], cells: 
     issues: refusalReason ? [] : issues,
     refusalReason,
   })
-  if (work.paths.length > 5000 || cues.length > 100 || cells.length > 100)
+  if (work.paths.length > PDF_NATIVE_MAX_PATHS || cues.length > 100 || cells.length > 100)
     return finish('floor-marker-leader-input-limit')
   const controlBounds = new Map<Cue, Bounds>()
   for (const cue of cues) {

@@ -4,6 +4,7 @@ import page from '../../../../docs/qa/fixtures/apartment-74-77-complete-page.jso
 import { planPageContoursSchema } from './plan-page-review'
 import { inspectReviewedPageCoverage } from './plan-page-reviewed-coverage'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS } from './plan-pdf-linework'
 import { pairPlanPageOpeningFaces, verifyPlanPageOpeningFaces } from './plan-pdf-opening-faces'
 
 function fixture() {
@@ -1041,7 +1042,7 @@ describe('physical door face candidates from two native reveals', () => {
     const input = fixture()
     const path = input.work.paths[0]
     if (!path) throw new Error('Missing native paths')
-    input.work.paths = Array.from({ length: 5001 }, () => path)
+    input.work.paths = Array.from({ length: PDF_NATIVE_MAX_PATHS + 1 }, () => path)
     expect(pairs(input)).toEqual([])
     const annotations = fixture()
     const room = annotations.contours.rooms[0]

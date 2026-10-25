@@ -166,6 +166,49 @@ describe('unclassified automatic native fill candidates', () => {
     expect(result.truncated).toBe(true)
     expect(result.refusalReason).toBe('candidate-limit')
   })
+  it('keeps fill evidence on a complete page with 6000 straight source paths', () => {
+    const strokes: PdfVectorPath[] = Array.from({ length: 5999 }, (_, index) => ({
+      ...path(index + 2),
+      paint: 'stroke',
+      closed: false,
+      points: [
+        { x: 10, y: 10 },
+        { x: 20, y: 20 },
+      ],
+    }))
+    const result = nativeFillCandidates({
+      ...input,
+      work: { ...work, paths: [path(1), ...strokes] },
+    })
+    expect(result.refusalReason).toBeNull()
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0]?.sourceRef.operationIndex).toBe(1)
+  })
+  it.each([
+    {
+      count: 12_001,
+      points: [
+        { x: 10, y: 10 },
+        { x: 20, y: 20 },
+      ],
+    },
+    {
+      count: 10_001,
+      points: [
+        { x: 10, y: 10 },
+        { x: 20, y: 20 },
+        { x: 30, y: 10 },
+      ],
+    },
+  ])(
+    'refuses an over-budget straight inventory instead of accepting its first fill',
+    ({ count, points }) => {
+      const paths = Array.from({ length: count }, (_, index) => ({ ...path(index + 1), points }))
+      const result = nativeFillCandidates({ ...input, work: { ...work, paths } })
+      expect(result.refusalReason).toBe('incomplete-native-layer')
+      expect(result.candidates).toEqual([])
+    },
+  )
   it('rejects stale source frames and invalid raster mapping', () => {
     expect(() =>
       nativeFillCandidates({ ...input, lineworkSource: { ...source, page: 2 } }),

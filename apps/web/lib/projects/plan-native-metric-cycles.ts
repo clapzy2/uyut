@@ -3,6 +3,7 @@ import type { NativeTextAnchors } from './plan-document'
 import type { nativeDimensionEvidence } from './plan-native-dimension-evidence'
 import { nativeFaceCycle } from './plan-native-face-cycle'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS, PDF_NATIVE_MAX_POINTS } from './plan-pdf-linework'
 import { nativePageSegments } from './plan-pdf-opening-endpoint'
 import { type PdfPlanSource, pdfPolygonIsValid } from './plan-pdf-room-binding'
 import { bindObservedRegionLabels, type RegionLabelFrame } from './plan-raster-region-labels'
@@ -79,8 +80,8 @@ export function metricNativeCycles(input: {
     ) ||
     work.coordinateSystem !== 'page-0-1000' ||
     ![work.pageWidth, work.pageHeight].every((value) => Number.isFinite(value) && value > 0) ||
-    work.paths.length > 5000 ||
-    work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000
+    work.paths.length > PDF_NATIVE_MAX_PATHS ||
+    work.paths.reduce((sum, path) => sum + path.points.length, 0) > PDF_NATIVE_MAX_POINTS
   )
     throw new Error('Invalid source-bound metric review')
   // Rebuild before trusting any cached polygon or calibration-face endpoints. A valid

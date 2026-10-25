@@ -640,6 +640,62 @@ describe('architectural tick dimensions', () => {
     })
   })
 
+  it.each([0.02, 0.119, 0.121])(
+    'preserves exact tick distance across spatial cell boundaries at offset %s',
+    (offset) => {
+      const { source, contours, work } = tickDimensionSheet()
+      const shifted = structuredClone(work)
+      shifted.paths = shifted.paths.map((path) => ({
+        ...path,
+        points: path.points.map((point) => ({
+          x: point.x + 0.99 + ([3, 4].includes(path.operationIndex) ? offset : 0),
+          y: point.y,
+        })),
+      }))
+      const reviewed = {
+        ...contours,
+        rooms: contours.rooms.map((room) => ({
+          ...room,
+          polygon: room.polygon.map((point) => ({ ...point, x: point.x + 0.99 })),
+        })),
+      }
+      const result = pdfWidthChain(
+        shifted,
+        source,
+        reviewed,
+        5,
+        [{ ...widthLabel, x: 200.99 }],
+        200,
+      )
+      expect(result.status).toBe(offset <= 0.12 ? 'candidate' : 'unresolved')
+      if (offset <= 0.12) {
+        if (result.status !== 'candidate') throw new Error(result.reason)
+        expect(result.lineOperations).toEqual([2])
+      }
+    },
+  )
+
+  it('retains a competing tick in an adjacent cell instead of choosing the first source tick', () => {
+    const { source, contours, work } = tickDimensionSheet()
+    const tick = work.paths.find((path) => path.operationIndex === 3)
+    if (!tick) throw new Error('Missing source tick')
+    const competing = {
+      ...tick,
+      operationIndex: 99,
+      points: tick.points.map((point) => ({ ...point, x: point.x - 0.02 })),
+    }
+    expect(
+      pdfWidthChain(
+        { ...work, paths: [...work.paths, competing] },
+        source,
+        contours,
+        5,
+        [widthLabel],
+        200,
+      ),
+    ).toMatchObject({ status: 'ambiguous', reason: 'branched-dimension-line' })
+  })
+
   it('accepts short architectural ticks while still requiring both native endpoints', () => {
     const { source, contours, work } = tickDimensionSheet()
     const paths = work.paths.map((path) => {

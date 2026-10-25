@@ -574,7 +574,7 @@ describe('source-order paint visibility at contact points only', () => {
       if (kind === 'incomplete') inventory.complete = false
       if (kind === 'duplicate') inventory.events.push(structuredClone(event))
       if (kind === 'oversize')
-        inventory.events = Array.from({ length: 6001 }, (_, operationIndex) => ({
+        inventory.events = Array.from({ length: 15001 }, (_, operationIndex) => ({
           ...event,
           operationIndex,
         }))

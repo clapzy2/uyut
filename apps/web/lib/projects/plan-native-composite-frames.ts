@@ -5,6 +5,7 @@ import {
 } from './plan-native-exact-intersections'
 import { exactNativeOpeningFrameShape } from './plan-native-opening-frames'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS } from './plan-pdf-linework'
 import type { NativePageSegment } from './plan-pdf-opening-endpoint'
 
 type CompositeFrame = {
@@ -44,7 +45,7 @@ export function nativeCompositeFrameEvidence(work: PdfLinework, scale: { x: numb
     work.curvePathsTruncated ||
     work.skippedCurveBoundsTruncated ||
     work.clippedPathBoundsTruncated ||
-    work.paths.length > 5000 ||
+    work.paths.length > PDF_NATIVE_MAX_PATHS ||
     ![scale.x, scale.y].every((n) => Number.isFinite(n) && n > 0)
   )
     return finish('incomplete-composite-source')

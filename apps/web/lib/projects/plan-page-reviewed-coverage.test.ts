@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import page from '../../../../docs/qa/fixtures/apartment-74-77-complete-page.json'
 import { inspectReviewedPageCoverage } from './plan-page-reviewed-coverage'
 import type { PdfLinework, PdfVectorPath } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS } from './plan-pdf-linework'
 
 function sample() {
   const source = { sha256: 'a'.repeat(64), pdfPage: 1, state: 'existing' as const }
@@ -193,9 +194,10 @@ describe('same-source reviewed coverage without promoting an apartment', () => {
       if (change === 'reading-state') input.reading.planState = 'proposed'
       if (change === 'vertex') input.linework.paths = []
       if (change === 'budget')
-        input.linework.paths = Array.from({ length: 5001 }, () => input.linework.paths[0]).filter(
-          (path): path is PdfVectorPath => path !== undefined,
-        )
+        input.linework.paths = Array.from(
+          { length: PDF_NATIVE_MAX_PATHS + 1 },
+          () => input.linework.paths[0],
+        ).filter((path): path is PdfVectorPath => path !== undefined)
       const report = inspectReviewedPageCoverage(input)
       expect(report.status).toBe('refused')
       expect(report.refusalReason).toBeTruthy()

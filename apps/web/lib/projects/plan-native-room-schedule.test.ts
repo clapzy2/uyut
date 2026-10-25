@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { nativeRoomScheduleEvidence } from './plan-native-room-schedule'
 import { planPageRoomInventory } from './plan-page-room-inventory'
 import type { Bounds, PagePoint, PdfVectorPath } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS } from './plan-pdf-linework'
 
 type Input = Parameters<typeof nativeRoomScheduleEvidence>[0]
 type Label = Input['native']['labels'][number]
@@ -899,7 +900,8 @@ describe('native room schedule documentary evidence', () => {
   })
   it('keeps the global native path cap even when excessive strokes are outside the table', () => {
     const input = fixture()
-    while (input.work.paths.length < 5001) addLine(input, { x: 700, y: 700 }, { x: 701, y: 701 })
+    while (input.work.paths.length <= PDF_NATIVE_MAX_PATHS)
+      addLine(input, { x: 700, y: 700 }, { x: 701, y: 701 })
     expectHeld(input, 'incomplete-native-layer')
   })
 })

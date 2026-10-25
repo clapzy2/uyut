@@ -246,6 +246,16 @@ describe('complete source paint inventory validation', () => {
     },
   )
 
+  it.each([6001, 15000])('accepts a complete bounded inventory with %i paint events', (count) => {
+    expect(
+      pdfPaintInventoryIsComplete(
+        inventory(
+          Array.from({ length: count }, (_, operationIndex) => ({ ...stroke(), operationIndex })),
+        ),
+      ),
+    ).toBe(true)
+  })
+
   it('rejects missing, refused, duplicate, oversized and malformed inventories', () => {
     expect(pdfPaintInventoryIsComplete(undefined)).toBe(false)
     expect(pdfPaintInventoryIsComplete({ ...inventory([]), complete: false })).toBe(false)
@@ -255,7 +265,7 @@ describe('complete source paint inventory validation', () => {
     expect(pdfPaintInventoryIsComplete(inventory([stroke(), stroke()]))).toBe(false)
     expect(
       pdfPaintInventoryIsComplete(
-        inventory(Array.from({ length: 6001 }, (_, i) => ({ ...stroke(), operationIndex: i }))),
+        inventory(Array.from({ length: 15001 }, (_, i) => ({ ...stroke(), operationIndex: i }))),
       ),
     ).toBe(false)
     expect(
