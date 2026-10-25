@@ -68,6 +68,64 @@ const chair: LayoutItem = {
 }
 
 describe('explicit projected furnishing geometry', () => {
+  it('keeps missing room functions and furniture data visible in the summary', () => {
+    const plan = geometry()
+    const cases: Array<{ items: LayoutItem[]; kind: 'kid' | 'bedroom' | 'living' }> = [
+      { items: [], kind: 'kid' },
+      {
+        items: [
+          {
+            id: 'bed',
+            title: 'Кровать без габаритов',
+            category: 'bed',
+            dimensions: null,
+            quantity: 1,
+          },
+        ],
+        kind: 'bedroom',
+      },
+      {
+        items: [
+          {
+            id: 'sofa',
+            title: 'Диван без данных о раскрытии',
+            category: 'sofa',
+            dimensions: { width: 150, depth: 80, height: 83 },
+            quantity: 1,
+          },
+        ],
+        kind: 'living',
+      },
+    ]
+    for (const entry of cases) {
+      const layout = projectedLayoutWithMeasurements(
+        'Проектная комната',
+        measurements(plan),
+        plan,
+        entry.items,
+        entry.kind,
+      )
+      expect(layout?.safetySummary.status).toBe('needs-data')
+      expect(layout?.measurementNote).toContain('не натурный обмер')
+      expect(layout?.safetyChecks).toContainEqual(
+        expect.objectContaining({ id: 'projected-source', status: 'preliminary' }),
+      )
+    }
+  })
+
+  it('does not hide a blocked pinned position behind the project source status', () => {
+    const plan = geometry()
+    const layout = projectedLayoutWithMeasurements(
+      'Проектная комната',
+      measurements(plan),
+      plan,
+      [{ ...chair, placement: { xCm: 350, yCm: 250, rotation: 0 } }],
+      'living',
+    )
+    expect(layout?.safetySummary.status).toBe('blocked')
+    expect(layout?.placed).toEqual([])
+  })
+
   it('retains room-specific source warnings in both the layout and PDF-facing note', () => {
     const plan = geometry()
     const warning = 'Гостиная: площадь по контуру отличается от таблицы. Сверьте границы.'

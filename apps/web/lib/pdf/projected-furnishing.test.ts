@@ -6,6 +6,10 @@ import { renderProjectHtml } from '@uyut/pdf'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildPdfData, type ProjectSnapshot } from '../../../../jobs/src/lib/pdf-data'
 import { layoutWithMeasurements } from '../projects/layout-with-measurements'
+import { projectLayouts } from '../shopping/layout'
+
+vi.mock('server-only', () => ({}))
+vi.mock('../shopping/repository', () => ({ getShoppingList: vi.fn() }))
 
 function fixture() {
   const geometry: PlanGeometry = {
@@ -199,7 +203,7 @@ describe('проектный Г-контур в данных и HTML PDF, син
     expect(plan).toMatchObject({
       widthCm: 600,
       depthCm: 400,
-      safetySummary: { status: 'preliminary' },
+      safetySummary: { status: 'needs-data' },
     })
     expect(plan.placed).toHaveLength(1)
     expect(plan.measurementNote).toContain('не натурный обмер')
@@ -214,6 +218,38 @@ describe('проектный Г-контур в данных и HTML PDF, син
     expect(html).toContain('не натурный обмер')
     expect(html).toContain('<polygon')
     expect(html).not.toContain('Высота потолка по мерке комнаты: 270')
+  })
+
+  it('keeps linked empty rooms in the overview and PDF with the same missing-data status', async () => {
+    const { snapshot, geometry, room } = fixture()
+    room.kind = 'kid'
+    snapshot.shopping = []
+    const overview = projectLayouts(
+      [room, { ...room, id: 'unlinked', measurements: null }],
+      { items: [] },
+      geometry,
+    )
+    expect(overview).toHaveLength(1)
+    const pdf = await build(snapshot)
+    const plan = pdf.rooms.find((entry) => entry.id === room.id)?.plan
+    expect(plan).toEqual(overview[0]?.layout)
+    expect(plan?.safetySummary.status).toBe('needs-data')
+    expect(plan?.placed).toEqual([])
+    expect(plan?.floorPolygon).toHaveLength(6)
+    expect(
+      plan?.functionChecks.some(
+        (entry) => entry.importance === 'required' && entry.status === 'missing',
+      ),
+    ).toBe(true)
+    if (!plan) throw new Error('Missing empty projected layout')
+    expect(roomVolume(plan)?.furniture).toEqual([])
+    expect(renderProjectHtml(pdf, { fontCss: '' })).toContain('Дополните данные для проверки')
+
+    if (!geometry.pdfCalibration) throw new Error('Missing source calibration')
+    geometry.pdfCalibration.sourceSha256 = 'b'.repeat(64)
+    expect(projectLayouts([room], { items: [] }, geometry)).toEqual([])
+    const stalePdf = await build(snapshot)
+    expect(stalePdf.rooms.find((entry) => entry.id === room.id)?.plan).toBeNull()
   })
 
   it.each(['polygon', 'source', 'reimport'] as const)(

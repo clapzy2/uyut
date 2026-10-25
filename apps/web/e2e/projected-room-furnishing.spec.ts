@@ -308,6 +308,32 @@ test.describe('проектная мебельная схема по синте�
     ).toBeVisible()
     expect((await savedRoom(secondRoomId)).measurements).toEqual(measurements)
 
+    await secondSelect.selectOption('1')
+    await page
+      .getByLabel('Понимаю, что это проектная расстановка, а не подтверждённый обмер', {
+        exact: true,
+      })
+      .check()
+    await page.getByRole('button', { name: 'Связать с проектным контуром', exact: true }).click()
+    await expect
+      .poll(async () => (await savedRoom(secondRoomId)).measurements?.projectedContour?.roomIndex)
+      .toBe(1)
+    await page.reload()
+    const emptyPlan = page.locator('#room-plan')
+    await expect(
+      emptyPlan.getByText('Дополните данные для проверки', { exact: true }),
+    ).toBeVisible()
+    await expect(emptyPlan.getByRole('img', { name: /План комнаты/ })).toHaveAttribute(
+      'aria-label',
+      /300 на 350/,
+    )
+    await emptyPlan.getByRole('button', { name: 'Посмотреть контур в объёме', exact: true }).click()
+    await expect(
+      emptyPlan.getByRole('img', { name: 'Объёмный просмотр текущей расстановки мебели' }),
+    ).toBeVisible()
+    await emptyPlan.getByRole('button', { name: '3D-сцена', exact: true }).click()
+    await expect(emptyPlan.locator('canvas[data-scene-ready="true"]')).toBeVisible()
+
     // Only this test's isolated project changes; its old binding must not fit a new polygon.
     assert(db)
     const [project] = await db.select().from(projects).where(eq(projects.id, projectId))

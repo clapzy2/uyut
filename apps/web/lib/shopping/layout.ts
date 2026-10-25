@@ -65,7 +65,7 @@ export function projectLayouts(
         placement: item.placementCm,
         quantity: item.quantity,
       }))
-    if (items.length === 0) {
+    if (items.length === 0 && !room.measurements?.projectedContour) {
       continue
     }
     const layout = layoutWithMeasurements(room.name, room.measurements, geometry, items, room.kind)
