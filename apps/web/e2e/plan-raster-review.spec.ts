@@ -219,7 +219,7 @@ test.describe('явная сверка осей растрового плана'
     expect(saved?.measurements?.verification).toBeUndefined()
 
     await page.reload()
-    await page.getByRole('button', { name: 'Изменить данные с чертежа', exact: true }).click()
+    await page.getByRole('button', { name: 'Проверить комнаты с чертежа', exact: true }).click()
     await expect(width).toHaveValue('320')
     await expect(depth).toHaveValue('600')
     await expect(widthReview).not.toBeChecked()

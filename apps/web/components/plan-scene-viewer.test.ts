@@ -92,6 +92,8 @@ describe('3D-просмотр', () => {
     expect(html).not.toContain('Срез стен')
     expect(html).toContain('Управлять мышью и жестами')
     expect(html).toContain('data-scene-ready="false"')
+    expect(html).toContain('из текущей 2D-расстановки. Это не подтверждение обмера.')
+    expect(html).not.toContain('из проверенной схемы')
     expect(html).toContain('Стол · высота 75 см')
     expect(html).toContain('Кресло · высоту нужно уточнить')
     expect(html).not.toContain('Зоны из 2D')

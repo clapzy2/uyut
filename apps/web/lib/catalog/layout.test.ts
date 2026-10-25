@@ -21,6 +21,80 @@ function item(over: Partial<LayoutItem> & Pick<LayoutItem, 'title'>): LayoutItem
 const kinds = (layout: ReturnType<typeof layoutRoom>) => layout.problems.map((p) => p.kind)
 
 describe('layoutRoom', () => {
+  it('не подтверждает маршрут при неизвестных проёмах, но сохраняет проверку полной геометрии', () => {
+    const room = { widthCm: 400, depthCm: 600, roomKind: 'living' as const }
+    const furniture = [item({ title: 'Шкаф' })]
+    const incomplete = layoutRoom({ ...room, layoutNotes: 'Дверь слева сверху' }, furniture)
+    expect(incomplete.placed).toHaveLength(1)
+    expect(incomplete.safetyChecks.find((check) => check.id === 'continuous-route')).toMatchObject({
+      status: 'preliminary',
+      detail: expect.stringContaining('На предварительной схеме'),
+    })
+    const complete = layoutRoom({ ...room, reservations: [] }, furniture)
+    expect(complete.safetyChecks.find((check) => check.id === 'continuous-route')).toMatchObject({
+      status: 'checked',
+    })
+    const missing = layoutRoom(
+      { ...room, reservations: [], missingSafetyData: ['Контур требует сверки'] },
+      furniture,
+    )
+    expect(missing.safetyChecks.find((check) => check.id === 'continuous-route')?.status).toBe(
+      'preliminary',
+    )
+  })
+
+  it('одинаково отклоняет мебель в указанной двери независимо от запятой перед шириной', () => {
+    for (const layoutNotes of [
+      'Дверь слева у верхнего угла, ширина 150 см',
+      'Дверь слева у верхнего угла ширина 150 см',
+    ]) {
+      const layout = layoutRoom({ widthCm: 400, depthCm: 400, layoutNotes }, [
+        item({
+          title: 'Тумба',
+          dimensions: { width: 50, depth: 40, height: 60 },
+          operationClearance: { front: 30 },
+          placement: { xCm: 0, yCm: 110, rotation: 0, frontDirection: 'right' },
+        }),
+      ])
+      expect(layout.reservations[0]).toMatchObject({ fromCm: 0, toCm: 150 })
+      expect(layout.placed).toEqual([])
+      expect(layout.problems).toContainEqual({
+        kind: 'invalidPlacement',
+        title: 'Тумба',
+        reason: 'blocked',
+      })
+    }
+  })
+
+  it('не подтверждает неизвестные проёмы и обозначает предварительный запас открывания', () => {
+    for (const layoutNotes of [
+      'Дверь слева',
+      'Дверь слева шириной 90 см',
+      'Окно сверху от 220 до 100 см',
+      'Окно слева по центру высота120см',
+      'Окно слева не по центру ширина 120 см',
+      'Окно слева или справа по центру ширина 120 см',
+      'Окно сверху ширина 120 см и дверь слева ширина 90 см',
+    ]) {
+      const layout = layoutRoom({ widthCm: 400, depthCm: 400, layoutNotes }, [])
+      expect(layout.reservations).toEqual([])
+      expect(layout.missingSafetyData.length).toBeGreaterThan(0)
+      expect(layout.safetySummary.status).toBe('needs-data')
+    }
+    const door = layoutRoom(
+      { widthCm: 400, depthCm: 400, layoutNotes: 'Дверь слева по центру шириной 90 см' },
+      [],
+    )
+    expect(door.missingSafetyData.join(' ')).toContain('предварительный запас 90 см')
+    expect(door.safetySummary.status).toBe('needs-data')
+    const authoritative = layoutRoom(
+      { widthCm: 400, depthCm: 400, reservations: [], layoutNotes: 'Дверь слева' },
+      [],
+    )
+    expect(authoritative.missingSafetyData).toEqual([])
+    expect(authoritative.reservationSource).toBe('geometry')
+  })
+
   describe('обязательные функции комнаты', () => {
     it('отдельно проверяет рабочую линию, холодильник и обеденное место кухни', () => {
       const layout = layoutRoom(
@@ -736,7 +810,7 @@ describe('layoutRoom', () => {
       {
         widthCm: 220,
         depthCm: 250,
-        layoutNotes: 'Дверь слева шириной 250 см, балкон справа шириной 250 см',
+        layoutNotes: 'Дверь слева по центру шириной 250 см, балкон справа по центру шириной 250 см',
       },
       [item({ title: 'Шкаф', dimensions: { width: 250, depth: 40, height: 200 } })],
     )
@@ -999,7 +1073,7 @@ describe('layoutRoom', () => {
       {
         widthCm: 310,
         depthCm: 220,
-        layoutNotes: 'Дверь снизу шириной 90 см',
+        layoutNotes: 'Дверь снизу по центру шириной 90 см',
       },
       [
         item({

@@ -2,6 +2,63 @@ import { hasAnyDimension, parseDimensionsCm } from '@uyut/catalog'
 import { describe, expect, it } from 'vitest'
 
 describe('parseDimensionsCm', () => {
+  it('reads named millimetre axes before values without taking the sofa sleeping size', () => {
+    expect(
+      parseDimensionsCm(
+        'Диван LIGA-080. Ширина (мм): 2740\nГлубина (мм): 1600\nВысота (мм): 830\nСпальное место (мм): 1460х2100',
+      ),
+    ).toEqual({ width: 274, depth: 160, height: 83 })
+  })
+
+  it('prefers named outer axes to an earlier sleeping pair', () => {
+    expect(
+      parseDimensionsCm(
+        'Диван. Спальное место 1460х2100 мм. Размеры изделия: Ширина (мм): 2740; Глубина (мм): 1600; Высота (мм): 830',
+      ),
+    ).toEqual({ width: 274, depth: 160, height: 83 })
+  })
+
+  it('keeps explicit units and named axes separate, with no invented missing dimensions', () => {
+    expect(parseDimensionsCm('Ширина (см): 274,5; Глубина (mm): 1600')).toEqual({
+      width: 274.5,
+      depth: 160,
+    })
+    expect(parseDimensionsCm('Ширина спального места (мм): 1460')).toEqual({})
+    expect(parseDimensionsCm('Спальное место (мм): 1460х2100')).toEqual({})
+    expect(parseDimensionsCm('Упаковка: Ширина (мм): 2740')).toEqual({})
+    expect(parseDimensionsCm('Ширина (мм): 99999')).toEqual({})
+  })
+
+  it('leaves conflicting named axes unknown without choosing the first or falling back', () => {
+    expect(
+      parseDimensionsCm(
+        'Ширина (мм):2740; Ширина (мм):2500; Глубина (мм):1600; Высота (мм):830. Габариты 2740×1600×830 мм',
+      ),
+    ).toEqual({ depth: 160, height: 83 })
+    expect(
+      parseDimensionsCm('Ширина (мм):2740; Ширина (мм):2500. Габариты 2740×1600×830 мм'),
+    ).toEqual({})
+    expect(parseDimensionsCm('Ширина (мм):2740; Ширина (см):274')).toEqual({ width: 274 })
+  })
+
+  it('keeps a non-body section excluded across separators until an explicit body header', () => {
+    expect(
+      parseDimensionsCm(
+        'Габариты упаковки: Ширина (мм):2800; Глубина (мм):1700; Высота (мм):900. Размеры изделия: Ширина (мм):2740; Глубина (мм):1600; Высота (мм):830',
+      ),
+    ).toEqual({ width: 274, depth: 160, height: 83 })
+    for (const header of ['Упаковка', 'Матрас', 'Спальное место', 'Внутренние размеры']) {
+      expect(
+        parseDimensionsCm(`${header}: Ширина (мм):2800; Глубина (мм):1700; Высота (мм):900`),
+      ).toEqual({})
+    }
+    expect(
+      parseDimensionsCm(
+        'Спальное место: Ширина (мм):1460; Глубина (мм):2100. Габариты дивана: Ширина (мм):2740; Глубина (мм):1600; Высота (мм):830',
+      ),
+    ).toEqual({ width: 274, depth: 160, height: 83 })
+  })
+
   it('читает габариты после запятой без пробела, не начиная с середины тройки', () => {
     expect(parseDimensionsCm('Стол письменный, 3 ящика,1200×450×760 мм')).toEqual({
       width: 120,
@@ -96,12 +153,21 @@ describe('размеры, которые описывают не сам пред
 })
 
 describe('спальное место', () => {
-  it('у кровати это и есть её габарит', () => {
+  it('спальное место не доказывает внешний габарит рамы даже с прежней опцией', () => {
     const bed = parseDimensionsCm(
       'Кровать двуспальная «Ницца», без основания, спальное место 1600×2000 мм, цвет бодега',
       { sleepingIsFootprint: true },
     )
-    expect(bed).toMatchObject({ width: 160, depth: 200 })
+    expect(bed).toEqual({})
+    expect(
+      parseDimensionsCm('Кровать, матрас 1600×2000 мм', { sleepingIsFootprint: true }),
+    ).toEqual({})
+    expect(
+      parseDimensionsCm(
+        'Кровать. Ширина (мм): 1680; Глубина (мм): 2150; Высота (мм): 900. Спальное место 1600×2000 мм',
+        { sleepingIsFootprint: true },
+      ),
+    ).toEqual({ width: 168, depth: 215, height: 90 })
   })
 
   it('у дивана — нет: там оно меряется в разложенном виде', () => {

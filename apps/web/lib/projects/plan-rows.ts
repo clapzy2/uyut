@@ -260,14 +260,19 @@ export function planRows(
   // забирала бы себе «Спальня 1» просто потому, что идёт первой, и мерки мастер-спальни
   // уезжали бы в детскую вместе с её заметкой.
   const pair = (room: PlanRoomReading): { match?: ExistingRoom; ambiguous: boolean } => {
-    const exact = existing.find(
+    const exact = existing.filter(
       (candidate) =>
         candidate.kind === room.kind &&
         !taken.has(candidate.id) &&
         plainName(candidate.name) === plainName(room.name),
     )
-    if (exact) {
-      return { match: exact, ambiguous: false }
+    if (exact.length > 0) {
+      const sourceMatches = reading.rooms.filter(
+        (source) => source.kind === room.kind && plainName(source.name) === plainName(room.name),
+      )
+      return exact.length === 1 && sourceMatches.length === 1
+        ? { match: exact[0], ambiguous: false }
+        : { ambiguous: true }
     }
     const loose = existing.filter(
       (candidate) =>
@@ -277,9 +282,13 @@ export function planRows(
     )
     // Кандидатов несколько — значит, номер как раз и различает комнаты, и угадывать нельзя:
     // мерки мастер-спальни, попавшие в детскую, человек заметит нескоро
-    return loose.length === 1
+    const sourceMatches = reading.rooms.filter(
+      (source) =>
+        source.kind === room.kind && withoutNumber(source.name) === withoutNumber(room.name),
+    )
+    return loose.length === 1 && sourceMatches.length === 1
       ? { match: loose[0], ambiguous: false }
-      : { ambiguous: loose.length > 1 }
+      : { ambiguous: loose.length > 0 }
   }
   return reading.rooms.map((room) => {
     const outdoor = room.spaceKind === 'balcony' || room.spaceKind === 'loggia'
