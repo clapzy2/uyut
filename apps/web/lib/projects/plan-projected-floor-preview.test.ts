@@ -109,6 +109,49 @@ function entry(geometry: PlanGeometry, index: number): PlanProjectedVerticalEvid
 }
 
 describe('source-scoped projected floor preview', () => {
+  it('keeps the original conflicting captions as documentary levels without inventing points or slopes', () => {
+    const geometry = fixture()
+    entry(geometry, 2).scopeLabel = 'Основной пол'
+    entry(geometry, 3).scopeLabel = 'Душевая с уклоном к трапу'
+    const model = required(projectedFloorPreview(geometry))
+    const held = required(model.heldRooms[0])
+    expect(held.levels).toEqual([
+      {
+        evidenceId: 'wc',
+        printedValue: '-0.050',
+        unit: 'm',
+        scopeLabel: 'Основной пол',
+        pdfPage: 3,
+        captionIndexes: [22],
+        captionTexts: ['-0.050'],
+      },
+      {
+        evidenceId: 'shower',
+        printedValue: '+0.150',
+        unit: 'm',
+        scopeLabel: 'Душевая с уклоном к трапу',
+        pdfPage: 3,
+        captionIndexes: [22],
+        captionTexts: ['+0.150'],
+      },
+    ])
+    expect(held.reason).toContain('перехода или уклона')
+    expect(model.floors.map((floor) => floor.elevationCm)).toEqual([0, -5])
+    held.levels[0]?.captionIndexes.push(999)
+    expect(entry(geometry, 2).source.captionIndexes).toEqual([22])
+  })
+
+  it('does not carry stale or unrelated captions into the held-room explanation', () => {
+    const geometry = fixture()
+    delete entry(geometry, 2).floorContourReview
+    entry(geometry, 3).source.sha256 = 'b'.repeat(64)
+    const model = required(projectedFloorPreview(geometry))
+    expect(required(model.heldRooms[0]).levels.map((level) => level.evidenceId)).toEqual(['wc'])
+    expect(required(model.heldRooms[0]).levels.some((level) => level.evidenceId === 'bath')).toBe(
+      false,
+    )
+  })
+
   it('builds only explicitly reviewed uniform floors and holds an unresolved shower contour', () => {
     const geometry = fixture()
     const before = structuredClone(geometry)
@@ -128,7 +171,7 @@ describe('source-scoped projected floor preview', () => {
     expect(model.floors[0]?.sourceNumbers).toEqual([1, 2, 3])
     expect(model.heldRooms).toHaveLength(1)
     expect(model.heldRooms[0]).toMatchObject({ name: 'Санузел с душем' })
-    expect(model.heldRooms[0]?.reason).toContain('разные уровни')
+    expect(model.heldRooms[0]?.reason).toContain('разные отметки')
     expect(model.heldRooms[0]).not.toHaveProperty('elevationCm')
     expect(model.floorScopeNote).toBe('Балконное соединение не подтверждено')
     expect(model.warnings.join(' ')).toContain('не подтверждённый обмер')

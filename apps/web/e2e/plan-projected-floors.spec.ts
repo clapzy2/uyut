@@ -261,6 +261,15 @@ test.describe('синтетическая сверка проектного по
     const surface = scene.locator('polygon:not([fill="none"])')
     await expect(surface).toHaveCount(1)
     await expect(scene.locator('polygon[fill="none"]')).toHaveCount(1)
+    await preview.getByText('Подписи без построенной поверхности (2)', { exact: true }).click()
+    const heldLevels = preview.getByRole('list', {
+      name: 'Исходные отметки: Синтетическая мокрая зона',
+      exact: true,
+    })
+    await expect(heldLevels).toContainText('-0.050')
+    await expect(heldLevels).toContainText('+0.150')
+    await expect(heldLevels).toContainText('PDF, страница 1')
+    await expect(surface).toHaveCount(1)
     const initialPoints = await surface.getAttribute('points')
     assert(initialPoints)
     await preview.getByRole('button', { name: 'Повернуть влево', exact: true }).click()

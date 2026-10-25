@@ -577,7 +577,19 @@ function projectedFloorPage(data: PdfData, free: boolean): string {
     <svg style="display:block;width:100%;height:110mm;margin-top:3mm" viewBox="${left - padding} ${top - padding} ${width + padding * 2} ${height + padding * 2}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Проектные уровни пола без неподтверждённых поверхностей">${contextual}${surfaces}${scales}</svg>
     <p class="small" style="margin-top:2mm">Вертикальный масштаб 1×, без увеличения. Заливка обозначает только отдельно сверенный уровень всего контура. Пунктир без заливки - проекции неизвестных контуров, не пол на нуле. Синие линии к нулю - графическая шкала, не стены.</p>
     ${legend}
-    ${model.heldRooms.map((room) => `<p class="small" style="margin-top:2mm;break-inside:avoid">${esc(room.name)}: ${esc(room.reason)}</p>`).join('')}
+    ${model.heldRooms
+      .map((room) => {
+        const levels = room.levels
+          .slice(0, 3)
+          .map((level) => {
+            const unit = level.unit === 'mm' ? 'мм' : level.unit === 'cm' ? 'см' : 'м'
+            const scope = level.scopeLabel ? `${esc(level.scopeLabel)}: ` : ''
+            return `${scope}${esc(level.printedValue)} ${unit} (PDF, стр. ${level.pdfPage}, подпись ${level.captionIndexes.join(', ')})`
+          })
+          .join('; ')
+        return `<div class="small" style="margin-top:2mm;break-inside:avoid"><p>${esc(room.name)}: ${esc(room.reason)}</p>${levels ? `<p>Подписи без поверхности: ${levels}.${room.levels.length > 3 ? ' Остальные подписи приведены в разделе проектных отметок.' : ''} Место текста не задаёт точку пола в 3D.</p>` : ''}</div>`
+      })
+      .join('')}
     <p class="small" style="margin-top:3mm">Неизвестные стены, потолки, толщина пола и пороги не построены. Проход мебели и маршрут заноса этим просмотром не проверяются.</p>
   </section>`
 }

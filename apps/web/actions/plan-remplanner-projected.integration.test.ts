@@ -223,6 +223,16 @@ describe.skipIf(!process.env.QA_REMPLANNER_PROPOSED_PDF)(
         -5, 0, 0, 0, 0, 0,
       ])
       expect(preview?.heldRooms.map((room) => room.name)).toEqual(['Санузел'])
+      expect(
+        preview?.heldRooms[0]?.levels.map((level) => [
+          level.printedValue,
+          level.pdfPage,
+          ...level.captionIndexes,
+        ]),
+      ).toEqual([
+        ['-0.050', 3, 244],
+        ['+0.150', 3, 246],
+      ])
       const wcFloor = stored.projectedVerticalEvidence?.find(
         (entry) =>
           entry.quantity === 'floor-level' &&
@@ -295,6 +305,12 @@ describe.skipIf(!process.env.QA_REMPLANNER_PROPOSED_PDF)(
       expect(pdf.projectedPlan?.floorScopeNote).toContain('Балкон')
       expect(pdf.verticalPlan).toBeUndefined()
       const html = renderProjectHtml(pdf, { fontCss: fontFaceCss() })
+      const floorPage = html
+        .split('<section class="page projected-floor-preview">')[1]
+        ?.split('</section>')[0]
+      expect(floorPage).toContain('Подписи без поверхности')
+      expect(floorPage).toContain('Поднятая душевая часть: +0.150 м (PDF, стр. 3, подпись 246)')
+      expect(floorPage).toContain('Место текста не задаёт точку пола в 3D')
       expect(html).toContain('Проектные отметки')
       expect(html).toContain('Поднятая душевая часть')
       expect(html).toContain('не высота от проектного чистого пола')
