@@ -216,7 +216,7 @@ function estimateScope(data: PdfData): string {
 function wallFaceReviewNote(review: PdfData['wallFaceReview']): string {
   if (!review || !Number.isSafeInteger(review.humanReviewedPairs) || review.humanReviewedPairs < 1)
     return ''
-  return `<p class="small wall-face-review">Пар граней стен со статусом «сверено человеком»: ${review.humanReviewedPairs}. Исходный PDF, страница ${review.pdfPage}.</p>`
+  return `<p class="small wall-face-review">В схеме квартиры пар граней стен со статусом «сверено человеком»: ${review.humanReviewedPairs}. Исходный PDF, страница ${review.pdfPage}. Это отметка отдельных связей, а не подтверждение всех стен, комнат или обмеров.</p>`
 }
 
 function about(data: PdfData, free: boolean): string {
@@ -652,11 +652,7 @@ function roomPage(room: PdfRoom, index: number, free: boolean): string {
   </section>`
 }
 
-function roomPlanPage(
-  room: PdfRoom,
-  free: boolean,
-  wallFaceReview: PdfData['wallFaceReview'],
-): string {
+function roomPlanPage(room: PdfRoom, free: boolean): string {
   const plan = roomPlan(room.plan)
   if (!plan) return ''
   const hasDrawing = plan.includes('<svg ')
@@ -684,7 +680,6 @@ function roomPlanPage(
     <h1 style="margin-top:3mm">${esc(room.name)} · ${heading}</h1>
     ${plan}
     ${measuredSize}
-    ${wallFaceReviewNote(wallFaceReview)}
     ${(room.measurementNotes ?? []).map((note) => `<p class="verdict">${esc(note)}</p>`).join('')}
   </section>`
 }
@@ -908,7 +903,7 @@ ${cover(data, free)}
 ${about(data, free)}
 ${verticalPlanPage(data, free)}
 ${deliveryPlanPages(data, free)}
-${data.rooms.map((room, index) => (room.hasConcept === false ? '' : roomPage(room, index, free)) + roomPlanPage(room, free, data.wallFaceReview)).join('')}
+${data.rooms.map((room, index) => (room.hasConcept === false ? '' : roomPage(room, index, free)) + roomPlanPage(room, free)).join('')}
 ${shopping(data, free)}
 ${data.estimateStatus === 'not-calculated' ? '' : estimatePage(data, free)}
 ${briefPages(data, free)}
