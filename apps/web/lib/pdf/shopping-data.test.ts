@@ -173,6 +173,30 @@ function addRoom(data: ProjectSnapshot): Room {
 }
 
 describe('данные нового задания для мастера', () => {
+  it('сохраняет в PDF название неподобранной тумбы с визуализации', async () => {
+    const data = snapshot()
+    const room = addRoom(data)
+    const entry = data.concepts.get(room.id)
+    if (!entry) throw new Error('Нет тестового концепта')
+    entry.main.prompt = 'Тестовый интерьер спальни'
+    data.objects.set(room.id, [
+      { index: 1, category: 'table', label: 'a bedside table', product: null, priceKopecks: null },
+      { index: 2, category: 'storage', label: 'unknown object', product: null, priceKopecks: null },
+    ])
+
+    const { pdf } = await build(data)
+    expect(pdf.rooms[0]?.objects.map((object) => object.category)).toEqual([
+      'Прикроватная тумба',
+      'Хранение',
+    ])
+    expect(briefInput(data).rooms[0]?.concept?.objects.map((object) => object.category)).toEqual([
+      'прикроватная тумба',
+      'хранение',
+    ])
+    const html = renderProjectHtml(pdf, { fontCss: '' })
+    expect(html).toContain('Прикроватная тумба')
+  })
+
   it('exports saved room dimensions without purchases, a concept or a confirmed floor', async () => {
     const data = snapshot()
     const room = addRoom(data)

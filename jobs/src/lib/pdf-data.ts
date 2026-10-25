@@ -1,4 +1,5 @@
 import type { BriefInput } from '@uyut/ai'
+import { detectedObjectLabel } from '@uyut/ai/object-label'
 import {
   estimateProject,
   type LayoutItem,
@@ -197,6 +198,7 @@ export type ProjectSnapshot = {
     Array<{
       index: number
       category: CatalogCategory
+      label: string
       product: string | null
       priceKopecks: number | null
     }>
@@ -285,6 +287,7 @@ export async function loadSnapshot(projectId: string): Promise<ProjectSnapshot |
             return {
               index: object.orderIndex + 1,
               category: object.category,
+              label: object.label,
               product:
                 chosen.length > 1
                   ? 'Несколько выбранных позиций — см. список покупок'
@@ -350,7 +353,10 @@ export function briefInput(snapshot: ProjectSnapshot): BriefInput {
               revision: null,
               finishes: entry.main.prompt.slice(0, 600),
               objects: (snapshot.objects.get(room.id) ?? []).map((object) => ({
-                category: categoryLabels[object.category].toLowerCase(),
+                category: detectedObjectLabel(
+                  object.label,
+                  categoryLabels[object.category],
+                ).toLowerCase(),
                 product: object.product,
                 priceRub:
                   object.priceKopecks !== null ? Math.round(object.priceKopecks / 100) : null,
@@ -599,8 +605,10 @@ export async function buildPdfData(input: {
         alternates: alternates.filter((alt): alt is PdfImage & { caption: string } => alt !== null),
         note: clampText(entry?.main.note ?? null, 330),
         objects: (entry ? (snapshot.objects.get(room.id) ?? []) : []).map((object) => ({
-          ...object,
-          category: categoryLabels[object.category],
+          index: object.index,
+          category: detectedObjectLabel(object.label, categoryLabels[object.category]),
+          product: object.product,
+          priceKopecks: object.priceKopecks,
         })),
         plan,
         measurementNotes,
