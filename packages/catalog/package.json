@@ -23,6 +23,7 @@
     "./plan-threshold-geometry": "./src/plan-threshold-geometry.ts",
     "./plan-exact-geometry": "./src/plan-exact-geometry.ts",
     "./room-volume": "./src/room-volume.ts",
+    "./projected-room-layout": "./src/projected-room-layout.ts",
     "./reviewed-layout-with-measurements": "./src/reviewed-layout-with-measurements.ts"
   },
   "scripts": {

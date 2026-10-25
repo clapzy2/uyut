@@ -44,7 +44,9 @@ export function PlanVolumeLaunch({
         {open
           ? 'Скрыть объёмную схему'
           : model.wallSource === 'room-layout'
-            ? 'Посмотреть мебель в объёме'
+            ? model.furniture?.length
+              ? 'Посмотреть мебель в объёме'
+              : 'Посмотреть контур в объёме'
             : model.wallSource === 'pdf-faces'
               ? model.walls.length === 0
                 ? 'Посмотреть подтверждённый пол в объёме'

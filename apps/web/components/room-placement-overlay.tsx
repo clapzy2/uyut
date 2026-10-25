@@ -168,6 +168,7 @@ export function RoomPlacementOverlay({
   floorReservations,
   keepClearZones,
   functionalZones,
+  projectedContour,
 }: {
   placements: Placement[]
   inputs: PlacementInput[]
@@ -182,6 +183,7 @@ export function RoomPlacementOverlay({
   floorReservations: RoomLayout['floorReservations']
   keepClearZones: RoomLayout['keepClearZones']
   functionalZones: RoomLayout['functionalZones']
+  projectedContour?: RoomLayout['projectedContour']
 }) {
   const router = useRouter()
   const inputById = useMemo(() => new Map(inputs.map((input) => [input.id, input])), [inputs])
@@ -362,6 +364,7 @@ export function RoomPlacementOverlay({
         yCm: String(yCm),
         rotation: String(rotation),
         frontDirection: frontDirection ?? 'auto',
+        projectedContour,
       })
       if (!result.ok) {
         toast({ title: result.error, tone: 'danger' })

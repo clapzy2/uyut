@@ -287,6 +287,15 @@ export function roomLayoutInputFromGeometry(
   const room = matchingRooms.length === 1 ? matchingRooms[0] : undefined
   if (!room || room.sourceNumbers || room.polygon.length < 3) return null
 
+  return roomLayoutInputFromSelectedGeometry(geometry, room, measurements)
+}
+
+/** Coordinate conversion only. Callers own source/status/selection validation. */
+export function roomLayoutInputFromSelectedGeometry(
+  geometry: PlanGeometry,
+  room: PlanGeometry['rooms'][number],
+  measurements: RoomMeasurements | null | undefined,
+): GeometryRoomLayoutInput | null {
   const xs = room.polygon.map((point) => point.xCm)
   const ys = room.polygon.map((point) => point.yCm)
   const minX = Math.min(...xs)

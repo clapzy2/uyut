@@ -2,6 +2,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
 import { preparePhoto, UploadError } from '@/lib/files/uploads'
 import { AccessError, requireOwner } from '@/lib/projects/access'
 import { editedDimensionSources } from '@/lib/projects/dimension-sources'
@@ -37,8 +38,36 @@ function failure(error: unknown): { ok: false; error: string } {
 function revalidateRoom(projectId: string, roomId?: string): void {
   revalidatePath('/projects')
   revalidatePath(`/projects/${projectId}`)
+  revalidatePath(`/projects/${projectId}/summary`)
   if (roomId) {
     revalidatePath(`/projects/${projectId}/rooms/${roomId}`)
+  }
+}
+
+export async function setRoomProjectedContour(
+  roomId: string,
+  input: unknown,
+): Promise<ActionResult> {
+  const userId = await currentUserId()
+  if (!userId) return { ok: false, error: SESSION_EXPIRED }
+  const parsed = z
+    .object({
+      roomIndex: z.number().int().min(0).max(99).nullable(),
+      expectedGeometryKey: z.string().max(300_000),
+      expectedRoomIndex: z.number().int().min(0).max(99).optional(),
+      reviewed: z.boolean(),
+    })
+    .strict()
+    .safeParse(input)
+  if (!parsed.success || (parsed.data.roomIndex !== null && !parsed.data.reviewed))
+    return { ok: false, error: 'Выберите область и подтвердите проектный характер расстановки.' }
+  try {
+    const room = await repository.getRoom(userId, roomId)
+    await repository.setRoomProjectedContour(userId, roomId, parsed.data)
+    revalidateRoom(room.projectId, roomId)
+    return { ok: true, data: undefined }
+  } catch (error) {
+    return failure(error)
   }
 }
 

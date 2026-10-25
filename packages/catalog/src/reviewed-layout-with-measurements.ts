@@ -7,6 +7,7 @@ import {
   signedPlanFloors,
   verticalReferenceReviewKey,
 } from './plan-vertical-floor-geometry'
+import { projectedLayoutWithMeasurements } from './projected-room-layout'
 import { roomVolume } from './room-volume'
 
 /** Reviewed opt-in layout shared by the website and PDF worker; no flat fallback for a datum. */
@@ -17,6 +18,8 @@ export function layoutWithMeasurements(
   items: readonly LayoutItem[],
   roomKind?: LayoutRoomKind,
 ): RoomLayout | null {
+  if (measurements?.projectedContour !== undefined)
+    return projectedLayoutWithMeasurements(name, measurements, geometry, items, roomKind)
   if (geometry?.verticalReference === undefined)
     return horizontalLayout(name, measurements, geometry, items, roomKind)
   const floors = signedPlanFloors(geometry)

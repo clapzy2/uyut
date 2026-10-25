@@ -158,6 +158,8 @@ export type RoomLayout = {
   }
   /** Условия достоверности исходных размеров, показываются вместе со схемой. */
   measurementNote?: string
+  /** Coordinate writes must target this exact proposed source and local origin. */
+  projectedContour?: { geometryKey: string; roomIndex: number }
   widthCm: number
   depthCm: number
   /** Реальный контур пола в локальных координатах комнаты. */

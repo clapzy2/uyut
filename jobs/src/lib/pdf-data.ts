@@ -571,7 +571,7 @@ export async function buildPdfData(input: {
             : 'Отметка потолка этого пола неизвестна; вертикальное размещение не проверено.',
         )
       }
-      if (room.measurements?.ceilingCm !== undefined) {
+      if (room.measurements?.ceilingCm !== undefined && !room.measurements.projectedContour) {
         measurementNotes.push(
           `Высота потолка по мерке комнаты: ${formatDimensionCm(room.measurements.ceilingCm)} см.`,
         )

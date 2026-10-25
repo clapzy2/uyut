@@ -34,7 +34,7 @@ export async function roomLayout(
       placement: item.placementCm,
       quantity: item.quantity,
     }))
-  if (items.length === 0) {
+  if (items.length === 0 && !measurements?.projectedContour) {
     return null
   }
   return layoutWithMeasurements(roomName, measurements, geometry, items, roomKind)

@@ -1,4 +1,5 @@
 import { checkFit, type DimensionsCm, type FitVerdict, itemTotalKopecks } from '@uyut/catalog'
+import { projectedGeometryKey } from '@uyut/catalog/projected-room-layout'
 import { sameShoppingVariant, shoppingOffer } from '@uyut/catalog/shopping-offer'
 import {
   type CatalogCategory,
@@ -7,15 +8,17 @@ import {
   concepts,
   type ItemOperationClearanceCm,
   type ItemPlacementCm,
+  projects,
   rooms,
   type ShoppingVariant,
   shoppingListItems,
   shoppingLists,
 } from '@uyut/db'
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import { orderedImages } from '@/lib/catalog/product-image'
 import { getDb } from '@/lib/db'
 import {
+  AccessError,
   assertOwner,
   assertOwnerOrCollaborator,
   isUuid,
@@ -337,7 +340,7 @@ export async function addShoppingItem(
 async function ownedItem(
   userId: string,
   itemId: string,
-): Promise<{ id: string; projectId: string; catalogItemId: string }> {
+): Promise<{ id: string; projectId: string; catalogItemId: string; roomId: string | null }> {
   if (!isUuid(itemId)) {
     throw new NotFoundError('Строка списка не найдена')
   }
@@ -346,6 +349,7 @@ async function ownedItem(
       id: shoppingListItems.id,
       projectId: shoppingLists.projectId,
       catalogItemId: shoppingListItems.catalogItemId,
+      roomId: shoppingListItems.roomId,
     })
     .from(shoppingListItems)
     .innerJoin(shoppingLists, eq(shoppingLists.id, shoppingListItems.listId))
@@ -419,12 +423,47 @@ export async function setShoppingItemPlacement(
   userId: string,
   itemId: string,
   placement: ItemPlacementCm | null,
+  expectedProjectedContour?: { geometryKey: string; roomIndex: number },
 ): Promise<{ projectId: string }> {
   const item = await ownedItem(userId, itemId)
-  await getDb()
-    .update(shoppingListItems)
-    .set({ placementCm: placement })
-    .where(eq(shoppingListItems.id, item.id))
+  await getDb().transaction(async (tx) => {
+    const [project] = await tx
+      .select()
+      .from(projects)
+      .where(
+        and(
+          eq(projects.id, item.projectId),
+          eq(projects.ownerId, userId),
+          isNull(projects.deletedAt),
+        ),
+      )
+      .for('update')
+    if (!project) throw new NotFoundError('Проект не найден')
+    const [room] = item.roomId
+      ? await tx
+          .select()
+          .from(rooms)
+          .where(and(eq(rooms.id, item.roomId), eq(rooms.projectId, project.id)))
+          .for('update')
+      : []
+    const binding = room?.measurements?.projectedContour
+    if (binding || expectedProjectedContour) {
+      if (
+        !binding ||
+        !expectedProjectedContour ||
+        binding.geometryKey !== expectedProjectedContour.geometryKey ||
+        binding.roomIndex !== expectedProjectedContour.roomIndex ||
+        projectedGeometryKey(project.planReading?.geometry) !== binding.geometryKey
+      )
+        throw new AccessError(
+          'Проектный контур изменился. Обновите страницу перед закреплением мебели.',
+        )
+    }
+    await tx
+      .update(shoppingListItems)
+      .set({ placementCm: placement })
+      .where(eq(shoppingListItems.id, item.id))
+  })
   return { projectId: item.projectId }
 }
 
