@@ -69,6 +69,52 @@ it('reads the Remplanner heading and room vocabulary only inside a verified tabl
   expect(nativeRoomScheduleEvidence(input).rows).toEqual([])
 })
 
+it.each([
+  'Душевая',
+  'Душевая комната',
+  'Туалет',
+  'WC',
+  'wc',
+  'С/У',
+  'Ванная комната',
+  'Совмещенный санузел',
+  'Совмещённый санузел',
+  'совмещенныйсанузел',
+  'Гостевой санузел',
+  'Санузел (гостевой)',
+  'Ванная гостевая',
+  'Санузел с душем',
+  'Ванная с душем',
+  'Основной санузел',
+  'Гостевой санузел №01',
+  'Санузел (гостевой) 01',
+  'Ванная (с душем) №01',
+  'Гостевой санузел с душем',
+  'Санузел (гостевой) с душем №01',
+])('retains the exact sanitary-room name %s in a verified schedule', (name) => {
+  const input = fixture()
+  labelOf(input, 'Прихожая').name = name
+  const result = nativeRoomScheduleEvidence(input)
+  expect(result.rows).toHaveLength(3)
+  expect(result.rows[0]).toMatchObject({ sourceNumber: 1, name, documentaryAreaM2: 4.21 })
+})
+
+it.each([
+  'Кухня рядом с санузлом',
+  'Комната с душевой',
+  'Душевая кабина',
+  'WC оборудование',
+  'Гостевая кухня рядом с санузлом',
+  'Кухня (с душем)',
+  'Санузел рядом с кухней',
+  'Ванная с душем и кухня',
+  'Санузел (гостевой) №00',
+])('does not treat the descriptive phrase %s as an exact room name', (name) => {
+  const input = fixture()
+  labelOf(input, 'Прихожая').name = name
+  expect(nativeRoomScheduleEvidence(input).rows).toEqual([])
+})
+
 it('uses verified native table inventory when flattened text has no readable rows', () => {
   const input = fixture()
   const page = {

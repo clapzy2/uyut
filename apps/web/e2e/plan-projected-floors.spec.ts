@@ -69,10 +69,15 @@ function geometryFixture(sha256: string): PlanGeometry {
     version: 1,
     status: 'draft',
     widthCm: 600,
-    heightCm: 400,
+    heightCm: 700,
     rooms: [
       { name: 'Синтетическая сухая зона', sourceNumber: 1, polygon: rectangle(20, 270) },
-      { name: 'Синтетическая мокрая зона', sourceNumber: 2, polygon: rectangle(300, 550) },
+      { name: 'Санузел', sourceNumber: 2, polygon: rectangle(300, 550) },
+      {
+        name: 'Ванная',
+        sourceNumber: 3,
+        polygon: rectangle(20, 270).map((point) => ({ ...point, yCm: point.yCm + 330 })),
+      },
     ],
     walls: [],
     openings: [],
@@ -115,6 +120,7 @@ function geometryFixture(sha256: string): PlanGeometry {
     statement(dryId, 0, '+0.000', 0, 0),
     statement(wetId, 1, '-0.050', -5, 2),
     statement(showerId, 1, '+0.150', 15, 3),
+    statement('bathroom-level', 2, '-0.050', -5, 2),
   ]
   return geometry
 }
@@ -197,7 +203,8 @@ test.describe('синтетическая сверка проектного по
           planState: 'proposed',
           rooms: [
             { name: 'Синтетическая сухая зона', sourceNumber: 1, kind: 'living' },
-            { name: 'Синтетическая мокрая зона', sourceNumber: 2, kind: 'bath' },
+            { name: 'Санузел', sourceNumber: 2, kind: 'bath' },
+            { name: 'Ванная', sourceNumber: 3, kind: 'bath' },
           ],
           geometry,
         },
@@ -251,8 +258,11 @@ test.describe('синтетическая сверка проектного по
     await save.click()
     const preview = page.getByRole('region', { name: 'Проектный 3D: уровни пола', exact: true })
     await expect(preview).toBeVisible()
-    await expect(preview.getByText(/Поверхностей с уровнем:/)).toContainText(
-      'Поверхностей с уровнем: 1. Без определённой поверхности: 1.',
+    await expect(preview.getByText(/Поверхности для обстановки:/)).toContainText(
+      'Поверхности для обстановки: с уровнем - 1; без определённого уровня - 0.',
+    )
+    await expect(preview.getByText(/Поверхности для обстановки:/)).toContainText(
+      'Санузлы справочно: 2',
     )
     const scene = preview.getByRole('img', {
       name: 'Проектный 3D-просмотр уровней пола',
@@ -260,16 +270,49 @@ test.describe('синтетическая сверка проектного по
     })
     const surface = scene.locator('polygon:not([fill="none"])')
     await expect(surface).toHaveCount(1)
-    await expect(scene.locator('polygon[fill="none"]')).toHaveCount(1)
+    await expect(scene.locator('polygon[fill="none"]')).toHaveCount(2)
+    await page.getByText('Сверить целые полы для проектного 3D', { exact: true }).click()
+    await review
+      .getByLabel('Отметка для проектного пола', { exact: true })
+      .selectOption('bathroom-level')
+    await review.getByRole('button', { name: 'Открыть лист для сверки пола', exact: true }).click()
+    await review.getByLabel('Нулевая подпись проектного пола', { exact: true }).selectOption('0')
+    await review
+      .getByRole('checkbox', { name: /^Сверил: этот уровень относится ко всему контуру/ })
+      .check()
+    await review
+      .getByRole('checkbox', { name: /^Сверил: отметка комнаты и выбранный ноль/ })
+      .check()
+    await save.click()
+    await expect(
+      preview.getByRole('button', { name: 'Показать справочные уровни санузлов', exact: true }),
+    ).toBeVisible()
+    await expect(surface).toHaveCount(1)
+    await expect(scene.locator('polygon[fill="none"]')).toHaveCount(2)
+    await expect(
+      preview.getByText('Подписи без построенной поверхности (2)', { exact: true }),
+    ).toHaveCount(0)
+    await preview
+      .getByRole('button', { name: 'Показать справочные уровни санузлов', exact: true })
+      .click()
+    await expect(surface).toHaveCount(2)
+    await expect(preview.getByRole('button', { name: 'Ванная: -5 см', exact: true })).toBeVisible()
+    await preview.getByRole('button', { name: 'Ванная: -5 см', exact: true }).click()
     await preview.getByText('Подписи без построенной поверхности (2)', { exact: true }).click()
     const heldLevels = preview.getByRole('list', {
-      name: 'Исходные отметки: Синтетическая мокрая зона',
+      name: 'Исходные отметки: Санузел',
       exact: true,
     })
     await expect(heldLevels).toContainText('-0.050')
     await expect(heldLevels).toContainText('+0.150')
     await expect(heldLevels).toContainText('PDF, страница 1')
+    await expect(surface).toHaveCount(2)
+    await preview
+      .getByRole('button', { name: 'Скрыть справочные уровни санузлов', exact: true })
+      .click()
     await expect(surface).toHaveCount(1)
+    await expect(surface).toHaveAttribute('fill-opacity', '0.85')
+    await expect(scene.locator('polygon[fill="none"]')).toHaveCount(2)
     const initialPoints = await surface.getAttribute('points')
     assert(initialPoints)
     await preview.getByRole('button', { name: 'Повернуть влево', exact: true }).click()
@@ -316,6 +359,6 @@ test.describe('синтетическая сверка проектного по
     const unchanged = await savedGeometry()
     expect(unchanged).toEqual(saved)
     await expect(surface).toHaveCount(1)
-    await expect(scene.locator('polygon[fill="none"]')).toHaveCount(1)
+    await expect(scene.locator('polygon[fill="none"]')).toHaveCount(2)
   })
 })

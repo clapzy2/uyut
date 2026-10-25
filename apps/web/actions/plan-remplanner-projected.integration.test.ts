@@ -188,7 +188,8 @@ describe.skipIf(!process.env.QA_REMPLANNER_PROPOSED_PDF)(
         project = await getProject(local.owner, created.id)
       }
       expect(
-        project.planReading?.geometry && projectedFloorPreview(project.planReading.geometry),
+        project.planReading?.geometry &&
+          projectedFloorPreview(project.planReading.geometry, project.planReading.rooms),
       ).toBeUndefined()
       const wholeFloors = fixture.projectedEvidence.filter(
         (entry) => entry.quantity === 'floor-level' && entry.roomNumber !== 8,
@@ -217,8 +218,13 @@ describe.skipIf(!process.env.QA_REMPLANNER_PROPOSED_PDF)(
       const stored = project.planReading?.geometry
       if (!stored) throw new Error('Missing stored proposed geometry')
       expect(currentProjectedVerticalEvidence(stored)).toHaveLength(requests.length)
-      const preview = projectedFloorPreview(stored)
+      const preview = projectedFloorPreview(stored, project.planReading?.rooms)
       expect(preview?.floors).toHaveLength(6)
+      expect(preview?.floors.filter((floor) => floor.purpose === 'furnishing')).toHaveLength(5)
+      expect(
+        preview?.floors.filter((floor) => floor.purpose === 'reference').map((floor) => floor.name),
+      ).toEqual(['Ванная комната'])
+      expect(preview?.heldRooms[0]?.purpose).toBe('reference')
       expect(preview?.floors.map((floor) => floor.elevationCm).sort((a, b) => a - b)).toEqual([
         -5, 0, 0, 0, 0, 0,
       ])
@@ -268,7 +274,9 @@ describe.skipIf(!process.env.QA_REMPLANNER_PROPOSED_PDF)(
       )
       if (!saved.ok) throw new Error(saved.error)
       expect(currentProjectedVerticalEvidence(saved.data.geometry)).toHaveLength(requests.length)
-      expect(projectedFloorPreview(saved.data.geometry)).toEqual(preview)
+      expect(projectedFloorPreview(saved.data.geometry, project.planReading?.rooms)).toEqual(
+        preview,
+      )
       expect(planVolume({ ...saved.data.geometry, status: 'confirmed' })).toBeNull()
       expect(
         (await savePlanGeometry(created.id, saved.data.geometry, 'confirm', saved.data.revision))
@@ -284,7 +292,9 @@ describe.skipIf(!process.env.QA_REMPLANNER_PROPOSED_PDF)(
         true,
       )
       if (!reimported.ok) throw new Error(reimported.error)
-      expect(projectedFloorPreview(reimported.data.geometry)).toEqual(preview)
+      expect(projectedFloorPreview(reimported.data.geometry, project.planReading?.rooms)).toEqual(
+        preview,
+      )
       const snapshot = await loadSnapshot(created.id)
       if (!snapshot) throw new Error('Missing PDF snapshot')
       const pdf = await buildPdfData({
@@ -308,9 +318,9 @@ describe.skipIf(!process.env.QA_REMPLANNER_PROPOSED_PDF)(
       const floorPage = html
         .split('<section class="page projected-floor-preview">')[1]
         ?.split('</section>')[0]
-      expect(floorPage).toContain('Подписи без поверхности')
-      expect(floorPage).toContain('Поднятая душевая часть: +0.150 м (PDF, стр. 3, подпись 246)')
-      expect(floorPage).toContain('Место текста не задаёт точку пола в 3D')
+      expect(floorPage).toContain('Санузлы справочно: Ванная комната, Санузел')
+      expect(floorPage).not.toContain('Подписи без поверхности')
+      expect(floorPage).not.toContain('<strong>-5 см</strong>')
       expect(html).toContain('Проектные отметки')
       expect(html).toContain('Поднятая душевая часть')
       expect(html).toContain('не высота от проектного чистого пола')

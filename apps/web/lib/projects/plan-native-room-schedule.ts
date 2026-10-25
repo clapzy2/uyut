@@ -1,4 +1,5 @@
 import { planTabularScheduleEvidence } from '@uyut/ai'
+import { isWetRoomName } from '@uyut/db/room-purpose'
 import {
   isPlanRoomSourceNumber,
   planRoomSourceNumbersInScheduleOrder,
@@ -22,7 +23,8 @@ type Label = NativeTextAnchors['labels'][number]
 type Grid = { bounds: Bounds; columns: number[]; rows: number[]; edges: NativePageSegment[] }
 const MAX_WORK = 200_000
 const roomName =
-  /^(?:помещение|прихожая(?:[-,]\s*коридор)?|кухня(?:[-–— ]гостиная)?|гостиная|(?:главная )?спальня|коридор|ванна|ванная(?: комната)?|[сc]анузел|туалет|комната|жилая комната|детская|кабинет|гардероб|гардеробная|кладовая|балкон|лоджия)(?:\s+(?:#|№)?\s*\d{1,2})?$/iu
+  /^(?:помещение|прихожая(?:[-,]\s*коридор)?|кухня(?:[-–— ]гостиная)?|гостиная|(?:главная )?спальня|коридор|комната|жилая комната|детская|кабинет|гардероб|гардеробная|кладовая|балкон|лоджия)(?:\s+(?:#|№)?\s*\d{1,2})?$/iu
+const isRoomName = (name: string) => isWetRoomName(name) || roomName.test(name)
 const numberHeading = /^№(?:\s*п\/п)?$/u
 const nameHeading = /^(?:наименование|помещение)$/iu
 const areaHeading = /^площадь(?:,|,?\s+[мm][²2])?$/iu
@@ -226,7 +228,7 @@ function titleAndRuledRoomRows(
       const areaM2 = raisedMetricArea(area, unit)
       if (
         !/^\d{1,2}$/u.test(number.name) ||
-        !roomName.test(name.name) ||
+        !isRoomName(name.name) ||
         areaM2 === undefined ||
         !planRoomSourceNumbersInScheduleOrder([
           ...rows.map((row) => row.sourceNumber),
@@ -419,7 +421,7 @@ export function nativeRoomScheduleEvidence(input: {
     if (
       rows.some(
         (row) =>
-          !roomName.test(row.name) || !row.numberLabelId || !row.nameLabelId || !row.areaLabelId,
+          !isRoomName(row.name) || !row.numberLabelId || !row.nameLabelId || !row.areaLabelId,
       )
     )
       return finish('unsupported-or-ambiguous-room-table')
@@ -877,7 +879,7 @@ export function nativeRoomScheduleEvidence(input: {
         !/^0?[1-9]\d?(?:\.\d{1,3})?$/u.test(number.name) ||
         (number.name.includes('.') && String(Number(number.name)) !== number.name) ||
         !isPlanRoomSourceNumber(Number(number.name)) ||
-        !roomName.test(name.name) ||
+        !isRoomName(name.name) ||
         !planRoomSourceNumbersInScheduleOrder([
           ...rows.map((row) => row.sourceNumber),
           Number(number.name),

@@ -2,8 +2,11 @@ import type {
   PlanGeometry,
   PlanPoint,
   PlanProjectedVerticalEvidence,
+  PlanRoomReading,
   PlanRoomShape,
 } from '@uyut/db'
+import { isWetRoomName } from '@uyut/db/room-purpose'
+import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { cross, integerPoints, onIntegerSegment, sign, vector } from './plan-exact-geometry'
 import {
   currentProjectedVerticalEvidence,
@@ -18,6 +21,7 @@ export type ProjectedFloorPreview = {
     id: string
     roomIndex: number
     name: string
+    purpose: 'furnishing' | 'reference'
     sourceNumbers: number[]
     polygon: PlanPoint[]
     elevationCm: number
@@ -27,6 +31,7 @@ export type ProjectedFloorPreview = {
     id: string
     roomIndex: number
     name: string
+    purpose: 'furnishing' | 'reference'
     polygon: PlanPoint[]
     reason: string
     levels: Array<{
@@ -51,6 +56,61 @@ function roomKey(room: PlanRoomShape): string {
     room.sourceNumbers ?? null,
     room.polygon.map(({ xCm, yCm }) => [xCm, yCm]),
   ])
+}
+
+/** Presentation purpose only; ambiguous inventory never excludes a room from furnishing. */
+function roomPurpose(
+  room: PlanRoomShape,
+  inventory: readonly PlanRoomReading[] | undefined,
+  rooms: readonly PlanRoomShape[],
+): 'furnishing' | 'reference' {
+  if (!Array.isArray(inventory)) return 'furnishing'
+  if (room.spaceKind !== undefined && room.spaceKind !== 'interior') return 'furnishing'
+  if (room.sourceNumber !== undefined && room.sourceNumbers !== undefined) return 'furnishing'
+  const numbers =
+    room.sourceNumbers ?? (room.sourceNumber === undefined ? undefined : [room.sourceNumber])
+  let matches: PlanRoomReading[]
+  if (numbers !== undefined) {
+    if (
+      !Array.isArray(numbers) ||
+      !numbers.length ||
+      new Set(numbers).size !== numbers.length ||
+      !numbers.every(isPlanRoomSourceNumber)
+    )
+      return 'furnishing'
+    matches = []
+    for (const number of numbers) {
+      if (
+        rooms.filter(
+          (candidate) =>
+            candidate.sourceNumber === number ||
+            (Array.isArray(candidate.sourceNumbers) && candidate.sourceNumbers.includes(number)),
+        ).length !== 1
+      )
+        return 'furnishing'
+      const rows = inventory.filter((candidate) => candidate?.sourceNumber === number)
+      const row = rows[0]
+      if (rows.length !== 1 || !row) return 'furnishing'
+      matches.push(row)
+    }
+    if (matches.map((candidate) => candidate.name).join(' / ') !== room.name) return 'furnishing'
+  } else {
+    matches = inventory.filter((candidate) => candidate?.name === room.name)
+    if (
+      matches.length !== 1 ||
+      rooms.filter((candidate) => candidate.name === room.name).length !== 1
+    )
+      return 'furnishing'
+  }
+  return matches.every(
+    (candidate) =>
+      candidate.kind === 'bath' &&
+      isWetRoomName(candidate.name) &&
+      !candidate.nameOnlyCandidate &&
+      (candidate.spaceKind === undefined || candidate.spaceKind === 'interior'),
+  )
+    ? 'reference'
+    : 'furnishing'
 }
 
 /** Rendering guards only: this does not add physical source evidence. */
@@ -116,7 +176,10 @@ function datumFor(
 }
 
 /** A source-scoped design preview. It never grants measured geometry or route authority. */
-export function projectedFloorPreview(geometry: PlanGeometry): ProjectedFloorPreview | undefined {
+export function projectedFloorPreview(
+  geometry: PlanGeometry,
+  inventory?: readonly PlanRoomReading[],
+): ProjectedFloorPreview | undefined {
   const calibration = geometry.pdfCalibration
   if (
     calibration?.sourceState !== 'proposed' ||
@@ -168,6 +231,7 @@ export function projectedFloorPreview(geometry: PlanGeometry): ProjectedFloorPre
       id: `projected-room-${roomIndex}`,
       roomIndex,
       name: room.name,
+      purpose: roomPurpose(room, inventory, geometry.rooms),
       polygon: room.polygon.map((point) => ({ ...point })),
     }
     if (!chosen || conflicting) {

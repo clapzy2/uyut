@@ -110,7 +110,7 @@ export default async function ProjectPage({ params }: { params: Params }) {
   const planIsPdf = project.planUrl?.toLowerCase().endsWith('.pdf') ?? false
   const sourceRevision = planEditRevision(project.planUrl, project.planReading)
   const projectedFloors = project.planReading?.geometry
-    ? projectedFloorPreview(project.planReading.geometry)
+    ? projectedFloorPreview(project.planReading.geometry, project.planReading.rooms)
     : undefined
   const geometryReadings = project.planReading
     ? geometryRoomReadings(
