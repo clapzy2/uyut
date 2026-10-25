@@ -356,6 +356,14 @@ function edgeInPolygon(start: PlanPoint, end: PlanPoint, polygon: readonly PlanP
 /** Дополнительные требования к схеме, которую владелец хочет подтвердить. */
 export function inspectManualPlanCompleteness(geometry: EditableGeometry): PlanGeometryIssue[] {
   const issues: PlanGeometryIssue[] = []
+  if (geometry.pdfCalibration?.sourceState === 'proposed') {
+    issues.push({
+      id: 'proposed-source-draft',
+      severity: 'error',
+      message:
+        'Это проектный черновик будущей планировки. Его можно сохранить; подтверждение как обмера и перенос в 3D пока недоступны.',
+    })
+  }
   const sourcePairs =
     geometry.pdfCalibration?.sourceWallFacePairs ?? geometry.pdfCalibration?.wallFacePairs ?? []
   const currentPairs = currentWallFacePairs(geometry)

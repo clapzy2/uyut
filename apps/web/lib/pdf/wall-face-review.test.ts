@@ -105,6 +105,56 @@ function exportPreview(geometry: PlanGeometry) {
 }
 
 describe('human wall review provenance in PDF', () => {
+  it('labels a proposed source before any geometry exists, without claiming a draft was built', async () => {
+    const source = snapshot(geometry())
+    source.project.planReading = {
+      readAt: '2026-10-25',
+      rooms: [],
+      planState: 'proposed',
+      sourcePage: 1,
+    }
+    vi.stubEnv('APP_URL', 'https://domitsa.example')
+    const data = await buildPdfData({
+      snapshot: source,
+      kind: 'free',
+      options: {},
+      rates: { roughRubPerM2: 15_000, finishRubPerM2: 5_000 },
+      brief: null,
+      summary: null,
+    })
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('Проектное состояние, страница 1')
+    expect(html).toContain('Подтверждённой схемы пока нет')
+    expect(html).not.toContain('Схема остаётся черновиком')
+    const preview = renderToStaticMarkup(
+      createElement(ExportComposition, {
+        projectId: 'project',
+        rooms: [],
+        items: [],
+        planState: 'proposed',
+        sourcePage: 1,
+      }),
+    ).replace(/<!--.*?-->/g, '')
+    expect(preview).toContain('Источник схемы: проектное состояние, страница 1')
+  })
+  it('preserves proposed source state in the export preview and generated PDF', async () => {
+    const proposed = geometry()
+    if (!proposed.pdfCalibration) throw new Error('Missing PDF fixture')
+    proposed.pdfCalibration.sourceState = 'proposed'
+    const data = await build(proposed)
+    expect(data.project.facts).toContainEqual({
+      label: 'Источник схемы',
+      value:
+        'Проектное состояние, страница 4. Будущая планировка, не существующий обмер. Схема остаётся черновиком.',
+    })
+    expect(renderProjectHtml(data, { fontCss: '' })).toContain(
+      'Будущая планировка, не существующий обмер',
+    )
+    expect(exportPreview(proposed)).toContain('Источник схемы: проектное состояние, страница 4')
+    expect(
+      (await build(geometry())).project.facts.some((fact) => fact.label === 'Источник схемы'),
+    ).toBe(false)
+  })
   it('keeps current human review visible even while floor levels and volume are unavailable', async () => {
     const data = await build(geometry())
     expect(data.wallFaceReview).toEqual({

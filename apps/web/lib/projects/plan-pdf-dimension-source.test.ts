@@ -29,6 +29,23 @@ function firstOmission(work: PdfLinework) {
   return item
 }
 describe('explicit bounded-clipped source inspection, not physical transfer', () => {
+  it.each(['existing', 'proposed'] as const)(
+    'retains clipping checks for the %s source',
+    (state) => {
+      const work = fixture()
+      const selected = { ...source, state }
+      expect(pdfNativeDimensionSourceIssue(selected, work)).toBe(
+        'incomplete-native-dimension-layer',
+      )
+      expect(pdfNativeDimensionSourceIssue(selected, work, 'bounded-clipped-ink')).toBeUndefined()
+    },
+  )
+  it('rejects an unknown source state even when the native layer is otherwise complete', () => {
+    const work = { ...fixture(), clippedPaths: 0, clippedPathBounds: [] }
+    expect(pdfNativeDimensionSourceIssue({ ...source, state: 'unknown' as 'existing' }, work)).toBe(
+      'invalid-native-dimension-source',
+    )
+  })
   it('keeps the default physical and legacy source guard strict', () => {
     const work = fixture()
     expect(pdfNativeDimensionSourceIssue(source, work)).toBe('incomplete-native-dimension-layer')

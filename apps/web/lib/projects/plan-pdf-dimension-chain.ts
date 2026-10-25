@@ -9,6 +9,7 @@ import {
 } from './plan-pdf-caption-binding'
 import { pdfVectorArrow } from './plan-pdf-leaders'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS, PDF_NATIVE_MAX_POINTS } from './plan-pdf-linework'
 import {
   type NativePageSegment,
   nativePageSegments,
@@ -529,7 +530,8 @@ export function pdfNativePageDimensionChain(
   axis: DimensionAxis | 'aligned',
   captionContext?: NativeDimensionCaptionContext,
 ): PdfNativePageDimensionChain {
-  if (source.state !== 'existing') return { status: 'unresolved', reason: 'not-existing-state' }
+  if (!['existing', 'proposed'].includes(source.state))
+    return { status: 'unresolved', reason: 'unsupported-plan-state' }
   if (work.coordinateSystem !== 'page-0-1000' || work.truncated)
     return { status: 'unresolved', reason: 'incomplete-native-page' }
   if (captionContext) {
@@ -564,8 +566,8 @@ function nativePageChainVerifier(
 ) {
   const matchers = new Map<DimensionAxis, (label: NativeLabel) => NativeCaptionMatch>()
   return (labels: readonly NativeLabel[], totalMm: number, axis: DimensionAxis) => {
-    if (source.state !== 'existing')
-      return { status: 'unresolved' as const, reason: 'not-existing-state' }
+    if (!['existing', 'proposed'].includes(source.state))
+      return { status: 'unresolved' as const, reason: 'unsupported-plan-state' }
     if (work.coordinateSystem !== 'page-0-1000' || work.truncated)
       return { status: 'unresolved' as const, reason: 'incomplete-native-page' }
     return nativePageDimensionChain(
@@ -612,8 +614,8 @@ function alignedPageDimensionChain(
     labels.length < 1 ||
     labels.length > 20 ||
     ![work.pageWidth, work.pageHeight].every((value) => Number.isFinite(value) && value > 0) ||
-    work.paths.length > 5000 ||
-    work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000
+    work.paths.length > PDF_NATIVE_MAX_PATHS ||
+    work.paths.reduce((sum, path) => sum + path.points.length, 0) > PDF_NATIVE_MAX_POINTS
   )
     return fail('invalid-aligned-page')
   if (
@@ -1112,6 +1114,65 @@ export function preparePdfNativeWidthCaptionVerifier(
   }
 }
 
+/** Nearby candidates only; callers retain the exact physical-distance and branch predicates. */
+function nativePointIndex<T>(
+  work: PdfLinework,
+  items: readonly T[],
+  points: (item: T) => readonly PagePoint[],
+  spend: (count?: number) => void,
+) {
+  const cells = new Map<string, number[]>()
+  let requiresFullScan = false
+  // One PDF-point cells are wider than the 0.12-point match radius. Adjacent cells
+  // include boundary matches; quantisation never replaces the original predicates.
+  const cell = (point: PagePoint) => ({
+    x: Math.floor((point.x * work.pageWidth) / 1000),
+    y: Math.floor((point.y * work.pageHeight) / 1000),
+  })
+  const indexable = (position: { x: number; y: number }) =>
+    [position.x, position.y].every(
+      (value) => Number.isSafeInteger(value) && Math.abs(value) <= 1_000_000_000,
+    )
+  for (const [index, item] of items.entries()) {
+    for (const point of points(item)) {
+      spend()
+      const position = cell(point)
+      if (!indexable(position)) {
+        requiresFullScan = true
+        continue
+      }
+      const key = `${position.x}:${position.y}`
+      const bucket = cells.get(key) ?? []
+      bucket.push(index)
+      cells.set(key, bucket)
+    }
+  }
+  return (near: readonly PagePoint[]) => {
+    // Extreme or invalid frames retain the old charged scan instead of relying
+    // on unsafe cell arithmetic, overflowing coordinates or imprecise neighbours.
+    if (requiresFullScan || near.some((point) => !indexable(cell(point)))) {
+      spend(items.length)
+      return [...items]
+    }
+    const indices = new Set<number>()
+    for (const point of near) {
+      const position = cell(point)
+      for (let x = position.x - 1; x <= position.x + 1; x++) {
+        for (let y = position.y - 1; y <= position.y + 1; y++) {
+          spend()
+          for (const index of cells.get(`${x}:${y}`) ?? []) {
+            spend()
+            indices.add(index)
+          }
+        }
+      }
+    }
+    // Endpoints can share cells, so deduplicate without changing source order.
+    spend(indices.size)
+    return [...indices].sort((left, right) => left - right).map((index) => items[index] as T)
+  }
+}
+
 /** Shared native dimension-line proof; it does not classify a wall or opening. */
 function nativeDimensionSpans(
   work: PdfLinework,
@@ -1120,8 +1181,8 @@ function nativeDimensionSpans(
   spend: (count?: number) => void = () => {},
 ): NativeDimensionSpan[] | undefined {
   if (
-    work.paths.length > 5000 ||
-    work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000
+    work.paths.length > PDF_NATIVE_MAX_PATHS ||
+    work.paths.reduce((sum, path) => sum + path.points.length, 0) > PDF_NATIVE_MAX_POINTS
   )
     return []
   const close = (a: PagePoint, b: PagePoint) => pdfPointDistance(work, a, b) <= 0.12
@@ -1176,6 +1237,14 @@ function nativeDimensionSpans(
       },
     ]
   })
+  const nearbyArrows = nativePointIndex(work, arrows, (arrow) => [arrow.base], spend)
+  const nearbyTicks = nativePointIndex(work, ticks, (tick) => [tick.center], spend)
+  const nearbyStrokes = nativePointIndex(
+    work,
+    strokes,
+    (stroke) => [stroke.start, stroke.end],
+    spend,
+  )
   const spans: NativeDimensionSpan[] = []
   let arrowPairs = 0
   for (const path of work.paths) {
@@ -1184,11 +1253,11 @@ function nativeDimensionSpans(
     const [a, b] = ordered
     if (!a || !b || along(a) === along(b) || Math.abs((across(a) - across(b)) * acrossScale) > 0.12)
       continue
-    const left = arrows.filter((arrow) => {
+    const left = nearbyArrows([a]).filter((arrow) => {
       spend()
       return close(a, arrow.base) && along(arrow.tip) < along(a)
     })
-    const right = arrows.filter((arrow) => {
+    const right = nearbyArrows([b]).filter((arrow) => {
       spend()
       return close(b, arrow.base) && along(arrow.tip) > along(b)
     })
@@ -1216,7 +1285,7 @@ function nativeDimensionSpans(
     const branched =
       left.length > 0 &&
       right.length > 0 &&
-      strokes.some((stroke) => {
+      nearbyStrokes([a, b]).some((stroke) => {
         spend()
         if (
           stroke.operationIndex === path.operationIndex &&
@@ -1249,7 +1318,7 @@ function nativeDimensionSpans(
       }
     }
     const tickAt = (point: PagePoint) =>
-      ticks.filter((tick) => {
+      nearbyTicks([point]).filter((tick) => {
         spend()
         return (
           close(point, tick.center) &&
@@ -1259,7 +1328,7 @@ function nativeDimensionSpans(
     const firstTicks = tickAt(a)
     const lastTicks = tickAt(b)
     if (firstTicks.length > 0 && lastTicks.length > 0) {
-      const offAxisBranch = strokes.some((stroke) => {
+      const offAxisBranch = nearbyStrokes([a, b]).some((stroke) => {
         spend()
         if (
           stroke.operationIndex === path.operationIndex &&

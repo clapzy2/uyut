@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import type { NativeTextAnchors } from './plan-document'
 import type { PdfLinework } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS } from './plan-pdf-linework'
 import { bindObservedRegionLabels, type RegionLabelFrame } from './plan-raster-region-labels'
 import { detectPlanRasterRegions, type RasterRegionPoint } from './plan-raster-regions'
 
@@ -82,7 +83,7 @@ export function captionFrameComponents(input: {
       (!work.clippedPathBounds?.length || work.clippedPathBoundsTruncated)) ||
     reviewed.frames.length > 12 ||
     native.labels.length > 1000 ||
-    work.paths.length > 5000 ||
+    work.paths.length > PDF_NATIVE_MAX_PATHS ||
     new Set(native.labels.map((label) => label.id)).size !== native.labels.length ||
     new Set(reviewed.frames.map((frame) => frame.markerLabelId)).size !== reviewed.frames.length
   )

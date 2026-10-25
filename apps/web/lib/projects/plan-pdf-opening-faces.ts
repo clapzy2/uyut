@@ -14,6 +14,7 @@ import {
   sourceRoomContourVertices,
 } from './plan-page-review'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS, PDF_NATIVE_MAX_POINTS } from './plan-pdf-linework'
 import { nativePageSegments } from './plan-pdf-opening-endpoint'
 import { pdfPaintInventoryIsComplete, pdfPaintMayTouchSpan } from './plan-pdf-paint-exclusion'
 import {
@@ -145,8 +146,8 @@ export function verifyPlanPageOpeningFaces(
 ): PdfOpeningFaceCheck[] {
   // Bound the source and annotation work before geometric validation or pair enumeration.
   if (
-    work.paths.length > 5000 ||
-    work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
+    work.paths.length > PDF_NATIVE_MAX_PATHS ||
+    work.paths.reduce((sum, path) => sum + path.points.length, 0) > PDF_NATIVE_MAX_POINTS ||
     contours.rooms.length > 100 ||
     contours.rooms.reduce(
       (sum, room) => sum + (room.openings?.length ?? 0) + (room.obstacles?.length ?? 0),

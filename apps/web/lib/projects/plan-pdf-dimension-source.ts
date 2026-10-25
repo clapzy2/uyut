@@ -1,5 +1,6 @@
 import type { PdfNativePageDimensionChain } from './plan-pdf-dimension-chain'
 import type { PagePoint, PdfLinework } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS, PDF_NATIVE_MAX_POINTS } from './plan-pdf-linework'
 import type { PdfPlanSource } from './plan-pdf-room-binding'
 
 /** Physical transfer stays strict. Source-caption inspection may check bounded omissions locally. */
@@ -12,7 +13,7 @@ export function pdfNativeDimensionSourceIssue(
     !/^[a-f0-9]{64}$/.test(source.sha256) ||
     !Number.isSafeInteger(source.pdfPage) ||
     source.pdfPage < 1 ||
-    source.state !== 'existing'
+    !['existing', 'proposed'].includes(source.state)
   )
     return 'invalid-native-dimension-source'
   const omitted = work.skippedCurveBounds ?? []
@@ -48,8 +49,8 @@ export function pdfNativeDimensionSourceIssue(
     (scope === 'complete-layer' && work.clippedPaths !== 0) ||
     work.unsupportedPaths !== 0 ||
     work.unsupportedContexts !== 0 ||
-    work.paths.length > 5000 ||
-    work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
+    work.paths.length > PDF_NATIVE_MAX_PATHS ||
+    work.paths.reduce((sum, path) => sum + path.points.length, 0) > PDF_NATIVE_MAX_POINTS ||
     new Set(work.paths.map((path) => `${path.operationIndex}:${path.subpathIndex}`)).size !==
       work.paths.length ||
     work.paths.some(

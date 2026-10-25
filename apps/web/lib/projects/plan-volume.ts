@@ -174,6 +174,7 @@ function addWallInterval(
 
 /** Build a viewing model only from confirmed 2D coordinates and current source relations. */
 export function planVolume(geometry: PlanGeometry): PlanVolume | null {
+  if (geometry.pdfCalibration?.sourceState === 'proposed') return null
   if (geometry.requiresSourceReviewReimport) return null
   const signed = signedPlanFloors(geometry)
   if (signed && !signed.ok) return null
@@ -464,6 +465,8 @@ export function planVolume(geometry: PlanGeometry): PlanVolume | null {
  * named as missing: no conditional zero, height or threshold is offered instead.
  */
 export function planVolumeBlocker(geometry: PlanGeometry): string | undefined {
+  if (geometry.pdfCalibration?.sourceState === 'proposed')
+    return 'Проектный 2D-черновик описывает будущие изменения. Его перенос в 3D ещё не поддерживается; существующий обмер им не заменяется.'
   if (planVolume(geometry)) return undefined
   if (geometry.requiresSourceReviewReimport)
     return 'Разметка исходного PDF изменилась после переноса. Обновите 2D-схему.'

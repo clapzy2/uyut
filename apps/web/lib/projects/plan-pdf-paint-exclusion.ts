@@ -1,4 +1,5 @@
 import type { Bounds, PagePoint, PdfPaintBounds } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PAINT_EVENTS } from './plan-pdf-linework'
 
 type PaintEvent = PdfPaintBounds['events'][number]
 
@@ -18,7 +19,7 @@ export function pdfPaintInventoryIsComplete(input: PdfPaintBounds | undefined): 
     input?.complete !== true ||
     input.refusalReason !== null ||
     !Array.isArray(input.events) ||
-    input.events.length > 6000
+    input.events.length > PDF_NATIVE_MAX_PAINT_EVENTS
   )
     return false
   const operations = new Set<number>()

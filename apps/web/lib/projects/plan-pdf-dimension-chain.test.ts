@@ -219,7 +219,7 @@ describe('native page dimension without invented room ownership', () => {
     ).toMatchObject({ status: 'ambiguous', reason: 'multiple-dimension-lines' })
   })
 
-  it('refuses proposed state and a truncated native extraction', () => {
+  it('checks the same printed chain on a proposed sheet without changing its evidence', () => {
     expect(
       pdfNativePageDimensionChain(
         work,
@@ -228,11 +228,32 @@ describe('native page dimension without invented room ownership', () => {
         2985,
         'width',
       ),
-    ).toMatchObject({ status: 'unresolved', reason: 'not-existing-state' })
+    ).toEqual(pdfNativePageDimensionChain(work, contours.source, labels, 2985, 'width'))
+  })
+
+  it('refuses unknown state and a truncated native extraction', () => {
+    expect(
+      pdfNativePageDimensionChain(
+        work,
+        { ...contours.source, state: 'unknown' as 'existing' },
+        labels,
+        2985,
+        'width',
+      ),
+    ).toMatchObject({ status: 'unresolved', reason: 'unsupported-plan-state' })
     expect(
       pdfNativePageDimensionChain(
         { ...work, truncated: true },
         contours.source,
+        labels,
+        2985,
+        'width',
+      ),
+    ).toMatchObject({ status: 'unresolved', reason: 'incomplete-native-page' })
+    expect(
+      pdfNativePageDimensionChain(
+        { ...work, truncated: true },
+        { ...contours.source, state: 'proposed' },
         labels,
         2985,
         'width',
@@ -617,6 +638,62 @@ describe('architectural tick dimensions', () => {
       ],
       lineOperations: [5],
     })
+  })
+
+  it.each([0.02, 0.119, 0.121])(
+    'preserves exact tick distance across spatial cell boundaries at offset %s',
+    (offset) => {
+      const { source, contours, work } = tickDimensionSheet()
+      const shifted = structuredClone(work)
+      shifted.paths = shifted.paths.map((path) => ({
+        ...path,
+        points: path.points.map((point) => ({
+          x: point.x + 0.99 + ([3, 4].includes(path.operationIndex) ? offset : 0),
+          y: point.y,
+        })),
+      }))
+      const reviewed = {
+        ...contours,
+        rooms: contours.rooms.map((room) => ({
+          ...room,
+          polygon: room.polygon.map((point) => ({ ...point, x: point.x + 0.99 })),
+        })),
+      }
+      const result = pdfWidthChain(
+        shifted,
+        source,
+        reviewed,
+        5,
+        [{ ...widthLabel, x: 200.99 }],
+        200,
+      )
+      expect(result.status).toBe(offset <= 0.12 ? 'candidate' : 'unresolved')
+      if (offset <= 0.12) {
+        if (result.status !== 'candidate') throw new Error(result.reason)
+        expect(result.lineOperations).toEqual([2])
+      }
+    },
+  )
+
+  it('retains a competing tick in an adjacent cell instead of choosing the first source tick', () => {
+    const { source, contours, work } = tickDimensionSheet()
+    const tick = work.paths.find((path) => path.operationIndex === 3)
+    if (!tick) throw new Error('Missing source tick')
+    const competing = {
+      ...tick,
+      operationIndex: 99,
+      points: tick.points.map((point) => ({ ...point, x: point.x - 0.02 })),
+    }
+    expect(
+      pdfWidthChain(
+        { ...work, paths: [...work.paths, competing] },
+        source,
+        contours,
+        5,
+        [widthLabel],
+        200,
+      ),
+    ).toMatchObject({ status: 'ambiguous', reason: 'branched-dimension-line' })
   })
 
   it('accepts short architectural ticks while still requiring both native endpoints', () => {

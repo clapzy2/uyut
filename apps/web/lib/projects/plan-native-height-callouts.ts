@@ -4,6 +4,7 @@ import { nativeHeightGroupBounds, nativeResetNoteBounds } from './plan-native-he
 import { nativeHeightSourceLocations } from './plan-native-height-locations'
 import { nativeHeightObservations } from './plan-native-height-observations'
 import type { PagePoint, PdfCurvePath, PdfVectorPath } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS } from './plan-pdf-linework'
 
 type Input = Parameters<typeof nativeHeightObservations>[0]
 type PathRef = { operationIndex: number; subpathIndex: number }
@@ -125,7 +126,7 @@ export function nativeHeightCalloutCandidates(input: Input) {
     return finish('height-callout-source-incomplete')
   if ((work.curvePaths?.length ?? 0) !== work.skippedCurves)
     return finish('height-callout-curve-inventory-incomplete')
-  if (work.paths.length > 5000 || (work.curvePaths?.length ?? 0) > 5000)
+  if (work.paths.length > PDF_NATIVE_MAX_PATHS || (work.curvePaths?.length ?? 0) > 5000)
     return finish('height-callout-source-limit')
   const ink = native.heightCaptionInk
   if (

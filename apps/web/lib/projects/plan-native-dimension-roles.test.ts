@@ -168,21 +168,25 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
       expect(label.rotation).toBe(rotation)
     },
   )
-  it('discovers a unique labelled rail and both source ticks without selected label IDs', () => {
-    const input = fixture(),
-      before = structuredClone(input.work)
-    const result = automaticNativeDimensionRoles(input)
-    expect(result.refusalReason).toBeNull()
-    expect(result.candidates).toHaveLength(1)
-    expect(result.candidates[0]).toMatchObject({
-      labelId: 'native-text-10',
-      valueMm: 200,
-      rail: { operationIndex: 1 },
-    })
-    expect(result.candidates[0]?.ticks.map((tick) => tick.operationIndex)).toEqual([2, 3])
-    expect(result.mayEraseSourceStrokes).toBe(false)
-    expect(input.work).toEqual(before)
-  })
+  it.each(['existing', 'proposed'] as const)(
+    'discovers a unique labelled rail and both source ticks on the %s sheet',
+    (state) => {
+      const input = fixture(),
+        before = structuredClone(input.work)
+      const result = automaticNativeDimensionRoles({ ...input, source: { ...input.source, state } })
+      expect(result.refusalReason).toBeNull()
+      expect(result.source.state).toBe(state)
+      expect(result.candidates).toHaveLength(1)
+      expect(result.candidates[0]).toMatchObject({
+        labelId: 'native-text-10',
+        valueMm: 200,
+        rail: { operationIndex: 1 },
+      })
+      expect(result.candidates[0]?.ticks.map((tick) => tick.operationIndex)).toEqual([2, 3])
+      expect(result.mayEraseSourceStrokes).toBe(false)
+      expect(input.work).toEqual(before)
+    },
+  )
   it('does not mark arbitrary numbers or an unmarked line as a dimension', () => {
     const input = fixture()
     input.work.paths = input.work.paths.slice(0, 1)
@@ -198,15 +202,17 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
     tick.points = tick.points.map((point) => ({ x: point.x + 1, y: point.y }))
     expect(automaticNativeDimensionRoles(input).candidates).toEqual([])
   })
-  it('requires the selected existing page and native coordinate provenance', () => {
+  it('requires a supported selected page and native coordinate provenance', () => {
     const input = fixture()
     expect(
       automaticNativeDimensionRoles({ ...input, source: { ...input.source, pdfPage: 2 } })
         .refusalReason,
     ).toBe('unverified-or-mismatched-page-state')
     expect(
-      automaticNativeDimensionRoles({ ...input, source: { ...input.source, state: 'proposed' } })
-        .candidates,
+      automaticNativeDimensionRoles({
+        ...input,
+        source: { ...input.source, state: 'unknown' as 'existing' },
+      }).candidates,
     ).toEqual([])
     const label = input.native.labels[0]
     if (!label) throw new Error('Missing test label')
@@ -497,7 +503,7 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
     expect(input).toEqual(before)
   })
 
-  it('withholds the whole report when actual rail and tick comparisons exhaust discovery work', () => {
+  it('keeps a valid rail when thousands of unrelated ticks are spatially distant', () => {
     const input = fixture()
     for (let index = 0; index < 1600; index++) {
       input.work.paths.push(
@@ -519,6 +525,41 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
           points: [
             { x: 800, y: 10 + index * 0.4 },
             { x: 805, y: 15 + index * 0.4 },
+          ],
+        },
+      )
+    }
+    const before = structuredClone(input)
+    expect(automaticNativeDimensionRoles(input)).toMatchObject({
+      refusalReason: null,
+      candidates: [{ labelId: 'native-text-10', rail: { operationIndex: 1 } }],
+      unresolved: [],
+    })
+    expect(input).toEqual(before)
+  })
+
+  it('still withholds the whole report when nearby competing ticks exhaust discovery work', () => {
+    const input = fixture()
+    for (let index = 0; index < 1600; index++) {
+      input.work.paths.push(
+        {
+          operationIndex: 100 + index * 2,
+          subpathIndex: 0,
+          paint: 'stroke',
+          closed: false,
+          points: [
+            { x: 500, y: 170 },
+            { x: 700, y: 170 },
+          ],
+        },
+        {
+          operationIndex: 101 + index * 2,
+          subpathIndex: 0,
+          paint: 'stroke',
+          closed: false,
+          points: [
+            { x: 495, y: 175 },
+            { x: 505, y: 165 },
           ],
         },
       )

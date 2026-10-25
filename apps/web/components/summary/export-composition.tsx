@@ -63,12 +63,16 @@ export function ExportComposition({
   items,
   geometry,
   deliveryMeasurements,
+  planState,
+  sourcePage,
 }: {
   projectId: string
   rooms: ReturnType<typeof exportRoomComposition>[]
   items: readonly ExportItem[]
   geometry?: PlanGeometry
   deliveryMeasurements?: PlanReading['deliveryMeasurements']
+  planState?: PlanReading['planState']
+  sourcePage?: number
 }) {
   const delivery = inspectStoredPlanDelivery(geometry, deliveryMeasurements)
   const signed = geometry ? signedPlanFloors(geometry) : undefined
@@ -97,6 +101,14 @@ export function ExportComposition({
       <p className="mt-3 text-[14px] leading-relaxed text-ink">
         Обложка и сведения о квартире, список покупок и ориентировочная смета.
       </p>
+      {geometry?.pdfCalibration?.sourceState === 'proposed' || planState === 'proposed' ? (
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
+          Источник схемы: проектное состояние, страница{' '}
+          {geometry?.pdfCalibration?.pdfPage ?? sourcePage ?? 'не указана'}. В сведения о квартире
+          войдёт пометка: будущая планировка, не существующий обмер. Подтверждённые 3D и точный
+          маршрут заноса по этому черновику не строятся.
+        </p>
+      ) : null}
       {humanReviewedPairs > 0 && geometry?.pdfCalibration ? (
         <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
           В схеме квартиры сверено человеком пар граней стен: {humanReviewedPairs}. Исходный PDF,

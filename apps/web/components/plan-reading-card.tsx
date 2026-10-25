@@ -396,8 +396,9 @@ export function PlanReadingCard({
       </label>
       <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
         Читаем только выбранную страницу
-        {activeReading?.pageCount ? ` из ${activeReading.pageCount}` : ''}. Выберите обмерный лист,
-        а не титульный или план перепланировки.
+        {activeReading?.pageCount ? ` из ${activeReading.pageCount}` : ''}. Выберите лист нужного
+        состояния с планом и размерами, а не титульный. Проектный вариант не заменяет существующий
+        обмер.
       </p>
     </div>
   ) : null

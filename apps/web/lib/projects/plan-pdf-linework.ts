@@ -114,7 +114,10 @@ type Subpath = {
 const MAX_OPERATIONS = 100_000
 const MAX_POINTS = 20_000
 const MAX_PATHS = 5000
-const MAX_PAINT_EVENTS = 6000
+/** Straight inventory only; curves and omission diagnostics retain their smaller budgets. */
+export const PDF_NATIVE_MAX_PATHS = 12_000
+export const PDF_NATIVE_MAX_POINTS = 30_000
+export const PDF_NATIVE_MAX_PAINT_EVENTS = 15_000
 
 function updatePen(state: GraphicsState, key: string, value: unknown) {
   const pen = state.pen
@@ -502,7 +505,7 @@ export function extractPdfLinework(
   ) => {
     const inventory = result.paintBounds
     if (!inventory?.complete) return
-    if (inventory.events.length >= MAX_PAINT_EVENTS) {
+    if (inventory.events.length >= PDF_NATIVE_MAX_PAINT_EVENTS) {
       inventory.complete = false
       inventory.refusalReason = 'paint-envelope-output-limit'
       inventory.events = []
@@ -1018,7 +1021,10 @@ export function extractPdfLinework(
         filled ||
         paint === ops.closeStroke ||
         (first?.x === last?.x && first?.y === last?.y)
-      if (result.paths.length >= MAX_PATHS || pointCount + path.points.length > MAX_POINTS) {
+      if (
+        result.paths.length >= PDF_NATIVE_MAX_PATHS ||
+        pointCount + path.points.length > PDF_NATIVE_MAX_POINTS
+      ) {
         result.truncated = true
         if (result.paintBounds) {
           result.paintBounds.complete = false

@@ -6,6 +6,7 @@ import {
   planPageReviewIssue,
 } from './plan-page-review'
 import type { PdfLinework } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS, PDF_NATIVE_MAX_POINTS } from './plan-pdf-linework'
 import { pairPlanPageOpeningFaces, verifyPlanPageOpeningFaces } from './plan-pdf-opening-faces'
 import { type PdfPlanSource, pdfContourRoomNumbers } from './plan-pdf-room-binding'
 import { classifyPlanPageWallSpans, type PdfWallCoverageSpan } from './plan-pdf-wall-coverage'
@@ -85,8 +86,8 @@ export function inspectReviewedPageCoverage(input: {
     return report
   }
   if (
-    linework.paths.length > 5000 ||
-    linework.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
+    linework.paths.length > PDF_NATIVE_MAX_PATHS ||
+    linework.paths.reduce((sum, path) => sum + path.points.length, 0) > PDF_NATIVE_MAX_POINTS ||
     reading.rooms.length > 100 ||
     contours.rooms.length > 100
   )

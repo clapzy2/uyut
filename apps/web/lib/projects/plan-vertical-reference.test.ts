@@ -633,6 +633,9 @@ describe('explicit common vertical reference', () => {
       required(geometry.pdfCalibration).pdfPage = 2
     },
     (geometry: PlanGeometry) => {
+      required(geometry.pdfCalibration).sourceState = 'proposed'
+    },
+    (geometry: PlanGeometry) => {
       required(geometry.pdfCalibration).cmPerPoint = 2
     },
     (geometry: PlanGeometry) => {

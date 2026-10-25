@@ -796,7 +796,7 @@ describe('native PDF page to metric draft', () => {
     },
   )
 
-  it('refuses a non-native floor and proposed-sheet transfer without assigning a substitute', () => {
+  it('retains source-floor checks when transferring a proposed sheet as a draft', () => {
     const { reading, context, path } = synthetic()
     const envelope = [
       { x: 0, y: 0 },
@@ -817,21 +817,67 @@ describe('native PDF page to metric draft', () => {
     expect(planPageMetricDraft(reading, globalContext, [4]).ok).toBe(false)
     context.linework.paths.push(path(floor, true))
     expect(planPageMetricDraft(reading, globalContext, [4]).ok).toBe(true)
-    expect(
-      planPageMetricDraft(
-        { ...reading, planState: 'proposed' },
-        {
-          ...globalContext,
-          source: { ...context.source, state: 'proposed' },
-          contours: {
-            ...context.contours,
-            source: { ...context.source, state: 'proposed' },
-          },
-        },
-        [4],
-      ).ok,
-    ).toBe(false)
+    const source = { ...context.source, state: 'proposed' as const }
+    const proposedReading = { ...reading, planState: 'proposed' as const }
+    const proposedContext = {
+      ...globalContext,
+      source,
+      contours: { ...context.contours, source },
+    }
+    const before = structuredClone({ proposedReading, proposedContext })
+    const result = planPageMetricDraft(proposedReading, proposedContext, [4])
+    expect(result.ok, result.ok ? '' : result.error).toBe(true)
+    if (!result.ok) return
+    expect(result.geometry.status).toBe('draft')
+    expect(result.geometry.pdfCalibration).toMatchObject({
+      sourceSha256: source.sha256,
+      pdfPage: source.pdfPage,
+      sourceState: 'proposed',
+    })
+    expect(result.geometry.footprint).toEqual(floor.map(({ x, y }) => ({ xCm: x, yCm: y })))
+    expect(result.geometry.verticalReference).toBeUndefined()
+    expect(result.geometry.walls.every((wall) => wall.heightCm === undefined)).toBe(true)
+    expect(planVolume(result.geometry)).toBeNull()
+    expect({ proposedReading, proposedContext }).toEqual(before)
+
+    // A proposed sheet does not relax the exact native-edge requirement.
+    const invalidFloor = {
+      ...proposedContext,
+      linework: {
+        ...proposedContext.linework,
+        paths: proposedContext.linework.paths.slice(0, -1),
+      },
+    }
+    expect(planPageMetricDraft(proposedReading, invalidFloor, [4]).ok).toBe(false)
   })
+
+  it.each(['reading', 'contours', 'unknown'] as const)(
+    'rejects mismatched or unsupported source state: %s',
+    (kind) => {
+      const { reading, context } = synthetic()
+      const source = { ...context.source, state: 'proposed' as const }
+      const selectedReading = {
+        ...reading,
+        planState: kind === 'reading' ? ('existing' as const) : ('proposed' as const),
+      }
+      const selectedContext = {
+        ...context,
+        calibrationRoomNumbers: [4],
+        source,
+        contours: {
+          ...context.contours,
+          source: kind === 'contours' ? context.source : source,
+        },
+      }
+      if (kind === 'unknown') {
+        selectedReading.planState = 'unknown' as 'proposed'
+        selectedContext.source.state = 'unknown' as 'proposed'
+      }
+      const before = structuredClone({ selectedReading, selectedContext })
+      expect(planPageMetricDraft(selectedReading, selectedContext, [4]).ok).toBe(false)
+      expect({ selectedReading, selectedContext }).toEqual(before)
+    },
+  )
 
   it('keeps an open-zone divider in the room polygon without creating a physical wall', () => {
     const { reading, context } = synthetic()

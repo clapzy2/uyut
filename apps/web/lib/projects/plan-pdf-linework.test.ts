@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { extractPdfLinework, pdfVectorRectangle } from './plan-pdf-linework'
+import { pdfPaintInventoryIsComplete } from './plan-pdf-paint-exclusion'
 
 const originalSource = fileURLToPath(
   new URL('../../../../output/pdf/source-search-20261003/rebrina-original.pdf', import.meta.url),
@@ -466,12 +467,20 @@ describe('complete conservative paint envelope inventory', () => {
   })
 
   it('clears the inventory when its output budget is exceeded', () => {
-    const result = extract(Array.from({ length: 6001 }, () => [ops.showText, []] as Operation))
+    const result = extract(Array.from({ length: 15_001 }, () => [ops.showText, []] as Operation))
     expect(result.paintBounds).toEqual({
       complete: false,
       refusalReason: 'paint-envelope-output-limit',
       events: [],
     })
+  })
+
+  it('keeps the paint inventory complete at its exact output budget', () => {
+    const result = extract(Array.from({ length: 15_000 }, () => [ops.showText, []] as Operation))
+    expect(result.paintBounds?.complete).toBe(true)
+    expect(result.paintBounds?.refusalReason).toBeNull()
+    expect(result.paintBounds?.events).toHaveLength(15_000)
+    expect(pdfPaintInventoryIsComplete(result.paintBounds)).toBe(true)
   })
 
   it('records a full compound source operation rather than individual subpath exemptions', () => {
@@ -1117,9 +1126,28 @@ describe('PDF.js 6 diagnostic straight linework, not room geometry', () => {
   })
 
   it('caps paths and explicitly marks an incomplete vector layer', () => {
-    const result = extract(Array.from({ length: 5001 }, () => stroke([0, 1, 1, 1, 2, 2])))
-    expect(result.paths).toHaveLength(5000)
+    const result = extract(Array.from({ length: 12_001 }, () => stroke([0, 1, 1, 1, 2, 2])))
+    expect(result.paths).toHaveLength(12_000)
     expect(result.truncated).toBe(true)
+    expect(result.paintBounds).toMatchObject({ complete: false, events: [] })
+  })
+
+  it('retains 6000 straight paths beyond the previous inventory budget', () => {
+    const result = extract(Array.from({ length: 6000 }, () => stroke([0, 1, 1, 1, 2, 2])))
+    expect(result.paths).toHaveLength(6000)
+    expect(result.truncated).toBe(false)
+    expect(result.paintBounds).toMatchObject({ complete: true, refusalReason: null })
+    expect(result.paintBounds?.events).toHaveLength(6000)
+  })
+
+  it('caps total straight points independently of the path count', () => {
+    const result = extract(
+      Array.from({ length: 10_001 }, () => stroke([0, 1, 1, 1, 2, 2, 1, 3, 1])),
+    )
+    expect(result.paths).toHaveLength(10_000)
+    expect(result.paths.reduce((sum, path) => sum + path.points.length, 0)).toBe(30_000)
+    expect(result.truncated).toBe(true)
+    expect(result.paintBounds).toMatchObject({ complete: false, events: [] })
   })
 
   it('retains a dense but bounded architectural page without marking it incomplete', () => {

@@ -124,6 +124,7 @@ const storedSchema = z
           .object({
             sourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
             pdfPage: z.number().int().positive(),
+            sourceState: z.enum(['existing', 'proposed']).optional(),
             cmPerPoint: z.number().finite().positive(),
             origin: z.object({ x: coordinate, y: coordinate }).strict(),
           })
@@ -207,6 +208,7 @@ function contextSnapshot(geometry: ReferenceGeometry): PlanVerticalReference['co
       ? {
           sourceSha256: pdf.sourceSha256,
           pdfPage: pdf.pdfPage,
+          ...(pdf.sourceState ? { sourceState: pdf.sourceState } : {}),
           cmPerPoint: pdf.cmPerPoint,
           origin: pdf.origin,
         }

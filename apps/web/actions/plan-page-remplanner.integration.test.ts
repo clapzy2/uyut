@@ -249,6 +249,155 @@ describe.skipIf(!enabled)('Remplanner sheet 4 through actions and PostgreSQL', (
     return { id: project.id, ready, revision: planEditRevision(ready.planUrl, ready.planReading) }
   }
 
+  it.skipIf(!process.env.QA_REMPLANNER_PROPOSED_PDF)(
+    'saves and reopens the real proposed wardrobe with a native page scale and its door',
+    async () => {
+      const previousBody = local.body
+      try {
+        local.body = await readFile(process.env.QA_REMPLANNER_PROPOSED_PDF as string)
+        const sha256 = createHash('sha256').update(local.body).digest('hex')
+        expect(sha256).toBe('534b78f2ef68bf7e9d9f2b515b15e61510e1c427208bc46a9b17234298740fab')
+        const { id, ready } = await freshProject('Real proposed Remplanner wardrobe')
+        const proposed: PlanReading = {
+          sourcePage: 2,
+          planState: 'proposed',
+          readAt: '2026-10-25T00:00:00.000Z',
+          confirmedAt: '2026-10-25T00:00:00.000Z',
+          rooms: [{ sourceNumber: 5, name: 'Гардеробная комната', kind: 'living', areaM2: 3.64 }],
+        }
+        await setPlanReading(owner, id, proposed, ready)
+        const before = await getProject(owner, id)
+        const page = await preparePlanPage(local.body, true, 2, true, true)
+        if (!page.linework) throw new Error('Missing real proposed native layer')
+        // Manual source review of the four wall-face corners and the drawn jambs.
+        // No cabinet boundary is substituted for an apartment floor or exterior.
+        const contours: PlanPageContours = {
+          source: { sha256, pdfPage: 2, state: 'proposed' },
+          coordinateSystem: 'page-0-1000',
+          review: 'manual-source-review',
+          pageWidth: page.linework.pageWidth,
+          pageHeight: page.linework.pageHeight,
+          rooms: [
+            {
+              roomSourceNumber: 5,
+              polygon: points([
+                [336.975, 137.441],
+                [427.844, 137.441],
+                [427.844, 272.873],
+                [336.975, 272.873],
+              ]),
+              openings: [
+                {
+                  id: 'wardrobe-door',
+                  kind: 'door',
+                  wallEdgeIndex: 2,
+                  start: { x: 399.251, y: 272.873 },
+                  end: { x: 365.51, y: 272.873 },
+                },
+              ],
+            },
+          ],
+        }
+        expect(page.linework.truncated).toBe(false)
+        expect(page.linework.paths.length).toBe(11136)
+        const review = await savePlanPageReview(
+          id,
+          contours,
+          planEditRevision(before.planUrl, before.planReading),
+        )
+        if (!review.ok) throw new Error(review.error)
+        const draft = await createPlanPageGeometryDraft(
+          id,
+          [5],
+          review.data.revision,
+          undefined,
+          false,
+          false,
+          true,
+        )
+        if (!draft.ok) throw new Error(draft.error)
+        expect(draft.data.geometry.pdfCalibration).toMatchObject({
+          sourceState: 'proposed',
+          pdfPage: 2,
+          pageScale: { chainCounts: { x: 3, y: 3 } },
+        })
+        expect(draft.data.geometry.pdfCalibration?.cmPerPoint).toBeCloseTo(1.74260318, 7)
+        expect(draft.data.geometry.rooms).toHaveLength(1)
+        expect(draft.data.geometry.walls).toHaveLength(4)
+        expect(draft.data.geometry.openings).toMatchObject([{ type: 'door', widthCm: 70 }])
+        expect(draft.data.geometry.footprint).toBeUndefined()
+        expect(draft.data.geometry.verticalReference).toBeUndefined()
+        const saved = await savePlanGeometry(id, draft.data.geometry, 'draft', draft.data.revision)
+        if (!saved.ok) throw new Error(saved.error)
+        expect((await getProject(owner, id)).planReading?.geometry).toEqual(saved.data.geometry)
+        expect(
+          (await savePlanGeometry(id, saved.data.geometry, 'confirm', saved.data.revision)).ok,
+        ).toBe(false)
+        const snapshot = await loadSnapshot(id)
+        if (!snapshot) throw new Error('Missing proposed project snapshot')
+        const pdf = await buildPdfData({
+          snapshot,
+          kind: 'free',
+          options: {},
+          rates: { roughRubPerM2: 15_000, finishRubPerM2: 5_000 },
+          brief: null,
+          summary: null,
+        })
+        expect(
+          pdf.project.facts.some((fact) => fact.value.includes('Проектное состояние, страница 2')),
+        ).toBe(true)
+        expect(pdf.verticalPlan).toBeUndefined()
+      } finally {
+        local.body = previousBody
+      }
+    },
+  )
+
+  it('persists a proposed-state control through the same actions without allowing as-built confirmation', async () => {
+    // State isolation control on the same real source coordinates. This does not
+    // claim that sheet 4 is the album's proposed nine-room layout.
+    const { id, ready } = await freshProject('Proposed-state persistence control')
+    const proposedReading = { ...structuredClone(reading), planState: 'proposed' as const }
+    await setPlanReading(owner, id, proposedReading, ready)
+    const before = await getProject(owner, id)
+    const contours = structuredClone(reviewed)
+    contours.source.state = 'proposed'
+    const review = await savePlanPageReview(
+      id,
+      contours,
+      planEditRevision(before.planUrl, before.planReading),
+    )
+    if (!review.ok) throw new Error(review.error)
+    const draft = await createPlanPageGeometryDraft(
+      id,
+      [1, 2, 3, 4, 5, 6, 7, 8],
+      review.data.revision,
+      undefined,
+      false,
+      false,
+      true,
+    )
+    if (!draft.ok) throw new Error(draft.error)
+    expect(draft.data.geometry.pdfCalibration?.sourceState).toBe('proposed')
+    expect(draft.data.geometry.status).toBe('draft')
+    const reopened = await getProject(owner, id)
+    expect(reopened.planReading?.geometry).toEqual(draft.data.geometry)
+    const saved = await savePlanGeometry(id, draft.data.geometry, 'draft', draft.data.revision)
+    if (!saved.ok) throw new Error(saved.error)
+    expect((await getProject(owner, id)).planReading?.geometry?.pdfCalibration?.sourceState).toBe(
+      'proposed',
+    )
+    expect(
+      await savePlanGeometry(
+        id,
+        { ...saved.data.geometry, pdfCalibration: undefined },
+        'confirm',
+        saved.data.revision,
+      ),
+    ).toMatchObject({ ok: false, error: expect.stringContaining('Проектный 2D-черновик') })
+    expect(planVolume({ ...saved.data.geometry, status: 'confirmed' })).toBeNull()
+  })
+
   it('refuses a floor that leaves out the balcony or crosses its unproven doorway', async () => {
     const { id, ready, revision } = await freshProject('Remplanner floor refusals')
     const across = { ...reviewed, floor: { polygon: points(floorAcrossBalconyDoor) } }

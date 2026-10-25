@@ -1,5 +1,5 @@
 import type { NativeTextAnchors } from './plan-document'
-import type { PdfLinework } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS, PDF_NATIVE_MAX_POINTS, type PdfLinework } from './plan-pdf-linework'
 import { pdfPolygonIsValid } from './plan-pdf-room-binding'
 import { bindObservedRegionLabels, type RegionLabelFrame } from './plan-raster-region-labels'
 
@@ -50,8 +50,8 @@ export function nativeFillCandidates(input: {
     work.truncated ||
     work.unsupportedPaths > 0 ||
     work.unsupportedContexts > 0 ||
-    work.paths.length > 5000 ||
-    work.paths.reduce((sum, path) => sum + path.points.length, 0) > 20_000 ||
+    work.paths.length > PDF_NATIVE_MAX_PATHS ||
+    work.paths.reduce((sum, path) => sum + path.points.length, 0) > PDF_NATIVE_MAX_POINTS ||
     (work.skippedCurves > 0 &&
       (!work.skippedCurveBounds?.length || work.skippedCurveBoundsTruncated)) ||
     (work.clippedPaths > 0 && (!work.clippedPathBounds?.length || work.clippedPathBoundsTruncated))

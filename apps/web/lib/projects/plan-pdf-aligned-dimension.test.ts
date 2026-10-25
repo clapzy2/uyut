@@ -250,11 +250,11 @@ describe('наклонные нативные размерные цепи', () =
     ).toMatchObject({ status: 'unresolved' })
   })
 
-  it('отказывает проектному состоянию, усечению и нечисловым координатам', () => {
+  it('читает проектную цепь, но отказывает усечению и нечисловым координатам', () => {
     const { work, labels } = fixture()
     expect(
       pdfNativePageDimensionChain(work, { ...source, state: 'proposed' }, labels, 5000, 'aligned'),
-    ).toMatchObject({ reason: 'not-existing-state' })
+    ).toMatchObject({ status: 'candidate' })
     expect(check({ ...work, truncated: true }, labels)).toMatchObject({
       reason: 'incomplete-native-page',
     })

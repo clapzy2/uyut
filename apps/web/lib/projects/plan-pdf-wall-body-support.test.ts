@@ -1,6 +1,7 @@
 import type { PlanPageContours } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import type { PdfLinework } from './plan-pdf-linework'
+import { PDF_NATIVE_MAX_PATHS } from './plan-pdf-linework'
 import { findPlanPageWallBodySupports } from './plan-pdf-wall-body-support'
 
 const rect = (left: number, top: number, right: number, bottom: number) => [
@@ -433,7 +434,7 @@ describe('one-sided native wall-body support', () => {
     work.truncated = true
     expect(findPlanPageWallBodySupports(work, contours)).toEqual([])
     work.truncated = false
-    work.paths = Array.from({ length: 5001 }, () => body)
+    work.paths = Array.from({ length: PDF_NATIVE_MAX_PATHS + 1 }, () => body)
     expect(findPlanPageWallBodySupports(work, contours)).toEqual([])
   })
 })

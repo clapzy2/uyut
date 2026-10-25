@@ -601,6 +601,15 @@ export async function buildPdfData(input: {
         .filter(Boolean)
         .join('. '),
       facts: [
+        ...(geometry?.pdfCalibration?.sourceState === 'proposed' ||
+        project.planReading?.planState === 'proposed'
+          ? [
+              {
+                label: 'Источник схемы',
+                value: `Проектное состояние, страница ${geometry?.pdfCalibration?.pdfPage ?? project.planReading?.sourcePage ?? 'не указана'}. Будущая планировка, не существующий обмер. ${geometry ? 'Схема остаётся черновиком.' : 'Подтверждённой схемы пока нет.'}`,
+              },
+            ]
+          : []),
         {
           label: 'Стиль',
           value: project.styleTags.map((tag) => styleLabels[tag] ?? tag).join(', ') || 'не выбран',
