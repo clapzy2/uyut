@@ -222,7 +222,7 @@ export function planPageMetricDraft(
   if (sourceReviewIssue === 'non-native-floor-edge')
     return fail(floorEdgeGapMessage(contours, linework))
   if (
-    source.state !== 'existing' ||
+    !['existing', 'proposed'].includes(source.state) ||
     sourceReviewIssue ||
     planPageFeaturesIssue(contours, { checkRoomOverlap: true })
   )
@@ -560,6 +560,7 @@ export function planPageMetricDraft(
     geometry.pdfCalibration = {
       sourceSha256: source.sha256,
       pdfPage: source.pdfPage,
+      sourceState: source.state,
       ...(transferPageBoundary && contours.exterior?.boundaryRole
         ? { exteriorBoundaryRole: contours.exterior.boundaryRole }
         : {}),

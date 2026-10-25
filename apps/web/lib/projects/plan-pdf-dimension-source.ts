@@ -12,7 +12,7 @@ export function pdfNativeDimensionSourceIssue(
     !/^[a-f0-9]{64}$/.test(source.sha256) ||
     !Number.isSafeInteger(source.pdfPage) ||
     source.pdfPage < 1 ||
-    source.state !== 'existing'
+    !['existing', 'proposed'].includes(source.state)
   )
     return 'invalid-native-dimension-source'
   const omitted = work.skippedCurveBounds ?? []

@@ -399,6 +399,17 @@ export async function savePlanGeometry(
     if (!project.planReading || !before) {
       return { ok: false, error: 'Сначала прочитайте план и постройте 2D-схему.' }
     }
+    if (
+      mode === 'confirm' &&
+      (before.pdfCalibration?.sourceState === 'proposed' ||
+        project.planReading.planState === 'proposed')
+    ) {
+      return {
+        ok: false,
+        error:
+          'Проектный 2D-черновик описывает будущие изменения. Подтверждение как обмера и перенос в 3D пока недоступны; сохраните черновик.',
+      }
+    }
     if (mode === 'confirm' && before.requiresSourceReviewReimport) {
       return {
         ok: false,

@@ -99,7 +99,8 @@ export function PlanPageGeometryImport({
     )
   if (
     (reading.geometry && !replacing) ||
-    reading.planState !== 'existing' ||
+    (reading.planState !== 'existing' && reading.planState !== 'proposed') ||
+    reading.pageReview?.contours.source.state !== reading.planState ||
     !reading.confirmedAt ||
     !options.length
   )
@@ -151,11 +152,18 @@ export function PlanPageGeometryImport({
       </h2>
       <p className="mt-3 max-w-2xl text-[14px] leading-relaxed text-ink-2">
         Список комнат уже сохранён. Теперь можно перенести размеченные контуры с листа{' '}
-        {reading.sourcePage ?? reading.pageReview?.contours.source.pdfPage} существующего состояния
-        в отдельный 2D-черновик. Проверим подписанные размеры в двух направлениях; если данных не
-        хватит, покажем, что уточнить. Неизвестные размеры не подставляются. AI-баланс не
-        расходуется.
+        {reading.sourcePage ?? reading.pageReview?.contours.source.pdfPage}{' '}
+        {reading.planState === 'proposed' ? 'проектного' : 'существующего'} состояния в отдельный
+        2D-черновик. Проверим подписанные размеры в двух направлениях; если данных не хватит,
+        покажем, что уточнить. Неизвестные размеры не подставляются. AI-баланс не расходуется.
       </p>
+      {reading.planState === 'proposed' ? (
+        <p role="status" className="mt-3 max-w-2xl text-[14px] leading-relaxed text-ink">
+          Проектный черновик описывает будущую планировку, а не существующий обмер. Эту пометку
+          сохраним вместе со схемой и укажем в PDF. Подтверждение как обмера и перенос в 3D пока
+          недоступны.
+        </p>
+      ) : null}
       <p className="mt-3 max-w-2xl text-[14px] leading-relaxed text-ink">
         Это ещё не подтверждённая расстановка. После переноса откройте редактор и сверьте контуры,
         проёмы и мерки по исходному листу или замерам на месте.

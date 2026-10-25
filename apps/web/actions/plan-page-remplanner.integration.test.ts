@@ -249,6 +249,51 @@ describe.skipIf(!enabled)('Remplanner sheet 4 through actions and PostgreSQL', (
     return { id: project.id, ready, revision: planEditRevision(ready.planUrl, ready.planReading) }
   }
 
+  it('persists a proposed-state control through the same actions without allowing as-built confirmation', async () => {
+    // State isolation control on the same real source coordinates. This does not
+    // claim that sheet 4 is the album's proposed nine-room layout.
+    const { id, ready } = await freshProject('Proposed-state persistence control')
+    const proposedReading = { ...structuredClone(reading), planState: 'proposed' as const }
+    await setPlanReading(owner, id, proposedReading, ready)
+    const before = await getProject(owner, id)
+    const contours = structuredClone(reviewed)
+    contours.source.state = 'proposed'
+    const review = await savePlanPageReview(
+      id,
+      contours,
+      planEditRevision(before.planUrl, before.planReading),
+    )
+    if (!review.ok) throw new Error(review.error)
+    const draft = await createPlanPageGeometryDraft(
+      id,
+      [1, 2, 3, 4, 5, 6, 7, 8],
+      review.data.revision,
+      undefined,
+      false,
+      false,
+      true,
+    )
+    if (!draft.ok) throw new Error(draft.error)
+    expect(draft.data.geometry.pdfCalibration?.sourceState).toBe('proposed')
+    expect(draft.data.geometry.status).toBe('draft')
+    const reopened = await getProject(owner, id)
+    expect(reopened.planReading?.geometry).toEqual(draft.data.geometry)
+    const saved = await savePlanGeometry(id, draft.data.geometry, 'draft', draft.data.revision)
+    if (!saved.ok) throw new Error(saved.error)
+    expect((await getProject(owner, id)).planReading?.geometry?.pdfCalibration?.sourceState).toBe(
+      'proposed',
+    )
+    expect(
+      await savePlanGeometry(
+        id,
+        { ...saved.data.geometry, pdfCalibration: undefined },
+        'confirm',
+        saved.data.revision,
+      ),
+    ).toMatchObject({ ok: false, error: expect.stringContaining('Проектный 2D-черновик') })
+    expect(planVolume({ ...saved.data.geometry, status: 'confirmed' })).toBeNull()
+  })
+
   it('refuses a floor that leaves out the balcony or crosses its unproven doorway', async () => {
     const { id, ready, revision } = await freshProject('Remplanner floor refusals')
     const across = { ...reviewed, floor: { polygon: points(floorAcrossBalconyDoor) } }

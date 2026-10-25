@@ -40,7 +40,7 @@ export function automaticNativeDimensionRoles(input: {
     mayEraseSourceStrokes: false as const,
   })
   if (
-    source.state !== 'existing' ||
+    !['existing', 'proposed'].includes(source.state) ||
     source.sha256 !== native.originalPdfSha256 ||
     source.pdfPage !== native.source.page
   )

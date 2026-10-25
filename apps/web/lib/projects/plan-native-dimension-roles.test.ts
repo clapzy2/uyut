@@ -168,21 +168,25 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
       expect(label.rotation).toBe(rotation)
     },
   )
-  it('discovers a unique labelled rail and both source ticks without selected label IDs', () => {
-    const input = fixture(),
-      before = structuredClone(input.work)
-    const result = automaticNativeDimensionRoles(input)
-    expect(result.refusalReason).toBeNull()
-    expect(result.candidates).toHaveLength(1)
-    expect(result.candidates[0]).toMatchObject({
-      labelId: 'native-text-10',
-      valueMm: 200,
-      rail: { operationIndex: 1 },
-    })
-    expect(result.candidates[0]?.ticks.map((tick) => tick.operationIndex)).toEqual([2, 3])
-    expect(result.mayEraseSourceStrokes).toBe(false)
-    expect(input.work).toEqual(before)
-  })
+  it.each(['existing', 'proposed'] as const)(
+    'discovers a unique labelled rail and both source ticks on the %s sheet',
+    (state) => {
+      const input = fixture(),
+        before = structuredClone(input.work)
+      const result = automaticNativeDimensionRoles({ ...input, source: { ...input.source, state } })
+      expect(result.refusalReason).toBeNull()
+      expect(result.source.state).toBe(state)
+      expect(result.candidates).toHaveLength(1)
+      expect(result.candidates[0]).toMatchObject({
+        labelId: 'native-text-10',
+        valueMm: 200,
+        rail: { operationIndex: 1 },
+      })
+      expect(result.candidates[0]?.ticks.map((tick) => tick.operationIndex)).toEqual([2, 3])
+      expect(result.mayEraseSourceStrokes).toBe(false)
+      expect(input.work).toEqual(before)
+    },
+  )
   it('does not mark arbitrary numbers or an unmarked line as a dimension', () => {
     const input = fixture()
     input.work.paths = input.work.paths.slice(0, 1)
@@ -198,15 +202,17 @@ describe('automatic printed dimension roles, not permission to erase lines', () 
     tick.points = tick.points.map((point) => ({ x: point.x + 1, y: point.y }))
     expect(automaticNativeDimensionRoles(input).candidates).toEqual([])
   })
-  it('requires the selected existing page and native coordinate provenance', () => {
+  it('requires a supported selected page and native coordinate provenance', () => {
     const input = fixture()
     expect(
       automaticNativeDimensionRoles({ ...input, source: { ...input.source, pdfPage: 2 } })
         .refusalReason,
     ).toBe('unverified-or-mismatched-page-state')
     expect(
-      automaticNativeDimensionRoles({ ...input, source: { ...input.source, state: 'proposed' } })
-        .candidates,
+      automaticNativeDimensionRoles({
+        ...input,
+        source: { ...input.source, state: 'unknown' as 'existing' },
+      }).candidates,
     ).toEqual([])
     const label = input.native.labels[0]
     if (!label) throw new Error('Missing test label')

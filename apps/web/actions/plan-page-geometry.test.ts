@@ -90,6 +90,37 @@ describe('create metric draft from reviewed source page', () => {
     mocks.save.mockResolvedValue(undefined)
   })
 
+  it('passes the proposed state only when the saved review belongs to that same state', async () => {
+    const proposed = structuredClone(reading)
+    proposed.planState = 'proposed'
+    if (!proposed.pageReview) throw new Error('Missing review fixture')
+    proposed.pageReview.contours.source.state = 'proposed'
+    const target = { ...project, planReading: proposed }
+    mocks.owner.mockResolvedValue(target)
+    const result = await createPlanPageGeometryDraft(
+      'project',
+      [4],
+      planEditRevision(target.planUrl, proposed),
+    )
+    expect(result.ok).toBe(true)
+    expect(mocks.convert.mock.calls[0]?.[1].source.state).toBe('proposed')
+
+    proposed.pageReview.contours.source.state = 'existing'
+    mocks.convert.mockClear()
+    mocks.save.mockClear()
+    expect(
+      (
+        await createPlanPageGeometryDraft(
+          'project',
+          [4],
+          planEditRevision(target.planUrl, proposed),
+        )
+      ).ok,
+    ).toBe(false)
+    expect(mocks.convert).not.toHaveBeenCalled()
+    expect(mocks.save).not.toHaveBeenCalled()
+  })
+
   it('imports a physical room beside a held source area but refuses that area as selection or anchor', async () => {
     const before = structuredClone(reading)
     before.rooms.push({ name: 'Балкон', kind: 'living', sourceNumber: 8 })

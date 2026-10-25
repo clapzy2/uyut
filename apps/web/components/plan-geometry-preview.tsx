@@ -107,6 +107,10 @@ export function PlanGeometryPreview({
         ? 'Контуры перенесены из нативных линий PDF в едином масштабе, проверенном по двум направлениям. Это размерный черновик: сверьте состав проёмов, их мерки и неподвижные объекты перед подтверждением.'
         : 'Метрическая схема перенесена из PDF и сверена владельцем. Перед покупкой мебели подтвердите ключевые размеры чистовым обмером.'
   }
+  if (geometry.pdfCalibration?.sourceState === 'proposed') {
+    description =
+      'Контуры будущей планировки перенесены из проектного PDF. Это проектный черновик, не существующий обмер. Его можно редактировать и сохранять; подтверждение как обмера и перенос в 3D пока недоступны.'
+  }
 
   return (
     <section
@@ -116,7 +120,12 @@ export function PlanGeometryPreview({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
-            2D-схема · {geometry.status === 'confirmed' ? 'подтверждена' : 'черновик'}
+            2D-схема ·{' '}
+            {geometry.pdfCalibration?.sourceState === 'proposed'
+              ? 'проектный черновик'
+              : geometry.status === 'confirmed'
+                ? 'подтверждена'
+                : 'черновик'}
             {geometry.pdfCalibration
               ? ' · из PDF'
               : geometry.source === 'manual'

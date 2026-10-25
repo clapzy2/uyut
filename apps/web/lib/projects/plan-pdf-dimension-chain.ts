@@ -529,7 +529,8 @@ export function pdfNativePageDimensionChain(
   axis: DimensionAxis | 'aligned',
   captionContext?: NativeDimensionCaptionContext,
 ): PdfNativePageDimensionChain {
-  if (source.state !== 'existing') return { status: 'unresolved', reason: 'not-existing-state' }
+  if (!['existing', 'proposed'].includes(source.state))
+    return { status: 'unresolved', reason: 'unsupported-plan-state' }
   if (work.coordinateSystem !== 'page-0-1000' || work.truncated)
     return { status: 'unresolved', reason: 'incomplete-native-page' }
   if (captionContext) {
@@ -564,8 +565,8 @@ function nativePageChainVerifier(
 ) {
   const matchers = new Map<DimensionAxis, (label: NativeLabel) => NativeCaptionMatch>()
   return (labels: readonly NativeLabel[], totalMm: number, axis: DimensionAxis) => {
-    if (source.state !== 'existing')
-      return { status: 'unresolved' as const, reason: 'not-existing-state' }
+    if (!['existing', 'proposed'].includes(source.state))
+      return { status: 'unresolved' as const, reason: 'unsupported-plan-state' }
     if (work.coordinateSystem !== 'page-0-1000' || work.truncated)
       return { status: 'unresolved' as const, reason: 'incomplete-native-page' }
     return nativePageDimensionChain(

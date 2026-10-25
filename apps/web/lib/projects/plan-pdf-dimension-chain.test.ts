@@ -219,7 +219,7 @@ describe('native page dimension without invented room ownership', () => {
     ).toMatchObject({ status: 'ambiguous', reason: 'multiple-dimension-lines' })
   })
 
-  it('refuses proposed state and a truncated native extraction', () => {
+  it('checks the same printed chain on a proposed sheet without changing its evidence', () => {
     expect(
       pdfNativePageDimensionChain(
         work,
@@ -228,11 +228,32 @@ describe('native page dimension without invented room ownership', () => {
         2985,
         'width',
       ),
-    ).toMatchObject({ status: 'unresolved', reason: 'not-existing-state' })
+    ).toEqual(pdfNativePageDimensionChain(work, contours.source, labels, 2985, 'width'))
+  })
+
+  it('refuses unknown state and a truncated native extraction', () => {
+    expect(
+      pdfNativePageDimensionChain(
+        work,
+        { ...contours.source, state: 'unknown' as 'existing' },
+        labels,
+        2985,
+        'width',
+      ),
+    ).toMatchObject({ status: 'unresolved', reason: 'unsupported-plan-state' })
     expect(
       pdfNativePageDimensionChain(
         { ...work, truncated: true },
         contours.source,
+        labels,
+        2985,
+        'width',
+      ),
+    ).toMatchObject({ status: 'unresolved', reason: 'incomplete-native-page' })
+    expect(
+      pdfNativePageDimensionChain(
+        { ...work, truncated: true },
+        { ...contours.source, state: 'proposed' },
         labels,
         2985,
         'width',

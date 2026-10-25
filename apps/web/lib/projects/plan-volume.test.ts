@@ -44,6 +44,23 @@ const geometry: PlanGeometry = {
 }
 
 describe('planVolume', () => {
+  it('does not release a proposed drawing to physical 3D even if its status says confirmed', () => {
+    const proposed: PlanGeometry = {
+      ...geometry,
+      pdfCalibration: {
+        sourceSha256: 'a'.repeat(64),
+        pdfPage: 1,
+        sourceState: 'proposed',
+        cmPerPoint: 1,
+        origin: { x: 0, y: 0 },
+        anchorRoomNumbers: [],
+        labelIndexes: [],
+        derivedOpeningIds: [],
+      },
+    }
+    expect(planVolume(proposed)).toBeNull()
+    expect(planVolumeBlocker(proposed)).toContain('Проектный 2D-черновик')
+  })
   it('shows a reviewed PDF floor without inventing walls or openings', () => {
     const room = {
       name: 'Балкон',

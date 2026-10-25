@@ -188,8 +188,12 @@ export async function createPlanPageGeometryDraft(
           'Для обновления переноса выберите проверку единого масштаба по комнате или отдельным сторонам.',
       }
     const review = planPageContoursSchema.safeParse(before.pageReview?.contours)
-    if (!review.success || before.planState !== 'existing')
-      return { ok: false, error: 'Сначала сохраните разметку комнат на исходном обмерном листе.' }
+    if (
+      !review.success ||
+      (before.planState !== 'existing' && before.planState !== 'proposed') ||
+      before.planState !== review.data.source.state
+    )
+      return { ok: false, error: 'Сначала сохраните разметку комнат на листе того же состояния.' }
     const physicalRooms = review.data.rooms.filter((room) => room.sourceTopology === undefined)
     if (
       selected.data.some(
@@ -209,13 +213,14 @@ export async function createPlanPageGeometryDraft(
     const source = {
       sha256: createHash('sha256').update(body).digest('hex'),
       pdfPage: review.data.source.pdfPage,
-      state: 'existing' as const,
+      state: before.planState,
     }
     if (source.sha256 !== review.data.source.sha256) throw new PlanEditConflictError()
     if (
       before.geometry?.pdfCalibration &&
       (before.geometry.pdfCalibration.sourceSha256 !== source.sha256 ||
-        before.geometry.pdfCalibration.pdfPage !== source.pdfPage)
+        before.geometry.pdfCalibration.pdfPage !== source.pdfPage ||
+        (before.geometry.pdfCalibration.sourceState ?? 'existing') !== source.state)
     )
       return {
         ok: false,

@@ -153,6 +153,19 @@ function reviewedPdfPage(): NonNullable<PlanReading['pageReview']> {
 }
 
 describe('manual plan draft', () => {
+  it('cannot confirm a proposed PDF through the manual image path either', async () => {
+    source.planUrl = 'native-plan.pdf'
+    source.planReading.planState = 'proposed'
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      manualPdfUnderlay: { sourceSha256: reviewedPdfImage.sourceSha256, pdfPage: 1 },
+    }
+    expect(await savePlanGeometry(projectId, emptyManualGeometry, 'confirm')).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('Проектный 2D-черновик'),
+    })
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.getSession.mockResolvedValue({ user: { id: 'owner' } })
@@ -174,6 +187,34 @@ describe('manual plan draft', () => {
       image: { width: reviewedImage.imageWidthPx, height: reviewedImage.imageHeightPx },
       pageNumber: 1,
     })
+  })
+
+  it('keeps proposed source metadata server-owned and refuses confirmation despite a forged client state', async () => {
+    source.planUrl = 'plan.pdf'
+    source.planReading.geometry = {
+      ...emptyManualGeometry,
+      pdfCalibration: { ...nativePdfCalibration, sourceState: 'proposed' },
+    }
+    const input = {
+      ...emptyManualGeometry,
+      pdfCalibration: { ...nativePdfCalibration, sourceState: 'existing' },
+    }
+    const confirm = await savePlanGeometry(projectId, input, 'confirm')
+    expect(confirm).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('Проектный 2D-черновик'),
+    })
+    expect(mocks.setPlanReading).not.toHaveBeenCalled()
+
+    const saved = await savePlanGeometry(projectId, input, 'draft')
+    expect(saved.ok).toBe(true)
+    if (!saved.ok) throw new Error(saved.error)
+    expect(saved.data.geometry.pdfCalibration?.sourceState).toBe('proposed')
+    expect(saved.data.geometry.status).toBe('draft')
+    source.planReading = mocks.setPlanReading.mock.calls[0]?.[2]
+    const reopened = await savePlanGeometry(projectId, saved.data.geometry, 'draft')
+    expect(reopened.ok).toBe(true)
+    if (reopened.ok) expect(reopened.data.geometry.pdfCalibration?.sourceState).toBe('proposed')
   })
 
   it('creates an explicit manual image path without changing the native source review', async () => {

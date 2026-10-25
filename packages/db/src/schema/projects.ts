@@ -294,6 +294,7 @@ export type PlanVerticalReference = {
     pdfCalibration?: {
       sourceSha256: string
       pdfPage: number
+      sourceState?: 'existing' | 'proposed'
       cmPerPoint: number
       origin: { x: number; y: number }
     }
@@ -333,6 +334,8 @@ export type PlanGeometry = {
   pdfCalibration?: {
     sourceSha256: string
     pdfPage: number
+    /** Source state is preserved; a proposed drawing is not an as-built survey. */
+    sourceState?: 'existing' | 'proposed'
     /** The reviewed exterior may be the outside of construction, not usable floor. */
     exteriorBoundaryRole?: 'floor' | 'outer-wall-envelope'
     cmPerPoint: number

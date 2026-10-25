@@ -308,7 +308,7 @@ describe('привязка наклонных размеров и метриче
     })
   })
 
-  it('отклоняет отсечённые линии, смену PDF и проектное состояние', () => {
+  it('отклоняет отсечённые линии, смену PDF и несовпадение состояния чтения', () => {
     const f = fixture()
     f.work.clippedPaths = 1
     expect(f.binding()).toMatchObject({
@@ -345,7 +345,12 @@ describe('привязка наклонных размеров и метриче
     expect(planPageMetricDraft(g.reading, g.context, [1]).ok).toBe(false)
     const h = fixture()
     h.context.source.state = 'proposed' as 'existing'
-    expect(h.binding().status).toBe('unresolved')
+    expect(h.binding().status).toBe('candidate')
+    expect(planPageMetricDraft(h.reading, h.context, [1]).ok).toBe(false)
+    h.reading.planState = 'proposed'
+    const proposed = planPageMetricDraft(h.reading, h.context, [1])
+    expect(proposed.ok).toBe(true)
+    if (proposed.ok) expect(proposed.geometry.pdfCalibration?.sourceState).toBe('proposed')
   })
 
   it('проверяет общий масштаб и не подгоняет второе направление', () => {
