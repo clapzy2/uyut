@@ -535,11 +535,11 @@ export function planPageMetricDraft(
     }
   }
   if (globalCalibration) {
+    if (transferPageBoundary && contours.floor)
+      geometry.footprint = contours.floor.polygon.map(convert)
     const exterior = transferPageBoundary ? contours.exterior?.polygon.map(convert) : undefined
     if (exterior) {
-      if (contours.floor) {
-        geometry.footprint = contours.floor.polygon.map(convert)
-      } else if (contours.exterior?.boundaryRole !== 'outer-wall-envelope') {
+      if (!contours.floor && contours.exterior?.boundaryRole !== 'outer-wall-envelope') {
         geometry.footprint = exterior
       }
       // An explicitly reviewed floor edge is not a wall face. Untagged legacy
@@ -562,6 +562,9 @@ export function planPageMetricDraft(
       sourceSha256: source.sha256,
       pdfPage: source.pdfPage,
       sourceState: source.state,
+      ...(transferPageBoundary && contours.floor?.scope
+        ? { floorScope: structuredClone(contours.floor.scope) }
+        : {}),
       ...(transferPageBoundary && contours.exterior?.boundaryRole
         ? { exteriorBoundaryRole: contours.exterior.boundaryRole }
         : {}),
@@ -732,6 +735,10 @@ export function planPageMetricDraft(
     )
   }
   geometry.warnings.push(...areaWarnings)
+  if (geometry.pdfCalibration?.floorScope)
+    geometry.warnings.push(
+      `Пол проверен частично: ${geometry.pdfCalibration.floorScope.note} Это не пол всей квартиры; подтверждённый объём и маршрут не строятся.`,
+    )
   if (contours.voids?.length) {
     geometry.warnings.push(
       globalCalibration && transferPageBoundary

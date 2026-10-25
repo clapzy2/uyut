@@ -158,6 +158,14 @@ export const planPageContoursSchema = z
       .strictObject({
         polygon: z.array(pointSchema).min(3).max(100),
         vertexProofs: vertexProofsSchema,
+        scope: z
+          .object({
+            kind: z.literal('partial'),
+            note: z.string().trim().min(1).max(1000),
+            sourcePoint: pointSchema.optional(),
+          })
+          .strict()
+          .optional(),
       })
       .optional(),
     voids: z
@@ -167,6 +175,8 @@ export const planPageContoursSchema = z
     rooms: z.array(contourSchema).min(1).max(100),
   })
   .superRefine((input, context) => {
+    if (input.floor?.scope && input.source.state !== 'proposed')
+      context.addIssue({ code: 'custom', message: 'partial-floor-requires-proposed-state' })
     let sourcePointCount = 0
     for (const room of input.rooms) {
       const topology = room.sourceTopology
@@ -458,10 +468,14 @@ export function planPageFeaturesIssue(
   const exterior = input.exterior
   const floor = input.floor
   if (floor) {
-    if (exterior?.boundaryRole !== 'outer-wall-envelope')
+    if (
+      !(input.source.state === 'proposed' && !exterior) &&
+      exterior?.boundaryRole !== 'outer-wall-envelope'
+    )
       return 'floor-requires-outer-wall-envelope'
     if (!pdfPolygonIsValid(floor.polygon)) return 'invalid-floor-contour'
-    if (!polygonWithin(floor.polygon, exterior.polygon)) return 'floor-outside-exterior-contour'
+    if (exterior && !polygonWithin(floor.polygon, exterior.polygon))
+      return 'floor-outside-exterior-contour'
     if (input.rooms.some((room) => !polygonWithin(room.polygon, floor.polygon)))
       return 'room-outside-floor-contour'
   }

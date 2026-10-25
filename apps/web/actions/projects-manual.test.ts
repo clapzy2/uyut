@@ -211,6 +211,7 @@ describe('manual plan draft', () => {
     if (!saved.ok) throw new Error(saved.error)
     expect(saved.data.geometry.pdfCalibration?.sourceState).toBe('proposed')
     expect(saved.data.geometry.status).toBe('draft')
+    expect(saved.data.geometry.projectedVerticalEvidence).toBeUndefined()
     source.planReading = mocks.setPlanReading.mock.calls[0]?.[2]
     const reopened = await savePlanGeometry(projectId, saved.data.geometry, 'draft')
     expect(reopened.ok).toBe(true)

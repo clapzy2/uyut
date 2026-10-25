@@ -398,6 +398,7 @@ describe('saved bounded source intersections', () => {
     const readings: PlanRoomReading[] = [
       { name: 'Гардероб', kind: 'living', sourceNumber: 3.1 },
       { name: 'Спальня', kind: 'bedroom', sourceNumber: 3 },
+      { name: 'Коридор', kind: 'living', sourceNumber: 4 },
     ]
     const grouped = groupPageContourDraft(
       contourDraftsFromSaved([crossingRoom]),
@@ -408,6 +409,17 @@ describe('saved bounded source intersections', () => {
     expect(grouped?.[0]?.vertexProofs).toEqual(crossingRoom.vertexProofs)
     expect(
       pageContourRoomsForSave(grouped ?? [], crossingNodes, crossingSegments)?.[0]?.vertexProofs,
+    ).toEqual(crossingRoom.vertexProofs)
+    const extended = groupPageContourDraft(
+      grouped ?? [],
+      { roomSourceNumbers: [3, 3.1] },
+      4,
+      readings,
+    )
+    expect(extended?.[0]?.roomSourceNumbers).toEqual([3, 3.1, 4])
+    expect(extended?.[0]?.polygon).toEqual(crossingRoom.polygon)
+    expect(
+      pageContourRoomsForSave(extended ?? [], crossingNodes, crossingSegments)?.[0]?.vertexProofs,
     ).toEqual(crossingRoom.vertexProofs)
   })
 })
@@ -889,6 +901,89 @@ describe('room feature drafts', () => {
     const empty = groupPageContourDraft([], { roomSourceNumber: 1 }, 5, readings)
     expect(empty?.[0]?.closed).toBe(false)
     expect(pageContourRoomsForSave(empty ?? [], native)).toBeNull()
+  })
+
+  it('adds further unclaimed numbers to one contour without changing its shape or openings', () => {
+    const readings: PlanRoomReading[] = [1, 2, 3, 4].map((sourceNumber) => ({
+      name: `Комната ${sourceNumber}`,
+      kind: 'living',
+      sourceNumber,
+    }))
+    const first = contourDraftsFromSaved([{ ...room, roomSourceNumber: 1 }])
+    const pair = groupPageContourDraft(first, { roomSourceNumber: 1 }, 2, readings)
+    const triple = groupPageContourDraft(pair ?? [], { roomSourceNumbers: [1, 2] }, 3, readings)
+    const extended = groupPageContourDraft(
+      triple ?? [],
+      { roomSourceNumbers: [1, 2, 3] },
+      4,
+      readings,
+    )
+    expect(extended?.[0]).toEqual({
+      ...first[0],
+      roomSourceNumber: undefined,
+      roomSourceNumbers: [1, 2, 3, 4],
+    })
+    expect(first[0]?.roomSourceNumber).toBe(1)
+    expect(pair?.[0]?.roomSourceNumbers).toEqual([1, 2])
+    expect(extended?.[0]).not.toHaveProperty('roomSourceNumber')
+  })
+
+  it('rejects overlapping, invalid or source-only identities when extending a group', () => {
+    const readings: PlanRoomReading[] = [1, 2, 3, 4].map((sourceNumber) => ({
+      name: `Комната ${sourceNumber}`,
+      kind: 'living',
+      sourceNumber,
+    }))
+    const shared = contourDraftsFromSaved([
+      { ...room, roomSourceNumber: undefined, roomSourceNumbers: [1, 2] },
+    ])
+    const selected = { roomSourceNumbers: [1, 2] }
+    const separate = contourDraftsFromSaved([{ ...room, roomSourceNumber: 3 }])
+    const overlap = contourDraftsFromSaved([
+      { ...room, roomSourceNumber: undefined, roomSourceNumbers: [2, 4] },
+    ])
+    expect(groupPageContourDraft([...shared, ...separate], selected, 3, readings)).toBeNull()
+    expect(groupPageContourDraft([...shared, ...overlap], selected, 3, readings)).toBeNull()
+    expect(groupPageContourDraft([...shared, ...shared], selected, 3, readings)).toBeNull()
+    expect(groupPageContourDraft(shared, { roomSourceNumbers: [1, 1] }, 3, readings)).toBeNull()
+    expect(groupPageContourDraft(shared, { roomSourceNumbers: [1] }, 3, readings)).toBeNull()
+    for (const other of [1, 2, 0, 5, Number.NaN, 1.0001]) {
+      expect(groupPageContourDraft(shared, selected, other, readings)).toBeNull()
+    }
+    const sourceTopology = {
+      kind: 'unclassified-source-paint' as const,
+      floorId: 'source-only',
+      exactPointKeys: [],
+      holes: [],
+      holeExactPointKeys: [],
+    }
+    const before = shared[0]
+    if (!before) throw new Error('Missing shared contour')
+    expect(groupPageContourDraft([{ ...before, sourceTopology }], selected, 3, readings)).toBeNull()
+    expect(
+      groupPageContourDraft(
+        [{ ...before, sourceTrace: { polygon: room.polygon, sourceTopology } }],
+        selected,
+        3,
+        readings,
+      ),
+    ).toBeNull()
+    const fullReadings: PlanRoomReading[] = Array.from({ length: 13 }, (_, index) => ({
+      name: `Комната ${index + 1}`,
+      kind: 'living',
+      sourceNumber: index + 1,
+    }))
+    const fullIdentity = {
+      roomSourceNumbers: Array.from({ length: 12 }, (_, index) => index + 1),
+    }
+    expect(
+      groupPageContourDraft(
+        [{ ...before, roomSourceNumber: undefined, ...fullIdentity }],
+        fullIdentity,
+        13,
+        fullReadings,
+      ),
+    ).toBeNull()
   })
 
   it('refuses duplicated source claims and invalid shared membership before submitting', () => {

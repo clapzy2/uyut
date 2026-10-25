@@ -15,6 +15,7 @@
     "./measurement-assurance": "./src/measurement-assurance.ts",
     "./plan-opening-face-pairs": "./src/plan-opening-face-pairs.ts",
     "./plan-vertical-reference": "./src/plan-vertical-reference.ts",
+    "./plan-projected-vertical-evidence": "./src/plan-projected-vertical-evidence.ts",
     "./plan-vertical-dimensions": "./src/plan-vertical-dimensions.ts",
     "./plan-vertical-floor-geometry": "./src/plan-vertical-floor-geometry.ts",
     "./plan-volume-types": "./src/plan-volume-types.ts",

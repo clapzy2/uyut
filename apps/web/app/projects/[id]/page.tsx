@@ -16,6 +16,7 @@ import { ManualPlanGeometryStart } from '@/components/manual-plan-geometry-start
 import { PlanGeometryEditor } from '@/components/plan-geometry-editor'
 import { PlanGeometryPreview } from '@/components/plan-geometry-preview'
 import { PlanPageGeometryImport } from '@/components/plan-page-geometry-import'
+import { PlanProjectedEvidence } from '@/components/plan-projected-evidence'
 import { PlanReadingCard } from '@/components/plan-reading-card'
 import { ProjectGuide } from '@/components/project-guide'
 import { ProjectSettingsDialog } from '@/components/project-settings-dialog'
@@ -379,6 +380,15 @@ export default async function ProjectPage({ params }: { params: Params }) {
               />
             ) : null
           }
+        />
+      ) : null}
+
+      {project.planReading?.geometry ? (
+        <PlanProjectedEvidence
+          projectId={project.id}
+          geometry={project.planReading.geometry}
+          sourceRevision={sourceRevision}
+          canEdit={isOwner}
         />
       ) : null}
 

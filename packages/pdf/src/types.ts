@@ -98,6 +98,22 @@ export type PdfData = {
   wallFaceReview?: { sourceSha256: string; pdfPage: number; humanReviewedPairs: number }
   /** Explicitly reviewed signed surfaces; never inferred from the render or a flat zero mesh. */
   verticalPlan?: PdfVerticalPlan
+  /** Documentary proposed values, never physical elevations or confirmation. */
+  projectedPlan?: {
+    rows: Array<{ target: string; value: string; source: string; note?: string }>
+    staleCount: number
+    floorScopeNote?: string
+    drawing?: {
+      sourcePage: number
+      rooms: Array<{
+        name: string
+        sourceNumbers: number[]
+        polygon: Array<{ xCm: number; yCm: number }>
+      }>
+      walls: Array<{ start: { xCm: number; yCm: number }; end: { xCm: number; yCm: number } }>
+      floor?: Array<{ xCm: number; yCm: number }>
+    }
+  }
   /** Stored, current measured route; held reports carry no successful path. */
   deliveryPlan?: PlanDeliveryPresentation
 }

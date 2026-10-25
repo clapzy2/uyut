@@ -222,6 +222,7 @@ function wallFaceReviewNote(review: PdfData['wallFaceReview']): string {
 function about(data: PdfData, free: boolean): string {
   const contents = [
     data.verticalPlan ? 'Полы и пороги' : null,
+    data.projectedPlan ? 'Проектные отметки' : null,
     data.deliveryPlan ? 'Маршрут заноса' : null,
     ...data.rooms.map((room) => room.name),
     'Список покупок',
@@ -431,6 +432,98 @@ function svgFloorPath(
         `M ${ring.map((point) => `${point.xCm * scale} ${point.yCm * scale}`).join(' L ')} Z`,
     )
     .join(' ')
+}
+
+function projectedDrawingPage(data: PdfData, free: boolean): string {
+  const report = data.projectedPlan
+  const drawing = report?.drawing
+  if (!report || !drawing?.rooms.length) return ''
+  const points = [
+    ...drawing.rooms.flatMap((room) => room.polygon),
+    ...drawing.walls.flatMap((wall) => [wall.start, wall.end]),
+    ...(drawing.floor ?? []),
+  ]
+  if (
+    !points.length ||
+    points.some(
+      (point) =>
+        ![point.xCm, point.yCm].every(
+          (value) => Number.isFinite(value) && Math.abs(value) <= 10000,
+        ),
+    )
+  )
+    return ''
+  const left = Math.min(...points.map((point) => point.xCm))
+  const top = Math.min(...points.map((point) => point.yCm))
+  const width = Math.max(...points.map((point) => point.xCm)) - left
+  const height = Math.max(...points.map((point) => point.yCm)) - top
+  if (width <= 0 || height <= 0) return ''
+  const padding = Math.max(width, height) * 0.025
+  const colors = ['#e2d0b2', '#cadbcf', '#ccd6e6', '#e7cbd1', '#d9cde5', '#e8dda9', '#c4dedf']
+  const polygons = drawing.rooms
+    .map(
+      (room, index) =>
+        `<polygon points="${room.polygon.map((point) => `${point.xCm},${point.yCm}`).join(' ')}" fill="${colors[index % colors.length]}" stroke="#6d6258" stroke-width="1" vector-effect="non-scaling-stroke"><title>${esc(room.name)}</title></polygon>`,
+    )
+    .join('')
+  const walls = drawing.walls
+    .map(
+      (wall) =>
+        `<line x1="${wall.start.xCm}" y1="${wall.start.yCm}" x2="${wall.end.xCm}" y2="${wall.end.yCm}" stroke="#2f2a20" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`,
+    )
+    .join('')
+  const legend = drawing.rooms
+    .map(
+      (room, index) =>
+        `<p class="small" style="margin-top:1.5mm"><span style="display:inline-block;width:3mm;height:3mm;background:${colors[index % colors.length]};border:0.2mm solid #6d6258;margin-right:2mm"></span>${room.sourceNumbers.length ? `№ ${esc(room.sourceNumbers.join(' + '))}` : 'Без исходного номера'} · ${esc(room.name)}</p>`,
+    )
+    .join('')
+  const floor = drawing.floor?.length
+    ? `<polygon points="${drawing.floor.map((point) => `${point.xCm},${point.yCm}`).join(' ')}" fill="none" stroke="#0369a1" stroke-width="2" stroke-dasharray="5 3" vector-effect="non-scaling-stroke"/>`
+    : ''
+  return `<section class="page projected-plan-drawing">
+    ${ribbon(free)}<p class="eyebrow">Будущая планировка · 2D-черновик</p><h1 style="margin-top:3mm">Проектная схема квартиры</h1>
+    <p class="small" style="margin-top:3mm">Сохранённый проектный 2D-черновик, не натурный обмер. Исходный PDF, страница ${drawing.sourcePage}. Физических областей: ${drawing.rooms.length}; исходных номеров: ${new Set(drawing.rooms.flatMap((room) => room.sourceNumbers)).size}. Высоты, пороги и физический 3D по этой схеме не подтверждены.</p>
+    ${report.floorScopeNote ? `<p class="small" style="margin-top:3mm">Пол проверен частично: ${esc(report.floorScopeNote)}</p>` : ''}
+    <svg style="display:block;width:100%;height:135mm;margin-top:3mm" viewBox="${left - padding} ${top - padding} ${width + padding * 2} ${height + padding * 2}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Проектный 2D-черновик квартиры">${polygons}${walls}${floor}</svg>
+    <p class="small" style="margin-top:2mm">Вид сверху по сохранённым метрическим координатам. Цвет обозначает область схемы; линии — её сохранённые грани стен. Это не рабочий чертёж дверей и не подтверждение полноты пола.</p>
+    ${legend}
+    ${floor ? '<p class="small" style="margin-top:2mm">Синий пунктир - сохранённая граница свободного пола. Её частичный статус указан выше; это не наружная сторона стен.</p>' : ''}
+  </section>`
+}
+
+function projectedPlanPages(data: PdfData, free: boolean): string {
+  const report = data.projectedPlan
+  if (!report) return ''
+  const drawing = projectedDrawingPage(data, free)
+  if (drawing && !report.rows.length && !report.staleCount) return drawing
+  const pages: (typeof report.rows)[] = [[]]
+  const lines = (text: string) => Math.ceil(text.length / 80)
+  let used = 12 + lines(report.floorScopeNote ?? '')
+  for (const row of report.rows) {
+    const cost =
+      4 + lines(row.target) + lines(row.value) + lines(row.source) + lines(row.note ?? '')
+    if (used + cost > 72 && pages[pages.length - 1]?.length) {
+      pages.push([])
+      used = 12
+    }
+    pages[pages.length - 1]?.push(row)
+    used += cost
+  }
+  return (
+    drawing +
+    pages
+      .map(
+        (rows, index) => `<section class="page projected-plan-page">
+    ${ribbon(free)}<p class="eyebrow">Будущая планировка · подписи с чертежа</p><h1 style="margin-top:3mm">Проектные отметки${pages.length > 1 ? ` · ${index + 1}/${pages.length}` : ''}</h1>
+    <p class="small" style="margin-top:4mm">Это проектные подписи, не натурный обмер. Опуск от перекрытия и местная высота из развёртки не определяют неизвестную абсолютную высоту потолка. Неизвестные пороги и проходы не достраиваются.</p>
+    ${index === 0 && report.floorScopeNote ? `<p class="small" style="margin-top:3mm">Пол проверен частично: ${esc(report.floorScopeNote)}</p>` : ''}
+    ${index === 0 && report.staleCount ? `<p class="small" style="margin-top:3mm">Изменившихся привязок: ${report.staleCount}. Их значения не перенесены; нужна повторная сверка объектов и источника.</p>` : ''}
+    ${rows.map((row) => `<div style="margin-top:4mm;padding-top:3mm;border-top:0.2mm solid #d5cbbc;overflow-wrap:anywhere;break-inside:avoid"><p class="small"><strong>${esc(row.target)}</strong> · ${esc(row.value)}</p><p class="small" style="margin-top:1mm">${esc(row.source)}</p>${row.note ? `<p class="small" style="margin-top:1mm">${esc(row.note)}</p>` : ''}</div>`).join('')}
+  </section>`,
+      )
+      .join('')
+  )
 }
 
 function verticalPlanPage(data: PdfData, free: boolean): string {
@@ -902,6 +995,7 @@ ${free ? '<div class="wm-layer"></div>' : ''}
 ${cover(data, free)}
 ${about(data, free)}
 ${verticalPlanPage(data, free)}
+${projectedPlanPages(data, free)}
 ${deliveryPlanPages(data, free)}
 ${data.rooms.map((room, index) => (room.hasConcept === false ? '' : roomPage(room, index, free)) + roomPlanPage(room, free)).join('')}
 ${shopping(data, free)}

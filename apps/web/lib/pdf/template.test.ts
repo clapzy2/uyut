@@ -84,6 +84,30 @@ function sample(kind: PdfData['kind']): PdfData {
 }
 
 describe('project PDF template', () => {
+  it('prints proposed source values separately from measurements and escapes source notes', () => {
+    const data = sample('free')
+    data.projectedPlan = {
+      rows: [
+        {
+          target: 'Санузел <8>',
+          value: 'Отметка пола: -0.050 м',
+          source: 'PDF: «-0.050»',
+          note: '<script>scope</script>',
+        },
+      ],
+      staleCount: 2,
+      floorScopeNote: 'Балкон не присоединён',
+    }
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('Это проектные подписи, не натурный обмер.')
+    expect(html).toContain('Пол проверен частично: Балкон не присоединён')
+    expect(html).toContain('Изменившихся привязок: 2')
+    expect(html).toContain('Санузел &lt;8&gt;')
+    expect(html).toContain('&lt;script&gt;scope&lt;/script&gt;')
+    expect(html).not.toContain('<script>scope</script>')
+    expect(html).not.toContain('class="page projected-plan-drawing"')
+  })
+
   it('keeps apartment-wide wall review provenance out of unrelated room pages', () => {
     const data = sample('free')
     data.wallFaceReview = { sourceSha256: 'a'.repeat(64), pdfPage: 4, humanReviewedPairs: 2 }

@@ -133,6 +133,11 @@ export function PlanGeometryPreview({
                 : ''}
           </p>
           <h2 className="mt-2 font-serif text-3xl text-ink">Стены и проёмы</h2>
+          {geometry.pdfCalibration?.floorScope ? (
+            <p className="mt-2 max-w-2xl text-sm text-ink-2">
+              Частичный пол: {geometry.pdfCalibration.floorScope.note}
+            </p>
+          ) : null}
         </div>
         <p className="font-mono text-[12px] text-ink-2">
           {geometry.pdfCalibration

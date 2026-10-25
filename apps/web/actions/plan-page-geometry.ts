@@ -257,6 +257,10 @@ export async function createPlanPageGeometryDraft(
     )
     if (!result.ok) return result
     if (before.geometry) {
+      if (before.geometry.projectedVerticalEvidence)
+        result.geometry.projectedVerticalEvidence = structuredClone(
+          before.geometry.projectedVerticalEvidence,
+        )
       const issue = preserveReimportMeasurements(before.geometry, result.geometry)
       if (issue)
         return {

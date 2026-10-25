@@ -295,12 +295,56 @@ export type PlanVerticalReference = {
       sourceSha256: string
       pdfPage: number
       sourceState?: 'existing' | 'proposed'
+      floorScope?: PlanFloorScope
       cmPerPoint: number
       origin: { x: number; y: number }
     }
   }
   verifiedAt: string
   verifiedBy: string
+}
+
+/** Reviewed statements from a proposed drawing, separate from physical measurements. */
+export type PlanProjectedVerticalEvidence = {
+  id: string
+  quantity:
+    | 'floor-level'
+    | 'ceiling-drop'
+    | 'section-headroom'
+    | 'opening-height'
+    | 'glazing-height'
+    | 'sill-height'
+    | 'slab-height'
+  printedValue: string
+  unit: 'mm' | 'cm' | 'm'
+  valueCm: number
+  /** A named partial area is documentary until its physical surface is mapped. */
+  scopeLabel?: string
+  target:
+    | { kind: 'room'; room: PlanRoomShape }
+    | {
+        kind: 'opening'
+        opening: Pick<PlanOpening, 'id' | 'type' | 'wallId' | 'offsetCm' | 'widthCm'>
+        wall: Pick<PlanWall, 'id' | 'kind' | 'start' | 'end' | 'thicknessCm'>
+      }
+    | { kind: 'project' }
+  geometrySource: { sha256: string; pdfPage: number; state: 'proposed' }
+  source: {
+    sha256: string
+    pdfPage: number
+    captionIndexes: number[]
+    captionTexts: string[]
+  }
+  reviewNote?: string
+  reviewedAt: string
+  reviewedBy: string
+}
+
+export type PlanFloorScope = {
+  kind: 'partial'
+  note: string
+  /** Advisory source marker only, never a physical boundary vertex. */
+  sourcePoint?: { x: number; y: number }
 }
 
 export type PlanGeometry = {
@@ -317,6 +361,8 @@ export type PlanGeometry = {
   openings: PlanOpening[]
   rooms: PlanRoomShape[]
   verticalReference?: PlanVerticalReference
+  /** Server-owned documentary project values; never releases physical 3D or delivery checks. */
+  projectedVerticalEvidence?: PlanProjectedVerticalEvidence[]
   /** Reviewed extent of the apartment floor, including open balcony edges; not wall axes. */
   footprint?: PlanPoint[]
   /** Reviewed non-floor regions, retained as polygons rather than enclosing rectangles. */
@@ -336,6 +382,7 @@ export type PlanGeometry = {
     pdfPage: number
     /** Source state is preserved; a proposed drawing is not an as-built survey. */
     sourceState?: 'existing' | 'proposed'
+    floorScope?: PlanFloorScope
     /** The reviewed exterior may be the outside of construction, not usable floor. */
     exteriorBoundaryRole?: 'floor' | 'outer-wall-envelope'
     cmPerPoint: number
@@ -472,7 +519,11 @@ export type PlanPageContours = {
     boundaryRole?: 'floor' | 'outer-wall-envelope'
   }
   /** Separate reviewed floor boundary inside an explicitly identified outer-wall envelope. */
-  floor?: { polygon: Array<{ x: number; y: number }>; vertexProofs?: PlanPageVertexProof[] }
+  floor?: {
+    polygon: Array<{ x: number; y: number }>
+    vertexProofs?: PlanPageVertexProof[]
+    scope?: PlanFloorScope
+  }
   /** Reviewed non-room space such as a technical shaft; never inferred from a gap. */
   voids?: Array<{ id: string; polygon: Array<{ x: number; y: number }> }>
   rooms: Array<
