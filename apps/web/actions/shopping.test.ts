@@ -23,7 +23,13 @@ vi.mock('@/lib/shopping/repository', () => ({
   setShoppingItemPlacement: mocks.placement,
 }))
 
-import { resetItemSize, setItemOperationClearance, setItemPlacement, setItemSize } from './shopping'
+import {
+  resetItemOperationClearance,
+  resetItemSize,
+  setItemOperationClearance,
+  setItemPlacement,
+  setItemSize,
+} from './shopping'
 
 describe('точные мерки в действиях списка покупок', () => {
   beforeEach(() => {
@@ -55,6 +61,19 @@ describe('точные мерки в действиях списка покуп�
   it('сохраняет дробные рабочие зоны', async () => {
     await setItemOperationClearance('item', { front: '50,4', side: '10.2', around: '' })
     expect(mocks.clearance).toHaveBeenCalledWith('owner', 'item', { front: 50.4, side: 10.2 })
+  })
+
+  it('отдельно убирает неподтверждённый запас без изменения габаритов и позиции', async () => {
+    expect(await resetItemOperationClearance('item')).toEqual({ ok: true, data: undefined })
+    expect(mocks.clearance).toHaveBeenCalledWith('owner', 'item', {})
+    expect(mocks.size).not.toHaveBeenCalled()
+    expect(mocks.placement).not.toHaveBeenCalled()
+    expect(mocks.audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: { projectId: 'project', operationClearanceReset: true },
+      }),
+    )
+    expect(mocks.revalidate).toHaveBeenCalledWith('/projects/project/summary')
   })
 
   it('не округляет точное положение мебели', async () => {
@@ -119,6 +138,8 @@ describe('точные мерки в действиях списка покуп�
     expect(mocks.size).not.toHaveBeenCalled()
     expect(mocks.audit).not.toHaveBeenCalled()
     expect((await resetItemSize('item')).ok).toBe(false)
+    expect((await resetItemOperationClearance('item')).ok).toBe(false)
+    expect(mocks.clearance).not.toHaveBeenCalled()
     expect(mocks.size).not.toHaveBeenCalled()
   })
 })

@@ -3,7 +3,7 @@
 import { inputClassName, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { setItemOperationClearance } from '@/actions/shopping'
+import { resetItemOperationClearance, setItemOperationClearance } from '@/actions/shopping'
 
 type OperationKind = 'front' | 'side' | 'around'
 
@@ -42,21 +42,33 @@ export function ItemOperationForm({
   const [error, setError] = useState<string>()
   const copy = COPY[kind]
 
-  async function save() {
+  async function save(reset = false) {
+    if (saving) return
     setError(undefined)
     setSaving(true)
-    const result = await setItemOperationClearance(itemId, {
-      front: kind === 'front' ? value : '',
-      side: kind === 'side' ? value : '',
-      around: kind === 'around' ? value : '',
-    })
-    setSaving(false)
-    if (!result.ok) {
-      setError(result.error)
-      return
+    try {
+      const result = reset
+        ? await resetItemOperationClearance(itemId)
+        : await setItemOperationClearance(itemId, {
+            front: kind === 'front' ? value : '',
+            side: kind === 'side' ? value : '',
+            around: kind === 'around' ? value : '',
+          })
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      if (reset) setValue('')
+      toast({
+        title: reset ? 'Запас убран: рабочая зона требует уточнения' : 'Рабочая зона учтена',
+        tone: 'success',
+      })
+      router.refresh()
+    } catch {
+      setError('Не удалось сохранить. Проверьте соединение и повторите.')
+    } finally {
+      setSaving(false)
     }
-    toast({ title: 'Рабочая зона учтена', tone: 'success' })
-    router.refresh()
   }
 
   return (
@@ -76,12 +88,22 @@ export function ItemOperationForm({
         </label>
         <button
           type="button"
-          onClick={save}
+          onClick={() => save()}
           disabled={saving}
           className="inline-flex h-9 items-center rounded-full border border-control px-3 text-[13px] text-ink-2 transition-[color,border-color,transform] duration-200 ease-ui hover:border-ink hover:text-ink active:scale-[0.98] disabled:opacity-60"
         >
           {saving ? 'Пишем…' : valueCm ? 'Обновить' : 'Учесть'}
         </button>
+        {valueCm !== undefined ? (
+          <button
+            type="button"
+            onClick={() => save(true)}
+            disabled={saving}
+            className="inline-flex h-9 items-center border border-control px-3 text-[13px] text-ink-2 disabled:opacity-60"
+          >
+            Убрать запас
+          </button>
+        ) : null}
       </div>
       <p className="mt-2 text-[12px] leading-relaxed text-ink-2">{guidance ?? copy.hint}</p>
       {error ? <p className="mt-2 text-[13px] text-danger">{error}</p> : null}

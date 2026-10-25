@@ -181,6 +181,30 @@ afterEach(() => {
 })
 
 describe('проектный Г-контур в данных и HTML PDF, синтетическая проверка без генерации', () => {
+  it.each(['kid', 'bedroom'] as const)(
+    'не печатает нераскладной диван как спальное место в %s',
+    async (kind) => {
+      const { snapshot, geometry, room, item } = fixture()
+      room.kind = kind
+      item.title = 'Нераскладной диван без спального места'
+      item.operationClearance = undefined
+      const row = snapshot.shopping[0]
+      if (!row) throw new Error('Missing synthetic shopping item')
+      row.product.title = item.title
+      row.item.operationClearanceCm = null
+      const website = layoutWithMeasurements(room.name, room.measurements, geometry, [item], kind)
+      const pdf = await build(snapshot)
+      const plan = pdf.rooms.find((entry) => entry.id === room.id)?.plan
+      expect(plan).toEqual(website)
+      expect(plan?.functionChecks.find((check) => check.id === 'sleeping')?.status).toBe('missing')
+      expect(plan?.safetyChecks.find((check) => check.id === `${item.id}-front`)?.status).toBe(
+        'needs-data',
+      )
+      expect(plan?.functionalZones).toEqual([])
+      expect(renderProjectHtml(pdf, { fontCss: '' })).toContain('Не указаны рабочие зоны')
+    },
+  )
+
   it('сохраняет ту же форму и мебель, что сайт, без старого потолка и выдуманных стен', async () => {
     const { snapshot, geometry, room, item } = fixture()
     const website = layoutWithMeasurements(

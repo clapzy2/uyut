@@ -21,6 +21,47 @@ function item(over: Partial<LayoutItem> & Pick<LayoutItem, 'title'>): LayoutItem
 const kinds = (layout: ReturnType<typeof layoutRoom>) => layout.problems.map((p) => p.kind)
 
 describe('layoutRoom', () => {
+  it.each(['kid', 'bedroom'] as const)(
+    'не считает отрицание спального места выполненной функцией в %s',
+    (roomKind) => {
+      for (const title of [
+        'Диван нераскладной',
+        'Диван не раскладывается',
+        'Диван без спального места',
+        'Диван-кровать без механизма трансформации',
+        'Диван, спальное место: нет',
+        'Диван, спальное место не предусмотрено',
+        'Диван не для сна',
+        'Диван для спальни',
+      ]) {
+        const layout = layoutRoom({ widthCm: 600, depthCm: 500, roomKind, reservations: [] }, [
+          item({ title, category: 'sofa', dimensions: { width: 150, depth: 80, height: 83 } }),
+        ])
+        expect(layout.placed, title).toHaveLength(1)
+        expect(layout.functionChecks.find((check) => check.id === 'sleeping')?.status, title).toBe(
+          'missing',
+        )
+      }
+      for (const title of [
+        'Диван-кровать',
+        'Раскладной диван без подлокотников',
+        'Диван со спальным местом',
+        'Диван с механизмом раскладывания',
+      ]) {
+        const layout = layoutRoom({ widthCm: 600, depthCm: 500, roomKind, reservations: [] }, [
+          item({ title, category: 'sofa', dimensions: { width: 150, depth: 80, height: 83 } }),
+        ])
+        expect(layout.functionChecks.find((check) => check.id === 'sleeping')?.status, title).toBe(
+          'met',
+        )
+        expect(
+          layout.safetyChecks.find((check) => check.id === `${title}-front`)?.status,
+          title,
+        ).toBe('needs-data')
+      }
+    },
+  )
+
   it('не подтверждает маршрут при неизвестных проёмах, но сохраняет проверку полной геометрии', () => {
     const room = { widthCm: 400, depthCm: 600, roomKind: 'living' as const }
     const furniture = [item({ title: 'Шкаф' })]
@@ -1316,6 +1357,92 @@ describe('ничто не наезжает друг на друга', () => {
 })
 
 describe('проход меряем тем, что просит предмет', () => {
+  it.each(['door', 'obstacle', 'radiator'] as const)(
+    'не ставит шкаф в нише с открыванием поверх %s',
+    (kind) => {
+      const floorPolygon = [
+        { xCm: 0, yCm: 0 },
+        { xCm: 300, yCm: 0 },
+        { xCm: 300, yCm: 100 },
+        { xCm: 100, yCm: 100 },
+        { xCm: 100, yCm: 300 },
+        { xCm: 0, yCm: 300 },
+      ]
+      const reservations = [
+        { kind: 'window' as const, wall: 'top' as const, fromCm: 0, toCm: 300, clearanceCm: 0 },
+        { kind: 'window' as const, wall: 'right' as const, fromCm: 0, toCm: 100, clearanceCm: 0 },
+        { kind: 'window' as const, wall: 'bottom' as const, fromCm: 0, toCm: 100, clearanceCm: 0 },
+        { kind: 'window' as const, wall: 'left' as const, fromCm: 0, toCm: 300, clearanceCm: 0 },
+      ]
+      const cabinet = item({
+        title: 'Синтетический шкаф в нише',
+        dimensions: { width: 150, depth: 40, height: 80 },
+        operationClearance: { front: 50 },
+      })
+      const room = { widthCm: 300, depthCm: 300, floorPolygon, reservations }
+      const clear = layoutRoom(room, [cabinet])
+      expect(clear.placed).toHaveLength(1)
+      expect(clear.placed[0]?.wall).toBe('perimeter')
+      const blocked = layoutRoom(
+        {
+          ...room,
+          keepClearZones: [
+            {
+              kind,
+              label: 'Горизонтальная запретная область',
+              polygon: [
+                { xCm: 110, yCm: 10 },
+                { xCm: 290, yCm: 10 },
+                { xCm: 290, yCm: 40 },
+                { xCm: 110, yCm: 40 },
+              ],
+            },
+            {
+              kind,
+              label: 'Вертикальная запретная область',
+              polygon: [
+                { xCm: 10, yCm: 110 },
+                { xCm: 40, yCm: 110 },
+                { xCm: 40, yCm: 290 },
+                { xCm: 10, yCm: 290 },
+              ],
+            },
+          ],
+        },
+        [cabinet],
+      )
+      expect(blocked.placed).toEqual([])
+      expect(blocked.safetySummary.status).toBe('blocked')
+      const touching = layoutRoom(
+        {
+          ...room,
+          keepClearZones: [
+            {
+              kind,
+              label: 'Касание границы',
+              polygon: [
+                { xCm: 110, yCm: 0 },
+                { xCm: 290, yCm: 0 },
+                { xCm: 290, yCm: 10 },
+                { xCm: 110, yCm: 10 },
+              ],
+            },
+          ],
+        },
+        [cabinet],
+      )
+      expect(touching.placed).toHaveLength(1)
+      const wallClearance = layoutRoom(
+        {
+          ...room,
+          reservations: reservations.map((reservation) => ({ ...reservation, clearanceCm: 50 })),
+        },
+        [cabinet],
+      )
+      expect(wallClearance.placed).toEqual([])
+    },
+  )
+
   it('журнальный столик у дивана в просторной комнате не создаёт тесноты', () => {
     const layout = layoutRoom({ widthCm: 420, depthCm: 500 }, [
       item({ title: 'Диван', category: 'sofa', dimensions: { width: 220, depth: 95, height: 85 } }),

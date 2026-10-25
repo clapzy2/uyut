@@ -257,6 +257,26 @@ export async function setItemOperationClearance(
   }
 }
 
+/** Возвращает рабочую зону в неизвестное состояние, сохраняя корпус и положение товара. */
+export async function resetItemOperationClearance(itemId: string): Promise<ActionResult> {
+  const userId = await currentUserId()
+  if (!userId) return { ok: false, error: SESSION_EXPIRED }
+  try {
+    const result = await setShoppingItemOperationClearance(userId, itemId, {})
+    await recordAudit({
+      action: 'shopping.item_updated',
+      actorId: userId,
+      targetType: 'shopping_list_item',
+      targetId: itemId,
+      metadata: { projectId: result.projectId, operationClearanceReset: true },
+    })
+    revalidateProject(result.projectId)
+    return { ok: true, data: undefined }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
 const coordinateSchema = z
   .string()
   .trim()
