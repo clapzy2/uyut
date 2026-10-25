@@ -15,6 +15,7 @@ import {
   validatePlanGeometryEdit,
 } from '@uyut/ai'
 import { planRoomSourceNumber } from '@uyut/ai/geometry'
+import { isWetRoomName } from '@uyut/db/room-purpose'
 import { describe, expect, it } from 'vitest'
 import {
   planRoomSchedule,
@@ -643,6 +644,76 @@ describe('описание архитектуры с плана', () => {
 })
 
 describe('roomKindFromName', () => {
+  it.each([
+    'Ванна',
+    'Ванная',
+    'Ванная комната',
+    'Санузел',
+    'Совмещенный санузел',
+    'Совмещённый санузел',
+    'Санузел совмещённый',
+    'Санузел совмещенный',
+    'Душевая',
+    'Душевая комната',
+    'Туалет',
+    'WC',
+    'wc № 2',
+    'С/У',
+    'с / у 3',
+    'Bathroom',
+    'Bathroom #2',
+    'Baño',
+    'Ванная комната 3.1',
+    '  Душевая  комната №3  ',
+    'Гостевой санузел',
+    'Санузел (гостевой)',
+    'Ванная гостевая',
+    'Ванная (гостевая)',
+    'Санузел с душем',
+    'Ванная с душем',
+    'Основной санузел',
+    'Санузел основной',
+    'Гостевой санузел №01',
+    'Санузел (гостевой) 01',
+    'Ванная (с душем) №01',
+    'WC 01',
+    'Гостевой санузел с душем',
+    'Основная ванная (с душем)',
+    'Санузел (гостевой) с душем №01',
+  ])('recognizes only the full sanitary-room name %s', (name) => {
+    expect(isWetRoomName(name)).toBe(true)
+    expect(roomKindFromName(name)).toBe('bath')
+  })
+
+  it.each([
+    'Кухня рядом с санузлом',
+    'Спальня с ванной',
+    'Детская рядом с душевой',
+    'Душевая кабина',
+    'Туалетный столик',
+    'WC оборудование',
+    'Bathroom cabinet',
+    'Совмещенный санузел совмещенный',
+    'Ванная 0',
+    'WC 10001',
+    'Гостевая кухня рядом с санузлом',
+    'Кухня (с душем)',
+    'Санузел рядом с кухней',
+    'Ванная с душем и кухня',
+    'Санузел (гостевой рядом с кухней)',
+    'Санузел (гостевой) №00',
+    'Ванная 00000',
+    'Комната',
+    '',
+  ])('does not infer sanitary purpose from the descriptive or invalid name %s', (name) => {
+    expect(isWetRoomName(name)).toBe(false)
+    expect(roomKindFromName(name)).not.toBe('bath')
+  })
+
+  it('keeps a kitchen beside a bathroom available as a kitchen', () => {
+    expect(roomKindFromName('Кухня рядом с санузлом')).toBe('kitchen')
+  })
+
   it('узнаёт комнаты по названию с плана', () => {
     expect(roomKindFromName('Спальня 2')).toBe('bedroom')
     expect(roomKindFromName('Кухня')).toBe('kitchen')

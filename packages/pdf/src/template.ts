@@ -497,6 +497,13 @@ function projectedDrawingPage(data: PdfData, free: boolean): string {
 function projectedFloorPage(data: PdfData, free: boolean): string {
   const model = data.projectedPlan?.floorPreview
   if (!model?.floors.length) return ''
+  const furnishingFloors = model.floors.filter((floor) => floor.purpose !== 'reference')
+  const referenceFloors = model.floors.filter((floor) => floor.purpose === 'reference')
+  const referenceRooms = [
+    ...referenceFloors,
+    ...model.heldRooms.filter((room) => room.purpose === 'reference'),
+  ]
+  const furnishingHeld = model.heldRooms.filter((room) => room.purpose !== 'reference')
   const view = { azimuthDeg: -30, elevationDeg: 35, verticalScale: 1 as const }
   const project = (point: { xCm: number; yCm: number }, level: number) =>
     projectFloorPreviewPoint(point, level, view)
@@ -505,16 +512,16 @@ function projectedFloorPage(data: PdfData, free: boolean): string {
     points: Array<{ x: number; y: number; depth: number }>
   }>
   let held: Array<{
-    room: (typeof model.heldRooms)[number]
+    room: { name: string; purpose: 'furnishing' | 'reference' }
     points: Array<{ x: number; y: number; depth: number }>
   }>
   let zeroPoints: Array<{ x: number; y: number; depth: number }>
   try {
-    floors = model.floors.map((floor) => ({
+    floors = furnishingFloors.map((floor) => ({
       floor,
       points: floor.polygon.map((point) => project(point, floor.elevationCm)),
     }))
-    held = model.heldRooms.map((room) => ({
+    held = [...model.heldRooms, ...referenceFloors].map((room) => ({
       room,
       points: room.polygon.map((point) => project(point, 0)),
     }))
@@ -540,7 +547,7 @@ function projectedFloorPage(data: PdfData, free: boolean): string {
   const contextual = held
     .map(
       ({ room, points }) =>
-        `<polygon points="${polygon(points)}" fill="none" stroke="#77716a" stroke-width="1" stroke-dasharray="5 5" vector-effect="non-scaling-stroke"><title>${esc(room.name)}: проекция контура, уровень не задан</title></polygon>`,
+        `<polygon points="${polygon(points)}" fill="none" stroke="#77716a" stroke-width="1" stroke-dasharray="5 5" vector-effect="non-scaling-stroke"><title>${esc(room.name)}: ${room.purpose === 'reference' ? 'санузел справочно, уровень не показан' : 'проекция контура, уровень не задан'}</title></polygon>`,
     )
     .join('')
   const surfaces = floors
@@ -554,7 +561,7 @@ function projectedFloorPage(data: PdfData, free: boolean): string {
         `<polygon points="${polygon(points)}" fill="${colors[floor.roomIndex % colors.length]}" fill-opacity="0.85" stroke="#51483a" stroke-width="1.5" vector-effect="non-scaling-stroke"><title>${esc(floor.name)}: ${formatDimensionCm(floor.elevationCm)} см</title></polygon>`,
     )
     .join('')
-  const scales = model.floors
+  const scales = furnishingFloors
     .filter((floor) => floor.elevationCm !== 0)
     .map((floor) => {
       const point = floor.polygon[0]
@@ -564,7 +571,7 @@ function projectedFloorPage(data: PdfData, free: boolean): string {
       return `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" stroke="#0369a1" stroke-width="2" stroke-dasharray="3 2" vector-effect="non-scaling-stroke"/>`
     })
     .join('')
-  const legend = model.floors
+  const legend = furnishingFloors
     .map(
       (floor) =>
         `<p class="small" style="margin-top:1.5mm;break-inside:avoid"><span style="display:inline-block;width:3mm;height:3mm;background:${colors[floor.roomIndex % colors.length]};border:0.2mm solid #6d6258;margin-right:2mm"></span>${esc(floor.name)}: <strong>${floor.elevationCm > 0 ? '+' : ''}${formatDimensionCm(floor.elevationCm)} см</strong></p>`,
@@ -574,10 +581,11 @@ function projectedFloorPage(data: PdfData, free: boolean): string {
     ${ribbon(free)}<p class="eyebrow">Будущая планировка · отдельно сверенные уровни</p><h1 style="margin-top:3mm">Проектные уровни пола</h1>
     <p class="small" style="margin-top:3mm">Это проектный просмотр, не подтверждённый натурный обмер. Контуры: PDF, страница ${model.sourcePage}. Общий проектный ноль: «${esc(model.datum.captionText)}», PDF, страница ${model.datum.pdfPage}, индекс подписи ${model.datum.captionIndex}.</p>
     ${model.floorScopeNote ? `<p class="small" style="margin-top:3mm">Пол проверен частично: ${esc(model.floorScopeNote)}</p>` : ''}
+    ${referenceRooms.length ? `<p class="small" style="margin-top:2mm">Санузлы справочно: ${referenceRooms.map((room) => esc(room.name)).join(', ')}. Их серые контуры показывают положение на плане, а не пол на нуле. Неизвестные уровни этих зон не требуют расчёта для обстановки других комнат. Готовая отделка по плану не определяется. Сохранённые подписи приведены в разделе проектных отметок.</p>` : ''}
     <svg style="display:block;width:100%;height:110mm;margin-top:3mm" viewBox="${left - padding} ${top - padding} ${width + padding * 2} ${height + padding * 2}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Проектные уровни пола без неподтверждённых поверхностей">${contextual}${surfaces}${scales}</svg>
-    <p class="small" style="margin-top:2mm">Вертикальный масштаб 1×, без увеличения. Заливка обозначает только отдельно сверенный уровень всего контура. Пунктир без заливки - проекции неизвестных контуров, не пол на нуле. Синие линии к нулю - графическая шкала, не стены.</p>
+    <p class="small" style="margin-top:2mm">Вертикальный масштаб 1×, без увеличения. Заливка обозначает только отдельно сверенный уровень всего контура. Пунктир без заливки - справочные или неопределённые области на плоскости нуля для ориентирования, не пол на нуле. Синие линии к нулю - графическая шкала, не стены.</p>
     ${legend}
-    ${model.heldRooms
+    ${furnishingHeld
       .map((room) => {
         const levels = room.levels
           .slice(0, 3)

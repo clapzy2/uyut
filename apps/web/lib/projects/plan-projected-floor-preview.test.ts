@@ -2,7 +2,12 @@ import {
   projectedFloorPreview,
   projectFloorPreviewPoint,
 } from '@uyut/catalog/plan-projected-floor-preview'
-import type { PlanGeometry, PlanProjectedVerticalEvidence } from '@uyut/db'
+import type {
+  PlanGeometry,
+  PlanProjectedVerticalEvidence,
+  PlanRoomReading,
+  PlanRoomShape,
+} from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 import { planVolume } from './plan-volume'
 
@@ -304,6 +309,170 @@ describe('source-scoped projected floor preview', () => {
         { xCm: 500, yCm: 0 },
       ]
     expect(projectedFloorPreview(geometry)).toBeUndefined()
+  })
+})
+
+describe('furnishing scope without discarding wet-room geometry', () => {
+  const inventory: PlanRoomReading[] = [
+    { sourceNumber: 1, name: 'Прихожая', kind: 'living' },
+    { sourceNumber: 2, name: 'Гостиная', kind: 'living' },
+    { sourceNumber: 3, name: 'Кухня', kind: 'kitchen' },
+    { sourceNumber: 7, name: 'Ванная', kind: 'bath' },
+    { sourceNumber: 8, name: 'Туалет', kind: 'bath' },
+  ]
+
+  function changeBathroom(geometry: PlanGeometry, change: Partial<PlanRoomShape>) {
+    const room = required(geometry.rooms[1])
+    Object.assign(room, change)
+    entry(geometry, 1).target = { kind: 'room', room: structuredClone(room) }
+  }
+
+  function bathroomPurpose(geometry: PlanGeometry, rows: readonly PlanRoomReading[]) {
+    const model = required(projectedFloorPreview(geometry, rows))
+    return [...model.floors, ...model.heldRooms].find((room) => room.roomIndex === 1)?.purpose
+  }
+
+  it('marks bathroom and held shower room as reference while retaining their levels and contours', () => {
+    const geometry = fixture()
+    const toilet = required(geometry.rooms[2])
+    toilet.name = 'Туалет'
+    for (const index of [2, 3])
+      entry(geometry, index).target = { kind: 'room', room: structuredClone(toilet) }
+    const before = structuredClone(geometry)
+    const rowsBefore = structuredClone(inventory)
+    const model = required(projectedFloorPreview(geometry, inventory))
+    expect(model.floors.map(({ purpose }) => purpose)).toEqual(['furnishing', 'reference'])
+    expect(model.heldRooms[0]?.purpose).toBe('reference')
+    expect(model.floors[1]?.elevationCm).toBe(-5)
+    expect(model.heldRooms[0]?.levels.map(({ printedValue }) => printedValue)).toEqual([
+      '-0.050',
+      '+0.150',
+    ])
+    expect(model.floors.map(({ polygon }) => polygon)).toEqual(
+      before.rooms.slice(0, 2).map(({ polygon }) => polygon),
+    )
+    expect(model.heldRooms[0]?.polygon).toEqual(before.rooms[2]?.polygon)
+    expect(geometry).toEqual(before)
+    expect(inventory).toEqual(rowsBefore)
+  })
+
+  it.each([undefined, []] as const)(
+    'keeps every region for furnishing without usable inventory %#',
+    (rows) => {
+      const model = required(projectedFloorPreview(fixture(), rows))
+      expect([...model.floors, ...model.heldRooms].map(({ purpose }) => purpose)).toEqual([
+        'furnishing',
+        'furnishing',
+        'furnishing',
+      ])
+      expect(model.floors.map(({ elevationCm }) => elevationCm)).toEqual([0, -5])
+    },
+  )
+
+  it.each(['missing', 'unrelated-number', 'duplicate', 'conflicting-kind', 'stale-name'] as const)(
+    'does not exclude a room for ambiguous inventory: %s',
+    (change) => {
+      const rows = structuredClone(inventory)
+      const bath = required(rows.find((room) => room.sourceNumber === 7))
+      if (change === 'missing') rows.splice(rows.indexOf(bath), 1)
+      if (change === 'unrelated-number') bath.sourceNumber = 99
+      if (change === 'duplicate') rows.push(structuredClone(bath))
+      if (change === 'conflicting-kind') rows.push({ ...bath, kind: 'bedroom' })
+      if (change === 'stale-name') bath.name = 'Другая ванная'
+      expect(bathroomPurpose(fixture(), rows)).toBe('furnishing')
+    },
+  )
+
+  it.each(['Кухня', 'Постирочная', 'Гостиная с видом на санузел'])(
+    'does not trust broad bath classification for %s',
+    (name) => {
+      const geometry = fixture()
+      changeBathroom(geometry, { name })
+      const rows = inventory.map((room) => (room.sourceNumber === 7 ? { ...room, name } : room))
+      expect(bathroomPurpose(geometry, rows)).toBe('furnishing')
+    },
+  )
+
+  it('does not infer reference purpose from a wet name when the inventory kind is living', () => {
+    const rows = inventory.map((room) =>
+      room.sourceNumber === 7 ? { ...room, kind: 'living' as const } : room,
+    )
+    expect(bathroomPurpose(fixture(), rows)).toBe('furnishing')
+  })
+
+  it.each(['balcony', 'loggia'] as const)(
+    'keeps a contour marked %s in furnishing scope',
+    (spaceKind) => {
+      const geometry = fixture()
+      changeBathroom(geometry, { spaceKind })
+      expect(bathroomPurpose(geometry, inventory)).toBe('furnishing')
+    },
+  )
+
+  it.each(['balcony', 'loggia', 'name-only'] as const)(
+    'does not exclude uncertain or outdoor inventory %s',
+    (condition) => {
+      const rows = inventory.map((room) =>
+        room.sourceNumber === 7
+          ? {
+              ...room,
+              ...(condition === 'name-only'
+                ? { nameOnlyCandidate: true }
+                : { spaceKind: condition }),
+            }
+          : room,
+      )
+      expect(bathroomPurpose(fixture(), rows)).toBe('furnishing')
+    },
+  )
+
+  it('does not exclude a mixed merged bathroom and bedroom', () => {
+    const geometry = fixture()
+    changeBathroom(geometry, {
+      name: 'Ванная / Спальня',
+      sourceNumber: undefined,
+      sourceNumbers: [7, 6],
+    })
+    const rows: PlanRoomReading[] = [
+      ...inventory,
+      { name: 'Спальня', sourceNumber: 6, kind: 'bedroom' },
+    ]
+    expect(bathroomPurpose(geometry, rows)).toBe('furnishing')
+    expect(projectedFloorPreview(geometry, rows)?.floors[1]?.elevationCm).toBe(-5)
+  })
+
+  it('can classify an exclusively wet merged region through all of its unique source numbers', () => {
+    const geometry = fixture()
+    geometry.rooms.splice(2, 1)
+    geometry.projectedVerticalEvidence?.splice(2, 2)
+    changeBathroom(geometry, {
+      name: 'Ванная / Туалет',
+      sourceNumber: undefined,
+      sourceNumbers: [7, 8],
+    })
+    expect(bathroomPurpose(geometry, inventory)).toBe('reference')
+  })
+
+  it('keeps reused geometry identities in furnishing scope', () => {
+    const geometry = fixture()
+    required(geometry.rooms[2]).sourceNumber = 7
+    expect(bathroomPurpose(geometry, inventory)).toBe('furnishing')
+  })
+
+  it('requires a unique exact name when the contour has no source number', () => {
+    const geometry = fixture()
+    changeBathroom(geometry, { sourceNumber: undefined })
+    expect(bathroomPurpose(geometry, inventory)).toBe('reference')
+    expect(bathroomPurpose(geometry, [...inventory, { name: 'Ванная', kind: 'bath' }])).toBe(
+      'furnishing',
+    )
+    expect(bathroomPurpose(geometry, [{ name: 'ванная', kind: 'bath' }])).toBe('furnishing')
+  })
+
+  it('does not fall back to a bath-looking name after a numbered identity no longer matches', () => {
+    const geometry = fixture()
+    changeBathroom(geometry, { sourceNumber: 9 })
+    expect(bathroomPurpose(geometry, inventory)).toBe('furnishing')
   })
 })
 

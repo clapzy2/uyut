@@ -67,6 +67,7 @@ export function ExportComposition({
   deliveryMeasurements,
   planState,
   sourcePage,
+  sourceRooms,
 }: {
   projectId: string
   rooms: ReturnType<typeof exportRoomComposition>[]
@@ -75,10 +76,11 @@ export function ExportComposition({
   deliveryMeasurements?: PlanReading['deliveryMeasurements']
   planState?: PlanReading['planState']
   sourcePage?: number
+  sourceRooms?: PlanReading['rooms']
 }) {
   const delivery = inspectStoredPlanDelivery(geometry, deliveryMeasurements)
   const projected = geometry ? currentProjectedVerticalEvidence(geometry) : []
-  const projectedFloors = geometry ? projectedFloorPreview(geometry) : undefined
+  const projectedFloors = geometry ? projectedFloorPreview(geometry, sourceRooms) : undefined
   const signed = geometry ? signedPlanFloors(geometry) : undefined
   const thresholds = signed?.ok && geometry ? inspectPlanThresholdSurfaces(geometry) : undefined
   const humanReviewedPairs = geometry
@@ -122,9 +124,19 @@ export function ExportComposition({
       ) : null}
       {projectedFloors ? (
         <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
-          Проектные уровни пола: {projectedFloors.floors.length} сверенных поверхностей. В PDF
-          войдёт статическая проекция с истинными отметками и общим печатным нулём. Областей без
-          определённой поверхности: {projectedFloors.heldRooms.length}; они не заполнены на нуле.
+          Проектные уровни пола для обстановки:{' '}
+          {projectedFloors.floors.filter((floor) => floor.purpose !== 'reference').length} сверенных
+          поверхностей. Областей без определённой поверхности:{' '}
+          {projectedFloors.heldRooms.filter((room) => room.purpose !== 'reference').length}. Санузлы
+          справочно:{' '}
+          {
+            [...projectedFloors.floors, ...projectedFloors.heldRooms].filter(
+              (room) => room.purpose === 'reference',
+            ).length
+          }
+          . В PDF войдёт статическая проекция основных поверхностей; санузлы останутся серыми
+          контурами, их подписи сохранятся в разделе проектных отметок. Это не подтверждение готовой
+          отделки или всех обмеров.
         </p>
       ) : null}
       {projected.length || geometry?.pdfCalibration?.floorScope ? (

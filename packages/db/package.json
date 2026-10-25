@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./source-room-number": "./src/source-room-number.ts"
+    "./source-room-number": "./src/source-room-number.ts",
+    "./room-purpose": "./src/room-purpose.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",

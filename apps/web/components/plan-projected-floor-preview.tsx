@@ -15,10 +15,19 @@ export function PlanProjectedFloorPreview({ model }: { model: ProjectedFloorPrev
   const [elevation, setElevation] = useState(35)
   const [verticalScale, setVerticalScale] = useState<1 | 10>(1)
   const [selectedId, setSelectedId] = useState('')
+  const [showReference, setShowReference] = useState(false)
+  const furnishingFloors = model.floors.filter((floor) => floor.purpose !== 'reference')
+  const referenceFloors = model.floors.filter((floor) => floor.purpose === 'reference')
+  const referenceRooms = [
+    ...referenceFloors,
+    ...model.heldRooms.filter((room) => room.purpose === 'reference'),
+  ]
+  const visibleFloors = showReference ? model.floors : furnishingFloors
+  const furnishingHeld = model.heldRooms.filter((room) => room.purpose !== 'reference')
   const view = { azimuthDeg: azimuth, elevationDeg: elevation, verticalScale }
   const project = (point: { xCm: number; yCm: number }, level: number) =>
     projectFloorPreviewPoint(point, level, view)
-  const surfaces = model.floors
+  const surfaces = visibleFloors
     .map((floor) => ({
       ...floor,
       points: floor.polygon.map((point) => project(point, floor.elevationCm)),
@@ -28,7 +37,15 @@ export function PlanProjectedFloorPreview({ model }: { model: ProjectedFloorPrev
         b.points.reduce((sum, point) => sum + point.depth, 0) / b.points.length -
         a.points.reduce((sum, point) => sum + point.depth, 0) / a.points.length,
     )
-  const held = model.heldRooms.map((room) => ({
+  const held = [
+    ...model.heldRooms,
+    ...(!showReference
+      ? referenceFloors.map((floor) => ({
+          ...floor,
+          reason: 'Санузел показан справочно; его уровень сейчас скрыт.',
+        }))
+      : []),
+  ].map((room) => ({
     ...room,
     points: room.polygon.map((point) => project(point, 0)),
   }))
@@ -44,7 +61,7 @@ export function PlanProjectedFloorPreview({ model }: { model: ProjectedFloorPrev
   const padding = Math.max(width, height) * 0.08
   const polygon = (ring: Array<{ x: number; y: number }>) =>
     ring.map((point) => `${point.x},${point.y}`).join(' ')
-  const selected = model.floors.find((floor) => floor.id === selectedId)
+  const selected = visibleFloors.find((floor) => floor.id === selectedId)
 
   return (
     <section
@@ -66,10 +83,39 @@ export function PlanProjectedFloorPreview({ model }: { model: ProjectedFloorPrev
         <p className="mt-3 text-sm">Пол проверен частично: {model.floorScopeNote}</p>
       ) : null}
       <p className="mt-3 text-sm">
-        Поверхностей с уровнем: {model.floors.length}. Без определённой поверхности:{' '}
-        {model.heldRooms.length}. Общий ноль: «{model.datum.captionText}», PDF, страница{' '}
-        {model.datum.pdfPage}.
+        Поверхности для обстановки: с уровнем - {furnishingFloors.length}; без определённого уровня
+        - {furnishingHeld.length}. Санузлы справочно: {referenceRooms.length}. Общий ноль: «
+        {model.datum.captionText}», PDF, страница {model.datum.pdfPage}.
       </p>
+      {referenceRooms.length ? (
+        <div className="mt-3 space-y-2 text-sm">
+          <p>
+            Санузлы сохраняются на плане и не требуют расчёта пола для обстановки других комнат.
+            Готовая отделка по плану не определяется. Стены и проходы через эти зоны по-прежнему
+            учитываются при физических проверках. Число известных уровней не означает готовность
+            всех обмеров или расстановки.
+          </p>
+          <Button
+            size="sm"
+            variant="secondary"
+            aria-pressed={showReference}
+            onClick={() => {
+              if (showReference && referenceFloors.some((floor) => floor.id === selectedId)) {
+                setSelectedId('')
+              }
+              setShowReference(!showReference)
+            }}
+          >
+            {showReference
+              ? 'Скрыть справочные уровни санузлов'
+              : 'Показать справочные уровни санузлов'}
+          </Button>
+          <p className="text-xs">
+            Справочные помещения: {referenceRooms.map((room) => room.name).join(', ')}. Серый
+            пунктир показывает их положение на плане, а не пол на нуле.
+          </p>
+        </div>
+      ) : null}
       <fieldset
         className="mt-4 flex flex-wrap gap-2"
         aria-label="Управление проектными уровнями пола"
@@ -132,7 +178,11 @@ export function PlanProjectedFloorPreview({ model }: { model: ProjectedFloorPrev
             opacity={0.55}
           >
             <title>
-              {room.name}: проекция контура, уровень не задан. {room.reason}
+              {room.name}:{' '}
+              {room.purpose === 'reference'
+                ? 'справочная проекция, без утверждения уровня'
+                : 'проекция контура, уровень не задан'}
+              . {room.reason}
             </title>
           </polygon>
         ))}
@@ -151,7 +201,7 @@ export function PlanProjectedFloorPreview({ model }: { model: ProjectedFloorPrev
             </title>
           </polygon>
         ))}
-        {model.floors
+        {visibleFloors
           .filter((floor) => floor.elevationCm !== 0)
           .map((floor) => {
             const point = floor.polygon[0]
@@ -176,12 +226,12 @@ export function PlanProjectedFloorPreview({ model }: { model: ProjectedFloorPrev
           })}
       </svg>
       <p className="mt-2 text-xs leading-relaxed text-ink-2">
-        Пунктирные контуры без заливки - проекции неизвестных областей на плоскость нулевой отметки,
-        а не пол на нуле. Синие линии к нулю - графическая шкала, не стены. Выберите название
-        комнаты ниже, чтобы выделить её поверхность.
+        Пунктирные контуры без заливки - справочные или неопределённые области, показанные на
+        плоскости нуля для ориентирования, а не пол на нуле. Синие линии к нулю - графическая шкала,
+        не стены. Выберите название комнаты ниже, чтобы выделить её поверхность.
       </p>
       <ul className="mt-4 grid gap-2 sm:grid-cols-2" aria-label="Проектные поверхности пола">
-        {model.floors.map((floor) => (
+        {visibleFloors.map((floor) => (
           <li key={floor.id}>
             <button
               type="button"
@@ -205,12 +255,12 @@ export function PlanProjectedFloorPreview({ model }: { model: ProjectedFloorPrev
           маршрута заноса.
         </p>
       ) : null}
-      {model.heldRooms.length ? (
+      {furnishingHeld.length || (showReference && model.heldRooms.length) ? (
         <ul
           className="mt-4 space-y-2 text-sm text-ink-2"
           aria-label="Неподтверждённые проектные поверхности"
         >
-          {model.heldRooms.map((room) => (
+          {(showReference ? model.heldRooms : furnishingHeld).map((room) => (
             <li key={room.id}>
               <p>
                 {room.name}: {room.reason}

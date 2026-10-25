@@ -1,4 +1,5 @@
 import type { PlanMeasurementEvidence, RoomSpaceKind } from '@uyut/db'
+import { isWetRoomName } from '@uyut/db/room-purpose'
 import type { RoomKind } from './detect'
 import { FalError, falQueue, toDataUri } from './fal-queue'
 import {
@@ -216,7 +217,6 @@ const UTILITY_WORDS =
   /прихож|коридор|холл|тамбур|гардероб|кладов|постироч|котельн|лестнич|шахт|балкон|лоджи|cuarto de lavar|walk-in closet/i
 
 const KIND_WORDS: ReadonlyArray<[RegExp, RoomKind]> = [
-  [/санузел|ванн|туалет|с\/у|душев|baño/i, 'bath'],
   [/детск|ребён|ребен/i, 'kid'],
   [/кухня-гостиная|кухня-столовая/i, 'kitchen'],
   [/кухн|cocina/i, 'kitchen'],
@@ -234,6 +234,7 @@ export function isUtilityRoom(name: string): boolean {
 }
 
 export function roomKindFromName(name: string): RoomKind {
+  if (isWetRoomName(name)) return 'bath'
   for (const [pattern, kind] of KIND_WORDS) {
     if (pattern.test(name)) {
       return kind

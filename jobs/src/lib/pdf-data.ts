@@ -453,7 +453,9 @@ export async function buildPdfData(input: {
   const geometry = project.planReading?.geometry
   const projectedEvidence = geometry ? currentProjectedVerticalEvidence(geometry) : []
   const projectedDrawing = projectedPlanDrawing(geometry)
-  const projectedFloors = geometry ? projectedFloorPreview(geometry) : undefined
+  const projectedFloors = geometry
+    ? projectedFloorPreview(geometry, project.planReading?.rooms)
+    : undefined
   const projectedPlan =
     geometry?.pdfCalibration?.sourceState === 'proposed' &&
     (geometry.projectedVerticalEvidence?.length ||

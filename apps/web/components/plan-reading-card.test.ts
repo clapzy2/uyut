@@ -202,6 +202,16 @@ function render(
 }
 
 describe('plan review form', () => {
+  it('keeps a bathroom as a reference row without requiring missing dimensions for furnishing', () => {
+    const html = render({
+      readAt: '2026-10-25T00:00:00.000Z',
+      rooms: [{ name: 'Душевая', kind: 'bath', sourceNumber: 2 }],
+    })
+    expect(html).toContain('Санузел сохраняем на плане справочно')
+    expect(html).toContain('Готовую отделку по плану не определяем')
+    expect(html).not.toContain('Укажите недостающие стороны или подтвердите контур комнаты')
+  })
+
   it('requires a separate unchecked architecture review before AI notes reach concepts', () => {
     const html = render({
       readAt: '2026-10-17',

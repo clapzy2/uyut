@@ -159,6 +159,7 @@ export default async function SummaryPage({
       deliveryMeasurements={project.planReading?.deliveryMeasurements}
       planState={project.planReading?.planState}
       sourcePage={project.planReading?.sourcePage}
+      sourceRooms={project.planReading?.rooms}
     />
   )
   const overview = geometry ? apartmentVolume(geometry, layouts) : null
