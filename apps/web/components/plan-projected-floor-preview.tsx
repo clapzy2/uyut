@@ -212,7 +212,35 @@ export function PlanProjectedFloorPreview({ model }: { model: ProjectedFloorPrev
         >
           {model.heldRooms.map((room) => (
             <li key={room.id}>
-              {room.name}: {room.reason}
+              <p>
+                {room.name}: {room.reason}
+              </p>
+              {room.levels.length ? (
+                <details className="mt-2 border-l border-line pl-3">
+                  <summary className="cursor-pointer">
+                    Подписи без построенной поверхности ({room.levels.length})
+                  </summary>
+                  <p className="mt-2 text-xs">
+                    Это значения из документа. Место подписи на листе не задаёт точку пола в 3D, а
+                    одна отметка не определяет уклон или весь участок.
+                  </p>
+                  <ul className="mt-2 space-y-2" aria-label={`Исходные отметки: ${room.name}`}>
+                    {room.levels.map((level) => (
+                      <li key={level.evidenceId}>
+                        <p>
+                          {level.scopeLabel ? `${level.scopeLabel}: ` : ''}
+                          {level.printedValue}{' '}
+                          {level.unit === 'mm' ? 'мм' : level.unit === 'cm' ? 'см' : 'м'}.
+                        </p>
+                        <p className="text-xs">
+                          PDF, страница {level.pdfPage}, подписи {level.captionIndexes.join(', ')}:{' '}
+                          «{level.captionTexts.join(' / ')}».
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
             </li>
           ))}
         </ul>

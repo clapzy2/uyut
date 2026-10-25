@@ -29,6 +29,15 @@ export type ProjectedFloorPreview = {
     name: string
     polygon: PlanPoint[]
     reason: string
+    levels: Array<{
+      evidenceId: string
+      printedValue: string
+      unit: PlanProjectedVerticalEvidence['unit']
+      scopeLabel?: string
+      pdfPage: number
+      captionIndexes: number[]
+      captionTexts: string[]
+    }>
   }>
   floorScopeNote?: string
   warnings: string[]
@@ -165,8 +174,17 @@ export function projectedFloorPreview(geometry: PlanGeometry): ProjectedFloorPre
       heldRooms.push({
         ...base,
         reason: conflicting
-          ? 'У одного контура указаны разные уровни. Его участки ещё не разделены; общий плоский пол не построен.'
+          ? 'У одного контура указаны разные отметки. Геометрия перехода или уклона не определена; поверхность не построена. Одного разделения контура недостаточно, чтобы считать участки горизонтальными.'
           : 'Не подтверждено применение проектной отметки ко всему контуру. Пунктир показывает только проекцию комнаты, не пол на нуле.',
+        levels: roomEntries.map((entry) => ({
+          evidenceId: entry.id,
+          printedValue: entry.printedValue,
+          unit: entry.unit,
+          ...(entry.scopeLabel ? { scopeLabel: entry.scopeLabel } : {}),
+          pdfPage: entry.source.pdfPage,
+          captionIndexes: [...entry.source.captionIndexes],
+          captionTexts: [...entry.source.captionTexts],
+        })),
       })
       return
     }
