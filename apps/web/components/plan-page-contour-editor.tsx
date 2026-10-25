@@ -715,6 +715,7 @@ export function PlanPageContourEditor({
     if (editingBoundary) {
       if (editingBoundary === 'floor') {
         setFloor((current) => ({
+          ...current,
           polygon,
           vertexProofs: pageContourVertexProofsChanged(current, polygon, replacement),
         }))
