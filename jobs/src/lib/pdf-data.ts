@@ -9,6 +9,10 @@ import {
 import { effectiveSize, effectiveSizeReading, itemSizeSourceLabel } from '@uyut/catalog/item-size'
 import { inspectStoredPlanDelivery } from '@uyut/catalog/plan-delivery-record'
 import { currentWallFacePairs } from '@uyut/catalog/plan-opening-face-pairs'
+import {
+  currentProjectedVerticalEvidence,
+  PROJECTED_VERTICAL_LABELS,
+} from '@uyut/catalog/plan-projected-vertical-evidence'
 import { inspectPlanThresholdSurfaces } from '@uyut/catalog/plan-threshold-geometry'
 import { signedPlanFloors } from '@uyut/catalog/plan-vertical-floor-geometry'
 import { layoutWithMeasurements } from '@uyut/catalog/reviewed-layout-with-measurements'
@@ -21,6 +25,7 @@ import {
   concepts,
   type ExportKind,
   type ExportOptions,
+  type PlanGeometry,
   type Project,
   projects,
   type Room,
@@ -380,6 +385,56 @@ function household(project: Project): string | null {
   return line.charAt(0).toUpperCase() + line.slice(1)
 }
 
+/** A bounded top view of the proposed draft; no physical heights or floor completion. */
+function projectedPlanDrawing(
+  geometry: PlanGeometry | undefined,
+): NonNullable<PdfData['projectedPlan']>['drawing'] {
+  const calibration = geometry?.pdfCalibration
+  if (
+    !geometry ||
+    geometry.requiresSourceReviewReimport ||
+    calibration?.sourceState !== 'proposed' ||
+    !Number.isSafeInteger(calibration.pdfPage) ||
+    calibration.pdfPage < 1 ||
+    geometry.rooms.length < 1 ||
+    geometry.rooms.length > 200 ||
+    geometry.walls.length > 200
+  )
+    return undefined
+  const validPoint = (point: { xCm: number; yCm: number }) =>
+    [point.xCm, point.yCm].every((value) => Number.isFinite(value) && Math.abs(value) <= 10000)
+  if (
+    geometry.rooms.some(
+      (room) =>
+        room.polygon.length < 3 ||
+        room.polygon.length > 200 ||
+        !room.polygon.every(validPoint) ||
+        !room.name ||
+        room.name.length > 200 ||
+        (room.sourceNumbers ?? (room.sourceNumber === undefined ? [] : [room.sourceNumber])).some(
+          (value) => !Number.isFinite(value) || value <= 0 || value > 10000,
+        ),
+    ) ||
+    geometry.walls.some((wall) => !validPoint(wall.start) || !validPoint(wall.end)) ||
+    (geometry.footprint !== undefined &&
+      (geometry.footprint.length < 3 ||
+        geometry.footprint.length > 100 ||
+        !geometry.footprint.every(validPoint)))
+  )
+    return undefined
+  return {
+    sourcePage: calibration.pdfPage,
+    rooms: geometry.rooms.map((room) => ({
+      name: room.name,
+      sourceNumbers:
+        room.sourceNumbers ?? (room.sourceNumber === undefined ? [] : [room.sourceNumber]),
+      polygon: room.polygon,
+    })),
+    walls: geometry.walls.map(({ start, end }) => ({ start, end })),
+    ...(geometry.footprint ? { floor: geometry.footprint } : {}),
+  }
+}
+
 /**
  * Собирает данные документа: картинки ужимаются параллельно, смета считается той же функцией,
  * что и на странице итогов. ТЗ приходит снаружи — его считает задача, чтобы кэшировать.
@@ -395,6 +450,27 @@ export async function buildPdfData(input: {
   const { snapshot, kind, options, rates } = input
   const { project } = snapshot
   const geometry = project.planReading?.geometry
+  const projectedEvidence = geometry ? currentProjectedVerticalEvidence(geometry) : []
+  const projectedDrawing = projectedPlanDrawing(geometry)
+  const projectedPlan =
+    geometry?.pdfCalibration?.sourceState === 'proposed' &&
+    (geometry.projectedVerticalEvidence?.length ||
+      geometry.pdfCalibration.floorScope ||
+      projectedDrawing)
+      ? {
+          rows: projectedEvidence.map((entry) => ({
+            target: `${entry.target.kind === 'room' ? entry.target.room.name : entry.target.kind === 'opening' ? `Проём ${entry.target.opening.widthCm} см` : 'Вся квартира'}${entry.scopeLabel ? ` · ${entry.scopeLabel}` : ''}`,
+            value: `${PROJECTED_VERTICAL_LABELS[entry.quantity]}: ${entry.printedValue} ${{ mm: 'мм', cm: 'см', m: 'м' }[entry.unit]}`,
+            source: `PDF, страница ${entry.source.pdfPage}: «${entry.source.captionTexts.join(' ').slice(0, 800)}»${entry.source.captionTexts.join(' ').length > 800 ? ' (полный текст в проекте)' : ''}`,
+            ...(entry.reviewNote ? { note: entry.reviewNote } : {}),
+          })),
+          staleCount: (geometry.projectedVerticalEvidence?.length ?? 0) - projectedEvidence.length,
+          ...(projectedDrawing ? { drawing: projectedDrawing } : {}),
+          ...(geometry.pdfCalibration.floorScope
+            ? { floorScopeNote: geometry.pdfCalibration.floorScope.note }
+            : {}),
+        }
+      : undefined
   const humanReviewedPairs =
     geometry && !geometry.requiresSourceReviewReimport
       ? currentWallFacePairs(geometry).filter(
@@ -653,6 +729,7 @@ export async function buildPdfData(input: {
     brief: input.brief,
     ...(wallFaceReview ? { wallFaceReview } : {}),
     ...(verticalPlan ? { verticalPlan } : {}),
+    ...(projectedPlan ? { projectedPlan } : {}),
     ...(deliveryPlan ? { deliveryPlan } : {}),
   }
 }

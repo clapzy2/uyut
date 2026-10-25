@@ -44,6 +44,25 @@ const geometry: PlanGeometry = {
 }
 
 describe('planVolume', () => {
+  it('does not release a partial floor even when a client claims confirmation', () => {
+    const partial: PlanGeometry = {
+      ...geometry,
+      pdfCalibration: {
+        sourceSha256: 'a'.repeat(64),
+        pdfPage: 1,
+        sourceState: 'existing',
+        cmPerPoint: 1,
+        origin: { x: 0, y: 0 },
+        anchorRoomNumbers: [],
+        labelIndexes: [],
+        derivedOpeningIds: [],
+        floorScope: { kind: 'partial', note: 'Балкон ещё не присоединён' },
+      },
+    }
+    expect(planVolume(partial)).toBeNull()
+    expect(planVolumeBlocker(partial)).toContain('Балкон ещё не присоединён')
+  })
+
   it('does not release a proposed drawing to physical 3D even if its status says confirmed', () => {
     const proposed: PlanGeometry = {
       ...geometry,

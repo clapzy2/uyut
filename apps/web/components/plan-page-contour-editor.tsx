@@ -233,7 +233,8 @@ export function PlanPageContourEditor({
   const selectedVoid = voids.find((draft) => draft.id === selectedVoidId)
   const groupCandidates = eligibleRooms.filter(
     (room) =>
-      room.sourceNumber !== selectedIdentity?.roomSourceNumber &&
+      (!selectedIdentity ||
+        !pdfContourRoomNumbers(selectedIdentity).includes(room.sourceNumber as number)) &&
       !drafts.some((draft) => pdfContourRoomNumbers(draft).includes(room.sourceNumber as number)),
   )
   const roomHasFeatures =
@@ -1180,7 +1181,10 @@ export function PlanPageContourEditor({
                 variant="secondary"
                 disabled={
                   locked ||
-                  (kind === 'floor' && exterior?.boundaryRole !== 'outer-wall-envelope' && !floor)
+                  (kind === 'floor' &&
+                    state !== 'proposed' &&
+                    exterior?.boundaryRole !== 'outer-wall-envelope' &&
+                    !floor)
                 }
                 onClick={() => {
                   if (kind === 'floor') setFloor((current) => current ?? { polygon: [] })
@@ -1286,14 +1290,15 @@ export function PlanPageContourEditor({
         </label>
       </div>
       {!editingBoundary &&
-      selectedIdentity?.roomSourceNumbers === undefined &&
       selectedIdentity &&
+      pdfContourRoomNumbers(selectedIdentity).length < 12 &&
       groupCandidates.length &&
       !selectedTraceReference &&
       !selectedDraft?.sourceTopology ? (
         <label className="block max-w-sm space-y-1 text-sm">
           <span className="block">Общая зона без стены между номерами</span>
           <select
+            aria-label="Добавить номер в общую зону"
             className={inputClassName}
             value=""
             disabled={locked}
@@ -1313,7 +1318,7 @@ export function PlanPageContourEditor({
               resetReview()
             }}
           >
-            <option value="">Добавить второй номер…</option>
+            <option value="">Добавить номер…</option>
             {groupCandidates.map((room) => (
               <option key={room.sourceNumber} value={room.sourceNumber}>
                 № {room.sourceNumber} · {room.name}
@@ -1337,6 +1342,11 @@ export function PlanPageContourEditor({
         floor={floor}
         editing={editingBoundary}
         disabled={locked}
+        proposed={state === 'proposed'}
+        onScope={(scope) => {
+          setFloor((current) => (current ? { ...current, scope } : current))
+          resetReview()
+        }}
         onEdit={(kind) => {
           // Starting a boundary is a draft even before the first vertex is accepted.
           if (kind === 'floor') {
@@ -2091,6 +2101,22 @@ export function PlanPageContourEditor({
                 ) : null}
                 {floor?.polygon.length ? (
                   <g pointerEvents="none" aria-label="Отдельная граница пола">
+                    {floor.scope?.sourcePoint ? (
+                      <g aria-label="Неподтверждённый участок пола">
+                        <circle
+                          cx={floor.scope.sourcePoint.x}
+                          cy={floor.scope.sourcePoint.y}
+                          r={10}
+                          fill="#f59e0b"
+                          fillOpacity={0.4}
+                          stroke="#92400e"
+                          strokeWidth={2}
+                          vectorEffect="non-scaling-stroke"
+                        >
+                          <title>{floor.scope.note}</title>
+                        </circle>
+                      </g>
+                    ) : null}
                     {floorClosed && floor.polygon.every(finiteContourPoint) ? (
                       <polygon
                         points={floor.polygon.map((point) => `${point.x},${point.y}`).join(' ')}

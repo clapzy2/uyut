@@ -898,6 +898,9 @@ export async function savePlanGeometry(
     }
     const saved: NonNullable<PlanReading['geometry']> = {
       ...checked,
+      projectedVerticalEvidence: before.projectedVerticalEvidence
+        ? structuredClone(before.projectedVerticalEvidence)
+        : undefined,
       ...(before.requiresSourceReviewReimport
         ? { requiresSourceReviewReimport: true as const }
         : {}),

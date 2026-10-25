@@ -120,6 +120,7 @@ export function pageFloorForSave(
     return null
   return {
     polygon: draft.polygon.map((point) => ({ ...point })),
+    ...(draft.scope ? { scope: structuredClone(draft.scope) } : {}),
     ...(draft.vertexProofs?.length ? { vertexProofs: structuredClone(draft.vertexProofs) } : {}),
   }
 }
@@ -420,25 +421,35 @@ export function groupPageContourDraft(
   otherNumber: number,
   rooms: PlanRoomReading[],
 ): PageContourDraft[] | null {
-  if (selected.roomSourceNumbers !== undefined) return null
   const eligible = new Set(numberedContourRooms(rooms).map((room) => room.sourceNumber))
-  const selectedNumber = selected.roomSourceNumber
-  if (!eligible.has(selectedNumber) || !eligible.has(otherNumber) || selectedNumber === otherNumber)
+  const selectedNumbers = pdfContourRoomNumbers(selected)
+  if (
+    selectedNumbers.length === 0 ||
+    selectedNumbers.length >= 12 ||
+    (selected.roomSourceNumbers !== undefined && selectedNumbers.length < 2) ||
+    new Set(selectedNumbers).size !== selectedNumbers.length ||
+    selectedNumbers.some((number) => !eligible.has(number)) ||
+    !eligible.has(otherNumber) ||
+    selectedNumbers.includes(otherNumber)
+  )
     return null
   if (
     drafts.some(
       (draft) =>
         pdfContourKey(draft) !== pdfContourKey(selected) &&
         pdfContourRoomNumbers(draft).some(
-          (number) => number === selectedNumber || number === otherNumber,
+          (number) => selectedNumbers.includes(number) || number === otherNumber,
         ),
     )
   )
     return null
-  const before = drafts.find((draft) => pdfContourKey(draft) === pdfContourKey(selected))
-  if (before?.sourceTopology) return null
+  const matching = drafts.filter((draft) => pdfContourKey(draft) === pdfContourKey(selected))
+  if (matching.length > 1 || (selected.roomSourceNumbers !== undefined && matching.length === 0))
+    return null
+  const before = matching[0]
+  if (before?.sourceTopology || before?.sourceTrace) return null
   const grouped: PageContourDraft = {
-    roomSourceNumbers: [selectedNumber, otherNumber].sort((a, b) => a - b),
+    roomSourceNumbers: [...selectedNumbers, otherNumber].sort((a, b) => a - b),
     polygon: before?.polygon.map((point) => ({ ...point })) ?? [],
     closed: before?.closed ?? false,
     ...(before?.vertexProofs ? { vertexProofs: structuredClone(before.vertexProofs) } : {}),

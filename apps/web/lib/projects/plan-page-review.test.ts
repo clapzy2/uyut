@@ -473,6 +473,39 @@ describe('versioned source page review', () => {
       'floor-requires-outer-wall-envelope',
     )
     expect(planPageContoursSchema.safeParse({ ...input, exterior: undefined }).success).toBe(false)
+    const proposed = {
+      ...input,
+      source: { ...input.source, state: 'proposed' as const },
+      exterior: undefined,
+      floor: {
+        ...floor,
+        scope: {
+          kind: 'partial' as const,
+          note: 'Балкон ещё не присоединён',
+          sourcePoint: { x: 16, y: 5 },
+        },
+      },
+    }
+    expect(planPageContoursSchema.parse(proposed).floor?.scope).toEqual(proposed.floor.scope)
+    expect(
+      planPageReviewIssue(
+        proposed,
+        { ...reading, planState: 'proposed' },
+        proposed.source,
+        nativeWork,
+      ),
+    ).toBeUndefined()
+    expect(
+      planPageReviewIssue(
+        proposed,
+        { ...reading, planState: 'proposed' },
+        proposed.source,
+        paintedOnly,
+      ),
+    ).toBe('non-native-floor-edge')
+    expect(planPageContoursSchema.safeParse({ ...proposed, source: input.source }).success).toBe(
+      false,
+    )
     expect(
       planPageFeaturesIssue({
         ...input,

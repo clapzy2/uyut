@@ -125,6 +125,20 @@ const storedSchema = z
             sourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
             pdfPage: z.number().int().positive(),
             sourceState: z.enum(['existing', 'proposed']).optional(),
+            floorScope: z
+              .object({
+                kind: z.literal('partial'),
+                note: z.string().min(1).max(1000),
+                sourcePoint: z
+                  .object({
+                    x: z.number().finite().min(0).max(1000),
+                    y: z.number().finite().min(0).max(1000),
+                  })
+                  .strict()
+                  .optional(),
+              })
+              .strict()
+              .optional(),
             cmPerPoint: z.number().finite().positive(),
             origin: z.object({ x: coordinate, y: coordinate }).strict(),
           })
@@ -209,6 +223,7 @@ function contextSnapshot(geometry: ReferenceGeometry): PlanVerticalReference['co
           sourceSha256: pdf.sourceSha256,
           pdfPage: pdf.pdfPage,
           ...(pdf.sourceState ? { sourceState: pdf.sourceState } : {}),
+          ...(pdf.floorScope ? { floorScope: pdf.floorScope } : {}),
           cmPerPoint: pdf.cmPerPoint,
           origin: pdf.origin,
         }

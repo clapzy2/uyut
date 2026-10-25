@@ -13,6 +13,8 @@ export function PlanPageBoundaryControls({
   onEdit,
   onRemove,
   onRole,
+  proposed = false,
+  onScope,
 }: {
   exterior: PlanPageContours['exterior']
   floor: PlanPageContours['floor']
@@ -21,6 +23,8 @@ export function PlanPageBoundaryControls({
   onEdit: (kind: PageBoundaryKind) => void
   onRemove: (kind: PageBoundaryKind) => void
   onRole: (role: 'floor' | 'outer-wall-envelope' | '') => void
+  proposed?: boolean
+  onScope?: (scope: NonNullable<PlanPageContours['floor']>['scope']) => void
 }) {
   return (
     <div className="space-y-4">
@@ -76,7 +80,7 @@ export function PlanPageBoundaryControls({
           </p>
         ) : null}
       </div>
-      {exterior?.boundaryRole === 'outer-wall-envelope' || floor ? (
+      {proposed || exterior?.boundaryRole === 'outer-wall-envelope' || floor ? (
         <div className="space-y-2 border-l-2 border-sky-700 pl-3 text-sm">
           <p className="font-medium text-ink">Внутренняя граница пола</p>
           <p className="max-w-2xl text-xs leading-relaxed text-ink-2">
@@ -112,7 +116,73 @@ export function PlanPageBoundaryControls({
               Контур пола: {floor.polygon.length} вершин. Комнаты должны оставаться внутри него.
             </p>
           ) : null}
-          {exterior?.boundaryRole !== 'outer-wall-envelope' ? (
+          {floor && proposed && onScope ? (
+            <div className="space-y-2">
+              <label className="flex items-start gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={Boolean(floor.scope)}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    onScope(event.target.checked ? { kind: 'partial', note: '' } : undefined)
+                  }
+                />
+                Пол охватывает только проверенную часть, а не всю квартиру
+              </label>
+              {floor.scope ? (
+                <>
+                  <label className="block text-xs">
+                    Что ещё не подтверждено
+                    <textarea
+                      aria-label="Что ещё не подтверждено в границе пола"
+                      className={inputClassName}
+                      value={floor.scope.note}
+                      maxLength={1000}
+                      disabled={disabled}
+                      onChange={(event) => {
+                        if (floor.scope) onScope({ ...floor.scope, note: event.target.value })
+                      }}
+                    />
+                  </label>
+                  <div className="flex gap-2">
+                    {(['x', 'y'] as const).map((axis) => (
+                      <label key={axis} className="text-xs">
+                        Неясное место · {axis.toUpperCase()}
+                        <input
+                          aria-label={`Неясное место · ${axis.toUpperCase()}`}
+                          className={inputClassName}
+                          type="number"
+                          min={0}
+                          max={1000}
+                          step="any"
+                          disabled={disabled}
+                          value={floor.scope?.sourcePoint?.[axis] ?? ''}
+                          onChange={(event) => {
+                            if (!floor.scope) return
+                            onScope({
+                              ...floor.scope,
+                              sourcePoint:
+                                event.target.value === ''
+                                  ? undefined
+                                  : {
+                                      x: floor.scope.sourcePoint?.x ?? 0,
+                                      y: floor.scope.sourcePoint?.y ?? 0,
+                                      [axis]: Number(event.target.value),
+                                    },
+                            })
+                          }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-ink-2">
+                    Маркер показывает спорное место на исходнике. Он не добавляет границу или обмер.
+                  </p>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          {exterior?.boundaryRole !== 'outer-wall-envelope' && !proposed ? (
             <p role="status" className="text-xs text-danger">
               Отдельная граница пола относится к наружной стороне стен. Восстановите этот тип
               внешней границы или удалите отдельный контур пола.
