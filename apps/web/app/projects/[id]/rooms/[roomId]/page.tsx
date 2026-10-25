@@ -1,3 +1,4 @@
+import { projectedContourOptions, projectedGeometryKey } from '@uyut/catalog/projected-room-layout'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
@@ -10,6 +11,7 @@ import { RoomConditionForm } from '@/components/room-condition-form'
 import { RoomMeasurementsForm } from '@/components/room-measurements-form'
 import { RoomNotesForm } from '@/components/room-notes-form'
 import { RoomItemSizes, RoomPlan } from '@/components/room-plan'
+import { RoomProjectedContourForm } from '@/components/room-projected-contour-form'
 import { RoomSectionLinks } from '@/components/room-section-links'
 import { RoomSettingsDialog } from '@/components/room-settings-dialog'
 import { otherMember } from '@/lib/collaboration/repository'
@@ -22,6 +24,7 @@ import { resumeGenerationRun } from '@/lib/concepts/resume-run'
 import { PHOTO_ACCEPT, PHOTO_LIMIT_TEXT, PHOTO_MAX_BYTES } from '@/lib/files/rules'
 import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
 import { fileNameFromKey, formatArea, roomKindLabels } from '@/lib/projects/format'
+import { planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { getRoom } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { roomLayout } from '@/lib/shopping/layout'
@@ -192,6 +195,17 @@ export default async function RoomPage({ params }: { params: Params }) {
 
         <div id="room-measurements" tabIndex={-1} className="flex scroll-mt-24 flex-col gap-10">
           {isOwner ? <RoomConditionForm roomId={room.id} condition={room.condition} /> : null}
+          {isOwner ? (
+            <RoomProjectedContourForm
+              key={`${planEditRevision(room.project.planUrl, room.project.planReading)}:${room.measurements?.projectedContour?.roomIndex ?? ''}:${room.measurements?.projectedContour?.geometryKey === projectedGeometryKey(room.project.planReading?.geometry)}`}
+              roomId={room.id}
+              geometryKey={projectedGeometryKey(room.project.planReading?.geometry)}
+              options={projectedContourOptions(room.project.planReading?.geometry).map(
+                ({ roomIndex, name, sourceNumbers }) => ({ roomIndex, name, sourceNumbers }),
+              )}
+              binding={room.measurements?.projectedContour}
+            />
+          ) : null}
           {isOwner ? (
             <RoomMeasurementsForm
               roomId={room.id}

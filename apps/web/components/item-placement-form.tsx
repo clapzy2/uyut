@@ -1,5 +1,6 @@
 'use client'
 
+import type { RoomLayout } from '@uyut/catalog'
 import { inputClassName, toast } from '@uyut/ui'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -16,6 +17,7 @@ export function ItemPlacementForm({
   rotation,
   frontDirection,
   operationKind,
+  projectedContour,
 }: {
   itemId: string
   title: string
@@ -26,6 +28,7 @@ export function ItemPlacementForm({
   rotation: 0 | 90
   frontDirection?: 'up' | 'right' | 'down' | 'left'
   operationKind?: 'front' | 'side' | 'around'
+  projectedContour?: RoomLayout['projectedContour']
 }) {
   const router = useRouter()
   const [value, setValue] = useState({
@@ -38,10 +41,10 @@ export function ItemPlacementForm({
   const [error, setError] = useState<string>()
   const exact = xCm !== undefined && yCm !== undefined
 
-  async function run(input: unknown, success: string) {
+  async function run(input: Record<string, unknown>, success: string) {
     setSaving(true)
     setError(undefined)
-    const result = await setItemPlacement(itemId, input)
+    const result = await setItemPlacement(itemId, { ...input, projectedContour })
     setSaving(false)
     if (!result.ok) {
       setError(result.error)
@@ -66,7 +69,10 @@ export function ItemPlacementForm({
             aria-label={`Отступ слева, см: ${title}`}
             inputMode="decimal"
             value={value.xCm}
-            onChange={(event) => setValue((all) => ({ ...all, xCm: event.currentTarget.value }))}
+            onChange={(event) => {
+              const xCm = event.currentTarget.value
+              setValue((all) => ({ ...all, xCm }))
+            }}
             className={`${inputClassName} mt-1 h-9 w-24 text-[13px]`}
           />
         </label>
@@ -78,12 +84,10 @@ export function ItemPlacementForm({
             <select
               aria-label={`Рабочая сторона: ${title}`}
               value={value.frontDirection}
-              onChange={(event) =>
-                setValue((all) => ({
-                  ...all,
-                  frontDirection: event.currentTarget.value as typeof all.frontDirection,
-                }))
-              }
+              onChange={(event) => {
+                const frontDirection = event.currentTarget.value as typeof value.frontDirection
+                setValue((all) => ({ ...all, frontDirection }))
+              }}
               className={`${inputClassName} mt-1 h-9 w-32 text-[13px]`}
             >
               <option value="auto">от стены</option>
@@ -100,7 +104,10 @@ export function ItemPlacementForm({
             aria-label={`Отступ сверху, см: ${title}`}
             inputMode="decimal"
             value={value.yCm}
-            onChange={(event) => setValue((all) => ({ ...all, yCm: event.currentTarget.value }))}
+            onChange={(event) => {
+              const yCm = event.currentTarget.value
+              setValue((all) => ({ ...all, yCm }))
+            }}
             className={`${inputClassName} mt-1 h-9 w-24 text-[13px]`}
           />
         </label>
@@ -109,9 +116,10 @@ export function ItemPlacementForm({
           <select
             aria-label={`Поворот: ${title}`}
             value={value.rotation}
-            onChange={(event) =>
-              setValue((all) => ({ ...all, rotation: event.currentTarget.value as '0' | '90' }))
-            }
+            onChange={(event) => {
+              const rotation = event.currentTarget.value as '0' | '90'
+              setValue((all) => ({ ...all, rotation }))
+            }}
             className={`${inputClassName} mt-1 h-9 w-24 text-[13px]`}
           >
             <option value="0">0°</option>

@@ -1,4 +1,8 @@
 import {
+  createProjectedContourBinding,
+  projectedGeometryKey,
+} from '@uyut/catalog/projected-room-layout'
+import {
   concepts,
   type PlanReading,
   type Project,
@@ -11,6 +15,7 @@ import {
   type RoomMeasurements,
   type RoomSpaceKind,
   rooms,
+  shoppingListItems,
   users,
 } from '@uyut/db'
 import { and, asc, count, desc, eq, inArray, isNull, max, or, sql } from 'drizzle-orm'
@@ -18,6 +23,7 @@ import { getDb } from '@/lib/db'
 import { mergePlanMeasurements } from '@/lib/projects/measurement-assurance'
 import { PlanEditConflictError } from '@/lib/projects/plan-edit-revision'
 import {
+  AccessError,
   assertOwner,
   assertOwnerOrCollaborator,
   isUuid,
@@ -378,19 +384,122 @@ export type RoomPatch = {
 export async function updateRoom(userId: string, roomId: string, patch: RoomPatch): Promise<Room> {
   const room = await getRoom(userId, roomId)
   requireOwner(room.role)
-  // Старые открытые формы ещё не отправляют описание архитектуры. Отсутствие поля
-  // его не стирает; пустая строка из новой формы — явная команда очистить.
-  if (patch.measurements !== undefined && patch.measurements?.layoutNotes === undefined) {
-    if (room.measurements?.layoutNotes !== undefined) {
-      patch = {
-        ...patch,
-        measurements: { ...patch.measurements, layoutNotes: room.measurements.layoutNotes },
+  return getDb().transaction(async (tx) => {
+    const [project] = await tx
+      .select()
+      .from(projects)
+      .where(
+        and(
+          eq(projects.id, room.projectId),
+          eq(projects.ownerId, userId),
+          isNull(projects.deletedAt),
+        ),
+      )
+      .for('update')
+    if (!project) throw new NotFoundError('Проект не найден')
+    const [current] = await tx
+      .select()
+      .from(rooms)
+      .where(and(eq(rooms.id, roomId), eq(rooms.projectId, project.id)))
+      .for('update')
+    if (!current) throw new NotFoundError('Комната не найдена')
+    let next = patch
+    if (patch.measurements !== undefined) {
+      // Preserve only the current locked binding, never a stale form's copy.
+      const { projectedContour: _requested, ...values } = patch.measurements ?? {}
+      const measurements = {
+        ...values,
+        ...(current.measurements?.projectedContour
+          ? { projectedContour: current.measurements.projectedContour }
+          : {}),
+        // Missing architecture in an older form is not an explicit deletion.
+        ...(patch.measurements?.layoutNotes === undefined &&
+        current.measurements?.layoutNotes !== undefined
+          ? { layoutNotes: current.measurements.layoutNotes }
+          : {}),
       }
+      next = { ...patch, measurements: Object.keys(measurements).length ? measurements : null }
     }
-  }
-  const [updated] = await getDb().update(rooms).set(patch).where(eq(rooms.id, room.id)).returning()
-  await touchProject(room.projectId)
-  return updated ?? room
+    const [updated] = await tx.update(rooms).set(next).where(eq(rooms.id, roomId)).returning()
+    await tx.update(projects).set({ updatedAt: new Date() }).where(eq(projects.id, project.id))
+    return updated ?? current
+  })
+}
+
+/** One physical project region belongs to one furnishing room, independently of its name. */
+export async function setRoomProjectedContour(
+  userId: string,
+  roomId: string,
+  input: { roomIndex: number | null; expectedGeometryKey: string; expectedRoomIndex?: number },
+): Promise<void> {
+  const room = await getRoom(userId, roomId)
+  requireOwner(room.role)
+  await getDb().transaction(async (tx) => {
+    const [project] = await tx
+      .select()
+      .from(projects)
+      .where(
+        and(
+          eq(projects.id, room.projectId),
+          eq(projects.ownerId, userId),
+          isNull(projects.deletedAt),
+        ),
+      )
+      .for('update')
+    if (!project) throw new NotFoundError('Проект не найден')
+    const currentRooms = await tx
+      .select()
+      .from(rooms)
+      .where(eq(rooms.projectId, project.id))
+      .for('update')
+    const current = currentRooms.find((entry) => entry.id === roomId)
+    if (!current) throw new NotFoundError('Комната не найдена')
+    const geometry = project.planReading?.geometry
+    const binding =
+      input.roomIndex === null ? null : createProjectedContourBinding(geometry, input.roomIndex)
+    if (input.roomIndex !== null) {
+      if (!binding || projectedGeometryKey(geometry) !== input.expectedGeometryKey)
+        throw new AccessError(
+          'Проектный контур изменился. Обновите страницу и сверьте область заново.',
+        )
+      const occupied = currentRooms.find(
+        (entry) =>
+          entry.id !== roomId &&
+          entry.measurements?.projectedContour?.geometryKey === binding.geometryKey &&
+          entry.measurements.projectedContour.roomIndex === binding.roomIndex,
+      )
+      if (occupied)
+        throw new AccessError(
+          `Эта область уже связана с комнатой «${occupied.name}». Общая зона имеет одну расстановку.`,
+        )
+    }
+    const previous = current.measurements?.projectedContour
+    if (
+      input.roomIndex === null &&
+      previous &&
+      (input.expectedGeometryKey !== previous.geometryKey ||
+        input.expectedRoomIndex !== previous.roomIndex)
+    )
+      throw new AccessError('Связь изменилась. Обновите страницу перед её удалением.')
+    if (JSON.stringify(previous ?? null) === JSON.stringify(binding)) return
+    const { projectedContour: _previous, ...measurements } = current.measurements ?? {}
+    await tx
+      .update(rooms)
+      .set({
+        measurements: binding
+          ? { ...measurements, projectedContour: binding }
+          : Object.keys(measurements).length
+            ? measurements
+            : null,
+      })
+      .where(eq(rooms.id, roomId))
+    // Coordinates belong to the old local origin. Product sizes and operating clearances survive.
+    await tx
+      .update(shoppingListItems)
+      .set({ placementCm: null })
+      .where(eq(shoppingListItems.roomId, roomId))
+    await tx.update(projects).set({ updatedAt: new Date() }).where(eq(projects.id, project.id))
+  })
 }
 
 export async function deleteRoom(userId: string, roomId: string): Promise<{ fileKeys: string[] }> {

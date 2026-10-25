@@ -236,7 +236,10 @@ export const generateConcept = task({
     // Если человек уже выбрал товары, рендер получает расстановку из того же подтверждённого
     // контура, что и 2D-схема. При неполных данных не называем координаты проверенными.
     let layoutContract: string | undefined
-    if (project.planReading?.geometry?.status === 'confirmed') {
+    if (
+      !room.measurements?.projectedContour &&
+      project.planReading?.geometry?.status === 'confirmed'
+    ) {
       const selected = await database
         .select({ item: shoppingListItems, product: catalogItems })
         .from(shoppingListItems)
@@ -279,7 +282,11 @@ export const generateConcept = task({
     const count = payload.duo ? payload.duo.variations.length : payload.count
     publish({ stage: 'brief', done: 0, total: count, failed: 0 })
     const { primary, secondary } = pickStyles(project.styleReferenceEmbedding)
-    const architecture = roomArchitectureFromPlan(project.planReading?.geometry, room.name)
+    const usesProjectedContour = Boolean(room.measurements?.projectedContour)
+    const architecture = usesProjectedContour
+      ? null
+      : roomArchitectureFromPlan(project.planReading?.geometry, room.name)
+    const conceptMeasurements = usesProjectedContour ? null : room.measurements
     const brief: ConceptBrief = {
       roomKind: room.kind,
       roomName: room.name,
@@ -291,10 +298,18 @@ export const generateConcept = task({
       notes: base ? (payload.editRequest ?? null) : room.notes,
       revision: payload.revision ?? null,
       hasPhoto: Boolean(base ?? room.photoUrl),
-      ...(room.measurements ? { sizeCm: room.measurements } : {}),
-      ...(room.measurements?.layoutNotes ? { layoutNotes: room.measurements.layoutNotes } : {}),
+      ...(conceptMeasurements
+        ? {
+            sizeCm: {
+              widthCm: conceptMeasurements.widthCm,
+              depthCm: conceptMeasurements.depthCm,
+              ceilingCm: conceptMeasurements.ceilingCm,
+            },
+          }
+        : {}),
+      ...(conceptMeasurements?.layoutNotes ? { layoutNotes: conceptMeasurements.layoutNotes } : {}),
       ...(architecture ? { architecture } : {}),
-      ...(layoutContract ? { layoutContract } : {}),
+      ...(!usesProjectedContour && layoutContract ? { layoutContract } : {}),
       budgetKopecks: project.budgetKopecks,
       household: project.household ?? null,
       primaryStyle: primary,
@@ -523,12 +538,14 @@ export const generateConcept = task({
             }
           }
           const objectBase = `projects/${project.id}/rooms/${room.id}/concepts/${concept.id}`
-          const reviewSource = conceptPlanReviewSource(
-            room.planUrl ?? project.planUrl,
-            `${objectBase}.webp`,
-            project.planReading?.geometry,
-            room.name,
-          )
+          const reviewSource = usesProjectedContour
+            ? null
+            : conceptPlanReviewSource(
+                room.planUrl ?? project.planUrl,
+                `${objectBase}.webp`,
+                project.planReading?.geometry,
+                room.name,
+              )
           if (reviewSource) {
             qualityReview = { ...qualityReview, architectureSourceHash: reviewSource.hash }
           }

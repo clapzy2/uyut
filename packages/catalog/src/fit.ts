@@ -72,6 +72,8 @@ export function heightCm(dimensions: DimensionsCm | undefined): number | undefin
  * обычно есть дверь, батарея или угол, и всей её длины под шкаф нет.
  */
 export type RoomLimits = {
+  /** Existing room measurements cannot prove fit in a separately selected proposed contour. */
+  projectedContour?: { version: 1 }
   spots?: readonly RoomSpot[]
   ceilingCm?: number
   /** Стороны комнаты с плана */
@@ -83,6 +85,7 @@ export type RoomLimits = {
 const LONGEST_WALL = 'самая длинная стена'
 
 export function checkFit(dimensions: DimensionsCm | undefined, limits: RoomLimits): FitVerdict {
+  if (limits.projectedContour) return { state: 'unknown', reason: 'roomDimensions' }
   const itemCm = footprintCm(dimensions)
   const { ceilingCm } = limits
   // Под потолок проверяем раньше ширины: если шкаф не встаёт по высоте,

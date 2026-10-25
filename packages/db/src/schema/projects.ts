@@ -660,6 +660,15 @@ export type RoomSpot = { name: string; widthCm: number }
  * spots — отдельные простенки, их с плана не прочитать, их меряют руками.
  */
 export type RoomMeasurements = {
+  /** Explicit furnishing selection from a source-scoped design draft, never an on-site survey. */
+  projectedContour?: {
+    version: 1
+    geometryKey: string
+    sourceSha256: string
+    pdfPage: number
+    roomIndex: number
+    sourceNumbers: number[]
+  }
   finishStage?: 'unknown' | 'before' | 'after'
   /** Заявленная пользователем погрешность одного полного размера, не каждого конца стены. */
   toleranceCm?: number

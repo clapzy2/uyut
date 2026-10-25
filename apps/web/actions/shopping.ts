@@ -270,14 +270,23 @@ const coordinateSchema = z
     return number
   })
 
+const projectedPlacementContext = z
+  .object({
+    geometryKey: z.string().max(300_000),
+    roomIndex: z.number().int().min(0).max(99),
+  })
+  .strict()
+  .optional()
+
 const itemPlacementSchema = z.discriminatedUnion('mode', [
-  z.object({ mode: z.literal('auto') }),
+  z.object({ mode: z.literal('auto'), projectedContour: projectedPlacementContext }),
   z.object({
     mode: z.literal('exact'),
     xCm: coordinateSchema,
     yCm: coordinateSchema,
     rotation: z.enum(['0', '90']).transform((value) => (value === '90' ? 90 : 0) as 0 | 90),
     frontDirection: z.enum(['auto', 'up', 'right', 'down', 'left']).optional(),
+    projectedContour: projectedPlacementContext,
   }),
 ])
 
@@ -301,7 +310,9 @@ export async function setItemPlacement(itemId: string, input: unknown): Promise<
               ? { frontDirection: parsed.data.frontDirection }
               : {}),
           }
-    const result = await setShoppingItemPlacement(userId, itemId, placement)
+    const result = parsed.data.projectedContour
+      ? await setShoppingItemPlacement(userId, itemId, placement, parsed.data.projectedContour)
+      : await setShoppingItemPlacement(userId, itemId, placement)
     await recordAudit({
       action: 'shopping.item_updated',
       actorId: userId,

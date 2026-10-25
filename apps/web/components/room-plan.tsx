@@ -355,6 +355,7 @@ export function RoomPlanDrawing({
               floorReservations={layout.floorReservations}
               keepClearZones={layout.keepClearZones}
               functionalZones={layout.functionalZones}
+              projectedContour={layout.projectedContour}
             />
           ) : null}
         </div>
@@ -378,9 +379,11 @@ export function RoomPlanDrawing({
       layout.floorReservations.length > 0 ||
       layout.keepClearZones.length > 0 ? (
         <p className="mt-3 text-[12px] leading-relaxed text-ink-2">
-          {layout.reservationSource === 'geometry'
-            ? 'Учтено по подтверждённой 2D-схеме: '
-            : 'Учтено из описания: '}
+          {layout.projectedContour
+            ? 'Предложенные проёмы проектного контура: '
+            : layout.reservationSource === 'geometry'
+              ? 'Учтено по подтверждённой 2D-схеме: '
+              : 'Учтено из описания: '}
           {(layout.floorReservations.length > 0 ? layout.floorReservations : layout.reservations)
             .map((reservation) => RESERVATION_LABELS[reservation.kind])
             .join(', ')}
@@ -409,7 +412,7 @@ export function RoomPlan({
   projectId: string
 }) {
   const problems = layout.problems
-  const volume = layout.placed.length > 0 ? roomVolume(layout) : null
+  const volume = layout.placed.length > 0 || layout.projectedContour ? roomVolume(layout) : null
   const hasOpenings =
     layout.reservations.length > 0 ||
     layout.floorReservations.length > 0 ||
@@ -426,13 +429,15 @@ export function RoomPlan({
         {layout.placed.length
           ? `Проверено вариантов расстановки: ${layout.alternativesEvaluated}. Крупные предметы располагаются вдоль стен, стол - в свободной центральной зоне. `
           : 'Предметы пока не размещены. Уточните их габариты и замечания ниже. '}
-        {layout.reservationSource === 'geometry' && hasOpenings
-          ? `Двери и окна взяты из подтверждённой 2D-схемы; суммарная длина свободных участков стен — ${layout.freeWallCm} см.`
-          : layout.reservationSource === 'geometry'
-            ? `Подтверждённая 2D-схема не содержит проёмов на границах этой комнаты; суммарная длина свободных участков стен — ${layout.freeWallCm} см.`
-            : hasOpenings
-              ? `Из описания учтены только участки с указанными размерами и положением. Суммарные ${layout.freeWallCm} см свободных участков стен - предварительная оценка; недостающие сведения перечислены ниже.`
-              : `Проёмы не заданы полностью. Суммарные ${layout.freeWallCm} см свободных участков стен - предварительная оценка.`}
+        {layout.projectedContour
+          ? `Проёмы перенесены как проектные предложения и требуют сверки. Свободные участки стен (${layout.freeWallCm} см) оценены по текущей схеме.`
+          : layout.reservationSource === 'geometry' && hasOpenings
+            ? `Двери и окна взяты из подтверждённой 2D-схемы; суммарная длина свободных участков стен — ${layout.freeWallCm} см.`
+            : layout.reservationSource === 'geometry'
+              ? `Подтверждённая 2D-схема не содержит проёмов на границах этой комнаты; суммарная длина свободных участков стен — ${layout.freeWallCm} см.`
+              : hasOpenings
+                ? `Из описания учтены только участки с указанными размерами и положением. Суммарные ${layout.freeWallCm} см свободных участков стен - предварительная оценка; недостающие сведения перечислены ниже.`
+                : `Проёмы не заданы полностью. Суммарные ${layout.freeWallCm} см свободных участков стен - предварительная оценка.`}
         {canEdit && layout.placed.length > 0
           ? ' Предмет на схеме можно перетащить мышкой или пальцем и повернуть кнопкой ↻. Свободное место подсвечивается сразу, а после отпускания ещё раз строго проверяется и сохраняется.'
           : ''}
@@ -622,7 +627,12 @@ export function RoomPlan({
           </p>
           <div className="mt-3">
             {layout.placementInputs.map((item) => (
-              <ItemPlacementForm key={item.id} {...item} itemId={item.id} />
+              <ItemPlacementForm
+                key={item.id}
+                {...item}
+                itemId={item.id}
+                projectedContour={layout.projectedContour}
+              />
             ))}
           </div>
         </details>

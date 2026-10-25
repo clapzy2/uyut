@@ -27,6 +27,21 @@ describe('footprintCm', () => {
 })
 
 describe('checkFit', () => {
+  it('не использует старые мерки для отдельно выбранного проектного контура', () => {
+    expect(
+      checkFit(
+        { width: 400, depth: 90, height: 300 },
+        {
+          widthCm: 100,
+          depthCm: 100,
+          ceilingCm: 200,
+          spots: [{ name: 'Старый простенок', widthCm: 50 }],
+          projectedContour: { version: 1 },
+        },
+      ),
+    ).toEqual({ state: 'unknown', reason: 'roomDimensions' })
+  })
+
   it('молчим, когда нечего сравнивать', () => {
     expect(checkFit({ width: 120, depth: 45, height: 80 }, { spots: [] }).state).toBe('unknown')
     expect(checkFit(undefined, { spots })).toMatchObject({
