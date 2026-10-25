@@ -190,6 +190,20 @@ describe('buildTemplatePlan', () => {
       fetchMock.mockRestore()
     }
   })
+  it('LLM разрешает сменить отделку готовой комнаты, сохраняя проёмы', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+    try {
+      await createFalLlmPromptBuilder('test-key').build(brief({ condition: 'finished' }), 1)
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+      expect(body.prompt).toContain('отделку и мебель можно менять')
+      expect(body.prompt).toContain('Сохраняем форму комнаты, окна, двери')
+      expect(body.prompt).not.toContain('меняем только обстановку')
+    } finally {
+      fetchMock.mockRestore()
+    }
+  })
   it('просит сделать ремонт, когда отделка черновая', () => {
     const plan = buildTemplatePlan(brief(), 5)
     expect(plan.source).toBe('template')

@@ -8,6 +8,29 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 vi.mock('@/components/plan-volume-launch', () => ({ PlanVolumeLaunch: () => null }))
 
 describe('подписи дробных мерок на схеме комнаты', () => {
+  it('не обещает стол, когда на схеме размещены только кровать и шкаф', () => {
+    const layout = layoutRoom({ widthCm: 440, depthCm: 320 }, [
+      {
+        id: 'bed',
+        title: 'Кровать',
+        category: 'bed',
+        quantity: 1,
+        dimensions: { width: 174, depth: 222 },
+      },
+      {
+        id: 'wardrobe',
+        title: 'Шкаф',
+        category: 'storage',
+        quantity: 1,
+        dimensions: { width: 86, depth: 54 },
+      },
+    ])
+    expect(layout.placed).toHaveLength(2)
+    const html = renderToStaticMarkup(createElement(RoomPlan, { layout, projectId: 'project' }))
+    expect(html).toContain('Проверено вариантов расстановки выбранных предметов')
+    expect(html).not.toContain('стол - в свободной центральной зоне')
+  })
+
   it('does not claim compared furniture arrangements when no item has known dimensions', () => {
     const layout = layoutRoom({ widthCm: 320, depthCm: 600 }, [
       {

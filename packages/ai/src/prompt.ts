@@ -464,7 +464,7 @@ function conditionLine(condition: ConceptBrief['condition']): string {
   if (condition === 'keep') {
     return 'ВАЖНО: комната остаётся как есть. Существующая отделка, мебель и техника сохраняются, меняется только то, о чём просит клиент. Отдай пустой "style" и всё внимание отдай полю "request".'
   }
-  return 'Ремонт в комнате уже сделан, меняем только обстановку.'
+  return 'Ремонт в комнате уже сделан. Сохраняем форму комнаты, окна, двери и стационарную технику; отделку и мебель можно менять.'
 }
 
 function briefForClaude(brief: ConceptBrief, count: number): string {
