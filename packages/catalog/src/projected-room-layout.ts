@@ -338,7 +338,7 @@ export function projectedLayoutWithMeasurements(
   for (const check of layout.safetyChecks) {
     if (check.status === 'checked') check.status = 'preliminary'
   }
-  if (layout.safetySummary.status !== 'blocked')
+  if (layout.safetySummary.status === 'checked' || layout.safetySummary.status === 'preliminary')
     layout.safetySummary = {
       status: 'preliminary',
       title: 'Проектная схема — требуется сверка на месте',
