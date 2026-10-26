@@ -5,8 +5,13 @@ const longDate = new Intl.DateTimeFormat('ru-RU', {
   day: 'numeric',
   month: 'long',
   year: 'numeric',
+  timeZone: 'Europe/Moscow',
 })
-const monthYear = new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numeric' })
+const monthYear = new Intl.DateTimeFormat('ru-RU', {
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'Europe/Moscow',
+})
 
 /** Неразрывные пробелы внутри чисел, чтобы «18,4 м²» и «694 250 ₽» не рвались на переносе */
 const NBSP = ' '

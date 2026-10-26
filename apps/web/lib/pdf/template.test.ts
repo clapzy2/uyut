@@ -84,6 +84,13 @@ function sample(kind: PdfData['kind']): PdfData {
 }
 
 describe('project PDF template', () => {
+  it('uses the same Moscow date as the export list across midnight', () => {
+    const data = sample('free')
+    data.generatedAt = new Date('2026-10-26T22:05:00Z')
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('Документ собран 27 октября 2026 г.')
+  })
+
   it('prints proposed source values separately from measurements and escapes source notes', () => {
     const data = sample('free')
     data.projectedPlan = {
