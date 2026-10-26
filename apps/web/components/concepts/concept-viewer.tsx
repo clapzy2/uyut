@@ -656,6 +656,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
           edited={Boolean(concept.editedRenderKey)}
           planStatus={concept.qualityPlanStatus}
           canComparePlan={Boolean(data.plan)}
+          planUnconfirmed={Boolean(data.plan && !data.plan.architecture)}
         />
         {concept.note && !concept.editedRenderKey ? (
           <p className="mt-4 border-l-2 border-line-strong pl-4 text-[15px] leading-relaxed text-ink-2">

@@ -120,6 +120,57 @@ describe('concept and product explanations', () => {
     )
     expect(html).toContain('с исходным планом или фото комнаты')
     expect(html).not.toContain('разделе «Сверить концепт с планом»')
+    expect(html).not.toContain('Соответствие концепта плану не проверено')
+  })
+
+  it('shows the unconfirmed-plan warning for a concept linked to a draft plan', () => {
+    const html = renderToStaticMarkup(
+      createElement(ConceptViewer, {
+        data: {
+          ...data,
+          concept: {
+            ...data.concept,
+            qualityReview: {
+              version: 1,
+              status: 'checked',
+              model: 'test',
+              checkedAt: '2026-10-26T00:00:00Z',
+              description: '',
+              issues: [],
+            },
+          },
+          plan: {
+            src: '/plan.pdf',
+            isPdf: true,
+            label: 'План квартиры',
+            architecture: null,
+            sourceHash: null,
+            review: null,
+          },
+        },
+      }),
+    )
+    expect(html).toContain('Соответствие концепта плану не проверено')
+    expect(html).toContain('2D-расстановка предварительная')
+  })
+
+  it('does not call a confirmed plan unconfirmed', () => {
+    const html = renderToStaticMarkup(
+      createElement(ConceptViewer, {
+        data: {
+          ...data,
+          plan: {
+            src: '/plan.pdf',
+            isPdf: true,
+            label: 'План квартиры',
+            architecture: { shape: 'rectangular', openings: [] },
+            sourceHash: 'a'.repeat(64),
+            review: null,
+          },
+        },
+      }),
+    )
+    expect(html).not.toContain('Соответствие концепта плану не проверено')
   })
 
   it('explains the purpose of the concept before the image and purchase controls', () => {

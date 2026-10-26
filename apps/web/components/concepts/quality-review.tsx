@@ -6,29 +6,44 @@ export function QualityReview({
   edited,
   planStatus,
   canComparePlan = true,
+  planUnconfirmed = false,
 }: {
   review: ConceptQualityReview | null
   edited: boolean
   planStatus?: QualityPlanStatus | null
   canComparePlan?: boolean
+  planUnconfirmed?: boolean
 }) {
+  const planNeedsComparison = planStatus === 'changed' || planStatus === 'unlinked'
+  const unconfirmedPlanNotice = planUnconfirmed ? (
+    <p className="mt-2 text-ink">
+      Соответствие концепта плану не проверено: разметка комнаты ещё не подтверждена. 2D-расстановка
+      предварительная; сравните видимые проёмы и форму с исходником.
+    </p>
+  ) : null
+
   if (edited) {
     return (
-      <p className="mt-4 text-[14px] leading-relaxed text-ink-2">
-        Цвета обновлены; новая автосверка не выполнялась. Сверьте детали с исходным концептом.
-      </p>
+      <div className="mt-4 text-[14px] leading-relaxed text-ink-2">
+        <p>
+          Цвета обновлены; новая автосверка не выполнялась. Сверьте детали с исходным концептом.
+        </p>
+        {unconfirmedPlanNotice}
+      </div>
     )
   }
   if (!review || review.status === 'unavailable') {
     return (
-      <p className="mt-4 text-[14px] leading-relaxed text-ink-2">
-        {review
-          ? 'Автосверка сейчас недоступна. Сверьте окна и двери с исходным планом или фото.'
-          : 'Автосверка не выполнялась. Сверьте окна и двери с исходным планом или фото.'}
-      </p>
+      <div className="mt-4 text-[14px] leading-relaxed text-ink-2">
+        <p>
+          {review
+            ? 'Автосверка сейчас недоступна. Сверьте окна и двери с исходным планом или фото.'
+            : 'Автосверка не выполнялась. Сверьте окна и двери с исходным планом или фото.'}
+        </p>
+        {unconfirmedPlanNotice}
+      </div>
     )
   }
-  const planNeedsComparison = planStatus === 'changed' || planStatus === 'unlinked'
   const comparisonInstructions = canComparePlan
     ? 'Сравните окна, двери и контур в разделе «Сверить концепт с планом».'
     : 'Сверьте окна, двери и контур с исходным планом или фото комнаты.'
@@ -51,6 +66,7 @@ export function QualityReview({
           {comparisonInstructions}
         </p>
       ) : null}
+      {unconfirmedPlanNotice}
       {issues.length > 0 ? (
         <ul className="mt-2 list-disc space-y-1 pl-5">
           {issues.map((issue) => (
