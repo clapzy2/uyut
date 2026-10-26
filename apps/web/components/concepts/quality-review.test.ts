@@ -71,6 +71,37 @@ describe('concept quality explanation', () => {
     expect(html).toContain('по плану и меркам')
   })
 
+  it('keeps an unconfirmed plan visible beside a completed image review', () => {
+    const html = renderToStaticMarkup(
+      createElement(QualityReview, {
+        review: reviewed,
+        edited: false,
+        planUnconfirmed: true,
+      }),
+    )
+    const outsideDetails = html.replace(/<details\b[^>]*>[\s\S]*?<\/details>/g, '')
+    expect(outsideDetails).toContain('Соответствие концепта плану не проверено')
+    expect(outsideDetails).toContain('2D-расстановка предварительная')
+    expect(outsideDetails).toContain('Автосверка не нашла замечаний')
+  })
+
+  it('does not show the unconfirmed-plan notice without that evidence state', () => {
+    const html = render(reviewed)
+    expect(html).not.toContain('Соответствие концепта плану не проверено')
+  })
+
+  it('also shows the plan warning when image review is unavailable or edited', () => {
+    for (const [review, edited] of [
+      [null, false],
+      [reviewed, true],
+    ] as const) {
+      const html = renderToStaticMarkup(
+        createElement(QualityReview, { review, edited, planUnconfirmed: true }),
+      )
+      expect(html).toContain('Соответствие концепта плану не проверено')
+    }
+  })
+
   it('keeps every reported issue visible outside the collapsed methodology', () => {
     const html = render({
       ...reviewed,
