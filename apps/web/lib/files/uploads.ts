@@ -1,5 +1,5 @@
 import sharp from 'sharp'
-import { detectFileKind, type FileKind, isImageKind } from './detect'
+import { detectFileKind, type FileKind, isHeicFile, isImageKind } from './detect'
 import { PHOTO_MAX_BYTES, PLAN_MAX_BYTES, tooLargeMessage } from './rules'
 
 const PLAN_MAX_SIDE = 4000
@@ -63,6 +63,15 @@ export async function preparePhoto(file: File): Promise<PreparedUpload> {
   const bytes = await readFile(file, PHOTO_MAX_BYTES, 'Выберите файл с фото.')
   const kind = detectFileKind(bytes)
   if (!isImageKind(kind)) {
+    if (
+      isHeicFile(bytes) ||
+      /\.(heic|heif)$/i.test(file.name) ||
+      /^image\/hei[cf]$/i.test(file.type)
+    ) {
+      throw new UploadError(
+        'Фото в формате HEIC пока не поддерживается. Сохраните его как JPG или PNG и загрузите снова.',
+      )
+    }
     throw new UploadError('Это не похоже на JPG, PNG или WebP. Попробуйте другой файл.')
   }
   try {
