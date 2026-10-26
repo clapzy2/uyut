@@ -219,12 +219,12 @@ export async function matchesForObject(
   const matches = await Promise.all(
     items.slice(0, MATCHES).map((item) => toMatch(item, window, limits)),
   )
-  const best = matches[0]?.similarity ?? 0
   // Ниже порога не показываем ничего. Детектор не умеет отвечать «такого предмета здесь нет»,
   // и выдуманный ковёр тянул за собой коврик в салон автомобиля. Пустота честнее.
   if (matches.length === 0) {
     return { matches: [], window, styleOnly: false }
   }
+  const best = Math.max(...matches.map((match) => match.similarity))
   return { matches, window, styleOnly: best < MATCH_CONFIDENCE_THRESHOLD }
 }
 
