@@ -1,4 +1,4 @@
-import { FalError, falQueue } from '@uyut/ai'
+import { downloadFalFile, FalError, falQueue } from '@uyut/ai'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const endpoint = 'fal-ai/test'
@@ -192,5 +192,53 @@ describe('проверка ответов очереди fal', () => {
     await vi.advanceTimersByTimeAsync(3000)
     await rejection
     expect(fetchMock.mock.calls.filter((call) => call[1]?.method === 'POST')).toHaveLength(1)
+  })
+})
+
+describe('получение готового файла без повторного рендера', () => {
+  it('повторяет GET после разрыва соединения и сохраняет готовые байты', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new TypeError('network connection reset'))
+      .mockResolvedValueOnce(new Response('rendered', { headers: { 'content-type': 'image/png' } }))
+
+    const file = await downloadFalFile('https://files.example/render.png')
+    expect(file.body.toString()).toBe('rendered')
+    expect(file.contentType).toBe('image/png')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(
+      fetchMock.mock.calls.every((call) => call[0] === 'https://files.example/render.png'),
+    ).toBe(true)
+    expect(fetchMock.mock.calls.every((call) => call[1]?.method !== 'POST')).toBe(true)
+  })
+
+  it('повторяет скачивание, если соединение оборвалось при чтении тела', async () => {
+    const incomplete = new Response('incomplete')
+    vi.spyOn(incomplete, 'arrayBuffer').mockRejectedValue(new TypeError('body connection reset'))
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(incomplete)
+      .mockResolvedValueOnce(new Response('complete'))
+
+    await expect(downloadFalFile('https://files.example/render.png')).resolves.toMatchObject({
+      body: Buffer.from('complete'),
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('не повторяет постоянную ошибку и ограничивает временные сбои тремя попытками', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 404 }))
+    await expect(downloadFalFile('https://files.example/missing.png')).rejects.toEqual(
+      new FalError('файл не скачался (404)'),
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    fetchMock.mockReset().mockResolvedValue(new Response(null, { status: 503 }))
+    await expect(downloadFalFile('https://files.example/unavailable.png')).rejects.toEqual(
+      new FalError('файл не скачался (503)'),
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 })

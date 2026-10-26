@@ -224,6 +224,35 @@ function render(
 }
 
 describe('plan review form', () => {
+  it('flags a missing balcony access description without assigning the doorway to a room', () => {
+    const living: PlanReading['rooms'][number] = {
+      name: 'Жилая комната №1',
+      kind: 'living',
+      sourceNumber: 4,
+      layoutNotes: 'Окно сверху, дверной проём справа.',
+    }
+    const balcony: PlanReading['rooms'][number] = {
+      name: 'Балкон',
+      kind: 'living',
+      spaceKind: 'balcony',
+      sourceNumber: 8,
+      utility: true,
+    }
+    const rooms = [living, balcony]
+    const missing = render({ readAt: '2026-10-26', rooms })
+    expect(missing).toContain('в описаниях внутренних комнат не указан выход')
+    expect(missing).toContain('Сама строка балкона не доказывает')
+
+    const reviewed = render({
+      readAt: '2026-10-26',
+      rooms: [{ ...living, layoutNotes: 'Окно сверху, балконная дверь слева.' }, balcony],
+    })
+    expect(reviewed).not.toContain('в описаниях внутренних комнат не указан выход')
+    expect(render({ readAt: '2026-10-26', rooms: [living] })).not.toContain(
+      'в описаниях внутренних комнат не указан выход',
+    )
+  })
+
   it('keeps a bathroom as a reference row without requiring missing dimensions for furnishing', () => {
     const html = render({
       readAt: '2026-10-25T00:00:00.000Z',
