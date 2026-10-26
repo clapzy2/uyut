@@ -54,12 +54,19 @@ export const mvpRoomKinds = [
 ] as const satisfies readonly RoomKind[]
 
 const areaFormat = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 })
-const dateFormat = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' })
+const dateTimeZone = 'Europe/Moscow'
+const dateFormat = new Intl.DateTimeFormat('ru-RU', {
+  day: 'numeric',
+  month: 'long',
+  timeZone: dateTimeZone,
+})
 const dateWithYearFormat = new Intl.DateTimeFormat('ru-RU', {
   day: 'numeric',
   month: 'long',
   year: 'numeric',
+  timeZone: dateTimeZone,
 })
+const yearFormat = new Intl.DateTimeFormat('ru-RU', { year: 'numeric', timeZone: dateTimeZone })
 
 /** Подпись мерки без округления до сантиметра и без хвоста двоичной арифметики. */
 export function formatDimensionCm(value: number): string {
@@ -98,7 +105,7 @@ export function pluralRooms(count: number): string {
 }
 
 export function formatDate(date: Date, now = new Date()): string {
-  return date.getFullYear() === now.getFullYear()
+  return yearFormat.format(date) === yearFormat.format(now)
     ? dateFormat.format(date)
     : dateWithYearFormat.format(date)
 }

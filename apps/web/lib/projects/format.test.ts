@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatArea, formatDimensionCm, pluralRooms, projectMeta } from './format'
+import { formatArea, formatDate, formatDimensionCm, pluralRooms, projectMeta } from './format'
 
 describe('project formatting', () => {
   it('сохраняет дробные мерки в подписи, убирая только машинный шум', () => {
@@ -21,6 +21,15 @@ describe('project formatting', () => {
     expect(formatArea(18.5)).toBe('18,5 м²')
     expect(formatArea(54)).toBe('54 м²')
     expect(formatArea(null)).toBeNull()
+  })
+
+  it('shows export dates in Moscow time across midnight and New Year', () => {
+    expect(formatDate(new Date('2026-10-26T22:05:00Z'), new Date('2026-10-26T22:10:00Z'))).toBe(
+      '27 октября',
+    )
+    expect(formatDate(new Date('2026-12-31T22:30:00Z'), new Date('2026-12-31T21:30:00Z'))).toBe(
+      '1 января',
+    )
   })
 
   it('skips missing facts in the meta line', () => {

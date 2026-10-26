@@ -255,11 +255,15 @@ export const indexCatalog = schedules.task({
         : null
     const health = await countItems(db())
     logger.info('catalog health', health)
+    const gdeslonReport = gdeslon.ok
+      ? gdeslon.output
+      : { status: 'failed' as const, reason: 'Задача обновления не завершилась' }
+    if (gdeslonReport.status === 'failed') {
+      throw new Error('Ночное обновление Gdeslon не завершено; прежний каталог сохранён')
+    }
     return {
       feeds,
-      gdeslon: gdeslon.ok
-        ? gdeslon.output
-        : { status: 'failed', reason: 'Задача обновления не завершилась' },
+      gdeslon: gdeslonReport,
       embedded: embedded?.ok ? embedded.output : null,
       health,
     }
