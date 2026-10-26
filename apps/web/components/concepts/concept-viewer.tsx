@@ -43,7 +43,10 @@ function ObjectChip({
       onBlur={() => onHover(false)}
       aria-label={`${object.orderIndex + 1}. ${objectLabel(object.label, object.category)}`}
       aria-pressed={selected}
-      style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
+      style={{
+        left: `clamp(22px, ${point.x * 100}%, calc(100% - 22px))`,
+        top: `clamp(22px, ${point.y * 100}%, calc(100% - 22px))`,
+      }}
       className="group absolute z-20 grid h-11 min-w-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full"
     >
       <span

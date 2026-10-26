@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { detectFileKind, isImageKind } from './detect'
+import { detectFileKind, isHeicFile, isImageKind } from './detect'
 
 function bytes(...values: number[]): Uint8Array {
   return Uint8Array.from(values)
@@ -40,5 +40,12 @@ describe('detectFileKind', () => {
     expect(isImageKind('pdf')).toBe(false)
     expect(isImageKind('webp')).toBe(true)
     expect(isImageKind(null)).toBe(false)
+  })
+
+  it('identifies HEIC by its file brands without confusing AVIF with it', () => {
+    expect(isHeicFile(bytes(0, 0, 0, 24, ...text('ftypmif1'), 0, 0, 0, 0, ...text('heic')))).toBe(
+      true,
+    )
+    expect(isHeicFile(bytes(0, 0, 0, 16, ...text('ftypavif'), 0, 0, 0, 0))).toBe(false)
   })
 })

@@ -23,7 +23,7 @@ import {
 import { resumeGenerationRun } from '@/lib/concepts/resume-run'
 import { PHOTO_ACCEPT, PHOTO_LIMIT_TEXT, PHOTO_MAX_BYTES } from '@/lib/files/rules'
 import { NotFoundError, ProjectClosedError } from '@/lib/projects/access'
-import { fileNameFromKey, formatArea, roomKindLabels } from '@/lib/projects/format'
+import { formatArea, roomKindLabels } from '@/lib/projects/format'
 import { planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { getRoom } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
@@ -145,9 +145,7 @@ export default async function RoomPage({ params }: { params: Params }) {
                 <img src={photoUrl} alt={`Фото: ${room.name}`} className="block w-full" />
               </div>
               <div className="mt-3 flex flex-wrap items-baseline justify-between gap-3">
-                <span className="font-mono text-[13px] text-ink-2">
-                  {fileNameFromKey(room.photoUrl ?? '')}
-                </span>
+                <span className="text-[13px] text-ink-2">Фото комнаты сохранено</span>
                 {isOwner ? (
                   <FileUploader
                     inputId="photo"
@@ -161,6 +159,7 @@ export default async function RoomPage({ params }: { params: Params }) {
                   />
                 ) : null}
               </div>
+              {isOwner ? <p className="mt-1 text-[13px] text-ink-2">{PHOTO_LIMIT_TEXT}.</p> : null}
             </>
           ) : (
             <>
