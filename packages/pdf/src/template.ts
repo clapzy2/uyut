@@ -815,10 +815,7 @@ function roomPage(room: PdfRoom, index: number, free: boolean): string {
   const meta = [`Комната ${index + 1}`, formatArea(room.areaM2), room.conditionLabel].filter(
     Boolean,
   )
-  const twoColumns =
-    room.objects.length <= 6 &&
-    room.objects.every((object) => (object.product ?? object.category).length <= 64) &&
-    (room.note?.length ?? 0) <= 220
+  const twoColumns = room.objects.length <= 6 && (room.note?.length ?? 0) <= 220
   return `
   <section class="page room-page${twoColumns ? ' room-page--two-columns' : ''}">
     ${ribbon(free)}

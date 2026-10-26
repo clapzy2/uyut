@@ -204,6 +204,7 @@ export default async function RoomPage({ params }: { params: Params }) {
                 ({ roomIndex, name, sourceNumbers }) => ({ roomIndex, name, sourceNumbers }),
               )}
               binding={room.measurements?.projectedContour}
+              hasPhoto={Boolean(room.photoUrl)}
             />
           ) : null}
           {isOwner ? (

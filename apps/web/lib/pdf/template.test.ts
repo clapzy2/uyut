@@ -295,7 +295,10 @@ describe('project PDF template', () => {
     room.objects = Array.from({ length: 6 }, (_, index) => ({
       index: index + 1,
       category: `Предмет ${index + 1}`,
-      product: null,
+      product:
+        index === 1
+          ? 'Диван прямой «Лига - 080», ППУ, механизм еврокнижка, рогожка, цвет бежевый'
+          : null,
       priceKopecks: null,
     }))
 
@@ -303,6 +306,7 @@ describe('project PDF template', () => {
     expect(html).toContain('<section class="page room-page room-page--two-columns">')
     expect(html).toContain('.room-page--two-columns .cols { display: grid; }')
     expect(html).toContain('Предмет 6')
+    expect(html).toContain('Лига - 080')
   })
 
   it('не показывает накопленный числовой хвост многокомнатного контура', () => {
