@@ -91,12 +91,27 @@ export function toDataUri(image: { body: Buffer; contentType: string }): string 
 }
 
 export async function downloadFalFile(url: string): Promise<{ body: Buffer; contentType: string }> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new FalError(`файл не скачался (${response.status})`)
+  // The render is already paid for when its file URL arrives. Retry only this GET so a
+  // dropped connection cannot turn a completed render into a failed concept.
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(60_000) })
+      if (!response.ok) {
+        const retryable =
+          response.status === 408 || response.status === 429 || response.status >= 500
+        if (!retryable || attempt === 3) {
+          throw new FalError(`файл не скачался (${response.status})`)
+        }
+      } else {
+        return {
+          body: Buffer.from(await response.arrayBuffer()),
+          contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+        }
+      }
+    } catch (error) {
+      if (error instanceof FalError || attempt === 3) throw error
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300 * attempt))
   }
-  return {
-    body: Buffer.from(await response.arrayBuffer()),
-    contentType: response.headers.get('content-type') ?? 'application/octet-stream',
-  }
+  throw new FalError('файл не скачался')
 }

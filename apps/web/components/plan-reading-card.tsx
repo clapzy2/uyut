@@ -737,6 +737,9 @@ export function PlanReadingCard({
   const missingSourceRows = (activeReading?.pageReview?.sourceRooms ?? []).filter(
     (room) => !rows.some((row) => row.sourceNumber === room.sourceNumber),
   )
+  const outdoorAccessNeedsReview =
+    rows.some((row) => row.spaceKind === 'balcony' || row.spaceKind === 'loggia') &&
+    !rows.some((row) => row.include && /балкон|лоджи/iu.test(row.layoutNotes))
   const sourceSheetUrl =
     planSourceUrl && planIsPdf
       ? `${planSourceUrl}#page=${activeReading?.sourcePage ?? 1}`
@@ -774,6 +777,13 @@ export function PlanReadingCard({
         размеры оставьте пустыми. Черновую 2D-схему можно сохранить отдельно; точную проверку
         размещения мебели и проходов выполняйте только после сверки контуров и обмеров.
       </p>
+      {outdoorAccessNeedsReview ? (
+        <p className="mt-3 border-l-2 border-accent pl-3 text-[14px] leading-relaxed text-ink-2">
+          Балкон или лоджия найдены, но в описаниях внутренних комнат не указан выход к ним. Сверьте
+          дверь на исходном листе и дополните описание нужной комнаты перед его подтверждением. Сама
+          строка балкона не доказывает, из какой комнаты есть выход.
+        </p>
+      ) : null}
 
       <div className="mt-4 space-y-3 border-l-2 border-accent pl-4 text-[14px] leading-relaxed text-ink-2">
         <p>
