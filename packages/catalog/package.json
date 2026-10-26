@@ -9,6 +9,7 @@
     "./plan-delivery-record": "./src/plan-delivery-record.ts",
     "./freshness": "./src/freshness.ts",
     "./shopping-offer": "./src/shopping-offer.ts",
+    "./product-image": "./src/product-image.ts",
     "./item-size": "./src/item-size.ts",
     "./layout": "./src/layout.ts",
     "./layout-with-measurements": "./src/layout-with-measurements.ts",

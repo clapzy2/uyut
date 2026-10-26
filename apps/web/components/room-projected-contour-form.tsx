@@ -10,11 +10,13 @@ export function RoomProjectedContourForm({
   geometryKey,
   options,
   binding,
+  hasPhoto,
 }: {
   roomId: string
   geometryKey: string | null
   options: Array<{ roomIndex: number; name: string; sourceNumbers: number[] }>
   binding?: RoomMeasurements['projectedContour']
+  hasPhoto: boolean
 }) {
   const router = useRouter()
   const current =
@@ -71,7 +73,7 @@ export function RoomProjectedContourForm({
       {binding ? (
         <p role="status" className="mt-3 text-sm text-ink">
           {current
-            ? `Связана область «${current.name}», № ${current.sourceNumbers.join('+')}, PDF, страница ${binding.pdfPage}.`
+            ? `Для предварительной расстановки выбрана область «${current.name}», № ${current.sourceNumbers.join('+')}, PDF, страница ${binding.pdfPage}. ${hasPhoto ? 'Это выбор владельца; совпадение с фото не подтверждено автоматически.' : ''}`
             : 'Связь с проектным контуром устарела. Расстановка по прежним меркам вместо него не строится. Сверьте область и сохраните связь заново.'}
         </p>
       ) : (
@@ -115,7 +117,9 @@ export function RoomProjectedContourForm({
               onChange={(event) => setReviewed(event.target.checked)}
               className="mt-1 accent-accent"
             />
-            Понимаю, что это проектная расстановка, а не подтверждённый обмер
+            {hasPhoto
+              ? 'Сверил(а) видимые стены и проёмы на фото с выбранной областью PDF. Понимаю, что это проектная расстановка, а не подтверждённый обмер.'
+              : 'Понимаю, что это проектная расстановка, а не подтверждённый обмер'}
           </label>
           <button
             type="submit"

@@ -17,6 +17,7 @@ import {
 } from '@uyut/catalog/plan-projected-vertical-evidence'
 import { inspectPlanThresholdSurfaces } from '@uyut/catalog/plan-threshold-geometry'
 import { signedPlanFloors } from '@uyut/catalog/plan-vertical-floor-geometry'
+import { orderedImages } from '@uyut/catalog/product-image'
 import { layoutWithMeasurements } from '@uyut/catalog/reviewed-layout-with-measurements'
 import { shoppingOffer } from '@uyut/catalog/shopping-offer'
 import {
@@ -149,6 +150,18 @@ export async function pdfImage(
     console.warn('pdf image skipped', source, String(error))
     return null
   }
+}
+
+/** В PDF берём первую доступную картинку: партнёрская копия иногда не отвечает. */
+export async function pdfImageFromSources(
+  sources: readonly (string | null | undefined)[],
+  width: number,
+): Promise<PdfImage | null> {
+  for (const source of new Set(sources.filter((value): value is string => Boolean(value)))) {
+    const image = await pdfImage(source, width)
+    if (image) return image
+  }
+  return null
 }
 
 type ShoppingRow = {
@@ -656,7 +669,10 @@ export async function buildPdfData(input: {
       ]
         .filter(Boolean)
         .join(' · '),
-      image: await pdfImage(offer.variant?.imageUrl ?? row.product.images[0]?.url, 360),
+      image: await pdfImageFromSources(
+        [offer.variant?.imageUrl, ...orderedImages(row.product.images)],
+        360,
+      ),
       affiliateUrl: offer.variant?.affiliateUrl ?? row.product.affiliateUrl,
       quantity: row.item.quantity,
       priceKopecks: price,
