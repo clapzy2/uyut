@@ -9,11 +9,12 @@ import {
   saveEmbeddings,
   upsertFeedItems,
 } from '@uyut/catalog'
-import { auditLog, catalogItems, projects, users } from '@uyut/db'
+import { auditLog, type ConceptObject, catalogItems, projects, users } from '@uyut/db'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runTool } from '@/lib/chat/tools'
 import { getDb } from '@/lib/db'
+import { matchesForObject } from './objects'
 
 // Единичные векторы по разным осям: косинус между ними ноль, с самим собой единица
 function axis(index: number): number[] {
@@ -157,6 +158,82 @@ describe('catalog in a real database', () => {
       limit: 20,
     })
     expect(own(excluding)).toEqual([])
+  })
+
+  it('оценивает подборку по лучшему совпадению, даже если товар выше бюджета стоит после дешёвого', async () => {
+    const db = getDb()
+    const prefix = `it-budget-order-${randomUUID()}`
+    const cheapId = `${prefix}-cheap`
+    const strongId = `${prefix}-strong`
+    const query = axis(1000)
+    const similarToQuery = (similarity: number) => {
+      const vector = new Array<number>(EMBEDDING_DIMENSIONS).fill(0)
+      vector[1000] = similarity
+      vector[1001] = Math.sqrt(1 - similarity ** 2)
+      return vector
+    }
+
+    try {
+      await upsertFeedItems(db, [
+        {
+          source: SOURCE,
+          externalId: cheapId,
+          category: 'sofa',
+          title: 'Диван в бюджете',
+          priceKopecks: 30_000_00,
+          affiliateUrl: 'https://shop/cheap',
+          images: [],
+          inStock: true,
+        },
+        {
+          source: SOURCE,
+          externalId: strongId,
+          category: 'sofa',
+          title: 'Диван с точным сходством',
+          priceKopecks: 90_000_00,
+          affiliateUrl: 'https://shop/strong',
+          images: [],
+          inStock: true,
+        },
+      ])
+      const rows = (await db.select().from(catalogItems)).filter((row) =>
+        [cheapId, strongId].includes(row.externalId),
+      )
+      await saveEmbeddings(
+        db,
+        rows.map((row) => ({
+          id: row.id,
+          imageEmbedding: similarToQuery(row.externalId === cheapId ? 0.46 : 0.8),
+          textEmbedding: null,
+          hash: row.contentHash,
+        })),
+      )
+
+      const object = {
+        category: 'sofa',
+        label: 'диван',
+        embedding: query,
+        editedEmbedding: null,
+      } as ConceptObject
+      const withStrong = await matchesForObject(object, 200_000_00)
+      expect(withStrong.matches.map((match) => match.title)).toEqual([
+        'Диван в бюджете',
+        'Диван с точным сходством',
+      ])
+      expect(withStrong.styleOnly).toBe(false)
+
+      await db
+        .update(catalogItems)
+        .set({ inStock: false })
+        .where(eq(catalogItems.externalId, strongId))
+      const onlyWeak = await matchesForObject(object, 200_000_00)
+      expect(onlyWeak.matches.map((match) => match.title)).toEqual(['Диван в бюджете'])
+      expect(onlyWeak.styleOnly).toBe(true)
+    } finally {
+      for (const externalId of [cheapId, strongId]) {
+        await db.delete(catalogItems).where(eq(catalogItems.externalId, externalId))
+      }
+    }
   })
 
   it('считает записи с векторами', async () => {
