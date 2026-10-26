@@ -370,6 +370,11 @@ function MatchesPanel({
 export function ConceptViewer({ data }: { data: ConceptPageData }) {
   const router = useRouter()
   const { concept, objects } = data
+  const conceptNote = concept.qualityReview?.issues.some(
+    (issue) => issue.code === 'opening_conflict',
+  )
+    ? 'Автопроверка отметила возможное расхождение окон и дверей. Сверьте вариант с исходным фото.'
+    : concept.note
   const canEdit = data.role === 'owner'
   const [selectedId, setSelectedId] = useState<string | null>(objects[0]?.id ?? null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
@@ -658,9 +663,9 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
           canComparePlan={Boolean(data.plan)}
           planUnconfirmed={Boolean(data.plan && !data.plan.architecture)}
         />
-        {concept.note && !concept.editedRenderKey ? (
+        {conceptNote && !concept.editedRenderKey ? (
           <p className="mt-4 border-l-2 border-line-strong pl-4 text-[15px] leading-relaxed text-ink-2">
-            {concept.note}
+            {conceptNote}
           </p>
         ) : null}
         {concept.editedRenderKey ? (

@@ -603,7 +603,9 @@ export async function buildPdfData(input: {
         render,
         before,
         alternates: alternates.filter((alt): alt is PdfImage & { caption: string } => alt !== null),
-        note: clampText(entry?.main.note ?? null, 330),
+        note: entry?.main.qualityReview?.issues.some((issue) => issue.code === 'opening_conflict')
+          ? 'Автопроверка отметила возможное расхождение окон и дверей. Сверьте вариант с исходным фото.'
+          : clampText(entry?.main.note ?? null, 330),
         objects: (entry ? (snapshot.objects.get(room.id) ?? []) : []).map((object) => ({
           index: object.index,
           category: detectedObjectLabel(object.label, categoryLabels[object.category]),

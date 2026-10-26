@@ -97,6 +97,8 @@ const CSS = `
   .room-page .objects { display: block; margin-top: 5mm; }
   .room-page .objects .row { margin-top: 2.2mm; break-inside: avoid; }
   .room-page .objects .row > :nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
+  .room-page--two-columns .cols { display: grid; }
+  .room-page--two-columns .objects { margin-top: 0; }
   .plan { margin-top: 2mm; }
   /* Высота ограничена страницей: у комнаты 220 на 600 см чертёж в натуральных пропорциях
      выезжал за поле и обрезался вместе со строкой «проход 65 см», которую и надо было прочесть */
@@ -813,8 +815,12 @@ function roomPage(room: PdfRoom, index: number, free: boolean): string {
   const meta = [`Комната ${index + 1}`, formatArea(room.areaM2), room.conditionLabel].filter(
     Boolean,
   )
+  const twoColumns =
+    room.objects.length <= 6 &&
+    room.objects.every((object) => (object.product ?? object.category).length <= 64) &&
+    (room.note?.length ?? 0) <= 220
   return `
-  <section class="page room-page">
+  <section class="page room-page${twoColumns ? ' room-page--two-columns' : ''}">
     ${ribbon(free)}
     <div>
       <p class="eyebrow">${esc(meta.join(' · '))}</p>

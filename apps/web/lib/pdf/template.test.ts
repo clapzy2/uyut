@@ -288,6 +288,23 @@ describe('project PDF template', () => {
     },
   )
 
+  it('ставит короткий список из шести предметов рядом с идеей комнаты', () => {
+    const data = sample('free')
+    const room = data.rooms[0]
+    if (!room) throw new Error('Нет тестовой комнаты')
+    room.objects = Array.from({ length: 6 }, (_, index) => ({
+      index: index + 1,
+      category: `Предмет ${index + 1}`,
+      product: null,
+      priceKopecks: null,
+    }))
+
+    const html = renderProjectHtml(data, { fontCss: '' })
+    expect(html).toContain('<section class="page room-page room-page--two-columns">')
+    expect(html).toContain('.room-page--two-columns .cols { display: grid; }')
+    expect(html).toContain('Предмет 6')
+  })
+
   it('не показывает накопленный числовой хвост многокомнатного контура', () => {
     const width = 96.0999999999999
     expect(formatDimensionCm(width)).toBe('96.1')
