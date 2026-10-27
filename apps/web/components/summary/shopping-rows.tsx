@@ -38,10 +38,12 @@ function Row({
   item,
   readOnly,
   hasGeometryLayout,
+  fromPreviousPhoto,
 }: {
   item: ShoppingItemView
   readOnly: boolean
   hasGeometryLayout: boolean
+  fromPreviousPhoto: boolean
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
@@ -106,6 +108,12 @@ function Row({
           {item.title}
         </a>
         <span className="block text-[13px] leading-relaxed text-ink-2">{meta.join(' · ')}</span>
+        {fromPreviousPhoto ? (
+          <span className="block text-[12px] leading-relaxed text-ink-2">
+            Товар выбран из варианта по прежнему фото комнаты. Сверьте его с новым снимком перед
+            покупкой.
+          </span>
+        ) : null}
         {item.variant?.swatchId ? (
           <span className="block text-[12px] text-ink-2">
             Цвет — пожелание из концепта. Наличие этой ткани и цену уточните в магазине.
@@ -189,12 +197,15 @@ export function ShoppingRows({
   items,
   projectId,
   geometryRoomIds = [],
+  previousPhotoItemIds = [],
   readOnly = false,
 }: {
   items: ShoppingItemView[]
   projectId: string
   /** Комнаты, для которых расстановка уже рассчитана по подтверждённому 2D-контуру. */
   geometryRoomIds?: string[]
+  /** Товары из вариантов, созданных до замены фото комнаты. */
+  previousPhotoItemIds?: string[]
   /** Второй участник видит список, но не меняет его */
   readOnly?: boolean
 }) {
@@ -220,6 +231,7 @@ export function ShoppingRows({
     )
   }
   const geometryRooms = new Set(geometryRoomIds)
+  const previousPhotoItems = new Set(previousPhotoItemIds)
   return (
     <div className="flex flex-col gap-8">
       {groupByRoom(items).map((group) => (
@@ -234,6 +246,7 @@ export function ShoppingRows({
                 item={item}
                 readOnly={readOnly}
                 hasGeometryLayout={item.roomId !== null && geometryRooms.has(item.roomId)}
+                fromPreviousPhoto={previousPhotoItems.has(item.id)}
               />
             ))}
           </ul>

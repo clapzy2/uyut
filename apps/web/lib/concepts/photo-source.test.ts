@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isFromPreviousPhoto } from './photo-source'
+import { isFromPreviousPhoto, shoppingItemsFromPreviousPhoto } from './photo-source'
 
 describe('isFromPreviousPhoto', () => {
   it('does not label legacy concepts while the original photo remains', () => {
@@ -14,5 +14,35 @@ describe('isFromPreviousPhoto', () => {
   it('keeps concepts from the current photo unmarked', () => {
     expect(isFromPreviousPhoto(1, 1)).toBe(false)
     expect(isFromPreviousPhoto(2, 2)).toBe(false)
+  })
+})
+
+describe('shoppingItemsFromPreviousPhoto', () => {
+  it('marks only products selected from concepts built before this room photo', () => {
+    const items = [
+      { id: 'old', conceptObjectId: 'old-object' },
+      { id: 'current', conceptObjectId: 'current-object' },
+      { id: 'manual', conceptObjectId: null },
+      { id: 'unresolved', conceptObjectId: 'missing-object' },
+    ]
+    const objectConcepts = [
+      { id: 'old-object', conceptId: 'old-concept' },
+      { id: 'current-object', conceptId: 'current-concept' },
+    ]
+    const concepts = [
+      { id: 'old-concept', roomId: 'living', sourcePhotoRevision: null },
+      { id: 'current-concept', roomId: 'living', sourcePhotoRevision: 1 },
+    ]
+
+    expect(
+      shoppingItemsFromPreviousPhoto(items, objectConcepts, concepts, [
+        { id: 'living', photoRevision: 1 },
+      ]),
+    ).toEqual(['old'])
+    expect(
+      shoppingItemsFromPreviousPhoto(items, objectConcepts, concepts, [
+        { id: 'living', photoRevision: 0 },
+      ]),
+    ).toEqual([])
   })
 })
