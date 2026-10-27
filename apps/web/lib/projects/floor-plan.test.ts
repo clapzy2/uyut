@@ -661,6 +661,9 @@ describe('roomKindFromName', () => {
     'С/У',
     'с / у 3',
     'Bathroom',
+    'Bath',
+    'Toilet',
+    'Shower Room',
     'Bathroom #2',
     'Baño',
     'Ванная комната 3.1',
@@ -719,6 +722,8 @@ describe('roomKindFromName', () => {
     expect(roomKindFromName('Кухня')).toBe('kitchen')
     expect(roomKindFromName('Санузел совмещённый')).toBe('bath')
     expect(roomKindFromName('Детская')).toBe('kid')
+    expect(roomKindFromName('Kitchen')).toBe('kitchen')
+    expect(roomKindFromName('Master Bedroom')).toBe('bedroom')
   })
 
   it('кухня-гостиная это кухня: там мойка и плита, а они решают всё', () => {
@@ -826,6 +831,39 @@ describe('parseFloorPlan', () => {
     ])
     expect(reading.rooms.slice(0, 5).every((room) => room.nameOnlyCandidate === true)).toBe(true)
     expect(reading.rooms.every((room) => room.areaM2 === undefined)).toBe(true)
+  })
+
+  it('различает английские подписи кухни и подсобных зон без размеров', () => {
+    const reading = parseFloorPlan(
+      answer(
+        [
+          { name: 'Kitchen' },
+          { name: 'Pantry' },
+          { name: 'Bath' },
+          { name: 'Dining Room' },
+          { name: 'Front Parlor' },
+          { name: 'Porch' },
+          { name: 'Hall' },
+          { name: 'Living Room' },
+        ],
+        null,
+      ),
+      { keepNameOnlyCandidates: true },
+    )
+
+    expect(reading.rooms.map(({ kind, utility }) => [kind, utility ?? false])).toEqual([
+      ['kitchen', false],
+      ['living', true],
+      ['bath', false],
+      ['living', false],
+      ['living', false],
+      ['living', true],
+      ['living', true],
+      ['living', false],
+    ])
+    expect(reading.rooms.every((room) => room.nameOnlyCandidate === true)).toBe(true)
+    expect(reading.rooms.every((room) => room.widthCm === undefined)).toBe(true)
+    expect(reading.rooms.every((room) => room.depthCm === undefined)).toBe(true)
   })
 
   it('не добавляет площадь балкона к проверке суммы внутренних помещений', () => {
@@ -1062,6 +1100,10 @@ describe('подсобные помещения', () => {
     expect(isUtilityRoom('Кабинет')).toBe(false)
     expect(isUtilityRoom('Зал')).toBe(false)
     expect(isUtilityRoom('Гардеробная')).toBe(true)
+    expect(isUtilityRoom('Porch')).toBe(true)
+    expect(isUtilityRoom('Pantry')).toBe(true)
+    expect(isUtilityRoom('Hall')).toBe(true)
+    expect(isUtilityRoom('Living Room')).toBe(false)
   })
 })
 
