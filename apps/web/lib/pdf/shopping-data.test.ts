@@ -149,6 +149,7 @@ function addRoom(data: ProjectSnapshot): Room {
     condition: 'bare',
     refreshFinish: false,
     photoUrl: null,
+    photoRevision: 0,
     planUrl: null,
     notes: null,
     measurements: { widthCm: 400, depthCm: 300 },
@@ -173,6 +174,16 @@ function addRoom(data: ProjectSnapshot): Room {
 }
 
 describe('данные нового задания для мастера', () => {
+  it('помечает в PDF интерьер, созданный до нынешнего фото комнаты', async () => {
+    const data = snapshot()
+    const room = addRoom(data)
+    room.photoRevision = 1
+
+    const { pdf } = await build(data)
+    expect(pdf.rooms[0]?.note).toContain('Интерьер создан до нынешнего фото комнаты')
+    expect(renderProjectHtml(pdf, { fontCss: '' })).toContain('текущий снимок не использовался')
+  })
+
   it('сохраняет в PDF название неподобранной тумбы с визуализации', async () => {
     const data = snapshot()
     const room = addRoom(data)

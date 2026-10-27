@@ -86,8 +86,8 @@ export async function createProject(userId: string, input: { title: string }): P
   return project
 }
 
-/** Комната со счётчиком готовых концептов: по нему на странице проекта видно, где уже работали */
-export type RoomWithConcepts = Room & { conceptCount: number }
+/** Все готовые варианты сохраняются; отдельный счётчик нужен для повторного запуска после замены фото. */
+export type RoomWithConcepts = Room & { conceptCount: number; currentConceptCount: number }
 
 export type ProjectWithRooms = ProjectAccess & { rooms: RoomWithConcepts[] }
 
@@ -98,6 +98,10 @@ export async function getProject(userId: string, projectId: string): Promise<Pro
     .select({
       room: rooms,
       conceptCount: sql<number>`count(${concepts.id}) filter (where ${concepts.status} = 'ready')::int`,
+      currentConceptCount: sql<number>`count(${concepts.id}) filter (
+        where ${concepts.status} = 'ready'
+          and coalesce(${concepts.sourcePhotoRevision}, 0) = ${rooms.photoRevision}
+      )::int`,
     })
     .from(rooms)
     .leftJoin(concepts, eq(concepts.roomId, rooms.id))
@@ -106,7 +110,11 @@ export async function getProject(userId: string, projectId: string): Promise<Pro
     .orderBy(asc(rooms.orderIndex), asc(rooms.name))
   return {
     ...project,
-    rooms: list.map((row) => ({ ...row.room, conceptCount: Number(row.conceptCount) })),
+    rooms: list.map((row) => ({
+      ...row.room,
+      conceptCount: Number(row.conceptCount),
+      currentConceptCount: Number(row.currentConceptCount),
+    })),
   }
 }
 
@@ -557,8 +565,25 @@ export async function setRoomPhoto(
 ): Promise<{ previousKey: string | null }> {
   const room = await getRoom(userId, roomId)
   requireOwner(room.role)
-  await getDb().update(rooms).set({ photoUrl: key }).where(eq(rooms.id, room.id))
-  await touchProject(room.projectId)
+  await getDb().transaction(async (tx) => {
+    const replaced = await tx
+      .update(rooms)
+      .set({ photoUrl: key, photoRevision: sql`${rooms.photoRevision} + 1` })
+      .where(
+        and(
+          eq(rooms.id, room.id),
+          isNull(rooms.generationRunId),
+          room.photoUrl ? eq(rooms.photoUrl, room.photoUrl) : isNull(rooms.photoUrl),
+        ),
+      )
+      .returning({ id: rooms.id })
+    if (replaced.length === 0) {
+      throw new AccessError(
+        'Фото не заменено: сейчас создаются варианты или фото уже изменилось. Обновите страницу и повторите.',
+      )
+    }
+    await tx.update(projects).set({ updatedAt: new Date() }).where(eq(projects.id, room.projectId))
+  })
   return { previousKey: room.photoUrl }
 }
 

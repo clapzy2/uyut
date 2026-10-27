@@ -47,6 +47,7 @@ const data: ConceptPageData = {
     qualityReview: null,
     orderIndex: 0,
     batchId: 'batch',
+    fromPreviousPhoto: false,
   },
   room: {
     id: 'room',

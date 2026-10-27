@@ -15,6 +15,7 @@ import { RoomProjectedContourForm } from '@/components/room-projected-contour-fo
 import { RoomSectionLinks } from '@/components/room-section-links'
 import { RoomSettingsDialog } from '@/components/room-settings-dialog'
 import { otherMember } from '@/lib/collaboration/repository'
+import { isFromPreviousPhoto } from '@/lib/concepts/photo-source'
 import {
   lastGenerationFailedBeforeCards,
   latestBatch,
@@ -260,6 +261,10 @@ export default async function RoomPage({ params }: { params: Params }) {
                 partner: item.likedByPartner,
                 orderIndex: item.orderIndex,
                 qualityStatus: item.editedRenderUrl ? null : (item.qualityReview?.status ?? null),
+                fromPreviousPhoto: isFromPreviousPhoto(
+                  room.photoRevision,
+                  item.sourcePhotoRevision,
+                ),
               }))}
             />
           </div>

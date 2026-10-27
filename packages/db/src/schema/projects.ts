@@ -713,6 +713,8 @@ export const rooms = pgTable(
     // Для комнаты с готовой отделкой: заказчик всё же хочет обновить чистовую, смета это учитывает
     refreshFinish: boolean('refresh_finish').notNull().default(false),
     photoUrl: text('photo_url'),
+    // Увеличивается при каждой замене фото: прежние концепты остаются, но помечаются отдельно.
+    photoRevision: integer('photo_revision').notNull().default(0),
     planUrl: text('plan_url'),
     notes: text('notes'),
     /**

@@ -9,7 +9,9 @@ import {
   clearGenerationRun,
   createProject,
   createRoom,
+  getProject,
   getRoom,
+  setRoomPhoto,
 } from '@/lib/projects/repository'
 
 const queue = vi.hoisted(() => ({ retrieve: vi.fn(), list: vi.fn(), token: vi.fn() }))
@@ -83,6 +85,62 @@ describe('бронь генерации на настоящей локально
     const claimed = await getRoom(owner, room.id)
     expect(claimed.generationBatchId).toBe(batches[claims.indexOf(true)])
     expect(claimed.generationRunId).toBe(`pending:${claimed.generationBatchId}`)
+  })
+
+  it('не заменяет фото во время генерации', async () => {
+    const room = await fixture()
+    const batch = randomUUID()
+    await claimRoomForGeneration(room.id, batch)
+
+    await expect(setRoomPhoto(owner, room.id, 'new-photo.webp')).rejects.toThrow(
+      'сейчас создаются варианты',
+    )
+    const saved = await getRoom(owner, room.id)
+    expect(saved.photoUrl).toBeNull()
+    expect(saved.photoRevision).toBe(0)
+  })
+
+  it('при двух одновременных заменах принимает только одну и увеличивает ревизию один раз', async () => {
+    const room = await fixture()
+    const results = await Promise.allSettled([
+      setRoomPhoto(owner, room.id, 'first.webp'),
+      setRoomPhoto(owner, room.id, 'second.webp'),
+    ])
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    const saved = await getRoom(owner, room.id)
+    expect(['first.webp', 'second.webp']).toContain(saved.photoUrl)
+    expect(saved.photoRevision).toBe(1)
+  })
+
+  it('сохраняет старые варианты, но для общего запуска считает только варианты по новому фото', async () => {
+    const room = await fixture()
+    await getDb().insert(concepts).values({
+      roomId: room.id,
+      batchId: randomUUID(),
+      prompt: 'old',
+      aiModel: 'test',
+      status: 'ready',
+      objectsStatus: 'skipped',
+    })
+    await setRoomPhoto(owner, room.id, 'new-photo.webp')
+
+    const before = (await getProject(owner, projectId)).rooms.find((item) => item.id === room.id)
+    expect(before?.conceptCount).toBe(1)
+    expect(before?.currentConceptCount).toBe(0)
+
+    await getDb().insert(concepts).values({
+      roomId: room.id,
+      batchId: randomUUID(),
+      prompt: 'new',
+      aiModel: 'test',
+      status: 'ready',
+      objectsStatus: 'skipped',
+      sourcePhotoRevision: 1,
+    })
+    const after = (await getProject(owner, projectId)).rooms.find((item) => item.id === room.id)
+    expect(after?.conceptCount).toBe(2)
+    expect(after?.currentConceptCount).toBe(1)
   })
 
   it('поздний ответ прежнего запуска и его очистка не меняют новую бронь', async () => {

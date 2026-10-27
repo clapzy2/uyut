@@ -573,7 +573,9 @@ export async function buildPdfData(input: {
             Promise.all(
               entry.alternates.map(async (concept, index) => {
                 const image = await pdfImage(concept.editedRenderUrl ?? concept.renderUrl, 700)
-                return image ? { ...image, caption: `Вариант ${index + 2}` } : null
+                const fromPreviousPhoto = room.photoRevision > (concept.sourcePhotoRevision ?? 0)
+                const caption = `Вариант ${index + 2}${fromPreviousPhoto ? ' · по прежнему фото' : ''}`
+                return image ? { ...image, caption } : null
               }),
             ),
           ])
@@ -607,6 +609,15 @@ export async function buildPdfData(input: {
           }.`,
         )
       }
+      const photoNote =
+        entry && room.photoRevision > (entry.main.sourcePhotoRevision ?? 0)
+          ? 'Интерьер создан до нынешнего фото комнаты; текущий снимок не использовался.'
+          : null
+      const conceptNote = entry?.main.qualityReview?.issues.some(
+        (issue) => issue.code === 'opening_conflict',
+      )
+        ? 'Автопроверка отметила возможное расхождение окон и дверей. Сверьте вариант с исходным фото.'
+        : (entry?.main.note ?? null)
       return {
         id: room.id,
         name: room.name,
@@ -616,9 +627,7 @@ export async function buildPdfData(input: {
         render,
         before,
         alternates: alternates.filter((alt): alt is PdfImage & { caption: string } => alt !== null),
-        note: entry?.main.qualityReview?.issues.some((issue) => issue.code === 'opening_conflict')
-          ? 'Автопроверка отметила возможное расхождение окон и дверей. Сверьте вариант с исходным фото.'
-          : clampText(entry?.main.note ?? null, 330),
+        note: clampText([photoNote, conceptNote].filter(Boolean).join(' '), 330),
         objects: (entry ? (snapshot.objects.get(room.id) ?? []) : []).map((object) => ({
           index: object.index,
           category: detectedObjectLabel(object.label, categoryLabels[object.category]),

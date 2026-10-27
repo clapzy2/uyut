@@ -88,6 +88,12 @@ export default async function ConceptPage({ params }: { params: Params }) {
           ← Ко всем вариантам
         </Link>
       </div>
+      {data.concept.fromPreviousPhoto ? (
+        <p role="status" className="mt-5 border-l-2 border-accent pl-3 text-[15px] text-ink-2">
+          Этот вариант создан до нынешнего фото комнаты. Сверьте его с новым снимком перед выбором
+          товаров или создайте новый вариант по текущему фото.
+        </p>
+      ) : null}
       <div className="mt-8">
         <ConceptViewer data={data} />
       </div>

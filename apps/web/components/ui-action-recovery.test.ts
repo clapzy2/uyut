@@ -178,6 +178,7 @@ const viewerData: ComponentProps<typeof ConceptViewer>['data'] = {
     qualityReview: null,
     orderIndex: 0,
     batchId: 'batch',
+    fromPreviousPhoto: false,
   },
   room: {
     id: 'room',
@@ -472,6 +473,7 @@ describe('восстановление после отказа серверно�
             owner: null,
             partner: null,
             orderIndex: 0,
+            fromPreviousPhoto: false,
           },
         ],
       }
