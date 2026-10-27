@@ -1,8 +1,8 @@
-# syntax=docker/dockerfile:1
+# syntax=mirror.gcr.io/docker/dockerfile:1
 # Контекст сборки: корень репозитория. docker build -f apps/web/Dockerfile .
 
-FROM node:24-slim AS build
-COPY --from=oven/bun:1.4 /usr/local/bin/bun /usr/local/bin/bun
+FROM mirror.gcr.io/library/node:24-slim AS build
+COPY --from=mirror.gcr.io/oven/bun:1.4 /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1 DOCKER_BUILD=1
 # Значения NEXT_PUBLIC_* попадают в клиентский код на этапе сборки, поэтому их мало
@@ -22,7 +22,7 @@ RUN bun build packages/db/src/migrate.ts --target=node --outfile=/app/out/migrat
 RUN bun build jobs/scripts/repair-dimensions.ts --target=node --outfile=/app/out/repair-dimensions.mjs
 RUN bun build jobs/scripts/repair-subcategories.ts --target=node --outfile=/app/out/repair-subcategories.mjs
 
-FROM node:24-slim AS runtime
+FROM mirror.gcr.io/library/node:24-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 NEXT_TELEMETRY_DISABLED=1 MIGRATIONS_DIR=/app/drizzle
 # curl нужен не нам, а платформе: Coolify подменяет HEALTHCHECK своей командой и зовёт
