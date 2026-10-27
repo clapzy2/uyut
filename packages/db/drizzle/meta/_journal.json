@@ -169,6 +169,13 @@
       "when": 1790947533526,
       "tag": "0023_exotic_stephen_strange",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793058962904,
+      "tag": "0024_misty_scrambler",
+      "breakpoints": true
     }
   ]
 }

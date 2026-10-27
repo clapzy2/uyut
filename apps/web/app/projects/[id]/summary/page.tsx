@@ -120,6 +120,7 @@ export default async function SummaryPage({
             createdAt: concepts.createdAt,
             renderUrl: concepts.renderUrl,
             editedRenderUrl: concepts.editedRenderUrl,
+            sourcePhotoRevision: concepts.sourcePhotoRevision,
           })
           .from(concepts)
           .innerJoin(dbRooms, eq(dbRooms.id, concepts.roomId))

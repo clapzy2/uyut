@@ -238,7 +238,14 @@ export async function uploadRoomPhoto(roomId: string, formData: FormData): Promi
     const prepared = await preparePhoto(file)
     const key = `projects/${room.projectId}/rooms/${room.id}/photo/${randomUUID()}.${prepared.extension}`
     await putObject(key, prepared.body, prepared.contentType)
-    const { previousKey } = await repository.setRoomPhoto(userId, room.id, key)
+    let previousKey: string | null = null
+    try {
+      const result = await repository.setRoomPhoto(userId, room.id, key)
+      previousKey = result.previousKey
+    } catch (error) {
+      await deleteObject(key).catch(() => undefined)
+      throw error
+    }
     if (previousKey) {
       await deleteObject(previousKey).catch(() => undefined)
     }

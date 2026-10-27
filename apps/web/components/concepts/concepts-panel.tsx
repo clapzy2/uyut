@@ -42,6 +42,7 @@ export type ConceptItem = {
   partner: boolean | null
   orderIndex: number
   qualityStatus?: ConceptQualityReview['status'] | null
+  fromPreviousPhoto: boolean
 }
 
 type Tab = 'all' | 'mine' | 'theirs' | 'both'
@@ -360,7 +361,9 @@ export function ConceptsPanel({
   const cards: SwipeCard[] = unseen.map((item) => ({
     id: item.id,
     src: item.renderSrc as string,
-    caption: conceptCaption(item),
+    caption: item.fromPreviousPhoto
+      ? `Не по текущему фото · ${conceptCaption(item) ?? 'прежний вариант'}`
+      : conceptCaption(item),
     badge: other && theirVote(item, role) === true ? `♥ ${other.name} · нравится` : undefined,
   }))
 
@@ -504,6 +507,16 @@ export function ConceptsPanel({
         </>
       ) : null}
 
+      {ready.some((item) => item.fromPreviousPhoto) ? (
+        <p
+          role="status"
+          className="border-l-2 border-accent pl-3 text-[15px] leading-relaxed text-ink-2"
+        >
+          Часть вариантов создана до нынешнего фото комнаты. Они сохранены для сравнения; новый
+          запуск построит варианты по текущему снимку.
+        </p>
+      ) : null}
+
       {other && recent && recentItem ? (
         <p className="flex items-center gap-2 text-[13px] text-ink-2" aria-live="polite">
           <span aria-hidden="true" className="block size-1.5 rounded-full bg-accent" />
@@ -571,6 +584,11 @@ export function ConceptsPanel({
                         {item.qualityStatus === 'review'
                           ? 'Есть возможные ошибки'
                           : 'Без автопроверки'}
+                      </span>
+                    ) : null}
+                    {item.fromPreviousPhoto ? (
+                      <span className="block bg-paper px-3 py-2 text-[12px] text-ink-2">
+                        Не по текущему фото
                       </span>
                     ) : null}
                   </a>

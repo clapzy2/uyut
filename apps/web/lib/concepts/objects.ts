@@ -25,6 +25,7 @@ import {
 import { asc, eq } from 'drizzle-orm'
 import { orderedImages } from '@/lib/catalog/product-image'
 import { otherMember } from '@/lib/collaboration/repository'
+import { isFromPreviousPhoto } from '@/lib/concepts/photo-source'
 import {
   planReviewSource,
   type QualityPlanStatus,
@@ -104,6 +105,7 @@ export type ConceptPageData = {
     qualityPlanStatus?: QualityPlanStatus | null
     orderIndex: number
     batchId: string
+    fromPreviousPhoto: boolean
   }
   room: {
     id: string
@@ -317,6 +319,7 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
       ),
       orderIndex: concept.orderIndex,
       batchId: concept.batchId,
+      fromPreviousPhoto: isFromPreviousPhoto(room.photoRevision, concept.sourcePhotoRevision),
     },
     room: {
       id: room.id,

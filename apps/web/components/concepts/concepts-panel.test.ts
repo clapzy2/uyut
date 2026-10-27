@@ -39,6 +39,7 @@ function concept(id: string, overrides: Partial<ConceptItem> = {}): ConceptItem 
     owner: false,
     partner: null,
     orderIndex: 0,
+    fromPreviousPhoto: false,
     ...overrides,
   }
 }
@@ -70,6 +71,12 @@ function conceptLinks(html: string): string[] {
 }
 
 describe('concept gallery access', () => {
+  it('keeps old concepts available and labels their photo source', () => {
+    const html = render([concept('old-ready', { fromPreviousPhoto: true })])
+    expect(conceptLinks(html)).toEqual(['old-ready'])
+    expect(html).toContain('Часть вариантов создана до нынешнего фото комнаты.')
+    expect(html).toContain('Не по текущему фото')
+  })
   it('retains the early failure explanation after reload without exposing service details', () => {
     const html = render([concept('old-ready', { batchId: 'old-batch' })], {
       failedBeforeCards: true,

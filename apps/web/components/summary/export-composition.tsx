@@ -12,9 +12,18 @@ import type { ShoppingItemView } from '@/lib/shopping/repository'
 
 type ExportConcept = Pick<
   Concept,
-  'id' | 'roomId' | 'status' | 'likedByOwner' | 'createdAt' | 'renderUrl' | 'editedRenderUrl'
+  | 'id'
+  | 'roomId'
+  | 'status'
+  | 'likedByOwner'
+  | 'createdAt'
+  | 'renderUrl'
+  | 'editedRenderUrl'
+  | 'sourcePhotoRevision'
 >
-type ExportRoom = Pick<Room, 'id' | 'name' | 'areaM2'> & { conceptCount: number }
+type ExportRoom = Pick<Room, 'id' | 'name' | 'areaM2' | 'photoRevision'> & {
+  conceptCount: number
+}
 type ExportItem = Pick<
   ShoppingItemView,
   'roomId' | 'quantity' | 'variant' | 'catalogNotice' | 'dimensionsCm'
@@ -51,6 +60,7 @@ export function exportRoomComposition(
     ...room,
     mainId: main?.id ?? null,
     mainFromShopping: main ? votes.has(main.id) : false,
+    mainFromPreviousPhoto: main ? room.photoRevision > (main.sourcePhotoRevision ?? 0) : false,
     hasRenderSource: Boolean(main?.editedRenderUrl ?? main?.renderUrl),
     alternateCount: alternates.length,
     hasLayout: Boolean(layout),
@@ -214,6 +224,9 @@ export function ExportComposition({
                       ? `Дополнительных понравившихся вариантов: ${room.alternateCount}. `
                       : ''}
                     {!room.hasRenderSource ? 'Изображение основного интерьера отсутствует. ' : ''}
+                    {room.mainFromPreviousPhoto
+                      ? 'Интерьер создан до нынешнего фото комнаты; сверьте его с текущим снимком. '
+                      : ''}
                   </>
                 ) : (
                   <>

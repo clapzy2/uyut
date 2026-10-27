@@ -88,6 +88,8 @@ export const concepts = pgTable(
     errorText: text('error_text'),
     // Ключи объектов в приватном bucket, наружу отдаются подписанными ссылками
     renderUrl: text('render_url'),
+    // null у старых записей; правка наследует ревизию исходного варианта.
+    sourcePhotoRevision: integer('source_photo_revision'),
     renderThumbUrl: text('render_thumb_url'),
     prompt: text('prompt').notNull(),
     styleTags: text('style_tags').array().notNull().default(sql`'{}'::text[]`),

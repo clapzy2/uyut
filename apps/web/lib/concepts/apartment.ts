@@ -26,7 +26,7 @@ export function apartmentPlan(rooms: readonly RoomWithConcepts[]): {
     if (room.generationRunId) {
       return { id: room.id, name: room.name, skip: 'busy' }
     }
-    if (room.conceptCount > 0) {
+    if (room.currentConceptCount > 0) {
       return { id: room.id, name: room.name, skip: 'done' }
     }
     // «Оставить как есть» без заметки — пустой запуск: менять в комнате нечего
@@ -41,6 +41,6 @@ export function apartmentPlan(rooms: readonly RoomWithConcepts[]): {
 
 export const skipReasons: Record<NonNullable<ApartmentRoom['skip']>, string> = {
   busy: 'уже генерируется',
-  done: 'концепты уже есть',
+  done: 'концепты по текущему фото уже есть',
   needsNote: 'нужна заметка, что поменять',
 }

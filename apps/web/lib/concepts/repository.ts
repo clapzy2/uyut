@@ -156,6 +156,7 @@ export async function createBatch(input: {
     prompt: `${input.plan.shared} ${variation} ${input.plan.mandate}`.replace(/\s+/g, ' ').trim(),
     styleTags: input.styleTags,
     aiModel: input.model,
+    sourcePhotoRevision: input.room.photoRevision,
   }))
   return getDb().insert(concepts).values(rows).returning()
 }

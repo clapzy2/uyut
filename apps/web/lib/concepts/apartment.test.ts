@@ -11,6 +11,7 @@ function room(over: Partial<RoomWithConcepts> & { name: string }): RoomWithConce
     condition: 'bare',
     refreshFinish: false,
     photoUrl: null,
+    photoRevision: 0,
     planUrl: null,
     notes: null,
     measurements: null,
@@ -19,6 +20,7 @@ function room(over: Partial<RoomWithConcepts> & { name: string }): RoomWithConce
     generationStartedAt: null,
     generationBatchId: null,
     conceptCount: 0,
+    currentConceptCount: 0,
     ...over,
   } as RoomWithConcepts
 }
@@ -31,9 +33,19 @@ describe('apartmentPlan', () => {
   })
 
   it('комнату с концептами второй раз не запускаем', () => {
-    const plan = apartmentPlan([room({ name: 'Гостиная', conceptCount: 5 })])
+    const plan = apartmentPlan([
+      room({ name: 'Гостиная', conceptCount: 5, currentConceptCount: 5 }),
+    ])
     expect(plan.ready).toEqual([])
     expect(plan.rooms[0]?.skip).toBe('done')
+  })
+
+  it('предлагает заново обставить комнату после замены фото, сохраняя прежние варианты', () => {
+    const plan = apartmentPlan([
+      room({ name: 'Гостиная', photoRevision: 1, conceptCount: 5, currentConceptCount: 0 }),
+    ])
+    expect(plan.ready).toHaveLength(1)
+    expect(plan.renders).toBe(APARTMENT_COUNT)
   })
 
   it('идущую генерацию не трогаем', () => {

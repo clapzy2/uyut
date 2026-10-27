@@ -358,6 +358,7 @@ export const generateConcept = task({
             : `${plan.shared} ${variation} ${plan.mandate}`.replace(/\s+/g, ' ').trim(),
           styleTags: project.styleTags,
           aiModel: modelId,
+          sourcePhotoRevision: base ? base.sourcePhotoRevision : room.photoRevision,
           baseConceptId: base?.id ?? null,
           editRequest: base ? (payload.editRequest ?? null) : null,
           title: payload.duo?.variations[index]?.title ?? null,

@@ -9,7 +9,7 @@ import { ExportComposition, exportRoomComposition } from './export-composition'
 type Candidate = Parameters<typeof exportRoomComposition>[1][number]
 type Item = Parameters<typeof exportRoomComposition>[3][number]
 
-const room = { id: 'living', name: 'Гостиная', areaM2: 18, conceptCount: 5 }
+const room = { id: 'living', name: 'Гостиная', areaM2: 18, conceptCount: 5, photoRevision: 0 }
 
 function concept(id: string, overrides: Partial<Candidate> = {}): Candidate {
   return {
@@ -20,6 +20,7 @@ function concept(id: string, overrides: Partial<Candidate> = {}): Candidate {
     createdAt: new Date('2026-10-04T10:00:00Z'),
     renderUrl: `${id}.jpg`,
     editedRenderUrl: null,
+    sourcePhotoRevision: null,
     ...overrides,
   }
 }
@@ -42,6 +43,17 @@ function markup(compositionRooms: ReturnType<typeof exportRoomComposition>[], it
 }
 
 describe('PDF composition before checkout', () => {
+  it('warns when the selected interior was made before the current room photo', () => {
+    const composition = exportRoomComposition(
+      { ...room, photoRevision: 1 },
+      [concept('old')],
+      [],
+      [],
+      null,
+    )
+    expect(composition.mainFromPreviousPhoto).toBe(true)
+    expect(markup([composition])).toContain('Интерьер создан до нынешнего фото комнаты')
+  })
   it('discloses saved draft-only delivery measurements as a warning instead of a checked route', () => {
     const html = renderToStaticMarkup(
       createElement(ExportComposition, {
