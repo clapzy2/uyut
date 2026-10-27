@@ -15,6 +15,7 @@ import { ShoppingRows } from '@/components/summary/shopping-rows'
 import { applyPayment } from '@/lib/billing/apply'
 import { getPlan, getPurchase } from '@/lib/billing/repository'
 import { formatPrice } from '@/lib/concepts/format'
+import { shoppingItemsFromPreviousPhoto } from '@/lib/concepts/photo-source'
 import { getDb } from '@/lib/db'
 import { getEnv } from '@/lib/env'
 import { listExports } from '@/lib/exports/repository'
@@ -137,6 +138,12 @@ export default async function SummaryPage({
         .from(conceptObjects)
         .where(inArray(conceptObjects.id, selectedObjectIds))
     : []
+  const previousPhotoItemIds = shoppingItemsFromPreviousPhoto(
+    list.items,
+    selectedObjectConcepts,
+    readyConcepts,
+    project.rooms,
+  )
   const layouts = projectLayouts(project.rooms, list, project.planReading?.geometry)
   const layoutGaps = projectLayoutGaps(project.rooms, list, layouts)
   const geometry = project.planReading?.geometry
@@ -243,6 +250,7 @@ export default async function SummaryPage({
           <ShoppingRows
             items={list.items}
             projectId={project.id}
+            previousPhotoItemIds={previousPhotoItemIds}
             geometryRoomIds={layouts
               .filter((room) => room.layout.reservationSource === 'geometry')
               .map((room) => room.roomId)}
