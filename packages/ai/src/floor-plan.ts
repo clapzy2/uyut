@@ -215,12 +215,14 @@ const RECHECK_TOLERANCE = 0.02
  */
 const UTILITY_WORDS =
   /прихож|коридор|холл|тамбур|гардероб|кладов|постироч|котельн|лестнич|шахт|балкон|лоджи|cuarto de lavar|walk-in closet/i
+const ENGLISH_UTILITY_WORDS =
+  /\b(?:hallway|corridor|pantry|porch|closet|stairwell)\b|^(?:entrance )?hall(?:\s+#?\d+)?$/i
 
 const KIND_WORDS: ReadonlyArray<[RegExp, RoomKind]> = [
   [/детск|ребён|ребен/i, 'kid'],
   [/кухня-гостиная|кухня-столовая/i, 'kitchen'],
-  [/кухн|cocina/i, 'kitchen'],
-  [/спальн|recámara/i, 'bedroom'],
+  [/кухн|cocina|\bkitchen(?:ette)?\b/i, 'kitchen'],
+  [/спальн|recámara|\bbedroom\b/i, 'bedroom'],
   [/гостин|зал|столов|прихож|коридор|холл|кабинет|гардероб|sala/i, 'living'],
 ]
 
@@ -230,7 +232,7 @@ const KIND_WORDS: ReadonlyArray<[RegExp, RoomKind]> = [
  */
 /** Прихожая, коридор и кладовая: размеры у них есть, а обставлять их сервис не берётся. */
 export function isUtilityRoom(name: string): boolean {
-  return UTILITY_WORDS.test(name)
+  return UTILITY_WORDS.test(name) || ENGLISH_UTILITY_WORDS.test(name)
 }
 
 export function roomKindFromName(name: string): RoomKind {

@@ -1,7 +1,7 @@
 import { isPlanRoomSourceNumber } from './source-room-number'
 
 const wetRoomName =
-  /^(?:ванна|ванная(?: комната)?|[сc]анузел|душевая(?: комната)?|туалет|wc|[сc]\s*\/\s*у|bathroom|baño)$/iu
+  /^(?:ванна|ванная(?: комната)?|[сc]анузел|душевая(?: комната)?|туалет|wc|[сc]\s*\/\s*у|bath|bathroom|toilet|shower room|baño)$/iu
 const roomNumberSuffix = /(?:\s+(?:#|№)?\s*|\s*[#№]\s*)(\d{1,5}(?:\.\d{1,3})?)$/u
 const prefixQualifier = /^(?:гостев(?:ой|ая) |основн(?:ой|ая) |совмещ[её]нн(?:ый|ая)\s*)/iu
 const qualifier = '(?:гостев(?:ой|ая)|основн(?:ой|ая)|совмещ[её]нн(?:ый|ая))'
