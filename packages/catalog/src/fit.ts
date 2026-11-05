@@ -24,29 +24,12 @@ export type FitVerdict = {
 /** Меньше этого запаса встаёт впритык: плинтус, обои и открывание дверец съедают сантиметры. */
 const TIGHT_CM = 5
 
-/**
- * Сколько места предмет займёт вдоль стены.
- *
- * Когда известны все три стороны, отбрасываем высоту: шкаф 100×35×220 занимает у стены сто
- * сантиметров, а не двести двадцать. Какая из трёх — высота, берём из порядка записи: русские
- * фиды пишут ширина×глубина×высота. Замер на боевом каталоге: у 71 процента товаров со всеми
- * тремя размерами глубина действительно оказалась наименьшей стороной, то есть порядок соблюдают.
- *
- * Если сторон меньше трёх, какая из них высота, знать неоткуда, поэтому берём наибольшую.
- * Это осторожнее: скорее лишний раз предупредим, чем пропустим предмет, который не встанет.
- */
+/** Известная большая сторона основания. Высота не занимает место вдоль стены. */
 export function footprintCm(dimensions: DimensionsCm | undefined): number | undefined {
-  if (!dimensions) {
-    return undefined
-  }
-  const { width, depth, height } = dimensions
-  if (width !== undefined && depth !== undefined && height !== undefined) {
-    return Math.max(width, depth)
-  }
-  const known = [width, depth, height].filter(
-    (side): side is number => typeof side === 'number' && side > 0,
+  const sides = [dimensions?.width, dimensions?.depth].filter(
+    (side): side is number => typeof side === 'number' && Number.isFinite(side) && side > 0,
   )
-  return known.length > 0 ? Math.max(...known) : undefined
+  return sides.length ? Math.max(...sides) : undefined
 }
 
 /**
@@ -55,13 +38,10 @@ export function footprintCm(dimensions: DimensionsCm | undefined): number | unde
  */
 const CEILING_CLEARANCE_CM = 5
 
-/** Высота предмета: наибольшая сторона минус та, что идёт вдоль стены. */
+/** Высота проверяется независимо от того, известны ли стороны основания. */
 export function heightCm(dimensions: DimensionsCm | undefined): number | undefined {
-  const { width, depth, height } = dimensions ?? {}
-  if (width !== undefined && depth !== undefined && height !== undefined) {
-    return height
-  }
-  return undefined
+  const height = dimensions?.height
+  return height !== undefined && Number.isFinite(height) && height > 0 ? height : undefined
 }
 
 /**
@@ -107,9 +87,9 @@ export function checkFit(dimensions: DimensionsCm | undefined, limits: RoomLimit
   if (measured.length === 0) {
     // Только коробка комнаты: утверждать «встанет» не из чего, а «не встанет» — точно.
     const sides = [limits.widthCm, limits.depthCm].filter(
-      (side): side is number => typeof side === 'number' && side > 0,
+      (side): side is number => typeof side === 'number' && Number.isFinite(side) && side > 0,
     )
-    const longest = sides.length > 0 ? Math.max(...sides) : undefined
+    const longest = sides.length === 2 ? Math.max(...sides) : undefined
     if (longest !== undefined && itemCm > longest) {
       return {
         state: 'tooWide',

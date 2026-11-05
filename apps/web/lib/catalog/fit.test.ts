@@ -15,9 +15,10 @@ describe('footprintCm', () => {
     expect(footprintCm({ width: 220, depth: 95, height: 85 })).toBe(220)
   })
 
-  it('когда сторон меньше трёх, берём наибольшую: высоту отличить неоткуда', () => {
+  it('использует только известные стороны основания', () => {
     expect(footprintCm({ width: 120, depth: 45 })).toBe(120)
-    expect(footprintCm({ height: 180 })).toBe(180)
+    expect(footprintCm({ width: 120, height: 180 })).toBe(120)
+    expect(footprintCm({ height: 180 })).toBeUndefined()
   })
 
   it('без размеров ответа нет', () => {
@@ -104,14 +105,31 @@ describe('высота потолка', () => {
     expect(checkFit({ width: 100, depth: 35, height: 270 }, { spots }).state).toBe('fits')
   })
 
-  it('когда сторон меньше трёх, высоту отличить нельзя и под потолок не проверяем', () => {
+  it('без высоты проверяет только основание', () => {
     expect(checkFit({ width: 100, depth: 35 }, { spots, ceilingCm: 200 }).state).toBe('fits')
+  })
+
+  it('сравнивает указанную высоту шкафа с потолком, но не с шириной стены', () => {
+    const wardrobe = { height: 236.4 }
+    const limits = { spots: [{ name: 'стена', widthCm: 200 }] }
+    expect(checkFit(wardrobe, limits)).toMatchObject({ state: 'unknown', reason: 'itemDimensions' })
+    expect(checkFit(wardrobe, { ...limits, ceilingCm: 230 }).state).toBe('tooTall')
   })
 })
 
 describe('коробка комнаты с плана', () => {
   // Комната 290 на 425 см: длиннейшая стена 425, но чем она занята, мы не знаем
   const room = { widthCm: 290, depthCm: 425 }
+
+  it.each([{ widthCm: 170 }, { depthCm: 170 }])(
+    'одна известная сторона не определяет самую длинную стену',
+    (limits) => {
+      expect(checkFit({ width: 185, depth: 60, height: 236.4 }, limits)).toMatchObject({
+        state: 'unknown',
+        reason: 'roomDimensions',
+      })
+    },
+  )
 
   it('шире самой длинной стены — не встанет ни при какой расстановке', () => {
     const verdict = checkFit({ width: 440, depth: 95, height: 85 }, room)
