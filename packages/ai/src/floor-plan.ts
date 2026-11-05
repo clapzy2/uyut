@@ -1,5 +1,5 @@
 import type { PlanMeasurementEvidence, RoomSpaceKind } from '@uyut/db'
-import { isWetRoomName } from '@uyut/db/room-purpose'
+import { isEntranceLabel, isWetRoomName } from '@uyut/db/room-purpose'
 import type { RoomKind } from './detect'
 import { FalError, falQueue, toDataUri } from './fal-queue'
 import {
@@ -232,7 +232,7 @@ const KIND_WORDS: ReadonlyArray<[RegExp, RoomKind]> = [
  */
 /** Прихожая, коридор и кладовая: размеры у них есть, а обставлять их сервис не берётся. */
 export function isUtilityRoom(name: string): boolean {
-  return UTILITY_WORDS.test(name) || ENGLISH_UTILITY_WORDS.test(name)
+  return UTILITY_WORDS.test(name) || ENGLISH_UTILITY_WORDS.test(name) || isEntranceLabel(name)
 }
 
 export function roomKindFromName(name: string): RoomKind {

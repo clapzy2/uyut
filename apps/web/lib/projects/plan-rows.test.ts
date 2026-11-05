@@ -13,6 +13,18 @@ import {
   totalAreaCheck,
 } from './plan-rows'
 
+it('keeps the S|H entrance out of furnishing when reopening an older reading', () => {
+  const [entrance, bedroom] = planRows({
+    readAt: '2026-11-05',
+    rooms: [
+      { name: 'Entrance', kind: 'living' },
+      { name: 'Bedroom with private entrance', kind: 'bedroom' },
+    ],
+  })
+  expect(entrance).toMatchObject({ unsupportedReason: 'utility', include: false })
+  expect(bedroom).toMatchObject({ unsupported: false, include: true })
+})
+
 describe('source axis acknowledgments', () => {
   const row = planRows({
     readAt: '2026-10-08',

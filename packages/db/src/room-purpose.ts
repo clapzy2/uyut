@@ -8,6 +8,10 @@ const qualifier = '(?:гостев(?:ой|ая)|основн(?:ой|ая)|сов
 const suffixQualifier = new RegExp(`(?: ${qualifier}|\\s*\\(${qualifier}\\))$`, 'iu')
 const showerSuffix = /(?: с душем|\s*\(с душем\))$/iu
 
+export function isEntranceLabel(name: string): boolean {
+  return /^entrance$/i.test(name.trim())
+}
+
 /** Only a complete room name identifies its purpose; nearby facilities do not. */
 export function isWetRoomName(name: string): boolean {
   let normalized = name.trim().replace(/\s+/gu, ' ')
