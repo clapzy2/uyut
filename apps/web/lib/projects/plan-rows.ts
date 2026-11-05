@@ -1,4 +1,5 @@
 import type { PlanReading, PlanRoomReading, RoomKind, RoomSpaceKind } from '@uyut/db'
+import { isEntranceLabel } from '@uyut/db/room-purpose'
 import { isPlanRoomSourceNumber } from '@uyut/db/source-room-number'
 import { mvpRoomKinds } from './format'
 import type { NativeRoomScheduleReport } from './plan-native-room-number-links'
@@ -292,7 +293,8 @@ export function planRows(
   }
   return reading.rooms.map((room) => {
     const outdoor = room.spaceKind === 'balcony' || room.spaceKind === 'loggia'
-    const unsupported = room.utility === true || outdoor || !supported.has(room.kind)
+    const utility = room.utility === true || outdoor || isEntranceLabel(room.name)
+    const unsupported = utility || !supported.has(room.kind)
     const paired = unsupported ? { ambiguous: false } : pair(room)
     const match = paired.match
     if (match) {
@@ -318,7 +320,7 @@ export function planRows(
         ? { measurementWarnings: room.measurementWarnings }
         : {}),
       ...(unsupported
-        ? { unsupportedReason: room.utility || outdoor ? ('utility' as const) : ('kind' as const) }
+        ? { unsupportedReason: utility ? ('utility' as const) : ('kind' as const) }
         : {}),
       ...(room.rechecked && room.rechecked.length > 0
         ? { rechecked: room.rechecked.length > 1 ? ('both' as const) : room.rechecked[0] }

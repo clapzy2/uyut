@@ -7,6 +7,7 @@ import {
   validatePlanGeometryEdit,
 } from '@uyut/ai'
 import type { PlanGeometry, PlanImageCalibration, PlanReading, RoomMeasurements } from '@uyut/db'
+import { isEntranceLabel } from '@uyut/db/room-purpose'
 import { revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
 import sharp from 'sharp'
@@ -1037,6 +1038,7 @@ export async function confirmPlanRooms(
       chosen.some(
         (room) =>
           room.utility ||
+          isEntranceLabel(room.name) ||
           findPlanRoomReading(room, beforeReading.rooms)?.utility ||
           !mvpRoomKinds.some((kind) => kind === room.kind),
       )
@@ -1094,7 +1096,9 @@ export async function confirmPlanRooms(
           // В форме неподдерживаемый тип имеет технический living, но в исходном плане
           // ванная остаётся ванной, а коридор не становится обставляемой гостиной.
           kind: !room.include && source ? source.kind : room.kind,
-          ...(source?.utility || room.utility ? { utility: true } : {}),
+          ...(source?.utility || room.utility || isEntranceLabel(room.name)
+            ? { utility: true }
+            : {}),
           ...(room.sourceNumber === undefined ? {} : { sourceNumber: room.sourceNumber }),
           ...(room.ceilingCm == null ? {} : { ceilingCm: room.ceilingCm }),
           ...(measurementEvidence ? { measurementEvidence } : {}),
