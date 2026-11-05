@@ -74,10 +74,7 @@ function Row({
     item.variant?.color,
     item.inStock ? null : 'нет в наличии',
   ].filter(Boolean)
-  const fit =
-    hasGeometryLayout && item.fit.state === 'unknown' && item.fit.reason === 'roomDimensions'
-      ? '2D-проверка доступна в комнате. Перед покупкой сверьте размеры на месте.'
-      : fitLabel(item.fit)
+  const fit = fitLabel(item.fit, hasGeometryLayout)
   const sizeSource = itemSizeSourceLabel(item.sizeReading)
 
   return (

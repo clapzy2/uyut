@@ -85,20 +85,28 @@ describe('высота потолка', () => {
   const spots = [{ name: 'стена слева', widthCm: 320 }]
 
   it('шкаф под потолок не встанет, и ширина уже не важна', () => {
-    const verdict = checkFit({ width: 100, depth: 35, height: 270 }, { spots, ceilingCm: 270 })
+    const verdict = checkFit({ width: 100, depth: 35, height: 275 }, { spots, ceilingCm: 270 })
     expect(verdict.state).toBe('tooTall')
     expect(verdict.overCm).toBe(5)
     expect(verdict.ceilingCm).toBe(270)
   })
 
-  it('запас под потолком пять сантиметров: иначе не занести и не выровнять', () => {
-    // 266 плюс запас выше потолка в 270, а в потолок 272 тот же шкаф встаёт
-    expect(checkFit({ width: 100, depth: 35, height: 266 }, { spots, ceilingCm: 270 }).state).toBe(
-      'tooTall',
-    )
-    expect(checkFit({ width: 100, depth: 35, height: 266 }, { spots, ceilingCm: 272 }).state).toBe(
-      'fits',
-    )
+  it('малый зазор требует сверки сборки, но не доказывает превышение высоты', () => {
+    const pax = { width: 185, depth: 60, height: 236.4 }
+    const verdict = checkFit(pax, { spots, ceilingCm: 237 })
+    expect(verdict.state).toBe('fits')
+    expect(verdict.ceilingGapCm).toBeCloseTo(0.6)
+    expect(checkFit(pax, { spots, ceilingCm: 236.4 })).toMatchObject({
+      state: 'fits',
+      ceilingGapCm: 0,
+    })
+    expect(checkFit(pax, { spots, ceilingCm: 236 }).overCm).toBeCloseTo(0.4)
+  })
+
+  it('глубина корпуса не становится шириной фасада у простенка', () => {
+    const wall = { spots: [{ name: 'простенок', widthCm: 100 }] }
+    expect(checkFit({ width: 80, depth: 120 }, wall).state).toBe('fits')
+    expect(checkFit({ depth: 120 }, wall).state).toBe('unknown')
   })
 
   it('без высоты потолка проверяем только ширину', () => {

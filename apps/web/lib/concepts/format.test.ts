@@ -25,8 +25,19 @@ describe('fitLabel', () => {
       fitLabel({ state: 'tight', itemCm: 198, spot: { name: 'стена слева', widthCm: 200 } }),
     ).toContain('Уточните монтажный запас')
     const label = fitLabel({ state: 'tooTall', ceilingCm: 240, itemCm: 100, overCm: 2 })
-    expect(label).toContain('не хватает 2 см с учётом запаса для установки')
-    expect(label).not.toContain('выше потолка')
+    expect(label).toContain('выше потолка (240 см) на 2 см')
+  })
+
+  it('показывает дробное превышение и отдельно поясняет небольшой зазор для сборки', () => {
+    const spot = { name: 'простенок', widthCm: 184.8 }
+    expect(fitLabel({ state: 'tooWide', itemCm: 185, overCm: 185 - 184.8, spot })).toContain(
+      'шире на 0,2 см',
+    )
+    expect(
+      fitLabel({ state: 'unknown', reason: 'roomDimensions', ceilingGapCm: 237 - 236.4 }),
+    ).toBe(
+      'Для проверки укажите размеры комнаты. До потолка 0,6 см. Проверьте высоту для сборки по инструкции товара.',
+    )
   })
 
   it('keeps incomplete positive verdicts as a request for dimensions', () => {

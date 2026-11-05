@@ -19,6 +19,8 @@ export type FitVerdict = {
   overCm?: number
   /** Высота потолка, с которой сравнивали: только для tooTall */
   ceilingCm?: number
+  /** Фактическое расстояние до потолка, если корпус проходит по высоте впритык. */
+  ceilingGapCm?: number
 }
 
 /** Меньше этого запаса встаёт впритык: плинтус, обои и открывание дверец съедают сантиметры. */
@@ -31,12 +33,6 @@ export function footprintCm(dimensions: DimensionsCm | undefined): number | unde
   )
   return sides.length ? Math.max(...sides) : undefined
 }
-
-/**
- * Запас под потолком: шкаф вровень с потолком не занести в комнату и не поставить стоя.
- * Сборщики мебели просят около пяти сантиметров на подъём и выравнивание.
- */
-const CEILING_CLEARANCE_CM = 5
 
 /** Высота проверяется независимо от того, известны ли стороны основания. */
 export function heightCm(dimensions: DimensionsCm | undefined): number | undefined {
@@ -66,21 +62,26 @@ const LONGEST_WALL = 'самая длинная стена'
 
 export function checkFit(dimensions: DimensionsCm | undefined, limits: RoomLimits): FitVerdict {
   if (limits.projectedContour) return { state: 'unknown', reason: 'roomDimensions' }
-  const itemCm = footprintCm(dimensions)
   const { ceilingCm } = limits
-  // Под потолок проверяем раньше ширины: если шкаф не встаёт по высоте,
-  // его ширина уже не имеет значения.
   const tall = heightCm(dimensions)
-  if (ceilingCm && ceilingCm > 0 && tall !== undefined && tall + CEILING_CLEARANCE_CM > ceilingCm) {
+  const gap = ceilingCm && ceilingCm > 0 && tall !== undefined ? ceilingCm - tall : undefined
+  if (gap !== undefined && gap < 0) {
     return {
       state: 'tooTall',
-      itemCm,
+      itemCm: footprintCm(dimensions),
       ceilingCm,
-      overCm: Math.max(1, Math.round(tall + CEILING_CLEARANCE_CM - ceilingCm)),
+      overCm: -gap,
     }
   }
+  const verdict = checkWallLength(dimensions, limits)
+  return gap !== undefined && gap <= TIGHT_CM ? { ...verdict, ceilingGapCm: gap } : verdict
+}
+
+function checkWallLength(dimensions: DimensionsCm | undefined, limits: RoomLimits): FitVerdict {
   const measured = (limits.spots ?? []).filter((spot) => spot.widthCm > 0)
-  if (itemCm === undefined) {
+  // Для установки фасадом вдоль выбранного простенка сравниваем именно ширину.
+  const itemCm = measured.length ? dimensions?.width : footprintCm(dimensions)
+  if (itemCm === undefined || !Number.isFinite(itemCm) || itemCm <= 0) {
     return { state: 'unknown', reason: 'itemDimensions' }
   }
   const fullFootprint = Boolean(dimensions?.width && dimensions.depth)
@@ -95,7 +96,7 @@ export function checkFit(dimensions: DimensionsCm | undefined, limits: RoomLimit
         state: 'tooWide',
         spot: { name: LONGEST_WALL, widthCm: longest },
         itemCm,
-        overCm: Math.round(itemCm - longest),
+        overCm: itemCm - longest,
       }
     }
     return {
@@ -106,7 +107,7 @@ export function checkFit(dimensions: DimensionsCm | undefined, limits: RoomLimit
   }
   const widest = measured.reduce((best, spot) => (spot.widthCm > best.widthCm ? spot : best))
   if (itemCm > widest.widthCm) {
-    return { state: 'tooWide', spot: widest, itemCm, overCm: Math.round(itemCm - widest.widthCm) }
+    return { state: 'tooWide', spot: widest, itemCm, overCm: itemCm - widest.widthCm }
   }
   // Одной стороны достаточно, чтобы доказать «не встанет», но недостаточно для положительного
   // ответа: неизвестная глубина может перекрыть проход или упереться в мебель напротив.
