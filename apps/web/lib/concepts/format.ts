@@ -68,10 +68,24 @@ export function sizeLabel(dimensions: DimensionsCm | null | undefined): string |
  * Называем проверенный габарит, а при неизвестных размерах — следующий шаг.
  * Сравнение с участком стены не подменяет 2D-проверку проходов и рабочих зон.
  */
-export function fitLabel(fit: FitVerdict): string | null {
-  // Под потолок не встаёт — участок стены уже не важен, поэтому этот случай первый
-  if (fit.state === 'tooTall' && fit.ceilingCm) {
-    return `По высоте не хватает ${fit.overCm} см с учётом запаса для установки; потолок ${fit.ceilingCm} см`
+export function fitLabel(fit: FitVerdict, hasGeometryLayout = false): string {
+  const label =
+    hasGeometryLayout && fit.state === 'unknown' && fit.reason === 'roomDimensions'
+      ? '2D-проверка доступна в комнате. Перед покупкой сверьте размеры на месте.'
+      : fitSizeLabel(fit)
+  if (fit.ceilingGapCm === undefined) return label
+  return `${label.replace(/\.$/, '')}. До потолка ${cmLabel(fit.ceilingGapCm)} см. Проверьте высоту для сборки по инструкции товара.`
+}
+
+function cmLabel(value: number): string {
+  return value > 0 && value < 0.01
+    ? 'менее 0,01'
+    : value.toLocaleString('ru-RU', { maximumFractionDigits: 2 })
+}
+
+function fitSizeLabel(fit: FitVerdict): string {
+  if (fit.state === 'tooTall' && fit.ceilingCm && fit.overCm !== undefined) {
+    return `Корпус выше потолка (${cmLabel(fit.ceilingCm)} см) на ${cmLabel(fit.overCm)} см`
   }
   if (fit.state === 'unknown') {
     if (fit.reason === 'itemDimensions') return 'Для проверки уточните полные размеры товара'
@@ -82,11 +96,13 @@ export function fitLabel(fit: FitVerdict): string | null {
   if (!fit.spot || fit.itemCm === undefined) {
     return 'Для проверки подтвердите размеры'
   }
-  if (fit.state === 'tooWide') {
-    return `Не встанет: шире на ${fit.overCm} см, ${fit.spot.name} ${fit.spot.widthCm} см`
+  if (fit.state === 'tooWide' && fit.overCm !== undefined) {
+    return `Не встанет: шире на ${cmLabel(fit.overCm)} см, ${fit.spot.name} ${cmLabel(fit.spot.widthCm)} см`
   }
   if (fit.state === 'tight') {
-    return `По длине впритык: ${fit.spot.name} ${fit.spot.widthCm} см. Уточните монтажный запас.`
+    return `По длине впритык: ${fit.spot.name} ${cmLabel(fit.spot.widthCm)} см. Уточните монтажный запас.`
   }
-  return `Помещается по длине: ${fit.spot.name} ${fit.spot.widthCm} см`
+  if (fit.state === 'fits')
+    return `Помещается по длине: ${fit.spot.name} ${cmLabel(fit.spot.widthCm)} см`
+  return 'Для проверки подтвердите размеры'
 }
