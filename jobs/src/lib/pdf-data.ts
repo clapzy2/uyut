@@ -766,6 +766,9 @@ export async function buildPdfData(input: {
       .map((room) => room.name),
     shopping: [...groups.values()],
     estimate,
+    ...(snapshot.shopping.length === 0 && estimate.works.areaM2 === 0
+      ? { estimateStatus: 'not-calculated' as const }
+      : {}),
     rates,
     brief: input.brief,
     ...(wallFaceReview ? { wallFaceReview } : {}),

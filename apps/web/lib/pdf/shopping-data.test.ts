@@ -138,6 +138,18 @@ async function build(data: ProjectSnapshot) {
   return { pdf, fetchImage }
 }
 
+it('omits an unpriced estimate but keeps selected products when room areas are unknown', async () => {
+  const data = snapshot()
+  addRoom(data).areaM2 = null
+  const withItems = await build(data)
+  expect(renderProjectHtml(withItems.pdf, { fontCss: '' })).toContain('Смета по списку покупок')
+  data.shopping = []
+  const withoutItems = await build(data)
+  expect(renderProjectHtml(withoutItems.pdf, { fontCss: '' })).toContain(
+    'Стоимость не рассчитывалась',
+  )
+})
+
 function addRoom(data: ProjectSnapshot): Room {
   const room: Room = {
     id: 'test-room',
