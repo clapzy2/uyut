@@ -210,6 +210,7 @@ function cover(data: PdfData, free: boolean): string {
 function estimateScope(data: PdfData): string {
   const countedArea = data.estimate.works.areaM2
   const totalArea = data.project.totalAreaM2
+  if (countedArea === 0) return 'Площадь для расчёта работ пока не указана.'
   if (totalArea && totalArea > countedArea + 0.05) {
     return `Работы учтены для ${formatArea(countedArea)} из ${formatArea(totalArea)} площади квартиры; остальные помещения не оценены.`
   }
@@ -981,7 +982,7 @@ function estimatePage(data: PdfData, free: boolean): string {
   <section class="page fixed">
     ${ribbon(free)}
     <div>
-      <p class="eyebrow">Смета ·${esc(formatArea(estimate.works.areaM2) ?? 'площади не указаны')}</p>
+      <p class="eyebrow">${counted.length ? `Смета · ${formatArea(estimate.works.areaM2)}` : 'Смета по списку покупок'}</p>
       <h1 style="margin-top:3mm">Сколько это стоит</h1>
     </div>
     <div class="estimate">
