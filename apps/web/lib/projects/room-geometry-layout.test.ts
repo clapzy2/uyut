@@ -1,6 +1,6 @@
 import { layoutRoom, WALKWAY_CM } from '@uyut/catalog'
 import type { PlanGeometry } from '@uyut/db'
-import { describe, expect, it } from 'vitest'
+import { assert, describe, expect, it } from 'vitest'
 import { roomLayoutInputFromGeometry } from './room-geometry-layout'
 
 const geometry: PlanGeometry = {
@@ -43,6 +43,128 @@ const geometry: PlanGeometry = {
     },
   ],
 }
+
+function neighbouringNativeDoors(
+  ownX = 447.5,
+  otherX = 461,
+  from = 239.5,
+  to = 329.5,
+): PlanGeometry {
+  const ownToLeft = ownX < otherX
+  const rectangle = (left: number, right: number) => [
+    { xCm: left, yCm: 0 },
+    { xCm: right, yCm: 0 },
+    { xCm: right, yCm: 400 },
+    { xCm: left, yCm: 400 },
+  ]
+  return {
+    ...geometry,
+    widthCm: 1200,
+    rooms: [
+      { name: 'Гостиная', polygon: rectangle(ownToLeft ? 100 : ownX, ownToLeft ? ownX : 1100) },
+      { name: 'Коридор', polygon: rectangle(ownToLeft ? otherX : 400, ownToLeft ? 610 : otherX) },
+    ],
+    walls: [
+      { id: 'own', kind: 'inner', start: { xCm: ownX, yCm: 400 }, end: { xCm: ownX, yCm: 0 } },
+      {
+        id: 'other',
+        kind: 'inner',
+        start: { xCm: otherX, yCm: 0 },
+        end: { xCm: otherX, yCm: 400 },
+      },
+    ],
+    openings: [
+      { id: 'own', wallId: 'own', type: 'door', offsetCm: 400 - to, widthCm: to - from },
+      { id: 'other', wallId: 'other', type: 'door', offsetCm: from, widthCm: to - from },
+    ],
+    pdfCalibration: {
+      sourceSha256: 'a'.repeat(64),
+      pdfPage: 2,
+      sourceState: 'proposed',
+      cmPerPoint: 1,
+      origin: { x: 0, y: 0 },
+      anchorRoomNumbers: [],
+      labelIndexes: [],
+      derivedOpeningIds: [],
+    },
+  }
+}
+
+describe('соседние нативные стороны проёмов', () => {
+  it.each([
+    [447.5, 461, 239.5, 329.5],
+    [627.5, 614, 212, 302],
+  ])('оставляет собственный проём при гранях x=%s и x=%s', (ownX, otherX, from, to) => {
+    const source = neighbouringNativeDoors(ownX, otherX, from, to)
+    const before = structuredClone(source)
+    const result = roomLayoutInputFromGeometry(source, 'Гостиная', null)
+    expect(result?.floorReservations).toHaveLength(1)
+    expect(result?.floorReservations[0]?.start.xCm).toBe(ownX < otherX ? ownX - 100 : 0)
+    expect(result?.floorReservations[0]?.start.yCm).toBe(to)
+    expect(result?.floorReservations[0]?.end.yCm).toBe(from)
+    expect(result?.missingSafetyData).toEqual(['Дверь 1: задайте свободную зону открывания.'])
+    expect(source).toEqual(before)
+  })
+
+  it.each([
+    'нет собственной стороны',
+    'другой интервал',
+    'другой тип',
+    'известное открывание',
+    'нет PDF',
+    'неизвестный владелец',
+    'неоднозначный владелец',
+    'неоднозначная собственная сторона',
+    'собственная дверь на дальней стене',
+    'чужой отрезок пересекает выступ комнаты',
+  ])('сохраняет предупреждение: %s', (reason) => {
+    const source = neighbouringNativeDoors()
+    const own = source.openings[0]
+    const other = source.openings[1]
+    const neighbour = source.rooms[1]
+    assert(own && other && neighbour)
+    if (reason === 'нет собственной стороны') source.openings = [other]
+    if (reason === 'другой интервал') own.offsetCm += 5
+    if (reason === 'другой тип') own.type = 'window'
+    if (reason === 'известное открывание') other.clearance = { side: 'left', depthCm: 90 }
+    if (reason === 'нет PDF') delete source.pdfCalibration
+    if (reason === 'неизвестный владелец') source.rooms = source.rooms.slice(0, 1)
+    if (reason === 'неоднозначный владелец')
+      source.rooms.push({ ...neighbour, name: 'Другая комната' })
+    if (reason === 'неоднозначная собственная сторона')
+      source.openings.push({ ...own, id: 'duplicate' })
+    if (reason === 'собственная дверь на дальней стене') {
+      const wall = source.walls[0]
+      assert(wall)
+      wall.start.xCm = 100
+      wall.end.xCm = 100
+    }
+    if (reason === 'чужой отрезок пересекает выступ комнаты') {
+      const selected = source.rooms[0]
+      assert(selected)
+      selected.polygon = [
+        { xCm: 100, yCm: 0 },
+        { xCm: 447.5, yCm: 0 },
+        { xCm: 447.5, yCm: 340 },
+        { xCm: 480, yCm: 340 },
+        { xCm: 480, yCm: 310 },
+        { xCm: 455, yCm: 310 },
+        { xCm: 455, yCm: 300 },
+        { xCm: 480, yCm: 300 },
+        { xCm: 480, yCm: 0 },
+        { xCm: 500, yCm: 0 },
+        { xCm: 500, yCm: 400 },
+        { xCm: 100, yCm: 400 },
+      ]
+    }
+    const result = roomLayoutInputFromGeometry(source, 'Гостиная', null)
+    expect(result?.missingSafetyData.join(' ')).toContain('не совпадает с границей комнаты')
+    const expectedX = reason === 'собственная дверь на дальней стене' ? 0 : 347.5
+    expect(
+      result?.floorReservations.every((reservation) => reservation.start.xCm === expectedX),
+    ).toBe(true)
+  })
+})
 
 describe('проёмы комнаты из 2D-схемы', () => {
   it('does not use a stale confirmed artifact while source reimport is required', () => {

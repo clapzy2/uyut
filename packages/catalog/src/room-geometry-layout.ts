@@ -263,6 +263,49 @@ function openingOnRoomBoundary(
   return [nearest.start, nearest.end]
 }
 
+/** A neighbouring PDF face is not a misplaced opening when this room has its own cut. */
+function hasOwnNativeOpening(
+  opening: PlanOpening,
+  start: PlanPoint,
+  end: PlanPoint,
+  geometry: PlanGeometry,
+  room: PlanGeometry['rooms'][number],
+  wallById: Map<string, PlanWall>,
+): boolean {
+  if (!geometry.pdfCalibration || opening.type === 'window' || opening.clearance) return false
+  const exact = 1e-7
+  if (polygonsTouch([start, end], room.polygon)) return false
+  const owners = geometry.rooms.filter(
+    (other) => other !== room && openingBelongsToRoom(start, end, other.polygon, exact),
+  )
+  if (owners.length !== 1) return false
+
+  const dx = end.xCm - start.xCm
+  const dy = end.yCm - start.yCm
+  const length = Math.hypot(dx, dy)
+  if (length <= exact) return false
+  const along = (point: PlanPoint) =>
+    ((point.xCm - start.xCm) * dx + (point.yCm - start.yCm) * dy) / length
+  const offset = (point: PlanPoint) =>
+    ((point.xCm - start.xCm) * dy - (point.yCm - start.yCm) * dx) / length
+  const matching = geometry.openings.filter((candidate) => {
+    if (candidate.id === opening.id || candidate.type !== opening.type) return false
+    const wall = wallById.get(candidate.wallId)
+    if (!wall) return false
+    const [a, b] = openingPoints(candidate, wall)
+    if (!openingBelongsToRoom(a, b, room.polygon, exact)) return false
+    return (
+      Math.abs(Math.min(along(a), along(b))) <= exact &&
+      Math.abs(Math.max(along(a), along(b)) - length) <= exact &&
+      Math.abs(offset(a) - offset(b)) <= exact &&
+      Math.abs(offset(a)) > GEOMETRY_ALIGNMENT_TOLERANCE_CM &&
+      Math.abs(offset(a)) <= BOUNDARY_TOLERANCE_CM + exact
+    )
+  })
+  // Do not merge the two openings or infer wall thickness / a shared clearance.
+  return matching.length === 1
+}
+
 /**
  * Переводит глобальный контур и проёмы плана в локальные координаты комнаты.
  * Размеры ручного обмера имеют приоритет, поэтому вместе с рамкой масштабируется и сам контур.
@@ -359,6 +402,7 @@ export function roomLayoutInputFromSelectedGeometry(
     const aligned = openingOnRoomBoundary(start, end, wall, room.polygon, !!geometry.pdfCalibration)
     if (!aligned) {
       if (!openingBelongsToRoom(start, end, room.polygon, BOUNDARY_TOLERANCE_CM)) continue
+      if (hasOwnNativeOpening(opening, start, end, geometry, room, wallById)) continue
       missingSafetyData.push(
         `${openingLabel} не совпадает с границей комнаты. Уточните стену или контур, прежде чем учитывать его в расстановке.`,
       )
