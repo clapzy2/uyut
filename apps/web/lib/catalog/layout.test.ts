@@ -21,6 +21,120 @@ function item(over: Partial<LayoutItem> & Pick<LayoutItem, 'title'>): LayoutItem
 const kinds = (layout: ReturnType<typeof layoutRoom>) => layout.problems.map((p) => p.kind)
 
 describe('layoutRoom', () => {
+  it.each([100, 101, 102.5, 103])('не сужает дверь 70 см при сдвиге начала на %s см', (offset) => {
+    const layout = layoutRoom(
+      {
+        widthCm: 300,
+        depthCm: 300,
+        floorReservations: [
+          {
+            kind: 'door',
+            start: { xCm: offset, yCm: 0 },
+            end: { xCm: offset + 70, yCm: 0 },
+            clearanceCm: 0,
+          },
+        ],
+      },
+      [],
+    )
+    expect(layout.walkwayCm).toBe(70)
+  })
+
+  it('находит проход от диагональной двери в свободную комнату', () => {
+    const layout = layoutRoom(
+      {
+        widthCm: 400,
+        depthCm: 400,
+        floorPolygon: [
+          { xCm: 200, yCm: 0 },
+          { xCm: 400, yCm: 200 },
+          { xCm: 200, yCm: 400 },
+          { xCm: 0, yCm: 200 },
+        ],
+        floorReservations: [
+          {
+            kind: 'door',
+            start: { xCm: 100, yCm: 100 },
+            end: { xCm: 170, yCm: 30 },
+            clearanceCm: 0,
+          },
+        ],
+      },
+      [],
+    )
+    expect(layout.walkwayCm).toBeGreaterThanOrEqual(WALKWAY_CM)
+    expect(layout.walkwayCm).toBeLessThanOrEqual(Math.hypot(70, 70))
+  })
+
+  it.each([
+    [300, 'top'],
+    [303, 'top'],
+    [303, 'bottom'],
+    [303, 'left'],
+    [303, 'right'],
+    [1200, 'top'],
+  ] as const)('не перескакивает препятствие у входа: %s см, %s', (size, side) => {
+    const point = (x: number, y: number) => {
+      if (side === 'bottom') return { xCm: x, yCm: size - y }
+      if (side === 'left') return { xCm: y, yCm: x }
+      if (side === 'right') return { xCm: size - y, yCm: x }
+      return { xCm: x, yCm: y }
+    }
+    for (const kind of ['door', 'balcony'] as const) {
+      const room = {
+        widthCm: size,
+        depthCm: size,
+        roomKind: 'bath' as const,
+        floorReservations: [{ kind, start: point(100, 0), end: point(200, 0), clearanceCm: 0 }],
+      }
+      const polygon = [point(0, 0), point(size, 0), point(size, 3), point(0, 3)]
+      for (const obstacleKind of ['obstacle', 'radiator'] as const) {
+        const blocked = layoutRoom(
+          {
+            ...room,
+            keepClearZones: [{ kind: obstacleKind, label: 'Контрольная преграда', polygon }],
+          },
+          [],
+        )
+        expect(blocked.walkwayCm).toBe(0)
+        expect(blocked.safetySummary.status).toBe('blocked')
+      }
+      const clear = layoutRoom(room, [])
+      expect(clear.walkwayCm).toBeGreaterThanOrEqual(WALKWAY_CM)
+      const swing = layoutRoom(
+        { ...room, keepClearZones: [{ kind: 'door', label: 'Контрольная дуга', polygon }] },
+        [],
+      )
+      expect(swing.walkwayCm).toBe(clear.walkwayCm)
+    }
+  })
+
+  it('сохраняет свободную часть проёма при препятствии сбоку', () => {
+    const layout = layoutRoom(
+      {
+        widthCm: 300,
+        depthCm: 300,
+        floorReservations: [
+          { kind: 'door', start: { xCm: 100, yCm: 0 }, end: { xCm: 200, yCm: 0 }, clearanceCm: 0 },
+        ],
+        keepClearZones: [
+          {
+            kind: 'obstacle',
+            label: 'Слева от входа',
+            polygon: [
+              { xCm: 0, yCm: 0 },
+              { xCm: 130, yCm: 0 },
+              { xCm: 130, yCm: 3 },
+              { xCm: 0, yCm: 3 },
+            ],
+          },
+        ],
+      },
+      [],
+    )
+    expect(layout.walkwayCm).toBe(70)
+  })
+
   it.each([69, 70, 71])('не расширяет участок пола %s см до ширины клетки', (width) => {
     const left = (400 - width) / 2
     const right = (400 + width) / 2

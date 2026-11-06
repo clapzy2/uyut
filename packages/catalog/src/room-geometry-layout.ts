@@ -446,13 +446,14 @@ export function roomLayoutInputFromSelectedGeometry(
     const horizontal =
       Math.abs(boundaryEnd.xCm - boundaryStart.xCm) >= Math.abs(boundaryEnd.yCm - boundaryStart.yCm)
     if (horizontal) {
-      const y = (boundaryStart.yCm + boundaryEnd.yCm) / 2
-      const wallSide =
-        Math.abs(y - minY) <= BOUNDARY_TOLERANCE_CM
-          ? 'top'
-          : Math.abs(y - maxY) <= BOUNDARY_TOLERANCE_CM
-            ? 'bottom'
-            : null
+      // Bounding-box reservations must not create a second opening outside a stepped floor.
+      const wallSide = [boundaryStart, boundaryEnd].every(
+        (point) => Math.abs(point.yCm - minY) <= 1e-7,
+      )
+        ? 'top'
+        : [boundaryStart, boundaryEnd].every((point) => Math.abs(point.yCm - maxY) <= 1e-7)
+          ? 'bottom'
+          : null
       if (!wallSide) continue
       const clippedStart = Math.max(minX, Math.min(boundaryStart.xCm, boundaryEnd.xCm))
       const clippedEnd = Math.min(maxX, Math.max(boundaryStart.xCm, boundaryEnd.xCm))
@@ -468,13 +469,13 @@ export function roomLayoutInputFromSelectedGeometry(
       continue
     }
 
-    const x = (boundaryStart.xCm + boundaryEnd.xCm) / 2
-    const wallSide =
-      Math.abs(x - minX) <= BOUNDARY_TOLERANCE_CM
-        ? 'left'
-        : Math.abs(x - maxX) <= BOUNDARY_TOLERANCE_CM
-          ? 'right'
-          : null
+    const wallSide = [boundaryStart, boundaryEnd].every(
+      (point) => Math.abs(point.xCm - minX) <= 1e-7,
+    )
+      ? 'left'
+      : [boundaryStart, boundaryEnd].every((point) => Math.abs(point.xCm - maxX) <= 1e-7)
+        ? 'right'
+        : null
     if (!wallSide) continue
     const clippedStart = Math.max(minY, Math.min(boundaryStart.yCm, boundaryEnd.yCm))
     const clippedEnd = Math.min(maxY, Math.max(boundaryStart.yCm, boundaryEnd.yCm))
