@@ -204,6 +204,10 @@ describe('проектный Г-контур в данных и HTML PDF, син
     const plan = pdf.rooms.find((entry) => entry.id === room.id)?.plan
     expect(plan?.keepClearZones).toHaveLength(1)
     expect(plan?.functionalZones).toHaveLength(1)
+    expect(plan?.safetyChecks.find((check) => check.id === 'operation-zone-access')).toMatchObject({
+      status: 'preliminary',
+      detail: expect.stringContaining('предварительной схеме'),
+    })
     if (!plan) throw new Error('Missing test layout')
     expect(plan.keepClearZones[0]?.polygon[0]).toEqual({ xCm: 490, yCm: 0 })
     expect(plan.keepClearZones[0]?.polygon.at(-1)?.yCm).toBeCloseTo(80)
@@ -214,6 +218,7 @@ describe('проектный Г-контур в данных и HTML PDF, син
     expect(volume?.floorZones?.filter((zone) => zone.kind === 'operation')).toHaveLength(1)
     const html = renderProjectHtml(pdf, { fontCss: '' })
     expect(html).toContain('Дверь 1: свободная зона')
+    expect(html).not.toContain('К рабочим зонам мебели есть путь от входа с нужным запасом.')
 
     // A stored swing without a selected hinge must not become an exact zone.
     delete geometry.openings[0]?.clearance?.hinge

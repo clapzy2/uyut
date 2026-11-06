@@ -397,6 +397,12 @@ test.describe('синтетическая расстановка мебели, �
     const route = plan.locator('li').filter({ hasText: 'Непрерывный проход по комнате' })
     await expect(route.getByText('Предварительно', { exact: true })).toBeVisible()
     await expect(route.getByText('Проверено', { exact: true })).toHaveCount(0)
+    const access = plan.locator('li').filter({ hasText: 'Доступ к рабочим зонам мебели' })
+    await expect(access.getByText('Предварительно', { exact: true })).toBeVisible()
+    await expect(access.getByText('Проверено', { exact: true })).toHaveCount(0)
+    await expect(
+      access.getByText(/На предварительной схеме путь к рабочим зонам найден/),
+    ).toBeVisible()
 
     const panel = page.locator('#room-item-sizes')
     await panel.locator('summary').click()
