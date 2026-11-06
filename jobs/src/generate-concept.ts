@@ -441,10 +441,19 @@ export const generateConcept = task({
       aspectRatio,
       ...(layoutGuide ? { referenceUrls: layoutGuide.referenceUrls } : {}),
     }))
+    // Вариант на двоих выбран человеком; обычные стилевые предложения не являются
+    // разрешением добавлять технику и не подмешиваются в проверяемые пожелания.
+    const reviewBriefs = created.map((_, index) => ({
+      ...brief,
+      requestedVariant: payload.duo?.variations[index]?.revision,
+    }))
     // The first review is shared by the anchor gate and the stored result. Waiting for it
     // must not submit another paid review or discard an already rendered first variant.
     let anchorReview: Promise<ConceptQualityReview> | undefined
-    async function reviewRenderedImage(result: RenderResult): Promise<ConceptQualityReview> {
+    async function reviewRenderedImage(
+      result: RenderResult,
+      conceptIndex: number,
+    ): Promise<ConceptQualityReview> {
       try {
         const body = await sharp(result.body)
           .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
@@ -454,7 +463,7 @@ export const generateConcept = task({
         return await reviewConceptImage(
           requireEnv('FAL_KEY'),
           { body, contentType: 'image/jpeg' },
-          brief,
+          reviewBriefs[conceptIndex] ?? brief,
           reviewReference,
         )
       } catch (error) {
@@ -468,7 +477,7 @@ export const generateConcept = task({
             engine,
             anchorItems as [(typeof anchorItems)[number], ...Array<(typeof anchorItems)[number]>],
             async (result) => {
-              anchorReview = reviewRenderedImage(result)
+              anchorReview = reviewRenderedImage(result, 0)
               const review = await anchorReview
               const usable = isUsableArchitectureAnchor(review, brief)
               logger.info('architecture anchor eligibility', {
@@ -516,7 +525,7 @@ export const generateConcept = task({
           // Общий дедлайн включает очередь; сбой проверки не роняет оплаченный результат.
           let qualityReview = await (conceptIndex === 0 && anchorReview
             ? anchorReview
-            : reviewRenderedImage(result))
+            : reviewRenderedImage(result, conceptIndex))
           logger.info('concept quality review', {
             conceptId: concept.id,
             status: qualityReview.status,
@@ -545,7 +554,7 @@ export const generateConcept = task({
               const correctedReview = await reviewConceptImage(
                 requireEnv('FAL_KEY'),
                 { body: correctedReviewImage, contentType: 'image/jpeg' },
-                brief,
+                reviewBriefs[conceptIndex] ?? brief,
                 reviewReference,
               )
               const accepted = isLayoutCorrectionImprovement(qualityReview, correctedReview)
