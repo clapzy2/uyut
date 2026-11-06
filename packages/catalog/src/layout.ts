@@ -2213,9 +2213,8 @@ function layoutRoomCandidate(
   }
 
   const safetyChecks: RoomLayout['safetyChecks'] = []
+  const routePrerequisitesKnown = reservationSource === 'geometry' && missingSafetyData.length === 0
   if (room.roomKind && (placed.length > 0 || walkwayCm < WALKWAY_CM)) {
-    const routePrerequisitesKnown =
-      reservationSource === 'geometry' && missingSafetyData.length === 0
     safetyChecks.push({
       id: 'continuous-route',
       label: 'Непрерывный проход по комнате',
@@ -2259,6 +2258,8 @@ function layoutRoomCandidate(
         [target],
       ) >= requiredWidthCm
     const unknownDirection = accessGroups.find(({ targets }) => targets.length === 0)
+    const accessPrerequisitesKnown =
+      routePrerequisitesKnown && functionalZones.every((zone) => zone.source === 'measured')
     const inaccessible = hasEntry
       ? accessGroups.find(({ targets, requiredWidthCm, anySide }) =>
           anySide
@@ -2275,8 +2276,16 @@ function layoutRoomCandidate(
           ? `К рабочей зоне «${inaccessible.title}» нельзя пройти от входа с нужным запасом.`
           : unknownDirection
             ? `Укажите рабочую сторону «${unknownDirection.title}», чтобы проверить путь к ней от входа.`
-            : 'К рабочим зонам мебели есть путь от входа с нужным запасом.',
-      status: inaccessible ? 'blocked' : !hasEntry || unknownDirection ? 'needs-data' : 'checked',
+            : accessPrerequisitesKnown
+              ? 'К рабочим зонам мебели есть путь от входа с нужным запасом.'
+              : 'На предварительной схеме путь к рабочим зонам найден. Уточните проёмы, открывание и рабочие запасы мебели, прежде чем считать доступ проверенным.',
+      status: inaccessible
+        ? 'blocked'
+        : !hasEntry || unknownDirection
+          ? 'needs-data'
+          : accessPrerequisitesKnown
+            ? 'checked'
+            : 'preliminary',
     })
   }
   for (const item of items) {

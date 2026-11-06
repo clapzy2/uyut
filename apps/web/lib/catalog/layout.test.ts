@@ -410,42 +410,46 @@ describe('layoutRoom', () => {
     expect(layout.operationInputs[0]?.guidance).toContain('подход с каждого бока')
   })
 
-  it('находит недоступный бок кровати, даже когда основной проход широкий', () => {
-    const layout = layoutRoom(
-      {
-        widthCm: 400,
-        depthCm: 200,
-        roomKind: 'bedroom',
-        reservations: [],
-        floorReservations: [
-          {
-            kind: 'door',
-            start: { xCm: 400, yCm: 55 },
-            end: { xCm: 400, yCm: 145 },
-            clearanceCm: 0,
-          },
+  it.each([false, true])(
+    'находит недоступный бок кровати, неизвестное открывание: %s',
+    (unknown) => {
+      const layout = layoutRoom(
+        {
+          widthCm: 400,
+          depthCm: 200,
+          roomKind: 'bedroom',
+          missingSafetyData: unknown ? ['Открывание двери не задано.'] : [],
+          reservations: [],
+          floorReservations: [
+            {
+              kind: 'door',
+              start: { xCm: 400, yCm: 55 },
+              end: { xCm: 400, yCm: 145 },
+              clearanceCm: 0,
+            },
+          ],
+        },
+        [
+          item({
+            id: 'bed',
+            title: 'Кровать',
+            category: 'bed',
+            dimensions: { width: 160, depth: 200, height: 90 },
+            placement: { xCm: 35, yCm: 0, rotation: 0, frontDirection: 'down' },
+            operationClearance: { side: 35 },
+          }),
         ],
-      },
-      [
-        item({
-          id: 'bed',
-          title: 'Кровать',
-          category: 'bed',
-          dimensions: { width: 160, depth: 200, height: 90 },
-          placement: { xCm: 35, yCm: 0, rotation: 0, frontDirection: 'down' },
-          operationClearance: { side: 35 },
-        }),
-      ],
-    )
+      )
 
-    expect(layout.placed).toHaveLength(1)
-    expect(layout.walkwayCm).toBeGreaterThanOrEqual(WALKWAY_CM)
-    expect(layout.safetyChecks.find((check) => check.id === 'operation-zone-access')).toMatchObject(
-      { status: 'blocked', detail: expect.stringContaining('нельзя пройти') },
-    )
-    expect(layout.safetySummary.status).toBe('blocked')
-    expect(layout.safetySummary.detail).toContain('Кровать')
-  })
+      expect(layout.placed).toHaveLength(1)
+      expect(layout.walkwayCm).toBeGreaterThanOrEqual(WALKWAY_CM)
+      expect(
+        layout.safetyChecks.find((check) => check.id === 'operation-zone-access'),
+      ).toMatchObject({ status: 'blocked', detail: expect.stringContaining('нельзя пройти') })
+      expect(layout.safetySummary.status).toBe('blocked')
+      expect(layout.safetySummary.detail).toContain('Кровать')
+    },
+  )
 
   it('выбирает доступную расстановку кровати вместо запертого бокового подхода', () => {
     const layout = layoutRoom(
@@ -555,6 +559,81 @@ describe('layoutRoom', () => {
       { status: 'needs-data', detail: expect.stringContaining('положение двери') },
     )
     expect(layout.safetySummary.detail).toContain('положение двери')
+  })
+
+  it.each(['kid', 'bedroom'] as const)(
+    'не подтверждает доступ к шкафу при неизвестном открывании в %s',
+    (roomKind) => {
+      const room = {
+        widthCm: 400,
+        depthCm: 400,
+        roomKind,
+        reservations: [],
+        floorReservations: [
+          {
+            kind: 'door' as const,
+            start: { xCm: 155, yCm: 400 },
+            end: { xCm: 245, yCm: 400 },
+            clearanceCm: 0,
+          },
+        ],
+      }
+      const furniture = item({
+        title: 'Контрольный шкаф',
+        dimensions: { width: 120, depth: 60 },
+        placement: { xCm: 100, yCm: 0, rotation: 0, frontDirection: 'down' },
+        operationClearance: { front: 60 },
+      })
+      const known = layoutRoom(room, [furniture])
+      const unknown = layoutRoom(
+        { ...room, missingSafetyData: ['Дверь 1: задайте свободную зону открывания.'] },
+        [furniture],
+      )
+      expect(known.safetyChecks.find((check) => check.id === 'operation-zone-access')?.status).toBe(
+        'checked',
+      )
+      expect(
+        unknown.safetyChecks.find((check) => check.id === 'operation-zone-access'),
+      ).toMatchObject({
+        status: 'preliminary',
+        detail: expect.stringContaining('предварительной схеме'),
+      })
+      expect(unknown.placed).toEqual(known.placed)
+      expect(unknown.functionalZones).toEqual(known.functionalZones)
+    },
+  )
+
+  it('не подтверждает доступ по типовому запасу журнального столика', () => {
+    const room = {
+      widthCm: 500,
+      depthCm: 500,
+      roomKind: 'living' as const,
+      reservations: [],
+      floorReservations: [
+        {
+          kind: 'door' as const,
+          start: { xCm: 205, yCm: 500 },
+          end: { xCm: 295, yCm: 500 },
+          clearanceCm: 0,
+        },
+      ],
+    }
+    const furniture = item({
+      title: 'Контрольный журнальный столик',
+      category: 'table',
+      subcategory: 'coffee',
+      dimensions: { width: 100, depth: 50 },
+      placement: { xCm: 150, yCm: 150, rotation: 0 },
+    })
+    const preliminary = layoutRoom(room, [furniture])
+    expect(preliminary.functionalZones[0]?.source).toBe('preliminary')
+    expect(
+      preliminary.safetyChecks.find((check) => check.id === 'operation-zone-access')?.status,
+    ).toBe('preliminary')
+    const known = layoutRoom(room, [{ ...furniture, operationClearance: { around: 35 } }])
+    expect(known.safetyChecks.find((check) => check.id === 'operation-zone-access')?.status).toBe(
+      'checked',
+    )
   })
 
   it('просит указать рабочую сторону шкафа в центре комнаты', () => {
