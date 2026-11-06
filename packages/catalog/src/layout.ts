@@ -1,4 +1,5 @@
 import type { CatalogCategory } from '@uyut/db'
+import polygonClipping, { type Polygon } from 'polygon-clipping'
 import type { DimensionsCm } from './dimensions'
 import {
   parseWallReservationDescription,
@@ -1167,6 +1168,78 @@ function widestRoute(
     (sums[y1 * (cols + 1) + x0] as number) +
     (sums[y0 * (cols + 1) + x0] as number)
 
+  // Nearby free floor does not prove an entrance: the whole approach must be clear.
+  const entryConnectionClear = (
+    entry: FloorReservation,
+    target: LayoutPoint,
+    widthCm: number,
+    openingWidthCm: number,
+  ): boolean => {
+    const ux = (entry.end.xCm - entry.start.xCm) / openingWidthCm
+    const uy = (entry.end.yCm - entry.start.yCm) / openingWidthCm
+    const halfWidth = widthCm / 2
+    const projected = (target.xCm - entry.start.xCm) * ux + (target.yCm - entry.start.yCm) * uy
+    const along = Math.max(halfWidth, Math.min(openingWidthCm - halfWidth, projected))
+    const approach = {
+      xCm: target.xCm + (along - projected) * ux,
+      yCm: target.yCm + (along - projected) * uy,
+    }
+    const start = { xCm: entry.start.xCm + along * ux, yCm: entry.start.yCm + along * uy }
+    if (
+      Math.abs((target.xCm - start.xCm) * uy - (target.yCm - start.yCm) * ux) < GEOMETRY_EPSILON_CM
+    )
+      return false
+    const polygon = [
+      { xCm: start.xCm - ux * halfWidth, yCm: start.yCm - uy * halfWidth },
+      { xCm: start.xCm + ux * halfWidth, yCm: start.yCm + uy * halfWidth },
+      { xCm: approach.xCm + ux * halfWidth, yCm: approach.yCm + uy * halfWidth },
+      { xCm: approach.xCm - ux * halfWidth, yCm: approach.yCm - uy * halfWidth },
+    ]
+    const corridors = [polygon]
+    if (Math.abs(along - projected) > GEOMETRY_EPSILON_CM) {
+      // Off-grid doors join the grid by a checked full-width manoeuvre, never a shear.
+      const left = Math.min(approach.xCm, target.xCm) - halfWidth
+      const right = Math.max(approach.xCm, target.xCm) + halfWidth
+      const top = Math.min(approach.yCm, target.yCm) - halfWidth
+      const bottom = Math.max(approach.yCm, target.yCm) + halfWidth
+      corridors.push([
+        { xCm: left, yCm: top },
+        { xCm: right, yCm: top },
+        { xCm: right, yCm: bottom },
+        { xCm: left, yCm: bottom },
+      ])
+    }
+    return corridors.every((corridor) => {
+      if (
+        corridor.some(
+          (point) =>
+            point.xCm < 0 || point.yCm < 0 || point.xCm > room.widthCm || point.yCm > room.depthCm,
+        )
+      )
+        return false
+      if (placed.some((rect) => rectOverlapsPolygon(rect, corridor))) return false
+      const shape: Polygon = [corridor.map((point) => [point.xCm, point.yCm])]
+      // Original geometry includes strips thinner than the grid and partial boundary cells.
+      try {
+        if (
+          floorPolygon &&
+          polygonClipping.difference(shape, [
+            floorPolygon.map((point): [number, number] => [point.xCm, point.yCm]),
+          ]).length
+        )
+          return false
+        return !blockedPolygons.some(
+          (blocked) =>
+            polygonClipping.intersection(shape, [
+              blocked.map((point): [number, number] => [point.xCm, point.yCm]),
+            ]).length > 0,
+        )
+      } catch {
+        return false
+      }
+    })
+  }
+
   const fits = (widthCells: number): boolean => {
     // Клетка проходима, если вокруг неё умещается свободный квадрат нужной ширины
     const half = Math.floor(widthCells / 2)
@@ -1229,7 +1302,10 @@ function widestRoute(
       if (openingWidthCm < widthCells * step) return false
       const middleX = (entry.start.xCm + entry.end.xCm) / 2
       const middleY = (entry.start.yCm + entry.end.yCm) / 2
-      const reachCm = (widthCells * step) / 2 + step * 2
+      const wallProjection =
+        (Math.abs(entry.end.xCm - entry.start.xCm) + Math.abs(entry.end.yCm - entry.start.yCm)) /
+        openingWidthCm
+      const reachCm = ((widthCells * step) / 2) * wallProjection + step * 2
       const fromX = Math.max(0, Math.floor((middleX - reachCm) / step))
       const toX = Math.min(cols - 1, Math.floor((middleX + reachCm) / step))
       const fromY = Math.max(0, Math.floor((middleY - reachCm) / step))
@@ -1239,7 +1315,15 @@ function widestRoute(
         for (let x = fromX; x <= toX; x += 1) {
           if (seen[y * cols + x] === 0) continue
           const distanceCm = Math.hypot((x + 0.5) * step - middleX, (y + 0.5) * step - middleY)
-          if (distanceCm <= reachCm) {
+          if (
+            distanceCm <= reachCm &&
+            entryConnectionClear(
+              entry,
+              { xCm: (x + widthCells / 2 - half) * step, yCm: (y + widthCells / 2 - half) * step },
+              widthCells * step,
+              openingWidthCm,
+            )
+          ) {
             connected = true
             break
           }

@@ -1,7 +1,23 @@
 import { layoutRoom, WALKWAY_CM } from '@uyut/catalog'
 import type { PlanGeometry } from '@uyut/db'
 import { assert, describe, expect, it } from 'vitest'
+import openApartment from '../../../../jobs/fixtures/open-swiss-apartment-35063-geometry.json'
 import { roomLayoutInputFromGeometry } from './room-geometry-layout'
+
+it('не дублирует проём уступа на наружной границе габаритного прямоугольника', () => {
+  const input = roomLayoutInputFromGeometry(
+    { ...openApartment.geometry, status: 'confirmed' } as PlanGeometry,
+    'Гостиная',
+    null,
+  )
+  expect(input?.floorReservations).toHaveLength(2)
+  expect(input?.reservations.filter((reservation) => reservation.wall === 'right')).toEqual([])
+  expect(
+    input?.floorReservations.find((reservation) => reservation.start.xCm === 382.3),
+  ).toBeDefined()
+  assert(input)
+  expect(layoutRoom(input, []).walkwayCm).toBeGreaterThanOrEqual(WALKWAY_CM)
+})
 
 const geometry: PlanGeometry = {
   version: 1,
