@@ -18,6 +18,63 @@ const item = (
 })
 
 describe('контракт расстановки для генератора', () => {
+  for (const roomKind of ['bedroom', 'kid'] as const) {
+    for (const clearances of [
+      [null, null],
+      [{ side: 40 }, null],
+      [null, { front: 50 }],
+      [{ front: 40 }, { front: 50 }],
+      [{ side: 0 }, { front: 50 }],
+    ] as const) {
+      it(`не подтверждает рабочие зоны ${roomKind} при неполных запасах ${JSON.stringify(clearances)}`, () => {
+        const layout = layoutRoom({ roomKind, widthCm: 600, depthCm: 600, reservations: [] }, [
+          { ...item('bed', 'Кровать', 'bed', 160, 200), operationClearance: clearances[0] },
+          { ...item('storage', 'Шкаф', 'storage', 100, 50), operationClearance: clearances[1] },
+        ])
+        expect(layout.placed).toHaveLength(2)
+        expect(
+          layout.relationships.find((relation) => relation.kind === 'bed-storage'),
+        ).toMatchObject({
+          status: 'needs-data',
+        })
+        expect(layoutPromptContract(layout)).not.toContain(
+          'keep their operating clearances separate',
+        )
+      })
+    }
+
+    it(`подтверждает заданные и размещённые рабочие зоны ${roomKind}`, () => {
+      const layout = layoutRoom({ roomKind, widthCm: 600, depthCm: 600, reservations: [] }, [
+        { ...item('bed', 'Кровать', 'bed', 160, 200), operationClearance: { side: 40 } },
+        { ...item('storage', 'Шкаф', 'storage', 100, 50), operationClearance: { front: 50 } },
+      ])
+      expect(layout.placed).toHaveLength(2)
+      expect(layout.functionalZones).toHaveLength(2)
+      expect(
+        layout.relationships.find((relation) => relation.kind === 'bed-storage'),
+      ).toMatchObject({
+        status: 'checked',
+      })
+      expect(layoutPromptContract(layout)).toContain('keep their operating clearances separate')
+    })
+  }
+
+  it('не скрывает неизвестную зону второго шкафа за проверенной первой парой', () => {
+    const layout = layoutRoom(
+      { roomKind: 'bedroom', widthCm: 800, depthCm: 800, reservations: [] },
+      [
+        { ...item('bed', 'Кровать', 'bed', 160, 200), operationClearance: { side: 40 } },
+        { ...item('storage', 'Шкаф', 'storage', 100, 50), operationClearance: { front: 50 } },
+        item('storage-2', 'Второй шкаф', 'storage', 100, 50),
+      ],
+    )
+    expect(layout.placed).toHaveLength(3)
+    expect(layout.relationships.find((relation) => relation.kind === 'bed-storage')).toMatchObject({
+      status: 'needs-data',
+    })
+    expect(layoutPromptContract(layout)).not.toContain('keep their operating clearances separate')
+  })
+
   it('передаёт модели рассчитанные координаты, стены и проход', () => {
     const layout = layoutRoom(
       { roomKind: 'living', widthCm: 480, depthCm: 560, reservations: [] },
