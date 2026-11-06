@@ -18,6 +18,41 @@ const item = (
 })
 
 describe('контракт расстановки для генератора', () => {
+  it('передаёт высоту каждого предмета без потерь при повороте и нескольких копиях', () => {
+    const layout = layoutRoom({ widthCm: 600, depthCm: 600, reservations: [] }, [
+      {
+        ...item('wardrobe', 'Шкаф', 'storage', 100, 60),
+        dimensions: { width: 100, depth: 60, height: 236.4 },
+        placement: { xCm: 0, yCm: 0, rotation: 90 },
+        quantity: 2,
+      },
+      {
+        ...item('bed', 'Кровать', 'bed', 100, 200),
+        dimensions: { width: 100, depth: 200, height: 80 },
+      },
+    ])
+    expect(layout.placed).toHaveLength(3)
+    const contract = layoutPromptContract(layout)
+    expect(contract.match(/height 236\.4 cm/g)).toHaveLength(2)
+    expect(contract).toContain('Шкаф: 60 by 100 cm footprint, height 236.4 cm')
+    expect(contract).toContain('height 80 cm')
+  })
+
+  it.each([undefined, 0, -10, Number.NaN, Number.POSITIVE_INFINITY])(
+    'не придумывает высоту при значении %s',
+    (height) => {
+      const layout = layoutRoom({ widthCm: 400, depthCm: 400 }, [
+        {
+          ...item('storage', 'Шкаф', 'storage', 100, 60),
+          dimensions: { width: 100, depth: 60, height },
+        },
+      ])
+      const contract = layoutPromptContract(layout)
+      expect(contract).toContain('height unknown')
+      expect(contract).not.toMatch(/height (?:0|-10|NaN|Infinity) cm/)
+    },
+  )
+
   for (const roomKind of ['bedroom', 'kid'] as const) {
     for (const clearances of [
       [null, null],

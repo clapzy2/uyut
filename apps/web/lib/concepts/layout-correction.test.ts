@@ -32,6 +32,8 @@ describe('точечная коррекция рендера по 2D-контр�
     expect(prompt).toContain('low sideboard')
     expect(prompt).toContain('continuous walking route')
     expect(prompt).toContain('Keep exactly the same camera')
+    expect(prompt).not.toContain('near the ceiling')
+    expect(prompt).toContain('Preserve every stated furniture height')
   })
 
   it('не тратит попытку на смешанные или отсутствующие замечания', () => {
@@ -44,6 +46,17 @@ describe('точечная коррекция рендера по 2D-контр�
       ),
     ).toBeNull()
   })
+
+  it.each(['height 190 cm', 'height unknown'])(
+    'сохраняет исходную высоту %s несмотря на формулировку проверяющего',
+    (height) => {
+      const contract = `Wardrobe: 60 by 50 cm footprint, ${height}, against right wall`
+      const prompt = layoutCorrectionPrompt(review([missing]), contract)
+      expect(prompt).toContain(contract)
+      expect(prompt).toContain('Do not extend furniture to the ceiling')
+      expect(prompt).not.toContain('near the ceiling')
+    },
+  )
 
   it('принимает только исправление без новых замечаний', () => {
     const before = review([missing])

@@ -104,5 +104,6 @@ describe('render layout contract', () => {
     const contract = conceptLayoutContract('Гостиная', 'living', null, geometry, [sofa])
     expect(contract).toContain('Verified top-down furniture contract')
     expect(contract).toContain('Диван')
+    expect(contract).toContain('height 80 cm')
   })
 })
