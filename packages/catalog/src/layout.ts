@@ -1080,7 +1080,7 @@ function spanOf(
     : { from: depths.top, to: room.depthCm - depths.bottom }
 }
 
-/** Шаг сетки, на которой проверяется проходимость. Пять сантиметров — точнее, чем мерит рулетка. */
+/** Шаг сетки расчёта прохода; это разрешение алгоритма, а не точность обмера. */
 const GRID_CM = 5
 
 /** Потолок числа клеток: у квартиры-студии на двадцать метров сетка иначе разрастается. */
@@ -1118,8 +1118,9 @@ function widestRoute(
   if (floorPolygon) {
     for (let y = 0; y < rows; y += 1) {
       for (let x = 0; x < cols; x += 1) {
-        const center = { xCm: (x + 0.5) * step, yCm: (y + 0.5) * step }
-        if (!pointInFloor(center, floorPolygon)) busy[y * cols + x] = 1
+        // A free cell must fit completely: its centre alone can widen a narrow passage.
+        const cell = { xCm: x * step, yCm: y * step, widthCm: step, depthCm: step }
+        if (!rectInsideFloor(cell, floorPolygon)) busy[y * cols + x] = 1
       }
     }
   }
