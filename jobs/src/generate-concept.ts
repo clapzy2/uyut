@@ -23,7 +23,13 @@ import {
   styleLibrary,
   unavailableQualityReview,
 } from '@uyut/ai'
-import { conceptLayoutContract, type LayoutItem, subcategoryFromText } from '@uyut/catalog'
+import {
+  conceptLayout,
+  type LayoutItem,
+  layoutPromptContract,
+  type RoomLayout,
+  subcategoryFromText,
+} from '@uyut/catalog'
 import { effectiveSize } from '@uyut/catalog/item-size'
 import type { ConceptQualityReview } from '@uyut/db'
 import {
@@ -37,6 +43,7 @@ import {
 import { and, eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { z } from 'zod'
+import { prepareConceptLayoutGuide } from './lib/concept-layout-guide'
 import { db } from './lib/db'
 import { requireEnv } from './lib/env'
 import { putObject, readObject } from './lib/s3'
@@ -235,7 +242,7 @@ export const generateConcept = task({
 
     // Если человек уже выбрал товары, рендер получает расстановку из того же подтверждённого
     // контура, что и 2D-схема. При неполных данных не называем координаты проверенными.
-    let layoutContract: string | undefined
+    let checkedLayout: RoomLayout | undefined
     if (
       !room.measurements?.projectedContour &&
       project.planReading?.geometry?.status === 'confirmed'
@@ -255,7 +262,7 @@ export const generateConcept = task({
         placement: item.placementCm,
         quantity: item.quantity,
       }))
-      layoutContract = conceptLayoutContract(
+      checkedLayout = conceptLayout(
         room.name,
         room.kind,
         room.measurements,
@@ -263,6 +270,9 @@ export const generateConcept = task({
         layoutItems,
       )
     }
+    const layoutContract = checkedLayout
+      ? layoutPromptContract(checkedLayout) || undefined
+      : undefined
 
     // Правка готового рендера рисуется от него, а не от фотографии комнаты
     const [base] = payload.baseConceptId
@@ -340,6 +350,18 @@ export const generateConcept = task({
     const engine = withRenderMeter(rawEngine, () => {
       renderRequests += 1
     })
+    const layoutGuide = await prepareConceptLayoutGuide({
+      layout: checkedLayout,
+      ceilingCm: conceptMeasurements?.ceilingCm,
+      modelId,
+      hasSourceImage: Boolean(baseRenderKey ?? room.photoUrl),
+      hasBaseConcept: Boolean(base),
+      hasEditSteps: Boolean(payload.editSteps),
+      preserving,
+    }).catch(() => {
+      logger.warn('layout guide preparation failed; keeping text-only layout contract')
+      return undefined
+    })
     const created = await database
       .insert(concepts)
       .values(
@@ -355,7 +377,9 @@ export const generateConcept = task({
           status: 'pending' as const,
           prompt: payload.editSteps
             ? payload.editSteps.map((step) => step.prompt).join(' → ')
-            : `${plan.shared} ${variation} ${plan.mandate}`.replace(/\s+/g, ' ').trim(),
+            : `${layoutGuide?.prompt ?? ''} ${plan.shared} ${variation} ${plan.mandate}`
+                .replace(/\s+/g, ' ')
+                .trim(),
           styleTags: project.styleTags,
           aiModel: modelId,
           sourcePhotoRevision: base ? base.sourcePhotoRevision : room.photoRevision,
@@ -415,6 +439,7 @@ export const generateConcept = task({
       prompt: concept.prompt,
       seed: 1000 + concept.orderIndex,
       aspectRatio,
+      ...(layoutGuide ? { referenceUrls: layoutGuide.referenceUrls } : {}),
     }))
     // The first review is shared by the anchor gate and the stored result. Waiting for it
     // must not submit another paid review or discard an already rendered first variant.
@@ -505,8 +530,11 @@ export const generateConcept = task({
             layoutCorrectionRequests += 1
             try {
               const corrected = await engine.render({
-                prompt: correctionPrompt,
+                prompt: layoutGuide
+                  ? `${layoutGuide.prompt} ${correctionPrompt}`
+                  : correctionPrompt,
                 imageUrl: `data:${result.contentType};base64,${result.body.toString('base64')}`,
+                ...(layoutGuide ? { referenceUrls: layoutGuide.referenceUrls } : {}),
                 aspectRatio,
               })
               const correctedReviewImage = await sharp(corrected.body)

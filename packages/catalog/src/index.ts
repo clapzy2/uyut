@@ -1,7 +1,7 @@
 // Разбор партнёрских фидов, хранение каталога и поиск похожих товаров.
 
 export { categoryFromText, isCatalogCategory } from './categories'
-export { conceptLayoutContract } from './concept-layout'
+export { conceptLayout, conceptLayoutContract } from './concept-layout'
 export {
   parseAdmitadCsv,
   parseAdmitadCsvStream,
@@ -62,6 +62,7 @@ export {
   WALKWAY_CM,
   wallReservationToFloorReservation,
 } from './layout'
+export { layoutGuideSvgs } from './layout-guide'
 export { layoutPromptContract } from './layout-prompt'
 export {
   isBathroomFixture,

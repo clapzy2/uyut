@@ -1933,6 +1933,7 @@ function layoutRoomCandidate(
   }
 
   const manualEntries = sized.filter((entry) => entry.placement)
+  const explicitFronts = new Map<string, LayoutDirection>()
   for (const entry of manualEntries) {
     const fixed = entry.placement
     if (!fixed) continue
@@ -1947,15 +1948,16 @@ function layoutRoomCandidate(
     const touchesBottom = Math.abs(rect.yCm + rect.depthCm - depthCm) <= GEOMETRY_EPSILON_CM
     const touchesLeft = Math.abs(rect.xCm) <= GEOMETRY_EPSILON_CM
     const touchesRight = Math.abs(rect.xCm + rect.widthCm - widthCm) <= GEOMETRY_EPSILON_CM
-    const wall: Placement['wall'] = touchesTop
-      ? 'top'
-      : touchesBottom
-        ? 'bottom'
-        : touchesLeft
-          ? 'left'
-          : touchesRight
-            ? 'right'
-            : 'center'
+    const touchedWalls: LayoutWall[] = []
+    if (touchesTop) touchedWalls.push('top')
+    if (touchesBottom) touchedWalls.push('bottom')
+    if (touchesLeft) touchedWalls.push('left')
+    if (touchesRight) touchedWalls.push('right')
+    // At a corner, the explicit front distinguishes the backing wall from a side wall.
+    const wall: Placement['wall'] =
+      touchedWalls.find((candidate) => directionFromWall(candidate) === fixed.frontDirection) ??
+      touchedWalls[0] ??
+      'center'
     const placementId = `${entry.item.id}-${placed.length}`
     const zone = operationZone(entry.item, rect, wall, placementId, entry.placement?.frontDirection)
     const insideBounds =
@@ -2014,6 +2016,7 @@ function layoutRoomCandidate(
       ...rect,
       wall,
     })
+    if (fixed.frontDirection) explicitFronts.set(placementId, fixed.frontDirection)
     if (zone) functionalZones.push(zone)
     if (wall !== 'center') {
       const inwardDepth = wall === 'top' || wall === 'bottom' ? rect.depthCm : rect.widthCm
@@ -2443,18 +2446,47 @@ function layoutRoomCandidate(
       item.category === 'storage' && /(?:^|[^а-яё])тв(?:[^а-яё]|$)|телевиз/i.test(item.title),
   )
   if (room.roomKind === 'living' && sofaPlacement && tvPlacement) {
-    const opposite =
+    const oppositeWalls =
       sofaPlacement.wall !== 'center' &&
       sofaPlacement.wall !== 'perimeter' &&
       tvPlacement.wall !== 'center' &&
       tvPlacement.wall !== 'perimeter' &&
       OPPOSITE[sofaPlacement.wall] === tvPlacement.wall
+    const sofaFront = explicitFronts.get(sofaPlacement.id)
+    const tvFront = explicitFronts.get(tvPlacement.id)
+    const hasExplicitFront = sofaFront !== undefined || tvFront !== undefined
+    const overlapsX =
+      Math.max(sofaPlacement.xCm, tvPlacement.xCm) <
+      Math.min(sofaPlacement.xCm + sofaPlacement.widthCm, tvPlacement.xCm + tvPlacement.widthCm)
+    const overlapsY =
+      Math.max(sofaPlacement.yCm, tvPlacement.yCm) <
+      Math.min(sofaPlacement.yCm + sofaPlacement.depthCm, tvPlacement.yCm + tvPlacement.depthCm)
+    const facing =
+      (sofaFront === 'right' &&
+        tvFront === 'left' &&
+        sofaPlacement.xCm + sofaPlacement.widthCm <= tvPlacement.xCm &&
+        overlapsY) ||
+      (sofaFront === 'left' &&
+        tvFront === 'right' &&
+        tvPlacement.xCm + tvPlacement.widthCm <= sofaPlacement.xCm &&
+        overlapsY) ||
+      (sofaFront === 'down' &&
+        tvFront === 'up' &&
+        sofaPlacement.yCm + sofaPlacement.depthCm <= tvPlacement.yCm &&
+        overlapsX) ||
+      (sofaFront === 'up' &&
+        tvFront === 'down' &&
+        tvPlacement.yCm + tvPlacement.depthCm <= sofaPlacement.yCm &&
+        overlapsX)
+    const opposite = hasExplicitFront ? facing : oppositeWalls
     relationships.push({
       id: 'sofa-tv',
       kind: 'sofa-tv',
       label: 'Диван и ТВ-зона',
       detail: opposite
-        ? 'Предметы стоят у противоположных стен; направление просмотра не пересекает мебель.'
+        ? hasExplicitFront
+          ? 'Заданные рабочие стороны дивана и ТВ-тумбы обращены друг к другу; их проекции перекрываются. Положение и ось экрана отдельно не проверены.'
+          : 'Предметы стоят у противоположных стен. Направление экрана и посадки отдельно не задано и не проверено.'
         : 'Предметы не стоят напротив друг друга. Проверьте направление экрана и посадки вручную.',
       status: opposite ? 'checked' : 'review',
     })

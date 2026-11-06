@@ -10,7 +10,8 @@ const wallName = {
 } as const
 
 const relationshipText = {
-  'sofa-tv': 'the sofa faces the TV zone from the opposite side of the room',
+  'sofa-tv':
+    'preserve the opposite placement of sofa and TV furniture; the screen axis is not measured',
   'sofa-coffee': 'the coffee table remains directly usable from the sofa',
   'bed-storage': 'the bed and storage keep their operating clearances separate',
   'desk-window': 'the desk remains close to the window without blocking it',
