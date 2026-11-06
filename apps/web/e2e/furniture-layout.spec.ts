@@ -131,6 +131,141 @@ test.describe('синтетическая расстановка мебели, �
     if (userId) await db.delete(users).where(eq(users.id, userId))
   })
 
+  test.beforeEach(async () => {
+    assert(db)
+    await db
+      .update(rooms)
+      .set({
+        kind: 'living',
+        measurements: {
+          widthCm: 320,
+          depthCm: 600,
+          layoutNotes: 'Дверь слева у верхнего угла, ширина150см',
+        },
+      })
+      .where(eq(rooms.id, roomId))
+    await db.update(catalogItems).set({ category: 'storage' }).where(eq(catalogItems.id, productId))
+    await db
+      .update(shoppingListItems)
+      .set({
+        dimensionsCm: { width: 50, depth: 40, height: 80 },
+        operationClearanceCm: { front: 30 },
+        placementCm: { xCm: 0, yCm: 110, rotation: 0, frontDirection: 'right' },
+      })
+      .where(eq(shoppingListItems.id, itemId))
+  })
+
+  test('сохраняет рабочую сторону при переносе и поворачивает её вместе с корпусом', async ({
+    page,
+  }) => {
+    assert(db)
+    await db
+      .update(rooms)
+      .set({ measurements: { widthCm: 400, depthCm: 400 } })
+      .where(eq(rooms.id, roomId))
+    await db
+      .update(shoppingListItems)
+      .set({
+        placementCm: { xCm: 100, yCm: 0, rotation: 0 },
+      })
+      .where(eq(shoppingListItems.id, itemId))
+    const login = await page.request.post('/api/auth/sign-in/email', {
+      headers: { origin },
+      data: { email, password },
+    })
+    expect(login.status()).toBe(200)
+    await page.goto(`/projects/${projectId}/rooms/${roomId}`)
+    const overlay = page.getByLabel('Перемещение мебели по плану')
+    await expect(overlay).toHaveAttribute('data-ready', 'true')
+    const movable = overlay.getByRole('button', { name: `Переместить: ${title}`, exact: true })
+    await movable.scrollIntoViewIfNeeded()
+    const box = await movable.boundingBox()
+    assert(box)
+    const hitbox = await movable.locator('[data-hitbox]').boundingBox()
+    assert(hitbox)
+    const scale = hitbox.width / 50
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(
+      box.x + box.width / 2 - 100 * scale,
+      box.y + box.height / 2 + 100 * scale,
+      { steps: 8 },
+    )
+    await expect(movable).toHaveAttribute('data-preview', 'valid')
+    await page.mouse.up()
+    await expect
+      .poll(async () => (await savedItem()).placementCm)
+      .toMatchObject({
+        xCm: 0,
+        rotation: 0,
+        frontDirection: 'down',
+      })
+    const moved = (await savedItem()).placementCm
+    assert(moved)
+    expect(moved.yCm).toBeGreaterThan(50)
+    expect(moved.yCm).toBeLessThan(150)
+    await page.reload()
+    await expect(overlay).toHaveAttribute('data-ready', 'true')
+    expect((await savedItem()).operationClearanceCm).toEqual({ front: 30 })
+
+    // Снова автоматическое направление от верхней стены. Поворот обязан
+    // закрепить повернутый фронт, а не заново направить его от той же стены.
+    await db
+      .update(shoppingListItems)
+      .set({
+        placementCm: { xCm: 100, yCm: 0, rotation: 0 },
+      })
+      .where(eq(shoppingListItems.id, itemId))
+    await page.reload()
+    await expect(overlay).toHaveAttribute('data-ready', 'true')
+    await overlay.getByRole('button', { name: `Повернуть: ${title}`, exact: true }).click()
+    await expect
+      .poll(async () => (await savedItem()).placementCm)
+      .toEqual({
+        xCm: 100,
+        yCm: 0,
+        rotation: 90,
+        frontDirection: 'left',
+      })
+    await page.reload()
+    await expect(movable).toBeVisible()
+    expect((await savedItem()).placementCm?.frontDirection).toBe('left')
+  })
+
+  test('не разрешает поворот кровати, если боковой подход окажется за стеной', async ({ page }) => {
+    assert(db)
+    await db
+      .update(rooms)
+      .set({ kind: 'bedroom', measurements: { widthCm: 400, depthCm: 400 } })
+      .where(eq(rooms.id, roomId))
+    await db.update(catalogItems).set({ category: 'bed' }).where(eq(catalogItems.id, productId))
+    // Контрольная геометрия и запас, не обмеры квартиры и не инструкция товара.
+    const placement = { xCm: 60, yCm: 0, rotation: 0 as const }
+    await db
+      .update(shoppingListItems)
+      .set({
+        dimensionsCm: { width: 151, depth: 210, height: 80 },
+        operationClearanceCm: { side: 45 },
+        placementCm: placement,
+      })
+      .where(eq(shoppingListItems.id, itemId))
+    const login = await page.request.post('/api/auth/sign-in/email', {
+      headers: { origin },
+      data: { email, password },
+    })
+    expect(login.status()).toBe(200)
+    await page.goto(`/projects/${projectId}/rooms/${roomId}`)
+    const overlay = page.getByLabel('Перемещение мебели по плану')
+    await expect(overlay).toHaveAttribute('data-ready', 'true')
+    await overlay.getByRole('button', { name: `Повернуть: ${title}`, exact: true }).click()
+    await expect(
+      page.getByText('После поворота не хватает места для открывания или использования', {
+        exact: true,
+      }),
+    ).toBeVisible()
+    expect((await savedItem()).placementCm).toEqual(placement)
+  })
+
   test('не сужает дверь после запятой, сохраняет размер через форму и держит расстановку черновой', async ({
     page,
   }) => {

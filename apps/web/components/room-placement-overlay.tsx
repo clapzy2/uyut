@@ -291,6 +291,18 @@ export function RoomPlacementOverlay({
     return functionalZoneRect(candidate, zone, direction)
   }
 
+  function displayedDirection(
+    place: Placement,
+    input: PlacementInput,
+  ): LayoutDirection | undefined {
+    const zone = zoneByPlacementId.get(place.id)
+    if (zone?.kind === 'around') return undefined
+    if (input.frontDirection) return input.frontDirection
+    // Moving a body does not turn its front toward a different wall. Keep the
+    // direction already shown by the layout, including automatic placements.
+    return zone && zone.direction !== 'around' ? zone.direction : undefined
+  }
+
   function setStatus(message: string, valid: boolean) {
     if (!status.current) return
     status.current.textContent = message
@@ -411,7 +423,7 @@ export function RoomPlacementOverlay({
       depthCm: place.depthCm,
       heightCm: input.heightCm,
       rotation: displayedRotation(place, input),
-      frontDirection: input.frontDirection,
+      frontDirection: displayedDirection(place, input),
       valid: true,
     }
     setDraggingPlacementId(place.id)
@@ -503,7 +515,7 @@ export function RoomPlacementOverlay({
     const depthCm = rotation === 0 ? input.depthCm : input.widthCm
     const next = snappedPosition(place.xCm, place.yCm, widthCm, depthCm, roomWidthCm, roomDepthCm)
     const candidate = { xCm: next.xCm, yCm: next.yCm, widthCm, depthCm }
-    const frontDirection = rotateDirection(input.frontDirection)
+    const frontDirection = rotateDirection(displayedDirection(place, input))
     const verdict = previewVerdict(
       candidate,
       place.id,
