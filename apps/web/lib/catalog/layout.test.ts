@@ -21,6 +21,30 @@ function item(over: Partial<LayoutItem> & Pick<LayoutItem, 'title'>): LayoutItem
 const kinds = (layout: ReturnType<typeof layoutRoom>) => layout.problems.map((p) => p.kind)
 
 describe('layoutRoom', () => {
+  it.each([69, 70, 71])('не расширяет участок пола %s см до ширины клетки', (width) => {
+    const left = (400 - width) / 2
+    const right = (400 + width) / 2
+    const floorPolygon = (
+      [
+        [0, 0],
+        [400, 0],
+        [400, 150],
+        [right, 150],
+        [right, 250],
+        [400, 250],
+        [400, 400],
+        [0, 400],
+        [0, 250],
+        [left, 250],
+        [left, 150],
+        [0, 150],
+      ] as const
+    ).map(([xCm, yCm]) => ({ xCm, yCm }))
+    const layout = layoutRoom({ widthCm: 400, depthCm: 400, floorPolygon }, [])
+    expect(layout.walkwayCm).toBeLessThanOrEqual(width)
+    if (width >= 70) expect(layout.walkwayCm).toBe(70)
+  })
+
   it.each(['kid', 'bedroom'] as const)(
     'не считает отрицание спального места выполненной функцией в %s',
     (roomKind) => {
