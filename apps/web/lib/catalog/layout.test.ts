@@ -21,6 +21,152 @@ function item(over: Partial<LayoutItem> & Pick<LayoutItem, 'title'>): LayoutItem
 const kinds = (layout: ReturnType<typeof layoutRoom>) => layout.problems.map((p) => p.kind)
 
 describe('layoutRoom', () => {
+  it('does not transfer a rejected manual copy front to an automatically placed duplicate', () => {
+    const layout = layoutRoom({ roomKind: 'living', widthCm: 480, depthCm: 560 }, [
+      item({
+        id: 'sofa',
+        title: 'Диван',
+        category: 'sofa',
+        dimensions: { width: 240, depth: 95, height: 90 },
+        operationClearance: { front: 30 },
+        quantity: 2,
+        placement: { xCm: 900, yCm: 0, rotation: 90, frontDirection: 'right' },
+      }),
+      item({
+        title: 'ТВ-тумба',
+        dimensions: { width: 180, depth: 45, height: 55 },
+        operationClearance: { front: 30 },
+        placement: { xCm: 435, yCm: 0, rotation: 90, frontDirection: 'left' },
+      }),
+    ])
+
+    expect(layout.placed.filter((placement) => placement.itemId === 'sofa')).toHaveLength(1)
+    expect(
+      layout.relationships.find((relationship) => relationship.kind === 'sofa-tv')?.status,
+    ).toBe('review')
+  })
+
+  it.each([
+    { name: 'opposing corner fronts', tvX: 435, tvY: 0, tvFront: 'left', status: 'checked' },
+    { name: 'nonaligned fronts', tvX: 435, tvY: 300, tvFront: 'left', status: 'review' },
+    { name: 'same-facing fronts', tvX: 355, tvY: 0, tvFront: 'right', status: 'review' },
+    { name: 'missing TV front', tvX: 435, tvY: 0, tvFront: undefined, status: 'review' },
+  ] as const)('checks explicit sofa/TV fronts: $name', ({ tvX, tvY, tvFront, status }) => {
+    const layout = layoutRoom({ roomKind: 'living', widthCm: 480, depthCm: 560 }, [
+      item({
+        id: 'sofa',
+        title: 'Диван',
+        category: 'sofa',
+        dimensions: { width: 240, depth: 95, height: 90 },
+        operationClearance: { front: 30 },
+        placement: { xCm: 0, yCm: 0, rotation: 90, frontDirection: 'right' },
+      }),
+      item({
+        id: 'tv',
+        title: 'ТВ-тумба',
+        dimensions: { width: 180, depth: 45, height: 55 },
+        operationClearance: { front: 30 },
+        placement: { xCm: tvX, yCm: tvY, rotation: 90, frontDirection: tvFront },
+      }),
+    ])
+
+    expect(layout.problems).toEqual([])
+    expect(layout.placed).toHaveLength(2)
+    expect(layout.placed.find((placement) => placement.itemId === 'sofa')).toMatchObject({
+      wall: 'left',
+      widthCm: 95,
+      depthCm: 240,
+    })
+    if (tvFront === 'left' && tvX === 435) {
+      expect(layout.placed.find((placement) => placement.itemId === 'tv')?.wall).toBe('right')
+    }
+    expect(
+      layout.relationships.find((relationship) => relationship.kind === 'sofa-tv'),
+    ).toMatchObject({
+      status,
+    })
+    if (status === 'checked') {
+      expect(
+        layout.relationships.find((relationship) => relationship.kind === 'sofa-tv')?.detail,
+      ).toContain('ось экрана отдельно не проверены')
+    }
+  })
+
+  it.each([
+    {
+      sofaX: 385,
+      sofaY: 0,
+      tvX: 0,
+      tvY: 0,
+      rotation: 90,
+      front: 'left',
+      tvFront: 'right',
+      status: 'checked',
+    },
+    {
+      sofaX: 0,
+      sofaY: 0,
+      tvX: 0,
+      tvY: 515,
+      rotation: 0,
+      front: 'down',
+      tvFront: 'up',
+      status: 'checked',
+    },
+    {
+      sofaX: 0,
+      sofaY: 465,
+      tvX: 0,
+      tvY: 0,
+      rotation: 0,
+      front: 'up',
+      tvFront: 'down',
+      status: 'checked',
+    },
+    {
+      sofaX: 150,
+      sofaY: 0,
+      tvX: 300,
+      tvY: 0,
+      rotation: 90,
+      front: 'left',
+      tvFront: 'right',
+      status: 'review',
+    },
+  ] as const)('checks front ordering for $front at ($sofaX, $sofaY)', (fixture) => {
+    const layout = layoutRoom({ roomKind: 'living', widthCm: 480, depthCm: 560 }, [
+      item({
+        title: 'Диван',
+        category: 'sofa',
+        dimensions: { width: 240, depth: 95, height: 90 },
+        operationClearance: { front: 30 },
+        placement: {
+          xCm: fixture.sofaX,
+          yCm: fixture.sofaY,
+          rotation: fixture.rotation,
+          frontDirection: fixture.front,
+        },
+      }),
+      item({
+        title: 'ТВ-тумба',
+        dimensions: { width: 180, depth: 45, height: 55 },
+        operationClearance: { front: 30 },
+        placement: {
+          xCm: fixture.tvX,
+          yCm: fixture.tvY,
+          rotation: fixture.rotation,
+          frontDirection: fixture.tvFront,
+        },
+      }),
+    ])
+
+    expect(layout.problems).toEqual([])
+    expect(layout.placed).toHaveLength(2)
+    expect(
+      layout.relationships.find((relationship) => relationship.kind === 'sofa-tv')?.status,
+    ).toBe(fixture.status)
+  })
+
   it.each([100, 101, 102.5, 103])('не сужает дверь 70 см при сдвиге начала на %s см', (offset) => {
     const layout = layoutRoom(
       {

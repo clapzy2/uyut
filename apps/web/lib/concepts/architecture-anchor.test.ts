@@ -26,6 +26,51 @@ function fakeRenderer(run: (request: RenderRequest, index: number) => Promise<Re
 }
 
 describe('пакет с архитектурным якорем', () => {
+  it.each(['accepted', 'rejected', 'unavailable', 'failed'] as const)(
+    'preserves technical guide references without extra renders when the anchor is %s',
+    async (outcome) => {
+      const referenceUrls = [
+        'data:image/png;base64,cGVyc3BlY3RpdmU=',
+        'data:image/png;base64,cGxhbg==',
+      ]
+      const { engine, requests } = fakeRenderer(async (_request, index) => {
+        if (outcome === 'failed' && index === 0) throw new Error('anchor failed')
+        return rendered(String(index))
+      })
+      let reviews = 0
+      const plan = renderArchitectureAnchoredBatch(
+        engine,
+        [
+          { prompt: 'First with technical guides', referenceUrls },
+          { prompt: 'Second with technical guides', referenceUrls },
+          { prompt: 'Third with technical guides', referenceUrls },
+        ],
+        async () => {
+          reviews += 1
+          if (outcome === 'unavailable') throw new Error('review unavailable')
+          return outcome === 'accepted'
+        },
+      )
+      const results = await Promise.allSettled(plan.results)
+
+      expect(requests).toHaveLength(3)
+      expect(requests.every((request) => request.referenceUrls === referenceUrls)).toBe(true)
+      expect(requests[0]?.imageUrl).toBeUndefined()
+      expect(reviews).toBe(outcome === 'failed' ? 0 : 1)
+      expect(results[0]?.status).toBe(outcome === 'failed' ? 'rejected' : 'fulfilled')
+      expect(results.slice(1).every((result) => result.status === 'fulfilled')).toBe(true)
+      for (const request of requests.slice(1)) {
+        if (outcome === 'accepted') {
+          expect(request.imageUrl).toBe('data:image/webp;base64,MA==')
+          expect(request.prompt).toContain('architecture anchor')
+        } else {
+          expect(request.imageUrl).toBeUndefined()
+          expect(request.prompt).not.toContain('architecture anchor')
+        }
+      }
+    },
+  )
+
   it('ждёт проверки перед производными запросами, но отдаёт первый кадр сразу', async () => {
     let completeReview!: (accepted: boolean) => void
     const review = new Promise<boolean>((resolve) => {

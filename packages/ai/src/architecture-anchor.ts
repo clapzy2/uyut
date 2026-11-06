@@ -1,12 +1,15 @@
 import { architectureAnchoredPrompt } from './prompt'
 import type { ConceptRenderer, RenderRequest, RenderResult } from './types'
 
-export type ArchitectureBatchItem = Pick<RenderRequest, 'prompt' | 'seed' | 'aspectRatio'>
+export type ArchitectureBatchItem = Pick<
+  RenderRequest,
+  'prompt' | 'seed' | 'aspectRatio' | 'referenceUrls'
+>
 
 export type ArchitectureAnchorEligibility = (result: RenderResult) => Promise<boolean>
 
 export type ArchitectureBatchPlan = {
-  /** Первый text-to-image результат; тот же Promise стоит первым в results. */
+  /** Первый результат без фотоосновы; тот же Promise стоит первым в results. */
   anchor: Promise<RenderResult>
   /** По одному результату на item, в исходном порядке. */
   results: Array<Promise<RenderResult>>
