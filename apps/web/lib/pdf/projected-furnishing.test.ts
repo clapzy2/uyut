@@ -182,6 +182,61 @@ afterEach(() => {
 })
 
 describe('проектный Г-контур в данных и HTML PDF, синтетическая проверка без генерации', () => {
+  it('переносит явные зоны в 3D/PDF и убирает их при сбросе без подстановки размеров', async () => {
+    const { snapshot, geometry, room, item } = fixture()
+    geometry.walls = [
+      { id: 'top', kind: 'outer', start: { xCm: 0, yCm: 0 }, end: { xCm: 600, yCm: 0 } },
+    ]
+    geometry.openings = [
+      {
+        id: 'test-door',
+        type: 'door',
+        wallId: 'top',
+        offsetCm: 400,
+        widthCm: 90,
+        clearance: { side: 'left', depthCm: 80, shape: 'swing', hinge: 'end' },
+      },
+    ]
+    room.measurements = {
+      projectedContour: createProjectedContourBinding(geometry, 0) ?? undefined,
+    }
+    const pdf = await build(snapshot)
+    const plan = pdf.rooms.find((entry) => entry.id === room.id)?.plan
+    expect(plan?.keepClearZones).toHaveLength(1)
+    expect(plan?.functionalZones).toHaveLength(1)
+    if (!plan) throw new Error('Missing test layout')
+    expect(plan.keepClearZones[0]?.polygon[0]).toEqual({ xCm: 490, yCm: 0 })
+    expect(plan.keepClearZones[0]?.polygon.at(-1)?.yCm).toBeCloseTo(80)
+    const volume = roomVolume(plan)
+    expect(volume?.floorZones?.find((zone) => zone.kind === 'door')?.floor).toEqual(
+      plan.keepClearZones[0]?.polygon,
+    )
+    expect(volume?.floorZones?.filter((zone) => zone.kind === 'operation')).toHaveLength(1)
+    const html = renderProjectHtml(pdf, { fontCss: '' })
+    expect(html).toContain('Дверь 1: свободная зона')
+
+    // A stored swing without a selected hinge must not become an exact zone.
+    delete geometry.openings[0]?.clearance?.hinge
+    item.operationClearance = undefined
+    const row = snapshot.shopping[0]
+    if (!row) throw new Error('Missing test item')
+    row.item.operationClearanceCm = null
+    room.measurements = {
+      projectedContour: createProjectedContourBinding(geometry, 0) ?? undefined,
+    }
+    const reset = await build(snapshot)
+    const resetPlan = reset.rooms.find((entry) => entry.id === room.id)?.plan
+    expect(resetPlan?.keepClearZones).toEqual([])
+    expect(resetPlan?.functionalZones).toEqual([])
+    expect(resetPlan?.missingSafetyData).toContain('Дверь 1: задайте свободную зону открывания.')
+    expect(resetPlan?.safetySummary.status).toBe('needs-data')
+    if (!resetPlan) throw new Error('Missing reset layout')
+    expect(roomVolume(resetPlan)?.floorZones).toEqual([])
+    expect(resetPlan.placed).toEqual(plan.placed)
+    expect(resetPlan.floorPolygon).toEqual(plan.floorPolygon)
+    expect(renderProjectHtml(reset, { fontCss: '' })).toContain('Не указаны рабочие зоны')
+  })
+
   it.each(['kid', 'bedroom'] as const)(
     'не печатает нераскладной диван как спальное место в %s',
     async (kind) => {

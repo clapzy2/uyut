@@ -25,6 +25,7 @@ import {
 import { savePlanGeometry } from '@/actions/projects'
 import { FormError } from '@/components/form-error'
 import { KitchenPlanEditor } from '@/components/kitchen-plan-editor'
+import { OpeningClearanceEditor } from '@/components/opening-clearance-editor'
 import { PlanFloorBoundaryFields } from '@/components/plan-floor-boundary-fields'
 import { PlanImageContourTrace } from '@/components/plan-image-contour-trace'
 import { PlanImageReference, type PlanUnderlay } from '@/components/plan-image-reference'
@@ -836,7 +837,6 @@ export function PlanGeometryEditor({
     selectionKind === 'wall' ? walls.find((wall) => wall.id === selectionId) : null
   const selectedOpening =
     selectionKind === 'opening' ? openings.find((opening) => opening.id === selectionId) : null
-  const selectedOpeningClearance = selectedOpening?.clearance
   const selectedRoom = selectionKind === 'room' ? rooms[Number(selectionId)] : undefined
   const measurementGeometry = { walls, openings, rooms, pdfCalibration: measurementCalibration }
   const selectedOpeningWall = selectedOpening
@@ -1094,25 +1094,6 @@ export function PlanGeometryEditor({
       ),
       { action: 'remove', openingId },
     ])
-  }
-
-  function enableOpeningClearance(side: 'left' | 'right' | '') {
-    if (!selectedOpening) return
-    patchOpening({
-      clearance: side
-        ? {
-            side,
-            depthCm: selectedOpening.clearance?.depthCm ?? selectedOpening.widthCm,
-            shape: selectedOpening.clearance?.shape ?? 'swing',
-            hinge: selectedOpening.clearance?.hinge ?? 'start',
-          }
-        : undefined,
-    })
-  }
-
-  function patchOpeningClearance(patch: Partial<NonNullable<PlanOpening['clearance']>>) {
-    if (!selectedOpeningClearance) return
-    patchOpening({ clearance: { ...selectedOpeningClearance, ...patch } })
   }
 
   function patchRoomPoint(pointIndex: number, patch: Partial<PlanPoint>) {
@@ -2004,85 +1985,11 @@ export function PlanGeometryEditor({
                     />
                   ) : (
                     <div className="space-y-4 border-t border-line pt-4">
-                      <div>
-                        <label
-                          htmlFor="opening-clearance-side"
-                          className="mb-2 block text-[13px] text-ink-2"
-                        >
-                          Куда открывается
-                        </label>
-                        <select
-                          id="opening-clearance-side"
-                          value={selectedOpeningClearance?.side ?? ''}
-                          onChange={(event) =>
-                            enableOpeningClearance(
-                              event.currentTarget.value as 'left' | 'right' | '',
-                            )
-                          }
-                          className={selectClassName}
-                        >
-                          <option value="">Не указано</option>
-                          <option value="left">Сторона А — слева от направления стены</option>
-                          <option value="right">Сторона Б — справа от направления стены</option>
-                        </select>
-                      </div>
-                      {selectedOpeningClearance ? (
-                        <>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <label className="text-[13px] text-ink-2">
-                              Форма зоны
-                              <select
-                                value={selectedOpeningClearance.shape ?? 'rectangle'}
-                                onChange={(event) =>
-                                  patchOpeningClearance({
-                                    shape: event.currentTarget.value as 'rectangle' | 'swing',
-                                  })
-                                }
-                                className={`${selectClassName} mt-2`}
-                              >
-                                <option value="swing">Дуга створки 90°</option>
-                                <option value="rectangle">Прямоугольный резерв</option>
-                              </select>
-                            </label>
-                            <label className="text-[13px] text-ink-2">
-                              Петли
-                              <select
-                                value={selectedOpeningClearance.hinge ?? 'start'}
-                                disabled={
-                                  (selectedOpeningClearance.shape ?? 'rectangle') !== 'swing'
-                                }
-                                onChange={(event) =>
-                                  patchOpeningClearance({
-                                    hinge: event.currentTarget.value as 'start' | 'end',
-                                  })
-                                }
-                                className={`${selectClassName} mt-2 disabled:opacity-50`}
-                              >
-                                <option value="start">В начале проёма</option>
-                                <option value="end">В конце проёма</option>
-                              </select>
-                            </label>
-                          </div>
-                          <Input
-                            id="opening-clearance-depth"
-                            label={
-                              selectedOpeningClearance.shape === 'swing'
-                                ? 'Длина створки, см'
-                                : 'Глубина свободной зоны, см'
-                            }
-                            hint="Штриховая область на схеме должна оставаться свободной от мебели."
-                            type="number"
-                            min="1"
-                            max="600"
-                            step="1"
-                            value={selectedOpeningClearance.depthCm}
-                            onChange={(event) => {
-                              const depthCm = event.currentTarget.valueAsNumber
-                              if (Number.isFinite(depthCm)) patchOpeningClearance({ depthCm })
-                            }}
-                          />
-                        </>
-                      ) : null}
+                      <OpeningClearanceEditor
+                        key={selectedOpening.id}
+                        value={selectedOpening.clearance}
+                        onChange={(clearance) => patchOpening({ clearance })}
+                      />
                     </div>
                   )}
                 </div>
