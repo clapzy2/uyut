@@ -265,6 +265,10 @@ test.describe('настоящий WebGL с контрольными корпус
       expect(
         items.every((item) => item.operationClearanceCm === null && item.placementCm === null),
       ).toBe(true)
+      await plan.getByRole('button', { name: 'Посмотреть мебель в объёме', exact: true }).click()
+      await plan.getByRole('button', { name: '3D-сцена', exact: true }).click()
+      await expect(canvas).toBeVisible()
+      await expect(furniture.getByRole('button')).toHaveCount(2)
       expect(errors).toEqual([])
     })
 })

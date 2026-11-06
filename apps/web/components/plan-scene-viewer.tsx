@@ -86,8 +86,9 @@ export default function PlanSceneViewer({
       setFailedModel(model)
     }
     return () => {
-      // Новый план использует тот же canvas: потеря контекста сломает следующую сцену.
-      scene.current?.dispose({ releaseContext: canvas.current !== mountedCanvas })
+      // StrictMode can detach the ref while reusing the mounted canvas. Release
+      // its context only after the DOM node is removed, not during effect replay.
+      scene.current?.dispose({ releaseContext: !mountedCanvas.isConnected })
       scene.current = null
     }
   }, [model])
