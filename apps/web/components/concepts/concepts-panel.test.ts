@@ -18,7 +18,14 @@ vi.mock('@/components/concepts/duo-card', () => ({
   DuoCard: ({ canRun }: { canRun: boolean }) =>
     createElement('span', { 'data-duo-can-run': String(canRun) }),
 }))
-vi.mock('@/components/swipe-deck', () => ({ SwipeDeck: () => null }))
+vi.mock('@/components/swipe-deck', () => ({
+  SwipeDeck: ({ cards }: { cards: Array<{ id: string; caption?: string }> }) =>
+    createElement(
+      'div',
+      { 'data-swipe-captions': true },
+      cards.map((card) => createElement('span', { key: card.id }, card.caption)),
+    ),
+}))
 
 import { useRunWatch } from '@/lib/queue/use-run-watch'
 import { type ConceptItem, ConceptsPanel } from './concepts-panel'
@@ -71,6 +78,36 @@ function conceptLinks(html: string): string[] {
 }
 
 describe('concept gallery access', () => {
+  it.each(['limited', 'unavailable'] as const)(
+    'keeps %s source comparison visible alongside real review issues',
+    (sourceComparison) => {
+      const html = render([concept('reviewed', { qualityStatus: 'review', sourceComparison })])
+      expect(html).toContain('Есть возможные ошибки')
+      expect(html).toContain(
+        sourceComparison === 'limited'
+          ? 'Сравнение с фото неполное — сверьте вручную'
+          : 'Сравнение с фото недоступно — сверьте вручную',
+      )
+    },
+  )
+
+  it('includes limited comparison and issues in the swipe caption', () => {
+    const html = render([
+      concept('unseen', { owner: null, qualityStatus: 'review', sourceComparison: 'limited' }),
+    ])
+    expect(html).toContain(
+      'Автопроверка: возможные ошибки — откройте замечания. Сравнение с фото неполное — сверьте вручную',
+    )
+  })
+
+  it('does not invent errors for a checked image with incomplete comparison', () => {
+    const html = render([
+      concept('checked', { qualityStatus: 'checked', sourceComparison: 'limited' }),
+    ])
+    expect(html).toContain('Сравнение с фото неполное')
+    expect(html).not.toContain('Есть возможные ошибки')
+  })
+
   it('keeps old concepts available and labels their photo source', () => {
     const html = render([concept('old-ready', { fromPreviousPhoto: true })])
     expect(conceptLinks(html)).toEqual(['old-ready'])

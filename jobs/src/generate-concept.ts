@@ -460,12 +460,14 @@ export const generateConcept = task({
           .jpeg({ quality: 85 })
           .toBuffer()
         reviewRequests += 1
-        return await reviewConceptImage(
+        const review = await reviewConceptImage(
           requireEnv('FAL_KEY'),
           { body, contentType: 'image/jpeg' },
           reviewBriefs[conceptIndex] ?? brief,
           reviewReference,
         )
+        reviewRequests += review.additionalReviewRequests ?? 0
+        return review
       } catch (error) {
         logger.warn('review preparation failed; keeping rendered variant', { error: String(error) })
         return unavailableQualityReview()
@@ -557,6 +559,7 @@ export const generateConcept = task({
                 reviewBriefs[conceptIndex] ?? brief,
                 reviewReference,
               )
+              reviewRequests += correctedReview.additionalReviewRequests ?? 0
               const accepted = isLayoutCorrectionImprovement(qualityReview, correctedReview)
               logger.info('layout correction reviewed', {
                 conceptId: concept.id,

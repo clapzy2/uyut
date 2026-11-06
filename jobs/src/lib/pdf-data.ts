@@ -618,6 +618,15 @@ export async function buildPdfData(input: {
       )
         ? 'Автопроверка отметила возможное расхождение окон и дверей. Сверьте вариант с исходным фото.'
         : (entry?.main.note ?? null)
+      const sourceComparison = entry?.main.editedRenderUrl
+        ? null
+        : entry?.main.qualityReview?.sourceComparison
+      const sourceComparisonNote =
+        sourceComparison === 'limited'
+          ? 'Сравнение с исходным фото неполное: часть предполагаемых изменений не подтверждена. Сверьте детали вручную.'
+          : sourceComparison === 'unavailable'
+            ? 'Сравнение с исходным фото недоступно. Сверьте изменения вручную.'
+            : null
       return {
         id: room.id,
         name: room.name,
@@ -627,7 +636,10 @@ export async function buildPdfData(input: {
         render,
         before,
         alternates: alternates.filter((alt): alt is PdfImage & { caption: string } => alt !== null),
-        note: clampText([photoNote, conceptNote].filter(Boolean).join(' '), 330),
+        note: clampText(
+          [photoNote, sourceComparisonNote, conceptNote].filter(Boolean).join(' '),
+          330,
+        ),
         objects: (entry ? (snapshot.objects.get(room.id) ?? []) : []).map((object) => ({
           index: object.index,
           category: detectedObjectLabel(object.label, categoryLabels[object.category]),

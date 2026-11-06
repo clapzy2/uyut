@@ -24,6 +24,7 @@ type Sample = {
   revision?: string
   requestedVariant?: string
   reference?: 'same' | 'cropped' | 'none'
+  crop?: { left: number; top: number; width: number; height: number }
 }
 const samples: Sample[] = [
   { id: 'variant-1', variant: 1, expected: 'visual-review' },
@@ -76,6 +77,29 @@ const samples: Sample[] = [
   { id: 'no-source', variant: 4, reference: 'none', expected: 'checked' },
   { id: 'source-area-not-visible', variant: 4, reference: 'cropped', expected: 'checked' },
   {
+    id: 'source-area-not-visible-landscape',
+    variant: 4,
+    reference: 'cropped',
+    crop: { left: 0, top: 0, width: 440, height: 320 },
+    expected: 'checked',
+    notes: 'Сохранить существующую стационарную технику, обновить отделку.',
+  },
+  {
+    id: 'source-ac-area-not-visible',
+    variant: 2,
+    reference: 'cropped',
+    expected: 'checked',
+    notes: 'Сохранить существующую стационарную технику, обновить отделку.',
+  },
+  {
+    id: 'cropped-source-explicit-ban',
+    variant: 4,
+    reference: 'cropped',
+    expected: 'review',
+    equipment: 'радиатор|батаре',
+    revision: 'Не размещать радиатор под окном: этот участок должен оставаться свободным.',
+  },
+  {
     id: 'bare-equipment',
     variant: 4,
     condition: 'bare',
@@ -112,7 +136,7 @@ for (const sample of samples.filter((item) => !selected || selected.includes(ite
     let pipeline = sharp(await readFile(referencePath))
     // Technical crop for the negative control: the window wall is outside the source frame.
     if (sample.reference === 'cropped')
-      pipeline = pipeline.extract({ left: 0, top: 0, width: 440, height: 896 })
+      pipeline = pipeline.extract(sample.crop ?? { left: 0, top: 0, width: 440, height: 896 })
     reference = {
       body: await pipeline
         .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })

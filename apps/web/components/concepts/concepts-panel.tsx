@@ -42,6 +42,7 @@ export type ConceptItem = {
   partner: boolean | null
   orderIndex: number
   qualityStatus?: ConceptQualityReview['status'] | null
+  sourceComparison?: ConceptQualityReview['sourceComparison'] | null
   fromPreviousPhoto: boolean
 }
 
@@ -74,9 +75,24 @@ const GIVE_UP_AFTER_MS = 8 * 60_000
 // Как часто переспрашивать сервер, пока идёт ожидание
 const SERVER_CHECK_MS = 15_000
 
+function sourceComparisonCaption(item: ConceptItem): string | undefined {
+  if (item.sourceComparison === 'limited') return 'Сравнение с фото неполное — сверьте вручную'
+  if (item.sourceComparison === 'unavailable')
+    return 'Сравнение с фото недоступно — сверьте вручную'
+  return undefined
+}
+
 function conceptCaption(item: ConceptItem): string | undefined {
-  if (item.qualityStatus === 'review') return 'Автопроверка: возможные ошибки — откройте замечания'
-  if (item.qualityStatus === 'unavailable') return 'Автопроверка недоступна — проверьте результат'
+  const qualityCaption =
+    item.qualityStatus === 'review'
+      ? 'Автопроверка: возможные ошибки — откройте замечания'
+      : item.qualityStatus === 'unavailable'
+        ? 'Автопроверка недоступна — проверьте результат'
+        : undefined
+  const comparisonCaption = sourceComparisonCaption(item)
+  if (qualityCaption || comparisonCaption) {
+    return [qualityCaption, comparisonCaption].filter(Boolean).join('. ')
+  }
   if (item.batchKind === 'edit') {
     return item.editRequest ? `Правка · ${item.editRequest}` : 'Правка выбранного варианта'
   }
@@ -584,6 +600,11 @@ export function ConceptsPanel({
                         {item.qualityStatus === 'review'
                           ? 'Есть возможные ошибки'
                           : 'Без автопроверки'}
+                      </span>
+                    ) : null}
+                    {sourceComparisonCaption(item) ? (
+                      <span className="block bg-paper px-3 py-2 text-[12px] leading-relaxed text-ink-2">
+                        {sourceComparisonCaption(item)}
                       </span>
                     ) : null}
                     {item.fromPreviousPhoto ? (

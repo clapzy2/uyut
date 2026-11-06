@@ -27,6 +27,8 @@ const review: ConceptQualityReview = {
   model: 'test',
   checkedAt: new Date().toISOString(),
   description: 'Кухня.',
+  sourceComparison: 'limited',
+  additionalReviewRequests: 2,
   issues: [{ code: 'blocked_access', detail: 'Возможное перекрытие входа.', confidence: 0.9 }],
 }
 

@@ -15,6 +15,15 @@ export function QualityReview({
   planUnconfirmed?: boolean
 }) {
   const planNeedsComparison = planStatus === 'changed' || planStatus === 'unlinked'
+  const sourceComparisonIncomplete =
+    review?.sourceComparison === 'limited' || review?.sourceComparison === 'unavailable'
+  const sourceComparisonNotice = sourceComparisonIncomplete ? (
+    <p className="mt-2 text-ink">
+      {review?.sourceComparison === 'unavailable'
+        ? 'Сравнение с исходным фото недоступно. Сверьте изменения с фото комнаты вручную.'
+        : 'По исходному фото не удалось подтвердить часть предполагаемых изменений. Сравнение неполное; сверьте эти детали с фото комнаты вручную.'}
+    </p>
+  ) : null
   const unconfirmedPlanNotice = planUnconfirmed ? (
     <p className="mt-2 text-ink">
       Соответствие концепта плану не проверено: разметка комнаты ещё не подтверждена. 2D-расстановка
@@ -40,6 +49,7 @@ export function QualityReview({
             ? 'Автосверка сейчас недоступна. Сверьте окна и двери с исходным планом или фото.'
             : 'Автосверка не выполнялась. Сверьте окна и двери с исходным планом или фото.'}
         </p>
+        {sourceComparisonNotice}
         {unconfirmedPlanNotice}
       </div>
     )
@@ -67,6 +77,7 @@ export function QualityReview({
         </p>
       ) : null}
       {unconfirmedPlanNotice}
+      {sourceComparisonNotice}
       {issues.length > 0 ? (
         <ul className="mt-2 list-disc space-y-1 pl-5">
           {issues.map((issue) => (
@@ -82,7 +93,9 @@ export function QualityReview({
             ? planStatus === 'changed'
               ? 'Сохранённая автосверка не учитывает актуальные данные плана. Размеры и размещение проверяйте на 2D-схеме.'
               : 'Версия плана для этой автосверки не сохранена. Размеры и размещение проверяйте на текущей 2D-схеме.'
-            : 'Автосверка не нашла замечаний. Размеры и размещение проверяйте на 2D-схеме.'}
+            : sourceComparisonIncomplete
+              ? 'Проверки самого изображения выполнены. Размеры и размещение проверяйте на 2D-схеме.'
+              : 'Автосверка не нашла замечаний. Размеры и размещение проверяйте на 2D-схеме.'}
         </p>
       )}
       <details className="mt-2">
