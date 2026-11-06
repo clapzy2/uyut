@@ -2483,12 +2483,21 @@ function layoutRoomCandidate(
     bedPlacement &&
     storagePlacement
   ) {
+    const zonesKnown = placed.every((placement) => {
+      const item = itemById.get(placement.itemId)
+      if (item?.category !== 'bed' && item?.category !== 'storage') return true
+      return functionalZones.some(
+        (zone) => zone.placementId === placement.id && zone.source === 'measured',
+      )
+    })
     relationships.push({
       id: 'bed-storage',
       kind: 'bed-storage',
       label: 'Кровать и хранение',
-      detail: 'Габариты и рабочие зоны кровати и хранения не пересекаются.',
-      status: 'checked',
+      detail: zonesKnown
+        ? 'На схеме габариты и заданные рабочие зоны кровати и хранения не пересекаются.'
+        : 'Габариты кровати и хранения не пересекаются. Укажите рабочие запасы, чтобы проверить подход к кровати и открывание хранения.',
+      status: zonesKnown ? 'checked' : 'needs-data',
     })
   }
   const deskPlacement = placementFor(
