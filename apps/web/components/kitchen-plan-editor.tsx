@@ -4,6 +4,7 @@ import { openingDisplayLabel } from '@uyut/catalog/geometry'
 import type { PlanGeometry, PlanKitchenItem, PlanOpening, PlanUtilityPoint } from '@uyut/db'
 import { useDeferredValue, useMemo, useRef, useState } from 'react'
 import { KitchenSafetyEditor } from '@/components/kitchen-safety-editor'
+import { OpeningClearanceEditor } from '@/components/opening-clearance-editor'
 import { inspectClearances, rotateKitchenItem } from '@/lib/projects/clearance-zones'
 import { kitchenItemIssues, kitchenLabels } from '@/lib/projects/kitchen-items'
 import { inspectRoutes, inspectUtilities, utilityLabels } from '@/lib/projects/kitchen-safety'
@@ -369,117 +370,16 @@ export function KitchenPlanEditor({
             .map((o) => (
               <fieldset key={o.id} className="my-3 space-y-2">
                 <legend className="text-sm">{openingDisplayLabel(o, geometry)}</legend>
-                <label className="block text-sm">
-                  Сторона
-                  <select
-                    value={o.clearance?.side ?? ''}
-                    className="ml-2 border border-control bg-paper p-2"
-                    onChange={(e) => {
-                      const side = e.target.value as 'left' | 'right' | ''
-                      onOpeningsChange(
-                        geometry.openings.map((v) =>
-                          v.id === o.id
-                            ? {
-                                ...v,
-                                clearance: side
-                                  ? {
-                                      side,
-                                      depthCm: o.clearance?.depthCm ?? o.widthCm,
-                                      shape: o.clearance?.shape ?? 'swing',
-                                      hinge: o.clearance?.hinge ?? 'start',
-                                    }
-                                  : undefined,
-                              }
-                            : v,
-                        ),
-                      )
-                    }}
-                  >
-                    <option value="">Не задана</option>
-                    <option value="left">А</option>
-                    <option value="right">Б</option>
-                  </select>
-                </label>
-                {o.clearance ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <label className="text-sm">
-                      Форма зоны
-                      <select
-                        value={o.clearance.shape ?? 'rectangle'}
-                        className="mt-1 block w-full border border-control bg-paper p-2"
-                        onChange={(event) => {
-                          const current = o.clearance
-                          if (current)
-                            onOpeningsChange(
-                              geometry.openings.map((candidate) =>
-                                candidate.id === o.id
-                                  ? {
-                                      ...candidate,
-                                      clearance: {
-                                        ...current,
-                                        shape: event.currentTarget.value as 'rectangle' | 'swing',
-                                      },
-                                    }
-                                  : candidate,
-                              ),
-                            )
-                        }}
-                      >
-                        <option value="swing">Дуга створки 90°</option>
-                        <option value="rectangle">Прямоугольный резерв</option>
-                      </select>
-                    </label>
-                    <label className="text-sm">
-                      Петли
-                      <select
-                        value={o.clearance.hinge ?? 'start'}
-                        disabled={(o.clearance.shape ?? 'rectangle') !== 'swing'}
-                        className="mt-1 block w-full border border-control bg-paper p-2 disabled:opacity-50"
-                        onChange={(event) => {
-                          const current = o.clearance
-                          if (current)
-                            onOpeningsChange(
-                              geometry.openings.map((candidate) =>
-                                candidate.id === o.id
-                                  ? {
-                                      ...candidate,
-                                      clearance: {
-                                        ...current,
-                                        hinge: event.currentTarget.value as 'start' | 'end',
-                                      },
-                                    }
-                                  : candidate,
-                              ),
-                            )
-                        }}
-                      >
-                        <option value="start">В начале проёма</option>
-                        <option value="end">В конце проёма</option>
-                      </select>
-                    </label>
-                    <label className="col-span-2 block text-sm">
-                      {o.clearance.shape === 'swing' ? 'Длина створки' : 'Глубина резерва'}, см
-                      <input
-                        type="number"
-                        min="0.1"
-                        max="600"
-                        step="any"
-                        className="mt-1 w-full border border-control bg-paper p-2"
-                        value={o.clearance.depthCm}
-                        onChange={(e) => {
-                          const depthCm = e.currentTarget.valueAsNumber
-                          const current = o.clearance
-                          if (Number.isFinite(depthCm) && current)
-                            onOpeningsChange(
-                              geometry.openings.map((v) =>
-                                v.id === o.id ? { ...v, clearance: { ...current, depthCm } } : v,
-                              ),
-                            )
-                        }}
-                      />
-                    </label>
-                  </div>
-                ) : null}
+                <OpeningClearanceEditor
+                  value={o.clearance}
+                  onChange={(clearance) =>
+                    onOpeningsChange(
+                      geometry.openings.map((opening) =>
+                        opening.id === o.id ? { ...opening, clearance } : opening,
+                      ),
+                    )
+                  }
+                />
               </fieldset>
             ))}
         </details>

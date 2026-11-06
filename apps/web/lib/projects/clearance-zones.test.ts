@@ -127,6 +127,19 @@ describe('явные резервы открывания и монтажа', () 
     expect(end?.polygon[0]).toEqual({ xCm: 180, yCm: 0 })
     expect(end?.polygon.at(-1)?.yCm).toBeCloseTo(80)
   })
+  it('не выбирает петли за человека, если сохранена только длина створки', () => {
+    const incomplete: PlanOpening = {
+      ...door,
+      widthCm: 90,
+      clearance: { side: 'left', depthCm: 80, shape: 'swing' },
+    }
+    expect(doorClearanceZone(incomplete, geometry)).toBeUndefined()
+    const checked = inspectClearances([], { ...geometry, openings: [incomplete] })
+    expect(checked.zones).toEqual([])
+    expect(checked.missing).toContain('Дверь 1: свободная зона не задана.')
+    // Old explicit rectangular reserves do not need a hinge.
+    expect(doorClearanceZone(door, geometry)?.polygon).toHaveLength(4)
+  })
   it('резерв вдоль диагональной стены остаётся повёрнутым, не bounding box', () => {
     const diagonal = {
       ...geometry,

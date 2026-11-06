@@ -20,6 +20,8 @@ export function doorClearanceZone(
   geometry: PlanGeometry,
 ): DoorClearanceZone | undefined {
   if (!opening.clearance || opening.type === 'window') return undefined
+  // A leaf length alone does not locate its hinge axis.
+  if (opening.clearance.shape === 'swing' && !opening.clearance.hinge) return undefined
   const wall = geometry.walls.find((candidate) => candidate.id === opening.wallId)
   if (!wall) return undefined
   const length = Math.hypot(wall.end.xCm - wall.start.xCm, wall.end.yCm - wall.start.yCm)
