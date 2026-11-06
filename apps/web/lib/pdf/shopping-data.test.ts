@@ -186,6 +186,38 @@ function addRoom(data: ProjectSnapshot): Room {
 }
 
 describe('данные нового задания для мастера', () => {
+  it.each(['limited', 'unavailable'] as const)(
+    'сохраняет ограничение сравнения %s перед описанием концепта',
+    async (sourceComparison) => {
+      const data = snapshot()
+      const room = addRoom(data)
+      const entry = data.concepts.get(room.id)
+      if (!entry) throw new Error('Нет тестового концепта')
+      entry.main.note = 'Светлая гостиная. '.repeat(40)
+      entry.main.qualityReview = {
+        version: 1,
+        status: 'checked',
+        model: 'test',
+        checkedAt: '2026-11-06T00:00:00Z',
+        description: entry.main.note,
+        issues: [],
+        sourceComparison,
+      }
+      const { pdf } = await build(data)
+      const note = pdf.rooms[0]?.note
+      expect(note).toMatch(/^Сравнение с исходным фото/)
+      expect(note).toContain(sourceComparison === 'limited' ? 'неполное' : 'недоступно')
+      expect(note).toContain('вручную')
+      expect(note).toContain('Светлая гостиная')
+      expect(note).not.toContain('расхождение окон и дверей')
+      expect(renderProjectHtml(pdf, { fontCss: '' })).toContain('Сравнение с исходным фото')
+
+      entry.main.editedRenderUrl = 'https://cdn.example/edited.png'
+      const edited = await build(data)
+      expect(edited.pdf.rooms[0]?.note).not.toContain('Сравнение с исходным фото')
+    },
+  )
+
   it('помечает в PDF интерьер, созданный до нынешнего фото комнаты', async () => {
     const data = snapshot()
     const room = addRoom(data)

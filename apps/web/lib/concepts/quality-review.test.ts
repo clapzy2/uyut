@@ -31,7 +31,7 @@ describe('проверка готового изображения', () => {
       isUsableArchitectureAnchor({ ...checked, status: 'review', issues: [issue] }, brief),
     ).toBe(false)
   })
-  it('compares source first and result second in one paid submission when a reference exists', async () => {
+  it('isolates the result review before comparing source first and result second', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
@@ -42,21 +42,33 @@ describe('проверка готового изображения', () => {
       )
       .mockResolvedValueOnce(Response.json({ status: 'COMPLETED' }))
       .mockResolvedValueOnce(
-        Response.json({ output: JSON.stringify({ description, issues: [issue] }) }),
+        Response.json({
+          output: JSON.stringify({ description, issues: [{ ...issue, basis: 'result' }] }),
+        }),
       )
+      .mockResolvedValueOnce(
+        Response.json({
+          status_url: 'https://queue.fal.run/comparison/status',
+          response_url: 'https://queue.fal.run/comparison/result',
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ status: 'COMPLETED' }))
+      .mockResolvedValueOnce(Response.json({ output: JSON.stringify({ description, issues: [] }) }))
     const result = await reviewConceptImage(
       'test',
       { body: Buffer.from('result'), contentType: 'image/jpeg' },
       { roomKind: 'kitchen', condition: 'finished', notes: 'Сохранить холодильник.' },
       { body: Buffer.from('source'), contentType: 'image/png' },
     )
-    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    const first = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(first.image_urls).toEqual(['data:image/jpeg;base64,cmVzdWx0'])
+    expect(first.system_prompt).toContain('Не оценивай перемещение «до/после» без исходного кадра')
+    const request = JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))
     expect(request.image_urls).toEqual([
       'data:image/png;base64,c291cmNl',
       'data:image/jpeg;base64,cmVzdWx0',
     ])
     expect(request.prompt).toContain('Изображение 1 — исходник; изображение 2 — результат.')
-    expect(request.system_prompt).toContain('явно убранная или перенесённая сохраняемая техника')
     expect(request.system_prompt).toContain('Новая стационарная техника без конкретной просьбы')
     expect(request.system_prompt).toContain(
       'Для добавления нужен тот же открытый участок исходника',
@@ -64,7 +76,7 @@ describe('проверка готового изображения', () => {
     expect(request.system_prompt).not.toContain('Текущая задача — проектируемое оснащение')
     expect(request.prompt).toContain('"condition":"finished"')
     expect(request.system_prompt).toContain('Не объявляй скрытый, обрезанный')
-    expect(fetchMock.mock.calls.filter((call) => call[1]?.method === 'POST')).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter((call) => call[1]?.method === 'POST')).toHaveLength(2)
     expect(result.status).toBe('review')
   })
   it('сохраняет описание картинки и замечания', () => {
@@ -213,7 +225,19 @@ describe('проверка готового изображения', () => {
   it.each(['bare', 'finished', 'keep'] as const)(
     'передаёт режим %s, выбранную просьбу и позднее уточнение раздельно',
     async (condition) => {
-      const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          Response.json({
+            status_url: 'https://queue.fal.run/status',
+            response_url: 'https://queue.fal.run/result',
+          }),
+        )
+        .mockResolvedValueOnce(Response.json({ status: 'COMPLETED' }))
+        .mockResolvedValueOnce(
+          Response.json({ output: JSON.stringify({ description, issues: [] }) }),
+        )
+        .mockRejectedValueOnce(new Error('offline'))
       await reviewConceptImage(
         'test',
         { body: Buffer.from('result'), contentType: 'image/jpeg' },
@@ -226,7 +250,7 @@ describe('проверка готового изображения', () => {
         },
         { body: Buffer.from('source'), contentType: 'image/jpeg' },
       )
-      const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+      const request = JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))
       expect(request.prompt).toContain(`"condition":"${condition}"`)
       expect(request.prompt).toContain('"notes":"Не добавлять технику."')
       expect(request.prompt).toContain('"requestedVariant":"Добавить кондиционер справа."')
@@ -235,9 +259,9 @@ describe('проверка готового изображения', () => {
       )
       expect(request.system_prompt).toContain('revision имеет приоритет над requestedVariant')
       expect(request.system_prompt).toContain(
-        'конкретно разрешённое добавление, удаление или перенос: это не ошибка',
+        'Конкретно разрешённое добавление, удаление или перенос не является ошибкой',
       )
-      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock).toHaveBeenCalledTimes(4)
       expect(
         request.system_prompt.includes('Новая стационарная техника без конкретной просьбы'),
       ).toBe(condition !== 'bare')

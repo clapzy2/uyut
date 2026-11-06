@@ -71,6 +71,46 @@ describe('concept quality explanation', () => {
     expect(html).toContain('по плану и меркам')
   })
 
+  it.each([false, true])(
+    'shows limited source comparison outside details, issues: %s',
+    (hasIssue) => {
+      const html = render({
+        ...reviewed,
+        sourceComparison: 'limited',
+        issues: hasIssue
+          ? [{ code: 'blocked_access', detail: 'Стол перекрывает дверь.', confidence: 0.9 }]
+          : [],
+      })
+      const outsideDetails = html.replace(/<details\b[^>]*>[\s\S]*?<\/details>/g, '')
+      expect(outsideDetails).toContain('не удалось подтвердить часть предполагаемых изменений')
+      expect(outsideDetails).toContain('Сравнение неполное')
+      expect(outsideDetails).toContain('с фото комнаты вручную')
+      expect(html).not.toContain('Автосверка не нашла замечаний')
+      if (hasIssue) {
+        expect(outsideDetails).toContain('Стол перекрывает дверь.')
+      } else {
+        expect(outsideDetails).toContain('Проверки самого изображения выполнены')
+      }
+    },
+  )
+
+  it.each(['checked', 'unavailable'] as const)(
+    'explains unavailable source comparison when review status is %s',
+    (status) => {
+      const html = render({ ...reviewed, status, sourceComparison: 'unavailable' })
+      const outsideDetails = html.replace(/<details\b[^>]*>[\s\S]*?<\/details>/g, '')
+      expect(outsideDetails).toContain('Сравнение с исходным фото недоступно')
+      expect(outsideDetails).toContain('Сверьте изменения с фото комнаты вручную')
+      expect(html).not.toContain('Автосверка не нашла замечаний')
+    },
+  )
+
+  it('does not treat verified contested claims as confirmation of every detail', () => {
+    const html = render({ ...reviewed, sourceComparison: 'verified' })
+    expect(html).toContain('не подтверждает каждую деталь')
+    expect(html).not.toContain('Сравнение неполное')
+  })
+
   it('keeps an unconfirmed plan visible beside a completed image review', () => {
     const html = renderToStaticMarkup(
       createElement(QualityReview, {

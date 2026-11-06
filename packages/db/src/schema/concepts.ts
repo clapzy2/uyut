@@ -26,6 +26,10 @@ export type ConceptQualityReview = {
   status: 'checked' | 'review' | 'unavailable'
   model: string
   checkedAt: string
+  /** Source-only observation of reported changes, not proof of the entire room. */
+  sourceComparison?: 'verified' | 'limited' | 'unavailable'
+  /** Calls beyond the initial result-only review, including failed comparison attempts. */
+  additionalReviewRequests?: 0 | 1 | 2
   /** Exact plan/render inputs used by this review; absent on legacy or image-only reviews. */
   architectureSourceHash?: string
   /** Facts supplied to the image reviewer; absent on older renders and unconfirmed plans. */

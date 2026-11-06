@@ -100,6 +100,26 @@ beforeEach(async () => {
 })
 
 describe('пожелания конкретного варианта в автосверке', () => {
+  it.each([
+    [true, 0],
+    [true, 1],
+    [true, 2],
+    [false, 0],
+    [false, 1],
+    [false, 2],
+  ] as const)(
+    'учитывает дополнительные проверки, исходное фото: %s, запросов: %s',
+    async (hasPhoto, additionalReviewRequests) => {
+      setupDatabase(hasPhoto)
+      mocks.review.mockResolvedValue({ ...checked, additionalReviewRequests })
+      expect(await run({ ...payload, count: 2 })).toMatchObject({
+        done: 2,
+        reviewRequests: 2 * (1 + additionalReviewRequests),
+      })
+      expect(mocks.review).toHaveBeenCalledTimes(2)
+    },
+  )
+
   it.each([true, false])('не смешивает duo-пожелания, исходное фото: %s', async (hasPhoto) => {
     setupDatabase(hasPhoto)
     const images = await Promise.all(
@@ -147,13 +167,21 @@ describe('пожелания конкретного варианта в авто
     mocks.review.mockImplementation(
       async (_key, _image, brief: ConceptBrief & { requestedVariant?: string }) =>
         brief.requestedVariant === variations[0]?.revision
-          ? { ...checked, status: 'review', issues: [{ code: 'requirement_unconfirmed' }] }
+          ? {
+              ...checked,
+              status: 'review',
+              issues: [{ code: 'requirement_unconfirmed' }],
+              additionalReviewRequests: 2,
+            }
           : checked,
     )
     mocks.correction.mockImplementation((review) =>
       review.status === 'review' ? 'Fix layout.' : null,
     )
-    expect(await run({ ...payload, duo: { variations } })).toMatchObject({ done: 2 })
+    expect(await run({ ...payload, duo: { variations } })).toMatchObject({
+      done: 2,
+      reviewRequests: 7,
+    })
     expect(mocks.review).toHaveBeenCalledTimes(3)
     const briefs = mocks.review.mock.calls.map((call) => call[2])
     expect(

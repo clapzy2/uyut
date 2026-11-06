@@ -261,6 +261,9 @@ export default async function RoomPage({ params }: { params: Params }) {
                 partner: item.likedByPartner,
                 orderIndex: item.orderIndex,
                 qualityStatus: item.editedRenderUrl ? null : (item.qualityReview?.status ?? null),
+                sourceComparison: item.editedRenderUrl
+                  ? null
+                  : (item.qualityReview?.sourceComparison ?? null),
                 fromPreviousPhoto: isFromPreviousPhoto(
                   room.photoRevision,
                   item.sourcePhotoRevision,
