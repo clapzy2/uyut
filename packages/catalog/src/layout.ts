@@ -968,6 +968,61 @@ export function functionalZoneRect(
   }
 }
 
+function coffeeUsableFromSofa(
+  sofa: Rect,
+  coffee: Rect,
+  front: LayoutDirection | 'around' | undefined,
+): boolean {
+  const distance = rectDistanceCm(sofa, coffee)
+  if (distance < 30 || distance > 60) return false
+  const overlapsX =
+    Math.max(sofa.xCm, coffee.xCm) < Math.min(sofa.xCm + sofa.widthCm, coffee.xCm + coffee.widthCm)
+  const overlapsY =
+    Math.max(sofa.yCm, coffee.yCm) < Math.min(sofa.yCm + sofa.depthCm, coffee.yCm + coffee.depthCm)
+  switch (front) {
+    case 'right':
+      return overlapsY && coffee.xCm >= sofa.xCm + sofa.widthCm
+    case 'left':
+      return overlapsY && coffee.xCm + coffee.widthCm <= sofa.xCm
+    case 'down':
+      return overlapsX && coffee.yCm >= sofa.yCm + sofa.depthCm
+    case 'up':
+      return overlapsX && coffee.yCm + coffee.depthCm <= sofa.yCm
+    default:
+      return false
+  }
+}
+
+/** Only measured operating margins create new sofa-relative candidates. */
+function coffeeFrontPositions(
+  sofa: Rect,
+  front: FunctionalZone,
+  table: { widthCm: number; depthCm: number },
+  around: number | undefined,
+): LayoutPoint[] {
+  if (front.source !== 'measured' || around === undefined || !Number.isFinite(around) || around < 0)
+    return []
+  const minimumGap = Math.max(30, front.clearanceCm + around)
+  if (minimumGap > 60 || front.direction === 'around') return []
+  const horizontal = front.direction === 'left' || front.direction === 'right'
+  const start = horizontal ? sofa.yCm : sofa.xCm
+  const end = start + (horizontal ? sofa.depthCm - table.depthCm : sofa.widthCm - table.widthCm)
+  return [...new Set([minimumGap, Math.max(45, minimumGap), 60])].flatMap((distance) =>
+    [...new Set([(start + end) / 2, start, end])].map((cross) => {
+      switch (front.direction) {
+        case 'right':
+          return { xCm: sofa.xCm + sofa.widthCm + distance, yCm: cross }
+        case 'left':
+          return { xCm: sofa.xCm - table.widthCm - distance, yCm: cross }
+        case 'down':
+          return { xCm: cross, yCm: sofa.yCm + sofa.depthCm + distance }
+        default:
+          return { xCm: cross, yCm: sofa.yCm - table.depthCm - distance }
+      }
+    }),
+  )
+}
+
 function directionFromWall(wall: LayoutWall | 'perimeter' | 'center'): LayoutDirection | 'around' {
   switch (wall) {
     case 'top':
@@ -2187,6 +2242,15 @@ function layoutRoomCandidate(
 
   for (const entry of centerItems) {
     const clearance = clearanceOf(entry)
+    const coffeeSofa =
+      room.roomKind === 'living' &&
+      entry.item.category === 'table' &&
+      entry.item.subcategory === 'coffee'
+        ? placed.find((placement) => itemById.get(placement.itemId)?.category === 'sofa')
+        : undefined
+    const sofaFront = coffeeSofa
+      ? functionalZones.find((zone) => zone.placementId === coffeeSofa.id && zone.kind === 'front')
+      : undefined
     const orientations = [
       { widthCm: entry.size.widthCm, depthCm: entry.size.depthCm },
       ...(entry.size.widthCm === entry.size.depthCm
@@ -2194,7 +2258,12 @@ function layoutRoomCandidate(
         : [{ widthCm: entry.size.depthCm, depthCm: entry.size.widthCm }]),
     ]
     let bestCenter:
-      | { placement: Placement; zone: FunctionalZone | null; walkwayCm: number }
+      | {
+          placement: Placement
+          zone: FunctionalZone | null
+          walkwayCm: number
+          coffeeScore: number
+        }
       | undefined
 
     for (const orientation of orientations) {
@@ -2202,19 +2271,31 @@ function layoutRoomCandidate(
       const xMax = widthCm - depths.right - clearance - orientation.widthCm
       const yMin = depths.top + clearance
       const yMax = depthCm - depths.bottom - clearance - orientation.depthCm
-      if (xMax < xMin || yMax < yMin) continue
       // Центр проверяется первым ради стабильности старых проектов, затем четыре края.
-      const positions = [
-        { xCm: (xMin + xMax) / 2, yCm: (yMin + yMax) / 2 },
-        { xCm: xMin, yCm: yMin },
-        { xCm: xMin, yCm: yMax },
-        { xCm: xMax, yCm: yMin },
-        { xCm: xMax, yCm: yMax },
-        { xCm: (xMin + xMax) / 2, yCm: yMin },
-        { xCm: (xMin + xMax) / 2, yCm: yMax },
-        { xCm: xMin, yCm: (yMin + yMax) / 2 },
-        { xCm: xMax, yCm: (yMin + yMax) / 2 },
-      ]
+      const positions =
+        xMax >= xMin && yMax >= yMin
+          ? [
+              { xCm: (xMin + xMax) / 2, yCm: (yMin + yMax) / 2 },
+              { xCm: xMin, yCm: yMin },
+              { xCm: xMin, yCm: yMax },
+              { xCm: xMax, yCm: yMin },
+              { xCm: xMax, yCm: yMax },
+              { xCm: (xMin + xMax) / 2, yCm: yMin },
+              { xCm: (xMin + xMax) / 2, yCm: yMax },
+              { xCm: xMin, yCm: (yMin + yMax) / 2 },
+              { xCm: xMax, yCm: (yMin + yMax) / 2 },
+            ]
+          : []
+      if (coffeeSofa && sofaFront) {
+        positions.push(
+          ...coffeeFrontPositions(
+            coffeeSofa,
+            sofaFront,
+            orientation,
+            entry.item.operationClearance?.around,
+          ),
+        )
+      }
       for (const position of positions) {
         const placement: Placement = {
           id: `${entry.item.id}-${placed.length}`,
@@ -2272,8 +2353,28 @@ function layoutRoomCandidate(
           routeBlockedPolygons,
           blockingFloorReservations,
         )
-        if (!bestCenter || candidateWalkway > bestCenter.walkwayCm) {
-          bestCenter = { placement, zone, walkwayCm: candidateWalkway }
+        const coffeeScore =
+          coffeeSofa &&
+          coffeeUsableFromSofa(
+            coffeeSofa,
+            placement,
+            sofaFront?.direction ??
+              explicitFronts.get(coffeeSofa.id) ??
+              directionFromWall(coffeeSofa.wall),
+          )
+            ? 2000 - Math.abs(rectDistanceCm(coffeeSofa, placement) - 45)
+            : 0
+        let better = !bestCenter
+        if (bestCenter) {
+          const walkable = candidateWalkway >= WALKWAY_CM
+          const currentWalkable = bestCenter.walkwayCm >= WALKWAY_CM
+          if (walkable !== currentWalkable) better = walkable
+          else if (walkable && coffeeScore !== bestCenter.coffeeScore)
+            better = coffeeScore > bestCenter.coffeeScore
+          else better = candidateWalkway > bestCenter.walkwayCm
+        }
+        if (better) {
+          bestCenter = { placement, zone, walkwayCm: candidateWalkway, coffeeScore }
         }
       }
     }
@@ -2496,14 +2597,19 @@ function layoutRoomCandidate(
   )
   if (room.roomKind === 'living' && sofaPlacement && coffeePlacement) {
     const distanceCm = rectDistanceCm(sofaPlacement, coffeePlacement)
-    const usableFromSofa = distanceCm >= 30 && distanceCm <= 60
+    const front =
+      functionalZones.find((zone) => zone.placementId === sofaPlacement.id && zone.kind === 'front')
+        ?.direction ??
+      explicitFronts.get(sofaPlacement.id) ??
+      directionFromWall(sofaPlacement.wall)
+    const usableFromSofa = coffeeUsableFromSofa(sofaPlacement, coffeePlacement, front)
     relationships.push({
       id: 'sofa-coffee',
       kind: 'sofa-coffee',
       label: 'Диван и журнальный стол',
       detail: usableFromSofa
         ? `Между краями ${distanceCm} см: столом удобно пользоваться с дивана.`
-        : `Между краями ${distanceCm} см. Стол слишком близко или далеко — переставьте его вручную.`,
+        : `Между краями ${distanceCm} см. Проверьте расстояние и положение стола перед диваном — переставьте его вручную.`,
       status: usableFromSofa ? 'checked' : 'review',
       distanceCm,
     })
