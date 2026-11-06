@@ -95,6 +95,112 @@ describe('styleVector', () => {
 })
 
 describe('buildTemplatePlan', () => {
+  const furnitureContract = 'Bed at top wall, height 80 cm; wardrobe at top wall, height 190 cm.'
+
+  it.each(['bedroom', 'kid', 'living', 'kitchen', 'bath'] as const)(
+    'с готовой расстановкой %s меняет оформление, а не состав мебели',
+    (roomKind) => {
+      const plan = buildTemplatePlan(brief({ roomKind, layoutContract: furnitureContract }), 5)
+      expect(plan.shared).toContain(furnitureContract)
+      expect(plan.variations).toHaveLength(5)
+      expect(new Set(plan.variations).size).toBe(5)
+      const variants = plan.variations.join(' ')
+      expect(variants).toContain('Do not add, remove, move, resize or substitute furniture')
+      expect(variants).not.toMatch(
+        /two narrow bedside|full-height storage|offset bed|one movable chair|L-shaped|loft-free|compact vanity/,
+      )
+    },
+  )
+
+  it.each([false, true])('сохраняет контракт при наличии фото: %s', (hasPhoto) => {
+    for (const condition of ['bare', 'finished'] as const) {
+      const plan = buildTemplatePlan(
+        brief({ hasPhoto, condition, layoutContract: furnitureContract }),
+        1,
+      )
+      expect(plan.shared.split(furnitureContract)).toHaveLength(2)
+      if (hasPhoto) expect(plan.shared).toContain('Keep the exact camera angle')
+    }
+  })
+
+  it('не добавляет мебель по составу семьи поверх выбранного набора', () => {
+    const plan = buildTemplatePlan(
+      brief({
+        layoutContract: furnitureContract,
+        household: { adults: 2, kids: 1, wfh: true, pets: true, receiveGuests: true },
+      }),
+      5,
+    )
+    expect(plan.shared).not.toContain('Include ')
+    expect(plan.shared).not.toContain('a compact desk for working from home')
+  })
+
+  it('пустой контракт не отключает обычные варианты обстановки', () => {
+    const plan = buildTemplatePlan(brief({ roomKind: 'bedroom', layoutContract: '  ' }), 2)
+    expect(plan.variations[0]).toContain('two narrow bedside surfaces')
+    expect(plan.variations[1]).toContain('full-height storage')
+  })
+
+  it('точечная правка с контрактом сохраняет просьбу пользователя', () => {
+    const plan = buildTemplatePlan(
+      brief({ condition: 'keep', layoutContract: furnitureContract, notes: 'Убери тумбу' }),
+      3,
+    )
+    expect(plan.variations.every((text) => text.startsWith('Make the requested change'))).toBe(true)
+    expect(plan.mandate).toContain('Убери тумбу')
+    expect(plan.shared).not.toContain('Finishes:')
+    expect(plan.variations.join(' ')).not.toMatch(/lower or narrower|as close to the window/)
+  })
+
+  it.each([false, true])(
+    'сохраняет перевод и правку без выдуманной LLM расстановки (только перевод: %s)',
+    async (translationOnly) => {
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          Response.json({
+            status_url: 'https://queue.fal.run/status',
+            response_url: 'https://queue.fal.run/result',
+          }),
+        )
+        .mockResolvedValueOnce(Response.json({ status: 'COMPLETED' }))
+        .mockResolvedValueOnce(
+          Response.json({
+            output: JSON.stringify(
+              translationOnly
+                ? { request: 'Use blue textiles.' }
+                : {
+                    style: 'Add a new enormous sofa, an extra desk and two bedside tables.',
+                    request: 'Use blue textiles.',
+                    variations: [
+                      'Move the bed under the window.',
+                      'Replace the wardrobe with ceiling-height storage.',
+                    ],
+                  },
+            ),
+          }),
+        )
+      try {
+        const plan = await createFalLlmPromptBuilder('test-key').build(
+          brief({
+            layoutContract: furnitureContract,
+            notes: 'Синий текстиль',
+            revision: 'Keep the existing curtains',
+          }),
+          2,
+        )
+        expect(plan.shared).toContain(furnitureContract)
+        expect(plan.shared).not.toContain('enormous sofa')
+        expect(plan.variations.join(' ')).not.toMatch(/bed under the window|ceiling-height storage/)
+        expect(plan.mandate).toContain('Use blue textiles')
+        expect(plan.mandate).toContain('Keep the existing curtains')
+        expect(plan.variations).toHaveLength(2)
+      } finally {
+        fetchMock.mockRestore()
+      }
+    },
+  )
+
   it('передаёт архитектуру во все концепты без фото, но не подменяет ею фото', () => {
     const layoutNotes = 'Два окна на нижней стене, дверь слева.'
     const plan = buildTemplatePlan(brief({ hasPhoto: false, layoutNotes }), 3)

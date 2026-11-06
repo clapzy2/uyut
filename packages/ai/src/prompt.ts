@@ -165,6 +165,9 @@ function scaleConstraints(brief: ConceptBrief): string {
 
 export function fixedPreamble(brief: ConceptBrief): string {
   const noun = roomNouns[brief.roomKind]
+  const contract = brief.layoutContract?.trim()
+    ? `Furniture layout contract: ${brief.layoutContract.trim()} Preserve this furniture set, its dimensions and positions unless the client explicitly requests a change. Do not add furniture from a default room arrangement or style example.`
+    : ''
   if (!brief.hasPhoto) {
     const size = sizeSentence(brief)
     return [
@@ -179,9 +182,7 @@ export function fixedPreamble(brief: ConceptBrief): string {
         : brief.architecture
           ? ''
           : 'The window and doorway locations are unknown: this is an illustrative layout, not a reconstruction. Use modest apartment openings; do not invent panoramic or floor-to-ceiling glazing.',
-      brief.layoutContract?.trim()
-        ? `Furniture layout contract: ${brief.layoutContract.trim()} This contract overrides any conflicting furniture arrangement suggested later in the prompt.`
-        : '',
+      contract,
       scaleConstraints(brief),
     ]
       .filter(Boolean)
@@ -197,6 +198,7 @@ export function fixedPreamble(brief: ConceptBrief): string {
       'the same colours and materials.',
       'Change only what the client asks for below and nothing else.',
       'Everything the client did not mention stays exactly as it is in the photograph.',
+      contract,
     ].join(' ')
   }
   if (brief.condition === 'bare') {
@@ -209,6 +211,7 @@ export function fixedPreamble(brief: ConceptBrief): string {
       'Do not add a window where none exists; use artificial lighting in windowless rooms.',
       brief.roomKind === 'kitchen' ? kitchenConstraints(brief.sizeCm) : '',
       roomFunctionConstraints(brief),
+      contract,
     ].join(' ')
   }
   // Технику и радиаторы при смене интерьера не покупают заново, а мы их стирали.
@@ -222,12 +225,13 @@ export function fixedPreamble(brief: ConceptBrief): string {
     'the sockets and switches, in the same places and of the same size.',
     brief.roomKind === 'kitchen' ? kitchenConstraints(brief.sizeCm) : '',
     roomFunctionConstraints(brief),
+    contract,
   ].join(' ')
 }
 
 function stylePart(brief: ConceptBrief): string {
   const parts = [`Finishes: ${brief.primaryStyle.finish}.`]
-  const needs = householdNeeds(brief)
+  const needs = brief.layoutContract?.trim() ? [] : householdNeeds(brief)
   if (needs.length > 0) {
     parts.push(`Include ${needs.join(', ')}.`)
   }
@@ -295,6 +299,30 @@ function keepVariationPrompts(count: number): string[] {
 }
 
 function variationPrompts(brief: ConceptBrief, count: number): string[] {
+  // Рассчитанный набор уже выбран человеком: варианты оформления не предлагают новую мебель.
+  if (brief.layoutContract?.trim()) {
+    const accents =
+      brief.condition === 'keep'
+        ? [
+            'Make the requested change in the most straightforward way.',
+            'Make the requested change using the existing finishes.',
+            'Make the requested change matching the existing materials.',
+            'Make the requested change matching the existing colours.',
+            'Make the requested change matching the existing lighting.',
+          ]
+        : [
+            'Use warm neutral textiles on the contracted furniture.',
+            'Use muted textile accents on the contracted furniture.',
+            'Use subtle tonal contrast in the contracted furniture finishes.',
+            'Use matte finishes on the contracted furniture.',
+            'Use understated textile patterns on the contracted furniture.',
+          ]
+    return Array.from(
+      { length: count },
+      (_, index) =>
+        `${accents[index % accents.length]} Do not add, remove, move, resize or substitute furniture except as explicitly requested by the client. Preserve all other contracted items and keep openings and routes clear.`,
+    )
+  }
   if (brief.condition === 'keep') {
     return keepVariationPrompts(count)
   }
@@ -434,6 +462,10 @@ function planFromText(
   const parsed = extractJson(text)
   const style = typeof parsed?.style === 'string' ? parsed.style.trim() : ''
   const request = typeof parsed?.request === 'string' ? parsed.request.trim() : ''
+  // Свободный ответ модели может снова добавить мебель. Здесь нужен только перевод пожеланий.
+  if (parsed && brief.layoutContract?.trim()) {
+    return { ...fallback, mandate: mandateSentence(brief, request), source: 'claude' }
+  }
   const variations = Array.isArray(parsed?.variations)
     ? parsed.variations.filter(
         (item): item is string => typeof item === 'string' && item.trim() !== '',
