@@ -1,7 +1,7 @@
 'use client'
 
 import { cn } from '@uyut/ui'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 /**
  * Картинка товара с запасной ссылкой.
@@ -26,18 +26,66 @@ export function ProductImage({
 }) {
   const [failedUrls, setFailedUrls] = useState<string[]>([])
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
+  const imageRef = useRef<HTMLImageElement>(null)
   const url = [src, fallback].find((candidate) => candidate && !failedUrls.includes(candidate))
 
   // Некоторые магазины не возвращают ошибку, а держат запрос открытым. Без тайм-аута
   // браузер навсегда показывает сломанный квадрат и не переходит к запасной ссылке.
   useEffect(() => {
-    if (!url || loadedUrl === url) {
+    const image = imageRef.current
+    if (!url || loadedUrl === url || !image) {
       return
     }
-    const timer = setTimeout(() => {
-      setFailedUrls((current) => [...new Set([...current, url])])
-    }, 3_500)
-    return () => clearTimeout(timer)
+    if (image.complete && image.naturalWidth > 0) {
+      setLoadedUrl(url)
+      return
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let active = true
+    const startTimer = () => {
+      if (!active || timer !== undefined) return
+      timer = setTimeout(() => {
+        if (image.complete && image.naturalWidth > 0) setLoadedUrl(url)
+        else setFailedUrls((current) => [...new Set([...current, url])])
+      }, 3_500)
+    }
+    // Native lazy loading may defer the request indefinitely while the card is offscreen.
+    const observer =
+      typeof IntersectionObserver === 'undefined'
+        ? null
+        : new IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) {
+              startTimer()
+              observer?.disconnect()
+            }
+          })
+    const checkVisibility = () => {
+      const rect = image.getBoundingClientRect()
+      if (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.bottom > 0 &&
+        rect.right > 0 &&
+        rect.top < window.innerHeight &&
+        rect.left < window.innerWidth
+      )
+        startTimer()
+    }
+    if (observer) observer.observe(image)
+    else {
+      checkVisibility()
+      window.addEventListener('scroll', checkVisibility, true)
+      window.addEventListener('resize', checkVisibility)
+    }
+    return () => {
+      active = false
+      clearTimeout(timer)
+      observer?.disconnect()
+      if (!observer) {
+        window.removeEventListener('scroll', checkVisibility, true)
+        window.removeEventListener('resize', checkVisibility)
+      }
+    }
   }, [loadedUrl, url])
 
   if (!url) {
@@ -66,6 +114,8 @@ export function ProductImage({
   return (
     // biome-ignore lint/performance/noImgElement: картинка живёт у магазина, оптимизатор next/image здесь не нужен
     <img
+      key={url}
+      ref={imageRef}
       src={url}
       alt={alt}
       loading="lazy"
