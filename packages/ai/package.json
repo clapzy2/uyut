@@ -3,6 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "imports": {
+    "#review-framing": {
+      "node": "./src/quality-review-framing.ts",
+      "default": "./src/quality-review-framing.browser.ts"
+    }
+  },
   "exports": {
     ".": "./src/index.ts",
     "./geometry": "./src/floor-plan-geometry.ts",
@@ -16,6 +22,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@uyut/db": "workspace:*"
+    "@uyut/db": "workspace:*",
+    "sharp": "0.35.4"
   }
 }
