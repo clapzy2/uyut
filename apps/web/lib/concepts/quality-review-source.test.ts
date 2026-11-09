@@ -1,9 +1,27 @@
 import { isUsableArchitectureAnchor, QUALITY_REVIEW_TIMEOUT_MS, reviewConceptImage } from '@uyut/ai'
+import sharp from 'sharp'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const description = 'Гостиная с окном и диваном.'
-const source = { body: Buffer.from('source'), contentType: 'image/png' }
-const resultImage = { body: Buffer.from('result'), contentType: 'image/jpeg' }
+// An asymmetric room outline with the same window, furniture and perspective.
+// The result adds a single localized opening on the exposed wall.
+function roomFrame(extraOpening: boolean) {
+  return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120">
+    <rect width="160" height="120" fill="#eee"/>
+    <g stroke="#333" fill="#aaa" stroke-width="2">
+      <path fill="none" d="M0 4L26 17H138L160 0 M26 17V92L0 116 M26 92H138V17 M138 92L160 108"/>
+      <rect x="31" y="24" width="41" height="42"/><path d="M54 24V66 M31 43H72"/>
+      <rect x="38" y="76" width="53" height="10"/><path d="M41 86V99 M87 86V98"/>
+      ${extraOpening ? '<rect x="106" y="46" width="17" height="45"/>' : ''}
+    </g></svg>`)
+}
+const source = { body: await sharp(roomFrame(false)).png().toBuffer(), contentType: 'image/png' }
+const resultImage = {
+  body: await sharp(roomFrame(true)).jpeg().toBuffer(),
+  contentType: 'image/jpeg',
+}
+const sourceDataUrl = `data:image/png;base64,${source.body.toString('base64')}`
+const resultDataUrl = `data:image/jpeg;base64,${resultImage.body.toString('base64')}`
 const brief = {
   roomKind: 'living' as const,
   condition: 'finished' as const,
@@ -17,6 +35,27 @@ const addedRadiator = {
   confidence: 0.95,
   basis: 'reference',
   sourceCheck: { object: 'радиатор', location: 'под окном', expected: 'empty' },
+}
+const removedRadiator = {
+  ...addedRadiator,
+  detail: 'Исчез радиатор под окном.',
+  sourceCheck: { ...addedRadiator.sourceCheck, expected: 'present' },
+}
+const emptyUnderWindow = { id: 0, matchedLandmark: 'окно', state: 'empty' }
+const wallSite = {
+  location: 'между аркой и углом ниши',
+  boundaries: ['косяк арки', 'угол ниши'],
+}
+const addedWindow = {
+  ...addedRadiator,
+  code: 'opening_conflict',
+  detail: 'Добавлено окно между аркой и углом ниши.',
+  sourceCheck: { object: 'окно', ...wallSite, expected: 'empty' },
+}
+const emptyWallSite = {
+  state: 'empty',
+  matchedLandmark: 'арка',
+  boundaryTypes: ['opening_jamb', 'wall_corner'],
 }
 const explicitBan = {
   code: 'brief_conflict',
@@ -75,10 +114,69 @@ afterEach(() => {
 })
 
 describe('independent source observation', () => {
+  const banQuote = 'В интерьере не должно быть телевизора.'
+  const tvIssue = {
+    ...explicitBan,
+    detail: 'В комнате видны два телевизора.',
+    exclusionQuote: banQuote,
+  }
+
+  it('reports presence for an exact blanket ban and keeps an independent change with the same code', async () => {
+    mockReviews(
+      [addedRadiator],
+      {
+        roomView: 'broad',
+        observations: [emptyUnderWindow],
+      },
+      { baseIssues: [tvIssue] },
+    )
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      { roomKind: 'living', notes: banQuote, condition: 'finished' },
+      source,
+    )
+    expect(review.issues[0]?.detail).toBe(
+      'На изображении виден предмет, который просили исключить: «В интерьере не должно быть телевизора». Добавлен радиатор под окном.',
+    )
+  })
+
+  it.each([
+    { request: banQuote, finding: { ...tvIssue, exclusionQuote: undefined } },
+    { request: banQuote, finding: { ...tvIssue, exclusionQuote: 'Без телевизора.' } },
+    { request: banQuote, finding: { ...tvIssue, detail: 'Кресло мешает открыть шкаф.' } },
+    {
+      request: 'Не должно быть второго телевизора.',
+      finding: { ...tvIssue, exclusionQuote: 'Не должно быть второго телевизора.' },
+    },
+    {
+      request: 'На тумбе не должно быть телевизора.',
+      finding: { ...tvIssue, exclusionQuote: 'На тумбе не должно быть телевизора.' },
+    },
+    {
+      request: 'Без телевизора. Добавить кресло.',
+      finding: { ...tvIssue, exclusionQuote: 'Без телевизора.' },
+    },
+    { request: banQuote, layoutContract: 'Два места у стола', finding: tvIssue },
+    { request: banQuote, revision: 'Можно добавить экран.', finding: tvIssue },
+  ])(
+    'preserves the detailed finding when a blanket exclusion cannot be grounded: %j',
+    async (sample) => {
+      mockReviews([], {}, { baseIssues: [sample.finding] })
+      const review = await reviewConceptImage('test', resultImage, {
+        roomKind: 'living',
+        notes: sample.request,
+        layoutContract: 'layoutContract' in sample ? sample.layoutContract : undefined,
+        revision: 'revision' in sample ? sample.revision : undefined,
+      })
+      expect(review.issues[0]?.detail).toBe(sample.finding.detail)
+    },
+  )
+
   it('confirms an addition using only source pixels and a neutral object/location question', async () => {
     const fetchMock = mockReviews(
       [addedRadiator],
-      { roomView: 'broad', observations: [{ id: 0, state: 'empty' }] },
+      { roomView: 'broad', observations: [emptyUnderWindow] },
       { baseIssues: [explicitBan] },
     )
     const review = await reviewConceptImage('test', resultImage, brief, source)
@@ -92,7 +190,7 @@ describe('independent source observation', () => {
     const requests = submissions(fetchMock)
     expect(requests).toHaveLength(3)
     const observer = JSON.parse(String(requests[2]?.[1]?.body))
-    expect(observer.image_urls).toEqual(['data:image/png;base64,c291cmNl'])
+    expect(observer.image_urls).toEqual([sourceDataUrl])
     expect(JSON.parse(observer.prompt)).toEqual([
       { id: 0, object: 'радиатор', location: 'под окном' },
     ])
@@ -104,7 +202,7 @@ describe('independent source observation', () => {
       brief.notes,
       brief.revision,
       brief.requestedVariant,
-      'data:image/jpeg;base64,cmVzdWx0',
+      resultDataUrl,
     ]) {
       expect(body).not.toContain(privateInput)
     }
@@ -113,7 +211,10 @@ describe('independent source observation', () => {
   it.each(['present', 'not_visible'])(
     'drops an alleged addition when source state is %s and marks comparison limited',
     async (state) => {
-      mockReviews([addedRadiator], { roomView: 'broad', observations: [{ id: 0, state }] })
+      mockReviews([addedRadiator], {
+        roomView: 'broad',
+        observations: [{ ...emptyUnderWindow, state }],
+      })
       const review = await reviewConceptImage('test', resultImage, brief, source)
       expect(review).toMatchObject({
         status: 'checked',
@@ -139,23 +240,148 @@ describe('independent source observation', () => {
     ])
   })
 
-  it('confirms a disappearance only when its expected source object is present', async () => {
-    const removedRadiator = {
-      ...addedRadiator,
-      detail: 'Исчез радиатор под окном.',
-      sourceCheck: { ...addedRadiator.sourceCheck, expected: 'present' },
-    }
-    mockReviews([removedRadiator], {
+  it('requires a matched landmark for an otherwise empty equipment site', async () => {
+    mockReviews([addedRadiator], {
       roomView: 'broad',
-      observations: [{ id: 0, state: 'present' }],
+      observations: [{ ...emptyUnderWindow, matchedLandmark: null }],
+    })
+    const review = await reviewConceptImage('test', resultImage, brief, source)
+    expect(review).toMatchObject({ status: 'checked', issues: [], sourceComparison: 'limited' })
+  })
+
+  it('confirms a disappearance against the exposed site in the result alone', async () => {
+    const fetchMock = mockReviews([removedRadiator], {
+      roomView: 'broad',
+      observations: [emptyUnderWindow],
     })
     const review = await reviewConceptImage('test', resultImage, brief, source)
     expect(review).toMatchObject({ status: 'review', sourceComparison: 'verified' })
     expect(review.issues[0]?.detail).toBe(removedRadiator.detail)
+    const observer = JSON.parse(String(submissions(fetchMock)[2]?.[1]?.body))
+    expect(observer.image_urls).toEqual([resultDataUrl])
+    expect(JSON.parse(observer.prompt)).toEqual([
+      { id: 0, object: 'радиатор', location: 'под окном' },
+    ])
   })
 
+  it.each(['present', 'not_visible'])(
+    'rejects disappearance when result site is %s',
+    async (state) => {
+      mockReviews([removedRadiator], {
+        roomView: 'broad',
+        observations: [{ ...emptyUnderWindow, state }],
+      })
+      const review = await reviewConceptImage('test', resultImage, brief, source)
+      expect(review).toMatchObject({ status: 'checked', issues: [], sourceComparison: 'limited' })
+    },
+  )
+
+  it.each([
+    { boundaries: undefined },
+    { boundaries: ['угол'] },
+    { boundaries: ['угол  ниши', ' УГОЛ НИШИ '] },
+    { boundaries: ['косяк', 'а'.repeat(121)] },
+  ])('skips openings without two distinct bounded cues: %j', async ({ boundaries }) => {
+    const claim = {
+      ...addedWindow,
+      sourceCheck: { ...addedWindow.sourceCheck, boundaries },
+    }
+    const fetchMock = mockReviews([claim], new Error('Unexpected observation'))
+    const review = await reviewConceptImage('test', resultImage, brief, source)
+    expect(review).toMatchObject({ status: 'checked', issues: [], sourceComparison: 'limited' })
+    expect(submissions(fetchMock)).toHaveLength(2)
+  })
+
+  it.each([
+    ['changed room arrangement', () => sharp(resultImage.body).flop().png().toBuffer()],
+    [
+      'same-aspect close crop',
+      () =>
+        sharp(resultImage.body)
+          .extract({ left: 40, top: 25, width: 100, height: 75 })
+          .png()
+          .toBuffer(),
+    ],
+    [
+      'changed proportions',
+      () => sharp(resultImage.body).resize(80, 120, { fit: 'fill' }).png().toBuffer(),
+    ],
+    ['undecodable photo', async () => Buffer.from('unreadable')],
+  ] as const)('vetoes the opening without another request for %s', async (_label, makeImage) => {
+    const fetchMock = mockReviews([addedWindow], new Error('Unexpected observation'))
+    const changed = { body: await makeImage(), contentType: 'image/png' }
+    const review = await reviewConceptImage('test', changed, brief, source)
+    expect(review).toMatchObject({
+      status: 'checked',
+      issues: [],
+      sourceComparison: 'limited',
+      additionalReviewRequests: 1,
+    })
+    expect(submissions(fetchMock)).toHaveLength(2)
+  })
+
+  it('requires distributed structure even in identical frames', async () => {
+    const body = await sharp({
+      create: { width: 160, height: 120, channels: 3, background: '#ccc' },
+    })
+      .png()
+      .toBuffer()
+    const blank = { body, contentType: 'image/png' }
+    mockReviews([addedWindow], new Error('Unexpected observation'))
+    const review = await reviewConceptImage('test', blank, brief, blank)
+    expect(review).toMatchObject({
+      issues: [],
+      sourceComparison: 'limited',
+      additionalReviewRequests: 1,
+    })
+  })
+
+  it('still verifies equipment independently when the opening fails the frame check', async () => {
+    const changed = {
+      body: await sharp(resultImage.body).flop().png().toBuffer(),
+      contentType: 'image/png',
+    }
+    const fetchMock = mockReviews([addedWindow, addedRadiator], {
+      roomView: 'broad',
+      observations: [{ ...emptyUnderWindow, id: 1 }],
+    })
+    const review = await reviewConceptImage('test', changed, brief, source)
+    expect(review.sourceComparison).toBe('limited')
+    expect(review.issues.map(({ detail }) => detail)).toEqual([addedRadiator.detail])
+    expect(submissions(fetchMock)).toHaveLength(3)
+  })
+
+  it.each([
+    { boundaryTypes: ['wall_corner', null] },
+    { boundaryTypes: ['wall_corner', 'furniture'] },
+    { boundaryTypes: ['wall_corner'] },
+    { boundaryTypes: undefined },
+  ])(
+    'rejects the opening when a wall boundary cannot be identified: %j',
+    async ({ boundaryTypes }) => {
+      const claim = {
+        ...addedWindow,
+        sourceCheck: {
+          ...addedWindow.sourceCheck,
+          location: 'между углом и диваном',
+          boundaries: ['угол ниши', 'диван'],
+        },
+      }
+      mockReviews([claim, addedRadiator], {
+        roomView: 'broad',
+        observations: [
+          { id: 0, ...emptyWallSite, boundaryTypes },
+          { ...emptyUnderWindow, id: 1 },
+        ],
+      })
+      const review = await reviewConceptImage('test', resultImage, brief, source)
+      expect(review.sourceComparison).toBe('limited')
+      expect(review.issues.map(({ detail }) => detail)).toEqual([addedRadiator.detail])
+    },
+  )
+
   it.each(['empty', 'present'] as const)(
-    'does not confirm a change from a restricted source even when its state matches %s',
+    'does not confirm an empty site in a restricted view for source expectation %s',
     async (state) => {
       const claim = {
         ...addedRadiator,
@@ -163,7 +389,7 @@ describe('independent source observation', () => {
       }
       const fetchMock = mockReviews([claim], {
         roomView: 'restricted',
-        observations: [{ id: 0, state }],
+        observations: [emptyUnderWindow],
       })
       const review = await reviewConceptImage('test', resultImage, brief, source)
       expect(review).toMatchObject({
@@ -299,45 +525,50 @@ describe('independent source observation', () => {
   )
 
   it.each(['bare', undefined] as const)(
-    'still verifies opening additions and equipment disappearance in mode %s',
+    'verifies the opening addition and marks the tied disappearance group limited in mode %s',
     async (condition) => {
-      const addedWindow = {
-        ...addedRadiator,
-        code: 'opening_conflict',
-        detail: 'Добавлено окно на дальней стене.',
-        sourceCheck: { object: 'окно', location: 'дальняя стена', expected: 'empty' },
-      }
-      const removedRadiator = {
-        ...addedRadiator,
-        detail: 'Исчез сохраняемый радиатор под окном.',
-        sourceCheck: { ...addedRadiator.sourceCheck, expected: 'present' },
-      }
       const fetchMock = mockReviews([addedRadiator, addedWindow, removedRadiator], {
         roomView: 'broad',
-        observations: [
-          { id: 1, state: 'empty' },
-          { id: 2, state: 'present' },
-        ],
+        observations: [{ id: 1, ...emptyWallSite }],
       })
       const review = await reviewConceptImage('test', resultImage, { ...brief, condition }, source)
       expect(review).toMatchObject({
         status: 'review',
-        sourceComparison: 'verified',
+        sourceComparison: 'limited',
         additionalReviewRequests: 2,
       })
-      expect(review.issues.map((issue) => issue.detail)).toEqual([
-        addedWindow.detail,
-        removedRadiator.detail,
-      ])
+      expect(review.issues.map((issue) => issue.detail)).toEqual([addedWindow.detail])
       const requests = submissions(fetchMock)
       expect(requests).toHaveLength(3)
       const observer = JSON.parse(String(requests[2]?.[1]?.body))
-      expect(JSON.parse(observer.prompt)).toEqual([
-        { id: 1, object: 'окно', location: 'дальняя стена' },
-        { id: 2, object: 'радиатор', location: 'под окном' },
-      ])
+      expect(JSON.parse(observer.prompt)).toEqual([{ id: 1, object: 'окно', ...wallSite }])
     },
   )
+
+  it('verifies the larger removal group in the result within three requests', async () => {
+    const removedDoor = {
+      ...removedRadiator,
+      code: 'opening_conflict',
+      detail: 'Исчезла дверь рядом с аркой.',
+      sourceCheck: { object: 'дверь', ...wallSite, expected: 'present' },
+    }
+    const fetchMock = mockReviews([addedRadiator, removedRadiator, removedDoor], {
+      roomView: 'broad',
+      observations: [
+        { ...emptyUnderWindow, id: 1 },
+        { id: 2, ...emptyWallSite },
+      ],
+    })
+    const review = await reviewConceptImage('test', resultImage, brief, source)
+    expect(review.sourceComparison).toBe('limited')
+    expect(review.issues.map((issue) => issue.detail)).toEqual([
+      removedRadiator.detail,
+      removedDoor.detail,
+    ])
+    const requests = submissions(fetchMock)
+    expect(requests).toHaveLength(3)
+    expect(JSON.parse(String(requests[2]?.[1]?.body)).image_urls).toEqual([resultDataUrl])
+  })
 
   it('validates an addition claim before excluding it under bare mode policy', async () => {
     const fetchMock = mockReviews(
@@ -376,7 +607,7 @@ describe('independent source observation', () => {
     const timeout = vi.spyOn(AbortSignal, 'timeout')
     const fetchMock = mockReviews(
       [addedRadiator],
-      { roomView: 'broad', observations: [{ id: 0, state: 'empty' }] },
+      { roomView: 'broad', observations: [emptyUnderWindow] },
       { baseElapsedMs: 30_000, comparisonElapsedMs: 15_000 },
     )
     const review = await reviewConceptImage('test', resultImage, brief, source)

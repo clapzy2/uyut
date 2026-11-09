@@ -26,7 +26,7 @@ export type ConceptQualityReview = {
   status: 'checked' | 'review' | 'unavailable'
   model: string
   checkedAt: string
-  /** Source-only observation of reported changes, not proof of the entire room. */
+  /** Scope of the comparison with the reference photo. */
   sourceComparison?: 'verified' | 'limited' | 'unavailable'
   /** Calls beyond the initial result-only review, including failed comparison attempts. */
   additionalReviewRequests?: 0 | 1 | 2
