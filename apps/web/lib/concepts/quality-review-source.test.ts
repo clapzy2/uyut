@@ -113,6 +113,149 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+describe('independent observation of a registered opening', async () => {
+  const box = [0.55, 0.2, 0.3, 0.5]
+  const opening = {
+    ...addedWindow,
+    sourceCheck: { object: 'окно', location: 'стена ниши', expected: 'empty', box },
+  }
+  const windowPatch = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="48" height="60">
+    <rect width="48" height="60" fill="#334"/>
+    <path fill="#98b4bb" d="M4 4h18v24H4z M26 4h18v24H26z M4 32h18v24H4z M26 32h18v24H26z"/>
+    <path stroke="#445b65" stroke-width="2" d="M4 22L20 6 M27 22L43 6 M5 52L19 36 M27 52L42 37"/>
+  </svg>`)
+  const changed = {
+    body: await sharp(source.body)
+      .composite([{ input: windowPatch, left: 88, top: 24 }])
+      .png()
+      .toBuffer(),
+    contentType: 'image/png',
+  }
+
+  it.each(['addition', 'removal'])(
+    'confirms %s only from a wall at the registered site',
+    async (direction) => {
+      const addition = direction === 'addition'
+      const issue = {
+        ...opening,
+        detail: addition ? 'В стене ниши добавлено окно.' : 'В стене ниши исчезло окно.',
+        sourceCheck: { ...opening.sourceCheck, expected: addition ? 'empty' : 'present' },
+      }
+      const fetchMock = mockReviews([issue], {
+        roomView: 'restricted',
+        observations: [
+          { id: 0, state: 'empty', surface: 'continuous_wall', matchedLandmark: null },
+        ],
+      })
+      const review = await reviewConceptImage(
+        'test',
+        addition ? changed : source,
+        brief,
+        addition ? source : changed,
+      )
+      expect(review).toMatchObject({
+        status: 'review',
+        sourceComparison: 'verified',
+        additionalReviewRequests: 2,
+      })
+      expect(review.issues[0]?.detail).toBe(
+        addition
+          ? 'В правой части кадра на месте сплошной стены появился оконный проём.'
+          : 'В правой части кадра на месте, где был оконный проём, видна сплошная стена.',
+      )
+      const requests = submissions(fetchMock)
+      expect(requests).toHaveLength(3)
+      const observer = JSON.parse(String(requests[2]?.[1]?.body))
+      expect(observer.image_urls).toEqual([sourceDataUrl])
+      expect(JSON.parse(observer.prompt)).toEqual([
+        { id: 0, object: 'окно', location: 'стена ниши', box },
+      ])
+      for (const privateValue of [
+        issue.detail,
+        brief.notes,
+        brief.revision,
+        brief.requestedVariant,
+        changed.body.toString('base64'),
+      ]) {
+        expect(JSON.stringify(observer)).not.toContain(privateValue)
+      }
+    },
+  )
+
+  it.each([
+    ['door remains in frame', 'present', 'other'],
+    ['window remains at site', 'present', 'continuous_wall'],
+    ['furniture covers site', 'not_visible', 'continuous_wall'],
+    ['exposed niche instead of wall', 'empty', 'other'],
+    ['surface unclassified', 'empty', undefined],
+  ])('rejects a registered site with %s', async (_label, state, surface) => {
+    mockReviews([opening], {
+      roomView: 'broad',
+      observations: [{ id: 0, ...emptyWallSite, state, surface }],
+    })
+    const review = await reviewConceptImage('test', changed, brief, source)
+    expect(review).toMatchObject({
+      status: 'checked',
+      sourceComparison: 'limited',
+      issues: [],
+      additionalReviewRequests: 2,
+    })
+  })
+
+  it.each([
+    ['missing', undefined],
+    ['non-numeric', ['0.55', 0.2, 0.3, 0.5]],
+    ['extends outside frame', [0.9, 0.2, 0.3, 0.5]],
+    ['wrong location', [0.05, 0.2, 0.3, 0.5]],
+  ])('does not observe an opening with a %s box', async (_label, proposedBox) => {
+    const issue = { ...opening, sourceCheck: { ...opening.sourceCheck, box: proposedBox } }
+    const fetchMock = mockReviews([issue], new Error('Unexpected observer'))
+    const review = await reviewConceptImage('test', changed, brief, source)
+    expect(review).toMatchObject({ sourceComparison: 'limited', issues: [] })
+    expect(submissions(fetchMock)).toHaveLength(2)
+  })
+
+  it('does not treat an identical original and result as a registered change', async () => {
+    const fetchMock = mockReviews([opening], new Error('Unexpected observer'))
+    const review = await reviewConceptImage('test', changed, brief, changed)
+    expect(review).toMatchObject({ sourceComparison: 'limited', issues: [] })
+    expect(submissions(fetchMock)).toHaveLength(2)
+  })
+
+  it('requires a valid room scope even with a registered wall observation', async () => {
+    mockReviews([opening], {
+      roomView: false,
+      observations: [{ id: 0, state: 'empty', surface: 'continuous_wall' }],
+    })
+    const review = await reviewConceptImage('test', changed, brief, source)
+    expect(review).toMatchObject({ sourceComparison: 'unavailable', issues: [] })
+  })
+
+  it('keeps a supplied equipment box out of a mixed observer request', async () => {
+    const equipment = { ...addedRadiator, sourceCheck: { ...addedRadiator.sourceCheck, box } }
+    const fetchMock = mockReviews([opening, equipment], {
+      roomView: 'restricted',
+      observations: [0, 1].map((id) => ({
+        id,
+        state: 'empty',
+        surface: 'continuous_wall',
+        matchedLandmark: 'окно',
+      })),
+    })
+    const review = await reviewConceptImage('test', changed, brief, source)
+    expect(review.sourceComparison).toBe('limited')
+    expect(review.issues.map(({ detail }) => detail)).toEqual([
+      'В правой части кадра на месте сплошной стены появился оконный проём.',
+    ])
+    const observer = JSON.parse(String(submissions(fetchMock)[2]?.[1]?.body))
+    expect(JSON.parse(observer.prompt)[1]).toEqual({
+      id: 1,
+      object: 'радиатор',
+      location: 'под окном',
+    })
+  })
+})
+
 describe('independent source observation', () => {
   const banQuote = 'В интерьере не должно быть телевизора.'
   const tvIssue = {
@@ -643,6 +786,11 @@ describe('independent source observation', () => {
     'stops hung additional submission %s at the shared deadline without retry',
     async (stage) => {
       vi.useFakeTimers()
+      const deadline = Date.now() + QUALITY_REVIEW_TIMEOUT_MS
+      let markSubmitted!: (signal: AbortSignal) => void
+      const submitted = new Promise<AbortSignal>((resolve) => {
+        markSubmitted = resolve
+      })
       vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
         const controller = new AbortController()
         setTimeout(() => controller.abort(), ms)
@@ -652,10 +800,13 @@ describe('independent source observation', () => {
       const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, options) => {
         call += 1
         if (call === stage * 3 + 1) {
+          const signal = options?.signal
+          if (!signal) throw new Error('Missing timeout signal')
           return new Promise((_resolve, reject) => {
-            options?.signal?.addEventListener('abort', () => reject(new Error('timeout')), {
+            signal.addEventListener('abort', () => reject(new Error('timeout')), {
               once: true,
             })
+            markSubmitted(signal)
           })
         }
         if (call === 1 || call === 4) {
@@ -665,13 +816,20 @@ describe('independent source observation', () => {
           })
         }
         if (call === 2 || call === 5) return Response.json({ status: 'COMPLETED' })
-        await new Promise((resolve) => setTimeout(resolve, call === 3 ? 30_000 : 15_000))
+        vi.setSystemTime(Date.now() + (call === 3 ? 30_000 : 15_000))
         return Response.json({
           output: JSON.stringify({ description, issues: call === 3 ? [] : [addedRadiator] }),
         })
       })
       const pending = reviewConceptImage('test', resultImage, brief, source)
-      await vi.advanceTimersByTimeAsync(QUALITY_REVIEW_TIMEOUT_MS)
+      const signal = await submitted
+      const remainingMs = deadline - Date.now()
+      expect(remainingMs).toBe(QUALITY_REVIEW_TIMEOUT_MS - (stage === 1 ? 30_000 : 45_000))
+      await vi.advanceTimersByTimeAsync(remainingMs - 1)
+      expect(signal.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(signal.aborted).toBe(true)
+      expect(Date.now()).toBe(deadline)
       expect(await pending).toMatchObject({
         status: 'unavailable',
         sourceComparison: 'unavailable',
