@@ -1,6 +1,36 @@
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
-import { prepareLocalizedOpeningCheck } from '../../../../packages/ai/src/quality-review-framing'
+import {
+  cropOpeningSite,
+  prepareLocalizedOpeningCheck,
+} from '../../../../packages/ai/src/quality-review-framing'
+
+describe('opening observer crop', () => {
+  it('keeps exactly the oriented source pixels inside the registered box', async () => {
+    const pixels = Buffer.from(Array.from({ length: 120 * 160 * 3 }, (_, i) => i % 251))
+    const source = await sharp(pixels, { raw: { width: 120, height: 160, channels: 3 } })
+      .withMetadata({ orientation: 6 })
+      .png()
+      .toBuffer()
+    const crop = await cropOpeningSite(source, [0.55, 0.2, 0.3, 0.5])
+    const expected = await sharp(source)
+      .autoOrient()
+      .extract({ left: 88, top: 24, width: 48, height: 60 })
+      .raw()
+      .toBuffer()
+    expect(await sharp(crop).raw().toBuffer()).toEqual(expected)
+    expect(await sharp(crop).metadata()).toMatchObject({ width: 48, height: 60 })
+  })
+
+  it.each([
+    [0.9, 0.2, 0.3, 0.5],
+    [-0.1, 0.2, 0.3, 0.5],
+    [0.2, 0.2, 0, 0.5],
+    [Number.NaN, 0.2, 0.3, 0.5],
+  ])('rejects an invalid crop %j', async (...box) => {
+    await expect(cropOpeningSite(Buffer.alloc(0), box)).rejects.toThrow('Invalid opening site')
+  })
+})
 
 // Fixed, nonrepeating texture gives every part of the frame a recognizable position.
 async function texturedFrame(seed: number) {
