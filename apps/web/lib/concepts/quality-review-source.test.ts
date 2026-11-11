@@ -166,12 +166,19 @@ describe('independent observation of a registered opening', async () => {
       const requests = submissions(fetchMock)
       expect(requests).toHaveLength(3)
       const observer = JSON.parse(String(requests[2]?.[1]?.body))
-      expect(observer.image_urls).toEqual([sourceDataUrl])
-      expect(JSON.parse(observer.prompt)).toEqual([
-        { id: 0, object: 'окно', location: 'стена ниши', box },
+      const crop = await sharp(source.body)
+        .extract({ left: 88, top: 24, width: 48, height: 60 })
+        .png()
+        .toBuffer()
+      expect(observer.image_urls).toEqual([
+        sourceDataUrl,
+        `data:image/png;base64,${crop.toString('base64')}`,
       ])
+      expect(JSON.parse(observer.prompt)).toEqual([{ id: 0, box, imageIndex: 2 }])
+      expect(observer.system_prompt).toContain('"surface":"continuous_wall|other"')
       for (const privateValue of [
         issue.detail,
+        issue.sourceCheck.location,
         brief.notes,
         brief.revision,
         brief.requestedVariant,
@@ -248,11 +255,40 @@ describe('independent observation of a registered opening', async () => {
       'В правой части кадра на месте сплошной стены появился оконный проём.',
     ])
     const observer = JSON.parse(String(submissions(fetchMock)[2]?.[1]?.body))
+    expect(JSON.parse(observer.prompt)[0]).toEqual({ id: 0, box, imageIndex: 2 })
     expect(JSON.parse(observer.prompt)[1]).toEqual({
       id: 1,
       object: 'радиатор',
       location: 'под окном',
     })
+  })
+
+  it('keeps equipment instructions when a registered removal is outside the observed group', async () => {
+    const removal = {
+      ...opening,
+      sourceCheck: { ...opening.sourceCheck, expected: 'present' },
+    }
+    const fetchMock = mockReviews([opening, removal, addedRadiator], {
+      roomView: 'broad',
+      observations: [
+        { id: 0, state: 'empty', surface: 'continuous_wall', matchedLandmark: null },
+        { ...emptyUnderWindow, id: 2 },
+      ],
+    })
+
+    const review = await reviewConceptImage('test', changed, brief, source)
+    expect(review).toMatchObject({ sourceComparison: 'limited', additionalReviewRequests: 2 })
+    expect(review.issues.map(({ code }) => code)).toEqual(['opening_conflict', 'brief_conflict'])
+    const requests = submissions(fetchMock)
+    expect(requests).toHaveLength(3)
+    const observer = JSON.parse(String(requests[2]?.[1]?.body))
+    expect(observer.system_prompt).toContain('Для каждой пары предмет/место')
+    expect(observer.image_urls).toHaveLength(2)
+    expect(observer.image_urls[0]).toBe(sourceDataUrl)
+    expect(JSON.parse(observer.prompt)).toEqual([
+      { id: 0, box, imageIndex: 2 },
+      { id: 2, object: 'радиатор', location: 'под окном' },
+    ])
   })
 })
 

@@ -94,6 +94,26 @@ export async function hasComparableFraming(original: Buffer, result: Buffer): Pr
 
 const siteSide = 192
 
+/** Show the observer the same bounded pixels it was asked to classify, with no painted evidence. */
+export async function cropOpeningSite(image: Buffer, box: readonly number[]): Promise<Buffer> {
+  if (!openingBox(box)) throw new Error('Invalid opening site')
+  const { default: sharp } = await import('sharp')
+  const { autoOrient } = await sharp(image).metadata()
+  const [x = 0, y = 0, width = 0, height = 0] = box
+  const left = Math.ceil(x * autoOrient.width)
+  const top = Math.ceil(y * autoOrient.height)
+  return sharp(image)
+    .autoOrient()
+    .extract({
+      left,
+      top,
+      width: Math.floor((x + width) * autoOrient.width) - left,
+      height: Math.floor((y + height) * autoOrient.height) - top,
+    })
+    .png()
+    .toBuffer()
+}
+
 type PixelBox = { left: number; top: number; right: number; bottom: number }
 
 function openingBox(box: readonly number[]): PixelBox | null {
