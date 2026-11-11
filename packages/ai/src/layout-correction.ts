@@ -1,5 +1,14 @@
 import type { ConceptQualityReview } from '@uyut/db'
 
+function hasCompleteReview(review: ConceptQualityReview): boolean {
+  return (
+    review.status !== 'unavailable' &&
+    review.imageReview !== 'limited' &&
+    review.sourceComparison !== 'limited' &&
+    review.sourceComparison !== 'unavailable'
+  )
+}
+
 /**
  * One narrowly scoped edit for a visible item missing from an otherwise valid render.
  * The contract stays authoritative; the review only tells the editor what was not confirmed.
@@ -9,7 +18,7 @@ export function layoutCorrectionPrompt(
   layoutContract: string | null | undefined,
 ): string | null {
   const contract = layoutContract?.trim()
-  if (!contract || review.status !== 'review') return null
+  if (!contract || review.status !== 'review' || !hasCompleteReview(review)) return null
   if (review.issues.length !== 1 || review.issues[0]?.code !== 'requirement_unconfirmed')
     return null
 
@@ -33,14 +42,13 @@ export function isLayoutCorrectionImprovement(
   before: ConceptQualityReview,
   after: ConceptQualityReview,
 ): boolean {
-  if (after.status === 'unavailable') return false
-  const beforeMissing = before.issues.filter(
-    (issue) => issue.code === 'requirement_unconfirmed',
-  ).length
-  const afterMissing = after.issues.filter(
-    (issue) => issue.code === 'requirement_unconfirmed',
-  ).length
   return (
-    beforeMissing > 0 && afterMissing < beforeMissing && after.issues.length < before.issues.length
+    hasCompleteReview(before) &&
+    hasCompleteReview(after) &&
+    before.status === 'review' &&
+    before.issues.length === 1 &&
+    before.issues[0]?.code === 'requirement_unconfirmed' &&
+    after.status === 'checked' &&
+    after.issues.length === 0
   )
 }

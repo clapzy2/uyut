@@ -26,6 +26,8 @@ export type ConceptQualityReview = {
   status: 'checked' | 'review' | 'unavailable'
   model: string
   checkedAt: string
+  /** Completeness of the result-only assessment; absent on older reviews. */
+  imageReview?: 'complete' | 'limited'
   /** Scope of the comparison with the reference photo. */
   sourceComparison?: 'verified' | 'limited' | 'unavailable'
   /** Calls beyond the initial result-only review, including failed comparison attempts. */

@@ -78,6 +78,20 @@ function conceptLinks(html: string): string[] {
 }
 
 describe('concept gallery access', () => {
+  it.each([false, null])('shows incomplete image assessment in list/swipe, vote=%s', (owner) => {
+    const html = render([
+      concept('partial-image', {
+        owner,
+        qualityStatus: 'checked',
+        imageReview: 'limited',
+        sourceComparison: 'verified',
+      }),
+    ])
+    expect(html).toContain('Проверка изображения неполная')
+    expect(html).not.toContain('Есть возможные ошибки')
+    expect(html).not.toContain('Сравнение с фото неполное')
+  })
+
   it.each(['limited', 'unavailable'] as const)(
     'keeps %s source comparison visible alongside real review issues',
     (sourceComparison) => {

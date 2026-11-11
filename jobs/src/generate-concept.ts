@@ -405,7 +405,7 @@ export const generateConcept = task({
           .then((body) => ({ body, contentType: 'image/jpeg' }))
           .catch(() => {
             logger.warn('review reference preparation failed; keeping image-only review')
-            return undefined
+            return null
           })
       : undefined
     const imageUrl = source

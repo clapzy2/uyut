@@ -25,6 +25,7 @@ export function isUsableArchitectureAnchor(
     hasArchitectureFacts &&
     review.status === 'checked' &&
     review.issues.length === 0 &&
+    review.imageReview !== 'limited' &&
     review.sourceComparison !== 'limited' &&
     review.sourceComparison !== 'unavailable'
   )
@@ -118,6 +119,26 @@ export function parseQualityReview(raw: string, now = new Date()): ConceptQualit
   return parseReview(raw, now)
 }
 
+/** Merge only validated findings; limits apply to each original response, not the combined text. */
+function mergeReviewIssues(issues: ConceptQualityReview['issues']): ConceptQualityReview['issues'] {
+  type ReviewIssue = ConceptQualityReview['issues'][number]
+  const byCode = new Map<ReviewIssue['code'], { details: string[]; confidence: number }>()
+  for (const issue of issues) {
+    const existing = byCode.get(issue.code)
+    if (existing) {
+      if (!existing.details.includes(issue.detail)) existing.details.push(issue.detail)
+      existing.confidence = Math.max(existing.confidence, issue.confidence)
+    } else {
+      byCode.set(issue.code, { details: [issue.detail], confidence: issue.confidence })
+    }
+  }
+  return [...byCode].map(([code, { details, confidence }]) => ({
+    code,
+    detail: details.join(' '),
+    confidence,
+  }))
+}
+
 function parseReview(
   raw: string,
   now: Date,
@@ -150,7 +171,7 @@ function parseReview(
         issue.confidence > 1
       )
         return fallback
-      if (issue.confidence >= 0.8 && !issues.some((entry) => entry.code === issue.code)) {
+      if (issue.confidence >= 0.8) {
         const citesBan =
           issue.code === 'brief_conflict' &&
           exclusion &&
@@ -171,7 +192,10 @@ function parseReview(
     return {
       ...fallback,
       status: issues.length ? 'review' : 'checked',
-      issues,
+      imageReview: value.issues.some((issue: { confidence: number }) => issue.confidence < 0.8)
+        ? 'limited'
+        : 'complete',
+      issues: mergeReviewIssues(issues),
       description: value.description.trim().slice(0, 400),
     }
   } catch {
@@ -189,7 +213,8 @@ export async function reviewConceptImage(
         'notes' | 'revision' | 'household' | 'layoutContract' | 'architecture' | 'condition'
       >
     > & { requestedVariant?: string },
-  reference?: ReviewImage,
+  // null means a supplied source could not be prepared; undefined means no source was supplied.
+  reference?: ReviewImage | null,
 ): Promise<ConceptQualityReview> {
   const deadline = Date.now() + QUALITY_REVIEW_TIMEOUT_MS
   let additionalReviewRequests: 0 | 1 | 2 = 0
@@ -221,9 +246,11 @@ export async function reviewConceptImage(
         system_prompt: exclusion
           ? `${QUALITY_REVIEW_PROMPT}\nЕсли единственный безусловный запрет клиента нарушен видимым предметом, добавь к этому brief_conflict поле exclusionQuote: дословная полная просьба, включая точку, если она есть. Используй поле только когда замечание целиком относится к присутствию этого предмета. В detail назови предмет. В description опиши другие видимые особенности комнаты без подсчёта запрещённых предметов.`
           : QUALITY_REVIEW_PROMPT,
-        prompt: reference
-          ? `Проверь видимые свойства комнаты на одном кадре. Это может быть обычная фотография. Сохранение исходной техники, окон и мебели проверит отдельный этап. Пропусти в этой части просьбы о сохранении: они не порождают даже requirement_unconfirmed. Для прямых требований к результату проверь конкретный предмет и его видимые части (например, число чаш у мойки). При запрете предмета достаточно одного достоверного экземпляра; не перечисляй и не считай похожие предметы. ${briefPrompt()}`
-          : `Передан только результат, исходника нет. Проверь результат. ${briefPrompt()}`,
+        prompt: `Определи, изображено ли внутреннее пространство, независимо от готовности ремонта. Съёмка изнутри комнаты с разобранными стенами, открытым каркасом или работающим человеком — интерьер; это не причина для not_interior. Наружный фасад и отдельный предмет без окружения комнаты — не интерьер. Затем проверь конкретные требования брифа; сам по себе бриф не требует законченной отделки. ${
+          reference
+            ? 'Сохранение исходной техники, окон и мебели проверит отдельный этап. Пропусти в этой части просьбы о сохранении: они не порождают даже requirement_unconfirmed. Для прямых требований к результату проверь конкретный предмет и его видимые части (например, число чаш у мойки). При запрете предмета достаточно одного достоверного экземпляра; не перечисляй и не считай похожие предметы.'
+            : 'Передано одно изображение, исходника для сравнения нет.'
+        } ${briefPrompt()}`,
         image_urls: [toDataUri(image)],
         temperature: 0,
         max_tokens: QUALITY_REVIEW_MAX_TOKENS,
@@ -233,7 +260,13 @@ export async function reviewConceptImage(
     const raw = typeof result.output === 'string' ? result.output : ''
     baseReview = parseReview(raw, new Date(), exclusion)
     if (!reference || baseReview.status === 'unavailable') {
-      return { ...baseReview, ...architecture }
+      return {
+        ...baseReview,
+        ...(reference === null
+          ? { sourceComparison: 'unavailable' as const, additionalReviewRequests }
+          : {}),
+        ...architecture,
+      }
     }
 
     const localizedCheck = await prepareLocalizedOpeningCheck(reference.body, image.body)
@@ -277,16 +310,22 @@ export async function reviewConceptImage(
         issues[claim.id]?.code !== 'brief_conflict' ||
         claim.expected !== 'empty',
     )
+    // Uncertain findings still make the comparison incomplete, but cannot justify
+    // another observer request or become a confirmed user-facing defect.
+    const confidentClaims = eligibleClaims.filter((claim) => {
+      const confidence = issues[claim.id]?.confidence
+      return typeof confidence === 'number' && confidence >= 0.8
+    })
     let confirmed = new Set<number>()
-    const hasBoundedOpening = eligibleClaims.some((claim) => claim.boundaries?.length === 2)
+    const hasBoundedOpening = confidentClaims.some((claim) => claim.boundaries?.length === 2)
     const aligned = hasBoundedOpening && (await hasComparableFraming(reference.body, image.body))
     const registeredSites = new Set<number>()
-    for (const claim of eligibleClaims) {
+    for (const claim of confidentClaims) {
       if (claim.box && localizedCheck?.(claim.box)) {
         registeredSites.add(claim.id)
       }
     }
-    const observableClaims = eligibleClaims.filter(
+    const observableClaims = confidentClaims.filter(
       (claim) =>
         registeredSites.has(claim.id) ||
         claim.boundaries === undefined ||
@@ -330,28 +369,11 @@ export async function reviewConceptImage(
       )
       retainedIssues.push(...confirmedReview.issues)
     }
-    const mergedIssues = new Map<string, { code: string; detail: string; confidence: number }>()
-    for (const issue of retainedIssues) {
-      if (issue.confidence < 0.8) continue
-      const existing = mergedIssues.get(issue.code)
-      if (existing) {
-        existing.detail = `${existing.detail} ${issue.detail}`
-        existing.confidence = Math.max(existing.confidence, issue.confidence)
-      } else {
-        mergedIssues.set(issue.code, {
-          code: issue.code,
-          detail: issue.detail,
-          confidence: issue.confidence,
-        })
-      }
-    }
+    const mergedIssues = mergeReviewIssues(retainedIssues)
     return {
-      ...parseQualityReview(
-        JSON.stringify({
-          description: baseReview.description,
-          issues: [...mergedIssues.values()].slice(0, 5),
-        }),
-      ),
+      ...baseReview,
+      status: mergedIssues.length ? 'review' : 'checked',
+      issues: mergedIssues,
       sourceComparison: confirmed.size === eligibleClaims.length ? 'verified' : 'limited',
       additionalReviewRequests,
       ...architecture,
@@ -359,8 +381,12 @@ export async function reviewConceptImage(
   } catch {
     // A failed comparison cannot erase independently observed result defects.
     return {
-      ...(baseReview.issues.length > 0 ? baseReview : unavailableQualityReview()),
-      ...(reference ? { sourceComparison: 'unavailable' as const, additionalReviewRequests } : {}),
+      ...(baseReview.issues.length > 0 || baseReview.imageReview === 'limited'
+        ? baseReview
+        : unavailableQualityReview()),
+      ...(reference !== undefined
+        ? { sourceComparison: 'unavailable' as const, additionalReviewRequests }
+        : {}),
       ...architecture,
     }
   }
