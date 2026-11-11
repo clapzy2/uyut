@@ -187,7 +187,7 @@ describe('проверка готового изображения', () => {
     expect(body.prompt).toContain('Три места.')
     expect(body.prompt).toContain('no island')
     expect(body.prompt).toContain('"adults":2')
-    expect(body.prompt).toContain('"condition":null')
+    expect(body.prompt).not.toContain('"condition":')
     expect(body.system_prompt).not.toContain('новая стационарная техника без конкретной просьбы')
     expect(body.prompt).toContain('Передан только результат, исходника нет.')
     expect(body.system_prompt).toContain('revision имеет приоритет над requestedVariant')
@@ -251,6 +251,13 @@ describe('проверка готового изображения', () => {
         { body: Buffer.from('source'), contentType: 'image/jpeg' },
       )
       const request = JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))
+      const resultOnly = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+      expect(resultOnly.prompt).not.toContain('"condition":')
+      expect(resultOnly.prompt).toContain('"notes":"Не добавлять технику."')
+      expect(resultOnly.prompt).toContain('"requestedVariant":"Добавить кондиционер справа."')
+      expect(resultOnly.prompt).toContain(
+        '"revision":"Кондиционер не нужен, добавьте радиатор под окном."',
+      )
       expect(request.prompt).toContain(`"condition":"${condition}"`)
       expect(request.prompt).toContain('"notes":"Не добавлять технику."')
       expect(request.prompt).toContain('"requestedVariant":"Добавить кондиционер справа."')
@@ -270,6 +277,33 @@ describe('проверка готового изображения', () => {
       )
     },
   )
+
+  it.each(['bare', 'finished', 'keep'] as const)(
+    'keeps explicit finish requirements but excludes source mode %s without a reference',
+    async (condition) => {
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
+      const result = await reviewConceptImage(
+        'test',
+        { body: Buffer.from('image'), contentType: 'image/jpeg' },
+        { roomKind: 'living', condition, notes: 'Покрасить стены в белый цвет.' },
+      )
+      const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+      expect(request.prompt).not.toContain('"condition":')
+      expect(request.prompt).toContain('Покрасить стены в белый цвет.')
+      expect(result.status).toBe('unavailable')
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each([
+    'Виден наружный фасад дома с лесами для ремонта, интерьер не показан.',
+    'На белом фоне показана отдельная отвёртка для ремонта.',
+  ])('preserves a not_interior finding without filtering renovation words: %s', (detail) => {
+    const finding = { code: 'not_interior', detail, confidence: 0.95 }
+    const result = parseQualityReview(JSON.stringify({ description: detail, issues: [finding] }))
+    expect(result.status).toBe('review')
+    expect(result.issues).toEqual([finding])
+  })
 
   it('при сбое сервиса возвращает unavailable без повторного платного запроса', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
