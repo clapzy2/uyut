@@ -31,6 +31,27 @@ describe('предупреждения качества', () => {
     expect(html).not.toContain('Автосверка не нашла замечаний')
   })
 
+  it('показывает причину неполноты как предположение и экранирует её', () => {
+    const html = renderToStaticMarkup(
+      createElement(QualityReview, {
+        review: {
+          ...review,
+          status: 'checked',
+          issues: [],
+          imageReview: 'limited',
+          imageReviewLimitations: [
+            { detail: '<script>сомнительная ножка стула</script>', confidence: 0.5 },
+          ],
+        },
+        edited: false,
+      }),
+    )
+    expect(html).toContain('Не подтверждено, проверьте вручную')
+    expect(html).toContain('сомнительная ножка стула')
+    expect(html).not.toContain('<script>')
+    expect(html).not.toContain('посмотрите отмеченные детали')
+  })
+
   it.each(['verified', undefined] as const)(
     'keeps previous opening findings visible after the plan changes, comparison=%s',
     (sourceComparison) => {

@@ -28,6 +28,8 @@ export type ConceptQualityReview = {
   checkedAt: string
   /** Completeness of the result-only assessment; absent on older reviews. */
   imageReview?: 'complete' | 'limited'
+  /** Uncertain result-only observations, never confirmed defects; absent on older reviews. */
+  imageReviewLimitations?: Array<{ detail: string; confidence: number }>
   /** Scope of the comparison with the reference photo. */
   sourceComparison?: 'verified' | 'limited' | 'unavailable'
   /** Calls beyond the initial result-only review, including failed comparison attempts. */

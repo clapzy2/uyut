@@ -17,10 +17,21 @@ export function QualityReview({
   const planNeedsComparison = planStatus === 'changed' || planStatus === 'unlinked'
   const imageReviewIncomplete = review?.imageReview === 'limited'
   const imageReviewNotice = imageReviewIncomplete ? (
-    <p className="mt-2 text-ink">
-      Проверка изображения неполная: часть предполагаемых замечаний не подтверждена. Сверьте видимые
-      детали вручную; эти предположения не считаются доказанными ошибками.
-    </p>
+    <div className="mt-2 text-ink">
+      <p>
+        Проверка изображения неполная: часть предполагаемых замечаний не подтверждена. Сверьте
+        видимые детали вручную; эти предположения не считаются доказанными ошибками.
+      </p>
+      {review?.imageReviewLimitations?.length ? (
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          {[
+            ...new Map(review.imageReviewLimitations.map((item) => [item.detail, item])).values(),
+          ].map((limitation) => (
+            <li key={limitation.detail}>Не подтверждено, проверьте вручную: {limitation.detail}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   ) : null
   const sourceComparisonIncomplete =
     review?.sourceComparison === 'limited' || review?.sourceComparison === 'unavailable'
