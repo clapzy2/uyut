@@ -187,7 +187,7 @@ function parseReview(
           typeof issue.requirementQuote === 'string' ? issue.requirementQuote.trim() : ''
         const matched = !!quote && referenceRequirements.includes(quote)
         const preservation =
-          /сохран|остав[^.!?]*без изменений|не\s+(?:меня|изменя|трога|перекраш|замен)|preserv|unchanged|do not change/iu.test(
+          /сохран|остав[^.!?]*(?:без изменений|прежн|как (?:есть|был))|не\s+(?:меня|изменя|трога|перекраш|замен)|preserv|unchanged|do not change/iu.test(
             quote,
           )
         const negativePreservation = /не\s+(?:сохран|остав)|do not (?:keep|preserve)/iu.test(quote)
