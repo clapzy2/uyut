@@ -2,6 +2,7 @@
 
 import * as Sentry from '@sentry/nextjs'
 import { useEffect } from 'react'
+import { isStaleBuildError } from '@/lib/errors/stale-build'
 import { fontVariables } from '@/lib/fonts'
 import './globals.css'
 
@@ -16,6 +17,8 @@ export default function GlobalError({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  const staleBuild = isStaleBuildError(error)
+
   useEffect(() => {
     Sentry.captureException(error)
   }, [error])
@@ -27,15 +30,20 @@ export default function GlobalError({
           <div className="max-w-xl">
             <p className="font-serif text-[26px] leading-none tracking-tight text-ink">Домица</p>
             <h1 className="mt-8 font-serif text-[40px] font-normal leading-[1.05] tracking-tight text-ink sm:text-5xl">
-              Сервис не отвечает.
+              {staleBuild ? 'Не удалось загрузить страницу.' : 'Сервис не отвечает.'}
             </h1>
             <p className="mt-5 text-lg leading-relaxed text-ink-2">
-              Мы записали ошибку и уже смотрим. Ваши проекты сохранены, попробуйте открыть страницу
-              заново через минуту.
+              {staleBuild
+                ? 'Часть файлов страницы недоступна. Нажмите «Попробовать снова», чтобы загрузить её заново. Сохранённые данные останутся на месте.'
+                : 'Мы записали ошибку и уже смотрим. Попробуйте открыть страницу заново через минуту. Сохранённые данные останутся на месте.'}
             </p>
             <button
               type="button"
-              onClick={reset}
+              onClick={() => {
+                // reset снова использует модуль, загрузка которого уже завершилась отказом.
+                if (staleBuild) window.location.reload()
+                else reset()
+              }}
               className="mt-8 inline-flex h-11 items-center justify-center rounded-sm border border-accent bg-accent px-5 text-[15px] font-medium tracking-[0.01em] text-on-accent transition-colors duration-200 ease-ui hover:border-accent-hover hover:bg-accent-hover"
             >
               Попробовать снова
