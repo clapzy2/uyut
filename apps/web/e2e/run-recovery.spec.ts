@@ -1,7 +1,9 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { expect, test } from '@playwright/test'
 import { concepts, createDb, projectExports, projects, rooms } from '@uyut/db'
 import { eq } from 'drizzle-orm'
+import { putObject } from '../../../jobs/src/lib/s3'
 
 const origin = `http://localhost:${process.env.PORT ?? '3000'}`
 
@@ -23,6 +25,20 @@ test.describe('recovery without external jobs', () => {
     test.setTimeout(60_000)
     const db = createDb(process.env.DATABASE_URL as string)
     let projectId = ''
+    let uploadedKey = ''
+    const endpoint = process.env.S3_ENDPOINT as string
+    if (!['localhost', '127.0.0.1'].includes(new URL(endpoint).hostname)) {
+      throw new Error('Recovery test may only upload to local S3')
+    }
+    const storage = new S3Client({
+      endpoint,
+      region: process.env.S3_REGION,
+      forcePathStyle: true,
+      credentials: {
+        accessKeyId: process.env.S3_ACCESS_KEY as string,
+        secretAccessKey: process.env.S3_SECRET_KEY as string,
+      },
+    })
     try {
       await page.goto('/register')
       await page.getByLabel('Почта').fill(`recovery-${randomUUID()}@example.test`)
@@ -130,7 +146,48 @@ test.describe('recovery without external jobs', () => {
       await expect(
         page.getByText('PDF не собрался. Можно запустить сборку ещё раз.', { exact: true }),
       ).toBeVisible()
+
+      // The worker uploaded the file but never acknowledged ready in the database.
+      const body = Buffer.from('%PDF-1.7\n/Type /Page\n%%EOF')
+      const digest = createHash('sha256').update(body).digest('hex')
+      uploadedKey = `projects/${projectId}/exports/${exportId}-${digest}.pdf`
+      await db
+        .update(projectExports)
+        .set({
+          status: 'running',
+          pdfKey: uploadedKey,
+          pages: 1,
+          durationMs: null,
+          finishedAt: null,
+        })
+        .where(eq(projectExports.id, exportId))
+      await putObject(uploadedKey, body, 'application/pdf', undefined, {
+        'export-id': exportId,
+        'pdf-sha256': digest,
+      })
+      await page.reload()
+      const download = page.getByRole('link', { name: 'Скачать PDF', exact: true })
+      await expect(download).toBeVisible()
+      await expect(download).toHaveAttribute('href', new RegExp(`${exportId}-${digest}`))
+      await expect(pdfStatus).toHaveCount(0)
+      const [restored] = await db
+        .select()
+        .from(projectExports)
+        .where(eq(projectExports.id, exportId))
+      expect(restored?.status).toBe('ready')
+      expect(restored?.durationMs).toBeNull()
+      expect(restored?.pdfKey).toBe(uploadedKey)
+      const savedExports = await db
+        .select()
+        .from(projectExports)
+        .where(eq(projectExports.projectId, projectId))
+      expect(savedExports).toHaveLength(2)
     } finally {
+      if (uploadedKey)
+        await storage.send(
+          new DeleteObjectCommand({ Bucket: process.env.S3_BUCKET, Key: uploadedKey }),
+        )
+      storage.destroy()
       if (projectId) await db.delete(projects).where(eq(projects.id, projectId))
     }
   })

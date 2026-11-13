@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto'
 import { logger, metadata, task } from '@trigger.dev/sdk'
 import { briefHash, createFalBriefGenerator } from '@uyut/ai'
 import type { WorksRates } from '@uyut/catalog'
 import { type ContractorBrief, projectExports } from '@uyut/db'
 import { fontFaceCss, renderProjectHtml } from '@uyut/pdf'
-import { and, desc, eq, isNotNull, ne } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, isNull, ne } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from './lib/db'
 import { optionalEnv, requireEnv } from './lib/env'
@@ -80,6 +81,9 @@ export const exportPdf = task({
     if (row.status === 'ready' && row.pdfKey) {
       return { exportId, pdfKey: row.pdfKey, pages: row.pages, durationMs: row.durationMs }
     }
+    if (row.pdfKey) {
+      throw new Error('PDF уже подготовлен. Проверьте сохранённый результат перед повтором.')
+    }
     const [claimed] = await database
       .update(projectExports)
       .set({ status: 'running' })
@@ -97,6 +101,7 @@ export const exportPdf = task({
       throw new Error(`не удалось начать экспорт ${exportId}: проверьте сохранённый результат`)
     }
 
+    let uploadPrepared = false
     try {
       publish('collect')
       const snapshot = await loadSnapshot(row.projectId)
@@ -151,12 +156,41 @@ export const exportPdf = task({
       publish('print')
       const pdf = await printPdf(html, data.project.title)
       publish('upload')
-      const pdfKey = `projects/${row.projectId}/exports/${exportId}.pdf`
-      // Сбой передачи должен попасть в обычный обработчик отказа, а не оставлять
-      // документ «running» после жёсткого пятиминутного ограничения задачи.
-      await putObject(pdfKey, pdf, 'application/pdf', AbortSignal.timeout(60_000))
-
+      const digest = createHash('sha256').update(pdf).digest('hex')
+      const pdfKey = `projects/${row.projectId}/exports/${exportId}-${digest}.pdf`
       const pages = countPages(pdf)
+      if (pages < 1) throw new Error('В PDF не найдены страницы')
+      // Контрольная запись связывает именно эти байты с экспортом. При потере
+      // ответа о загрузке сайт сможет проверить файл без повторной подготовки.
+      uploadPrepared = true
+      const [prepared] = await database
+        .update(projectExports)
+        .set({
+          status: 'running',
+          pdfKey,
+          brief: briefResult.brief,
+          contentHash: hash,
+          pages,
+          durationMs: null,
+          finishedAt: null,
+          error: null,
+        })
+        .where(
+          and(
+            eq(projectExports.id, exportId),
+            eq(projectExports.status, 'running'),
+            isNull(projectExports.pdfKey),
+          ),
+        )
+        .returning({ id: projectExports.id })
+      if (!prepared) throw new Error('Контрольная запись PDF изменилась. Проверьте результат.')
+      // Ограничиваем передачу, оставляя время зафиксировать необходимость сверки:
+      // потеря ответа не доказывает, что хранилище не приняло файл.
+      await putObject(pdfKey, pdf, 'application/pdf', AbortSignal.timeout(60_000), {
+        'export-id': exportId,
+        'pdf-sha256': digest,
+      })
+
       const durationMs = Date.now() - started
       await database
         .update(projectExports)
@@ -168,8 +202,9 @@ export const exportPdf = task({
           pages,
           durationMs,
           finishedAt: new Date(),
+          error: null,
         })
-        .where(eq(projectExports.id, exportId))
+        .where(and(eq(projectExports.id, exportId), eq(projectExports.pdfKey, pdfKey)))
       // Файл уже сохранён: отказ уведомления о прогрессе не означает отказ сборки.
       try {
         publish('done')
@@ -201,7 +236,11 @@ export const exportPdf = task({
     } catch (error) {
       await database
         .update(projectExports)
-        .set({ status: 'failed', error: String(error).slice(0, 500), finishedAt: new Date() })
+        .set({
+          status: uploadPrepared ? 'running' : 'failed',
+          error: String(error).slice(0, 500),
+          finishedAt: uploadPrepared ? null : new Date(),
+        })
         .where(and(eq(projectExports.id, exportId), ne(projectExports.status, 'ready')))
       throw error
     }

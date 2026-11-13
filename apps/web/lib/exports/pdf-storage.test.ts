@@ -29,9 +29,25 @@ describe('Загрузка PDF в хранилище', () => {
           Key: 'qa/document.pdf',
           Body: body,
           ContentType: 'application/pdf',
+          Metadata: undefined,
         },
       }),
       { abortSignal: signal },
+    )
+  })
+
+  it('передаёт идентификатор экспорта и отпечаток файла для последующего восстановления', async () => {
+    const metadata = { 'export-id': 'export', 'pdf-sha256': 'digest' }
+    await putObject(
+      'qa/document.pdf',
+      Buffer.from('%PDF-1.7'),
+      'application/pdf',
+      undefined,
+      metadata,
+    )
+    expect(mocks.send).toHaveBeenCalledWith(
+      expect.objectContaining({ input: expect.objectContaining({ Metadata: metadata }) }),
+      { abortSignal: undefined },
     )
   })
 

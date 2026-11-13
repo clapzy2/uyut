@@ -49,6 +49,7 @@ export async function putObject(
   body: Buffer,
   contentType: string,
   signal?: AbortSignal,
+  metadata?: Record<string, string>,
 ): Promise<void> {
   await client().send(
     new PutObjectCommand({
@@ -56,6 +57,7 @@ export async function putObject(
       Key: key,
       Body: body,
       ContentType: contentType,
+      Metadata: metadata,
     }),
     { abortSignal: signal },
   )

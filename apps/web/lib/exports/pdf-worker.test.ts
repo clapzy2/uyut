@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -60,6 +61,8 @@ import '../../../../jobs/src/export-pdf'
 const exportId = '80c54522-3c6d-45cd-ae28-624f13214b33'
 const projectId = 'f8e4e17d-9d75-4c8c-9c56-546758e3670c'
 const pdf = Buffer.from('%PDF-1.7\n/Type /Page\n%%EOF')
+const digest = createHash('sha256').update(pdf).digest('hex')
+const pdfKey = `projects/${projectId}/exports/${exportId}-${digest}.pdf`
 
 function run() {
   if (!mocks.run) throw new Error('Не зарегистрирован обработчик PDF')
@@ -210,6 +213,7 @@ describe('PDF-обработчик: обязательное задание в �
       await expect(run()).resolves.toMatchObject({ exportId, pages: 1 })
       expect(mocks.updateSet.mock.calls.map(([value]) => value.status)).toEqual([
         'running',
+        'running',
         'ready',
       ])
       expect(mocks.putObject).toHaveBeenCalledOnce()
@@ -235,7 +239,6 @@ describe('PDF-обработчик: обязательное задание в �
 
   it('собирает бесплатный предпросмотр без ключа, не вызывая модель или письмо', async () => {
     exportRow('free')
-    const pdfKey = `projects/${projectId}/exports/${exportId}.pdf`
     await expect(run()).resolves.toMatchObject({ exportId, pdfKey, pages: 1 })
     expect(mocks.createBriefGenerator).not.toHaveBeenCalled()
     expect(mocks.renderHtml).toHaveBeenCalledWith(
@@ -251,8 +254,13 @@ describe('PDF-обработчик: обязательное задание в �
       pdf,
       'application/pdf',
       expect.any(AbortSignal),
+      { 'export-id': exportId, 'pdf-sha256': digest },
     )
-    expect(mocks.updateSet.mock.calls.map(([value]) => value.status)).toEqual(['running', 'ready'])
+    expect(mocks.updateSet.mock.calls.map(([value]) => value.status)).toEqual([
+      'running',
+      'running',
+      'ready',
+    ])
     expect(mocks.updateSet).toHaveBeenLastCalledWith(
       expect.objectContaining({ status: 'ready', pdfKey, brief: null, pages: 1 }),
     )
@@ -282,15 +290,67 @@ describe('PDF-обработчик: обязательное задание в �
       expect(timeout).toHaveBeenCalledExactlyOnceWith(60_000)
       expect(mocks.updateSet.mock.calls.map(([value]) => value.status)).toEqual([
         'running',
-        'failed',
+        'running',
+        'running',
       ])
       expect(mocks.updateSet).toHaveBeenLastCalledWith({
-        status: 'failed',
+        status: 'running',
         error: expect.stringContaining('Истекло время загрузки PDF'),
-        finishedAt: expect.any(Date),
+        finishedAt: null,
       })
       expect(mocks.generateBrief).not.toHaveBeenCalled()
       expect(mocks.fetch).not.toHaveBeenCalled()
     },
   )
+
+  it('сохраняет контрольную запись до загрузки и оставляет её для сверки при сбое записи ready', async () => {
+    exportRow('free')
+    mocks.putObject.mockImplementation(async () => {
+      expect(mocks.updateSet).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          status: 'running',
+          pdfKey,
+          pages: 1,
+          contentHash: 'brief-hash',
+          durationMs: null,
+        }),
+      )
+    })
+    mocks.updateSet.mockImplementation((value) => ({
+      where:
+        value.status === 'ready'
+          ? () => Promise.reject(new Error('Ответ БД потерян'))
+          : mocks.updateWhere,
+    }))
+    await expect(run()).rejects.toThrow('Ответ БД потерян')
+    expect(mocks.putObject).toHaveBeenCalledOnce()
+    expect(mocks.printPdf).toHaveBeenCalledOnce()
+    expect(mocks.updateSet).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: 'running',
+        finishedAt: null,
+      }),
+    )
+    expect(mocks.generateBrief).not.toHaveBeenCalled()
+  })
+
+  it('не загружает файл, если не удалось сохранить контрольную запись', async () => {
+    exportRow('free')
+    mocks.updateReturning
+      .mockResolvedValueOnce([{ id: exportId }])
+      .mockRejectedValueOnce(new Error('БД недоступна'))
+    await expect(run()).rejects.toThrow('БД недоступна')
+    expect(mocks.putObject).not.toHaveBeenCalled()
+    expect(mocks.updateSet).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'running' }))
+  })
+
+  it('не готовит новый документ вместо уже подготовленного файла', async () => {
+    mocks.selectLimit.mockResolvedValueOnce([
+      { id: exportId, projectId, status: 'running', pdfKey },
+    ])
+    await expect(run()).rejects.toThrow('PDF уже подготовлен')
+    expect(mocks.generateBrief).not.toHaveBeenCalled()
+    expect(mocks.printPdf).not.toHaveBeenCalled()
+    expect(mocks.putObject).not.toHaveBeenCalled()
+  })
 })
