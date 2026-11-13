@@ -60,7 +60,13 @@ import { HouseholdForm } from './household-form'
 import { ReferenceForm } from './reference-form'
 import { StyleSwipe } from './style-swipe'
 
-type FormProps = { children?: ReactNode; disabled?: boolean; onClick?: () => void; value?: unknown }
+type FormProps = {
+  children?: ReactNode
+  disabled?: boolean
+  onClick?: () => void
+  value?: unknown
+  onPendingChange?: (pending: boolean) => void
+}
 
 function find(
   node: ReactNode,
@@ -106,6 +112,23 @@ beforeEach(() => {
 })
 
 describe('сохранение введённых ответов при отправке анкеты', () => {
+  it('не завершает анкету и не уходит назад во время загрузки файла', () => {
+    const uploader = find(
+      render('reference'),
+      (props) => typeof props.onPendingChange === 'function',
+    )
+    expect(uploader).toBeDefined()
+    uploader?.props.onPendingChange?.(true)
+    const busy = render('reference')
+    expect(busy.props.disabled).toBe(true)
+    for (const label of ['Назад', 'Готово', 'Пропустить этот шаг']) {
+      expect(find(busy, (props) => props.children === label)?.props.disabled).toBe(true)
+    }
+    submit('reference')
+    expect(finishOnboarding).not.toHaveBeenCalled()
+    uploader?.props.onPendingChange?.(false)
+    expect(render('reference').props.disabled).toBe(false)
+  })
   it.each(['household', 'budget', 'reference'])(
     'блокирует поля и Back только на время запроса: %s',
     async (kind) => {

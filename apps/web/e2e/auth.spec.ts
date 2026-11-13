@@ -17,7 +17,7 @@ function contextHeaders(): Record<string, string> {
 
 async function signUpViaApi(request: APIRequestContext, email: string): Promise<void> {
   const response = await request.post('/api/auth/sign-up/email', {
-    data: { email, password: PASSWORD, name: email.split('@')[0] },
+    data: { email, password: PASSWORD, name: email.split('@')[0], consent: true },
   })
   expect(response.ok(), await response.text()).toBeTruthy()
   // Регистрация сразу открывает сессию; дальше сценарий должен идти как гость
@@ -59,6 +59,32 @@ test.describe('registration and verification', () => {
     await expect(page).toHaveURL(/\/projects/)
     await expect(page.getByRole('heading', { level: 1 })).toContainText('первый проект')
   })
+})
+
+test.describe('registration consent API', () => {
+  test.use({ extraHTTPHeaders: contextHeaders() })
+
+  for (const consent of [undefined, false]) {
+    test(`rejects ${consent === undefined ? 'missing' : 'false'} consent without creating an account`, async ({
+      request,
+    }) => {
+      const email = uniqueEmail('consent')
+      const response = await request.post('/api/auth/sign-up/email', {
+        headers: contextHeaders(),
+        data: { email, password: PASSWORD, name: 'Consent test', consent },
+      })
+      expect(response.status()).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 'CONSENT_REQUIRED' })
+
+      const login = await request.post('/api/auth/sign-in/email', {
+        headers: contextHeaders(),
+        data: { email, password: PASSWORD },
+      })
+      expect(login.status()).toBe(401)
+      const session = await request.get('/api/auth/get-session')
+      expect(await session.json()).toBeNull()
+    })
+  }
 })
 
 test.describe('wrong password', () => {
@@ -134,7 +160,7 @@ test.describe('rate limits', () => {
     const registrations: number[] = []
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const response = await request.post('/api/auth/sign-up/email', {
-        data: { email: uniqueEmail('limit-reg'), password: PASSWORD, name: 'limit' },
+        data: { email: uniqueEmail('limit-reg'), password: PASSWORD, name: 'limit', consent: true },
       })
       registrations.push(response.status())
       await request.post('/api/auth/sign-out')
