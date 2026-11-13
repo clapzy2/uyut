@@ -13,6 +13,49 @@ afterEach(() => {
 })
 
 describe('проверка ответов очереди fal', () => {
+  it.each([0, 0.013481, undefined, null, '0.01', -1])(
+    'записывает номер запроса и только корректную стоимость %j без закрытых данных',
+    async (cost) => {
+      const log = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const result = { output: 'private-result', usage: { cost } }
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(Response.json({ ...queueUrls, request_id: 'request-123' }))
+        .mockResolvedValueOnce(Response.json({ status: 'COMPLETED' }))
+        .mockResolvedValueOnce(Response.json(result))
+
+      await expect(falQueue('secret-key', endpoint, { prompt: 'private-prompt' })).resolves.toEqual(
+        JSON.parse(JSON.stringify(result)),
+      )
+      expect(log.mock.calls).toEqual([
+        ['fal request accepted', { endpoint, requestId: 'request-123' }],
+        [
+          'fal request completed',
+          {
+            endpoint,
+            requestId: 'request-123',
+            providerReportedUsd: typeof cost === 'number' && cost >= 0 ? cost : null,
+          },
+        ],
+      ])
+      expect(fetchMock.mock.calls.filter((call) => call[1]?.method === 'POST')).toHaveLength(1)
+    },
+  )
+
+  it('оставляет номер принятого запроса для сверки после ошибки без повторной отправки', async () => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(Response.json({ ...queueUrls, request_id: 'request-failed' }))
+      .mockRejectedValueOnce(new DOMException('timeout', 'TimeoutError'))
+
+    await expect(falQueue('secret-key', endpoint, {})).rejects.toThrow('timeout')
+    expect(log.mock.calls).toEqual([
+      ['fal request accepted', { endpoint, requestId: 'request-failed' }],
+    ])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('возвращает готовый результат и использует общий дедлайн для запросов', async () => {
     const timeout = vi.spyOn(AbortSignal, 'timeout')
     const fetchMock = vi

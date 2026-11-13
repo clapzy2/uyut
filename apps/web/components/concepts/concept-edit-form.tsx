@@ -126,8 +126,8 @@ export function ConceptEditForm({
   const [sending, setSending] = useState(false)
   const [run, setRun] = useState<{ runId: string; accessToken: string } | null>(null)
   const [needsStatusCheck, setNeedsStatusCheck] = useState(false)
-  // План считается бесплатно и показывается до расчёта: человек видит, за что платит
-  const [plan, setPlan] = useState<EditPlan | null>(null)
+  // Сохраняем согласованные шаги, чтобы запуск не оплачивал их повторный разбор.
+  const [plan, setPlan] = useState<(EditPlan & { planToken: string }) | null>(null)
 
   const finished = useCallback(
     (failed: boolean) => {
@@ -167,7 +167,11 @@ export function ConceptEditForm({
     setError(undefined)
     setSending(true)
     try {
-      const result = await reviseConcept(conceptId, { request, objectId })
+      const result = await reviseConcept(conceptId, {
+        request,
+        objectId,
+        planToken: plan?.planToken,
+      })
       if (!result.ok) {
         if (result.checkStatus) setNeedsStatusCheck(true)
         setError(result.error)

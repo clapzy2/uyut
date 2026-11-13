@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   limit: vi.fn(),
   token: vi.fn(),
   trigger: vi.fn(),
+  editConcept: vi.fn(),
+  buildPlan: vi.fn(),
 }))
 
 vi.mock('@trigger.dev/sdk', async (importOriginal) => ({
@@ -21,7 +23,7 @@ vi.mock('@trigger.dev/sdk', async (importOriginal) => ({
   auth: { createPublicToken: mocks.token },
   tasks: { trigger: mocks.trigger },
 }))
-vi.mock('@uyut/ai', () => ({ buildEditPlan: vi.fn() }))
+vi.mock('@uyut/ai', () => ({ buildEditPlan: mocks.buildPlan }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/audit', () => ({ recordAudit: mocks.audit }))
 vi.mock('@/lib/collaboration/live', () => ({
@@ -32,7 +34,10 @@ vi.mock('@/lib/concepts/apartment', () => ({
   apartmentPlan: mocks.apartmentPlan,
 }))
 vi.mock('@/lib/concepts/duo', () => ({ getDuoOffer: mocks.duoOffer }))
-vi.mock('@/lib/concepts/repository', () => ({ countPending: mocks.pending }))
+vi.mock('@/lib/concepts/repository', () => ({
+  countPending: mocks.pending,
+  getConceptForEdit: mocks.editConcept,
+}))
 vi.mock('@/lib/concepts/resume-run', () => ({
   generationStillRunning: mocks.running,
   generationRunTag: (id: string) => `concept-batch:${id}`,
@@ -43,7 +48,11 @@ vi.mock('@/lib/concepts/resume-run', () => ({
   },
 }))
 vi.mock('@/lib/env', () => ({
-  getEnv: () => ({ FAL_KEY: 'test', TRIGGER_SECRET_KEY: 'test' }),
+  getEnv: () => ({
+    FAL_KEY: 'test',
+    TRIGGER_SECRET_KEY: 'test',
+    BETTER_AUTH_SECRET: 'test-secret-for-edit-plans',
+  }),
 }))
 vi.mock('@/lib/projects/access', () => ({
   AccessError: class AccessError extends Error {},
@@ -62,14 +71,15 @@ vi.mock('@/lib/redis', () => ({
 vi.mock('@/lib/session', () => ({
   getSession: async () => ({ user: { id: 'user-1' } }),
 }))
-vi.mock('@/lib/validation/projects', () => ({ conceptEditSchema: { safeParse: vi.fn() } }))
 
 import { ApiError } from '@trigger.dev/sdk'
 import {
+  planConceptEdit,
   refreshConcepts,
   requestApartmentConcepts,
   requestConcepts,
   requestDuoConcepts,
+  reviseConcept,
 } from './concepts'
 
 describe('защита платной генерации от двойного запуска', () => {
@@ -96,7 +106,48 @@ describe('защита платной генерации от двойного �
     })
     mocks.pending.mockResolvedValue(0)
     mocks.running.mockResolvedValue(false)
+    mocks.editConcept.mockResolvedValue({ id: 'concept-1', roomId: 'room-1' })
+    mocks.buildPlan.mockResolvedValue({
+      steps: [{ titleRu: 'Синее покрывало', prompt: 'Blue bedspread', needsObject: false }],
+      warningRu: '',
+    })
   })
+
+  it('показывает и запускает одни шаги с одним вызовом планировщика', async () => {
+    const preview = await planConceptEdit('concept-1', { request: 'Синее покрывало' })
+    expect(preview.ok).toBe(true)
+    if (!preview.ok) throw new Error('preview failed')
+    const result = await reviseConcept('concept-1', {
+      request: 'Синее покрывало',
+      planToken: preview.data.planToken,
+    })
+    expect(result.ok).toBe(true)
+    expect(mocks.buildPlan).toHaveBeenCalledTimes(1)
+    expect(mocks.trigger.mock.calls[0]?.[1].editSteps).toEqual(preview.data.steps)
+  })
+
+  it.each(['changed-request', 'changed-concept', 'tampered', 'expired'])(
+    'не оплачивает повторный разбор при недействительном подтверждении: %s',
+    async (change) => {
+      const preview = await planConceptEdit('concept-1', { request: 'Синее покрывало' })
+      if (!preview.ok) throw new Error('preview failed')
+      if (change === 'expired') vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 31 * 60_000)
+      try {
+        const result = await reviseConcept(
+          change === 'changed-concept' ? 'concept-2' : 'concept-1',
+          {
+            request: change === 'changed-request' ? 'Красное покрывало' : 'Синее покрывало',
+            planToken: preview.data.planToken + (change === 'tampered' ? '.changed' : ''),
+          },
+        )
+        expect(result.ok).toBe(false)
+        expect(mocks.buildPlan).toHaveBeenCalledTimes(1)
+        expect(mocks.trigger).not.toHaveBeenCalled()
+      } finally {
+        vi.restoreAllMocks()
+      }
+    },
+  )
 
   it('не отправляет вторую задачу, если комнату уже занял другой запрос', async () => {
     mocks.claim.mockResolvedValue(false)
