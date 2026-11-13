@@ -5,6 +5,7 @@
  */
 const SIGNS = [
   'chunkloaderror',
+  'failed to load chunk',
   'loading chunk',
   'loading css chunk',
   'failed to fetch dynamically imported module',

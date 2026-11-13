@@ -13,6 +13,8 @@ export default function ErrorScreen({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  const staleBuild = isStaleBuildError(error)
+
   useEffect(() => {
     // Вкладку, открытую до выкатки, чинит обычная перезагрузка: имена файлов сборки сменились.
     // Показывать человеку экран ошибки там, где достаточно обновить страницу, — обманывать его.
@@ -30,11 +32,20 @@ export default function ErrorScreen({
           Страница не открылась.
         </h1>
         <p className="mt-5 text-lg leading-relaxed text-ink-2">
-          Это наша ошибка, а не ваша: мы её записали и разберёмся. Проект и всё, что в нём есть, на
-          месте.
+          {staleBuild
+            ? 'Часть файлов страницы недоступна. Нажмите «Попробовать снова», чтобы загрузить её заново. Сохранённые данные останутся на месте.'
+            : 'Это наша ошибка, а не ваша: мы её записали и разберёмся. Сохранённые данные проекта на месте.'}
         </p>
         <div className="mt-8 flex flex-wrap items-center gap-4">
-          <Button onClick={reset}>Попробовать снова</Button>
+          <Button
+            onClick={() => {
+              // Ручной повтор работает и после исчерпания автоматического восстановления.
+              if (staleBuild) window.location.reload()
+              else reset()
+            }}
+          >
+            Попробовать снова
+          </Button>
           <Link
             href="/projects"
             className="inline-block py-1.5 text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4"
