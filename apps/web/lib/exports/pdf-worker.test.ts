@@ -1,3 +1,4 @@
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 type ExportPayload = { exportId: string }
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   updateSet: vi.fn(),
   updateWhere: vi.fn(),
+  updateReturning: vi.fn(),
   loadSnapshot: vi.fn(),
   briefInput: vi.fn(),
   briefHash: vi.fn(),
@@ -103,7 +105,10 @@ describe('PDF-обработчик: обязательное задание в �
     mocks.select.mockReturnValue(query)
     mocks.update.mockReturnValue({ set: mocks.updateSet })
     mocks.updateSet.mockReturnValue({ where: mocks.updateWhere })
-    mocks.updateWhere.mockResolvedValue(undefined)
+    mocks.updateReturning.mockResolvedValue([{ id: exportId }])
+    mocks.updateWhere.mockReturnValue(
+      Object.assign(Promise.resolve(undefined), { returning: mocks.updateReturning }),
+    )
 
     mocks.loadSnapshot.mockResolvedValue({ project: { id: projectId } })
     mocks.briefInput.mockReturnValue({ project: { title: 'Тестовый проект' }, rooms: [] })
@@ -124,6 +129,92 @@ describe('PDF-обработчик: обязательное задание в �
     vi.unstubAllEnvs()
     vi.unstubAllGlobals()
   })
+
+  it('возвращает уже готовый PDF без повторной модели и печати', async () => {
+    mocks.selectLimit.mockResolvedValue([])
+    mocks.selectLimit.mockResolvedValueOnce([
+      {
+        id: exportId,
+        projectId,
+        kind: 'paid',
+        status: 'ready',
+        pdfKey: 'saved.pdf',
+        pages: 7,
+        durationMs: 1234,
+      },
+    ])
+    await expect(run()).resolves.toEqual({
+      exportId,
+      pdfKey: 'saved.pdf',
+      pages: 7,
+      durationMs: 1234,
+    })
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(mocks.loadSnapshot).not.toHaveBeenCalled()
+    expect(mocks.generateBrief).not.toHaveBeenCalled()
+    expect(mocks.printPdf).not.toHaveBeenCalled()
+    expect(mocks.putObject).not.toHaveBeenCalled()
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it('не возвращает отсутствующий файл только по статусу ready', async () => {
+    mocks.selectLimit.mockResolvedValueOnce([
+      { id: exportId, projectId, kind: 'free', status: 'ready', pdfKey: null, options: {} },
+    ])
+    mocks.updateReturning.mockResolvedValueOnce([])
+    mocks.selectLimit.mockResolvedValueOnce([
+      { id: exportId, projectId, status: 'ready', pdfKey: null },
+    ])
+    await expect(run()).rejects.toThrow('проверьте сохранённый результат')
+    expect(mocks.printPdf).not.toHaveBeenCalled()
+    expect(mocks.putObject).not.toHaveBeenCalled()
+  })
+
+  it('сохраняет файл, который появился между чтением и началом обработки', async () => {
+    mocks.selectLimit.mockResolvedValueOnce([
+      { id: exportId, projectId, kind: 'paid', status: 'running', options: {} },
+    ])
+    mocks.updateReturning.mockResolvedValueOnce([])
+    mocks.selectLimit.mockResolvedValueOnce([
+      { id: exportId, projectId, status: 'ready', pdfKey: 'race.pdf', pages: 8, durationMs: 2000 },
+    ])
+    await expect(run()).resolves.toEqual({
+      exportId,
+      pdfKey: 'race.pdf',
+      pages: 8,
+      durationMs: 2000,
+    })
+    const condition = new PgDialect().sqlToQuery(mocks.updateWhere.mock.calls[0]?.[0])
+    expect(condition.sql).toContain('"status" <>')
+    expect(condition.params).toEqual([exportId, 'ready'])
+    expect(mocks.loadSnapshot).not.toHaveBeenCalled()
+    expect(mocks.generateBrief).not.toHaveBeenCalled()
+    expect(mocks.printPdf).not.toHaveBeenCalled()
+    expect(mocks.putObject).not.toHaveBeenCalled()
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it.each(['progress', 'logger'])(
+    'сбой %s после сохранения не портит готовый файл',
+    async (kind) => {
+      exportRow('free')
+      if (kind === 'progress') {
+        mocks.publish.mockImplementation((_key, value) => {
+          if (value.stage === 'done') throw new Error('Metadata unavailable')
+        })
+      } else {
+        mocks.info.mockImplementation(() => {
+          throw new Error('Logger unavailable')
+        })
+      }
+      await expect(run()).resolves.toMatchObject({ exportId, pages: 1 })
+      expect(mocks.updateSet.mock.calls.map(([value]) => value.status)).toEqual([
+        'running',
+        'ready',
+      ])
+      expect(mocks.putObject).toHaveBeenCalledOnce()
+    },
+  )
 
   it('не печатает оплаченный документ без ключа и без сохранённого задания', async () => {
     exportRow('paid')

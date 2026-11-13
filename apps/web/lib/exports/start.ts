@@ -24,8 +24,9 @@ export async function startExport(
   let created = await claimExport(userId, projectId, options)
   if (created.existing) {
     const current = await getExport(userId, created.id)
-    if (current.status === 'pending' || current.status === 'running')
-      throw new ExportStatusUnknownError()
+    // Сборка могла закончиться, пока повторный запрос проверял очередь.
+    // Показываем её результат через проверку статуса, а не запускаем ещё один PDF.
+    if (current.status !== 'failed') throw new ExportStatusUnknownError()
     created = await claimExport(userId, projectId, options)
     if (created.existing) throw new ExportStatusUnknownError()
   }

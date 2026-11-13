@@ -77,10 +77,25 @@ export const exportPdf = task({
     if (!row) {
       throw new Error(`экспорт ${exportId} не найден`)
     }
-    await database
+    if (row.status === 'ready' && row.pdfKey) {
+      return { exportId, pdfKey: row.pdfKey, pages: row.pages, durationMs: row.durationMs }
+    }
+    const [claimed] = await database
       .update(projectExports)
       .set({ status: 'running' })
-      .where(eq(projectExports.id, exportId))
+      .where(and(eq(projectExports.id, exportId), ne(projectExports.status, 'ready')))
+      .returning({ id: projectExports.id })
+    if (!claimed) {
+      const [saved] = await database
+        .select()
+        .from(projectExports)
+        .where(eq(projectExports.id, exportId))
+        .limit(1)
+      if (saved?.status === 'ready' && saved.pdfKey) {
+        return { exportId, pdfKey: saved.pdfKey, pages: saved.pages, durationMs: saved.durationMs }
+      }
+      throw new Error(`не удалось начать экспорт ${exportId}: проверьте сохранённый результат`)
+    }
 
     try {
       publish('collect')
@@ -155,8 +170,13 @@ export const exportPdf = task({
           finishedAt: new Date(),
         })
         .where(eq(projectExports.id, exportId))
-      publish('done')
-      logger.info('pdf exported', { exportId, durationMs, pages, bytes: pdf.length })
+      // Файл уже сохранён: отказ уведомления о прогрессе не означает отказ сборки.
+      try {
+        publish('done')
+        logger.info('pdf exported', { exportId, durationMs, pages, bytes: pdf.length })
+      } catch (error) {
+        console.warn('PDF сохранён, уведомление о завершении недоступно', exportId, error)
+      }
 
       // Письмо после оплаты отправляет сайт, а не мы: адрес покупателя не должен покидать
       // Россию, а мы работаем за границей. Отсюда уходит только «экспорт такой-то готов».
@@ -182,7 +202,7 @@ export const exportPdf = task({
       await database
         .update(projectExports)
         .set({ status: 'failed', error: String(error).slice(0, 500), finishedAt: new Date() })
-        .where(eq(projectExports.id, exportId))
+        .where(and(eq(projectExports.id, exportId), ne(projectExports.status, 'ready')))
       throw error
     }
   },
