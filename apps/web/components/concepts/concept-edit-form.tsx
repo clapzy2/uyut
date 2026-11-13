@@ -260,9 +260,11 @@ export function ConceptEditForm({
           <p className="text-[13px] leading-relaxed text-danger">{plan.warningRu}</p>
         ) : null}
         {/* Модель не переносит предметы одним заданием, поэтому просьба и делится на шаги */}
-        <p className="text-[13px] leading-relaxed text-ink-2">
-          Шаги идут по очереди, каждый поверх предыдущего. Придут три варианта.
-        </p>
+        {plan.steps.length > 0 ? (
+          <p className="text-[13px] leading-relaxed text-ink-2">
+            Шаги идут по очереди, каждый поверх предыдущего. Придут три варианта.
+          </p>
+        ) : null}
         <FormError message={error} />
         <div className="flex flex-wrap gap-3">
           {plan.steps.length > 0 ? (
