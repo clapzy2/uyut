@@ -1115,6 +1115,28 @@ describe('явно сохраняемый цвет предмета', () => {
       source,
     )
     expect(review.issues[0]?.detail.length).toBeLessThanOrEqual(240)
+    expect(review.issues[0]?.detail).toContain('Было:')
+    expect(review.issues[0]?.detail).toContain('Стало:')
+    expect(review.issues[0]?.detail).toMatch(/Сверьте с исходником\.$/)
+  })
+  it('не предлагает считать скрытый покраской рисунок древесины изменением формы', async () => {
+    const fetchMock = mockReviews([], undefined)
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      {
+        ...brief,
+        revision: 'Шкаф перекрась зелёным, форму и ручки сохрани.',
+      },
+      source,
+    )
+    const body = JSON.parse(String(submissions(fetchMock)[1]?.[1]?.body))
+    expect(body.system_prompt).toContain(
+      'Не маскируй разрешённую смену цвета или материала как appearance',
+    )
+    expect(body.system_prompt).toContain('древесный рисунок больше не виден')
+    expect(body.system_prompt).toContain('число и форму дверей, ящиков, полок')
+    expect(review.issues).toEqual([])
   })
   it('предупреждение о подушках не подтверждает проём без исходных границ', async () => {
     const fetchMock = mockReviews(
@@ -1137,7 +1159,7 @@ describe('явно сохраняемый цвет предмета', () => {
     expect(review.sourceComparison).toBe('limited')
     expect(submissions(fetchMock)).toHaveLength(2)
   })
-  it.each([{ before: 'терракотовые' }, { property: 'position' }])(
+  it.each([{ before: 'терракотовые' }, { property: 'position' }, { property: 'size' }])(
     'отклоняет неполное сравнение %j',
     async (patch) => {
       const fetchMock = mockReviews(
@@ -1155,4 +1177,151 @@ describe('явно сохраняемый цвет предмета', () => {
       expect(submissions(fetchMock)).toHaveLength(2)
     },
   )
+  it('замечает замену сохраняемой тумбы табуретом на том же месте без проверки пустоты', async () => {
+    const replacement = {
+      ...changedPillows,
+      sourceCheck: {
+        object: 'тумба',
+        location: 'между кроватью и окном',
+        expected: 'changed',
+        property: 'appearance',
+        before: 'корпус с двумя ящиками',
+        after: 'табурет без ящиков',
+        preservationQuote: 'Тумбу не менять.',
+      },
+    }
+    const fetchMock = mockReviews([replacement], {
+      observations: [
+        { id: 0, state: 'changed', before: 'два ящика', after: 'табурет', confidence: 0.95 },
+      ],
+    })
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      { ...brief, revision: 'Кровать заменить. Тумбу не менять.' },
+      source,
+    )
+    expect(review).toMatchObject({ status: 'review', sourceComparison: 'limited' })
+    expect(review.issues).toEqual([
+      expect.objectContaining({
+        code: 'requirement_unconfirmed',
+        detail: expect.stringContaining('внешнего вида «тумба»'),
+      }),
+    ])
+    expect(submissions(fetchMock)).toHaveLength(3)
+  })
+
+  it('разрешённая поздняя замена тумбы отменяет старую цитату сохранения', async () => {
+    const fetchMock = mockReviews(
+      [
+        {
+          ...changedPillows,
+          sourceCheck: {
+            ...changedPillows.sourceCheck,
+            property: 'appearance',
+            object: 'тумба',
+            before: 'ящики',
+            after: 'табурет',
+            preservationQuote: 'Тумбу не менять.',
+          },
+        },
+      ],
+      undefined,
+    )
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      { ...brief, notes: 'Тумбу не менять.', revision: 'Замени тумбу табуретом.' },
+      source,
+    )
+    expect(review.issues).toEqual([])
+    expect(review.sourceComparison).toBe('limited')
+    expect(submissions(fetchMock)).toHaveLength(2)
+  })
+
+  it.each(['unchanged', 'not_visible', 'changed'])(
+    'независимый осмотр конструкции %s не получает обвинение первого проверяющего',
+    async (state) => {
+      const fetchMock = mockReviews(
+        [
+          {
+            ...changedPillows,
+            sourceCheck: {
+              ...changedPillows.sourceCheck,
+              property: 'appearance',
+              object: 'шкаф',
+              before: 'вертикальные ручки',
+              after: 'горизонтальные ручки',
+              preservationQuote: 'Шкаф не менять.',
+            },
+          },
+        ],
+        {
+          observations: [
+            {
+              id: 0,
+              state,
+              before: 'две двери',
+              after: state === 'changed' ? 'открытые полки' : 'две двери',
+              confidence: 0.95,
+            },
+          ],
+        },
+      )
+      const review = await reviewConceptImage(
+        'test',
+        resultImage,
+        { ...brief, revision: 'Шкаф не менять.' },
+        source,
+      )
+      expect(review.sourceComparison).toBe(state === 'unchanged' ? 'verified' : 'limited')
+      expect(review.issues).toHaveLength(state === 'changed' ? 1 : 0)
+      if (state === 'changed') {
+        expect(review.issues[0]?.detail).toContain('открытые полки')
+        expect(review.issues[0]?.detail).not.toContain('горизонтальные ручки')
+      }
+      const posted = submissions(fetchMock)
+      expect(posted).toHaveLength(3)
+      const body = JSON.parse(String(posted[2]?.[1]?.body))
+      expect(body.prompt).not.toContain('ручки')
+      expect(body.prompt).not.toContain('Шкаф не менять')
+      expect(body.image_urls).toEqual([sourceDataUrl, resultDataUrl])
+    },
+  )
+
+  it('изменение формы мебели не подтверждает недоказанный проём', async () => {
+    const fetchMock = mockReviews(
+      [
+        {
+          ...changedPillows,
+          sourceCheck: {
+            ...changedPillows.sourceCheck,
+            property: 'appearance',
+            object: 'тумба',
+            before: 'два ящика',
+            after: 'открытая полка',
+            preservationQuote: 'Тумбу не менять.',
+          },
+        },
+        {
+          ...addedWindow,
+          sourceCheck: { object: 'окно', location: 'на стене', expected: 'empty' },
+        },
+      ],
+      {
+        observations: [
+          { id: 0, state: 'changed', before: 'два ящика', after: 'полка', confidence: 0.95 },
+        ],
+      },
+    )
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      { ...brief, revision: 'Тумбу не менять.' },
+      source,
+    )
+    expect(review.issues.map((issue) => issue.code)).toEqual(['requirement_unconfirmed'])
+    expect(review.sourceComparison).toBe('limited')
+    expect(submissions(fetchMock)).toHaveLength(3)
+  })
 })

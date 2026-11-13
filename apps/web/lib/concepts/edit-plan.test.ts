@@ -51,4 +51,17 @@ describe('ограничения отдельного шага правки', ()
     expect(editStepPrompt('Remove the cabinet')).toBe(`Remove the cabinet ${KEEP_THE_REST}`)
     expect(editStepPrompt('Remove the cabinet', '  ')).toBe(`Remove the cabinet ${KEEP_THE_REST}`)
   })
+
+  it.each([
+    ['Repaint the wardrobe sage green', 'Перекрась только шкаф. Кровать и обе тумбы не меняй.'],
+    [
+      'Replace the chest with an open bookcase',
+      'Замени комод слева на стеллаж. Тумбы, лампы и шкаф сохранить.',
+    ],
+  ])('сохраняет границу правки для другой мебели: %s', (step, request) => {
+    const prompt = editStepPrompt(step, request)
+    expect(prompt).toContain(JSON.stringify(request))
+    expect(prompt).toContain(JSON.stringify(step))
+    expect(prompt).toContain('does not authorize replacing its neighbours')
+  })
 })
